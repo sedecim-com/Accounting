@@ -308,7 +308,7 @@ Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish
 command aliases always work)
 
 Arguments:
-  language    'en' or 'es'; omit to show the current setting
+  language    'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting
 
 Options:
   -h, --help  display help for command

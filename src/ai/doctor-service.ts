@@ -25,13 +25,78 @@ import {
 
 export type CheckLevel = 'ok' | 'warn' | 'fail';
 
+/**
+ * WHAT A CHECK IS, AS OPPOSED TO WHAT IT IS CALLED (#153, decision 3).
+ *
+ * `id` is the identity and `name` is the label. Neither replaces the other and
+ * neither is going away: whoever groups, filters, silences or tracks a check
+ * over time keys on `id`, and whoever reads the screen reads `name`.
+ *
+ * The id is kebab-case English, and it names what the check MEASURES rather
+ * than how the check says it. That distinction is the whole point: `name` is
+ * prose — some of it is Spanish today, all of it is headed for the i18n
+ * catalogue — and translating a label must not rename the thing it labels.
+ * Deriving the id from the label with a slugify would tie the identity back to
+ * the prose, which is exactly the defect #253 closed one layer up, where a
+ * report's key had been its translated title.
+ *
+ * Identity and label are declared TOGETHER, once per check, and every branch
+ * spreads the same pair. A check with seven returns used to repeat its name
+ * seven times; repeating an id alongside it is how the fourth branch ends up
+ * reporting a different check from its siblings — and unlike a mistyped label,
+ * a mistyped id is invisible on screen.
+ */
+export interface CheckIdentity {
+  readonly id: string;
+  readonly name: string;
+}
+
 export interface CheckResult {
+  /** Stable machine identity. See `CheckIdentity`. */
+  id: string;
+  /** Human label, localizable. See `CheckIdentity`. */
   name: string;
   level: CheckLevel;
   detail: string;
   /** Concrete command or action when something is wrong. */
   fix?: string;
 }
+
+/**
+ * THE IDENTITY OF EVERY CHECK THIS MODULE PRODUCES, IN ONE PLACE.
+ *
+ * Written here rather than at each `return` so that the whole surface can be
+ * read — and reviewed for collisions — without walking 1 500 lines, and so a
+ * test can enumerate it. The lookup-table checks are the one exception: their
+ * identity already exists as the table they interrogate, so it lives in
+ * `LOOKUP_TABLES` next to that table instead of being copied here.
+ */
+export const CHECK_IDENTITIES = {
+  database: { id: 'database-connection', name: 'Database' },
+  migrations: { id: 'migrations-applied', name: 'Migrations' },
+  entities: { id: 'active-legal-entities', name: 'Legal entities' },
+  accountRoles: { id: 'account-roles-seeded', name: 'Account roles' },
+  cliConsistency: { id: 'cli-surface-baseline', name: 'CLI consistency' },
+  connectionTransport: { id: 'database-transport-security', name: 'Connection transport' },
+  tenantIsolation: { id: 'rls-enforced-on-connection', name: 'Tenant isolation' },
+  pendingWork: { id: 'work-awaiting-a-human', name: 'Pending work' },
+  credentials: { id: 'fiscal-credential-expiry', name: 'Fiscal credentials' },
+  modelProvider: { id: 'default-provider-usable', name: 'Model provider' },
+  encryptionKey: { id: 'encryption-key-strength', name: 'Encryption key' },
+  orphanedCapability: { id: 'unreachable-capability', name: 'Orphaned capability' },
+  ledgerIntegrity: { id: 'balances-match-posted-lines', name: 'Ledger integrity' },
+  reopenedPeriods: { id: 'periods-left-open', name: 'Reopened periods' },
+  permissionConflicts: {
+    id: 'conflicting-permissions',
+    name: 'Segregación de funciones (permisos)',
+  },
+  bankStatements: { id: 'bank-statement-lines-present', name: 'Bank statements complete' },
+  guaranteeTriggers: { id: 'guarantee-triggers-always-on', name: 'Guarantee triggers sealed' },
+  auditorRole: { id: 'auditor-role-privileges', name: 'Auditor role' },
+  memoryConflicts: { id: 'contradicting-precedents', name: 'Memory conflicts' },
+  memoryVisibility: { id: 'precedents-outside-digest', name: 'Memory in the prompt' },
+  memoryVsPolicies: { id: 'precedent-contradicts-policy', name: 'Memory vs policy panel' },
+} as const satisfies Record<string, CheckIdentity>;
 
 export interface DoctorReport {
   checks: CheckResult[];
@@ -99,10 +164,10 @@ export async function checkDatabase(): Promise<CheckResult> {
   try {
     const r = await query<{ v: string }>('SELECT version() AS v');
     const version = r.rows[0].v.split(' ').slice(0, 2).join(' ');
-    return { name: 'Database', level: 'ok', detail: version };
+    return { ...CHECK_IDENTITIES.database, level: 'ok', detail: version };
   } catch (err) {
     return {
-      name: 'Database',
+      ...CHECK_IDENTITIES.database,
       level: 'fail',
       detail: `no connection: ${(err as Error).message}`,
       fix: 'Check DATABASE_URL in .env and that PostgreSQL is running (docker compose up -d postgres)',
@@ -119,7 +184,7 @@ export async function checkMigrations(deps: DoctorDeps): Promise<CheckResult> {
   try {
     onDisk = fs.readdirSync(dir).filter((f) => f.endsWith('.sql'));
   } catch {
-    return { name: 'Migrations', level: 'warn', detail: `could not read ${dir}` };
+    return { ...CHECK_IDENTITIES.migrations, level: 'warn', detail: `could not read ${dir}` };
   }
 
   const applied = await query<{ filename: string }>('SELECT filename FROM public.migrations');
@@ -128,13 +193,13 @@ export async function checkMigrations(deps: DoctorDeps): Promise<CheckResult> {
 
   if (missing.length > 0) {
     return {
-      name: 'Migrations',
+      ...CHECK_IDENTITIES.migrations,
       level: 'fail',
       detail: `${missing.length} unapplied: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '…' : ''}`,
       fix: 'npm run migrate',
     };
   }
-  return { name: 'Migrations', level: 'ok', detail: `${appliedSet.size} applied` };
+  return { ...CHECK_IDENTITIES.migrations, level: 'ok', detail: `${appliedSet.size} applied` };
 }
 
 export async function checkEntities(): Promise<CheckResult> {
@@ -144,13 +209,13 @@ export async function checkEntities(): Promise<CheckResult> {
   const n = parseInt(r.rows[0].n, 10);
   if (n === 0) {
     return {
-      name: 'Legal entities',
+      ...CHECK_IDENTITIES.entities,
       level: 'fail',
       detail: 'no active entities',
       fix: 'mnemosine init  (or npm run seed for demo data)',
     };
   }
-  return { name: 'Legal entities', level: 'ok', detail: `${n} active` };
+  return { ...CHECK_IDENTITIES.entities, level: 'ok', detail: `${n} active` };
 }
 
 
@@ -171,12 +236,12 @@ export async function checkAccountRoles(): Promise<CheckResult> {
      GROUP BY e.id, e.name`
   );
   if (r.rows.length === 0) {
-    return { name: 'Account roles', level: 'ok', detail: 'no active entities to check' };
+    return { ...CHECK_IDENTITIES.accountRoles, level: 'ok', detail: 'no active entities to check' };
   }
   const sinSembrar = r.rows.filter((x) => parseInt(x.mapeados, 10) === 0);
   if (sinSembrar.length > 0) {
     return {
-      name: 'Account roles',
+      ...CHECK_IDENTITIES.accountRoles,
       level: 'fail',
       detail: `${sinSembrar.length} entity(ies) without account roles: ${sinSembrar
         .map((x) => x.nombre)
@@ -223,7 +288,7 @@ export async function checkAccountRoles(): Promise<CheckResult> {
   const incompletas = ivaFaltante.rows.filter((x) => x.faltantes);
   if (incompletas.length > 0) {
     return {
-      name: 'Account roles',
+      ...CHECK_IDENTITIES.accountRoles,
       level: 'fail',
       detail:
         `${incompletas.length} Mexican entity(ies) missing IVA roles: ` +
@@ -235,7 +300,7 @@ export async function checkAccountRoles(): Promise<CheckResult> {
 
   const total = r.rows.reduce((n, x) => n + parseInt(x.mapeados, 10), 0);
   return {
-    name: 'Account roles',
+    ...CHECK_IDENTITIES.accountRoles,
     level: 'ok',
     detail: `${total} role(s) mapped across ${r.rows.length} entity(ies)`,
   };
@@ -265,7 +330,16 @@ export const IVA_ROLES = [
  * would train people to ignore doctor.
  */
 interface LookupTableSpec {
+  /**
+   * The check's identity, and it is NOT invented here: it is the table this
+   * row interrogates, in kebab-case. The table name already is a stable
+   * machine identity — it is what a migration created and what the `breaks`
+   * sentence is about — so inventing a second one, or slugifying the label,
+   * would only add something else that can drift away from it.
+   */
+  id: string;
   table: string;
+  /** The label a human reads. Prose: localizable, and never the identity. */
   label: string;
   /** Nothing to configure unless this returns rows for the entity. */
   appliesWhen?: { table: string; where?: string };
@@ -282,6 +356,7 @@ interface LookupTableSpec {
 
 export const LOOKUP_TABLES: LookupTableSpec[] = [
   {
+    id: 'payroll-account-mapping',
     table: 'payroll_account_mapping',
     label: 'Payroll GL mapping',
     appliesWhen: { table: 'employees', where: "status = 'active'" },
@@ -291,6 +366,7 @@ export const LOOKUP_TABLES: LookupTableSpec[] = [
     fix: 'seedPayrollAccountMapping(entityId, tenantId, country, userId)',
   },
   {
+    id: 'sat-code-mappings',
     table: 'sat_code_mappings',
     label: 'SAT product-code mapping',
     appliesWhen: { table: 'xml_documents' },
@@ -312,6 +388,7 @@ export const LOOKUP_TABLES: LookupTableSpec[] = [
     // La diferencia con las otras huérfanas es el destinatario: las formas 940
     // y 941 se PRESENTAN. Una tabla vacía no rompe nada visible — hace que la
     // forma declare cero impuesto patronal, que es un dato falso ante el IRS.
+    id: 'employer-tax-liabilities',
     table: 'employer_tax_liabilities',
     label: 'Employer tax liabilities (USA)',
     appliesWhen: { table: 'employees', where: "country_code = 'US' AND status = 'active'" },
@@ -338,6 +415,7 @@ export async function checkLookupTables(): Promise<CheckResult[]> {
 
     if (rows.rows.length === 0) {
       results.push({
+        id: spec.id,
         name: spec.label,
         level: 'ok',
         detail: 'no entity uses this capability yet',
@@ -364,6 +442,7 @@ export async function checkLookupTables(): Promise<CheckResult[]> {
       const incomplete = missing.rows.filter((r) => r.faltantes);
       if (incomplete.length > 0) {
         results.push({
+          id: spec.id,
           name: spec.label,
           level: spec.level,
           detail:
@@ -379,6 +458,7 @@ export async function checkLookupTables(): Promise<CheckResult[]> {
     const empty = rows.rows.filter((r) => parseInt(r.n, 10) === 0);
     if (empty.length > 0) {
       results.push({
+        id: spec.id,
         name: spec.label,
         level: spec.level,
         detail:
@@ -391,6 +471,7 @@ export async function checkLookupTables(): Promise<CheckResult[]> {
 
     const total = rows.rows.reduce((n, r) => n + parseInt(r.n, 10), 0);
     results.push({
+      id: spec.id,
       name: spec.label,
       level: 'ok',
       detail: `${total} row(s) across ${rows.rows.length} entity(ies)`,
@@ -434,7 +515,7 @@ export async function checkConsistenciaCli(): Promise<CheckResult> {
       .map((v) => `${v.command}: ${v.detail}`)
       .join(' · ');
     return {
-      name: 'CLI consistency',
+      ...CHECK_IDENTITIES.cliConsistency,
       level: 'fail',
       detail: `${nuevas.length} violación(es) nuevas — ${m}${nuevas.length > 3 ? ' …' : ''}`,
       fix:
@@ -448,7 +529,7 @@ export async function checkConsistenciaCli(): Promise<CheckResult> {
     ? ` · ${obsoletas.length} entrada(s) de la línea base ya no se violan: bórralas`
     : '';
   return {
-    name: 'CLI consistency',
+    ...CHECK_IDENTITIES.cliConsistency,
     level: heredadas > 0 ? 'warn' : 'ok',
     detail:
       heredadas > 0
@@ -478,7 +559,7 @@ export function checkConnectionTransport(): CheckResult {
 
   if (!local && mode === 'disable') {
     return {
-      name: 'Connection transport',
+      ...CHECK_IDENTITIES.connectionTransport,
       level: 'fail',
       detail: `${detail} — credentials and data travel in the clear`,
       fix: 'Set DATABASE_SSL_MODE=verify-full',
@@ -486,7 +567,7 @@ export function checkConnectionTransport(): CheckResult {
   }
   if (!local && mode === 'require') {
     return {
-      name: 'Connection transport',
+      ...CHECK_IDENTITIES.connectionTransport,
       level: 'warn',
       detail: `${detail} — encrypts but does NOT verify the certificate`,
       fix: 'Set DATABASE_SSL_MODE=verify-full (or verify-ca behind a tunnel)',
@@ -497,7 +578,7 @@ export function checkConnectionTransport(): CheckResult {
   // silently break isolation, like Neon's default role bypassing RLS.
   const preset = config.database.provider ? DB_PROVIDERS[config.database.provider] : undefined;
   return {
-    name: 'Connection transport',
+    ...CHECK_IDENTITIES.connectionTransport,
     level: 'ok',
     detail,
     ...(preset?.caveats.length ? { fix: preset.caveats[0] } : {}),
@@ -522,7 +603,7 @@ export async function checkTenantIsolation(): Promise<CheckResult> {
 
   if (tables === 0) {
     return {
-      name: 'Tenant isolation',
+      ...CHECK_IDENTITIES.tenantIsolation,
       level: 'warn',
       detail: 'RLS is not enabled on any table',
       fix: 'npm run migrate (re-applies src/database/rls-policies.sql)',
@@ -530,14 +611,14 @@ export async function checkTenantIsolation(): Promise<CheckResult> {
   }
   if (row.is_super || row.bypass) {
     return {
-      name: 'Tenant isolation',
+      ...CHECK_IDENTITIES.tenantIsolation,
       level: 'warn',
       detail: `RLS enabled on ${tables} tables, but role "${row.current_user}" bypasses it (${row.is_super ? 'SUPERUSER' : 'BYPASSRLS'})`,
       fix: 'Connect as mnemosine_app: see scripts/provision-roles.sql',
     };
   }
   return {
-    name: 'Tenant isolation',
+    ...CHECK_IDENTITIES.tenantIsolation,
     level: 'ok',
     detail: `RLS enabled on ${tables} tables, role "${row.current_user}" subject to policies`,
   };
@@ -556,14 +637,14 @@ export async function checkPendingWork(): Promise<CheckResult> {
     ops: parseInt(r.rows[0].ops, 10),
   };
   const total = n.drafts + n.questions + n.ops;
-  if (total === 0) return { name: 'Pending work', level: 'ok', detail: 'nothing queued' };
+  if (total === 0) return { ...CHECK_IDENTITIES.pendingWork, level: 'ok', detail: 'nothing queued' };
   const parts = [
     n.drafts && `${n.drafts} ${n.drafts === 1 ? 'draft' : 'drafts'}`,
     n.questions && `${n.questions} ${n.questions === 1 ? 'question' : 'questions'}`,
     n.ops && `${n.ops} ${n.ops === 1 ? 'write' : 'writes'}`,
   ].filter(Boolean);
   return {
-    name: 'Pending work',
+    ...CHECK_IDENTITIES.pendingWork,
     level: 'ok', // having work is not a health problem
     detail: parts.join(', '),
     fix: 'mnemosine pending',
@@ -578,7 +659,7 @@ export async function checkCredentials(now: Date): Promise<CheckResult> {
   const n = parseInt(r.rows[0].n, 10);
   if (n === 0) {
     return {
-      name: 'Fiscal credentials',
+      ...CHECK_IDENTITIES.credentials,
       level: 'ok',
       detail: 'none loaded (not required to operate)',
       fix: 'mnemosine sat cred add  (only if you will download from the SAT)',
@@ -588,7 +669,7 @@ export async function checkCredentials(now: Date): Promise<CheckResult> {
   const days = soonest ? Math.floor((soonest.getTime() - now.getTime()) / 86_400_000) : null;
   if (days !== null && days <= 0) {
     return {
-      name: 'Fiscal credentials',
+      ...CHECK_IDENTITIES.credentials,
       level: 'fail',
       detail: `${n} loaded, the next one has ALREADY EXPIRED`,
       fix: 'Renew the e.firma at the SAT and reload it: mnemosine sat cred add',
@@ -596,13 +677,13 @@ export async function checkCredentials(now: Date): Promise<CheckResult> {
   }
   if (days !== null && days <= 30) {
     return {
-      name: 'Fiscal credentials',
+      ...CHECK_IDENTITIES.credentials,
       level: 'warn',
       detail: `${n} loaded, expires in ${days} days`,
       fix: 'Renew the e.firma at the SAT before that date',
     };
   }
-  return { name: 'Fiscal credentials', level: 'ok', detail: `${n} valid` };
+  return { ...CHECK_IDENTITIES.credentials, level: 'ok', detail: `${n} valid` };
 }
 
 export function checkModelProvider(cwd?: string): CheckResult {
@@ -611,7 +692,7 @@ export function checkModelProvider(cwd?: string): CheckResult {
     profiles = listProfiles(cwd);
   } catch (err) {
     return {
-      name: 'Model provider',
+      ...CHECK_IDENTITIES.modelProvider,
       level: 'fail',
       detail: (err as Error).message,
       fix: 'Fix mnemosine.config.json',
@@ -622,7 +703,7 @@ export function checkModelProvider(cwd?: string): CheckResult {
   const active = all[defaultName];
   if (!active) {
     return {
-      name: 'Model provider',
+      ...CHECK_IDENTITIES.modelProvider,
       level: 'fail',
       detail: `the default "${defaultName}" does not exist`,
       fix: 'mnemosine providers  (pick a valid one)',
@@ -631,7 +712,7 @@ export function checkModelProvider(cwd?: string): CheckResult {
   // No api_key_env = local without a credential (ollama): ready to use.
   if (!active.api_key_env) {
     return {
-      name: 'Model provider',
+      ...CHECK_IDENTITIES.modelProvider,
       level: 'ok',
       detail: `${defaultName} · ${active.model} (local, no credential)`,
     };
@@ -641,7 +722,7 @@ export function checkModelProvider(cwd?: string): CheckResult {
       ([, p]) => !p.api_key_env || process.env[p.api_key_env]
     );
     return {
-      name: 'Model provider',
+      ...CHECK_IDENTITIES.modelProvider,
       level: 'fail',
       detail: `${defaultName} requires ${active.api_key_env} and it is not set`,
       fix: withKey.length
@@ -650,7 +731,7 @@ export function checkModelProvider(cwd?: string): CheckResult {
     };
   }
   return {
-    name: 'Model provider',
+    ...CHECK_IDENTITIES.modelProvider,
     level: 'ok',
     detail: `${defaultName} · ${active.model}`,
   };
@@ -661,7 +742,7 @@ export function checkEncryptionKey(): CheckResult {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
     return {
-      name: 'Encryption key',
+      ...CHECK_IDENTITIES.encryptionKey,
       level: 'warn',
       detail: 'ENCRYPTION_KEY not set (the code default is used)',
       fix: 'openssl rand -hex 32  → ENCRYPTION_KEY in .env',
@@ -669,7 +750,7 @@ export function checkEncryptionKey(): CheckResult {
   }
   if (/^0+$/.test(key)) {
     return {
-      name: 'Encryption key',
+      ...CHECK_IDENTITIES.encryptionKey,
       level: 'fail',
       detail: 'ENCRYPTION_KEY is the EXAMPLE key (zeros): "encrypted" data is not protected',
       fix: 'openssl rand -hex 32  → replace ENCRYPTION_KEY in .env',
@@ -677,13 +758,13 @@ export function checkEncryptionKey(): CheckResult {
   }
   if (key.length !== 64) {
     return {
-      name: 'Encryption key',
+      ...CHECK_IDENTITIES.encryptionKey,
       level: 'fail',
       detail: `ENCRYPTION_KEY is ${key.length} characters long; 64 hex expected`,
       fix: 'openssl rand -hex 32',
     };
   }
-  return { name: 'Encryption key', level: 'ok', detail: 'own 256-bit key' };
+  return { ...CHECK_IDENTITIES.encryptionKey, level: 'ok', detail: 'own 256-bit key' };
 }
 
 
@@ -737,7 +818,7 @@ export function checkOrphanedCapability(deps: DoctorDeps = {}): CheckResult {
   // Decirlo es más honesto que un ✅ que no comprobó nada.
   if (!fs.existsSync(path.join(raiz, 'src'))) {
     return {
-      name: 'Orphaned capability',
+      ...CHECK_IDENTITIES.orphanedCapability,
       level: 'ok',
       detail: 'no source tree here: this check reads the repository, not the install',
     };
@@ -746,7 +827,7 @@ export function checkOrphanedCapability(deps: DoctorDeps = {}): CheckResult {
   const { orphans, scanned } = scanOrphans(raiz);
   if (orphans.length === 0) {
     return {
-      name: 'Orphaned capability',
+      ...CHECK_IDENTITIES.orphanedCapability,
       level: 'ok',
       detail: `${scanned.tables} tables and ${scanned.exports} exports, all reachable`,
     };
@@ -759,7 +840,7 @@ export function checkOrphanedCapability(deps: DoctorDeps = {}): CheckResult {
   const propios = orphans.filter((o) => !(o.kind === 'tabla' && yaVigiladas.has(o.name)));
   if (propios.length === 0) {
     return {
-      name: 'Orphaned capability',
+      ...CHECK_IDENTITIES.orphanedCapability,
       level: 'ok',
       detail: `${scanned.tables} tables and ${scanned.exports} exports, all reachable or already watched`,
     };
@@ -783,7 +864,7 @@ export function checkOrphanedCapability(deps: DoctorDeps = {}): CheckResult {
   if (muerto.length) partes.push(`${muerto.length} unreferenced export(s)`);
 
   return {
-    name: 'Orphaned capability',
+    ...CHECK_IDENTITIES.orphanedCapability,
     // Nunca 'fail', y no es una simplificación pendiente: es estructural. La
     // gravedad de un huérfano depende de si esta instalación usa la capacidad,
     // y esto lee `src/`, no la base. Lo que merece 'fail' se gradúa a
@@ -850,7 +931,7 @@ export async function checkLedgerIntegrity(): Promise<CheckResult> {
 
   if (deriva.rows.length === 0 && huerfanos === 0) {
     return {
-      name: 'Ledger integrity',
+      ...CHECK_IDENTITIES.ledgerIntegrity,
       level: 'ok',
       detail: 'account_balances = Σ líneas posteadas, y todo posteado tiene su rastro',
     };
@@ -866,7 +947,7 @@ export async function checkLedgerIntegrity(): Promise<CheckResult> {
     partes.push(`${huerfanos} asiento(s) posteado(s) sin fila 'post' en audit_log — hechos sin autor`);
   }
   return {
-    name: 'Ledger integrity',
+    ...CHECK_IDENTITIES.ledgerIntegrity,
     level: 'fail',
     detail: partes.join('; '),
     fix:
@@ -892,11 +973,11 @@ export async function checkReopenedPeriods(): Promise<CheckResult> {
   );
 
   if (r.rows.length === 0) {
-    return { name: 'Reopened periods', level: 'ok', detail: 'none left open' };
+    return { ...CHECK_IDENTITIES.reopenedPeriods, level: 'ok', detail: 'none left open' };
   }
   const primero = r.rows[0];
   return {
-    name: 'Reopened periods',
+    ...CHECK_IDENTITIES.reopenedPeriods,
     level: 'warn',
     detail:
       `${r.rows.length} period(s) reopened and never closed again — the first is ` +
@@ -931,13 +1012,13 @@ export async function checkPermisosEnConflicto(): Promise<CheckResult> {
   }
   if (conflictos.length === 0) {
     return {
-      name: 'Segregación de funciones (permisos)',
+      ...CHECK_IDENTITIES.permissionConflicts,
       level: 'ok',
       detail: 'ningún usuario activo acumula permisos en conflicto',
     };
   }
   return {
-    name: 'Segregación de funciones (permisos)',
+    ...CHECK_IDENTITIES.permissionConflicts,
     level: 'warn',
     detail: conflictos.slice(0, 10).join('; ') + (conflictos.length > 10 ? ` … (+${conflictos.length - 10})` : ''),
     fix:
@@ -987,7 +1068,9 @@ export async function checkPermisosEnConflicto(): Promise<CheckResult> {
  * de `npm run migrate` no lo lee nadie.
  */
 export async function checkExtractosCompletos(): Promise<CheckResult> {
-  const nombre = 'Bank statements complete';
+  // Held in a local because this check returns from five places; see
+  // `CheckIdentity` for why identity and label travel as one pair.
+  const identity = CHECK_IDENTITIES.bankStatements;
 
   // 1. EL CATÁLOGO. Se pregunta a pg_index y pg_trigger, no al repositorio:
   //    el criterio del tablero lee el .sql y da verde en una base que carga el
@@ -1062,7 +1145,7 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
 
   if (unico || ciego) {
     return {
-      name: nombre,
+      ...identity,
       level: 'fail',
       detail:
         'esta base registró la 051 antes de su corrección' +
@@ -1076,7 +1159,7 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
 
   if (faltan > 0) {
     return {
-      name: nombre,
+      ...identity,
       level: 'warn',
       detail:
         `${faltan} línea(s) declaradas y no presentes en ${cortos.length} extracto(s) (${alcance}): ${detalle}`,
@@ -1102,7 +1185,7 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
 
   if (ciegos > 0) {
     return {
-      name: nombre,
+      ...identity,
       level: 'warn',
       detail: `el catálogo está reparado, pero ${alcance}: sin poder leer sus extractos no puedo decir que estén completos`,
       fix: 'revisa que el rol de la aplicación pueda consultar bank_statements con contexto de inquilino',
@@ -1110,7 +1193,7 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
   }
 
   return {
-    name: nombre,
+    ...identity,
     level: 'ok',
     detail:
       'el índice de contenido no es único, el disparador impone la huella, y ningún extracto tiene menos líneas de las que declaró' +
@@ -1132,7 +1215,7 @@ export async function checkSelloDeGarantias(): Promise<CheckResult> {
 
   if (r.rows.length === 0) {
     return {
-      name: 'Guarantee triggers sealed',
+      ...CHECK_IDENTITIES.guaranteeTriggers,
       level: 'warn',
       detail: 'no sealed guarantee trigger found: migration 058 has not run on this database',
       fix: 'npm run migrate',
@@ -1145,7 +1228,7 @@ export async function checkSelloDeGarantias(): Promise<CheckResult> {
   if (flojos.length > 0) {
     const apagados = flojos.filter((t) => t.tgenabled === 'D');
     return {
-      name: 'Guarantee triggers sealed',
+      ...CHECK_IDENTITIES.guaranteeTriggers,
       level: 'fail',
       detail:
         `${flojos.length} de ${r.rows.length} garantías sin sellar` +
@@ -1157,7 +1240,7 @@ export async function checkSelloDeGarantias(): Promise<CheckResult> {
   }
 
   return {
-    name: 'Guarantee triggers sealed',
+    ...CHECK_IDENTITIES.guaranteeTriggers,
     level: 'ok',
     detail: `${r.rows.length} garantías en ENABLE ALWAYS: ni session_replication_role las calla`,
   };
@@ -1188,7 +1271,9 @@ export async function checkSelloDeGarantias(): Promise<CheckResult> {
 //  · 'ok' — está, es NOLOGIN, no salta la RLS y no escribe.
 // ============================================================
 export async function checkRolAuditor(): Promise<CheckResult> {
-  const nombre = 'Auditor role';
+  // Held in a local because this check returns from seven places; see
+  // `CheckIdentity` for why identity and label travel as one pair.
+  const identity = CHECK_IDENTITIES.auditorRole;
   const rol = await query<{
     rolcanlogin: boolean;
     rolbypassrls: boolean;
@@ -1201,7 +1286,7 @@ export async function checkRolAuditor(): Promise<CheckResult> {
 
   if (rol.rows.length === 0) {
     return {
-      name: nombre,
+      ...identity,
       level: 'warn',
       detail:
         'mnemosine_auditor no existe: dar acceso a un auditor externo hoy exige prestarle ' +
@@ -1236,7 +1321,7 @@ export async function checkRolAuditor(): Promise<CheckResult> {
   }
   if (graves.length > 0) {
     return {
-      name: nombre,
+      ...identity,
       level: 'fail',
       detail: `mnemosine_auditor ${graves.join('; ')}`,
       fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — el guion reafirma NOBYPASSRLS y revoca; averigua además QUIÉN se lo concedió',
@@ -1250,7 +1335,7 @@ export async function checkRolAuditor(): Promise<CheckResult> {
   // respuesta que este producto existe para no dar.
   if (r.rolcanlogin) {
     return {
-      name: nombre,
+      ...identity,
       level: 'warn',
       detail:
         'mnemosine_auditor tiene LOGIN: está pensado como paquete de privilegios que se concede a ' +
@@ -1292,7 +1377,7 @@ export async function checkRolAuditor(): Promise<CheckResult> {
 
   if (vistas.length > 0) {
     return {
-      name: nombre,
+      ...identity,
       level: 'fail',
       detail:
         `mnemosine_auditor lee ${vistas.length} vista(s) materializada(s) (${vistas.join(', ')}): ` +
@@ -1324,7 +1409,7 @@ export async function checkRolAuditor(): Promise<CheckResult> {
   // secuencia. Lo que no se puede medir se dice.
   if (cobertura.rows.length === 0) {
     return {
-      name: nombre,
+      ...identity,
       level: 'warn',
       detail: 'mnemosine_auditor existe y está bien acotado, pero no se pudo medir su cobertura de tablas',
       fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (su bloque de verificación imprime los dos conteos)',
@@ -1336,7 +1421,7 @@ export async function checkRolAuditor(): Promise<CheckResult> {
 
   if (sinConceder > 0) {
     return {
-      name: nombre,
+      ...identity,
       level: 'warn',
       detail:
         `mnemosine_auditor sólo lee ${legibles} de las ${totales} tablas aisladas: ` +
@@ -1353,7 +1438,7 @@ export async function checkRolAuditor(): Promise<CheckResult> {
     ? `; además ${tablasSinFiltro.length} sin inquilino, que deben ser sólo referencia global (${tablasSinFiltro.join(', ')})`
     : '';
   return {
-    name: nombre,
+    ...identity,
     level: 'ok',
     detail:
       `sólo lectura sobre ${legibles} tablas aisladas, NOLOGIN y sujeto a la RLS${nota}`,
@@ -1403,7 +1488,7 @@ export async function checkMemoryConflicts(): Promise<CheckResult> {
 
   if (conflicts.length === 0) {
     return {
-      name: 'Memory conflicts',
+      ...CHECK_IDENTITIES.memoryConflicts,
       level: 'ok',
       // El denominador va siempre: cero conflictos sobre cero memoria no es
       // un certificado de buena salud.
@@ -1421,7 +1506,7 @@ export async function checkMemoryConflicts(): Promise<CheckResult> {
   });
 
   return {
-    name: 'Memory conflicts',
+    ...CHECK_IDENTITIES.memoryConflicts,
     level: 'warn',
     detail:
       `${conflicts.length} decision(s) with contradicting precedents, out of ${scanned} active: ` +
@@ -1466,7 +1551,7 @@ export async function checkMemoryVisibility(): Promise<CheckResult> {
 
   if (fuera.length === 0 && varadosTotal === 0) {
     return {
-      name: 'Memory in the prompt',
+      ...CHECK_IDENTITIES.memoryVisibility,
       level: 'ok',
       detail: `${vistos} of ${activos} active precedent(s) ride in every session's digest`,
     };
@@ -1491,7 +1576,7 @@ export async function checkMemoryVisibility(): Promise<CheckResult> {
   }
 
   return {
-    name: 'Memory in the prompt',
+    ...CHECK_IDENTITIES.memoryVisibility,
     level: 'warn',
     detail:
       `${partes.join('; ')} — those criteria stop applying by default; the model only sees them ` +
@@ -1506,7 +1591,7 @@ export async function checkMemoryAgainstPolicies(): Promise<CheckResult> {
   const choques = await detectPolicyContradictions({});
   if (choques.length === 0) {
     return {
-      name: 'Memory vs policy panel',
+      ...CHECK_IDENTITIES.memoryVsPolicies,
       level: 'ok',
       detail: 'no precedent contradicts a decision already answered in the panel',
     };
@@ -1519,7 +1604,7 @@ export async function checkMemoryAgainstPolicies(): Promise<CheckResult> {
         `"${recorte(c.precedentAnswer)}" (${c.namedInstead.join(', ')})`
     );
   return {
-    name: 'Memory vs policy panel',
+    ...CHECK_IDENTITIES.memoryVsPolicies,
     level: 'warn',
     detail:
       `${choques.length} precedent(s) reopening a decision the panel already closed: ` +

@@ -23,7 +23,10 @@ import { runDoctor,
   checkLookupTables,
   checkOrphanedCapability,
   claseDe,
+  CHECK_IDENTITIES,
   LOOKUP_TABLES,
+  type CheckIdentity,
+  type DoctorReport,
 } from '../../src/ai/doctor-service.js';
 import { query, withTenant } from '../../src/database/connection.js';
 import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
@@ -352,6 +355,122 @@ describe('runDoctor — aggregated severity', () => {
     const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     for (const c of r.checks.filter((x) => x.level !== 'ok')) {
       expect(c.fix, `"${c.name}" does not say how to fix it`).toBeTruthy();
+    }
+  });
+});
+
+// ============================================================
+// THE IDENTITY OF A CHECK, WHICH IS NOT ITS LABEL (#153, decision 3)
+//
+// `name` is prose: some checks are labelled in Spanish, all of them are headed
+// for the i18n catalogue, and the day they get translated anyone grouping by
+// the label breaks. That is the SAME defect #253 closed one floor up, in the
+// key of the reports — so these tests are written before the catalogue lands
+// rather than after it.
+//
+// The five look at different things: that the id exists, that no two are
+// alike, that it survives into the JSON, and — the one that actually bites —
+// that it is not the label run through a slugify, because that would tie the
+// identity back to the prose all over again.
+// ============================================================
+
+/** The label lowercased and hyphenated: what a slugify would produce. */
+function slug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Every identity this module can emit, without touching the database. */
+const EVERY_IDENTITY: CheckIdentity[] = [
+  ...Object.values(CHECK_IDENTITIES),
+  ...LOOKUP_TABLES.map((t) => ({ id: t.id, name: t.label })),
+];
+
+describe('the identity of every check', () => {
+  it('every CheckResult in the report carries a non-empty id', async () => {
+    mockDb();
+    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    // The whole report, not a sample: with a healthy database all of them run.
+    expect(r.checks.length).toBeGreaterThanOrEqual(EVERY_IDENTITY.length);
+    for (const c of r.checks) {
+      expect(c.id, `"${c.name}" came out without an id`).toBeTruthy();
+      expect(c.id, `"${c.name}" has an id that is not English kebab-case`).toMatch(
+        /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/
+      );
+      expect(c.name, `${c.id} came out without a label: the name is NOT retired`).toBeTruthy();
+    }
+  });
+
+  it('no two ids are alike, and it is checked rather than eyeballed', async () => {
+    mockDb();
+    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const seen = new Map<string, string>();
+    for (const c of r.checks) {
+      const earlier = seen.get(c.id);
+      expect(earlier, `"${c.name}" and "${earlier}" share the id ${c.id}`).toBeUndefined();
+      seen.set(c.id, c.name);
+    }
+    // And over the whole registry too, which includes the branches this
+    // particular report never walked.
+    const ids = EVERY_IDENTITY.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('doctor --json publishes the id NEXT TO the name', async () => {
+    mockDb();
+    const report = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    // This is literally what `mnemosine doctor --json` prints:
+    // JSON.stringify(report). If anyone starts picking fields there, or the id
+    // leaves the type, this test goes red.
+    const published = JSON.parse(JSON.stringify(report)) as DoctorReport;
+    for (const c of published.checks) {
+      expect(Object.keys(c)).toEqual(expect.arrayContaining(['id', 'name']));
+    }
+  });
+
+  // ============================================================
+  // THE TEST THAT BITES: THE ID IS NOT THE NAME WITH HYPHENS
+  //
+  // Measured over today's 24: NOT ONE equals the slug of its label. Five share
+  // no word at all with it, and they are the five where naming what is
+  // MEASURED gives something different from naming what the check says:
+  //
+  //   Tenant isolation              -> rls-enforced-on-connection
+  //   Ledger integrity              -> balances-match-posted-lines
+  //   Segregacion de funciones ...  -> conflicting-permissions
+  //   Memory conflicts              -> contradicting-precedents
+  //   Memory in the prompt          -> precedents-outside-digest
+  //
+  // The other nineteen share some word — "encryption-key" sits on both sides —
+  // and that is not derivation: it is the label already naming half of it
+  // correctly. What none of them does is BE the slug.
+  // ============================================================
+  it('no id is its label lowercased and hyphenated', () => {
+    for (const c of EVERY_IDENTITY) {
+      expect(c.id, `the id of "${c.name}" is its slug: the identity hangs off the prose again`)
+        .not.toBe(slug(c.name));
+    }
+  });
+
+  it('the five checks renamed outright share no word with their label', () => {
+    const RENAMED_OUTRIGHT = [
+      'rls-enforced-on-connection',
+      'balances-match-posted-lines',
+      'conflicting-permissions',
+      'contradicting-precedents',
+      'precedents-outside-digest',
+    ];
+    for (const id of RENAMED_OUTRIGHT) {
+      const c = EVERY_IDENTITY.find((x) => x.id === id);
+      expect(c, `${id} vanished from the registry`).toBeDefined();
+      const words = new Set(slug(c!.name).split('-'));
+      for (const word of id.split('-')) {
+        expect(words.has(word), `${id} reuses "${word}" from the label "${c!.name}"`).toBe(false);
+      }
     }
   });
 });
