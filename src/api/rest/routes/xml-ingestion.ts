@@ -65,7 +65,7 @@ const updatePreRegSchema = z.object({
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/).nullable().optional(),
   notes: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
-  lines: z.array(z.record(z.unknown())).optional(),
+  lines: z.array(z.record(z.string(), z.unknown())).optional(),
 }).refine((o) => Object.keys(o).length > 0, { message: 'At least one field required' });
 
 const rejectPreRegSchema = z.object({
@@ -87,7 +87,7 @@ const bulkPreRegSchema = z.object({
   // freno por petición no ve esa amplificación. `xml_contents` ya se acotó aquí
   // arriba por esto mismo; que este quedara sin acotar era el descuido.
   ids: z.array(uuidString()).min(1).max(MAX_XML_POR_LOTE),
-  params: z.record(z.unknown()).optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
 });
 
 const createProcessingRuleSchema = z.object({
@@ -97,8 +97,8 @@ const createProcessingRuleSchema = z.object({
   description: z.string().optional(),
   rule_type: boundedString({ min: 1 }),
   priority: integerNumber().optional(),
-  conditions: z.record(z.unknown()),
-  actions: z.record(z.unknown()),
+  conditions: z.record(z.string(), z.unknown()),
+  actions: z.record(z.string(), z.unknown()),
   applies_to_document_types: z.array(z.string()).optional(),
   is_active: z.boolean().optional(),
 });
@@ -108,8 +108,8 @@ const updateProcessingRuleSchema = z.object({
   description: z.string().optional(),
   priority: integerNumber().optional(),
   is_active: z.boolean().optional(),
-  conditions: z.record(z.unknown()).optional(),
-  actions: z.record(z.unknown()).optional(),
+  conditions: z.record(z.string(), z.unknown()).optional(),
+  actions: z.record(z.string(), z.unknown()).optional(),
 }).refine((o) => Object.keys(o).length > 0, { message: 'At least one field required' });
 
 const createBatchSchema = z.object({
@@ -118,7 +118,7 @@ const createBatchSchema = z.object({
   description: z.string().optional(),
   scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional(),
   scheduled_time: z.string().optional(),
-  include_filters: z.record(z.unknown()).optional(),
+  include_filters: z.record(z.string(), z.unknown()).optional(),
   auto_post: z.boolean().optional(),
   notify_on_complete: z.boolean().optional(),
   notify_emails: z.array(emailString()).optional(),

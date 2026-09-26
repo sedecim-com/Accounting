@@ -88,7 +88,7 @@ const createEmployeeSchema = z.object({
   work_state: z.string().optional(),
   residence_state: z.string().optional(),
   work_city: z.string().optional(),
-  w4_data: z.record(z.unknown()).optional(),
+  w4_data: z.record(z.string(), z.unknown()).optional(),
   salary_type: z.enum(['salary', 'hourly']).optional(),
   annual_salary: z.union([z.string(), z.number()]).optional(),
   hourly_rate: z.union([z.string(), z.number()]).optional(),
@@ -126,7 +126,7 @@ const createBenefitPlanSchema = z.object({
   plan_type: z.enum(['401k', 'roth_401k', 'hsa', 'fsa', 'dcfsa', 'health_insurance', 'dental', 'vision', 'life']),
   is_pre_tax: z.boolean().default(true),
   annual_limit: z.union([z.string(), z.number()]).optional(),
-  employer_match_formula: z.record(z.unknown()).nullable().optional(),
+  employer_match_formula: z.record(z.string(), z.unknown()).nullable().optional(),
 }).passthrough();
 
 // ---------- Employees ----------

@@ -40,7 +40,7 @@ const validateConfigSchema = z.object({
 
 const disclosureConfigSchema = z.object({
   entity_id: uuidString().optional(),
-  category_disclosure: z.record(z.number()).optional(),
+  category_disclosure: z.record(z.string(), z.number()).optional(),
   publish_geography: z.boolean().optional(),
   publish_line_of_business: z.boolean().optional(),
   publish_customer_segment: z.boolean().optional(),

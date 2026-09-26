@@ -530,7 +530,7 @@ const profileSchema = z
     stream_usage: z.boolean().optional(),
     max_tokens_param: z.enum(['max_tokens', 'max_completion_tokens']).optional(),
     tools: z.boolean().optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     max_iterations: integerNumber().min(1).max(100).optional(),
     /**
      * Ordered failover chain: names of OTHER profiles to try when this one
@@ -628,7 +628,7 @@ const configFileSchema = z
      */
     tenant: z.string().optional(),
     default_provider: z.string().optional(),
-    providers: z.record(profileSchema).optional(),
+    providers: z.record(z.string(), profileSchema).optional(),
     ingest: ingestSchema.optional(),
     budget: budgetSchema.optional(),
     compaction: compactionSchema.optional(),

@@ -26,7 +26,7 @@ const bankTransactionSchema = z.object({
   description: z.string(),
   merchant_name: z.string().optional(),
   category: z.string().optional(),
-  raw_data: z.record(z.unknown()).optional(),
+  raw_data: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
 
 const importTransactionsSchema = z.object({
