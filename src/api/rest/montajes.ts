@@ -9,6 +9,7 @@ import webhooksRouter from './routes/webhooks.js';
 import vendorsRouter from './routes/vendors.js';
 import customersRouter from './routes/customers.js';
 import fiscalPeriodsRouter from './routes/fiscal-periods.js';
+import portfolioRouter from './routes/portfolio.js';
 import xmlIngestionRouter from './routes/xml-ingestion.js';
 import blockchainRouter from './routes/blockchain.js';
 import integrationsRouter from './routes/integrations.js';
@@ -50,6 +51,9 @@ export const MONTAJES_V1: ReadonlyArray<readonly [string, Router]> = [
   ['/vendors', vendorsRouter],
   ['/customers', customersRouter],
   ['/fiscal-periods', fiscalPeriodsRouter],
+  // Before the '' mount below: Express resolves by registration order, and
+  // xml-ingestion mounted at the bare prefix would otherwise see /portfolio.
+  ['/portfolio', portfolioRouter],
   ['/xml', xmlIngestionRouter],
   ['', xmlIngestionRouter],
   ['/admin/blockchain', blockchainRouter],

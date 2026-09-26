@@ -7,7 +7,8 @@
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "src/gateway/app"
   ],
   "compilerOptions": {
     "noEmit": true,

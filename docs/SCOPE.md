@@ -31,7 +31,7 @@ Un despacho contable mexicano lleva varios clientes en la misma instalación. Ca
 - El despacho o la PyME que lleva entidades en México **y** en Estados Unidos desde la misma instalación — con la salvedad de que la jurisdicción estadounidense está en el estado que declara el inventario de motores, no en el que sugiere el esquema.
 - En ambos casos, alguien que **ya sabe contabilidad**: el CLI propone una póliza y espera que un humano la juzgue; no explica qué es una póliza.
 
-No es, hoy, un producto para quien no sabe contabilidad ni para quien nunca ha visto una terminal — ver `docs/wiki/El-tablero-grafico.md` y la Vía B de la secuencia (§1) para el plan de una interfaz gráfica.
+No es, hoy, un producto para quien no sabe contabilidad ni para quien nunca ha visto una terminal. Desde `W0–W1` existe un **tablero de sólo lectura** en el navegador —la cartera del despacho y la vista de una entidad—, que no sustituye al CLI: no escribe nada. Ver `docs/wiki/El-tablero-grafico.md` para lo que es y lo que falta, y la Vía B de la secuencia (§1) para el resto del plan.
 
 ## Qué lo distingue
 
@@ -91,7 +91,7 @@ Queda fuera del MVP, con sus issues en la etiqueta `post-mvp`:
 - **No es un ERP genérico ni un motor «sin país».** No hay módulos fuera de la contabilidad y su cumplimiento, y la internacionalización se hace por **paquetes de jurisdicción** sobre un motor común (`docs/jurisdicciones.md`): catálogo fiscal, calendario, parámetros legales con vigencia, formatos y corpus del agente por país — nunca aflojando las reglas del motor a un común denominador sin normas. Hoy hay dos paquetes: México, completo; Estados Unidos, parcial (nómina). Sigue vigente la decisión «¿es el sistema contable del despacho, o el motor auditable que se conecta al que ya tienen?» del archivo de Brechas de usabilidad, §5.
 - **La ley no se decide y el criterio no se legisla.** Lo que fija la ley (tasas, topes, tablas) va a una tabla con vigencia y fuente oficial; lo que decide el despacho va al panel de políticas con su lector; ninguno de los dos va al prompt ni al chat (`docs/jurisdicciones.md` §2).
 - **No timbra ni cancela CFDI todavía.** Cuatro adaptadores de PAC están precargados (Finkok, SW Sapien, Edicom, Sovos/Reachcore) pero no hay hoja de CLI que los use — ver tramo `CFDI·SELLO` en la secuencia.
-- **No tiene interfaz gráfica.** El producto es el CLI; el tablero gráfico (`W0–W1`) es un tramo de la Vía B, no una promesa entregada.
+- **No tiene interfaz gráfica para operar.** El producto es el CLI. `W0–W1` entregó un tablero de **lectura** en el navegador, detrás de un gateway que sólo sostiene la sesión y reenvía lecturas (GET y HEAD) a `/v1`: la cartera del despacho y una vista de entidad. Desde el navegador no se postea, no se sella y no se cierra nada; el panel de pendientes y la revisión de borradores con el CFDI al lado siguen sin existir.
 - **La IA no decide criterio contable.** Una bifurcación entre dos tratamientos legítimos va al panel de políticas (`src/services/policy/`), nunca al prompt ni al chat.
 
 ## Interacciones `[inferido]`

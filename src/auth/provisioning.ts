@@ -41,6 +41,29 @@ export class NoAccessError extends Error {
 }
 
 /**
+ * The IdP vouched for someone this deployment has switched off. The token is
+ * sound; the person may not use it here, so the API answers 401 like any
+ * other rejected credential.
+ */
+export class AccountDeactivatedError extends Error {
+  constructor(email: string) {
+    super(`The account ${email} is deactivated`);
+    this.name = 'AccountDeactivatedError';
+  }
+}
+
+/**
+ * A first login whose token carries no email: there is nothing to create the
+ * local user with. A rejection of this credential (401), not an outage.
+ */
+export class NoEmailError extends Error {
+  constructor() {
+    super('The provider did not send an email: the user cannot be created');
+    this.name = 'NoEmailError';
+  }
+}
+
+/**
  * Resolves the verified identity to a local user, creating it on first
  * login. `defaultTenantId` is which tenant whoever comes in through this
  * issuer belongs to — configured per deployment, not decided by the token.
@@ -62,7 +85,7 @@ export async function resolveIdentity(
   if (found.rows.length > 0) {
     user = found.rows[0];
     if (!user.is_active) {
-      throw new Error(`The account ${user.email} is deactivated`);
+      throw new AccountDeactivatedError(user.email);
     }
     await query(
       `UPDATE identities SET last_login_at = NOW(), email = COALESCE($1, email),
@@ -101,7 +124,7 @@ async function provision(
   opts: { provider: string; defaultTenantId: string }
 ): Promise<UserRow> {
   if (!identity.email) {
-    throw new Error('The provider did not send an email: the user cannot be created');
+    throw new NoEmailError();
   }
   return withTransaction(async (client) => {
     // A user with that email may already exist (created by hand or via another

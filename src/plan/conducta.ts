@@ -86,6 +86,10 @@ export interface App {
   catalogoSat: typeof import('../services/accounting/sat-chart-import.js');
   apertura: typeof import('../services/accounting/opening-balance.js');
   balanza: typeof import('../services/sat/anexo24/balanza-service.js');
+  /** W1 · the firm portfolio, the one cross-entity read of the API. */
+  portfolio: typeof import('../services/portfolio/portfolio-service.js');
+  /** W1 · the CLI pending board, the reference the portfolio counts must match. */
+  pendingBoard: typeof import('../ai/pending-service.js');
 }
 
 /**
@@ -221,6 +225,77 @@ export async function crearInquilino(app: App, nombre: string): Promise<Inquilin
   );
 
   return { tenantId, entityId, userId, fiscalYearId, periodos, cuentas, roles };
+}
+
+/** A second legal entity inside an existing tenant, and what was seeded for it. */
+export interface SiblingEntity {
+  entityId: string;
+  name: string;
+  /** The open period that ended yesterday by the database's clock. */
+  periodId: string;
+  /** The open period that starts today by the database's clock. */
+  currentPeriodId: string;
+}
+
+/**
+ * A second legal entity of the SAME tenant: a holding with two companies.
+ *
+ * `crearInquilino` always creates a new tenant, and crossing between two of
+ * those crosses the boundary RLS does defend. The entity boundary is the other
+ * one, between siblings of one tenant, where RLS narrows nothing. It seeds a
+ * fiscal year and two open periods:
+ *
+ *   · one that ended yesterday, so an overdue period of the sibling exists for
+ *     a count that leaks across entities to pick up;
+ *   · one that starts today, the latest start a period can have and still have
+ *     started, so a "latest started period" that stops correlating on the
+ *     entity picks this one up. It wins outright only against entities with
+ *     no period starting today; a tie is resolved by row order, not by date.
+ *
+ * Dates come from the database's CURRENT_DATE, the same clock the portfolio
+ * and the pending board read.
+ */
+export async function createSiblingEntity(app: App, tenant: Inquilino, name: string): Promise<SiblingEntity> {
+  const { query } = app.conexion;
+  const entityId = crypto.randomUUID();
+  const orgId = crypto.randomUUID();
+  const fiscalYearId = crypto.randomUUID();
+  const periodId = crypto.randomUUID();
+  const currentPeriodId = crypto.randomUUID();
+
+  await query(
+    `INSERT INTO organizations (id, tenant_id, name, type) VALUES ($1, $2, $3, 'holding')`,
+    [orgId, tenant.tenantId, name]
+  );
+  await query(
+    `INSERT INTO legal_entities (id, tenant_id, organization_id, name, entity_type, tax_id,
+       tax_id_type, incorporation_country, functional_currency, accounting_standard,
+       fiscal_year_start_month, is_active)
+     VALUES ($1, $2, $3, $4, 'corporation', 'XAXX010101000', 'rfc', 'MX', 'MXN', 'mx_nif', 1, true)`,
+    [entityId, tenant.tenantId, orgId, name]
+  );
+  await query(
+    `INSERT INTO fiscal_years (id, entity_id, year_number, start_date, end_date, is_calendar_year, status)
+     VALUES ($1, $2, date_part('year', CURRENT_DATE - 1)::int, date_trunc('year', CURRENT_DATE - 1)::date,
+             (date_trunc('year', CURRENT_DATE - 1) + INTERVAL '1 year - 1 day')::date, true, 'open')`,
+    [fiscalYearId, entityId]
+  );
+  await query(
+    `INSERT INTO fiscal_periods (id, fiscal_year_id, entity_id, period_number, period_name,
+       start_date, end_date, status)
+     VALUES ($1, $2, $3, 1, 'Sibling overdue period', date_trunc('month', CURRENT_DATE - 1)::date,
+             CURRENT_DATE - 1, 'open')`,
+    [periodId, fiscalYearId, entityId]
+  );
+  await query(
+    `INSERT INTO fiscal_periods (id, fiscal_year_id, entity_id, period_number, period_name,
+       start_date, end_date, status)
+     VALUES ($1, $2, $3, 2, 'Sibling current period', CURRENT_DATE,
+             (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month - 1 day')::date, 'open')`,
+    [currentPeriodId, fiscalYearId, entityId]
+  );
+
+  return { entityId, name, periodId, currentPeriodId };
 }
 
 /** Un asiento de dos líneas, posteado por el camino real. */
@@ -1103,6 +1178,340 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       );
     },
   },
+
+  // ----------------------------------------------------------
+  // W1 · THE FIRM PORTFOLIO READS ONLY THE TOKEN'S ENTITIES (issue #117)
+  //
+  // GET /v1/portfolio is the only read of the API that spans entities, so it
+  // is where the TEN leak would come back: a sibling company of the same
+  // holding, or an entity of another tenant that a token can still name
+  // (accessible_entities has no foreign key). Both are seeded here, with
+  // drafts, questions and periods of their own (the sibling has an overdue one
+  // and one that starts today), so a predicate that stops binding shows up as
+  // a row, as a count or as somebody else's current period.
+  //
+  // It runs as superuser, with RLS inert on purpose, like
+  // cross-tenant-query-returns-nothing above: the tenant arm is what RLS would
+  // cover, and only the predicate inside the statement is always there.
+  //
+  // The scope derivation runs too. portfolioCallerOf receives a request that
+  // carries `entityId`, an x-entity-id header and, on a second call, a query
+  // selector, all naming the sibling; none may change the set. The route
+  // itself is one line over these two functions, and its wiring is pinned by
+  // tests/api/routes/portfolio.spec.ts and the openapi --check.
+  //
+  // The counts are judged against the CLI pending board, not against a copy
+  // of the portfolio's own SQL: a judge that shares pieces with what it judges
+  // is not a judge.
+  //
+  // The two date predicates need a period on the far side of the clock. A's
+  // seeded periods sit in a fixed year, so once that year is over every one
+  // of them has started and ended, and dropping either predicate changes
+  // nothing. A therefore also gets an open, regular period dated against the
+  // database clock, starting tomorrow: counting it as ended, or showing it as
+  // current, is red on any date.
+  // ----------------------------------------------------------
+  {
+    id: 'portfolio-rows-are-token-entities-within-tenant',
+    paquete: 'E2.1',
+    enunciado:
+      'La cartera devuelve sólo las entidades del token dentro de su inquilino, y ninguna cabecera ni cadena de consulta la amplía',
+    mutantes: [
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: 'LEFT JOIN legal_entities e ON e.id = ANY($1::uuid[]) AND e.tenant_id = $2',
+        a: 'LEFT JOIN legal_entities e ON e.id = ANY($1::uuid[]) AND $2::uuid IS NOT NULL',
+        porque:
+          'accessible_entities has no foreign key, so a token id from another tenant becomes a row wherever RLS is inert',
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: 'LEFT JOIN legal_entities e ON e.id = ANY($1::uuid[]) AND e.tenant_id = $2',
+        a: 'LEFT JOIN legal_entities e ON $1::uuid[] IS NOT NULL AND e.tenant_id = $2',
+        porque: 'the token set is dropped and every sibling in the holding appears (the TEN leak)',
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: "WHERE d.entity_id = e.id AND d.tenant_id = e.tenant_id AND d.status = 'pending_review'",
+        a: "WHERE d.tenant_id = e.tenant_id AND d.status = 'pending_review'",
+        porque: "each row would count its siblings' drafts",
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: "WHERE fp.entity_id = e.id AND fp.status = 'open'",
+        a: "WHERE fp.entity_id IS NOT NULL AND fp.status = 'open'",
+        porque: 'overdue periods of every entity in the database would inflate the row',
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: "WHERE p.entity_id = e.id AND p.period_type = 'regular'",
+        a: "WHERE p.entity_id IS NOT NULL AND p.period_type = 'regular'",
+        porque:
+          "another entity's period, possibly of another tenant, would be shown as the row's current period",
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: 'AND fp.end_date < t.as_of',
+        a: '',
+        porque: 'a period that has not ended yet would be counted as an ended period still open',
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: 'AND p.start_date <= t.as_of',
+        a: '',
+        porque: 'a period that starts tomorrow would be shown as the current one',
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: '  const requested = request.user.entities;',
+        a: '  const requested = request.entityId ? [...request.user.entities, request.entityId] : request.user.entities;',
+        porque: 'a header written by the client would widen the portfolio',
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: '  if (Object.keys(request.query ?? {}).length > 0) {',
+        a: '  if (false) {',
+        porque:
+          'a query-string selector would be silently accepted, the first step toward letting it choose the set',
+      },
+    ],
+    correr: async (app) => {
+      const { query, enterTenant } = app.conexion;
+      const a = await crearInquilino(app, 'W1 · portfolio A');
+      const b = await crearInquilino(app, 'W1 · portfolio B');
+
+      const seedDrafts = async (tenantId: string, entityId: string, count: number): Promise<void> => {
+        for (let i = 0; i < count; i++) {
+          await query(
+            `INSERT INTO ai_drafts (id, tenant_id, entity_id, draft_type, status, payload,
+               ai_confidence, ai_reasoning, ai_model)
+             VALUES ($1, $2, $3, 'journal_entry', 'pending_review', '{"lines":[]}'::jsonb,
+               0.90, 'W1 portfolio scenario', 'plan-conduct')`,
+            [crypto.randomUUID(), tenantId, entityId]
+          );
+        }
+      };
+      const seedQuestions = async (tenantId: string, entityId: string, count: number): Promise<void> => {
+        for (let i = 0; i < count; i++) {
+          await query(
+            `INSERT INTO ai_questions (id, tenant_id, entity_id, status, question)
+             VALUES ($1, $2, $3, 'pending', 'W1 portfolio scenario question')`,
+            [crypto.randomUUID(), tenantId, entityId]
+          );
+        }
+      };
+      // Each tenant's rows are written under that tenant's context, so the
+      // scenario would also seed with RLS enforced. `enterTenant` is
+      // AsyncLocalStorage.enterWith: the call inside `crearInquilino` does not
+      // reach this frame, hence the explicit calls.
+      enterTenant(b.tenantId);
+      await seedDrafts(b.tenantId, b.entityId, 4);
+      await seedQuestions(b.tenantId, b.entityId, 2);
+
+      enterTenant(a.tenantId);
+      const sibling = await createSiblingEntity(app, a, 'W1 · portfolio sibling');
+      await seedDrafts(a.tenantId, a.entityId, 1);
+      await seedQuestions(a.tenantId, a.entityId, 1);
+      await seedDrafts(a.tenantId, sibling.entityId, 3);
+      await seedQuestions(a.tenantId, sibling.entityId, 2);
+
+      // An overdue period of A that is soft_close, not open: the board does not
+      // count it, and neither may ended_open_periods.
+      const oldYear = crypto.randomUUID();
+      await query(
+        `INSERT INTO fiscal_years (id, entity_id, year_number, start_date, end_date, is_calendar_year, status)
+         VALUES ($1, $2, 2020, '2020-01-01', '2020-12-31', true, 'open')`,
+        [oldYear, a.entityId]
+      );
+      await query(
+        `INSERT INTO fiscal_periods (id, fiscal_year_id, entity_id, period_number, period_name,
+           start_date, end_date, status)
+         VALUES ($1, $2, $3, 1, 'Periodo 1/2020', '2020-01-01', '2020-01-31', 'soft_close')`,
+        [crypto.randomUUID(), oldYear, a.entityId]
+      );
+
+      // A's current period must start strictly before the sibling's, which
+      // starts today: a period lookup that stops correlating on the entity
+      // then hands A the sibling's period (or another period starting today)
+      // by date, never A's own by tie order. A's seeded periods begin on the
+      // first of each month of a fixed year, so on such a day one of them
+      // starts today; it is moved to tomorrow, where it has not started yet.
+      // On every other day this touches no row.
+      await query(
+        `UPDATE fiscal_periods SET start_date = start_date + 1
+          WHERE entity_id = $1 AND start_date = CURRENT_DATE`,
+        [a.entityId]
+      );
+
+      // A period of A that has neither started nor ended on any date the
+      // scenario runs: open, regular, CURRENT_DATE + 1 to CURRENT_DATE + 30
+      // (the way createSiblingEntity dates the sibling's). The fixed-year
+      // periods above stop exercising both date predicates once their year is
+      // over; this one keeps both honest. Number 13 of A's seeded year, so the
+      // year's UNIQUE(fiscal_year_id, period_number) holds; its dates need not
+      // fall inside that year for anything this scenario reads.
+      await query(
+        `INSERT INTO fiscal_periods (id, fiscal_year_id, entity_id, period_number, period_name,
+           start_date, end_date, status, period_type)
+         VALUES ($1, $2, $3, 13, 'W1 portfolio A next period', CURRENT_DATE + 1, CURRENT_DATE + 30,
+                 'open', 'regular')`,
+        [crypto.randomUUID(), a.fiscalYearId, a.entityId]
+      );
+
+      // The judge of current_period: A's own rows, read raw and picked in
+      // TypeScript, so it shares no lookup with the portfolio's statement.
+      const { rows: clock } = await query<{ today: string }>(
+        `SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today`
+      );
+      const today = clock[0]?.today ?? '';
+      const { rows: periodsOfA } = await query<{
+        id: string;
+        name: string;
+        status: string;
+        period_type: string;
+        start_date: string;
+        end_date: string;
+      }>(
+        `SELECT id, period_name AS name, status, period_type,
+                to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date
+           FROM fiscal_periods WHERE entity_id = $1`,
+        [a.entityId]
+      );
+      const expectedPeriod =
+        periodsOfA
+          .filter((p) => p.period_type === 'regular' && p.start_date <= today)
+          .sort((x, y) => (x.start_date < y.start_date ? 1 : x.start_date > y.start_date ? -1 : 0))
+          .map(({ id, name, status, start_date, end_date }) => ({ id, name, status, start_date, end_date }))[0] ??
+        null;
+
+      // Everything below is still asked under A's tenant context.
+      const tables = ['policy_decisions', 'ai_drafts', 'ai_questions', 'fiscal_periods'] as const;
+      const rowCounts = async (): Promise<number[]> => {
+        const counts: number[] = [];
+        for (const t of tables) {
+          const { rows } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM ${t}`);
+          counts.push(rows[0]?.n ?? -1);
+        }
+        return counts;
+      };
+
+      // A request shaped like Express's, with every client-written channel
+      // naming the sibling. Built as a variable so the extra fields are not an
+      // excess-property error: the point is that they are there and ignored.
+      const request = {
+        user: { tenant_id: a.tenantId, entities: [a.entityId, b.entityId, 'not-a-uuid'] },
+        entityId: sibling.entityId,
+        headers: { 'x-entity-id': sibling.entityId },
+        params: { entity_id: sibling.entityId },
+        body: { entity_id: sibling.entityId },
+        query: {},
+      };
+
+      const before = await rowCounts();
+      const caller = app.portfolio.portfolioCallerOf(request);
+      const result = await app.portfolio.listPortfolio(caller);
+      const after = await rowCounts();
+
+      const findings: string[] = [];
+      const ids = result.rows.map((r) => r.entity_id);
+      if (result.rows.length !== 1 || ids[0] !== a.entityId) {
+        findings.push(
+          `la cartera devolvió ${result.rows.length} fila(s) (${ids.join(', ') || 'ninguna'}) y debía ` +
+            `devolver sólo la entidad A`
+        );
+      }
+      const raw = JSON.stringify(result);
+      for (const [label, needle] of [
+        ['el id de la hermana', sibling.entityId],
+        ['el nombre de la hermana', sibling.name],
+        ['el periodo vencido de la hermana', sibling.periodId],
+        ['el periodo en curso de la hermana', sibling.currentPeriodId],
+        ['el id de la entidad de B', b.entityId],
+        ['el nombre de B', 'W1 · portfolio B'],
+        ...Object.values(b.periodos).map((id) => ['un periodo de B', id] as const),
+      ] as const) {
+        if (raw.includes(needle)) findings.push(`la respuesta contiene ${label} (${needle})`);
+      }
+
+      const row = result.rows.find((r) => r.entity_id === a.entityId);
+      if (row) {
+        const shown = JSON.stringify(row.current_period);
+        const expected = JSON.stringify(expectedPeriod);
+        if (shown !== expected) {
+          findings.push(
+            `el periodo actual de A es ${shown} y el último periodo regular de A iniciado al ${today} es ${expected}`
+          );
+        }
+        if (row.pending_drafts !== 1) findings.push(`A tiene 1 borrador pendiente y la fila dice ${row.pending_drafts}`);
+        if (row.pending_questions !== 1) {
+          findings.push(`A tiene 1 pregunta pendiente y la fila dice ${row.pending_questions}`);
+        }
+
+        const ctxA = {
+          entityId: a.entityId,
+          entityName: 'W1 · portfolio A',
+          tenantId: a.tenantId,
+          currency: 'MXN',
+          country: 'MX',
+          accountingStandard: 'mx_nif',
+          taxId: 'XAXX010101000',
+        };
+        const board = await app.pendingBoard.getPendingBoard(ctxA);
+        const itemCount = (kind: string): number => board.items.find((i) => i.kind === kind)?.count ?? 0;
+        for (const [column, kind, value] of [
+          ['pending_drafts', 'draft', row.pending_drafts],
+          ['pending_questions', 'question', row.pending_questions],
+          ['ended_open_periods', 'period_close', row.ended_open_periods],
+        ] as const) {
+          if (value !== itemCount(kind)) {
+            findings.push(`${column} de A es ${value} y el tablero de pendientes del CLI dice ${itemCount(kind)}`);
+          }
+        }
+      }
+
+      if (result.unresolved !== 2) {
+        findings.push(
+          `omitted.unresolved es ${result.unresolved} y debía ser 2: el id de B (otro inquilino) y el id mal formado`
+        );
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(result.asOfDate)) {
+        findings.push(`as_of_date no es una fecha ISO: «${result.asOfDate}»`);
+      }
+
+      let selectorRefused = false;
+      try {
+        app.portfolio.portfolioCallerOf({ ...request, query: { entity_id: sibling.entityId } });
+      } catch (e) {
+        const err = e as { name?: string; statusCode?: number };
+        selectorRefused = err.name === 'ValidationError' && err.statusCode === 422;
+      }
+      if (!selectorRefused) {
+        findings.push('una cadena de consulta ?entity_id= no se rechazó con ValidationError (422)');
+      }
+
+      const changed = tables.filter((_, i) => before[i] !== after[i]);
+      if (changed.length > 0) {
+        findings.push(`leer la cartera cambió el número de filas de ${changed.join(', ')}`);
+      }
+
+      if (findings.length > 0) {
+        return falla(
+          `${findings.length} hallazgo(s) en la frontera de la cartera: ${findings.join('; ')}. Corre como ` +
+            'superusuario, con RLS inerte: lo que falla aquí es el predicado de la consulta o la derivación ' +
+            'del alcance, que son lo único que está siempre.'
+        );
+      }
+      return ok(
+        `con la entidad A, una hermana del mismo inquilino y una entidad de B en juego, la cartera devuelve ` +
+          `sólo A (1 borrador, 1 pregunta, ${row?.ended_open_periods ?? 0} periodo(s) abierto(s) vencido(s), ` +
+          'igual que el tablero de pendientes del CLI; su periodo actual es el suyo ' +
+          `«${row?.current_period?.name ?? 'ninguno'}» y no el de la hermana, que empieza hoy), ` +
+          'excluye a la hermana aunque la nombren entityId, ' +
+          'x-entity-id, params y body, excluye a B aunque la nombre el token, cuenta 2 ids sin resolver, ' +
+          'rechaza ?entity_id= y no escribe una sola fila'
+      );
+    },
+  },
 ];
 
 // ============================================================
@@ -1399,6 +1808,8 @@ async function main(salida: string): Promise<void> {
     catalogoSat: await import('../services/accounting/sat-chart-import.js'),
     apertura: await import('../services/accounting/opening-balance.js'),
     balanza: await import('../services/sat/anexo24/balanza-service.js'),
+    portfolio: await import('../services/portfolio/portfolio-service.js'),
+    pendingBoard: await import('../ai/pending-service.js'),
   };
 
   const { config } = await import('../config/index.js');
