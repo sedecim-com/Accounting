@@ -18,7 +18,7 @@ Ningún repo escribe estas normas: se infirieron del código, porque no existe u
 | Autenticación | Gateway nginx con `auth_request` a `authentication-server-api`, que valida Cognito y pasa `x-jwt-payload`, un JSON **sin firma** en el que confían los servicios | Autentica él mismo (API keys, OIDC, RLS) → decisión #371 |
 | Estilo de API | `/api/v1`, sobre `{success,message,…}` o `{message,statusCode}`, `limit`/`offset`, camelCase | `/v1`, `{errors:[{code,…}], meta:{request_id,…}}`, `page`/`per_page`, snake_case |
 | Contratos | OpenAPI 3.0 escrito al arrancar, sin chequeo en CI; nada de AsyncAPI aunque se usa SQS | OpenAPI 3.1 generado y vigilado en CI ✔ |
-| Commits | Mezcla de Conventional en inglés y texto libre | Prosa en español (`docs/PROCESS.md`); divergencia consciente |
+| Commits | Mezcla de Conventional en inglés y texto libre | Asunto en inglés con código de tramo, sin prefijos de *conventional commits* (I22, `CONTRIBUTING.md` y `docs/PROCESS.md`), vigilado por el job `Commit subjects` ✔ |
 | Framework agéntico | Casi todos en N0. Hay tres excepciones:<br>• `acceso-salespersons` usa `catalog-info.yaml` en formato **Backstage**;<br>• `acceso-frontend` tiene `AGENTS.md`;<br>• `assembly` define su propia taxonomía de labels para agentes | El formato de referencia (ADR-0002) |
 | Pruebas en CI, CODEOWNERS, Dependabot | La mayoría no los tiene | Sí ✔ |
 
