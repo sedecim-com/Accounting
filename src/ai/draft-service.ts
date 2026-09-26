@@ -5,6 +5,7 @@ import { query, withTransaction } from '../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../services/accounting/posting.js';
 import { JournalEntryType } from '../types/index.js';
 import { matchApproval, type MatchApprovalOpts } from './approval-policy.js';
+import { registrarFacturaDeBorradorAprobado } from '../services/xml-ingestion/pre-registration-service.js';
 import {
   sujetoAutenticado,
   decidirSujeto,
@@ -50,6 +51,59 @@ export interface DraftRow {
   review_notes: string | null;
   reviewed_by: string | null;
   created_at: Date;
+  /** The CFDI pre-registration the SYSTEM linked this draft to at ingest (#318); null otherwise. */
+  pre_registration_id?: string | null;
+  /** Filled by listDrafts/getDraft from the link; null for an unlinked draft. */
+  origin?: DraftOrigin | null;
+}
+
+/**
+ * THE CFDI A DRAFT WAS PROPOSED FOR (#318). Approving a linked draft creates
+ * the vendor bill from this CFDI, so the approval is bound to it as well: the
+ * three identifying fields enter the canonical hash. The rest is display only.
+ */
+export interface DraftOrigin {
+  pre_registration_id: string;
+  cfdi_uuid: string | null;
+  xml_hash: string | null;
+  issuer_rfc?: string | null;
+  issuer_name?: string | null;
+  payment_method?: string | null;
+  total?: string | null;
+}
+
+/**
+ * Draft columns plus its CFDI origin. Both joins are entity-scoped on the
+ * draft's own entity: a link can never surface another entity's CFDI.
+ */
+const DRAFT_SELECT = `SELECT d.id, d.entity_id, d.status, d.payload, d.ai_confidence, d.ai_reasoning,
+        d.ai_model, d.user_request, d.journal_entry_id, d.review_notes, d.reviewed_by, d.created_at,
+        d.pre_registration_id, x.cfdi_uuid AS origin_cfdi_uuid, x.xml_hash AS origin_xml_hash,
+        x.emisor_rfc AS origin_issuer_rfc, x.emisor_nombre AS origin_issuer_name,
+        x.metodo_pago AS origin_payment_method, x.total::text AS origin_total
+   FROM ai_drafts d
+   LEFT JOIN pre_registrations p ON p.id = d.pre_registration_id AND p.entity_id = d.entity_id
+   LEFT JOIN xml_documents x ON x.id = p.xml_document_id AND x.entity_id = d.entity_id`;
+
+type DraftSqlRow = DraftRow & Record<`origin_${string}`, string | null>;
+
+function withOrigin(row: DraftSqlRow): DraftRow {
+  const { origin_cfdi_uuid, origin_xml_hash, origin_issuer_rfc, origin_issuer_name,
+    origin_payment_method, origin_total, ...draft } = row;
+  return {
+    ...draft,
+    origin: row.pre_registration_id
+      ? {
+          pre_registration_id: row.pre_registration_id,
+          cfdi_uuid: origin_cfdi_uuid ?? null,
+          xml_hash: origin_xml_hash ?? null,
+          issuer_rfc: origin_issuer_rfc ?? null,
+          issuer_name: origin_issuer_name ?? null,
+          payment_method: origin_payment_method ?? null,
+          total: origin_total ?? null,
+        }
+      : null,
+  };
 }
 
 /**
@@ -73,8 +127,11 @@ function normalizedAmount(v: number | undefined | null): string | null {
  * from the payload read under the row lock and aborts on mismatch,
  * closing the TOCTOU window between human review and posting.
  */
-export function canonicalDraftHash(payload: DraftPayload): string {
+export function canonicalDraftHash(payload: DraftPayload, origin?: DraftOrigin | null): string {
   const amount = normalizedAmount;
+  // `origin` is added ONLY for a draft linked to a CFDI, and between `lines`
+  // and `reference` to keep the alphabetical order: every unlinked draft (and
+  // reconciliation-service's use of this function) hashes byte-identically.
   const canonical = {
     description: payload.description ?? null,
     entry_date: payload.entry_date ?? null,
@@ -84,6 +141,15 @@ export function canonicalDraftHash(payload: DraftPayload): string {
       debit: amount(l.debit),
       description: l.description ?? null,
     })),
+    ...(origin
+      ? {
+          origin: {
+            cfdi_uuid: origin.cfdi_uuid ?? null,
+            pre_registration_id: origin.pre_registration_id,
+            xml_hash: origin.xml_hash ?? null,
+          },
+        }
+      : {}),
     reference: payload.reference ?? null,
   };
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
@@ -330,6 +396,12 @@ export interface CreateDraftInput {
   reasoning: string;
   model: string;
   userRequest?: string;
+  /**
+   * The CFDI pre-registration this draft is proposed for (#318). Set by the
+   * ingest pipeline through the session, never by the model; the row is born
+   * with it, so there is no moment in which the draft is approvable unbound.
+   */
+  preRegistrationId?: string;
 }
 
 export async function createDraft(
@@ -342,18 +414,28 @@ export async function createDraft(
   }
 
   const id = uuidv4();
-  await query(
+  // The link, when there is one, must point at a pre-registration of THIS
+  // entity: the row is inserted only if it does, so a stale or foreign id
+  // can never produce a draft bound to another entity's CFDI.
+  const inserted = await query(
     `INSERT INTO ai_drafts (
       id, tenant_id, entity_id, draft_type, status, payload,
-      ai_confidence, ai_reasoning, ai_model, user_request
-    ) VALUES ($1, $2, $3, 'journal_entry', 'pending_review', $4::jsonb, $5, $6, $7, $8)`,
+      ai_confidence, ai_reasoning, ai_model, user_request, pre_registration_id
+    )
+    SELECT $1, $2, $3, 'journal_entry', 'pending_review', $4::jsonb, $5, $6, $7, $8, $9::uuid
+     WHERE $9::uuid IS NULL
+        OR EXISTS (SELECT 1 FROM pre_registrations WHERE id = $9::uuid AND entity_id = $3)`,
     [
       id, ctx.tenantId, ctx.entityId,
       JSON.stringify(input.payload),
       input.confidence.toFixed(2), input.reasoning, input.model,
       input.userRequest ?? null,
+      input.preRegistrationId ?? null,
     ]
   );
+  if (inserted.rowCount !== 1) {
+    throw new Error(`The CFDI pre-registration ${input.preRegistrationId} does not belong to this entity`);
+  }
 
   return {
     id,
@@ -374,33 +456,29 @@ export async function listDrafts(
   status?: DraftRow['status'],
   opts?: { limit?: number; newestFirst?: boolean }
 ): Promise<DraftRow[]> {
-  const conditions = ['entity_id = $1'];
+  const conditions = ['d.entity_id = $1'];
   const params: unknown[] = [ctx.entityId];
   if (status) {
-    conditions.push('status = $2');
+    conditions.push('d.status = $2');
     params.push(status);
   }
   const order = opts?.newestFirst ? 'DESC' : 'ASC';
   const limit = opts?.limit ? ` LIMIT ${Math.max(1, Math.floor(opts.limit))}` : '';
-  const result = await query<DraftRow>(
-    `SELECT id, entity_id, status, payload, ai_confidence, ai_reasoning, ai_model,
-            user_request, journal_entry_id, review_notes, reviewed_by, created_at
-     FROM ai_drafts
+  const result = await query<DraftSqlRow>(
+    `${DRAFT_SELECT}
      WHERE ${conditions.join(' AND ')}
-     ORDER BY created_at ${order}${limit}`,
+     ORDER BY d.created_at ${order}${limit}`,
     params
   );
-  return result.rows;
+  return result.rows.map(withOrigin);
 }
 
 export async function getDraft(ctx: AgentContext, draftId: string): Promise<DraftRow | null> {
-  const result = await query<DraftRow>(
-    `SELECT id, entity_id, status, payload, ai_confidence, ai_reasoning, ai_model,
-            user_request, journal_entry_id, review_notes, reviewed_by, created_at
-     FROM ai_drafts WHERE id = $1 AND entity_id = $2`,
+  const result = await query<DraftSqlRow>(
+    `${DRAFT_SELECT} WHERE d.id = $1 AND d.entity_id = $2`,
     [draftId, ctx.entityId]
   );
-  return result.rows[0] ?? null;
+  return result.rows[0] ? withOrigin(result.rows[0]) : null;
 }
 
 export interface Reviewer {
@@ -593,12 +671,11 @@ async function approveDraftInternal(
   correction?: DraftCorrection
 ): Promise<{ entryId: string; entryNumber: string }> {
   return withTransaction(async (client) => {
-    const locked = await client.query<DraftRow>(
-      `SELECT id, entity_id, status, payload
-       FROM ai_drafts WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+    const locked = await client.query<DraftSqlRow>(
+      `${DRAFT_SELECT} WHERE d.id = $1 AND d.entity_id = $2 FOR UPDATE OF d`,
       [draftId, ctx.entityId]
     );
-    const draft = locked.rows[0];
+    const draft = locked.rows[0] ? withOrigin(locked.rows[0]) : undefined;
     if (!draft) throw new Error(`Draft ${draftId} does not exist in this entity`);
     if (draft.status !== 'pending_review') {
       throw new Error(`The draft was already ${draft.status === 'approved' ? 'approved' : 'rejected'}`);
@@ -606,7 +683,8 @@ async function approveDraftInternal(
 
     // Drift detection: the hash of what the human reviewed must match the
     // payload we are about to post, read UNDER the row lock.
-    const storedHash = canonicalDraftHash(draft.payload);
+    const origin = draft.origin ?? null;
+    const storedHash = canonicalDraftHash(draft.payload, origin);
     if (expectedHash !== undefined && storedHash !== expectedHash) {
       throw new Error('Draft content changed after review; approval invalidated');
     }
@@ -638,7 +716,7 @@ async function approveDraftInternal(
         ...(notes ? [notes] : []),
       ].join('\n');
     }
-    const contentHash = canonicalDraftHash(approvedPayload);
+    const contentHash = canonicalDraftHash(approvedPayload, origin);
 
     // FLOOR: an entry can only ever post into an OPEN fiscal period —
     // validateDraftPayload re-checks fiscal_periods here (under the lock),
@@ -663,6 +741,22 @@ async function approveDraftInternal(
       description: l.description ?? approvedPayload.description,
     }));
 
+    // ING-1 (#318): a draft linked to a received CFDI turns into the vendor
+    // bill in THIS transaction. The bill is born first so the entry posts with
+    // `sourceType: 'bill'` like the inbox path's own entry; the reconciliation
+    // against the XML runs inside and a mismatch rolls everything back.
+    const bill = origin
+      ? await registrarFacturaDeBorradorAprobado(client, {
+          tenantId: ctx.tenantId,
+          entityId: ctx.entityId,
+          preRegistrationId: origin.pre_registration_id,
+          approvedLines: approvedPayload.lines,
+          approvedDescription: approvedPayload.description,
+          accountIdByCode: validation.accountIdByCode,
+          userId: reviewer.userId,
+        })
+      : null;
+
     const entry = await createJournalEntry(
       ctx.entityId,
       new Date(`${approvedPayload.entry_date}T00:00:00`),
@@ -671,13 +765,14 @@ async function approveDraftInternal(
       lines,
       reviewer.userId,
       {
-        sourceType: 'ai_draft',
-        sourceId: draftId,
+        sourceType: bill ? 'bill' : 'ai_draft',
+        sourceId: bill ? bill.billId : draftId,
         reference: approvedPayload.reference,
         autoPost: true,
         client, // same transaction as the draft update below
       }
     );
+    if (bill) await bill.close(entry.id);
 
     const updated = await client.query(
       `UPDATE ai_drafts
@@ -805,7 +900,7 @@ export async function autoApproveDraftByPolicy(
   const reviewer = await resolvePolicyGrantor(ctx.tenantId, policy.created_by);
 
   // Hash binding to the exact content the policy matched.
-  const matchedHash = canonicalDraftHash(draft.payload);
+  const matchedHash = canonicalDraftHash(draft.payload, draft.origin);
   const result = await approveDraftInternal(
     ctx,
     draftId,

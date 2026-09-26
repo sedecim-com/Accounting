@@ -3,7 +3,7 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10615,
+    "spanish-identifiers-src": 10618,
     "spanish-identifiers-tests": 5777,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 50,
@@ -299,7 +299,7 @@
       "src/services/xml-ingestion/cfdi-posting-plan.ts": 42,
       "src/services/xml-ingestion/cfdi-query-service.ts": 13,
       "src/services/xml-ingestion/cfdi-taxonomy.ts": 1,
-      "src/services/xml-ingestion/pre-registration-service.ts": 66,
+      "src/services/xml-ingestion/pre-registration-service.ts": 69,
       "src/services/xml-ingestion/rep-linkage.ts": 48,
       "src/services/xml-ingestion/rep-pendientes.ts": 17,
       "src/services/xml-ingestion/sat-validation.ts": 7,

@@ -334,6 +334,81 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 40,
   },
 
+  // ── Received CFDI → vendor bill, when a person approves the AI draft (#318) ──
+  //
+  // The CFDI rules the amounts (the liability and the creditable taxes come
+  // from it); the account distribution is the firm's own coding. Both keys are
+  // read by registrarFacturaDeBorradorAprobado (pre-registration-service.ts).
+  {
+    key: 'cfdi_tolerancia_cuadre',
+    category: 'contable',
+    question:
+      'When an approved draft is checked against its CFDI, how much difference per figure still counts as rounding?',
+    impact:
+      'Approving the draft of a received CFDI creates the vendor bill, and the approved entry must match the ' +
+      'XML figure by figure: total, transferred VAT, each withholding, and subtotal minus discount. A difference ' +
+      'within the tolerance passes; anything larger rolls the whole approval back and names the figure. The ' +
+      'difference is never absorbed by moving cents to another account.',
+    options: [
+      { value: '0.01', label: 'One cent per figure — only true rounding' },
+      { value: '0', label: 'Exact match or nothing' },
+    ],
+    dominio: {
+      tipo: 'numero',
+      unidad: 'MXN',
+      min: '0',
+      max: '1',
+      decimales: 2,
+      porQueElTope:
+        'The ceiling of one peso is ours, not the law\'s. A larger difference between the entry and the CFDI ' +
+        'is not rounding: it is a different amount, and accepting it would register a liability or a ' +
+        'creditable tax the document does not support. A firm that truly needs more has to widen this ' +
+        'ceiling in the catalog, so the change is written down with its author and date.',
+    },
+    defaultValue: '0.01',
+    defaultRationale:
+      'The SAT accepts rounding differences in per-line taxes (Anexo 20), and a cent per figure is what that ' +
+      'rounding produces. More than a cent is not rounding: it is another amount than the one the CFDI ' +
+      'supports (CFF 29 and 29-A; LIVA art. 5 fracc. II and III).',
+    whyAsking:
+      'When you approve the entry for a supplier invoice I check it against the XML. I need to know how much ' +
+      'rounding you accept before I refuse it.',
+    whatIDo:
+      'Within the tolerance I create the bill and post the entry. Beyond it I refuse the approval and tell you ' +
+      'which figure is off and by how much.',
+    ifSkipped: 'I allow one cent per figure.',
+    priority: 45,
+  },
+  {
+    key: 'lineas_factura_desde',
+    category: 'contable',
+    question: 'When an approved draft creates the vendor bill, where do the bill lines come from?',
+    impact:
+      'The bill header (subtotal, taxes, total) always comes from the CFDI. This decides the lines: either your ' +
+      'own coding in the approved entry, or one line per CFDI concept. Concepts only take an account when the ' +
+      'entry splits one to one with them; otherwise the approval is refused, never prorated.',
+    options: [
+      { value: 'poliza', label: 'One line per non-tax debit of the approved entry, with its account and amount' },
+      {
+        value: 'conceptos_cfdi',
+        label: 'One line per CFDI concept (description, quantity, SAT key); refused if the entry does not split one to one',
+      },
+    ],
+    defaultValue: 'poliza',
+    defaultRationale:
+      'Which accounts an expense goes to is an internal decision of whoever books it: several concepts can go ' +
+      'to one account, or one concept can be split. The approved entry already records that decision, and ' +
+      'the bill should reflect it rather than force the vendor\'s wording onto the ledger.',
+    whyAsking:
+      'Some firms want the bill to read like the supplier\'s invoice, concept by concept; others want it to ' +
+      'follow how they coded the expense.',
+    whatIDo:
+      'By default each non-tax debit of the entry you approved becomes a bill line. With "conceptos_cfdi" I copy ' +
+      'the concepts and refuse when your entry does not split the same way.',
+    ifSkipped: 'The bill lines follow the entry you approved.',
+    priority: 50,
+  },
+
   // ── Payment receipts (REP) ──
   //
   // A REP —CFDI type P, the payment-receipt complement— is the document that

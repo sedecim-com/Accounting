@@ -125,6 +125,12 @@ Cuatro cosas que hay que saber antes de tocarlas:
 
 Si el catálogo de cuentas cambió desde que se creó el borrador y ya no valida, `review` te lo dice con la lista de errores y lo deja pendiente en vez de tirarlo.
 
+**Un borrador que viene de un CFDI recibido crea la factura del proveedor al aprobarlo** (#318). La ingesta liga el borrador al pre-registro de ese CFDI —lo hace el sistema, no el modelo— y `review` te muestra el UUID, el emisor, el método de pago y el total de la factura que va a nacer. Al aprobar, en una sola transacción, nacen la factura (`bills`, con su `cfdi_uuid` y su saldo), la póliza —con la factura como origen, igual que la de `bill inbox run`— y el pre-registro queda en `completed`, así que la bandeja ya no lo vuelve a contabilizar. La huella que apruebas incluye también el CFDI. Tres cosas hacen que la aprobación se revierta entera y el borrador siga pendiente:
+
+- el emisor no está en tu catálogo de proveedores: dalo de alta con `mnemosine vendor create --tax-id <RFC>` y vuelve a aprobar;
+- la póliza no cuadra con el XML en el total (abono a proveedores, o a bancos si es PUE pagado), el IVA trasladado, las retenciones o el subtotal menos descuento: el mensaje dice qué cifra y por cuánto. La tolerancia por cifra es `cfdi_tolerancia_cuadre` (un centavo por omisión); la diferencia nunca se mueve a otra cuenta;
+- con `lineas_factura_desde = conceptos_cfdi`, tu póliza no reparte uno a uno con los conceptos del CFDI. Por omisión (`poliza`) los renglones de la factura son los cargos que no son impuesto de la póliza que aprobaste.
+
 ### Lo que conviene mirar antes de aprobar
 
 La pantalla de revisión no trae el CFDI al lado —eso está pendiente—, así que para un borrador que no te cuadre, la referencia trae el UUID y con él, en otra terminal:

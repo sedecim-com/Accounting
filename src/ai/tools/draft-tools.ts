@@ -58,6 +58,7 @@ export function buildDraftTools(ctx: AgentContext, deps: ToolDeps) {
           reasoning: input.reasoning,
           model,
           userRequest: userRequestRef?.current,
+          preRegistrationId: deps.draftOrigin?.(),
         });
         deps.onDraftCreated?.({
           draftId: result.id,

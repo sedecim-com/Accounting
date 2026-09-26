@@ -2728,7 +2728,7 @@
         "x-exige-marcha-seca": true,
         "x-exige-compuerta-en-vivo": false,
         "x-exige-llave-de-idempotencia": true,
-        "x-escribe": "journal_entries + journal_entry_lines POSTEADOS al aprobar el borrador; ai_drafts.status",
+        "x-escribe": "journal_entries + journal_entry_lines POSTEADOS al aprobar el borrador; ai_drafts.status; bills + bill_lines + pre_registrations cuando el borrador viene de un CFDI recibido (#318)",
         "x-alcance-idempotencia": "POST /v1/ai/drafts/:id/approve",
         "x-permisos-requeridos": [
           "journal_entries:create"

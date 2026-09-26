@@ -83,7 +83,7 @@ router.get('/drafts', requirePermission('journal_entries:read'), requireEntityAc
 // propuso, y si el agente pudiera llamarla proponer y disponer serian el
 // mismo acto. `declararRiesgoRuta` ya lo impediria —irreversible y agente
 // juntos no compilan— pero la razon merece leerse aqui.
-router.post('/drafts/:id/approve', declararRiesgoRuta({ riesgo: 'irreversible', agente: false, escribe: 'journal_entries + journal_entry_lines POSTEADOS al aprobar el borrador; ai_drafts.status' }), requirePermission('journal_entries:create'), requireEntityAccess,
+router.post('/drafts/:id/approve', declararRiesgoRuta({ riesgo: 'irreversible', agente: false, escribe: 'journal_entries + journal_entry_lines POSTEADOS al aprobar el borrador; ai_drafts.status; bills + bill_lines + pre_registrations cuando el borrador viene de un CFDI recibido (#318)' }), requirePermission('journal_entries:create'), requireEntityAccess,
   validateBody(reviewNotesSchema),
   scoped(async (req, res, ctx) => {
     // The reviewer is the token's subject, not "the first active user": the
