@@ -1,0 +1,39 @@
+/*
+ * The house tokens (W1 · issue #117). One light palette, English names.
+ *
+ * tokens.json is the same map, name for name and value for value, and
+ * tests/gateway/design-tokens.spec.ts compares the two in both directions and
+ * measures contrast: ink, ink-muted and every status colour reach 4.5:1 on
+ * paper, surface, band and their own soft background, and focus reaches 3:1.
+ *
+ * Status colours restate a fact, they never classify:
+ *   info      informative, in progress (an open or soft-closed period)
+ *   balanced  balanced, posted (a hard-closed or locked period)
+ *   pending   draft, waiting on a person
+ *   blocked   blocked, unbalanced (minted, and unused by the portfolio)
+ *
+ * The fonts are named, not shipped: IBM Plex is used where it is installed,
+ * and the system faces otherwise.
+ */
+:root {
+  color-scheme: light;
+  --color-paper: #F7F7F4;
+  --color-surface: #FFFFFF;
+  --color-band: #EFEFEA;
+  --color-ink: #1B2026;
+  --color-ink-muted: #4E5866;
+  --color-rule: #D8DBE0;
+  --color-rule-faint: #E7E9EC;
+  --color-focus: #2C4E80;
+  --status-info: #2C4E80;
+  --status-info-soft: #E3EAF4;
+  --status-balanced: #37684D;
+  --status-balanced-soft: #E2EEE7;
+  --status-pending: #83611A;
+  --status-pending-soft: #F4ECD9;
+  --status-blocked: #A63D2F;
+  --status-blocked-soft: #F5E6E2;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --rule-width: 1px;
+}

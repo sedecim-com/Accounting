@@ -1525,6 +1525,8 @@ export const E0_0: Criterio[] = [
         G4a: 'docs/auditorias/G4a.md',
         G4b: 'docs/auditorias/G4b.md',
         A6: 'docs/auditorias/A6.md',
+        // W0–W1, el tablero como gateway: su registro nace con el tramo.
+        W0: 'docs/auditorias/W0.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -1534,7 +1536,7 @@ export const E0_0: Criterio[] = [
       const catalogo = crudoDe('docs/cli-command-catalog.md');
       const cerrados = [
         ...new Set(
-          [...catalogo.matchAll(/hecha en (F\d+[a-z]?|A\d+(?:-A\d+)?|R\d+)\b/g)].map((m) => m[1])
+          [...catalogo.matchAll(/hecha en (F\d+[a-z]?|A\d+(?:-A\d+)?|R\d+|W\d+)\b/g)].map((m) => m[1])
         ),
       ].sort();
 
@@ -1562,6 +1564,14 @@ export const E0_0: Criterio[] = [
         de: '# Auditoría adversarial de F03',
         a: null,
         porque: 'el registro de un flujo cerrado desaparece: la compuerta debe acusarlo, que es lo único que vino a hacer',
+      },
+      {
+        archivo: 'docs/cli-command-catalog.md',
+        de: 'hecha en W0**',
+        a: 'hecha en W9**',
+        porque:
+          'una celda reclama un tramo de la serie W que no tiene registro: la compuerta tiene que acusarlo, ' +
+          'igual que con los flujos F, A y R',
       },
       {
         archivo: 'docs/cli-command-catalog.md',
@@ -1648,10 +1658,18 @@ export const E0_0: Criterio[] = [
       // 432 → 442: los diez espejos de `the-user-language-is-written-where-it-is-read`
       // (I11 · 4, el décimo por WIT-01 de Witness), re-medidos sobre el árbol
       // fusionado con `main`, no sumados a mano.
+      // 442 → 524: los 82 espejos de W0–W1 (#117), re-medidos sobre el árbol
+      // fusionado con `main` y no sumados a mano: 72 en memoria de los seis
+      // criterios nuevos de E2.1 (6 + 17 + 8 + 17 + 10 + 14), 1 del renglón
+      // `W9` de este paquete y 9 en disco de la conducta de la cartera. El PR
+      // medía 416 → 498 sobre su base vieja: la misma diferencia de 82. Hoy son
+      // 503 en memoria + 21 en disco.
       // 442 → 451: the nine mirrors of `commit-subjects-born-english` (I22),
       // re-measured in memory on the tree merged with `main` after #294:
       // 439 `mutantes` + 12 `mutantesEnDisco` = 451.
-      const MIRRORS_FLOOR = 451;
+      // Both landed: W0–W1 (#249) first, then I22 (#283) on top of it, so
+      // 524 + 9 = 533, re-measured on the merged tree (512 in memory + 21 on disk).
+      const MIRRORS_FLOOR = 533;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -1677,11 +1695,18 @@ export const E0_0: Criterio[] = [
       // `de: string;` de `interface Mutante`, que se fue a `criteria/shared.ts`
       // y entra por la unión. Hoy se mide sumando el mismo `grep -cE` sobre
       // `src/plan/criterios.ts` y sobre cada `.ts` de `src/plan/criteria/`.
+      // 424 → 497 con W0–W1 (#117): 73 anclas nuevas, 72 en `criteria/e2-1.ts`
+      // y la del renglón `W9` en este archivo (el PR medía 399 → 472 sobre su
+      // base vieja). Los 9 espejos de la conducta de la cartera no anclan aquí:
+      // viven en `conducta.ts`. Medido con el mismo `grep -cE` sobre la unión:
+      // e0-0 pasa de 48 a 49, e2-1 de 41 a 113, y el resto no cambia.
       // 424 → 433: the nine mirrors of `commit-subjects-born-english` (I22)
       // each carry their `de:` on its own line, and they live in
       // `criteria/e0-0.ts`. Measured with the same `grep -cE` over the union:
       // 0 in the index + 432 across the fifteen package files + 1 in `shared.ts`.
-      const ANCHORS_HERE = 433;
+      // Both landed: 497 + 9 = 506 on the merged tree, measured with the same
+      // `grep -cE` over the union.
+      const ANCHORS_HERE = 506;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(

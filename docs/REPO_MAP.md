@@ -29,6 +29,7 @@ Qué es cada cosa y por qué: [`docs/SCOPE.md`](SCOPE.md), [`AGENTS.md`](../AGEN
 | `src/cli/kernel/` | Núcleo del CLI: riesgo declarado, marcha seca, `--live`, vocabulario cerrado, salida y códigos de salida. |
 | `src/config/` | Configuración leída del entorno. |
 | `src/database/` | Pool, migraciones (`migrations/`), políticas RLS, alcance por inquilino y entidad (`scope.ts`) y semillas. |
+| `src/gateway/` | Gateway web del tablero, proceso aparte: sesión del navegador y reenvío de sólo lecturas a `/v1`; `app/` es la pantalla que sirve. |
 | `src/i18n/` | Catálogos de mensajes por clave (`en.ts`, `es.ts`) y formato por locale. |
 | `src/language/` | Registro del vocabulario persistido y su nombre inglés (rector del idioma). |
 | `src/plan/` | El plan ejecutable: criterios (`criterios.ts`, que reúne un archivo por paquete en `criteria/`), conducta contra base efímera (`conducta.ts`) y `plan:status`. |
@@ -53,6 +54,7 @@ Qué es cada cosa y por qué: [`docs/SCOPE.md`](SCOPE.md), [`AGENTS.md`](../AGEN
 | `src/services/payments/` | Cobros y pagos: aplicación, anticipos y descuentos. |
 | `src/services/payroll/` | Nómina México y Estados Unidos: cálculo, corridas, asiento, SUA y formularios. |
 | `src/services/policy/` | Panel de decisiones del despacho: cada bifurcación de criterio contable, con su lector. |
+| `src/services/portfolio/` | Cartera del despacho: una fila por entidad del token dentro de su inquilino (`GET /v1/portfolio`). |
 | `src/services/reporting/` | Estados financieros, balanza y flujo de efectivo. |
 | `src/services/sat/` | Obligaciones ante el SAT: Anexo 24, DIOT y estado de CFDI. |
 | `src/services/vault/` | Cifrado y bóveda de secretos (ruta con dueño reforzado). |

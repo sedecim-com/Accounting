@@ -12,6 +12,7 @@
 // holds the single overlay the mutation harness writes to.
 // ============================================================
 import * as fs from 'node:fs';
+import { builtinModules } from 'node:module';
 import * as path from 'node:path';
 import * as ts from 'typescript';
 import {
@@ -1207,4 +1208,408 @@ export function scanLedgerDateArguments(): { calls: number; findings: DateArgume
     }
   }
   return { calls, findings };
+}
+
+// ============================================================
+// W0 · THE WEB GATEWAY'S IMPORT CLOSURE (#117)
+//
+// The gateway is a separate process so that, if it is compromised, it holds
+// browser sessions and nothing of the engine: no database pool, no signing
+// secret, no service that writes the ledger. That property is a property of
+// the TRANSITIVE import graph, not of any one file. A literal scan of
+// src/gateway for `../database/` misses the day an allowed module
+// (src/auth/oidc.ts, say) starts importing the pool, and misses a computed
+// `import(name)` entirely.
+//
+// So the walk is a pure function over a source reader, exported and tested on
+// in-memory trees in tests/plan/import-closure.spec.ts. That spec covers what
+// a mutant cannot express: a mutant replaces or deletes a file, it cannot
+// create one, and `fuentes()` lists the disk.
+//
+// Specifiers come from ts.preProcessFile (static imports, side-effect imports,
+// export-from, import() with a literal, require). Three more things are
+// findings by themselves, because the walk cannot know what they load:
+//   · import() or require() with an argument that is not a literal;
+//   · `require` used as anything but the callee of such a literal call
+//     (`const load = require`, `require.call(…)`, handing it along);
+//   · eval, the CommonJS `module` object, globalThis and global, which reach
+//     the loader, `process` and `require` by another name.
+// A builtin is allowed per file (a loader such as node:module or child_process
+// is not a builtin like any other), and a package can be restricted to the
+// named exports a file may bind: jose is how the gateway verifies tokens, and
+// it is also how anyone would mint one, so what the closure binds from it is
+// judged, not whether a name such as SignJWT appears.
+// ============================================================
+
+export interface ImportClosureSource {
+  /** The text of a repository-relative file, or undefined when there is none. */
+  get(rel: string): string | undefined;
+}
+
+export interface ImportClosureRules {
+  /** May this repository-relative .ts file be part of the closure? */
+  allowFile(rel: string): boolean;
+  /** May the file `from` import this bare specifier (a package or a Node builtin)? */
+  allowBare(specifier: string, from: string): boolean;
+  /**
+   * Packages that may be bound only by name, and the names allowed. A
+   * namespace or default import, `export *`, require() or import() of one of
+   * these binds the whole module and is a finding.
+   */
+  namedOnly?: Readonly<Record<string, readonly string[]>>;
+}
+
+export function isNodeBuiltin(specifier: string): boolean {
+  const bare = specifier.startsWith('node:') ? specifier.slice('node:'.length) : specifier;
+  return builtinModules.includes(bare);
+}
+
+/** `./x.js` from `src/a/b.ts` → the .ts file it names, if the source has it. */
+function resolveRelativeImport(from: string, specifier: string, source: ImportClosureSource): string | undefined {
+  const base = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier));
+  const stem = base.replace(/\.(?:js|ts)$/, '');
+  for (const candidate of [`${stem}.ts`, `${base}/index.ts`, `${stem}/index.ts`]) {
+    if (source.get(candidate) !== undefined) return candidate;
+  }
+  return undefined;
+}
+
+export function isLiteralArgument(node: ts.Node | undefined): node is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral {
+  return node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node));
+}
+
+/**
+ * True when an identifier names a binding rather than a property or a member:
+ * `x.module` and `{ module: 1 }` are not the module object, `{ module }` is.
+ */
+export function isIdentifierReference(id: ts.Identifier): boolean {
+  const p = id.parent;
+  if (ts.isPropertyAccessExpression(p) && p.name === id) return false;
+  if (ts.isQualifiedName(p) && p.right === id) return false;
+  if ((ts.isPropertyAssignment(p) || ts.isPropertyDeclaration(p) || ts.isPropertySignature(p) || ts.isMethodDeclaration(p) || ts.isMethodSignature(p)) && p.name === id) return false;
+  if ((ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p) || ts.isEnumMember(p) || ts.isModuleDeclaration(p)) && p.name === id) return false;
+  if ((ts.isImportSpecifier(p) || ts.isExportSpecifier(p) || ts.isBindingElement(p)) && p.propertyName === id) return false;
+  if (ts.isLabeledStatement(p) || ts.isBreakOrContinueStatement(p)) return false;
+  return true;
+}
+
+const LOADER_ALIASES = new Set(['eval', 'module', 'globalThis', 'global']);
+
+/** Loads whose target the walk cannot know: see the header of this section. */
+function opaqueLoads(file: string, sf: ts.SourceFile): string[] {
+  const found: string[] = [];
+  const where = (n: ts.Node) => `${file}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1} ${n.getText(sf).slice(0, 60)}`;
+  const visit = (n: ts.Node): void => {
+    if (ts.isCallExpression(n)) {
+      const dynamicImport = n.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const requireCall = ts.isIdentifier(n.expression) && n.expression.text === 'require';
+      if ((dynamicImport || requireCall) && !isLiteralArgument(n.arguments[0])) {
+        found.push(`computed specifier ${where(n)}`);
+      }
+    }
+    if (ts.isIdentifier(n) && n.text === 'require') {
+      const p = n.parent;
+      const directCallee = ts.isCallExpression(p) && p.expression === n;
+      const memberCallee =
+        ts.isPropertyAccessExpression(p) && p.name === n && ts.isCallExpression(p.parent) && p.parent.expression === p && isLiteralArgument(p.parent.arguments[0]);
+      if (!directCallee && !memberCallee) found.push(`require used as a value ${where(p)}`);
+    }
+    if (ts.isIdentifier(n) && LOADER_ALIASES.has(n.text) && isIdentifierReference(n)) {
+      found.push(`loader reached through ${n.text} ${where(n.parent)}`);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+/** What a file binds from `specifier`: export names, or '*' for the whole module. */
+function bindingsFrom(sf: ts.SourceFile, specifier: string): string[] {
+  const names: string[] = [];
+  const named = (n: ts.Node | undefined): boolean => isLiteralArgument(n) && n.text === specifier;
+  const visit = (n: ts.Node): void => {
+    if (ts.isImportDeclaration(n) && named(n.moduleSpecifier)) {
+      const clause = n.importClause;
+      if (clause?.name) names.push('default');
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) names.push('*');
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const e of bindings.elements) names.push((e.propertyName ?? e.name).text);
+      }
+    } else if (ts.isExportDeclaration(n) && named(n.moduleSpecifier)) {
+      const clause = n.exportClause;
+      if (!clause || ts.isNamespaceExport(clause)) names.push('*');
+      else for (const e of clause.elements) names.push((e.propertyName ?? e.name).text);
+    } else if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference) && named(n.moduleReference.expression)) {
+      names.push('*');
+    } else if (
+      ts.isCallExpression(n) &&
+      (n.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(n.expression) && n.expression.text === 'require')) &&
+      named(n.arguments[0])
+    ) {
+      names.push('*');
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return names;
+}
+
+/**
+ * The closure of `roots`: every file the walk visited, and every way it leaves
+ * what `rules` allows, each with the import chain that reaches it. No
+ * violations means the closure is contained; `files` is what a caller must
+ * also read to judge what the process holds, borrowed modules included.
+ */
+export function importClosure(
+  source: ImportClosureSource,
+  roots: readonly string[],
+  rules: ImportClosureRules
+): { files: string[]; violations: string[] } {
+  const violations: string[] = [];
+  const files: string[] = [];
+  const parent = new Map<string, string | undefined>();
+  const chainOf = (file: string): string => {
+    const chain: string[] = [];
+    for (let at: string | undefined = file; at !== undefined; at = parent.get(at)) chain.unshift(at);
+    return chain.join(' → ');
+  };
+  const queue: string[] = [];
+  for (const root of roots) {
+    if (parent.has(root)) continue;
+    parent.set(root, undefined);
+    queue.push(root);
+  }
+  for (let i = 0; i < queue.length; i += 1) {
+    const file = queue[i];
+    const text = source.get(file);
+    if (text === undefined) {
+      violations.push(`${chainOf(file)}: the file cannot be read`);
+      continue;
+    }
+    if (!rules.allowFile(file)) {
+      violations.push(`${chainOf(file)}: outside the allowed closure`);
+      continue;
+    }
+    files.push(file);
+    const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+    for (const opaque of opaqueLoads(file, sf)) {
+      violations.push(`${chainOf(file)}: ${opaque}`);
+    }
+    const seenBare = new Set<string>();
+    for (const { fileName: specifier } of ts.preProcessFile(text, true, true).importedFiles) {
+      if (specifier.startsWith('.')) {
+        const target = resolveRelativeImport(file, specifier, source);
+        if (target === undefined) {
+          violations.push(`${chainOf(file)} → ${specifier}: resolves to no file`);
+        } else if (!rules.allowFile(target)) {
+          violations.push(`${chainOf(file)} → ${target}: outside the allowed closure`);
+        } else if (!parent.has(target)) {
+          parent.set(target, file);
+          queue.push(target);
+        }
+      } else if (!rules.allowBare(specifier, file)) {
+        violations.push(`${chainOf(file)} → ${specifier}: package not allowed`);
+      } else if (rules.namedOnly?.[specifier] && !seenBare.has(specifier)) {
+        seenBare.add(specifier);
+        const allowed = rules.namedOnly[specifier];
+        for (const name of new Set(bindingsFrom(sf, specifier))) {
+          if (name === '*') violations.push(`${chainOf(file)} → ${specifier}: binds the whole module`);
+          else if (!allowed.includes(name)) violations.push(`${chainOf(file)} → ${specifier}: binds ${name}, outside the allowed exports`);
+        }
+      }
+    }
+  }
+  return { files, violations };
+}
+
+/** Every way the closure of `roots` leaves what `rules` allows. Empty means contained. */
+export function importClosureViolations(
+  source: ImportClosureSource,
+  roots: readonly string[],
+  rules: ImportClosureRules
+): string[] {
+  return importClosure(source, roots, rules).violations;
+}
+
+/** The files the gateway's server process may load, besides its own. */
+export const GATEWAY_SERVER_BORROWED_FILES: readonly string[] = [
+  'src/auth/oidc.ts',
+  'src/auth/login-flows.ts',
+  'src/auth/token-store.ts',
+  'src/api/rest/trust-proxy.ts',
+];
+
+/**
+ * The builtins the gateway's server closure may load, named one by one. A
+ * loader is not a builtin like any other: node:module hands out createRequire,
+ * and vm, worker_threads and child_process run code the walk never sees. The
+ * token store keeps child_process, where it already lives, for the macOS
+ * keychain; nothing else in the closure may import it.
+ */
+export const GATEWAY_SERVER_BUILTINS: readonly string[] = ['crypto', 'fs', 'http', 'net', 'os', 'path', 'stream', 'stream/web', 'util'];
+
+/** The verification half of jose, the only half the gateway has any use for. */
+export const GATEWAY_JOSE_EXPORTS: readonly string[] = ['createRemoteJWKSet', 'customFetch', 'jwtVerify', 'decodeProtectedHeader', 'JWTPayload'];
+
+export const GATEWAY_SERVER_CLOSURE: ImportClosureRules = {
+  allowFile: (rel) =>
+    (rel.startsWith('src/gateway/') && !rel.startsWith('src/gateway/app/')) || GATEWAY_SERVER_BORROWED_FILES.includes(rel),
+  allowBare: (specifier, from) => {
+    if (specifier === 'express' || specifier === 'jose') return true;
+    if (!isNodeBuiltin(specifier)) return false;
+    const bare = specifier.startsWith('node:') ? specifier.slice('node:'.length) : specifier;
+    return GATEWAY_SERVER_BUILTINS.includes(bare) || (bare === 'child_process' && from === 'src/auth/token-store.ts');
+  },
+  namedOnly: { jose: GATEWAY_JOSE_EXPORTS },
+};
+
+/** The browser program: its own modules and the two typed catalogs, and no package at all. */
+export const GATEWAY_APP_CLOSURE: ImportClosureRules = {
+  allowFile: (rel) => rel.startsWith('src/gateway/app/') || rel === 'src/i18n/en.ts' || rel === 'src/i18n/es.ts',
+  allowBare: () => false,
+};
+
+/** The gateway's files on disk, split into the server process and the browser program. */
+export function gatewayFiles(): { server: string[]; app: string[] } {
+  const all = fuentes('src/gateway')
+    .map((abs) => path.relative(RAIZ, abs).split(path.sep).join('/'))
+    .filter((rel) => existe(rel))
+    .sort();
+  return {
+    server: all.filter((rel) => !rel.startsWith('src/gateway/app/')),
+    app: all.filter((rel) => rel.startsWith('src/gateway/app/')),
+  };
+}
+
+/** Reads through the seam, so a mutant reaches the walk. */
+export const seamSource: ImportClosureSource = {
+  get: (rel) => (existe(rel) ? crudoDe(rel) : undefined),
+};
+
+/** The syntax tree of a repository file read through the seam, or undefined when it is gone. */
+export function gatewaySyntaxOf(rel: string): ts.SourceFile | undefined {
+  return existe(rel) ? ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true) : undefined;
+}
+
+export function* gatewayNodes(n: ts.Node): Generator<ts.Node> {
+  yield n;
+  for (const child of n.getChildren()) yield* gatewayNodes(child);
+}
+
+/** The initializer of a top-level `const name = …`, with `as` and parentheses peeled off. */
+export function topLevelInitializer(sf: ts.SourceFile, name: string): { node: ts.Expression; raw: ts.Expression } | undefined {
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st)) continue;
+    for (const d of st.declarationList.declarations) {
+      if (!ts.isIdentifier(d.name) || d.name.text !== name || !d.initializer) continue;
+      let node: ts.Expression = d.initializer;
+      while (ts.isAsExpression(node) || ts.isParenthesizedExpression(node) || ts.isSatisfiesExpression(node)) {
+        node = node.expression;
+      }
+      return { node, raw: d.initializer };
+    }
+  }
+  return undefined;
+}
+
+/** The string elements of an array literal, or undefined if any element is not a string literal. */
+export function stringElements(node: ts.Expression): string[] | undefined {
+  if (!ts.isArrayLiteralExpression(node)) return undefined;
+  const out: string[] = [];
+  for (const e of node.elements) {
+    if (!ts.isStringLiteral(e)) return undefined;
+    out.push(e.text);
+  }
+  return out;
+}
+
+/** Visits every node below `n` through ts.forEachChild (JSDoc stays out). */
+export function forEachGatewayNode(n: ts.Node, visit: (node: ts.Node) => void): void {
+  ts.forEachChild(n, (child) => {
+    visit(child);
+    forEachGatewayNode(child, visit);
+  });
+}
+
+export const GATEWAY_CODE_PRINTER = ts.createPrinter({ removeComments: true });
+
+function printedStatements(statements: readonly ts.Statement[], sf: ts.SourceFile): string {
+  return statements.map((st) => GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Unspecified, st, sf)).join('\n');
+}
+
+/**
+ * True when `statements` are exactly `expected`, compared as printed code:
+ * layout and comments do not count, a dropped `!` or a flipped `!==` does.
+ */
+export function sameStatements(statements: readonly ts.Statement[] | undefined, sf: ts.SourceFile, expected: string): boolean {
+  if (!statements) return false;
+  const want = ts.createSourceFile('expected.ts', expected, ts.ScriptTarget.Latest, true);
+  return printedStatements(statements, sf) === printedStatements(want.statements, want);
+}
+
+/** The top-level function declaration `name` of a file, if there is exactly one. */
+export function soleFunction(sf: ts.SourceFile, name: string): ts.FunctionDeclaration | undefined {
+  const found = sf.statements.filter((st): st is ts.FunctionDeclaration => ts.isFunctionDeclaration(st) && st.name?.text === name);
+  return found.length === 1 ? found[0] : undefined;
+}
+
+/** Names a file imports from `specifier` without renaming them. */
+export function plainImportsFrom(sf: ts.SourceFile, specifier: string): Set<string> {
+  const names = new Set<string>();
+  for (const st of sf.statements) {
+    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== specifier) continue;
+    const bindings = st.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const e of bindings.elements) if (!e.propertyName) names.add(e.name.text);
+  }
+  return names;
+}
+
+/** Declarations in a file (functions, variables, parameters, classes) that bind `name`. */
+export function localDeclarationsOf(sf: ts.SourceFile, name: string): number {
+  let count = 0;
+  forEachGatewayNode(sf, (n) => {
+    if (
+      (ts.isFunctionDeclaration(n) || ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isClassDeclaration(n) || ts.isBindingElement(n)) &&
+      n.name !== undefined &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === name
+    ) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+/** The first handler of `name` in server.ts's `handlers` table, as written. */
+export function handlersTableEntry(sf: ts.SourceFile, name: string): string | undefined {
+  for (const n of gatewayNodes(sf)) {
+    if (!ts.isVariableDeclaration(n) || !ts.isIdentifier(n.name) || n.name.text !== 'handlers') continue;
+    if (!n.initializer || !ts.isObjectLiteralExpression(n.initializer)) return undefined;
+    for (const p of n.initializer.properties) {
+      if (!ts.isPropertyAssignment(p) || p.name.getText(sf) !== name) continue;
+      if (!ts.isArrayLiteralExpression(p.initializer)) return undefined;
+      return p.initializer.elements[0]?.getText(sf);
+    }
+  }
+  return undefined;
+}
+
+/** `[…strings].join('; ')` as a top-level initializer: its directives, or undefined for any other shape. */
+export function joinedPolicy(sf: ts.SourceFile, name: string): string[] | undefined {
+  const init = topLevelInitializer(sf, name);
+  const call = init?.node;
+  if (!call || !ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)) return undefined;
+  if (call.expression.name.text !== 'join' || call.arguments.length !== 1) return undefined;
+  const separator = call.arguments[0];
+  if (!ts.isStringLiteral(separator) || separator.text !== '; ') return undefined;
+  return stringElements(call.expression.expression);
+}
+
+/** The text of a string-like literal node, template pieces included, or undefined. */
+export function literalText(n: ts.Node): string | undefined {
+  if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text;
+  if (ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n)) return n.text;
+  return undefined;
 }
