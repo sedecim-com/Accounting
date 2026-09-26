@@ -31,7 +31,7 @@ Qué es cada cosa y por qué: [`docs/SCOPE.md`](SCOPE.md), [`AGENTS.md`](../AGEN
 | `src/database/` | Pool, migraciones (`migrations/`), políticas RLS, alcance por inquilino y entidad (`scope.ts`) y semillas. |
 | `src/i18n/` | Catálogos de mensajes por clave (`en.ts`, `es.ts`) y formato por locale. |
 | `src/language/` | Registro del vocabulario persistido y su nombre inglés (rector del idioma). |
-| `src/plan/` | El plan ejecutable: criterios (`criterios.ts`), conducta contra base efímera (`conducta.ts`) y `plan:status`. |
+| `src/plan/` | El plan ejecutable: criterios (`criterios.ts`, que reúne un archivo por paquete en `criteria/`), conducta contra base efímera (`conducta.ts`) y `plan:status`. |
 | `src/services/` | Motor de negocio compartido por la terminal, REST y el agente. |
 | `src/services/accounting/` | Motor contable: `posting.ts` (única puerta al mayor), periodos, cierre y su conductor, catálogo, apertura, validaciones. |
 | `src/services/accruals/` | Devengos mensuales y pagos anticipados. |
@@ -82,8 +82,9 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/plan/criteria/e0-0.ts`
 - `src/plan/criteria/e1-2.ts`
 - `src/plan/criteria/e2-1.ts`
+- `src/plan/criteria/e4-1.ts`
+- `src/plan/criteria/e5-1.ts`
 - `src/plan/criteria/shared.ts`
-- `src/plan/criterios.ts`
 - `src/services/accounting/account-service.ts`
 - `src/services/accounting/ar-ap-posting.ts`
 - `src/services/accounting/closing-conductor.ts`

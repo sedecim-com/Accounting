@@ -172,7 +172,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 1. `git fetch` y una rama desde `main` fresco. Lee la issue **y su comentario de triage**. Si el plan está mal, comenta y detente (`PROCESS.md` §5).
 2. **Reproduce primero.** Escribe una prueba de integración contra Postgres (`tests/integration/`, base efímera de `tests/integration/global-setup.ts`) que falle con el defecto.
 3. Arregla. Un PR resuelve una issue: si la issue sugiere dos PRs, son dos.
-4. **Criterio con mutante** en `src/plan/criterios.ts`. Rómpelo en memoria (guardar y restaurar, nunca `git checkout --`) y exige que caiga: `npm run mutantes`. Si el paquete cierra, añádelo a `--exigir` en `.github/workflows/ci.yml` en el mismo commit.
+4. **Criterio con mutante** en el archivo de su paquete, `src/plan/criteria/<paquete>.ts`. Rómpelo en memoria (guardar y restaurar, nunca `git checkout --`) y exige que caiga: `npm run mutantes`. Si el paquete cierra, añádelo a `--exigir` en `.github/workflows/ci.yml` en el mismo commit.
 5. **Regenera los bloques generados** en lugar de editarlos a mano: los de la sección 7.
 6. Pasa las puertas locales:
 
@@ -197,7 +197,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 
 | Archivo | Por qué choca | Cómo se resuelve |
 |---|---|---|
-| `src/plan/criterios.ts` | Un solo arreglo de unas 13 500 líneas; `MIRRORS_FLOOR` y `ANCHORS_HERE` son cuentas exactas | Re-medir sobre el árbol fusionado. #294 lo parte por paquete |
+| `src/plan/criteria/e0-0.ts` | Desde #294 el tablero va en un archivo por paquete, pero `MIRRORS_FLOOR` y `ANCHORS_HERE` siguen siendo cuentas exactas en este archivo | Re-medir sobre el árbol fusionado. #356 propone quitar ese choque |
 | `docs/language.md` y `docs/language.es.md` (bloque) | Lo genera el metro del idioma | `npm run language:status -- --write` |
 | `docs/language-baseline.json` | La línea base sólo baja | `npm run language:status -- --tighten` |
 | `src/i18n/en.ts` y `src/i18n/es.ts` | El extractor inserta antes del último `};` | Conservar el orden de los bloques en los dos archivos |

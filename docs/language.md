@@ -111,7 +111,7 @@ manual act and its trace is the diff.
 | `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 341 (baseline 344) | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28795 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28801 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 

@@ -42,7 +42,7 @@ hace al código:
 npm run plan:status
 ```
 
-Ese comando evalúa criterios ejecutables (`src/plan/criterios.ts`) contra el
+Ese comando evalúa criterios ejecutables (`src/plan/criteria/`) contra el
 árbol y decide el estado de cada paquete de trabajo. Responde cuántos paquetes
 tienen todos sus criterios en verde, y para los restantes imprime la razón
 exacta de su rojo. La CI corre `plan:status --exigir=...` sobre los ya cerrados:
