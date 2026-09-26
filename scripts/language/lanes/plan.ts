@@ -95,6 +95,25 @@ const ROOT = path.resolve(__dirname, '..', '..', '..');
 
 /** Los archivos que este módulo lee, con su ruta relativa como la publica. */
 const CRITERIA_TS = 'src/plan/criterios.ts';
+// The board's shared helpers, moved out of `criterios.ts` by #294. The
+// coverage floors (`SUELO_COBERTURA_*`) live here now; reading them from the
+// index would drop that lane silently, as if someone had translated a key.
+const CRITERIA_SHARED_TS = 'src/plan/criteria/shared.ts';
+// Since #294 the board is the index plus one file per package under
+// `src/plan/criteria/`. The list comes from the directory, sorted, so a new
+// package file cannot escape the meter by not being named here.
+const CRITERIA_DIR = 'src/plan/criteria';
+function criteriaFiles(): string[] {
+  const dir = path.join(ROOT, CRITERIA_DIR);
+  const inDir = fs.existsSync(dir)
+    ? fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith('.ts'))
+        .sort()
+        .map((f) => `${CRITERIA_DIR}/${f}`)
+    : [];
+  return [CRITERIA_TS, ...inDir];
+}
 // La OTRA mitad de los mutantes. `criterios.ts` los declara a mano en
 // criterios literales; `conducta.ts` los trae en `PRUEBAS_DE_CONDUCTA`, que
 // entra a CRITERIOS por un spread que el AST no puede seguir. Leer sólo el
@@ -295,6 +314,8 @@ interface Criterion {
   line: number;
   /** De qué archivo se leyó: los mutantes viven en dos, y el ejemplo lo dice. */
   source: string;
+  /** The parsed file it was read from, for lines and text. */
+  sf: ts.SourceFile;
   evaluate?: ts.Expression;
   /** Anclas de mutante, con el campo del que salen (los dos arneses cuentan). */
   mutants: { file: string; field: string; line: number }[];
@@ -324,22 +345,27 @@ function stringOf(e: ts.Expression | undefined): string | undefined {
  * literales), y un metro cuyo número depende de qué versión de esbuild resolvió
  * el import no es determinista. Además, sólo el fuente tiene líneas que citar.
  */
-function criteria(sf: ts.SourceFile): Criterion[] {
-  let array: ts.ArrayLiteralExpression | undefined;
-  const search = (n: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.name.text === 'CRITERIOS' &&
-      n.initializer !== undefined &&
-      ts.isArrayLiteralExpression(n.initializer)
-    ) {
-      array = n.initializer;
-    }
-    ts.forEachChild(n, search);
-  };
-  search(sf);
-  if (array === undefined) {
+function criteria(files: { rel: string; sf: ts.SourceFile }[]): Criterion[] {
+  // Every `const X: Criterio[] = [...]` of every board file: `CRITERIOS` in
+  // the index and one `E0_0`-style array per package file (#294).
+  const arrays: { rel: string; sf: ts.SourceFile; array: ts.ArrayLiteralExpression }[] = [];
+  for (const { rel, sf } of files) {
+    const search = (n: ts.Node): void => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.type !== undefined &&
+        n.type.getText(sf) === 'Criterio[]' &&
+        n.initializer !== undefined &&
+        ts.isArrayLiteralExpression(n.initializer)
+      ) {
+        arrays.push({ rel, sf, array: n.initializer });
+      }
+      ts.forEachChild(n, search);
+    };
+    search(sf);
+  }
+  if (!arrays.some((a) => a.rel === CRITERIA_TS)) {
     throw new Error(
       `${CRITERIA_TS} ya no declara «export const CRITERIOS = [...]»: los tres primeros ` +
         'carriles medirían cero sobre nada. Ajusta el metro antes que la línea base.'
@@ -347,34 +373,37 @@ function criteria(sf: ts.SourceFile): Criterion[] {
   }
 
   const out: Criterion[] = [];
-  for (const element of array.elements) {
-    // Un `...PRUEBAS_DE_CONDUCTA.map(...)` no es un objeto literal: sus
-    // criterios se construyen en tiempo de ejecución y no hay nada estático que
-    // leer, y aquí se saltan. Sus mutantes NO se pierden: los lee
-    // `conductCriteria` de `conducta.ts`, donde sí están escritos como
-    // literales. Antes se daban por perdidos con esa excusa escrita, y el
-    // carril publicaba 12 mientras el módulo importado tenía 13 — el hueco no
-    // se notó hasta que un tramo ancló el primer mutante de conducta sobre un
-    // archivo de nombre español.
-    if (!ts.isObjectLiteralExpression(element)) continue;
-    const mutants: Criterion['mutants'] = [];
-    for (const field of ['mutantes', 'mutantesEnDisco']) {
-      const list = property(element, field);
-      if (list === undefined || !ts.isArrayLiteralExpression(list)) continue;
-      for (const m of list.elements) {
-        if (!ts.isObjectLiteralExpression(m)) continue;
-        const file = stringOf(property(m, 'archivo'));
-        if (file !== undefined) mutants.push({ file, field, line: lineOf(sf, m) });
+  for (const { rel, sf, array } of arrays) {
+    for (const element of array.elements) {
+      // Un `...PRUEBAS_DE_CONDUCTA.map(...)` no es un objeto literal: sus
+      // criterios se construyen en tiempo de ejecución y no hay nada estático que
+      // leer, y aquí se saltan. Sus mutantes NO se pierden: los lee
+      // `conductCriteria` de `conducta.ts`, donde sí están escritos como
+      // literales. Antes se daban por perdidos con esa excusa escrita, y el
+      // carril publicaba 12 mientras el módulo importado tenía 13 — el hueco no
+      // se notó hasta que un tramo ancló el primer mutante de conducta sobre un
+      // archivo de nombre español.
+      if (!ts.isObjectLiteralExpression(element)) continue;
+      const mutants: Criterion['mutants'] = [];
+      for (const field of ['mutantes', 'mutantesEnDisco']) {
+        const list = property(element, field);
+        if (list === undefined || !ts.isArrayLiteralExpression(list)) continue;
+        for (const m of list.elements) {
+          if (!ts.isObjectLiteralExpression(m)) continue;
+          const file = stringOf(property(m, 'archivo'));
+          if (file !== undefined) mutants.push({ file, field, line: lineOf(sf, m) });
+        }
       }
+      out.push({
+        packageName: stringOf(property(element, 'paquete')) ?? '(sin paquete)',
+        statement: stringOf(property(element, 'enunciado')) ?? '',
+        line: lineOf(sf, element),
+        source: rel,
+        sf,
+        evaluate: property(element, 'evaluar'),
+        mutants,
+      });
     }
-    out.push({
-      packageName: stringOf(property(element, 'paquete')) ?? '(sin paquete)',
-      statement: stringOf(property(element, 'enunciado')) ?? '',
-      line: lineOf(sf, element),
-      source: CRITERIA_TS,
-      evaluate: property(element, 'evaluar'),
-      mutants,
-    });
   }
   return out;
 }
@@ -432,6 +461,7 @@ function conductCriteria(sf: ts.SourceFile): Criterion[] {
       statement: stringOf(property(element, 'enunciado')) ?? '',
       line: lineOf(sf, element),
       source: CONDUCT_TS,
+      sf,
       mutants,
     });
   }
@@ -479,7 +509,7 @@ function nodes(root: ts.Node, matches: (n: ts.Node) => boolean): ts.Node[] {
  */
 function fileReadBy(criterion: Criterion, regex: ts.Node): string {
   const ev = criterion.evaluate;
-  if (ev === undefined) return CRITERIA_TS;
+  if (ev === undefined) return criterion.source;
 
   const READERS = new Set(['codigoDe', 'crudoDe']);
   const pathFromCall = (n: ts.Node, vars: Map<string, string>): string | undefined => {
@@ -532,10 +562,12 @@ function fileReadBy(criterion: Criterion, regex: ts.Node): string {
     }
   }
 
-  return destination !== undefined && /\.(?:ts|tsx|mts|cts)$/.test(destination) ? destination : CRITERIA_TS;
+  return destination !== undefined && /\.(?:ts|tsx|mts|cts)$/.test(destination)
+    ? destination
+    : criterion.source;
 }
 
-function grepsLane(sf: ts.SourceFile, list: Criterion[]): Lane {
+function grepsLane(list: Criterion[]): Lane {
   const perFile: Record<string, number> = {};
   const examples: string[] = [];
   let total = 0;
@@ -543,13 +575,13 @@ function grepsLane(sf: ts.SourceFile, list: Criterion[]): Lane {
   for (const c of list) {
     if (c.evaluate === undefined) continue;
     for (const n of nodes(c.evaluate, (x) => x.kind === ts.SyntaxKind.RegularExpressionLiteral)) {
-      const ids = spanishIdentifiers(n.getText(sf));
+      const ids = spanishIdentifiers(n.getText(c.sf));
       if (ids.length === 0) continue;
       total++;
       const file = fileReadBy(c, n);
       perFile[file] = (perFile[file] ?? 0) + 1;
       examples.push(
-        `${CRITERIA_TS}:${lineOf(sf, n)} · ${c.packageName} · ${n.getText(sf)} → ${ids.join(', ')} (en ${file})`
+        `${c.source}:${lineOf(c.sf, n)} · ${c.packageName} · ${n.getText(c.sf)} → ${ids.join(', ')} (en ${file})`
       );
     }
   }
@@ -566,7 +598,8 @@ function grepsLane(sf: ts.SourceFile, list: Criterion[]): Lane {
     // que el carril. Lo que sí es independiente es el RECORTE: en vez de
     // recorrer el array de criterios, corta el fuente por texto —desde la
     // declaración hasta el `];` que la cierra en la columna cero— y parsea ese
-    // trozo. Si el número coincide, el recorrido del metro no se está dejando
+    // trozo. Since #294 it cuts every `: Criterio[] = [` array of the index
+    // and of each file under `src/plan/criteria/`. Si el número coincide, el recorrido del metro no se está dejando
     // ni añadiendo criterios por el camino.
     //
     // EL RECORTE TIENE QUE CERRAR, y la primera versión no cerraba: cortaba
@@ -580,12 +613,14 @@ function grepsLane(sf: ts.SourceFile, list: Criterion[]): Lane {
     // metro.
     command:
       'npx tsx -e \'const fs=require("fs"),ts=require("typescript"),{isFlagged,tokenize}=require("./scripts/language/lexicon.ts");' +
-      'const s=fs.readFileSync("src/plan/criterios.ts","utf8"),i=s.indexOf("export const CRITERIOS");' +
+      'const F=["src/plan/criterios.ts",...fs.readdirSync("src/plan/criteria").filter(f=>f.endsWith(".ts")).sort()' +
+      '.map(f=>"src/plan/criteria/"+f)];let n=0;for(const f of F){const s=fs.readFileSync(f,"utf8");let k=-1;' +
+      'while((k=s.indexOf(": Criterio[] = [",k+1))>=0){const i=s.lastIndexOf("\\n",k)+1;' +
       'const sf=ts.createSourceFile("c.ts",s.slice(i,s.indexOf("\\n];",i)),ts.ScriptTarget.Latest,true);' +
-      'let n=0;const w=x=>{if(x.kind===ts.SyntaxKind.RegularExpressionLiteral&&' +
+      'const w=x=>{if(x.kind===ts.SyntaxKind.RegularExpressionLiteral&&' +
       '(x.getText(sf).replace(/\\\\[\\s\\S]/g," ").match(/[A-Za-z_$][A-Za-z0-9_$]*/g)||[]).some(' +
       'r=>tokenize(r).length>1&&isFlagged(r)&&(/[a-z0-9][A-Z]/.test(r)||/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$/.test(r))))n++;' +
-      'ts.forEachChild(x,w)};w(sf);console.log(n)\'',
+      'ts.forEachChild(x,w)};w(sf)}}console.log(n)\'',
     examples: examples.slice(0, 6),
     perFile: sortKeys(perFile),
   };
@@ -612,16 +647,16 @@ function grepsLane(sf: ts.SourceFile, list: Criterion[]): Lane {
  * un artefacto compilado que de verdad se citara por su nombre seguiría
  * apareciendo con el suyo en vez de mandarnos a un fuente que no es.
  */
-function perFileKey(cited: string): string {
+function perFileKey(cited: string, citedFrom: string): string {
   const fromRepoRoot = cited.startsWith('.')
-    ? path.posix.normalize(path.posix.join(path.posix.dirname(CRITERIA_TS), cited))
+    ? path.posix.normalize(path.posix.join(path.posix.dirname(citedFrom), cited))
     : cited;
   if (!fromRepoRoot.endsWith('.js')) return fromRepoRoot;
   const asSource = fromRepoRoot.replace(/\.js$/, '.ts');
   return !exists(fromRepoRoot) && exists(asSource) ? asSource : fromRepoRoot;
 }
 
-function pathsLane(sf: ts.SourceFile, list: Criterion[]): Lane {
+function pathsLane(list: Criterion[]): Lane {
   const perFile: Record<string, number> = {};
   const examples: string[] = [];
   let total = 0;
@@ -637,16 +672,17 @@ function pathsLane(sf: ts.SourceFile, list: Criterion[]): Lane {
       const t = (n as ts.StringLiteralLike).text;
       if (!LOOKS_LIKE_PATH.test(t)) continue;
       if (renameableSegment(t) === undefined) continue;
-      if (!citedPaths.has(t)) citedPaths.set(t, lineOf(sf, n));
+      if (!citedPaths.has(t)) citedPaths.set(t, lineOf(c.sf, n));
     }
     for (const [filePath, line] of [...citedPaths].sort()) {
       total++;
       // El TOTAL sigue contando anclas —dos escrituras son dos ediciones— y la
       // deduplicación sigue siendo por texto dentro del criterio: lo que se
       // normaliza es sólo la llave con la que se agrupa el trabajo.
-      perFile[perFileKey(filePath)] = (perFile[perFileKey(filePath)] ?? 0) + 1;
+      const key = perFileKey(filePath, c.source);
+      perFile[key] = (perFile[key] ?? 0) + 1;
       examples.push(
-        `${CRITERIA_TS}:${line} · ${c.packageName} · ${filePath} (segmento «${spanishSegment(filePath) ?? ''}»)`
+        `${c.source}:${line} · ${c.packageName} · ${filePath} (segmento «${spanishSegment(filePath) ?? ''}»)`
       );
     }
   }
@@ -754,7 +790,7 @@ function tableKeys(sf: ts.SourceFile, names: string[]): { key: string; line: num
   return out;
 }
 
-function thresholdsLane(criteriaSf: ts.SourceFile): Lane {
+function thresholdsLane(): Lane {
   const perFile: Record<string, number> = {};
   const examples: string[] = [];
   let total = 0;
@@ -769,10 +805,8 @@ function thresholdsLane(criteriaSf: ts.SourceFile): Lane {
     { rel: VITEST_UNIT, names: ['thresholds'] },
     { rel: VITEST_INTEGRATION, names: ['thresholds'] },
     {
-      rel: CRITERIA_TS,
+      rel: CRITERIA_SHARED_TS,
       names: ['SUELO_COBERTURA_UNITARIA', 'SUELO_COBERTURA_INTEGRACION'],
-      // Ya parseado por el metro: 6 700 líneas no se leen dos veces.
-      sf: criteriaSf,
     },
   ];
 
@@ -1006,16 +1040,15 @@ function sortKeys(m: Record<string, number>): Record<string, number> {
  * carriles la necesitan.
  */
 export const planLanes: LaneMeter = (): Lane[] => {
-  const sf = ast(CRITERIA_TS);
-  const list = criteria(sf);
+  const list = criteria(criteriaFiles().map((rel) => ({ rel, sf: ast(rel) })));
   // El carril de mutantes cuenta LAS DOS fuentes; los otros dos miran `evaluar`,
   // que sólo existe en criterios.ts.
   const withConduct = [...list, ...conductCriteria(ast(CONDUCT_TS))];
   return [
-    grepsLane(sf, list),
-    pathsLane(sf, list),
+    grepsLane(list),
+    pathsLane(list),
     mutantsLane(withConduct),
-    thresholdsLane(sf),
+    thresholdsLane(),
     corpusLane(),
     mocksLane(),
   ];

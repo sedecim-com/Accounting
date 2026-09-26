@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { query } from '../../database/connection.js';
-import type { CheckResult } from '../../ai/doctor-service.js';
+import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -20,6 +20,13 @@ export { ROLES, type RoleName };
 
 const MIN_PASSWORD = 12;
 const BCRYPT_ROUNDS = 12;
+
+/**
+ * One check, three verdicts, one identity. What it measures is not "users" —
+ * it is whether anybody is there to attribute a review to, and whether one of
+ * them owns the install. See `CheckIdentity` in doctor-service.
+ */
+const USERS: CheckIdentity = { id: 'active-users-and-owner', name: 'Users' };
 
 export class UsuariosSection implements SetupSection {
   readonly id = 'usuarios' as const;
@@ -48,14 +55,14 @@ export class UsuariosSection implements SetupSection {
 
     if (n === 0) {
       return [{
-        name: 'Users', level: 'fail',
+        ...USERS, level: 'fail',
         detail: 'no active user: review/outbox/questions cannot attribute',
         fix: 'mnemosine init --section users',
       }];
     }
     if (owners === 0) {
       return [{
-        name: 'Users', level: 'warn',
+        ...USERS, level: 'warn',
         detail: `${n} user(s) but none with the owner role`,
         fix: 'mnemosine init --section users',
       }];
@@ -63,7 +70,7 @@ export class UsuariosSection implements SetupSection {
     // Multiple active users force --user in the commands that attribute:
     // that is correct, but it is worth saying before it surprises anyone.
     return [{
-      name: 'Users', level: 'ok',
+      ...USERS, level: 'ok',
       detail: `${n} active, ${owners} owner(s)`,
       ...(n > 1 ? { fix: 'with multiple users, review/questions require --user <email>' } : {}),
     }];

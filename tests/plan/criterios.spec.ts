@@ -8,6 +8,7 @@ import {
   fuentes,
   sinComentarios,
 } from '../../src/plan/criterios.js';
+import { sharedBoard } from '../helpers/shared-board.js';
 
 // ============================================================
 // EL INSTRUMENTO DE MEDIDA, MEDIDO.
@@ -89,23 +90,18 @@ describe('la lista de criterios', () => {
     }
   });
 
-  // 60 s y no los 5 por omisión: esta prueba EJECUTA los criterios de los quince
-  // paquetes, y hoy entre ellos hay uno que lanza `git check-ignore` como
-  // subproceso y otro que abre un socket a Postgres. Con la suite entera en
-  // paralelo eso pasa de cinco segundos y el fallo aparece como un timeout que
-  // nadie reproduce a mano — se vio una vez, en verde las dos siguientes.
+  // Default timeout. The board is evaluated ONCE per run in the unit
+  // globalSetup (tests/helpers/shared-board.ts) and this test reads its
+  // results. It used to run all the criteria itself, in series, under a 60 s
+  // ceiling raised twice by growth (#293).
   //
-  // De 30 s a 60 s porque el techo se agotó por CRECIMIENTO, no por lentitud
-  // nueva: el tablero pasó de 130 criterios a 186, y esta prueba los corre
-  // TODOS en serie. Medido en esta máquina con carga 82, el archivo entero
-  // tarda 41 s. El número es un margen, no una promesa de rendimiento: si se
-  // vuelve a agotar, lo que hay que cambiar es el bucle —correrlos por lotes
-  // en paralelo—, no el techo otra vez.
-  it('todo resultado trae un detalle con el que se puede actuar', { timeout: 60_000 }, async () => {
-    for (const c of CRITERIOS) {
-      const r = await c.evaluar();
-      expect(r.detalle, c.enunciado).toBeTruthy();
-      expect(r.detalle.length, c.enunciado).toBeGreaterThan(10);
+  // A criterion that THROWS still fails here, as it did when this loop called
+  // `evaluar()` directly: the setup records the throw apart from the result.
+  it('todo resultado trae un detalle con el que se puede actuar', () => {
+    for (const { criterion: c, result: r, threw } of sharedBoard()) {
+      expect(threw, c.enunciado).toBeUndefined();
+      expect(r?.detalle, c.enunciado).toBeTruthy();
+      expect(r?.detalle.length ?? 0, c.enunciado).toBeGreaterThan(10);
     }
   });
 });
@@ -178,18 +174,23 @@ describe('los criterios tienen identidad, y no es su prosa', () => {
 // ============================================================
 
 describe('el piso cubre lo que --exigir no alcanza', () => {
-  it('todo criterio verde de un paquete abierto está nombrado en el piso', async () => {
+  // Default timeout: it reads the board of this run instead of evaluating it
+  // again (#293). A criterion that needs a database is treated as not
+  // evaluated whatever the shared run said, which is the worst case this test
+  // exists to look at.
+  it('todo criterio verde de un paquete abierto está nombrado en el piso', () => {
     const necesitaBase = (c: (typeof CRITERIOS)[number]): boolean =>
       c.necesita !== undefined || c.clase === 'conducta';
 
     const estado = new Map<(typeof CRITERIOS)[number], 'ok' | 'falla' | 'sin-evaluar'>();
-    for (const c of CRITERIOS) {
+    for (const { criterion: c, result: r, threw } of sharedBoard()) {
       if (necesitaBase(c)) {
         estado.set(c, 'sin-evaluar');
         continue;
       }
-      const r = await c.evaluar();
-      estado.set(c, r.estado === 'ok' ? 'ok' : 'falla');
+      // Evaluating it here used to throw out of the test; it still does.
+      if (threw !== undefined) throw new Error(`${c.enunciado}: ${threw}`);
+      estado.set(c, r?.estado === 'ok' ? 'ok' : 'falla');
     }
 
     // Un paquete está ABIERTO si alguno de los suyos no está verde, y un
@@ -215,5 +216,5 @@ describe('el piso cubre lo que --exigir no alcanza', () => {
       desprotegidos,
       'verdes de paquete abierto sin entrada en docs/criterios-minimos.json: si retroceden, nada lo dice'
     ).toEqual([]);
-  }, 60_000);
+  });
 });

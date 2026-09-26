@@ -18,7 +18,7 @@ mnemosine lang
 
 ```text
 Agent response language: es
-Change it with: mnemosine lang en|es (or MNEMOSINE_LANG env var)
+Change it with: mnemosine lang es|en|es-MX|en-US (or MNEMOSINE_LANG env var)
 ```
 
 `es` es el valor por omisión. Esa opción gobierna el idioma de las **respuestas del agente**, no el de la interfaz. Es una brecha conocida y está registrada en [[Auditorias]].

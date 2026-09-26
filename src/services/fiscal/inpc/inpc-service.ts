@@ -2,7 +2,7 @@ import type pg from 'pg';
 import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { AccountingError, ConflictError, ValidationError } from '../../../utils/errors.js';
-import type { CheckLevel, CheckResult } from '../../../ai/doctor-service.js';
+import type { CheckIdentity, CheckLevel, CheckResult } from '../../../ai/doctor-service.js';
 import {
   factorDeActualizacion,
   normalizarBase,
@@ -351,6 +351,20 @@ export interface OpcionesVerificacion {
 const MUESTRA_DE_HUECOS = 12;
 
 /**
+ * The identities of the three findings `inpc check` reports.
+ *
+ * `name` is left alone, and that is not an oversight: 'inpc-serie',
+ * 'inpc-huecos' and 'inpc-bases' are the label the surface prints today and
+ * the string the tests already ask for. What was missing is the other half —
+ * the stable English identity that survives the day that label goes through
+ * the i18n catalogue — and that is what is added here. See `CheckIdentity` in
+ * doctor-service.
+ */
+const INPC_SERIES: CheckIdentity = { id: 'inpc-series-loaded', name: 'inpc-serie' };
+const INPC_GAPS: CheckIdentity = { id: 'inpc-months-missing', name: 'inpc-huecos' };
+const INPC_BASES: CheckIdentity = { id: 'inpc-base-ambiguity', name: 'inpc-bases' };
+
+/**
  * Los hallazgos de `inpc check`. La forma es la de `CheckResult` de doctor
  * —importada como TIPO, sin arrastrar el módulo— para que la superficie los
  * pinte con el renderizador que ya existe en vez de inventar otro.
@@ -368,7 +382,7 @@ export async function verificarSerie(opts: OpcionesVerificacion): Promise<{
   const cargada = await listarSerie({ base, hasta: opts.hasta });
   if (cargada.length === 0) {
     checks.push({
-      name: 'inpc-serie',
+      ...INPC_SERIES,
       level: 'fail',
       detail: `No hay ningún INPC cargado${base ? ` en base "${base}"` : ''} hasta ` +
         `${formatearPeriodo(opts.hasta)}. Sin serie no hay factor de actualización, y sin factor ` +
@@ -383,7 +397,7 @@ export async function verificarSerie(opts: OpcionesVerificacion): Promise<{
   const presentes = new Set(cargada.map((f) => formatearPeriodo({ anio: f.anio, mes: f.mes })));
 
   checks.push({
-    name: 'inpc-serie',
+    ...INPC_SERIES,
     level: 'ok',
     detail: `${presentes.size} mes(es) cargados en ${cargada.length} fila(s), de ` +
       `${formatearPeriodo({ anio: cargada[0].anio, mes: cargada[0].mes })} a ` +
@@ -396,14 +410,14 @@ export async function verificarSerie(opts: OpcionesVerificacion): Promise<{
 
   if (faltantes.length === 0) {
     checks.push({
-      name: 'inpc-huecos',
+      ...INPC_GAPS,
       level: 'ok',
       detail: `Sin huecos entre ${formatearPeriodo(desde)} y ${formatearPeriodo(opts.hasta)}.`,
     });
   } else {
     const muestra = faltantes.slice(0, MUESTRA_DE_HUECOS);
     checks.push({
-      name: 'inpc-huecos',
+      ...INPC_GAPS,
       level: 'fail',
       detail: `Faltan ${faltantes.length} mes(es) entre ${formatearPeriodo(desde)} y ` +
         `${formatearPeriodo(opts.hasta)}: ${muestra.join(', ')}` +
@@ -427,9 +441,9 @@ export async function verificarSerie(opts: OpcionesVerificacion): Promise<{
     const ambiguos = [...porMes.entries()].filter(([, s]) => s.size > 1).map(([k]) => k);
     checks.push(
       ambiguos.length === 0
-        ? { name: 'inpc-bases', level: 'ok', detail: 'Cada mes cargado tiene una sola base.' }
+        ? { ...INPC_BASES, level: 'ok', detail: 'Cada mes cargado tiene una sola base.' }
         : {
-            name: 'inpc-bases',
+            ...INPC_BASES,
             level: 'warn',
             detail: `${ambiguos.length} mes(es) están cargados en más de una base ` +
               `(${ambiguos.slice(0, MUESTRA_DE_HUECOS).join(', ')}). No es un error —el INEGI ` +

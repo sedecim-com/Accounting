@@ -105,8 +105,8 @@ Queda fuera del MVP, con sus issues en la etiqueta `post-mvp`:
 | Consume | CFDI 4.0 (XML) y estados de cuenta (CSV, MT940, camt053) | El SAT y los bancos, a través del cliente | Alta |
 | Consume | Proveedores de modelo (Anthropic y compatibles con OpenAI) | Terceros | Media: hay camino manual sin modelo (#319) |
 | Consume | PAC de timbrado (adaptadores precargados, sin hoja) | Terceros con contrato | Fuera del MVP |
-| Lee y escribe | Contalink: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Sistema contable externo | Media: `accounting-manager` también le escribe pólizas hasta que se apague (ADR-0003) |
-| Ninguna | Ningún contrato con otro repo de Sedecim. `accounting-manager` se apaga y se archiva: este repo es la fuente de verdad (ADR-0003) | Plataforma Sedecim (`docs/platform/inventory.md`) | — |
+| Lee y escribe | Contalink: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Sistema contable externo | Media: `accounting-manager` escribe las comisiones de Grupo Promessa en su compañía; este repo no escribe en una compañía que ya tiene escritor (ADR-0004, #357) |
+| Ninguna | Ningún contrato con otro repo de Sedecim. `accounting-manager` convive: contabiliza las comisiones de Grupo Promessa, con un solo escritor por compañía de Contalink (ADR-0004) | Plataforma Sedecim (`docs/platform/inventory.md`) | — |
 
 ## Datos y clasificación `[inferido]`
 
@@ -193,7 +193,8 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 
 | Fecha | Cambio | PR |
 |---|---|---|
-| 2026-09-26 | Resuelta la fuente de verdad frente a `accounting-manager`: este repo (ADR-0003, #342) | este |
+| 2026-09-26 | Corregida la relación con `accounting-manager`: conviven, con un solo escritor por compañía de Contalink (ADR-0004 sustituye al 0003, #342) | este |
+| 2026-09-26 | Resuelta la fuente de verdad frente a `accounting-manager`: este repo (ADR-0003, #342) | #347 |
 | 2026-09-25 | Interacciones con Contalink y la plataforma Sedecim; dos preguntas abiertas de plataforma (ADR-0002) | #343 |
 | 2026-09-25 | TL;DR y las secciones de la plantilla del framework agéntico, marcadas `[inferido]` hasta la entrevista (#337) | #340 |
 | 2026-09-25 | Sección «El MVP» | #291 |
