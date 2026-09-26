@@ -1,72 +1,72 @@
 ---
-name: Ticket de trabajo
-about: Una unidad de trabajo lista para una persona o un agente — qué debe ser cierto al terminar, no qué archivos tocar
+name: Work ticket
+about: One unit of work ready for a person or an agent — what must be true when it is done, not which files to touch
 title: ''
 labels: 'status:triage'
 assignees: ''
 ---
 
 <!--
-Definition of Ready (docs/PROCESS.md §1 y docs/ROUTING.md). Una issue pasa a
-`status:agent-ready` sólo si tiene TODO lo de abajo, es D1–D2 y no está bloqueada;
-en D3–D4 además hace falta `/confirmar` de un humano. Si un desarrollador nuevo no
-podría resolverla sin preguntar, un agente tampoco.
+Definition of Ready (docs/PROCESS.md §1 and docs/ROUTING.md). An issue moves to
+`status:agent-ready` only if it has EVERYTHING below, is D1–D2 and is not blocked;
+D3–D4 also need a human's `/confirmar`. If a new developer could not solve it
+without asking, neither can an agent.
 -->
 
-## Objetivo
+## Goal
 
-<!-- Una oración, con el resultado para el contador o el despacho. -->
+<!-- One sentence, with the outcome for the accountant or the firm. -->
 
-## Tramo y contexto
+## Tranche and context
 
-- **Tramo:** <!-- código del plan (T4, F07e, O1c…) o «nuevo» -->
-- **Por qué ahora:** <!-- copiado del "por qué aquí" de la secuencia si existe; si viene de una auditoría, archivo:línea y reproducción -->
-- **Relacionado:** <!-- #issue, PR, docs/adr/NNNN, sección de docs/SCOPE.md -->
+- **Tranche:** <!-- the plan's code (T4, F07e, O1c…) or "new" -->
+- **Why now:** <!-- copied from the sequence's "why here" if it exists; if it comes from an audit, file:line and a reproduction -->
+- **Related:** <!-- #issue, PR, docs/adr/NNNN, section of docs/SCOPE.md -->
 
-## Criterios de aceptación
+## Acceptance criteria
 
-<!-- Verificables, en Dado / Cuando / Entonces. Cada uno se convierte en una prueba. -->
+<!-- Verifiable, as Given / When / Then. Each one becomes a test. -->
 
-- [ ] Dado …, cuando …, entonces ….
+- [ ] Given …, when …, then ….
 
-## Impacto
+## Impact
 
-<!-- Contratos de este repo que cambian: API publicada (docs/openapi.json), entregables al SAT/IMSS, esquema (migración), superficie del CLI (catálogo). «Ninguno» también es respuesta. -->
+<!-- This repo's contracts that change: published API (docs/openapi.json), SAT/IMSS deliverables, schema (migration), CLI surface (catalog). "None" is also an answer. -->
 
-| Contrato | Impacto (ninguno · compatible · rompe) | Acción |
+| Contract | Impact (none · compatible · breaking) | Action |
 |---|---|---|
 | | | |
 
-## Pistas de implementación
+## Implementation hints
 
-- **Archivos probables:** <!-- ver docs/REPO_MAP.md -->
-- **Patrón a seguir:** <!-- enlace a código existente bien hecho -->
+- **Likely files:** <!-- see docs/REPO_MAP.md -->
+- **Pattern to follow:** <!-- link to existing code done well -->
 
-## Fuera de alcance
+## Out of scope
 
 -
 
-## Cómo probar
+## How to test
 
-- `scripts/verify.sh`, y la prueba específica: <!-- ruta del spec -->
-- **Datos:** fixtures sintéticos en `tests/fixtures/` (nunca datos reales).
-- **Casos borde:**
+- `scripts/verify.sh`, and the specific test: <!-- path of the spec -->
+- **Data:** synthetic fixtures in `tests/fixtures/` (never real data).
+- **Edge cases:**
 
-## Clasificación
+## Classification
 
-<!-- La llena el triage; ver la rúbrica en docs/ROUTING.md. -->
+<!-- Filled in by triage; see the rubric in docs/ROUTING.md. -->
 
-| Alcance | Ambigüedad | Novedad | Riesgo | Verificabilidad | Total → nivel |
+| Scope | Ambiguity | Novelty | Risk | Verifiability | Total → level |
 |---|---|---|---|---|---|
 | | | | | | D? |
 
-- **Autonomía:** A1 | A2 | A3. Este repo es **A3 por omisión**: tiene PII y funciones financieras reguladas.
-- **Tamaño estimado:** ~N líneas. Si pasa de ~400, dividir antes de `agent-ready`.
+- **Autonomy:** A1 | A2 | A3. This repo is **A3 by default**: it holds PII and regulated financial functions.
+- **Estimated size:** ~N lines. Over ~400, split it before `agent-ready`.
 
-## Restricciones
+## Constraints
 
-<!-- Invariantes de AGENTS.md que aplican especialmente; rutas que no se tocan; decisiones que van al panel (invariante 6). -->
+<!-- Invariants from AGENTS.md that apply especially; paths that are not touched; decisions that go to the panel (invariant 6). -->
 
-## Depende de
+## Depends on
 
-<!-- Otra issue, o «ninguna». Si depende de una abierta: `status:blocked`. -->
+<!-- Another issue, or "none". If it depends on an open one: `status:blocked`. -->

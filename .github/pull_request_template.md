@@ -1,70 +1,69 @@
 Closes #
 
-<!-- Un PR resuelve una issue. Menos de ~400 líneas sin contar lo generado; si no cabe, la issue se divide. Ábrelo como Draft mientras CI no esté en verde. -->
+<!-- One PR resolves one issue. Under ~400 lines not counting generated ones; if it does not fit, the issue is split. Open it as a Draft while CI is not green. -->
 
-## Qué cambia
+## What changes
 
-<!-- Una o dos frases. El "qué", no el "cómo". -->
+<!-- One or two sentences. The "what", not the "how". -->
 
-## Por qué
+## Why
 
-<!-- El problema que existía antes de este cambio. Si no había problema,
-     explica qué se gana. Un PR sin porqué no se puede revisar: sólo leer. -->
+<!-- The problem that existed before this change. If there was no problem,
+     explain what is gained. A PR with no why cannot be reviewed: only read. -->
 
-## Tipo
+## Type
 
-- [ ] corrección · - [ ] funcionalidad · - [ ] refactor · - [ ] docs · - [ ] mantenimiento · - [ ] cambia un contrato
+- [ ] fix · - [ ] feature · - [ ] refactor · - [ ] docs · - [ ] maintenance · - [ ] changes a contract
 
-## Impacto
+## Impact
 
-- **Contratos modificados:** ninguno | API `docs/openapi.json` | entregable SAT/IMSS | esquema (migración) | CLI (catálogo) — (compatible / rompe)
-- **Decisiones de criterio contable:** ninguna | clave nueva en el panel con su lector (invariante 6)
+- **Contracts modified:** none | API `docs/openapi.json` | SAT/IMSS deliverable | schema (migration) | CLI (catalog) — (compatible / breaking)
+- **Accounting-treatment decisions:** none | new key in the panel with its reader (invariant 6)
 
-## Cómo probar (persona)
+## How to test (person)
 
 1. `npm ci && scripts/verify.sh`
-2. <!-- el comando del CLI que muestra el cambio, con datos sintéticos -->
-3. Resultado esperado: …
+2. <!-- the CLI command that shows the change, with synthetic data -->
+3. Expected result: …
 
-## Cómo probar (agente)
+## How to test (agent)
 
-- **Comando único:** `scripts/verify.sh`. Si saltó la integración, di por qué.
-- **Criterios de aceptación y su prueba:**
+- **Single command:** `scripts/verify.sh`. If integration was skipped, say why.
+- **Acceptance criteria and their test:**
 
-  | Criterio | Prueba · criterio del plan |
+  | Criterion | Test · plan criterion |
   |---|---|
-  | CA-1 | `tests/…` · `id-del-criterio` |
+  | AC-1 | `tests/…` · `criterion-id` |
 
-- **Mutantes:** el criterio muere con su mutante (`npm run mutantes`), o no aplica porque …
+- **Mutants:** the criterion dies with its mutant (`npm run mutantes`), or it does not apply because …
 
-## Evidencia
+## Evidence
 
-<!-- Salida de consola, cifras antes/después, reproducción del defecto. -->
+<!-- Console output, before/after figures, reproduction of the defect. -->
 
-## Riesgos y rollback
+## Risks and rollback
 
-- **Riesgo:** …
-- **Rollback:** revertir el PR | migración nueva que deshace (nunca editar una aplicada) | clave del panel
+- **Risk:** …
+- **Rollback:** revert the PR | new migration that undoes it (never edit an applied one) | panel key
 
-## Invariantes de la casa que este cambio toca
+## House invariants this change touches
 
-<!-- Marca lo que aplique y explica cómo se sostiene. Si no toca ninguno, borra
-     esta sección. -->
+<!-- Tick what applies and explain how it holds. If it touches none, delete
+     this section. -->
 
-- [ ] La IA no escribe el libro ni sistemas externos: todo queda en
-      `ai_drafts` / `ai_external_ops` y lo aprueba una persona.
-- [ ] Los `UPDATE` llevan predicado de estado, alcance por entidad y revisión de
-      `rowCount`.
-- [ ] Toda consulta está acotada por `entity_id` / `tenant_id`.
-- [ ] Los límites de `src/ai/floor.ts` sólo se combinan con `Math.min`.
-- [ ] El contenido de terceros (CFDI, webhooks, skills) va envuelto como no
-      confiable, con los delimitadores neutralizados.
+- [ ] The AI writes neither the ledger nor external systems: everything stays in
+      `ai_drafts` / `ai_external_ops` and a person approves it.
+- [ ] `UPDATE`s carry a state predicate, entity scope and a `rowCount` check.
+- [ ] Every query is bounded by `entity_id` / `tenant_id`.
+- [ ] The limits in `src/ai/floor.ts` are only combined with `Math.min`.
+- [ ] Third-party content (CFDI, webhooks, skills) is wrapped as untrusted, with
+      its delimiters neutralised.
 
 ## Checklist
 
-- [ ] `scripts/verify.sh` en verde (o lo que no corrió, dicho arriba)
-- [ ] Bloques generados regenerados, no editados a mano
-- [ ] Documentación y comentarios tocados en el mismo PR
-- [ ] Sin secretos ni datos reales
-- [ ] Revisé el diff completo, también si lo escribió un agente
-- [ ] Si lo escribió un agente: etiqueta `agent-authored` y el modelo aquí → <!-- modelo / herramienta -->
+- [ ] `scripts/verify.sh` green (or what did not run, said above)
+- [ ] Generated blocks regenerated, not edited by hand
+- [ ] Documentation and comments touched in the same PR
+- [ ] No secrets and no real data
+- [ ] I reviewed the whole diff, also if an agent wrote it
+- [ ] If an agent wrote it: label `agent-authored` and the model here → <!-- model / tool -->
