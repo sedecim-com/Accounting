@@ -18,6 +18,18 @@ updates:
         patterns: ['vitest', '@vitest/*']
       menores-y-parches:
         update-types: [minor, patch]
+    # Mayores que no son una subida sino una migración. Cada una se hace en su
+    # propia issue, no en el PR de Dependabot, que sólo cambia el lockfile:
+    #   · zod 4 reescribe la API que usan el middleware de validación, el
+    #     conversor Zod→OpenAPI y los esquemas (#352, cerrado; la migración es #367).
+    #   · typescript 7 queda fuera del peer de typescript-eslint (<6.1) y
+    #     `npm ci` falla con ERESOLVE (#351, cerrado). Se quita la exclusión
+    #     cuando typescript-eslint lo soporte.
+    ignore:
+      - dependency-name: zod
+        update-types: ['version-update:semver-major']
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
