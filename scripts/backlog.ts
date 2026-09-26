@@ -10,9 +10,10 @@
  * the one it needs. Here the sprint falls out of four things that live in the
  * data: dependencies (a task starts the sprint AFTER everything it depends on),
  * the wave (docs/MVP.md §3: what the owner wants done first, so Ola 0 before
- * Ola 1), priority (Must before Should before Could, file order breaking ties) and
- * capacity (per sprint and per lane — lanes are split by the files they touch,
- * docs/MVP.md §3). Owner decisions are scheduled in sprint 1 and do not use
+ * Ola 1), priority (Must before Should before Could), the critical path (among
+ * equals, the task with the longest chain of open work waiting on it goes
+ * first; file order breaks the remaining ties) and capacity (per sprint and per
+ * lane — lanes are split by the files they touch, docs/MVP.md §3). Owner decisions are scheduled in sprint 1 and do not use
  * capacity: a task waiting on one can never land in sprint 1.
  *
  * WHAT MAKES A TASK ATOMIC is checked, not assumed: D1–D3 only (a D4 is split
@@ -175,6 +176,7 @@ function findCycle(tasks: Task[]): string[] | null {
 export function schedule(backlog: Backlog): Map<string, number> {
   const sprint = new Map<string, number>();
   const order = new Map(backlog.tasks.map((t, i) => [t.id, i]));
+  const chain = chainLengths(backlog.tasks);
   let pending: Task[] = [];
 
   for (const t of backlog.tasks) {
@@ -192,6 +194,7 @@ export function schedule(backlog: Backlog): Map<string, number> {
         (a, b) =>
           (a.wave ?? 9) - (b.wave ?? 9) ||
           PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
+          chain.get(b.id)! - chain.get(a.id)! ||
           order.get(a.id)! - order.get(b.id)!,
       );
     const laneLoad = new Map<string, number>();
@@ -206,6 +209,28 @@ export function schedule(backlog: Backlog): Map<string, number> {
     pending = pending.filter((t) => !sprint.has(t.id));
   }
   return sprint;
+}
+
+/**
+ * For each open task, how many sprints of open work hang behind it at least:
+ * 1 for a task nothing waits on, and one more than its longest dependent chain
+ * otherwise. Without it, a lane at capacity picks by file order and can leave
+ * the head of a long chain for later, which pushes the MVP a sprint per link.
+ */
+export function chainLengths(tasks: Task[]): Map<string, number> {
+  const open = tasks.filter((t) => t.status === 'open' && !isDecision(t));
+  const dependents = new Map<string, Task[]>(open.map((t) => [t.id, []]));
+  for (const t of open) for (const d of t.depends_on) dependents.get(d)?.push(t);
+  const length = new Map<string, number>();
+  const visit = (t: Task): number => {
+    const known = length.get(t.id);
+    if (known !== undefined) return known;
+    const n = 1 + Math.max(0, ...dependents.get(t.id)!.map(visit));
+    length.set(t.id, n);
+    return n;
+  };
+  for (const t of open) visit(t);
+  return length;
 }
 
 function sprintStart(start: string, days: number, n: number): string {
