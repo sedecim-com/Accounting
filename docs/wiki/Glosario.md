@@ -66,7 +66,7 @@ Cuando un término tiene consecuencias en el motor, el enlace lleva a donde se e
 
 **REP** — *Recibo Electrónico de Pago*, o complemento de pago: un CFDI **tipo P** que documenta que un dinero se movió y contra qué facturas se aplicó. Es la pieza que libera el IVA aparcado de una operación PPD. Emitirlo cuando cobramos es obligación propia con plazo; recibirlo cuando pagamos es condición para acreditar.
 
-**RESICO** — *Régimen Simplificado de Confianza*. Régimen fiscal con tasas reducidas y obligaciones aligeradas para personas físicas y morales de ingresos acotados. Aparece en el catálogo de regímenes con la clave 626 (y 625 para las actividades empresariales).
+**RESICO** — *Régimen Simplificado de Confianza*. Régimen fiscal con tasas reducidas y obligaciones aligeradas para personas físicas y morales de ingresos acotados. Aparece en el catálogo de regímenes con la clave 626. La 625 no es RESICO: es el régimen de las actividades empresariales con ingresos a través de plataformas tecnológicas.
 
 **Retención** — Impuesto que una parte descuenta a la otra y entera al SAT en su nombre. Tiene dos caras contables opuestas y por eso hay cuatro roles distintos en el motor: cuando **retenemos** a un proveedor es un pasivo (lo debemos al SAT); cuando **nos retienen** es un activo a favor (ya se pagó por nosotros).
 

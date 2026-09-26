@@ -10,7 +10,7 @@ Un arreglo, una deuda o una tarea de la ruta al MVP que ya tiene issue con DoR *
 | 2. Entrevista con quienes lo piden | Respuestas sin «depende»; preguntas abiertas con dueño | La issue épica |
 | 3. PRD | Requisitos `RF-nn` y `RNF-nn` con criterio de aceptación | `docs/prd/PRD-<nnn>-<slug>.md` |
 | 4. System design | Límite del repo, contratos, datos, fallas | `docs/design/SD-<nnn>-<slug>.md` |
-| 5. Backlog | Tareas atómicas `MNE-<nnn>-<mm>` | `docs/backlog/PRD-<nnn>.yaml`, y una issue por tarea |
+| 5. Backlog | Tareas atómicas `MNE-<nnn>-<mm>` | `docs/backlog/PRD-<nnn>.json` y su vista generada; una issue por tarea |
 
 El prefijo `MNE` es el `id_prefix` de `catalog-info.yaml`. Si una tarea cae en otro repo, lleva el prefijo de ese repo y el mismo número de PRD, así la cadena queda trazable.
 
@@ -39,7 +39,7 @@ Es obligatorio y va antes de escribir cualquier requisito. Se revisa `catalog-in
 | No existe y es del dominio contable según `docs/SCOPE.md` | Construir aquí |
 | No existe y es de otro dominio | Proponerla a su owner; si se construye aquí, un ADR dice por qué |
 
-**En este repo, antes que nada:** lo que toque Contalink o la generación de pólizas desde CFDI se construye aquí, no en `accounting-manager`, que se apaga ([ADR-0003](../adr/0003-source-of-truth-over-accounting-manager.md)).
+**En este repo, antes que nada:** lo que escriba en Contalink respeta la frontera del [ADR-0004](../adr/0004-coexistence-with-accounting-manager.md): un solo escritor por compañía, identificada por RFC. Las comisiones de los agentes de Grupo Promessa las contabiliza `accounting-manager`, no este repo.
 
 ## 3. Plantilla de PRD
 
@@ -79,5 +79,11 @@ El PRD dice *qué* y *por qué*, nunca *cómo*. No se aprueba con una pregunta a
 10. **Trazabilidad:** cada `RF` y `RNF` apunta a su componente. Un requisito sin componente, o un componente sin requisito, bloquea la aprobación.
 
 ## 5. Backlog
+
+**El primero es el del MVP:** [PRD-001](PRD-001-mvp.md) → [`docs/backlog/PRD-001.md`](../backlog/PRD-001.md).
+
+- **Qué se edita:** `docs/backlog/PRD-<nnn>.json`. El framework lo llama `.yaml`; aquí es JSON porque el repo no declara un parser de YAML.
+- **Qué se regenera:** `npx tsx scripts/backlog.ts` valida el backlog, **calcula el sprint sugerido** —por dependencias, prioridad y capacidad— y escribe la vista.
+- **Qué lo vigila:** `tests/scripts/backlog.spec.ts`, dentro de `npm test`, falla si la vista quedó vieja o si una tarea deja de ser atómica.
 
 Una tarea es atómica si tiene un solo resultado verificable, toca un solo repo, cabe en un PR de menos de ~400 líneas y es D1–D3 (una D4 se divide antes de entrar; `docs/ROUTING.md`). Cada tarea se vuelve una issue con la plantilla de `.github/ISSUE_TEMPLATE/`. Si el desarrollo cierra o protege un paquete del plan, su criterio va a `src/plan/criterios.ts` con su mutante.

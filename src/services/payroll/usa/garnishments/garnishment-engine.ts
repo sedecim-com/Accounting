@@ -37,6 +37,10 @@ export interface GarnishmentResult {
 }
 
 const FMW_PER_HOUR = 7.25; // Federal minimum wage
+/** CCPA Title III ordinary-creditor ceiling, as a share of disposable earnings. */
+const CREDITOR_SHARE = 0.25;
+/** Administrative Wage Garnishment ceiling, per student-loan order. */
+const STUDENT_LOAN_SHARE = 0.15;
 
 function weeklyEquivalent(disposable: number, freq: GarnishmentInput['pay_frequency']): number {
   switch (freq) {
@@ -97,12 +101,71 @@ function behaviourOf(type: GarnishmentType): 'child_support' | 'tax_levy' | 'cre
 }
 
 /**
+ * THE MOST THE CASCADE BELOW CAN TAKE, for a SET of live orders, in percentage
+ * points of disposable earnings (100 = the whole cheque). Read off the same
+ * branches `calculateGarnishments` runs, so the writer can refuse a set before
+ * it is filed instead of printing the cascade after it is (Witness WIT-02, #272):
+ *
+ * - a levy takes `disposable - exempt` against NO shared counter: up to 100
+ *   each, whatever else is live;
+ * - child support shares ONE counter, capped at the highest CCPA ceiling of
+ *   the live support orders (:ccpaChildSupportCap);
+ * - creditors (and bankruptcy) share ONE counter, capped at CREDITOR_SHARE
+ *   MINUS everything already withheld outside child support — levies
+ *   included — so levies and creditors together never take more than the
+ *   larger of the two ceilings;
+ * - each student loan is capped at STUDENT_LOAN_SHARE on its own.
+ *
+ * The families are summed with no joint ceiling, which is what makes a sum
+ * over 100 a net pay below zero. This does not decide which order loses — it
+ * only tells the writer that the engine would take more than there is.
+ */
+export function worstCaseShareOfDisposable(
+  orders: ReadonlyArray<{
+    garnishment_type: GarnishmentType;
+    supports_second_family: boolean | null | undefined;
+    arrears_over_12_weeks: boolean | null | undefined;
+  }>
+): number {
+  let levies = 0;
+  let supportCap = 0;
+  let creditor = 0;
+  let studentLoans = 0;
+  for (const o of orders) {
+    switch (behaviourOf(o.garnishment_type)) {
+      case 'tax_levy':
+        levies += 100;
+        break;
+      case 'child_support':
+        supportCap = Math.max(
+          supportCap,
+          Math.round(ccpaChildSupportCap(!!o.supports_second_family, !!o.arrears_over_12_weeks) * 100)
+        );
+        break;
+      case 'creditor':
+        creditor = Math.round(CREDITOR_SHARE * 100);
+        break;
+      case 'student_loan':
+        studentLoans += Math.round(STUDENT_LOAN_SHARE * 100);
+        break;
+    }
+  }
+  return Math.max(levies, creditor) + supportCap + studentLoans;
+}
+
+/**
  * The order the header of this file promises, and that `ORDER BY priority`
  * alone did NOT deliver: federal tax levy > child support > bankruptcy >
  * creditor. Priority and start date break ties WITHIN a rank, which is what
  * they are for.
+ *
+ * Exported since F08 so the order LIST can sort by the same table instead of
+ * copying it: a list sorted by `priority` alone shows a creditor with priority
+ * 1 ahead of a support order with 100, which is the reverse of what payday
+ * does. Two copies of a precedence table is the shape of defect 075 closed one
+ * vocabulary over.
  */
-const RANK: Record<GarnishmentType, number> = {
+export const RANK: Record<GarnishmentType, number> = {
   tax_levy_federal: 0,
   tax_levy_state: 1,
   child_support: 2,
@@ -195,7 +258,7 @@ export async function calculateGarnishments(input: GarnishmentInput): Promise<Ga
 
   const weekly = weeklyEquivalent(input.disposable_earnings, input.pay_frequency);
   const fmwThreshold = 30 * FMW_PER_HOUR; // $217.50/week
-  const creditorMaxWeekly = Math.max(0, Math.min(weekly * 0.25, weekly - fmwThreshold));
+  const creditorMaxWeekly = Math.max(0, Math.min(weekly * CREDITOR_SHARE, weekly - fmwThreshold));
 
   // Overall CCPA ceiling from child-support orders (tracks highest)
   let csCapPct = 0;
@@ -232,11 +295,22 @@ export async function calculateGarnishments(input: GarnishmentInput): Promise<Ga
       if (amount < desired) cap = 'CCPA 25% / 30×FMW';
     } else if (o.type === 'student_loan') {
       // Administrative Wage Garnishment: 15% of disposable
-      amount = Math.min(o.desired || input.disposable_earnings * 0.15, input.disposable_earnings * 0.15);
+      amount = Math.min(
+        o.desired || input.disposable_earnings * STUDENT_LOAN_SHARE,
+        input.disposable_earnings * STUDENT_LOAN_SHARE
+      );
       cap = 'AWG 15%';
     }
 
-    amount = Math.round(amount * 100) / 100;
+    // ROUNDED DOWN TO THE CENT, never to the nearest (Witness WIT-02, #272).
+    // Every ceiling above is a MAXIMUM, and half-up rounding can take half a
+    // cent past it: on 1,000.04 disposable, a 55 % support cap and three 15 %
+    // student loans round to 550.02 + 3 × 150.01 = 1,000.05, one cent more than
+    // there is — with a set whose ceilings add to exactly 100 %, which the
+    // writer admits. Truncating each line keeps every line under its own cap
+    // and their sum under the sum of the caps. The epsilon absorbs the binary
+    // representation of amounts already in cents (150.01 × 100 = 15000.999…).
+    amount = Math.floor(amount * 100 + 1e-6) / 100;
     totalWithheld += amount;
     perOrder.push({ order_id: o.id, type: o.type, amount, cap_applied: cap });
   }

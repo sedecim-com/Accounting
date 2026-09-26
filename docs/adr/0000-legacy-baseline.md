@@ -31,5 +31,5 @@ El repositorio nació como `accounting-core`: un servidor REST, y hasta T14b tam
 ## Lo que no se sabe todavía
 
 - SLO, retención y cifrado exigidos por dato: preguntas abiertas en `docs/SCOPE.md`.
-- ~~Si este repo o `accounting-manager` es la fuente de verdad de lo que llega a Contalink~~: este repo, por el ADR-0003.
+- ~~Si este repo o `accounting-manager` es la fuente de verdad de lo que llega a Contalink~~: cada uno de lo suyo, con un solo escritor por compañía de Contalink (ADR-0004, que sustituye al 0003).
 - Cuándo hay primer despliegue compartido: #333.

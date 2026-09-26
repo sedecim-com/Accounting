@@ -9,7 +9,7 @@ import {
 } from '../../services/policy/policy-service.js';
 import { previewFor } from '../../services/policy/policy-preview.js';
 import { getPolicySpec } from '../../services/policy/pending-catalog.js';
-import type { CheckResult } from '../../ai/doctor-service.js';
+import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from '../policy-answer.js';
 
@@ -26,6 +26,19 @@ import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from '../p
 // skipping leaves the system working and the decision visible in
 // `mnemosine pending`.
 // ============================================================
+
+/**
+ * The two checks this section reports. `POLICY_CATALOG` measures whether the
+ * panel exists at all and how much of it is still on defaults; the second one
+ * measures something narrower and worse — the handful of defaults that change
+ * how an invoice reaches the books. Two questions, two ids, and neither of
+ * them derived from its label: see `CheckIdentity` in doctor-service.
+ */
+const POLICY_CATALOG: CheckIdentity = { id: 'policy-panel-seeded', name: 'Policy catalog' };
+const HIGH_IMPACT_POLICIES: CheckIdentity = {
+  id: 'booking-policies-on-defaults',
+  name: 'High-impact policies',
+};
 
 /** A policy the wizard chooses to raise now, with its context ready. */
 interface PreparedQuestion {
@@ -215,7 +228,7 @@ export class PoliciesSection implements SetupSection {
       const pending = all.filter((p) => p.status === 'pending');
 
       checks.push({
-        name: 'Policy catalog',
+        ...POLICY_CATALOG,
         level: all.length === 0 ? 'warn' : 'ok',
         detail:
           all.length === 0
@@ -229,7 +242,7 @@ export class PoliciesSection implements SetupSection {
       );
       if (highImpact.length > 0) {
         checks.push({
-          name: 'High-impact policies',
+          ...HIGH_IMPACT_POLICIES,
           level: 'warn',
           detail:
             `${highImpact.map((p) => p.key).join(', ')} still on defaults — ` +
@@ -238,7 +251,7 @@ export class PoliciesSection implements SetupSection {
       }
     } catch (err) {
       checks.push({
-        name: 'Policy catalog',
+        ...POLICY_CATALOG,
         level: 'warn',
         detail: `Could not read: ${err instanceof Error ? err.message : String(err)}`,
       });

@@ -1,10 +1,15 @@
 # Connectivity: database hosting and model providers
 
 ## Where the database lives
-`DATABASE_URL` points at any Postgres 14+. `DATABASE_PROVIDER` names a preset,
-and the preset CONFIGURES NOTHING: its declared TLS mode and CA are never read
-by the connection. Its only effect is documentary — `doctor` prints the name
-and surfaces the preset's first caveat. TLS still comes entirely from
+`DATABASE_URL` points at Postgres 15 — the only version anything here runs
+against (CI stands up `postgres:15`, `docker/docker-compose.yml` uses
+`postgres:15-alpine`). Nothing in the schema demands 15 in particular, but no
+other version is tested, so say "tested on 15", not a floor nobody checks.
+
+`DATABASE_PROVIDER` names a preset, and the preset CONFIGURES NOTHING: its
+declared TLS mode and CA are never read by the connection. Its only effect is
+documentary — `doctor` prints the name and surfaces the preset's first
+caveat. TLS still comes entirely from
 `DATABASE_SSL_MODE` (or the host default below), and RDS / Cloud SQL still need
 `DATABASE_SSL_CA` set by hand. A name that is not on the list is ignored in
 silence. Presets: `local`, `self-hosted`, `neon`, `supabase`, `rds`, `cloudsql`,
@@ -14,8 +19,11 @@ Provider caveats you should surface when relevant:
 - **neon** — the DEFAULT role has BYPASSRLS: tenant isolation is off until the
   human creates a non-privileged role and uses it in `DATABASE_URL`
   (`doctor` detects this).
-- **supabase** — port 6543 is the transaction pooler (no LISTEN/NOTIFY, no
-  prepared statements); use port 5432 (direct) for mnemosine.
+- **supabase** — port 6543 is the transaction pooler: no session state, so no
+  LISTEN/NOTIFY and no session-level `SET`. The APP is compatible with it —
+  it pins the tenant with a transaction-local `set_config(…, true)` inside
+  the transaction, which is also why the neon preset calls its `-pooler`
+  endpoint fine — but MIGRATIONS need the direct port, 5432.
 - **rds** — needs the AWS RDS CA bundle (`DATABASE_SSL_CA`); Mexico (Central)
   region available; IAM tokens expire in 15 minutes (not recommended for
   long-lived pools).
@@ -62,9 +70,24 @@ output when a connection problem is unclear.
   only names the env var (`api_key_env`), or a command that prints the
   credential (`api_key_cmd`, tried when the env var is empty). An invalid
   config fails loudly and is quarantined, never silently replaced by
-  defaults. The config may also carry `tenant`, the LAST step of the tenant
-  chain: `--tenant`/`-T` flag > `MNEMOSINE_TENANT` env > `tenant` in config.
-  The flag wins; when it leaves an env value aside, the command says so.
+  defaults; the one writer that goes further is `mnemosine lang`, which on a
+  USER file whose CONTENT is invalid (it does not parse, or the schema rejects
+  it) keeps the quarantine copy, says where it went, and writes a clean one —
+  so warn that the rest of that file (providers, tenant) goes with it. A
+  failure to read or write a VALID file (a permission or disk error) is not
+  that case: it is reported as the error it is and the file is left as it was. The config may also carry `tenant`, the LAST step of the
+  tenant chain: `--tenant`/`-T` flag > `MNEMOSINE_TENANT` env > `tenant` in
+  config. The flag wins; when it leaves an env value aside, the command says
+  so.
+- ONE key inverts the project-before-user order: `locale`. It is read from
+  `~/.mnemosine/config.json` FIRST, because the language belongs to the human
+  and not to the repository, so a committed project config cannot pin it —
+  and that is why `mnemosine lang` writes there (`setUserLocale`) instead of
+  where the other settings are written. Only `--locale` and the environment
+  (`MNEMOSINE_LOCALE`, alias `MNEMOSINE_LANG`) outrank it, and `lang` says so
+  out loud after writing. The legacy `language` key keeps its OLD order (the
+  first file that exists wins entire, project before user) and is still read
+  as a fallback below `locale`.
 - Inside chat, `/provider <name>` switches models by opening a NEW
   conversation: history is not portable across wire formats, so the current
   context is dropped.
