@@ -38,6 +38,8 @@ import {
   buildMemoryDigest,
 } from '../../src/ai/memory-service.js';
 import { runDoctor, type DoctorReport } from '../../src/ai/doctor-service.js';
+
+vi.setConfig({ testTimeout: 20_000 });
 import {
   renderConflicts, renderDigestCoverage, registerMemoryCommand,
 } from '../../src/cli/memory-command.js';
@@ -609,6 +611,13 @@ describe('doctor devuelve el hallazgo de precedentes en conflicto', () => {
     process.env = { ...ENV };
   });
 
+  // 20 s y no los 5 por omisión. `runDoctor` corre TODAS las comprobaciones —no
+  // escanea el árbol, porque va con `cwd: tmpDir`, pero son muchas— y con la
+  // suite de casi 6 700 pruebas en paralelo el presupuesto por omisión se quedó
+  // corto en CI. El fallo se presentaba como «Test timed out in 5000ms», que no
+  // señala a nadie. Es el tercer archivo al que le pasa por lo mismo: el día
+  // que vuelva a ocurrir, lo que hay que compartir es el arranque del doctor
+  // entre archivos, no subir otro número.
   const correr = () => runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
 
   it('avisa, nombra la entidad y enseña las DOS respuestas enfrentadas', async () => {

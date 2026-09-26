@@ -1809,8 +1809,26 @@ export const CRITERIOS: Criterio[] = [
             'tenga un locale puesto el comando le seguiría mintiendo en verde'
         );
       }
-      const rescue = [...walkAll(writer.body)].find((node): node is ts.CatchClause => ts.isCatchClause(node));
-      const rescueCalls = rescue === undefined ? new Set<string>() : calledIn(rescue.block);
+      // LA CUARENTENA LA DECIDE EL CONTENIDO, NO UN CATCH (Witness WIT-01, #286).
+      // La primera versión envolvía la escritura en un catch y trataba CUALQUIER
+      // error como archivo roto: un EIO al escribir un config válido lo borraba.
+      // Así que el rescate tiene que colgar de un `if` cuya condición diagnostica
+      // el contenido (`existingConfigIsUnusable`), y ningún catch del escritor
+      // puede poner nada en cuarentena.
+      const catchAll = [...walkAll(writer.body)].find(
+        (node): node is ts.CatchClause => ts.isCatchClause(node) && calledIn(node.block).has('quarantineInvalidConfig')
+      );
+      if (catchAll !== undefined) {
+        return falla(
+          '`setUserLocale` pone en cuarentena desde un catch: un error de E/S al escribir un config ' +
+            'VÁLIDO lo retiraría y lo reescribiría con `{ locale }` a secas, perdiendo el inquilino y el proveedor'
+        );
+      }
+      const rescue = [...walkAll(writer.body)].find(
+        (node): node is ts.IfStatement =>
+          ts.isIfStatement(node) && calledIn(node.expression).has('existingConfigIsUnusable')
+      );
+      const rescueCalls = rescue === undefined ? new Set<string>() : calledIn(rescue.thenStatement);
       if (!rescueCalls.has('quarantineInvalidConfig') || !rescueCalls.has('writeConfigPatch')) {
         return falla(
           '`setUserLocale` no pone en cuarentena el config ilegible y REINTENTA: una coma de más en ' +
@@ -2002,14 +2020,19 @@ export const CRITERIOS: Criterio[] = [
         archivo: 'src/ai/providers/config.ts',
         de:
           '    const quarantined = quarantineInvalidConfig(file);\n' +
-          '    if (quarantined === null) throw err;\n' +
-          '    fs.rmSync(file, { force: true });',
+          '    if (quarantined === null) {',
         a:
           '    const quarantined: string | null = null;\n' +
-          '    if (quarantined === null) throw err;\n' +
-          '    fs.rmSync(file, { force: true });',
+          '    if (quarantined === null) {',
         porque:
           'archivo-roto-atrapa: una coma de más en el config del usuario impide cambiar de idioma, que es lo que la persona venía a hacer',
+      },
+      {
+        archivo: 'src/ai/providers/config.ts',
+        de: '  if (existingConfigIsUnusable(file)) {',
+        a: '  if (fs.existsSync(file)) {',
+        porque:
+          'cuarentena-sin-diagnostico: todo config existente se retira, sano o no, y se reescribe con `{ locale }` a secas (Witness WIT-01)',
       },
       {
         // El conteo no vale aquí y por eso el recorrido es por AST: se retira la
@@ -8072,12 +8095,10 @@ export const CRITERIOS: Criterio[] = [
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      // 401 → 410: los nueve espejos de `the-user-language-is-written-where-it-is-read`
-      // (I11 · 4). La cifra se mide SOBRE EL ÁRBOL YA EDITADO y no se copia del
-      // mensaje de un fallo: ese mensaje imprime la cuenta BAJO el mutante, que
-      // es uno menos que la real, y anotarla ahí deja holgura 1 — justo la que
-      // basta para que el espejo de este criterio deje de morder.
-      const MIRRORS_FLOOR = 410;
+      // 416 → 426: los diez espejos de `the-user-language-is-written-where-it-is-read`
+      // (I11 · 4, el décimo por WIT-01 de Witness), re-medidos sobre el árbol
+      // fusionado con `main`, no sumados a mano.
+      const MIRRORS_FLOOR = 426;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -8096,11 +8117,10 @@ export const CRITERIOS: Criterio[] = [
       // son el mismo hecho leído por el seam —hoy 358, que son los 358 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      // 384 → 392: ocho de los nueve espejos nuevos de I11 · 4 anclan con su
-      // `de:` en el renglón; el noveno parte el literal en dos líneas y por eso
-      // la cuenta del seam sube en ocho y no en nueve. Medida con
-      // `grep -cE '^[ \t]*de: ' src/plan/criterios.ts` sobre el árbol editado.
-      const ANCHORS_HERE = 392;
+      // 399 → 408: nueve de esos diez espejos anclan con su `de:` en el renglón;
+      // uno parte el literal en dos líneas. Medido con
+      // `grep -cE '^[ \t]*de: ' src/plan/criterios.ts` sobre el árbol fusionado.
+      const ANCHORS_HERE = 408;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -8919,6 +8939,338 @@ export const CRITERIOS: Criterio[] = [
 
       return ok(
         'la coherencia padre-hijo la decide el panel y tiene lector; el mapa de secciones es total y se coteja contra la partición de account_type; el alta mira al padre y la edición mira también a las hijas; y la reproducción mide la regla en vez de citarla'
+      );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    id: 'a-stored-date-is-read-back-whole',
+    // #241. La otra mitad de #211. Aquélla arregló la ESCRITURA: el día que el
+    // usuario teclea es el que la columna guarda. Ésta es la LECTURA: pg
+    // construye el Date de una columna DATE a medianoche LOCAL, y
+    // `.toISOString()` relee ese instante en UTC — así que al ESTE de Greenwich
+    // devuelve el día anterior al guardado.
+    //
+    // Siete sitios, y no eran display: la puerta del periodo de conciliación
+    // (decide en qué mes cae un movimiento, o lo rechaza por periodo cerrado),
+    // el día que juzga si un descuento por pronto pago sigue vigente, el
+    // fichero ACH que se le entrega al banco —un pay_date de 2026-01-01 salía
+    // como `251231`, el día Y el año, mientras la fila que lo registra guardaba
+    // el correcto—, y lo que el agente le cuenta al usuario como un hecho.
+    //
+    // El criterio CENSA la forma, no los siete sitios: `toISOString` sobre algo
+    // que vino de una columna DATE. Un octavo nace igual de mal el día que
+    // alguien lo escriba.
+    enunciado: 'La fecha que el mayor guardó es la que se lee de vuelta, en cualquier huso',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/usa/nacha-generator.ts',
+        de: "const [yyyy, mm, dd] = toCalendarDate(date).split('-');",
+        a: "const [yyyy, mm, dd] = new Date(date).toISOString().slice(0, 10).split('-');",
+        porque: 'el fichero ACH vuelve a leer la fecha efectiva en UTC: un pago del 1 de enero sale fechado el 31 de diciembre del año anterior',
+      },
+      {
+        archivo: 'src/services/banking/match-service.ts',
+        de: 'const params = [entityId, toCalendarDate(fecha)];',
+        a: "const params = [entityId, fecha.toISOString().split('T')[0]];",
+        porque: 'la puerta del periodo vuelve a preguntar por el día anterior: el movimiento cae en el mes equivocado o se rechaza por periodo cerrado',
+      },
+      {
+        archivo: 'src/ai/tools/ledger-tools.ts',
+        de: 'je.entry_date::text AS entry_date',
+        a: 'je.entry_date',
+        porque: 'el agente vuelve a serializar un DATE con JSON.stringify, que lo pinta en UTC: le cuenta al usuario un día que no es el guardado',
+      },
+      {
+        archivo: 'tests/utils/stored-dates-are-read-back-whole.spec.ts',
+        de: "const [y, m, d] = iso.split('-').map(Number);\n  return new Date(y, m - 1, d);",
+        a: "return new Date(iso);",
+        porque: 'la fixture deja de imitar a pg —medianoche LOCAL— y pasa a construir medianoche UTC, que es la única forma en que el defecto no se ve',
+      },
+    ],
+    evaluar: () => {
+      const spec = 'tests/utils/stored-dates-are-read-back-whole.spec.ts';
+
+      // 1. EL CENSO. Los sitios que leen una fecha del mayor no la reinterpretan.
+      const VIGILADOS = [
+        'src/services/banking/match-service.ts',
+        'src/services/payments/payment-service.ts',
+        'src/services/payroll/usa/nacha-generator.ts',
+        'src/services/accounting/journal-entry-service.ts',
+        'src/ai/tools/ledger-tools.ts',
+        'src/ai/ingest-service.ts',
+        'src/services/xml-ingestion/cfdi-decisions.ts',
+      ];
+      const culpables: string[] = [];
+      for (const rel of VIGILADOS) {
+        if (!existe(rel)) return falla(`desapareció ${rel}`);
+        const code = sinComentarios(leer(rutaDe(rel)));
+        if (/\.toISOString\(\)\s*\.(?:split\('T'\)\[0\]|slice\(0,\s*10\))/.test(code)) {
+          culpables.push(rel);
+        }
+      }
+      if (culpables.length > 0) {
+        return falla(
+          `${culpables.length} sitio(s) vuelven a cortar un día de un toISOString (${culpables.join(', ')}): ` +
+            'pg entrega un DATE a medianoche LOCAL y toISOString lo relee en UTC, así que al este de Greenwich se lee el día ANTERIOR al guardado'
+        );
+      }
+
+      // 2. LAS TRES PUERTAS QUE MUEVEN ALGO, por su ancla.
+      if (!codigoDe('src/services/banking/match-service.ts').includes('const params = [entityId, toCalendarDate(fecha)];')) {
+        return falla('la puerta del periodo de conciliación dejó de normalizar el día: el movimiento vuelve a poder caer en el mes equivocado');
+      }
+      if (!codigoDe('src/services/payroll/usa/nacha-generator.ts').includes("const [yyyy, mm, dd] = toCalendarDate(date).split('-');")) {
+        return falla('el fichero ACH volvió a leer su fecha efectiva por campos UTC: un pago de año nuevo retrocede el año entero');
+      }
+      // LAS DOS consultas, contadas: el archivo tiene dos y anclar en el texto
+      // dejaba vivo al mutante que quitaba una — un ancla repetida desarma su
+      // propio espejo.
+      const conCast = (codigoDe('src/ai/tools/ledger-tools.ts').match(/entry_date::text AS entry_date/g) ?? []).length;
+      if (conCast < 2) {
+        return falla(
+          `sólo ${conCast} de las 2 consultas del agente entregan el día como texto: JSON.stringify pinta un DATE en UTC y le cuenta al usuario otro día`
+        );
+      }
+
+      // 3. Y CONDUCTA con el reloj movido, que es lo único que lo hace visible.
+      if (!existe(spec)) return falla('no hay reproducción de la lectura con el reloj movido');
+      const t = codigoDe(spec);
+      for (const [pattern, what] of [
+        [/Asia\/Tokyo/, 'medir al ESTE, que es donde la lectura retrocede el día'],
+        [/America\/Mexico_City/, 'medir al oeste, para que el arreglo no rompa la otra mitad'],
+        [/new Date\(y, m - 1, d\)/, 'imitar a pg —medianoche LOCAL—: con medianoche UTC el defecto no se ve'],
+        [/yymmdd/, 'medirlo en el fichero que se le entrega al banco, y no sólo en el normalizador'],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        `${VIGILADOS.length} sitios que leen una fecha del mayor revisados sin reinterpretarla; la puerta del periodo, el fichero ACH y lo que ve el agente van por el normalizador; y la reproducción lo mide al este y al oeste con una fixture que imita a pg`
+      );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    id: 'days-are-counted-on-the-calendar-not-on-a-clock',
+    // #243. Tres sitios restaban milisegundos y dividían entre 86 400 000, y
+    // los dos operandos nunca eran la misma cosa: un lado llegaba como cadena
+    // 'YYYY-MM-DD' —que `new Date()` lee como medianoche UTC— y el otro como el
+    // Date que pg construye de una columna DATE, que es medianoche LOCAL.
+    // Restarlos mezcla dos orígenes separados por el desfase del huso, y el
+    // cociente cae un día entero fuera en media esfera.
+    //
+    // Medido sobre un gasto del 1 de agosto, 2/10 Net 30, pagado el 12 —el día
+    // ONCE, fuera de la ventana—: UTC contestaba 11 y no daba descuento;
+    // Mexico_City, Tijuana y New_York contestaban 10 y concedían un 2 % que ya
+    // había vencido. Los otros dos sitios dividen un sueldo y viajan en el XML
+    // que se le timbra al SAT.
+    //
+    // Ni redondear ni truncar lo arregla: el error está en los operandos, no en
+    // la división. Por eso el criterio CENSA que no quede ninguna resta cruda,
+    // en vez de comprobar los tres sitios que hoy conocemos.
+    enunciado: 'Los días entre dos fechas se cuentan igual en cualquier huso del servidor',
+    mutantes: [
+      {
+        archivo: 'src/utils/calendar-date.ts',
+        de: 'const [ty, tm, td] = toCalendarDate(to).split(\'-\').map(Number);',
+        a: 'const [ty, tm, td] = String(to).split(\'-\').map(Number);',
+        porque: 'un extremo deja de normalizarse: el Date que pg entrega vuelve a leerse por su texto ISO en UTC y el conteo se descuadra al oeste de Greenwich',
+      },
+      {
+        archivo: 'src/services/ap/bill-service.ts',
+        de: 'const daysUntilPayment = daysBetween(bill.bill_date, paymentDate);',
+        a: 'const daysUntilPayment = Math.floor((new Date(paymentDate).getTime() - new Date(bill.bill_date).getTime()) / 86400000);',
+        porque: 'vuelve la resta de milisegundos justo donde reparte dinero: el descuento del 2 % se concede un día después de vencido en media esfera',
+      },
+      {
+        archivo: 'tests/utils/days-between.spec.ts',
+        de: "process.env.TZ = tz;",
+        a: "process.env.TZ = process.env.TZ;",
+        porque: 'la reproducción deja de cambiar de zona: todas las aserciones corren en el huso de CI, que es UTC — la única zona donde el defecto no se ve',
+      },
+    ],
+    evaluar: () => {
+      const util = 'src/utils/calendar-date.ts';
+      const spec = 'tests/utils/days-between.spec.ts';
+      if (!existe(util)) return falla(`desapareció ${util}`);
+
+      // 1. EL CENSO: ninguna resta cruda de milisegundos para contar días.
+      // Se busca LA FORMA QUE FALLA, no el divisor: restar dos instantes de
+      // verdad —cuánto falta para que venza una credencial— en milisegundos es
+      // correcto, y `Date.UTC` sobre las partes de una fecha también. Lo que
+      // no vale es restar dos `new Date(...)` construidos de orígenes
+      // distintos, que es de donde salía el día suelto.
+      const MEZCLA = /new Date\([^)]*\)\.getTime\(\)\s*-\s*new Date\([^)]*\)\.getTime\(\)[\s\S]{0,40}86[_ ]?400[_ ]?000/;
+      const crudos: string[] = [];
+      for (const f of fuentes('src')) {
+        const code = sinComentarios(leer(f));
+        if (MEZCLA.test(code)) crudos.push(path.relative(rutaDe(), f));
+      }
+      if (crudos.length > 0) {
+        return falla(
+          `${crudos.length} sitio(s) vuelven a contar días restando milisegundos (${crudos.join(', ')}): ` +
+            'una cadena es medianoche UTC y un DATE de pg es medianoche local, así que la resta mezcla dos orígenes y el día sobra o falta según dónde esté el servidor'
+        );
+      }
+
+      // 2. EL CONTADOR NORMALIZA LOS DOS EXTREMOS. Uno solo no basta: el defecto
+      //    era precisamente que los operandos venían de origenes distintos.
+      const code = codigoDe(util);
+      if (!code.includes('export function daysBetween')) {
+        return falla('desapareció daysBetween: cada sitio vuelve a contar los días a su manera');
+      }
+      if (!code.includes("toCalendarDate(from)") || !code.includes("toCalendarDate(to)")) {
+        return falla('daysBetween dejó de normalizar los DOS extremos: basta con que uno llegue crudo para que el conteo vuelva a depender del huso');
+      }
+
+      // 3. Y CONDUCTA con el reloj movido, que es lo único que lo hace visible:
+      //    CI corre en UTC, la única zona donde el defecto no aparece.
+      if (!existe(spec)) return falla('no hay reproducción del conteo de días con el reloj movido');
+      const t = codigoDe(spec);
+      for (const [pattern, what] of [
+        [/America\/Mexico_City/, 'medir al oeste de Greenwich, que es donde el descuento se concedía vencido'],
+        [/Asia\/Tokyo/, 'medir al este, para que el arreglo no rompa la otra mitad'],
+        [/process\.env\.TZ = tz;/, 'mover de verdad el reloj del proceso'],
+        [/earlyPaymentDiscount/, 'medirlo donde reparte dinero, y no sólo en la función pura'],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        'ningún sitio cuenta días restando milisegundos; el contador normaliza los dos extremos; y la reproducción lo mide con el reloj movido al oeste y al este, incluido el descuento por pronto pago'
+      );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    id: 'an-advance-cannot-be-booked-in-another-currency',
+    // T23 (#130). Un anticipo puro no tiene documento que le dé la moneda: sale
+    // del propio cliente —o del parámetro— y se escribía CRUDA, sin compararla
+    // nunca con la funcional de la entidad. Medido contra Postgres: un anticipo
+    // de 1 000 USD contra una entidad que lleva sus libros en MXN se registraba
+    // sin protestar, y el asiento cuadraba porque las dos patas llevaban la
+    // misma cifra equivocada.
+    //
+    // El lado proveedor ya cotejaba la funcional antes de postear; el de
+    // cliente lo hacía sólo cuando había documentos. La rama sin documentos
+    // —que es precisamente la que no tiene de dónde sacar la moneda— era el
+    // hueco.
+    //
+    // REHUSAR ES EL ARREGLO ENTERO, y el criterio lo fija: convertir exige
+    // elegir tasa y FUENTE, y eso lo decide el despacho en `fuente_tipo_cambio`.
+    // Un valor por omisión aquí sería elegirle el criterio fiscal.
+    enunciado: 'Un anticipo en otra moneda no se asienta como si fuera de la funcional',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'if (advanceCurrency !== functionalCurrency) {',
+        a: 'if (advanceCurrency === functionalCurrency) {',
+        porque: 'la comparación se invierte: pasa el anticipo en otra moneda y se rehúsa el que sí está en la funcional',
+      },
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);',
+        a: 'const functionalCurrency = advanceCurrency;',
+        porque: 'la funcional deja de leerse de la entidad y se toma del propio anticipo: la comparación se vuelve tautológica y nunca acusa',
+      },
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod',
+        a: 'currencyOf(documentos), entrada.paymentMethod',
+        porque: 'el anticipo a proveedor vuelve a caer en el respaldo literal «MXN» de currencyOf: se asienta en pesos sin preguntar al proveedor, al llamador ni a la entidad',
+      },
+      {
+        archivo: 'tests/integration/t23-a-pure-advance-in-another-currency.int.spec.ts',
+        de: "await expect(advance(customerMxn, 'EUR')).rejects.toThrow(ValidationError);",
+        a: "await expect(advance(customerMxn)).rejects.toThrow(ValidationError);",
+        porque: 'la reproducción deja de probar la segunda puerta —el parámetro explícito, que gana sobre la moneda del cliente— y pasa a exigir que se rehúse un anticipo correcto',
+      },
+    ],
+    evaluar: () => {
+      const svc = 'src/services/payments/payment-service.ts';
+      const spec = 'tests/integration/t23-a-pure-advance-in-another-currency.int.spec.ts';
+      const vendorSpec = 'tests/integration/t23b-a-vendor-advance-has-a-currency-too.int.spec.ts';
+      if (!existe(svc)) return falla(`desapareció ${svc}`);
+      const code = codigoDe(svc);
+
+      // 1. LA GUARDA VIVE EN LA RAMA SIN DOCUMENTOS, que es la que no tiene de
+      //    dónde sacar la moneda. Se comprueba el ORDEN: la funcional se lee
+      //    después de resolver la del anticipo y antes del INSERT.
+      // Cada lado se mide DENTRO de su función: `functionalCurrency` y la
+      // lectura de la funcional aparecen ahora en las dos, y un `indexOf` sobre
+      // el archivo entero devuelve la del proveedor al juzgar al cliente.
+      const customerSide = code.slice(code.indexOf('export async function recordCustomerPayment'));
+      const resuelve = customerSide.indexOf('advanceCurrency = entrada.currencyCode ?? c.rows[0].currency_code;');
+      const lee = customerSide.indexOf('const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);');
+      const compara = customerSide.indexOf('if (advanceCurrency !== functionalCurrency) {');
+      const inserta = customerSide.indexOf('INSERT INTO customer_payments');
+      if (resuelve < 0) return falla('cambió la resolución de la moneda del anticipo: la guarda puede haber quedado colgando de otra rama');
+      if (lee < 0 || compara < 0) {
+        return falla(
+          'el anticipo sin documento dejó de cotejar su moneda contra la funcional de la entidad: mil dólares vuelven a poder asentarse como mil pesos'
+        );
+      }
+      if (!(resuelve < lee && lee < compara && compara < inserta)) {
+        return falla('la guarda del anticipo quedó fuera de orden: comprueba después de escribir, o antes de saber qué moneda es');
+      }
+
+      // 2. REHÚSA, NO CONVIERTE. Una conversión silenciosa aquí sería elegirle
+      //    al despacho la fuente del tipo de cambio.
+      const mensaje = customerSide.slice(compara, inserta);
+      if (!/fuente_tipo_cambio/.test(mensaje)) {
+        return falla('el rechazo dejó de decir que la tasa y su fuente las decide el panel: sin eso parece una limitación y no una negativa razonada');
+      }
+
+      // 3. LA MISMA PUERTA DEL LADO PROVEEDOR (T23b), que era peor: sin
+      //    documentos, `currencyOf` cae a un LITERAL 'MXN', así que no preguntaba
+      //    ni al proveedor ni a nadie.
+      const vendorSide = code.slice(code.indexOf('export async function recordVendorPayment'));
+      const resolvesVendor = vendorSide.indexOf('vendorAdvanceCurrency = entrada.currencyCode ?? v.rows[0].currency_code;');
+      const checksVendor = vendorSide.indexOf('if (vendorAdvanceCurrency !== functionalCurrency) {');
+      const writesVendor = vendorSide.indexOf('INSERT INTO vendor_payments');
+      // Se CUENTAN las dos lecturas en vez de buscarlas por rebanada: la del
+      // proveedor y la del cliente son la misma línea, y una rebanada que
+      // empieza en una función y acaba en el fin del archivo encuentra la de la
+      // otra — el mutante que neutralizaba la primera sobrevivía por eso.
+      const functionalReads = (code.match(/const functionalCurrency = await functionalCurrencyOf\(client, entrada\.entityId\);/g) ?? []).length;
+      if (functionalReads < 2) {
+        return falla(
+          `sólo ${functionalReads} de los 2 anticipos leen la funcional DE LA ENTIDAD: si se toma del propio anticipo, la comparación es tautológica y no acusa nunca`
+        );
+      }
+      if (resolvesVendor < 0 || checksVendor < 0) {
+        return falla(
+          'el anticipo a PROVEEDOR dejó de cotejar su moneda: `currencyOf` cae a la cadena «MXN» cuando no hay documentos, así que se asienta en pesos sin preguntarle a nadie'
+        );
+      }
+      if (!(resolvesVendor < checksVendor && checksVendor < writesVendor)) {
+        return falla('la guarda del anticipo a proveedor quedó fuera de orden respecto a su INSERT');
+      }
+      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos)')) {
+        return falla('el INSERT del pago a proveedor volvió a tomar la moneda del respaldo literal en vez de la resuelta');
+      }
+
+      // 4. Y CONDUCTA: las DOS puertas, la del cliente y la del parámetro.
+      if (!existe(spec)) return falla('no hay reproducción contra Postgres del anticipo en otra moneda');
+      const t = codigoDe(spec);
+      for (const [pattern, what] of [
+        [/advance\(customerUsd\)/, 'probar la puerta de la moneda del CLIENTE'],
+        [/advance\(customerMxn, 'EUR'\)/, 'probar la puerta del PARÁMETRO, que gana sobre la del cliente'],
+        [/advance\(customerMxn\)\s*;|const r = await advance\(customerMxn\)/, 'probar que el anticipo en la funcional SÍ entra: una guarda que rehúsa todo no es una guarda'],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      if (!existe(vendorSpec)) {
+        return falla('no hay reproducción del anticipo a PROVEEDOR: es la otra mitad de la misma puerta y era la peor de las dos');
+      }
+
+      return ok(
+        'los anticipos sin documento —cliente Y proveedor— cotejan su moneda contra la funcional antes de escribir, rehúsa en vez de convertir —y dice que la fuente la decide el panel—, y la reproducción prueba las dos puertas y el caso que sí entra'
       );
     },
   },
@@ -14755,6 +15107,114 @@ export const CRITERIOS: Criterio[] = [
           'distinto por el mismo derecho en cuanto una de las dos se actualice',
       },
     ],
+  },
+  {
+    paquete: 'E1.2',
+    id: 'cfdi-declared-zero-is-not-an-absence',
+    enunciado:
+      'Un cero declarado en un CFDI se conserva, y un exento no se cuenta como venta a tasa 0 %',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-parser.ts',
+        de: "isDeclared(i['@_TasaOCuota']) ? parseFloat",
+        a: "i['@_TasaOCuota'] ? parseFloat",
+        porque:
+          'vuelve a preguntar por la VERDAD del atributo: con parseAttributeValue un TasaOCuota="0.000000" llega como el número 0, se borra, y con él lo único que distingue una tasa 0 % de un exento',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-parser.ts',
+        de: "if (clave(t.impuesto) !== '002' || t.tipoFactor !== 'Tasa') continue;",
+        a: "if (clave(t.impuesto) !== '002') continue;",
+        porque:
+          'quita la puerta del tipo de factor: un traslado exento —que no declara tasa— vuelve a caer en el cubo de 0 %, y el desglose declara como acreditable una operación que no lo es',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-parser.ts',
+        de: 'else if (rate === 0) iva0 = iva0.plus(t.base);',
+        a: 'else if (rate === 0) iva0 = iva0.plus(t.importe ?? 0);',
+        porque:
+          'vuelve a sumar el importe en el cubo de tasa 0, que vale cero por definición: total_iva_0 regresa a ser siempre 0.00 con la columna llena de ceros que parecen un dato',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-facts.ts',
+        de: "if (t.tipoFactor === 'Exento') {",
+        a: "if (t.tipoFactor === 'Ninguno') {",
+        porque:
+          'los hechos dejan de reconocer el exento y lo devuelven al cubo de tasa 0: importeExento sale en cero e ivaTasaCero declara de más, justo la cifra contra la que se calcula el acreditamiento proporcional',
+      },
+    ],
+    evaluar: () => {
+      // #126 (T19). El defecto de origen era una línea, pero la línea borraba un
+      // BIT: con `parseAttributeValue` un «0.00» declarado llega como el número
+      // 0, y preguntar por su verdad lo vuelve indistinguible de un atributo
+      // ausente. Borrado ese bit, las dos copias que reparten el IVA por tasa
+      // quedaron cada una a medias y ninguna PODÍA estar entera — el parser
+      // excluía el exento por accidente y perdía el cero; los hechos sumaban
+      // bien la base y no sabían qué era un exento.
+      //
+      // Por eso esto censa la FORMA y no el arreglo: el día que aparezca un
+      // tercer repartidor, lo que tiene que sonar es el censo.
+      const parser = 'src/services/xml-ingestion/cfdi-parser.ts';
+      const hechos = 'src/services/xml-ingestion/cfdi-facts.ts';
+      for (const f of [parser, hechos]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. CENSO: ningún atributo del CFDI se declara ausente por ser falsy.
+      //    La forma acusada es exactamente la que BORRA EL BIT —preguntar por
+      //    la verdad del atributo y responder `undefined`, o sea «no vino»—.
+      //    Un `: 1` o un `|| 'MXN'` sustituyen un valor por otro y tendrán su
+      //    propia discusión; no fingen que el emisor no declaró nada, y meterlos
+      //    aquí sería la acusación de más que hace que se deje de leer el informe.
+      const porVerdad = dondeAparece(/\['@_\w+'\]\s*\?[^;{}]{0,120}?:\s*undefined/, ['src'], true);
+      if (porVerdad.length > 0) {
+        return falla(
+          `${porVerdad.join(', ')} vuelve a preguntar por la VERDAD de un atributo del CFDI para ` +
+            'declararlo ausente: un «0.00» que el emisor SÍ declaró llega como el número 0 y se ' +
+            'borra, quedando indistinguible de un atributo que nunca vino (#126)'
+        );
+      }
+      if (!/v !== undefined && v !== null && v !== ''/.test(codigoDe(parser))) {
+        return falla(
+          'isDeclared dejó de medir presencia: si vuelve a medir verdad, un cero declarado se borra ' +
+            'igual que si el atributo faltara, y el censo de arriba ya no lo ve porque la forma cambió de sitio (#126)'
+        );
+      }
+
+      // 2. CENSO: quien reparte el IVA por tasa tiene que nombrar el exento.
+      //    Ante el SAT son dos renglones distintos y sólo la tasa 0 % se acredita.
+      const reparten = dondeAparece(/tasaOCuota/, ['src'], true);
+      if (reparten.length < 2) {
+        return falla(
+          `sólo ${reparten.length} archivo(s) leen tasaOCuota y eran 2: si el reparto por tasa se mudó, ` +
+            'este censo dejó de vigilar nada (#126)'
+        );
+      }
+      const mudos = reparten.filter((f) => !/tipoFactor\s*[!=]==\s*'(Tasa|Exento)'/.test(codigoDe(f)));
+      if (mudos.length > 0) {
+        return falla(
+          `${mudos.join(', ')} reparte el IVA por tasa sin mirar el TipoFactor: un exento no declara ` +
+            'tasa, cae en el cubo de 0 % y se declara acreditable una operación que no lo es (#126)'
+        );
+      }
+
+      // 3. Y el cubo de tasa 0 se mide por la BASE: su importe vale cero por definición.
+      const porImporte = reparten.filter((f) => !/===\s*0\)[^;\n]*\bbase\b/i.test(codigoDe(f)));
+      if (porImporte.length > 0) {
+        return falla(
+          `${porImporte.join(', ')} suma el importe en el cubo de tasa 0, que es cero por definición: ` +
+            'la columna se llena de ceros que parecen un dato y el despacho lee que no hubo tales ventas (#126)'
+        );
+      }
+
+      return existe('tests/xml-ingestion/cfdi-zero-rate-is-not-absence.spec.ts')
+        ? ok(
+            `${reparten.length} repartidores del IVA por tasa distinguen el exento y miden la tasa 0 por su base`
+          )
+        : falla(
+            'no hay prueba del cero declarado: es lo único que separa «el emisor declaró 0.00» de «no declaró nada»'
+          );
+    },
   },
 ];
 

@@ -20,7 +20,7 @@ import {
 import {
   convertirAFuncional,
   desgloseCambiarioDelPago,
-  monedaFuncionalDe,
+  functionalCurrencyOf,
   type ContextoCambiario,
 } from './moneda-origen.js';
 
@@ -130,7 +130,7 @@ export async function postInvoiceEntry(
   // ya convierte el gasto, la factura en moneda extranjera SE NIEGA a
   // postearse: un ingreso subvaluado 18× con veredicto limpio es peor que
   // un posteo detenido que dice por qué.
-  const funcionalAr = await monedaFuncionalDe(client, invoice.entity_id);
+  const funcionalAr = await functionalCurrencyOf(client, invoice.entity_id);
   if (invoice.currency_code && invoice.currency_code !== funcionalAr) {
     throw new AccountingError(
       'FX_AR_NOT_WIRED',
@@ -208,7 +208,7 @@ export async function postBillEntry(
   // DEL DOCUMENTO: el pasivo vale lo que valía el día que nació, y lo que
   // pase después es diferencia cambiaria del pago (realizada, abajo) o del
   // cierre (fase 2), nunca un re-valor retroactivo de este asiento.
-  const funcional = await monedaFuncionalDe(client, bill.entity_id);
+  const funcional = await functionalCurrencyOf(client, bill.entity_id);
   const enExtranjera = Boolean(bill.currency_code) && bill.currency_code !== funcional;
   if (enExtranjera) {
     const tasa = new Decimal(bill.exchange_rate || '0');

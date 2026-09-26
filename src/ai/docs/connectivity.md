@@ -70,10 +70,12 @@ output when a connection problem is unclear.
   only names the env var (`api_key_env`), or a command that prints the
   credential (`api_key_cmd`, tried when the env var is empty). An invalid
   config fails loudly and is quarantined, never silently replaced by
-  defaults; the one writer that goes further is `mnemosine lang`, which on an
-  unreadable USER file keeps the quarantine copy, says where it went, and
-  writes a clean one — so warn that the rest of that file (providers, tenant)
-  goes with it. The config may also carry `tenant`, the LAST step of the
+  defaults; the one writer that goes further is `mnemosine lang`, which on a
+  USER file whose CONTENT is invalid (it does not parse, or the schema rejects
+  it) keeps the quarantine copy, says where it went, and writes a clean one —
+  so warn that the rest of that file (providers, tenant) goes with it. A
+  failure to read or write a VALID file (a permission or disk error) is not
+  that case: it is reported as the error it is and the file is left as it was. The config may also carry `tenant`, the LAST step of the
   tenant chain: `--tenant`/`-T` flag > `MNEMOSINE_TENANT` env > `tenant` in
   config. The flag wins; when it leaves an env value aside, the command says
   so.

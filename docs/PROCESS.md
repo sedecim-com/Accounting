@@ -18,6 +18,14 @@ plan (issues + criterios ejecutables)
 
 Una issue describe **qué** debe ser cierto al terminar, con criterios de aceptación verificables — no una lista de archivos a tocar (eso lo decide quien implementa). Usa `.github/ISSUE_TEMPLATE/ticket.md`.
 
+Toda issue pasa por la **Definition of Ready** antes de que alguien la tome. Qué exige está en la plantilla `.github/ISSUE_TEMPLATE/ticket.md`: objetivo, criterios Dado/Cuando/Entonces, impacto en contratos, fuera de alcance, cómo probar y tamaño de menos de ~400 líneas. Lleva además tres etiquetas:
+
+- `difficulty:D1`…`D4`, un puntaje de 5 dimensiones que decide modelo y presupuesto;
+- `autonomy:A1`…`A3`, que decide la supervisión;
+- un `status:*` (§7).
+
+La rúbrica está en [`docs/ROUTING.md`](ROUTING.md) y el porqué en [ADR-0001](adr/0001-agentic-framework-adoption.md). Las de la ruta al MVP llevan también `ola-N` ([`docs/MVP.md`](MVP.md) §6).
+
 Si la issue proviene de un tramo ya redactado en la secuencia del plan (Vía A o Vía B — ver `docs/HISTORY.md` y los artefactos archivados en `docs/archive/claude-artifacts/`), copia su "por qué aquí" y su dependencia declarada: no los reinventes.
 
 ## 2. Un ejecutor implementa UNA issue
@@ -28,13 +36,13 @@ Si el cambio cierra un paquete de `src/plan/criterios.ts`, el criterio (o el nue
 
 ## 3. PR + CI
 
-Las puertas, en el orden en que fallan más barato:
+Las puertas, en el orden en que fallan más barato. `scripts/verify.sh` las corre todas, igual que CI, con una línea por puerta y los logs en `.agent-logs/`; la lista `--exigir` la lee de `ci.yml`:
 
 ```bash
 npm run typecheck          # tsc --noEmit sobre src/
 npm run typecheck:tests    # tsc -p tsconfig.test.json --noEmit
 npm test                   # vitest run (unitarias, con cobertura por archivo sobre el motor contable)
-npm run lint                # ESLint 9 con información de tipos; advertencias con trinquete (--max-warnings)
+npm run lint                # ESLint 10 con información de tipos; advertencias con trinquete (--max-warnings)
 npm run plan:status         # el estado del plan no se escribe: se pregunta
 npm run test:integration     # necesita Postgres real; corre en CI aparte (aislamiento por inquilino)
 ```
@@ -52,6 +60,35 @@ Si al implementar descubres que la issue pide algo que el código ya no necesita
 ## 6. Historia
 
 Cuando un PR cierra el último ítem de un sprint (milestone), añade su fila a `docs/HISTORY.md` y cierra el milestone. No se reescribe el pasado: un sprint cerrado con deuda conocida se documenta con esa deuda, no se retoca para parecer limpio.
+
+## 7. Estados de una issue, y la capacidad de quien revisa
+
+Una issue está en **un solo** estado, que es su etiqueta `status:*`. Mientras no haya orquestador (#332), los cambia quien hace la acción, y deja un comentario.
+
+| Estado | Etiqueta | Quién la pone | Sale cuando |
+|---|---|---|---|
+| Triage | `status:triage` | Quien la abre (la plantilla la trae) | Cumple la DoR y está clasificada; en D3–D4, un humano comenta `/confirmar` |
+| Aclaración | `status:needs-clarification` | Quien encuentra la pregunta, escrita en la issue con su destinatario | El dueño contesta en la issue |
+| Lista | `status:agent-ready` | Triage (D1–D2) o el humano que confirma (D3–D4) | Alguien la toma |
+| En trabajo | `status:agent-working` | Quien la toma. Es un candado: dos agentes no toman la misma | Abre el PR. Tras 24 h sin actividad, vuelve a Lista |
+| Revisión de plan | `status:plan-review` | El agente, en A2 y A3, con su plan escrito en la issue | Un humano comenta `/aprobar-plan` |
+| En revisión | `status:in-review` | Quien abre el PR con CI en verde | Se fusiona (`Closes #n` cierra la issue) o se piden cambios |
+| Cambios pedidos | `status:changes-requested` | Quien revisa | El autor responde cada comentario con un commit o una justificación |
+| Escalada | `status:escalated` | El agente, al agotar su tope o tras 3 fallas (`docs/ROUTING.md`) | Un humano decide en un día hábil |
+| Bloqueada | `status:blocked` | Cualquiera, nombrando lo que bloquea | Se cierra lo que bloqueaba |
+
+**Capacidad de revisión.** Los agentes producen PRs más rápido de lo que una persona los revisa. Sin límite, la cola crece y los PRs acaban aprobándose sin leerse. Por eso:
+
+- como máximo **2 PRs de agente abiertos por revisor humano activo**; al llegar al límite no se toma trabajo nuevo;
+- la primera revisión llega en 1 día hábil para D1–D2 y en 2 para D3;
+- un PR de más de 400 líneas se puede rechazar sin revisarlo;
+- un PR sin actividad humana en 5 días hábiles se cierra con un checkpoint y su issue vuelve a Lista.
+
+**Categorías en la revisión.** Cada comentario humano en un PR de agente empieza con una:
+
+- `[estilo]`, `[arquitectura]`, `[regla-de-negocio]`, `[pruebas]`, `[seguridad]` o `[contexto-faltante]`.
+
+Lo que se repite 3 veces o más en un mes se convierte en algo, en este orden de preferencia: un check de CI, un ejemplo de referencia, una aclaración en `SCOPE.md` y, sólo al final, una regla en `AGENTS.md`. Una regla escrita consume contexto en cada sesión; un check, no.
 
 ## Mensajes de commit
 
