@@ -226,6 +226,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.review.description':
     'Revisa los borradores pendientes: aprobar (crea la póliza y la contabiliza), corregir y ' +
     'aprobar, o rechazar — un rechazo puede sembrar el criterio para la próxima vez',
+  'review.draft.bill_to_be_born':
+    'Aprobar crea la factura del proveedor del CFDI {uuid} · emisor {issuer} ({rfc}) · método {method} · total {total}',
   'help.ingest.description':
     'Ingesta por lote de CFDI (XML): reglas → clasificación por IA → borradores (o alta ' +
     'automática según los umbrales)',

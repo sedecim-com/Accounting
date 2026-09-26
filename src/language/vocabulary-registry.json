@@ -2346,6 +2346,13 @@
     },
     {
       "class": "policy-key",
+      "where": "cfdi_tolerancia_cuadre",
+      "es": "cfdi_tolerancia_cuadre",
+      "en": "cfdi_reconciliation_tolerance",
+      "why": "CFDI se queda: es el acrónimo oficial del comprobante del SAT. «Cuadre» es el cotejo cifra por cifra de la póliza aprobada contra el XML, y `reconciliation` es la palabra que el mensaje de rechazo ya usa (CFDI_RECONCILIATION_FAILED, pre-registration-service.ts). La lee `registrarFacturaDeBorradorAprobado` (#318)."
+    },
+    {
+      "class": "policy-key",
       "where": "cierre_recierre_de_periodo_reabierto",
       "es": "cierre_recierre_de_periodo_reabierto",
       "en": "reclose_of_reopened_period",
@@ -2512,6 +2519,13 @@
       "es": "linea_banco_sin_partida_al_cierre",
       "en": "unexplained_bank_line_at_close",
       "why": "«Sin partida» es que ningún asiento la explica; `unexplained` dice eso en una palabra y es como el propio `impact` lo describe: «a movement the books never recorded and nobody has classified» (pending-catalog.ts:1226-1227). `bank_line_without_entry` habría chocado con `reconciling_item`, que es uno de sus valores (:1231)."
+    },
+    {
+      "class": "policy-key",
+      "where": "lineas_factura_desde",
+      "es": "lineas_factura_desde",
+      "en": "bill_lines_source",
+      "why": "«Factura» aquí es la factura de proveedor, la tabla `bills`, y sus renglones son `bill_lines`: el inglés ya estaba en el esquema (002_ap_ar_schema.sql). `source` dice de dónde salen, que es lo único que la clave decide. La lee `registrarFacturaDeBorradorAprobado` (#318)."
     },
     {
       "class": "policy-key",
@@ -2813,6 +2827,22 @@
       "es": "reabrir",
       "en": "reopen",
       "why": "`reopen` ya es el verbo de la superficie: el comando se llama `mnemosine period reopen` (period-command.ts:396) y `reopen` es la acción que el `audit_log` guarda (period-command.ts:408). Regla 3."
+    },
+    {
+      "class": "policy-value",
+      "where": "cfdi_tolerancia_cuadre/0",
+      "es": "0",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Es un número, no vocabulario: tolerancia cero en pesos, «Exact match or nothing». Traducirlo no significa nada y cambiar la cadena cambiaría el dato, no el idioma."
+    },
+    {
+      "class": "policy-value",
+      "where": "cfdi_tolerancia_cuadre/0.01",
+      "es": "0.01",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Es un número, no vocabulario: un centavo por cifra, el `defaultValue` de la clave. Traducirlo no significa nada y cambiar la cadena cambiaría el dato, no el idioma."
     },
     {
       "class": "policy-value",
@@ -3278,6 +3308,20 @@
       "es": "suspenso",
       "en": "suspense_account",
       "why": "«Cuenta de suspenso» es `suspense account`, el término contable inglés establecido y el que el propio archivo usa («parks it in a suspense account», pending-catalog.ts:1229-1230; label :1233). Se conserva `account` para que sea un sintagma nominal como su hermano `reconciling_item` y no se confunda con un estado «suspendido»."
+    },
+    {
+      "class": "policy-value",
+      "where": "lineas_factura_desde/conceptos_cfdi",
+      "es": "conceptos_cfdi",
+      "en": "cfdi_concepts",
+      "why": "CFDI se queda (acrónimo del SAT); «concepto» es el nodo `Concepto` del comprobante, y `concept` es como el propio catálogo lo dice en inglés («One line per CFDI concept», pending-catalog.ts)."
+    },
+    {
+      "class": "policy-value",
+      "where": "lineas_factura_desde/poliza",
+      "es": "poliza",
+      "en": "journal_entry",
+      "why": "Mismo inglés que el resto del registro para «póliza»: `journal_entry` es la tabla (`journal_entries`) y el término de toda la casa. Un solo inglés por término."
     },
     {
       "class": "policy-value",

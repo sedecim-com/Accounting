@@ -59,6 +59,13 @@ export interface SessionCallbacks {
   askUser?: AskUserFn;
   /** Harness hook: fires when the agent creates a draft. */
   onDraftCreated?: (info: DraftCreatedInfo) => void;
+  /**
+   * Harness hook (#318): the pre-registration of the CFDI the ingest pipeline
+   * is processing right now, or undefined. The draft tool writes it WITH the
+   * draft, in the same INSERT, so a draft proposed for a received CFDI is born
+   * bound to it. It comes from the system, never from model input.
+   */
+  draftOrigin?: () => string | undefined;
   /** Fires once at the end of each turn with the provider-independent record. */
   onTurnComplete?: (record: TurnRecord) => void;
   /** Fires once per completed MODEL CALL with normalized token counts. */
