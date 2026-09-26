@@ -302,7 +302,15 @@ export async function calculateGarnishments(input: GarnishmentInput): Promise<Ga
       cap = 'AWG 15%';
     }
 
-    amount = Math.round(amount * 100) / 100;
+    // ROUNDED DOWN TO THE CENT, never to the nearest (Witness WIT-02, #272).
+    // Every ceiling above is a MAXIMUM, and half-up rounding can take half a
+    // cent past it: on 1,000.04 disposable, a 55 % support cap and three 15 %
+    // student loans round to 550.02 + 3 × 150.01 = 1,000.05, one cent more than
+    // there is — with a set whose ceilings add to exactly 100 %, which the
+    // writer admits. Truncating each line keeps every line under its own cap
+    // and their sum under the sum of the caps. The epsilon absorbs the binary
+    // representation of amounts already in cents (150.01 × 100 = 15000.999…).
+    amount = Math.floor(amount * 100 + 1e-6) / 100;
     totalWithheld += amount;
     perOrder.push({ order_id: o.id, type: o.type, amount, cap_applied: cap });
   }

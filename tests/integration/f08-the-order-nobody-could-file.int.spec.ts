@@ -541,6 +541,41 @@ describe('Witness WIT-02 · un conjunto de órdenes que el motor cobraría por e
   });
 });
 
+describe('Witness WIT-02 · en el borde del 100 %, el redondeo no cobra un centavo de más', () => {
+  it('manutención al 55 % y tres créditos educativos: la guarda los admite y el recibo no pasa de 1 000.04', async () => {
+    await clearOrders();
+    // Los techos suman 55 + 3 × 15 = 100: la guarda los admite, con razón.
+    // Con redondeo al centavo más cercano, 1 000.04 de disponible daba
+    // 550.02 + 3 × 150.01 = 1 000.05. Cada línea se trunca ahora al centavo.
+    await recordGarnishment(
+      { ...SUPPORT_ORDER, percent_disposable: '80', supports_second_family: 'yes', arrears_over_12_weeks: 'yes' },
+      SCOPE
+    );
+    for (const n of [1, 2, 3]) {
+      await recordGarnishment(
+        { ...SUPPORT_ORDER, type: 'student_loan', case_number: `SL-${n}`, percent_disposable: '15' },
+        SCOPE
+      );
+    }
+    const edge = { ...CASCADE_INPUT, disposable_earnings: 1000.04 };
+    const cascade = await calculateGarnishments(edge);
+    expect(cascade.per_order).toHaveLength(4);
+    expect(cascade.per_order.map((o) => o.amount)).toEqual([550.02, 150, 150, 150]);
+    expect(cascade.total_withheld).toBe(1000.02);
+    const sumOfLines = cascade.per_order.reduce((n, o) => n + Math.round(o.amount * 100), 0);
+    expect(sumOfLines).toBeLessThanOrEqual(100004);
+    await clearOrders();
+  });
+
+  it('CONTROL: un importe que ya está en centavos no pierde uno por la representación binaria', async () => {
+    await clearOrders();
+    // 4.35 × 100 = 434.99999999999994 en binario: truncar sin tolerancia da 4.34.
+    await recordGarnishment({ ...SUPPORT_ORDER, amount: '4.35', percent_disposable: undefined }, SCOPE);
+    expect((await calculateGarnishments(CASCADE_INPUT)).total_withheld).toBe(4.35);
+    await clearOrders();
+  });
+});
+
 describe('Witness WIT-01 · las negativas sobreviven a dos altas simultáneas', () => {
   /**
    * Barrera determinista con dos conexiones: A da de alta dentro de una
