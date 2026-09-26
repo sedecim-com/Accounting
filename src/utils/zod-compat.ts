@@ -1,39 +1,183 @@
 import { z } from 'zod';
 
 // ============================================================
-// CONTRACT: one helper per validation whose grammar zod 4 changes (#367).
+// CONTRACT: one helper per validation whose grammar zod 4 changed (#367).
 //
-// The owner's decision on #367 is that the Zod 4 migration accepts and
-// rejects exactly what zod 3.25.76 did, and parses to the same output. Zod 4
-// changes five grammars the REST bodies and the config file use:
+// The owner's decision on #367 is that the move to Zod 4 accepts and rejects
+// exactly what zod 3.25.76 did, and parses to the same output. Zod 4 changed
+// five grammars the REST bodies and the config file use, and each one is
+// restored here:
 //
-//   uuidString     v4 `.uuid()` is RFC 9562 (version and variant nibbles);
-//                  v3 accepted any 8-4-4-4-12 hex, and so must we.
-//   emailString    v4 rewrote the email regex.
-//   urlString      v4 trims the input before parsing it and returns the
-//                  normalized URL; v3 parsed the raw string and kept it.
-//   boundedString  v4 counts string lengths in code points; v3 counted
-//                  UTF-16 units, and so does every published maxLength.
-//   integerNumber  v4 stops at a failed `.int()`; v3 went on to report the
-//                  bounds after it too.
+//   uuidString     `.uuid()` became RFC 9562 (version and variant nibbles).
+//                  `.guid()` is zod 3's grammar: v3's regex is
+//                  /^[0-9a-fA-F]{8}\b-…{12}$/i and its `\b` and `i` are both
+//                  redundant next to explicit hex classes, so the two match
+//                  the same strings (tests/utils/zod-compat.spec.ts fuzzes it).
+//   emailString    the email regex was rewritten; zod 3's is passed back in
+//                  as the pattern, verbatim.
+//   urlString      `.url()` trims its input before parsing and returns the
+//                  normalized URL; $ZodCheckV3Url parses the raw string with
+//                  `URL.canParse`, as zod 3 did with `new URL`, and never
+//                  rewrites the value.
+//   boundedString  lengths count code points; the units checks below count
+//                  UTF-16 units, as zod 3 did and as every maxLength that
+//                  docs/openapi.json publishes says.
+//   integerNumber  a failed `.int()` stops the checks after it; $ZodCheckV3Int
+//                  lets the bounds report too, in zod 3's order.
 //
-// Every route and config schema builds those validations through here, so
-// the grammar lives in one file per Zod major. On zod 3 each helper is the
-// native method, and the goldens (tests/api/golden) pin what they do.
+// The checks subclass zod's own ($ZodCheckMaxLength, $ZodCheckStringFormat,
+// $ZodCheckNumberFormat…) so they keep the base traits and `def.check`: the
+// converter (src/api/rest/zod-a-json-schema.ts) reads them as the built-ins
+// they replace. They rely on `z.core.$constructor`, the base `init` and
+// `_zod.check`; tests/api/rest/zod4-guards.spec.ts and the goldens fail
+// loudly on a Zod minor that reshapes any of them.
+//
+// CONTRACT: the ONE deliberate tightening this file owns (T2 in #367): an
+// integer beyond ±(2^53 − 1), which JSON cannot carry exactly, is rejected.
+// To revert it, delete the range branch of $ZodCheckV3Int.
 // ============================================================
+
+/** zod 3.25.76, v3/types.js:384, verbatim. */
+export const V3_EMAIL_PATTERN =
+  /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i;
+
+/** Length checks run on strings only: after a failed type check there is nothing to measure. */
+const onStrings = (payload: z.core.ParsePayload): boolean => typeof payload.value === 'string';
+
+export const $ZodCheckMaxUnits = z.core.$constructor(
+  '$ZodCheckMaxUnits',
+  (inst: z.core.$ZodCheckMaxLength<string>, def: z.core.$ZodCheckMaxLengthDef) => {
+    def.when ??= onStrings;
+    z.core.$ZodCheckMaxLength.init(inst, def);
+    inst._zod.check = (payload) => {
+      const input = payload.value;
+      if (input.length <= def.maximum) return;
+      payload.issues.push({
+        origin: 'string',
+        code: 'too_big',
+        maximum: def.maximum,
+        inclusive: true,
+        input,
+        inst,
+        continue: !def.abort,
+      });
+    };
+  }
+);
+
+export const $ZodCheckMinUnits = z.core.$constructor(
+  '$ZodCheckMinUnits',
+  (inst: z.core.$ZodCheckMinLength<string>, def: z.core.$ZodCheckMinLengthDef) => {
+    def.when ??= onStrings;
+    z.core.$ZodCheckMinLength.init(inst, def);
+    inst._zod.check = (payload) => {
+      const input = payload.value;
+      if (input.length >= def.minimum) return;
+      payload.issues.push({
+        origin: 'string',
+        code: 'too_small',
+        minimum: def.minimum,
+        inclusive: true,
+        input,
+        inst,
+        continue: !def.abort,
+      });
+    };
+  }
+);
+
+export const $ZodCheckLengthUnits = z.core.$constructor(
+  '$ZodCheckLengthUnits',
+  (inst: z.core.$ZodCheckLengthEquals<string>, def: z.core.$ZodCheckLengthEqualsDef) => {
+    def.when ??= onStrings;
+    z.core.$ZodCheckLengthEquals.init(inst, def);
+    inst._zod.check = (payload) => {
+      const input = payload.value;
+      if (input.length === def.length) return;
+      const bound =
+        input.length > def.length
+          ? { code: 'too_big' as const, maximum: def.length }
+          : { code: 'too_small' as const, minimum: def.length };
+      payload.issues.push({
+        origin: 'string',
+        ...bound,
+        inclusive: true,
+        exact: true,
+        input,
+        inst,
+        continue: !def.abort,
+      });
+    };
+  }
+);
+
+export const $ZodCheckV3Url = z.core.$constructor(
+  '$ZodCheckV3Url',
+  (inst: z.core.$ZodCheckStringFormat, def: z.core.$ZodCheckStringFormatDef<'url'>) => {
+    z.core.$ZodCheckStringFormat.init(inst, def);
+    inst._zod.check = (payload) => {
+      if (URL.canParse(payload.value)) return;
+      payload.issues.push({
+        origin: 'string',
+        code: 'invalid_format',
+        format: 'url',
+        input: payload.value,
+        inst,
+        continue: !def.abort,
+      });
+    };
+  }
+);
+
+export const $ZodCheckV3Int = z.core.$constructor(
+  '$ZodCheckV3Int',
+  (inst: z.core.$ZodCheckNumberFormat, def: z.core.$ZodCheckNumberFormatDef) => {
+    z.core.$ZodCheckNumberFormat.init(inst, def);
+    inst._zod.check = (payload) => {
+      const input = payload.value;
+      if (!Number.isInteger(input)) {
+        // `continue: true`, unlike zod's own: zod 3 went on to the bounds.
+        payload.issues.push({ expected: 'int', format: def.format, code: 'invalid_type', input, inst, continue: true });
+        return;
+      }
+      // T2: beyond the safe range, JSON has already rounded the number.
+      if (input > Number.MAX_SAFE_INTEGER) {
+        payload.issues.push({
+          origin: 'int',
+          code: 'too_big',
+          maximum: Number.MAX_SAFE_INTEGER,
+          inclusive: true,
+          input,
+          inst,
+          continue: true,
+        });
+      } else if (input < Number.MIN_SAFE_INTEGER) {
+        payload.issues.push({
+          origin: 'int',
+          code: 'too_small',
+          minimum: Number.MIN_SAFE_INTEGER,
+          inclusive: true,
+          input,
+          inst,
+          continue: true,
+        });
+      }
+    };
+  }
+);
 
 /** Any 8-4-4-4-12 hex string, in either case. */
 export function uuidString(message?: string): z.ZodString {
-  return z.string().uuid(message);
+  return z.string().guid(message);
 }
 
 export function emailString(): z.ZodString {
-  return z.string().email();
+  return z.string().email({ pattern: V3_EMAIL_PATTERN });
 }
 
 /** Whatever `new URL()` parses, kept exactly as sent. */
 export function urlString(): z.ZodString {
-  return z.string().url();
+  return z.string().check(new $ZodCheckV3Url({ check: 'string_format', format: 'url' }));
 }
 
 export interface StringBounds {
@@ -50,14 +194,30 @@ export interface StringBoundMessages {
 
 /** A string whose bounds count UTF-16 units, checked in the fixed order min, max, length. */
 export function boundedString(bounds: StringBounds, messages: StringBoundMessages = {}): z.ZodString {
-  let schema = z.string();
-  if (bounds.min !== undefined) schema = schema.min(bounds.min, messages.min);
-  if (bounds.max !== undefined) schema = schema.max(bounds.max, messages.max);
-  if (bounds.length !== undefined) schema = schema.length(bounds.length, messages.length);
-  return schema;
+  const checks: z.core.$ZodCheck<string>[] = [];
+  if (bounds.min !== undefined) {
+    checks.push(
+      new $ZodCheckMinUnits({ check: 'min_length', ...z.core.util.normalizeParams({ error: messages.min }), minimum: bounds.min })
+    );
+  }
+  if (bounds.max !== undefined) {
+    checks.push(
+      new $ZodCheckMaxUnits({ check: 'max_length', ...z.core.util.normalizeParams({ error: messages.max }), maximum: bounds.max })
+    );
+  }
+  if (bounds.length !== undefined) {
+    checks.push(
+      new $ZodCheckLengthUnits({
+        check: 'length_equals',
+        ...z.core.util.normalizeParams({ error: messages.length }),
+        length: bounds.length,
+      })
+    );
+  }
+  return z.string().check(...checks);
 }
 
 /** An integer whose failure does not hide the bounds chained after it. */
 export function integerNumber(): z.ZodNumber {
-  return z.number().int();
+  return z.number().check(new $ZodCheckV3Int({ check: 'number_format', format: 'safeint' }));
 }
