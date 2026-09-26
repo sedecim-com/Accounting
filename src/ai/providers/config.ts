@@ -4,6 +4,7 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
+import { boundedString, integerNumber, urlString } from '../../utils/zod-compat.js';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
 import { languageOfLocale, resolveLocale, type Locale } from '../../i18n/locale.js';
 import { parseForClient } from '../../utils/zod-client-errors.js';
@@ -514,8 +515,8 @@ export function ventanaDe(nombre: string, cwd = process.cwd()): VentanaContexto 
 const profileSchema = z
   .object({
     type: z.enum(['anthropic', 'openai-compatible']),
-    model: z.string().min(1),
-    base_url: z.string().url().optional(),
+    model: boundedString({ min: 1 }),
+    base_url: urlString().optional(),
     api_key_env: z.string().optional(),
     api_key_cmd: z.string().optional(),
     stream: z.boolean().optional(),
@@ -530,20 +531,20 @@ const profileSchema = z
     max_tokens_param: z.enum(['max_tokens', 'max_completion_tokens']).optional(),
     tools: z.boolean().optional(),
     headers: z.record(z.string()).optional(),
-    max_iterations: z.number().int().min(1).max(100).optional(),
+    max_iterations: integerNumber().min(1).max(100).optional(),
     /**
      * Ordered failover chain: names of OTHER profiles to try when this one
      * fails with a failover-eligible error (see providers/failover.ts).
      * Validated lazily by resolveFailoverChain (existence, self-references,
      * cycles) so a chain naming a profile defined later in the file works.
      */
-    failover: z.array(z.string().min(1)).optional(),
+    failover: z.array(boundedString({ min: 1 })).optional(),
     /**
      * Per-profile skills allowlist: when present, it is the FINAL set of
      * firm skills the model may see (src/ai/skills/gating.ts). Absent =
      * every visible (ungated) skill.
      */
-    skills: z.array(z.string().min(1)).optional(),
+    skills: z.array(boundedString({ min: 1 })).optional(),
     note: z.string().optional(),
   })
   .strict();
@@ -579,9 +580,9 @@ const budgetSchema = z
 const compactionSchema = z
   .object({
     /** Auto-compact above this many estimated in-flight tokens; 0 = off. */
-    threshold_tokens: z.number().int().min(0).optional(),
+    threshold_tokens: integerNumber().min(0).optional(),
     /** Intact recent tail the compaction must keep. */
-    keep_recent_tokens: z.number().int().min(1).optional(),
+    keep_recent_tokens: integerNumber().min(1).optional(),
     /** Identifier survival policy; only 'strict' exists today. */
     identifier_policy: z.enum(['strict']).optional(),
     /**
@@ -589,7 +590,7 @@ const compactionSchema = z
      * MAX_DESCARGAS_MEMORIA_POR_SESION: 0 apaga la descarga automática, un
      * número grande devuelve la conducta de una por compactación.
      */
-    max_memory_flushes: z.number().int().min(0).optional(),
+    max_memory_flushes: integerNumber().min(0).optional(),
   })
   .strict();
 

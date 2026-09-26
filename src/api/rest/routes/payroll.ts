@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString, emailString, integerNumber, uuidString } from '../../../utils/zod-compat.js';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
@@ -63,7 +64,7 @@ const meta = (req: Request) => ({
  */
 const finiquitoSchema = z
   .object({
-    employee_id: z.string().uuid(),
+    employee_id: uuidString(),
     termination_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
     last_paid_through: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
     termination_reason: z.enum(['renuncia', 'despido', 'rescision_por_el_trabajador', 'muerte']),
@@ -72,10 +73,10 @@ const finiquitoSchema = z
   .strict();
 
 const createEmployeeSchema = z.object({
-  entity_id: z.string().uuid().optional(),
-  first_name: z.string().min(1).max(100),
-  last_name: z.string().min(1).max(100),
-  email: z.string().email().optional(),
+  entity_id: uuidString().optional(),
+  first_name: boundedString({ min: 1, max: 100 }),
+  last_name: boundedString({ min: 1, max: 100 }),
+  email: emailString().optional(),
   country_code: z.enum(['MX', 'US']),
   hire_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
   // Country-specific (one of these blocks)
@@ -102,7 +103,7 @@ const compensationChangeSchema = z.object({
 });
 
 const createPayRunSchema = z.object({
-  pay_period_id: z.string().uuid(),
+  pay_period_id: uuidString(),
   // El vocabulario sale de src/database/enums.ts, no de una copia a mano.
   // Aceptaba 'finiquito', que el CHECK no tiene: la petición pasaba la
   // validación y Postgres lanzaba 23514, o sea un 500 en vez de un 422.
@@ -112,16 +113,16 @@ const createPayRunSchema = z.object({
 }).passthrough();
 
 const electBenefitSchema = z.object({
-  employee_id: z.string().uuid(),
-  benefit_plan_id: z.string().uuid(),
+  employee_id: uuidString(),
+  benefit_plan_id: uuidString(),
   election_type: z.enum(['percentage', 'fixed_amount']),
   election_value: z.union([z.string(), z.number()]),
   effective_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
 });
 
 const createBenefitPlanSchema = z.object({
-  entity_id: z.string().uuid().optional(),
-  plan_name: z.string().min(1),
+  entity_id: uuidString().optional(),
+  plan_name: boundedString({ min: 1 }),
   plan_type: z.enum(['401k', 'roth_401k', 'hsa', 'fsa', 'dcfsa', 'health_insurance', 'dental', 'vision', 'life']),
   is_pre_tax: z.boolean().default(true),
   annual_limit: z.union([z.string(), z.number()]).optional(),
@@ -207,7 +208,7 @@ router.post('/pay-schedules', declararRiesgoRuta({ riesgo: 'escritura', escribe:
  * `count` had no bound: a loop of INSERTs as long as the caller liked. Four
  * years of weekly periods is 208; nothing legitimate asks for more in one call.
  */
-const generatePeriodsSchema = z.object({ count: z.number().int().min(1).max(208).optional() });
+const generatePeriodsSchema = z.object({ count: integerNumber().min(1).max(208).optional() });
 
 router.post('/pay-schedules/:id/generate-periods', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pay_periods' }), requirePermission('payroll:create'), requireEntityAccess, validateBody(generatePeriodsSchema), asyncHandler(async (req: Request, res: Response) => {
   const { count = 24 } = req.body as { count?: number };

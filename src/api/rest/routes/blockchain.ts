@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { emailString, integerNumber, urlString, uuidString } from '../../../utils/zod-compat.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess, assertEntityAccess } from '../middleware/auth.js';
@@ -24,7 +25,7 @@ const blockchainConfigSchema = z.object({
   // Los tres vocabularios de blockchain_config estaban separados de sus
   // CHECK: de los nueve valores en juego coincidía UNO.
   redundancy_mode: z.enum(REDUNDANCY_MODES).optional(),
-  required_confirmations: z.number().int().min(1).max(100).optional(),
+  required_confirmations: integerNumber().min(1).max(100).optional(),
   verification_layer: z.enum(VERIFICATION_LAYERS).optional(),
   messaging_protocol: z.enum(MESSAGING_PROTOCOLS).optional(),
   max_gas_price_gwei: z.union([z.string(), z.number()]).optional(),
@@ -38,15 +39,15 @@ const validateConfigSchema = z.object({
 });
 
 const disclosureConfigSchema = z.object({
-  entity_id: z.string().uuid().optional(),
+  entity_id: uuidString().optional(),
   category_disclosure: z.record(z.number()).optional(),
   publish_geography: z.boolean().optional(),
   publish_line_of_business: z.boolean().optional(),
   publish_customer_segment: z.boolean().optional(),
   publish_channel: z.boolean().optional(),
-  publication_delay_minutes: z.number().int().nonnegative().optional(),
+  publication_delay_minutes: integerNumber().nonnegative().optional(),
   aggregation_period: z.enum(['daily', 'weekly', 'monthly', 'quarterly']).optional(),
-  minimum_aggregation_count: z.number().int().positive().optional(),
+  minimum_aggregation_count: integerNumber().positive().optional(),
   round_to_nearest: z.number().positive().optional(),
 }).passthrough();
 
@@ -58,10 +59,10 @@ const bitcoinConfigSchema = z.object({
   max_fee_usd: z.union([z.string(), z.number()]).optional(),
   use_own_wallet: z.boolean().optional(),
   wallet_address: z.string().optional(),
-  ots_calendars: z.array(z.string().url()).optional(),
+  ots_calendars: z.array(urlString()).optional(),
   notify_on_complete: z.boolean().optional(),
   notify_on_failure: z.boolean().optional(),
-  notification_emails: z.array(z.string().email()).optional(),
+  notification_emails: z.array(emailString()).optional(),
 });
 
 const bitcoinEstimateSchema = z.object({
@@ -70,8 +71,8 @@ const bitcoinEstimateSchema = z.object({
 });
 
 const commitPeriodSchema = z.object({
-  entity_id: z.string().uuid(),
-  period_id: z.string().uuid(),
+  entity_id: uuidString(),
+  period_id: uuidString(),
 });
 
 // ============================================================
