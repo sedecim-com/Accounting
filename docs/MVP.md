@@ -173,7 +173,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
    ```bash
    npm run typecheck && npm run typecheck:tests && npm test && npm run lint
    npm run test:integration          # con Postgres, ver la sección 7
-   npm run plan:status -- --piso --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1
+   npm run plan:status -- --piso --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1,E4.1
    npx tsx scripts/catalogo-estado.ts --check
    npx tsx scripts/corpus-manifiesto.ts --check
    npx tsx scripts/historial-estado.ts --check
