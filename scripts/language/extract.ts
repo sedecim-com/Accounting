@@ -259,7 +259,7 @@ const SPANISH_FUNCTION_WORDS: ReadonlySet<string> = new Set([
   'de', 'en', 'con', 'sin', 'para', 'por', 'sobre', 'entre', 'desde', 'hasta', 'hacia',
   'que', 'se', 'es', 'son', 'era', 'fue', 'fueron', 'ha', 'han', 'hay', 'ser', 'sera', 'sean',
   'esta', 'este', 'esto', 'estas', 'estos', 'ese', 'esa', 'eso', 'aquel', 'aquella',
-  'su', 'sus', 'mi', 'me', 'te', 'tu', 'nos', 'ya', 'no', 'ni', 'y', 'o', 'si', 'mas',
+  'su', 'sus', 'mi', 'me', 'te', 'tu', 'nos', 'ya', 'ni', 'y', 'o', 'si', 'mas',
   'como', 'pero', 'sino', 'porque', 'aunque', 'cuando', 'donde', 'cual', 'cuales', 'quien',
   'nada', 'nadie', 'algo', 'todo', 'toda', 'todos', 'todas', 'cada', 'otra', 'otro',
   'otras', 'otros', 'mismo', 'misma', 'muy', 'tambien', 'solo', 'asi', 'aqui', 'ahi',
@@ -276,7 +276,7 @@ const SPANISH_FUNCTION_WORDS: ReadonlySet<string> = new Set([
  * tramo eran 14 en `bank-command.ts` y 95 en todo `src/cli/`.
  */
 const ENGLISH_FUNCTION_WORDS: ReadonlySet<string> = new Set([
-  'the', 'of', 'and', 'to', 'in', 'is', 'it', 'that', 'for', 'with', 'this', 'not', 'on',
+  'the', 'of', 'and', 'to', 'in', 'is', 'it', 'that', 'for', 'with', 'this', 'not', 'no', 'on',
   'be', 'are', 'was', 'were', 'from', 'as', 'by', 'or', 'an', 'at', 'but', 'they', 'you',
   'your', 'its', 'has', 'have', 'had', 'will', 'would', 'when', 'which', 'what', 'who',
   'how', 'all', 'any', 'each', 'one', 'two', 'three', 'only', 'also', 'than', 'then',

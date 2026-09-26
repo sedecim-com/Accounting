@@ -439,6 +439,28 @@ export async function contadoresAnualesSembrados(): Promise<Resultado> {
       );
 }
 
+/**
+ * El trozo de un documento que va de un encabezado al siguiente, o `null` si
+ * el encabezado ya no está.
+ *
+ * Existe por la lección de las anclas que no acotan: preguntar «¿dice "En
+ * español"?» sobre un archivo ENTERO mide la oración equivocada en cuanto
+ * alguien escribe esas dos palabras en cualquier otro párrafo — y CONTRIBUTING
+ * las escribe, legítimamente, hablando de la línea base por archivo. Un
+ * criterio que afirma algo de una sección tiene que leer esa sección.
+ *
+ * El segundo argumento es qué cuenta como «el siguiente encabezado», porque un
+ * job de YAML termina donde empieza otra clave en columna dos y un apartado de
+ * Markdown donde empieza otro `##`.
+ */
+export function sectionOf(text: string, heading: string, until = /^## /m): string | null {
+  const from = text.indexOf(heading);
+  if (from === -1) return null;
+  const rest = text.slice(from + heading.length);
+  const next = until.exec(rest);
+  return next === null ? rest : rest.slice(0, next.index);
+}
+
 export const ok = (detalle: string): Resultado => ({ estado: 'ok', detalle });
 export const falla = (detalle: string): Resultado => ({ estado: 'falla', detalle });
 export const noEvaluable = (detalle: string): Resultado => ({ estado: 'no-evaluable', detalle });
