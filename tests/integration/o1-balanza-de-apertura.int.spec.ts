@@ -1,12 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { crearInquilino, crearEntidadHermana, type Fixture } from './helpers/tenant-fixture.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
-import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
+import {
+  createJournalEntry,
+  drainAttestations,
+  voidJournalEntry,
+} from '../../src/services/accounting/posting.js';
 import { JournalEntryType } from '../../src/types/index.js';
 import { setAccountRole } from '../../src/services/accounting/account-roles-service.js';
 import { arReconcile } from '../../src/services/ar/ar-controls.js';
 import { importSatChart } from '../../src/services/accounting/sat-chart-import.js';
 import {
+  checkOpeningBalance,
   importOpeningBalance,
   type OpeningDocument,
   type OpeningBalanceReport,
@@ -481,6 +486,65 @@ describe('dos aperturas concurrentes de la misma entidad', () => {
     // resta. Con `debit - credit` a secas, una línea de sólo abono da NULL, la
     // suma entera da NULL y el `COALESCE` de fuera la vuelve 0 — la aserción
     // pasaría por la razón equivocada el día que el saldo esperado fuera cero.
+  });
+});
+
+// ============================================================
+// MNE-001-018 · A REVERSED OPENING CAN BE LOADED AGAIN (087), AND THE CHECK
+// ============================================================
+
+describe('a reversed opening can be loaded again', () => {
+  it('087 narrows the 081 index to the openings that are still standing', async () => {
+    const idx = await query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_je_apertura_por_entidad_y_fecha'`
+    );
+    expect(idx.rows).toHaveLength(1);
+    expect(idx.rows[0].indexdef).toMatch(/reversed_by_entry_id IS NULL/);
+  });
+
+  it('void, reload, and `opening-balance check` is equal to the peso — with no doubled balance', async () => {
+    const own = await crearEntidadHermana(f, 'MNE-001-018 reload');
+    await importSatChart(ctxDe(own), { entityId: own.entityId, xml: XML_CATALOGO, userId: own.userId });
+    const load = () =>
+      importOpeningBalance(ctxDe(own), {
+        entityId: own.entityId,
+        xml: balanzaDeOrigen(),
+        userId: own.userId,
+        documentos: AUXILIAR,
+      });
+    const first = await load();
+    expect(first.escrito).toBe(true);
+    const check = async () =>
+      checkOpeningBalance(ctxDe(own), { entityId: own.entityId, xml: balanzaDeOrigen() });
+    expect((await check()).comparison.iguales).toBe(true);
+
+    // Before 087 this was the dead end: the reversed opening stays 'posted',
+    // so the index still counted it and the advice «void it and run again»
+    // could not be followed.
+    await voidJournalEntry(first.asiento?.id ?? '', own.userId, 'wrong source file');
+    const second = await load();
+    expect(second.findings.map((x) => x.regla)).not.toContain('APE-YA-CARGADA');
+    expect(second.escrito).toBe(true);
+
+    const c = (await check()).comparison;
+    expect(renderBalanceComparison(c)).toContain('IGUALES AL PESO');
+    expect(c.comparadas).toBe(CATALOGO.length);
+
+    // And a THIRD live one is still refused: the guard narrowed, it did not go.
+    const third = await load();
+    expect(third.escrito).toBe(false);
+    expect(third.findings.map((x) => x.regla)).toContain('APE-YA-CARGADA');
+  });
+
+  it('the check names the account when the ledger differs from the source', async () => {
+    const c = (
+      await checkOpeningBalance(ctxDe(f), {
+        entityId: f.entityId,
+        xml: balanzaDeOrigen({ '102-001': '50001.00', '102': '50001.00', '100': '232001.00' }),
+      })
+    ).comparison;
+    expect(c.iguales).toBe(false);
+    expect(c.diferencias.map((d) => d.numCta)).toContain('102-001');
   });
 });
 
