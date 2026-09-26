@@ -41,6 +41,7 @@ El contador del despacho, que opera el CLI, y el dueño o auditor del despacho, 
 | RNF-01 | La IA nunca escribe el mayor ni sistemas externos (invariante 1) | Los criterios de E5.1 en verde; ninguna herramienta nueva salta `ai_drafts` ni `ai_external_ops` |
 | RNF-02 | Entrega sin atascos | Los criterios se evalúan una vez por corrida; el tablero no es el archivo donde chocan todos los PRs |
 | RNF-03 | Terminal predecible | Gramática, salida y códigos de salida uniformes entre familias de comandos |
+| RNF-04 | Encaja en la plataforma Sedecim | Acepta la identidad del IdP de la plataforma, se despliega por su camino y ninguna superficie promete lo que no hace (`docs/MVP.md` §3, «Armonía con la plataforma») |
 
 ## 6. Dentro y fuera de alcance
 
@@ -54,7 +55,7 @@ El contador del despacho, que opera el CLI, y el dueño o auditor del despacho, 
 
 ## 7. Reutilización y dependencias de plataforma
 
-Ninguna con otros repos de Sedecim (`docs/platform/inventory.md`). Contalink es externo. Este repo escribe en él sólo por la cola revisada `ai_external_ops` y nunca en una compañía que ya tiene otro escritor: la de Grupo Promessa es de `accounting-manager` (ADR-0004, #357).
+Ningún contrato con otros repos de Sedecim todavía. La revisión del 2026-09-26 (`docs/platform/harmony-review.md`) identifica productores candidatos (Cognito, `hash-stamper`, `sat-services`, OCR, `pdf-generator`) y lo que falta para integrarse (RNF-04). Contalink es externo. Este repo escribe en él sólo por la cola revisada `ai_external_ops` y nunca en una compañía que ya tiene otro escritor: la de Grupo Promessa es de `accounting-manager` (ADR-0004, #357).
 
 ## 8. Supuestos, riesgos y preguntas abiertas
 

@@ -18,7 +18,7 @@ owners: ["@vic2099"]             # .github/CODEOWNERS
 criticality: tier-1              # inferido · una caída o un error pierde dinero o datos de clientes del despacho
 data_classification: pii         # RFC, CURP, NSS, sueldos y credenciales fiscales (e.firma, CSD) — docs/SCOPE.md
 language: typescript
-runtime: node-20                 # package.json engines ">=20.0.0"; CI corre Node 20
+runtime: node-22                 # package.json engines ">=22.12"; CI y docker/Dockerfile en Node 22
 
 provides:
   - api: mnemosine-rest-v1       # contrato v0 = docs/openapi.json, generado del código y vigilado en CI (--check)
@@ -46,3 +46,19 @@ datastores:
 related_repos:                   # extensión propuesta; ver docs/platform/inventory.md
   - repo: sedecim-com/accounting-manager
     relation: coexiste           # ADR-0004: contabiliza las comisiones de Grupo Promessa; un solo escritor por compañía de Contalink (RFC)
+  - repo: sedecim-com/mx2
+    relation: llama-a-accounting-manager   # quien dispara /accounting/policies/manual (docs/platform/harmony-review.md)
+  - repo: sedecim-com/acceso-rbac
+    relation: identidad-candidata          # issuer = user pool de Cognito de Acceso; decisión en #371
+  - repo: sedecim-com/acceso-organizations
+    relation: mapeo-por-rfc                # organization ↔ entity (#371)
+  - repo: sedecim-com/sat-services
+    relation: duplica                      # descarga masiva con e.firma; se consume post-MVP (#312)
+  - repo: sedecim-com/hash-stamper
+    relation: productor-candidato          # constancia NOM-151 (#374)
+  - repo: sedecim-com/catalogs
+    relation: duplica                      # catálogos del SAT
+  - repo: sedecim-com/sedecim-ocr-service
+    relation: productor-candidato          # OCR v2 de estados de cuenta y facturas no XML
+  - repo: sedecim-com/pdf-generator
+    relation: productor-candidato          # PDF de estados financieros y recibos

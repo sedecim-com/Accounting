@@ -96,6 +96,18 @@ Los carriles C y E comparten `period-close.ts`: el checklist lo toca #98, y el a
 - los documentos abiertos en la migración ([#310](https://github.com/sedecim-com/Accounting/issues/310), después de #220);
 - la factura en moneda extranjera y la revaluación ([#305](https://github.com/sedecim-com/Accounting/issues/305)).
 
+### Armonía con la plataforma (revisión del 2026-09-26)
+
+La revisión de los repos de `sedecim-com` ([`platform/harmony-review.md`](platform/harmony-review.md)) deja cinco trabajos en este repo:
+
+- aceptar los access tokens de Cognito ([#369](https://github.com/sedecim-com/Accounting/issues/369)), Ola 1;
+- que el adaptador S3 deje de prometer lo que no hace ([#370](https://github.com/sedecim-com/Accounting/issues/370)), Ola 1;
+- la decisión de identidad de plataforma ([#371](https://github.com/sedecim-com/Accounting/issues/371));
+- la imagen y los workflows desplegables como los demás servicios ([#372](https://github.com/sedecim-com/Accounting/issues/372)), Ola 3;
+- `migrate` con candado ([#373](https://github.com/sedecim-com/Accounting/issues/373)), Ola 3.
+
+El despliegue mismo depende de la plataforma (Postgres gestionado, IAM y namespaces propios, `/mnemosine/` en el gateway) y no entra en la definición de terminado.
+
 ### Ola 3 · El MVP se demuestra y se pule
 
 - [#311](https://github.com/sedecim-com/Accounting/issues/311), el mes de punta a punta; conviene **empezarla en la Ola 1**, con `it.todo`.
