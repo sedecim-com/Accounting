@@ -43,6 +43,6 @@ datastores:
   - "postgres:mnemosine"         # dueño único; RLS por inquilino
   - "redis:rate-limit"           # inferido · sólo el limitador de la API REST
 
-related_repos:                   # inferido · extensión propuesta; ver docs/platform/inventory.md
+related_repos:                   # extensión propuesta; ver docs/platform/inventory.md
   - repo: sedecim-com/accounting-manager
-    relation: variante           # también convierte CFDI en pólizas y las envía a Contalink; fuente de verdad sin decidir
+    relation: reemplazado        # ADR-0003: este repo es la fuente de verdad; aquél se apaga y se archiva (#342)
