@@ -45,7 +45,7 @@ Los límites que gobiernan esto viven en código — `src/ai/floor.ts` — y se 
 node -e "const p=require('./package.json'); console.log(p.name, p.version, p.engines)"
 ```
 
-- **Runtime**: Node ≥ 22.12 (`engines` en `package.json`; es lo que exige vitest 5), TypeScript, `tsx` para ejecución directa.
+- **Runtime**: Node ≥ 22.12 (`engines` en `package.json`; es lo que exige vitest 5), TypeScript 6 (el 7 espera a typescript-eslint: [ADR-0005](adr/0005-typescript-6-until-typescript-eslint-supports-7.md)), `tsx` para ejecución directa.
 - **Base de datos**: PostgreSQL 15, con Row-Level Security como perímetro multi-inquilino (no un filtro en la capa de aplicación).
 - **Superficies**: CLI (`src/cli/`, comando `mnemosine`) y REST (`src/api/rest/`, Express). Hubo una tercera, GraphQL con Apollo Server, apagada tras una bandera y sin un solo consumidor: se **retiró** en T14b ([#101](https://github.com/sedecim-com/Accounting/issues/101)). Una superficie que nadie ejerce no se blinda, se quita — y mientras existía, el criterio que la vigilaba se ponía verde con sólo mudar su montaje de archivo.
 - **Pruebas**: Vitest (unitarias + integración contra Postgres real), con umbrales de cobertura **por archivo** sobre el motor contable (`vitest.config.ts`) que sólo pueden endurecerse, nunca aflojarse.
