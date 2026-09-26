@@ -34,6 +34,8 @@ export interface FakeIdp {
   revocationCalls: RecordedCall[];
   /** Replaces the token endpoint's behaviour; undefined restores the default. */
   onToken: TokenHandler | undefined;
+  /** The default token endpoint, for an onToken that only adds to it. */
+  defaultToken: TokenHandler;
   /** Discovery fields to add or override (e.g. a different issuer, no end_session_endpoint). */
   discoveryOverrides: Record<string, unknown>;
   signAccess(opts?: { aud?: string; iss?: string; expiresIn?: string; sub?: string }): Promise<string>;
@@ -60,6 +62,7 @@ export async function createFakeIdp(name: string = randomUUID()): Promise<FakeId
     discoveryOverrides: {},
     issued: { access: [], refresh: [] },
     fetch: undefined as unknown as typeof fetch,
+    defaultToken: undefined as unknown as TokenHandler,
 
     signAccess(opts = {}) {
       return new SignJWT({ scope: 'openid' })
@@ -108,6 +111,7 @@ export async function createFakeIdp(name: string = randomUUID()): Promise<FakeId
     }
     return { status: 400, body: { error: 'invalid_grant' } };
   };
+  idp.defaultToken = defaultToken;
 
   const record = async (input: string | URL | Request, init?: RequestInit): Promise<RecordedCall> => {
     const headers = new Headers(init?.headers);

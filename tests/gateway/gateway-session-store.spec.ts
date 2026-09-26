@@ -114,6 +114,41 @@ describe('SessionStore', () => {
     expect(store.size).toBe(0);
   });
 
+  // WIT-01 (#249): a refresh is an await, and a session alive when it started
+  // can cross its idle or absolute limit before the tokens come back. Storing
+  // them then would hand an ended session a fresh access token.
+  it.each([
+    ['absolute', 30, 1, 3_600_000],
+    ['idle', 5, 8, 5 * 60_000],
+  ])('tokens that arrive after the %s limit replace nothing, and the ended session is gone', (limit, idle, absolute, limitMs) => {
+    const now = { value: 0 };
+    const store = storeWith(10, now, idle, absolute);
+    const s = store.create(tokens)!;
+    if (limit === 'absolute') {
+      // Keep it active so only the absolute lifetime can end it.
+      for (let t = 20 * 60_000; t < limitMs; t += 20 * 60_000) {
+        now.value = t;
+        store.touch(store.find(s.cookieValue)!.key);
+      }
+    }
+    now.value = limitMs - 1_000;
+    expect(store.find(s.cookieValue)).toBeDefined();
+    now.value = limitMs + 1_000;
+    expect(store.replaceTokens(s.key, { accessToken: 'late', accessExpiresAt: now.value + 600_000, principal })).toBe(false);
+    expect(store.size).toBe(0);
+    store.touch(s.key);
+    expect(store.find(s.cookieValue)).toBeUndefined();
+  });
+
+  it('tokens that arrive before either limit still replace the old ones (control)', () => {
+    const now = { value: 0 };
+    const store = storeWith(10, now, 5, 1);
+    const s = store.create(tokens)!;
+    now.value = 5 * 60_000 - 1_000;
+    expect(store.replaceTokens(s.key, { accessToken: 'in-time', accessExpiresAt: now.value + 600_000, principal })).toBe(true);
+    expect(store.find(s.cookieValue)?.record.accessToken).toBe('in-time');
+  });
+
   it('a replaced token keeps the stored refresh token when the IdP does not rotate it', () => {
     const store = storeWith(10, { value: 0 });
     const s = store.create(tokens)!;

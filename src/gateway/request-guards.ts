@@ -33,7 +33,9 @@ import { sessionTag, type RefreshOutcome, type SessionRecord, type SessionStore 
 //   · methodGate: GET and HEAD only; see PROXIED_METHODS.
 //   · sessionGuard: a live session, refreshed single-flight when its access
 //     token has less than a minute left. Only a verdict of the IdP ends the
-//     session; an IdP that cannot answer leaves it as it was (below).
+//     session; an IdP that cannot answer leaves it as it was, a refresh never
+//     outlives the session, and a session with no refresh token lives out its
+//     access token (below).
 // ============================================================
 
 export const CSRF_HEADER = 'x-mnemosine-request';
@@ -111,6 +113,19 @@ export interface SessionGuardDeps {
 // One case is lost even so: an IdP that rotated the refresh token, and whose
 // answer then timed out or whose keys could not be read, has spent the one the
 // session holds. The next refresh is refused, a verdict, and that ends it.
+//
+// Two more rules, from Witness (#249):
+//   · WIT-01. A refresh that SUCCEEDS is an await too, and the session can
+//     cross its idle or absolute limit while it waits. The store refuses to
+//     replace the tokens of an ended session, and the guard asks the store
+//     again after every refresh, whatever its outcome: only a session that is
+//     still alive is touched and relayed. Touching first would restart the
+//     idle clock of a session that had already ended.
+//   · WIT-02. A session without a refresh token is not a refused one. An IdP
+//     may admit a login without refresh_token (offline_access is a request,
+//     not a guarantee). There is nothing to renew, so the access token serves
+//     until it expires, bounded like any other by the idle and absolute
+//     lifetimes; then the session ends with 401 and a new sign-in.
 // ============================================================
 
 function isRefusal(err: unknown): boolean {
@@ -126,6 +141,8 @@ async function refreshOnce(deps: SessionGuardDeps, key: string, record: SessionR
   if (!record.refreshing) {
     const refreshToken = record.refreshToken;
     record.refreshing = (async (): Promise<RefreshOutcome> => {
+      // The guard never gets here without one (WIT-02); if it did, there is
+      // nothing to renew and nothing to wait for.
       if (!refreshToken) return 'refused';
       try {
         const tokens = await deps.oidc.refresh(refreshToken);
@@ -154,13 +171,22 @@ export function createSessionGuard(deps: SessionGuardDeps): RequestHandler {
     if (!found) return sendError(res, 401, 'SESSION_REQUIRED');
     const { key, record } = found;
     if (record.accessExpiresAt - deps.clock() < REFRESH_MARGIN_MS) {
-      const outcome = await refreshOnce(deps, key, record);
-      if (outcome === 'refused') return sendError(res, 401, 'SESSION_EXPIRED');
-      if (outcome === 'unavailable') {
+      if (!record.refreshToken) {
+        // Nothing to renew (WIT-02): use the access token until it expires.
+        if (record.accessExpiresAt <= deps.clock()) {
+          deps.sessions.destroy(key);
+          return sendError(res, 401, 'SESSION_EXPIRED');
+        }
+      } else {
+        const outcome = await refreshOnce(deps, key, record);
+        if (outcome === 'refused') return sendError(res, 401, 'SESSION_EXPIRED');
         // A sign-out or an expiry while the refresh waited is not undone by
-        // relaying with the tokens it left behind.
+        // relaying, neither with the tokens it left behind nor with the ones
+        // it brought (WIT-01).
         if (!deps.sessions.find(cookie)) return sendError(res, 401, 'SESSION_EXPIRED');
-        if (record.accessExpiresAt <= deps.clock()) return sendError(res, 502, 'IDP_UNAVAILABLE');
+        if (outcome === 'unavailable' && record.accessExpiresAt <= deps.clock()) {
+          return sendError(res, 502, 'IDP_UNAVAILABLE');
+        }
       }
     }
     deps.sessions.touch(key);

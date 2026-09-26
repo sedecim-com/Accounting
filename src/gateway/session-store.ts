@@ -176,10 +176,19 @@ export class SessionStore {
    * Replaces the tokens after a verified refresh. createdAt stays, so the
    * absolute lifetime does too. A refresh that names another principal
    * replaces nothing: the session belongs to whoever signed in.
+   *
+   * Nor does a refresh that lands after the session ended (WIT-01, #249). The
+   * refresh is an await: a session alive when it started can cross its idle
+   * or absolute limit before the IdP answers, and storing the new tokens then
+   * would hand an ended session a fresh credential. It is destroyed instead.
    */
   replaceTokens(key: string, tokens: SessionTokens): boolean {
     const record = this.entries.get(key);
     if (!record || record.principal !== tokens.principal) return false;
+    if (this.expired(record, this.clock())) {
+      this.entries.delete(key);
+      return false;
+    }
     record.accessToken = tokens.accessToken;
     record.refreshToken = tokens.refreshToken ?? record.refreshToken;
     record.accessExpiresAt = tokens.accessExpiresAt;

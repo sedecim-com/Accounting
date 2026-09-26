@@ -570,6 +570,164 @@ describe('idle and absolute lifetimes', () => {
   });
 });
 
+// ============================================================
+// WIT-01 (#249): a refresh that succeeds cannot carry a session past its end.
+//
+// The refresh is an await. A session alive when it started can cross its
+// idle or absolute limit before the tokens come back; the guard then has to
+// answer 401, reach nothing, and leave no session behind: neither store the
+// new tokens nor let the late activity restart the idle clock. Both limits
+// are set to valid configuration values, and the clock is placed right next
+// to the limit: the IdP's answer is what moves it across.
+// ============================================================
+
+describe('a successful refresh that crosses a lifetime limit', () => {
+  /** The refresh grant answers normally, after moving the clock by `ms`. */
+  function refreshTakes(ms: number): void {
+    const answer = h.idp.onToken ?? h.idp.defaultToken;
+    h.idp.onToken = (params) => {
+      if (params.get('grant_type') === 'refresh_token') h.now.value += ms;
+      return answer(params);
+    };
+  }
+
+  async function signInAt(config: Parameters<typeof startHarness>[0]): Promise<{ cookie: string; start: number }> {
+    await h.close();
+    h = await startHarness(config);
+    const start = h.now.value;
+    return { cookie: await h.signIn(), start };
+  }
+
+  it('the absolute limit (one hour): 401, no relay, no session', async () => {
+    const { cookie, start } = await signInAt({ config: { sessionAbsoluteHours: 1 } });
+    for (const minutes of [20, 40]) {
+      h.now.value = start + minutes * 60_000;
+      expect((await h.read('/v1/portfolio', cookie)).status, `${minutes} min`).toBe(200);
+    }
+    const relayed = h.api.requests.length;
+    // Started at 59:59 with the access token expired: the refresh ends at 60:01.
+    h.now.value = start + 3_599_000;
+    refreshTakes(2_000);
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(401);
+    expect(codeOf(res)).toBe('SESSION_EXPIRED');
+    expect(h.api.requests).toHaveLength(relayed);
+    expect(h.gateway.sessions.size).toBe(0);
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+  });
+
+  it('the idle limit (five minutes): 401, no relay, and the late activity does not revive it', async () => {
+    await h.close();
+    h = await startHarness({ config: { sessionIdleMinutes: 5 } });
+    // A five-minute access token, so the refresh starts inside the idle
+    // window: at 4:59 since sign-in it has a second left, and the refresh
+    // ends at 5:01.
+    const answer = h.idp.onToken ?? h.idp.defaultToken;
+    h.idp.onToken = async (params) => {
+      if (params.get('grant_type') !== 'authorization_code') return answer(params);
+      const access = await h.idp.signAccess({ expiresIn: '5m' });
+      h.idp.issued.access.push(access);
+      h.idp.issued.refresh.push('refresh-five-minutes');
+      return { body: { access_token: access, token_type: 'Bearer', refresh_token: 'refresh-five-minutes' } };
+    };
+    const start = h.now.value;
+    const cookie = await h.signIn();
+    h.now.value = start + 299_000;
+    refreshTakes(2_000);
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(401);
+    expect(codeOf(res)).toBe('SESSION_EXPIRED');
+    expect(h.api.requests).toHaveLength(0);
+    expect(h.gateway.sessions.size).toBe(0);
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+  });
+
+  it('control: the same refresh ending one second before the absolute limit relays with the new token', async () => {
+    const { cookie, start } = await signInAt({ config: { sessionAbsoluteHours: 1 } });
+    for (const minutes of [20, 40]) {
+      h.now.value = start + minutes * 60_000;
+      expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+    }
+    h.now.value = start + 3_597_000;
+    refreshTakes(2_000);
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(200);
+    expect(h.api.requests.at(-1)?.headers.authorization).toBe(`Bearer ${h.idp.issued.access.at(-1) ?? ''}`);
+    expect(h.gateway.sessions.size).toBe(1);
+  });
+});
+
+// ============================================================
+// WIT-02 (#249): no refresh token is not a refused one.
+//
+// An IdP may admit a login without refresh_token; offline_access is a request,
+// not a guarantee. The session has nothing to renew, so its access token
+// serves until it expires, and then the session ends with 401 and a new
+// sign-in. The IdP's real refusal, single-flight and a concurrent sign-out
+// keep their own tests above.
+// ============================================================
+
+describe('a session without a refresh token', () => {
+  /** Sign-ins from now on get an access token of `expiresIn` and no refresh_token. */
+  function issueWithoutRefresh(expiresIn: string): void {
+    const answer = h.idp.onToken ?? h.idp.defaultToken;
+    h.idp.onToken = async (params) => {
+      if (params.get('grant_type') !== 'authorization_code') return answer(params);
+      const access = await h.idp.signAccess({ expiresIn });
+      h.idp.issued.access.push(access);
+      return { body: { access_token: access, token_type: 'Bearer', expires_in: 30 } };
+    };
+  }
+
+  const refreshCalls = () => h.idp.tokenCalls.filter((c) => c.params.get('grant_type') === 'refresh_token');
+
+  it('reads with a 30-second access token, and once it expires answers 401 without relaying', async () => {
+    issueWithoutRefresh('30s');
+    const cookie = await h.signIn();
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(200);
+    expect(h.api.requests.map((r) => r.headers.authorization)).toEqual([`Bearer ${h.idp.issued.access[0]}`]);
+    expect(h.gateway.sessions.size).toBe(1);
+
+    h.now.value += 31_000;
+    const expired = await h.read('/v1/portfolio', cookie);
+    expect(expired.status).toBe(401);
+    expect(codeOf(expired)).toBe('SESSION_EXPIRED');
+    expect(h.api.requests).toHaveLength(1);
+    expect(h.gateway.sessions.size).toBe(0);
+    expect(refreshCalls()).toHaveLength(0);
+  });
+
+  it('a longer token entering the refresh margin keeps serving its last minute (control)', async () => {
+    issueWithoutRefresh('10m');
+    const cookie = await h.signIn();
+    h.now.value += 9.5 * 60_000;
+
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+    expect(h.gateway.sessions.size).toBe(1);
+    expect(refreshCalls()).toHaveLength(0);
+
+    h.now.value += 31_000;
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+    expect(h.api.requests).toHaveLength(1);
+    expect(h.gateway.sessions.size).toBe(0);
+  });
+
+  it('still bounded by the idle limit while the access token is valid', async () => {
+    await h.close();
+    h = await startHarness({ config: { sessionIdleMinutes: 5 } });
+    issueWithoutRefresh('10m');
+    const cookie = await h.signIn();
+    h.now.value += 5 * 60_000 + 1_000;
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+    expect(h.api.requests).toHaveLength(0);
+  });
+});
+
 describe('/auth/logout', () => {
   it('destroys the session, revokes both tokens, clears the cookie and returns the end-session redirect', async () => {
     const cookie = await h.signIn();
