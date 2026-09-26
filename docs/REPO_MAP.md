@@ -81,6 +81,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/plan/conducta.ts`
 - `src/plan/criteria/e0-0.ts`
 - `src/plan/criteria/e1-2.ts`
+- `src/plan/criteria/e2-1.ts`
 - `src/plan/criteria/shared.ts`
 - `src/plan/criterios.ts`
 - `src/services/accounting/account-service.ts`
