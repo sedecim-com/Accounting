@@ -1231,6 +1231,23 @@ export interface UserLocaleWrite {
   readonly quarantined: string | null;
 }
 
+/**
+ * True only when the file EXISTS and its CONTENT is unusable: it does not parse
+ * as JSON, or the schema rejects it. A failure to READ it (EACCES, EIO…) is not
+ * a verdict about the content, so it propagates instead of answering «broken».
+ */
+function existingConfigIsUnusable(file: string): boolean {
+  if (!fs.existsSync(file)) return false;
+  const text = fs.readFileSync(file, 'utf-8');
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return true;
+  }
+  return !configFileSchema.safeParse(raw).success;
+}
+
 export function setUserLocale(locale: Locale, home = os.homedir()): UserLocaleWrite {
   const file = userConfigPath(home);
   // `~/.mnemosine/` does not exist on a machine that has never written a
@@ -1238,33 +1255,39 @@ export function setUserLocale(locale: Locale, home = os.homedir()): UserLocaleWr
   // than on the file. That is precisely the machine this command has to serve:
   // choosing a language is one of the first things a new user does.
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  // `cwd` goes unused once a target file is given — it only names the project
-  // file this write is deliberately NOT making.
-  try {
-    return { file: writeConfigPatch({ locale }, undefined, file), quarantined: null };
-  } catch (err) {
-    // A BROKEN FILE MUST NOT TRAP THE USER IN IT.
-    //
-    // `writeConfigPatch` reads the file before patching it, so a trailing comma
-    // or a key the schema no longer knows makes it throw — and before this
-    // branch the throw reached the terminal as a bare `SyntaxError` that did
-    // not even name the file. That is the failure mode `src/i18n/locale.ts`
-    // already refused for the READ path, in writing: the resolver skips an
-    // unreadable file with a warning because «dying while printing a number
-    // because the user's JSON has one comma too many would be a new failure
-    // worse than the defect». The same reasoning holds for the write: a person
-    // whose config broke cannot fix it by choosing a language, and choosing a
-    // language is what they came to do.
-    //
-    // So the evidence is kept —the quarantine copy is named by content hash,
-    // so retries do not litter— the unusable file is retired, and the write is
-    // made again on a clean slate, with the same gates. If the copy cannot even
-    // be made, nothing was salvaged and the original error is the honest one.
+  //
+  // A BROKEN FILE MUST NOT TRAP THE USER IN IT — and a HEALTHY one must never
+  // be mistaken for broken (Witness WIT-01, #286).
+  //
+  // The first version wrapped the whole write in a catch and treated ANY throw
+  // as a corrupt file: an EIO or EACCES while WRITING a perfectly valid config
+  // quarantined it, deleted it, and rewrote it as `{ locale }` alone — tenant
+  // and provider gone, and a message claiming the file could not be read. So
+  // the diagnosis now happens BEFORE the write, on the content alone: only a
+  // file that does not parse, or that the schema rejects, is retired. Anything
+  // that fails while reading or writing propagates untouched, and the file on
+  // disk is whatever it was (`writeConfigPatch` replaces it atomically).
+  //
+  // Why retire at all: `src/i18n/locale.ts` skips an unreadable file on the
+  // READ path with a warning, because dying over a stray comma is a new failure
+  // worse than the defect. The same holds here — a person whose config broke
+  // cannot fix it by choosing a language, which is what they came to do. The
+  // evidence is kept (the quarantine copy is named by content hash, so retries
+  // do not litter); if the copy cannot be made, nothing is deleted.
+  if (existingConfigIsUnusable(file)) {
     const quarantined = quarantineInvalidConfig(file);
-    if (quarantined === null) throw err;
+    if (quarantined === null) {
+      throw new Error(
+        `The configuration in ${file} is not valid, and a copy of it could not be kept aside, ` +
+          'so it was left untouched. Fix or move the file, then choose the language again.'
+      );
+    }
     fs.rmSync(file, { force: true });
     return { file: writeConfigPatch({ locale }, undefined, file), quarantined };
   }
+  // `cwd` goes unused once a target file is given — it only names the project
+  // file this write is deliberately NOT making.
+  return { file: writeConfigPatch({ locale }, undefined, file), quarantined: null };
 }
 
 // ─── Config writer (secret auto-routing) ───
@@ -1351,6 +1374,18 @@ export function writeConfigPatch(
     throw new Error(`Refusing to write an invalid configuration to ${file}: ${issues}`);
   }
 
-  fs.writeFileSync(file, JSON.stringify(merged, null, 2) + '\n');
+  // REPLACED ATOMICALLY. Written beside the target and renamed over it, so a
+  // write that dies halfway (EIO, a full disk, a killed process) leaves the
+  // previous file whole instead of a truncated one; the mode of an existing
+  // file is carried over so a 0600 config does not come back world-readable.
+  const tmp = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(merged, null, 2) + '\n');
+    if (fs.existsSync(file)) fs.chmodSync(tmp, fs.statSync(file).mode & 0o777);
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
   return file;
 }

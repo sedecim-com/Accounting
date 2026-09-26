@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+// The module under test imports the DEFAULT export; failures are injected there.
+import fsModule from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -220,6 +222,68 @@ describe('the locale is written to the file the resolver reads first', () => {
     // ...and nothing anywhere grew a `language` key to do it.
     expect(readUserConfig()).toEqual({ locale: 'es-MX' });
     expect(readUserConfig().language).toBeUndefined();
+  });
+});
+
+// ============================================================
+// A FAILED WRITE IS NOT A BROKEN FILE (Witness WIT-01, #286)
+//
+// The first version caught ANY throw from the write and treated it as a
+// corrupt file: an EIO while writing a VALID config quarantined it, deleted
+// it, and left `{ locale }` alone — tenant and provider gone, and «the file
+// could not be read» reported for a file that was read perfectly well. The
+// diagnosis now happens on the content, before writing; an I/O error
+// propagates and the file on disk is left exactly as it was.
+// ============================================================
+describe('an I/O error while writing a valid config propagates and destroys nothing', () => {
+  const VALID = { locale: 'en-US', tenant: 'synthetic-tenant', default_provider: 'ollama' };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  for (const code of ['EIO', 'EACCES']) {
+    it(`${code} on the write: explicit error, no quarantine, every key intact`, () => {
+      fs.mkdirSync(path.dirname(userConfigPath(home)), { recursive: true });
+      fs.writeFileSync(userConfigPath(home), JSON.stringify(VALID));
+      const real = fsModule.writeFileSync.bind(fsModule);
+      vi.spyOn(fsModule, 'writeFileSync').mockImplementation((...args: Parameters<typeof fs.writeFileSync>) => {
+        if (String(args[0]).startsWith(userConfigPath(home))) {
+          throw Object.assign(new Error(`${code}: injected`), { code });
+        }
+        return real(...args);
+      });
+
+      expect(() => setUserLocale('es-MX', home)).toThrow(code);
+      vi.restoreAllMocks();
+
+      expect(readUserConfig()).toEqual(VALID);
+      const siblings = fs.readdirSync(path.dirname(userConfigPath(home)));
+      expect(siblings.filter((f) => f.includes('.rejected-'))).toEqual([]);
+      expect(siblings.filter((f) => f.includes('.tmp-'))).toEqual([]);
+    });
+  }
+
+  it('a rename that fails after the temporary was written leaves the old file whole', () => {
+    fs.mkdirSync(path.dirname(userConfigPath(home)), { recursive: true });
+    fs.writeFileSync(userConfigPath(home), JSON.stringify(VALID));
+    vi.spyOn(fsModule, 'renameSync').mockImplementation(() => {
+      throw Object.assign(new Error('EIO: injected'), { code: 'EIO' });
+    });
+
+    expect(() => setUserLocale('es-MX', home)).toThrow('EIO');
+    vi.restoreAllMocks();
+
+    expect(readUserConfig()).toEqual(VALID);
+    expect(fs.readdirSync(path.dirname(userConfigPath(home))).filter((f) => f.includes('.tmp-'))).toEqual([]);
+  });
+
+  it('a config the schema rejects is still quarantined, as before', () => {
+    fs.mkdirSync(path.dirname(userConfigPath(home)), { recursive: true });
+    fs.writeFileSync(userConfigPath(home), JSON.stringify({ locale: 'en-US', no_such_key: true }));
+
+    const written = setUserLocale('es-MX', home);
+
+    expect(written.quarantined).not.toBeNull();
+    expect(readUserConfig()).toEqual({ locale: 'es-MX' });
   });
 });
 
