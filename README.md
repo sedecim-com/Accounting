@@ -1,6 +1,6 @@
 # mnemosine
 
-> Verificación de acceso (2026-09-06): este clon corresponde a la rama `instrumentos-que-mienten-segun-la-maquina` de `origin`.
+> Agente contable de partida doble para despachos en México, desde la terminal · Tier-1 · Dominio: contabilidad · Owner: @vic2099 · Ficha: [`catalog-info.yaml`](catalog-info.yaml)
 
 Un agente contable que se usa desde la terminal. Lleva contabilidad de partida
 doble sobre PostgreSQL —catálogo, pólizas, clientes y proveedores, bancos,
@@ -18,6 +18,18 @@ configuración, política guardada ni bandera futura puede subirlos.
 El repositorio se llama `Accounting` y el paquete `accounting-core` por su
 origen: un servidor REST (y, hasta T14b, también GraphQL). Ese motor sigue ahí
 y es el que el agente opera, pero el producto es el CLI.
+
+---
+
+## Cómo encaja en la plataforma
+
+Es uno de los repos de la plataforma Sedecim ([ADR-0002](docs/adr/0002-platform-coordination.md)).
+
+- **No recibe de ni entrega a** ningún otro repo de Sedecim hoy.
+- **Sus contrapartes son externas:** el contador, el SAT y el IMSS (por medio del contribuyente), Contalink, PAC y proveedores de modelo.
+- **Reemplaza a `accounting-manager`,** que también convertía CFDI en pólizas para Contalink. Este repo es la fuente de verdad, y aquél se apaga y se archiva ([ADR-0003](docs/adr/0003-source-of-truth-over-accounting-manager.md)).
+
+Detalle en [`docs/platform/inventory.md`](docs/platform/inventory.md), y el nivel de madurez en [`docs/platform/maturity.md`](docs/platform/maturity.md).
 
 ---
 
@@ -303,11 +315,13 @@ npm test                 # unitarias: 2 205 casos en 143 archivos
 npm run test:integration # contra Postgres real: 28 archivos
 ```
 
+Todo lo que corre CI, en una sola orden: `scripts/verify.sh` (ver `AGENTS.md`, «Comandos»).
+
 La suite de integración crea y destruye una base efímera por corrida, por lo que
 pide `TEST_ADMIN_DATABASE_URL` (un rol con `CREATE DATABASE`) y se niega a
 arrancar sin ella. Corre en serie a propósito: varias pruebas cuentan filas.
 
-`npm run lint` ya no es un adorno: corre ESLint 9 con información de tipos
+`npm run lint` ya no es un adorno: corre ESLint 10 con información de tipos
 (`eslint.config.mjs`) sobre `src/`, `tests/` y `scripts/`, y la CI lo exige. Los
 errores rompen la compilación; las advertencias llevan trinquete
 (`--max-warnings 1239`, congelado en lo medido) para que sólo puedan bajar.
@@ -355,6 +369,9 @@ solución de problemas—. Su fuente vive en
 
 Dentro del repositorio:
 
+- **Las puertas del framework:** [`AGENTS.md`](AGENTS.md) para agentes, [`docs/SCOPE.md`](docs/SCOPE.md),
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/RUNBOOK.md`](docs/RUNBOOK.md), las decisiones en
+  [`docs/adr/`](docs/adr/README.md) y el ciclo de un desarrollo nuevo en [`docs/prd/`](docs/prd/README.md).
 - [`docs/cli-command-catalog.md`](docs/cli-command-catalog.md) — la superficie de
   comandos a la que se aspira, contrastada fila por fila contra el backend, con
   el recuento generado.

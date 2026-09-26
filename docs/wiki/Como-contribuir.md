@@ -41,7 +41,7 @@ Un rojo se arregla; no se explica en un comentario.
 | Trabajo | Qué corre | Qué atrapa |
 |---|---|---|
 | **Tipos** | `npm run typecheck` y `typecheck:tests` | Lo de siempre, y lo más barato |
-| **Lint** | `npm run lint` | ESLint 9 **con información de tipos** sobre `src/`, `tests/` y `scripts/` |
+| **Lint** | `npm run lint` | ESLint 10 **con información de tipos** sobre `src/`, `tests/` y `scripts/` |
 | **Pruebas unitarias** | `npm test` y `npx vitest run --coverage` | La suite, más un trinquete de cobertura por archivo sobre el motor contable |
 | **Estado del plan** | `plan:status --exigir=…` y `catalogo-estado --check` | El **retroceso** de un paquete cerrado, y que el catálogo de comandos esté al día |
 | **Integración contra Postgres** | `npm run migrate` y `npm run test:integration` | Lo que sólo se ve contra una base real |
