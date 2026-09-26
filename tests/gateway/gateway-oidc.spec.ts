@@ -1,0 +1,757 @@
+import { createHash } from 'node:crypto';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { resetOidcCaches } from '../../src/auth/oidc.js';
+import { createSpentLogins } from '../../src/gateway/auth-routes.js';
+import { LOGIN_COOKIE, SESSION_COOKIE } from '../../src/gateway/cookies.js';
+import { seal } from '../../src/gateway/sealed-cookie.js';
+import { SESSIONS_PER_PRINCIPAL } from '../../src/gateway/session-store.js';
+import { AUDIENCE } from './helpers/fake-idp.js';
+import {
+  cookieFrom,
+  PUBLIC_ORIGIN,
+  setCookieLine,
+  startHarness,
+  WEB_CLIENT_SECRET,
+  type Harness,
+  type RawResponse,
+} from './helpers/harness.js';
+
+// ============================================================
+// W0 · the gateway as an OIDC client, against an RS256 IdP in memory.
+//
+// The property under test: a session exists only for an access token the
+// gateway obtained itself and verified (asymmetric, issuer, audience, Bearer,
+// not the ID token) before storing it, at the callback and after every
+// refresh. Every rejection leaves no session and at most one token request.
+// ============================================================
+
+let h: Harness;
+
+beforeEach(async () => {
+  h = await startHarness();
+});
+
+afterEach(async () => {
+  await h.close();
+});
+
+async function beginLogin(query = '', cookie = ''): Promise<{ res: RawResponse; location: URL; loginPair: string; state: string }> {
+  const res = await h.request('GET', `/auth/login${query}`, cookie ? { cookie } : {});
+  const location = new URL(res.headers.location ?? 'about:blank');
+  return { res, location, loginPair: cookieFrom(res.headers, LOGIN_COOKIE) ?? '', state: location.searchParams.get('state') ?? '' };
+}
+
+function callback(query: string, cookie: string): Promise<RawResponse> {
+  return h.request('GET', `/auth/callback?${query}`, cookie ? { cookie } : {});
+}
+
+/** From now on the token endpoint issues tokens for `subject`, whatever code it gets. */
+function issueFor(subject: string): void {
+  h.idp.onToken = async () => {
+    const access = await h.idp.signAccess({ sub: subject });
+    const refresh = `refresh-${subject}-${h.idp.issued.refresh.length}`;
+    h.idp.issued.access.push(access);
+    h.idp.issued.refresh.push(refresh);
+    return { body: { access_token: access, token_type: 'Bearer', refresh_token: refresh } };
+  };
+}
+
+function codeOf(res: RawResponse): string | undefined {
+  return (JSON.parse(res.body) as { errors?: Array<{ code?: string }> }).errors?.[0]?.code;
+}
+
+function revokedTokens(): string[] {
+  return h.idp.revocationCalls.map((c) => c.params.get('token') ?? '');
+}
+
+function expectRejected(res: RawResponse, maxTokenCalls: number): void {
+  expect(res.status).toBe(303);
+  expect(res.headers.location).toBe('/#/signin-failed');
+  expect(cookieFrom(res.headers, SESSION_COOKIE)).toBeUndefined();
+  expect(setCookieLine(res.headers, LOGIN_COOKIE)).toMatch(/Max-Age=0/);
+  expect(h.gateway.sessions.size).toBe(0);
+  expect(h.idp.tokenCalls.length).toBeLessThanOrEqual(maxTokenCalls);
+}
+
+describe('/auth/login', () => {
+  it('redirects to the IdP with code + PKCE S256, the exact redirect_uri, a 32-byte state, scope and audience', async () => {
+    const { res, location, state } = await beginLogin();
+    expect(res.status).toBe(303);
+    expect(`${location.origin}${location.pathname}`).toBe(`${h.idp.issuer}/authorize`);
+    expect(location.searchParams.get('response_type')).toBe('code');
+    expect(location.searchParams.get('client_id')).toBe('web-client');
+    expect(location.searchParams.get('redirect_uri')).toBe(`${PUBLIC_ORIGIN}/auth/callback`);
+    expect(location.searchParams.get('scope')).toBe('openid email profile offline_access');
+    expect(location.searchParams.get('audience')).toBe(AUDIENCE);
+    expect(location.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(location.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(state).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  it('sets the sealed login cookie with __Host-, HttpOnly, Secure, SameSite=Lax, Path=/ and ten minutes, and no Domain', async () => {
+    const { res } = await beginLogin();
+    const line = setCookieLine(res.headers, LOGIN_COOKIE) ?? '';
+    expect(line).toMatch(/^__Host-mnemosine_login=[A-Za-z0-9_-]+; HttpOnly; Secure; SameSite=Lax; Path=\/; Max-Age=600$/);
+    expect(line).not.toMatch(/Domain=/i);
+  });
+
+  it('ignores every query parameter: no return-to, so no open redirect', async () => {
+    const { location, res } = await beginLogin('?returnTo=https%3A%2F%2Fevil.test%2F&redirect_uri=https%3A%2F%2Fevil.test%2F');
+    expect(location.searchParams.get('redirect_uri')).toBe(`${PUBLIC_ORIGIN}/auth/callback`);
+    expect(JSON.stringify(res.headers)).not.toContain('evil.test');
+  });
+
+  it('allocates no server state', async () => {
+    for (let i = 0; i < 20; i += 1) await beginLogin();
+    expect(h.gateway.sessions.size).toBe(0);
+  });
+});
+
+describe('/auth/callback refuses before it asks for a token', () => {
+  it('a state that does not match', async () => {
+    const { loginPair } = await beginLogin();
+    expectRejected(await callback(`code=${h.idp.issueCode()}&state=${'A'.repeat(43)}`, loginPair), 0);
+  });
+
+  it('a missing login cookie', async () => {
+    const { state } = await beginLogin();
+    expectRejected(await callback(`code=${h.idp.issueCode()}&state=${state}`, ''), 0);
+  });
+
+  it('an expired login transaction', async () => {
+    const { loginPair, state } = await beginLogin();
+    h.now.value += 601_000;
+    expectRejected(await callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair), 0);
+  });
+
+  it('a tampered login cookie (one flipped character)', async () => {
+    const { loginPair, state } = await beginLogin();
+    const value = loginPair.slice(LOGIN_COOKIE.length + 1);
+    const flipped = value.slice(0, 20) + (value[20] === 'A' ? 'B' : 'A') + value.slice(21);
+    expectRejected(await callback(`code=${h.idp.issueCode()}&state=${state}`, `${LOGIN_COOKIE}=${flipped}`), 0);
+  });
+
+  it('a login cookie sealed by another process, under another key', async () => {
+    const { state } = await beginLogin();
+    const forged = seal(Buffer.alloc(32, 7), LOGIN_COOKIE, { v: 1, state, verifier: 'v'.repeat(43), exp: h.now.value + 60_000 }, Buffer.alloc(12, 1));
+    expectRejected(await callback(`code=${h.idp.issueCode()}&state=${state}`, `${LOGIN_COOKIE}=${forged}`), 0);
+  });
+
+  it('an iss parameter that is not the discovered issuer (RFC 9207)', async () => {
+    const { loginPair, state } = await beginLogin();
+    expectRejected(await callback(`code=${h.idp.issueCode()}&state=${state}&iss=https%3A%2F%2Fevil.test`, loginPair), 0);
+  });
+
+  it('an error from the IdP, which is not reflected anywhere', async () => {
+    const { loginPair, state } = await beginLogin();
+    const res = await callback(`error=access_denied&error_description=%3Cscript%3Ealert(1)%3C%2Fscript%3E&state=${state}`, loginPair);
+    expectRejected(res, 0);
+    expect(res.body).not.toContain('alert(1)');
+    expect(JSON.stringify(res.headers)).not.toContain('alert(1)');
+    expect(JSON.stringify(res.headers)).not.toContain('access_denied');
+  });
+});
+
+describe('/auth/callback refuses a token it cannot verify', () => {
+  async function withTokenReply(body: Record<string, unknown>): Promise<RawResponse> {
+    h.idp.onToken = () => ({ body });
+    const { loginPair, state } = await beginLogin();
+    return callback(`code=anything&state=${state}`, loginPair);
+  }
+
+  it('an access token for another audience', async () => {
+    const access = await h.idp.signAccess({ aud: 'https://other-api.test' });
+    expectRejected(await withTokenReply({ access_token: access, token_type: 'Bearer' }), 1);
+  });
+
+  it('the ID token handed back as the access token', async () => {
+    const token = await h.idp.signAccess();
+    expectRejected(await withTokenReply({ access_token: token, id_token: token, token_type: 'Bearer' }), 1);
+  });
+
+  it('an HS256 token, even one signed with the published development secret', async () => {
+    const forged = await h.idp.signHs256('dev-secret-change-me');
+    expectRejected(await withTokenReply({ access_token: forged, token_type: 'Bearer' }), 1);
+  });
+
+  it('a token_type other than Bearer', async () => {
+    const access = await h.idp.signAccess();
+    expectRejected(await withTokenReply({ access_token: access, token_type: 'DPoP' }), 1);
+  });
+
+  it('a token from another issuer', async () => {
+    const access = await h.idp.signAccess({ iss: 'https://evil.test' });
+    expectRejected(await withTokenReply({ access_token: access, token_type: 'Bearer' }), 1);
+  });
+
+  it('an oversized token response, before parsing it', async () => {
+    const access = await h.idp.signAccess();
+    expectRejected(await withTokenReply({ access_token: access, token_type: 'Bearer', padding: 'x'.repeat(70 * 1024) }), 1);
+  });
+
+  it('a token response without an access token', async () => {
+    expectRejected(await withTokenReply({ token_type: 'Bearer', id_token: await h.idp.signAccess() }), 1);
+  });
+
+  it('a token endpoint error', async () => {
+    const { loginPair, state } = await beginLogin();
+    expectRejected(await callback(`code=never-issued&state=${state}`, loginPair), 1);
+  });
+});
+
+describe('a successful sign-in', () => {
+  it('sets a Strict __Host- session cookie, redirects to /, and puts no token in any body or header', async () => {
+    const { loginPair, state, location } = await beginLogin();
+    const code = h.idp.issueCode();
+    const res = await callback(`code=${code}&state=${state}`, loginPair);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe('/');
+    const line = setCookieLine(res.headers, SESSION_COOKIE) ?? '';
+    expect(line).toMatch(/^__Host-mnemosine_session=[A-Za-z0-9_-]{43}; HttpOnly; Secure; SameSite=Strict; Path=\/; Max-Age=28800$/);
+    expect(line).not.toMatch(/Domain=/i);
+    expect(h.gateway.sessions.size).toBe(1);
+
+    const everything = JSON.stringify(res.headers) + res.body;
+    expect(everything).not.toContain(h.idp.issued.access[0]);
+    expect(everything).not.toContain(h.idp.issued.refresh[0]);
+
+    // The exchange used client_secret_basic, the same redirect_uri, and the
+    // verifier whose S256 is the challenge the browser carried.
+    const call = h.idp.tokenCalls[0];
+    expect(call.authorization).toBe(`Basic ${Buffer.from(`web-client:${WEB_CLIENT_SECRET}`).toString('base64')}`);
+    expect(call.params.get('redirect_uri')).toBe(`${PUBLIC_ORIGIN}/auth/callback`);
+    expect(call.params.get('code')).toBe(code);
+    expect(call.params.has('client_secret')).toBe(false);
+    const verifier = call.params.get('code_verifier') ?? '';
+    expect(createHash('sha256').update(verifier).digest('base64url')).toBe(location.searchParams.get('code_challenge'));
+  });
+
+  it('replaces any session id the browser already carried (fixation)', async () => {
+    const first = await h.signIn();
+    const planted = `${SESSION_COOKIE}=${'P'.repeat(43)}`;
+    const second = await h.signIn(first);
+    const third = await h.signIn(planted);
+    expect(second).not.toBe(first);
+    expect(third).not.toBe(planted);
+    expect((await h.read('/v1/portfolio', first)).status).toBe(401);
+    expect((await h.read('/v1/portfolio', second)).status).toBe(200);
+    expect(h.gateway.sessions.size).toBe(2);
+  });
+
+  it('a re-login ends the earlier session although the callback, a cross-site hop, carries no Strict session cookie', async () => {
+    const first = await h.signIn();
+    // The SPA's same-origin navigation to /auth/login carries the session
+    // cookie; the IdP's redirect back to /auth/callback carries only the login
+    // cookie, as a browser sends it.
+    const { loginPair, state } = await beginLogin('', first);
+    const res = await callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair);
+    expect(res.status).toBe(303);
+    expect(cookieFrom(res.headers, SESSION_COOKIE)).toBeDefined();
+    expect(h.gateway.sessions.size).toBe(1);
+    expect((await h.read('/v1/portfolio', first)).status).toBe(401);
+    // Same subject: the gateway forgets the old tokens but does not revoke
+    // them, because an IdP may revoke the whole grant and take the new session
+    // with it.
+    expect(revokedTokens()).toEqual([]);
+  });
+
+  it('a re-login as someone else ends the earlier session and revokes its tokens, since its subject holds nothing else', async () => {
+    const first = await h.signIn();
+    issueFor('user-2');
+    const second = await h.signIn(first);
+    expect((await h.read('/v1/portfolio', first)).status).toBe(401);
+    expect((await h.read('/v1/portfolio', second)).status).toBe(200);
+    expect(revokedTokens()).toEqual([h.idp.issued.refresh[0], h.idp.issued.access[0]]);
+  });
+
+  it('one IdP subject cannot exhaust the store: its own oldest session gives way, and another subject still signs in', async () => {
+    await h.close();
+    h = await startHarness({ config: { sessionMax: SESSIONS_PER_PRINCIPAL + 1 } });
+    const held: string[] = [];
+    for (let i = 0; i < SESSIONS_PER_PRINCIPAL + 2; i += 1) {
+      h.now.value += 1_000;
+      held.push(await h.signIn());
+    }
+    expect(h.gateway.sessions.size).toBe(SESSIONS_PER_PRINCIPAL);
+    const statuses = [];
+    for (const cookie of held) statuses.push((await h.read('/v1/portfolio', cookie)).status);
+    expect(statuses).toEqual([401, 401, ...Array.from({ length: SESSIONS_PER_PRINCIPAL }, () => 200)]);
+
+    issueFor('someone-else');
+    const other = await h.signIn();
+    expect((await h.read('/v1/portfolio', other)).status).toBe(200);
+  });
+
+  it('a sign-in refused at capacity revokes the tokens it just obtained, and signs nobody out', async () => {
+    await h.close();
+    h = await startHarness({ config: { sessionMax: 1 } });
+    const first = await h.signIn();
+    issueFor('user-2');
+    const { loginPair, state } = await beginLogin();
+    const res = await callback(`code=anything&state=${state}`, loginPair);
+    expect(res.status).toBe(503);
+    expect(cookieFrom(res.headers, SESSION_COOKIE)).toBeUndefined();
+    expect(revokedTokens()).toEqual([h.idp.issued.refresh[1], h.idp.issued.access[1]]);
+    expect((await h.read('/v1/portfolio', first)).status).toBe(200);
+  });
+
+  it('a login transaction cannot be replayed once used, not even with a fresh code', async () => {
+    const { loginPair, state } = await beginLogin();
+    const first = await callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair);
+    expect(cookieFrom(first.headers, SESSION_COOKIE)).toBeDefined();
+    const tokenCalls = h.idp.tokenCalls.length;
+
+    // A code the IdP would redeem: only the gateway can refuse this one.
+    const replay = await callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair);
+    expect(replay.status).toBe(303);
+    expect(replay.headers.location).toBe('/#/signin-failed');
+    expect(cookieFrom(replay.headers, SESSION_COOKIE)).toBeUndefined();
+    expect(h.gateway.sessions.size).toBe(1);
+    expect(h.idp.tokenCalls.length).toBe(tokenCalls);
+  });
+
+  it('two concurrent callbacks for one transaction open one session', async () => {
+    const { loginPair, state } = await beginLogin();
+    const results = await Promise.all([
+      callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair),
+      callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair),
+    ]);
+    expect(results.filter((r) => cookieFrom(r.headers, SESSION_COOKIE) !== undefined)).toHaveLength(1);
+    expect(h.gateway.sessions.size).toBe(1);
+    expect(h.idp.tokenCalls).toHaveLength(1);
+  });
+
+  it('a transaction whose exchange failed is not spent: the same sign-in still completes', async () => {
+    const { loginPair, state } = await beginLogin();
+    expectRejected(await callback(`code=not-issued&state=${state}`, loginPair), 1);
+    const retry = await callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair);
+    expect(cookieFrom(retry.headers, SESSION_COOKIE)).toBeDefined();
+    expect(h.gateway.sessions.size).toBe(1);
+  });
+});
+
+describe('the spent login table', () => {
+  it('refuses a second claim, lets a released state be claimed again, and forgets a state at its expiry', () => {
+    const now = { value: 1_000 };
+    const spent = createSpentLogins(() => now.value);
+    expect(spent.claim('a', 2_000)).toBe(true);
+    expect(spent.claim('a', 2_000)).toBe(false);
+    spent.release('a');
+    expect(spent.claim('a', 2_000)).toBe(true);
+    expect(spent.claim('b', 5_000)).toBe(true);
+    expect(spent.size).toBe(2);
+
+    now.value = 2_000;
+    expect(spent.claim('c', 6_000)).toBe(true);
+    expect(spent.size).toBe(2);
+    now.value = 6_000;
+    expect(spent.claim('d', 7_000)).toBe(true);
+    expect(spent.size).toBe(1);
+  });
+});
+
+describe('refresh', () => {
+  const nearExpiry = () => {
+    // The issued access token lives ten minutes; 9.5 minutes later less than
+    // the 60 s margin is left and the next request refreshes.
+    h.now.value += 9.5 * 60_000;
+  };
+
+  it('five concurrent requests trigger one refresh, and the rotated tokens are used and stored', async () => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    const slow = h.idp.onToken;
+    let refreshes = 0;
+    h.idp.onToken = async (params) => {
+      refreshes += 1;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      h.idp.onToken = slow;
+      const access = await h.idp.signAccess();
+      h.idp.issued.access.push(access);
+      h.idp.issued.refresh.push('refresh-rotated');
+      expect(params.get('grant_type')).toBe('refresh_token');
+      expect(params.get('refresh_token')).toBe(h.idp.issued.refresh[0]);
+      return { body: { access_token: access, token_type: 'Bearer', refresh_token: 'refresh-rotated' } };
+    };
+    const results = await Promise.all(Array.from({ length: 5 }, () => h.read('/v1/portfolio', cookie)));
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(refreshes).toBe(1);
+    expect(h.api.requests.map((r) => r.headers.authorization)).toEqual(
+      Array.from({ length: 5 }, () => `Bearer ${h.idp.issued.access[1]}`)
+    );
+
+    nearExpiry();
+    await h.read('/v1/portfolio', cookie);
+    const last = h.idp.tokenCalls[h.idp.tokenCalls.length - 1];
+    expect(last.params.get('refresh_token')).toBe('refresh-rotated');
+  });
+
+  it('a refreshed HS256 token ends the session with 401', async () => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    const forged = await h.idp.signHs256('dev-secret-change-me');
+    h.idp.onToken = () => ({ body: { access_token: forged, token_type: 'Bearer' } });
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(401);
+    expect(h.gateway.sessions.size).toBe(0);
+    expect(h.api.requests).toHaveLength(0);
+  });
+
+  it('a refreshed token for another audience ends the session with 401', async () => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    const other = await h.idp.signAccess({ aud: 'https://other-api.test' });
+    h.idp.onToken = () => ({ body: { access_token: other, token_type: 'Bearer' } });
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+    expect(h.gateway.sessions.size).toBe(0);
+  });
+
+  it('a refresh token the IdP refuses (400 invalid_grant) ends the session with 401', async () => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    h.idp.onToken = () => ({ status: 400, body: { error: 'invalid_grant' } });
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(401);
+    expect(codeOf(res)).toBe('SESSION_EXPIRED');
+    expect(h.gateway.sessions.size).toBe(0);
+    expect(h.api.requests).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// An IdP that cannot answer is not an IdP that refused.
+//
+// A refresh that fails because the token endpoint is unreachable, times out or
+// answers 5xx/429, or because the keys cannot be read while the refreshed
+// token is checked, is no verdict on the session: it keeps its refresh token,
+// the access token it holds serves while it is still valid, and the next
+// request tries again. Only a verdict ends it (the 400 above, a refreshed
+// token that fails acceptTokenResponse).
+// ============================================================
+
+describe('refresh while the IdP is down', () => {
+  const nearExpiry = () => {
+    h.now.value += 9.5 * 60_000;
+  };
+
+  /** Answers every IdP request for `path` with `reply` until the returned function restores the IdP. */
+  function breakIdp(path: string, reply: () => Promise<Response>): () => void {
+    const original = h.idp.fetch;
+    h.idp.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      return new URL(url).pathname === path ? reply() : original(input, init);
+    }) as typeof fetch;
+    return () => {
+      h.idp.fetch = original;
+    };
+  }
+
+  const tokenEndpointOutages: Array<[string, () => Promise<Response>]> = [
+    ['is unreachable', () => Promise.reject(new TypeError('fetch failed'))],
+    ['times out', () => Promise.reject(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))],
+    ['answers 503', () => Promise.resolve(Response.json({ error: 'temporarily_unavailable' }, { status: 503 }))],
+    ['answers 502 with an HTML page', () => Promise.resolve(new Response('<html>bad gateway</html>', { status: 502 }))],
+    ['answers 429', () => Promise.resolve(Response.json({ error: 'slow_down' }, { status: 429 }))],
+  ];
+
+  it.each(tokenEndpointOutages)(
+    'a token endpoint that %s keeps the session and its refresh token, and relays with the still-valid access token',
+    async (_label, reply) => {
+      const cookie = await h.signIn();
+      nearExpiry();
+      const restore = breakIdp('/token', reply);
+
+      const res = await h.read('/v1/portfolio', cookie);
+      expect(res.status).toBe(200);
+      expect(h.gateway.sessions.size).toBe(1);
+      expect(h.api.requests.map((r) => r.headers.authorization)).toEqual([`Bearer ${h.idp.issued.access[0]}`]);
+      expect(h.logs.map((l) => l.name)).toContain('session.refresh_unavailable');
+      expect(h.logs.map((l) => l.name)).not.toContain('session.refresh_failed');
+
+      restore();
+      expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+      expect(h.idp.tokenCalls.at(-1)?.params.get('refresh_token')).toBe(h.idp.issued.refresh[0]);
+      expect(h.api.requests.at(-1)?.headers.authorization).toBe(`Bearer ${h.idp.issued.access[1]}`);
+    }
+  );
+
+  it('once the access token has expired, a read answers 502 IDP_UNAVAILABLE and the session waits for the IdP', async () => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    const restore = breakIdp('/token', () => Promise.resolve(Response.json({ error: 'server_error' }, { status: 500 })));
+    h.now.value += 60_000;
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(502);
+    expect(codeOf(res)).toBe('IDP_UNAVAILABLE');
+    expect(h.gateway.sessions.size).toBe(1);
+    expect(h.api.requests).toHaveLength(0);
+
+    restore();
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+    expect(h.idp.tokenCalls.at(-1)?.params.get('refresh_token')).toBe(h.idp.issued.refresh[0]);
+    expect(h.api.requests.map((r) => r.headers.authorization)).toEqual([`Bearer ${h.idp.issued.access[1]}`]);
+  });
+
+  const keyOutages: Array<[string, () => Promise<Response>]> = [
+    ['cannot be reached', () => Promise.reject(new TypeError('fetch failed'))],
+    ['answers 503', () => Promise.resolve(new Response('unavailable', { status: 503 }))],
+  ];
+
+  it.each(keyOutages)('a JWKS that %s while the refreshed token is checked keeps the session', async (_label, reply) => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    // The keys fetched at sign-in are cached; the refresh has to read them again.
+    resetOidcCaches();
+    const restore = breakIdp('/jwks', reply);
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(200);
+    expect(h.gateway.sessions.size).toBe(1);
+    expect(h.api.requests.map((r) => r.headers.authorization)).toEqual([`Bearer ${h.idp.issued.access[0]}`]);
+
+    restore();
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+    expect(h.api.requests.at(-1)?.headers.authorization).toBe(`Bearer ${h.idp.issued.access.at(-1) ?? ''}`);
+    expect(h.gateway.sessions.size).toBe(1);
+  });
+
+  it('a sign-out while the failing refresh runs is not undone: the read answers 401 and reaches nothing', async () => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    let reached!: () => void;
+    const tokenRequested = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const restore = breakIdp('/token', async () => {
+      reached();
+      await gate;
+      throw new TypeError('fetch failed');
+    });
+
+    const pending = h.read('/v1/portfolio', cookie);
+    await tokenRequested;
+    const logout = await h.request('POST', '/auth/logout', { cookie, 'x-mnemosine-request': '1', origin: PUBLIC_ORIGIN });
+    expect(logout.status).toBe(200);
+    release();
+
+    const res = await pending;
+    expect(res.status).toBe(401);
+    expect(h.api.requests).toHaveLength(0);
+    restore();
+  });
+});
+
+describe('idle and absolute lifetimes', () => {
+  it('an idle session expires after the idle limit', async () => {
+    const cookie = await h.signIn();
+    h.now.value += 31 * 60_000;
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(401);
+    expect(h.gateway.sessions.size).toBe(0);
+  });
+
+  it('activity keeps a session alive, but never past its absolute lifetime', async () => {
+    await h.close();
+    h = await startHarness({ config: { sessionAbsoluteHours: 1 } });
+    const cookie = await h.signIn();
+    for (let minutes = 20; minutes < 60; minutes += 20) {
+      h.now.value += 20 * 60_000;
+      expect((await h.read('/v1/portfolio', cookie)).status, `${minutes} min`).toBe(200);
+    }
+    h.now.value += 21 * 60_000;
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+    expect(h.gateway.sessions.size).toBe(0);
+  });
+});
+
+// ============================================================
+// WIT-01 (#249): a refresh that succeeds cannot carry a session past its end.
+//
+// The refresh is an await. A session alive when it started can cross its
+// idle or absolute limit before the tokens come back; the guard then has to
+// answer 401, reach nothing, and leave no session behind: neither store the
+// new tokens nor let the late activity restart the idle clock. Both limits
+// are set to valid configuration values, and the clock is placed right next
+// to the limit: the IdP's answer is what moves it across.
+// ============================================================
+
+describe('a successful refresh that crosses a lifetime limit', () => {
+  /** The refresh grant answers normally, after moving the clock by `ms`. */
+  function refreshTakes(ms: number): void {
+    const answer = h.idp.onToken ?? h.idp.defaultToken;
+    h.idp.onToken = (params) => {
+      if (params.get('grant_type') === 'refresh_token') h.now.value += ms;
+      return answer(params);
+    };
+  }
+
+  async function signInAt(config: Parameters<typeof startHarness>[0]): Promise<{ cookie: string; start: number }> {
+    await h.close();
+    h = await startHarness(config);
+    const start = h.now.value;
+    return { cookie: await h.signIn(), start };
+  }
+
+  it('the absolute limit (one hour): 401, no relay, no session', async () => {
+    const { cookie, start } = await signInAt({ config: { sessionAbsoluteHours: 1 } });
+    for (const minutes of [20, 40]) {
+      h.now.value = start + minutes * 60_000;
+      expect((await h.read('/v1/portfolio', cookie)).status, `${minutes} min`).toBe(200);
+    }
+    const relayed = h.api.requests.length;
+    // Started at 59:59 with the access token expired: the refresh ends at 60:01.
+    h.now.value = start + 3_599_000;
+    refreshTakes(2_000);
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(401);
+    expect(codeOf(res)).toBe('SESSION_EXPIRED');
+    expect(h.api.requests).toHaveLength(relayed);
+    expect(h.gateway.sessions.size).toBe(0);
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+  });
+
+  it('the idle limit (five minutes): 401, no relay, and the late activity does not revive it', async () => {
+    await h.close();
+    h = await startHarness({ config: { sessionIdleMinutes: 5 } });
+    // A five-minute access token, so the refresh starts inside the idle
+    // window: at 4:59 since sign-in it has a second left, and the refresh
+    // ends at 5:01.
+    const answer = h.idp.onToken ?? h.idp.defaultToken;
+    h.idp.onToken = async (params) => {
+      if (params.get('grant_type') !== 'authorization_code') return answer(params);
+      const access = await h.idp.signAccess({ expiresIn: '5m' });
+      h.idp.issued.access.push(access);
+      h.idp.issued.refresh.push('refresh-five-minutes');
+      return { body: { access_token: access, token_type: 'Bearer', refresh_token: 'refresh-five-minutes' } };
+    };
+    const start = h.now.value;
+    const cookie = await h.signIn();
+    h.now.value = start + 299_000;
+    refreshTakes(2_000);
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(401);
+    expect(codeOf(res)).toBe('SESSION_EXPIRED');
+    expect(h.api.requests).toHaveLength(0);
+    expect(h.gateway.sessions.size).toBe(0);
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+  });
+
+  it('control: the same refresh ending one second before the absolute limit relays with the new token', async () => {
+    const { cookie, start } = await signInAt({ config: { sessionAbsoluteHours: 1 } });
+    for (const minutes of [20, 40]) {
+      h.now.value = start + minutes * 60_000;
+      expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+    }
+    h.now.value = start + 3_597_000;
+    refreshTakes(2_000);
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(200);
+    expect(h.api.requests.at(-1)?.headers.authorization).toBe(`Bearer ${h.idp.issued.access.at(-1) ?? ''}`);
+    expect(h.gateway.sessions.size).toBe(1);
+  });
+});
+
+// ============================================================
+// WIT-02 (#249): no refresh token is not a refused one.
+//
+// An IdP may admit a login without refresh_token; offline_access is a request,
+// not a guarantee. The session has nothing to renew, so its access token
+// serves until it expires, and then the session ends with 401 and a new
+// sign-in. The IdP's real refusal, single-flight and a concurrent sign-out
+// keep their own tests above.
+// ============================================================
+
+describe('a session without a refresh token', () => {
+  /** Sign-ins from now on get an access token of `expiresIn` and no refresh_token. */
+  function issueWithoutRefresh(expiresIn: string): void {
+    const answer = h.idp.onToken ?? h.idp.defaultToken;
+    h.idp.onToken = async (params) => {
+      if (params.get('grant_type') !== 'authorization_code') return answer(params);
+      const access = await h.idp.signAccess({ expiresIn });
+      h.idp.issued.access.push(access);
+      return { body: { access_token: access, token_type: 'Bearer', expires_in: 30 } };
+    };
+  }
+
+  const refreshCalls = () => h.idp.tokenCalls.filter((c) => c.params.get('grant_type') === 'refresh_token');
+
+  it('reads with a 30-second access token, and once it expires answers 401 without relaying', async () => {
+    issueWithoutRefresh('30s');
+    const cookie = await h.signIn();
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(200);
+    expect(h.api.requests.map((r) => r.headers.authorization)).toEqual([`Bearer ${h.idp.issued.access[0]}`]);
+    expect(h.gateway.sessions.size).toBe(1);
+
+    h.now.value += 31_000;
+    const expired = await h.read('/v1/portfolio', cookie);
+    expect(expired.status).toBe(401);
+    expect(codeOf(expired)).toBe('SESSION_EXPIRED');
+    expect(h.api.requests).toHaveLength(1);
+    expect(h.gateway.sessions.size).toBe(0);
+    expect(refreshCalls()).toHaveLength(0);
+  });
+
+  it('a longer token entering the refresh margin keeps serving its last minute (control)', async () => {
+    issueWithoutRefresh('10m');
+    const cookie = await h.signIn();
+    h.now.value += 9.5 * 60_000;
+
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+    expect(h.gateway.sessions.size).toBe(1);
+    expect(refreshCalls()).toHaveLength(0);
+
+    h.now.value += 31_000;
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+    expect(h.api.requests).toHaveLength(1);
+    expect(h.gateway.sessions.size).toBe(0);
+  });
+
+  it('still bounded by the idle limit while the access token is valid', async () => {
+    await h.close();
+    h = await startHarness({ config: { sessionIdleMinutes: 5 } });
+    issueWithoutRefresh('10m');
+    const cookie = await h.signIn();
+    h.now.value += 5 * 60_000 + 1_000;
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+    expect(h.api.requests).toHaveLength(0);
+  });
+});
+
+describe('/auth/logout', () => {
+  it('destroys the session, revokes both tokens, clears the cookie and returns the end-session redirect', async () => {
+    const cookie = await h.signIn();
+    const res = await h.request('POST', '/auth/logout', { cookie, 'x-mnemosine-request': '1', origin: PUBLIC_ORIGIN });
+    expect(res.status).toBe(200);
+    const redirect = new URL((JSON.parse(res.body) as { redirect: string }).redirect);
+    expect(`${redirect.origin}${redirect.pathname}`).toBe(`${h.idp.issuer}/logout`);
+    expect(redirect.searchParams.get('client_id')).toBe('web-client');
+    expect(redirect.searchParams.get('post_logout_redirect_uri')).toBe(`${PUBLIC_ORIGIN}/`);
+    expect(setCookieLine(res.headers, SESSION_COOKIE)).toBe(
+      '__Host-mnemosine_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'
+    );
+    expect(h.gateway.sessions.size).toBe(0);
+    expect(h.idp.revocationCalls.map((c) => c.params.get('token'))).toEqual([
+      h.idp.issued.refresh[0],
+      h.idp.issued.access[0],
+    ]);
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
+  });
+
+  it('without an end-session endpoint the redirect is /', async () => {
+    h.idp.discoveryOverrides.end_session_endpoint = undefined;
+    const cookie = await h.signIn();
+    const res = await h.request('POST', '/auth/logout', { cookie, 'x-mnemosine-request': '1', origin: PUBLIC_ORIGIN });
+    expect(JSON.parse(res.body)).toEqual({ redirect: '/' });
+  });
+});

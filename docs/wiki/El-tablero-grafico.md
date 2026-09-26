@@ -1,6 +1,21 @@
 # El tablero gráfico
 
-> **Esta página describe investigación y dirección, no capacidades.** El tablero no existe: no hay carpeta `web/`, no hay comando `mnemosine web serve`, no hay una sola pantalla. Lo que sigue es el resultado de la investigación del 2026-09-02 y la forma que tomaría el tramo si entra al plan. Para lo que sí existe hoy, ver [[Manual-de-usuario]] y [[Arquitectura]].
+> **W0–W1 entró, y parte de esta página ya es historia.** Lo que existe hoy: un
+> **gateway** en `src/gateway/` (proceso aparte: `node dist/gateway/main.js`, o
+> `mnemosine web start` para el operador y el desarrollo) que sostiene la sesión
+> del navegador y **reenvía sólo lecturas** —GET y HEAD— a `/v1`; una **SPA de
+> TypeScript sin marco** con dos pantallas de lectura, la **cartera del
+> despacho** y la vista de una entidad; los **tokens de la casa** acuñados como
+> archivo (`src/gateway/public/design/tokens.css` y su espejo JSON); y el
+> endpoint transversal `GET /v1/portfolio`, que es **de la API**, con sus
+> compuertas. Desde el navegador no se escribe nada.
+>
+> Lo que sigue conserva la investigación del 2026-09-02 porque el argumento
+> —por qué no un tercer motor, por qué no low-code— es el que sostiene la forma
+> que tomó. Donde la página dice que algo «sería» o «no existe», léase corregido
+> por el refresco del final y por `docs/auditorias/W0.md`, que es el registro de
+> la auditoría del tramo. Para lo que hace el CLI, ver [[Manual-de-usuario]] y
+> [[Arquitectura]].
 
 ## Por qué un tablero
 
@@ -66,3 +81,53 @@ Si el tramo entra, entra con su fila y su criterio, como todo en la casa: el com
 - [[Canales-de-mensajeria]] — la otra superficie investigada: el chat como adaptador, no como motor.
 - [[La-contabilidad-como-centro]] — la lente experimental sobre lo que el tablero mostraría a terceros.
 - [[Arquitectura]], [[El-agente-y-sus-limites]], [[Aislamiento-multi-inquilino]] — las reglas que el tablero hereda sin excepción.
+
+> **Refresco del 2026-09-16 (W0–W1 entregado).** Lo que cambió respecto de lo
+> escrito arriba, punto por punto:
+>
+> - **La carpeta es `src/gateway/`, no `web/`**, para que el tablero herede sin
+>   excepción lo que ya vigila a `src/`: `tsc`, el lint con tipos, el metro del
+>   idioma, vitest, Docker y las compuertas del plan. Su entrada de producción
+>   no carga `dotenv`, ni `src/config`, ni `src/database`: un gateway
+>   comprometido no tiene la credencial del motor.
+> - **La hoja es `mnemosine web start`** (`web iniciar`), no `web serve`, porque
+>   `start` ya es un verbo del registro.
+> - **Sin Vite, React, shadcn, TanStack, Recharts ni Orval.** La SPA es
+>   TypeScript sin marco, compilada por `tsconfig.web.json`, porque el metro del
+>   idioma y el lint de identificadores sólo cuentan `.ts`: una SPA en `.js`
+>   habría salido del alcance de las dos puertas. Una pantalla de lectura no
+>   paga un marco, y los estilos en línea de una librería de componentes
+>   obligarían a aflojar la CSP.
+> - **El cliente no se genera del contrato**: el `openapi.json` de hoy no
+>   publica esquemas de respuesta, así que un generador sólo copiaría método y
+>   ruta. En su lugar hay una tabla de operaciones y un criterio que la contrasta
+>   contra el `openapi.json` versionado; el desfase falla el build, no la demo.
+> - **El idioma no es i18next con fuente es-MX**, sino `src/i18n` —el catálogo
+>   tipado que ya existe—, con llaves inglesas y español primero, como manda
+>   `docs/language.md`.
+> - **El semáforo no mapea códigos de salida.** Cada tono repite un hecho que ya
+>   existe (un estado de periodo, un contador en cero o no), y nunca inventa un
+>   criterio contable: un cero no es «cuadrado», y una entidad sin calendario
+>   nunca sale verde.
+> - **IBM Plex se nombra, no se empaqueta todavía**: los tokens la piden y caen a
+>   la pila del sistema si no está instalada. Versionar los `.woff2` con su
+>   sha256 es pendiente, y `tokens.json` todavía no tiene consumidor: la paleta
+>   del CLI y las plantillas de documentos siguen con lo suyo.
+> - **Los tres dientes del criterio se cumplieron, y crecieron a seis** en
+>   `E2.1`, más una prueba de conducta contra base efímera para la frontera de
+>   la cartera. Miden lo que el código hace —el cuerpo impreso de cada guarda—,
+>   no que el texto esté presente.
+> - **Los botones que disparan actos de `/v1` no entraron**: el proxy reenvía
+>   GET y HEAD y esa lista es un literal con criterio. Escribir desde el
+>   navegador espera a que la API haga cumplir sus propias banderas (marcha
+>   seca, compuerta en vivo, `Idempotency-Key`), que es la misma lección de la
+>   auditoría integral III que esta página cita arriba.
+> - **§5.1 (idioma)** está resuelto por `docs/language.md` y el epic #141.
+>   **§5.3 (entidad vs despacho)** se leyó así: el inquilino ES el despacho, y la
+>   cartera son las entidades que el token concede dentro de él. No se inventó
+>   ningún objeto «despacho» ni migración; si el dueño lee §5.3 de otra manera,
+>   lo único que cambia es de dónde sale el conjunto de entidades.
+> - **Falta**, y está dicho en `docs/auditorias/W0.md`: el panel de pendientes y
+>   la revisión de borradores con el CFDI al lado (que arrastra la migración
+>   `ai_drafts.xml_document_id`), la escritura desde el navegador, un camino
+>   local sin IdP de verdad, `axe` en CI y la paleta oscura.

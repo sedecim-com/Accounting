@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as ts from 'typescript';
 import {
   codigoDe,
   type Criterio,
@@ -7,13 +8,35 @@ import {
   dondeAparece,
   existe,
   falla,
+  forEachGatewayNode,
   fuentes,
+  GATEWAY_APP_CLOSURE,
+  GATEWAY_CODE_PRINTER,
+  GATEWAY_SERVER_CLOSURE,
+  gatewayFiles,
+  gatewayNodes,
+  gatewaySyntaxOf,
+  handlersTableEntry,
+  importClosure,
+  importClosureViolations,
+  isIdentifierReference,
+  isLiteralArgument,
+  joinedPolicy,
   leer,
+  literalText,
+  localDeclarationsOf,
   noEvaluable,
   ok,
+  plainImportsFrom,
+  RAIZ,
   rutaDe,
+  sameStatements,
   scanWriteRoutes,
+  seamSource,
   sinComentarios,
+  soleFunction,
+  stringElements,
+  topLevelInitializer,
 } from './shared.js';
 
 // ============================================================
@@ -1332,6 +1355,1804 @@ export const E2_1: Criterio[] = [
       return leeEntornoASecas
         ? falla('init volvió a leer MNEMOSINE_TENANT por su cuenta: lista y CREA sociedades bajo el inquilino del .env aunque se pidiera otro, y su comprobación de RLS informa del inquilino equivocado')
         : ok('la bandera manda sobre el entorno, una sola regla de precedencia gobierna el gancho y la hoja, el inquilino inexistente falla venga de donde venga, y el asistente usa el inquilino efectivo');
+    },
+  },
+
+  // ---- W0 · The unauthenticated metrics surface ----
+  {
+    paquete: 'E2.1',
+    id: 'metrics-route-label-bounded',
+    // W0 (#117). `/metrics` is mounted before auth, and prom-client keeps
+    // every label set it has seen for the life of the process. The route label
+    // of a request no route matched was the literal `req.path`, so each random
+    // path minted a permanent series: anyone could grow the scrape and the
+    // heap one request at a time, without credentials. The first fix kept one
+    // more channel open: `req.baseUrl` is the mount prefix as the client
+    // spelled it, and Express matches mounts case-insensitively, so every case
+    // variant of `/v1/ai/webhooks` (a route that answers its own 401) minted a
+    // series too.
+    //
+    // What the criterion checks, on the middleware's syntax tree (a comment
+    // that quotes a fallback moves nothing):
+    //   · the bounded label is an exported const string literal;
+    //   · an ALLOWLIST of reads: the request only as `.method`, `.route` and a
+    //     lowercased `.baseUrl`, the response only as `.on` and `.statusCode`.
+    //     Any other use of either (another member, a bracket, an alias, an
+    //     argument to a helper, `res.req`) is a finding. A denylist of path
+    //     names let `req.query`, `req.get('referer')` and a module-level helper
+    //     handed `res` through;
+    //   · the value that reaches prom-client is the one checked: `stop` and
+    //     `httpRequestsTotal.inc` receive only the `labels` const, whose `route`
+    //     is the `route` const bound to the bounded conditional, and that
+    //     conditional's matched branch reads nothing but the request.
+    // What it does not check: that the counters are not used from another
+    // module (today nothing outside metrics.ts imports them), and that every
+    // mount stays a literal with no parameter, which is what makes lowercasing
+    // `baseUrl` exact. A mount with a parameter would put the client's value
+    // back into the label; guarding the mount table from here would pin a
+    // Spanish-named file and grow two plan lanes of
+    // `scripts/language-status.ts`, so it waits for that file's rename. Behaviour is covered, over a real socket, by
+    // tests/api/middleware/metrics-label.spec.ts.
+    enunciado:
+      'Ninguna petición acuña una serie nueva en el /metrics que se sirve sin credenciales: la etiqueta de ruta sale del código, no de lo que envía el cliente',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: '      : UNMATCHED_ROUTE_LABEL;',
+        a: '      : req.path;',
+        porque:
+          'every random unmatched path would create a permanent prom-client series, reachable without credentials',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: '      status: String(res.statusCode),\n    };',
+        a: "      status: String(res.statusCode),\n      ...(res.statusCode === 404 ? { route: req['originalUrl'] } : {}),\n    };",
+        porque:
+          'the bounded fallback stays in place and the 404 label is overwritten after it, through bracket access: a check of the ternary alone stays green',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: '    const labels = {\n      method: req.method,\n      route,',
+        a: '    const incoming = req;\n    const labels = {\n      method: req.method,\n      route: res.statusCode === 404 ? incoming.path : route,',
+        porque:
+          'an alias of the request hides the path read from a check that only looks for `req.`',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: "      ? `${(req.baseUrl || '').toLowerCase()}${req.route.path}`",
+        a: "      ? `${req.baseUrl || ''}${req.route.path}`",
+        porque:
+          'Express matches a mount case-insensitively and baseUrl keeps the client spelling: each case variant of an unauthenticated mount mints its own series',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: 'export const metricsMiddleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {\n  const stop = httpRequestDuration.startTimer();\n  res.on(\'finish\', () => {\n    const route = req.route?.path\n      ? `${(req.baseUrl || \'\').toLowerCase()}${req.route.path}`\n      : UNMATCHED_ROUTE_LABEL;\n    const labels = {\n      method: req.method,\n      route,',
+        a: 'function unknownEndpoint(r: Response): string {\n  return r.req.path;\n}\n\nexport const metricsMiddleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {\n  const stop = httpRequestDuration.startTimer();\n  res.on(\'finish\', () => {\n    const route = req.route?.path\n      ? `${(req.baseUrl || \'\').toLowerCase()}${req.route.path}`\n      : UNMATCHED_ROUTE_LABEL;\n    const labels = {\n      method: req.method,\n      route: route === UNMATCHED_ROUTE_LABEL && req.method !== \'GET\' ? unknownEndpoint(res) : route,',
+        porque:
+          'a helper declared outside the middleware reads the path through res.req, and only for non-GET requests: a check that follows `req` inside the body, and a spec that only sends GET, both stay green',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: '      route,\n      status: String(res.statusCode),',
+        a: "      route: route === UNMATCHED_ROUTE_LABEL && typeof req.query.q === 'string' ? req.query.q : route,\n      status: String(res.statusCode),",
+        porque:
+          'the query string is as much client text as the path: a denylist of path, url and originalUrl lets it through',
+      },
+    ],
+    evaluar: () => {
+      const file = 'src/api/rest/middleware/metrics.ts';
+      if (!existe(file)) {
+        return falla(`desapareció ${file}: no queda nada que acote las etiquetas de /metrics`);
+      }
+      const sf = ts.createSourceFile(file, crudoDe(file), ts.ScriptTarget.Latest, true);
+
+      // 1. The bounded label is a top-level exported const string literal:
+      // nothing computed can hide behind the name.
+      let labelValue: string | undefined;
+      let middleware: ts.Expression | undefined;
+      for (const st of sf.statements) {
+        if (!ts.isVariableStatement(st)) continue;
+        const exported = st.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+        const isConst = (st.declarationList.flags & ts.NodeFlags.Const) !== 0;
+        for (const d of st.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name)) continue;
+          if (d.name.text === 'UNMATCHED_ROUTE_LABEL' && exported && isConst && d.initializer && ts.isStringLiteral(d.initializer)) {
+            labelValue = d.initializer.text;
+          }
+          if (d.name.text === 'metricsMiddleware') middleware = d.initializer;
+        }
+      }
+      if (labelValue !== 'unmatched') {
+        return falla(
+          "metrics.ts ya no exporta `const UNMATCHED_ROUTE_LABEL = 'unmatched'` en su nivel superior: la etiqueta de una ruta sin coincidencia deja de ser un valor fijo"
+        );
+      }
+      if (!middleware || !(ts.isArrowFunction(middleware) || ts.isFunctionExpression(middleware))) {
+        return falla('no se encontró el inicializador de metricsMiddleware como función: el instrumento no puede mirar la etiqueta');
+      }
+      const [requestParam, responseParam] = middleware.parameters;
+      if (!requestParam || !ts.isIdentifier(requestParam.name) || !responseParam || !ts.isIdentifier(responseParam.name)) {
+        return falla(
+          'metricsMiddleware no declara la petición y la respuesta como sus dos primeros parámetros con nombre: el instrumento no puede seguirlas'
+        );
+      }
+      const requestName = requestParam.name.text;
+      const responseName = responseParam.name.text;
+      const body = middleware.body;
+
+      function* walk(n: ts.Node): Generator<ts.Node> {
+        yield n;
+        for (const child of n.getChildren()) yield* walk(child);
+      }
+      const at = (n: ts.Node): string =>
+        `:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1} ${n.getText().slice(0, 60)}`;
+      // An identifier that names a member (`x.req`, `{ route: … }`) or declares
+      // a binding is not a read of a binding with that name.
+      const isRead = (n: ts.Identifier): boolean => {
+        const p = n.parent;
+        if (ts.isPropertyAccessExpression(p) || ts.isPropertyAssignment(p)) return p.name !== n;
+        if (ts.isVariableDeclaration(p) || ts.isParameter(p) || ts.isBindingElement(p) || ts.isFunctionDeclaration(p)) {
+          return p.name !== n;
+        }
+        return true;
+      };
+      const readsIn = (n: ts.Node): ts.Identifier[] =>
+        [...walk(n)].filter((x): x is ts.Identifier => ts.isIdentifier(x) && isRead(x));
+
+      // 2. An allowlist of reads. Every label value must come from the code, so
+      // the request is read only for its method (Node's parser admits a fixed
+      // set), its matched route (registered by the code) and its mount prefix
+      // lowercased; the response only to listen and for its status. Any other
+      // use of either could launder client text into a label.
+      const allowedMembers = new Map([
+        [requestName, new Set(['method', 'route', 'baseUrl'])],
+        [responseName, new Set(['on', 'statusCode'])],
+      ]);
+      // `(req.baseUrl || '').toLowerCase()` or `req.baseUrl.toLowerCase()`.
+      const lowercased = (read: ts.Node): boolean => {
+        let n = read;
+        for (;;) {
+          const p = n.parent;
+          const defaulted =
+            ts.isBinaryExpression(p) &&
+            p.left === n &&
+            (p.operatorToken.kind === ts.SyntaxKind.BarBarToken || p.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) &&
+            ts.isStringLiteralLike(p.right);
+          if (!ts.isParenthesizedExpression(p) && !defaulted) break;
+          n = p;
+        }
+        const member = n.parent;
+        return (
+          ts.isPropertyAccessExpression(member) &&
+          member.expression === n &&
+          member.name.text === 'toLowerCase' &&
+          ts.isCallExpression(member.parent) &&
+          member.parent.expression === member
+        );
+      };
+      const findings: string[] = [];
+      for (const n of readsIn(body)) {
+        const allowed = allowedMembers.get(n.text);
+        if (!allowed) continue;
+        const member = n.parent;
+        if (!ts.isPropertyAccessExpression(member) || member.expression !== n || !allowed.has(member.name.text)) {
+          findings.push(at(member));
+        } else if (n.text === requestName && member.name.text === 'baseUrl' && !lowercased(member)) {
+          findings.push(`${at(member)} sin pasar a minúsculas`);
+        }
+      }
+
+      // 3. The value that reaches prom-client is the value checked. A check of
+      // the conditional alone stays green when the label is overridden after it.
+      const soleConstInBody = (name: string): ts.Expression | undefined => {
+        const declared = [...walk(sf)].filter(
+          (x) =>
+            (ts.isVariableDeclaration(x) || ts.isParameter(x) || ts.isBindingElement(x) || ts.isFunctionDeclaration(x)) &&
+            x.name !== undefined &&
+            ts.isIdentifier(x.name) &&
+            x.name.text === name
+        );
+        const [d] = declared;
+        if (declared.length !== 1 || !ts.isVariableDeclaration(d)) return undefined;
+        const isConst = ts.isVariableDeclarationList(d.parent) && (d.parent.flags & ts.NodeFlags.Const) !== 0;
+        const inBody = d.getStart() >= body.getStart() && d.getEnd() <= body.getEnd();
+        return isConst && inBody ? d.initializer : undefined;
+      };
+
+      const routeInit = soleConstInBody('route');
+      if (
+        !routeInit ||
+        !ts.isConditionalExpression(routeInit) ||
+        !ts.isIdentifier(routeInit.whenFalse) ||
+        routeInit.whenFalse.text !== 'UNMATCHED_ROUTE_LABEL' ||
+        !/\.route\b/.test(routeInit.condition.getText())
+      ) {
+        findings.push(
+          'la etiqueta ya no es un único `const route` del middleware que, sin ruta coincidente, cae en UNMATCHED_ROUTE_LABEL'
+        );
+      } else {
+        for (const n of readsIn(routeInit.whenTrue)) {
+          if (n.text !== requestName) findings.push(`${at(n.parent)} (la rama de la ruta coincidente lee ${n.text})`);
+        }
+      }
+
+      const labelsInit = soleConstInBody('labels');
+      if (!labelsInit || !ts.isObjectLiteralExpression(labelsInit)) {
+        findings.push('las etiquetas ya no son un único `const labels = { … }` literal del middleware');
+      } else {
+        const values = new Map<string, ts.Expression>();
+        let named = 0;
+        for (const p of labelsInit.properties) {
+          if (ts.isShorthandPropertyAssignment(p)) {
+            named += 1;
+            values.set(p.name.text, p.name);
+          } else if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name)) {
+            named += 1;
+            values.set(p.name.text, p.initializer);
+          } else {
+            findings.push(`${at(p)} (una etiqueta sin nombre fijo)`);
+          }
+        }
+        const names = [...values.keys()].sort().join(', ');
+        if (names !== 'method, route, status') {
+          findings.push(`labels declara {${names}} en vez de exactamente {method, route, status}`);
+        } else if (values.size !== named) {
+          findings.push('labels repite una etiqueta: la última escritura gana y no es la que se comprobó');
+        }
+        const routeValue = values.get('route');
+        if (!routeValue || !ts.isIdentifier(routeValue) || routeValue.text !== 'route') {
+          findings.push(`${at(routeValue ?? labelsInit)} (la etiqueta route no es el const route acotado)`);
+        }
+        for (const key of ['method', 'status']) {
+          const value = values.get(key);
+          if (!value) continue;
+          for (const n of readsIn(value)) {
+            if (![requestName, responseName, 'String'].includes(n.text)) {
+              findings.push(`${at(n.parent)} (la etiqueta ${key} lee ${n.text})`);
+            }
+          }
+        }
+      }
+
+      // Only `labels` reaches the two metrics: `stop(labels)` from a timer
+      // started with no labels, and `httpRequestsTotal.inc(labels)`. Any other
+      // use of `labels`, `stop` or either metric in the file is a finding.
+      const isCallWithLabels = (call: ts.Node, callee: ts.Node): boolean =>
+        ts.isCallExpression(call) &&
+        call.expression === callee &&
+        call.arguments.length === 1 &&
+        ts.isIdentifier(call.arguments[0]) &&
+        call.arguments[0].text === 'labels';
+      for (const n of readsIn(sf)) {
+        const p = n.parent;
+        let fine = true;
+        if (n.text === 'labels') {
+          fine =
+            ts.isCallExpression(p) &&
+            p.arguments.length === 1 &&
+            ((ts.isIdentifier(p.expression) && p.expression.text === 'stop') ||
+              (ts.isPropertyAccessExpression(p.expression) &&
+                ts.isIdentifier(p.expression.expression) &&
+                p.expression.expression.text === 'httpRequestsTotal' &&
+                p.expression.name.text === 'inc'));
+        } else if (n.text === 'stop') {
+          fine = isCallWithLabels(p, n);
+        } else if (n.text === 'httpRequestsTotal') {
+          fine = ts.isPropertyAccessExpression(p) && p.name.text === 'inc' && isCallWithLabels(p.parent, p);
+        } else if (n.text === 'httpRequestDuration') {
+          fine =
+            ts.isPropertyAccessExpression(p) &&
+            p.name.text === 'startTimer' &&
+            ts.isCallExpression(p.parent) &&
+            p.parent.expression === p &&
+            p.parent.arguments.length === 0;
+        }
+        if (!fine) findings.push(`${at(p)} (llega a prom-client algo que no es labels)`);
+      }
+      const stopInit = soleConstInBody('stop');
+      if (!stopInit || !ts.isCallExpression(stopInit) || !/^httpRequestDuration\.startTimer$/.test(stopInit.expression.getText())) {
+        findings.push('`stop` ya no es un único const del middleware iniciado con httpRequestDuration.startTimer()');
+      }
+
+      if (findings.length > 0) {
+        return falla(
+          `una etiqueta de /metrics puede tomar su valor de lo que envía el cliente (${findings.join(' · ')}): cada petición distinta acuñaría una serie permanente, sin credenciales`
+        );
+      }
+      return ok(
+        "metricsMiddleware etiqueta con el patrón de la ruta (montaje en minúsculas) o con 'unmatched', y de la petición sólo lee método y ruta: /metrics no crece con peticiones al azar"
+      );
+    },
+  },
+
+  // ---- W0 · The web gateway ----
+  {
+    paquete: 'E2.1',
+    id: 'web-gateway-never-reaches-the-engine',
+    // W0 (#117). The gateway runs as its own process so that a compromised
+    // gateway holds browser sessions and not the engine. This criterion holds
+    // that line in the source:
+    //   · the server process's transitive import closure stays inside
+    //     src/gateway (minus the browser program), four borrowed auth and
+    //     trust-proxy modules, express, jose and a named list of Node builtins
+    //     (no loader: node:module, vm and child_process stay out, except
+    //     child_process in the token store);
+    //   · the browser program's closure stays inside src/gateway/app and the
+    //     two typed catalogs, with no package at all, and the program has at
+    //     least seven modules (W1), so an emptied or moved app is not a clean
+    //     closure;
+    //   · what that closure binds from jose is the verification half only, and
+    //     no file in it (borrowed modules included) names node:crypto's or
+    //     WebCrypto's signers, a token-minting library or an engine credential,
+    //     not even in a comment;
+    //   · `process` is used only through a short list of members, and its
+    //     environment is read in exactly one place, the default parameter of
+    //     readGatewayConfig, whose alias is read only as env.<GATEWAY KEY>.
+    // All of it is read on the syntax tree of every file the walk visited, so
+    // process['env'], destructuring and an aliased require are not text the
+    // criterion fails to see. The walk is importClosure above; the runtime
+    // complement is tests/gateway/module-isolation.spec.ts, which loads the
+    // server in a fresh process and lists what got required.
+    enunciado:
+      'El gateway web no alcanza el motor: su cierre de imports no toca base de datos, servicios ni configuración del motor, no firma tokens y sólo lee sus propias variables de entorno',
+    mutantes: [
+      {
+        archivo: 'src/gateway/proxy.ts',
+        de: "import type { SessionStore } from './session-store.js';",
+        a: "import type { SessionStore } from './session-store.js';\nimport { query } from '../database/connection.js';",
+        porque: 'the gateway would read Postgres directly: a third engine with no risk declaration and no audit',
+      },
+      {
+        archivo: 'src/auth/oidc.ts',
+        de: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';",
+        a: "import '../database/connection.js';\nimport { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';",
+        porque: 'laundering through an allowed module: only a transitive walk catches it',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: 'export function createGatewayApp(',
+        a: "const engineModule = 'pg';\nvoid import(engineModule);\nexport function createGatewayApp(",
+        porque: 'a computed dynamic import hides the specifier from any literal scan',
+      },
+      {
+        archivo: 'src/gateway/logger.ts',
+        de: 'export type LogField = string | number | boolean;',
+        a: "const driver = require('pg') as unknown;\nexport type LogField = string | number | boolean;",
+        porque: 'a require of an engine package is an import all the same',
+      },
+      {
+        archivo: 'src/gateway/oidc-client.ts',
+        de: "import { discover, isAsymmetric, verifyIdpToken } from '../auth/oidc.js';",
+        a: "import { SignJWT } from 'jose';\nimport { discover, isAsymmetric, verifyIdpToken } from '../auth/oidc.js';",
+        porque: 'the gateway would start minting tokens and become the authorization engine',
+      },
+      {
+        archivo: 'src/gateway/config.ts',
+        de: 'const publicOrigin = env.GATEWAY_PUBLIC_ORIGIN',
+        a: 'const databaseUrl = env.DATABASE_URL;\n  const publicOrigin = env.GATEWAY_PUBLIC_ORIGIN',
+        porque: 'the gateway process would start depending on the database credential',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '  const fetchImpl = deps.fetchImpl ?? fetch;',
+        a: "  const fetchImpl = deps.fetchImpl ?? fetch;\n  const tenant = process.env['MNEMOSINE_TENANT'];",
+        porque: 'a second read of the environment outside readGatewayConfig escapes both the key list and the env census',
+      },
+      {
+        archivo: 'src/gateway/oidc-client.ts',
+        de: "import { discover, isAsymmetric, verifyIdpToken } from '../auth/oidc.js';",
+        a: "import { CompactSign } from 'jose';\nimport { discover, isAsymmetric, verifyIdpToken } from '../auth/oidc.js';",
+        porque: 'jose signs under names other than SignJWT: a CompactSign mints a JWS just the same',
+      },
+      {
+        archivo: 'src/auth/oidc.ts',
+        de: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';",
+        a: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';\nexport { SignJWT as TokenWriter } from 'jose';",
+        porque: 'a signer re-exported under another name from a borrowed module reaches the gateway without its name',
+      },
+      {
+        archivo: 'src/gateway/logger.ts',
+        de: 'export type LogField = string | number | boolean;',
+        a: "const load = require;\nexport const driver = (): unknown => load('pg');\nexport type LogField = string | number | boolean;",
+        porque: 'an aliased require loads the engine driver with no require( in sight',
+      },
+      {
+        archivo: 'src/gateway/logger.ts',
+        de: 'export type LogField = string | number | boolean;',
+        a: "import { createRequire } from 'node:module';\nexport const driver = (): unknown => createRequire(__filename)('pg');\nexport type LogField = string | number | boolean;",
+        porque: 'createRequire is a loader that node:module hands out as an ordinary builtin',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '  const fetchImpl = deps.fetchImpl ?? fetch;',
+        a: "  const fetchImpl = deps.fetchImpl ?? fetch;\n  const tenant = process['env']['MNEMOSINE_TENANT'];",
+        porque: "process['env'] reads the environment without the text process.env",
+      },
+      {
+        archivo: 'src/gateway/config.ts',
+        de: 'const publicOrigin = env.GATEWAY_PUBLIC_ORIGIN',
+        a: 'const { PAC_PASSWORD: pac } = env;\n  const publicOrigin = env.GATEWAY_PUBLIC_ORIGIN',
+        porque: 'destructuring the env alias reads a key that no env.<KEY> access shows',
+      },
+      {
+        archivo: 'src/auth/oidc.ts',
+        de: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';",
+        a: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';\nconst tenant = process.env.MNEMOSINE_TENANT;",
+        porque: 'a borrowed module the gateway process loads reads the environment the gateway was built not to read',
+      },
+      {
+        archivo: 'src/auth/oidc.ts',
+        de: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';",
+        a: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';\nexport const ENGINE_KEY = 'ENCRYPTION_KEY';",
+        porque: 'an engine credential named in a borrowed module is inside the gateway process all the same',
+      },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "import { mount, skipWithoutNavigating } from './dom.js';",
+        a: "import '../config.js';\nimport { mount, skipWithoutNavigating } from './dom.js';",
+        porque: 'the browser program would reach server configuration code, and whatever it imports ships to every page',
+      },
+      {
+        archivo: 'src/gateway/app/messages.ts',
+        de: "import { ES } from '../../i18n/es.js';",
+        a: "import { ES } from '../../i18n/es.js';\nimport { t } from '../../i18n/index.js';",
+        porque: "the CLI's catalog runtime reads the process locale; in the browser it is a second analyzer and a Node dependency",
+      },
+    ],
+    evaluar: () => {
+      const { server, app } = gatewayFiles();
+      if (server.length < 10) {
+        return falla(
+          `src/gateway sólo tiene ${server.length} archivo(s) del proceso servidor: el instrumento no miró, y no haber mirado no es haber aislado`
+        );
+      }
+      if (app.length < 7) {
+        return falla(
+          `src/gateway/app sólo tiene ${app.length} módulo(s) del programa del navegador: el instrumento no miró, y un cierre vacío no es un cierre contenido`
+        );
+      }
+      const serverClosure = importClosure(seamSource, server, GATEWAY_SERVER_CLOSURE);
+      const findings = [...serverClosure.violations, ...importClosureViolations(seamSource, app, GATEWAY_APP_CLOSURE)];
+
+      // Everything below reads every file the server process loads, the
+      // borrowed auth and trust-proxy modules included: a credential or an
+      // environment read in src/auth/oidc.ts is inside the gateway all the same.
+      const banned = ['jsonwebtoken', 'JWT_SECRET', 'DATABASE_URL', 'ENCRYPTION_KEY'];
+      // jose is judged by its bindings in the walk; these are node:crypto's and
+      // WebCrypto's signers, named wherever they appear, member access included.
+      const signers = new Set(['createHmac', 'createSign', 'subtle']);
+      const processMembers = new Set(['stderr', 'stdout', 'exit', 'exitCode', 'once', 'on', 'platform']);
+      const allowedKeys = new Set([
+        'AUTH_OIDC_ISSUER',
+        'AUTH_OIDC_AUDIENCE',
+        'AUTH_OIDC_WEB_CLIENT_ID',
+        'AUTH_OIDC_WEB_CLIENT_SECRET',
+        'NODE_ENV',
+      ]);
+      const configFile = 'src/gateway/config.ts';
+      let defaultEnvironmentReads = 0;
+
+      for (const rel of serverClosure.files) {
+        const text = crudoDe(rel);
+        for (const word of banned) if (text.includes(word)) findings.push(`${rel} nombra ${word}`);
+        const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
+        const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+
+        forEachGatewayNode(sf, (n) => {
+          if (!ts.isIdentifier(n)) return;
+          if (signers.has(n.text)) findings.push(`${at(n)} usa ${n.text}, una primitiva de firma`);
+
+          if (n.text === 'process' && isIdentifierReference(n)) {
+            const p = n.parent;
+            if (!ts.isPropertyAccessExpression(p) || p.expression !== n) {
+              // process['env'], `const { env } = process`, an alias, an argument.
+              findings.push(`${at(n)} usa process sin nombrar un miembro permitido: ${p.getText(sf).slice(0, 60)}`);
+            } else if (p.name.text === 'env') {
+              const declaration = p.parent;
+              const isTheDefault =
+                rel === configFile &&
+                ts.isParameter(declaration) &&
+                declaration.initializer === p &&
+                ts.isIdentifier(declaration.name) &&
+                declaration.name.text === 'env' &&
+                ts.isFunctionDeclaration(declaration.parent) &&
+                declaration.parent.name?.text === 'readGatewayConfig';
+              if (isTheDefault) defaultEnvironmentReads += 1;
+              else findings.push(`${at(n)} lee process.env fuera del parámetro por omisión de readGatewayConfig`);
+            } else if (!processMembers.has(p.name.text)) {
+              findings.push(`${at(n)} usa process.${p.name.text}`);
+            }
+          }
+
+          // In config.ts the alias `env` may only be read as env.<ALLOWED_KEY>:
+          // destructuring, spreading, indexing or handing it along reads keys no
+          // property access shows.
+          if (rel === configFile && n.text === 'env' && isIdentifierReference(n)) {
+            const p = n.parent;
+            if (ts.isParameter(p) && p.name === n) return;
+            if (ts.isPropertyAccessExpression(p) && p.expression === n) {
+              const key = p.name.text;
+              if (!key.startsWith('GATEWAY_') && !allowedKeys.has(key)) findings.push(`${configFile} lee env.${key}`);
+            } else {
+              findings.push(`${at(n)} usa el entorno sin nombrar una clave: ${p.getText(sf).slice(0, 60)}`);
+            }
+          }
+        });
+      }
+
+      if (!existe(configFile)) {
+        findings.push(`desapareció ${configFile}: no queda el único lector del entorno`);
+      } else if (defaultEnvironmentReads !== 1) {
+        findings.push(
+          `el entorno del proceso se lee ${defaultEnvironmentReads} vez(ces) como parámetro por omisión de readGatewayConfig; debe ser exactamente una, y en ningún otro sitio`
+        );
+      }
+
+      if (findings.length > 0) {
+        return falla(`el gateway web alcanza lo que no debe (${findings.join(' · ')})`);
+      }
+      return ok(
+        `el cierre de imports de ${server.length} archivo(s) del servidor del gateway (${serverClosure.files.length} con los módulos prestados) y ${app.length} del programa del navegador se queda dentro de lo permitido, sin firmar tokens ni leer más entorno que el suyo`
+      );
+    },
+  },
+
+  {
+    paquete: 'E2.1',
+    id: 'web-gateway-own-routes-are-plumbing',
+    // W0 (#117). The gateway answers four plumbing routes of its own and
+    // relays GET and HEAD under exactly /v1. A fifth own route is where
+    // aggregation (the next engine) begins; another proxied method is cookie
+    // authority over the API's body-less external acts; a wider prefix puts
+    // the session in front of /metrics and /public/v1. Read on the syntax
+    // tree: the route table, the prefix, the method pair and, statement by
+    // statement, the predicate that reads it and the gate that enforces it; a
+    // single express() app with no Router, no express.static and no ad hoc
+    // app.get/post, exactly six app.use calls and one table-driven registration
+    // in server.ts; and a static table whose paths cannot shadow the proxy or
+    // the session routes.
+    // Aliasing `app` escapes a syntax check; tests/gateway/gateway-routes.spec.ts
+    // walks the real router stack for that.
+    enunciado:
+      'El gateway web sólo tiene cuatro rutas propias de fontanería y retransmite a /v1 únicamente lecturas GET y HEAD, sin rutas registradas fuera de su tabla',
+    mutantes: [
+      {
+        archivo: 'src/gateway/routes.ts',
+        de: "  ['GET', '/healthz', 'health'],",
+        a: "  ['GET', '/healthz', 'health'],\n  ['GET', '/portfolio', 'health'],",
+        porque: 'a fifth own route is where aggregation, the next engine, begins',
+      },
+      {
+        archivo: 'src/gateway/routes.ts',
+        de: "export const PROXIED_METHODS = ['GET', 'HEAD'] as const;",
+        a: "export const PROXIED_METHODS = ['GET', 'HEAD', 'POST'] as const;",
+        porque:
+          'cookie authority would reach the body-less CFDI stamp and cancel before the API enforces its dry-run and live flags',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '  app.use(notFound);',
+        a: "  app.get('/summary', notFound);\n  app.use(notFound);",
+        porque: 'an ad hoc registration outside the literal table',
+      },
+      {
+        archivo: 'src/gateway/routes.ts',
+        de: "export const PROXY_PREFIX = '/v1';",
+        a: "export const PROXY_PREFIX = '/';",
+        porque: 'the session would reach /metrics, /ready and /public/v1',
+      },
+      {
+        archivo: 'src/gateway/static-assets.ts',
+        de: "  ['/', 'index.html', 'text/html; charset=utf-8'],",
+        a: "  ['/v1/portfolio', 'index.html', 'text/html; charset=utf-8'],",
+        porque: 'a static file answering under the proxied prefix would shadow the contract',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '  app.use(staticAssets);',
+        a: '  app.use(express.static(DEFAULT_STATIC_ROOT));',
+        porque: 'directory serving replaces the closed table: source maps, sources and dotfiles become reachable',
+      },
+      {
+        archivo: 'src/gateway/routes.ts',
+        de: '  return (PROXIED_METHODS as readonly string[]).includes(method);',
+        a: "  return (PROXIED_METHODS as readonly string[]).includes(method) || method === 'POST';",
+        porque: 'the method pair stays literal while the predicate that reads it admits a body-less POST to the stamp route',
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "  if (!isProxiedMethod(req.method)) return sendError(res, 405, 'METHOD_NOT_PROXIED');",
+        a: "  if (!isProxiedMethod(req.method) && req.method !== 'POST') return sendError(res, 405, 'METHOD_NOT_PROXIED');",
+        porque: 'the gate that enforces the pair lets POST through to a relay that forwards req.method',
+      },
+    ],
+    evaluar: () => {
+      const findings: string[] = [];
+
+      const routesFile = 'src/gateway/routes.ts';
+      const routes = gatewaySyntaxOf(routesFile);
+      if (!routes) return falla(`desapareció ${routesFile}: no queda la tabla de rutas del gateway`);
+      const table = topLevelInitializer(routes, 'GATEWAY_ROUTES');
+      const declared: string[] = [];
+      if (!table || !ts.isArrayLiteralExpression(table.node)) {
+        findings.push('GATEWAY_ROUTES ya no es un arreglo literal');
+      } else {
+        for (const e of table.node.elements) {
+          const tuple = ts.isArrayLiteralExpression(e) ? stringElements(e) : undefined;
+          if (!tuple || tuple.length !== 3) findings.push(`GATEWAY_ROUTES tiene un elemento que no es [método, ruta, manejador]: ${e.getText(routes).slice(0, 60)}`);
+          else declared.push(`${tuple[0]} ${tuple[1]}`);
+        }
+        const expected = ['GET /healthz', 'GET /auth/login', 'GET /auth/callback', 'POST /auth/logout'];
+        if ([...declared].sort().join(' | ') !== [...expected].sort().join(' | ')) {
+          findings.push(`GATEWAY_ROUTES declara {${declared.join(', ')}} en vez de exactamente {${expected.join(', ')}}`);
+        }
+      }
+      const prefix = topLevelInitializer(routes, 'PROXY_PREFIX');
+      if (!prefix || !ts.isStringLiteral(prefix.node) || prefix.node.text !== '/v1') {
+        findings.push("PROXY_PREFIX ya no es exactamente '/v1'");
+      }
+      const methods = topLevelInitializer(routes, 'PROXIED_METHODS');
+      const methodList = methods ? stringElements(methods.node) : undefined;
+      if (!methods || !ts.isAsExpression(methods.raw) || methods.raw.type.getText(routes) !== 'const' || methodList?.join(',') !== 'GET,HEAD') {
+        findings.push(`PROXIED_METHODS ya no es exactamente ['GET', 'HEAD'] as const (${methods?.raw.getText(routes).slice(0, 60) ?? 'ausente'})`);
+      }
+
+      // The pair is only as good as the code that reads it. isProxiedMethod is
+      // the one predicate (the method gate and the CSRF guard's Origin rule
+      // both call it), and methodGate is the one place a method is refused
+      // before the relay forwards req.method as it came.
+      const predicate = soleFunction(routes, 'isProxiedMethod');
+      if (
+        !predicate ||
+        predicate.parameters.length !== 1 ||
+        predicate.parameters[0].name.getText(routes) !== 'method' ||
+        !sameStatements(predicate.body?.statements, routes, 'return (PROXIED_METHODS as readonly string[]).includes(method);')
+      ) {
+        findings.push('isProxiedMethod ya no es exactamente «PROXIED_METHODS incluye el método»');
+      }
+      const guardsFile = 'src/gateway/request-guards.ts';
+      const guards = gatewaySyntaxOf(guardsFile);
+      if (!guards) {
+        findings.push(`desapareció ${guardsFile}: no queda la compuerta de métodos`);
+      } else {
+        const gate = topLevelInitializer(guards, 'methodGate');
+        const gateBody = gate && ts.isArrowFunction(gate.node) && ts.isBlock(gate.node.body) ? gate.node.body.statements : undefined;
+        if (
+          !sameStatements(gateBody, guards, "if (!isProxiedMethod(req.method)) return sendError(res, 405, 'METHOD_NOT_PROXIED');\nnext();")
+        ) {
+          findings.push('methodGate ya no rechaza con 405 todo método que isProxiedMethod no admite');
+        }
+        if (!plainImportsFrom(guards, './routes.js').has('isProxiedMethod') || localDeclarationsOf(guards, 'isProxiedMethod') > 0) {
+          findings.push('request-guards.ts ya no usa el isProxiedMethod de routes.ts');
+        }
+      }
+
+      const { server } = gatewayFiles();
+      const registrationVerbs = new Set(['get', 'post', 'put', 'patch', 'delete', 'all', 'options', 'head']);
+      let expressApps = 0;
+      for (const rel of server) {
+        const sf = gatewaySyntaxOf(rel);
+        if (!sf) continue;
+        for (const n of gatewayNodes(sf)) {
+          if (!ts.isCallExpression(n)) continue;
+          const callee = n.expression;
+          const at = `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+          if (ts.isIdentifier(callee) && callee.text === 'express') {
+            expressApps += 1;
+            if (rel !== 'src/gateway/server.ts') findings.push(`${at} crea una app express fuera de server.ts`);
+          }
+          if ((ts.isIdentifier(callee) && callee.text === 'Router') || (ts.isPropertyAccessExpression(callee) && callee.name.text === 'Router')) {
+            findings.push(`${at} crea un Router`);
+          }
+          if (ts.isPropertyAccessExpression(callee)) {
+            const receiver = callee.expression.getText(sf);
+            if (callee.name.text === 'static' && receiver === 'express') findings.push(`${at} sirve un directorio con express.static`);
+            if (callee.name.text === 'route') findings.push(`${at} registra con .route(`);
+            if ((receiver === 'app' || receiver === 'router') && registrationVerbs.has(callee.name.text)) {
+              findings.push(`${at} registra ${receiver}.${callee.name.text}( fuera de la tabla`);
+            }
+          }
+        }
+      }
+      if (expressApps !== 1) findings.push(`hay ${expressApps} llamada(s) a express() en el gateway; debe haber una, en server.ts`);
+
+      const serverFile = 'src/gateway/server.ts';
+      const serverSf = gatewaySyntaxOf(serverFile);
+      if (!serverSf) {
+        findings.push(`desapareció ${serverFile}`);
+      } else {
+        const calls = [...gatewayNodes(serverSf)].filter(ts.isCallExpression);
+        const uses = calls.filter(
+          (c) => ts.isPropertyAccessExpression(c.expression) && c.expression.expression.getText(serverSf) === 'app' && c.expression.name.text === 'use'
+        );
+        const elementCalls = calls.filter(
+          (c) => ts.isElementAccessExpression(c.expression) && c.expression.expression.getText(serverSf) === 'app'
+        );
+        if (uses.length !== 6) findings.push(`server.ts hace ${uses.length} llamada(s) a app.use; el orden declarado tiene seis`);
+        const loopRegistration =
+          elementCalls.length === 1 &&
+          (() => {
+            let p: ts.Node | undefined = elementCalls[0].parent;
+            while (p && !ts.isSourceFile(p)) {
+              if (ts.isForOfStatement(p)) return p.expression.getText(serverSf) === 'GATEWAY_ROUTES';
+              p = p.parent;
+            }
+            return false;
+          })();
+        if (!loopRegistration) {
+          findings.push(`server.ts registra ${elementCalls.length} ruta(s) por índice sobre app; debe ser una sola, dentro del recorrido de GATEWAY_ROUTES`);
+        }
+      }
+
+      const assetsFile = 'src/gateway/static-assets.ts';
+      const assets = gatewaySyntaxOf(assetsFile);
+      const assetTable = assets ? topLevelInitializer(assets, 'STATIC_ASSETS') : undefined;
+      if (!assets || !assetTable || !ts.isArrayLiteralExpression(assetTable.node) || assetTable.node.elements.length === 0) {
+        findings.push('STATIC_ASSETS ya no es un arreglo literal con al menos un archivo');
+      } else {
+        for (const e of assetTable.node.elements) {
+          const tuple = ts.isArrayLiteralExpression(e) ? stringElements(e) : undefined;
+          if (!tuple || tuple.length !== 3) {
+            findings.push(`STATIC_ASSETS tiene un elemento que no es [ruta publicada, archivo, tipo]: ${e.getText(assets).slice(0, 60)}`);
+            continue;
+          }
+          const published = tuple[0];
+          if (published !== '/' && !/\.(?:html|js|css|woff2)$/.test(published)) {
+            findings.push(`STATIC_ASSETS publica ${published}, que no es la raíz ni un recurso web`);
+          }
+          if (/^\/(?:v1|auth|healthz)(?:\/|$)/i.test(published)) {
+            findings.push(`STATIC_ASSETS publica ${published}, que tapa el proxy o las rutas de sesión`);
+          }
+        }
+      }
+
+      if (findings.length > 0) {
+        return falla(`el gateway web responde más de lo que su tabla declara (${findings.join(' · ')})`);
+      }
+      return ok(
+        'el gateway registra sus cuatro rutas de fontanería desde una sola tabla, retransmite sólo GET y HEAD bajo /v1 y sirve archivos estáticos desde una tabla cerrada que no tapa ninguna de las dos'
+      );
+    },
+  },
+
+  {
+    paquete: 'E2.1',
+    id: 'browser-session-is-not-ambient-authority',
+    // W0 (#117). The browser session is the first ambient authority this
+    // repository ships: the browser attaches the cookie by itself. What keeps
+    // it from acting for anyone else, read on the syntax tree:
+    //   · the session cookie is __Host- with HttpOnly, Secure, SameSite=Strict
+    //     and Path=/, set only through those attributes, and no cookie names a
+    //     Domain; the login cookie is Lax and lives ten minutes; no other file
+    //     writes a cookie except through the cookies.ts helpers;
+    //   · the Host guard, statement by statement, answers 421 to every Host
+    //     but the public origin's, with ONE exemption, GET /healthz, because
+    //     probes address the pod IP; it is bound once to its factory, imported
+    //     unrenamed, and is the first app.use of server.ts, so no own route,
+    //     static file or relayed read answers under another Host;
+    //   · the CSRF guard, statement by statement, demands the custom header,
+    //     same-origin Sec-Fetch-Site and, for unsafe methods, the exact public
+    //     Origin; logout sits behind it too;
+    //   · the /v1 pipeline is path, CSRF, method, session, relay, in that order,
+    //     and those names are the guards (csrfGuard bound once to the factory,
+    //     the rest imported unrenamed);
+    //   · the relay forwards four request headers, reads the client's headers
+    //     only in the loop over that list, writes authorization once from the
+    //     session, and follows no redirect. Back to the browser it copies only
+    //     FORWARDED_RESPONSE_HEADERS, in one loop whose body is pinned, plus
+    //     the three headers it sets by literal name, and it touches `res`
+    //     through no other member: no Set-Cookie, Location or Access-Control-*
+    //     goes back, whatever upstream sends;
+    //   · a token is stored only after acceptTokenResponse checked it is
+    //     asymmetric and verified it against the IdP;
+    //   · the session record keeps no ID token;
+    //   · and the API never learns to read a cookie.
+    // Behaviour is in tests/gateway/gateway-csrf.spec.ts, gateway-proxy.spec.ts
+    // and gateway-oidc.spec.ts.
+    enunciado:
+      'La sesión del navegador no es autoridad ambiental: la cookie es __Host- y Strict, CSRF se exige antes que el método y la sesión, y el proxy no reenvía credenciales del cliente ni guarda tokens sin verificar',
+    mutantes: [
+      {
+        archivo: 'src/gateway/cookies.ts',
+        de: "const SESSION_COOKIE_ATTRIBUTES = 'HttpOnly; Secure; SameSite=Strict; Path=/';",
+        a: "const SESSION_COOKIE_ATTRIBUTES = 'HttpOnly; Secure; SameSite=None; Path=/';",
+        porque: "every cross-site request would carry the operator's session again",
+      },
+      {
+        archivo: 'src/gateway/proxy.ts',
+        de: "export const FORWARDED_REQUEST_HEADERS = ['accept', 'accept-language', 'if-none-match', 'x-entity-id'] as const;",
+        a: "export const FORWARDED_REQUEST_HEADERS = ['accept', 'accept-language', 'if-none-match', 'x-entity-id', 'authorization'] as const;",
+        porque: 'a Bearer supplied by the browser, including a forged HS256 one, would reach the API in place of the verified token',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: 'app.use(PROXY_PREFIX, pathGuard, csrfGuard, methodGate, sessionGuard, proxyToApi);',
+        a: 'app.use(PROXY_PREFIX, pathGuard, methodGate, sessionGuard, proxyToApi);',
+        porque: 'the CSRF guard would leave the pipeline while the function still exists',
+      },
+      {
+        archivo: 'src/gateway/oidc-client.ts',
+        de: '  if (!isAsymmetric(tokens.access_token)) {',
+        a: '  if (false) {',
+        porque: 'a token endpoint returning HS256 would store a credential whose claims the API trusts verbatim',
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: 'req.headers.origin !== config.publicOrigin',
+        a: 'false',
+        porque: 'unsafe methods would accept any Origin, including a same-site sibling',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '    logout: [csrfGuard, createLogoutRoute(authDeps)],',
+        a: '    logout: [createLogoutRoute(authDeps)],',
+        porque: 'a cross-site form could sign the operator out, and the one unsafe own route would stand outside the guard',
+      },
+      {
+        archivo: 'src/gateway/proxy.ts',
+        de: "        redirect: 'manual',",
+        a: "        redirect: 'follow',",
+        porque: 'an upstream redirect would carry the session Bearer to wherever the Location header points',
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: '    if (!isProxiedMethod(req.method) && req.headers.origin !== config.publicOrigin) {',
+        a: '    if (isProxiedMethod(req.method) && req.headers.origin !== config.publicOrigin) {',
+        porque: 'one dropped ! demands Origin on reads and on nothing that writes, logout included',
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "    if (site !== undefined && site !== 'same-origin') return sendError(res, 403, 'CSRF_REJECTED');",
+        a: "    if (site === undefined && site !== 'same-origin') return sendError(res, 403, 'CSRF_REJECTED');",
+        porque: 'a flipped comparison accepts Sec-Fetch-Site cross-site while the text still names same-origin',
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "    if (req.headers[CSRF_HEADER] !== '1') return sendError(res, 403, 'CSRF_REJECTED');",
+        a: "    if (req.headers[CSRF_HEADER] !== '1') return next();",
+        porque: 'the header is still read, and a request without it goes through',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '  const csrfGuard = createCsrfGuard(config);',
+        a: '  const csrfGuard: RequestHandler = function csrfGuard(_req, _res, next) {\n    next();\n  };',
+        porque: 'the pipeline keeps the name csrfGuard while the binding behind it checks nothing',
+      },
+      {
+        archivo: 'src/gateway/proxy.ts',
+        de: "    headers.set('authorization', `Bearer ${session.record.accessToken}`);",
+        a: "    headers.set('authorization', req.headers.authorization ?? `Bearer ${session.record.accessToken}`);",
+        porque: 'a client Authorization, a forged HS256 token included, wins over the verified one with the header list untouched',
+      },
+      {
+        archivo: 'src/gateway/auth-routes.ts',
+        de: "    res.append('Set-Cookie', sessionCookie(created.cookieValue, deps.sessionAbsoluteSeconds));",
+        a: "    res.cookie(SESSION_COOKIE, created.cookieValue, { httpOnly: true, secure: true, sameSite: 'none' });",
+        porque: 'a session cookie written outside cookies.ts carries whatever SameSite its author chose',
+      },
+      {
+        archivo: 'src/gateway/proxy.ts',
+        de: '    res.status(upstream.status);',
+        a: '    res.status(upstream.status);\n    upstream.headers.forEach((value, name) => res.setHeader(name, value));',
+        porque:
+          "every upstream header, Set-Cookie and Location included, would reach the browser while FORWARDED_RESPONSE_HEADERS still reads clean",
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "    if (req.method === 'GET' && req.path === '/healthz') return next();",
+        a: "    if (req.method === 'GET' || req.path === '/healthz') return next();",
+        porque: "the probe's exemption widens to every GET, so the board and its reads answer under any Host",
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "    if (host !== expectedHost) return sendError(res, 421, 'HOST_REJECTED');",
+        a: "    if (host === undefined) return sendError(res, 421, 'HOST_REJECTED');",
+        porque: 'the 421 is still spelled while no Host is compared with the public origin',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '  app.use(hostGuard);',
+        a: "  app.use('/auth', hostGuard);",
+        porque: 'the guard would stand only in front of the session routes, and the static files and the relay would answer under any Host',
+      },
+    ],
+    evaluar: () => {
+      const findings: string[] = [];
+      const required = (rel: string): ts.SourceFile | undefined => {
+        const sf = gatewaySyntaxOf(rel);
+        if (!sf) findings.push(`desapareció ${rel}`);
+        return sf;
+      };
+      const literal = (sf: ts.SourceFile, name: string): string | undefined => {
+        const init = topLevelInitializer(sf, name);
+        return init && ts.isStringLiteral(init.node) ? init.node.text : undefined;
+      };
+
+      // Cookies.
+      const cookies = required('src/gateway/cookies.ts');
+      if (cookies) {
+        if (literal(cookies, 'SESSION_COOKIE') !== '__Host-mnemosine_session') findings.push('SESSION_COOKIE ya no es __Host-mnemosine_session');
+        if (literal(cookies, 'LOGIN_COOKIE') !== '__Host-mnemosine_login') findings.push('LOGIN_COOKIE ya no es __Host-mnemosine_login');
+        if (literal(cookies, 'SESSION_COOKIE_ATTRIBUTES') !== 'HttpOnly; Secure; SameSite=Strict; Path=/') {
+          findings.push('los atributos de la cookie de sesión ya no son exactamente HttpOnly; Secure; SameSite=Strict; Path=/');
+        }
+        const loginAttributes = (literal(cookies, 'LOGIN_COOKIE_ATTRIBUTES') ?? '').split(';').map((s) => s.trim());
+        for (const attribute of ['HttpOnly', 'Secure', 'SameSite=Lax', 'Path=/', 'Max-Age=600']) {
+          if (!loginAttributes.includes(attribute)) findings.push(`la cookie de login perdió ${attribute}`);
+        }
+        if (/domain\s*=/i.test(crudoDe('src/gateway/cookies.ts'))) findings.push('cookies.ts nombra un Domain');
+        // Every template that writes a cookie name writes that cookie's attributes too.
+        for (const n of gatewayNodes(cookies)) {
+          if (!ts.isTemplateExpression(n)) continue;
+          const substitutions = n.templateSpans.map((s) => s.expression.getText(cookies));
+          for (const [name, attributes] of [
+            ['SESSION_COOKIE', 'SESSION_COOKIE_ATTRIBUTES'],
+            ['LOGIN_COOKIE', 'LOGIN_COOKIE_ATTRIBUTES'],
+          ] as const) {
+            if (substitutions[0] === name && !n.getText(cookies).includes(attributes)) {
+              findings.push(`una cookie ${name} se escribe sin ${attributes}: ${n.getText(cookies).slice(0, 60)}`);
+            }
+          }
+        }
+      }
+
+      // And a cookie is written only through those helpers: express's
+      // res.cookie() takes whatever SameSite its caller spells, and a
+      // Set-Cookie header built anywhere else escapes the attribute checks.
+      const cookieWriters = new Set(['sessionCookie', 'clearSessionCookie', 'loginCookie', 'clearLoginCookie']);
+      const headerSetters = new Set(['setHeader', 'append', 'set', 'header']);
+      for (const rel of gatewayFiles().server) {
+        if (rel === 'src/gateway/cookies.ts') continue;
+        const sf = gatewaySyntaxOf(rel);
+        if (!sf) continue;
+        const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+        const fromCookies = plainImportsFrom(sf, './cookies.js');
+        for (const name of cookieWriters) {
+          if (localDeclarationsOf(sf, name) > 0) findings.push(`${rel} declara su propio ${name}`);
+        }
+        forEachGatewayNode(sf, (n) => {
+          if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && /^(?:cookie|clearCookie)$/.test(n.expression.name.text)) {
+            findings.push(`${at(n)} escribe una cookie con .${n.expression.name.text}(, fuera de cookies.ts`);
+          }
+          if (!(ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) || !/^set-cookie$/i.test(n.text)) return;
+          const call = n.parent;
+          const value = ts.isCallExpression(call) && call.arguments[0] === n ? call.arguments[1] : undefined;
+          const fine =
+            ts.isCallExpression(call) &&
+            ts.isPropertyAccessExpression(call.expression) &&
+            headerSetters.has(call.expression.name.text) &&
+            value !== undefined &&
+            ts.isCallExpression(value) &&
+            ts.isIdentifier(value.expression) &&
+            cookieWriters.has(value.expression.text) &&
+            fromCookies.has(value.expression.text);
+          if (!fine) findings.push(`${at(n)} escribe Set-Cookie sin los ayudantes de cookies.ts: ${call.getText(sf).slice(0, 60)}`);
+        });
+      }
+
+      // The CSRF guard, statement by statement: a dropped `!`, a flipped
+      // comparison or a refusal turned into next() keeps every name in place.
+      const guards = required('src/gateway/request-guards.ts');
+      if (guards) {
+        if (literal(guards, 'CSRF_HEADER') !== 'x-mnemosine-request') findings.push('la guarda CSRF ya no exige x-mnemosine-request: 1');
+        const factory = soleFunction(guards, 'createCsrfGuard');
+        const only = factory?.body?.statements.length === 1 ? factory.body.statements[0] : undefined;
+        const returned = only && ts.isReturnStatement(only) ? only.expression : undefined;
+        const guard = returned && ts.isFunctionExpression(returned) && returned.name?.text === 'csrfGuard' ? returned : undefined;
+        if (
+          !sameStatements(
+            guard?.body.statements,
+            guards,
+            [
+              "if (req.headers[CSRF_HEADER] !== '1') return sendError(res, 403, 'CSRF_REJECTED');",
+              "const site = req.headers['sec-fetch-site'];",
+              "if (site !== undefined && site !== 'same-origin') return sendError(res, 403, 'CSRF_REJECTED');",
+              "if (!isProxiedMethod(req.method) && req.headers.origin !== config.publicOrigin) {",
+              "  return sendError(res, 403, 'CSRF_REJECTED');",
+              '}',
+              'next();',
+            ].join('\n')
+          )
+        ) {
+          findings.push(
+            'la guarda CSRF ya no es exactamente: cabecera x-mnemosine-request, Sec-Fetch-Site same-origin cuando viene, y Origin exacto en los métodos que escriben, cada una con 403'
+          );
+        }
+
+        // The Host guard the same way. Its one early return is the probe's
+        // exemption, GET /healthz and nothing wider, and after it comes the
+        // comparison with the public origin's host and the 421.
+        const hostFactory = soleFunction(guards, 'createHostGuard');
+        if (
+          !sameStatements(
+            hostFactory?.body?.statements,
+            guards,
+            [
+              'const expectedHost = new URL(config.publicOrigin).host.toLowerCase();',
+              'return function hostGuard(req, res, next) {',
+              "  if (req.method === 'GET' && req.path === '/healthz') return next();",
+              '  const host = req.headers.host?.toLowerCase();',
+              "  if (host !== expectedHost) return sendError(res, 421, 'HOST_REJECTED');",
+              '  next();',
+              '};',
+            ].join('\n')
+          )
+        ) {
+          findings.push(
+            'la guarda de Host ya no es exactamente: GET /healthz como única excepción, y 421 para todo Host distinto del del origen público'
+          );
+        }
+      }
+
+      // Pipeline order and the one unsafe own route.
+      const server = required('src/gateway/server.ts');
+      if (server) {
+        const pipelines = [...gatewayNodes(server)].filter(
+          (n): n is ts.CallExpression =>
+            ts.isCallExpression(n) &&
+            ts.isPropertyAccessExpression(n.expression) &&
+            n.expression.getText(server) === 'app.use' &&
+            n.arguments[0]?.getText(server) === 'PROXY_PREFIX'
+        );
+        const order = pipelines.map((c) => c.arguments.map((a) => a.getText(server)).join(', '));
+        if (order.length !== 1 || order[0] !== 'PROXY_PREFIX, pathGuard, csrfGuard, methodGate, sessionGuard, proxyToApi') {
+          findings.push(`el pipeline de /v1 es [${order.join(' | ')}] en vez de path, CSRF, método, sesión y proxy`);
+        }
+        const logout = handlersTableEntry(server, 'logout');
+        if (logout !== 'csrfGuard') findings.push(`POST /auth/logout no empieza por csrfGuard (${logout ?? 'sin manejadores'})`);
+        // The names in the pipeline are the guards themselves: csrfGuard is
+        // bound once, to the factory, and the rest are imported unrenamed.
+        const csrfBindings: ts.VariableDeclaration[] = [];
+        forEachGatewayNode(server, (n) => {
+          if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === 'csrfGuard') csrfBindings.push(n);
+        });
+        const csrfInit = csrfBindings.length === 1 ? csrfBindings[0].initializer : undefined;
+        if (
+          localDeclarationsOf(server, 'csrfGuard') !== 1 ||
+          !csrfInit ||
+          GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Expression, csrfInit, server) !== 'createCsrfGuard(config)'
+        ) {
+          findings.push('csrfGuard ya no es, en server.ts, una sola constante igual a createCsrfGuard(config)');
+        }
+        const imported = plainImportsFrom(server, './request-guards.js');
+        for (const name of ['createCsrfGuard', 'createHostGuard', 'pathGuard', 'methodGate']) {
+          if (!imported.has(name) || localDeclarationsOf(server, name) > 0) findings.push(`server.ts ya no usa el ${name} de request-guards.ts`);
+        }
+        // hostGuard is bound once, to its factory, and mounted first and on
+        // every path: mounted later or under a prefix, whatever answers before
+        // it answers under any Host.
+        const hostBindings: ts.VariableDeclaration[] = [];
+        forEachGatewayNode(server, (n) => {
+          if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === 'hostGuard') hostBindings.push(n);
+        });
+        const hostInit = hostBindings.length === 1 ? hostBindings[0].initializer : undefined;
+        if (
+          localDeclarationsOf(server, 'hostGuard') !== 1 ||
+          !hostInit ||
+          GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Expression, hostInit, server) !== 'createHostGuard(config)'
+        ) {
+          findings.push('hostGuard ya no es, en server.ts, una sola constante igual a createHostGuard(config)');
+        }
+        const firstUse = [...gatewayNodes(server)].find(
+          (n): n is ts.CallExpression => ts.isCallExpression(n) && n.expression.getText(server) === 'app.use'
+        );
+        const firstUsePrinted = firstUse ? GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Expression, firstUse, server) : 'ninguno';
+        if (firstUsePrinted !== 'app.use(hostGuard)') {
+          findings.push(`el primer app.use de server.ts es ${firstUsePrinted.slice(0, 60)} y no app.use(hostGuard)`);
+        }
+      }
+
+      // The relay.
+      const proxy = required('src/gateway/proxy.ts');
+      if (proxy) {
+        const requestHeaders = topLevelInitializer(proxy, 'FORWARDED_REQUEST_HEADERS');
+        const forwarded = requestHeaders ? stringElements(requestHeaders.node) : undefined;
+        if ([...(forwarded ?? [])].sort().join(',') !== 'accept,accept-language,if-none-match,x-entity-id') {
+          findings.push(`el proxy reenvía las cabeceras {${(forwarded ?? []).join(', ')}} en vez de accept, accept-language, if-none-match y x-entity-id`);
+        }
+        const responseHeaders = topLevelInitializer(proxy, 'FORWARDED_RESPONSE_HEADERS');
+        const back = responseHeaders ? stringElements(responseHeaders.node) : undefined;
+        if (!back) findings.push('FORWARDED_RESPONSE_HEADERS ya no es un arreglo literal de cadenas');
+        for (const h of back ?? []) {
+          if (/^(?:set-cookie|location|www-authenticate|access-control-)/i.test(h)) findings.push(`el proxy devuelve ${h} al navegador`);
+        }
+        const code = sinComentarios(crudoDe('src/gateway/proxy.ts'));
+        const redirects = [...code.matchAll(/\bredirect:\s*'([a-z]+)'/g)].map((m) => m[1]);
+        if (redirects.length !== 1 || redirects[0] !== 'manual') {
+          findings.push(`la llamada al API ya no usa redirect: 'manual' (${redirects.join(', ') || 'ninguno'})`);
+        }
+
+        // The header list is not the only door: the relay writes authorization
+        // once, from the session, and reads the client's headers only inside
+        // the loop over that list.
+        const authorizationMentions: ts.Node[] = [];
+        const clientReads: string[] = [];
+        forEachGatewayNode(proxy, (n) => {
+          if ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isIdentifier(n)) && /^authorization$/i.test(n.text)) {
+            authorizationMentions.push(n);
+          }
+          if (!ts.isIdentifier(n) || n.text !== 'req' || !isIdentifierReference(n)) return;
+          const p = n.parent;
+          if (ts.isParameter(p) && p.name === n) return;
+          const line = `proxy.ts:${proxy.getLineAndCharacterOfPosition(n.getStart(proxy)).line + 1}`;
+          if (!ts.isPropertyAccessExpression(p) || p.expression !== n) {
+            clientReads.push(`${line} ${p.getText(proxy).slice(0, 60)}`);
+          } else if (p.name.text === 'headers') {
+            const access = p.parent;
+            let loop: ts.Node | undefined = access;
+            while (loop && !ts.isForOfStatement(loop) && !ts.isFunctionLike(loop)) loop = loop.parent;
+            const inLoop =
+              ts.isElementAccessExpression(access) &&
+              access.expression === p &&
+              ts.isIdentifier(access.argumentExpression) &&
+              loop !== undefined &&
+              ts.isForOfStatement(loop) &&
+              loop.expression.getText(proxy) === 'FORWARDED_REQUEST_HEADERS' &&
+              ts.isVariableDeclarationList(loop.initializer) &&
+              loop.initializer.declarations.length === 1 &&
+              loop.initializer.declarations[0].name.getText(proxy) === access.argumentExpression.text;
+            if (!inLoop) clientReads.push(`${line} ${access.getText(proxy).slice(0, 60)}`);
+          } else if (!['ip', 'method', 'originalUrl'].includes(p.name.text)) {
+            clientReads.push(`${line} req.${p.name.text}`);
+          }
+        });
+        const write = authorizationMentions.length === 1 ? authorizationMentions[0].parent : undefined;
+        if (
+          !write ||
+          !ts.isCallExpression(write) ||
+          write.arguments[0] !== authorizationMentions[0] ||
+          GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Expression, write, proxy) !== "headers.set('authorization', `Bearer ${session.record.accessToken}`)"
+        ) {
+          findings.push(
+            `el proxy ya no escribe authorization una sola vez, desde la sesión (${authorizationMentions.length} mención(es) de authorization)`
+          );
+        }
+        for (const read of clientReads) findings.push(`el proxy lee de la petición fuera de la lista de cabeceras: ${read}`);
+
+        // Nor is FORWARDED_RESPONSE_HEADERS the only door back. A header
+        // reaches the browser from the one loop over that list, whose body is
+        // pinned, or under one of the three names the relay sets itself; and
+        // `res` is touched through no other member. An
+        // upstream.headers.forEach, a res.set(object), a writeHead with a
+        // header bag or an alias of `res` would copy Set-Cookie and Location
+        // back with the list untouched.
+        const responseLoops = [...gatewayNodes(proxy)].filter(
+          (n): n is ts.ForOfStatement => ts.isForOfStatement(n) && n.expression.getText(proxy) === 'FORWARDED_RESPONSE_HEADERS'
+        );
+        const responseLoop = responseLoops.length === 1 ? responseLoops[0] : undefined;
+        const responseLoopBody = responseLoop && ts.isBlock(responseLoop.statement) ? responseLoop.statement : undefined;
+        if (
+          !responseLoop ||
+          !responseLoopBody ||
+          GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Unspecified, responseLoop.initializer, proxy) !== 'const name' ||
+          !sameStatements(responseLoopBody.statements, proxy, 'const value = upstream.headers.get(name);\nif (value !== null) res.setHeader(name, value);')
+        ) {
+          findings.push(
+            `el proxy ya no copia la respuesta en un solo recorrido de FORWARDED_RESPONSE_HEADERS que lee upstream.headers.get(name) (${responseLoops.length} recorrido(s))`
+          );
+        }
+        if (!plainImportsFrom(proxy, './errors.js').has('sendError') || localDeclarationsOf(proxy, 'sendError') > 0) {
+          findings.push('proxy.ts ya no responde con el sendError de errors.ts');
+        }
+        const ownResponseHeaders = new Set(['Cache-Control', 'Vary', 'Content-Security-Policy']);
+        const inside = (n: ts.Node, container: ts.Node | undefined): boolean => {
+          for (let q: ts.Node | undefined = n; q; q = q.parent) if (q === container) return true;
+          return false;
+        };
+        const responseWrites: string[] = [];
+        forEachGatewayNode(proxy, (n) => {
+          if (!ts.isIdentifier(n) || n.text !== 'res' || !isIdentifierReference(n)) return;
+          const p = n.parent;
+          if (ts.isParameter(p) && p.name === n) return;
+          const line = `proxy.ts:${proxy.getLineAndCharacterOfPosition(n.getStart(proxy)).line + 1}`;
+          if (ts.isCallExpression(p) && p.arguments.includes(n)) {
+            const callee = p.expression;
+            const sent = ts.isIdentifier(callee) && callee.text === 'sendError' && p.arguments[0] === n;
+            const piped = ts.isPropertyAccessExpression(callee) && callee.name.text === 'pipe' && p.arguments.length === 1;
+            if (!sent && !piped) responseWrites.push(`${line} ${p.getText(proxy).slice(0, 60)}`);
+            return;
+          }
+          if (!ts.isPropertyAccessExpression(p) || p.expression !== n) {
+            responseWrites.push(`${line} ${p.getText(proxy).slice(0, 60)}`);
+            return;
+          }
+          if (p.name.text === 'locals') return;
+          const call = p.parent;
+          // status, end and destroy as statements of their own: res.status(…)
+          // returns res, and a chained .set(…) would be a write this walk
+          // never sees as `res`.
+          const standalone = ts.isCallExpression(call) && call.expression === p && ts.isExpressionStatement(call.parent);
+          if (['status', 'end', 'destroy'].includes(p.name.text) && standalone) return;
+          if (p.name.text === 'setHeader' && ts.isCallExpression(call) && call.expression === p) {
+            const headerName = call.arguments[0];
+            if (headerName && ts.isStringLiteral(headerName) && ownResponseHeaders.has(headerName.text)) return;
+            if (responseLoopBody && inside(call, responseLoopBody)) return;
+          }
+          responseWrites.push(`${line} ${(ts.isCallExpression(call) ? call : p).getText(proxy).slice(0, 60)}`);
+        });
+        for (const w of responseWrites) findings.push(`el proxy escribe en la respuesta fuera de la lista de cabeceras: ${w}`);
+      }
+
+      // Verify before store.
+      const oidc = required('src/gateway/oidc-client.ts');
+      if (oidc) {
+        const accept = oidc.statements.find((s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === 'acceptTokenResponse');
+        const body = accept?.body ? sinComentarios(accept.body.getText(oidc)) : '';
+        if (!body.includes('if (!isAsymmetric(tokens.access_token)) {')) findings.push('acceptTokenResponse ya no rechaza un token que no es asimétrico');
+        if (!/\bverifyIdpToken\(/.test(body)) findings.push('acceptTokenResponse ya no verifica el token contra el IdP');
+      }
+
+      // No ID token in the session.
+      const store = required('src/gateway/session-store.ts');
+      if (store) {
+        const record = store.statements.find((s): s is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(s) && s.name.text === 'SessionRecord');
+        if (!record) findings.push('SessionRecord ya no es una interfaz de session-store.ts');
+        for (const m of record?.members ?? []) {
+          const name = m.name?.getText(store) ?? '';
+          if (/idtoken|id_token|claims|email|subject/i.test(name)) findings.push(`la sesión guarda ${name}`);
+        }
+      }
+
+      // The API never trusts a cookie.
+      for (const abs of fuentes('src/api')) {
+        const rel = path.relative(RAIZ, abs).split(path.sep).join('/');
+        const code = sinComentarios(crudoDe(rel));
+        if (/\breq\.cookies\b|cookie-parser/.test(code)) findings.push(`${rel} lee cookies: el API sólo cree en Authorization`);
+      }
+
+      if (findings.length > 0) {
+        return falla(`la sesión del navegador puede actuar por otros (${findings.join(' · ')})`);
+      }
+      return ok(
+        'la cookie de sesión es __Host- y Strict, CSRF va antes del método y de la sesión (también en el logout), el proxy no reenvía credenciales del cliente ni sigue redirecciones, y sólo se guardan tokens asimétricos verificados'
+      );
+    },
+  },
+
+  {
+    paquete: 'E2.1',
+    id: 'web-client-reads-only-contracted-paths',
+    // W1 (#117). The browser program reads the API through one table and one
+    // client, and the table is checked against the contract the repository
+    // commits, not against itself. Read on the syntax tree:
+    //   · API_OPERATIONS in contract.ts is an object literal of {method, path}
+    //     string pairs, it has a portfolio entry, every method is GET and every
+    //     path is a GET operation of docs/openapi.json (a :param is {param});
+    //   · no other module of src/gateway/app spells '/v1' in a string or a
+    //     template;
+    //   · fetch is named only in api.ts, exactly twice, each a direct call:
+    //     fetch(request.url, request.init) on what buildGetRequest built, and
+    //     fetch(SIGN_OUT_PATH, {…}) with its init written out as plain pairs;
+    //     SIGN_OUT_PATH is the gateway's /auth/logout, not the API;
+    //   · `method` is spelled in three places only: GET in the table and in
+    //     the init type, GET in buildGetRequest's init, POST in that sign-out
+    //     init. A shorthand, an `init.method =`, a quoted key or a variable
+    //     named method anywhere in the program is red, because each can turn
+    //     a contracted read into a write;
+    //   · no module names another way to reach the network (XMLHttpRequest,
+    //     WebSocket, EventSource, sendBeacon, a worker), neither as a name nor
+    //     as a string key, and none takes the global object whole (by key,
+    //     cast or alias) instead of reading one dotted member of it.
+    // A renamed or retired route, a call the contract never declared, or a
+    // write dressed as a read turns this red; tests/gateway/web-contract.spec.ts
+    // is the runtime side. What a static read cannot see is a name assembled
+    // at run time from pieces through some other object. Against that, the
+    // gateway's GET/HEAD method gate still refuses a write; an uncontracted
+    // read would get through.
+    enunciado:
+      'El cliente web sólo lee rutas del contrato: cada llamada a /v1 es un GET que existe en docs/openapi.json y pasa por un único cliente',
+    mutantes: [
+      {
+        archivo: 'src/gateway/app/contract.ts',
+        de: "  portfolio: { method: 'GET', path: '/v1/portfolio' },",
+        a: "  portfolio: { method: 'GET', path: '/v1/portfolio-summary' },",
+        porque: 'the client would call an operation the contract does not declare',
+      },
+      {
+        archivo: 'docs/openapi.json',
+        de: '"/v1/portfolio": {',
+        a: '"/v1/portfolio-retired": {',
+        porque: 'the contract drifts under an unchanged client, and the plan must fail, not the demo',
+      },
+      {
+        archivo: 'src/gateway/app/view.ts',
+        de: "import { text } from './messages.js';",
+        a: "import { text } from './messages.js';\nconst sideRead = (): Promise<unknown> => fetch('/v1/accounts');",
+        porque: 'a second network call site would bypass the contracted client and its CSRF header',
+      },
+      {
+        archivo: 'src/gateway/app/contract.ts',
+        de: "  drafts: { method: 'GET', path: '/v1/ai/drafts' },",
+        a: "  drafts: { method: 'POST', path: '/v1/ai/drafts' },",
+        porque: 'the client would start issuing writes the table was never checked for',
+      },
+      {
+        archivo: 'src/gateway/app/contract.ts',
+        de: "    init: { method: 'GET', credentials: 'same-origin', redirect: 'error', cache: 'no-store', headers },",
+        a: "    init: { method: 'DELETE', credentials: 'same-origin', redirect: 'error', cache: 'no-store', headers },",
+        porque: 'the table still says GET while every request the client builds is a write',
+      },
+      {
+        archivo: 'src/gateway/app/api.ts',
+        de: '    response = await fetch(request.url, request.init);',
+        a: '    response = await fetch(`/v1/accounts${request.url}`, request.init);',
+        porque: 'the one client would call a path of its own instead of the one the table built',
+      },
+      {
+        archivo: 'src/gateway/app/view.ts',
+        de: "import { text } from './messages.js';",
+        a: "import { text } from './messages.js';\nconst load = window.fetch;",
+        porque: 'an aliased fetch is a second client with no fetch( in sight',
+      },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "const root = document.getElementById('app');",
+        a: "const root = document.getElementById('app');\nconst feed = new EventSource('/events');",
+        porque: 'a stream opened beside fetch reaches the network outside the contract and the client',
+      },
+      {
+        archivo: 'src/gateway/app/view.ts',
+        de: "import { text } from './messages.js';",
+        a: "import { text } from './messages.js';\nexport const sideRead = (): Promise<Response> => (globalThis as unknown as Record<string, (u: string, i: object) => Promise<Response>>)['fetch']('/v' + '1/accounts', { headers: { 'X-Mnemosine-Request': '1' } });",
+        porque: 'fetch reached by a string key off the global object is the same second client, and a split path hides its /v1',
+      },
+      {
+        archivo: 'src/gateway/app/api.ts',
+        de: '    response = await fetch(request.url, request.init);',
+        a: "    const method = 'DELETE';\n    response = await fetch(request.url, { ...request.init, method });",
+        porque: 'a shorthand method spread over the built init turns every contracted read into a write',
+      },
+    ],
+    evaluar: () => {
+      const findings: string[] = [];
+      const contractFile = 'src/gateway/app/contract.ts';
+      const clientFile = 'src/gateway/app/api.ts';
+
+      // The contract the repository commits.
+      let contractPaths: Record<string, Record<string, unknown> | undefined> | undefined;
+      if (!existe('docs/openapi.json')) {
+        findings.push('no existe docs/openapi.json: no hay contrato contra el que medir la tabla');
+      } else {
+        try {
+          contractPaths = (JSON.parse(crudoDe('docs/openapi.json')) as { paths?: typeof contractPaths }).paths;
+        } catch {
+          findings.push('docs/openapi.json no es JSON válido');
+        }
+        if (findings.length === 0 && !contractPaths) findings.push('docs/openapi.json no tiene paths');
+      }
+
+      // The table.
+      const contract = gatewaySyntaxOf(contractFile);
+      const table = contract ? topLevelInitializer(contract, 'API_OPERATIONS') : undefined;
+      if (!contract || !table || !ts.isObjectLiteralExpression(table.node) || table.node.properties.length === 0) {
+        findings.push('API_OPERATIONS ya no es, en contract.ts, un objeto literal con al menos una operación');
+      } else {
+        const names: string[] = [];
+        for (const property of table.node.properties) {
+          const entry = ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer) ? property.initializer : undefined;
+          const fields = new Map<string, string>();
+          for (const field of entry?.properties ?? []) {
+            if (ts.isPropertyAssignment(field) && ts.isIdentifier(field.name) && ts.isStringLiteral(field.initializer)) {
+              fields.set(field.name.text, field.initializer.text);
+            } else {
+              fields.set('', '');
+            }
+          }
+          const method = fields.get('method');
+          const route = fields.get('path');
+          if (!entry || fields.size !== 2 || method === undefined || route === undefined) {
+            findings.push(`API_OPERATIONS tiene una entrada que no es {method, path} literal: ${property.getText(contract).slice(0, 60)}`);
+            continue;
+          }
+          const name = property.name?.getText(contract) ?? '';
+          names.push(name);
+          if (method !== 'GET') findings.push(`API_OPERATIONS.${name} es ${method}: el cliente web sólo lee`);
+          const operation = contractPaths?.[route.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, '{$1}')];
+          if (contractPaths && !operation?.get) findings.push(`API_OPERATIONS.${name} llama a GET ${route}, que docs/openapi.json no declara`);
+        }
+        if (!names.includes('portfolio')) findings.push('API_OPERATIONS ya no tiene la operación portfolio');
+
+        const signOut = topLevelInitializer(contract, 'SIGN_OUT_PATH');
+        if (!signOut || !ts.isStringLiteral(signOut.node) || signOut.node.text !== '/auth/logout') {
+          findings.push('SIGN_OUT_PATH ya no es la ruta /auth/logout del gateway');
+        }
+      }
+
+      // Every module of the browser program.
+      const { app } = gatewayFiles();
+      if (!app.includes(clientFile)) findings.push(`desapareció ${clientFile}, el único cliente`);
+      const networkBans = new Set(['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'Worker', 'SharedWorker', 'importScripts']);
+      const globalObjects = new Set(['globalThis', 'window', 'self']);
+      const fetchCalls: string[] = [];
+      /** The init of the sign-out call, when it is written out as plain `name: value` pairs. */
+      const plainInit = (node: ts.Expression | undefined): node is ts.ObjectLiteralExpression =>
+        node !== undefined && ts.isObjectLiteralExpression(node) && node.properties.every((p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name));
+      for (const rel of app) {
+        const sf = gatewaySyntaxOf(rel);
+        if (!sf) continue;
+        const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+        forEachGatewayNode(sf, (n) => {
+          const literal = literalText(n);
+          if (literal !== undefined && literal.includes('/v1') && rel !== contractFile) {
+            findings.push(`${at(n)} escribe una ruta /v1 fuera de contract.ts`);
+          }
+          // A network API named in a string is reached by key: `globalThis['fetch']`, Reflect.get.
+          if (isLiteralArgument(n) && networkBans.has(n.text)) findings.push(`${at(n)} nombra ${n.text} en una cadena`);
+          if (isLiteralArgument(n) && n.text === 'method') findings.push(`${at(n)} nombra method en una cadena`);
+          if (!ts.isIdentifier(n)) return;
+
+          // The global object only as `window.location`, never by key, cast or alias.
+          if (globalObjects.has(n.text) && isIdentifierReference(n) && !(ts.isPropertyAccessExpression(n.parent) && n.parent.expression === n)) {
+            findings.push(`${at(n)} toma ${n.text} entero: por clave, alias o conversión alcanza cualquier API de red`);
+          }
+
+          // `method` is written in exactly three places: GET in the table and the
+          // init type, GET in buildGetRequest's init, POST in the sign-out call.
+          // Any other spelling (shorthand, `init.method =`, a spread partner)
+          // is a method the table was never checked for.
+          if (n.text === 'method') {
+            const p = n.parent;
+            const assigned = ts.isPropertyAssignment(p) && p.name === n ? literalText(p.initializer) : undefined;
+            const typed = ts.isPropertySignature(p) && p.name === n && p.type && ts.isLiteralTypeNode(p.type) ? literalText(p.type.literal) : undefined;
+            const signOutCall = ts.isPropertyAssignment(p) && ts.isObjectLiteralExpression(p.parent) && ts.isCallExpression(p.parent.parent) ? p.parent.parent : undefined;
+            const sanctioned =
+              rel === contractFile
+                ? assigned === 'GET' || typed === 'GET'
+                : rel === clientFile &&
+                  assigned === 'POST' &&
+                  signOutCall !== undefined &&
+                  ts.isIdentifier(signOutCall.expression) &&
+                  signOutCall.expression.text === 'fetch' &&
+                  signOutCall.arguments[0]?.getText(sf) === 'SIGN_OUT_PATH' &&
+                  signOutCall.arguments[1] === p.parent;
+            if (!sanctioned) findings.push(`${at(n)} escribe method fuera de los GET de contract.ts y del POST de cierre de sesión: ${p.getText(sf).slice(0, 60)}`);
+          }
+
+          if (!networkBans.has(n.text)) return;
+          const call = n.parent;
+          const direct = n.text === 'fetch' && rel === clientFile && isIdentifierReference(n) && ts.isCallExpression(call) && call.expression === n;
+          if (!direct) {
+            findings.push(n.text === 'fetch' ? `${at(n)} nombra fetch fuera de una llamada directa en api.ts` : `${at(n)} usa ${n.text}`);
+            return;
+          }
+          const [target, init, ...rest] = call.arguments;
+          const shape =
+            rest.length === 0 && target?.getText(sf) === 'SIGN_OUT_PATH' && plainInit(init)
+              ? 'SIGN_OUT_PATH, {…}'
+              : call.arguments.map((a) => a.getText(sf)).join(', ');
+          fetchCalls.push(shape);
+        });
+        if (rel === clientFile && !plainImportsFrom(sf, './contract.js').has('buildGetRequest')) {
+          findings.push('api.ts ya no construye sus lecturas con buildGetRequest');
+        }
+      }
+      if ([...fetchCalls].sort().join(' | ') !== 'SIGN_OUT_PATH, {…} | request.url, request.init') {
+        findings.push(
+          `api.ts llama a fetch como [${fetchCalls.join(' | ')}] en vez de una vez con (request.url, request.init) y otra con SIGN_OUT_PATH y un init escrito entero`
+        );
+      }
+
+      if (findings.length > 0) {
+        return falla(`el cliente web alcanza la API fuera de su contrato (${findings.join(' · ')})`);
+      }
+      return ok(
+        `las ${table && ts.isObjectLiteralExpression(table.node) ? table.node.properties.length : 0} operaciones del cliente web son GET declarados en docs/openapi.json, y los ${app.length} módulos del navegador llegan a la red sólo por las dos llamadas de api.ts`
+      );
+    },
+  },
+
+  {
+    paquete: 'E2.1',
+    id: 'web-client-cannot-inject-markup',
+    // W1 (#117). Entity names, draft descriptions and questions are written by
+    // third parties and reach the page; with the session cookie behind the
+    // proxy, one of them turned into script could read through /v1 as the
+    // operator. So markup cannot happen by construction, and each layer is
+    // read here:
+    //   · the SPA policy in security-headers.ts has default-src 'none', only
+    //     'self' for scripts, styles and fetches, no base, form or frame
+    //     target, no object, and Trusted Types with no policy; no directive
+    //     carries anything but one 'none' or 'self' source (so no unsafe-*,
+    //     host, scheme, hash, nonce or wildcard, in a listed directive or an
+    //     added one such as script-src-elem), and no directive name repeats (a
+    //     browser keeps the first one). The API policy keeps default-src
+    //     'none' and sandbox;
+    //   · every served module (src/gateway/app and the two catalogs it
+    //     imports, which ship as they are) names no HTML sink (innerHTML and
+    //     its kin, setHTMLUnsafe, parseHTMLUnsafe, DOMParser…), no eval or
+    //     Function, no string timer, no document.write, and creates no script,
+    //     style or frame element; setAttribute appears only in dom.ts, right
+    //     after its allow-list check, and that allow-list's free-text
+    //     attributes are exactly class, id, scope, lang and role. A name counts
+    //     written as an identifier or as a string, so `el['innerHTML']` is the
+    //     same finding as `el.innerHTML`;
+    //   · index.html has no inline script, no style element or attribute, no
+    //     on* handler, no javascript: URL and no external URL.
+    // Trusted Types is enforced only in Chromium-family browsers; this, the
+    // eslint browser block and dom.ts are what hold everywhere else. A static
+    // read sees names as written, not a name assembled at run time from
+    // pieces; the CSP's script-src 'self' without unsafe-inline still keeps
+    // injected markup from running inline script or handlers there.
+    enunciado:
+      'El cliente web no puede inyectar marcado: CSP estricta con Trusted Types, respuestas del API en sandbox y ningún sumidero de HTML en el código que se sirve',
+    mutantes: [
+      {
+        archivo: 'src/gateway/security-headers.ts',
+        de: `  "script-src 'self'",`,
+        a: `  "script-src 'self' 'unsafe-inline'",`,
+        porque: 'one reflected string would become script that drives the proxy with the session',
+      },
+      {
+        archivo: 'src/gateway/security-headers.ts',
+        de: `  "require-trusted-types-for 'script'",`,
+        a: `  "img-src 'self'",`,
+        porque: 'HTML sinks would stop throwing, and textContent would be a convention again',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: 'node.textContent = child;',
+        a: 'node.innerHTML = child;',
+        porque: 'entity names, draft descriptions and questions are third-party strings',
+      },
+      {
+        archivo: 'src/gateway/public/index.html',
+        de: '<script type="module" src="/modules/gateway/app/main.js"></script>',
+        a: '<script>window.booted = true</script><script type="module" src="/modules/gateway/app/main.js"></script>',
+        porque: 'an inline script forces the CSP to be loosened',
+      },
+      {
+        archivo: 'src/i18n/en.ts',
+        de: '} as const;',
+        a: '} as const;\nexport const renderNote = (target: { innerHTML: string }, note: string): void => {\n  target.innerHTML = note;\n};',
+        porque: 'the catalogs ship to the page as modules, so a sink written there is served code too',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: "const TEXT_ATTRIBUTES: ReadonlySet<string> = new Set(['class', 'id', 'scope', 'lang', 'role']);",
+        a: "const TEXT_ATTRIBUTES: ReadonlySet<string> = new Set(['class', 'id', 'scope', 'lang', 'role', 'onclick']);",
+        porque: 'an event-handler attribute taken from the view tree is script waiting for a string',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: '    if (!isAllowedAttribute(name, value)) throw new RejectedAttribute(name);',
+        a: '    void RejectedAttribute;',
+        porque: 'with the check gone every attribute name a spec carries is set, style and on* included',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: "  if (name === 'href') return SAFE_HREF.test(value) || value === SIGN_IN_PATH;",
+        a: "  if (name === 'href') return true;",
+        porque: 'a javascript: URL in a link is script one click away, and the CSP does not stop a navigation',
+      },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "if (skipLink) skipLink.textContent = text(language, 'web.app.skip_to_content');",
+        a: "if (skipLink) skipLink.insertAdjacentHTML('beforeend', text(language, 'web.app.skip_to_content'));",
+        porque: 'catalog text parsed as markup outside dom.ts is a sink the view tree never sees',
+      },
+      {
+        archivo: 'src/gateway/security-headers.ts',
+        de: `  "connect-src 'self'",`,
+        a: `  "connect-src 'self' https:",`,
+        porque: 'an injected script could send what it read to any https host',
+      },
+      {
+        archivo: 'src/gateway/security-headers.ts',
+        de: `  "trusted-types 'none'",`,
+        a: `  "trusted-types 'none'",\n  "script-src-elem 'self' cdn.jsdelivr.net",`,
+        porque: 'script-src-elem overrides script-src for script elements, so a bare host source loads script from a third party',
+      },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "if (skipLink) skipLink.textContent = text(language, 'web.app.skip_to_content');",
+        a: "if (skipLink) skipLink.setHTMLUnsafe(text(language, 'web.app.skip_to_content'));",
+        porque: 'setHTMLUnsafe parses its string as markup like innerHTML does, under a name the old list did not have',
+      },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "if (skipLink) skipLink.textContent = text(language, 'web.app.skip_to_content');",
+        a: "if (skipLink) skipLink['innerHTML'] = text(language, 'web.app.skip_to_content');",
+        porque: 'a sink written as a string key is the same sink, and the name is a literal, not an identifier',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: 'node.textContent = child;',
+        a: "node['setAttribute']('onclick', child);",
+        porque: 'setAttribute called through a string key skips the allow-list check the dotted call is held to',
+      },
+    ],
+    evaluar: () => {
+      const findings: string[] = [];
+
+      // The policies.
+      const headersFile = 'src/gateway/security-headers.ts';
+      const headers = gatewaySyntaxOf(headersFile);
+      const spa = headers ? joinedPolicy(headers, 'SPA_CONTENT_SECURITY_POLICY') : undefined;
+      const api = headers ? joinedPolicy(headers, 'API_CONTENT_SECURITY_POLICY') : undefined;
+      if (!spa) {
+        findings.push('SPA_CONTENT_SECURITY_POLICY ya no es un arreglo literal de directivas unido con "; "');
+      } else {
+        const required = [
+          "default-src 'none'",
+          "script-src 'self'",
+          "style-src 'self'",
+          "connect-src 'self'",
+          "frame-ancestors 'none'",
+          "base-uri 'none'",
+          "form-action 'none'",
+          "object-src 'none'",
+          "require-trusted-types-for 'script'",
+          "trusted-types 'none'",
+        ];
+        for (const directive of required) if (!spa.includes(directive)) findings.push(`la CSP del SPA perdió ${directive}`);
+        const seen = new Set<string>();
+        for (const directive of spa) {
+          // Every directive, listed or not, carries one source and it is 'none'
+          // or 'self': a host, a scheme, a hash, a nonce or a keyword added to
+          // any of them (script-src-elem overrides script-src) loosens the page.
+          const [rawName, ...sources] = directive.trim().split(/\s+/);
+          const name = rawName.toLowerCase();
+          const allowed = name === 'require-trusted-types-for' ? ["'script'"] : ["'none'", "'self'"];
+          if (sources.length !== 1 || !allowed.includes(sources[0])) {
+            findings.push(`la CSP del SPA afloja ${directive}: cada directiva lleva una sola fuente, 'none' o 'self'`);
+          }
+          if (seen.has(name)) findings.push(`la CSP del SPA repite ${name}`);
+          seen.add(name);
+        }
+      }
+      if (!api || !api.includes('sandbox') || !api.includes("default-src 'none'")) {
+        findings.push("la CSP de las respuestas del API ya no tiene default-src 'none' y sandbox");
+      }
+
+      // The served modules.
+      const { app } = gatewayFiles();
+      if (app.length === 0) findings.push('src/gateway/app no tiene módulos: no hay nada que mirar, y no mirar no es estar limpio');
+      const domFile = 'src/gateway/app/dom.ts';
+      const served = [...app, 'src/i18n/en.ts', 'src/i18n/es.ts'];
+      const sinkNames = new Set([
+        'innerHTML',
+        'outerHTML',
+        'insertAdjacentHTML',
+        'srcdoc',
+        'createContextualFragment',
+        'DOMParser',
+        'parseFromString',
+        'setHTMLUnsafe',
+        'parseHTMLUnsafe',
+        'setHTML',
+      ]);
+      const codeNames = new Set(['eval', 'Function']);
+      // Names that, written as a string, reach a sink or a guarded call by key:
+      // `el['innerHTML']`, `globalThis['eval']`, `node['setAttribute']`.
+      const keyedNames = new Set([
+        ...sinkNames,
+        ...codeNames,
+        'write',
+        'writeln',
+        'setAttribute',
+        'setAttributeNS',
+        'setAttributeNode',
+        'createElement',
+        'setTimeout',
+        'setInterval',
+      ]);
+      const markupElements = /^(?:script|style|iframe|frame|object|embed|link|base|template)$/i;
+      for (const rel of served) {
+        const sf = gatewaySyntaxOf(rel);
+        if (!sf) {
+          findings.push(`desapareció ${rel}, que se sirve a la página`);
+          continue;
+        }
+        const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+        forEachGatewayNode(sf, (n) => {
+          if (isLiteralArgument(n) && keyedNames.has(n.text)) {
+            findings.push(`${at(n)} nombra ${n.text} en una cadena`);
+            return;
+          }
+          if (ts.isIdentifier(n)) {
+            if (sinkNames.has(n.text)) findings.push(`${at(n)} usa ${n.text}`);
+            if (codeNames.has(n.text) && isIdentifierReference(n)) findings.push(`${at(n)} usa ${n.text}`);
+            if (/^write(?:ln)?$/.test(n.text) && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) {
+              findings.push(`${at(n)} escribe con ${n.parent.getText(sf)}`);
+            }
+            return;
+          }
+          if (!ts.isCallExpression(n)) return;
+          const callee = ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text : ts.isIdentifier(n.expression) ? n.expression.text : '';
+          const first = n.arguments[0];
+          if ((callee === 'setTimeout' || callee === 'setInterval') && first !== undefined && literalText(first) !== undefined) {
+            findings.push(`${at(n)} pasa una cadena a ${callee}`);
+          }
+          if (callee === 'createElement') {
+            // dom.ts creates by the spec's tag, which ALLOWED_TAGS checks below;
+            // anywhere else the tag must be a literal, and never a markup element.
+            const tag = first === undefined ? undefined : literalText(first);
+            if (tag === undefined ? rel !== domFile : markupElements.test(tag)) {
+              findings.push(`${at(n)} crea un elemento ${first?.getText(sf) ?? ''}`);
+            }
+          }
+          if (/^(?:setAttribute|setAttributeNS|setAttributeNode)$/.test(callee)) {
+            const guarded =
+              rel === domFile &&
+              callee === 'setAttribute' &&
+              ts.isBlock(n.parent.parent) &&
+              sameStatements(
+                n.parent.parent.statements,
+                sf,
+                'if (!isAllowedAttribute(name, value)) throw new RejectedAttribute(name);\nnode.setAttribute(name, value);'
+              );
+            if (!guarded) findings.push(`${at(n)} fija un atributo fuera de la lista permitida de dom.ts: ${n.getText(sf).slice(0, 60)}`);
+          }
+        });
+      }
+
+      // dom.ts's allow-lists: free text only where free text cannot load, run
+      // or style; an href only to an in-page route or the sign-in route; no
+      // element that parses or loads.
+      const dom = gatewaySyntaxOf(domFile);
+      const setOf = (name: string): string[] | undefined => {
+        const init = dom ? topLevelInitializer(dom, name) : undefined;
+        return init && ts.isNewExpression(init.node) && init.node.arguments?.length === 1 ? stringElements(init.node.arguments[0]) : undefined;
+      };
+      const listed = setOf('TEXT_ATTRIBUTES');
+      if (!listed || [...listed].sort().join(',') !== 'class,id,lang,role,scope') {
+        findings.push(`los atributos de texto libre de dom.ts son [${(listed ?? []).join(', ')}] en vez de class, id, lang, role y scope`);
+      }
+      const tags = setOf('ALLOWED_TAGS');
+      if (!tags || tags.length === 0 || tags.some((tag) => markupElements.test(tag))) {
+        findings.push(`las etiquetas permitidas de dom.ts son [${(tags ?? []).join(', ')}]`);
+      }
+      const safeHref = dom ? topLevelInitializer(dom, 'SAFE_HREF') : undefined;
+      if (!safeHref || !ts.isRegularExpressionLiteral(safeHref.node) || safeHref.node.text !== '/^#\\/[A-Za-z0-9/_-]*$/') {
+        findings.push('SAFE_HREF de dom.ts ya no es una ruta interna #/…');
+      }
+      const allowed = dom ? soleFunction(dom, 'isAllowedAttribute') : undefined;
+      if (
+        !dom ||
+        !sameStatements(
+          allowed?.body?.statements,
+          dom,
+          [
+            'if (TEXT_ATTRIBUTES.has(name)) return true;',
+            "if (name === 'href') return SAFE_HREF.test(value) || value === SIGN_IN_PATH;",
+            "if (name === 'type') return value === 'button';",
+            "if (name === 'tabindex') return value === '0' || value === '-1';",
+            'return /^aria-[a-z]+$/.test(name);',
+          ].join('\n')
+        )
+      ) {
+        findings.push('isAllowedAttribute de dom.ts ya no es exactamente: texto libre, href interno o de inicio de sesión, type button, tabindex 0 o -1, y aria-*');
+      }
+
+      // The shell.
+      const shellFile = 'src/gateway/public/index.html';
+      if (!existe(shellFile)) {
+        findings.push(`desapareció ${shellFile}`);
+      } else {
+        const html = crudoDe(shellFile);
+        // El cierre admite espacios y basura antes del '>': `</script\nfoo>`
+        // cierra igual, y un filtro que sólo conoce `</script>` lee lo que sigue
+        // como texto (CodeQL js/bad-tag-filter).
+        const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)];
+        if (scripts.length === 0) findings.push('index.html no carga ningún módulo');
+        for (const [, attributes, body] of scripts) {
+          if (!/\ssrc\s*=/i.test(attributes) || body.trim() !== '') findings.push('index.html tiene un script en línea');
+        }
+        if ((html.match(/<script\b/gi) ?? []).length !== scripts.length) findings.push('index.html tiene un script sin cerrar');
+        if (/<style\b/i.test(html)) findings.push('index.html tiene un elemento style');
+        if (/\sstyle\s*=/i.test(html)) findings.push('index.html tiene un atributo style');
+        if (/\son[a-z]+\s*=/i.test(html)) findings.push('index.html tiene un manejador on*');
+        if (/javascript:/i.test(html)) findings.push('index.html tiene una URL javascript:');
+        if (/(?:https?:)?\/\/[a-z0-9]/i.test(html)) findings.push('index.html carga algo de otro origen');
+        if (/<(?:iframe|object|embed|base)\b/i.test(html)) findings.push('index.html tiene un marco, un objeto o un base');
+      }
+
+      if (findings.length > 0) {
+        return falla(`el cliente web puede convertir una cadena en marcado o en código (${findings.join(' · ')})`);
+      }
+      return ok(
+        `la CSP del SPA es 'self' sin unsafe-* y con Trusted Types, las respuestas del API van en sandbox, y ${served.length} módulos servidos y index.html no tienen un solo sumidero de HTML`
+      );
     },
   },
 ];
