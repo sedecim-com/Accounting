@@ -11,7 +11,7 @@
 | # | Paso del mes | Qué tiene que poder hacer el contador |
 |---|---|---|
 | 1 | Alta y migración | Crear la entidad con su RFC y su régimen. Cargar el catálogo con código agrupador, la balanza de apertura y los documentos abiertos desde el sistema anterior (XML del Anexo 24). |
-| 2 | CFDI → mayor | Ingerir los emitidos y los recibidos del mes, incluidos PUE, PPD y REP. El agente propone y una persona aprueba; y existe el camino manual, sin modelo. |
+| 2 | CFDI → mayor | Ingerir los emitidos y los recibidos del mes, incluidos PUE, PPD y REP. El agente propone y una persona aprueba; y existe el camino manual, sin modelo. Con el censo del SAT del periodo, saber qué CFDI faltan por traer o por contabilizar. |
 | 3 | CxC y CxP | Cobros, pagos, notas de crédito, anticipos, retenciones y saldos a una fecha que cuadran con su cuenta de control. |
 | 4 | Banco | Importar el estado de cuenta y conciliar, con línea base en la primera sesión y la posibilidad de reabrir. |
 | 5 | Nómina básica | Correr una quincena desde la terminal: ISR con subsidio, IMSS, INFONAVIT, ISN, asiento y SUA. |
@@ -28,7 +28,7 @@
 - **Estados Unidos más allá de lo que ya existe** ([#124](https://github.com/sedecim-com/Accounting/issues/124), [#131](https://github.com/sedecim-com/Accounting/issues/131)).
 - **La interfaz gráfica** ([#117](https://github.com/sedecim-com/Accounting/issues/117), PR #249) y **los canales de mensajería** ([#116](https://github.com/sedecim-com/Accounting/issues/116)).
 - **El renombrado del código al inglés** (epic [#141](https://github.com/sedecim-com/Accounting/issues/141)). Hay dos excepciones: el panel de políticas ([#152](https://github.com/sedecim-com/Accounting/issues/152)) y la ayuda del CLI ([#314](https://github.com/sedecim-com/Accounting/issues/314)), porque son lo único de ese epic que cambia lo que lee un contador en `es-MX`. Las hojas I8.x no lo cambian: el extractor copia a `es.ts` el español que ya se imprime.
-- **La descarga masiva del SAT** ([#312](https://github.com/sedecim-com/Accounting/issues/312)) está en la última ola y pendiente de decisión. Sin ella, el MVP funciona con los XML que entrega el cliente, pero no puede afirmar que tiene todos los CFDI, que es lo que el despacho vende.
+- **La descarga automática del SAT con e.firma** ([#312](https://github.com/sedecim-com/Accounting/issues/312)). El dueño decidió el 2026-09-26 que el MVP afirma la completitud por censo: el despacho carga el ZIP o los metadatos que baja del portal del SAT, y `sat download reconcile` dice qué CFDI faltan por traer y por contabilizar. La descarga automática reutiliza esas piezas después del MVP, y E3.2 sigue en rojo mientras no exista.
 
 ## 2. De dónde se parte (foto del 2026-09-25)
 
@@ -68,8 +68,8 @@ Vaciar la cola de PRs en el orden de la sección 5. Después:
 
 - vitest 5 con Node 22 en un solo PR ([#292](https://github.com/sedecim-com/Accounting/issues/292));
 - los criterios se evalúan una vez por corrida y los timeouts dejan de subir ([#293](https://github.com/sedecim-com/Accounting/issues/293));
-- decidir cuándo se parte el tablero en un archivo por paquete ([#294](https://github.com/sedecim-com/Accounting/issues/294)). Es el habilitador de velocidad más grande: casi todos los conflictos entre PRs ocurren en `src/plan/criterios.ts`.
-- Y las **decisiones del dueño** de la sección 4, porque varias issues de la Ola 1 esperan una.
+- partir el tablero en un archivo por paquete ([#294](https://github.com/sedecim-com/Accounting/issues/294)). Es el habilitador de velocidad más grande: casi todos los conflictos entre PRs ocurrían en `src/plan/criterios.ts`. Se decidió el 2026-09-26 y va en cuatro PRs; los dos primeros ya están en `main` (#360, #362).
+- Las **decisiones del dueño** de la sección 4 ya están contestadas, salvo la sesión de firma de #337.
 
 ### Ola 1 · Que el mes cuadre
 
@@ -99,7 +99,7 @@ Los carriles C y E comparten `period-close.ts`: el checklist lo toca #98, y el a
 ### Ola 3 · El MVP se demuestra y se pule
 
 - [#311](https://github.com/sedecim-com/Accounting/issues/311), el mes de punta a punta; conviene **empezarla en la Ola 1**, con `it.todo`.
-- La descarga masiva ([#312](https://github.com/sedecim-com/Accounting/issues/312)).
+- El censo del SAT contra lo contabilizado ([#312](https://github.com/sedecim-com/Accounting/issues/312)); la descarga automática queda fuera.
 - El español del panel y de la ayuda ([#152](https://github.com/sedecim-com/Accounting/issues/152), [#314](https://github.com/sedecim-com/Accounting/issues/314)).
 - Los manuales ([#325](https://github.com/sedecim-com/Accounting/issues/325)).
 - El alta de despacho y de usuarios sin TTY ([#326](https://github.com/sedecim-com/Accounting/issues/326)).
@@ -110,17 +110,21 @@ Los carriles C y E comparten `period-close.ts`: el checklist lo toca #98, y el a
 
 Invariante 6 de `AGENTS.md`: un agente no las elige y tampoco las pregunta en el chat. Cada una bloquea una issue concreta; ahí se contesta.
 
-| Issue | Pregunta | Recomendación del triage |
+El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de una vez. El registro de cada respuesta es el comentario en su issue; la de #314 está en #152. Aplicó el invariante 6 con un criterio propio: lo que tiene dos caminos legítimos y no cambia la arquitectura se vuelve una clave del panel con valor por omisión. Por eso las que son bifurcación dicen su clave y su valor. Las de alcance (#219, #312), las de proceso (#294, #337) y las de forma (#152, y #327, que es regla fija del kernel) no llevan clave.
+
+| Issue | Pregunta | Decisión (2026-09-26) |
 |---|---|---|
-| #220 | La carga de la balanza de apertura, ¿postea o deja borrador? ¿Con qué nombres de comando? | Que postee con `--live` y marcha seca, que es lo que ya hace el motor, con los nombres del catálogo (`opening-balance import`) |
-| #219 | Las cuentas de orden (8xx), ¿migran? | Que no migren: se escribe la doctrina y se excluyen del cuadre |
-| #242 | El «hoy», ¿de quién es? | De la entidad, con la jurisdicción como valor por omisión |
-| #298, #308 | Redondeos del subsidio y del papel de trabajo | Van al panel, con su lector |
-| #322 | Tasa contable (NIF C-6) frente a tasa fiscal (art. 34) | Dos columnas; la elección se declara |
-| #305 | Si la revaluación se revierte, y con qué tipo de cambio se cierra | Va al panel (`fuente_tipo_cambio` ya existe) |
-| #312 | La descarga masiva, ¿entra al MVP? | Última ola; no debe bloquear lo demás |
-| #294 | ¿Cuándo se parte el tablero por paquete? | Justo después de vaciar la cola de PRs |
-| #152, #314 | Formato de claves del panel y de la ayuda | Decidir junto con I23 (#166) |
+| #220 | La carga de la balanza de apertura, ¿postea o deja borrador? ¿Con qué nombres de comando? | Contabiliza por omisión, con `--dry-run` y luego `--yes`; la clave `apertura_modo_de_carga` permite dejar borrador. Nombres del catálogo (`opening-balance import`) |
+| #219 | Las cuentas de orden (8xx), ¿migran? | No migran en esta versión: se escribe la doctrina y se excluyen del cuadre; el tipo de memoria queda después del MVP |
+| #242 | El «hoy», ¿de quién es? | `zona_horaria` en el panel, `America/Mexico_City` por omisión y fila por entidad. La fecha del acto en nómina la fija la ley |
+| #298, #308 | Redondeos del subsidio y del papel de trabajo | `subsidio_al_empleo_redondeo` = `producto_al_centavo`; `declaracion_redondeo_a_pesos` = `cada_renglon` |
+| #322 | Tasa contable (NIF C-6) frente a tasa fiscal (art. 34) | `base_depreciacion` = `vida_util_nif` por omisión; la tasa fiscal se guarda y `tasa_lisr` opera. El calendario paralelo, en #112 |
+| #305 | Si la revaluación se revierte, y con qué tipo de cambio se cierra | `revaluacion_cambiaria_reversion` = `revertir_al_inicio`; `sin_reversion` no se ofrece hasta tener su lector. `fuente_tipo_cambio_cierre` = `la_de_operaciones` (hoy DOF), del último día natural |
+| #312 | La descarga masiva, ¿entra al MVP? | Entra el censo; la descarga automática con e.firma, después |
+| #294 | ¿Cuándo se parte el tablero por paquete? | Al arrancar S1, sin esperar a #283 ni a #249 (empezó con #360) |
+| #152, #314 | Formato de claves del panel y de la ayuda | `policy.<nombre inglés del registro de I4>.*` y `help.<cmd>.<sub>.*` |
+| #327 | La sintaxis de los renglones | Regla fija del kernel, no configuración: `clave=valor` con «;», `cargo`/`abono` como sinónimos permanentes y lo actual aceptado |
+| #337 | La firma del SCOPE y de `catalog-info.yaml` | Un solo PR tras una sesión campo por campo; lo legal, como pregunta abierta al 2026-10-09 (falta la sesión) |
 | PR #249, PR #283 | La lectura de §5.3 del tablero y la revisión de seguridad; si se juzga el título del PR | — |
 
 ## 5. La cola de PRs (foto del 2026-09-25)
@@ -168,7 +172,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 1. `git fetch` y una rama desde `main` fresco. Lee la issue **y su comentario de triage**. Si el plan está mal, comenta y detente (`PROCESS.md` §5).
 2. **Reproduce primero.** Escribe una prueba de integración contra Postgres (`tests/integration/`, base efímera de `tests/integration/global-setup.ts`) que falle con el defecto.
 3. Arregla. Un PR resuelve una issue: si la issue sugiere dos PRs, son dos.
-4. **Criterio con mutante** en `src/plan/criterios.ts`. Rómpelo en memoria (guardar y restaurar, nunca `git checkout --`) y exige que caiga: `npm run mutantes`. Si el paquete cierra, añádelo a `--exigir` en `.github/workflows/ci.yml` en el mismo commit.
+4. **Criterio con mutante** en el archivo de su paquete, `src/plan/criteria/<paquete>.ts`. Rómpelo en memoria (guardar y restaurar, nunca `git checkout --`) y exige que caiga: `npm run mutantes`. Si el paquete cierra, añádelo a `--exigir` en `.github/workflows/ci.yml` en el mismo commit.
 5. **Regenera los bloques generados** en lugar de editarlos a mano: los de la sección 7.
 6. Pasa las puertas locales:
 
@@ -193,7 +197,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 
 | Archivo | Por qué choca | Cómo se resuelve |
 |---|---|---|
-| `src/plan/criterios.ts` | Un solo arreglo de unas 13 500 líneas; `MIRRORS_FLOOR` y `ANCHORS_HERE` son cuentas exactas | Re-medir sobre el árbol fusionado. #294 lo parte por paquete |
+| `src/plan/criteria/e0-0.ts` | Desde #294 el tablero va en un archivo por paquete, pero `MIRRORS_FLOOR` y `ANCHORS_HERE` siguen siendo cuentas exactas en este archivo | Re-medir sobre el árbol fusionado. #356 propone quitar ese choque |
 | `docs/language.md` y `docs/language.es.md` (bloque) | Lo genera el metro del idioma | `npm run language:status -- --write` |
 | `docs/language-baseline.json` | La línea base sólo baja | `npm run language:status -- --tighten` |
 | `src/i18n/en.ts` y `src/i18n/es.ts` | El extractor inserta antes del último `};` | Conservar el orden de los bloques en los dos archivos |

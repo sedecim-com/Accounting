@@ -49,7 +49,7 @@ node -e "const p=require('./package.json'); console.log(p.name, p.version, p.eng
 - **Base de datos**: PostgreSQL 15, con Row-Level Security como perímetro multi-inquilino (no un filtro en la capa de aplicación).
 - **Superficies**: CLI (`src/cli/`, comando `mnemosine`) y REST (`src/api/rest/`, Express). Hubo una tercera, GraphQL con Apollo Server, apagada tras una bandera y sin un solo consumidor: se **retiró** en T14b ([#101](https://github.com/sedecim-com/Accounting/issues/101)). Una superficie que nadie ejerce no se blinda, se quita — y mientras existía, el criterio que la vigilaba se ponía verde con sólo mudar su montaje de archivo.
 - **Pruebas**: Vitest (unitarias + integración contra Postgres real), con umbrales de cobertura **por archivo** sobre el motor contable (`vitest.config.ts`) que sólo pueden endurecerse, nunca aflojarse.
-- **El plan mismo es código**: `src/plan/criterios.ts` declara los criterios ejecutables y `npm run plan:status` los evalúa contra el árbol real. **Este archivo no lleva la cuenta a propósito** — una cifra escrita aquí envejece en silencio, y ya lo hizo: decía «~130» cuando el comando respondía 179. Pregúntaselo al comando. Ver `docs/PROCESS.md`.
+- **El plan mismo es código**: `src/plan/criterios.ts` reúne los criterios ejecutables, escritos en un archivo por paquete bajo `src/plan/criteria/`, y `npm run plan:status` los evalúa contra el árbol real. **Este archivo no lleva la cuenta a propósito** — una cifra escrita aquí envejece en silencio, y ya lo hizo: decía «~130» cuando el comando respondía 179. Pregúntaselo al comando. Ver `docs/PROCESS.md`.
 
 ## Qué SÍ hace hoy (verificar, no citar de memoria)
 
@@ -105,8 +105,8 @@ Queda fuera del MVP, con sus issues en la etiqueta `post-mvp`:
 | Consume | CFDI 4.0 (XML) y estados de cuenta (CSV, MT940, camt053) | El SAT y los bancos, a través del cliente | Alta |
 | Consume | Proveedores de modelo (Anthropic y compatibles con OpenAI) | Terceros | Media: hay camino manual sin modelo (#319) |
 | Consume | PAC de timbrado (adaptadores precargados, sin hoja) | Terceros con contrato | Fuera del MVP |
-| Lee y escribe | Contalink: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Sistema contable externo | Media: `accounting-manager` también le escribe pólizas hasta que se apague (ADR-0003) |
-| Ninguna | Ningún contrato con otro repo de Sedecim. `accounting-manager` se apaga y se archiva: este repo es la fuente de verdad (ADR-0003) | Plataforma Sedecim (`docs/platform/inventory.md`) | — |
+| Lee y escribe | Contalink: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Sistema contable externo | Media: `accounting-manager` escribe las comisiones de Grupo Promessa en su compañía; este repo no escribe en una compañía que ya tiene escritor (ADR-0004, #357) |
+| Ninguna | Ningún contrato con otro repo de Sedecim. `accounting-manager` convive: contabiliza las comisiones de Grupo Promessa, con un solo escritor por compañía de Contalink (ADR-0004) | Plataforma Sedecim (`docs/platform/inventory.md`) | — |
 
 ## Datos y clasificación `[inferido]`
 
@@ -123,7 +123,7 @@ Queda fuera del MVP, con sus issues en la etiqueta `post-mvp`:
 
 ## Reglas de negocio invariantes `[inferido]`
 
-Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/plan/criterios.ts`.
+Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/plan/criteria/`.
 
 1. **Partida doble cuadrada, y el mayor inviolable:** un asiento posteado no se edita, se revierte (migración 041 y paquete E1.2).
 2. **Nadie más que `posting.ts` escribe el mayor, y la IA no escribe:** propone en `ai_drafts` y una persona aprueba (invariante 1).
@@ -155,7 +155,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 
 - Los paquetes en rojo de `npm run plan:status`.
 - Las issues `via-a`, de lo que ya está mal: la lista y su orden están en #329.
-- `src/plan/criterios.ts`, un solo archivo de más de 14 000 líneas, donde chocan casi todos los PRs (#294).
+- `MIRRORS_FLOOR` y `ANCHORS_HERE` en `src/plan/criteria/e0-0.ts`: cuentas exactas en las que siguen chocando los PRs que añaden espejos (#356). El resto del tablero ya no choca: va en un archivo por paquete (#294).
 - Los archivos de 1 000 líneas o más que lista `docs/REPO_MAP.md`: se buscan y se leen por rangos.
 
 ## Preguntas abiertas (dueño · fecha)
@@ -182,7 +182,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 ## Referencia
 
 - Issue de scope pineada: (label `scope`, creada por este mismo PR — ver el número real en `docs/MIGRATION.md`, porque el #1 de este repositorio ya lo tiene un Pull Request).
-- Plan ejecutable vivo: `src/plan/criterios.ts` + `npm run plan:status`.
+- Plan ejecutable vivo: `src/plan/criterios.ts` (índice) + `src/plan/criteria/` + `npm run plan:status`.
 - Historia de entrega: [`docs/HISTORY.md`](HISTORY.md).
 - La jurisdicción como dimensión (diseño rector del panel por jurisdicción): [`docs/jurisdicciones.md`](jurisdicciones.md).
 - Investigación normativa y de motores (2026-09-06): [`docs/investigacion/2026-09-06-normas-y-motores/`](investigacion/2026-09-06-normas-y-motores/).
@@ -193,7 +193,8 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 
 | Fecha | Cambio | PR |
 |---|---|---|
-| 2026-09-26 | Resuelta la fuente de verdad frente a `accounting-manager`: este repo (ADR-0003, #342) | este |
+| 2026-09-26 | Corregida la relación con `accounting-manager`: conviven, con un solo escritor por compañía de Contalink (ADR-0004 sustituye al 0003, #342) | este |
+| 2026-09-26 | Resuelta la fuente de verdad frente a `accounting-manager`: este repo (ADR-0003, #342) | #347 |
 | 2026-09-25 | Interacciones con Contalink y la plataforma Sedecim; dos preguntas abiertas de plataforma (ADR-0002) | #343 |
 | 2026-09-25 | TL;DR y las secciones de la plantilla del framework agéntico, marcadas `[inferido]` hasta la entrevista (#337) | #340 |
 | 2026-09-25 | Sección «El MVP» | #291 |

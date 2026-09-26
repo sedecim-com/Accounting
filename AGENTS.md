@@ -10,13 +10,13 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
    - su `status:*` dice si puedes tomarla. Sólo `status:agent-ready` se toma; en D3 y D4, además, con `/confirmar` de un humano.
 2. Lee [`docs/REPO_MAP.md`](docs/REPO_MAP.md) antes de abrir archivos:
    - ubica el módulo, busca el símbolo con `rg` y lee rangos de líneas;
-   - un archivo de la lista de «1 000 líneas o más» no se lee completo; `src/plan/criterios.ts` tiene más de 14 000.
+   - un archivo de la lista de «1 000 líneas o más» no se lee completo; `src/plan/criteria/e1-2.ts`, por ejemplo, pasa de 2 800.
 3. Corre `npm run plan:status` y `npm run catalogo:estado` — **no confíes en cifras escritas en un documento**: el estado del plan y el tamaño del catálogo de comandos se preguntan al árbol, nunca se citan de memoria. Ver la lección en `docs/HISTORY.md`: un documento anterior citaba commits que ya no existen en `main`.
 4. Si la issue toca una ruta con dueño reforzado en `.github/CODEOWNERS`, es A3 aunque la etiqueta diga otra cosa: procede con más cuidado, no menos.
 5. Este repo es uno de la plataforma Sedecim ([ADR-0002](docs/adr/0002-platform-coordination.md)):
    - si tu cambio toca lo que el repo expone o consume (la API, un archivo para el SAT, una integración externa), actualiza `catalog-info.yaml` en el mismo PR y marca el punto con `CONTRACT:`;
    - un desarrollo **nuevo**, que no es una issue con DoR, empieza por el ciclo de [`docs/prd/README.md`](docs/prd/README.md), no por el código;
-   - este repo es la fuente de verdad de la contabilidad, Contalink incluido; `accounting-manager` se apaga y se archiva, y nada se copia de él sin pruebas ([ADR-0003](docs/adr/0003-source-of-truth-over-accounting-manager.md)).
+   - un solo escritor por compañía de Contalink, identificada por RFC: este repo no escribe en la de Grupo Promessa, que es de `accounting-manager`, y su llave de Contalink se ata a una entidad (#357, [ADR-0004](docs/adr/0004-coexistence-with-accounting-manager.md)).
 
 ## Comandos
 
@@ -125,7 +125,7 @@ que **sólo encoge**, tramo a tramo.
 
 ## Verificación, no afirmación
 
-- Un criterio nuevo en `src/plan/criterios.ts` **se verifica por mutación en ambos sentidos**: rómpelo a propósito con un mutante en memoria (guardar/restaurar, nunca `git checkout --`, que puede destruir el trabajo de otra sesión sobre el mismo árbol) y exige que la prueba falle. Un criterio que no muerde no protege nada.
+- Un criterio nuevo, en el archivo de su paquete (`src/plan/criteria/<paquete>.ts`), **se verifica por mutación en ambos sentidos**: rómpelo a propósito con un mutante en memoria (guardar/restaurar, nunca `git checkout --`, que puede destruir el trabajo de otra sesión sobre el mismo árbol) y exige que la prueba falle. Un criterio que no muerde no protege nada.
 - Antes de citar el estado de un paquete de trabajo como cerrado, corre el comando que lo mide. No repitas la prosa de un PR anterior sin comprobarla contra el árbol actual — otras sesiones pueden haber empujado cambios desde entonces.
 - Antes de auditar una rama, haz `git fetch`: un ref local desfasado miente sobre lo que ya se hizo.
 - Si trabajas en un árbol que otra sesión puede estar editando a la vez, verifica en un worktree del commit real, no en tu copia de trabajo.

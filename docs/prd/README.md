@@ -39,7 +39,7 @@ Es obligatorio y va antes de escribir cualquier requisito. Se revisa `catalog-in
 | No existe y es del dominio contable según `docs/SCOPE.md` | Construir aquí |
 | No existe y es de otro dominio | Proponerla a su owner; si se construye aquí, un ADR dice por qué |
 
-**En este repo, antes que nada:** lo que toque Contalink o la generación de pólizas desde CFDI se construye aquí, no en `accounting-manager`, que se apaga ([ADR-0003](../adr/0003-source-of-truth-over-accounting-manager.md)).
+**En este repo, antes que nada:** lo que escriba en Contalink respeta la frontera del [ADR-0004](../adr/0004-coexistence-with-accounting-manager.md): un solo escritor por compañía, identificada por RFC. Las comisiones de los agentes de Grupo Promessa las contabiliza `accounting-manager`, no este repo.
 
 ## 3. Plantilla de PRD
 

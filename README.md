@@ -27,7 +27,7 @@ Es uno de los repos de la plataforma Sedecim ([ADR-0002](docs/adr/0002-platform-
 
 - **No recibe de ni entrega a** ningún otro repo de Sedecim hoy.
 - **Sus contrapartes son externas:** el contador, el SAT y el IMSS (por medio del contribuyente), Contalink, PAC y proveedores de modelo.
-- **Reemplaza a `accounting-manager`,** que también convertía CFDI en pólizas para Contalink. Este repo es la fuente de verdad, y aquél se apaga y se archiva ([ADR-0003](docs/adr/0003-source-of-truth-over-accounting-manager.md)).
+- **Convive con `accounting-manager`,** que contabiliza en Contalink las comisiones que Grupo Promessa paga a sus agentes. No es una variante de este repo: otro usuario, otro libro y otra regla de aprobación. La frontera: un solo escritor por compañía de Contalink, identificada por RFC ([ADR-0004](docs/adr/0004-coexistence-with-accounting-manager.md)).
 
 Detalle en [`docs/platform/inventory.md`](docs/platform/inventory.md), y el nivel de madurez en [`docs/platform/maturity.md`](docs/platform/maturity.md).
 
@@ -42,7 +42,7 @@ hace al código:
 npm run plan:status
 ```
 
-Ese comando evalúa criterios ejecutables (`src/plan/criterios.ts`) contra el
+Ese comando evalúa criterios ejecutables (`src/plan/criteria/`) contra el
 árbol y decide el estado de cada paquete de trabajo. Responde cuántos paquetes
 tienen todos sus criterios en verde, y para los restantes imprime la razón
 exacta de su rojo. La CI corre `plan:status --exigir=...` sobre los ya cerrados:
