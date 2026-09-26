@@ -110,6 +110,13 @@ describe('dependencies and requirements', () => {
   });
 });
 
+describe('the rendered view', () => {
+  it('escapes backslashes and pipes so a title cannot break the table', () => {
+    const b = backlog([task('001', { title: 'a|b \\' })]);
+    expect(render(b, schedule(b))).toContain('| a\\|b \\\\ |');
+  });
+});
+
 describe('the suggested sprint', () => {
   it('starts a task in the sprint after everything it depends on', () => {
     const s = schedule(backlog([task('001'), task('002', { depends_on: ['MNE-001-001'] })]));

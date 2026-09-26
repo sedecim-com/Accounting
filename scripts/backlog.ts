@@ -202,7 +202,8 @@ function sprintStart(start: string, days: number, n: number): string {
 }
 
 const issueLink = (n: number): string => `[#${n}](https://github.com/sedecim-com/Accounting/issues/${n})`;
-const cell = (s: string): string => s.replace(/\|/g, '\\|');
+/** A Markdown table cell: the backslash first, or a trailing `\` would escape the separator after it. */
+const cell = (s: string): string => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
 
 /** The Markdown view of the backlog. Deterministic: same data, same bytes. */
 export function render(backlog: Backlog, sprints: Map<string, number>): string {
