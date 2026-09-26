@@ -8,6 +8,14 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
+      # vitest y su proveedor de cobertura exigen la MISMA versión exacta el uno
+      # del otro (peer). Por separado, cada PR rompe `npm ci` con ERESOLVE en
+      # los siete jobs: fue #207 (vitest 5 sobre coverage 4) y #289 (coverage 5
+      # sobre vitest 4). Juntos, en cualquier tipo de subida, mayores incluidas.
+      # Va ANTES del grupo genérico porque Dependabot asigna cada dependencia al
+      # primer grupo que la reclama.
+      vitest:
+        patterns: ['vitest', '@vitest/*']
       menores-y-parches:
         update-types: [minor, patch]
   - package-ecosystem: github-actions
