@@ -179,6 +179,12 @@ const TOP_LEVEL: Record<string, string> = {
   // F08a: el ISN tampoco — es la sigla del impuesto, igual en los dos idiomas.
   isn: '',
   'tax-deposit': 'entero',
+  // F08: la retención judicial. `embargo` es el alias que
+  // docs/cli-command-registry.md ya adjudicó a este sustantivo, y la familia
+  // es una sola: `pension-alimenticia` NO se registra — el tipo se guarda por
+  // `garnishment record --type`, y hoy el escritor lo rechaza porque el motor
+  // no corre para México.
+  garnishment: 'embargo',
   // F02: cfdi es la misma palabra en los dos idiomas, como sat.
   cfdi: '',
   rep: '',
@@ -252,6 +258,9 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // pasivo patronal vive aparte porque lleva IMSS e INFONAVIT además del ISN.
   isn: { rate: 'tasa', calculate: 'calcular' },
   'tax-deposit': { list: 'listar' },
+  // F08. Las tres hojas de la orden judicial: darla de alta, ver la cascada
+  // en el orden en que se cobra, y detener la retención.
+  garnishment: { record: 'registrar', list: 'listar', archive: 'archivar' },
   // G1b: las dos hojas de fase 1 del catálogo.
   cashflow: { generate: 'generar', reconcile: 'conciliar' },
   subscription: { delivery: 'entrega' },
@@ -360,7 +369,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'web'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'garnishment', 'web'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

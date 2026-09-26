@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: 6800e509b458ce785b57e69c381810fb61894a82
+> Gemela en español de [`language.md`](language.md) · source_sha: d5cd9b8681e270643e2db1a325af3180f65b1996
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -95,7 +95,7 @@ manual act and its trace is the diff.
 
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10595 (baseline 10615) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10588 (baseline 10615) | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5774 (baseline 5777) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
@@ -104,14 +104,14 @@ manual act and its trace is the diff.
 | `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 467 (baseline 468) | 0 |
 | `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 121 | 0 |
 | `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 38 | 0 |
-| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 27 | 0 |
+| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 26 | 0 |
 | `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
 | `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
-| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 343 (baseline 344) | 0 |
+| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 341 (baseline 344) | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28622 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28811 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 

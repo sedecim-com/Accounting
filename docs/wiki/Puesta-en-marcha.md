@@ -8,7 +8,7 @@ Si ya lo tienes corriendo y algo falla, vete a [[Solucion-de-problemas]].
 
 ## Antes de empezar
 
-**Node ≥ 20.** No es una recomendación: el campo `engines` del [`package.json`](https://github.com/sedecim-com/Accounting/blob/main/package.json) lo exige, y `npm ci` se queja.
+**Node ≥ 22.12.** No es una recomendación: el campo `engines` del [`package.json`](https://github.com/sedecim-com/Accounting/blob/main/package.json) lo exige, y `npm ci` se queja.
 
 **PostgreSQL 15.** Es la versión contra la que corre todo: la CI levanta `postgres:15` y el `docker-compose.yml` usa `postgres:15-alpine`. Nada del esquema exige 15 en particular, pero es lo único probado.
 

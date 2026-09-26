@@ -95,7 +95,7 @@ manual act and its trace is the diff.
 
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10595 (baseline 10615) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10588 (baseline 10615) | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5774 (baseline 5777) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
@@ -104,14 +104,14 @@ manual act and its trace is the diff.
 | `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 467 (baseline 468) | 0 |
 | `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 121 | 0 |
 | `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 38 | 0 |
-| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 27 | 0 |
+| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 26 | 0 |
 | `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
 | `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
-| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 343 (baseline 344) | 0 |
+| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 341 (baseline 344) | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28622 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28811 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 

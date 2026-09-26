@@ -10,8 +10,8 @@ primero, porque un diff público es la divulgación.
 
 ## Levantar el proyecto
 
-Node 20 o superior (`engines` lo exige) y Postgres 15 para la suite de
-integración.
+Node 22.12 o superior (`engines` lo exige: vitest 5 no soporta menos) y
+Postgres 15 para la suite de integración.
 
 ```bash
 npm ci
@@ -32,7 +32,7 @@ CI corre además `npm run plan:status -- --exigir=...` sobre la lista de
 paquetes ya cerrados: es un trinquete, no un informe. Ese comando se pone rojo
 si algo que estaba cerrado retrocede.
 
-`npm run lint` ya es una puerta con dientes: ESLint 9 en configuración plana y
+`npm run lint` ya es una puerta con dientes: ESLint 10 en configuración plana y
 **con información de tipos** (`eslint.config.mjs`) sobre `src/`, `tests/` y
 `scripts/`, con su propio trabajo en la CI. Los errores rompen la compilación;
 las advertencias llevan trinquete —el `--max-warnings` que `package.json`
