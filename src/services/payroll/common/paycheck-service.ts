@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { daysBetween } from '../../../utils/calendar-date.js';
+import { daysBetween, toCalendarDate } from '../../../utils/calendar-date.js';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -272,6 +272,11 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
   const baseTaxInput: Omit<TaxInput, 'taxable_wages'> = {
     pay_frequency: period.frequency,
     tax_year: period.tax_year,
+    // The dates of the act the law fixes (#242): payment for ISR and subsidy,
+    // each contribution day for IMSS and INFONAVIT.
+    pay_date: toCalendarDate(period.pay_date),
+    period_start: toCalendarDate(period.period_start),
+    period_end: toCalendarDate(period.period_end),
     w4_data: emp.w4_data as TaxInput['w4_data'],
     sbc_daily: emp.sbc ? parseFloat(emp.sbc) : undefined,
     days_in_period: Math.floor(daysInPeriod),

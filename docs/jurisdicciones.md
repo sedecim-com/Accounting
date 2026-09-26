@@ -219,9 +219,13 @@ CREATE TABLE parametros_legales (
 );
 ```
 
-Lectura: `parametroLegal(jurisdiccion, clave, fecha)`. **Sin vigencia que cubra la fecha, lanza** `PARAMETRO_LEGAL_SIN_VIGENCIA` — el fallo cerrado que hoy tiene el ISR y no tienen el IMSS ni el INFONAVIT. La fecha es la del hecho (fecha de pago, fecha del comprobante), nunca `hoy`.
+Lectura: `parametroLegal(jurisdiccion, clave, fecha)`. **Sin vigencia que cubra la fecha, lanza** `PARAMETRO_LEGAL_SIN_VIGENCIA` — el fallo cerrado que hoy tiene el ISR y no tienen el IMSS ni el INFONAVIT. La fecha es la del hecho, nunca `hoy`, y en nómina **cuál hecho lo fija la ley, no el panel** (decisión del dueño, 2026-09-26, #242):
 
-`tax_parameters` gana `effective_from/effective_to` (la migración rellena `AAAA-01-01`/`AAAA-12-31` desde `tax_year`) y pierde `UNIQUE(jurisdiction, tax_year)`; `getTaxParameters` y `getBrackets` pasan a buscar por fecha de pago. La ruta larga es fundir `tax_parameters` en `parametros_legales`; la corta, que basta para el primer tramo, es darles la misma disciplina.
+- **ISR, subsidio al empleo y exenciones del art. 93** van por la **fecha de pago**, la misma del `FechaPago` del CFDI de nómina. Un periodo que cierra el 31 de diciembre y se paga el 5 de enero es del ejercicio nuevo: `pay_periods.tax_year` sale del pago, no del cierre (`paymentYear`).
+- **IMSS e INFONAVIT** van por los **días cotizados de cada mes**: una semana del 29 de enero al 4 de febrero cotiza tres días con la UMA de enero y cuatro con la de febrero (`contributionMonths`). La fecha de pago no interviene.
+- En comprobantes que no son nómina, la fecha del comprobante.
+
+`tax_parameters` gana `effective_from/effective_to` (la migración rellena `AAAA-01-01`/`AAAA-12-31` desde `tax_year`) y pierde `UNIQUE(jurisdiction, tax_year)`; `getTaxParameters` busca por la fecha del acto de arriba y `getBrackets` por el ejercicio del pago. La ruta larga es fundir `tax_parameters` en `parametros_legales`; la corta, que basta para el primer tramo, es darles la misma disciplina.
 
 Lo que se mueve primero de código a tabla, con la fuente que el informe normativo correspondiente verificó (ver [`normas/fiscal-mx.md`](investigacion/2026-09-06-normas-y-motores/normas/fiscal-mx.md) y [`normas/fiscal-us.md`](investigacion/2026-09-06-normas-y-motores/normas/fiscal-us.md)):
 
