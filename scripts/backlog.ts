@@ -240,7 +240,7 @@ export function render(backlog: Backlog, sprints: Map<string, number>): string {
     '',
     `Cada requisito de [PRD-001](../prd/PRD-001-mvp.md) se traduce en tareas atómicas: un solo resultado verificable, un solo repo, D1–D3 y menos de ${MAX_TASK_LINES} líneas por PR. El **sprint es sugerido y calculado**: una tarea entra en el sprint siguiente al de todo lo que necesita, por ola (docs/MVP.md §3) y, dentro de cada ola, Must antes que Should y Could, con un tope de ${backlog.schedule.capacity_per_sprint} tareas por sprint y ${backlog.schedule.capacity_per_lane} por carril. Sprints de ${days} días desde el ${start}.`,
     '',
-    `**Resumen:** ${work.length} tareas abiertas y ${decisions.length} decisiones del dueño; ${doneCount} ${doneCount === 1 ? 'ya hecha' : 'ya hechas'}. Con la capacidad declarada, **lo Must termina en ${mvp}** y la última tarea cae en S${last}, del ${sprintStart(start, days, last)}. **Antes de fiarse de esa fecha:** la capacidad es un tope inicial; se recalibra con la velocidad medida al cerrar S1.`,
+    `**Resumen:** ${work.length} tareas abiertas y ${decisions.length} ${decisions.length === 1 ? 'decisión' : 'decisiones'} del dueño; ${doneCount} ${doneCount === 1 ? 'ya hecha' : 'ya hechas'}. Con la capacidad declarada, **lo Must termina en ${mvp}** y la última tarea cae en S${last}, del ${sprintStart(start, days, last)}. **Antes de fiarse de esa fecha:** la capacidad es un tope inicial; se recalibra con la velocidad medida al cerrar S1.`,
     '',
     '## Por sprint',
     '',
