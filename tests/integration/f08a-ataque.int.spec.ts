@@ -190,7 +190,9 @@ describe('A · el subsidio al empleo y el efectivo que el trabajador debe recibi
   let corrida: string;
 
   beforeAll(async () => {
-    periodo = await nuevoPeriodo('2026-02-01', '2026-02-15', '2026-02-15', ANIO_SINTETICO);
+    // Paid IN the synthetic year: ISR and subsidy take the tariff of the
+    // payment year (#242), so a 2026 payment would read the real 2026 tariff.
+    periodo = await nuevoPeriodo('2031-02-01', '2031-02-15', '2031-02-15', ANIO_SINTETICO);
     corrida = await nuevaCorrida(periodo);
   });
 

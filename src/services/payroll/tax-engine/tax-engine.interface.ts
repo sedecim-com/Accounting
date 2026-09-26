@@ -12,6 +12,14 @@ export interface TaxInput {
   pay_frequency: PayFrequency;
   tax_year: number;
 
+  // THE DATES OF THE ACT, which the law fixes and nobody configures (#242).
+  // ISR and the employment subsidy go by the PAYMENT date — the CFDI's
+  // `FechaPago` —; IMSS and INFONAVIT go by the contribution days of each
+  // month, which is why the period's range travels too. 'YYYY-MM-DD'.
+  pay_date?: string;
+  period_start?: string;
+  period_end?: string;
+
   // YTD info (critical for capped taxes)
   ytd_wages?: number;
   ytd_tax_withheld?: number;

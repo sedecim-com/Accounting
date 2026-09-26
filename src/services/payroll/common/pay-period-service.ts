@@ -111,7 +111,11 @@ export function computeNextPeriod(
     period_start: isoDate(start),
     period_end: isoDate(end),
     pay_date: isoDate(pay),
-    tax_year: end.getUTCFullYear(),
+    // The exercise is the PAYMENT's (#242): a period closing on December 31st
+    // and paid on January 5th is wages of the new year — for ISR (LISR 96, the
+    // CFDI's `FechaPago`) and for the US withholding alike. The period's end
+    // labelled it with the old year, and its YTD with it.
+    tax_year: pay.getUTCFullYear(),
   };
 }
 
