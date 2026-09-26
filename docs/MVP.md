@@ -230,6 +230,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 | `docs/cli-command-catalog.md` (bloque) y `docs/catalogo-minimos.json` | Recuento del binario y suelo | `npm run catalogo:estado`. Ojo: **sin `--check` reescribe el archivo** |
 | `docs/HISTORY.md` | Censo generado y filas a mano | `npm run historial:estado` |
 | `docs/openapi.json` | Se genera de las rutas | `npm run openapi` |
+| `tests/api/golden/rest-body.golden.json` y `tests/ai/tools/tool-schemas.golden.json` | Se generan de los esquemas de cuerpo y de las herramientas del agente, y son contrato (#367) | `npx tsx scripts/zod-contract-goldens.ts --write`, sólo si el PR cambia ese contrato a propósito |
 
 **El entorno local.** Postgres 15 o superior. Así se midió todo lo de la sección 2, con un clúster local; `docker/docker-compose.yml` también sirve:
 
