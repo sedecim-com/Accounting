@@ -60,6 +60,8 @@
 
 Una ola no empieza cuando termina la anterior: empieza cuando lo suyo está en `status:agent-ready`. La ola dice qué conviene hacer **antes**, no qué está prohibido hacer después.
 
+**El detalle tarea por tarea** está en [`docs/backlog/PRD-001.md`](backlog/PRD-001.md). Ahí cada issue de estas olas está partida en tareas atómicas `MNE-001-nnn`, con prioridad, dependencias y sprint sugerido, calculado por `scripts/backlog.ts`.
+
 ### Ola 0 · Desbloquear (horas, casi sin código de producto)
 
 Vaciar la cola de PRs en el orden de la sección 5. Después:
