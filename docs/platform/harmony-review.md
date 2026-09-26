@@ -60,32 +60,36 @@ Los demás repos (seguros, cotizadores, información pública, pro99, DeFi, etc.
 
 No se tocó ningún repo. Lo que sigue se propone a sus dueños.
 
-**Seguridad.** Son Must, aunque no bloqueen a Accounting. Los valores no se leyeron ni se copian aquí.
+**Seguridad.** Son Must, aunque no bloqueen a Accounting. Los valores no se leyeron ni se copian aquí. Hay una issue abierta en cada repo, y rotar las credenciales queda en manos de quien tiene el acceso.
 
-- `infrastructure/kops/fluentd/config.yaml`: un par de llaves AWS en texto plano. Rotar y sacar del repo.
-- `infrastructure/kops/kubeconfig` y `docker/id_rsa`: un kubeconfig y una llave privada versionados. Revisar, rotar y sacar.
-- `public-information`: `.env` versionado en la raíz.
-- `textract/.gitlab-ci.yml` y `extracciones/.gitlab-ci.yml`: webhooks de Google Chat escritos en el archivo.
-- `acceso-organizations`, seeders de dev y uat, y `authentication-server-api/README.md`: posibles credenciales. Revisar.
-- `sat-services`:
+- `infrastructure/kops/fluentd/config.yaml`: un par de llaves AWS en texto plano. `infrastructure/kops/kubeconfig`: un kubeconfig versionado. Rotar y sacar del repo → sedecim-com/infrastructure#109.
+- `docker/id_rsa`: una llave privada versionada → sedecim-com/docker#30.
+- `public-information`: `.env` versionado en la raíz → sedecim-com/public-information#69.
+- `textract/.gitlab-ci.yml` y `extracciones/.gitlab-ci.yml`: webhooks de Google Chat escritos en el archivo → sedecim-com/textract#99 y sedecim-com/extracciones#33.
+- `acceso-organizations`: posibles credenciales en los seeders de dev y uat → sedecim-com/acceso-organizations#338.
+- `sat-services` → sedecim-com/sat-services#64:
   - el cliente se identifica con `appClientId` en el body;
   - hay un middleware JWT con secreto fijo, sin usar;
   - la FIEL se cifra con AES-CTR sin autenticación;
   - un seeder trae el RFC y el nombre de una persona real.
-- `authentication-server-api`:
+- `authentication-server-api` → sedecim-com/authentication-server-api#100:
   - `POST /internal/token` firma cualquier payload sin autenticación;
-  - `console.log(req.headers)` registra tokens Bearer.
-- **api-gateway:** rutas sin `auth_request`:
-  - `/accounting/policies/manual`, que genera pólizas en Contalink;
-  - `/api/file-extractions` y `/acceso-file-extractions` en producción, que reciben INE y estados de cuenta;
-  - `/sedecim-ocr/`.
-- `init-secrets` escribe `/env/.env` sin comillas y borra las `"`: un valor con `$`, espacio o `;` se rompe o se ejecuta.
-- `github-actions-secrets-propagator` copia la credencial AWS de despliegue y `REPO_TOKEN` a todos los repos, incluso los que no despliegan.
+  - `console.log(req.headers)` registra tokens Bearer;
+  - el README trae posibles credenciales.
+- **api-gateway:** rutas sin `auth_request` → sedecim-com/api-gateway#250:
+  - `/accounting/policies/manual`, que genera pólizas en Contalink. Va en el mismo despliegue que sedecim-com/mx2#1365, para que mx2 mande credencial;
+  - `/api/file-extractions` en producción, con el `auth_request` comentado, que recibe INE y estados de cuenta;
+  - `/acceso-file-extractions` y `/sedecim-ocr/` en dev y uat.
+- `init-secrets` escribe `/env/.env` sin comillas y borra las `"`: un valor con `$`, espacio o `;` se rompe o se ejecuta → sedecim-com/init-secrets#1.
+- `github-actions-secrets-propagator` copia la credencial AWS de despliegue y `REPO_TOKEN` a todos los repos, incluso los que no despliegan → sedecim-com/github-actions-secrets-propagator#8.
+- `PIIS`: AES-CBC sin MAC, KDF MD5 y secreto por inquilino derivado de un prefijo global → sedecim-com/PIIS#158.
+
+**Infraestructura para desplegar Accounting:** RDS Postgres con PITR, IAM propio y namespaces `mnemosine-*` → sedecim-com/infrastructure#110 (depende de #371 y #372).
 
 **Coherencia:**
 
-- `accounting-manager`: borrar la rama `claude/deprecate-accounting-manager` (del PR #99, cerrado sin fusionar), cuyo README anuncia un retiro que el ADR-0004 revocó.
-- `api-gateway`: quitar `/api/sat-certification`, porque su repo está vacío. Archivar `sat-certification` y `facturacion`.
+- `accounting-manager`: borrar la rama `claude/deprecate-accounting-manager` (del PR #99, cerrado sin fusionar), cuyo README anuncia un retiro que el ADR-0004 revocó. Pendiente: el proxy de la sesión no permite borrarla, así que la borra una persona con acceso.
+- `api-gateway`: quitar `/api/sat-certification`, porque su repo está vacío (incluido en sedecim-com/api-gateway#250). Archivar `sat-certification` y `facturacion`.
 - Archivar los repos muertos:
   - `payroll-extraction-service`: duplica el parser de nómina y guarda PII sin cifrar;
   - `s3-files-manager`, `proyectosIAagent`, `acce.so`, `acceso-tenant-users`;
