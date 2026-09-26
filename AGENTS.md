@@ -16,7 +16,7 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
 5. Este repo es uno de la plataforma Sedecim ([ADR-0002](docs/adr/0002-platform-coordination.md)):
    - si tu cambio toca lo que el repo expone o consume (la API, un archivo para el SAT, una integración externa), actualiza `catalog-info.yaml` en el mismo PR y marca el punto con `CONTRACT:`;
    - un desarrollo **nuevo**, que no es una issue con DoR, empieza por el ciclo de [`docs/prd/README.md`](docs/prd/README.md), no por el código;
-   - este repo es la fuente de verdad de la contabilidad, Contalink incluido; `accounting-manager` se apaga y se archiva, y nada se copia de él sin pruebas ([ADR-0003](docs/adr/0003-source-of-truth-over-accounting-manager.md)).
+   - un solo escritor por compañía de Contalink, identificada por RFC: este repo no escribe en la de Grupo Promessa, que es de `accounting-manager`, y su llave de Contalink se ata a una entidad (#357, [ADR-0004](docs/adr/0004-coexistence-with-accounting-manager.md)).
 
 ## Comandos
 

@@ -1,7 +1,7 @@
 # ADR-0003 · Accounting es la fuente de verdad de la contabilidad; `accounting-manager` se apaga y se archiva
 
 - **Fecha:** 2026-09-26
-- **Estado:** aceptada por el owner (@vic2099). El archivo espera al apagado del servicio (lista de abajo).
+- **Estado:** sustituida por el [ADR-0004](0004-coexistence-with-accounting-manager.md) (2026-09-26). La auditoría del código de `accounting-manager` mostró que no es una variante de este repo, y que apagarlo quitaría un flujo de producción sin reemplazo. La lista de apagado de abajo no se ejecuta.
 - **Resuelve:** #342. Deja fuera de vigor la pregunta abierta de `docs/SCOPE.md` y la relación «variante» de `catalog-info.yaml`.
 
 ## Contexto

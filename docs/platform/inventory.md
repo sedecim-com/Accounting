@@ -23,21 +23,23 @@ Clasificación de la Fase 1: **Activo**.
 
 ## Relación con otros repos de Sedecim
 
-Se revisaron los repos activos del dominio financiero y los que comparten vocabulario: `accounting-manager`, `Cobranza`, `acceso-contracts` y `acceso-backend`. Ninguno llama a este repo ni es llamado por él. Uno se le parece mucho:
+Se revisaron los repos activos del dominio financiero y los que comparten vocabulario: `accounting-manager`, `Cobranza`, `acceso-contracts` y `acceso-backend`. Ninguno llama a este repo ni es llamado por él. Uno se le parece en la técnica, no en el trabajo:
 
-### `accounting-manager` — reemplazado: se apaga y se archiva
+### `accounting-manager` — convive: contabiliza las comisiones de Grupo Promessa
 
 | | `Accounting` (este repo) | `accounting-manager` |
 |---|---|---|
-| Qué hace | Contabilidad de partida doble completa: catálogo, pólizas, bancos, cierre, reportes, fiscal MX; agente que propone y una persona aprueba | Recibe XML de CFDI, genera pólizas y las envía a Contalink |
-| Stack | TypeScript, Express, PostgreSQL | JavaScript, Express, Sequelize, MySQL |
-| Contalink | Sistema externo: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Destino: crea pólizas por su API |
+| Para quién | Despachos contables y sus clientes; multiinquilino | El back office de Grupo Promessa; una sola compañía |
+| Qué hace | Contabilidad de partida doble completa: catálogo, pólizas, bancos, cierre, reportes, fiscal MX | Lee de S3 los CFDI que los agentes de seguros le facturan a Promessa, y publica la póliza de pasivo y la de pago, con subcuentas por agente y por plaza |
+| Quién aprueba | La IA propone y una persona aprueba cada asiento y cada escritura externa | Nadie póliza por póliza: un botón publica el lote |
+| Contalink | Sistema externo: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Libro de registro: publica en una compañía con `API_CONTALINK_KEY` |
+| Stack | TypeScript, Express, PostgreSQL | JavaScript, Express, Sequelize, MySQL, S3 |
 | Pruebas | Suite unitaria, de integración y criterios con mutantes | `npm test` sin pruebas |
 | Despliegue | Ninguno compartido (#333) | dev, uat y producción; producción en cada push a `main` |
 
-**Riesgo:** si los dos escriben pólizas en Contalink para la misma entidad, la misma factura se contabiliza dos veces, y ninguno de los dos lo ve.
+**Riesgo:** sólo si los dos escriben en la misma compañía de Contalink: la misma factura se contabilizaría dos veces, y ninguno lo vería. Hoy no pasa, porque este repo no tiene la llave de esa compañía.
 
-**Decidido** (ADR-0003, 2026-09-26): este repo es la fuente de verdad. `accounting-manager` se apaga primero, porque está en producción y archivarlo no lo detiene, y después se archiva. La lista de apagado está en el ADR y se sigue en #342.
+**Decidido** (ADR-0004, 2026-09-26, sustituye al ADR-0003): los dos se justifican. Regla de frontera: un solo escritor por compañía de Contalink, identificada por RFC. La llave de Contalink de este repo se ata a una entidad y a su RFC (#357). La auditoría del 2026-09-26 dejó 23 defectos confirmados en `accounting-manager`, cuatro altos; se atienden en aquel repo.
 
 ### Los demás
 
@@ -52,5 +54,5 @@ Variables que la configuración lee y que ningún código usa: `PLAID_*` y `ELAS
 
 - [ ] El owner confirma los campos `# inferido` de `catalog-info.yaml`.
 - [ ] Escaneo del historial completo con gitleaks o trufflehog; lo que aparezca se rota antes de limpiarlo (#338).
-- [x] Decidir la fuente de verdad frente a `accounting-manager`: este repo (ADR-0003).
-- [ ] Apagar y archivar `accounting-manager` (#342).
+- [x] Decidir la relación con `accounting-manager`: conviven, con un solo escritor por compañía de Contalink (ADR-0004, que sustituye al 0003).
+- [ ] Atar la llave de Contalink de este repo a una entidad y a su RFC (#357).

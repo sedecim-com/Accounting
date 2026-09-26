@@ -45,4 +45,4 @@ datastores:
 
 related_repos:                   # extensión propuesta; ver docs/platform/inventory.md
   - repo: sedecim-com/accounting-manager
-    relation: reemplazado        # ADR-0003: este repo es la fuente de verdad; aquél se apaga y se archiva (#342)
+    relation: coexiste           # ADR-0004: contabiliza las comisiones de Grupo Promessa; un solo escritor por compañía de Contalink (RFC)
