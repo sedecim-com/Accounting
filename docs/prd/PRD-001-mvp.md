@@ -30,7 +30,7 @@ El contador del despacho, que opera el CLI, y el dueño o auditor del despacho, 
 | RF-08 | Obligaciones del mes | Must | Dado el mes cerrado, cuando se generan, entonces salen el catálogo y la balanza XML del Anexo 24, la DIOT en un archivo que el SAT recibe, y el papel de trabajo de IVA definitivo e ISR provisional. |
 | RF-09 | Operación segura | Must | Dado un despacho con varios inquilinos y entidades, cuando opera, entonces ninguno ve datos de otro, y un respaldo se restaura y pasa los chequeos del mayor. |
 | RF-10 | El mes de punta a punta | Must | Dado el mes sintético, cuando corre el criterio ▶ de #311, entonces los nueve pasos anteriores pasan por el CLI, y cada cifra coincide al centavo con una cifra escrita a mano. |
-| RF-11 | Completitud de CFDI | Could | Dado el RFC del cliente, cuando se descarga del SAT, entonces el despacho sabe que tiene todos los CFDI del periodo. Entra si el dueño decide que va en el MVP (#312). |
+| RF-11 | Completitud de CFDI | Must | Dado el censo del SAT del periodo (el ZIP o los metadatos que baja el despacho), cuando se concilia, entonces el despacho sabe el estado de cada CFDI del censo: falta traerlo, falta contabilizarlo o cuadra. La descarga automática con e.firma queda después del MVP (#312). |
 | RF-12 | La superficie en español | Should | Dado un contador en `es-MX`, cuando lee el panel de políticas o la ayuda del CLI, entonces la lee en su idioma y por clave. |
 | RF-13 | Puesta en marcha sin fricción | Should | Dado un despacho nuevo, cuando se da de alta con sus usuarios sin TTY y sigue los manuales, entonces opera el mes sin ayuda del equipo. |
 
@@ -49,7 +49,8 @@ El contador del despacho, que opera el CLI, y el dueño o auditor del despacho, 
 - el timbrado y la cancelación con PAC;
 - Estados Unidos más allá de lo que ya existe;
 - la interfaz gráfica y los canales de mensajería;
-- el renombrado del código al inglés, salvo RF-12.
+- el renombrado del código al inglés, salvo RF-12;
+- la descarga automática del SAT con e.firma (el censo sí entra, RF-11).
 
 ## 7. Reutilización y dependencias de plataforma
 
