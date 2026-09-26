@@ -7,6 +7,10 @@ export default defineConfig({
     include: ['tests/**/*.spec.ts'],
     exclude: ['tests/integration/**', 'node_modules/**', 'dist/**'],
     environment: 'node',
+    // The criteria board and the cold start of `runDoctor` are computed ONCE
+    // per run here and shared with the files that need them (#293). The why,
+    // and what may and may not be shared, lives in the file itself.
+    globalSetup: ['tests/helpers/unit-global-setup.ts'],
     // ============================================================
     // EL LOCALE DE LA SUITE SE FIJA AQUÍ, NO LO PONE QUIEN LA CORRE (I6)
     //

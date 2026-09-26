@@ -109,6 +109,13 @@ export interface DoctorDeps {
   cwd?: string;
   /** Injectable to test without touching disk or network. */
   now?: Date;
+  /**
+   * An already computed `checkConsistenciaCli()`. It is the costly part of a
+   * cold `runDoctor` —it loads the whole CLI— and it reads neither the
+   * database nor `cwd`, so the unit suite computes it once per run in its
+   * globalSetup and hands it here. The CLI never passes it.
+   */
+  cliConsistency?: CheckResult;
 }
 
 export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
@@ -123,7 +130,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(...(await checkLookupTables()));
     checks.push(checkOrphanedCapability(deps));
     checks.push(checkConnectionTransport());
-    checks.push(await checkConsistenciaCli());
+    checks.push(deps.cliConsistency ?? (await checkConsistenciaCli()));
     checks.push(await checkTenantIsolation());
     checks.push(await checkLedgerIntegrity());
     checks.push(await checkSelloDeGarantias());

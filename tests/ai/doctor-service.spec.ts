@@ -1,11 +1,9 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
-// 20 s por prueba en TODO este archivo, y no los 5 por omisión. `runDoctor`
-// corre las comprobaciones enteras —una recorre `src/` completo— y con la suite
-// de 292 archivos en paralelo eso rebasa el presupuesto por omisión: el fallo
-// se presenta como «Test timed out in 5000ms», que no señala a nadie y no se
-// reproduce a mano. El margen es del archivo porque el costo es del archivo.
-vi.setConfig({ testTimeout: 20_000 });
+// Default timeouts in this file (#293). The 20 s it had covered the cold start
+// of `runDoctor` —loading the whole CLI for the consistency check— and the
+// scan of the real repository; both are now computed once per run in the unit
+// globalSetup and read from tests/helpers/shared-board.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -32,6 +30,7 @@ import { runDoctor,
 } from '../../src/ai/doctor-service.js';
 import { query, withTenant } from '../../src/database/connection.js';
 import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
+import { sharedCliConsistency, sharedOrphanedCapability } from '../helpers/shared-board.js';
 
 const mockQuery = query as unknown as Mock;
 const mockWithTenant = withTenant as unknown as Mock;
@@ -72,6 +71,8 @@ function mockDb(over: Partial<Record<string, unknown[]>> = {}) {
 
 let tmpDir: string;
 const ENV = { ...process.env };
+/** The CLI consistency result of this run: `runDoctor` without its cold start. */
+const shared = { cliConsistency: sharedCliConsistency() };
 
 beforeEach(() => {
   mockQuery.mockReset();
@@ -94,14 +95,14 @@ function find(report: Awaited<ReturnType<typeof runDoctor>>, name: string) {
 describe('runDoctor — database', () => {
   it('reports the version when it connects', async () => {
     mockDb();
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     expect(find(r, 'Database').level).toBe('ok');
     expect(find(r, 'Database').detail).toBe('PostgreSQL 15.17');
   });
 
   it('when the DB fails, SKIPS the checks that depend on it', async () => {
     mockQuery.mockRejectedValue(new Error('ECONNREFUSED'));
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     expect(find(r, 'Database').level).toBe('fail');
     expect(r.checks.find((c) => c.name === 'Migrations')).toBeUndefined();
     expect(r.worst).toBe('fail');
@@ -115,7 +116,7 @@ describe('runDoctor — migrations', () => {
     fs.writeFileSync(path.join(tmpDir, '001_a.sql'), '');
     fs.writeFileSync(path.join(tmpDir, '002_b.sql'), '');
     mockDb({ migrations: [{ filename: '001_a.sql' }] });
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     const c = find(r, 'Migrations');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/1 unapplied: 002_b\.sql/);
@@ -125,14 +126,14 @@ describe('runDoctor — migrations', () => {
   it('ok when all are applied', async () => {
     fs.writeFileSync(path.join(tmpDir, '001_a.sql'), '');
     mockDb({ migrations: [{ filename: '001_a.sql' }] });
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Migrations').level).toBe('ok');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Migrations').level).toBe('ok');
   });
 });
 
 describe('runDoctor — tenant isolation', () => {
   it('WARNS that RLS is inert with a SUPERUSER role', async () => {
     mockDb({ roles: [{ current_user: 'victor', is_super: true, bypass: false, rls_tables: '57' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/SUPERUSER/);
     expect(c.fix).toMatch(/mnemosine_app/);
@@ -140,20 +141,20 @@ describe('runDoctor — tenant isolation', () => {
 
   it('also warns with BYPASSRLS', async () => {
     mockDb({ roles: [{ current_user: 'app', is_super: false, bypass: true, rls_tables: '57' }] });
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation').detail)
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation').detail)
       .toMatch(/BYPASSRLS/);
   });
 
   it('warns when RLS is not enabled on any table', async () => {
     mockDb({ roles: [{ current_user: 'app', is_super: false, bypass: false, rls_tables: '0' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/not enabled/);
   });
 
   it('ok when the role is subject to policies', async () => {
     mockDb();
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation').level).toBe('ok');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation').level).toBe('ok');
   });
 });
 
@@ -162,19 +163,19 @@ describe('runDoctor — fiscal credentials', () => {
 
   it('no credentials is OK (they are not required)', async () => {
     mockDb();
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials').level).toBe('ok');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials').level).toBe('ok');
   });
 
   it('warns when it expires in less than 30 days', async () => {
     mockDb({ creds: [{ n: '1', soonest: '2026-09-10T00:00:00Z' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/expires in 17 days/);
   });
 
   it('FAILS when it has already expired', async () => {
     mockDb({ creds: [{ n: '1', soonest: '2026-08-01T00:00:00Z' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/ALREADY EXPIRED/);
   });
@@ -186,7 +187,7 @@ describe('runDoctor — model provider', () => {
     fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify({
       default_provider: 'local', providers: { local: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1' } },
     }));
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('ok');
     expect(c.detail).toMatch(/local, no credential/);
   });
@@ -201,7 +202,7 @@ describe('runDoctor — model provider', () => {
         localito: { type: 'openai-compatible', model: 'm2', base_url: 'http://y/v1' },
       },
     }));
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/SOME_KEY/);
     expect(c.fix).toMatch(/--provider/);
@@ -212,7 +213,7 @@ describe('runDoctor — encryption key', () => {
   it('FAILS with the example key (zeros)', async () => {
     mockDb();
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/EXAMPLE/);
     expect(c.fix).toMatch(/openssl rand -hex 32/);
@@ -221,12 +222,12 @@ describe('runDoctor — encryption key', () => {
   it('FAILS with an invalid length', async () => {
     mockDb();
     process.env.ENCRYPTION_KEY = 'abc';
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key').level).toBe('fail');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key').level).toBe('fail');
   });
 
   it('ok with an own 64-hex key', async () => {
     mockDb();
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key').level).toBe('ok');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key').level).toBe('ok');
   });
 });
 
@@ -245,7 +246,7 @@ const AUDITOR_SANO = [{
 describe('runDoctor — rol de auditor', () => {
   it('warn cuando no existe: no es una avería, es una capacidad que falta', async () => {
     mockDb();
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/credenciales de ESCRITURA/);
     expect(c.fix).toMatch(/rol-auditor\.sql/);
@@ -253,7 +254,7 @@ describe('runDoctor — rol de auditor', () => {
 
   it('ok cuando está, es NOLOGIN y no salta la RLS', async () => {
     mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '57', totales: '57' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('ok');
     expect(c.detail).toMatch(/57 tablas aisladas/);
   });
@@ -267,7 +268,7 @@ describe('runDoctor — rol de auditor', () => {
         { relname: 'tax_tables', es_vista: false },
       ],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('ok');
     expect(c.detail).toMatch(/exchange_rates, tax_tables/);
     expect(c.detail).toMatch(/referencia global/);
@@ -282,7 +283,7 @@ describe('runDoctor — rol de auditor', () => {
       auditor: AUDITOR_SANO,
       auditorSinFiltro: [{ relname: 'mv_trial_balance', es_vista: true }],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/mv_trial_balance/);
     expect(c.detail).toMatch(/TODOS los inquilinos/);
@@ -292,7 +293,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb({
       auditor: [{ rolcanlogin: false, rolbypassrls: true, rolsuper: false, rolcreaterole: false }],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/TODOS los inquilinos/);
   });
@@ -302,7 +303,7 @@ describe('runDoctor — rol de auditor', () => {
       auditor: AUDITOR_SANO,
       auditorEscribe: [{ tabla: 'journal_entries', privilegio: 'INSERT' }],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/journal_entries:INSERT/);
   });
@@ -311,7 +312,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb({
       auditor: [{ rolcanlogin: true, rolbypassrls: false, rolsuper: false, rolcreaterole: false }],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/NOMINALES/);
   });
@@ -322,7 +323,7 @@ describe('runDoctor — rol de auditor', () => {
     // se restaban «tres» a mano —users, sessions, tenants—, y ese tres se
     // quedó corto en cuanto el guion tuvo que negar la cuarta.
     mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '50', totales: '57' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/7 tabla/);
   });
@@ -332,7 +333,7 @@ describe('runDoctor — aggregated severity', () => {
   it('worst = fail if there is any failure', async () => {
     mockDb();
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
-    expect((await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir })).worst).toBe('fail');
+    expect((await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir })).worst).toBe('fail');
   });
 
   it('worst = warn when there are only warnings', async () => {
@@ -345,13 +346,13 @@ describe('runDoctor — aggregated severity', () => {
     fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify({
       default_provider: 'local', providers: { local: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1' } },
     }));
-    expect((await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir })).worst).toBe('warn');
+    expect((await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir })).worst).toBe('warn');
   });
 
   it('every check with a problem carries an actionable fix', async () => {
     mockDb({ roles: [{ current_user: 'victor', is_super: true, bypass: false, rls_tables: '57' }] });
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     for (const c of r.checks.filter((x) => x.level !== 'ok')) {
       expect(c.fix, `"${c.name}" does not say how to fix it`).toBeTruthy();
     }
@@ -652,24 +653,14 @@ describe('checkLookupTables', () => {
 });
 
 describe('checkOrphanedCapability', () => {
-  // El escaneo recorre src/ entero: ~2,5 s por llamada. Seis pruebas lo pedían
-  // sobre el mismo árbol inmutable, así que se recorría seis veces, y en CI una
-  // sola llamada ya se comía los 5 s de presupuesto de su prueba. Se escanea
-  // una vez, en el setup, donde el costo es visible y su tope explícito.
-  // No depende del beforeEach: lee el disco, no el entorno ni la base. La
-  // prueba de tmpDir queda fuera a propósito — necesita un árbol vacío nuevo
-  // en cada corrida, y ahí el escaneo es barato porque no hay nada que leer.
-  //
-  // De 30 s a 90 s, y por CRECIMIENTO otra vez: el escaneo recorre `src/`
-  // entero, y `src/` creció. Con la suite de 292 archivos en paralelo el hook
-  // empezó a agotar los 30 s en CI —no sólo bajo carga local—, y el fallo se
-  // presenta como «Hook timed out», que no señala a nadie. El tope es un
-  // margen, no una promesa: si se vuelve a agotar, lo que hay que cambiar es
-  // que el escaneo se comparta entre archivos de prueba, no el número.
-  let repo: ReturnType<typeof checkOrphanedCapability>;
-  beforeAll(() => {
-    repo = checkOrphanedCapability({ cwd: process.cwd() });
-  }, 90_000);
+  // The scan of THIS repository reads src/, scripts/ and tests/ whole. It was
+  // paid in this file's beforeAll under a hook ceiling raised from 30 s to
+  // 90 s by growth: ~16 s alone, because it ran two regexes per export over
+  // every file. #293 made that count a single pass (~1.5 s) and moved the
+  // call to the unit globalSetup, where no test ceiling is charged for it.
+  // The tmpDir cases stay local on purpose: each needs its own fresh tree,
+  // and there the scan is cheap because there is nothing to read.
+  const repo = sharedOrphanedCapability();
 
   it('says so when there is no source tree instead of passing on nothing', () => {
     // A packaged install runs from dist/. A green tick that checked nothing is
