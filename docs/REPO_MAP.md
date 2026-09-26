@@ -79,6 +79,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/cli/payroll-isn-command.ts`
 - `src/cli/prepaid-command.ts`
 - `src/plan/conducta.ts`
+- `src/plan/criteria/shared.ts`
 - `src/plan/criterios.ts`
 - `src/services/accounting/account-service.ts`
 - `src/services/accounting/ar-ap-posting.ts`
@@ -93,6 +94,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/services/banking/reconciliation-service.ts`
 - `src/services/banking/treasury-posting.ts`
 - `src/services/payments/payment-service.ts`
+- `src/services/payroll/common/garnishment-service.ts`
 - `src/services/policy/pending-catalog.ts`
 - `src/services/reporting/cash-flow-service.ts`
 - `src/services/reporting/report-service.ts`
