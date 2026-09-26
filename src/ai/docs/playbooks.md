@@ -28,7 +28,7 @@ Stages from `get_entity_status`, in order. Meet the user at their stage:
 | Stage | Who | Action |
 |---|---|---|
 | `no_catalog` (migrating, has API) | HUMAN | `mnemosine onboard --provider contalink --cutoff <YYYY-MM-DD> --dry-run`, then without `--dry-run`. It creates the accounts for real, and the opening balance as a DRAFT: it is not on the ledger until `mnemosine review` approves it (or the run carries `--post`). Contalink is the only provider wired today. |
-| `no_catalog` (no API / from scratch) | HUMAN + YOU | `mnemosine init` creates the entity and the fiscal year AND seeds the books: a base chart (38 accounts for a Mexican entity — "Mexican" meaning incorporated in MX, blank country included, or keeping `mx_nif` books wherever incorporated: since J0.1 the seeder, the IVA engine and `doctor`'s check of the four IVA roles all use that one predicate, so `doctor` demands the roles from exactly the entities the seeder gave them to; a foreign one gets the neutral 35, or no base chart at all if the firm answered `ninguno` to the `catalogo_entidad_no_mexicana` panel question) plus the account roles automatic posting resolves through — without those roles the first invoice dies with `MISSING_ROLE_ACCOUNT`. On an entity that already exists with zero accounts, `mnemosine init --section identity` seeds the same thing (with several entities in the tenant it acts on the first one listed). Accounts the firm needs beyond the base are added one at a time with `mnemosine account create <code> "<name>" --type <type> [--parent <code>]` — a HUMAN command, you may not run it; `mnemosine account role seed` maps any role still unmapped. YOU still own the list: ask for their trial balance or business type and hand them the exact `account create` lines. `POST /v1/accounts` remains for whoever automates it. |
+| `no_catalog` (no API / from scratch) | HUMAN + YOU | `mnemosine init` creates the entity and the fiscal year AND seeds the books: a base chart (51 accounts for a Mexican entity — "Mexican" meaning incorporated in MX, blank country included, or keeping `mx_nif` books wherever incorporated: since J0.1 the seeder, the IVA engine and `doctor`'s check of the four IVA roles all use that one predicate, so `doctor` demands the roles from exactly the entities the seeder gave them to; a foreign one gets the neutral 42 — the same 39 universal accounts, with a generic bank and sales-tax account instead of the Mexican tax layer. Answering `ninguno` to the `catalogo_entidad_no_mexicana` panel question skips THAT chart and nothing else: the entity is still born with the CFDI role accounts and the payroll mapping accounts, so never tell a firm that `ninguno` leaves them an empty entity — what it does leave them without is bank, receivables, payables and revenue, so nothing posts until their own chart lands) plus the account roles automatic posting resolves through — without those roles the first invoice dies with `MISSING_ROLE_ACCOUNT`. On an entity that already exists with zero accounts, `mnemosine init --section identity` seeds the same thing (with several entities in the tenant it lists them, offers to add another, and on "no" acts on the FIRST BY NAME — which is rarely the one they meant, so name the entity to them before they answer). Accounts the firm needs beyond the base are added one at a time with `mnemosine account create <code> "<name>" --type <type> [--parent <code>]` — a HUMAN command, you may not run it; `mnemosine account role seed` creates the base accounts that are missing and maps every role still unmapped, never overwriting one someone pointed by hand. YOU still own the list: ask for their trial balance or business type and hand them the exact `account create` lines. `POST /v1/accounts` remains for whoever automates it. |
 | `no_fiscal_year` | HUMAN | `mnemosine init --section identity` — creates the CURRENT calendar year with 12 monthly periods. Any other year: `mnemosine year create <year> --entity <x>`. |
 | `no_opening_balance` (migrating) | HUMAN | `mnemosine onboard --provider <x> --cutoff <date>` — imports the opening balance as a draft. If `pending.drafts` > 0, the opening draft likely already exists: send them to `mnemosine review` instead of importing again. |
 | `no_opening_balance` (manual) | YOU | Ask for the prior closing trial balance; validate it sums to zero; `draft_journal_entry` with the opening entry (debit-positive balances as debits, credit-natural as credits) and reference `onboarding:manual:<cutoff>` — that reference is how the system recognizes the opening balance; send them to `mnemosine review`. |
@@ -40,10 +40,14 @@ advanced before moving on.
 ## Playbook: migration from another system
 1. `get_entity_status` — confirm stage and whether `external_accounting_configured`.
 2. CUTOFF CONSTRAINT: the opening entry is dated at the cutoff, so the cutoff
-   MUST fall inside a postable fiscal period (open, future or soft_close); with
-   no period covering that date the approval fails with "Fiscal period not
-   found". `init` only creates the CURRENT calendar year — a prior-year cutoff
-   will fail at posting after accounts were already created (a partial import).
+   MUST fall inside a postable fiscal period (open, future or soft_close). The
+   failure lands EARLIER than "at posting": `onboard` creates the accounts
+   first and then drafts the opening entry, and it is the DRAFT that is
+   refused — "There is no open fiscal period for the date <cutoff>; the journal
+   entry could not be posted" — so nothing ever reaches `mnemosine review`
+   while the accounts are already there (a partial import). `init` only
+   creates the CURRENT calendar year, so a prior-year cutoff walks straight
+   into this.
    Before recommending a cutoff, confirm a period exists for that date;
    otherwise use a current-year cutoff or have the human create the prior year
    first with `mnemosine year create <year>` (in a year already past its twelve
@@ -91,7 +95,8 @@ answer you · `outbox` external writes · `close` month end · `pending` to-do b
 `doctor` system health. The exact surface (every flag, every alias) is the
 `cli-reference` doc — read it before quoting a flag you are unsure of.
 Spanish aliases: configurar (init), alta (onboard), ingesta (ingest), revisar
-(review), dudas (questions), envios (outbox), cierre (close), pendientes
+(review), duda/dudas (the command is `question`, singular; `questions` is
+another alias of it), envio/envios (outbox), cierre (close), pendientes
 (pending), cuenta (account), ejercicio (year). `doctor` has no alias; `sat` and
 `cred` have none either, but their leaves do: agregar, estado, auditoria,
 revocar.

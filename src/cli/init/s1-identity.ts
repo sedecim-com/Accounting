@@ -4,7 +4,7 @@ import { checkEntities } from '../../ai/doctor-service.js';
 import { ensureEntityAccounting } from '../../services/accounting/entity-accounting.js';
 import { createEntity as createEntityService } from '../../services/entity/entity-service.js';
 import { ensureFiscalYear } from '../../services/accounting/fiscal-calendar-service.js';
-import type { CheckResult } from '../../ai/doctor-service.js';
+import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import { upsertEnvVar } from './s0-infra.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
@@ -20,6 +20,14 @@ const CATALOGS = {
 } as const;
 
 type Country = keyof typeof CATALOGS;
+
+/**
+ * The check this section adds to the one it borrows from doctor. The label
+ * says "fiscal year" because that is what the wizard just created; the id says
+ * what is actually measured, which is whether any period is open to post into.
+ * See `CheckIdentity` in doctor-service for why the two are not the same word.
+ */
+const FISCAL_YEAR: CheckIdentity = { id: 'open-fiscal-periods', name: 'Fiscal year' };
 
 export interface IdentidadDeps {
   cwd?: string;
@@ -52,12 +60,12 @@ export class IdentidadSection implements SetupSection {
     checks.push(
       open === 0
         ? {
-            name: 'Fiscal year',
+            ...FISCAL_YEAR,
             level: 'fail',
             detail: 'no open periods: no journal entry can be posted',
             fix: 'mnemosine init --section identity',
           }
-        : { name: 'Fiscal year', level: 'ok', detail: `${open} period(s) available` }
+        : { ...FISCAL_YEAR, level: 'ok', detail: `${open} period(s) available` }
     );
     return checks;
   }

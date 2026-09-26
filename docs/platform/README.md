@@ -18,5 +18,5 @@ La guía de implementación del framework pone el inventario, el nivel de madure
 ## Qué necesita este repo de la plataforma
 
 - **`PLATFORM.md` y su glosario.** Este repo tiene el suyo en `docs/wiki/Glosario.md`. Los términos que se cruzan con otros dominios («póliza» contable frente a «póliza» de seguro, «cliente», «pago») deben coincidir.
-- **Que `accounting-manager` se apague y se archive** según la lista del [ADR-0003](../adr/0003-source-of-truth-over-accounting-manager.md), seguida en #342.
+- **Que la frontera con `accounting-manager` se respete de los dos lados:** un solo escritor por compañía de Contalink, identificada por RFC ([ADR-0004](../adr/0004-coexistence-with-accounting-manager.md)). Si Promessa llegara a ser una entidad de este repo, el cambio de escritor lo decide otro ADR.
 - **El informe de contexto de plataforma** (framework §12.1) antes de cada desarrollo nuevo: [`../prd/README.md`](../prd/README.md).

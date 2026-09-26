@@ -503,6 +503,57 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // media pieza, y un trinquete que se afloja para esperar no vuelve a
   // apretarse.
   '--locale': null,
+
+  // ── F08 · the court order and its cascade ─────────────────────────────
+  //
+  // Nine spellings, none with a short form, and every one of them is declared
+  // by `garnishment record` in this same commit — flags.ts records what
+  // happens otherwise: a dictionary entry with no leaf took
+  // `banderas-del-diccionario-sin-hoja` from 11 to 12 and failed `--check`
+  // plus four specs.
+  //
+  // TWO PERCENT FLAGS AND NOT ONE `--percent`, which is the entry that does
+  // the most work here. The column pair is (amount_type, amount_value) and
+  // 075's CHECK admits three bases; a bare `--percent` cannot say whether the
+  // base is DISPOSABLE earnings or GROSS wages, and 075's header MEASURED the
+  // cost of guessing: the same 25 % order over 2,000 disposable withheld 500
+  // under one spelling and 0 under the other. A CLI that picks the base for
+  // the accountant repeats that defect one layer up, this time in the help
+  // text.
+  '--percent-disposable': null,
+  '--percent-gross': null,
+  // Breaks ties WITHIN a statutory rank; it does not decide the rank. The
+  // column comment («Lower = higher priority (child support first)») stopped
+  // being true when the engine gained its RANK table, so the flag's own help
+  // says what it really does.
+  '--priority': null,
+  // Who the withholding is remitted to. Not `--vendor`, which is a supplier on
+  // the ledger's own register: an SDU or a court registry is neither.
+  '--payee': null,
+  // The court file number. `--case` and not `--reference` (D1a froze that one
+  // as the document a prepaid row points at) and not `--number` (F06a froze
+  // that one as an asset folio).
+  '--case': null,
+  // WHO DICTATED THE ORDER. Spelled `--court` and NOT `--authority`, which
+  // already carries two other meanings in the catalog — the TAX authority in
+  // `tax-deposit reconcile` and signature authority in `foreign-account
+  // create`. One concept, one spelling, one meaning is this dictionary's whole
+  // contract, and the cheapest way to honour it is to pick a spelling that
+  // collides with nothing.
+  '--court': null,
+  // IRS Pub 1494. Required on a levy and read by nothing else; its absence is
+  // what the engine coerces into zero, taking the whole cheque.
+  '--exempt-amount': null,
+  // The two CCPA cap answers, each a yes/no with NO default, in the shape
+  // `asset create --capitalized` already established: «I did not say» and «no»
+  // have to be different words, or the ceiling silently moves from 50 % to
+  // 60 % of disposable earnings.
+  //
+  // `--arrears-12wk` and NOT `--arrears`: the catalog already gives `--arrears`
+  // to `pay-code create`, where it means a pay code's arrears BEHAVIOUR. Same
+  // reasoning as `--court`.
+  '--supports-second-family': null,
+  '--arrears-12wk': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
