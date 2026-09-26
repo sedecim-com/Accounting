@@ -33,7 +33,8 @@ import { z } from 'zod';
 // loudly on a Zod minor that reshapes any of them.
 //
 // CONTRACT: the ONE deliberate tightening this file owns (T2 in #367): an
-// integer beyond ±(2^53 − 1), which JSON cannot carry exactly, is rejected.
+// integer beyond ±(2^53 − 1), which JSON cannot carry exactly, is rejected
+// (declared with T1 in catalog-info.yaml, under provides.api).
 // To revert it, delete the range branch of $ZodCheckV3Int.
 // ============================================================
 
