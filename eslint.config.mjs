@@ -591,6 +591,18 @@ export default tseslint.config(
       // disable comment that stops being needed is reported instead of rotting.
       reportUnusedDisableDirectives: 'error',
     },
+    rules: {
+      // Zod 4 still ships the v3 API under `zod/v3`, and importing it would
+      // bring back the grammar #367 pinned away: its schemas are invisible to
+      // the converter, to src/utils/zod-compat.ts and to the 422 adapter.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [{ name: 'zod/v3', message: 'Use `zod` (and src/utils/zod-compat.ts); see #367.' }],
+          patterns: [{ group: ['zod/v3/*'], message: 'Use `zod` (and src/utils/zod-compat.ts); see #367.' }],
+        },
+      ],
+    },
   },
 
   {
