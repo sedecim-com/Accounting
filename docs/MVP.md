@@ -96,6 +96,18 @@ Los carriles C y E comparten `period-close.ts`: el checklist lo toca #98, y el a
 - los documentos abiertos en la migración ([#310](https://github.com/sedecim-com/Accounting/issues/310), después de #220);
 - la factura en moneda extranjera y la revaluación ([#305](https://github.com/sedecim-com/Accounting/issues/305)).
 
+### Armonía con la plataforma (revisión del 2026-09-26)
+
+La revisión de los repos de `sedecim-com` ([`platform/harmony-review.md`](platform/harmony-review.md)) deja cinco trabajos en este repo:
+
+- aceptar los access tokens de Cognito ([#369](https://github.com/sedecim-com/Accounting/issues/369)), Ola 1;
+- que el adaptador S3 deje de prometer lo que no hace ([#370](https://github.com/sedecim-com/Accounting/issues/370)), Ola 1;
+- la decisión de identidad de plataforma ([#371](https://github.com/sedecim-com/Accounting/issues/371));
+- la imagen y los workflows desplegables como los demás servicios ([#372](https://github.com/sedecim-com/Accounting/issues/372)), Ola 3;
+- `migrate` con candado ([#373](https://github.com/sedecim-com/Accounting/issues/373)), Ola 3.
+
+El despliegue mismo depende de la plataforma (Postgres gestionado, IAM y namespaces propios, `/mnemosine/` en el gateway) y no entra en la definición de terminado.
+
 ### Ola 3 · El MVP se demuestra y se pule
 
 - [#311](https://github.com/sedecim-com/Accounting/issues/311), el mes de punta a punta; conviene **empezarla en la Ola 1**, con `it.todo`.
@@ -125,7 +137,20 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | #152, #314 | Formato de claves del panel y de la ayuda | `policy.<nombre inglés del registro de I4>.*` y `help.<cmd>.<sub>.*` |
 | #327 | La sintaxis de los renglones | Regla fija del kernel, no configuración: `clave=valor` con «;», `cargo`/`abono` como sinónimos permanentes y lo actual aceptado |
 | #337 | La firma del SCOPE y de `catalog-info.yaml` | Un solo PR tras una sesión campo por campo; lo legal, como pregunta abierta al 2026-10-09 (falta la sesión) |
-| PR #249, PR #283 | La lectura de §5.3 del tablero y la revisión de seguridad; si se juzga el título del PR | — |
+| PR #249, PR #283 | La lectura de §5.3 del tablero y la revisión de seguridad; si se juzga el título del PR | #249 se fusionó el 2026-09-26; #283 sigue abierto |
+
+**Pendientes.** Al cruzar el backlog con las issues, el 2026-09-26, salieron preguntas que nadie había hecho. Cada una es una decisión en el backlog (`docs/backlog/PRD-001.md`) y bloquea tareas concretas:
+
+| Issue | Pregunta | Decisión | Bloquea |
+|---|---|---|---|
+| #378 | Los dos criterios rojos de E5.1, ¿entran al MVP o se enmienda la meta de RNF-01? | MNE-001-132 | La meta de RNF-01 |
+| #308 | El prorrateo del IVA de actividades mixtas (art. 5 fr. V) y dónde se capturan el coeficiente de utilidad y las pérdidas | MNE-001-114 | El ISR provisional (059), y con él el papel de trabajo (060), en la ruta crítica del MVP |
+| #297 | Las horas extra (art. 93 fr. I): ¿qué trato declara el panel, o quedan fuera del MVP? | MNE-001-109 | 110 |
+| #371 | La identidad de plataforma | MNE-001-106 | El despliegue (107) |
+| #357 | La `CONTALINK_API_KEY` global, ¿queda de respaldo de sólo lectura o se retira? | MNE-001-120 | La llave por entidad (121), y con ella el despliegue |
+| #231 | La semana a caballo entre meses: ¿la prorrata la fija la ley, como dice la decisión de #242, o es un criterio del panel? | MNE-001-131 | 071 |
+| #133 | N, los meses tras los que una norma verificada se considera vieja | MNE-001-123 | 078 |
+| #337 | La sesión de firma del SCOPE | MNE-001-011 | — |
 
 ## 5. La cola de PRs (foto del 2026-09-25)
 
