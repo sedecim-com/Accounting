@@ -13,7 +13,7 @@ import {
 } from '../accounting/iva-cash-basis.js';
 import type { AccountRole } from './cfdi-taxonomy.js';
 import { JournalEntryType } from '../../types/index.js';
-import { CFDIParser, CFDIParsed, CFDIConcepto } from './cfdi-parser.js';
+import { CFDIParser, CFDIParsed, CFDIConcepto, type CFDIImpuesto } from './cfdi-parser.js';
 import { extractPagosCompletos } from './cfdi-facts.js';
 import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
 import { SATValidationService } from './sat-validation.js';
@@ -1036,111 +1036,40 @@ export class PreRegistrationService {
     userId: string,
     opciones: OpcionesDeProceso = {}
   ): Promise<{ bill: Record<string, unknown>; journalEntry: Record<string, unknown> }> {
-    let vendorId = preReg.vendor_id as string | null;
-
-    // ── EL ALTA DE PROVEEDOR ES UNA DECISIÓN, NO UN EFECTO COLATERAL.
-    //
-    // Aquí nacía una CONTRAPARTE con el nombre y el RFC que venían dentro de
-    // un XML de un tercero, y en la misma llamada nacía el pasivo a su favor
-    // y su póliza posteada. Nadie aprobaba nada: bastaba con que un CFDI
-    // llegara —por la subida REST, por el agente, o porque una regla del
-    // despacho puso processing_mode='auto'— para que el catálogo de
-    // proveedores creciera solo. Un dato maestro que ningún humano miró es
-    // exactamente lo que un control interno existe para impedir.
-    //
-    // Ahora el alta sólo ocurre si QUIEN LLAMA la autorizó. El default es no,
-    // y el no es un rechazo que dice qué proveedor se iba a crear y cómo
-    // seguir. La BÚSQUEDA por RFC se queda fuera de la puerta a propósito:
-    // encontrar un proveedor que ya existe no crea nada, y es justo lo que
-    // hace que «dalo de alta y vuelve a ejecutar» funcione.
-    if (!vendorId && preReg.is_new_vendor && preReg.suggested_vendor_data) {
-      const data = preReg.suggested_vendor_data as Record<string, unknown>;
-      const vendorResult = await query<{ id: string }>(
-        `SELECT id FROM vendors WHERE entity_id = $1 AND tax_id = $2 LIMIT 1`,
-        [preReg.entity_id, data.tax_id]
-      );
-      if (vendorResult.rows.length > 0) {
-        vendorId = vendorResult.rows[0].id;
-      } else if (!opciones.permitirProveedorNuevo) {
-        const texto = (v: unknown, alterno: string): string =>
-          typeof v === 'string' && v.trim() ? v : alterno;
-        throw new ProveedorNuevoSinAutorizar(
-          texto(data.company_name, 'emisor sin nombre'),
-          texto(data.tax_id, 'sin RFC')
-        );
-      } else {
-        const newId = uuidv4();
-        const vendorCount = await query<{ count: string }>(
-          `SELECT COUNT(*) as count FROM vendors WHERE entity_id = $1`,
-          [preReg.entity_id]
-        );
-        const year = new Date().getFullYear();
-        const vendorNumber = `V-${year}-${(parseInt(vendorCount.rows[0].count, 10) + 1).toString().padStart(5, '0')}`;
-
-        await query(
-          `INSERT INTO vendors (id, entity_id, vendor_number, company_name, tax_id, tax_id_type, currency_code, created_by)
-           VALUES ($1, $2, $3, $4, $5, 'rfc', 'MXN', $6)`,
-          [newId, preReg.entity_id, vendorNumber, data.company_name, data.tax_id, userId]
-        );
-        vendorId = newId;
-      }
-    }
-
-    if (!vendorId) throw new ValidationError('Vendor is required to create a bill');
-
-    const billId = uuidv4();
-    const billCount = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM bills WHERE entity_id = $1`,
-      [preReg.entity_id]
-    );
-    const year = new Date().getFullYear();
-    const billNumber = `BILL-${year}-${(parseInt(billCount.rows[0].count, 10) + 1).toString().padStart(5, '0')}`;
-
-    // Create bill
-    await query(
-      // El UUID fiscal viaja con el gasto desde su nacimiento (migración
-      // 037). Antes sólo existía por el rodeo pre_registrations→xml_documents,
-      // que muere con el pre-registro; la columna directa es la que hacen
-      // baratos el DIOT, el amarre y la ligadura del REP.
-      `INSERT INTO bills (
-        id, entity_id, bill_number, vendor_id, vendor_invoice_number,
-        subtotal, tax_amount, total_amount, amount_due,
-        currency_code, exchange_rate, bill_date, due_date, status, created_by,
-        cfdi_uuid
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'posted',$14,
-        (SELECT cfdi_uuid FROM xml_documents WHERE id = $15))`,
-      [
-        billId, preReg.entity_id, billNumber, vendorId, preReg.external_reference,
-        preReg.subtotal, preReg.tax_amount, preReg.total_amount, preReg.total_amount,
-        preReg.currency_code, preReg.exchange_rate,
-        preReg.document_date, preReg.due_date, userId,
-        preReg.xml_document_id ?? null,
-      ]
-    );
-
     const lines = preReg.lines as LineWithSuggestion[];
-
-    // Bill lines
-    for (const line of lines) {
-      const accountId = line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
-      if (!accountId) {
-        throw new ValidationError(`Line ${line.line_number}: no account assigned`);
-      }
-
-      const taxAmt = line.impuestos?.traslados?.[0]?.importe || 0;
-
-      await query(
-        `INSERT INTO bill_lines (
-          id, bill_id, line_number, account_id, description,
-          quantity, unit_price, line_amount, tax_amount, total_amount
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [
-          uuidv4(), billId, line.line_number, accountId, line.descripcion,
-          line.cantidad, line.valor_unitario, line.importe, taxAmt,
-          new Decimal(line.importe).plus(taxAmt).toFixed(4),
-        ]
-      );
-    }
+    const { billId, billNumber } = await insertarFacturaDePreRegistro(
+      POOL,
+      preReg,
+      userId,
+      opciones,
+      {
+        subtotal: preReg.subtotal,
+        taxAmount: preReg.tax_amount,
+        totalAmount: preReg.total_amount,
+        amountDue: preReg.total_amount,
+        amountPaid: 0,
+        status: 'posted',
+      },
+      () =>
+        lines.map((line) => {
+          const accountId =
+            line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
+          if (!accountId) {
+            throw new ValidationError(`Line ${line.line_number}: no account assigned`);
+          }
+          const taxAmt = line.impuestos?.traslados?.[0]?.importe || 0;
+          return {
+            line_number: line.line_number,
+            account_id: accountId,
+            description: line.descripcion,
+            quantity: line.cantidad,
+            unit_price: line.valor_unitario,
+            line_amount: line.importe,
+            tax_amount: taxAmt,
+            total_amount: new Decimal(line.importe).plus(taxAmt).toFixed(4),
+          };
+        })
+    );
 
     // ── El asiento lo gobierna el clasificador fiscal.
     // Antes se armaba aquí a mano y TODO el IVA iba a la 1130 «IVA
@@ -1264,6 +1193,467 @@ export class PreRegistrationService {
 
     return results;
   }
+}
+
+/**
+ * A query runner: the approval's transaction client, or the pool for the
+ * inbox path, which has never been transactional (#318 leaves that as is).
+ */
+interface Queryable {
+  query<T extends pg.QueryResultRow = Record<string, unknown>>(
+    text: string,
+    params?: unknown[]
+  ): Promise<pg.QueryResult<T>>;
+}
+
+const POOL: Queryable = { query };
+
+/** One `bill_lines` row, already decided by the caller. */
+export interface BillLineRow {
+  line_number: number;
+  account_id: string;
+  description: string | null;
+  quantity: string | number;
+  unit_price: string | number;
+  line_amount: string | number;
+  tax_amount: string | number;
+  total_amount: string | number;
+  tags?: Record<string, unknown>;
+}
+
+interface BillHeader {
+  subtotal: unknown;
+  taxAmount: unknown;
+  totalAmount: unknown;
+  amountDue: unknown;
+  amountPaid: unknown;
+  status: 'posted' | 'paid';
+}
+
+/**
+ * THE NON-POSTING CORE OF A BILL BORN FROM A PRE-REGISTRATION (#318).
+ *
+ * Vendor lookup (with the `permitirProveedorNuevo` gate), bill number and the
+ * INSERTs of `bills` and `bill_lines` -- and nothing else. It posts no entry:
+ * the inbox path posts the classifier's entry after it, and the approval of an
+ * AI draft posts the entry the human approved. One core, two consumers, so an
+ * approved draft lands in the same service as `bill inbox run` instead of a
+ * parallel one.
+ *
+ * `buildLines` is a thunk so the inbox path keeps its old order of failures:
+ * the vendor is resolved (or refused) before a line without an account is.
+ */
+async function insertarFacturaDePreRegistro(
+  db: Queryable,
+  preReg: Record<string, unknown>,
+  userId: string,
+  opciones: OpcionesDeProceso,
+  header: BillHeader,
+  buildLines: () => BillLineRow[]
+): Promise<{ billId: string; billNumber: string; vendorId: string }> {
+  let vendorId = preReg.vendor_id as string | null;
+
+  // ── EL ALTA DE PROVEEDOR ES UNA DECISIÓN, NO UN EFECTO COLATERAL.
+  //
+  // Aquí nacía una CONTRAPARTE con el nombre y el RFC que venían dentro de
+  // un XML de un tercero, y en la misma llamada nacía el pasivo a su favor
+  // y su póliza posteada. Nadie aprobaba nada: bastaba con que un CFDI
+  // llegara —por la subida REST, por el agente, o porque una regla del
+  // despacho puso processing_mode='auto'— para que el catálogo de
+  // proveedores creciera solo. Un dato maestro que ningún humano miró es
+  // exactamente lo que un control interno existe para impedir.
+  //
+  // Ahora el alta sólo ocurre si QUIEN LLAMA la autorizó. El default es no,
+  // y el no es un rechazo que dice qué proveedor se iba a crear y cómo
+  // seguir. La BÚSQUEDA por RFC se queda fuera de la puerta a propósito:
+  // encontrar un proveedor que ya existe no crea nada, y es justo lo que
+  // hace que «dalo de alta y vuelve a ejecutar» funcione.
+  if (!vendorId && preReg.is_new_vendor && preReg.suggested_vendor_data) {
+    const data = preReg.suggested_vendor_data as Record<string, unknown>;
+    const vendorResult = await db.query<{ id: string }>(
+      `SELECT id FROM vendors WHERE entity_id = $1 AND tax_id = $2 LIMIT 1`,
+      [preReg.entity_id, data.tax_id]
+    );
+    if (vendorResult.rows.length > 0) {
+      vendorId = vendorResult.rows[0].id;
+    } else if (!opciones.permitirProveedorNuevo) {
+      const texto = (v: unknown, alterno: string): string =>
+        typeof v === 'string' && v.trim() ? v : alterno;
+      throw new ProveedorNuevoSinAutorizar(
+        texto(data.company_name, 'emisor sin nombre'),
+        texto(data.tax_id, 'sin RFC')
+      );
+    } else {
+      const newId = uuidv4();
+      const vendorCount = await db.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM vendors WHERE entity_id = $1`,
+        [preReg.entity_id]
+      );
+      const year = new Date().getFullYear();
+      const vendorNumber = `V-${year}-${(parseInt(vendorCount.rows[0].count, 10) + 1).toString().padStart(5, '0')}`;
+
+      await db.query(
+        `INSERT INTO vendors (id, entity_id, vendor_number, company_name, tax_id, tax_id_type, currency_code, created_by)
+         VALUES ($1, $2, $3, $4, $5, 'rfc', 'MXN', $6)`,
+        [newId, preReg.entity_id, vendorNumber, data.company_name, data.tax_id, userId]
+      );
+      vendorId = newId;
+    }
+  }
+
+  if (!vendorId) throw new ValidationError('Vendor is required to create a bill');
+
+  const billId = uuidv4();
+  const billCount = await db.query<{ count: string }>(
+    `SELECT COUNT(*) as count FROM bills WHERE entity_id = $1`,
+    [preReg.entity_id]
+  );
+  const year = new Date().getFullYear();
+  const billNumber = `BILL-${year}-${(parseInt(billCount.rows[0].count, 10) + 1).toString().padStart(5, '0')}`;
+
+  await db.query(
+    // El UUID fiscal viaja con el gasto desde su nacimiento (migración
+    // 037). Antes sólo existía por el rodeo pre_registrations→xml_documents,
+    // que muere con el pre-registro; la columna directa es la que hacen
+    // baratos el DIOT, el amarre y la ligadura del REP.
+    `INSERT INTO bills (
+      id, entity_id, bill_number, vendor_id, vendor_invoice_number,
+      subtotal, tax_amount, total_amount, amount_due, amount_paid,
+      currency_code, exchange_rate, bill_date, due_date, status, created_by,
+      cfdi_uuid
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+      (SELECT cfdi_uuid FROM xml_documents WHERE id = $17 AND entity_id = $2))`,
+    [
+      billId, preReg.entity_id, billNumber, vendorId, preReg.external_reference,
+      header.subtotal, header.taxAmount, header.totalAmount,
+      header.amountDue, header.amountPaid,
+      preReg.currency_code, preReg.exchange_rate,
+      preReg.document_date, preReg.due_date, header.status, userId,
+      preReg.xml_document_id ?? null,
+    ]
+  );
+
+  for (const line of buildLines()) {
+    await db.query(
+      `INSERT INTO bill_lines (
+        id, bill_id, line_number, account_id, description,
+        quantity, unit_price, line_amount, tax_amount, total_amount, tags
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+      [
+        uuidv4(), billId, line.line_number, line.account_id, line.description,
+        line.quantity, line.unit_price, line.line_amount, line.tax_amount, line.total_amount,
+        JSON.stringify(line.tags ?? {}),
+      ]
+    );
+  }
+
+  return { billId, billNumber, vendorId };
+}
+
+/** One line of the entry the human approved, as the draft service validated it. */
+export interface ApprovedLine {
+  account_code: string;
+  debit?: number;
+  credit?: number;
+  description?: string;
+}
+
+export interface ApprovedDraftBill {
+  billId: string;
+  billNumber: string;
+  /**
+   * Second half of the act, called once the approved entry is posted with
+   * `sourceType: 'bill'`: links the entry to the bill and closes the
+   * pre-registration. Same client, same transaction.
+   */
+  close(journalEntryId: string): Promise<void>;
+}
+
+const RECONCILED_ROLES: AccountRole[] = [
+  'cxp', 'banco', 'iva_acreditable', 'iva_pendiente_acreditar',
+  'isr_retenido_por_pagar', 'iva_retenido_por_pagar',
+];
+
+/** SAT tax keys arrive as numbers from the parser ("002" -> 2): normalize the width. */
+const satKey = (v: unknown): string => String(v ?? '').padStart(3, '0');
+
+const money = (v: unknown): Decimal => new Decimal((v as string | number | null) ?? 0).toDecimalPlaces(2);
+
+const sumTax = (list: CFDIImpuesto[] | undefined, key: string): Decimal =>
+  (list ?? []).filter((t) => satKey(t.impuesto) === key).reduce((s, t) => s.plus(money(t.importe)), new Decimal(0));
+
+/**
+ * THE VENDOR BILL BORN FROM AN APPROVED AI DRAFT (ING-1 · #318).
+ *
+ * Called by approveDraftInternal, inside the approval's transaction, BEFORE the
+ * approved entry is posted: the entry then posts with `sourceType: 'bill'` so
+ * the cash-basis VAT, the PPD census and the AP controls see it like any other
+ * bill. Any throw here rolls the whole approval back and the draft stays
+ * pending.
+ *
+ * What it guarantees:
+ *   - the pre-registration is locked, entity-scoped, and still open
+ *     ('ready' | 'draft' | 'error', no bill yet): a second draft of the same
+ *     CFDI finds nothing to bill and fails;
+ *   - the vendor must already exist (PR1a behaves as 'rechazar'; the
+ *     configurable 'preguntar' path is PR1b);
+ *   - the approved entry matches the CFDI figure by figure within
+ *     `cfdi_tolerancia_cuadre`, and a mismatch is refused, never absorbed;
+ *   - the bill header comes from the XML; its lines follow
+ *     `lineas_factura_desde`.
+ */
+export async function registrarFacturaDeBorradorAprobado(
+  client: pg.PoolClient,
+  opts: {
+    tenantId: string;
+    entityId: string;
+    preRegistrationId: string;
+    approvedLines: ApprovedLine[];
+    approvedDescription: string;
+    accountIdByCode: Map<string, string>;
+    userId: string;
+  }
+): Promise<ApprovedDraftBill> {
+  const { entityId, preRegistrationId, userId } = opts;
+
+  const locked = await client.query<Record<string, unknown>>(
+    `SELECT p.*, x.cfdi_uuid AS x_cfdi_uuid, x.subtotal AS x_subtotal,
+            COALESCE(x.descuento, 0) AS x_descuento, x.total AS x_total, x.metodo_pago AS x_metodo_pago
+       FROM pre_registrations p
+       JOIN xml_documents x ON x.id = p.xml_document_id AND x.entity_id = p.entity_id
+      WHERE p.id = $1 AND p.entity_id = $2 AND p.document_type = 'bill'
+        AND p.status IN ('ready', 'draft', 'error') AND p.bill_id IS NULL
+      FOR UPDATE OF p`,
+    [preRegistrationId, entityId]
+  );
+  const preReg = locked.rows[0];
+  if (!preReg) {
+    throw new AccountingError(
+      'CFDI_ALREADY_BILLED',
+      `The CFDI behind this draft (pre-registration ${preRegistrationId}) is no longer open: it was already ` +
+        'turned into a bill, or it is not a received invoice. Nothing was posted; reject this draft.'
+    );
+  }
+  const uuid = String(preReg.x_cfdi_uuid);
+
+  // Invariant 6: both forks are declared in pending-catalog.ts and read here.
+  const policyCtx = { tenantId: opts.tenantId, entityId };
+  const linesFrom = (await getPolicy(policyCtx, 'lineas_factura_desde', client)).value;
+  if (linesFrom !== 'poliza' && linesFrom !== 'conceptos_cfdi') {
+    throw new AccountingError(
+      'POLICY_VALUE_UNKNOWN',
+      `lineas_factura_desde = "${linesFrom}" is not a value this system knows (poliza | conceptos_cfdi); nothing was posted.`
+    );
+  }
+  const answered = new Decimal((await getPolicy(policyCtx, 'cfdi_tolerancia_cuadre', client)).value || '0.01');
+  const tolerance = answered.isNegative() ? new Decimal('0.01') : answered;
+
+  // Which accounts play each role: every qualifier, plus the legacy code
+  // fallback for entities seeded before account_roles existed.
+  const byRole = new Map<string, Set<string>>();
+  const add = (role: string, accountId: string) => {
+    if (!byRole.has(role)) byRole.set(role, new Set());
+    byRole.get(role)!.add(accountId);
+  };
+  const seeded = await client.query<{ role: string; account_id: string }>(
+    `SELECT role, account_id FROM account_roles WHERE entity_id = $1 AND role = ANY($2::text[])`,
+    [entityId, RECONCILED_ROLES]
+  );
+  for (const r of seeded.rows) add(r.role, r.account_id);
+  for (const [role, id] of await cuentasPorRol(client, entityId, RECONCILED_ROLES)) add(role, id);
+  const accountsOf = (...roles: string[]) => new Set(roles.flatMap((x) => [...(byRole.get(x) ?? [])]));
+  const ap = accountsOf('cxp');
+  const bank = accountsOf('banco');
+  const vat = accountsOf('iva_acreditable', 'iva_pendiente_acreditar');
+  const isrWithheld = accountsOf('isr_retenido_por_pagar');
+  const vatWithheld = accountsOf('iva_retenido_por_pagar');
+  const withRole = new Set([...ap, ...bank, ...vat, ...isrWithheld, ...vatWithheld]);
+
+  const lines = opts.approvedLines.map((l) => ({
+    ...l,
+    accountId: opts.accountIdByCode.get(l.account_code) as string,
+    dr: money(l.debit),
+    cr: money(l.credit),
+  }));
+  const net = (accounts: Set<string>, side: 'debit' | 'credit'): Decimal =>
+    lines
+      .filter((l) => accounts.has(l.accountId))
+      .reduce((s, l) => s.plus(side === 'debit' ? l.dr.minus(l.cr) : l.cr.minus(l.dr)), new Decimal(0));
+  const expenses = lines.filter((l) => !withRole.has(l.accountId) && l.dr.gt(0));
+
+  // THE CFDI RULES THE AMOUNTS. The taxes come from the XML's own summary node
+  // (Comprobante/Impuestos, stored in tax_breakdown), which is what the issuer
+  // declared in total; the per-concept breakdown can be absent.
+  const summary = (preReg.tax_breakdown ?? {}) as Partial<CFDIParsed['impuestos']>;
+  const toAp = net(ap, 'credit');
+  const paid = toAp.isZero() && preReg.x_metodo_pago === 'PUE' && net(bank, 'credit').gt(0);
+  const figures: Array<{ figure: string; entry: Decimal; cfdi: Decimal }> = [
+    {
+      figure: paid ? 'total (credit to bank, paid PUE)' : 'total (credit to accounts payable)',
+      entry: paid ? net(bank, 'credit') : toAp,
+      cfdi: money(preReg.x_total),
+    },
+    { figure: 'transferred VAT', entry: net(vat, 'debit'), cfdi: sumTax(summary.traslados, '002') },
+  ];
+  // NOTE: the seeded chart points both withholding roles at the same account
+  // (2140); then only their sum can be checked, and it is.
+  if ([...isrWithheld].some((id) => vatWithheld.has(id))) {
+    figures.push({
+      figure: 'withholdings (ISR + VAT, same account)',
+      entry: net(new Set([...isrWithheld, ...vatWithheld]), 'credit'),
+      cfdi: sumTax(summary.retenciones, '001').plus(sumTax(summary.retenciones, '002')),
+    });
+  } else {
+    figures.push(
+      { figure: 'ISR withheld', entry: net(isrWithheld, 'credit'), cfdi: sumTax(summary.retenciones, '001') },
+      { figure: 'VAT withheld', entry: net(vatWithheld, 'credit'), cfdi: sumTax(summary.retenciones, '002') }
+    );
+  }
+  figures.push({
+    figure: 'subtotal minus discount (non-tax debits)',
+    entry: expenses.reduce((s, l) => s.plus(l.dr), new Decimal(0)),
+    cfdi: money(preReg.x_subtotal).minus(money(preReg.x_descuento)),
+  });
+  const mismatches = figures.filter((c) => c.entry.minus(c.cfdi).abs().gt(tolerance));
+  if (mismatches.length > 0) {
+    throw new AccountingError(
+      'CFDI_RECONCILIATION_FAILED',
+      `The approved entry does not match CFDI ${uuid}: ` +
+        mismatches
+          .map((c) => `${c.figure} is ${c.entry.toFixed(2)} in the entry and ${c.cfdi.toFixed(2)} in the CFDI (difference ${c.entry.minus(c.cfdi).toFixed(2)})`)
+          .join('; ') +
+        `. Tolerance per figure: ${tolerance.toFixed(2)} (cfdi_tolerancia_cuadre). Nothing was posted; correct the draft and approve again.`,
+      { cfdi_uuid: uuid, figures: mismatches.map((c) => c.figure) }
+    );
+  }
+
+  const rows = linesFrom === 'poliza'
+    ? expenses.map((l, i): BillLineRow => ({
+        line_number: i + 1,
+        account_id: l.accountId,
+        description: l.description ?? opts.approvedDescription,
+        quantity: 1,
+        unit_price: l.dr.toFixed(2),
+        line_amount: l.dr.toFixed(2),
+        tax_amount: 0,
+        total_amount: l.dr.toFixed(2),
+      }))
+    : linesPerConcept(uuid, preReg.lines as LineWithSuggestion[], expenses);
+
+  let bill: { billId: string; billNumber: string };
+  try {
+    bill = await insertarFacturaDePreRegistro(
+      client,
+      preReg,
+      userId,
+      // No vendor creation: the empty options ARE the refusal (the default is
+      // no). Not spelled as a literal `false` because criterion E0.3 counts
+      // that literal to prove the two UNATTENDED branches deny it, and a third
+      // occurrence here would let its mutant survive.
+      {},
+      {
+        subtotal: preReg.x_subtotal,
+        taxAmount: preReg.tax_amount,
+        totalAmount: preReg.x_total,
+        amountDue: paid ? 0 : preReg.x_total,
+        amountPaid: paid ? preReg.x_total : 0,
+        status: paid ? 'paid' : 'posted',
+      },
+      () => rows
+    );
+  } catch (err) {
+    if ((err as { code?: string }).code !== PROVEEDOR_NUEVO_SIN_AUTORIZAR) throw err;
+    const suggested = ((err as ValidationError).details?.suggested_vendor ?? {}) as Record<string, unknown>;
+    const rfc = String(suggested.tax_id ?? '');
+    const e = new ValidationError(
+      `CFDI ${uuid} is issued by "${String(suggested.company_name ?? '')}" (RFC ${rfc}), who is not in this ` +
+        'entity\'s vendor catalog. Approving would create a bill against a vendor nobody registered. Register ' +
+        `it with \`mnemosine vendor create --tax-id ${rfc}\` and approve again; the draft stays pending and ` +
+        'nothing was posted.',
+      'vendor_id',
+      { suggested_vendor: suggested }
+    );
+    e.code = PROVEEDOR_NUEVO_SIN_AUTORIZAR;
+    throw e;
+  }
+
+  return {
+    ...bill,
+    async close(journalEntryId: string): Promise<void> {
+      const linked = await client.query(
+        `UPDATE bills SET journal_entry_id = $1, updated_at = NOW()
+          WHERE id = $2 AND entity_id = $3 AND journal_entry_id IS NULL`,
+        [journalEntryId, bill.billId, entityId]
+      );
+      // Approving the draft satisfies the pre-registration's own approval
+      // requirement and records the reviewer (#318, question 6).
+      const closed = await client.query(
+        `UPDATE pre_registrations SET
+           status = 'completed', result_type = 'bill', result_id = $1,
+           bill_id = $1, journal_entry_id = $2, processed_at = NOW(), processed_by = $3,
+           error_message = NULL,
+           approval_status = CASE WHEN requires_approval THEN 'approved' ELSE approval_status END,
+           approved_by = CASE WHEN requires_approval THEN $3::uuid ELSE approved_by END,
+           approved_at = CASE WHEN requires_approval THEN NOW() ELSE approved_at END
+          WHERE id = $4 AND entity_id = $5 AND status IN ('ready', 'draft', 'error') AND bill_id IS NULL`,
+        [bill.billId, journalEntryId, userId, preRegistrationId, entityId]
+      );
+      const processed = await client.query(
+        `UPDATE xml_documents SET processing_status = 'completed'
+          WHERE id = $1 AND entity_id = $2 AND processing_status IS DISTINCT FROM 'completed'`,
+        [preReg.xml_document_id, entityId]
+      );
+      if (linked.rowCount !== 1 || closed.rowCount !== 1 || processed.rowCount !== 1) {
+        throw new AccountingError(
+          'CFDI_ALREADY_BILLED',
+          `CFDI ${uuid} changed while the draft was being approved; everything was rolled back.`
+        );
+      }
+    },
+  };
+}
+
+/**
+ * `lineas_factura_desde = conceptos_cfdi`: one bill line per CFDI concept, the
+ * account taken from the approved entry ONLY when the entry splits one to one
+ * with the concepts (same count, each concept's net amount matching a distinct
+ * non-tax debit). Anything else is refused: never prorated.
+ */
+function linesPerConcept(
+  uuid: string,
+  concepts: LineWithSuggestion[],
+  expenses: Array<{ accountId: string; dr: Decimal }>
+): BillLineRow[] {
+  const list = Array.isArray(concepts) ? concepts : [];
+  const refuse = (why: string) =>
+    new AccountingError(
+      'BILL_LINES_DO_NOT_MATCH_CONCEPTS',
+      `lineas_factura_desde = conceptos_cfdi needs the approved entry to split one to one with the ` +
+        `${list.length} concept(s) of CFDI ${uuid}; ${why}. Approve with lineas_factura_desde = poliza, or ` +
+        'correct the draft. Nothing was prorated and nothing was posted.'
+    );
+  if (list.length !== expenses.length) {
+    throw refuse(`the entry has ${expenses.length} non-tax debit(s)`);
+  }
+  const free = [...expenses];
+  return list.map((c, i) => {
+    const amount = money(c.importe).minus(money(c.descuento));
+    const k = free.findIndex((g) => g.dr.equals(amount));
+    if (k < 0) throw refuse(`no debit of the entry is ${amount.toFixed(2)}, the amount of concept ${i + 1}`);
+    const [match] = free.splice(k, 1);
+    const tax = sumTax(c.impuestos?.traslados, '002');
+    return {
+      line_number: i + 1,
+      account_id: match.accountId,
+      description: c.descripcion,
+      quantity: c.cantidad,
+      unit_price: c.valor_unitario,
+      line_amount: amount.toFixed(2),
+      tax_amount: tax.toFixed(2),
+      total_amount: amount.plus(tax).toFixed(2),
+      tags: { clave_prod_serv: c.clave_prod_serv },
+    };
+  });
 }
 
 /** El vocabulario de xml_documents.sat_validation_status al del clasificador. */

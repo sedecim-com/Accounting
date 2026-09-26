@@ -356,6 +356,8 @@ export class ImportSection implements SetupSection {
           capture.drafts.push(info);
           borradoresCapturados.n++;
         },
+        // #318: the drafts of each file are born bound to its CFDI.
+        draftOrigin: () => capture.origin,
         onUsage: (usage) => {
           // Mismas pinzas que recordUsage: un contador hostil o no-numérico se
           // fija ANTES de estimar el costo, o un NaN envenena el total de la

@@ -312,6 +312,9 @@ export const EN = {
   'help.review.description':
     'Reviews pending drafts: approve (creates and posts the journal entry), correct then ' +
     'approve, or reject — a rejection can seed the criterion for next time',
+  /** `src/cli/mnemosine.ts` renderDraft: a draft linked to a received CFDI (#318). The issuer name comes from the XML. */
+  'review.draft.bill_to_be_born':
+    'Approving creates the vendor bill of CFDI {uuid} · issuer {issuer} ({rfc}) · method {method} · total {total}',
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
