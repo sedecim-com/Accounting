@@ -16,7 +16,7 @@ Este documento reconstruye, **verificado contra `git log` y contra `gh pr view` 
 
 - **125** PRs registrados aquí.
 - El más alto registrado es el **#341**.
-- **15** commits directos a `main`, de antes del flujo por PR (la fila «—» del Sprint 1).
+- **13** commits directos a `main`, de antes del flujo por PR (la fila «—» del Sprint 1).
 
 CI lo verifica con `--check`, que falla cuando un PR lleva más de **7 días** fusionado sin aparecer aquí. La gracia existe para que una fusión no ponga en rojo los demás PRs abiertos; el techo, para que el documento no pueda pudrirse.
 
