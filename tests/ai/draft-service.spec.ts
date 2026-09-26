@@ -589,6 +589,26 @@ describe('canonicalDraftHash', () => {
       })
     ).not.toBe(base);
   });
+
+  // #318: the pinned value was computed on main BEFORE `origin` existed. An
+  // unlinked draft (chat drafts, reconciliation-service) must keep hashing to
+  // the very same bytes, or every stored approved_content_hash would drift.
+  it('an unlinked draft hashes byte-identically to before origin existed', () => {
+    const before = 'd795b6ef3685a529783598a98dd310472a1336bf25fc3eecf43edf0908d4c82d';
+    expect(canonicalDraftHash(GOOD_PAYLOAD)).toBe(before);
+    expect(canonicalDraftHash(GOOD_PAYLOAD, null)).toBe(before);
+  });
+
+  it('a draft linked to a CFDI binds the CFDI too: another uuid, XML or pre-registration is another hash', () => {
+    const origin = { pre_registration_id: 'pre-1', cfdi_uuid: 'UUID-1', xml_hash: 'abc' };
+    const linked = canonicalDraftHash(GOOD_PAYLOAD, origin);
+    expect(linked).not.toBe(canonicalDraftHash(GOOD_PAYLOAD));
+    // Display-only fields do not enter the hash.
+    expect(canonicalDraftHash(GOOD_PAYLOAD, { ...origin, issuer_name: 'X', total: '1.0000' })).toBe(linked);
+    expect(canonicalDraftHash(GOOD_PAYLOAD, { ...origin, cfdi_uuid: 'UUID-2' })).not.toBe(linked);
+    expect(canonicalDraftHash(GOOD_PAYLOAD, { ...origin, xml_hash: 'abd' })).not.toBe(linked);
+    expect(canonicalDraftHash(GOOD_PAYLOAD, { ...origin, pre_registration_id: 'pre-2' })).not.toBe(linked);
+  });
 });
 
 describe('rejectDraft', () => {

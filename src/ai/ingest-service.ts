@@ -230,6 +230,27 @@ export async function ingestCfdiFiles(opts: {
       };
     }
 
+    // ING-1 (#318): the SYSTEM ties every draft of this turn to the CFDI being
+    // ingested, before any auto-post can approve one, so approval creates the
+    // vendor bill. The model never writes this link. Uploads without a
+    // pre-registration id (test doubles) carry nothing to link.
+    const preRegistrationId = upload.preRegistration.id;
+    if (typeof preRegistrationId === 'string') {
+      const ids = drafts.map((d) => d.draftId);
+      const linked = await query(
+        `UPDATE ai_drafts SET pre_registration_id = $1
+          WHERE id = ANY($2::uuid[]) AND entity_id = $3
+            AND status = 'pending_review' AND pre_registration_id IS NULL`,
+        [preRegistrationId, ids, ctx.entityId]
+      );
+      if (linked.rowCount !== ids.length) {
+        return {
+          file: name, status: 'error', draftId: drafts[drafts.length - 1].draftId,
+          detail: `linked ${linked.rowCount ?? 0} of ${ids.length} draft(s) to the CFDI; review them by hand`,
+        };
+      }
+    }
+
     // Layer 3 (A3/A4): las compuertas se evalúan con UN solo evaluador
     // (evaluarAutoPost) que comparten el modo real y la sombra — así la
     // sombra no puede derivar del camino que dice medir. Integridad
