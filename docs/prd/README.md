@@ -39,7 +39,7 @@ Es obligatorio y va antes de escribir cualquier requisito. Se revisa `catalog-in
 | No existe y es del dominio contable según `docs/SCOPE.md` | Construir aquí |
 | No existe y es de otro dominio | Proponerla a su owner; si se construye aquí, un ADR dice por qué |
 
-**En este repo, antes que nada:** todo lo que toque Contalink o la generación de pólizas desde CFDI se cruza con `accounting-manager`, hasta que la fuente de verdad esté decidida.
+**En este repo, antes que nada:** lo que toque Contalink o la generación de pólizas desde CFDI se construye aquí, no en `accounting-manager`, que se apaga ([ADR-0003](../adr/0003-source-of-truth-over-accounting-manager.md)).
 
 ## 3. Plantilla de PRD
 

@@ -105,8 +105,8 @@ Queda fuera del MVP, con sus issues en la etiqueta `post-mvp`:
 | Consume | CFDI 4.0 (XML) y estados de cuenta (CSV, MT940, camt053) | El SAT y los bancos, a través del cliente | Alta |
 | Consume | Proveedores de modelo (Anthropic y compatibles con OpenAI) | Terceros | Media: hay camino manual sin modelo (#319) |
 | Consume | PAC de timbrado (adaptadores precargados, sin hoja) | Terceros con contrato | Fuera del MVP |
-| Lee y escribe | Contalink: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Sistema contable externo | Media: `accounting-manager` también le escribe pólizas |
-| Ninguna | Ningún contrato con otro repo de Sedecim. Variante sin integración: `accounting-manager` | Plataforma Sedecim (`docs/platform/inventory.md`) | — |
+| Lee y escribe | Contalink: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Sistema contable externo | Media: `accounting-manager` también le escribe pólizas hasta que se apague (ADR-0003) |
+| Ninguna | Ningún contrato con otro repo de Sedecim. `accounting-manager` se apaga y se archiva: este repo es la fuente de verdad (ADR-0003) | Plataforma Sedecim (`docs/platform/inventory.md`) | — |
 
 ## Datos y clasificación `[inferido]`
 
@@ -166,7 +166,6 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 | ¿Qué retención y qué cifrado en reposo se exigen por dato (CFF, LFPDPPP)? | @vic2099 | 2026-10-09 |
 | ¿Qué carpetas no debe tocar nunca un agente, además de las de `CODEOWNERS`? | @vic2099 | 2026-10-09 |
 | Las decisiones pendientes de la ruta al MVP (`status:needs-clarification`) | @vic2099 | ver #329 |
-| ¿Cuál es la fuente de verdad de las pólizas que llegan a Contalink: este repo o `accounting-manager`? ¿El otro se fusiona o se archiva? (#342) | @vic2099 | 2026-10-09 |
 | ¿Se adelantan `develop` y `release` (#333) para llegar a N1, o la plataforma registra una excepción para repos sin despliegue? (`docs/platform/maturity.md`) | @vic2099 | 2026-10-09 |
 
 ## Riesgos conocidos
@@ -194,7 +193,8 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 
 | Fecha | Cambio | PR |
 |---|---|---|
-| 2026-09-25 | Interacciones con Contalink y la plataforma Sedecim; dos preguntas abiertas de plataforma (ADR-0002) | este |
+| 2026-09-26 | Resuelta la fuente de verdad frente a `accounting-manager`: este repo (ADR-0003, #342) | este |
+| 2026-09-25 | Interacciones con Contalink y la plataforma Sedecim; dos preguntas abiertas de plataforma (ADR-0002) | #343 |
 | 2026-09-25 | TL;DR y las secciones de la plantilla del framework agéntico, marcadas `[inferido]` hasta la entrevista (#337) | #340 |
 | 2026-09-25 | Sección «El MVP» | #291 |
 | 2026-09-16 | Los defectos de nómina ya corregidos dejan de figurar como abiertos; se quita la cifra de criterios | #252 |
