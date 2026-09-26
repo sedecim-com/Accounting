@@ -239,7 +239,12 @@ describe('ING-1 · approving the draft of a received PPD CFDI', () => {
       reportError: (e: unknown) => { reported.push(String((e as Error)?.stack ?? e)); },
       confirm: () => Promise.resolve(true),
     });
-    await program.parseAsync(['node', 'mnemosine', 'bill', 'inbox', 'run', pre.id, '--yes']);
+    // The entity is named, as any writing command requires: the shared test
+    // database holds other suites' entities, and the CLI refuses to guess.
+    await program.parseAsync([
+      'node', 'mnemosine', 'bill', 'inbox', 'run', pre.id, '--yes',
+      '--entity', f.entityId, '--tenant', f.tenantId,
+    ]);
     expect(exitCode, reported.join('\n')).toBe(0);
     expect(await entryCount()).toBe(before);
     expect(await billsOf(uuid)).toHaveLength(1);
