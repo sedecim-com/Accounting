@@ -231,15 +231,16 @@ describe('ING-1 · approving the draft of a received PPD CFDI', () => {
     const before = await entryCount();
     const program = new Command('mnemosine').exitOverride();
     let exitCode: number | undefined;
+    const reported: string[] = [];
     const id = (s: string) => s;
     registerBillCommand(program, {
       palette: { dim: id, bold: id, cyan: id, red: id, green: id, yellow: id } as never,
       shutdown: (c: number) => { exitCode = c; },
-      reportError: () => undefined,
+      reportError: (e: unknown) => { reported.push(String((e as Error)?.stack ?? e)); },
       confirm: () => Promise.resolve(true),
     });
     await program.parseAsync(['node', 'mnemosine', 'bill', 'inbox', 'run', pre.id, '--yes']);
-    expect(exitCode).toBe(0);
+    expect(exitCode, reported.join('\n')).toBe(0);
     expect(await entryCount()).toBe(before);
     expect(await billsOf(uuid)).toHaveLength(1);
   });

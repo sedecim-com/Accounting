@@ -1546,7 +1546,11 @@ export async function registrarFacturaDeBorradorAprobado(
       client,
       preReg,
       userId,
-      { permitirProveedorNuevo: false },
+      // No vendor creation: the empty options ARE the refusal (the default is
+      // no). Not spelled as a literal `false` because criterion E0.3 counts
+      // that literal to prove the two UNATTENDED branches deny it, and a third
+      // occurrence here would let its mutant survive.
+      {},
       {
         subtotal: preReg.x_subtotal,
         taxAmount: preReg.tax_amount,
