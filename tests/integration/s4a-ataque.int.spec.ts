@@ -50,6 +50,7 @@ const ARCHIVOS_TOCADOS = [
   'src/database/scope.ts',
   'src/plan/criterios.ts',
   'src/plan/criteria/shared.ts',
+  'src/plan/criteria/e0-1.ts',
 ];
 const originales = new Map<string, string>();
 for (const rel of ARCHIVOS_TOCADOS) {
@@ -605,7 +606,7 @@ describe('5 · npm run mutantes', () => {
     // Se mata el criterio de cobertura de la forma más plausible: alguien lo
     // «simplifica» y deja de comparar contra el suelo.
     mutarEnDisco(
-      'src/plan/criterios.ts',
+      'src/plan/criteria/e0-1.ts',
       "      const problemas = contraSuelo(c, SUELO_COBERTURA_UNITARIA);\n      if (problemas.length > 0) return falla(problemas.join('; '));",
       "      const problemas: string[] = [];\n      if (problemas.length > 0) return falla(problemas.join('; '));"
     );
