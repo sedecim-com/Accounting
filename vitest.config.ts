@@ -53,7 +53,7 @@ export default defineConfig({
       //
       // Y NACE CON SU TRINQUETE, en 100/100/100/100, que es donde su tramo lo
       // dejó. Ponerlo exige mover TRES piezas a la vez —el umbral de aquí, la
-      // entrada de SUELO_COBERTURA_UNITARIA en src/plan/criterios.ts, y el
+      // entrada de SUELO_COBERTURA_UNITARIA en src/plan/criteria/shared.ts, y el
       // conteo a mano del ataque 3c de tests/integration/s4a-ataque.int.spec.ts,
       // que verifica cuántos archivos tienen umbral propio—; moverlas por
       // separado pone en rojo el ataque. Se mueven juntas: un módulo que decide
@@ -166,7 +166,7 @@ export default defineConfig({
         // cobertura —que se pone roja si bajan— pero no el trinquete del
         // tablero: alguien podría bajarlos EDITANDO ESTA LÍNEA sin que ningún
         // criterio se moviera. Cerrarlo es añadirles su renglón en
-        // src/plan/criterios.ts, que es de quien cierra el criterio del tramo.
+        // src/plan/criteria/shared.ts, que es de quien cierra el criterio del tramo.
         'src/services/jurisdiction/legal-parameters.ts': {
           statements: 100, branches: 100, functions: 100, lines: 100,
         },
