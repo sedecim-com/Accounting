@@ -25,7 +25,7 @@ Clasificación de la Fase 1: **Activo**.
 
 Se revisaron los repos activos del dominio financiero y los que comparten vocabulario: `accounting-manager`, `Cobranza`, `acceso-contracts` y `acceso-backend`. Ninguno llama a este repo ni es llamado por él. Uno se le parece mucho:
 
-### `accounting-manager` — variante `[inferido]`
+### `accounting-manager` — reemplazado: se apaga y se archiva
 
 | | `Accounting` (este repo) | `accounting-manager` |
 |---|---|---|
@@ -33,10 +33,11 @@ Se revisaron los repos activos del dominio financiero y los que comparten vocabu
 | Stack | TypeScript, Express, PostgreSQL | JavaScript, Express, Sequelize, MySQL |
 | Contalink | Sistema externo: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Destino: crea pólizas por su API |
 | Pruebas | Suite unitaria, de integración y criterios con mutantes | `npm test` sin pruebas |
+| Despliegue | Ninguno compartido (#333) | dev, uat y producción; producción en cada push a `main` |
 
 **Riesgo:** si los dos escriben pólizas en Contalink para la misma entidad, la misma factura se contabiliza dos veces, y ninguno de los dos lo ve.
 
-**Decisión pendiente** (guía, Fase 1: «se decide cuál es la fuente de verdad; los demás se fusionan o archivan»): cuál de los dos es la fuente de verdad de la póliza que llega a Contalink. Está en #342 y como pregunta abierta en `docs/SCOPE.md`.
+**Decidido** (ADR-0003, 2026-09-26): este repo es la fuente de verdad. `accounting-manager` se apaga primero, porque está en producción y archivarlo no lo detiene, y después se archiva. La lista de apagado está en el ADR y se sigue en #342.
 
 ### Los demás
 
@@ -51,4 +52,5 @@ Variables que la configuración lee y que ningún código usa: `PLAID_*` y `ELAS
 
 - [ ] El owner confirma los campos `# inferido` de `catalog-info.yaml`.
 - [ ] Escaneo del historial completo con gitleaks o trufflehog; lo que aparezca se rota antes de limpiarlo (#338).
-- [ ] Decidir la fuente de verdad frente a `accounting-manager` (#342).
+- [x] Decidir la fuente de verdad frente a `accounting-manager`: este repo (ADR-0003).
+- [ ] Apagar y archivar `accounting-manager` (#342).
