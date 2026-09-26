@@ -594,7 +594,7 @@ const compactionSchema = z
   })
   .strict();
 
-const configFileSchema = z
+export const configFileSchema = z
   .object({
     /** Language for the AGENT's responses (CLI UI is English). Default: es. */
     language: z.enum(['en', 'es']).optional(),
