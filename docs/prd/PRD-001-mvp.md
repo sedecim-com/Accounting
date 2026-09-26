@@ -57,7 +57,7 @@ Ninguna con otros repos de Sedecim (`docs/platform/inventory.md`). Contalink es 
 
 ## 8. Supuestos, riesgos y preguntas abiertas
 
-Las decisiones del dueño que bloquean tareas están en `docs/MVP.md` §4. El backlog marca cada tarea que espera una con `decision: true`, y ninguna de ellas está en el primer sprint en que podría empezar sin la decisión.
+Las decisiones del dueño que bloquean tareas están en `docs/MVP.md` §4. En el backlog, cada decisión es una entrada con `"type": "decision"` y su `owner`. Una tarea que la espera la nombra en su `depends_on`, y por eso nunca cae en S1, que es el sprint de las decisiones.
 
 ## 9. Aprobaciones
 
