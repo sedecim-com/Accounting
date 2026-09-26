@@ -50,7 +50,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   'src/database': 'Pool, migraciones (`migrations/`), políticas RLS, alcance por inquilino y entidad (`scope.ts`) y semillas.',
   'src/i18n': 'Catálogos de mensajes por clave (`en.ts`, `es.ts`) y formato por locale.',
   'src/language': 'Registro del vocabulario persistido y su nombre inglés (rector del idioma).',
-  'src/plan': 'El plan ejecutable: criterios (`criterios.ts`), conducta contra base efímera (`conducta.ts`) y `plan:status`.',
+  'src/plan': 'El plan ejecutable: criterios (`criterios.ts`, que reúne un archivo por paquete en `criteria/`), conducta contra base efímera (`conducta.ts`) y `plan:status`.',
   'src/services': 'Motor de negocio compartido por la terminal, REST y el agente.',
   'src/services/accounting': 'Motor contable: `posting.ts` (única puerta al mayor), periodos, cierre y su conductor, catálogo, apertura, validaciones.',
   'src/services/accruals': 'Devengos mensuales y pagos anticipados.',

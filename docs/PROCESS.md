@@ -7,7 +7,7 @@ Este documento describe el flujo real, no uno aspiracional. Si algo aquí no coi
 ```
 plan (issues + criterios ejecutables)
   → un ejecutor toma UNA issue
-  → implementa contra src/plan/criterios.ts (si cierra o reabre un paquete)
+  → implementa contra src/plan/criteria/<paquete>.ts (si cierra o reabre un paquete)
   → PR contra main, CI en verde, 1 aprobación
   → review por otro vendor (ver docs/ROUTING.md)
   → merge
@@ -32,7 +32,7 @@ Si la issue proviene de un tramo ya redactado en la secuencia del plan (Vía A o
 
 Un PR = una issue = un tema. Un PR que arregla tres cosas no se puede revisar ni revertir (`CONTRIBUTING.md`). Rama con nombre propio, nunca `patch-1`.
 
-Si el cambio cierra un paquete de `src/plan/criterios.ts`, el criterio (o el nuevo criterio que lo prueba) se añade a `--exigir` en `.github/workflows/ci.yml` **en el mismo commit**. Si lo reabre, se quita ahí mismo y se dice por qué en el cuerpo del PR — la reapertura viaja en el diff, a la vista, nunca en un comentario aparte.
+Si el cambio cierra un paquete del tablero (`src/plan/criteria/<paquete>.ts`), el criterio (o el nuevo criterio que lo prueba) se añade a `--exigir` en `.github/workflows/ci.yml` **en el mismo commit**. Si lo reabre, se quita ahí mismo y se dice por qué en el cuerpo del PR — la reapertura viaja en el diff, a la vista, nunca en un comentario aparte.
 
 ## 3. PR + CI
 
