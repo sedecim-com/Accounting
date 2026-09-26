@@ -6,7 +6,7 @@
 
 | Dato | Valor | Fuente |
 |---|---|---|
-| Lenguaje y runtime | TypeScript estricto, Node 20 | `package.json`, `tsconfig.json`, `.github/workflows/ci.yml` |
+| Lenguaje y runtime | TypeScript estricto, Node ≥ 22.12 | `package.json`, `tsconfig.json`, `.github/workflows/ci.yml` |
 | Framework | Express 4 (API REST), Commander (CLI), PostgreSQL con RLS | `package.json`, `docs/wiki/Arquitectura.md` |
 | Actividad | Activo: 455 commits en 12 meses, el último el 2026-09-25 | `git log --since='12 months ago' origin/main` |
 | Autores principales | @vic2099; Dependabot; dos commits de otra persona de Sedecim | `git shortlog -sne` |
@@ -23,7 +23,7 @@ Clasificación de la Fase 1: **Activo**.
 
 ## Relación con otros repos de Sedecim
 
-Se revisaron los repos activos del dominio financiero y los que comparten vocabulario: `accounting-manager`, `Cobranza`, `acceso-contracts` y `acceso-backend`. Ninguno llama a este repo ni es llamado por él. Uno se le parece en la técnica, no en el trabajo:
+El 2026-09-26 se revisaron los 135 repos de `sedecim-com`. La tabla de relaciones y las normas de plataforma están en [`harmony-review.md`](harmony-review.md). Ninguno llama a este repo ni es llamado por él. Uno se le parece en la técnica, no en el trabajo:
 
 ### `accounting-manager` — convive: contabiliza las comisiones de Grupo Promessa
 
@@ -44,7 +44,8 @@ Se revisaron los repos activos del dominio financiero y los que comparten vocabu
 ### Los demás
 
 - **`Cobranza`** — cobranza por descuento de nómina (SEP). Es el candidato natural a productor de un evento de pago aplicado que este repo podría contabilizar; hoy no hay integración ni contrato.
-- **`acceso-*`** (contratos, backend, organizaciones, RBAC) — la plataforma de crédito. Sin relación directa hoy. Si la plataforma centraliza la identidad, `acceso-rbac` y `authentication-server-api` son las contrapartes naturales del OIDC que este repo ya admite (`AUTH_OIDC_*`).
+- **`acceso-*`** (contratos, backend, organizaciones, RBAC) — la plataforma de crédito. Sin relación directa hoy. La identidad de la plataforma es el user pool de **Cognito** de Acceso, no `authentication-server-api`: ese servicio es el forward-auth del gateway y pasa un `x-jwt-payload` sin firma. El bloque `AUTH_OIDC_*` de este repo todavía rechaza los access tokens de Cognito (#369), y la decisión de identidad está en #371.
+- **`PIIS`** — no se le delegan RFC, CURP ni NSS mientras su cifrado siga siendo AES-CBC sin MAC con KDF MD5 (`harmony-review.md` §2).
 
 ## Dependencias huérfanas y configuración muerta
 

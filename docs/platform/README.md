@@ -6,6 +6,7 @@ La guía de implementación del framework pone el inventario, el nivel de madure
 |---|---|---|
 | [`../../catalog-info.yaml`](../../catalog-info.yaml) | `catalog/` (lo agrega un workflow) | La ficha del repo: dominio, tier, datos, qué expone y qué consume. Se queda en la raíz del repo; la plataforma la lee de ahí |
 | [`inventory.md`](inventory.md) | `inventory/accounting.md` | Inventario de la Fase 1 y la relación con los demás repos de Sedecim |
+| [`harmony-review.md`](harmony-review.md) | `reviews/accounting-2026-09-26.md` | Revisión de armonía con los 135 repos de `sedecim-com`: normas observadas, relaciones y ajustes propuestos |
 | [`maturity.md`](maturity.md) | fila en `maturity.md` | Autoevaluación N0–N4 con evidencia |
 | [`../openapi.json`](../openapi.json) | `contracts/mnemosine-rest-v1.yaml` | Contrato v0 de la API REST; se genera del código (`npx tsx scripts/openapi.ts`) |
 
