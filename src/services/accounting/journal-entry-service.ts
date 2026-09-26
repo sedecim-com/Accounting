@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { toCalendarDate } from '../../utils/calendar-date.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../database/connection.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
@@ -418,7 +419,8 @@ export async function checkExistingEntry(
   return {
     ...result,
     entry_number: entry.entry_number,
-    entry_date: String(entry.entry_date instanceof Date ? entry.entry_date.toISOString().slice(0, 10) : entry.entry_date),
+    // #241 · El día se LEE por sus campos locales, que es como pg lo guardó.
+    entry_date: toCalendarDate(entry.entry_date),
     fiscal_period_id: entry.fiscal_period_id,
     period_name: period.rows[0]?.period_name ?? '',
     period_status: period.rows[0]?.status ?? '',

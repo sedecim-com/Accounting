@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { checkDatabase, checkMigrations, checkEncryptionKey } from '../../ai/doctor-service.js';
-import type { CheckResult } from '../../ai/doctor-service.js';
+import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import { query, enterTenant, currentTenant } from '../../database/connection.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
@@ -13,6 +13,14 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 // Without this nothing else makes sense, so it goes first and
 // cannot be skipped.
 // ============================================================
+
+/**
+ * The one check this section owns; the other three it borrows whole from
+ * doctor, identity included. `id` names what it measures — that the tenant the
+ * session asked for is the tenant the connection actually applies — and not
+ * the mechanism its label mentions. See `CheckIdentity` in doctor-service.
+ */
+const RLS_CONTEXT: CheckIdentity = { id: 'tenant-context-applied', name: 'RLS context' };
 
 /** Writes/updates a variable in .env without touching the rest of the file. */
 export function upsertEnvVar(envPath: string, key: string, value: string): void {
@@ -92,7 +100,7 @@ export class InfraSection implements SetupSection {
     const tenant = currentTenant() ?? process.env.MNEMOSINE_TENANT ?? readEnvVar(this.envPath, 'MNEMOSINE_TENANT');
     if (!tenant) {
       return {
-        name: 'RLS context',
+        ...RLS_CONTEXT,
         level: 'ok',
         detail: 'no tenant pinned yet (the identity section pins it)',
       };
@@ -106,20 +114,20 @@ export class InfraSection implements SetupSection {
       const applied = r.rows[0]?.tenant ?? null;
       if (applied !== tenant) {
         return {
-          name: 'RLS context',
+          ...RLS_CONTEXT,
           level: 'fail',
           detail: `app.current_tenant is "${applied ?? ''}" instead of "${tenant}": queries would run unscoped`,
           fix: 'Check MNEMOSINE_TENANT in .env; the connection module must apply the tenant on every query',
         };
       }
       return {
-        name: 'RLS context',
+        ...RLS_CONTEXT,
         level: 'ok',
         detail: `tenant ${tenant} scoped · ${r.rows[0].entities} entities visible`,
       };
     } catch (err) {
       return {
-        name: 'RLS context',
+        ...RLS_CONTEXT,
         level: 'fail',
         detail: `scoped SELECT failed: ${(err as Error).message}`,
         fix: 'npm run migrate (the legal_entities table or its RLS policies may be missing)',

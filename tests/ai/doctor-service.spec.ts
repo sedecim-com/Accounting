@@ -1,4 +1,9 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+
+// Default timeouts in this file (#293). The 20 s it had covered the cold start
+// of `runDoctor` —loading the whole CLI for the consistency check— and the
+// scan of the real repository; both are now computed once per run in the unit
+// globalSetup and read from tests/helpers/shared-board.ts.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -18,10 +23,14 @@ import { runDoctor,
   checkLookupTables,
   checkOrphanedCapability,
   claseDe,
+  CHECK_IDENTITIES,
   LOOKUP_TABLES,
+  type CheckIdentity,
+  type DoctorReport,
 } from '../../src/ai/doctor-service.js';
 import { query, withTenant } from '../../src/database/connection.js';
 import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
+import { sharedCliConsistency, sharedOrphanedCapability } from '../helpers/shared-board.js';
 
 const mockQuery = query as unknown as Mock;
 const mockWithTenant = withTenant as unknown as Mock;
@@ -62,6 +71,8 @@ function mockDb(over: Partial<Record<string, unknown[]>> = {}) {
 
 let tmpDir: string;
 const ENV = { ...process.env };
+/** The CLI consistency result of this run: `runDoctor` without its cold start. */
+const shared = { cliConsistency: sharedCliConsistency() };
 
 beforeEach(() => {
   mockQuery.mockReset();
@@ -75,26 +86,6 @@ afterEach(() => {
   process.env = { ...ENV };
 });
 
-// The first runDoctor of the file paid 5.1 s and every later one paid 2 ms.
-// None of it is the doctor: `checkConsistenciaCli` imports the CLI lazily
-// (doctor-service.ts) and that cold import transforms the whole command tree —
-// every family, every service it pulls — inside vitest. The cost is one-time
-// and grows with the surface, so charging it to whichever test runs first means
-// the file breaks for the commit that adds the command that crosses 5 s.
-// Measured on `main` at 4.63 s of a 5 s budget, and it already fails on a
-// loaded machine.
-//
-// Paying it once here keeps every test on the default 5 s budget and measures
-// what each one is actually for. Same shape as the beforeAll of «capacidad
-// huérfana» below, and the same reason.
-// 180 s and not 60 for the same reason as the orphan hook below: the budget is
-// room for the instrument to finish, not a claim about how long it takes. The
-// import measures ~5 s on an idle machine and blew 60 s on a loaded one.
-beforeAll(async () => {
-  await import('../../src/cli/mnemosine.js');
-  await import('../../src/cli/kernel/audit.js');
-}, 180_000);
-
 function find(report: Awaited<ReturnType<typeof runDoctor>>, name: string) {
   const c = report.checks.find((x) => x.name === name);
   if (!c) throw new Error(`missing check "${name}"`);
@@ -104,14 +95,14 @@ function find(report: Awaited<ReturnType<typeof runDoctor>>, name: string) {
 describe('runDoctor — database', () => {
   it('reports the version when it connects', async () => {
     mockDb();
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     expect(find(r, 'Database').level).toBe('ok');
     expect(find(r, 'Database').detail).toBe('PostgreSQL 15.17');
   });
 
   it('when the DB fails, SKIPS the checks that depend on it', async () => {
     mockQuery.mockRejectedValue(new Error('ECONNREFUSED'));
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     expect(find(r, 'Database').level).toBe('fail');
     expect(r.checks.find((c) => c.name === 'Migrations')).toBeUndefined();
     expect(r.worst).toBe('fail');
@@ -125,7 +116,7 @@ describe('runDoctor — migrations', () => {
     fs.writeFileSync(path.join(tmpDir, '001_a.sql'), '');
     fs.writeFileSync(path.join(tmpDir, '002_b.sql'), '');
     mockDb({ migrations: [{ filename: '001_a.sql' }] });
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     const c = find(r, 'Migrations');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/1 unapplied: 002_b\.sql/);
@@ -135,14 +126,14 @@ describe('runDoctor — migrations', () => {
   it('ok when all are applied', async () => {
     fs.writeFileSync(path.join(tmpDir, '001_a.sql'), '');
     mockDb({ migrations: [{ filename: '001_a.sql' }] });
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Migrations').level).toBe('ok');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Migrations').level).toBe('ok');
   });
 });
 
 describe('runDoctor — tenant isolation', () => {
   it('WARNS that RLS is inert with a SUPERUSER role', async () => {
     mockDb({ roles: [{ current_user: 'victor', is_super: true, bypass: false, rls_tables: '57' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/SUPERUSER/);
     expect(c.fix).toMatch(/mnemosine_app/);
@@ -150,20 +141,20 @@ describe('runDoctor — tenant isolation', () => {
 
   it('also warns with BYPASSRLS', async () => {
     mockDb({ roles: [{ current_user: 'app', is_super: false, bypass: true, rls_tables: '57' }] });
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation').detail)
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation').detail)
       .toMatch(/BYPASSRLS/);
   });
 
   it('warns when RLS is not enabled on any table', async () => {
     mockDb({ roles: [{ current_user: 'app', is_super: false, bypass: false, rls_tables: '0' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/not enabled/);
   });
 
   it('ok when the role is subject to policies', async () => {
     mockDb();
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation').level).toBe('ok');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Tenant isolation').level).toBe('ok');
   });
 });
 
@@ -172,19 +163,19 @@ describe('runDoctor — fiscal credentials', () => {
 
   it('no credentials is OK (they are not required)', async () => {
     mockDb();
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials').level).toBe('ok');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials').level).toBe('ok');
   });
 
   it('warns when it expires in less than 30 days', async () => {
     mockDb({ creds: [{ n: '1', soonest: '2026-09-10T00:00:00Z' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/expires in 17 days/);
   });
 
   it('FAILS when it has already expired', async () => {
     mockDb({ creds: [{ n: '1', soonest: '2026-08-01T00:00:00Z' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir, now }), 'Fiscal credentials');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/ALREADY EXPIRED/);
   });
@@ -196,7 +187,7 @@ describe('runDoctor — model provider', () => {
     fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify({
       default_provider: 'local', providers: { local: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1' } },
     }));
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('ok');
     expect(c.detail).toMatch(/local, no credential/);
   });
@@ -211,7 +202,7 @@ describe('runDoctor — model provider', () => {
         localito: { type: 'openai-compatible', model: 'm2', base_url: 'http://y/v1' },
       },
     }));
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Model provider');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/SOME_KEY/);
     expect(c.fix).toMatch(/--provider/);
@@ -222,7 +213,7 @@ describe('runDoctor — encryption key', () => {
   it('FAILS with the example key (zeros)', async () => {
     mockDb();
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/EXAMPLE/);
     expect(c.fix).toMatch(/openssl rand -hex 32/);
@@ -231,12 +222,12 @@ describe('runDoctor — encryption key', () => {
   it('FAILS with an invalid length', async () => {
     mockDb();
     process.env.ENCRYPTION_KEY = 'abc';
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key').level).toBe('fail');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key').level).toBe('fail');
   });
 
   it('ok with an own 64-hex key', async () => {
     mockDb();
-    expect(find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key').level).toBe('ok');
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Encryption key').level).toBe('ok');
   });
 });
 
@@ -255,7 +246,7 @@ const AUDITOR_SANO = [{
 describe('runDoctor — rol de auditor', () => {
   it('warn cuando no existe: no es una avería, es una capacidad que falta', async () => {
     mockDb();
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/credenciales de ESCRITURA/);
     expect(c.fix).toMatch(/rol-auditor\.sql/);
@@ -263,7 +254,7 @@ describe('runDoctor — rol de auditor', () => {
 
   it('ok cuando está, es NOLOGIN y no salta la RLS', async () => {
     mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '57', totales: '57' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('ok');
     expect(c.detail).toMatch(/57 tablas aisladas/);
   });
@@ -277,7 +268,7 @@ describe('runDoctor — rol de auditor', () => {
         { relname: 'tax_tables', es_vista: false },
       ],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('ok');
     expect(c.detail).toMatch(/exchange_rates, tax_tables/);
     expect(c.detail).toMatch(/referencia global/);
@@ -292,7 +283,7 @@ describe('runDoctor — rol de auditor', () => {
       auditor: AUDITOR_SANO,
       auditorSinFiltro: [{ relname: 'mv_trial_balance', es_vista: true }],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/mv_trial_balance/);
     expect(c.detail).toMatch(/TODOS los inquilinos/);
@@ -302,7 +293,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb({
       auditor: [{ rolcanlogin: false, rolbypassrls: true, rolsuper: false, rolcreaterole: false }],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/TODOS los inquilinos/);
   });
@@ -312,7 +303,7 @@ describe('runDoctor — rol de auditor', () => {
       auditor: AUDITOR_SANO,
       auditorEscribe: [{ tabla: 'journal_entries', privilegio: 'INSERT' }],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('fail');
     expect(c.detail).toMatch(/journal_entries:INSERT/);
   });
@@ -321,7 +312,7 @@ describe('runDoctor — rol de auditor', () => {
     mockDb({
       auditor: [{ rolcanlogin: true, rolbypassrls: false, rolsuper: false, rolcreaterole: false }],
     });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/NOMINALES/);
   });
@@ -332,7 +323,7 @@ describe('runDoctor — rol de auditor', () => {
     // se restaban «tres» a mano —users, sessions, tenants—, y ese tres se
     // quedó corto en cuanto el guion tuvo que negar la cuarta.
     mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '50', totales: '57' }] });
-    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
     expect(c.level).toBe('warn');
     expect(c.detail).toMatch(/7 tabla/);
   });
@@ -342,7 +333,7 @@ describe('runDoctor — aggregated severity', () => {
   it('worst = fail if there is any failure', async () => {
     mockDb();
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
-    expect((await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir })).worst).toBe('fail');
+    expect((await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir })).worst).toBe('fail');
   });
 
   it('worst = warn when there are only warnings', async () => {
@@ -355,15 +346,131 @@ describe('runDoctor — aggregated severity', () => {
     fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify({
       default_provider: 'local', providers: { local: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1' } },
     }));
-    expect((await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir })).worst).toBe('warn');
+    expect((await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir })).worst).toBe('warn');
   });
 
   it('every check with a problem carries an actionable fix', async () => {
     mockDb({ roles: [{ current_user: 'victor', is_super: true, bypass: false, rls_tables: '57' }] });
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     for (const c of r.checks.filter((x) => x.level !== 'ok')) {
       expect(c.fix, `"${c.name}" does not say how to fix it`).toBeTruthy();
+    }
+  });
+});
+
+// ============================================================
+// THE IDENTITY OF A CHECK, WHICH IS NOT ITS LABEL (#153, decision 3)
+//
+// `name` is prose: some checks are labelled in Spanish, all of them are headed
+// for the i18n catalogue, and the day they get translated anyone grouping by
+// the label breaks. That is the SAME defect #253 closed one floor up, in the
+// key of the reports — so these tests are written before the catalogue lands
+// rather than after it.
+//
+// The five look at different things: that the id exists, that no two are
+// alike, that it survives into the JSON, and — the one that actually bites —
+// that it is not the label run through a slugify, because that would tie the
+// identity back to the prose all over again.
+// ============================================================
+
+/** The label lowercased and hyphenated: what a slugify would produce. */
+function slug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Every identity this module can emit, without touching the database. */
+const EVERY_IDENTITY: CheckIdentity[] = [
+  ...Object.values(CHECK_IDENTITIES),
+  ...LOOKUP_TABLES.map((t) => ({ id: t.id, name: t.label })),
+];
+
+describe('the identity of every check', () => {
+  it('every CheckResult in the report carries a non-empty id', async () => {
+    mockDb();
+    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    // The whole report, not a sample: with a healthy database all of them run.
+    expect(r.checks.length).toBeGreaterThanOrEqual(EVERY_IDENTITY.length);
+    for (const c of r.checks) {
+      expect(c.id, `"${c.name}" came out without an id`).toBeTruthy();
+      expect(c.id, `"${c.name}" has an id that is not English kebab-case`).toMatch(
+        /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/
+      );
+      expect(c.name, `${c.id} came out without a label: the name is NOT retired`).toBeTruthy();
+    }
+  });
+
+  it('no two ids are alike, and it is checked rather than eyeballed', async () => {
+    mockDb();
+    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const seen = new Map<string, string>();
+    for (const c of r.checks) {
+      const earlier = seen.get(c.id);
+      expect(earlier, `"${c.name}" and "${earlier}" share the id ${c.id}`).toBeUndefined();
+      seen.set(c.id, c.name);
+    }
+    // And over the whole registry too, which includes the branches this
+    // particular report never walked.
+    const ids = EVERY_IDENTITY.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('doctor --json publishes the id NEXT TO the name', async () => {
+    mockDb();
+    const report = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    // This is literally what `mnemosine doctor --json` prints:
+    // JSON.stringify(report). If anyone starts picking fields there, or the id
+    // leaves the type, this test goes red.
+    const published = JSON.parse(JSON.stringify(report)) as DoctorReport;
+    for (const c of published.checks) {
+      expect(Object.keys(c)).toEqual(expect.arrayContaining(['id', 'name']));
+    }
+  });
+
+  // ============================================================
+  // THE TEST THAT BITES: THE ID IS NOT THE NAME WITH HYPHENS
+  //
+  // Measured over today's 24: NOT ONE equals the slug of its label. Five share
+  // no word at all with it, and they are the five where naming what is
+  // MEASURED gives something different from naming what the check says:
+  //
+  //   Tenant isolation              -> rls-enforced-on-connection
+  //   Ledger integrity              -> balances-match-posted-lines
+  //   Segregacion de funciones ...  -> conflicting-permissions
+  //   Memory conflicts              -> contradicting-precedents
+  //   Memory in the prompt          -> precedents-outside-digest
+  //
+  // The other nineteen share some word — "encryption-key" sits on both sides —
+  // and that is not derivation: it is the label already naming half of it
+  // correctly. What none of them does is BE the slug.
+  // ============================================================
+  it('no id is its label lowercased and hyphenated', () => {
+    for (const c of EVERY_IDENTITY) {
+      expect(c.id, `the id of "${c.name}" is its slug: the identity hangs off the prose again`)
+        .not.toBe(slug(c.name));
+    }
+  });
+
+  it('the five checks renamed outright share no word with their label', () => {
+    const RENAMED_OUTRIGHT = [
+      'rls-enforced-on-connection',
+      'balances-match-posted-lines',
+      'conflicting-permissions',
+      'contradicting-precedents',
+      'precedents-outside-digest',
+    ];
+    for (const id of RENAMED_OUTRIGHT) {
+      const c = EVERY_IDENTITY.find((x) => x.id === id);
+      expect(c, `${id} vanished from the registry`).toBeDefined();
+      const words = new Set(slug(c!.name).split('-'));
+      for (const word of id.split('-')) {
+        expect(words.has(word), `${id} reuses "${word}" from the label "${c!.name}"`).toBe(false);
+      }
     }
   });
 });
@@ -546,29 +653,14 @@ describe('checkLookupTables', () => {
 });
 
 describe('checkOrphanedCapability', () => {
-  // El escaneo recorre src/ entero: ~2,5 s por llamada. Seis pruebas lo pedían
-  // sobre el mismo árbol inmutable, así que se recorría seis veces, y en CI una
-  // sola llamada ya se comía los 5 s de presupuesto de su prueba. Se escanea
-  // una vez, en el setup, donde el costo es visible y su tope explícito.
-  // No depende del beforeEach: lee el disco, no el entorno ni la base. La
-  // prueba de tmpDir queda fuera a propósito — necesita un árbol vacío nuevo
-  // en cada corrida, y ahí el escaneo es barato porque no hay nada que leer.
-  //
-  // EL TOPE YA NO ES 30 s, y la cifra de arriba ya no es 2,5 s. Medido hoy
-  // sobre `origin/main` sin este tramo: 28 s una sola llamada, contra un tope
-  // de 30. El escaneo se volvió caro cuando dejó de limpiar comentarios con
-  // dos regex ingenuas y pasó a recorrer el fuente con estado (#274) — que es
-  // correcto y es lo que hay que hacer—, y nadie movió el presupuesto.
-  //
-  // Un tope que descansa sobre el costo medido no es un tope: es una trampa
-  // con fecha, y la dispara quien añada el archivo que cruce la raya, no quien
-  // la puso. Este número NO es una afirmación de rendimiento — el escaneo
-  // tarda lo que tarda, y si eso importa es su propio tramo—: es sitio para
-  // que el instrumento termine.
-  let repo: ReturnType<typeof checkOrphanedCapability>;
-  beforeAll(() => {
-    repo = checkOrphanedCapability({ cwd: process.cwd() });
-  }, 180_000);
+  // The scan of THIS repository reads src/, scripts/ and tests/ whole. It was
+  // paid in this file's beforeAll under a hook ceiling raised from 30 s to
+  // 90 s by growth: ~16 s alone, because it ran two regexes per export over
+  // every file. #293 made that count a single pass (~1.5 s) and moved the
+  // call to the unit globalSetup, where no test ceiling is charged for it.
+  // The tmpDir cases stay local on purpose: each needs its own fresh tree,
+  // and there the scan is cheap because there is nothing to read.
+  const repo = sharedOrphanedCapability();
 
   it('says so when there is no source tree instead of passing on nothing', () => {
     // A packaged install runs from dist/. A green tick that checked nothing is

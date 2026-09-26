@@ -38,6 +38,7 @@ import {
   buildMemoryDigest,
 } from '../../src/ai/memory-service.js';
 import { runDoctor, type DoctorReport } from '../../src/ai/doctor-service.js';
+import { sharedCliConsistency } from '../helpers/shared-board.js';
 import {
   renderConflicts, renderDigestCoverage, registerMemoryCommand,
 } from '../../src/cli/memory-command.js';
@@ -609,7 +610,12 @@ describe('doctor devuelve el hallazgo de precedentes en conflicto', () => {
     process.env = { ...ENV };
   });
 
-  const correr = () => runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+  // Default timeout (#293). The 20 s this file had covered the cold start of
+  // `runDoctor`: its CLI consistency check loads the whole CLI, ~5 s the first
+  // time in every file. That result is computed once per run in the unit
+  // globalSetup and handed in here; every other check still runs for real.
+  const correr = () =>
+    runDoctor({ cliConsistency: sharedCliConsistency(), migrationsDir: tmpDir, cwd: tmpDir });
 
   it('avisa, nombra la entidad y enseña las DOS respuestas enfrentadas', async () => {
     mockDb({ precedentes: memoriaDeUnDespacho() });

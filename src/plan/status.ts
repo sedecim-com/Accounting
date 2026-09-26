@@ -39,7 +39,7 @@ export interface Paquete {
 }
 
 export async function evaluar(criterios: Criterio[] = CRITERIOS): Promise<Paquete[]> {
-  const porPaquete = new Map<string, Evaluacion[]>();
+  const evaluated: Evaluacion[] = [];
 
   for (const criterio of criterios) {
     let resultado: Resultado;
@@ -48,18 +48,35 @@ export async function evaluar(criterios: Criterio[] = CRITERIOS): Promise<Paquet
     } catch (err) {
       // Un criterio que revienta no es un criterio cumplido. Se reporta como
       // no evaluable con la causa, que es lo que hace falta para arreglarlo.
-      resultado = {
-        estado: 'no-evaluable',
-        detalle: `el criterio falló al ejecutarse: ${(err as Error).message}`,
-      };
+      resultado = resultOfThrow((err as Error).message);
     }
-    const lista = porPaquete.get(criterio.paquete) ?? [];
-    lista.push({ criterio, resultado });
-    porPaquete.set(criterio.paquete, lista);
+    evaluated.push({ criterio, resultado });
   }
 
-  return [...porPaquete.entries()]
-    .map(([id, evaluaciones]) => ({ id, estado: estadoDe(evaluaciones), evaluaciones }))
+  return groupIntoPackages(evaluated);
+}
+
+/**
+ * What a criterion that threw counts as. Exported, like `groupIntoPackages`,
+ * for the unit suite: it runs the board ONCE per run in a vitest globalSetup
+ * (tests/helpers/shared-board.ts) and must rebuild exactly what this runner
+ * would have produced, not a look-alike.
+ */
+export const resultOfThrow = (message: string): Resultado => ({
+  estado: 'no-evaluable',
+  detalle: `el criterio falló al ejecutarse: ${message}`,
+});
+
+/** Evaluations in board order → packages, each with its state, sorted by id. */
+export function groupIntoPackages(evaluated: Evaluacion[]): Paquete[] {
+  const byPackage = new Map<string, Evaluacion[]>();
+  for (const e of evaluated) {
+    const list = byPackage.get(e.criterio.paquete) ?? [];
+    list.push(e);
+    byPackage.set(e.criterio.paquete, list);
+  }
+  return [...byPackage.entries()]
+    .map(([id, list]) => ({ id, estado: estadoDe(list), evaluaciones: list }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
@@ -359,12 +376,21 @@ function comprobarPiso(todos: Paquete[]): number {
   return 0;
 }
 
-export async function main(argv = process.argv.slice(2)): Promise<number> {
+/**
+ * `evaluate` is injectable so the unit suite can drive this gate with the
+ * board it already evaluated once for the whole run, instead of paying the
+ * full board again for every case. The CLI never passes it.
+ */
+export interface MainDeps {
+  evaluate?: () => Promise<Paquete[]>;
+}
+
+export async function main(argv = process.argv.slice(2), deps: MainDeps = {}): Promise<number> {
   // Un argumento suelto filtra por prefijo de paquete: `plan:status E0` o
   // `plan:status E2.1`. Es lo que hace citable un paquete desde el documento
   // sin copiar su estado a mano, que es exactamente lo que se desincronizó.
   const filtros = argv.filter((a) => !a.startsWith('-'));
-  const todos = await evaluar();
+  const todos = await (deps.evaluate ?? (() => evaluar()))();
   const paquetes = filtros.length
     ? todos.filter((p) => filtros.some((f) => p.id.startsWith(f)))
     : todos;

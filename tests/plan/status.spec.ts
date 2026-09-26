@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+
+// Default timeouts in this file. `main()` used to run the whole board in
+// every case —six times per run— under a 30 s ceiling that kept being
+// outgrown. It now reads the board evaluated once per run (#293).
 import {
   abiertosDe,
   bloqueadoPorEntorno,
@@ -12,6 +16,7 @@ import {
   type Paquete,
 } from '../../src/plan/status.js';
 import { ok, falla, noEvaluable, type Criterio } from '../../src/plan/criterios.js';
+import { sharedPackages } from '../helpers/shared-board.js';
 
 // ============================================================
 // El runner del estado del plan.
@@ -112,30 +117,18 @@ describe('formatear — la salida sirve para actuar', () => {
 
 describe('main — la compuerta de CI', () => {
   /**
-   * CADA CASO DE ESTE BLOQUE EVALÚA EL ÁRBOL ENTERO.
+   * EVERY CASE IN THIS BLOCK JUDGES THE REAL TREE.
    *
-   * `main` no simula nada: corre los quince paquetes de criterios de verdad
-   * sobre el repositorio —subproceso y socket incluidos—, que es lo que les da
-   * valor: un trinquete probado contra un doble no prueba el trinquete. El
-   * precio es que su costo CRECE CON EL PROYECTO, y el timeout por omisión de
-   * vitest (5 s) nunca se eligió pensando en ellos.
-   *
-   * El primero de los seis ya llevaba su propio `{ timeout: 30_000 }` con esta
-   * misma razón escrita al lado. Le faltaban las cinco hermanas: el arreglo se
-   * aplicó al caso que falló y no a su clase, así que el problema volvió por el
-   * siguiente que cruzara los cinco segundos. Ahora el presupuesto es del
-   * bloque y no de un caso.
-   *
-   * Ya alcanzó: en CI un caso tardó 5 042 ms y rompió el build por 42
-   * milisegundos, sin que nada estuviera mal. Medido en local hoy: entre 2,5 y
-   * 3,6 s por caso; CI es del orden del doble de lento.
-   *
-   * El presupuesto va explícito y holgado, no ajustado a la medición de hoy:
-   * un margen corto vuelve a caducar con el siguiente tramo y el rojo que
-   * produce no dice nada del código. Sigue siendo un tope, no una barra libre
-   * — si uno de éstos llega a 30 s, algo se colgó de verdad y hay que mirarlo.
+   * `main` simulates nothing: it gates on the results of every criterion of
+   * the board over this repository —subprocess and socket included—, which is
+   * what gives it value: a ratchet tested against a double does not test the
+   * ratchet. What changed (#293) is that those results are computed ONCE per
+   * run, in the unit globalSetup, and handed to `main` through its `evaluate`
+   * seam, instead of the board being run again for each of the six cases.
+   * Before that, each case took 15 to 23 s under the full suite, behind a
+   * 30 s ceiling that had already been raised once.
    */
-  const PRESUPUESTO = 30_000;
+  const board = { evaluate: async () => sharedPackages() };
 
   const callar = () => {
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -147,24 +140,24 @@ describe('main — la compuerta de CI', () => {
 
   it('sin --exigir informa y no rompe el build: un paquete abierto es información', async () => {
     callar();
-    expect(await main([])).toBe(0);
-  }, PRESUPUESTO);
+    expect(await main([], board)).toBe(0);
+  });
 
   it('rompe cuando se exige cerrado un paquete que está abierto', async () => {
     callar();
     // F02 puso E1.3 en verde (todas las políticas ganaron lector): el rojo
     // de guardia pasa a E3.2 — la descarga masiva del SAT, bloqueada por la
     // e.firma real, el rojo más longevo del tablero.
-    expect(await main(['--exigir=E3.2'])).toBe(1);
-  }, PRESUPUESTO);
+    expect(await main(['--exigir=E3.2'], board)).toBe(1);
+  });
 
   it('el filtro no puede blanquear lo exigido', async () => {
     // `plan:status E0 --exigir=E3.2` miraba sólo E0, no encontraba E3.2 entre
     // lo abierto, y pasaba. Un trinquete que se apaga con un argumento no es
     // un trinquete.
     callar();
-    expect(await main(['E0', '--exigir=E3.2'])).toBe(1);
-  }, PRESUPUESTO);
+    expect(await main(['E0', '--exigir=E3.2'], board)).toBe(1);
+  });
 
   it('un paquete exigido que NO EXISTE rompe, en vez de pasar en silencio', async () => {
     // El trinquete se podía vaciar sin ponerse rojo: bastaba borrar o
@@ -172,18 +165,18 @@ describe('main — la compuerta de CI', () => {
     // --exigir ignoraba los ids desconocidos. El instrumento vive en el mismo
     // commit que el cambio que juzga, y nada lo protegía de eso.
     callar();
-    expect(await main(['--exigir=E9.9'])).toBe(1);
-  }, PRESUPUESTO);
+    expect(await main(['--exigir=E9.9'], board)).toBe(1);
+  });
 
   it('lo detecta aunque venga mezclado con paquetes que sí existen y están verdes', async () => {
     callar();
-    expect(await main(['--exigir=E0.0,E9.9'])).toBe(1);
-  }, PRESUPUESTO);
+    expect(await main(['--exigir=E0.0,E9.9'], board)).toBe(1);
+  });
 
   it('avisa cuando el filtro no coincide con nada, en vez de imprimir vacío', async () => {
     callar();
-    expect(await main(['E9'])).toBe(1);
-  }, PRESUPUESTO);
+    expect(await main(['E9'], board)).toBe(1);
+  });
 });
 
 describe('abiertosDe', () => {

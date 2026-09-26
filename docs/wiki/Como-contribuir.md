@@ -48,7 +48,7 @@ lo contrario, y una puerta que se cree cerrada es peor que una abierta.
 | Trabajo | Qué corre | Qué atrapa |
 |---|---|---|
 | **Tipos** | `npm run typecheck` y `typecheck:tests` | Lo de siempre, y lo más barato |
-| **Lint** | `npm run lint` | ESLint 9 **con información de tipos** sobre `src/`, `tests/` y `scripts/` |
+| **Lint** | `npm run lint` | ESLint 10 **con información de tipos** sobre `src/`, `tests/` y `scripts/` |
 | **Commit subjects** | `scripts/language/commit-subjects.ts` | Que el asunto de un commit nuevo —y el título del PR— nazca en inglés |
 | **Pruebas unitarias** | `npm test` y `npx vitest run --coverage` | La suite, más un trinquete de cobertura por archivo sobre el motor contable |
 | **Estado del plan** | `plan:status --exigir=…` y `catalogo-estado --check` | El **retroceso** de un paquete cerrado, y que el catálogo de comandos esté al día |

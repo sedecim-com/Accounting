@@ -1,4 +1,5 @@
 import type { CfdiFacts } from './cfdi-facts.js';
+import { toCalendarDate } from '../../utils/calendar-date.js';
 
 // ============================================================
 // DECISION POINTS
@@ -363,7 +364,7 @@ export const DECISIONS: DecisionPoint[] = [
     severity: 'blocking',
     question: 'The CFDI belongs to an already-closed period. Which period should I record it in?',
     context: (f) =>
-      `CFDI date: ${f.fecha.toISOString().split('T')[0]} · ${f.emisorNombre} · ${money(f.total, f.moneda)}\n` +
+      `CFDI date: ${toCalendarDate(f.fecha)} · ${f.emisorNombre} · ${money(f.total, f.moneda)}\n` +
       `The period for that date is closed; recording it there would require reopening it.`,
     options: [
       { value: 'periodo_actual', label: 'Record in the currently open period' },

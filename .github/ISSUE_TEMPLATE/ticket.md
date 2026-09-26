@@ -1,34 +1,72 @@
 ---
-name: Work ticket
-about: One unit of work from the plan — what must be true when it is done, not which files to touch
+name: Ticket de trabajo
+about: Una unidad de trabajo lista para una persona o un agente — qué debe ser cierto al terminar, no qué archivos tocar
 title: ''
-labels: ''
+labels: 'status:triage'
 assignees: ''
 ---
 
-## Tranche
+<!--
+Definition of Ready (docs/PROCESS.md §1 y docs/ROUTING.md). Una issue pasa a
+`status:agent-ready` sólo si tiene TODO lo de abajo, es D1–D2 y no está bloqueada;
+en D3–D4 además hace falta `/confirmar` de un humano. Si un desarrollador nuevo no
+podría resolverla sin preguntar, un agente tampoco.
+-->
 
-<!-- The tranche code if it comes from the plan's sequence (S0.1, F03, G1a, T4, etc.), or "new" if it does not. -->
+## Objetivo
 
-## What must be true when it is done
+<!-- Una oración, con el resultado para el contador o el despacho. -->
 
-<!-- Verifiable acceptance criteria. Not a list of files: that is decided by whoever implements it. -->
+## Tramo y contexto
+
+- **Tramo:** <!-- código del plan (T4, F07e, O1c…) o «nuevo» -->
+- **Por qué ahora:** <!-- copiado del "por qué aquí" de la secuencia si existe; si viene de una auditoría, archivo:línea y reproducción -->
+- **Relacionado:** <!-- #issue, PR, docs/adr/NNNN, sección de docs/SCOPE.md -->
+
+## Criterios de aceptación
+
+<!-- Verificables, en Dado / Cuando / Entonces. Cada uno se convierte en una prueba. -->
+
+- [ ] Dado …, cuando …, entonces ….
+
+## Impacto
+
+<!-- Contratos de este repo que cambian: API publicada (docs/openapi.json), entregables al SAT/IMSS, esquema (migración), superficie del CLI (catálogo). «Ninguno» también es respuesta. -->
+
+| Contrato | Impacto (ninguno · compatible · rompe) | Acción |
+|---|---|---|
+| | | |
+
+## Pistas de implementación
+
+- **Archivos probables:** <!-- ver docs/REPO_MAP.md -->
+- **Patrón a seguir:** <!-- enlace a código existente bien hecho -->
+
+## Fuera de alcance
 
 -
--
 
-## Why (if it applies)
+## Cómo probar
 
-<!-- Copied from the "why here" of the plan's sequence if it exists — do not reinvent it. If the tranche comes from an audit, cite evidence: file:line and a reproduction. -->
+- `scripts/verify.sh`, y la prueba específica: <!-- ruta del spec -->
+- **Datos:** fixtures sintéticos en `tests/fixtures/` (nunca datos reales).
+- **Casos borde:**
 
-## Depends on
+## Clasificación
 
-<!-- Another issue, or "none". -->
+<!-- La llena el triage; ver la rúbrica en docs/ROUTING.md. -->
 
-## Suggested level
+| Alcance | Ambigüedad | Novedad | Riesgo | Verificabilidad | Total → nivel |
+|---|---|---|---|---|---|
+| | | | | | D? |
 
-<!-- See docs/ROUTING.md: L1 / L2 / L3. If it touches .github/CODEOWNERS with an enforced owner, it is L3. -->
+- **Autonomía:** A1 | A2 | A3. Este repo es **A3 por omisión**: tiene PII y funciones financieras reguladas.
+- **Tamaño estimado:** ~N líneas. Si pasa de ~400, dividir antes de `agent-ready`.
 
-## Notes for whoever implements it
+## Restricciones
 
-<!-- Invariants from AGENTS.md that apply especially here, if any. -->
+<!-- Invariantes de AGENTS.md que aplican especialmente; rutas que no se tocan; decisiones que van al panel (invariante 6). -->
+
+## Depende de
+
+<!-- Otra issue, o «ninguna». Si depende de una abierta: `status:blocked`. -->

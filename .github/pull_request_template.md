@@ -1,31 +1,70 @@
-## What changes
+Closes #
 
-<!-- One or two sentences. The "what", not the "how". -->
+<!-- Un PR resuelve una issue. Menos de ~400 líneas sin contar lo generado; si no cabe, la issue se divide. Ábrelo como Draft mientras CI no esté en verde. -->
 
-## Why
+## Qué cambia
 
-<!-- The problem that existed before this change. If there was no problem,
-     explain what is gained. A PR with no why cannot be reviewed: only read. -->
+<!-- Una o dos frases. El "qué", no el "cómo". -->
 
-## How it was verified
+## Por qué
 
-- [ ] `npx tsc --noEmit` clean
-- [ ] `npm test` green
-- [ ] `npm run test:integration` (needs Postgres) — if the change touches the database
-- [ ] `npm run plan:status` with no required package going backwards
+<!-- El problema que existía antes de este cambio. Si no había problema,
+     explica qué se gana. Un PR sin porqué no se puede revisar: sólo leer. -->
 
-<!-- If something could NOT be verified, say it here. A declared gap is
-     information; a silent one is a surprise for whoever reviews. -->
+## Tipo
 
-## House invariants this change touches
+- [ ] corrección · - [ ] funcionalidad · - [ ] refactor · - [ ] docs · - [ ] mantenimiento · - [ ] cambia un contrato
 
-<!-- Tick what applies and explain how it holds. If it touches none, delete
-     this section. -->
+## Impacto
 
-- [ ] The AI writes neither the ledger nor external systems: everything stays in
-      `ai_drafts` / `ai_external_ops` and a person approves it.
-- [ ] `UPDATE`s carry a state predicate, entity scope and a `rowCount` check.
-- [ ] Every query is bounded by `entity_id` / `tenant_id`.
-- [ ] The limits in `src/ai/floor.ts` are only combined with `Math.min`.
-- [ ] Third-party content (CFDI, webhooks, skills) is wrapped as untrusted, with
-      its delimiters neutralised.
+- **Contratos modificados:** ninguno | API `docs/openapi.json` | entregable SAT/IMSS | esquema (migración) | CLI (catálogo) — (compatible / rompe)
+- **Decisiones de criterio contable:** ninguna | clave nueva en el panel con su lector (invariante 6)
+
+## Cómo probar (persona)
+
+1. `npm ci && scripts/verify.sh`
+2. <!-- el comando del CLI que muestra el cambio, con datos sintéticos -->
+3. Resultado esperado: …
+
+## Cómo probar (agente)
+
+- **Comando único:** `scripts/verify.sh`. Si saltó la integración, di por qué.
+- **Criterios de aceptación y su prueba:**
+
+  | Criterio | Prueba · criterio del plan |
+  |---|---|
+  | CA-1 | `tests/…` · `id-del-criterio` |
+
+- **Mutantes:** el criterio muere con su mutante (`npm run mutantes`), o no aplica porque …
+
+## Evidencia
+
+<!-- Salida de consola, cifras antes/después, reproducción del defecto. -->
+
+## Riesgos y rollback
+
+- **Riesgo:** …
+- **Rollback:** revertir el PR | migración nueva que deshace (nunca editar una aplicada) | clave del panel
+
+## Invariantes de la casa que este cambio toca
+
+<!-- Marca lo que aplique y explica cómo se sostiene. Si no toca ninguno, borra
+     esta sección. -->
+
+- [ ] La IA no escribe el libro ni sistemas externos: todo queda en
+      `ai_drafts` / `ai_external_ops` y lo aprueba una persona.
+- [ ] Los `UPDATE` llevan predicado de estado, alcance por entidad y revisión de
+      `rowCount`.
+- [ ] Toda consulta está acotada por `entity_id` / `tenant_id`.
+- [ ] Los límites de `src/ai/floor.ts` sólo se combinan con `Math.min`.
+- [ ] El contenido de terceros (CFDI, webhooks, skills) va envuelto como no
+      confiable, con los delimitadores neutralizados.
+
+## Checklist
+
+- [ ] `scripts/verify.sh` en verde (o lo que no corrió, dicho arriba)
+- [ ] Bloques generados regenerados, no editados a mano
+- [ ] Documentación y comentarios tocados en el mismo PR
+- [ ] Sin secretos ni datos reales
+- [ ] Revisé el diff completo, también si lo escribió un agente
+- [ ] Si lo escribió un agente: etiqueta `agent-authored` y el modelo aquí → <!-- modelo / herramienta -->

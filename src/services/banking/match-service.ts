@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { toCalendarDate } from '../../utils/calendar-date.js';
 import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
@@ -111,7 +112,7 @@ export type MotivoOmision = (typeof MOTIVOS_OMISION)[number];
  * la regla 2 del motor (`exact_amount_near_date`): no se inventa un número
  * nuevo para la misma pregunta.
  */
-const VENTANA_DIAS = 3;
+const MATCH_WINDOW_DAYS = 3;
 
 /** Confianza mínima por omisión de `run`, la que el motor ya usaba al cruzar. */
 const CONFIANZA_POR_OMISION = 0.85;
@@ -444,7 +445,7 @@ export function medirSenales(
     importeExacto,
     mismaDireccion: banco.isNegative() === candidato.isNegative(),
     diasDeDiferencia: dias,
-    dentroDeVentana: dias <= VENTANA_DIAS,
+    dentroDeVentana: dias <= MATCH_WINDOW_DAYS,
     similitudDescripcion: similitudDeTexto(descripcionBanco, descripcionCandidato),
     senalDura: importeExacto,
   };
@@ -616,7 +617,13 @@ async function periodoDe(
       WHERE entity_id = $1 AND $2::date BETWEEN start_date AND end_date
       ORDER BY period_number
       LIMIT 1`;
-  const params = [entityId, fecha.toISOString().split('T')[0]];
+  // #241 · `toISOString()` sobre el Date que pg construye de una columna DATE
+  // devuelve el día ANTERIOR al este de Greenwich: pg lo arma a medianoche
+  // LOCAL y toISOString lo relee en UTC. Esta consulta decide EN QUÉ PERIODO
+  // cae un movimiento bancario, así que el día suelto manda el asiento al mes
+  // equivocado — o lo rechaza por periodo cerrado. Los tres caminos que
+  // conciliación usa pasan por aquí.
+  const params = [entityId, toCalendarDate(fecha)];
   const r = cliente
     ? await cliente.query<PeriodoDelMovimiento>(sql, params)
     : await query<PeriodoDelMovimiento>(sql, params);
@@ -924,7 +931,7 @@ async function preverMovimiento(
   const fecha = new Date(tx.transaction_date);
   const base: MovimientoPrevisto = {
     txId: tx.id,
-    fecha: fecha.toISOString().split('T')[0],
+    fecha: toCalendarDate(fecha),
     importe: new Decimal(tx.amount).toFixed(4),
     descripcion: tx.description ?? null,
     propuesta: null,
@@ -963,7 +970,7 @@ async function preverMovimiento(
       id: cruda.match_id,
       referencia: candidato.referencia,
       importe: candidato.importe,
-      fecha: candidato.fecha.toISOString().split('T')[0],
+      fecha: toCalendarDate(candidato.fecha),
       confianza: cruda.confidence,
       regla: cruda.rule,
       importeCotejado: cruda.matched_amount,

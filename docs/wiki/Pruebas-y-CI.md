@@ -64,13 +64,13 @@ La razón de mantener el primero limitado a `src` está escrita en la configurac
 
 ---
 
-## ESLint 9, con información de tipos
+## ESLint 10, con información de tipos
 
 ```bash
 npm run lint
 ```
 
-`npm run lint` fue durante mucho tiempo un adorno —el `package.json` lo declaraba y no había configuración que lo respaldara— y esa frase todavía anda suelta en documentación vieja. Hoy corre ESLint 9 con `typescript-eslint` 8 en configuración plana, con **información de tipos**, sobre `src/`, `tests/` y `scripts/`, y la CI lo exige en un trabajo propio.
+`npm run lint` fue durante mucho tiempo un adorno —el `package.json` lo declaraba y no había configuración que lo respaldara— y esa frase todavía anda suelta en documentación vieja. Hoy corre ESLint 10 con `typescript-eslint` 8 en configuración plana, con **información de tipos**, sobre `src/`, `tests/` y `scripts/`, y la CI lo exige en un trabajo propio.
 
 La configuración es [`eslint.config.mjs`](https://github.com/sedecim-com/Accounting/blob/main/eslint.config.mjs), y no es un preset: es una **triage deliberada** en tres niveles, cada uno con su razón escrita al lado.
 

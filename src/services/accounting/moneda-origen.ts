@@ -186,7 +186,7 @@ export function desgloseCambiarioDelPago(
 }
 
 /** La moneda en la que la entidad lleva sus libros. */
-export async function monedaFuncionalDe(
+export async function functionalCurrencyOf(
   client: pg.PoolClient,
   entityId: string
 ): Promise<string> {

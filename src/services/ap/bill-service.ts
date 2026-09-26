@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { daysBetween } from '../../utils/calendar-date.js';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../database/connection.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
@@ -606,9 +607,14 @@ export function earlyPaymentDiscount(
 
   const terms = parsePaymentTerms(bill.terms ?? '');
   if (terms.discountPct !== null && terms.discountDays !== null) {
-    const daysUntilPayment = Math.floor(
-      (new Date(paymentDate).getTime() - new Date(bill.bill_date).getTime()) / 86400000
-    );
+    // #243 · El día se cuenta en el CALENDARIO, no restando milisegundos.
+    // `paymentDate` es una cadena (medianoche UTC) y `bill.bill_date` el Date
+    // que pg construye de una columna DATE (medianoche LOCAL): restarlos mezcla
+    // dos orígenes que difieren en el desfase del huso. Medido con un gasto del
+    // 1 de agosto, 2/10 Net 30, pagado el 12 —el día ONCE, fuera de ventana—:
+    // UTC contestaba 11 y Mexico_City, Tijuana y New_York contestaban 10, y
+    // concedían un descuento vencido del 2 %.
+    const daysUntilPayment = daysBetween(bill.bill_date, paymentDate);
     if (daysUntilPayment <= terms.discountDays) {
       discountAmount = paymentAmount.times(terms.discountPct).dividedBy(100);
       paymentAmount = paymentAmount.minus(discountAmount);
