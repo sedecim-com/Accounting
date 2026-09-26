@@ -75,3 +75,6 @@ artefacto-catalogo.html
 # Bóveda local de credenciales fiscales. Hoy sólo la salva el glob *.key;
 # un vault.json o un .bak dentro quedaría rastreable con un `git add -A`.
 .mnemosine-vault/
+
+# Logs de scripts/verify.sh (modo silencioso para agentes)
+.agent-logs/

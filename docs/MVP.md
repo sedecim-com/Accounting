@@ -58,7 +58,7 @@
 
 ## 3. La línea de trabajo: cuatro olas
 
-Una ola no empieza cuando termina la anterior: empieza cuando lo suyo está `listo`. La ola dice qué conviene hacer **antes**, no qué está prohibido hacer después.
+Una ola no empieza cuando termina la anterior: empieza cuando lo suyo está en `status:agent-ready`. La ola dice qué conviene hacer **antes**, no qué está prohibido hacer después.
 
 ### Ola 0 · Desbloquear (horas, casi sin código de producto)
 
@@ -142,17 +142,26 @@ Orden de fusión recomendado. Cada paso se re-verifica en la cabeza del PR antes
 
 ## 6. Cómo tomar una issue y cerrarla rápido
 
-Cada issue de la ruta lleva etiquetas y un comentario de triage con cinco cosas: estado verificado, lo que queda, cómo partirlo en PRs, punto de entrada y aceptación. Los sub-issues nuevos ya nacen con ellas en el cuerpo.
+Cada issue de la ruta lleva dos comentarios:
+
+- el de **triage**: estado verificado, lo que queda, punto de entrada;
+- el de **clasificación y Definition of Ready**: puntaje de dificultad por dimensión, autonomía, criterios Dado/Cuando/Entonces, fuera de alcance, cómo probar y, si pasa de ~400 líneas, la división propuesta.
+
+El esquema viene del [Framework de Desarrollo Agéntico](https://claude.ai/artifact/V5nLbNQmVkbCDpZfMkUx6A); su adaptación a este repo está en el [ADR-0001](adr/0001-agentic-framework-adoption.md).
 
 | Etiqueta | Qué dice |
 |---|---|
 | `mvp` · `ola-0` … `ola-3` · `post-mvp` | Si la issue está en la ruta y cuándo conviene hacerla |
-| `size-S` · `size-M` · `size-L` · `size-XL` | S es menos de medio día de agente; XL significa que hay que dividirla antes |
-| `nivel-L1` · `nivel-L2` · `nivel-L3` | Quién la ejecuta, según [`ROUTING.md`](ROUTING.md). L3 es motor, RLS, migraciones, CI o credenciales |
-| `listo` | Sin dependencias ni decisiones pendientes: se puede tomar hoy |
-| `decision-pendiente` | Espera al dueño (sección 4). No se empieza |
+| `difficulty:D1` … `D4` | Puntaje de 5 dimensiones. Decide el modelo, el esfuerzo y el presupuesto de tokens ([`ROUTING.md`](ROUTING.md)) |
+| `autonomy:A1` … `A3` | Cuánta supervisión humana hay. **A3 por omisión**: el repo maneja PII y funciones financieras reguladas |
+| `status:agent-ready` | Cumple la DoR, es D1–D2 y no está bloqueada: se puede tomar hoy |
+| `status:triage` | Le falta algo de la DoR (casi siempre, dividirse), o es D3–D4 y espera el `/confirmar` de un humano |
+| `status:needs-clarification` | Espera una decisión del dueño (sección 4). No se empieza |
+| `status:blocked` | Espera a otra issue, que se nombra en el comentario |
 
-La receta para una issue `listo`:
+Estas etiquetas sustituyen a `size-*`, `nivel-L*`, `listo` y `decision-pendiente` del primer triage; la equivalencia está en `ROUTING.md`. Los estados y quién los cambia están en `PROCESS.md` §7.
+
+La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 
 1. `git fetch` y una rama desde `main` fresco. Lee la issue **y su comentario de triage**. Si el plan está mal, comenta y detente (`PROCESS.md` §5).
 2. **Reproduce primero.** Escribe una prueba de integración contra Postgres (`tests/integration/`, base efímera de `tests/integration/global-setup.ts`) que falle con el defecto.
