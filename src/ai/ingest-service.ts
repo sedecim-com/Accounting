@@ -78,6 +78,12 @@ export interface IngestReport {
 /** Mutable holder the CLI wires into SessionCallbacks.onDraftCreated. */
 export interface DraftCapture {
   drafts: DraftCreatedInfo[];
+  /**
+   * The pre-registration being ingested while the model's turn runs (#318).
+   * The caller wires it into SessionCallbacks.draftOrigin, so every draft of
+   * the turn is born bound to its CFDI. Cleared as soon as the turn ends.
+   */
+  origin?: string;
 }
 
 interface UploadOutcome {
@@ -213,10 +219,19 @@ export async function ingestCfdiFiles(opts: {
     // Layer 2: the AI classifies and creates the draft
     capture.drafts = [];
     session.reset();
+    // ING-1 (#318): the drafts of this turn are born bound to this CFDI, in
+    // the draft's own INSERT. A turn that fails after a draft was created
+    // leaves that draft bound, never an ordinary draft approvable without its
+    // bill.
+    const preRegistrationId =
+      typeof upload.preRegistration.id === 'string' ? upload.preRegistration.id : undefined;
+    capture.origin = preRegistrationId;
     try {
       await session.runTurn(buildCfdiPrompt(upload));
     } catch (err) {
       return { file: name, status: 'error', detail: `Model failure: ${(err as Error).message}` };
+    } finally {
+      capture.origin = undefined;
     }
 
     const drafts = readCapture(capture);
@@ -230,23 +245,28 @@ export async function ingestCfdiFiles(opts: {
       };
     }
 
-    // ING-1 (#318): the SYSTEM ties every draft of this turn to the CFDI being
-    // ingested, before any auto-post can approve one, so approval creates the
-    // vendor bill. The model never writes this link. Uploads without a
-    // pre-registration id (test doubles) carry nothing to link.
-    const preRegistrationId = upload.preRegistration.id;
-    if (typeof preRegistrationId === 'string') {
+    // The link is verified before any auto-post (layer 3) can approve a draft.
+    // A draft of this turn NOT bound to its CFDI (a session whose caller did
+    // not wire `draftOrigin`) is rejected here, never left pending as an
+    // ordinary draft whose approval would post the expense without its bill.
+    // Uploads without a pre-registration id (test doubles) carry no link.
+    if (preRegistrationId !== undefined) {
       const ids = drafts.map((d) => d.draftId);
-      const linked = await query(
-        `UPDATE ai_drafts SET pre_registration_id = $1
-          WHERE id = ANY($2::uuid[]) AND entity_id = $3
-            AND status = 'pending_review' AND pre_registration_id IS NULL`,
-        [preRegistrationId, ids, ctx.entityId]
+      const unbound = await query<{ id: string }>(
+        `UPDATE ai_drafts
+            SET status = 'rejected', reviewed_by = 'system:ingest', reviewed_at = NOW(),
+                review_notes = 'Born without its CFDI link (#318): approving it would post the expense without the vendor bill. Ingest the CFDI again.'
+          WHERE id = ANY($1::uuid[]) AND entity_id = $2 AND status = 'pending_review'
+            AND pre_registration_id IS DISTINCT FROM $3::uuid
+          RETURNING id`,
+        [ids, ctx.entityId, preRegistrationId]
       );
-      if (linked.rowCount !== ids.length) {
+      if ((unbound.rowCount ?? 0) > 0) {
         return {
           file: name, status: 'error', draftId: drafts[drafts.length - 1].draftId,
-          detail: `linked ${linked.rowCount ?? 0} of ${ids.length} draft(s) to the CFDI; review them by hand`,
+          detail:
+            `${unbound.rowCount} of ${ids.length} draft(s) were born without their CFDI link and were rejected; ` +
+            'the session is not wired with draftOrigin',
         };
       }
     }

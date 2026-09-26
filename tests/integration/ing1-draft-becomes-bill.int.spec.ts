@@ -99,7 +99,20 @@ const PPD: DraftLine[] = [
  * Ingests one CFDI; the fake model answers the turn by calling
  * draft_journal_entry once per entry in `drafts`, then closes the turn.
  */
-async function ingest(xml: string, drafts: DraftLine[][] = [PPD]): Promise<string[]> {
+interface IngestOptions {
+  /** Wire SessionCallbacks.draftOrigin as the CLI does (default true). */
+  wired?: boolean;
+  /** Replaces the provider's closing reply: may act mid-turn or throw. */
+  secondReply?: (capture: DraftCapture) => Promise<unknown>;
+  /** The ingest status this file is expected to end in (default 'draft'). */
+  expectStatus?: string;
+}
+
+async function ingest(
+  xml: string,
+  drafts: DraftLine[][] = [PPD],
+  o: IngestOptions = {}
+): Promise<string[]> {
   const file = path.join(dir, `${uuidv4()}.xml`);
   fs.writeFileSync(file, xml);
   const call = (lines: DraftLine[], i: number) => ({
@@ -117,18 +130,25 @@ async function ingest(xml: string, drafts: DraftLine[][] = [PPD]): Promise<strin
       }),
     },
   });
+  const capture: DraftCapture = { drafts: [] };
+  const closing = {
+    choices: [{ message: { role: 'assistant', content: 'Draft created.' }, finish_reason: 'stop' }],
+  };
   const create = vi.fn()
     .mockResolvedValueOnce({
       choices: [{ message: { role: 'assistant', content: null, tool_calls: drafts.map(call) }, finish_reason: 'tool_calls' }],
     })
-    .mockResolvedValue({
-      choices: [{ message: { role: 'assistant', content: 'Draft created.' }, finish_reason: 'stop' }],
+    .mockImplementation(async () => {
+      if (o.secondReply) await o.secondReply(capture);
+      return closing;
     });
   const client = { chat: { completions: { create } } } as unknown as OpenAI;
-  const capture: DraftCapture = { drafts: [] };
   const session = new OpenAiCompatSession(
     client, PROFILE, ctx, 'system',
-    { onDraftCreated: (d) => capture.drafts.push(d) },
+    {
+      onDraftCreated: (d) => capture.drafts.push(d),
+      ...(o.wired === false ? {} : { draftOrigin: () => capture.origin }),
+    },
     { grounding: { enabled: false }, cwd: dir }
   );
   const report = await ingestCfdiFiles({
@@ -136,7 +156,7 @@ async function ingest(xml: string, drafts: DraftLine[][] = [PPD]): Promise<strin
     thresholds: { autoPost: false, minConfidence: 0.95, maxAmount: 10000 },
     session, capture,
   });
-  expect(report.results[0].status, report.results[0].detail).toBe('draft');
+  expect(report.results[0].status, report.results[0].detail).toBe(o.expectStatus ?? 'draft');
   return capture.drafts.map((d) => d.draftId);
 }
 
@@ -359,5 +379,47 @@ describe('ING-1 · the approved entry must match the CFDI', () => {
     } finally {
       await reopenPolicy({ tenantId: f.tenantId, entityId: f.entityId }, 'lineas_factura_desde');
     }
+  });
+});
+
+describe('ING-1 · the CFDI link is born with the draft (WIT-01)', () => {
+  it('a provider failure after the draft is created leaves it bound, and one approval creates one bill', async () => {
+    const { xml, uuid } = cfdi();
+    const [draftId] = await ingest(xml, [PPD], {
+      secondReply: async () => { throw new Error('provider down'); },
+      expectStatus: 'error',
+    });
+    const draft = await getDraft(ctx, draftId);
+    expect(draft!.status).toBe('pending_review');
+    expect(draft!.origin?.cfdi_uuid).toBe(uuid);
+
+    const before = await entryCount();
+    const posted = await approve(draftId);
+    expect(await entryCount()).toBe(before + 1);
+    const bills = await billsOf(uuid);
+    expect(bills).toHaveLength(1);
+    expect(bills[0].journal_entry_id).toBe(posted.entryId);
+    expect((await preRegOf(uuid)).status).toBe('completed');
+  });
+
+  it('a review that approves the draft before the turn ends already creates the bill', async () => {
+    const { xml, uuid } = cfdi();
+    let midTurn: { entryId: string } | undefined;
+    await ingest(xml, [PPD], {
+      secondReply: async (capture) => { midTurn = await approve(capture.drafts[0].draftId); },
+    });
+    expect(midTurn).toBeDefined();
+    const bills = await billsOf(uuid);
+    expect(bills).toHaveLength(1);
+    expect(bills[0].journal_entry_id).toBe(midTurn!.entryId);
+    expect((await preRegOf(uuid)).status).toBe('completed');
+  });
+
+  it('a session not wired with draftOrigin has its unbound drafts rejected, never left approvable', async () => {
+    const { xml } = cfdi();
+    const [draftId] = await ingest(xml, [PPD], { wired: false, expectStatus: 'error' });
+    expect(await statusOf(draftId)).toBe('rejected');
+    const draft = await getDraft(ctx, draftId);
+    expect(draft!.pre_registration_id ?? null).toBeNull();
   });
 });

@@ -34,4 +34,6 @@ export interface ToolDeps {
    * ingest pipeline uses it to decide auto-post by thresholds.
    */
   onDraftCreated?: (info: DraftCreatedInfo) => void;
+  /** The CFDI pre-registration a draft is born bound to (#318); system-set, never model input. */
+  draftOrigin?: () => string | undefined;
 }

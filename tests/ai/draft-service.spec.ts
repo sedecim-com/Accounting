@@ -225,7 +225,7 @@ describe('createDraft', () => {
 
   it('inserts a pending_review draft with the payload as JSONB', async () => {
     mockValidationQueries();
-    mockQuery.mockResolvedValueOnce({ rows: [] }); // insert
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 1 }); // insert
     const result = await createDraft(CTX, {
       payload: GOOD_PAYLOAD,
       confidence: 0.92,
@@ -242,6 +242,25 @@ describe('createDraft', () => {
     expect(JSON.parse(params[3] as string)).toEqual(GOOD_PAYLOAD);
     expect(params[4]).toBe('0.92');
     expect(params[7]).toBe('registra la renta de agosto');
+    // Not drafted from a CFDI (#318): no link, and the entity guard lets it through.
+    expect(params[8]).toBeNull();
+  });
+
+  it('refuses a CFDI link that does not belong to the entity (#318)', async () => {
+    mockValidationQueries();
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // guarded insert found no such pre-registration
+    await expect(
+      createDraft(CTX, {
+        payload: GOOD_PAYLOAD,
+        confidence: 0.92,
+        reasoning: 'x',
+        model: 'm',
+        preRegistrationId: '00000000-0000-4000-8000-000000000001',
+      })
+    ).rejects.toThrow(/does not belong to this entity/);
+    const [sql, params] = mockQuery.mock.calls[2];
+    expect(sql).toMatch(/EXISTS \(SELECT 1 FROM pre_registrations WHERE id = \$9::uuid AND entity_id = \$3\)/);
+    expect(params[8]).toBe('00000000-0000-4000-8000-000000000001');
   });
 
   it('throws DraftValidationError without inserting when invalid', async () => {

@@ -148,6 +148,7 @@ export class OpenAiCompatSession implements LlmSession {
           userRequestRef: this.userRequestRef,
           askUser: callbacks.askUser,
           onDraftCreated: callbacks.onDraftCreated,
+          draftOrigin: callbacks.draftOrigin,
         },
         options.herramientas
       ) as unknown as RunnableToolLike[];

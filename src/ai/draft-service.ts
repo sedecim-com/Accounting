@@ -396,6 +396,12 @@ export interface CreateDraftInput {
   reasoning: string;
   model: string;
   userRequest?: string;
+  /**
+   * The CFDI pre-registration this draft is proposed for (#318). Set by the
+   * ingest pipeline through the session, never by the model; the row is born
+   * with it, so there is no moment in which the draft is approvable unbound.
+   */
+  preRegistrationId?: string;
 }
 
 export async function createDraft(
@@ -408,18 +414,28 @@ export async function createDraft(
   }
 
   const id = uuidv4();
-  await query(
+  // The link, when there is one, must point at a pre-registration of THIS
+  // entity: the row is inserted only if it does, so a stale or foreign id
+  // can never produce a draft bound to another entity's CFDI.
+  const inserted = await query(
     `INSERT INTO ai_drafts (
       id, tenant_id, entity_id, draft_type, status, payload,
-      ai_confidence, ai_reasoning, ai_model, user_request
-    ) VALUES ($1, $2, $3, 'journal_entry', 'pending_review', $4::jsonb, $5, $6, $7, $8)`,
+      ai_confidence, ai_reasoning, ai_model, user_request, pre_registration_id
+    )
+    SELECT $1, $2, $3, 'journal_entry', 'pending_review', $4::jsonb, $5, $6, $7, $8, $9::uuid
+     WHERE $9::uuid IS NULL
+        OR EXISTS (SELECT 1 FROM pre_registrations WHERE id = $9::uuid AND entity_id = $3)`,
     [
       id, ctx.tenantId, ctx.entityId,
       JSON.stringify(input.payload),
       input.confidence.toFixed(2), input.reasoning, input.model,
       input.userRequest ?? null,
+      input.preRegistrationId ?? null,
     ]
   );
+  if (inserted.rowCount !== 1) {
+    throw new Error(`The CFDI pre-registration ${input.preRegistrationId} does not belong to this entity`);
+  }
 
   return {
     id,

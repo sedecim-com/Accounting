@@ -2172,6 +2172,8 @@ ingest.action(async (files: string[], opts: {
         capture.drafts.push(info);
         borradoresCapturados.n++;
       });
+      // #318: the drafts of each file are born bound to its CFDI.
+      callbacks.draftOrigin = () => capture.origin;
       // A2: la ingesta acumula su consumo para la fila de ai_ingest_runs —
       // y de paso cierra un hueco: este camino no registraba NADA en
       // ai_usage (el onUsage nunca se cableó aquí; ask/chat/jobs sí).

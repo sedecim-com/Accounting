@@ -41,6 +41,8 @@ export interface AgentCallbacks {
   askUser?: AskUserFn;
   /** Harness hook: fires when the agent creates a draft (ingest thresholds). */
   onDraftCreated?: (info: DraftCreatedInfo) => void;
+  /** Harness hook (#318): the CFDI pre-registration drafts are born bound to; system-set. */
+  draftOrigin?: () => string | undefined;
   /** Fires once at the end of each turn with the provider-independent record. */
   onTurnComplete?: (record: TurnRecord) => void;
   /** Fires once per completed MODEL CALL with normalized token counts. */
@@ -123,6 +125,7 @@ export class MnemosineAgent implements LlmSession {
         userRequestRef: this.userRequestRef,
         askUser: callbacks.askUser,
         onDraftCreated: callbacks.onDraftCreated,
+        draftOrigin: callbacks.draftOrigin,
       },
       options.herramientas
     );
