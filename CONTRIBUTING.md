@@ -10,8 +10,8 @@ primero, porque un diff público es la divulgación.
 
 ## Levantar el proyecto
 
-Node 20 o superior (`engines` lo exige) y Postgres 15 para la suite de
-integración.
+Node 22.12 o superior (`engines` lo exige: vitest 5 no soporta menos) y
+Postgres 15 para la suite de integración.
 
 ```bash
 npm ci
