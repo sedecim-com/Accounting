@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { type Backlog, type Task, render, requirementIds, schedule, validate } from '../../scripts/backlog';
+import { type Backlog, type Task, chainLengths, render, requirementIds, schedule, validate } from '../../scripts/backlog';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -171,6 +171,24 @@ describe('the suggested sprint', () => {
     const s = schedule(backlog(tasks, { perSprint: 1, perLane: 10 }));
     expect(s.get('MNE-001-002')).toBe(1);
     expect(s.get('MNE-001-001')).toBe(2);
+  });
+
+  it('among equals, starts the head of the longest chain first', () => {
+    // 003 → 004 → 005 hang behind 003; nothing waits on 001 or 002. With room
+    // for one task, file order would pick 001 and push the chain a sprint.
+    const tasks = [
+      task('001'),
+      task('002'),
+      task('003'),
+      task('004', { depends_on: ['MNE-001-003'], lane: 'B' }),
+      task('005', { depends_on: ['MNE-001-004'], lane: 'B' }),
+    ];
+    expect(chainLengths(tasks).get('MNE-001-003')).toBe(3);
+    expect(chainLengths(tasks).get('MNE-001-001')).toBe(1);
+    const s = schedule(backlog(tasks, { perSprint: 10, perLane: 1 }));
+    expect(s.get('MNE-001-003')).toBe(1);
+    expect(s.get('MNE-001-005')).toBe(3);
+    expect([s.get('MNE-001-001'), s.get('MNE-001-002')]).toEqual([2, 3]);
   });
 
   it('respects the sprint capacity, Must before Could', () => {
