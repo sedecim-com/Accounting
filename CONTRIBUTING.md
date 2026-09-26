@@ -88,8 +88,12 @@ bash scripts/verify-isolation.sh
 3. PR contra `main`. Se exige **1 aprobación**, y los pushes nuevos invalidan
    las aprobaciones anteriores.
 4. La CI debe estar en verde: **Tipos**, **Pruebas unitarias**, **Integración
-   contra Postgres**, **Aislamiento por inquilino** y **Estado del plan**. Un
-   rojo se arregla, no se explica en un comentario.
+   contra Postgres**, **Aislamiento por inquilino**, **Estado del plan** y
+   **Commit subjects**. Un rojo se arregla, no se explica en un comentario.
+   Cuáles de ellos *bloquean* el botón de fusionar lo decide la lista de
+   comprobaciones obligatorias del repositorio —un ajuste fuera del árbol, que
+   este archivo no puede comprobar y por tanto no afirma—; al escribir esto
+   nombraba dos.
 5. Si el cambio cierra un paquete del plan, añádelo a la lista `--exigir` de
    `.github/workflows/ci.yml` **en el mismo commit que lo cierra**. Si reabre
    uno, quítalo de la lista ahí mismo y di por qué en el cuerpo: la reapertura
@@ -97,21 +101,37 @@ bash scripts/verify-isolation.sh
 
 ## Mensajes de commit
 
-En español. El asunto lleva el código del paquete, dos puntos, y una línea que
-dice **qué cambió** — no qué archivos tocaste:
+**En inglés.** El asunto lleva el código del tramo cuando exista, dos puntos, y
+una línea que dice **qué cambió** — no qué archivos tocaste:
 
 ```
-E1.4-c: lo simulado se nombra donde se sirve, y el borrador entra a la cadena
-CLI-5: el agente vuelve a saber qué comandos existen
-AUD-1: cuatro silencios, que son peor que un error
-IVA-5 (cableado): el REP deja de morir como nota de crédito
+I7: the kernel renders help by key, and the pilot stops loading loose Spanish
+W1: the firm portfolio reads only the token's entities
+AUD-1: four silences, which are worse than an error
+TEN-12: the sibling company's employee could be paid from the wrong ledger
 ```
 
 El cuerpo explica **por qué**: qué era falso antes, qué lo hacía pasar
 desapercibido, y qué lo delata ahora. Un cuerpo que parafrasea el diff no sirve
 para nada; dentro de un año el diff sigue ahí y el motivo no.
 
-Nada de emoji. Nada de `feat:` ni `chore:`.
+Nada de emoji. Nada de `feat:` ni `chore:` — ni ningún otro prefijo de
+*conventional commits* en minúscula. `CI:` en mayúscula sí, que es un código de
+tramo de la casa y no lo mismo.
+
+Lo que se **cita** —un identificador, un valor, un nombre de archivo— va entre
+comillas o acentos graves y no cuenta como español:
+`I23: rename account_roles 'contador' to 'accountant'`. El asunto tiene que
+llevar al menos dos palabras propias fuera de lo que cita.
+
+La CI lo comprueba con el job **Commit subjects**, que corre
+`scripts/language/commit-subjects.ts` sobre los commits que trae el PR y sobre
+su título —el título es lo que el *squash* escribe en `main` cuando el PR trae
+más de un commit—. **Rige desde `2026-09-17T00:00:00Z`**, la fecha que declara
+ese guion y que no se mueve: se juzga por la **fecha de autor**, así que lo
+anterior no se juzga y **no se reescribe**, que un mensaje de commit es
+registro. No hay *hook* de git a propósito: un `git commit -n` lo salta, y una
+puerta que se puede saltar enseña que la regla es opcional.
 
 ## Los invariantes de la casa
 
@@ -166,8 +186,9 @@ Los comentarios y la documentación **nacen en inglés**, y explican el
 y tiene tres capas que no se mezclan:
 
 - **La capa de la máquina es inglesa**: identificadores, nombres de archivo,
-  comentarios, claves, códigos de error. Lo nuevo nace inglés; lo que ya está
-  escrito en español entra a una línea base por archivo que **sólo encoge**.
+  comentarios, **mensajes de commit**, claves, códigos de error. Lo nuevo nace
+  inglés; lo que ya está escrito en español entra a una línea base por archivo
+  que **sólo encoge**.
 - **La capa del usuario habla el idioma del usuario**, y el español va primero:
   la ayuda del CLI, los mensajes, el panel. Se traduce **por clave**, nunca
   reescribiendo la prosa en el sitio donde se emite.

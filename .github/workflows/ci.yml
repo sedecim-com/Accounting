@@ -60,6 +60,64 @@ jobs:
       # que el trabajo también falla si su número sube.
       - run: npm run lint
 
+  # EL ASUNTO DE UN COMMIT NUEVO (I22 · issue #165).
+  #
+  # Juzga SÓLO lo que este PR trae, y de eso sólo lo posterior a la fecha de
+  # corte que declara `scripts/language/commit-subjects.ts`. El historial no se
+  # reescribe: 193 de los 295 asuntos sin fusión de `main` llevan acento y ahí
+  # se quedan.
+  #
+  # NO CORRE SOBRE `push: main`. Allí los commits ya son registro, y un rojo
+  # que nadie puede arreglar sin reescribirlos no es una puerta: es ruido que
+  # acaba con alguien desactivando el job.
+  commit-subjects:
+    name: Commit subjects
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # PROFUNDIDAD COMPLETA, por la misma razón que el job del plan: con la de
+      # por omisión (1) el runner tiene UN commit y el rango ni se resuelve.
+      # El comentario al final de la línea NO es decorativo: hace único el
+      # ancla del espejo de este criterio, que si no golpearía el
+      # `fetch-depth: 0` del job del plan y dejaría este job roto en verde.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # commit-subjects
+      # LA PUNTA VIVA DE LA BASE, NO `base.sha`.
+      #
+      # `base.sha` es la punta del día que se abrió el PR y envejece mientras
+      # el PR espera. Con la base 30 commits atrasada el rango pasa de 30 a 142
+      # commits, y el lint juzgaría 112 commits ajenos que YA están en `main`,
+      # todos en español. `merge-base` no rescata: estas ramas fusionan `main`
+      # hacia adentro, así que esos commits son alcanzables desde la punta.
+      - run: git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # EL TÍTULO Y EL RANGO VIAJAN POR `env:`, NO POR `${{ }}` DENTRO DEL `run`.
+      #
+      # `${{ }}` sustituye el texto ANTES de que el shell lea la línea, y el
+      # título de un PR lo escribe cualquiera desde fuera: interpolarlo es
+      # inyección de shell de manual. Por `env:` llega como dato.
+      #
+      # El título se juzga porque `squash_merge_commit_title` está en
+      # COMMIT_OR_PR_TITLE: con más de un commit, lo que queda escrito en
+      # `main` es el TÍTULO del PR y no el asunto de ningún commit. Sólo cuenta
+      # si el PR se abrió después del corte — un título no tiene fecha de autor
+      # propia, y sin esto la regla alcanzaría hacia atrás a los PR que ya
+      # estaban abiertos, que es justo lo que el corte existe para evitar.
+      - run: npx tsx scripts/language/commit-subjects.ts --range "origin/$BASE_REF..$HEAD_SHA"
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
+
   unit:
     name: Pruebas unitarias
     runs-on: ubuntu-latest

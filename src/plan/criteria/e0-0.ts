@@ -15,6 +15,7 @@ import {
   ok,
   RAIZ,
   rutaDe,
+  sectionOf,
   stepRuns,
 } from './shared.js';
 // NOTE: import cycle with the index. It is safe because CRITERIOS is only read
@@ -220,6 +221,224 @@ export const E0_0: Criterio[] = [
 
   {
     paquete: 'E0.0',
+    id: 'commit-subjects-born-english',
+    enunciado: 'Los asuntos de commit nacen en inglés, y un lint en la CI rechaza los que no',
+    evaluar: () => {
+      // POR QUÉ NACE (I22, issue #165). El repositorio ordenaba lo CONTRARIO,
+      // por escrito y en dos sitios: «En español» abría la sección de mensajes
+      // de commit de CONTRIBUTING, y PROCESS decía «hasta que ese tramo entre,
+      // los commits siguen en español». Con esas dos frases en pie, 193 de los
+      // 295 asuntos sin fusión de `main` llevan acento y todos tenían razón.
+      //
+      // Es la misma lección que I1 una línea más arriba: cambiar la regla
+      // escrita no es papeleo, es lo único que hace que lo nuevo deje de nacer
+      // en español. Y por eso este criterio vigila TRES cosas que se pudren
+      // por separado —la orden, el tiempo verbal del proceso, y el cableado de
+      // la puerta—: una puerta cuyo documento dice lo contrario es una puerta
+      // que la gente rodea, y un documento cuya puerta no corre es una
+      // promesa.
+      const contrib = crudoDe('CONTRIBUTING.md');
+      const commits = sectionOf(contrib, '## Mensajes de commit');
+      if (commits === null) {
+        return falla('CONTRIBUTING perdió su sección de mensajes de commit: la regla se quedó sin sitio donde leerse');
+      }
+      // ACOTADO A SU SECCIÓN, no al archivo: «en español» aparece también en
+      // la frase legítima sobre la línea base por archivo, y un ancla que no
+      // acota acaba midiendo la oración equivocada.
+      if (commits.includes('En español')) {
+        return falla(
+          'la sección de commits de CONTRIBUTING vuelve a pedir español: gana lo escrito, porque es ' +
+            'lo que se lee antes de contribuir'
+        );
+      }
+      if (!commits.includes('**En inglés.** El asunto lleva el código del tramo')) {
+        return falla('CONTRIBUTING no dice en qué idioma nace el asunto de un commit');
+      }
+
+      const processDoc = sectionOf(crudoDe('docs/PROCESS.md'), '## Mensajes de commit');
+      if (processDoc === null) return falla('PROCESS perdió su sección de mensajes de commit');
+      if (processDoc.includes('siguen en español')) {
+        return falla(
+          'PROCESS vuelve a decir que los commits siguen en español: el documento del proceso ' +
+            'contradice a la puerta, y quien lo lea escribirá en español con permiso'
+        );
+      }
+      if (!processDoc.includes('es inglés desde I22')) {
+        return falla('PROCESS no dice que el idioma del commit YA es inglés: sigue prometiendo un tramo que entró');
+      }
+      if (!processDoc.includes('no se reescribe')) {
+        return falla('PROCESS dejó de decir que el historial no se reescribe, que es la mitad de la regla que protege el registro');
+      }
+
+      // El lint existe, y NO se escribió su propia lista (regla 3.1 del rector:
+      // una sola población, un solo léxico).
+      const scriptPath = 'scripts/language/commit-subjects.ts';
+      if (!existe(scriptPath)) return falla('no hay lint de asunto: la regla escrita no tiene quien la haga cumplir');
+      const lint = codigoDe(scriptPath);
+      // IMPORTARLO NO ES USARLO. La primera versión se conformaba con ver el
+      // `import`, y un import que nadie llama es exactamente lo que queda
+      // cuando alguien sustituye el detector compartido por una regex propia y
+      // no limpia la cabecera: el criterio seguía verde sobre un archivo que ya
+      // no compartía población con el metro.
+      if (!/import \{ judgeLanguage \} from '\.\/extract\.js';/.test(lint) || !/judgeLanguage\(/.test(lint)) {
+        return falla(
+          'el lint de asunto dejó de consumir el detector compartido: se hizo su propia lista, y dos ' +
+            'listas publican dos números'
+        );
+      }
+
+      // La fecha de corte vive en UN sitio y el documento la cita. Dos copias
+      // de la misma cifra es como una de las dos empieza a mentir.
+      const cutoff = /SUBJECT_RULE_EFFECTIVE_FROM\s*=\s*'([0-9TZ:.-]+)'/.exec(lint)?.[1];
+      if (cutoff === undefined) {
+        return falla('el lint no declara desde cuándo rige: sin corte, o juzga la historia entera o no juzga nada');
+      }
+      if (!commits.includes(cutoff)) {
+        return falla(`CONTRIBUTING no cita la fecha de corte ${cutoff} que declara el lint: dos cifras de lo mismo, y una miente`);
+      }
+
+      // `crudoDe` y no `codigoDe` sobre el YAML, por la razón que el criterio
+      // de al lado documenta: `codigoDe` se lleva 1 576 caracteres del archivo.
+      const ci = crudoDe('.github/workflows/ci.yml');
+      const job = sectionOf(ci, '  commit-subjects:', /^ {2}[a-z][a-z-]*:$/m);
+      if (job === null) return falla('la CI no tiene job de asuntos de commit: el lint existe y nadie lo corre');
+
+      // EL JOB SE MIDE SIN SUS COMENTARIOS, y ésta es la lección del tramo.
+      //
+      // El primer intento comprobaba `fetch-depth: 0` a secas, y el propio job
+      // lleva un comentario que EXPLICA por qué esa línea va marcada — citando
+      // `fetch-depth: 0`. El mutante ponía la profundidad en 1 y el criterio
+      // seguía verde, casando contra la prosa que habla de la línea en vez de
+      // contra la línea. Arreglar ESA aparición no arregla la clase: cualquier
+      // comentario nuevo que nombre el guion dejaría vivo al mutante que borra
+      // la invocación. Así que se quita el comentario, no se esquiva.
+      //
+      // `crudoDe` sigue siendo el lector —`codigoDe` sobre YAML se lleva 1 576
+      // caracteres del archivo— y el recorte es sólo de líneas que empiezan por
+      // `#`, que es lo que un comentario de YAML es.
+      const withoutComments = job.replace(/^[ \t]*#.*$/gm, '');
+      const invocation = `npx tsx ${scriptPath} --range "origin/$BASE_REF..$HEAD_SHA"`;
+      if (!withoutComments.includes(invocation)) {
+        return falla('el job de asuntos de commit ya no invoca al lint sobre el rango del PR: queda un job verde que no juzga nada');
+      }
+      if (!withoutComments.includes('fetch-depth: 0')) {
+        return falla('el job de asuntos de commit clona a profundidad 1: vería un commit y el rango ni se resuelve');
+      }
+      // LAS TRES FORMAS BARATAS DE APAGAR UN JOB SIN BORRARLO.
+      //
+      // El mutante que este criterio declara contra la invocación describe «el
+      // gesto de desactivar un momento», pero ese gesto casi nunca se escribe
+      // borrando el comando: se escribe con `|| true`, con `continue-on-error`
+      // o cambiando la condición. Las tres dejan el job en su sitio, con su
+      // nombre y su verde. Si el criterio no las nombra, el espejo vigila la
+      // única variante que nadie usa.
+      if (/\|\|\s*true/.test(withoutComments) || /continue-on-error/.test(withoutComments)) {
+        return falla('el job de asuntos de commit se traga su propio fallo (`|| true` o `continue-on-error`): corre, informa y no detiene nada');
+      }
+      if (!withoutComments.includes("if: github.event_name == 'pull_request'")) {
+        return falla('el job de asuntos de commit perdió su condición: o no corre nunca, o corre sobre `main`, donde el rojo no se puede arreglar sin reescribir el registro');
+      }
+      // EL TÍTULO ES LA ÚNICA CADENA QUE EL SQUASH ESCRIBE EN `main`.
+      // Sin estas dos variables el lint no lo juzga —y desde la revisión, se
+      // niega a pasar—, así que borrar una línea de `env:` desarmaría la mitad
+      // del tramo con el job y el criterio los dos en verde.
+      for (const variable of ['PR_TITLE:', 'PR_CREATED_AT:']) {
+        if (!withoutComments.includes(variable)) {
+          return falla(`el job de asuntos de commit dejó de pasar ${variable} al lint: el título del PR —lo que el squash escribe en main— deja de juzgarse`);
+        }
+      }
+      return ok(
+        'la orden escrita dice inglés, el proceso la da por entregada, y el lint que la mide corre en la ' +
+          'CI con el historial a la vista, sin tragarse su propio fallo'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'CONTRIBUTING.md',
+        de: '**En inglés.** El asunto lleva el código del tramo',
+        a: '**En español.** El asunto lleva el código del tramo',
+        porque:
+          'la orden vuelve a pedir español donde se lee antes de contribuir, y con ella cada asunto nuevo ' +
+          'nace en español con razón: el lint pasa a pelear contra la documentación del propio proyecto, ' +
+          'y gana la documentación porque es la que se lee',
+      },
+      {
+        archivo: 'docs/PROCESS.md',
+        de: 'El idioma **es inglés desde I22**',
+        a: 'El idioma pasa al inglés con I22 — decidido, pero todavía pendiente',
+        porque:
+          'el proceso vuelve a describir el cambio como futuro: quien lea PROCESS escribe en español con ' +
+          'permiso y se encuentra un rojo que ningún documento le explica',
+      },
+      {
+        archivo: 'scripts/language/commit-subjects.ts',
+        de: "import { judgeLanguage } from './extract.js';",
+        a: 'const judgeLanguage = (t: string) => ({ spanish: /[áéíóúñ]/i.test(t) });',
+        porque:
+          'el lint se escribe su propio detector y deja de compartir población con el metro: los 73 ' +
+          'asuntos españoles SIN acento que este mismo árbol mide pasarían en verde, y la casa tendría ' +
+          'dos listas publicando dos números',
+      },
+      {
+        archivo: 'scripts/language/commit-subjects.ts',
+        de: "SUBJECT_RULE_EFFECTIVE_FROM = '2026-09-17T00:00:00Z'",
+        a: "SUBJECT_RULE_EFFECTIVE_FROM = '2099-01-01T00:00:00Z'",
+        porque:
+          'mover la fecha de corte hacia adelante perdona en silencio todo lo que el tramo vino a ' +
+          'rechazar: el job sigue ahí, sigue verde, y no juzga un solo asunto',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'fetch-depth: 0 # commit-subjects',
+        a: 'fetch-depth: 1 # commit-subjects',
+        porque:
+          'con profundidad 1 el runner tiene un commit y el rango no se resuelve: el job falla siempre o ' +
+          'no mira nada, y de las dos formas deja de ser una puerta',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'npx tsx scripts/language/commit-subjects.ts --range',
+        a: 'echo skipped for now --range',
+        porque:
+          'el gesto de «desactivar un momento» un job rojo deja el job en su sitio, con su nombre y su ' +
+          'verde, y sin nadie juzgando un solo asunto',
+      },
+      // LOS TRES ESPEJOS QUE FALTABAN, y que una revisión adversaria encontró
+      // vivos: el mutante de arriba describe «desactivar un momento», pero
+      // nadie desactiva un job borrando el comando. Se escribe así.
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '--range "origin/$BASE_REF..$HEAD_SHA"',
+        a: '--range "origin/$BASE_REF..$HEAD_SHA" || true',
+        porque:
+          'el lint corre, imprime cada asunto que rechaza y sale 0: el job queda verde con sus fallos a ' +
+          'la vista en la bitácora, que es la forma más silenciosa de apagar una puerta',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: "    if: github.event_name == 'pull_request'",
+        a: '    if: false',
+        porque:
+          'el job no corre nunca más y reporta «skipped», que GitHub da por satisfecho: queda con su ' +
+          'nombre en la lista de comprobaciones y sin juzgar un solo asunto',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'PR_TITLE: ${{ github.event.pull_request.title }}',
+        a: 'PR_TITLE_UNUSED: ${{ github.event.pull_request.title }}',
+        porque:
+          'el título deja de juzgarse, y el título es la ÚNICA cadena que el squash escribe en `main` ' +
+          'cuando el PR trae más de un commit: los commits pasarían en inglés y el asunto que queda en ' +
+          'la historia podría estar en español',
+      },
+    ],
+  },
+
+
+
+
+  {
+    paquete: 'E0.0',
     id: 'language-has-a-meter-with-a-baseline',
     enunciado: 'El idioma tiene metro con línea base, y la CI lo corre',
     evaluar: () => {
@@ -328,7 +547,7 @@ export const E0_0: Criterio[] = [
       // Y NO SE CONFÍA EN `codigoDe` PARA ESTO, aunque quite comentarios: lo
       // probé y NO los quitó aquí. Los dos comentarios de mnemosine.ts que
       // nombran la variable la escriben entre acentos graves —`MNEMOSINE_LANG`,
-      // al estilo markdown— y el escáner de `sinComentarios` toma ese acento
+      // al estilo markdown— y el escáner de `withoutComments` toma ese acento
       // por el inicio de una plantilla y deja de ver el comentario. Es un
       // defecto del instrumento del plan, no de este tramo; aquí sólo se evita
       // depender de él. La posición de valor la prosa no la imita.
@@ -398,7 +617,7 @@ export const E0_0: Criterio[] = [
     // comentarios de `mnemosine.ts` que explican este mismo cambio NOMBRAN
     // `setLanguage`, `setUserLocale` y `normalizeLocale` a pocos renglones de la
     // llamada. Un criterio anclado en presencia saldría verde con la llamada
-    // borrada y la prosa intacta — y `sinComentarios` ya se midió CIEGO en este
+    // borrada y la prosa intacta — y `withoutComments` ya se midió CIEGO en este
     // archivo de tres mil renglones (está escrito en el criterio de I7, aquí al
     // lado). Un comentario no es un nodo del AST: ése es todo el truco.
     enunciado:
@@ -891,7 +1110,7 @@ export const E0_0: Criterio[] = [
       // que `codigoDe` quite los comentarios. Medido en este mismo tramo: con
       // la llamada comentada —`// installHelpChrome(program);`— el fuente ya
       // sin comentarios TODAVÍA la contiene, así que el criterio pasaba con el
-      // cromo apagado. `sinComentarios` es un escáner con estado y en un
+      // cromo apagado. `withoutComments` es un escáner con estado y en un
       // archivo de tres mil renglones deja de quitar; en I6 lo vi cegado por
       // unos acentos graves, y aquí sin ellos. Es un defecto del instrumento
       // del plan y sigue abierto; lo que hace este criterio es no depender de
@@ -1445,7 +1664,12 @@ export const E0_0: Criterio[] = [
       // `W9` de este paquete y 9 en disco de la conducta de la cartera. El PR
       // medía 416 → 498 sobre su base vieja: la misma diferencia de 82. Hoy son
       // 503 en memoria + 21 en disco.
-      const MIRRORS_FLOOR = 524;
+      // 442 → 451: the nine mirrors of `commit-subjects-born-english` (I22),
+      // re-measured in memory on the tree merged with `main` after #294:
+      // 439 `mutantes` + 12 `mutantesEnDisco` = 451.
+      // Both landed: W0–W1 (#249) first, then I22 (#283) on top of it, so
+      // 524 + 9 = 533, re-measured on the merged tree (512 in memory + 21 on disk).
+      const MIRRORS_FLOOR = 533;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -1476,7 +1700,13 @@ export const E0_0: Criterio[] = [
       // base vieja). Los 9 espejos de la conducta de la cartera no anclan aquí:
       // viven en `conducta.ts`. Medido con el mismo `grep -cE` sobre la unión:
       // e0-0 pasa de 48 a 49, e2-1 de 41 a 113, y el resto no cambia.
-      const ANCHORS_HERE = 497;
+      // 424 → 433: the nine mirrors of `commit-subjects-born-english` (I22)
+      // each carry their `de:` on its own line, and they live in
+      // `criteria/e0-0.ts`. Measured with the same `grep -cE` over the union:
+      // 0 in the index + 432 across the fifteen package files + 1 in `shared.ts`.
+      // Both landed: 497 + 9 = 506 on the merged tree, measured with the same
+      // `grep -cE` over the union.
+      const ANCHORS_HERE = 506;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -1723,8 +1953,17 @@ export const E0_0: Criterio[] = [
       if (!stepRuns(ci, 'npx tsx scripts/historial-estado.ts --check')) {
         return falla('la compuerta del historial no corre en CI: sería una comprobación optativa');
       }
-      if (!/fetch-depth: 0/.test(ci)) {
-        return falla('el checkout dejó de pedir profundidad completa: el guardián no podría recorrer la historia');
+      // ACOTADO AL JOB DEL PLAN, que es donde corre esta compuerta.
+      //
+      // Hasta I22 este archivo tenía UN solo `fetch-depth: 0` y la pregunta
+      // «¿alguien pide profundidad completa?» respondía por el job correcto
+      // por accidente. I22 añade un segundo job que también la pide, y desde
+      // entonces borrar la del job del plan dejaba este criterio VERDE
+      // apoyándose en la del vecino. Un ancla que acierta porque sólo hay una
+      // aparición deja de acertar en cuanto hay dos.
+      const planJob = sectionOf(ci, '  plan:', /^ {2}[a-z][a-z-]*:$/m);
+      if (planJob === null || !/fetch-depth: 0/.test(planJob)) {
+        return falla('el checkout del job del plan dejó de pedir profundidad completa: el guardián no podría recorrer la historia');
       }
       if (!/HISTORIAL-GENERADO:INICIO/.test(crudoDe('docs/HISTORY.md'))) {
         return falla('el documento perdió los marcadores del censo: nadie podría regenerarlo ni compararlo');

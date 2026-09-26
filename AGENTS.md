@@ -26,7 +26,7 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
   - La integración necesita Postgres (`docs/MVP.md` §7). Sin él, el script **la salta y lo dice**; un salto nunca se presenta como verde.
 - **Mientras iteras:** sólo las pruebas de lo que tocas, `npx vitest run <ruta>`. La suite completa, una vez, antes del PR.
 - **Una compuerta suelta:** `scripts/verify.sh --only <typecheck|typecheck-tests|lint|icu|unit|plan|catalog|corpus|history|openapi|ux|language|integration|restore>`. Un nombre desconocido sale con código 2 sin correr nada.
-- **Lo que no corre en local** (aislamiento con el rol `mnemosine_app`, eval con llave de proveedor) sale como `SKIP` con su motivo; el resumen nunca dice que pasó todo.
+- **Lo que no corre en local** (aislamiento con el rol `mnemosine_app`, eval con llave de proveedor, el lint de asuntos que lee el evento del PR) sale como `SKIP` con su motivo; el resumen nunca dice que pasó todo.
 - **Mutantes de un criterio:** `npm run mutantes`.
 
 ## Límites
@@ -107,7 +107,7 @@ lee** (epic [#141](https://github.com/sedecim-com/Accounting/issues/141)):
 
 | Lo lee | Idioma | Ejemplos |
 |---|---|---|
-| La máquina, o quien la mantiene | **Inglés**, y lo nuevo nace así | identificadores, archivos, comentarios, claves, códigos de error, ids de criterio |
+| La máquina, o quien la mantiene | **Inglés**, y lo nuevo nace así | identificadores, archivos, comentarios, **mensajes de commit** (con puerta en la CI desde I22), claves, códigos de error, ids de criterio |
 | El contador | **Su idioma**, español primero | ayuda del CLI, mensajes, el panel de políticas, los informes |
 | Nadie más lo puede reescribir | **Se queda como está** | informes ya fechados, artefactos que van al SAT, valores ya persistidos en la base de un despacho |
 
