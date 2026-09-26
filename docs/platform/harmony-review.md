@@ -1,6 +1,6 @@
 # Armonía con la plataforma Sedecim — revisión del 2026-09-26
 
-> Se revisaron **135 repos** de `sedecim-com`. De esos, 54 archivados sólo se listaron; los ~85 activos se clonaron y los leyeron cinco revisores en paralelo, uno por dominio: finanzas y SAT, `acceso-*`, infraestructura, documentos e IA, y otros productos. Ningún repo se modificó.
+> Se revisaron los **129 repos** de `sedecim-com` visibles para esta sesión. Los 54 archivados sólo se listaron; los 75 activos se clonaron (74, más este mismo) y los leyeron cinco revisores en paralelo, uno por dominio: finanzas y SAT, `acceso-*`, infraestructura, documentos e IA, y otros productos. Ningún repo se modificó.
 >
 > Esta página resume lo que importa a Accounting y lo que se propone a los demás. Los informes completos, con evidencia de `archivo:línea` por repo, se quedan en la sesión de trabajo. Aquí va sólo lo verificado.
 

@@ -23,7 +23,7 @@ Clasificación de la Fase 1: **Activo**.
 
 ## Relación con otros repos de Sedecim
 
-El 2026-09-26 se revisaron los 135 repos de `sedecim-com`. La tabla de relaciones y las normas de plataforma están en [`harmony-review.md`](harmony-review.md). Ninguno llama a este repo ni es llamado por él. Uno se le parece en la técnica, no en el trabajo:
+El 2026-09-26 se revisaron los 129 repos de `sedecim-com` visibles (75 activos y 54 archivados). La tabla de relaciones y las normas de plataforma están en [`harmony-review.md`](harmony-review.md). Ninguno llama a este repo ni es llamado por él. Uno se le parece en la técnica, no en el trabajo:
 
 ### `accounting-manager` — convive: contabiliza las comisiones de Grupo Promessa
 
