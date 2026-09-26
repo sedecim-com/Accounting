@@ -1,5 +1,5 @@
 import type { ITaxCalculator, TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
-import { getBrackets, applyBrackets, periodsPerYear } from '../tax-engine/tax-tables.js';
+import { getBrackets, applyBrackets, paymentYear, periodsPerYear } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // MX — ISR (Impuesto Sobre la Renta)
@@ -49,7 +49,9 @@ export class MexicoIsrCalculator implements ITaxCalculator {
   taxType = 'isr';
 
   async calculate(input: TaxInput): Promise<TaxOutput> {
-    const { taxable_wages, pay_frequency, tax_year } = input;
+    const { taxable_wages, pay_frequency } = input;
+    // The tariff of the year the wage is PAID, not of the period's label (#242).
+    const tax_year = paymentYear(input);
 
     if (taxable_wages <= 0) {
       return {
@@ -113,7 +115,9 @@ export class MexicoSubsidioEmpleoCalculator implements ITaxCalculator {
   taxType = 'subsidio_empleo';
 
   async calculate(input: TaxInput): Promise<TaxOutput> {
-    const { taxable_wages, pay_frequency, tax_year } = input;
+    const { taxable_wages, pay_frequency } = input;
+    // The subsidy table of the year the wage is PAID (#242).
+    const tax_year = paymentYear(input);
 
     // EL PRORRATEO, Y POR QUÉ 30.4.
     //

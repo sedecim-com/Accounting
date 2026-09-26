@@ -1,5 +1,5 @@
 import type { ITaxCalculator, TaxInput, TaxOutput } from '../tax-engine/tax-engine.interface.js';
-import { getTaxParameters, requiredParameter } from '../tax-engine/tax-tables.js';
+import { contributionMonths, getTaxParameters, requiredParameter } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // MX — INFONAVIT
@@ -22,24 +22,29 @@ export class MexicoInfonavitEmployerCalculator implements ITaxCalculator {
   taxType = 'infonavit_employer';
 
   async calculate(input: TaxInput): Promise<TaxOutput> {
-    const { tax_year, sbc_daily = 0, days_in_period = 15 } = input;
+    const { sbc_daily = 0 } = input;
     if (sbc_daily <= 0) {
       return { jurisdiction: 'MX', tax_type: this.taxType, tax_amount: 0, taxable_wages_used: 0 };
     }
 
-    const params = await getTaxParameters('MX', tax_year);
-    const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);
-    const rate = requiredParameter(params, 'infonavit_employer_rate', 'MX', tax_year);
-    const topeSbc = uma * 25;
-    const sbcCapped = Math.min(sbc_daily, topeSbc);
-
-    const amount = sbcCapped * rate * days_in_period;
+    let amount = 0;
+    let taxableUsed = 0;
+    let rate = 0;
+    // Each month's days with that month's UMA (#242): see `contributionMonths`.
+    for (const { tax_year, date, days } of contributionMonths(input, 15)) {
+      const params = await getTaxParameters('MX', tax_year, date);
+      const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);
+      rate = requiredParameter(params, 'infonavit_employer_rate', 'MX', tax_year);
+      const sbcCapped = Math.min(sbc_daily, uma * 25);
+      amount += sbcCapped * rate * days;
+      taxableUsed += sbcCapped * days;
+    }
 
     return {
       jurisdiction: 'MX',
       tax_type: this.taxType,
       tax_amount: Math.round(amount * 100) / 100,
-      taxable_wages_used: sbcCapped * days_in_period,
+      taxable_wages_used: taxableUsed,
       rate_applied: rate,
       notes: `Employer contribution 5% on SBC capped at 25 UMA`,
     };
@@ -52,34 +57,39 @@ export class MexicoInfonavitCreditCalculator implements ITaxCalculator {
   taxType = 'infonavit_credit';
 
   async calculate(input: TaxInput & EmployeeCreditInput): Promise<TaxOutput> {
-    const { tax_year, sbc_daily = 0, days_in_period = 15, credit_type, credit_value } = input;
+    const { sbc_daily = 0, credit_type, credit_value } = input;
     if (!credit_type || !credit_value || credit_value <= 0 || sbc_daily <= 0) {
       return { jurisdiction: 'MX', tax_type: this.taxType, tax_amount: 0, taxable_wages_used: 0 };
     }
 
-    const params = await getTaxParameters('MX', tax_year);
-    const smg = requiredParameter(params, 'salario_minimo_general_diario', 'MX', tax_year);
-    const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);
-    const sbcCapped = Math.min(sbc_daily, uma * 25);
-
     let amount = 0;
-    switch (credit_type) {
-      case 'factor':
-        amount = sbcCapped * credit_value * days_in_period;
-        break;
-      case 'vsm':
-        amount = smg * credit_value * days_in_period;
-        break;
-      case 'pesos':
-        amount = credit_value * (days_in_period / 30);
-        break;
+    let taxableUsed = 0;
+    // Each month's days with that month's UMA and minimum wage (#242).
+    for (const { tax_year, date, days } of contributionMonths(input, 15)) {
+      const params = await getTaxParameters('MX', tax_year, date);
+      const smg = requiredParameter(params, 'salario_minimo_general_diario', 'MX', tax_year);
+      const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);
+      const sbcCapped = Math.min(sbc_daily, uma * 25);
+      taxableUsed += sbcCapped * days;
+
+      switch (credit_type) {
+        case 'factor':
+          amount += sbcCapped * credit_value * days;
+          break;
+        case 'vsm':
+          amount += smg * credit_value * days;
+          break;
+        case 'pesos':
+          amount += credit_value * (days / 30);
+          break;
+      }
     }
 
     return {
       jurisdiction: 'MX',
       tax_type: this.taxType,
       tax_amount: Math.round(amount * 100) / 100,
-      taxable_wages_used: sbcCapped * days_in_period,
+      taxable_wages_used: taxableUsed,
       notes: `INFONAVIT credit type ${credit_type} value ${credit_value}`,
     };
   }
