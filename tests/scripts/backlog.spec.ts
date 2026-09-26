@@ -83,6 +83,27 @@ describe('what makes a task atomic', () => {
   });
 });
 
+describe('the schedule block', () => {
+  const withSchedule = (patch: Record<string, unknown>): string[] => {
+    const b = backlog([task('001')]);
+    return validate({ ...b, schedule: { ...b.schedule, ...patch } as Backlog['schedule'] }, REQS, '001');
+  };
+
+  it('rejects a start that is not a real date', () => {
+    expect(withSchedule({ start: '28/09/2026' }).join()).toMatch(/schedule.start/);
+    expect(withSchedule({ start: '2026-02-30' }).join()).toMatch(/schedule.start/);
+  });
+
+  it.each(['sprint_days', 'capacity_per_sprint', 'capacity_per_lane'])(
+    'rejects a missing, zero, negative or fractional %s',
+    (field) => {
+      for (const bad of [undefined, 0, -1, 1.5]) {
+        expect(withSchedule({ [field]: bad }).join()).toMatch(new RegExp(`schedule.${field}`));
+      }
+    },
+  );
+});
+
 describe('dependencies and requirements', () => {
   it('rejects a dependency that does not exist', () => {
     expect(errorsOf([task('001', { depends_on: ['MNE-001-999'] })]).join()).toMatch(/does not exist/);

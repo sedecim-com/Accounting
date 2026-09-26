@@ -78,6 +78,19 @@ export function validate(backlog: Backlog, requirements: Set<string>, prdNumber:
   const byId = new Map<string, Task>();
   const idPattern = new RegExp(`^MNE-${prdNumber}-\\d{3}$`);
 
+  // A missing or zero capacity would not fail later: it would silently turn a
+  // limit off or stall the scheduler. So the schedule block is checked first.
+  const { start, sprint_days, capacity_per_sprint, capacity_per_lane } = backlog.schedule ?? {};
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(start)) ? new Date(`${start}T00:00:00Z`) : null;
+  if (!date || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== start) {
+    errors.push(`schedule.start: «${String(start)}» is not a date (YYYY-MM-DD)`);
+  }
+  for (const [field, value] of Object.entries({ sprint_days, capacity_per_sprint, capacity_per_lane })) {
+    if (!Number.isInteger(value) || value < 1) {
+      errors.push(`schedule.${field}: «${String(value)}» must be a positive integer`);
+    }
+  }
+
   for (const t of backlog.tasks) {
     if (!idPattern.test(t.id)) errors.push(`${t.id}: the id must look like MNE-${prdNumber}-nnn`);
     if (byId.has(t.id)) errors.push(`${t.id}: duplicated id`);
