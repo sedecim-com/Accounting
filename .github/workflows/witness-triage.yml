@@ -111,6 +111,13 @@ jobs:
           # `test` o `fake`, ni mayor ni menor. Y la fixture que lo destapó se
           # deja como está a propósito, para que sea el caso vivo que prueba
           # esta exclusión.
+          #
+          # Y SIGUE SIENDO BILINGÜE DESPUÉS DE I22. Los asuntos de commit nacen
+          # en inglés desde ese tramo, pero esta lista no mira asuntos: mira el
+          # DIFF, y las fixtures en español siguen en el árbol hasta I18/I19.
+          # Quitar la mitad española no termina ninguna migración: reabre el
+          # rojo que este bloque vino a cerrar. Tampoco se añaden palabras
+          # nuevas, por la regla de arriba.
           SECRET_HITS=$(printf '%s' "$DIFF" | grep -inE '^\+.*(BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|api[_-]?key["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-]{16,}|password\s*[:=]\s*["'"'"'][^"'"'"']+|secret\s*[:=]\s*["'"'"'][^"'"'"']+)' | grep -ivE 'example|placeholder|dummy|test|fake|sample|\.env\.example|redacted|\*\*\*|dev-secret-change-me|ejemplo|prueba|mentira|ficticio|fals[ao]' | cut -d: -f1 | sort -u | wc -l)
           if [ "$SECRET_HITS" -gt 0 ]; then
             echo "- 🔴 **$SECRET_HITS línea(s) con posible secreto** en el diff (patrón de clave/password/key material). Verificar antes de merge; NO imprimir el valor." >> "$OUT"

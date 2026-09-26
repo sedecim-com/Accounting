@@ -39,6 +39,19 @@ const PROVISTAS_POR_EL_ENTORNO = new Set([
   // declara ser rápido y sin base. No se configura: documentarla en
   // .env.example invitaría a ponerla a mano, que es justo lo que no debe pasar.
   'VITEST',
+  // Las pone GitHub Actions en el job `commit-subjects`, y las lee el lint de
+  // asunto (I22) para juzgar el TÍTULO del PR además de sus commits — el
+  // título es lo que el *squash* escribe en `main` cuando el PR trae más de
+  // uno. Viajan por `env:` y no interpoladas con `${{ }}` dentro del `run`,
+  // porque el título lo escribe cualquiera desde fuera y sustituirlo en la
+  // línea antes de que el shell la lea es inyección de manual.
+  //
+  // No se configuran: fuera de un PR no existen, y el guion lo trata como «no
+  // hay título que juzgar». Documentarlas en .env.example invitaría a ponerlas
+  // a mano, que es exactamente lo que no debe pasar.
+  'PR_TITLE',
+  'PR_AUTHOR',
+  'PR_CREATED_AT',
 ]);
 
 /** Directorios que se recorren buscando lecturas del entorno. */

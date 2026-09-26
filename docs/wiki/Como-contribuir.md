@@ -34,14 +34,22 @@ puede tocar el dinero de alguien sin romperlo.
 
 ## Las puertas de CI, en el orden en que fallan más barato
 
-Seis trabajos, todos obligatorios, en
-[`.github/workflows/ci.yml`](https://github.com/sedecim-com/Accounting/blob/main/.github/workflows/ci.yml).
-Un rojo se arregla; no se explica en un comentario.
+Siete trabajos en
+[`.github/workflows/ci.yml`](https://github.com/sedecim-com/Accounting/blob/main/.github/workflows/ci.yml)
+—más los de CodeQL y el triaje, que viven en workflows aparte—. Un rojo se
+arregla; no se explica en un comentario.
+
+**Que un trabajo exista no es que BLOQUEE.** Lo que impide fusionar es la lista
+de comprobaciones obligatorias del repositorio, que es un ajuste fuera del árbol
+y hoy nombra **dos**: `Tipos` y `Pruebas unitarias`. Los demás salen rojos en la
+página del PR y dejan pasar el botón. Se dice aquí porque esta página afirmaba
+lo contrario, y una puerta que se cree cerrada es peor que una abierta.
 
 | Trabajo | Qué corre | Qué atrapa |
 |---|---|---|
 | **Tipos** | `npm run typecheck` y `typecheck:tests` | Lo de siempre, y lo más barato |
 | **Lint** | `npm run lint` | ESLint 10 **con información de tipos** sobre `src/`, `tests/` y `scripts/` |
+| **Commit subjects** | `scripts/language/commit-subjects.ts` | Que el asunto de un commit nuevo —y el título del PR— nazca en inglés |
 | **Pruebas unitarias** | `npm test` y `npx vitest run --coverage` | La suite, más un trinquete de cobertura por archivo sobre el motor contable |
 | **Estado del plan** | `plan:status --exigir=…` y `catalogo-estado --check` | El **retroceso** de un paquete cerrado, y que el catálogo de comandos esté al día |
 | **Integración contra Postgres** | `npm run migrate` y `npm run test:integration` | Lo que sólo se ve contra una base real |
@@ -82,21 +90,28 @@ reprodúcelo en local antes de abrir el PR — está en [[Pruebas-y-CI]].
 
 Estas son las que hacen que un PR técnicamente correcto se devuelva.
 
-### Los comentarios y la documentación van en español
+### Los comentarios y la documentación **nacen en inglés**
 
 Y explican el **porqué**. El qué ya lo dice el código; si no lo dice, arregla el
 código. Un comentario que parafrasea la línea de abajo es ruido con costo de
-mantenimiento.
+mantenimiento. Lo que ya está escrito en español entra a una línea base por
+archivo que **sólo encoge** (epic
+[#141](https://github.com/sedecim-com/Accounting/issues/141)).
 
 ### Nada de emoji. Nada de `feat:` ni `chore:`
 
-Los mensajes de commit van en español y el asunto lleva el código del paquete,
-dos puntos, y una línea que dice **qué cambió** —no qué archivos tocaste:
+Los mensajes de commit **van en inglés** y el asunto lleva el código del tramo
+cuando exista, dos puntos, y una línea que dice **qué cambió** —no qué archivos
+tocaste:
 
 ```
-E1.4-c: lo simulado se nombra donde se sirve, y el borrador entra a la cadena
-AUD-1: cuatro silencios, que son peor que un error
+I7: the kernel renders help by key, and the pilot stops loading loose Spanish
+AUD-1: four silences, which are worse than an error
 ```
+
+Rige desde el corte que declara `scripts/language/commit-subjects.ts` y lo
+comprueba el job `Commit subjects` de la CI. Lo anterior a ese corte no se
+juzga y no se reescribe.
 
 ### El cuerpo del commit explica el porqué, no el diff
 

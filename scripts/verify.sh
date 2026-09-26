@@ -24,7 +24,7 @@
 set -u
 cd "$(dirname "$0")/.."
 
-GATES="typecheck typecheck-tests lint icu unit plan catalog corpus history openapi ux language integration restore isolation eval"
+GATES="typecheck typecheck-tests lint icu unit plan catalog corpus history openapi ux language integration restore isolation eval commit-subjects"
 
 VERBOSE=0
 INTEGRATION=1
@@ -162,6 +162,9 @@ fi
 skip_gate isolation       "needs mnemosine_app and a seeded database; runs in CI"
 # ci-skip: npm run eval -- --provider anthropic — needs ANTHROPIC_API_KEY and appends to docs/evals/ (CI job «Eval del clasificador»)
 skip_gate eval            "needs a provider key and writes docs/evals/; runs in CI"
+# ci-skip: git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" — setup of the commit-subjects step below: it fetches the pull request's base ref (CI job «Commit subjects»)
+# ci-skip: npx tsx scripts/language/commit-subjects.ts --range "origin/$BASE_REF..$HEAD_SHA" — judges a pull request's own commits and its title, read from the pull_request event (base ref, head sha, title, creation date); outside a PR there is no range, and the lint fails closed on an empty one (CI job «Commit subjects»)
+skip_gate commit-subjects "needs a pull_request event (range, title, creation date); runs in CI"
 
 echo
 if [ ${#FAILED[@]} -gt 0 ]; then

@@ -1,4 +1,4 @@
-# Dos suites, siete trabajos y tres trinquetes
+# Dos suites, ocho trabajos y tres trinquetes
 
 Esta página explica cómo se verifica mnemosine: qué prueba cada suite, qué hace cada trabajo de la integración continua, y —la parte que suele faltar— **qué queda fuera de medición y por qué**.
 
@@ -98,7 +98,7 @@ Dos apagados que solo aplican a `tests/` y que ilustran la disciplina: `no-unnec
 
 ---
 
-## Los siete trabajos de CI, uno por uno
+## Los ocho trabajos de CI, uno por uno
 
 Hay **un solo** archivo de workflow, [`.github/workflows/ci.yml`](https://github.com/sedecim-com/Accounting/blob/main/.github/workflows/ci.yml), y esa unicidad es un criterio del tablero: los paquetes de trabajo **añaden** trabajos ahí, ninguno vuelve a crear el archivo.
 
@@ -112,6 +112,7 @@ Antes de los trabajos, tres decisiones del encabezado:
 |---|---|---|
 | **Tipos** | `npm run typecheck` y `npm run typecheck:tests` | Las dos vistas del compilador, la que construye y la que cubre todo |
 | **Lint** | `npm run lint` | Errores rompen; advertencias con trinquete |
+| **Commit subjects** | `scripts/language/commit-subjects.ts` sobre los commits del PR y su título | Que un asunto nuevo nazca en inglés (I22). Sólo en pull request: sobre `main` los commits ya son registro |
 | **Pruebas unitarias** | `npm test` y después `npx vitest run --coverage` | La suite, y el trinquete de cobertura por archivo |
 | **Estado del plan** | `npm run plan:status -- --exigir=…` y `npx tsx scripts/catalogo-estado.ts --check` | Los dos marcadores de la casa, como compuerta y no como informe |
 | **Ensayo de restauración** | Servicio propio, instala el cliente `postgresql-15`, migra, y corre `tests/integration/s3-` | Que los libros se puedan recuperar, probado **restaurándolos** |
@@ -217,7 +218,7 @@ Y un cuarto, más chico pero de la misma familia: `--max-warnings 1239` en `pack
 
 ## Lo que la CI no cubre
 
-**Ningún criterio vigila dos de los siete trabajos.** El criterio del tablero exige que exista un solo archivo de workflow y que declare `typecheck`, `unit`, `integration`, `aislamiento` y `restauracion`. Los trabajos `lint` y `plan` **no** están en esa lista: borrar el trabajo de lint del YAML no pondría rojo ningún criterio del tablero. La compuerta se caería en silencio.
+**Ningún criterio vigila dos de los ocho trabajos.** El criterio del tablero exige que exista un solo archivo de workflow y que declare `typecheck`, `unit`, `integration`, `aislamiento` y `restauracion`. Los trabajos `lint` y `plan` **no** están en esa lista: borrar el trabajo de lint del YAML no pondría rojo ningún criterio del tablero. La compuerta se caería en silencio.
 
 `restauracion` estuvo en ese mismo hueco y salió al entrar en la lista. Merecía salir por una razón que a los otros dos no les aplica igual: existe un criterio que afirma que la verificación del respaldo **restaura y corre los chequeos del mayor**, pero lo afirma leyendo el fuente — borrar el trabajo del YAML dejaba esa afirmación en verde con nadie que la ejecutara nunca, que es código diciendo la verdad sobre sí mismo sin correr jamás. Y el trabajo no es una puerta cualquiera: el propio plan exige «respaldo verificado» como condición de sus tres remediaciones destructivas —las que corromperían el mayor de una entidad viva si salen mal—, así que este trabajo **es** ese control ejecutándose. El criterio entró con su espejo: una prueba de mutación renombra el trabajo en una copia **en memoria** del YAML y exige que el tablero se ponga rojo, porque un criterio sin mordida es prosa.
 
