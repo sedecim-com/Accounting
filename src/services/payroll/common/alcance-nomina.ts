@@ -53,7 +53,16 @@ export const periodoEnEntidad = (columnaId: string, indice: number): string =>
       WHERE pp2.id = ${columnaId} AND ps2.entity_id = $${indice}
    )`;
 
-/** Recibo → empleado → entidad. */
+/**
+ * Recibo → empleado → entidad.
+ *
+ * Also the route a GARNISHMENT order takes (F08): `garnishments` has no
+ * `entity_id` either, and since migration 077 gave it a `tenant_id` the
+ * generic helper resolves it to TENANT scope — so the jump has to be written
+ * into the statement here too. The predicate is the same one, reused rather
+ * than copied: what it names is «this id belongs to an employee of that
+ * entity», which is true of a paycheck and of a court order alike.
+ */
 export const reciboEnEntidad = (columnaId: string, indice: number): string =>
   `EXISTS (
      SELECT 1 FROM employees e2
