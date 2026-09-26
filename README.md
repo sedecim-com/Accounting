@@ -27,7 +27,7 @@ Es uno de los repos de la plataforma Sedecim ([ADR-0002](docs/adr/0002-platform-
 
 - **No recibe de ni entrega a** ningún otro repo de Sedecim hoy.
 - **Sus contrapartes son externas:** el contador, el SAT y el IMSS (por medio del contribuyente), Contalink, PAC y proveedores de modelo.
-- **Se parece a `accounting-manager`,** que también convierte CFDI en pólizas para Contalink. Cuál de los dos es la fuente de verdad está sin decidir.
+- **Reemplaza a `accounting-manager`,** que también convertía CFDI en pólizas para Contalink. Este repo es la fuente de verdad, y aquél se apaga y se archiva ([ADR-0003](docs/adr/0003-source-of-truth-over-accounting-manager.md)).
 
 Detalle en [`docs/platform/inventory.md`](docs/platform/inventory.md), y el nivel de madurez en [`docs/platform/maturity.md`](docs/platform/maturity.md).
 
@@ -116,7 +116,7 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
 
 ## Arranque rápido
 
-**Requisitos:** Node ≥ 20 (`engines` lo exige), PostgreSQL 15. Redis es opcional
+**Requisitos:** Node ≥ 22.12 (`engines` lo exige), PostgreSQL 15. Redis es opcional
 (caché y limitador; el CLI no lo necesita).
 
 ```bash

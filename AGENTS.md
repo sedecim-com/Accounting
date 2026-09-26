@@ -16,7 +16,7 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
 5. Este repo es uno de la plataforma Sedecim ([ADR-0002](docs/adr/0002-platform-coordination.md)):
    - si tu cambio toca lo que el repo expone o consume (la API, un archivo para el SAT, una integración externa), actualiza `catalog-info.yaml` en el mismo PR y marca el punto con `CONTRACT:`;
    - un desarrollo **nuevo**, que no es una issue con DoR, empieza por el ciclo de [`docs/prd/README.md`](docs/prd/README.md), no por el código;
-   - lo que toque Contalink o la generación de pólizas desde CFDI se cruza con `accounting-manager` ([`docs/platform/inventory.md`](docs/platform/inventory.md)).
+   - este repo es la fuente de verdad de la contabilidad, Contalink incluido; `accounting-manager` se apaga y se archiva, y nada se copia de él sin pruebas ([ADR-0003](docs/adr/0003-source-of-truth-over-accounting-manager.md)).
 
 ## Comandos
 

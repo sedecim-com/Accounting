@@ -18,5 +18,5 @@ La guía de implementación del framework pone el inventario, el nivel de madure
 ## Qué necesita este repo de la plataforma
 
 - **`PLATFORM.md` y su glosario.** Este repo tiene el suyo en `docs/wiki/Glosario.md`. Los términos que se cruzan con otros dominios («póliza» contable frente a «póliza» de seguro, «cliente», «pago») deben coincidir.
-- **Una decisión sobre `accounting-manager`:** ver [`inventory.md`](inventory.md).
+- **Que `accounting-manager` se apague y se archive** según la lista del [ADR-0003](../adr/0003-source-of-truth-over-accounting-manager.md), seguida en #342.
 - **El informe de contexto de plataforma** (framework §12.1) antes de cada desarrollo nuevo: [`../prd/README.md`](../prd/README.md).

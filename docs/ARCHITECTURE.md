@@ -16,7 +16,7 @@ La puerta de entrada que pide el framework (§8): componentes, flujo de datos y 
              XML Anexo 24, DIOT, SUA, CFDI de nómina ---> el contribuyente los presenta al SAT y al IMSS
 ```
 
-Ningún otro repo de Sedecim llama a este ni es llamado por él (ver [`platform/inventory.md`](platform/inventory.md)). La relación más cercana es `accounting-manager`, una variante sin integración.
+Ningún otro repo de Sedecim llama a este ni es llamado por él (ver [`platform/inventory.md`](platform/inventory.md)). `accounting-manager`, que hacía una parte de esto, se apaga y se archiva: este repo es la fuente de verdad (ADR-0003).
 
 ## Nivel 2 — Contenedores
 
