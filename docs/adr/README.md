@@ -7,7 +7,8 @@ Una decisión que no es obvia y que alguien va a querer deshacer sin saber por q
 | [0000](0000-legacy-baseline.md) | Cómo está construido hoy, y por qué: el punto de partida | Registro (2026-09-25) |
 | [0001](0001-agentic-framework-adoption.md) | Adoptar el Framework de Desarrollo Agéntico, adaptado a un solo repositorio | Aceptada (2026-09-25); fila §1 sustituida por 0002 |
 | [0002](0002-platform-coordination.md) | Este repo es uno de la plataforma Sedecim: ficha, inventario y ciclo de desarrollo compartidos | Propuesta (2026-09-25) |
-| [0003](0003-source-of-truth-over-accounting-manager.md) | Accounting es la fuente de verdad; `accounting-manager` se apaga y se archiva | Aceptada (2026-09-26) |
+| [0003](0003-source-of-truth-over-accounting-manager.md) | Accounting es la fuente de verdad; `accounting-manager` se apaga y se archiva | Sustituida por 0004 (2026-09-26) |
+| [0004](0004-coexistence-with-accounting-manager.md) | `accounting-manager` y este repo conviven: un solo escritor por compañía de Contalink, identificada por RFC | Aceptada (2026-09-26) |
 
 Cada ADR tiene esta forma:
 
