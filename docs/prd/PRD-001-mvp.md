@@ -53,7 +53,7 @@ El contador del despacho, que opera el CLI, y el dueño o auditor del despacho, 
 
 ## 7. Reutilización y dependencias de plataforma
 
-Ninguna con otros repos de Sedecim (`docs/platform/inventory.md`). Contalink es externo, y este repo es su única fuente de verdad (ADR-0003).
+Ninguna con otros repos de Sedecim (`docs/platform/inventory.md`). Contalink es externo. Este repo escribe en él sólo por la cola revisada `ai_external_ops` y nunca en una compañía que ya tiene otro escritor: la de Grupo Promessa es de `accounting-manager` (ADR-0004, #357).
 
 ## 8. Supuestos, riesgos y preguntas abiertas
 
