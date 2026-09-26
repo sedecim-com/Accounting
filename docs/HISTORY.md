@@ -14,8 +14,8 @@ Este documento reconstruye, **verificado contra `git log` y contra `gh pr view` 
 
 **Censo, medido sobre el árbol** (`npm run historial:estado`):
 
-- **125** PRs registrados aquí.
-- El más alto registrado es el **#341**.
+- **134** PRs registrados aquí.
+- El más alto registrado es el **#354**.
 - **13** commits directos a `main`, de antes del flujo por PR (la fila «—» del Sprint 1).
 
 CI lo verifica con `--check`, que falla cuando un PR lleva más de **7 días** fusionado sin aparecer aquí. La gracia existe para que una fusión no ponga en rojo los demás PRs abiertos; el techo, para que el documento no pueda pudrirse.
@@ -249,6 +249,21 @@ Fuente: **verificado** (`git log --first-parent origin/main` y `git rev-list --c
 | [#340](https://github.com/sedecim-com/Accounting/pull/340) | Adoptar el framework de desarrollo agéntico (ADR-0001): Definition of Ready, dificultad y autonomía, verify.sh y el mapa del repo | 2026-09-25 | — | fusión `fb51b28`, 4 commits. ADR-0001, `scripts/verify.sh` con paridad declarada con CI, `docs/REPO_MAP.md` generado por `scripts/repo-map.ts`, y las etiquetas `difficulty:*`, `autonomy:*` y `status:*` que reemplazan a `listo` en la ruta. |
 | [#287](https://github.com/sedecim-com/Accounting/pull/287) | Bump the menores-y-parches group with 6 updates | 2026-09-25 | — | squash `ea88b3d`, 2 commits. Dependencias menores (Ola 0). |
 | [#288](https://github.com/sedecim-com/Accounting/pull/288) | Bump eslint from 9.39.5 to 10.11.0 | 2026-09-25 | — | squash `2909869`, 3 commits. ESLint 10 con el mismo número de avisos (1 093, tope 1 106); las menciones a «ESLint 9» de los documentos vivos se corrigen aparte. |
+| [#343](https://github.com/sedecim-com/Accounting/pull/343) | Este repo entra a la plataforma Sedecim: ficha, inventario, madurez y ciclo de desarrollo (ADR-0002) | 2026-09-25 | — | fusión `e220ad5`, 1 commit. ADR-0002, `catalog-info.yaml` y el ciclo de PRD para desarrollos nuevos. |
+| [#344](https://github.com/sedecim-com/Accounting/pull/344) | Ola 0: las filas del historial de la ruta al MVP, y ESLint 10 donde los documentos decían 9 | 2026-09-25 | — | squash `c8808cc`, 1 commit. Las cinco filas de arriba y las menciones a ESLint 10. |
+
+## 26 de septiembre — la Ola 0 se vacía: vitest 5, F08, I11 · 4 y el tablero una vez por corrida
+Fuente: **verificado**, con el mismo método que la sección anterior. Las cuentas de #345, #272, #286 y #346 incluyen los commits con los que se actualizaron desde `main` o se fusionó `main` en la rama antes de entrar. Filas escritas por una sola sesión, sin escéptico independiente.
+
+| PR | Título | Merge | Tramos que incluye | Notas |
+|---|---|---|---|---|
+| [#347](https://github.com/sedecim-com/Accounting/pull/347) | Accounting es la fuente de verdad; accounting-manager se apaga y se archiva (ADR-0003) | 2026-09-26 | — | fusión `71b0bc1`, 1 commit. ADR-0003 y el inventario de la plataforma. |
+| [#345](https://github.com/sedecim-com/Accounting/pull/345) | DEP-vitest5: vitest y su cobertura suben juntos a 5.0.2, y la CI pasa a Node 22 | 2026-09-26 | DEP-vitest5 | squash `9ad8c3d`, 3 commits. Cierra #292; reemplaza a #207 y #289, que se cerraron citándolo. `NODE_VERSION` 22, `engines.node >=22.12` y Dependabot agrupa `vitest` + `@vitest/*`. Cobertura idéntica archivo por archivo en las dos suites. |
+| [#272](https://github.com/sedecim-com/Accounting/pull/272) | F08: la orden que nadie podía dar de alta, y la exención cuya ausencia se llevaba el sueldo entero | 2026-09-26 | F08 | squash `7e42d0f`, 9 commits. El primer escritor de `garnishments` (`garnishment record/list/archive`) y la migración 085. Tras Witness: `FOR UPDATE` sobre el empleado contra altas simultáneas, negativa a conjuntos cuyos techos pasan del 100 % del disponible, y cada línea de la cascada truncada al centavo. E4.1 23/23 y a `--exigir`. |
+| [#353](https://github.com/sedecim-com/Accounting/pull/353) | Backlog del MVP: PRD-001 y tareas atómicas con prioridad, dependencias y sprint calculado | 2026-09-26 | — | fusión `1d6cf65`, 2 commits. |
+| [#354](https://github.com/sedecim-com/Accounting/pull/354) | backlog: el PRD nombra el campo real de las decisiones y el calendario se valida (WIT-01, WIT-02) | 2026-09-26 | — | fusión `fe13843`, 1 commit. |
+| [#286](https://github.com/sedecim-com/Accounting/pull/286) | I11 · 4: el idioma se escribe donde se lee, y el chequeo de doctor tiene identidad | 2026-09-26 | I11 · 4 | squash `2e95774`, 6 commits. `mnemosine lang` escribe `locale` en el config del usuario; `CheckResult` gana `id`. Tras Witness: la cuarentena la decide el contenido y no un catch, y el config se reemplaza de forma atómica. |
+| [#346](https://github.com/sedecim-com/Accounting/pull/346) | DEV-1: el tablero de criterios se evalúa una vez por corrida, y los techos de timeout bajan | 2026-09-26 | DEV-1 | squash `7b56e90`, 6 commits. Cierra #293 con `globalSetup` de vitest y `DoctorDeps.cliConsistency`; los techos de 20–90 s vuelven al valor por omisión. El plan no pasó por `/aprobar-plan` y el dueño aceptó la desviación. La mejora de tiempo se midió en local (−23 %), pero en CI no se acreditó: queda dentro del ruido del runner. |
 
 ## Sin sprint / no clasificado
 
