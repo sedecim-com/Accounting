@@ -313,7 +313,13 @@ describe('los seis carriles sobre el árbol real', () => {
     const pf = byId('plan-criteria-grepping-spanish-identifiers').perFile ?? {};
     expect(pf['src/services/accounting/posting.ts']).toBeGreaterThan(0);
     const total = Object.values(pf).reduce((a, b) => a + b, 0);
-    expect(pf['src/plan/criterios.ts'] ?? 0).toBeLessThan(total * 0.1);
+    // Since #294 the board spans the index and `src/plan/criteria/`: an
+    // unresolved regex falls back to the file of its own criterion, so the
+    // drawer is every board file together.
+    const board = Object.entries(pf)
+      .filter(([f]) => f.startsWith('src/plan/'))
+      .reduce((a, [, n]) => a + n, 0);
+    expect(board).toBeLessThan(total * 0.1);
   });
 
   it('cada ejemplo nombra un archivo y una línea que se pueden abrir', () => {
