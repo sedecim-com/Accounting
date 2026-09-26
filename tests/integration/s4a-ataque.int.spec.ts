@@ -49,6 +49,8 @@ const ARCHIVOS_TOCADOS = [
   'src/services/accounting/period-close.ts',
   'src/database/scope.ts',
   'src/plan/criterios.ts',
+  'src/plan/criteria/shared.ts',
+  'src/plan/criteria/e0-1.ts',
 ];
 const originales = new Map<string, string>();
 for (const rel of ARCHIVOS_TOCADOS) {
@@ -604,7 +606,7 @@ describe('5 · npm run mutantes', () => {
     // Se mata el criterio de cobertura de la forma más plausible: alguien lo
     // «simplifica» y deja de comparar contra el suelo.
     mutarEnDisco(
-      'src/plan/criterios.ts',
+      'src/plan/criteria/e0-1.ts',
       "      const problemas = contraSuelo(c, SUELO_COBERTURA_UNITARIA);\n      if (problemas.length > 0) return falla(problemas.join('; '));",
       "      const problemas: string[] = [];\n      if (problemas.length > 0) return falla(problemas.join('; '));"
     );
@@ -619,7 +621,7 @@ describe('5 · npm run mutantes', () => {
     // evaluarían contra el árbol LIMPIO y ningún mutante mordería. Un arnés
     // circular —uno que se juzgara con el mismo código roto— saldría en verde.
     mutarEnDisco(
-      'src/plan/criterios.ts',
+      'src/plan/criteria/shared.ts',
       '  sobreescrituras = new Map(Object.entries(overlay));',
       '  sobreescrituras = null; void overlay;'
     );
