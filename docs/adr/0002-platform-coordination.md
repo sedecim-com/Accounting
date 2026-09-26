@@ -1,7 +1,7 @@
 # ADR-0002 · Este repo es uno de la plataforma Sedecim: ficha, inventario y ciclo de desarrollo compartidos
 
 - **Fecha:** 2026-09-25
-- **Estado:** propuesta; los campos `# inferido` de `catalog-info.yaml` los confirma el owner.
+- **Estado:** propuesta; los campos `# inferido` de `catalog-info.yaml` los confirma el owner. La relación con `accounting-manager` la resuelve el [ADR-0003](0003-source-of-truth-over-accounting-manager.md).
 - **Sustituye:** la fila §1 del ADR-0001 («Platform Scope, catálogo, matriz de impacto: adaptado, un solo repo»). El resto del ADR-0001 sigue vigente.
 - **Fuentes:** el [Framework de Desarrollo de Software Agéntico](https://claude.ai/artifact/V5nLbNQmVkbCDpZfMkUx6A) y la *Guía de implementación del Framework Agéntico en una plataforma multirepositorio existente* (2026-09-25), que fija el arranque en sedecim-com (§13).
 
