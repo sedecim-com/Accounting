@@ -214,6 +214,12 @@ export const EN = {
   /** `src/cli/kernel/flags.ts:parsePositiveInt`. */
   'cli.flag.error_not_whole_number':
     '{name} must be a non-negative whole number; got "{value}".',
+  /** `src/cli/web-command.ts:parsePort`. */
+  'cli.flag.error_not_port': '{name} must be a port from 0 to 65535; got "{value}".',
+  /** `src/cli/web-command.ts:parseOrigin` and `parseListenHost`. */
+  'cli.flag.error_not_origin':
+    '{name} must be an origin only, scheme, host and port, with no path; got "{value}".',
+  'cli.flag.error_empty': '{name} cannot be empty.',
   /** `src/cli/kernel/flags.ts:parseDate`. */
   'cli.flag.error_not_date': '{name} must be a date as YYYY-MM-DD; got "{value}".',
 
@@ -337,6 +343,18 @@ export const EN = {
   'help.whoami.description': 'Shows the active credential and its validity',
   'help.subscription.description':
     'Outbound event subscriptions: who we notify, and what we could not deliver',
+
+  // --- W0 · `src/cli/web-command.ts`, the web gateway's operator entry ---
+  'help.web.description': 'The browser board: a read-only gateway in front of the API',
+  'help.web.start.description':
+    'Starts the web gateway, which holds the browser session and relays reads to /v1; runs until ' +
+    'Ctrl+C (production runs node dist/gateway/main.js instead)',
+  'help.web.start.port': 'Port to listen on (default: GATEWAY_PORT, else 8080)',
+  'help.web.start.host': 'Address to listen on (default: GATEWAY_HOST, else 127.0.0.1)',
+  'help.web.start.api_url': 'Origin of the API it relays to (default: GATEWAY_API_URL)',
+  'help.web.start.public_origin':
+    'Origin the browser opens, which the gateway answers under (default: GATEWAY_PUBLIC_ORIGIN)',
+  'web.start.listening': 'Open {origin} in a browser. Ctrl+C stops the gateway.',
 
   // ==== I7 · EL PILOTO: `src/cli/bank-command.ts` (issue #149) =====
 
@@ -822,6 +840,71 @@ export const EN = {
     '{matches, plural, one {# match} other {# matches}} · ' +
     '{sealed, plural, one {# item sealed} other {# items sealed}}',
   // ==== fin del piloto bank (I7) ====================================
+  // ==== W1 · the browser board (issue #117) ========================
+  // The keys of the web gateway's browser program, src/gateway/app. That
+  // program imports this file and es.ts as modules, so what is written here is
+  // served to the page as it is. Its runtime (src/gateway/app/messages.ts) only
+  // fills plain {name} holes, with no plural and no select, and
+  // tests/gateway/web-model.spec.ts holds every web.* message to that. Entity
+  // names, period names, CLI commands and dates are data, never keys.
+  'web.app.title': 'Firm board',
+  'web.app.skip_to_content': 'Skip to content',
+  'web.app.not_found': 'There is no such screen.',
+  'web.session.sign_in': 'Sign in',
+  'web.session.sign_out': 'Sign out',
+  'web.session.sign_out_failed': 'Sign-out was not confirmed, so your session may still be open. Try again.',
+  'web.session.signed_out': 'You are not signed in, or your session ended.',
+  'web.session.no_access':
+    'Your account cannot read this: it needs the accounts:read and journal_entries:read permissions.',
+  'web.session.signin_failed': 'Sign-in did not complete, and no session was kept. Try again.',
+  'web.portfolio.title': 'Firm portfolio',
+  'web.portfolio.caption': 'Entities you can read, their current period and the work waiting on a person',
+  'web.portfolio.column.entity': 'Entity',
+  'web.portfolio.column.current_period': 'Current period',
+  'web.portfolio.column.ended_open_periods': 'Ended periods still open',
+  'web.portfolio.column.pending_drafts': 'Drafts to review',
+  'web.portfolio.column.pending_questions': 'Open questions',
+  'web.portfolio.no_calendar': 'no calendar',
+  'web.portfolio.inactive': 'inactive',
+  'web.portfolio.empty': 'Your token grants no entity that can be read here.',
+  'web.portfolio.not_evaluated': 'Close readiness is not evaluated on this screen.',
+  'web.portfolio.as_of': 'Server date {date}',
+  'web.portfolio.fetched': 'Read at {time}, {minutes} min ago',
+  'web.portfolio.stale': 'The refresh at {time} failed: these figures are from the last good read.',
+  'web.portfolio.omitted': 'Entity ids in your token that produced no row: {count}',
+  'web.portfolio.refresh': 'Refresh',
+  'web.portfolio.loading': 'Reading the portfolio…',
+  'web.portfolio.legend.title': 'What the colors say',
+  'web.portfolio.legend.info': 'Blue: the current period is open or soft closed.',
+  'web.portfolio.legend.balanced': 'Green: the current period is hard closed or locked.',
+  'web.portfolio.legend.pending': 'Amber: work is waiting on a person.',
+  'web.portfolio.legend.neutral': 'No color: nothing waiting, or no calendar yet.',
+  'web.period_status.future': 'future',
+  'web.period_status.open': 'open',
+  'web.period_status.soft_close': 'soft close',
+  'web.period_status.hard_close': 'hard close',
+  'web.period_status.locked': 'locked',
+  'web.entity.back': 'Back to the portfolio',
+  'web.entity.loading': 'Reading the entity…',
+  'web.entity.not_granted': 'Your token does not grant this entity, so its lists cannot be read here.',
+  'web.entity.drafts': 'Drafts to review',
+  'web.entity.drafts_limit': 'The API lists the 100 most recent drafts at most.',
+  'web.entity.questions': 'Open questions',
+  'web.entity.periods': 'Fiscal periods',
+  'web.entity.none': 'None.',
+  'web.entity.column.date': 'Date',
+  'web.entity.column.description': 'Description',
+  'web.entity.column.confidence': 'Confidence',
+  'web.entity.column.question': 'Question',
+  'web.entity.column.topic': 'Topic',
+  'web.entity.column.period': 'Period',
+  'web.entity.column.status': 'Status',
+  'web.entity.column.start': 'Start',
+  'web.entity.column.end': 'End',
+  'web.entity.verify': 'The same lists in the terminal:',
+  'web.error.upstream_unavailable': 'The API is not reachable right now.',
+  'web.error.session_expired': 'Your session ended. Sign in again.',
+  'web.error.unexpected': 'The answer could not be read.',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and

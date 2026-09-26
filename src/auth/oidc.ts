@@ -21,6 +21,10 @@ export interface OidcDiscovery {
   jwks_uri: string;
   device_authorization_endpoint?: string;
   code_challenge_methods_supported?: string[];
+  /** RFC 7009. The web gateway revokes a session's tokens here at logout, when present. */
+  revocation_endpoint?: string;
+  /** OIDC RP-Initiated Logout. The web gateway sends the browser here after logout, when present. */
+  end_session_endpoint?: string;
 }
 
 export interface VerifiedIdentity {
@@ -103,7 +107,7 @@ export async function verifyIdpToken(
   });
 
   const sub = payload.sub;
-  if (!sub) throw new Error('The token has no "sub": it identifies nobody');
+  if (!sub) throw new TokenWithoutSubjectError();
 
   return {
     issuer: conf.issuer,
@@ -113,6 +117,50 @@ export async function verifyIdpToken(
     groups: extractGroups(payload),
     expiresAt: (payload.exp ?? 0) * 1000,
   };
+}
+
+/**
+ * A verified token that names no subject. A rejection of the token itself, as
+ * a bad signature or an expired token is, and not a failure to reach the IdP:
+ * callers that tell the two apart (the API's authenticate) need a type, not a
+ * message to match.
+ */
+export class TokenWithoutSubjectError extends Error {
+  constructor() {
+    super('The token has no "sub": it identifies nobody');
+    this.name = 'TokenWithoutSubjectError';
+  }
+}
+
+/** jose error codes that are a verdict on the token itself. Every other failure while verifying is the IdP. */
+const TOKEN_REJECTION_CODES: ReadonlySet<string> = new Set([
+  'ERR_JWT_CLAIM_VALIDATION_FAILED',
+  'ERR_JWT_EXPIRED',
+  'ERR_JWT_INVALID',
+  'ERR_JWS_INVALID',
+  'ERR_JWS_SIGNATURE_VERIFICATION_FAILED',
+  'ERR_JOSE_ALG_NOT_ALLOWED',
+  'ERR_JOSE_NOT_SUPPORTED',
+  'ERR_JWKS_NO_MATCHING_KEY',
+  'ERR_JWKS_MULTIPLE_MATCHING_KEYS',
+]);
+
+/**
+ * True when verifyIdpToken failed because it judged the token and refused it,
+ * false when it could not judge it: discovery or the JWKS unreachable, timed
+ * out, an HTTP error, a body that is not what it promised. Two callers act on
+ * the difference and must not drift apart: the API's authenticate (401 or
+ * 502) and the web gateway's refresh (end the session or keep it).
+ *
+ * jose's errors are read by their code, which every one of them carries, and
+ * not by class: the gateway loads this module, and what it may bind from jose
+ * is the verification half only.
+ */
+export function isTokenRejection(err: unknown): err is Error {
+  if (err instanceof TokenWithoutSubjectError) return true;
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' && TOKEN_REJECTION_CODES.has(code);
 }
 
 /** Providers name groups differently; the usual ones are accepted. */

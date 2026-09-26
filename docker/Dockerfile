@@ -6,8 +6,8 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
 
-# Copy source
-COPY tsconfig.json ./
+# Copy source (tsconfig.web.json builds the browser program into dist/gateway/public)
+COPY tsconfig.json tsconfig.web.json ./
 COPY src ./src
 
 # Build

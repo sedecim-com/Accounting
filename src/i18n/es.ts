@@ -140,6 +140,10 @@ export const ES: Record<keyof typeof EN, string> = {
 
   'cli.flag.error_not_whole_number':
     '{name} tiene que ser un entero no negativo; llegó "{value}".',
+  'cli.flag.error_not_port': '{name} tiene que ser un puerto entre 0 y 65535; llegó "{value}".',
+  'cli.flag.error_not_origin':
+    '{name} tiene que ser sólo un origen —esquema, anfitrión y puerto, sin ruta—; llegó "{value}".',
+  'cli.flag.error_empty': '{name} no puede ir vacía.',
   'cli.flag.error_not_date': '{name} tiene que ser una fecha AAAA-MM-DD; llegó "{value}".',
 
   // --- Las banderas que inyecta la declaración de riesgo (risk.ts) -----
@@ -249,6 +253,18 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.whoami.description': 'Muestra la credencial activa y hasta cuándo sirve',
   'help.subscription.description':
     'Suscripciones a eventos salientes: a quién avisamos y qué no se pudo entregar',
+
+  // --- W0 · `src/cli/web-command.ts`, the web gateway's operator entry ---
+  'help.web.description': 'El tablero en el navegador: un gateway de sólo lectura delante de la API',
+  'help.web.start.description':
+    'Arranca el gateway web, que guarda la sesión del navegador y reenvía lecturas a /v1; corre hasta ' +
+    'Ctrl+C (en producción se usa node dist/gateway/main.js)',
+  'help.web.start.port': 'Puerto en el que escucha (por omisión: GATEWAY_PORT, si no 8080)',
+  'help.web.start.host': 'Dirección en la que escucha (por omisión: GATEWAY_HOST, si no 127.0.0.1)',
+  'help.web.start.api_url': 'Origen de la API a la que reenvía (por omisión: GATEWAY_API_URL)',
+  'help.web.start.public_origin':
+    'Origen que abre el navegador, y bajo el que contesta el gateway (por omisión: GATEWAY_PUBLIC_ORIGIN)',
+  'web.start.listening': 'Abre {origin} en el navegador. Ctrl+C detiene el gateway.',
 
   // ==== I7 · EL PILOTO: `src/cli/bank-command.ts` (issue #149) =====
   // --- Los analizadores de bandera: uso (2), no validación (4) ---------
@@ -702,6 +718,69 @@ export const ES: Record<keyof typeof EN, string> = {
     '{matches, plural, one {# cotejo} other {# cotejos}} · ' +
     '{sealed, plural, one {# partida sellada} other {# partidas selladas}}',
   // ==== fin del piloto bank (I7) ====================================
+  // ==== W1 · the browser board (issue #117) ========================
+  // Same keys, same order as en.ts. The Spanish is what the board shows by
+  // default (src/gateway/app/messages.ts falls back to es).
+  'web.app.title': 'Tablero del despacho',
+  'web.app.skip_to_content': 'Saltar al contenido',
+  'web.app.not_found': 'Esa pantalla no existe.',
+  'web.session.sign_in': 'Iniciar sesión',
+  'web.session.sign_out': 'Cerrar sesión',
+  'web.session.sign_out_failed': 'No se confirmó el cierre de sesión: tu sesión puede seguir abierta. Inténtalo de nuevo.',
+  'web.session.signed_out': 'No has iniciado sesión, o tu sesión terminó.',
+  'web.session.no_access':
+    'Tu cuenta no puede leer esto: le faltan los permisos accounts:read y journal_entries:read.',
+  'web.session.signin_failed':
+    'El inicio de sesión no terminó y no se guardó ninguna sesión. Inténtalo de nuevo.',
+  'web.portfolio.title': 'Cartera del despacho',
+  'web.portfolio.caption':
+    'Entidades que puedes leer, su periodo en curso y el trabajo que espera a una persona',
+  'web.portfolio.column.entity': 'Entidad',
+  'web.portfolio.column.current_period': 'Periodo en curso',
+  'web.portfolio.column.ended_open_periods': 'Periodos vencidos aún abiertos',
+  'web.portfolio.column.pending_drafts': 'Borradores por revisar',
+  'web.portfolio.column.pending_questions': 'Preguntas pendientes',
+  'web.portfolio.no_calendar': 'sin calendario',
+  'web.portfolio.inactive': 'inactiva',
+  'web.portfolio.empty': 'Tu token no concede ninguna entidad que se pueda leer aquí.',
+  'web.portfolio.not_evaluated': 'La preparación para el cierre no se evalúa en esta pantalla.',
+  'web.portfolio.as_of': 'Fecha del servidor {date}',
+  'web.portfolio.fetched': 'Leído a las {time}, hace {minutes} min',
+  'web.portfolio.stale': 'La actualización de las {time} falló: estas cifras son de la última lectura buena.',
+  'web.portfolio.omitted': 'Ids de entidad de tu token que no dieron fila: {count}',
+  'web.portfolio.refresh': 'Actualizar',
+  'web.portfolio.loading': 'Leyendo la cartera…',
+  'web.portfolio.legend.title': 'Qué dicen los colores',
+  'web.portfolio.legend.info': 'Azul: el periodo en curso está abierto o en cierre blando.',
+  'web.portfolio.legend.balanced': 'Verde: el periodo en curso tiene cierre definitivo o está bloqueado.',
+  'web.portfolio.legend.pending': 'Ámbar: hay trabajo esperando a una persona.',
+  'web.portfolio.legend.neutral': 'Sin color: nada en espera, o todavía sin calendario.',
+  'web.period_status.future': 'futuro',
+  'web.period_status.open': 'abierto',
+  'web.period_status.soft_close': 'cierre blando',
+  'web.period_status.hard_close': 'cierre definitivo',
+  'web.period_status.locked': 'bloqueado',
+  'web.entity.back': 'Volver a la cartera',
+  'web.entity.loading': 'Leyendo la entidad…',
+  'web.entity.not_granted': 'Tu token no concede esta entidad: sus listas no se pueden leer aquí.',
+  'web.entity.drafts': 'Borradores por revisar',
+  'web.entity.drafts_limit': 'La API lista como mucho los 100 borradores más recientes.',
+  'web.entity.questions': 'Preguntas pendientes',
+  'web.entity.periods': 'Periodos fiscales',
+  'web.entity.none': 'Ninguno.',
+  'web.entity.column.date': 'Fecha',
+  'web.entity.column.description': 'Descripción',
+  'web.entity.column.confidence': 'Confianza',
+  'web.entity.column.question': 'Pregunta',
+  'web.entity.column.topic': 'Tema',
+  'web.entity.column.period': 'Periodo',
+  'web.entity.column.status': 'Estado',
+  'web.entity.column.start': 'Inicio',
+  'web.entity.column.end': 'Fin',
+  'web.entity.verify': 'Las mismas listas en la terminal:',
+  'web.error.upstream_unavailable': 'La API no responde en este momento.',
+  'web.error.session_expired': 'Tu sesión terminó. Vuelve a iniciar sesión.',
+  'web.error.unexpected': 'No se pudo leer la respuesta.',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
