@@ -44,6 +44,7 @@ import {
 // disk, and `mnemosine lang` writes it through `setUserLocale`. Renaming this
 // one at the import keeps any call site from reading as the other.
 import { setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
+import { formatMoney } from '../i18n/format.js';
 import { AppError } from '../utils/errors.js';
 import {
   createSession,
@@ -1615,6 +1616,13 @@ function renderDraft(draft: DraftRow, index: number, total: number): void {
   console.log(`${c.dim('date:')} ${p.entry_date}   ${c.dim('AI confidence:')} ${draft.ai_confidence}`);
   console.log(`${c.dim('description:')} ${p.description}`);
   if (p.reference) console.log(`${c.dim('reference:')} ${p.reference}`);
+  const o = draft.origin;
+  if (o) {
+    console.log(c.bold(t('review.draft.bill_to_be_born', {
+      uuid: o.cfdi_uuid ?? '?', issuer: o.issuer_name ?? '?', rfc: o.issuer_rfc ?? '?',
+      method: o.payment_method ?? '?', total: o.total ? formatMoney(o.total) : '?',
+    })));
+  }
   console.log(`${c.dim('reasoning:')} ${c.dim(draft.ai_reasoning)}`);
   console.log('');
   console.log(c.dim('  account     description                                     debit       credit'));
@@ -1905,6 +1913,7 @@ declareRisk(review, {
   agent: false,
   writes:
     'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador; ' +
+    'bills + bill_lines + pre_registrations cuando el borrador viene de un CFDI recibido (#318); ' +
     'ai_questions al sembrar un precedente que el revisor confirmó tras un rechazo',
 });
 review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idempotencyKey?: string }) => {
@@ -1970,7 +1979,7 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
 
         // El hash de lo que el revisor VIO. Ata la aprobación —corregida o
         // no— a ese contenido exacto: si el payload cambia en medio, aborta.
-        const baseHash = canonicalDraftHash(pending[i].payload);
+        const baseHash = canonicalDraftHash(pending[i].payload, pending[i].origin);
 
         if (choice.kind === 'approve' || choice.kind === 'edit') {
           let correction: DraftCorrection | undefined;
@@ -2163,6 +2172,8 @@ ingest.action(async (files: string[], opts: {
         capture.drafts.push(info);
         borradoresCapturados.n++;
       });
+      // #318: the drafts of each file are born bound to its CFDI.
+      callbacks.draftOrigin = () => capture.origin;
       // A2: la ingesta acumula su consumo para la fila de ai_ingest_runs —
       // y de paso cierra un hueco: este camino no registraba NADA en
       // ai_usage (el onUsage nunca se cableó aquí; ask/chat/jobs sí).
