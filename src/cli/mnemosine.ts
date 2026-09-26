@@ -131,6 +131,7 @@ import { registerPayrollCommand } from './payroll-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
+import { registerGarnishmentCommand } from './garnishment-command.js';
 import { registerCashFlowCommand } from './cashflow-command.js';
 import { registerAuditCommand } from './audit-command.js';
 import { registerWebhookSweepCommand } from './webhook-sweep-command.js';
@@ -3409,6 +3410,11 @@ registerDiotCommand(program, { palette: c, shutdown, reportError });
 // `tax-deposit` (el pasivo patronal, que lleva IMSS e INFONAVIT además del
 // ISN — colgarlo de `isn` habría sido mentira).
 registerPayrollIsnCommands(program, { palette: c, shutdown, reportError });
+// F08. `garnishments` was the last payroll output table with no writer in
+// `src/`: the payslip, the deduction lines and the whole CCPA cascade read it
+// and no path could put a row in it, so filing a court order meant hand SQL
+// following a column comment that until migration 075 returned zero.
+registerGarnishmentCommand(program, { palette: c, shutdown, reportError });
 registerCashFlowCommand(program, { palette: c, shutdown, reportError });
 registerAuditCommand(program, { palette: c, shutdown, reportError });
 // G4b · el barrido de entregas SALIENTES. Cuelga de `subscription`·`suscripcion`,

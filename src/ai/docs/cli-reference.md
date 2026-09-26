@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 204 of 316 subcommands
+  spelling is `-T` at the root and `-t` on the 207 of 320 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -89,6 +89,7 @@ Commands:
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
   tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
+  garnishment|embargo                    Court-ordered wage withholding: file an order, see the cascade, stop it
   cashflow|flujo                         Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
   audit|auditoria                        Read the audit trail: who changed what, when, and from which value
   subscription|suscripcion               Outbound event subscriptions: who we notify, and what we could not deliver
@@ -6996,6 +6997,142 @@ Examples:
   mnemosine tax-deposit list --period 2026-07 --all
   # Anything falling due before the 17th, as JSON for a reminder job.
   mnemosine tax-deposit list --until 2026-08-17 --json
+```
+
+## `mnemosine garnishment` (alias: embargo)
+
+```
+Usage: mnemosine garnishment|embargo [options] [command]
+
+Court-ordered wage withholding: file an order, see the cascade, stop it
+
+Options:
+  -h, --help                             display help for command
+
+Commands:
+  record|registrar [options] <employee>  File a court order already dictated, with its basis, its authority and its caps
+  list|listar [options] [employee]       List orders in the sequence money is taken: statutory rank, then priority, then date
+  archive|archivar [options] <id>        Stop the withholding by clearing is_active, keeping the order and its history
+  help [command]                         display help for command
+```
+
+### `mnemosine garnishment record` (alias: registrar)
+
+```
+Usage: mnemosine garnishment record|registrar [options] <employee>
+
+File a court order already dictated, with its basis, its authority and its caps
+
+Arguments:
+  employee                                                                                                     employee number or id the order is against
+
+Options:
+  -e, --entity <idOrName>                                                                                      legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                                                                            tenant (firm) whose data to scope to
+  -u, --user <email>                                                                                           acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>                                                                      output format (default: "table")
+  --json                                                                                                       shorthand for --format json
+  -o, --output <path>                                                                                          write to a file instead of stdout
+  --fields [names]                                                                                             comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                                                                                  identifiers only, one per line, for piping
+  --note <text>                                                                                                free annotation stored with the record
+  --type <tax_levy_federal|tax_levy_state|child_support|pension_alimenticia|bankruptcy|creditor|student_loan>  the order type, in the vocabulary the column stores
+  --amount <n>                                                                                                 a fixed amount per period
+  --percent-disposable <n>                                                                                     a percentage of DISPOSABLE earnings (gross minus employee taxes)
+  --percent-gross <n>                                                                                          a percentage of GROSS wages — different money from --percent-disposable
+  --priority <n>                                                                                               tie-breaker WITHIN a statutory rank; it does not decide the rank
+  --case <number>                                                                                              the court file number, unique per worker while the order is live
+  --court <text>                                                                                               the authority that issued the order (required)
+  --payee <name>                                                                                               who the withholding is remitted to
+  --start <date>                                                                                               the date the order bears (YYYY-MM-DD); withholding starts when it is ACTIVE
+  --exempt-amount <n>                                                                                          IRS Pub 1494 exempt amount; required on a tax levy, read by nothing else
+  --supports-second-family <yes|no>                                                                            does this worker support another family? decides a 50 % or 60 % CCPA cap — no default
+  --arrears-12wk <yes|no>                                                                                      are arrears more than twelve weeks old? adds five points to the cap — no default
+  --dry-run                                                                                                    run the real path and undo it: shows the order and the cascade it would join
+  -h, --help                                                                                                   display help for command
+
+Examples:
+  # A support order at 25 % of DISPOSABLE earnings. Both cap answers are
+  # required and neither has a default: unanswered, the CCPA ceiling silently
+  # becomes 60 % of disposable earnings instead of 50 %.
+  mnemosine garnishment record E-1042 --type child_support --percent-disposable 25 --supports-second-family yes --arrears-12wk no --court "Travis County District Court" --case 2026-DF-004417 --payee "Texas SDU" --start 2026-08-01
+  # A federal levy. It takes no amount flag — what it withholds is disposable
+  # earnings minus the Pub 1494 exemption — and it refuses to be filed without
+  # that exemption, because the absent figure is read as zero.
+  mnemosine garnishment record E-1042 --type tax_levy_federal --exempt-amount 462.50 --court "IRS ACS" --case "LEVY-668-W" --start 2026-08-01
+  # Rehearse the real path and undo it: same refusals, same boundary, and it
+  # prints the cascade the order would be joining. Nothing is written.
+  mnemosine garnishment record E-1042 --type creditor --percent-disposable 15 --court "JP Precinct 3" --start 2026-08-01 --dry-run
+```
+
+### `mnemosine garnishment list` (alias: listar)
+
+```
+Usage: mnemosine garnishment list|listar [options] [employee]
+
+List orders in the sequence money is taken: statutory rank, then priority, then
+date
+
+Arguments:
+  employee                                                                                                     narrow to one worker, by employee number or id
+
+Options:
+  -e, --entity <idOrName>                                                                                      legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                                                                            tenant (firm) whose data to scope to
+  -u, --user <email>                                                                                           acting user, for attribution and permissions
+  -n, --limit <n>                                                                                              maximum rows to return
+  --offset <n>                                                                                                 skip this many rows
+  -s, --status <state...>                                                                                      filter by lifecycle state (repeatable)
+  -a, --all                                                                                                    no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>                                                                      output format (default: "table")
+  --json                                                                                                       shorthand for --format json
+  -o, --output <path>                                                                                          write to a file instead of stdout
+  --fields [names]                                                                                             comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                                                                                  identifiers only, one per line, for piping
+  --type <tax_levy_federal|tax_levy_state|child_support|pension_alimenticia|bankruptcy|creditor|student_loan>  only orders of this type
+  -h, --help                                                                                                   display help for command
+
+Examples:
+  # Every live order of the entity, in the sequence money is actually taken:
+  # statutory rank first, then priority, then start date.
+  mnemosine garnishment list
+  # One worker, history included, so an archived order is visible too.
+  mnemosine garnishment list E-1042 --all
+  # Just the levies, as JSON for a reconciliation script.
+  mnemosine garnishment list --type tax_levy_federal --json
+```
+
+### `mnemosine garnishment archive` (alias: archivar)
+
+```
+Usage: mnemosine garnishment archive|archivar [options] <id>
+
+Stop the withholding by clearing is_active, keeping the order and its history
+
+Arguments:
+  id                                       the order id, as `garnishment list` prints it
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --as-of <date>                           the date the order ceased (YYYY-MM-DD), recorded in end_date alongside the halt
+  --reason <text>                          justification recorded in the audit trail (required)
+  -h, --help                               display help for command
+
+Examples:
+  # Stop the withholding. This clears is_active, which is the only thing the
+  # engine filters on; --reason is required because archiving is an undo.
+  mnemosine garnishment archive 7c1f0c6e-8b44-4a51-9a0a-2f1d9d0a51b3 --reason "order revoked, court notice 2026-09-12"
+  # Same halt, recording the date the court set it aside. --as-of writes
+  # end_date for the record: on its own it would stop nothing, because no
+  # query in the system decides anything off that column.
+  mnemosine garnishment archive 7c1f0c6e-8b44-4a51-9a0a-2f1d9d0a51b3 --as-of 2026-09-12 --reason "balance satisfied"
 ```
 
 ## `mnemosine cashflow` (alias: flujo)
