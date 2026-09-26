@@ -14,6 +14,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { REST_BODY_GOLDEN, ROOT, recordRestBodyGolden } from '../tests/api/golden/rest-body-probes.js';
+import { TOOL_SCHEMAS_GOLDEN, recordToolSchemas } from '../tests/ai/tools/tool-schema-snapshot.js';
 
 function serialize(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -22,6 +23,7 @@ function serialize(value: unknown): string {
 function main(args: string[]): number {
   const goldens: Array<[string, string]> = [
     [REST_BODY_GOLDEN, serialize(recordRestBodyGolden())],
+    [TOOL_SCHEMAS_GOLDEN, serialize(recordToolSchemas())],
   ];
 
   if (args.includes('--write')) {
