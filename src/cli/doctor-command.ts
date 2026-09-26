@@ -47,6 +47,13 @@ export function registerDoctorCommand(program: Command, deps: DoctorCliDeps): vo
       try {
         const report = await runDoctor();
         if (opts.json) {
+          // THE WHOLE REPORT, NO FIELD PICKING, and that includes each check's
+          // `id` alongside its `name` (#153, decision 3). Whoever consumes this
+          // JSON groups and silences by `id`, which is stable; `name` is the
+          // label and is headed for the i18n catalogue. Picking fields here —
+          // or leaving the id out — would send that consumer back to grouping
+          // by a translatable string, the defect #253 closed in the reports.
+          // The test that pins it lives in tests/ai/doctor-service.spec.ts.
           console.log(JSON.stringify(report, null, 2));
         } else {
           for (const line of renderDoctor(report, deps.palette)) console.log(line);
