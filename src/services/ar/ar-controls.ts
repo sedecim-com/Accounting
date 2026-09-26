@@ -25,6 +25,11 @@ import { AccountingError } from '../../utils/errors.js';
 /** Facturas cuyo saldo vive en el auxiliar. Espejo de OPEN_INVOICE_STATUSES. */
 const ABIERTAS = ['pending', 'sent', 'viewed', 'partially_paid', 'overdue'] as const;
 
+/** `source_type` values the AR engine stamps on the entries it posts itself. */
+const ENGINE_SOURCE_TYPES = [
+  'invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication',
+] as const;
+
 export interface ArReconcileResult {
   control_account: { code: string; name: string } | null;
   control_balance: string;
@@ -83,6 +88,12 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
   // Los asientos que tocaron el control SIN venir de un documento: la causa
   // clásica del descuadre. Los tipos de documento del propio motor quedan
   // fuera; todo lo demás —capturas manuales, ajustes, cierres— se lista.
+  // NOTE: an engine reversal is born with a NULL `source_type` (the reversal
+  // path does not carry the origin over), so without the NOT EXISTS every
+  // clean void of an invoice or receipt was reported as a manual entry on
+  // the control account — and, under LIMIT 50, could push the real manual
+  // entries out of the list. Same filter as `ap-controls.ts`; the reversal of
+  // a manual entry still lists, because its original was manual too.
   const manuales = await query<{
     entry_number: string; entry_date: Date; description: string; amount: string;
   }>(
@@ -91,13 +102,17 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
        FROM journal_entry_lines jel
        JOIN journal_entries je ON je.id = jel.journal_entry_id
       WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2
-        AND (je.source_type IS NULL OR je.source_type NOT IN
-             ('invoice', 'customer_payment', 'credit_note',
-              'receipt_application', 'receipt_unapplication'))
+        AND (je.source_type IS NULL OR NOT (je.source_type = ANY($3::text[])))
+        AND NOT EXISTS (
+              SELECT 1
+                FROM journal_entries orig
+               WHERE orig.id = je.reverses_entry_id
+                 AND orig.entity_id = je.entity_id
+                 AND orig.source_type = ANY($3::text[]))
       GROUP BY je.id, je.entry_number, je.entry_date, je.description
       ORDER BY je.entry_date DESC
       LIMIT 50`,
-    [entityId, cuenta.account_id]
+    [entityId, cuenta.account_id, [...ENGINE_SOURCE_TYPES]]
   );
 
   return {
@@ -229,21 +244,25 @@ const SONDAS: Sonda[] = [
     severity: 'warning',
     descripcion: 'mismo cliente, mismo importe y misma fecha, más de una vez',
     correr: async (entityId) => {
-      const r = await query<{ customer_id: string; invoice_date: Date; total_amount: string; folios: string; n: number }>(
-        `SELECT customer_id, invoice_date, total_amount::text,
+      // NOTE: the count is the window total over the duplicate groups, not the
+      // length of the LIMIT 5 sample: forty double captures used to be
+      // reported as five on the `--json` branch the agent reads.
+      const { count, sample } = await cuenta(
+        `SELECT total_amount::text,
                 STRING_AGG(invoice_number, ', ' ORDER BY invoice_number) AS folios,
-                COUNT(*)::int AS n
+                COUNT(*) OVER()::int AS total
            FROM invoices
           WHERE entity_id = $1 AND status NOT IN ('void', 'cancelled')
           GROUP BY customer_id, invoice_date, total_amount
          HAVING COUNT(*) > 1
           ORDER BY invoice_date DESC LIMIT 5`,
-        [entityId]
+        [entityId],
+        (r) => `${String(r.folios)} (${String(r.total_amount)})`
       );
       return {
-        count: r.rows.length,
-        detail: r.rows.length ? 'candidatas a captura doble — revisar, no borrar' : 'ninguna',
-        sample: r.rows.map((x) => `${x.folios} (${x.total_amount})`),
+        count,
+        detail: count ? 'candidatas a captura doble — revisar, no borrar' : 'ninguna',
+        sample,
       };
     },
   },
