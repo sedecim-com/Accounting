@@ -95,6 +95,10 @@ const ROOT = path.resolve(__dirname, '..', '..', '..');
 
 /** Los archivos que este módulo lee, con su ruta relativa como la publica. */
 const CRITERIA_TS = 'src/plan/criterios.ts';
+// The board's shared helpers, moved out of `criterios.ts` by #294. The
+// coverage floors (`SUELO_COBERTURA_*`) live here now; reading them from the
+// index would drop that lane silently, as if someone had translated a key.
+const CRITERIA_SHARED_TS = 'src/plan/criteria/shared.ts';
 // La OTRA mitad de los mutantes. `criterios.ts` los declara a mano en
 // criterios literales; `conducta.ts` los trae en `PRUEBAS_DE_CONDUCTA`, que
 // entra a CRITERIOS por un spread que el AST no puede seguir. Leer sólo el
@@ -754,7 +758,7 @@ function tableKeys(sf: ts.SourceFile, names: string[]): { key: string; line: num
   return out;
 }
 
-function thresholdsLane(criteriaSf: ts.SourceFile): Lane {
+function thresholdsLane(): Lane {
   const perFile: Record<string, number> = {};
   const examples: string[] = [];
   let total = 0;
@@ -769,10 +773,8 @@ function thresholdsLane(criteriaSf: ts.SourceFile): Lane {
     { rel: VITEST_UNIT, names: ['thresholds'] },
     { rel: VITEST_INTEGRATION, names: ['thresholds'] },
     {
-      rel: CRITERIA_TS,
+      rel: CRITERIA_SHARED_TS,
       names: ['SUELO_COBERTURA_UNITARIA', 'SUELO_COBERTURA_INTEGRACION'],
-      // Ya parseado por el metro: 6 700 líneas no se leen dos veces.
-      sf: criteriaSf,
     },
   ];
 
@@ -1015,7 +1017,7 @@ export const planLanes: LaneMeter = (): Lane[] => {
     grepsLane(sf, list),
     pathsLane(sf, list),
     mutantsLane(withConduct),
-    thresholdsLane(sf),
+    thresholdsLane(),
     corpusLane(),
     mocksLane(),
   ];
