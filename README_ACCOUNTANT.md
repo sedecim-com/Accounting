@@ -423,7 +423,7 @@ Se pueden agrupar múltiples CFDIs pendientes en un lote y procesarlos en una so
 
 ### Catálogos del SAT incluidos
 
-- **Régimen Fiscal**: 17 códigos (601 General de Ley PM, 612 Personas Físicas con AE y P, 625 RESICO, 626 Régimen Simplificado de Confianza, etc.)
+- **Régimen Fiscal**: 17 códigos (601 General de Ley PM, 612 Personas Físicas con AE y P, 625 Actividades Empresariales con ingresos a través de Plataformas Tecnológicas, 626 Régimen Simplificado de Confianza (RESICO), etc.)
 - **Uso del CFDI**: 14 códigos (G01 Adquisición de mercancías, G03 Gastos en general, S01 Sin efectos fiscales, etc.)
 - **Método de Pago**: PUE (pago en una sola exhibición), PPD (pago en parcialidades)
 - **Forma de Pago**: 25 códigos (01 Efectivo, 02 Cheque, 03 Transferencia electrónica, 04 Tarjeta de crédito, etc.)

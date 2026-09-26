@@ -37,7 +37,7 @@ export const SAT_CATALOGS = {
     '622': 'Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras',
     '623': 'Opcional para Grupos de Sociedades',
     '624': 'Coordinados',
-    '625': 'Régimen de las Actividades Empresariales (RESICO)',
+    '625': 'Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas',
     '626': 'Régimen Simplificado de Confianza',
   },
 
