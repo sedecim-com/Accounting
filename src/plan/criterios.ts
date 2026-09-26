@@ -7455,8 +7455,8 @@ export const CRITERIOS: Criterio[] = [
       // `grep -cE '^[ \t]*de: ' src/plan/criterios.ts` sobre el árbol fusionado.
       // Sigue en 424 con la partición de #294: 423 anclas aquí y el
       // `de: string;` de `interface Mutante`, que se fue a `criteria/shared.ts`
-      // y entra por la unión. Hoy se mide sumando
-      // `grep -cE '^[ \t]*de: ' src/plan/criterios.ts src/plan/criteria/*.ts`.
+      // y entra por la unión. Hoy se mide sumando el mismo `grep -cE` sobre
+      // `src/plan/criterios.ts` y sobre cada `.ts` de `src/plan/criteria/`.
       const ANCHORS_HERE = 424;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
