@@ -61,7 +61,7 @@
     "soap": "^1.13.0",
     "uuid": "^14.0.2",
     "winston": "^3.11.0",
-    "zod": "^3.25.0"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
