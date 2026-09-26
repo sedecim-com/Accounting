@@ -6,6 +6,7 @@ import os from 'node:os';
 import { z } from 'zod';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
 import { languageOfLocale, resolveLocale, type Locale } from '../../i18n/locale.js';
+import { parseForClient } from '../../utils/zod-client-errors.js';
 
 // ============================================================
 // PROVIDER CONFIG
@@ -693,9 +694,9 @@ export function loadConfigFile(cwd = process.cwd()): { config: MnemosineConfig; 
           (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
       );
     }
-    const parsed = configFileSchema.safeParse(raw);
+    const parsed = parseForClient(configFileSchema, raw);
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      const issues = parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ');
       const quarantined = quarantineInvalidConfig(file);
       throw new Error(
         `Invalid configuration in ${file}: ${issues}` +
@@ -1368,9 +1369,9 @@ export function writeConfigPatch(
   }
   const merged = deepMerge(existing, patch);
 
-  const parsed = configFileSchema.safeParse(merged);
+  const parsed = parseForClient(configFileSchema, merged);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    const issues = parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ');
     throw new Error(`Refusing to write an invalid configuration to ${file}: ${issues}`);
   }
 
