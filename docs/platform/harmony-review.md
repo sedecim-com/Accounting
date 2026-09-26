@@ -89,14 +89,17 @@ No se tocó ningún repo. Lo que sigue se propone a sus dueños.
 **Coherencia:**
 
 - `accounting-manager`: borrar la rama `claude/deprecate-accounting-manager` (del PR #99, cerrado sin fusionar), cuyo README anuncia un retiro que el ADR-0004 revocó. Pendiente: el proxy de la sesión no permite borrarla, así que la borra una persona con acceso.
-- `api-gateway`: quitar `/api/sat-certification`, porque su repo está vacío (incluido en sedecim-com/api-gateway#250). Archivar `sat-certification` y `facturacion`.
-- Archivar los repos muertos:
-  - `payroll-extraction-service`: duplica el parser de nómina y guarda PII sin cifrar;
-  - `s3-files-manager`, `proyectosIAagent`, `acce.so`, `acceso-tenant-users`;
-  - los dos `kubernetes-dashboard`.
-- `event-logger`: `ENVIRONMENT: prod` → `production`.
-- Los runners de CI en Node 16 y las acciones `@v1` suben a Node 22. Accounting no baja.
-- Desplegar sólo con la CI en verde (`needs:`). Hoy cada push a `dev`/`uat`/`main` despliega sin pruebas.
+- `api-gateway`: quitar `/api/sat-certification`, porque su repo está vacío (incluido en sedecim-com/api-gateway#250).
+- Archivar los repos muertos. Cada uno tiene su issue:
+  - `payroll-extraction-service`: duplica el parser de nómina y guarda PII sin cifrar → sedecim-com/payroll-extraction-service#1;
+  - `s3-files-manager` → sedecim-com/s3-files-manager#24;
+  - `proyectosIAagent` → sedecim-com/proyectosIAagent#1;
+  - `acce.so` → sedecim-com/acce.so#36;
+  - `acceso-tenant-users` → sedecim-com/acceso-tenant-users#14;
+  - los dos `kubernetes-dashboard` → sedecim-com/kubernetes-dashboard#1 y sedecim-com/kubernetes-dashboard-stage#1;
+  - `sat-certification` y `facturacion`, repos vacíos → sedecim-com/sat-certification#1 y sedecim-com/facturacion#15.
+- `event-logger` y `sedecim-ocr-service`: `ENVIRONMENT: prod` → `production`. El primero en sedecim-com/event-logger#1; el segundo es un fork sin issues y se anotó en sedecim-com/github-actions-scripts#35.
+- Desplegar sólo con la CI en verde (`needs:`), y subir a Node 22 los runners de CI en Node 16 y las acciones `@v1`/`@v2`, con un workflow reutilizable → sedecim-com/github-actions-scripts#35. Hoy sólo 1 de 113 workflows de despliegue espera las pruebas. Accounting no baja de versión.
 
 ## 5. Propuestas de norma para `platform-docs`
 
