@@ -83,4 +83,71 @@ describe('agent tool inputs count string lengths in UTF-16 units', () => {
       expect(() => tool.parse(input(EMOJI.repeat(max))), builder).toThrow();
     }
   });
+
+  it('tell the model only the type failure for a non-string, in either builder', () => {
+    // Declared difference in model-facing text, not in what is accepted: the
+    // zod/v4 core bundled in zod 3.25.76 measured the array too and added
+    // `too_small`; boundedString measures strings only, as REST did on zod 3.
+    // Pinned so a later change to this text is deliberate (#367).
+    for (const [builder, tools] of [['session', agentTools()], ['reader', readerTools()]] as const) {
+      const ask = tools.find((t) => t.name === 'ask_user');
+      if (ask === undefined) throw new Error(`the ${builder} has no tool named ask_user`);
+      let codes: unknown[] = [];
+      try {
+        ask.parse({ question: [] });
+      } catch (error) {
+        codes = (error as { issues: Array<{ code: unknown; path: unknown }> }).issues.map((i) => [i.code, i.path]);
+      }
+      expect(codes, builder).toEqual([['invalid_type', ['question']]]);
+    }
+  });
+});
+
+describe('external_push takes the payloads the zod/v4 core bundled in zod 3.25.76 took as a record', () => {
+  // That core read an object whose own `constructor` is not a function with a
+  // prototype as "not a plain object", so the record refused it. zod 4 only
+  // asks whether `constructor` is a function, and would queue such a payload
+  // in ai_external_ops (#367). Each row is JSON.parse'd, as the SDK does, and
+  // carries the answer recorded on zod 3.25.76.
+  const RECORD = 'Invalid input: expected record, received object';
+  const rows: Array<[string, string | null]> = [
+    ['{"amount":1}', null],
+    ['{"constructor":"x","amount":1}', RECORD],
+    ['{"constructor":1}', RECORD],
+    ['{"constructor":true}', RECORD],
+    ['{"constructor":[]}', RECORD],
+    ['{"constructor":{"a":1}}', RECORD],
+    ['{"constructor":{"prototype":{}}}', RECORD],
+    ['{"constructor":{"prototype":{"isPrototypeOf":1}}}', null],
+    ['{"a":{"constructor":"x"}}', null],
+    // zod 3.25.76 threw a TypeError here (null.prototype); it stays refused.
+    ['{"constructor":null}', RECORD],
+  ];
+  const externalPush = () => {
+    const push = agentTools().find((t) => t.name === 'external_push');
+    if (push === undefined) throw new Error('the session has no tool named external_push');
+    return push;
+  };
+  const issuesOf = (input: string): unknown => {
+    try {
+      externalPush().parse(JSON.parse(input));
+    } catch (error) {
+      return (error as { issues?: unknown }).issues;
+    }
+    return 'accepted';
+  };
+
+  it.each(rows)('payload %s', (payload, message) => {
+    const answer = issuesOf(`{"provider":"contalink","operation":"create_policy","reasoning":"r","payload":${payload}}`);
+    expect(answer).toEqual(
+      message === null ? 'accepted' : [{ expected: 'record', code: 'invalid_type', path: ['payload'], message }]
+    );
+  });
+
+  it('reports the refused payload in field order, before a later field', () => {
+    const issues = issuesOf(
+      '{"provider":"contalink","operation":"create_policy","reasoning":"","payload":{"constructor":"x"}}'
+    ) as Array<{ path: unknown }>;
+    expect(issues.map((i) => i.path)).toEqual([['payload'], ['reasoning']]);
+  });
 });

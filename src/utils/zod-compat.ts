@@ -31,11 +31,17 @@ import { z } from 'zod';
 //   recordOf       `z.record` skips an own `__proto__` entry (JSON.parse keeps
 //                  one) without validating it; ZodV3Record validates it in
 //                  key order, as zod 3 did, and still leaves it out.
+//   toolRecordOf   the agent tools ran on the zod/v4 core bundled in zod
+//                  3.25.76, whose record refused an object with an own
+//                  `constructor` that is not a function with a prototype
+//                  ({"constructor":"x"}); zod 4 accepts it. ZodToolRecord
+//                  refuses it again, with the record's own issue.
 //
 // The checks subclass zod's own ($ZodCheckMaxLength, $ZodCheckStringFormat,
-// $ZodCheckNumberFormat…) and ZodV3Record subclasses ZodRecord, so they keep
-// the base traits and `def`: the converter (src/api/rest/zod-a-json-schema.ts)
-// reads them as the built-ins they replace. They rely on `z.core.$constructor`,
+// $ZodCheckNumberFormat…) and ZodV3Record and ZodToolRecord subclass
+// ZodRecord, so they keep the base traits and `def`: the converter
+// (src/api/rest/zod-a-json-schema.ts) and the tool schema export read them as
+// the built-ins they replace. They rely on `z.core.$constructor`,
 // the base `init`, `_zod.check` and `_zod.parse`; tests/api/rest/zod4-guards.spec.ts
 // and the goldens fail loudly on a Zod minor that reshapes any of them.
 //
@@ -282,6 +288,49 @@ export const ZodV3Record = z.core.$constructor('ZodV3Record', (inst: z.ZodRecord
  */
 export function recordOf<V extends z.ZodType>(value: V): z.ZodRecord<z.ZodString, V> {
   return new ZodV3Record({ type: 'record', keyType: z.string(), valueType: value }) as unknown as z.ZodRecord<
+    z.ZodString,
+    V
+  >;
+}
+
+const isObject = (o: unknown): o is Record<PropertyKey, unknown> =>
+  typeof o === 'object' && o !== null && !Array.isArray(o);
+
+/**
+ * `util.isPlainObject` of the zod/v4 core bundled in zod 3.25.76, which read
+ * `constructor.prototype` whatever `constructor` was. One difference: an own
+ * `constructor: null` threw a TypeError there and is simply "not plain" here.
+ */
+function wasPlainObject(o: unknown): boolean {
+  if (!isObject(o)) return false;
+  const ctor: unknown = o.constructor;
+  if (ctor === undefined) return true;
+  const prot: unknown = ctor === null ? undefined : (ctor as { prototype?: unknown }).prototype;
+  if (!isObject(prot)) return false;
+  return Object.prototype.hasOwnProperty.call(prot, 'isPrototypeOf');
+}
+
+/** zod 4's ZodRecord, refusing what the 3.25.76 core did not take for a plain object. Built by toolRecordOf. */
+export const ZodToolRecord = z.core.$constructor('ZodToolRecord', (inst: z.ZodRecord, def: z.core.$ZodRecordDef) => {
+  z.ZodRecord.init(inst, def);
+  const parse = inst._zod.parse.bind(inst._zod);
+  inst._zod.parse = (payload, ctx) => {
+    const input: unknown = payload.value;
+    if (z.core.util.isPlainObject(input) && !wasPlainObject(input)) {
+      payload.issues.push({ expected: 'record', code: 'invalid_type', input, inst });
+      return payload;
+    }
+    return parse(payload, ctx);
+  };
+});
+
+/**
+ * `z.record(z.string(), value)` for an agent tool input: it refuses an object
+ * with an own `constructor` that is not a function with a prototype, as the
+ * zod/v4 core bundled in zod 3.25.76 did (#367).
+ */
+export function toolRecordOf<V extends z.ZodType>(value: V): z.ZodRecord<z.ZodString, V> {
+  return new ZodToolRecord({ type: 'record', keyType: z.string(), valueType: value }) as unknown as z.ZodRecord<
     z.ZodString,
     V
   >;
