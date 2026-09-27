@@ -434,6 +434,7 @@ describe('el panel manda', () => {
 // ============================================================
 
 describe('el descuadre que F07a calcula, publicado por check', () => {
+  const WITH_HEADERS = ['1000', '1100', '1120', '4000', '4100', '5000', '5100'];
   beforeAll(async () => {
     // EL PERIODO DE AJUSTES SE REUBICA SOBRE FEBRERO. Es el device de F07a:
     // dos periodos que cubren las mismas fechas hacen que el eje de la FECHA y
@@ -458,7 +459,10 @@ describe('el descuadre que F07a calcula, publicado por check', () => {
       catalogo: catalogoCon(...(await todasLasCuentas())),
     });
     const saldos = r.hallazgos.filter((h) => h.check === 'saldos');
-    expect(saldos.map((h) => h.referencia).sort()).toEqual(['1120', '4100', '5100']);
+    // Since #323 each ledger account is declared with its subaccounts, so the
+    // headers above a broken account (1100/1000, 4000, 5000) are rows the SAT
+    // recalculation also rejects, and they are named too.
+    expect(saldos.map((h) => h.referencia).sort()).toEqual(WITH_HEADERS);
     expect(saldos.every((h) => h.severity === 'blocking')).toBe(true);
 
     // 1120 es DEUDORA: la diferencia sale con el signo del mayor.
@@ -477,11 +481,7 @@ describe('el descuadre que F07a calcula, publicado por check', () => {
 
   it('los descuadres NO se recalculan: son los que F07a ya trae', async () => {
     const r = await verificarBalanza(f.entityId, { periodo: ajustes });
-    expect(r.inicial.descuadres.map((d) => d.account_code).sort()).toEqual([
-      '1120',
-      '4100',
-      '5100',
-    ]);
+    expect(r.inicial.descuadres.map((d) => d.account_code).sort()).toEqual(WITH_HEADERS);
     expect(r.inicial.note).toMatch(/fail SaldoIni \+ Debe − Haber = SaldoFin/);
   });
 

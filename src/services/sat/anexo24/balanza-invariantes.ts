@@ -80,8 +80,6 @@ export interface CuentaDeBalanza {
   codigo_agrupador: string | null;
   /** La naturaleza que el c_CodAgrup vigente asigna a ese agrupador. */
   natur_del_agrupador: Natur | null;
-  /** Tiene hijas activas: el Anexo 24 espera el agregado y aquí no se agrega. */
-  tiene_hijas: boolean;
 }
 
 /** Las cuatro cifras como van a salir en el XML, ya con su signo y su escala. */
@@ -177,9 +175,13 @@ export const BALANZA_CHECK_NAMES = [
   'redondeo',
   'cuentas-en-catalogo',
   'natur-coherente',
-  'mayor-sin-agregar',
   'sin-sello',
 ] as const;
+// NOTE: 'mayor-sin-agregar' was retired with #323. It warned that ledger
+// accounts with subaccounts went out at zero because this generator declared
+// each account's OWN balance. The balanza now comes rolled up from
+// report-service (`rollUpTrialBalanceRows`), so a ledger account at zero is
+// one whose whole subtree is zero: the warning could only be a false alarm.
 export type BalanzaCheckName = (typeof BALANZA_CHECK_NAMES)[number];
 
 /**
@@ -383,41 +385,6 @@ export function verificarNaturCoherente(ctx: ContextoDeVerificacion): HallazgoBa
 }
 
 /**
- * `mayor-sin-agregar` · las cuentas con hijas van SIN el agregado.
- *
- * Este generador declara el saldo PROPIO de cada cuenta. Una cuenta de mayor
- * cuyas subcuentas llevan el movimiento sale por tanto en ceros, y un cero en
- * la balanza se lee como «no se movió», no como «no se sumó». Se dice en vez
- * de dejarlo pasar; agregar la jerarquía es trabajo del catálogo, que es quien
- * conoce SubCtaDe y Nivel.
- */
-export function verificarMayorSinAgregar(ctx: ContextoDeVerificacion): HallazgoBalanza[] {
-  const enCeros = ctx.cuentas.filter((c) => {
-    if (!c.tiene_hijas) return false;
-    const i = importesDeclarados(c);
-    return (
-      new Decimal(i.SaldoIni).isZero() &&
-      new Decimal(i.Debe).isZero() &&
-      new Decimal(i.Haber).isZero() &&
-      new Decimal(i.SaldoFin).isZero()
-    );
-  });
-  if (enCeros.length === 0) return [];
-  return [
-    {
-      check: 'mayor-sin-agregar',
-      severity: 'warning',
-      referencia: '',
-      detalle:
-        `${enCeros.length} cuenta(s) con subcuentas van en ceros porque este generador declara el ` +
-        `saldo propio de cada cuenta y no agrega la jerarquía (${enCeros
-          .map((c) => c.num_cta)
-          .join(', ')}). Compruebe si su catálogo espera el agregado en la cuenta de mayor.`,
-    },
-  ];
-}
-
-/**
  * `sin-sello` · el archivo sale sin e.firma, y a veces eso NO es lo pactado.
  *
  * Con el criterio por omisión —`nunca_sellar_en_el_sistema`— un archivo sin
@@ -447,7 +414,6 @@ const REGISTRO: Record<BalanzaCheckName, (ctx: ContextoDeVerificacion) => Hallaz
   redondeo: verificarRedondeo,
   'cuentas-en-catalogo': verificarCuentasEnCatalogo,
   'natur-coherente': verificarNaturCoherente,
-  'mayor-sin-agregar': verificarMayorSinAgregar,
   'sin-sello': verificarSello,
 };
 

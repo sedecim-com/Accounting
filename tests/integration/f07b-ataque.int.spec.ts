@@ -446,7 +446,6 @@ describe('la trampa del tramo: la misma cifra en una acreedora y en una deudora'
       ...numeros,
       codigo_agrupador: null,
       natur_del_agrupador: null,
-      tiene_hijas: false,
     };
     const acreedora: CuentaDeBalanza = { ...deudora, account_id: 'a', num_cta: 'A', natur: 'A' };
 
@@ -614,7 +613,9 @@ describe('el redondeo, que rompe una resta que en el mayor cuadraba', () => {
     // El mayor NO tiene descuadre: por eso `saldos` calla y `redondeo` habla.
     expect(v.inicial.descuadres).toEqual([]);
     const redondeo = v.hallazgos.filter((h) => h.check === 'redondeo');
-    expect(redondeo.map((h) => h.referencia).sort()).toEqual(['1120', '4100']);
+    // With #323 the headers 1100/1000 and 4000 declare the same half cents
+    // rolled up, and their rows fail the same way once presented.
+    expect(redondeo.map((h) => h.referencia).sort()).toEqual(['1000', '1100', '1120', '4000', '4100']);
     expect(redondeo.every((h) => h.severity === 'blocking')).toBe(true);
     expect(redondeo.find((h) => h.referencia === '1120')?.detalle).toContain('0.02');
     expect(checkExitCode(v.conteo)).toBe(ExitCode.VALIDATION);
