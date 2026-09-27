@@ -151,12 +151,15 @@ describe('the rule and the lane count the same thing', () => {
 
   // Sources the tree does not have yet, where a hand-written comment scanner
   // goes wrong: a regex literal holding a quote, and two comments on one line
-  // (Witness, WIT-01 on #396). Each count is what ESLint's parser sees.
+  // and a comment inside a template's interpolation (Witness, WIT-01 on
+  // #396). Each count is what ESLint's parser sees.
   it.each([
     ["const re = /'/; // TODO: real debt\nexport { re };", 1],
     ['/* NOTE: context */ /* TODO: real debt */\nexport const x = 1;', 1],
     ["const re = /'/; const text = '// TODO: not a comment';\nexport { re, text };", 0],
     ['const t = `${1} // TODO: in a template`; // FIXME: after it\nexport { t };', 1],
+    ['const r = /[/*TODO:]/;\nexport { r };', 0],
+    ['const s = `value ${1 /* TODO: pending */}`;\nexport { s };', 1],
   ] as const)('%j: both count %i', async (source, expected) => {
     const { rule } = await houseRule();
     const byRule = new Linter({ configType: 'flat' })
