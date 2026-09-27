@@ -10,7 +10,23 @@ import { z } from 'zod';
 // `_zod.def` and fails on any node that validates with zod 4's own grammar
 // instead: a native `.uuid()`, `.url()`, `.int()` or string length, or one
 // of the shapes zod 3 and zod 4 read differently.
+//
+// The agent tools are walked too, for string lengths only: their schemas were
+// already zod/v4 (the core bundled in zod 3.25.76), and the length count is
+// what changed under them.
 // ============================================================
+
+// The SDK keeps no reference to a tool's Zod schema, so it is caught on its
+// way into betaZodTool.
+const toolSchemas = vi.hoisted(() => [] as Array<{ name: string; inputSchema: unknown }>);
+vi.mock('@anthropic-ai/sdk/helpers/beta/zod', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@anthropic-ai/sdk/helpers/beta/zod')>();
+  const betaZodTool: typeof actual.betaZodTool = (options) => {
+    toolSchemas.push({ name: options.name, inputSchema: options.inputSchema });
+    return actual.betaZodTool(options);
+  };
+  return { ...actual, betaZodTool };
+});
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
@@ -31,6 +47,9 @@ import { montarSuperficieCensable } from '../../../src/api/rest/montajes.js';
 import { censarRutas } from '../../../src/api/rest/risk.js';
 import { esquemaDeCuerpo } from '../../../src/api/rest/middleware/async-handler.js';
 import { configFileSchema } from '../../../src/ai/providers/config.js';
+import type { AgentContext } from '../../../src/ai/context.js';
+import { buildTools } from '../../../src/ai/tools/index.js';
+import { buildReaderTools } from '../../../src/ai/webhooks/reader-agent.js';
 import {
   $ZodCheckLengthUnits,
   $ZodCheckMaxUnits,
@@ -215,5 +234,40 @@ describe('every client-reachable schema validates with the zod 3 grammar', () =>
       const reparsed = z.safeParse(schema._zod.def.innerType, value);
       expect(reparsed, at).toEqual({ success: true, data: value });
     }
+  });
+});
+
+describe('every agent tool input counts string lengths in UTF-16 units', () => {
+  const context: AgentContext = {
+    entityId: '11111111-1111-4111-8111-111111111111',
+    entityName: 'Guard',
+    tenantId: '22222222-2222-4222-8222-222222222222',
+    currency: 'MXN',
+    country: 'MX',
+    accountingStandard: 'NIF',
+    taxId: 'XAXX010101000',
+  };
+  toolSchemas.length = 0;
+  const built = [...buildTools(context, { model: 'guard' }), ...buildReaderTools(context, { model: 'guard' })];
+  const tools = [...toolSchemas];
+
+  it('reaches the schema of every tool the model can call', () => {
+    const custom = built.filter((tool) => 'input_schema' in tool).map((tool) => tool.name);
+    expect(tools.map((tool) => tool.name).sort()).toEqual(custom.sort());
+    expect(tools.length).toBeGreaterThan(20);
+  });
+
+  it('bounds no string with a native check whose count moved to code points', () => {
+    // A minimum of 0 or 1 counts the same either way; any other bound does not.
+    const moved = (c: z.core.$ZodCheck): boolean => {
+      if (c instanceof $ZodCheckMinUnits || c instanceof $ZodCheckMaxUnits || c instanceof $ZodCheckLengthUnits) return false;
+      if (c instanceof z.core.$ZodCheckMinLength) return c._zod.def.minimum > 1;
+      return c instanceof z.core.$ZodCheckMaxLength || c instanceof z.core.$ZodCheckLengthEquals;
+    };
+    const offenders = tools
+      .flatMap(({ name, inputSchema }) => walk(inputSchema as z.core.$ZodType, `tool:${name}`))
+      .filter(({ schema }) => schema instanceof z.core.$ZodString && (schema._zod.def.checks ?? []).some(moved))
+      .map(({ at }) => at);
+    expect(offenders).toEqual([]);
   });
 });

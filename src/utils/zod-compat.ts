@@ -21,7 +21,8 @@ import { z } from 'zod';
 //                  rewrites the value.
 //   boundedString  lengths count code points; the units checks below count
 //                  UTF-16 units, as zod 3 did and as every maxLength that
-//                  docs/openapi.json publishes says.
+//                  docs/openapi.json publishes says. The agent tools use it
+//                  too: the zod/v4 core bundled in zod 3.25.76 counted units.
 //   integerNumber  a failed `.int()` stops the checks after it; $ZodCheckV3Int
 //                  lets the bounds report too, in zod 3's order.
 //   recordOf       `z.record` skips an own `__proto__` entry (JSON.parse keeps
