@@ -20,7 +20,8 @@ import type { z } from 'zod';
 //                          the array cap) outrank it, as they did in zod 3.
 //   normalizeLegacyIssues  restores zod 3's issue list: nothing reported on a
 //                          node after its type check failed, and the size of
-//                          an array before its elements.
+//                          an array before its elements. Linear in the issue
+//                          count: a 10 MB body can carry millions of issues.
 //
 // It is passed on each parse and never through `z.config`, so nothing else
 // in the process (the agent tools, the SDK) changes wording. A code it does
@@ -157,11 +158,39 @@ export function legacyIssueMessage(issue: z.core.$ZodRawIssue): string | undefin
   }
 }
 
-const samePath = (a: readonly PropertyKey[], b: readonly PropertyKey[]): boolean =>
-  a.length === b.length && a.every((step, i) => step === b[i]);
+/**
+ * One path the issues reach, in a trie over their paths. A step is a Map key,
+ * so 0 (an array index) and '0' (an object key) stay apart, as `===` keeps
+ * them; the parent link makes every strict prefix of a path its ancestors.
+ */
+interface PathNode {
+  readonly parent: PathNode | undefined;
+  children: Map<PropertyKey, PathNode> | undefined;
+  /** A type failure was reported at exactly this path. */
+  dead: boolean;
+  /** Issues kept at exactly this path. */
+  kept: number;
+  /** Index of the first issue kept strictly under this path, or -1. */
+  firstUnder: number;
+}
 
-const isUnder = (parent: readonly PropertyKey[], child: readonly PropertyKey[]): boolean =>
-  parent.length < child.length && parent.every((step, i) => step === child[i]);
+function pathNode(parent?: PathNode): PathNode {
+  return { parent, children: undefined, dead: false, kept: 0, firstUnder: -1 };
+}
+
+function nodeAt(root: PathNode, path: readonly PropertyKey[]): PathNode {
+  let node = root;
+  for (const step of path) {
+    node.children ??= new Map();
+    let child = node.children.get(step);
+    if (child === undefined) {
+      child = pathNode(node);
+      node.children.set(step, child);
+    }
+    node = child;
+  }
+  return node;
+}
 
 /** A failure of the node's TYPE: zod 3 stopped checking that node right there. */
 function isTypeFailure(issue: z.core.$ZodIssue): boolean {
@@ -188,27 +217,50 @@ function isArraySize(issue: z.core.$ZodIssue): boolean {
  *      guarded by `when` on the raw value; zod 3 reported nothing more there.
  *  (a2) The safe-integer bound (T2) is dropped when the same field already
  *      reports another issue, so a field with its own bound answers as before.
- *  (b) zod 3 checked an array's size BEFORE its elements; zod 4 after.
+ *  (b) zod 3 checked an array's size BEFORE its elements; zod 4 after. Each
+ *      size issue moves in front of the first issue reported under its path,
+ *      and an outer array's in front of an inner one's.
+ *
+ * Linear in the number of issues times their depth: one request can carry
+ * millions of them, so no step compares an issue with the others.
  */
 export function normalizeLegacyIssues(issues: readonly z.core.$ZodIssue[]): z.core.$ZodIssue[] {
-  const dead: Array<readonly PropertyKey[]> = [];
-  const alive: z.core.$ZodIssue[] = [];
+  const root = pathNode();
+  const alive: Array<[z.core.$ZodIssue, PathNode]> = [];
   for (const issue of issues) {
-    if (dead.some((path) => samePath(path, issue.path))) continue;
-    alive.push(issue);
-    if (isTypeFailure(issue)) dead.push(issue.path);
+    const node = nodeAt(root, issue.path);
+    if (node.dead) continue;
+    alive.push([issue, node]);
+    node.kept++;
+    if (isTypeFailure(issue)) node.dead = true;
   }
 
-  const bounded = alive.filter(
-    (issue) => !isSafeIntegerBound(issue) || !alive.some((other) => other !== issue && samePath(other.path, issue.path))
-  );
+  const bounded = alive.filter(([issue, node]) => !isSafeIntegerBound(issue) || node.kept === 1);
+
+  // A size issue moves in front of the first issue kept under its path. That
+  // issue never moves itself: were it a size issue with an issue under its own
+  // path, that issue would be under the first one's path too, and earlier.
+  const inFront = new Map<number, z.core.$ZodIssue[]>();
+  const moved = new Set<number>();
+  bounded.forEach(([issue, node], index) => {
+    if (isArraySize(issue) && node.firstUnder >= 0) {
+      const group = inFront.get(node.firstUnder) ?? [];
+      group.push(issue);
+      inFront.set(node.firstUnder, group);
+      moved.add(index);
+    }
+    // Marks every ancestor still unmarked. An ancestor already marked has its
+    // own ancestors marked too, so the walk stops there: amortized O(1).
+    for (let up = node.parent; up !== undefined && up.firstUnder < 0; up = up.parent) up.firstUnder = index;
+  });
 
   const ordered: z.core.$ZodIssue[] = [];
-  for (const issue of bounded) {
-    const firstElement = isArraySize(issue) ? ordered.findIndex((o) => isUnder(issue.path, o.path)) : -1;
-    if (firstElement >= 0) ordered.splice(firstElement, 0, issue);
-    else ordered.push(issue);
-  }
+  bounded.forEach(([issue], index) => {
+    // Outer arrays first; the sort is stable, so equal depths keep their order.
+    const group = inFront.get(index);
+    if (group) ordered.push(...group.sort((a, b) => a.path.length - b.path.length));
+    if (!moved.has(index)) ordered.push(issue);
+  });
   return ordered;
 }
 
