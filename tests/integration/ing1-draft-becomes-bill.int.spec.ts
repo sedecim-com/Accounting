@@ -33,6 +33,9 @@ import {
 } from '../../src/ai/draft-service.js';
 import { reopenPolicy, resolvePolicy, seedPolicies } from '../../src/services/policy/policy-service.js';
 import { registerBillCommand } from '../../src/cli/bill-command.js';
+import { registerRepCommand } from '../../src/cli/rep-command.js';
+import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
+import { repXml } from './helpers/rep-xml.js';
 import type { AgentContext } from '../../src/ai/context.js';
 import type { ResolvedProfile } from '../../src/ai/providers/types.js';
 
@@ -290,6 +293,113 @@ describe('ING-1 · approving the draft of a received PPD CFDI', () => {
     expect(await entryCount()).toBe(before);
     expect(await billsOf(uuid)).toHaveLength(1);
     expect(await statusOf(second)).toBe('pending_review');
+  });
+});
+
+// ============================================================
+// ING-1 · #318 PR2 — THE REP LINKS THE APPROVED BILL AND RELEASES THE VAT.
+//
+// The PPD entry parks 1280 of VAT in 1135 (pending). The vendor's REP pays
+// the bill: a payment is created through the payments gate, the bill's
+// amount_due drops, and the same 1280 moves from 1135 to 1130 (creditable).
+// ============================================================
+
+const PAID_ON = new Date(Date.UTC(2026, 7, 25));
+
+async function balanceOf(code: string, periodId: string): Promise<number> {
+  const r = await query<{ s: string }>(
+    `SELECT COALESCE(ab.debit_total - ab.credit_total, 0)::text AS s
+       FROM account_balances ab JOIN accounts a ON a.id = ab.account_id
+      WHERE a.entity_id = $1 AND a.code = $2 AND ab.fiscal_period_id = $3`,
+    [f.entityId, code, periodId]
+  );
+  return Number(r.rows[0]?.s ?? 0);
+}
+
+async function periodOf(entryId: string): Promise<string> {
+  return (await query<{ p: string }>(`SELECT fiscal_period_id AS p FROM journal_entries WHERE id = $1`, [entryId])).rows[0].p;
+}
+
+/** Uploads the vendor's REP for `uuid` and runs it; the parked outcome is returned, not thrown. */
+async function ingestRep(uuid: string): Promise<{ preRegId: string; paymentId?: string; parked?: string }> {
+  const svc = new PreRegistrationService();
+  const up = await svc.processXMLUpload(
+    f.entityId,
+    repXml({ cfdiUuid: uuid, total: '9280.00', iva: 1280 }, uuidv4().toUpperCase(), {
+      issuerRfc: VENDOR_RFC, issuerName: 'Servicios Integrales SA', date: PAID_ON,
+    }),
+    'manual_upload',
+    f.userId
+  );
+  const preRegId = (up.preRegistration as { id: string }).id;
+  try {
+    const r = await svc.processToAccounting(up.preRegistration, f.userId);
+    return { preRegId, paymentId: r.paymentId };
+  } catch (e) {
+    return { preRegId, parked: (e as Error).message };
+  }
+}
+
+async function paymentsOf(billId: string) {
+  return (await query<{ payment_id: string; amount_applied: string }>(
+    `SELECT payment_id, amount_applied::text FROM payment_applications WHERE bill_id = $1`, [billId]
+  )).rows;
+}
+
+describe('ING-1 · PR2: the REP of an approved PPD bill', () => {
+  it('creates the payment, clears amount_due and moves the VAT from 1135 to 1130', async () => {
+    const { xml, uuid } = cfdi();
+    const [draftId] = await ingest(xml);
+    const posted = await approve(draftId);
+    const period = await periodOf(posted.entryId);
+    const pendingBefore = await balanceOf('1135', period);
+    const creditableBefore = await balanceOf('1130', period);
+
+    const rep = await ingestRep(uuid);
+
+    expect(rep.parked, 'the REP should link the approved bill').toBeUndefined();
+    const [bill] = await billsOf(uuid);
+    expect(bill.amount_due).toBe('0.0000');
+    const payments = await paymentsOf(bill.id);
+    expect(payments).toEqual([{ payment_id: rep.paymentId, amount_applied: '9280.0000' }]);
+    expect(await balanceOf('1135', period)).toBeCloseTo(pendingBefore - 1280, 2);
+    expect(await balanceOf('1130', period)).toBeCloseTo(creditableBefore + 1280, 2);
+  });
+
+  it('a REP ingested before the approval links later with `rep reconcile`', async () => {
+    const { xml, uuid } = cfdi();
+    const [draftId] = await ingest(xml);
+    const early = await ingestRep(uuid);
+    expect(early.parked, 'without a bill the REP must wait, not create anything').toMatch(/no tiene/);
+
+    const posted = await approve(draftId);
+    const period = await periodOf(posted.entryId);
+    const pendingBefore = await balanceOf('1135', period);
+    const creditableBefore = await balanceOf('1130', period);
+
+    const program = new Command('mnemosine').exitOverride();
+    let exitCode: number | undefined;
+    const reported: string[] = [];
+    const id = (s: string) => s;
+    registerRepCommand(program, {
+      palette: { dim: id, bold: id, cyan: id, red: id, green: id, yellow: id } as never,
+      shutdown: (c: number) => { exitCode = c; },
+      reportError: (e: unknown) => { reported.push(String((e as Error)?.stack ?? e)); },
+    });
+    await program.parseAsync([
+      'node', 'mnemosine', 'rep', 'reconcile', '--entity', f.entityId, '--tenant', f.tenantId,
+    ]);
+    expect(exitCode, reported.join('\n')).toBe(0);
+
+    const [bill] = await billsOf(uuid);
+    expect(bill.amount_due).toBe('0.0000');
+    expect(await paymentsOf(bill.id)).toHaveLength(1);
+    const pre = (await query<{ status: string; result_type: string }>(
+      `SELECT status, result_type FROM pre_registrations WHERE id = $1`, [early.preRegId]
+    )).rows[0];
+    expect(pre).toEqual({ status: 'completed', result_type: 'payment' });
+    expect(await balanceOf('1135', period)).toBeCloseTo(pendingBefore - 1280, 2);
+    expect(await balanceOf('1130', period)).toBeCloseTo(creditableBefore + 1280, 2);
   });
 });
 
