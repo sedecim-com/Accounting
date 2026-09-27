@@ -81,6 +81,13 @@ describe('the definition', () => {
     ].join('\n');
     expect(untaggedMarkers(source).map((hit) => hit.line)).toEqual([3, 5]);
   });
+
+  it('reads a file whose only markers are FIXME, XXX and HACK', () => {
+    // The lane skips parsing a file with no marker word in it; a file with no
+    // TODO at all must still be read.
+    const source = ['// XXX: one', '/* HACK(fast): two */', 'export const x = 1; // FIXME: three'].join('\n');
+    expect(untaggedMarkers(source).map((hit) => hit.line)).toEqual([1, 2, 3]);
+  });
 });
 
 describe('house/comment-tags, as ESLint loads it', () => {
@@ -133,19 +140,38 @@ describe('house/comment-tags, as ESLint loads it', () => {
 });
 
 describe('the rule and the lane count the same thing', () => {
+  const ruleConfig = (rule: Rule.RuleModule): Linter.Config[] => [
+    {
+      files: ['**/*.ts'],
+      languageOptions: { parser },
+      plugins: { house: { rules: { 'comment-tags': rule } } },
+      rules: { 'house/comment-tags': 'error' },
+    },
+  ];
+
+  // Sources the tree does not have yet, where a hand-written comment scanner
+  // goes wrong: a regex literal holding a quote, and two comments on one line
+  // (Witness, WIT-01 on #396). Each count is what ESLint's parser sees.
+  it.each([
+    ["const re = /'/; // TODO: real debt\nexport { re };", 1],
+    ['/* NOTE: context */ /* TODO: real debt */\nexport const x = 1;', 1],
+    ["const re = /'/; const text = '// TODO: not a comment';\nexport { re, text };", 0],
+    ['const t = `${1} // TODO: in a template`; // FIXME: after it\nexport { t };', 1],
+  ] as const)('%j: both count %i', async (source, expected) => {
+    const { rule } = await houseRule();
+    const byRule = new Linter({ configType: 'flat' })
+      .verify(source, ruleConfig(rule), { filename: PROBE })
+      .filter((m) => m.ruleId === 'house/comment-tags').length;
+    expect(byRule, 'the rule').toBe(expected);
+    expect(untaggedMarkers(source).length, 'the lane').toBe(expected);
+  });
+
   it('file by file, over the whole tree', async () => {
     const { rule } = await houseRule();
     const lane = commentTagsLanes().find((one) => one.id === LANE_ID);
     expect(lane, `the meter publishes no ${LANE_ID} lane`).toBeDefined();
     const linter = new Linter({ configType: 'flat' });
-    const config: Linter.Config[] = [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser },
-        plugins: { house: { rules: { 'comment-tags': rule } } },
-        rules: { 'house/comment-tags': 'error' },
-      },
-    ];
+    const config = ruleConfig(rule);
 
     const disagreements: string[] = [];
     let examined = 0;

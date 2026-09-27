@@ -25,12 +25,18 @@
  * it in JavaScript, because the lint configuration cannot import TypeScript.
  * tests/language/comment-tags.spec.ts runs both over every file of the tree
  * and fails on the first file where they disagree.
+ *
+ * THE SAME COMMENTS, TOO. The comments come from the parser ESLint uses
+ * (typescript-eslint), not from a scanner of our own: a hand-written one read
+ * the quote inside `/'/` as the start of a string and joined two comments on
+ * one line (Witness, WIT-01 on #396). Asking the same parser is what makes
+ * «the lane counts what the rule counts» true by construction.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { parser } from 'typescript-eslint';
 import type { Lane, LaneMeter } from '../lane.js';
 import { tsFiles, TREES } from './code.js';
-import { commentsByLine } from './docs.js';
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const EXAMPLE_COUNT = 8;
@@ -39,11 +45,19 @@ const EXAMPLE_COUNT = 8;
 const MARKER = /^(TODO|FIXME|XXX|HACK)\s*[:(]/;
 /** The two forms AGENTS.md allows: the marker tied to its issue. */
 const WITH_ISSUE = /^(TODO|FIXME)\(#\d+\):/;
+/** MARKER without its anchor: what a file must contain to hold one at all. */
+const ANYWHERE = /(TODO|FIXME|XXX|HACK)\s*[:(]/;
 
 /** One comment line, without the `*` that starts the lines of a block comment. */
 export function isUntaggedMarker(commentLine: string): boolean {
   const text = commentLine.replace(/^[\s*]*/, '');
   return MARKER.test(text) && !WITH_ISSUE.test(text);
+}
+
+/** The two fields of an ESTree comment this reads: its text without delimiters, and where it starts. */
+interface ParsedComment {
+  value: string;
+  loc: { start: { line: number } };
 }
 
 export interface MarkerHit {
@@ -52,12 +66,24 @@ export interface MarkerHit {
   text: string;
 }
 
-/** Every untagged marker in one source text. Strings and regex literals are not comments. */
+/**
+ * Every untagged marker in one source text, line by line inside each comment,
+ * as the rule reads `sourceCode.getAllComments()`. Strings, templates and
+ * regex literals are not comments.
+ */
 export function untaggedMarkers(source: string, file = ''): MarkerHit[] {
+  // Parsing every file tripled the meter's time. A marker needs its word
+  // followed by `:` or `(` somewhere in the text, so a file without one has
+  // no hits and is not parsed; the conformance test still covers every file.
+  if (!ANYWHERE.test(source)) return [];
+  // `parser` is typed as ESLint's minimal parser; ESLint reads `ast.comments`, and so does this.
+  const { ast } = parser.parseForESLint(source) as { ast: { comments?: ParsedComment[] } };
   const hits: MarkerHit[] = [];
-  commentsByLine(source).forEach((text, i) => {
-    if (isUntaggedMarker(text)) hits.push({ file, line: i + 1, text: text.trim() });
-  });
+  for (const comment of ast.comments ?? []) {
+    comment.value.split('\n').forEach((text, offset) => {
+      if (isUntaggedMarker(text)) hits.push({ file, line: comment.loc.start.line + offset, text: text.trim() });
+    });
+  }
   return hits;
 }
 
