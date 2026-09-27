@@ -114,6 +114,8 @@ export interface ComprobanteNacionalOtro {
   clase: 'nacional_otro';
   serie?: string;
   numFolio: string;
+  /** Counterparty's RFC. Required by both schemas that declare this node (#397). */
+  rfc: string;
   montoTotal: string;
   moneda?: string;
   tipCamb?: string;
@@ -404,11 +406,21 @@ export function nodoDeComprobante(
     }
     case 'nacional_otro': {
       const nombre = `${prefijo}:${nombres.nacionalOtro}`;
+      // PolizasPeriodo and AuxiliarFolios 1.3 both declare RFC required on
+      // this node; the generator had no field for it, so every file with a
+      // pre-CFDI voucher was invalid. The official XSD found it (#397).
+      if (!RFC_RE.test(c.rfc)) {
+        throw new ValidationError(
+          `${nombre}/@RFC = «${c.rfc}»: el comprobante nacional anterior al CFDI también identifica ` +
+            `a la contraparte por su RFC, y el esquema del SAT lo exige.`
+        );
+      }
       return {
         nombre,
         atributos: [
           ['CFD_CBB_Serie', c.serie],
           ['CFD_CBB_NumFol', c.numFolio],
+          ['RFC', c.rfc],
           ['MontoTotal', exigirImporte(nombre, 'MontoTotal', c.montoTotal)],
           ['Moneda', c.moneda],
           ['TipCamb', c.tipCamb],

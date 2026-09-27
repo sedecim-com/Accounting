@@ -352,6 +352,34 @@ describe('la evidencia', () => {
       )
     ).toThrow(/RFC/);
   });
+
+  // No test built this node until the official XSD did, and it was invalid:
+  // both schemas that declare it require RFC, and there was no field for it.
+  const withPreCfdiVoucher = (rfc: string) =>
+    datos({
+      polizas: [
+        poliza({
+          transacciones: [
+            renglon({
+              comprobantes: [
+                { clase: 'nacional_otro', serie: 'B', numFolio: '7', rfc, montoTotal: '1160.00' },
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+
+  it('the pre-CFDI voucher carries its series, folio and the counterparty RFC', () => {
+    const node = construirPolizasXml(withPreCfdiVoucher('PSA010101AA1'))
+      .split('\n')
+      .find((line) => line.includes('<PLZ:CompNalOtr '));
+    expect(node).toContain('CFD_CBB_Serie="B" CFD_CBB_NumFol="7" RFC="PSA010101AA1"');
+  });
+
+  it.each(['', 'PSA0101'])('refuses a pre-CFDI voucher whose RFC is «%s»', (rfc) => {
+    expect(() => construirPolizasXml(withPreCfdiVoucher(rfc))).toThrow(/CompNalOtr\/@RFC/);
+  });
 });
 
 describe('la coherencia del archivo', () => {
