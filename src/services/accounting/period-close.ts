@@ -171,6 +171,43 @@ export function casillaDelAgrupador(
   };
 }
 
+type ChecklistQuery = <T extends Record<string, unknown>>(
+  sql: string,
+  params: unknown[]
+) => Promise<pg.QueryResult<T>>;
+
+/**
+ * ACT-2 (#322). The balance the ledger carries in fixed-asset accounts at the
+ * end of the period, as a 2-decimal string, or null when it is zero.
+ *
+ * "Fixed-asset account" is either what the chart says (`account_subtype =
+ * 'fixed_asset'`, the seeded 12xx leaves) or what an asset class of this
+ * entity points its asset account at, so an imported chart whose classes were
+ * mapped by hand is seen too. Accumulated depreciation is a contra-asset and
+ * is not counted: a fully depreciated asset still needs its register entry.
+ */
+async function fixedAssetBalanceWithoutRegister(
+  q: ChecklistQuery,
+  entityId: string,
+  periodId: string
+): Promise<string | null> {
+  const r = await q<{ balance: string }>(
+    `SELECT COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0)::text AS balance
+       FROM journal_entry_lines jel
+       JOIN journal_entries je
+         ON je.id = jel.journal_entry_id AND je.entity_id = $1 AND je.status = 'posted'
+       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
+      WHERE je.entry_date <= (SELECT end_date FROM fiscal_periods WHERE id = $2 AND entity_id = $1)
+        AND a.account_type = 'asset'
+        AND (a.account_subtype = 'fixed_asset'
+             OR a.id IN (SELECT ac.default_asset_account_id FROM asset_categories ac
+                          WHERE ac.entity_id = $1))`,
+    [entityId, periodId]
+  );
+  const balance = new Decimal(r.rows[0]?.balance ?? '0');
+  return balance.isZero() ? null : balance.toFixed(2);
+}
+
 export async function getPeriodCloseStatus(
   periodId: string,
   entityId: string,
@@ -509,6 +546,10 @@ export async function getPeriodCloseStatus(
   );
   const totalActivos = parseInt(undepreciatedAssets.rows[0].total, 10);
   const undepCount = parseInt(undepreciatedAssets.rows[0].sin_depreciar, 10);
+  // ACT-2 (#322): an empty register is only "nothing to check" when the
+  // ledger agrees. Fixed assets on the balance sheet with no asset registered
+  // means the month was never depreciated, and that is a finding, not a pass.
+  const unregistered = totalActivos === 0 ? await fixedAssetBalanceWithoutRegister(q, entityId, periodId) : null;
   checklist.push({
     codigo: 'depreciation-posted',
     item: CLOSE_CHECK_ITEMS['depreciation-posted'],
@@ -517,14 +558,21 @@ export async function getPeriodCloseStatus(
     // lo mismo, y en un checklist de cierre esa diferencia es el punto.
     is_complete: totalActivos > 0 && undepCount === 0,
     severity: 'warning',
-    details:
-      totalActivos === 0
+    details: unregistered
+      ? `0 fixed assets registered, but the fixed-asset accounts carry ${unregistered} at ${finDelPeriodo}: ` +
+        'register them (asset create) so the month can be depreciated'
+      : totalActivos === 0
         ? '0 activos fijos registrados: no se pudo comprobar'
         : undepCount > 0
           ? `${undepCount} assets without depreciation`
           : undefined,
   });
   if (undepCount > 0) warnings.push(`${undepCount} assets without depreciation posted`);
+  if (unregistered) {
+    warnings.push(
+      `Fixed-asset accounts carry ${unregistered} and no fixed asset is registered: nothing was depreciated`
+    );
+  }
 
   // 5. Trial balance check
   const trialBalance = await q<{ diff: string }>(
