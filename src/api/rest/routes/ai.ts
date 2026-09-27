@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
@@ -59,10 +60,10 @@ const meta = (req: Request) => ({
 });
 
 // ─── Schemas ───
-const reviewNotesSchema = z.object({ notes: z.string().max(2000).optional() });
-const rejectSchema = z.object({ reason: z.string().min(1).max(2000) });
+const reviewNotesSchema = z.object({ notes: boundedString({ max: 2000 }).optional() });
+const rejectSchema = z.object({ reason: boundedString({ min: 1, max: 2000 }) });
 const answerSchema = z.object({
-  answer: z.string().min(1).max(4000),
+  answer: boundedString({ min: 1, max: 4000 }),
   is_precedent: z.boolean().optional(),
 });
 const draftStatus = z.enum(['pending_review', 'approved', 'rejected']);
@@ -137,7 +138,7 @@ router.post('/questions/:id/dismiss', declararRiesgoRuta({ riesgo: 'escritura', 
 
 router.get('/precedents', requirePermission('journal_entries:read'), requireEntityAccess,
   scoped(async (req, res, ctx) => {
-    const search = z.string().min(1).parse(req.query.search);
+    const search = boundedString({ min: 1 }).parse(req.query.search);
     const precedents = await searchPrecedents(ctx, search);
     res.json({ data: precedents, meta: meta(req) });
   })

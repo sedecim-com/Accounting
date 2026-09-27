@@ -14,8 +14,14 @@ Node 22.12 o superior (`engines` lo exige: vitest 5 no soporta menos) y
 Postgres 15 para la suite de integración.
 
 ```bash
-npm ci
+scripts/setup.sh
 ```
+
+Instala las dependencias y escribe un `.env` de desarrollo, pero sólo si no
+tienes uno. También deja Postgres, la base, los roles y las migraciones listos
+para `scripts/verify.sh`, integración incluida. Es idempotente: una segunda
+corrida no cambia nada. El devcontainer (`.devcontainer/`) lo corre solo. El
+detalle está en `docs/MVP.md` §7.
 
 ## Las puertas, en el orden en que fallan más barato
 

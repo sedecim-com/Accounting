@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { urlString } from '../../../utils/zod-compat.js';
 import { requirePermission } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -31,7 +32,7 @@ const router = Router();
 // Con el enum aquí, la lista de eventos admitidos viaja en el contrato y
 // quien integra la lee sin abrir el código.
 const createWebhookSchema = z.object({
-  url: z.string().url(),
+  url: urlString(),
   events: z.array(z.enum(WEBHOOK_EVENTS)).min(1),
 });
 

@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 import { envolverDatosDeTerceros } from '../untrusted.js';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
+import { toolRecordOf } from '../../utils/zod-compat.js';
 import type { AgentContext } from '../context.js';
 import type { ToolDeps } from './observer.js';
 import { getExternalAdapter, listExternalSystems } from '../../services/integrations/accounting/registry.js';
@@ -118,7 +119,7 @@ export function buildExternalTools(ctx: AgentContext, deps: ToolDeps) {
     inputSchema: z.object({
       provider: z.string().min(1),
       operation: z.enum(['create_policy', 'update_policy', 'upload_xml', 'bank_transaction', 'reconcile_invoice']),
-      payload: z.record(z.string(), z.unknown()).describe("Operation body per the provider's contract"),
+      payload: toolRecordOf(z.unknown()).describe("Operation body per the provider's contract"),
       reasoning: z.string().min(1).describe('Why this operation; what the human validates before executing'),
     }),
     run: async (input) => {

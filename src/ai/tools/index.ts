@@ -12,6 +12,7 @@ import { buildStatusTools } from './status-tools.js';
 import { buildSkillsTools } from './skills-tools.js';
 import { buildSessionSearchTools } from './session-search-tools.js';
 import { buildPolicyTools } from './policy-tools.js';
+import { withInlinedInputSchema } from './inline-schema-refs.js';
 
 export type { ToolObserver, ToolDeps, AskUserFn, AskUserPrompt, DraftCreatedInfo } from './observer.js';
 
@@ -89,7 +90,9 @@ export function buildTools(
     ...buildSkillsTools(ctx, deps),
     ...buildSessionSearchTools(ctx, deps),
     ...buildPolicyTools(ctx, deps),
-  ].map(withResultCap);
+  ]
+    .map(withResultCap)
+    .map(withInlinedInputSchema);
   if (!permitidas) return todas;
 
   const existentes = new Set(todas.map((t) => t.name));
