@@ -4598,10 +4598,10 @@
     },
     {
       "class": "openapi-extension",
-      "where": "docs/openapi.json · `x-claves-desconocidas` (71 esquemas de objeto) · src/api/rest/zod-a-json-schema.ts:311 (nodo['x-claves-desconocidas']); descrita en src/api/rest/openapi.ts:384-386",
+      "where": "docs/openapi.json · `x-claves-desconocidas` (71 esquemas de objeto) · src/api/rest/zod-a-json-schema.ts:457 y :462 (nodo['x-claves-desconocidas']); descrita en src/api/rest/openapi.ts:384-386",
       "es": "x-claves-desconocidas",
       "en": "x-unknown-keys",
-      "why": "Zod, que es de donde sale el dato, llama a esto `unknownKeys`: `const desconocidas = esquema._def.unknownKeys` está en src/api/rest/zod-a-json-schema.ts:304 (la 305 es el `if (desconocidas === 'strict')`), y la emisión de la clave en :311. La clave publicada nombra el mismo concepto con la misma palabra. Sus dos VALORES (`conservadas`/`descartadas`) SÍ están ahora inventariados, en esta misma clase y no en check-value ni en as-const: no salen de ningún CHECK ni de ningún `as const` —los produce el ternario de :311— y su único sitio persistido es este contrato."
+      "why": "Zod 3, de donde salía el dato, llamaba a esto `unknownKeys`; zod 4 lo expresa con el `catchall` del objeto (#367): `const catchall = esquema._zod.def.catchall` está en src/api/rest/zod-a-json-schema.ts:454 (sin catchall es `strip`, `z.never()` es `strict` y `z.unknown()` es `passthrough`), y la emisión de la clave en :457 y :462. La clave publicada nombra el mismo concepto con la misma palabra. Sus dos VALORES (`conservadas`/`descartadas`) SÍ están ahora inventariados, en esta misma clase y no en check-value ni en as-const: no salen de ningún CHECK ni de ningún `as const` —los producen las ramas de :457 y :462— y su único sitio persistido es este contrato."
     },
     {
       "class": "openapi-extension",
@@ -4647,10 +4647,10 @@
     },
     {
       "class": "openapi-extension",
-      "where": "docs/openapi.json · `x-validacion-adicional` · src/api/rest/zod-a-json-schema.ts:403 (dentro de deEfectos, :370-403); descrita en src/api/rest/openapi.ts:387-389",
+      "where": "docs/openapi.json · `x-validacion-adicional` · src/api/rest/zod-a-json-schema.ts:234 (dentro de withRefinementFlag, :227-235); descrita en src/api/rest/openapi.ts:387-389",
       "es": "x-validacion-adicional",
       "en": "x-additional-validation",
-      "why": "Rendición directa del concepto que la extensión marca: el cuerpo pasa una comprobación ADEMÁS del esquema. Descarté `x-refinement` porque «refinement» es jerga interna de Zod y un contrato publicado no debe filtrar la librería con la que se construyó, y `x-cross-field-validation` porque promete de más: el marcador es el caso GENERAL de `deEfectos` (el `return` de zod-a-json-schema.ts:402-403, al que cae todo `ZodEffects` que no sea `transform` ni la cota de arreglo de :391-399), así que también se emite para refinamientos de un solo campo que no caben en JSON Schema."
+      "why": "Rendición directa del concepto que la extensión marca: el cuerpo pasa una comprobación ADEMÁS del esquema. Descarté `x-refinement` porque «refinement» es jerga interna de Zod y un contrato publicado no debe filtrar la librería con la que se construyó, y `x-cross-field-validation` porque promete de más: el marcador es el caso GENERAL de `withRefinementFlag` (el `return` de zod-a-json-schema.ts:234, al que cae toda comprobación `custom` de un nodo salvo la cota de arreglo, que se publica entera como `maxItems` en :412-413), así que también se emite para refinamientos de un solo campo que no caben en JSON Schema."
     },
     {
       "class": "openapi-extension",
@@ -4703,14 +4703,14 @@
     },
     {
       "class": "openapi-extension",
-      "where": "docs/openapi.json · valor de `x-claves-desconocidas` (origen: src/api/rest/zod-a-json-schema.ts:311)",
+      "where": "docs/openapi.json · valor de `x-claves-desconocidas` (origen: src/api/rest/zod-a-json-schema.ts:462)",
       "es": "conservadas",
       "en": "kept",
-      "why": "UNA SOLA ENTRADA, en esta clase y no en `check-value`: verificado que NO hay CHECK detrás — el valor lo produce el ternario de zod-a-json-schema.ts:311 a partir de `esquema._def.unknownKeys` (:304), así que `check-value` no podría alojarlo sin mentir sobre su origen. Su único sitio persistido es el contrato publicado (71 esquemas en docs/openapi.json), cuya clave `x-claves-desconocidas` ya vive en esta clase. El inglés no está en disputa: la propia descripción publicada dice «they validate and are kept» (openapi.ts:384-386). `kept` está libre en el árbol."
+      "why": "UNA SOLA ENTRADA, en esta clase y no en `check-value`: verificado que NO hay CHECK detrás — el valor lo produce la rama de zod-a-json-schema.ts:462 a partir de `esquema._zod.def.catchall` (:454), así que `check-value` no podría alojarlo sin mentir sobre su origen. Su único sitio persistido es el contrato publicado (71 esquemas en docs/openapi.json), cuya clave `x-claves-desconocidas` ya vive en esta clase. El inglés no está en disputa: la propia descripción publicada dice «they validate and are kept» (openapi.ts:384-386). `kept` está libre en el árbol."
     },
     {
       "class": "openapi-extension",
-      "where": "docs/openapi.json · valor de `x-claves-desconocidas` (origen: src/api/rest/zod-a-json-schema.ts:311)",
+      "where": "docs/openapi.json · valor de `x-claves-desconocidas` (origen: src/api/rest/zod-a-json-schema.ts:457)",
       "es": "descartadas",
       "en": "dropped",
       "why": "UNA SOLA ENTRADA, en esta clase (ver la de `conservadas`): el lote de checks no la duplica. `dropped` y no `stripped` pese a que Zod llame `strip` al modo: la descripción publicada, que es el texto que un tercero lee, dice «silently dropped» (openapi.ts:384-385), y el par publicado `kept`/`dropped` es el que hay que poder leer sin consultar Zod. Libre en el árbol."
