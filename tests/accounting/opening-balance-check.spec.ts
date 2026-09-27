@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import Decimal from 'decimal.js';
 import {
   compareToSource,
   renderBalanceComparison,
-  rollUp,
   shapesFromRows,
   type AccountShape,
 } from '../../src/services/accounting/opening-balance-check.js';
@@ -48,66 +46,25 @@ describe('shapesFromRows · la traducción de normal_balance', () => {
   });
 });
 
-describe('rollUp · sumar el árbol hacia arriba', () => {
-  const arbol: AccountShape[] = [
-    forma('1000', null),
-    forma('1100', '1000'),
-    forma('1110', '1100'),
-    forma('1120', '1100'),
-    forma('2000', null, 'A'),
-  ];
-
-  it('cada cuenta recibe lo suyo MÁS lo de toda su descendencia', () => {
-    const r = rollUp(
-      arbol,
-      new Map([
-        ['1110', new Decimal(100)],
-        ['1120', new Decimal(30)],
-        ['1100', new Decimal(7)],
-      ])
-    );
-    expect(r.get('1110')?.toString()).toBe('100');
-    expect(r.get('1100')?.toString()).toBe('137');
-    expect(r.get('1000')?.toString()).toBe('137');
-    // AUSENTE ES CERO: la cuenta que no recibió nada no ocupa una fila.
-    expect(r.get('2000')).toBeUndefined();
-  });
-
-  it('el cero no se propaga: no cuesta un recorrido ni fabrica filas', () => {
-    const r = rollUp(arbol, new Map([['1110', new Decimal(0)]]));
-    expect(r.size).toBe(0);
-  });
-
-  it('un padre que no está entre las cuentas conocidas no inventa una fila', () => {
-    const r = rollUp([forma('X', 'NO-EXISTE')], new Map([['X', new Decimal(5)]]));
-    expect(r.get('NO-EXISTE')).toBeUndefined();
-    expect(r.get('X')?.toString()).toBe('5');
-  });
-
-  it('un ciclo en parent_id NO cuelga el proceso', () => {
-    // La base no debería permitirlo; un `parent_id` corregido a mano sí lo
-    // produce, y un cotejo que se queda colgado es peor que uno que acusa.
-    const r = rollUp(
-      [forma('A', 'B'), forma('B', 'A')],
-      new Map([['A', new Decimal(9)]])
-    );
-    expect(r.get('A')?.toString()).toBe('9');
-    expect(r.get('B')?.toString()).toBe('9');
-  });
-});
-
 describe('compareToSource · iguales al peso', () => {
-  it('con el saldo en las hojas, la cuenta de mayor CUADRA aunque el mayor no agregue', () => {
-    // Éste es el falso descuadre que un cotejo sin agregar produciría: el
-    // origen declara 130 en la cuenta de mayor y nuestro mayor tiene ahí un
-    // cero, con el dinero repartido en las dos subcuentas.
+  it('both sides declare the ledger account WITH its subaccounts (#323), so they match as is', () => {
     const shapes = [forma('1100', null), forma('1110', '1100'), forma('1120', '1100')];
     const origen = [fila('1100', '130.00'), fila('1110', '100.00'), fila('1120', '30.00')];
-    const nuestra = [fila('1100', '0.00'), fila('1110', '100.00'), fila('1120', '30.00')];
+    const nuestra = [fila('1100', '130.00'), fila('1110', '100.00'), fila('1120', '30.00')];
     const c = compareToSource(origen, nuestra, shapes);
     expect(c.iguales).toBe(true);
     expect(c.comparadas).toBe(3);
     expect(renderBalanceComparison(c)).toContain('IGUALES AL PESO');
+  });
+
+  it('a ledger account of ours declared at zero is a real difference, not re-summed here', () => {
+    // The pre-#323 balanza: the money in the leaves, the parent at zero.
+    const c = compareToSource(
+      [fila('1100', '130.00'), fila('1110', '100.00'), fila('1120', '30.00')],
+      [fila('1100', '0.00'), fila('1110', '100.00'), fila('1120', '30.00')],
+      [forma('1100', null), forma('1110', '1100'), forma('1120', '1100')]
+    );
+    expect(c.diferencias.map((d) => d.numCta)).toEqual(['1100']);
   });
 
   it('LA TRAMPA DEL SIGNO: la depreciación acumulada NO se suma, se resta', () => {
@@ -117,7 +74,7 @@ describe('compareToSource · iguales al peso', () => {
     // activo fijo neto es 800. Sólo el eje del mayor da la respuesta buena.
     const shapes = [forma('1200', null, 'D'), forma('1210', '1200', 'D'), forma('1290', '1200', 'A')];
     const origen = [fila('1200', '800.00'), fila('1210', '1000.00'), fila('1290', '200.00')];
-    const nuestra = [fila('1200', '0.00'), fila('1210', '1000.00'), fila('1290', '200.00')];
+    const nuestra = [fila('1200', '800.00'), fila('1210', '1000.00'), fila('1290', '200.00')];
     expect(compareToSource(origen, nuestra, shapes).iguales).toBe(true);
   });
 
@@ -170,7 +127,7 @@ describe('compareToSource · iguales al peso', () => {
     const shapes = [forma('1100', null), forma('1110', '1100'), forma('1110-01', '1110')];
     const c = compareToSource(
       [fila('1100', '10.00')],
-      [fila('1110-01', '10.00')],
+      [fila('1100', '10.00'), fila('1110', '10.00'), fila('1110-01', '10.00')],
       shapes
     );
     expect(c.sobrantes).toEqual([]);
@@ -221,7 +178,10 @@ describe('compareToSource · iguales al peso', () => {
   it('Debe y Haber también se pueden cotejar, y se agregan igual', () => {
     const shapes = [forma('1100', null), forma('1110', '1100')];
     const origen = [fila('1100', '0.00', { debe: '5.00', haber: '2.00' })];
-    const nuestra = [fila('1110', '0.00', { debe: '5.00', haber: '2.00' })];
+    const nuestra = [
+      fila('1100', '0.00', { debe: '5.00', haber: '2.00' }),
+      fila('1110', '0.00', { debe: '5.00', haber: '2.00' }),
+    ];
     expect(compareToSource(origen, nuestra, shapes, 'Debe').iguales).toBe(true);
     expect(compareToSource(origen, nuestra, shapes, 'Haber').iguales).toBe(true);
   });
@@ -245,9 +205,9 @@ describe('compareToSource · iguales al peso', () => {
       fila('101', '0.00', { debe: '1000.00', haber: '100.00' }),
       fila('171', '0.00', { debe: '500.00', haber: '200.00' }),
     ];
-    // Nuestra balanza declara el movimiento PROPIO: «100» no agrega.
+    // Nuestra balanza, como el origen, declara «100» con sus subcuentas.
     const nuestra = [
-      fila('100', '0.00'),
+      fila('100', '0.00', { debe: '1500.00', haber: '300.00' }),
       fila('101', '0.00', { debe: '1000.00', haber: '100.00' }),
       fila('171', '0.00', { debe: '500.00', haber: '200.00' }),
     ];

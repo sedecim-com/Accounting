@@ -2329,6 +2329,27 @@ export const E4_1: Criterio[] = [
         porque:
           'el impuesto local sale del asiento y los débitos dejan de igualar a los créditos: cualquier corrida con un recibo de local > 0 vuelve a no poder postearse («Payroll GL entry unbalanced»)',
       },
+      {
+        archivo: 'src/services/payroll/mx/imss-calculator.ts',
+        de: "const er = requiredRates(params, 'imss_employer', EMPLOYER_RATE_KEYS, tax_year);",
+        a: 'const er = (params.imss_employer as Record<string, number>) || {};',
+        porque:
+          'a row without the imss_employer block yields an employer quota of 0.00 that reaches the journal entry and the SUA as if it were the obligation (#296)',
+      },
+      {
+        archivo: 'src/services/payroll/mx/imss-calculator.ts',
+        de: 'sbcCapped * er.retiro *',
+        a: 'sbcCapped * (er.retiro || 0) *',
+        porque:
+          'restores `|| 0` on one employer rate: a missing retiro rate silently drops the 2 % the AFORE is owed (#296)',
+      },
+      {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: 'taxableImss = imssEr.taxable_wages_used;',
+        a: 'taxableImss = taxableIsr;',
+        porque:
+          'taxable_wages_imss goes back to the ISR base: exempt earnings and pre-tax deductions leak into the IMSS base (#296)',
+      },
     ],
     evaluar: () => {
       // T20 puntos 1, 3 y 4 (#127). El principio es uno: fallar cerrado, como
@@ -2352,6 +2373,13 @@ export const E4_1: Criterio[] = [
       }
       if (!/requiredRates\(params, 'imss_employee'/.test(codigoDe(imss))) {
         return falla('las cuotas obreras del IMSS vuelven a leerse con «|| 0»: una tasa ausente no es una tasa de cero');
+      }
+      // #296: the employer side too, and every rate it reads.
+      if (!/requiredRates\(params, 'imss_employer'/.test(codigoDe(imss)) || /\ber\.\w+\s*\|\|\s*0/.test(codigoDe(imss))) {
+        return falla('the IMSS employer quota goes back to «|| {}» / «|| 0»: a missing rate yields 0.00 in the journal entry and the SUA');
+      }
+      if (!/taxableImss = imssEr\.taxable_wages_used;/.test(codigoDe('src/services/payroll/common/paycheck-service.ts'))) {
+        return falla('taxable_wages_imss is no longer the SBC the IMSS engine used: the IMSS base is not the ISR base');
       }
 
       // 2. EL ESTADO CIVIL SE VALIDA.

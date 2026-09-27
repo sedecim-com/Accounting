@@ -562,14 +562,16 @@ describe('la balanza del sistema viejo y la nuestra', () => {
     expect(c.comparadas).toBe(CATALOGO.length);
   });
 
-  it('y la comprobación tiene que AGREGAR, porque este generador no agrega', async () => {
-    // No es un detalle del cotejo: es una propiedad declarada de F07b. La
-    // balanza que este sistema emite declara el saldo PROPIO de cada cuenta,
-    // así que «100 Activo» sale en ceros y su advertencia sale con ella.
+  it('y nuestra balanza ya declara el mayor AGREGADO, como el origen (#323)', async () => {
+    // Until #323 «100 Activo» went out at zero with a `mayor-sin-agregar`
+    // warning. Now it carries its subtree, netted: 50 000 + 12 000 + 200 000
+    // − 30 000 of depreciation, the same 232 000 the source file declares.
     const nuestra = await generarBalanza(f.entityId, { periodo: f.periodos[1] });
-    expect(nuestra.hallazgos.map((h) => h.check)).toContain('mayor-sin-agregar');
+    expect(nuestra.hallazgos.map((h) => h.check as string)).not.toContain('mayor-sin-agregar');
     const leida = readBalanzaComprobacion(nuestra.xml);
-    expect(leida.rows.find((r) => r.numCta === '100')?.saldoFin).toBe('0.00');
+    expect(leida.rows.find((r) => r.numCta === '100')?.saldoFin).toBe(
+      readBalanzaComprobacion(balanzaDeOrigen()).rows.find((r) => r.numCta === '100')?.saldoFin
+    );
     expect(leida.rows.find((r) => r.numCta === '102-001')?.saldoFin).toBe('50000.00');
   });
 

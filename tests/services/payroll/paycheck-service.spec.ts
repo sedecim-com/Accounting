@@ -208,6 +208,20 @@ describe('el recibo escribe el desglose que antes tiraba', () => {
   });
 });
 
+describe('la base del IMSS es el SBC, no la del ISR (#296)', () => {
+  it('persiste en taxable_wages_imss la base que usó la calculadora patronal', async () => {
+    // An ISR-exempt earning separates the two bases: ISR 3000, SBC 500 × 15.
+    await calculatePaycheck({
+      ...ENTRADA,
+      earnings: [...ENTRADA.earnings, { earning_type: 'other', amount: 800, is_taxable_isr: false }],
+    });
+    const { sql, params } = insercionDelRecibo();
+    const columns = sql.slice(sql.indexOf('(') + 1, sql.indexOf(')')).split(',').map((x) => x.trim());
+    expect(params[columns.indexOf('taxable_wages_isr')]).toBe(3000);
+    expect(params[columns.indexOf('taxable_wages_imss')]).toBe(7500);
+  });
+});
+
 describe('el subsidio que excede al ISR llega al trabajador', () => {
   it('entrega la diferencia en efectivo y la suma al neto', async () => {
     const r = await calculatePaycheck(ENTRADA);
