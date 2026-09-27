@@ -261,6 +261,9 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
   // a tuple per issue: about half the parse again, and with the rest of the
   // adapter a 3 GB heap ran out where zod 3 did not (#367). Ratios to zod's
   // own parse, the fastest of three runs each, hold on a slow machine too.
+  // Six parses of this body take longer than vitest's 5 s default on a CI
+  // runner, and the ratio, not the wall clock, is what is judged here.
+  const TIMEOUT_MS = 120_000;
   const N = 250_000;
   const schema = z.object({ xml_contents: z.array(z.string()).max(100) });
   const body: unknown = JSON.parse(`{"xml_contents":[${Array<string>(N).fill('1').join(',')}]}`);
@@ -283,7 +286,7 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
     const normalize = fastest(() => void normalizeLegacyIssues(issues));
     expect(issues).toHaveLength(N + 1);
     expect(normalize / floor).toBeLessThan(0.25);
-  });
+  }, TIMEOUT_MS);
 
   it('answers through validateBody for 1.6 times the parse at most', () => {
     const handler = validateBody(schema);
@@ -301,5 +304,5 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
     );
     expect(message.split('; ')).toHaveLength(N + 1);
     expect(adapter / floor).toBeLessThan(1.6);
-  });
+  }, TIMEOUT_MS);
 });
