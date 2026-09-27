@@ -17,8 +17,11 @@ import { z } from 'zod';
 //                  as the pattern, verbatim.
 //   urlString      `.url()` trims its input before parsing and returns the
 //                  normalized URL; $ZodCheckV3Url parses the raw string with
-//                  `URL.canParse`, as zod 3 did with `new URL`, and never
-//                  rewrites the value.
+//                  `new URL` in a try/catch, as zod 3 did, and never rewrites
+//                  the value. NOT `URL.canParse`: on Node 22 it answers false
+//                  for a Latin-1 URL with a non-ASCII host (https://señal.mx)
+//                  once V8 optimizes the call, so what it accepted would
+//                  depend on how warm the process is.
 //   boundedString  lengths count code points; the units checks below count
 //                  UTF-16 units, as zod 3 did and as every maxLength that
 //                  docs/openapi.json publishes says. The agent tools use it
@@ -122,7 +125,12 @@ export const $ZodCheckV3Url = z.core.$constructor(
   (inst: z.core.$ZodCheckStringFormat, def: z.core.$ZodCheckStringFormatDef<'url'>) => {
     z.core.$ZodCheckStringFormat.init(inst, def);
     inst._zod.check = (payload) => {
-      if (URL.canParse(payload.value)) return;
+      try {
+        new URL(payload.value);
+        return;
+      } catch {
+        // falls through to the issue
+      }
       payload.issues.push({
         origin: 'string',
         code: 'invalid_format',

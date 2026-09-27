@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   $ZodCheckLengthUnits,
@@ -156,5 +156,27 @@ describe('recordOf checks an own __proto__ entry, as zod 3 did', () => {
       ['__proto__', 'not ok'],
       ['b', 'not ok'],
     ]);
+  });
+});
+
+describe('urlString answers as `new URL` does, however warm the process is', () => {
+  // Node 22's URL.canParse answers false for a Latin-1 URL with a non-ASCII
+  // host once V8 optimizes the call; `new URL` still parses it (zod 3 used it).
+  const IDN = ['https://señal.mx/hook', 'https://müller.de', 'https://ñ.com'];
+
+  it('accepts an IDN host after 20k JSON-parsed bodies', () => {
+    const body = z.object({ url: urlString(), events: z.array(z.enum(['a', 'b'])).min(1) });
+    for (let i = 0; i < 20_000; i++) parseForClient(body, JSON.parse(`{"url":"https://a${i % 7}.com/x","events":["a"]}`));
+    for (const url of IDN) expect(parseForClient(body, { url, events: ['a'] }), url).toMatchObject({ success: true });
+  });
+
+  it('does not lean on URL.canParse', () => {
+    const canParse = vi.spyOn(URL, 'canParse').mockReturnValue(false);
+    try {
+      for (const url of ['https://a.com', ...IDN]) expect(urlString().safeParse(url).success, url).toBe(true);
+      expect(urlString().safeParse('not a url').success).toBe(false);
+    } finally {
+      canParse.mockRestore();
+    }
   });
 });
