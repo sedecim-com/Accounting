@@ -113,14 +113,136 @@ const ROWS: Array<[string, z.ZodType, unknown, ClientIssue[]]> = [
       issue('c', "Invalid enum value. Expected 'a' | 'b', received 'z'"),
     ],
   ],
+  [
+    'nested array sizes: the outer first, each before its own elements',
+    z.array(z.array(uuidString()).min(2)).min(3),
+    [['x']],
+    [
+      issue('', 'Array must contain at least 3 element(s)'),
+      issue('0', 'Array must contain at least 2 element(s)'),
+      issue('0.0', 'Invalid uuid'),
+    ],
+  ],
+  [
+    'sibling array sizes stay with their own elements',
+    z.object({ a: z.array(z.array(uuidString()).min(2)) }),
+    { a: [['x'], [], ['y', 'z']] },
+    [
+      issue('a.0', 'Array must contain at least 2 element(s)'),
+      issue('a.0.0', 'Invalid uuid'),
+      issue('a.1', 'Array must contain at least 2 element(s)'),
+      issue('a.2.0', 'Invalid uuid'),
+      issue('a.2.1', 'Invalid uuid'),
+    ],
+  ],
+  ['a literal given another type', z.literal('x'), 1, [issue('', 'Invalid literal value, expected "x"')]],
+  ['a literal given another value', z.literal(5), '5', [issue('', 'Invalid literal value, expected 5')]],
+  ['a missing literal', z.object({ a: z.literal(true) }), {}, [issue('a', 'Invalid literal value, expected true')]],
+];
+
+// JSON 1e999 parses to Infinity, and express.json delivers it. Where zod 3
+// already rejected it, it must answer as zod 3 did, whatever the field.
+const INFINITY_ROWS: Array<[string, z.ZodType, unknown, ClientIssue[]]> = [
+  [
+    'Infinity on a string, a boolean, an object and an array field',
+    z.object({ code: z.string(), flag: z.boolean(), o: z.object({}), arr: z.array(z.string()) }),
+    { code: Infinity, flag: -Infinity, o: Infinity, arr: Infinity },
+    [
+      issue('code', 'Expected string, received number'),
+      issue('flag', 'Expected boolean, received number'),
+      issue('o', 'Expected object, received number'),
+      issue('arr', 'Expected array, received number'),
+    ],
+  ],
+  ['Infinity on an enum', ab, Infinity, [issue('', "Expected 'a' | 'b', received number")]],
+  ['Infinity on a nullable id', uuidString().nullable(), -Infinity, [issue('', 'Expected string, received number')]],
+  ['Infinity on an integer', integerNumber(), Infinity, [issue('', 'Expected integer, received float')]],
+  [
+    'Infinity through a nullable reaches the checks of the number inside',
+    z.object({ n: integerNumber().max(5).nullable().optional() }),
+    { n: Infinity },
+    [issue('n', 'Expected integer, received float'), issue('n', 'Number must be less than or equal to 5')],
+  ],
+  [
+    'Infinity on an integer reports the integer AND the upper bound',
+    integerNumber().min(1).max(208),
+    Infinity,
+    [issue('', 'Expected integer, received float'), issue('', 'Number must be less than or equal to 208')],
+  ],
+  [
+    '-Infinity on an integer reports the integer AND the lower bound',
+    integerNumber().min(1).max(208),
+    -Infinity,
+    [issue('', 'Expected integer, received float'), issue('', 'Number must be greater than or equal to 1')],
+  ],
+  ['-Infinity under a lower bound', z.number().positive(), -Infinity, [issue('', 'Number must be greater than 0')]],
+  ['Infinity over an upper bound', z.number().lt(1), Infinity, [issue('', 'Number must be less than 1')]],
+  ['Infinity is not a multiple', z.number().multipleOf(5), Infinity, [issue('', 'Number must be a multiple of 5')]],
+  ['Infinity runs a refine', z.number().refine((n) => n < 10, { message: 'under 10' }), Infinity, [issue('', 'under 10')]],
+  [
+    'Infinity deep in a body keeps its path',
+    z.object({ lines: z.array(z.object({ n: integerNumber().max(5) })) }),
+    { lines: [{ n: Infinity }] },
+    [issue('lines.0.n', 'Expected integer, received float'), issue('lines.0.n', 'Number must be less than or equal to 5')],
+  ],
+  [
+    'Infinity in two elements',
+    z.array(integerNumber().min(0)),
+    [-Infinity, 1, Infinity],
+    [
+      issue('0', 'Expected integer, received float'),
+      issue('0', 'Number must be greater than or equal to 0'),
+      issue('2', 'Expected integer, received float'),
+    ],
+  ],
 ];
 
 describe('parseForClient words every issue as zod 3 did', () => {
-  it.each(ROWS)('%s', (_label, schema, input, issues) => {
+  it.each([...ROWS, ...INFINITY_ROWS])('%s', (_label, schema, input, issues) => {
     expect(parseForClient(schema, input)).toEqual({ success: false, issues });
   });
 
   it('returns the parsed data on success', () => {
     expect(parseForClient(z.object({ a: z.string().default('x') }), {})).toEqual({ success: true, data: { a: 'x' } });
+  });
+});
+
+describe('T1 · where zod 3 accepted ±Infinity as a number, zod 4 rejects it', () => {
+  const ZOD4 = '_zod' in z.string();
+  const rows: Array<[string, z.ZodType, number]> = [
+    ['a bare number', z.number(), Infinity],
+    ['under a lower bound it does not break', z.number().positive(), Infinity],
+    ['under an upper bound it does not break', z.number().max(1), -Infinity],
+  ];
+
+  it.each(rows)('%s', (_label, schema, input) => {
+    expect(parseForClient(schema, input)).toEqual(
+      ZOD4 ? { success: false, issues: [issue('', 'Number must be finite')] } : { success: true, data: input }
+    );
+  });
+});
+
+describe('parseForClient stays linear in the number of issues', () => {
+  // express.json takes 10 MB: two bytes per element is millions of issues in
+  // one request, and a quadratic step there blocks the event loop for hours.
+  const BUDGET_MS = 5000;
+  const N = 100_000;
+
+  it.each([
+    ['wrong-type elements', z.object({ tags: z.array(z.string()) }), { tags: Array<number>(N).fill(0) }],
+    [
+      'arrays too short, each with its own element issue',
+      z.object({ rows: z.array(z.array(boundedString({ min: 1 })).min(2)) }),
+      { rows: Array.from({ length: N / 2 }, () => ['']) },
+    ],
+    // On zod 4 each element also fails the safe-integer bound (T2), which
+    // the adapter drops because the field reports its own bound.
+    ['integers beyond 2^53 under a tighter bound', z.array(integerNumber().max(5)), Array<number>(N).fill(2 ** 60)],
+  ] as Array<[string, z.ZodType, unknown]>)('%s', (_label, schema, input) => {
+    const started = performance.now();
+    const parsed = parseForClient(schema, input);
+    const elapsed = performance.now() - started;
+    expect(parsed.success ? 0 : parsed.issues.length).toBe(N);
+    expect(elapsed).toBeLessThan(BUDGET_MS);
   });
 });

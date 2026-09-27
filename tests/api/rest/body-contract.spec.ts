@@ -252,8 +252,11 @@ async function httpOutcome(key: string, raw: string): Promise<string> {
 describe('T1/T2 · the only deliberate tightenings of the Zod 4 migration', () => {
   // Each row states what zod 3 does and what zod 4 does. Everything else in
   // this file is identical on both. JSON 1e999 parses to Infinity, which zod 3
-  // accepted as a number (journal entries stored the string 'Infinity'); an
-  // integer beyond 2^53 - 1 cannot be carried exactly by JSON.
+  // accepted as a number (journal entries stored the string 'Infinity') unless
+  // a check of the field refused it: there, and on any field that is not a
+  // number, the 422 is still zod 3's (the rows marked "as before", and every
+  // Infinity probe of the golden). An integer beyond 2^53 - 1 cannot be
+  // carried exactly by JSON.
   const TIGHTENINGS: Array<[string, string, string, string, string]> = [
     [
       'T1 · 1e999 as a journal amount',
@@ -268,6 +271,34 @@ describe('T1/T2 · the only deliberate tightenings of the Zod 4 migration', () =
       '{"category_disclosure":{"x":1e999}}',
       'OK {"category_disclosure":{"x":null}}',
       `422 VALIDATION_ERROR ${INVALID}category_disclosure.x: Number must be finite`,
+    ],
+    [
+      'T1 · 1e999 under a lower bound it does not break',
+      'PUT /v1/admin/blockchain/disclosure-config',
+      '{"round_to_nearest":1e999}',
+      'OK {"round_to_nearest":null}',
+      `422 VALIDATION_ERROR ${INVALID}round_to_nearest: Number must be finite`,
+    ],
+    [
+      'T1 · -1e999 under a lower bound it breaks answers as before',
+      'PUT /v1/admin/blockchain/disclosure-config',
+      '{"round_to_nearest":-1e999}',
+      `422 VALIDATION_ERROR ${INVALID}round_to_nearest: Number must be greater than 0`,
+      `422 VALIDATION_ERROR ${INVALID}round_to_nearest: Number must be greater than 0`,
+    ],
+    [
+      'T1 · 1e999 on a bounded integer answers as before',
+      'POST /v1/payroll/pay-schedules/:id/generate-periods',
+      '{"count":1e999}',
+      `422 VALIDATION_ERROR ${INVALID}count: Expected integer, received float; count: Number must be less than or equal to 208`,
+      `422 VALIDATION_ERROR ${INVALID}count: Expected integer, received float; count: Number must be less than or equal to 208`,
+    ],
+    [
+      'T1 · 1e999 on a string field answers as before',
+      'POST /v1/accounts',
+      `{"code":1e999,"name":"a","account_type":"asset","entity_id":"${ID}","normal_balance":"debit"}`,
+      `422 VALIDATION_ERROR ${INVALID}code: Expected string, received number`,
+      `422 VALIDATION_ERROR ${INVALID}code: Expected string, received number`,
     ],
     [
       'T2 · 2^53 as a rule priority',
@@ -287,6 +318,32 @@ describe('T1/T2 · the only deliberate tightenings of the Zod 4 migration', () =
 
   it.each(TIGHTENINGS)('%s', async (_label, key, raw, onZod3, onZod4) => {
     expect(await httpOutcome(key, raw)).toBe(ZOD4 ? onZod4 : onZod3);
+  });
+});
+
+describe('G4 · a record entry keyed __proto__, as express.json delivers it', () => {
+  // JSON.parse keeps `__proto__` as an own key. zod 3 validated that entry in
+  // key order and left it out of the parsed body; zod 4's record skips it
+  // unless it is built with recordOf (src/utils/zod-compat.ts).
+  const key = 'PUT /v1/admin/blockchain/disclosure-config';
+  const rows: Array<[string, string, string]> = [
+    [
+      'a wrong value is reported',
+      '{"category_disclosure":{"__proto__":"x","retail":1}}',
+      `422 VALIDATION_ERROR ${INVALID}category_disclosure.__proto__: Expected number, received string`,
+    ],
+    [
+      'in key order',
+      '{"category_disclosure":{"a":"y","__proto__":{"polluted":true},"b":"z"}}',
+      `422 VALIDATION_ERROR ${INVALID}category_disclosure.a: Expected number, received string; ` +
+        'category_disclosure.__proto__: Expected number, received object; ' +
+        'category_disclosure.b: Expected number, received string',
+    ],
+    ['a valid value is left out of the body', '{"category_disclosure":{"__proto__":1,"retail":2}}', 'OK {"category_disclosure":{"retail":2}}'],
+  ];
+
+  it.each(rows)('%s', async (_label, raw, expected) => {
+    expect(await httpOutcome(key, raw)).toBe(expected);
   });
 });
 
