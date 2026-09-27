@@ -5,7 +5,7 @@ import { z } from 'zod';
 //
 // The owner's decision on #367 is that the Zod 4 migration accepts and
 // rejects exactly what zod 3.25.76 did, and parses to the same output. Zod 4
-// changes five grammars the REST bodies and the config file use:
+// changes six grammars the REST bodies and the config file use:
 //
 //   uuidString     v4 `.uuid()` is RFC 9562 (version and variant nibbles);
 //                  v3 accepted any 8-4-4-4-12 hex, and so must we.
@@ -16,6 +16,9 @@ import { z } from 'zod';
 //                  UTF-16 units, and so does every published maxLength.
 //   integerNumber  v4 stops at a failed `.int()`; v3 went on to report the
 //                  bounds after it too.
+//   recordOf       v4 `z.record` skips an own `__proto__` entry (JSON.parse
+//                  keeps one) without checking it; v3 checked it in key
+//                  order, and then left it out of the output.
 //
 // Every route and config schema builds those validations through here, so
 // the grammar lives in one file per Zod major. On zod 3 each helper is the
@@ -60,4 +63,9 @@ export function boundedString(bounds: StringBounds, messages: StringBoundMessage
 /** An integer whose failure does not hide the bounds chained after it. */
 export function integerNumber(): z.ZodNumber {
   return z.number().int();
+}
+
+/** A record keyed by any string whose values all pass `value`, an own `__proto__` entry included. */
+export function recordOf<V extends z.ZodTypeAny>(value: V): z.ZodRecord<z.ZodString, V> {
+  return z.record(z.string(), value);
 }
