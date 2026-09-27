@@ -3,6 +3,13 @@
 //
 // ESTO NO ES UN XSD, Y EL NOMBRE DEL ARCHIVO NO DEBE DEJAR CREERLO.
 //
+// UPDATE (#397): the official XSDs are now vendored in `xsd/`, with their
+// source and hash, and tests/sat/anexo24/official-xsd.spec.ts validates what
+// the generators emit against them with xmllint. Steps 1 and 2 below are
+// done. Step 3, turning each `faceta_no_verificada` rule into what the XSD
+// says, is #404. Until then, the paragraphs below describe this file, not
+// the repository.
+//
 // El encargo decía: o se traen los XSD oficiales, o se escribe un validador de
 // reglas — y si no se puede fundamentar el XSD, NO SE INVENTA. No se puede
 // fundamentar. En este repositorio no hay ni un `.xsd`, no hay ninguna

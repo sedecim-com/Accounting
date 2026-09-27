@@ -1,0 +1,41 @@
+{
+  "note": "The SAT official ContabilidadE 1.3 schemas (Anexo 24), byte for byte as published: CRLF line endings, and a BOM in CatalogosParaEsqContE.xsd. Never edit one: download it again from its url, then update downloaded and sha256. .gitattributes keeps git from normalizing them.",
+  "files": [
+    {
+      "path": "ContabilidadE/1_3/CatalogoCuentas/CatalogoCuentas_1_3.xsd",
+      "url": "https://www.sat.gob.mx/esquemas/ContabilidadE/1_3/CatalogoCuentas/CatalogoCuentas_1_3.xsd",
+      "downloaded": "2026-09-27",
+      "sha256": "c5fe3e41f43a7cd69aca5e0ea382ea7d76b8a11aeee5ea5b2d59e8868fe67348"
+    },
+    {
+      "path": "ContabilidadE/1_3/BalanzaComprobacion/BalanzaComprobacion_1_3.xsd",
+      "url": "https://www.sat.gob.mx/esquemas/ContabilidadE/1_3/BalanzaComprobacion/BalanzaComprobacion_1_3.xsd",
+      "downloaded": "2026-09-27",
+      "sha256": "92db7ad65e7db4cc0bc14bd2a2a8f5b2d8c18b114a04d7bf35faa3736cc7f0d7"
+    },
+    {
+      "path": "ContabilidadE/1_3/PolizasPeriodo/PolizasPeriodo_1_3.xsd",
+      "url": "https://www.sat.gob.mx/esquemas/ContabilidadE/1_3/PolizasPeriodo/PolizasPeriodo_1_3.xsd",
+      "downloaded": "2026-09-27",
+      "sha256": "01209e2f1f8971da17739eca12c11ce965465048dd4e390582f16cd7d59cd15d"
+    },
+    {
+      "path": "ContabilidadE/1_3/AuxiliarCtas/AuxiliarCtas_1_3.xsd",
+      "url": "https://www.sat.gob.mx/esquemas/ContabilidadE/1_3/AuxiliarCtas/AuxiliarCtas_1_3.xsd",
+      "downloaded": "2026-09-27",
+      "sha256": "f8056669d17d09e5251cf8993ace7524e12ab7daa844b0cb82dd610fa1982ef2"
+    },
+    {
+      "path": "ContabilidadE/1_3/AuxiliarFolios/AuxiliarFolios_1_3.xsd",
+      "url": "https://www.sat.gob.mx/esquemas/ContabilidadE/1_3/AuxiliarFolios/AuxiliarFolios_1_3.xsd",
+      "downloaded": "2026-09-27",
+      "sha256": "55e670d126c9b06380053f3a6e327feed002160440a4f36a968d78f418418057"
+    },
+    {
+      "path": "ContabilidadE/1_3/CatalogosParaEsqContE/CatalogosParaEsqContE.xsd",
+      "url": "https://www.sat.gob.mx/esquemas/ContabilidadE/1_3/CatalogosParaEsqContE/CatalogosParaEsqContE.xsd",
+      "downloaded": "2026-09-27",
+      "sha256": "2a80344af6a221993dfbfdb7c882ff1ced49517a324048f08335e2e61d9ab72c"
+    }
+  ]
+}

@@ -169,6 +169,10 @@ jobs:
             }
             console.log("ICU " + process.versions.icu + " completo en Node " + process.version);
           '
+      # xmllint (libxml2) checks the Anexo 24 XML against the SAT's official
+      # XSDs vendored in src/services/sat/anexo24/xsd/ (#397). The runner does
+      # not ship it, and without it those tests fail rather than skip.
+      - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: npm ci
       - run: npm test
       # Trinquete por archivo sobre el motor contable: no exige trabajo nuevo,
@@ -398,6 +402,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      # xmllint: the rolled-up trial balance of #323 is checked against the
+      # official BalanzaComprobacion XSD (see the unit job).
+      - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: npm ci
       # SIETE PRUEBAS QUE NUNCA HABÍAN CORRIDO.
       #

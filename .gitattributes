@@ -1,0 +1,4 @@
+# The SAT's official XSDs are kept byte for byte (CRLF, one with a BOM): their
+# SHA-256 is checked against src/services/sat/anexo24/xsd/provenance.json, so
+# git must never normalize their line endings. GitHub collapses them in diffs.
+src/services/sat/anexo24/xsd/**/*.xsd -text linguist-generated=true
