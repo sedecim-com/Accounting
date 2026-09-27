@@ -1,5 +1,6 @@
 import { query } from '../../../database/connection.js';
-import type { PayFrequency, FilingStatus } from './tax-engine.interface.js';
+import type { PayFrequency, FilingStatus, TaxInput } from './tax-engine.interface.js';
+import { daysBetween, toCalendarDate } from '../../../utils/calendar-date.js';
 
 // ============================================================
 // TAX TABLE LOOKUP SERVICE
@@ -81,11 +82,11 @@ export async function getBrackets(
  *    one reaches the payslip, the payroll CFDI and the IMSS payment line. A tax
  *    parameter that cannot be read is named, not substituted (the F08a rule).
  *
- * `effectiveDate` is the date OF THE ACT — the day of the payslip — not today:
- * a January 15th payslip recomputed in March must still use January. It
- * defaults to today because the engines that do not yet receive it compute the
- * current period; threading it down to each one is T4b's work, and until then
- * the omission is explicit rather than tacit.
+ * `effectiveDate` is the date OF THE ACT, not today, and the law fixes which
+ * act (#242): each contribution day for IMSS and INFONAVIT
+ * (`contributionMonths`); the ISR and subsidy tables go by the payment year
+ * (`paymentYear`). It still defaults to today for the callers that do not pass
+ * it: the US engines, and a TaxInput without the period's range.
  *
  * Y CONVIVE CON J0.2 (#199), que llegó por otro camino al mismo sitio. Su
  * migración 080 añade estas dos columnas y las rellena con el 1 de enero y el
@@ -164,6 +165,61 @@ export async function getTaxParameters(
   return row.params;
 }
 
+/**
+ * The exercise whose tables a withholding uses: the year of the PAYMENT.
+ *
+ * ISR and the employment subsidy are caused when the wage is paid (LISR 94 and
+ * 96), and the payroll CFDI states that day as `FechaPago`. `tax_year` is the
+ * period's label, and a period that closes on December 31st and is paid on
+ * January 5th belongs, for ISR, to the new year. Without a payment date — a
+ * caller that does not thread it yet — the label is all there is.
+ */
+export function paymentYear(input: Pick<TaxInput, 'tax_year' | 'pay_date'>): number {
+  return input.pay_date ? Number(toCalendarDate(input.pay_date).slice(0, 4)) : input.tax_year;
+}
+
+export interface ContributionMonth {
+  tax_year: number;
+  /** First contribution day of the stretch: the date of the act for its parameters. */
+  date?: string;
+  days: number;
+}
+
+/**
+ * The contribution days of a period, one stretch per calendar month.
+ *
+ * IMSS contributions are caused by elapsed months (LSS art. 39) and INFONAVIT
+ * is paid on the same contribution days: each day contributes with the UMA and minimum wage in force THAT day, never
+ * with those of the payment date. A week from January 29th to February 4th is
+ * three days at January's UMA and four at February's — the UMA changes on
+ * February 1st. The legal parameters only change on the first of a month, so
+ * reading them once per stretch, at its first day, is reading them per day.
+ *
+ * Without the range, the period is a single stretch of `days_in_period` under
+ * `tax_year` and no date — what every caller got before (#242).
+ */
+export function contributionMonths(
+  input: Pick<TaxInput, 'tax_year' | 'days_in_period' | 'period_start' | 'period_end'>,
+  defaultDays: number
+): ContributionMonth[] {
+  if (!input.period_start || !input.period_end) {
+    return [{ tax_year: input.tax_year, days: input.days_in_period ?? defaultDays }];
+  }
+  const end = toCalendarDate(input.period_end);
+  let first = toCalendarDate(input.period_start);
+  if (first > end) {
+    throw new Error(`The period starts on ${first}, after it ends on ${end}: it has no contribution days.`);
+  }
+  const stretches: ContributionMonth[] = [];
+  for (;;) {
+    const [y, m] = first.split('-').map(Number);
+    const monthEnd = toCalendarDate(new Date(y, m, 0));
+    const last = end < monthEnd ? end : monthEnd;
+    stretches.push({ tax_year: y, date: first, days: daysBetween(first, last) + 1 });
+    if (last === end) return stretches;
+    first = toCalendarDate(new Date(y, m, 1));
+  }
+}
 
 /**
  * A legal parameter that MUST be there, or the calculation stops.
