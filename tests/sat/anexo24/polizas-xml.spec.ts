@@ -31,9 +31,9 @@ import { ValidationError } from '../../../src/utils/errors.js';
 //        serializador, así que un `&` en el concepto de una póliza sale
 //        escapado sin que nadie se acuerde de escaparlo.
 //
-//   NO · que el documento valide contra el XSD oficial. No hay ni un `.xsd` en
-//        el repositorio y esta máquina no tiene red. Estas pruebas dicen lo
-//        que el generador EMITE.
+//   Whether the SAT's official XSD accepts the file is not here: it is
+//   tests/sat/anexo24/official-xsd.spec.ts, against the schemas vendored in
+//   src/services/sat/anexo24/xsd/ (#397).
 // ============================================================
 
 const renglon = (over: Partial<Transaccion> = {}): Transaccion => ({
@@ -115,6 +115,34 @@ describe('la solicitud, que es la cabecera COMPARTIDA por los tres esquemas', ()
         datos({ solicitud: { tipo: 'AF', numOrden: 'ABC1234567/26', numTramite: 'T-1' } })
       )
     ).toThrow(/no NumTramite/);
+  });
+
+  // The XSD pins both formats (length and pattern). The generator refused a
+  // missing number but let any string through, and a fixture of this very file
+  // carried 'T-2026-9' until the official XSD rejected the auxiliaries.
+  it.each(['T-2026-9', 'de202600000009', 'DE20260000000', 'DE2026000000099', 'D1202600000009'])(
+    'refuses NumTramite %s, which the XSD rejects',
+    (value) => {
+      expect(() => construirPolizasXml(datos({ solicitud: { tipo: 'DE', numTramite: value } }))).toThrow(
+        /NumTramite «.*» no tiene el formato del SAT/
+      );
+    }
+  );
+
+  it.each(['ABC1234567-26', 'AB1234567/26', 'ABC123456/26', 'ABC1234567/2', 'abc1234567/26'])(
+    'refuses NumOrden %s, which the XSD rejects',
+    (value) => {
+      expect(() => construirPolizasXml(datos({ solicitud: { tipo: 'FC', numOrden: value } }))).toThrow(
+        /NumOrden «.*» no tiene el formato del SAT/
+      );
+    }
+  );
+
+  it('accepts both numbers in the XSD format, trimmed', () => {
+    const filing = datos({ solicitud: { tipo: 'CO', numTramite: ' CO202600000004 ' } });
+    const order = datos({ solicitud: { tipo: 'FC', numOrden: 'XYZ7654321/25' } });
+    expect(construirPolizasXml(filing)).toContain('NumTramite="CO202600000004"');
+    expect(construirPolizasXml(order)).toContain('NumOrden="XYZ7654321/25"');
   });
 
   it('rechaza un TipoSolicitud inventado: no hay valor por omisión', () => {
@@ -324,6 +352,34 @@ describe('la evidencia', () => {
       )
     ).toThrow(/RFC/);
   });
+
+  // No test built this node until the official XSD did, and it was invalid:
+  // both schemas that declare it require RFC, and there was no field for it.
+  const withPreCfdiVoucher = (rfc: string) =>
+    datos({
+      polizas: [
+        poliza({
+          transacciones: [
+            renglon({
+              comprobantes: [
+                { clase: 'nacional_otro', serie: 'B', numFolio: '7', rfc, montoTotal: '1160.00' },
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+
+  it('the pre-CFDI voucher carries its series, folio and the counterparty RFC', () => {
+    const node = construirPolizasXml(withPreCfdiVoucher('PSA010101AA1'))
+      .split('\n')
+      .find((line) => line.includes('<PLZ:CompNalOtr '));
+    expect(node).toContain('CFD_CBB_Serie="B" CFD_CBB_NumFol="7" RFC="PSA010101AA1"');
+  });
+
+  it.each(['', 'PSA0101'])('refuses a pre-CFDI voucher whose RFC is «%s»', (rfc) => {
+    expect(() => construirPolizasXml(withPreCfdiVoucher(rfc))).toThrow(/CompNalOtr\/@RFC/);
+  });
 });
 
 describe('la coherencia del archivo', () => {
@@ -363,7 +419,7 @@ describe('el auxiliar de folios', () => {
     rfc: 'AAA010101AAA',
     anio: 2026,
     mes: '02',
-    solicitud: { tipo: 'DE' as const, numTramite: 'T-2026-9' },
+    solicitud: { tipo: 'DE' as const, numTramite: 'DE202600000009' },
     detalles: [
       {
         numUnIdenPol: 'JE-2026-0001',
@@ -419,7 +475,7 @@ describe('el auxiliar de cuenta y subcuenta', () => {
     rfc: 'AAA010101AAA',
     anio: 2026,
     mes: '02',
-    solicitud: { tipo: 'CO' as const, numTramite: 'T-2026-4' },
+    solicitud: { tipo: 'CO' as const, numTramite: 'CO202600000004' },
     cuentas: [
       {
         numCta: '4100',
