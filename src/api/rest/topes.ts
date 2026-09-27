@@ -85,37 +85,43 @@ export const MAX_RENGLONES_POR_DOCUMENTO = 1_000;
 export const MAX_APLICACIONES_POR_PAGO = 500;
 
 // ============================================================
-// EL TOPE TIENE QUE PODER PUBLICARSE.
+// THE CAP HAS TO BE PUBLISHABLE.
 //
-// `arregloAcotado` guarda el número dentro del cierre de un `superRefine`,
-// y desde fuera del cierre no hay forma de leerlo: ni Zod lo expone ni el
-// `ZodEffects` que devuelve lo enseña en su `_def`. Mientras estuvo sólo
-// en el rechazo eso daba igual —quien se pasaba, se enteraba—, pero el
-// contrato de la API (openapi.ts) se deriva de estos mismos esquemas, y un
-// contrato que anuncia `minItems: 2` y calla el techo de 1 000 miente por
-// omisión justo donde más cuesta: quien integra descubre el tope con un
-// 422 en producción.
+// `arregloAcotado` enforces its number inside a refinement, and nothing
+// outside the refinement's closure can read it: Zod does not expose it.
+// While the number only lived in the rejection that did not matter —whoever
+// went over it found out—, but the API contract (openapi.ts) is derived from
+// these same schemas, and a contract that announces `minItems: 2` and keeps
+// quiet about the ceiling of 1 000 lies by omission exactly where it costs
+// most: whoever integrates finds the cap with a 422 in production.
 //
-// Así que el tope se cuelga del esquema, con la misma técnica con la que
-// la clase de riesgo se cuelga de su manejador y el esquema de cuerpo del
-// suyo. Un mapa «esquema → tope» al lado sería otra lista paralela.
+// So the cap hangs from the CHECK that enforces it, with the same technique
+// the risk class uses on its handler and the body schema on its own. A
+// "schema → cap" map on the side would be another parallel list. It hangs
+// from the check and not from the schema because Zod clones a schema on
+// every chained method (`.min()`, `.describe()`, `.refine()`…) and carries
+// the SAME check instances into the clone: a mark on the schema would vanish
+// at the first chained call, a mark on the check travels with it.
 // ============================================================
 const MARCA_COTA = Symbol('cota-de-arreglo');
 
-type ConCota = { [MARCA_COTA]?: number };
+type CappedCheck = z.core.$ZodCheck & { [MARCA_COTA]?: number };
 
 /**
  * El techo que `arregloAcotado` puso, si el esquema salió de ahí.
  *
  * Quien lo lea puede tratarlo como el `maxItems` COMPLETO del arreglo: la
- * marca la pone únicamente `arregloAcotado`, cuyo `superRefine` no
- * comprueba nada más que la longitud. Un refinamiento que hiciera algo
- * además de eso no debe llevar esta marca.
+ * marca la pone únicamente `arregloAcotado`, cuya comprobación no mira nada
+ * más que la longitud. Un refinamiento que hiciera algo además de eso no
+ * debe llevar esta marca.
  */
-export function cotaDeArreglo(esquema: unknown): number | undefined {
-  return typeof esquema === 'object' && esquema !== null
-    ? (esquema as ConCota)[MARCA_COTA]
-    : undefined;
+export function cotaDeArreglo(esquema: z.core.$ZodType): number | undefined {
+  for (const check of esquema._zod.def.checks ?? []) {
+    if (!(MARCA_COTA in check)) continue;
+    const cap = check[MARCA_COTA];
+    if (typeof cap === 'number') return cap;
+  }
+  return undefined;
 }
 
 /**
@@ -126,10 +132,12 @@ export function cotaDeArreglo(esquema: unknown): number | undefined {
  * 422 con un extracto de veinte mil líneas necesita las dos cosas para
  * partirlo. El mensaje se arma aquí para que los cuatro topes suenen igual.
  *
- * El mínimo se pasa por aquí y no se encadena después porque `superRefine`
- * devuelve un `ZodEffects`, que ya no tiene `.min()`.
+ * The minimum is an option rather than a chained `.min()` for a reason zod 3
+ * had (its refinement wrapper had no `.min()`); on zod 4 chaining would work,
+ * since the cap travels on its check, and the option stays so the four call
+ * sites keep one shape.
  */
-export function arregloAcotado<T extends z.ZodTypeAny>(
+export function arregloAcotado<T extends z.ZodType>(
   elemento: T,
   opciones: {
     tope: number;
@@ -140,21 +148,21 @@ export function arregloAcotado<T extends z.ZodTypeAny>(
     minimo?: number;
     mensajeMinimo?: string;
   }
-): z.ZodEffects<z.ZodArray<T>, z.infer<T>[], z.infer<T>[]> {
+): z.ZodArray<T> {
   const { tope, plural, salida, minimo, mensajeMinimo } = opciones;
   const base =
     minimo === undefined ? z.array(elemento) : z.array(elemento).min(minimo, mensajeMinimo);
-  const acotado: z.ZodEffects<z.ZodArray<T>, z.infer<T>[], z.infer<T>[]> & ConCota =
-    base.superRefine((valor, ctx) => {
-      if (valor.length <= tope) return;
-      ctx.addIssue({
-        code: z.ZodIssueCode.too_big,
-        type: 'array',
-        maximum: tope,
-        inclusive: true,
-        message: `llegaron ${valor.length} ${plural} y caben ${tope} por petición. ${salida}`,
-      });
+  // A `custom` issue and not a built-in `too_big`: it runs after the
+  // elements, where zod 3 reported it, and src/utils/zod-client-errors.ts
+  // moves only built-in array sizes ahead of the elements.
+  const cap: CappedCheck = z.superRefine((valor: z.output<T>[], ctx) => {
+    if (valor.length <= tope) return;
+    ctx.addIssue({
+      code: 'custom',
+      message: `llegaron ${valor.length} ${plural} y caben ${tope} por petición. ${salida}`,
+      params: { maximum: tope },
     });
-  acotado[MARCA_COTA] = tope;
-  return acotado;
+  });
+  cap[MARCA_COTA] = tope;
+  return base.check(cap);
 }

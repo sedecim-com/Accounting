@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 import { envolverDatosDeTerceros } from '../untrusted.js';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
+import { boundedString } from '../../utils/zod-compat.js';
 import type { AgentContext } from '../context.js';
 import type { ToolDeps } from './observer.js';
 import { createDraft, listDrafts, DraftValidationError } from '../draft-service.js';
@@ -25,8 +26,8 @@ export function buildDraftTools(ctx: AgentContext, deps: ToolDeps) {
       'you had to guess the account or the accounting treatment.',
     inputSchema: z.object({
       entry_date: z.string().regex(DATE_RE).describe('Journal entry date YYYY-MM-DD'),
-      description: z.string().min(1).max(500).describe('Journal entry description'),
-      reference: z.string().max(255).optional().describe('External reference (invoice, contract…)'),
+      description: boundedString({ min: 1, max: 500 }).describe('Journal entry description'),
+      reference: boundedString({ max: 255 }).optional().describe('External reference (invoice, contract…)'),
       confidence: z.number().min(0).max(1).describe('Your confidence that the entry is correct (0-1)'),
       reasoning: z
         .string()
@@ -38,7 +39,7 @@ export function buildDraftTools(ctx: AgentContext, deps: ToolDeps) {
             account_code: z.string().min(1).describe('Account code from the chart of accounts'),
             debit: z.number().positive().optional().describe('Debit amount (exclusive with credit)'),
             credit: z.number().positive().optional().describe('Credit amount (exclusive with debit)'),
-            description: z.string().max(500).optional().describe('Line description'),
+            description: boundedString({ max: 500 }).optional().describe('Line description'),
           })
         )
         .min(2)

@@ -2,7 +2,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { parseForClient, type ClientIssue } from '../../src/utils/zod-client-errors.js';
+import type { Request, Response } from 'express';
+import { validateBody } from '../../src/api/rest/middleware/async-handler.js';
+import {
+  legacyIssueMessage,
+  normalizeLegacyIssues,
+  parseForClient,
+  type ClientIssue,
+} from '../../src/utils/zod-client-errors.js';
 import { boundedString, emailString, integerNumber, urlString, uuidString } from '../../src/utils/zod-compat.js';
 
 // CONTRACT: src/utils/zod-client-errors.ts is the only place where a Zod
@@ -245,4 +252,79 @@ describe('parseForClient stays linear in the number of issues', () => {
     expect(parsed.success ? 0 : parsed.issues.length).toBe(N);
     expect(elapsed).toBeLessThan(BUDGET_MS);
   });
+});
+
+describe('the 422 adapter costs little next to zod itself on a body full of issues', () => {
+  // A body at express.json's 10 MB limit, {"xml_contents":[1,1,…]}, is five
+  // million element issues, all built before the array cap runs. zod's own
+  // parse of it is the floor. The issue-list step once built a trie node and
+  // a tuple per issue: about half the parse again, and with the rest of the
+  // adapter a 3 GB heap ran out where zod 3 did not (#367). Ratios to zod's
+  // own parse, the fastest of three runs each, hold on a slow machine too.
+  // Six parses of this body take longer than vitest's 5 s default on a CI
+  // runner, and the ratio, not the wall clock, is what is judged here.
+  const TIMEOUT_MS = 120_000;
+  const N = 250_000;
+  const schema = z.object({ xml_contents: z.array(z.string()).max(100) });
+  const body: unknown = JSON.parse(`{"xml_contents":[${Array<string>(N).fill('1').join(',')}]}`);
+  const fastest = (run: () => void): number => {
+    let best = Infinity;
+    for (let i = 0; i < 3; i++) {
+      const started = performance.now();
+      run();
+      best = Math.min(best, performance.now() - started);
+    }
+    return best;
+  };
+  // The fastest of seven runs of each, taken in turns, so a collection of
+  // this body's garbage lands on both sides of the ratio alike. One run at a
+  // time put it anywhere between 0.8 and 1.9 on the same machine, and 1.87
+  // on a CI runner.
+  const fastestInTurns = (a: () => void, b: () => void): [number, number] => {
+    let bestA = Infinity;
+    let bestB = Infinity;
+    for (let i = 0; i < 7; i++) {
+      let started = performance.now();
+      a();
+      bestA = Math.min(bestA, performance.now() - started);
+      started = performance.now();
+      b();
+      bestB = Math.min(bestB, performance.now() - started);
+    }
+    return [bestA, bestB];
+  };
+
+  it('restores the zod 3 issue list for a quarter of the parse at most', () => {
+    let issues: z.core.$ZodIssue[] = [];
+    const floor = fastest(() => {
+      const parsed = schema.safeParse(body, { error: legacyIssueMessage, reportInput: true });
+      if (!parsed.success) issues = parsed.error.issues;
+    });
+    const normalize = fastest(() => void normalizeLegacyIssues(issues));
+    expect(issues).toHaveLength(N + 1);
+    expect(normalize / floor).toBeLessThan(0.25);
+  }, TIMEOUT_MS);
+
+  it('answers through validateBody for three times the parse at most', () => {
+    const handler = validateBody(schema);
+    let message = '';
+    const next = (error?: unknown): void => {
+      message = error instanceof Error ? error.message : '';
+    };
+    const [adapter, floor] = fastestInTurns(
+      () => void handler({ body } as Request, {} as Response, next),
+      () => {
+        const parsed = schema.safeParse(body, { error: legacyIssueMessage });
+        if (!parsed.success) void parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      }
+    );
+    expect(message.slice(0, 129)).toBe(
+      'Invalid request body: xml_contents: Array must contain at most 100 element(s); xml_contents.0: Expected string, received number; '
+    );
+    expect(message.split('; ')).toHaveLength(N + 1);
+    // Measured at 1.0 to 1.6 in turns. The regression this guards against,
+    // a step per issue that grows with the issue count, lands orders of
+    // magnitude above 3 at this size, so 3 leaves room for a noisy runner.
+    expect(adapter / floor).toBeLessThan(3);
+  }, TIMEOUT_MS);
 });

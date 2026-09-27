@@ -589,12 +589,29 @@ const compactionSchema = z
      * Tope de TURNOS DE DESCARGA DE MEMORIA por sesión. Ver
      * MAX_DESCARGAS_MEMORIA_POR_SESION: 0 apaga la descarga automática, un
      * número grande devuelve la conducta de una por compactación.
+     * The largest accepted is 2^53 - 1 (T2, see configFileSchema).
      */
     max_memory_flushes: integerNumber().min(0).optional(),
   })
   .strict();
 
-const configFileSchema = z
+// CONTRACT: what a mnemosine.config.json may hold, and the prose that refuses
+// it, pinned by tests/ai/providers/config-contract.spec.ts (#367). Two
+// tightenings of the Zod 4 migration reach it, declared in catalog-info.yaml
+// under provides.cli, each row of that spec with a zod 3 and a zod 4 answer:
+//   T1  JSON 1e999 (Infinity), which zod 3 loaded as a number, is refused as
+//       budget.daily_usd, budget.monthly_usd and ingest.auto_post_max_amount.
+//       Their readers (budgetFileValues, ingestFileValues and
+//       resolveIngestThresholds) already treated it as unset; now the file
+//       is refused instead.
+//   T2  an integer beyond 2^53 - 1, which JSON cannot carry exactly, is refused
+//       as compaction.threshold_tokens, keep_recent_tokens and
+//       max_memory_flushes.
+// Either way the file is quarantined like any invalid one, and every command
+// that reads the config says which key to fix. Where zod 3 already refused
+// 1e999 (a field that is not a number, an integer, a bound it breaks), the
+// message is zod 3's.
+export const configFileSchema = z
   .object({
     /** Language for the AGENT's responses (CLI UI is English). Default: es. */
     language: z.enum(['en', 'es']).optional(),
@@ -1043,6 +1060,7 @@ export const DEFAULT_COMPACTION_THRESHOLD_TOKENS = 150_000;
 //
 // El operador manda con `compaction.max_memory_flushes`: 0 apaga el barrido
 // automático del todo, y un número grande devuelve la conducta anterior.
+// The largest the config accepts is 2^53 - 1 (T2, see configFileSchema).
 export const MAX_DESCARGAS_MEMORIA_POR_SESION = 5;
 
 /**

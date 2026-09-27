@@ -347,6 +347,23 @@ describe('G4 · a record entry keyed __proto__, as express.json delivers it', ()
   });
 });
 
+describe('G5 · a URL field accepts an IDN host however warm the process is', () => {
+  // zod 3 ran `new URL`. Node 22's URL.canParse turns false for a Latin-1 URL
+  // with a non-ASCII host once V8 optimizes the call, so a cold golden alone
+  // cannot tell the two apart: warm each route first, then probe it.
+  const IDN = ['https://señal.mx/hook', 'https://müller.de', 'https://ñ.com'];
+  const rows: Array<[string, (url: string) => unknown]> = [
+    ['POST /v1/webhooks', (url) => ({ url, events: ['invoice.created'] })],
+    ['PUT /v1/admin/bitcoin/config', (url) => ({ ots_calendars: [url] })],
+  ];
+
+  it.each(rows)('%s', (key, body) => {
+    const handler = handlerFor(key);
+    for (let i = 0; i < 20_000; i++) outcomeOf(handler, JSON.parse(JSON.stringify(body(`https://a${i % 7}.com/x`))));
+    for (const url of IDN) expect(outcomeOf(handler, body(url))).toBe(`OK ${JSON.stringify(body(url))}`);
+  });
+});
+
 describe('G3 · the 422 envelope', () => {
   it('answers 422 with a prose error and the v1 meta, and declares no language', async () => {
     const res = await post('POST /v1/journal-entries', '{}', { 'x-request-id': 'req-367' });
