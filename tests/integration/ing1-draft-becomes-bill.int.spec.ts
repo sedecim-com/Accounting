@@ -594,7 +594,7 @@ describe('ING-1 · PR1b · proveedor_desconocido_al_aprobar', () => {
     const err = await approve(draft.draftId).then(() => new Error('approved'), (e: unknown) => e as Error);
     expect(err.message).toContain('RFC NUE020202BBB');
     expect(err.message).toContain(NEW_NAME);
-    expect(err.message).toContain("mnemosine vendor create 'Proveedor O'\\''Nuevo SC' --tax-id NUE020202BBB");
+    expect(err.message).toContain("mnemosine vendor create 'Proveedor O'\\''Nuevo SC' --tax-id 'NUE020202BBB'");
     // Under 'rechazar' there is nothing to offer, and a consent changes nothing.
     expect(vendorToRegister(err)).toBeNull();
     await expect(approveDraft(ctx, draft.draftId, reviewer, undefined, draft.hash, undefined, { taxId: draft.rfc }))

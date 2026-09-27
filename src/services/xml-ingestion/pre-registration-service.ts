@@ -1652,13 +1652,10 @@ export async function registrarFacturaDeBorradorAprobado(
     const suggested = ((err as ValidationError).details?.suggested_vendor ?? {}) as Record<string, unknown>;
     const rfc = String(suggested.tax_id ?? '');
     const name = String(suggested.company_name ?? '');
-    // The name comes from a third party's XML: single-quoted, the shell
-    // expands nothing in it (same rule as completion-command.ts shellQuote).
-    const quoted = `'${name.replace(/'/g, "'\\''")}'`;
     const e = new ValidationError(
       `CFDI ${uuid} is issued by "${name}" (RFC ${rfc}), who is not in this ` +
         'entity\'s vendor catalog. Approving would create a bill against a vendor nobody registered. Register ' +
-        `it with \`mnemosine vendor create ${quoted} --tax-id ${rfc}\` and approve again; the draft stays pending and ` +
+        `it with \`${vendorCreateCommand(name, rfc)}\` and approve again; the draft stays pending and ` +
         'nothing was posted.',
       'vendor_id',
       // Tells `mnemosine review` it may offer the registration: only when the
@@ -1703,6 +1700,19 @@ export async function registrarFacturaDeBorradorAprobado(
       }
     },
   };
+}
+
+/**
+ * The command the refusal prints, runnable as printed. Name AND RFC come from
+ * a third party's XML, and a valid RFC may carry '&' (cfdi-parser's pattern),
+ * which the shell would read as «run in the background». Both go through
+ * single quotes, where the shell expands nothing; the one character left,
+ * the quote itself, becomes '\'' (same rule as completion-command.ts
+ * shellQuote).
+ */
+export function vendorCreateCommand(name: string, rfc: string): string {
+  const q = (raw: string) => `'${raw.replace(/'/g, "'\\''")}'`;
+  return `mnemosine vendor create ${q(name)} --tax-id ${q(rfc)}`;
 }
 
 /** Whether the RFC a person agreed to register is the issuer of this pre-registration. */
