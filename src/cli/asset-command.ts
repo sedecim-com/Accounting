@@ -6,6 +6,7 @@ import { withTransaction } from '../database/connection.js';
 import { DepreciationMethod } from '../types/index.js';
 import {
   crearActivo,
+  sembrarCategoriasDeActivo,
   type ContabilizacionDelAlta,
   type DatosDeAlta,
   type ResultadoDeAlta,
@@ -34,13 +35,12 @@ import {
 // ============================================================
 // mnemosine asset · activo
 //
-// UNA SOLA HOJA, `asset create`, y es la que abre el módulo entero: hasta hoy
-// no existía un solo `INSERT INTO fixed_assets` en el repositorio, así que
-// `depreciation_schedules` estaba vacía y el motor de depreciación no tenía
-// nada que depreciar. Todo lo demás de la familia —`list`, `show`, `edit`,
-// `category`, `disposal`— es fase 2 y no se registra aquí; inventar superficie
-// que el catálogo pone en otra fase es peor que no tenerla, porque después hay
-// que quitarla.
+// `asset create` opens the module: before it there was not a single
+// `INSERT INTO fixed_assets` in the repository. `asset category seed` (#322)
+// is the second leaf, for entities born before `entity create` seeded the
+// classes. The rest of the family —`list`, `show`, `edit`, the other
+// `category` verbs, `disposal`— is phase 2 and is not registered here:
+// surface the catalog puts in another phase is worse than none.
 //
 // CUATRO DECISIONES QUE NO SON DE ESTILO.
 //
@@ -239,6 +239,12 @@ Examples:
   # capital) is not something the register can guess.
   mnemosine asset create "Servidor Dell PowerEdge T360" --category "Equipo de Cómputo" --cost 62500.00 --acquired 2026-07-15 --capitalized no --life-years 4 --salvage 6250.00
 `,
+  categorySeed: `
+Examples:
+  # An entity created before the seeding existed: give it the six classes.
+  # Running it again creates nothing and overwrites no class you adjusted.
+  mnemosine asset category seed --entity "Comercializadora del Bajío"
+`,
 } as const;
 
 export function registerAssetCommand(program: Command, deps: AssetCommandDeps): void {
@@ -434,6 +440,45 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
       for (const aviso of alta.avisos) {
         err.write(deps.palette.yellow(`  ⚠ ${aviso}\n`));
       }
+      return ExitCode.OK;
+    })
+  );
+
+  // ---- asset category seed --------------------------------------------
+  // ACT-1 (#322): `entity create` seeds the classes now; this leaf is for the
+  // entities born before that. Same seeder, so both paths give the same rows,
+  // and it only ever adds what is missing. Human-only for the reason `asset
+  // create` gives: master data, not a review queue.
+  const category = asset
+    .command('category')
+    .alias('categoria')
+    .description('Asset classes: useful life, LISR rate and the three default accounts');
+  const categorySeed = category
+    .command('seed')
+    .alias('sembrar')
+    .description('Create the missing Mexican asset classes, with their LISR art. 34/35 maximum rate');
+  withContext(categorySeed);
+  withOutput(categorySeed);
+  declareRisk(categorySeed, {
+    risk: 'escritura',
+    agent: false,
+    writes: 'asset_categories (only the missing ones)',
+  });
+  categorySeed.addHelpText('after', EJEMPLOS.categorySeed);
+  categorySeed.action((opts: CommonOpts) =>
+    run(async () => {
+      const ctx = await entityForWrite(opts);
+      const r = await sembrarCategoriasDeActivo(ctx.entityId);
+      const rows: Row[] = [
+        ...r.creadas.map((c) => ({ categoria: c, estado: 'created' })),
+        ...r.yaExistian.map((c) => ({ categoria: c, estado: 'already_there' })),
+      ];
+      render(rows, { ...opts });
+      const warnings = [
+        ...r.sinCuentaDeActivo.map((c) => `"${c}" has no asset account in this chart`),
+        ...r.cuentasFaltantes.map((c) => `account ${c} is missing, so depreciation has nowhere to post`),
+      ];
+      for (const w of warnings) process.stderr.write(deps.palette.yellow(`  ⚠ ${w}\n`));
       return ExitCode.OK;
     })
   );

@@ -13,6 +13,7 @@ import {
   inicioDeDepreciacion,
   montosDelAlta,
   sembrarCategoriasDeActivo,
+  assetTaxRate,
   vidaUtilCoherente,
   type DatosDeAlta,
 } from '../../../src/services/assets/asset-service.js';
@@ -34,6 +35,8 @@ const categoriaBase = (over: Record<string, unknown> = {}) => ({
   name: 'Equipo de Cómputo',
   is_active: true,
   default_useful_life_years: 4,
+  default_useful_life_months: null,
+  max_tax_rate: null,
   default_depreciation_method: 'straight_line',
   default_asset_account_id: CUENTA_ACTIVO,
   default_depreciation_account_id: CUENTA_ACUMULADA,
@@ -435,11 +438,42 @@ describe('sembrarCategoriasDeActivo', () => {
         cuando: /FROM accounts WHERE entity_id = \$1 AND is_header = false AND code = ANY/,
         responde: { rows: codigos.map((code) => ({ code, id: `id-${code}` })) },
       },
+      {
+        cuando: /FROM legal_parameters/,
+        responde: (_sql, params) => ({
+          rows: [{ key: params[1], effectiveFrom: '2014-01-01', value: RATES[String(params[1])],
+            unit: 'rate', sourceUrl: 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LISR.pdf' }],
+        }),
+      },
       { cuando: /INSERT INTO asset_categories/, responde: { rowCount: 1 } },
     ]);
     mockTx.mockImplementation((fn: (c: unknown) => unknown) => Promise.resolve(fn(f.client)));
     return f;
   }
+  const RATES: Record<string, string> = {
+    'income_tax.depreciation_max_rate.buildings': '0.0500',
+    'income_tax.depreciation_max_rate.office_furniture': '0.1000',
+    'income_tax.depreciation_max_rate.computers': '0.3000',
+    'income_tax.depreciation_max_rate.vehicles': '0.2500',
+    'income_tax.depreciation_max_rate.machinery_other': '0.1000',
+    'income_tax.depreciation_max_rate.dies_and_tools': '0.3500',
+  };
+  const ALL_CODES = ['1210', '1220', '1230', '1240', '1260', '1270', '1290', '6140'];
+
+  it('stores the rate read from legal_parameters, its legal basis and the book life in months', async () => {
+    const f = arnesDeSiembra([], ALL_CODES);
+    await sembrarCategoriasDeActivo(ENTIDAD, { asOf: '2026-09-26' });
+    const read = f.coincidencias(/FROM legal_parameters/)[0];
+    expect(read.params).toEqual(['MX', 'income_tax.depreciation_max_rate.buildings', '2026-09-26']);
+    const dies = f
+      .coincidencias(/INSERT INTO asset_categories/)
+      .find((c) => c.params[1] === 'Herramientas, Dados, Troqueles, Moldes y Matrices');
+    // [entity, name, years, months, max_tax_rate, legal_basis, asset, accumulated, expense]
+    expect(dies?.params).toEqual([
+      ENTIDAD, 'Herramientas, Dados, Troqueles, Moldes y Matrices', 3, 35, '0.3500',
+      'LISR art. 34, fr. VIII', 'id-1270', 'id-1290', 'id-6140',
+    ]);
+  });
 
   it('siembra las seis categorías del catálogo en una entidad virgen', async () => {
     arnesDeSiembra([], ['1210', '1220', '1230', '1290', '6140']);
@@ -478,10 +512,14 @@ describe('sembrarCategoriasDeActivo', () => {
     expect(f.consultas[0].params).toEqual([ENTIDAD]);
   });
 
-  it('reporta las categorías que se quedan sin cuenta de activo', async () => {
+  it('gives every class its asset account when the chart is the current base one', async () => {
+    arnesDeSiembra([], ALL_CODES);
+    expect((await sembrarCategoriasDeActivo(ENTIDAD)).sinCuentaDeActivo).toEqual([]);
+  });
+
+  it('reports the classes left without an asset account on an older chart', async () => {
     arnesDeSiembra([], ['1210', '1220', '1230', '1290', '6140']);
     const r = await sembrarCategoriasDeActivo(ENTIDAD);
-    // Edificios, Maquinaria y Herramental no tienen cuenta en el catálogo base.
     expect(r.sinCuentaDeActivo).toEqual([
       'Edificios y Construcciones',
       'Maquinaria y Equipo',
@@ -500,5 +538,27 @@ describe('sembrarCategoriasDeActivo', () => {
     await sembrarCategoriasDeActivo(ENTIDAD);
     const consulta = f.consultas.find((c) => /FROM accounts/.test(c.sql));
     expect(consulta?.sql).toMatch(/is_header = false/);
+  });
+});
+
+// ============================================================
+describe('the tax rate of the asset (#322)', () => {
+  const lisrClass = () =>
+    categoriaBase({ default_useful_life_months: 40, max_tax_rate: '0.3000' });
+
+  it('takes the class maximum and the class life in MONTHS (40, not 48)', async () => {
+    const f = arnesDeAlta({ categoria: lisrClass() });
+    const r = await crearActivo(ENTIDAD, altaMinima(), USUARIO);
+    expect(r.tax_rate).toBe('0.3000');
+    expect(r.useful_life_months).toBe(40);
+    expect(paramsDelAlta(f)[26]).toBe('0.3000');
+  });
+
+  it('accepts a slower rate and refuses one above the LISR maximum', async () => {
+    arnesDeAlta({ categoria: lisrClass() });
+    const r = await crearActivo(ENTIDAD, altaMinima({ tax_rate: '0.25' }), USUARIO);
+    expect(r.tax_rate).toBe('0.2500');
+    expect(() => assetTaxRate('0.35', '0.3000', 'Equipo de Cómputo')).toThrow(/never faster/);
+    expect(() => assetTaxRate('0', '0.3000', 'Equipo de Cómputo')).toThrow(ValidationError);
   });
 });

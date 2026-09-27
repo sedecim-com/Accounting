@@ -52,6 +52,12 @@ export const CATALOGO_UNIVERSAL: ChartAccountSpec[] = [
     { code: '1210', name: 'Mobiliario y Equipo', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', parent: '1200' },
     { code: '1220', name: 'Equipo de Cómputo', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', parent: '1200' },
     { code: '1230', name: 'Equipo de Transporte', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', parent: '1200' },
+    // ACT-1 (#322): the three asset classes the fixed-asset seeding needs an
+    // account for. Without them their categories were born with two of their
+    // three accounts, and `asset create` refused them.
+    { code: '1240', name: 'Edificios y Construcciones', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', parent: '1200' },
+    { code: '1260', name: 'Maquinaria y Equipo', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', parent: '1200' },
+    { code: '1270', name: 'Herramientas, Dados, Troqueles y Moldes', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', parent: '1200' },
     { code: '1290', name: 'Depreciación Acumulada', type: 'contra_asset', sub: null, fs: 'non_current_assets', balance: 'credit', parent: '1200' },
     // ── LO QUE SE DEBE Y TODAVÍA NO SE PAGA (D1) ────────────────────
     //

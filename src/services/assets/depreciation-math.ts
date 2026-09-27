@@ -83,6 +83,13 @@ export interface DepreciationInput {
   macrs_class?: string;
   /** Por omisión, mes completo: es lo que cuenta la LISR. */
   convencion?: ConvencionPrimerMes;
+  /**
+   * Annual TAX rate as a fraction ('0.3500'). When present, straight line
+   * charges base × rate / 12 per month until the base is exhausted, instead of
+   * spreading it over `useful_life_months`: 35 % lasts 34.29 months, which no
+   * integer life can express, so the last whole month takes the remainder.
+   */
+  annual_rate?: string;
 }
 
 export interface DepreciationResult {
@@ -192,6 +199,12 @@ export function esImporteCero(monto: string): boolean {
 
 export function serieLineaRecta(input: DepreciationInput): SerieCruda {
   const base = baseDepreciable(input);
+  if (input.annual_rate !== undefined) {
+    const rate = new Decimal(input.annual_rate);
+    const months = new Decimal(12).dividedBy(rate).ceil().toNumber();
+    const monthly = base.times(rate).dividedBy(12);
+    return { importes: new Array<Decimal>(months).fill(monthly), agotaBase: true, base };
+  }
   const mensual = base.dividedBy(input.useful_life_months);
   const importes: Decimal[] = [];
   for (let mes = 0; mes < input.useful_life_months; mes++) importes.push(mensual);
