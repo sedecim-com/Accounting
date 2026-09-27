@@ -36,7 +36,14 @@ function params(uma: number): Record<string, unknown> {
       enfermedades_maternidad: RATE, prestaciones_dinero: RATE, gastos_medicos_pensionados: RATE,
       invalidez_vida: RATE, cesantia_vejez: RATE,
     },
-    imss_employer: { prestaciones_dinero: RATE, riesgo_trabajo_clase_1: 0 },
+    // Every employer rate, since a missing one throws (#296); zero is a value.
+    imss_employer: {
+      enfermedades_maternidad_fija: 0, enfermedades_maternidad_excedente: 0,
+      prestaciones_dinero: RATE, gastos_medicos_pensionados: 0, invalidez_vida: 0,
+      guarderias: 0, riesgo_trabajo_clase_1: 0, riesgo_trabajo_clase_2: 0,
+      riesgo_trabajo_clase_3: 0, riesgo_trabajo_clase_4: 0, riesgo_trabajo_clase_5: 0,
+      cesantia_vejez: 0, retiro: 0,
+    },
   };
 }
 

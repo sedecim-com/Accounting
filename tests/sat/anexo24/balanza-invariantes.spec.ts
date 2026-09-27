@@ -42,7 +42,6 @@ const cuenta = (over: Partial<CuentaDeBalanza> = {}): CuentaDeBalanza => ({
   saldo_fin_mayor: '5400.0000',
   codigo_agrupador: '105.01',
   natur_del_agrupador: 'D',
-  tiene_hijas: false,
   ...over,
 });
 
@@ -397,22 +396,7 @@ describe('la batería', () => {
     expect(correrVerificaciones(ctx())).toEqual([]);
   });
 
-  it('una cuenta de mayor con hijas en ceros se avisa', () => {
-    const mayor = cuenta({
-      account_id: 'id-1100',
-      num_cta: '1100',
-      saldo_ini_mayor: '0',
-      debe: '0',
-      haber: '0',
-      saldo_fin_mayor: '0',
-      tiene_hijas: true,
-    });
-    const h = correrVerificaciones(
-      ctx({ cuentas: [mayor], catalogo: catalogoCon('1100') }),
-      ['mayor-sin-agregar']
-    );
-    expect(h).toHaveLength(1);
-    expect(h[0].severity).toBe('warning');
-    expect(h[0].detalle).toContain('1100');
+  it('mayor-sin-agregar is retired (#323): the balanza arrives rolled up, a zero parent IS zero', () => {
+    expect(BALANZA_CHECK_NAMES as readonly string[]).not.toContain('mayor-sin-agregar');
   });
 });

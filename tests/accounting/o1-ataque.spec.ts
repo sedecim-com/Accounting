@@ -62,7 +62,7 @@ describe('ATAQUE 1 · dos saldos intercambiados', () => {
   const shapes = [forma('100', null), forma('101', '100'), forma('102', '100')];
   const origen = [fila('100', '80000.00'), fila('101', '50000.00'), fila('102', '30000.00')];
   // Nuestro mayor: los mismos 80 000, repartidos AL REVÉS entre las dos hijas.
-  const nuestra = [fila('100', '0.00'), fila('101', '30000.00'), fila('102', '50000.00')];
+  const nuestra = [fila('100', '80000.00'), fila('101', '30000.00'), fila('102', '50000.00')];
 
   it('sumar totales NO lo ve (la trampa que hay que descartar)', () => {
     const suma = (rs: BalanceFileRow[]) =>
@@ -104,9 +104,9 @@ describe('ATAQUE 2 · Debe/Haber agregados en el eje del mayor', () => {
       fila('101', '0.00', { debe: '1000.00' }),
       fila('171', '0.00', { debe: '500.00' }),
     ];
-    // Nuestra balanza declara el movimiento PROPIO de cada cuenta.
+    // Nuestra balanza, desde #323, también declara el padre con sus hijas.
     const nuestra = [
-      fila('100', '0.00', { debe: '0.00' }),
+      fila('100', '0.00', { debe: '1500.00' }),
       fila('101', '0.00', { debe: '1000.00' }),
       fila('171', '0.00', { debe: '500.00' }),
     ];

@@ -17,6 +17,7 @@ import {
 } from '../sat/anexo24/balance-reader.js';
 import { naturDe, saldoDelMayor } from '../sat/anexo24/balanza-invariantes.js';
 import { compareToSource, shapesFromRows, type BalanceComparison } from './opening-balance-check.js';
+import { queryAccountAncestry, rollUpTrialBalanceRows } from '../reporting/report-service.js';
 
 // ============================================================
 // O1 · LA BALANZA DE APERTURA — LA SEGUNDA CAPA DEL ONBOARDING
@@ -1203,12 +1204,13 @@ export async function checkOpeningBalance(
   }
   const asOf = dayAfterCutoff(source.header.anio, source.header.mes);
   const ledger = await query<{
+    id: string;
     code: string;
     parent_code: string | null;
     normal_balance: string;
     net: string;
   }>(
-    `SELECT a.code, p.code AS parent_code, a.normal_balance,
+    `SELECT a.id, a.code, p.code AS parent_code, a.normal_balance,
             COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
                        FILTER (WHERE e.id IS NOT NULL), 0)::text AS net
        FROM accounts a
@@ -1219,18 +1221,33 @@ export async function checkOpeningBalance(
              AND e.status = 'posted' AND e.entry_date <= $2::date
              AND e.reversed_by_entry_id IS NULL AND e.reverses_entry_id IS NULL
       WHERE a.entity_id = $1
-      GROUP BY a.code, p.code, a.normal_balance`,
+      GROUP BY a.id, a.code, p.code, a.normal_balance`,
     [opts.entityId, asOf]
   );
   const shapes = shapesFromRows(ledger.rows);
-  // Ours, written like a file row: each balance in the account's own nature.
-  const ours: BalanceFileRow[] = ledger.rows.map((r, i) => ({
+  // Ours, rolled up the tree by THE roll-up (#323), since both sides of
+  // compareToSource declare each ledger account with its subaccounts inside,
+  // then written like a file row: each balance in the account's own nature.
+  const rolled = rollUpTrialBalanceRows(
+    ledger.rows.map((r) => ({
+      account_id: r.id,
+      account_code: r.code,
+      account_name: r.code,
+      account_type: r.normal_balance,
+      debit_total: '0',
+      credit_total: '0',
+      ending_balance: r.net,
+    })),
+    await queryAccountAncestry(opts.entityId)
+  );
+  const natureOf = new Map(ledger.rows.map((r) => [r.code, naturDe(r.normal_balance)]));
+  const ours: BalanceFileRow[] = rolled.map((r, i) => ({
     fila: i + 1,
-    numCta: r.code,
+    numCta: r.account_code,
     saldoIni: '0',
     debe: '0',
     haber: '0',
-    saldoFin: saldoDelMayor(r.net, naturDe(r.normal_balance)).toFixed(ESCALA_DEL_MAYOR),
+    saldoFin: saldoDelMayor(r.ending_balance, natureOf.get(r.account_code)!).toFixed(ESCALA_DEL_MAYOR),
   }));
   return {
     entityId: opts.entityId,

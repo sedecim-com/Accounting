@@ -339,7 +339,6 @@ interface FilaDeCuenta {
   normal_balance: string;
   codigo_agrupador_sat: string | null;
   natur_agrupador: Natur | null;
-  tiene_hijas: boolean;
 }
 
 /**
@@ -355,11 +354,7 @@ async function metadatosDeCuentas(entityId: string, alCorte: string): Promise<Fi
             a.code,
             a.normal_balance,
             a.codigo_agrupador_sat,
-            ag.naturaleza AS natur_agrupador,
-            EXISTS (
-              SELECT 1 FROM accounts h
-               WHERE h.parent_id = a.id AND h.entity_id = a.entity_id AND h.is_active = true
-            ) AS tiene_hijas
+            ag.naturaleza AS natur_agrupador
        FROM accounts a
        LEFT JOIN LATERAL (
          SELECT s.naturaleza
@@ -383,7 +378,10 @@ async function cuentasDeLaBalanza(
   criterioNiveles: string
 ): Promise<{ cuentas: CuentaDeBalanza[]; tb: TrialBalanceReport; inicial: AvisoDeSaldoInicial }> {
   const poblacion = poblacionPorNiveles(criterioNiveles);
+  // CONTRACT: each ledger account is declared WITH its subaccounts, as the
+  // SAT reads it (#323); the roll-up is report-service's, not a copy here.
   const filtros: TrialBalanceOptions = {
+    rollUp: true,
     ...(poblacion.maxLevel !== undefined ? { maxLevel: poblacion.maxLevel } : {}),
     ...(periodo.fiscal_period_id
       ? { fiscalPeriodId: periodo.fiscal_period_id }
@@ -415,7 +413,6 @@ async function cuentasDeLaBalanza(
       saldo_fin_mayor: r.final_balance ?? r.ending_balance,
       codigo_agrupador: m?.codigo_agrupador_sat ?? null,
       natur_del_agrupador: m?.natur_agrupador ?? null,
-      tiene_hijas: m?.tiene_hijas ?? false,
     };
   });
   const cuentas = poblacion.soloConCifras ? todas.filter(llevaCifras) : todas;
