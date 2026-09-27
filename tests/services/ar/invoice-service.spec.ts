@@ -31,7 +31,7 @@ import {
 import { query } from '../../../src/database/connection.js';
 import { postInvoiceEntry } from '../../../src/services/accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../../../src/services/accounting/posting.js';
-import { OPEN_INVOICE_STATUSES } from '../../../src/services/ar/customer-service.js';
+import { OPEN_INVOICE_STATUSES, NEVER_RECEIVABLE_STATUSES } from '../../../src/services/ar/customer-service.js';
 import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as Mock;
@@ -119,6 +119,14 @@ describe('listInvoices', () => {
     expect(sql(1)).toMatch(/p\.payment_date <= \$\d+::date/);
     // A voided payment never happened.
     expect(sql(1)).toMatch(/p\.status <> 'void'/);
+    // The same definition customer show uses (#94): unapplications, NSF
+    // reversals and credit notes, each dated.
+    expect(sql(1)).toMatch(/pa\.unapplied_at IS NULL OR pa\.unapplied_at::date >/);
+    expect(sql(1)).toMatch(/p\.status <> 'reversed' OR p\.reversed_at::date >/);
+    expect(sql(1)).toMatch(/FROM credit_note_applications cna/);
+    // Never-receivable documents are left out, as customer show does.
+    expect(sql(0)).toMatch(/i\.status <> ALL\(\$\d+::text\[\]\)/);
+    expect(params(0)).toContainEqual([...NEVER_RECEIVABLE_STATUSES]);
   });
 
   it('takes several statuses at once, which the single-status route could not', async () => {
