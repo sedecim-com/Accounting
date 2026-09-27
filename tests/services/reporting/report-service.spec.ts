@@ -74,6 +74,7 @@ import {
   queryAccumulatedBalances,
   totalTrialBalance,
   getTrialBalance,
+  queryAccountAncestry,
   queryBalanceSheetRows,
   buildBalanceSheetSection,
   getBalanceSheet,
@@ -1232,5 +1233,56 @@ describe('getPeriodMovementByAccountType — the published figure and the income
     expect(sql(0)).toContain("je.entity_id = $1 AND je.fiscal_period_id = $2 AND je.status = 'posted'");
     expect(bound()[0]).toBe(ENTITY);
     expect(bound()[1]).toBe(PERIOD);
+  });
+});
+
+describe('getTrialBalance({ rollUp }) — #323: a ledger account carries its subaccounts', () => {
+  const ANCESTRY = [
+    { account_id: 'id-1100', account_level: 1, ancestors: [] },
+    { account_id: 'id-1110', account_level: 2, ancestors: ['id-1100'] },
+    { account_id: 'id-1111', account_level: 3, ancestors: ['id-1110', 'id-1100'] },
+  ];
+  const answer = (sqlText: string) =>
+    /WITH RECURSIVE up/.test(sqlText)
+      ? { rows: ANCESTRY }
+      : { rows: [tbRow('1100', '0', '0'), tbRow('1110', '10', '0'), tbRow('1111', '90', '30')] };
+
+  it('sums the subtree, cuts the level AFTER the sum and foots the own figures once', async () => {
+    mockQuery.mockImplementation(async (q: string) => answer(q));
+    const report = await getTrialBalance(ENTITY, { rollUp: true, maxLevel: 2 });
+    expect(report.rows.map((r) => [r.account_code, r.debit_total, r.credit_total])).toEqual([
+      ['1100', '100.0000', '30.0000'],
+      ['1110', '100.0000', '30.0000'],
+    ]);
+    // The SQL never saw maxLevel: cutting there would drop 1111's money.
+    const tbCall = mockQuery.mock.calls.find((c) => !/WITH RECURSIVE up/.test(String(c[0])));
+    expect(String(tbCall?.[0])).not.toMatch(/account_level\s*<=/);
+    expect(report.totals.total_debits).toBe('100.0000');
+    expect(report.totals.total_credits).toBe('30.0000');
+  });
+
+  it('without rollUp nothing is summed and the ancestry is never read', async () => {
+    mockQuery.mockImplementation(async (q: string) => answer(q));
+    const report = await getTrialBalance(ENTITY);
+    expect(report.rows.find((r) => r.account_code === '1100')?.debit_total).toBe('0');
+    expect(mockQuery.mock.calls.some((c) => /WITH RECURSIVE up/.test(String(c[0])))).toBe(false);
+  });
+});
+
+describe('queryAccountAncestry — one recursive CTE, scoped and cycle-safe', () => {
+  it('scopes both sides by entity, ends on a cycle with UNION and maps level and ancestors', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { account_id: 'a', account_level: '1', ancestors: [] },
+        { account_id: 'b', account_level: 2, ancestors: ['a'] },
+      ],
+    });
+    const m = await queryAccountAncestry(ENTITY);
+    expect(params(0)).toEqual([ENTITY]);
+    expect(sql(0)).toContain('p.entity_id = $1');
+    expect(sql(0)).toMatch(/UNION SELECT/);
+    expect(sql(0)).not.toContain('UNION ALL');
+    expect(m.get('a')).toEqual({ level: 1, ancestors: [] });
+    expect(m.get('b')).toEqual({ level: 2, ancestors: ['a'] });
   });
 });
