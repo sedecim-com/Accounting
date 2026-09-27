@@ -40,7 +40,6 @@ const cta = (over: Partial<CuentaDeBalanza> = {}): CuentaDeBalanza => ({
   saldo_fin_mayor: '5400.0000',
   codigo_agrupador: '105.01',
   natur_del_agrupador: 'D',
-  tiene_hijas: false,
   ...over,
 });
 
