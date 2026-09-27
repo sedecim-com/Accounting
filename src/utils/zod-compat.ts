@@ -38,7 +38,8 @@ import { z } from 'zod';
 //
 // CONTRACT: the ONE deliberate tightening this file owns (T2 in #367): an
 // integer beyond ±(2^53 − 1), which JSON cannot carry exactly, is rejected
-// (declared with T1 in catalog-info.yaml, under provides.api).
+// (declared with T1 in catalog-info.yaml, under provides.api for the REST
+// bodies and provides.cli for mnemosine.config.json).
 // To revert it, delete the range branch of $ZodCheckV3Int.
 // ============================================================
 
