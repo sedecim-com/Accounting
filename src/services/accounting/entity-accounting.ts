@@ -8,6 +8,10 @@ import {
   seedPayrollAccountMapping,
   type PayrollSeedResult,
 } from '../payroll/common/payroll-account-mapping-seed.js';
+import {
+  sembrarCategoriasDeActivo,
+  type ResultadoSiembraCategorias,
+} from '../assets/asset-service.js';
 
 /**
  * Deja una entidad lista para contabilizar: catálogo de cuentas base y la
@@ -40,6 +44,9 @@ export interface ResultadoContabilidad extends SeedResult {
   teniaCatalogo: boolean;
   /** Cuentas y buckets de nómina sembrados en el mismo acto. */
   nomina: PayrollSeedResult;
+  /** Fixed-asset classes with their LISR art. 34/35 rate; null when the
+   *  entity does not keep Mexican books (those rates are not its law). */
+  assetClasses: ResultadoSiembraCategorias | null;
 }
 
 export async function ensureEntityAccounting(
@@ -135,8 +142,14 @@ export async function ensureEntityAccounting(
       { client }
     );
 
+    // ACT-1 (#322): without classes no asset can be registered, and the
+    // monthly depreciation step of the close had nothing to run on. Same act
+    // and same transaction as the chart they point at.
+    const assetClasses = esMexicana ? await sembrarCategoriasDeActivo(entityId, { client }) : null;
+
     return {
       ...roles,
+      assetClasses,
       cuentasBaseCreadas,
       estrategiaAplicada: estrategia,
       teniaCatalogo,

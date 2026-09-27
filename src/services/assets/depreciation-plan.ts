@@ -15,8 +15,11 @@ import {
   type DepreciationInput,
 } from './depreciation-math.js';
 import {
+  basisLock,
   criteriosDeLaCorrida,
   fechaDelAsiento,
+  postedBooks,
+  taxRateForBasis,
   inquilinoDeLaEntidad,
   medianocheLocal,
   metodoDeLaBase,
@@ -71,6 +74,8 @@ export const MOTIVOS_DE_OMISION = [
   'unidades_de_produccion',
   /** El calendario no se pudo armar (datos incompletos del activo). */
   'sin_calendario',
+  /** It posted rows on the other book: its basis is locked (#322). */
+  'base_bloqueada',
 ] as const;
 export type MotivoDeOmision = (typeof MOTIVOS_DE_OMISION)[number];
 
@@ -86,6 +91,7 @@ export type MotivoDeOmision = (typeof MOTIVOS_DE_OMISION)[number];
 const MOTIVOS_PENDIENTES: ReadonlySet<string> = new Set<MotivoDeOmision>([
   'unidades_de_produccion',
   'sin_calendario',
+  'base_bloqueada',
 ]);
 
 export interface RenglonDelPlan {
@@ -222,6 +228,7 @@ export async function planDeDepreciacion(
   // plan y no en cada hoja para que `run` y `post` no puedan contestarla
   // distinto.
   const faltante = await getPolicy({ tenantId, entityId }, 'depreciacion_faltante_al_cierre');
+  const posted = await postedBooks(entityId);
 
   const assets = await query<FilaDeActivo>(
     `SELECT fa.*,
@@ -290,6 +297,11 @@ export async function planDeDepreciacion(
       omitir(asset, 'ya_corrido', yaHecho);
       continue;
     }
+    const lock = basisLock(posted.get(asset.id), tipoDeCalendario);
+    if (lock !== null) {
+      omitir(asset, 'base_bloqueada', lock);
+      continue;
+    }
 
     const metodo = metodoDeLaBase(asset, criterios.base);
     if (metodo === DepreciationMethod.UNITS_OF_PRODUCTION) {
@@ -311,6 +323,7 @@ export async function planDeDepreciacion(
       method: metodo,
       macrs_class: asset.macrs_class ?? undefined,
       convencion: criterios.convencion,
+      annual_rate: taxRateForBasis(asset, criterios.base),
     };
 
     let calendario;
