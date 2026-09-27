@@ -5,6 +5,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../../utils/error
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
 import { DepreciationMethod } from '../../types/index.js';
 
 // ============================================================
@@ -56,14 +57,14 @@ import { DepreciationMethod } from '../../types/index.js';
 // escrito —«F06/DEP-2: el alta de activo la necesita»—, así que darle escritor
 // es cumplir la promesa, no inventar alcance.
 //
-// LAS TASAS SON LAS DE LA LISR Y SON MÁXIMOS, no vidas útiles. El artículo 34
-// dice «por cientos máximos autorizados»: el contribuyente puede deducir más
-// despacio, nunca más rápido. De ahí sale la única regla de redondeo que este
-// catálogo necesita —la vida por omisión es el TECHO de 100/tasa—: una vida
-// más larga deduce por debajo del máximo y siempre es legal; una más corta lo
-// excede. El 30 % del equipo de cómputo son 3 años y 4 meses, y por eso la
-// categoría dice 4 años y no 3. Quien quiera los 40 meses exactos los pide en
-// el alta: `useful_life_months` existe justo para eso.
+// THE LISR RATES ARE MAXIMUMS, not useful lives. Art. 34 speaks of «por
+// cientos máximos autorizados»: a taxpayer may deduct slower, never faster.
+// Each class stores that maximum with its legal basis (088, read from
+// `legal_parameters`) and, apart from it, a default BOOK life in months: the
+// ceiling of 1200 / rate, because a longer life always deducts under the
+// maximum. 30 % is exactly 40 months; 35 % is 34.29 and becomes 35. The two
+// numbers are stored separately on purpose: which one reaches the ledger is
+// `base_depreciacion`, and the tax run reads the rate, not this life.
 //
 // EL MÉTODO ES LÍNEA RECTA EN LAS SEIS. No es una preferencia: el artículo 31
 // deduce las inversiones aplicando el por ciento sobre el MONTO ORIGINAL de la
@@ -82,14 +83,16 @@ import { DepreciationMethod } from '../../types/index.js';
 interface EspecieDeActivo {
   /** Nombre de la categoría. Es la clave de idempotencia de la siembra. */
   nombre: string;
-  /** Por ciento máximo anual. Cadena porque es una tasa legal, no un flotante. */
-  tasaMaximaLisr: string;
+  /** Key in `legal_parameters` holding the maximum annual rate (088). The
+   *  rate itself is law with a date, not a constant of this file. */
+  maxRateKey: string;
   /** De dónde sale la tasa, para que se pueda cotejar contra la ley. */
   fundamento: string;
-  /** Techo de 100 / tasa. Ver el comentario del redondeo. */
-  vidaAnios: number;
-  /** Cuenta de activo del catálogo base, o null si el catálogo base no la trae. */
-  codigoCuentaActivo: string | null;
+  /** Default BOOK life in months: the ceiling of 1200 / rate. It is only the
+   *  class default the firm can change; the tax schedule reads the rate. */
+  bookLifeMonths: number;
+  /** Cuenta de activo del catálogo base. */
+  codigoCuentaActivo: string;
 }
 
 /** Cuenta donde se acumula la depreciación (contra-activo) en el catálogo base. */
@@ -100,55 +103,51 @@ const CODIGO_GASTO_DEPRECIACION = '6140';
 export const CATALOGO_LISR: readonly EspecieDeActivo[] = [
   {
     nombre: 'Edificios y Construcciones',
-    tasaMaximaLisr: '5',
+    maxRateKey: 'income_tax.depreciation_max_rate.buildings',
     fundamento: 'LISR art. 34, fr. I, inciso b) — construcciones, los demás casos',
-    vidaAnios: 20,
-    // El catálogo base no trae cuenta de edificios: el 1200 «Activo Fijo» es
-    // encabezado y no admite movimientos. Se siembra la categoría igual —una
-    // entidad que compra un edificio necesita su tasa— y el alta exigirá la
-    // cuenta explícita mientras el despacho no la abra.
-    codigoCuentaActivo: null,
+    bookLifeMonths: 240,
+    codigoCuentaActivo: '1240',
   },
   {
     nombre: 'Mobiliario y Equipo de Oficina',
-    tasaMaximaLisr: '10',
+    maxRateKey: 'income_tax.depreciation_max_rate.office_furniture',
     fundamento: 'LISR art. 34, fr. III',
-    vidaAnios: 10,
+    bookLifeMonths: 120,
     codigoCuentaActivo: '1210',
   },
   {
     nombre: 'Equipo de Cómputo',
-    tasaMaximaLisr: '30',
+    maxRateKey: 'income_tax.depreciation_max_rate.computers',
     fundamento:
       'LISR art. 34, fr. VII — computadoras de escritorio y portátiles, servidores, ' +
       'impresoras, lectores ópticos, digitalizadores y concentradores de red',
-    // 100/30 = 3.33 años. Cuatro, no tres, por el redondeo hacia arriba.
-    vidaAnios: 4,
+    bookLifeMonths: 40,
     codigoCuentaActivo: '1220',
   },
   {
     nombre: 'Equipo de Transporte',
-    tasaMaximaLisr: '25',
+    maxRateKey: 'income_tax.depreciation_max_rate.vehicles',
     fundamento:
       'LISR art. 34, fr. VI — automóviles, autobuses, camiones de carga, ' +
       'tractocamiones, montacargas y remolques',
-    vidaAnios: 4,
+    bookLifeMonths: 48,
     codigoCuentaActivo: '1230',
   },
   {
     nombre: 'Maquinaria y Equipo',
-    tasaMaximaLisr: '10',
+    maxRateKey: 'income_tax.depreciation_max_rate.machinery_other',
     fundamento: 'LISR art. 35, fr. XIV — otras actividades no especificadas',
-    vidaAnios: 10,
-    codigoCuentaActivo: null,
+    bookLifeMonths: 120,
+    codigoCuentaActivo: '1260',
   },
   {
     nombre: 'Herramientas, Dados, Troqueles, Moldes y Matrices',
-    tasaMaximaLisr: '35',
+    maxRateKey: 'income_tax.depreciation_max_rate.dies_and_tools',
     fundamento: 'LISR art. 34, fr. VIII',
-    // 100/35 = 2.86 años.
-    vidaAnios: 3,
-    codigoCuentaActivo: null,
+    // 1200 / 35 = 34.29 months; 35 is the whole-month ceiling (LISR art. 31
+    // counts whole months), which deducts just under the maximum.
+    bookLifeMonths: 35,
+    codigoCuentaActivo: '1270',
   },
 ];
 
@@ -170,13 +169,18 @@ export interface ResultadoSiembraCategorias {
  * más identificador natural (003 no le puso UNIQUE): una categoría renombrada
  * a mano se vuelve a sembrar con el nombre original, y eso es preferible a que
  * una segunda corrida sobrescriba la vida útil que el despacho ajustó.
+ *
+ * The maximum rates are read from `legal_parameters` in force on `fecha`
+ * (088); a missing one fails the whole seeding rather than inventing a rate.
  */
 export async function sembrarCategoriasDeActivo(
   entityId: string,
   /** Corre dentro de la transacción del llamador: el alta de entidad siembra
    *  catálogo, roles y categorías en un solo acto. */
-  opts?: { client?: pg.PoolClient }
+  opts?: { client?: pg.PoolClient; asOf?: string }
 ): Promise<ResultadoSiembraCategorias> {
+  // NOTE: the UTC day is fine here: the rates in force changed last in 2014.
+  const asOf = opts?.asOf ?? new Date().toISOString().slice(0, 10);
   const correr = async (client: pg.PoolClient): Promise<ResultadoSiembraCategorias> => {
     const existentes = await client.query<{ name: string }>(
       'SELECT name FROM asset_categories WHERE entity_id = $1',
@@ -189,13 +193,11 @@ export async function sembrarCategoriasDeActivo(
     // 001 les prohíbe movimientos manuales, así que una categoría que apunte a
     // uno produce un activo que no se puede depreciar nunca.
     const codigos = [
-      ...new Set(
-        [
-          ...CATALOGO_LISR.map((e) => e.codigoCuentaActivo),
-          CODIGO_DEPRECIACION_ACUMULADA,
-          CODIGO_GASTO_DEPRECIACION,
-        ].filter((c): c is string => c !== null)
-      ),
+      ...new Set([
+        ...CATALOGO_LISR.map((e) => e.codigoCuentaActivo),
+        CODIGO_DEPRECIACION_ACUMULADA,
+        CODIGO_GASTO_DEPRECIACION,
+      ]),
     ];
     const cuentas = await client.query<{ code: string; id: string }>(
       `SELECT code, id FROM accounts
@@ -213,10 +215,8 @@ export async function sembrarCategoriasDeActivo(
         yaExistian.push(especie.nombre);
         continue;
       }
-      const cuentaActivo =
-        especie.codigoCuentaActivo === null
-          ? null
-          : (idPorCodigo.get(especie.codigoCuentaActivo) ?? null);
+      const maxRate = await legalParameterAt('MX', especie.maxRateKey, asOf, client);
+      const cuentaActivo = idPorCodigo.get(especie.codigoCuentaActivo) ?? null;
       if (cuentaActivo === null) sinCuentaDeActivo.push(especie.nombre);
 
       await client.query(
@@ -226,19 +226,24 @@ export async function sembrarCategoriasDeActivo(
         // default_depreciation_account_id es la ACUMULADA (contra-activo 1290)
         // y default_expense_account_id es el GASTO (6140).
         `INSERT INTO asset_categories (
-           entity_id, name, default_useful_life_years, default_depreciation_method,
+           entity_id, name, default_useful_life_years, default_useful_life_months,
+           default_depreciation_method, max_tax_rate, legal_basis,
            default_asset_account_id, default_depreciation_account_id, default_expense_account_id
-         ) VALUES ($1, $2, $3, 'straight_line', $4, $5, $6)`,
+         ) VALUES ($1, $2, $3, $4, 'straight_line', $5, $6, $7, $8, $9)`,
         [
           entityId,
           especie.nombre,
-          especie.vidaAnios,
+          Math.ceil(especie.bookLifeMonths / 12),
+          especie.bookLifeMonths,
+          maxRate.value,
+          especie.fundamento,
           cuentaActivo,
           idPorCodigo.get(CODIGO_DEPRECIACION_ACUMULADA) ?? null,
           idPorCodigo.get(CODIGO_GASTO_DEPRECIACION) ?? null,
         ]
       );
-      creadas.push(`${especie.nombre} (${especie.tasaMaximaLisr}% — ${especie.fundamento})`);
+      const percent = new Decimal(maxRate.value).times(100).toString();
+      creadas.push(`${especie.nombre} (${percent}% — ${especie.fundamento})`);
     }
 
     const cuentasFaltantes = [CODIGO_DEPRECIACION_ACUMULADA, CODIGO_GASTO_DEPRECIACION].filter(
@@ -299,6 +304,9 @@ export interface DatosDeAlta {
   salvage_value?: string;
   useful_life_years?: number;
   useful_life_months?: number;
+  /** Annual TAX rate as a fraction ('0.2500'); defaults to the class maximum
+   *  and can never exceed it (LISR art. 34 rates are maximums). */
+  tax_rate?: string;
   depreciation_start_date?: string;
   book_depreciation_method?: DepreciationMethod;
   tax_depreciation_method?: DepreciationMethod;
@@ -324,6 +332,7 @@ export interface ResultadoDeAlta {
   useful_life_years: number;
   useful_life_months: number;
   depreciation_method: DepreciationMethod;
+  tax_rate: string | null;
   depreciation_start_date: string;
   /** Qué decidió el panel, para que la respuesta lo pueda decir. */
   politicas: { base_depreciacion: string; convencion_primer_mes: string };
@@ -468,11 +477,42 @@ export function inicioDeDepreciacion(adquisicion: string, convencion: string): s
   return convencion === 'proporcional_dias' ? adquisicion : `${adquisicion.slice(0, 7)}-01`;
 }
 
+/**
+ * The asset's annual tax rate: the one asked for, or the class maximum.
+ *
+ * Above the maximum is refused, never clipped: a clipped rate would be a
+ * different asset than the one the operator described.
+ */
+export function assetTaxRate(
+  requested: string | undefined,
+  classMax: string | null,
+  className: string
+): string | null {
+  if (requested === undefined) return classMax === null ? null : new Decimal(classMax).toFixed(4);
+  let rate: Decimal;
+  try {
+    rate = new Decimal(requested);
+  } catch {
+    throw new ValidationError(`The tax rate is not a number: "${requested}".`, 'tax_rate');
+  }
+  const ceiling = classMax === null ? new Decimal(1) : new Decimal(classMax);
+  if (!rate.isFinite() || rate.lessThanOrEqualTo(0) || rate.greaterThan(ceiling)) {
+    throw new ValidationError(
+      `The tax rate ${requested} is outside (0, ${ceiling.toFixed(4)}]: "${className}" may deduct ` +
+        'at its LISR maximum or slower, never faster.',
+      'tax_rate'
+    );
+  }
+  return rate.toFixed(4);
+}
+
 interface FilaCategoria {
   id: string;
   name: string;
   is_active: boolean;
   default_useful_life_years: number | null;
+  default_useful_life_months: number | null;
+  max_tax_rate: string | null;
   default_depreciation_method: DepreciationMethod | null;
   default_asset_account_id: string | null;
   default_depreciation_account_id: string | null;
@@ -512,8 +552,8 @@ export async function crearActivo(
     // del catálogo AJENO. Cero filas significa a la vez «no existe» y «no es
     // tuya», y no hay ningún punto donde el programa pueda distinguirlas.
     const cat = await client.query<FilaCategoria>(
-      `SELECT id, name, is_active, default_useful_life_years, default_depreciation_method,
-              default_asset_account_id, default_depreciation_account_id, default_expense_account_id
+      `SELECT id, name, is_active, default_useful_life_years, default_useful_life_months,
+              max_tax_rate, default_depreciation_method, default_asset_account_id, default_depreciation_account_id, default_expense_account_id
          FROM asset_categories
         WHERE id = $1 AND entity_id = $2`,
       [datos.category_id, entityId]
@@ -528,11 +568,18 @@ export async function crearActivo(
       );
     }
 
-    const vida = vidaUtilCoherente(
-      datos.useful_life_years,
-      datos.useful_life_months,
-      categoria.default_useful_life_years
-    );
+    // The class life in MONTHS wins when it exists: 40 months of a computer
+    // are not the 48 that its ceiling in years would give.
+    const noLifeGiven = datos.useful_life_years === undefined && datos.useful_life_months === undefined;
+    const vida =
+      noLifeGiven && categoria.default_useful_life_months
+        ? vidaUtilCoherente(undefined, categoria.default_useful_life_months, null)
+        : vidaUtilCoherente(
+            datos.useful_life_years,
+            datos.useful_life_months,
+            categoria.default_useful_life_years
+          );
+    const taxRate = assetTaxRate(datos.tax_rate, categoria.max_tax_rate, categoria.name);
 
     // ── LOS DOS CRITERIOS QUE NO ELIGE ESTE CÓDIGO ─────────────────────
     //
@@ -661,7 +708,7 @@ export async function crearActivo(
         `INSERT INTO fixed_assets (
            entity_id, asset_number, asset_name, description, category_id,
            acquisition_date, acquisition_cost, vendor_id, salvage_value,
-           useful_life_years, useful_life_months,
+           useful_life_years, useful_life_months, tax_rate,
            depreciation_method, book_depreciation_method, tax_depreciation_method,
            depreciation_start_date, current_book_value, accumulated_depreciation,
            asset_account_id, accumulated_depreciation_account_id,
@@ -671,7 +718,7 @@ export async function crearActivo(
          ) VALUES (
            $1, $2, $3, $4, $5,
            $6, $7, $8, $9,
-           $10, $11,
+           $10, $11, $27,
            $12, $13, $14,
            $15, $16, 0,
            $17, $18,
@@ -709,6 +756,7 @@ export async function crearActivo(
           datos.notes ?? null,
           JSON.stringify(tags),
           userId,
+          taxRate,
         ]
       );
       creado = ins.rows[0];
@@ -770,6 +818,7 @@ export async function crearActivo(
       useful_life_years: vida.anios,
       useful_life_months: vida.meses,
       depreciation_method: metodoQueRige,
+      tax_rate: taxRate,
       depreciation_start_date: inicio,
       politicas: { base_depreciacion: base.value, convencion_primer_mes: convencion.value },
       avisos,
