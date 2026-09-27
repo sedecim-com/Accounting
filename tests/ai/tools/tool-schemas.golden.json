@@ -1,0 +1,636 @@
+{
+  "ask_user": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "context": {
+        "description": "Context to decide: vendor, amount, document, what you found and what is missing",
+        "maxLength": 2000,
+        "type": "string"
+      },
+      "options": {
+        "description": "Suggested options if the question is multiple-choice (e.g. candidate accounts)",
+        "items": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 5,
+        "minItems": 2,
+        "type": "array"
+      },
+      "question": {
+        "description": "The question, concrete and self-contained",
+        "maxLength": 1000,
+        "minLength": 1,
+        "type": "string"
+      },
+      "topic": {
+        "description": "Topic slug for precedents, e.g. \"clasificacion:Servicios Integrales SA\"",
+        "maxLength": 255,
+        "type": "string"
+      }
+    },
+    "required": [
+      "question"
+    ],
+    "type": "object"
+  },
+  "draft_journal_entry": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "confidence": {
+        "description": "Your confidence that the entry is correct (0-1)",
+        "maximum": 1,
+        "minimum": 0,
+        "type": "number"
+      },
+      "description": {
+        "description": "Journal entry description",
+        "maxLength": 500,
+        "minLength": 1,
+        "type": "string"
+      },
+      "entry_date": {
+        "description": "Journal entry date YYYY-MM-DD",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "lines": {
+        "description": "Journal entry lines; debits and credits must balance",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "account_code": {
+              "description": "Account code from the chart of accounts",
+              "minLength": 1,
+              "type": "string"
+            },
+            "credit": {
+              "description": "Credit amount (exclusive with debit)",
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "debit": {
+              "description": "Debit amount (exclusive with credit)",
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "description": {
+              "description": "Line description",
+              "maxLength": 500,
+              "type": "string"
+            }
+          },
+          "required": [
+            "account_code"
+          ],
+          "type": "object"
+        },
+        "minItems": 2,
+        "type": "array"
+      },
+      "reasoning": {
+        "description": "Why you chose these accounts and amounts; cite precedents if you used any",
+        "minLength": 1,
+        "type": "string"
+      },
+      "reference": {
+        "description": "External reference (invoice, contract…)",
+        "maxLength": 255,
+        "type": "string"
+      }
+    },
+    "required": [
+      "entry_date",
+      "description",
+      "confidence",
+      "reasoning",
+      "lines"
+    ],
+    "type": "object"
+  },
+  "external_diff_trial_balance": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "end_date": {
+        "description": "Comparison cutoff (ending balances at this date)",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "provider": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "start_date": {
+        "description": "Start of the remote period",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "provider",
+      "start_date",
+      "end_date"
+    ],
+    "type": "object"
+  },
+  "external_pull": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "account_code": {
+        "description": "Remote account (account_balance)",
+        "type": "string"
+      },
+      "date": {
+        "description": "Cutoff (account_balance)",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "document_type": {
+        "enum": [
+          "Nomina",
+          "Ingreso",
+          "Egreso",
+          "Pago"
+        ],
+        "type": "string"
+      },
+      "end_date": {
+        "description": "End (trial_balance/documents)",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page (documents, default 0)",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "provider": {
+        "description": "External system, e.g. \"contalink\"",
+        "minLength": 1,
+        "type": "string"
+      },
+      "resource": {
+        "enum": [
+          "trial_balance",
+          "account_balance",
+          "documents"
+        ],
+        "type": "string"
+      },
+      "rfc": {
+        "description": "The company's RFC (documents)",
+        "type": "string"
+      },
+      "start_date": {
+        "description": "Start (trial_balance/documents)",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "transaction_type": {
+        "description": "Issued (E) or Received (R) (documents)",
+        "enum": [
+          "E",
+          "R"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "provider",
+      "resource"
+    ],
+    "type": "object"
+  },
+  "external_push": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "operation": {
+        "enum": [
+          "create_policy",
+          "update_policy",
+          "upload_xml",
+          "bank_transaction",
+          "reconcile_invoice"
+        ],
+        "type": "string"
+      },
+      "payload": {
+        "additionalProperties": {},
+        "description": "Operation body per the provider's contract",
+        "propertyNames": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "provider": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "reasoning": {
+        "description": "Why this operation; what the human validates before executing",
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "provider",
+      "operation",
+      "payload",
+      "reasoning"
+    ],
+    "type": "object"
+  },
+  "get_accounting_policies": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "keys": {
+        "description": "Policy keys to read (e.g. [\"umbral_capitalizacion_mxn\"]). Omit for the whole panel — it is small, and reading it whole is how you notice a criterion you did not know applied.",
+        "items": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "get_aged_payables": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "as_of_date": {
+        "description": "Reference date YYYY-MM-DD; omit for today",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "get_aged_receivables": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "as_of_date": {
+        "description": "Reference date YYYY-MM-DD; omit for today",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "get_balance_sheet": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "as_of_date": {
+        "description": "Cutoff date YYYY-MM-DD",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "as_of_date"
+    ],
+    "type": "object"
+  },
+  "get_entity_status": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+  },
+  "get_general_ledger": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "account_code": {
+        "description": "Account code, e.g. 1101",
+        "type": "string"
+      },
+      "end_date": {
+        "description": "End YYYY-MM-DD",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "start_date": {
+        "description": "Start YYYY-MM-DD",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "account_code"
+    ],
+    "type": "object"
+  },
+  "get_income_statement": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "end_date": {
+        "description": "Period end YYYY-MM-DD",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "start_date": {
+        "description": "Period start YYYY-MM-DD",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "start_date",
+      "end_date"
+    ],
+    "type": "object"
+  },
+  "get_journal_entry": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "entry_number": {
+        "description": "Journal entry number, e.g. JE-2026-00042",
+        "type": "string"
+      }
+    },
+    "required": [
+      "entry_number"
+    ],
+    "type": "object"
+  },
+  "get_trial_balance": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "as_of_date": {
+        "description": "Cutoff YYYY-MM-DD; omit to include the full history",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "only_with_balance": {
+        "description": "true = omit zero-balance accounts",
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  },
+  "list_drafts": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "enum": [
+          "pending_review",
+          "approved",
+          "rejected"
+        ],
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "list_external_ops": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "enum": [
+          "pending",
+          "executing",
+          "executed",
+          "failed",
+          "rejected"
+        ],
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "read_docs": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "part": {
+        "description": "Part number for a topic served in parts (default 1). Part 1 lists every part and the sections it covers, so you can jump straight to the one you need.",
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "topic": {
+        "description": "Module to consult",
+        "enum": [
+          "accounting",
+          "receivables",
+          "payables",
+          "banking",
+          "mexico-cfdi",
+          "payroll",
+          "reports",
+          "mnemosine",
+          "playbooks",
+          "system",
+          "external-integrations",
+          "nif-marco",
+          "nif-registro",
+          "nif-validaciones",
+          "cli-reference",
+          "identity-access",
+          "connectivity",
+          "niif-indice",
+          "niif-marco-presentacion",
+          "niif-activos",
+          "niif-instrumentos-financieros",
+          "niif-ingresos-arrendamientos",
+          "niif-pasivos-empleados-impuestos",
+          "niif-grupos",
+          "niif-moneda-seguros-adopcion",
+          "niif-interpretaciones",
+          "niif-pymes-convergencia"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "topic"
+    ],
+    "type": "object"
+  },
+  "search_accounts": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "account_type": {
+        "description": "Filter by account type",
+        "enum": [
+          "asset",
+          "liability",
+          "equity",
+          "revenue",
+          "expense",
+          "contra_asset",
+          "contra_liability",
+          "contra_equity"
+        ],
+        "type": "string"
+      },
+      "only_postable": {
+        "description": "true = only accounts that accept manual journal entries",
+        "type": "boolean"
+      },
+      "search": {
+        "description": "Text to search in code or name (ILIKE)",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "search_customers": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "only_active": {
+        "description": "true (default) = only active customers",
+        "type": "boolean"
+      },
+      "search": {
+        "description": "Text to search in name, number, or tax id",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "search_journal_entries": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "account_code": {
+        "description": "Only journal entries touching this account",
+        "type": "string"
+      },
+      "date_from": {
+        "description": "YYYY-MM-DD",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "date_to": {
+        "description": "YYYY-MM-DD",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "type": "string"
+      },
+      "entry_type": {
+        "description": "standard, adjusting, auto_invoice, auto_payment, etc.",
+        "type": "string"
+      },
+      "max_amount": {
+        "description": "Maximum amount (total debits)",
+        "type": "number"
+      },
+      "min_amount": {
+        "description": "Minimum amount (total debits)",
+        "type": "number"
+      },
+      "search": {
+        "description": "Text in description or reference (ILIKE)",
+        "type": "string"
+      },
+      "status": {
+        "enum": [
+          "draft",
+          "pending_approval",
+          "approved",
+          "posted",
+          "void"
+        ],
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "search_precedents": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "search": {
+        "description": "Text to search: vendor, description, account, topic",
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "search"
+    ],
+    "type": "object"
+  },
+  "search_vendors": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "only_active": {
+        "description": "true (default) = only active vendors",
+        "type": "boolean"
+      },
+      "search": {
+        "description": "Text to search in name, number, or tax id",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "session_search": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "description": "Max snippets to return (1-50, default 10)",
+        "maximum": 9007199254740991,
+        "minimum": -9007199254740991,
+        "type": "integer"
+      },
+      "query": {
+        "description": "Literal terms to search for (RFCs, folios, amounts, vendor names, account codes)",
+        "type": "string"
+      },
+      "since": {
+        "description": "Only recall messages at/after this time. ISO-8601 (e.g. 2026-01-01 or 2026-01-01T00:00:00Z) or a relative window: '30d', '6h', '2w', '45m'.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  },
+  "skill_view": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "description": "Skill name, exactly as listed by skills_list",
+        "minLength": 1,
+        "type": "string"
+      },
+      "reference": {
+        "description": "Optional companion file declared by the skill (relative .md path)",
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "skills_list": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+  }
+}

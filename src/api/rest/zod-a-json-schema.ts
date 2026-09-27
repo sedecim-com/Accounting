@@ -91,7 +91,19 @@ export function jsonSchemaDeZod(esquema: z.ZodTypeAny, donde: string): EsquemaJs
     // La opcionalidad NO se expresa en el nodo: se expresa en la lista
     // `required` del objeto que lo contiene, y de eso se encarga el caso
     // ZodObject. Aquí sólo se desenvuelve.
-    return jsonSchemaDeZod(esquema.unwrap() as z.ZodTypeAny, donde);
+    const inner = esquema.unwrap() as z.ZodTypeAny;
+    if (inner instanceof z.ZodDefault) {
+      // NOTE(#367): zod 3 and zod 4 disagree on this shape (`.default()`
+      // under `.optional()`, which `.partial()` also builds over defaults): a
+      // missing key stays missing on zod 3 and gets the default on zod 4. The
+      // contract cannot say both, so it says neither.
+      throw new ZodNoTraducible(
+        donde,
+        'is `.default()` wrapped in `.optional()`: zod 3 leaves a missing key out and zod 4 ' +
+          'fills it with the default, so the published default would be true on only one of them.'
+      );
+    }
+    return jsonSchemaDeZod(inner, donde);
   }
 
   if (esquema instanceof z.ZodNullable) {
@@ -282,6 +294,16 @@ function deObjeto(esquema: z.ZodObject<z.ZodRawShape>, donde: string): EsquemaJs
   const propiedades: EsquemaJson = {};
   const obligatorias: string[] = [];
   for (const [clave, valor] of Object.entries(esquema.shape)) {
+    if (valor instanceof z.ZodUnknown || valor instanceof z.ZodAny) {
+      // NOTE(#367): a bare `z.unknown()`/`z.any()` property may be absent on
+      // zod 3 and is required on zod 4. Wrap it in `.optional()` (or make it
+      // a record) so the contract states one rule.
+      throw new ZodNoTraducible(
+        `${donde}.${clave}`,
+        'is a bare `z.unknown()` or `z.any()` property: zod 3 lets it be absent and zod 4 ' +
+          'requires it, so `required` would be true on only one of them. Add `.optional()`.'
+      );
+    }
     propiedades[clave] = jsonSchemaDeZod(valor, `${donde}.${clave}`);
     // `.optional()` y `.default()` son las dos formas de «puede no venir»:
     // la segunda también lo es, porque Zod rellena el hueco.
@@ -341,13 +363,12 @@ function deDiccionario(esquema: z.ZodRecord<z.ZodString, z.ZodTypeAny>, donde: s
     if (Object.keys(restricciones).length > 1) nodo.propertyNames = restricciones;
     return nodo;
   }
-  if (clave instanceof z.ZodEnum) {
-    nodo.propertyNames = jsonSchemaDeZod(clave, `${donde}.<clave>`);
-    return nodo;
-  }
+  // NOTE(#367): an enum-keyed record is partial on zod 3 and exhaustive on
+  // zod 4 (every enum value becomes a required key), so it is refused along
+  // with any other key type.
   throw new ZodNoTraducible(
     donde,
-    `las llaves del diccionario son "${nombreDe(clave)}" y sólo se traducen llaves de cadena o enum.`
+    `las llaves del diccionario son "${nombreDe(clave)}" y sólo se traducen llaves de cadena.`
   );
 }
 
