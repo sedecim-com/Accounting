@@ -25,8 +25,10 @@ provides:
     # CONTRACT: the 422 body of every request is pinned byte for byte by
     # tests/api/golden/rest-body.golden.json, recorded on zod 3 and kept on zod 4 by
     # src/utils/zod-client-errors.ts and src/utils/zod-compat.ts (#367). The only
-    # changes are two tightenings: JSON 1e999 (Infinity) is rejected wherever a number
-    # is accepted (T1), and so is an integer beyond 2^53 - 1 on integer fields (T2).
+    # changes are two tightenings: JSON 1e999 (Infinity) is rejected wherever zod 3
+    # accepted it as a number (T1), and so is an integer beyond 2^53 - 1 on integer
+    # fields (T2). Where zod 3 already rejected 1e999 (a field that is not a number,
+    # an integer, a bound it breaks), the 422 is the one zod 3 gave.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
   - file: sat-anexo24            # XML de catálogo, balanza y pólizas; DIOT, SUA, CFDI de nómina (los presenta el contribuyente)
 

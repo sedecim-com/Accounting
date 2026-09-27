@@ -84,6 +84,14 @@ function everyNode(): Visit[] {
 
 const NODES = everyNode();
 
+/** The schema a wrapper validates with first: its inner type, or a pipe's input. */
+const unwrap = (schema: z.core.$ZodType): z.core.$ZodType => {
+  if (schema instanceof z.core.$ZodOptional || schema instanceof z.core.$ZodNullable || schema instanceof z.core.$ZodDefault) {
+    return unwrap(schema._zod.def.innerType);
+  }
+  return schema instanceof z.core.$ZodPipe ? unwrap(schema._zod.def.in) : schema;
+};
+
 function offenders(test: (visit: Visit) => string | undefined): string[] {
   return NODES.map((visit) => test(visit)).filter((found): found is string => found !== undefined);
 }
@@ -178,6 +186,15 @@ describe('every client-reachable schema validates with the zod 3 grammar', () =>
         if (schema instanceof z.core.$ZodRecord) {
           if (!(schema._zod.def.keyType instanceof z.core.$ZodString)) return `${at}: a record keyed by a non-string`;
           if (schema._zod.def.mode === 'loose') return `${at}: a loose record`;
+        }
+        if (schema instanceof z.core.$ZodUnion) {
+          // zod 3 answered ±Infinity on a checked number branch with that
+          // branch's issues; zod 4 aborts the branch and says 'Invalid input',
+          // which src/utils/zod-client-errors.ts cannot turn back.
+          const checked = schema._zod.def.options
+            .map(unwrap)
+            .some((option) => option instanceof z.core.$ZodNumber && (option._zod.def.checks ?? []).length > 0);
+          if (checked) return `${at}: a union with a checked number branch`;
         }
         return undefined;
       })
