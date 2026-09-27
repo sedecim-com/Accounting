@@ -30,22 +30,18 @@ import { serializar, type Atributo, type NodoXml } from './xml.js';
 // qué atributos lleva cada uno y qué combinaciones se niegan antes de
 // construir nada.
 //
-// ── LO QUE NO PUDE VERIFICAR, DICHO EN VEZ DE AFIRMADO ──────────────────
+// ── CHECKED AGAINST THE OFFICIAL XSD (#397) ─────────────────────────────
 //
-// No hay un solo `.xsd` en este repositorio y esta máquina no tiene red, así
-// que rige la misma regla que F07b se puso: lo que no se puede fundamentar NO
-// SE INVENTA, y lo que se emite se dice de dónde sale.
-//
-//   · Los nombres de nodo y de atributo de abajo son los de la estructura que
-//     el Anexo 24 publica para PolizasPeriodo 1.3 y los que implementa
-//     cualquier herramienta que hoy presente el archivo. NO están cotejados
-//     contra el XSD oficial.
-//   · En particular, el encargo de este tramo nombra el destino de una
-//     transferencia como «CtaDes» y «BancoDesNal», y aquí se emite `CtaDest`
-//     y `BancoDestNal`. Es una discrepancia real y se deja escrita: si el XSD
-//     dice lo otro, son dos literales de este archivo y una prueba. Emitir un
-//     atributo con el nombre equivocado invalida el archivo entero, así que
-//     esto es lo primero que hay que cotejar el día que se traiga el esquema.
+//   · A file with every evidence node and every payment node this module can
+//     emit validates against PolizasPeriodo_1_3.xsd, vendored in `xsd/`
+//     (tests/sat/anexo24/official-xsd.spec.ts). That settles the node and
+//     attribute names, including the transfer's destination: the schema says
+//     `CtaDest` and `BancoDestNal`, not the «CtaDes» and «BancoDesNal» this
+//     tranche's brief used.
+//   · The XSD found two defects on its first run, both fixed in #397: request
+//     numbers were not checked against its patterns, and the pre-CFDI voucher
+//     had no RFC. Enum values (c_Banco, c_Moneda, c_MetPagos) are still passed
+//     through unchecked: #404.
 //   · `Sello`, `noCertificado` y `Certificado` EXISTEN en el esquema y este
 //     módulo NO los emite ni tiene por dónde: no hay una sola rama que cargue
 //     una llave privada, y no debe haberla. La e.firma es el contribuyente
@@ -114,6 +110,8 @@ export interface ComprobanteNacionalOtro {
   clase: 'nacional_otro';
   serie?: string;
   numFolio: string;
+  /** Counterparty's RFC. Required by both schemas that declare this node (#397). */
+  rfc: string;
   montoTotal: string;
   moneda?: string;
   tipCamb?: string;
@@ -233,6 +231,14 @@ const RFC_RE = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Dos decimales exactos, con signo o sin él. Lo que `importeAnexo24` produce. */
 const IMPORTE_RE = /^-?\d+\.\d{2}$/;
+/**
+ * The two request numbers, as the XSD pins them. PolizasPeriodo, AuxiliarFolios
+ * and AuxiliarCtas 1.3 declare the same patterns: an audit order is three
+ * letters, seven digits, a slash and two digits; a refund or offset filing is
+ * two letters and twelve digits. Any other value makes the whole file invalid.
+ */
+const AUDIT_ORDER_RE = /^[A-Z]{3}[0-9]{7}\/[0-9]{2}$/;
+const FILING_NUMBER_RE = /^[A-Z]{2}[0-9]{12}$/;
 
 /**
  * La cabecera de solicitud, que es COMPARTIDA con los dos auxiliares.
@@ -276,6 +282,18 @@ export function atributosDeSolicitud(s: Solicitud): Atributo[] {
   if (!conOrden && orden !== '') {
     throw new ValidationError(
       `TipoSolicitud «${s.tipo}» lleva NumTramite, no NumOrden.`
+    );
+  }
+  if (conOrden && !AUDIT_ORDER_RE.test(orden)) {
+    throw new ValidationError(
+      `NumOrden «${orden}» no tiene el formato del SAT: tres letras, siete dígitos, una diagonal ` +
+        `y dos dígitos (ABC1234567/26). Con otro valor el esquema rechaza el archivo entero.`
+    );
+  }
+  if (!conOrden && !FILING_NUMBER_RE.test(tramite)) {
+    throw new ValidationError(
+      `NumTramite «${tramite}» no tiene el formato del SAT: dos letras y doce dígitos ` +
+        `(DE202600000009). Con otro valor el esquema rechaza el archivo entero.`
     );
   }
 
@@ -384,11 +402,21 @@ export function nodoDeComprobante(
     }
     case 'nacional_otro': {
       const nombre = `${prefijo}:${nombres.nacionalOtro}`;
+      // PolizasPeriodo and AuxiliarFolios 1.3 both declare RFC required on
+      // this node; the generator had no field for it, so every file with a
+      // pre-CFDI voucher was invalid. The official XSD found it (#397).
+      if (!RFC_RE.test(c.rfc)) {
+        throw new ValidationError(
+          `${nombre}/@RFC = «${c.rfc}»: el comprobante nacional anterior al CFDI también identifica ` +
+            `a la contraparte por su RFC, y el esquema del SAT lo exige.`
+        );
+      }
       return {
         nombre,
         atributos: [
           ['CFD_CBB_Serie', c.serie],
           ['CFD_CBB_NumFol', c.numFolio],
+          ['RFC', c.rfc],
           ['MontoTotal', exigirImporte(nombre, 'MontoTotal', c.montoTotal)],
           ['Moneda', c.moneda],
           ['TipCamb', c.tipCamb],

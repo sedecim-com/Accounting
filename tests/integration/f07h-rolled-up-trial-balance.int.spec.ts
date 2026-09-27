@@ -6,6 +6,7 @@ import { seedPolicies, resolvePolicy, reopenPolicy } from '../../src/services/po
 import { JournalEntryType } from '../../src/types/index.js';
 import { generarBalanza, verificarBalanza } from '../../src/services/sat/anexo24/balanza-service.js';
 import { readBalanzaComprobacion } from '../../src/services/sat/anexo24/balance-reader.js';
+import { validateAgainstOfficialXsd } from '../helpers/official-xsd.js';
 
 // ============================================================
 // F07h · #323 — THE BALANZA DECLARES EACH LEDGER ACCOUNT WITH ITS SUBACCOUNTS.
@@ -80,9 +81,12 @@ describe('#323 · the ledger account carries its subaccounts', () => {
     expect(node(b.xml, '1000')).toContain('SaldoFin="1300.00"');
   });
 
+  it('the file validates against the official BalanzaComprobacion XSD', async () => {
+    const b = await generarBalanza(f.entityId, { periodo: f.periodos[2] });
+    expect(validateAgainstOfficialXsd(b.xml, 'trialBalance')).toEqual({ valid: true, errors: [] });
+  });
+
   it('the file re-reads clean: well-formed, Anexo 24 shape, every row passes the SAT recalculation', async () => {
-    // NOTE: the repo has no official BalanzaComprobacion XSD (balanza-xml.ts
-    // says why); this is the structural validation it does have.
     const b = await generarBalanza(f.entityId, { periodo: f.periodos[2] });
     const reread = readBalanzaComprobacion(b.xml);
     expect(reread.findings).toEqual([]);
