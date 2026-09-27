@@ -47,7 +47,8 @@ export interface ProbedRoute {
 }
 
 type SampleMode = 'minimal' | 'full';
-type SampleFixup = (body: unknown, mode: SampleMode) => unknown;
+/** Makes a sample valid where a refinement needs it; `full` is the full sample before any fixup. */
+type SampleFixup = (body: unknown, mode: SampleMode, full: unknown) => unknown;
 
 // ─── the valid samples ───
 
@@ -309,11 +310,33 @@ function protoKeyBody(): unknown {
 }
 
 /**
+ * For a refinement that wants at least one field, or one of two: the minimal
+ * sample carries `key`, valued as in the full sample. The full sample already
+ * holds every field, so it is left as it is.
+ */
+function withField(key: string): SampleFixup {
+  return (body, mode, full) =>
+    mode === 'minimal' && isNode(body) && isNode(full) && key in full ? { ...body, [key]: full[key] } : body;
+}
+
+/**
  * Valid samples that a refinement needs and JSON Schema cannot express (the
  * nodes published with `x-validacion-adicional`), keyed by route. Without
- * them every probe of the route would also carry the refinement's issue.
+ * them every probe of the route would also carry the refinement's issue, and
+ * a `minimalValid` or `fullValid` probe would record a rejection under the
+ * name of an acceptance (body-contract.spec.ts refuses that).
  */
 const SAMPLE_FIXUPS: Readonly<Record<string, SampleFixup>> = {
+  // "At least one field must be provided" (or "... required").
+  'PATCH /v1/accounts/:id': withField('name'),
+  'PATCH /v1/customers/:id': withField('company_name'),
+  'PATCH /v1/pre-registrations/:id': withField('notes'),
+  'PATCH /v1/vendors/:id': withField('company_name'),
+  'PUT /v1/processing-rules/:id': withField('rule_name'),
+  // "company_name or first_name is required".
+  'POST /v1/customers': withField('company_name'),
+  // "xml_content or xml_contents array is required".
+  'POST /v1/upload': withField('xml_content'),
   // A journal line carries a debit OR a credit, never both and never neither.
   'POST /v1/journal-entries': (body, mode) => {
     if (!isNode(body) || !Array.isArray(body.lines)) return body;
@@ -329,7 +352,8 @@ const SAMPLE_FIXUPS: Readonly<Record<string, SampleFixup>> = {
 
 /** Every probe for one published body schema, in a stable order. */
 export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body): BodyProbe[] {
-  const full = fixup(sample(schema, 'full'), 'full');
+  const unfixed = sample(schema, 'full');
+  const full = fixup(unfixed, 'full', unfixed);
   const probes: BodyProbe[] = [
     { id: '<root>:array', body: [] },
     { id: '<root>:null', body: null },
@@ -337,7 +361,7 @@ export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body)
     { id: '<root>:number', body: 0 },
     { id: '<root>:emptyObject', body: {} },
     { id: '<root>:protoKey', body: protoKeyBody() },
-    { id: 'minimalValid', body: fixup(sample(schema, 'minimal'), 'minimal') },
+    { id: 'minimalValid', body: fixup(sample(schema, 'minimal'), 'minimal', unfixed) },
     { id: 'fullValid', body: full },
   ];
   if (isNode(full)) probes.push({ id: 'extraKey', body: { ...full, __extra__: 1 } });

@@ -87,6 +87,17 @@ describe('G1 · every REST body probe answers exactly what zod 3 answered', () =
     const golden = JSON.parse(fs.readFileSync(REST_BODY_GOLDEN, 'utf8')) as Record<string, string>;
     expect(Object.values(golden).filter((v) => v.startsWith('THROW'))).toEqual([]);
   });
+
+  it('labels as valid only the samples every route accepts', () => {
+    // A refinement JSON Schema cannot express needs its fixup in
+    // rest-body-probes.ts (SAMPLE_FIXUPS); a "valid" probe that answers 422
+    // would pin a rejection under the name of an acceptance.
+    const actual = recordRestBodyGolden();
+    const refused = Object.entries(actual)
+      .filter(([key, outcome]) => / · (minimal|full)Valid$/.test(key) && !outcome.startsWith('OK '))
+      .map(([key, outcome]) => `${key}: ${outcome}`);
+    expect(refused).toEqual([]);
+  });
 });
 
 describe('G2 · targeted rows on real routes', () => {
