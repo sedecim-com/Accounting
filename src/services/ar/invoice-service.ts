@@ -6,7 +6,7 @@ import { NotFoundError, ValidationError, ConflictError } from '../../utils/error
 import { nextEntityNumber, formatDocumentNumber } from '../../utils/sequence.js';
 import { postInvoiceEntry } from '../accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../accounting/posting.js';
-import { OPEN_INVOICE_STATUSES } from './customer-service.js';
+import { OPEN_INVOICE_STATUSES, NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql } from './customer-service.js';
 import { InvoiceStatus } from '../../types/index.js';
 import type { Invoice, InvoiceLine, JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
@@ -79,9 +79,9 @@ export interface InvoiceFilters {
    */
   overdueDays?: number;
   /**
-   * Reference date. Restricts to invoices dated on or before it and, with
-   * `withAging`, reconstructs the balance as it stood that day from the
-   * cash actually applied by then.
+   * Reference date. Restricts to receivable invoices (not draft, void or
+   * cancelled) dated on or before it and, with `withAging`, reconstructs the
+   * balance as it stood that day (`amountDueAsOfSql`).
    */
   asOf?: string;
   /** Attach days_overdue (and amount_due_as_of when asOf is set). */
@@ -136,6 +136,11 @@ export async function listInvoices(
   if (filters.asOf) {
     where.push(`${dateColumn} <= $${i++}::date`);
     params.push(filters.asOf);
+    // A dated question asks what was receivable, and a draft, a void or a
+    // cancelled document never was — the same set `customer show --as-of`
+    // leaves out, so the two doors list the same documents.
+    where.push(`i.status <> ALL($${i++}::text[])`);
+    params.push([...NEVER_RECEIVABLE_STATUSES]);
   }
   if (filters.overdueDays !== undefined) {
     // "N days overdue" is only meaningful for a document that is still open
@@ -166,16 +171,9 @@ export async function listInvoices(
     rowParams.push(asOfValue);
     extra = `, (${asOfParam}::date - i.due_date) AS days_overdue`;
     if (filters.asOf) {
-      // The balance as it stood on the reference date: what was billed minus
-      // the cash actually applied by then. Allocations carry no date of their
-      // own, so the payment's date is the one that counts.
-      extra +=
-        `, (i.total_amount - COALESCE((
-             SELECT SUM(pa.amount_applied)
-             FROM payment_allocations pa
-             JOIN customer_payments p ON p.id = pa.payment_id
-             WHERE pa.invoice_id = i.id AND p.payment_date <= ${asOfParam}::date AND p.status <> 'void'
-           ), 0)) AS amount_due_as_of`;
+      // The same definition `customer show --as-of` uses: cash, unapplications,
+      // NSF reversals and credit notes, each dated.
+      extra += `, ${amountDueAsOfSql(asOfParam)} AS amount_due_as_of`;
     }
   }
 
