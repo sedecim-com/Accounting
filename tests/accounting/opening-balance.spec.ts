@@ -16,6 +16,7 @@ vi.mock('../../src/services/accounting/posting.js', () => ({
 import {
   planOpeningBalance,
   importOpeningBalance,
+  checkOpeningBalance,
   renderOpeningBalanceReport,
   subledgerKindOf,
   dayAfterCutoff,
@@ -919,5 +920,89 @@ describe('el tipo de error', () => {
   it('lo que lanza es ValidationError, que es lo que el CLI traduce', async () => {
     conBase({ entidad: [] });
     await expect(importOpeningBalance(CTX, OPTS)).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe('checkOpeningBalance · the penny check writes nothing and compares SaldoFin', () => {
+  const ledger = (net1110: string, net3100: string) => [
+    { id: 'id-1110', code: '1110', parent_code: null, normal_balance: 'debit', net: net1110 },
+    { id: 'id-3100', code: '3100', parent_code: null, normal_balance: 'credit', net: net3100 },
+  ];
+  const withLedger = (
+    rows: unknown[],
+    entity: unknown[] = [{ tax_id: ' xaxx010101000 ' }],
+    ancestry: unknown[] = [
+      { account_id: 'id-1110', account_level: 1, ancestors: [] },
+      { account_id: 'id-3100', account_level: 1, ancestors: [] },
+    ]
+  ) => {
+    mockQuery.mockReset();
+    mockQuery
+      .mockResolvedValueOnce({ rows: entity })
+      .mockResolvedValueOnce({ rows })
+      .mockResolvedValueOnce({ rows: ancestry });
+  };
+
+  it('an entity of another tenant does not exist: the tenant scopes inside the SQL', async () => {
+    withLedger([], []);
+    await expect(checkOpeningBalance(CTX, { entityId: 'ent-1', xml: XML_SIMPLE })).rejects.toThrow(
+      /no existe en este inquilino/
+    );
+    expect(mockQuery.mock.calls[0][0] as string).toContain('tenant_id = $2');
+  });
+
+  it("another taxpayer's trial balance is refused naming both RFCs", async () => {
+    withLedger(ledger('0', '0'));
+    const otherTaxpayer = archivo([{ numCta: '1110', saldoFin: '1.00' }], { rfc: 'AAA010101AAA' });
+    await expect(checkOpeningBalance(CTX, { entityId: 'ent-1', xml: otherTaxpayer })).rejects.toThrow(
+      /AAA010101AAA.*XAXX010101000/s
+    );
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('equal to the penny: the ledger is read as of the day after the cutoff, reversals left out', async () => {
+    withLedger(ledger('1000.0000', '-1000.0000'));
+    const r = await checkOpeningBalance(CTX, { entityId: 'ent-1', xml: XML_SIMPLE });
+    expect(r.asOf).toBe('2026-01-01');
+    expect(r.entityId).toBe('ent-1');
+    expect(r.comparison.iguales).toBe(true);
+    expect(r.comparison.diferencias).toEqual([]);
+    const [sql, params] = mockQuery.mock.calls[1] as [string, unknown[]];
+    expect(params).toEqual(['ent-1', '2026-01-01']);
+    expect(sql).toContain('reversed_by_entry_id IS NULL');
+    expect(sql).toContain('reverses_entry_id IS NULL');
+    expect(mockCrear).not.toHaveBeenCalled();
+    expect(mockTx).not.toHaveBeenCalled();
+  });
+
+  it('a penny off is a difference, in the account nature', async () => {
+    withLedger(ledger('999.9900', '-999.9900'));
+    const r = await checkOpeningBalance(CTX, { entityId: 'ent-1', xml: XML_SIMPLE });
+    expect(r.comparison.iguales).toBe(false);
+    expect(r.comparison.diferencias.map((d) => d.numCta).sort()).toEqual(['1110', '3100']);
+  });
+
+  it('a ledger account is compared WITH its subaccounts, as the source declares it (#323)', async () => {
+    withLedger(
+      [
+        { id: 'id-1100', code: '1100', parent_code: null, normal_balance: 'debit', net: '0' },
+        { id: 'id-1110', code: '1110', parent_code: '1100', normal_balance: 'debit', net: '1000.0000' },
+        { id: 'id-3100', code: '3100', parent_code: null, normal_balance: 'credit', net: '-1000.0000' },
+      ],
+      undefined,
+      [
+        { account_id: 'id-1100', account_level: 1, ancestors: [] },
+        { account_id: 'id-1110', account_level: 2, ancestors: ['id-1100'] },
+        { account_id: 'id-3100', account_level: 1, ancestors: [] },
+      ]
+    );
+    const xml = archivo([
+      { numCta: '1100', saldoFin: '1000.00' },
+      { numCta: '1110', saldoFin: '1000.00' },
+      { numCta: '3100', saldoFin: '1000.00' },
+    ]);
+    const r = await checkOpeningBalance(CTX, { entityId: 'ent-1', xml });
+    expect(r.comparison.diferencias).toEqual([]);
+    expect(r.comparison.iguales).toBe(true);
   });
 });

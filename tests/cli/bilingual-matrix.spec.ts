@@ -152,6 +152,9 @@ const TOP_LEVEL: Record<string, string> = {
   // adjudicó a fiscal-us (la provisión del impuesto corporativo) en su
   // dictamen 39, y no `benefit`, que ya nombra los PLANES de prestaciones.
   payroll: 'nomina',
+  // MNE-001-018: the Anexo 24 migration, with the catalog's own nouns.
+  chart: 'catalogo',
+  'opening-balance': 'saldo-inicial',
   // R4: el tipo de cambio como sustantivo raíz. `fx` no se traduce a
   // «divisa»: el catálogo fijó `cambio`, que es como el despacho lo dice.
   fx: 'cambio',
@@ -253,6 +256,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   fx: { rate: 'tipo' },
   prepaid: { create: 'crear', list: 'listar', show: 'ver', run: 'ejecutar' },
   payroll: { accrue: 'devengar' },
+  chart: { import: 'importar' },
+  'opening-balance': { import: 'importar', check: 'verificar' },
   'e-accounting': { catalog: 'catalogo', balance: 'balanza' },
   // F08a. `rate` es la tasa del impuesto y `list`/`set` sus dos actos; el
   // pasivo patronal vive aparte porque lleva IMSS e INFONAVIT además del ISN.

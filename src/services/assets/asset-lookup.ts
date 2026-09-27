@@ -59,10 +59,9 @@ export async function listarCategoriasDeActivo(entityId: string): Promise<Catego
  *
  * Cuando no hay ninguna categoría en la entidad, el error NO dice «no existe»:
  * dice que la entidad todavía no tiene ninguna y por dónde se siembran. Es la
- * diferencia entre un callejón sin salida y un letrero — hoy el sembrador
- * (`sembrarCategoriasDeActivo`) no tiene ningún llamador y `asset category
- * seed` es fase 2, así que este mensaje es lo único que le dice al primer
- * usuario por qué el alta no arranca.
+ * diferencia entre un callejón sin salida y un letrero: `entity create` seeds
+ * the classes since #322, so an empty list means an entity born before that,
+ * or a foreign one, and the message names the leaf that fixes it.
  */
 export async function resolverCategoriaDeActivo(
   entityId: string,
@@ -85,9 +84,9 @@ export async function resolverCategoriaDeActivo(
   const todas = await listarCategoriasDeActivo(entityId);
   if (todas.length === 0) {
     throw new ValidationError(
-      'Esta entidad no tiene ninguna categoría de activo, y el alta necesita una: la categoría ' +
-        'aporta la vida útil, el método y las tres cuentas por omisión. Todavía no hay hoja que ' +
-        'las siembre (`asset category seed` es de fase 2) ni el alta de entidad las siembra.',
+      'This entity has no asset class, and registering an asset needs one: the class brings ' +
+        'the useful life, the LISR rate and the three default accounts. Seed them with ' +
+        '`mnemosine asset category seed` (entities created since #322 already have them).',
       'category_id'
     );
   }

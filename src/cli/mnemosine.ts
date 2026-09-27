@@ -130,6 +130,7 @@ import { registerClosingCommand } from './closing-command.js';
 import { registerFxCommand } from './fx-command.js';
 import { registerPrepaidCommand } from './prepaid-command.js';
 import { registerPayrollCommand } from './payroll-command.js';
+import { registerAnexo24MigrationCommands } from './anexo24-migration-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
@@ -2160,7 +2161,7 @@ ingest.action(async (files: string[], opts: {
         for (const r of preview) {
           console.log(
             `${icon[r.verdict] ?? '·'} ${r.file}  ${c.dim(
-              `${r.verdict}${r.tipo ? ` · tipo ${r.tipo}` : ''}${r.total ? ` · ${r.total}` : ''}` +
+              `${r.verdict}${r.direction ? ` · ${r.direction}` : ''}${r.tipo ? ` · tipo ${r.tipo}` : ''}${r.total ? ` · ${r.total}` : ''}` +
                 `${r.route ? ` · ${r.route}` : ''}${r.detail ? ` · ${r.detail}` : ''}`
             )}`
           );
@@ -3411,6 +3412,7 @@ registerApprovalsCommand(program, { palette: c, shutdown, reportError });
 registerEntityCommand(program, { palette: c, shutdown, reportError });
 registerPaymentCommands(program, { palette: c, shutdown, reportError });
 registerAccountCommand(program, { palette: c, shutdown, reportError });
+registerAnexo24MigrationCommands(program, { palette: c, shutdown, reportError });
 registerEntryCommand(program, { palette: c, shutdown, reportError });
 registerPeriodCommand(program, { palette: c, shutdown, reportError });
 registerYearCommand(program, { palette: c, shutdown, reportError });
