@@ -943,8 +943,8 @@ describe('checkOpeningBalance · the penny check writes nothing and compares Sal
 
   it("another taxpayer's trial balance is refused naming both RFCs", async () => {
     withLedger(ledger('0', '0'));
-    const ajena = archivo([{ numCta: '1110', saldoFin: '1.00' }], { rfc: 'AAA010101AAA' });
-    await expect(checkOpeningBalance(CTX, { entityId: 'ent-1', xml: ajena })).rejects.toThrow(
+    const otherTaxpayer = archivo([{ numCta: '1110', saldoFin: '1.00' }], { rfc: 'AAA010101AAA' });
+    await expect(checkOpeningBalance(CTX, { entityId: 'ent-1', xml: otherTaxpayer })).rejects.toThrow(
       /AAA010101AAA.*XAXX010101000/s
     );
     expect(mockQuery).toHaveBeenCalledTimes(1);
