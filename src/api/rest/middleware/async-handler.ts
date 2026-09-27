@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
-import type { ZodTypeAny, infer as ZInfer } from 'zod';
+import type { ZodTypeAny } from 'zod';
 import { ValidationError } from '../../../utils/errors.js';
+import { parseForClient } from '../../../utils/zod-client-errors.js';
 
 /**
  * Wrap an async route handler so unhandled rejections are forwarded to the
@@ -62,14 +63,12 @@ export function esquemaDeCuerpo(h: unknown): ZodTypeAny | undefined {
  */
 export function validateBody<S extends ZodTypeAny>(schema: S): RequestHandler {
   const validador: ManejadorConEsquema = (req, _res, next) => {
-    const parsed = schema.safeParse(req.body);
+    const parsed = parseForClient<unknown>(schema, req.body);
     if (!parsed.success) {
-      const details = parsed.error.errors.map(
-        (e) => `${e.path.join('.') || '<root>'}: ${e.message}`
-      );
+      const details = parsed.issues.map((issue) => `${issue.path || '<root>'}: ${issue.message}`);
       return next(new ValidationError(`Invalid request body: ${details.join('; ')}`));
     }
-    req.body = parsed.data as ZInfer<S>;
+    req.body = parsed.data;
     next();
   };
   validador[MARCA_CUERPO] = schema;

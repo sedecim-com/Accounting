@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString, uuidString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
@@ -39,12 +40,12 @@ const decimalString = z.union([z.string(), z.number()]).transform((v) => String(
 
 const journalLineSchema = z
   .object({
-    account_id: z.string().uuid(),
+    account_id: uuidString(),
     debit_amount: decimalString.nullable().optional(),
     credit_amount: decimalString.nullable().optional(),
     description: z.string().optional(),
-    cost_center_id: z.string().uuid().optional(),
-    project_id: z.string().uuid().optional(),
+    cost_center_id: uuidString().optional(),
+    project_id: uuidString().optional(),
   })
   .refine(
     (l) => Boolean(l.debit_amount) !== Boolean(l.credit_amount),
@@ -52,7 +53,7 @@ const journalLineSchema = z
   );
 
 const createJournalEntrySchema = z.object({
-  entity_id: z.string().uuid(),
+  entity_id: uuidString(),
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
   entry_type: z
     .enum([
@@ -75,7 +76,7 @@ const createJournalEntrySchema = z.object({
 });
 
 const voidJeSchema = z.object({
-  reason: z.string().min(1, 'Reason is required for voiding'),
+  reason: boundedString({ min: 1 }, { min: 'Reason is required for voiding' }),
 });
 
 const reverseJeSchema = z.object({
