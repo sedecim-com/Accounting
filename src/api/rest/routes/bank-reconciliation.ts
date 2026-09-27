@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString, uuidString } from '../../../utils/zod-compat.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
@@ -17,7 +18,7 @@ const router = Router();
 
 // ─── Schemas ───
 const bankTransactionSchema = z.object({
-  bank_transaction_id: z.string().min(1),
+  bank_transaction_id: boundedString({ min: 1 }),
   transaction_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
   posted_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional(),
   amount: z.union([z.string(), z.number()]),
@@ -25,7 +26,7 @@ const bankTransactionSchema = z.object({
   description: z.string(),
   merchant_name: z.string().optional(),
   category: z.string().optional(),
-  raw_data: z.record(z.unknown()).optional(),
+  raw_data: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
 
 const importTransactionsSchema = z.object({
@@ -48,7 +49,7 @@ const matchTransactionSchema = z.object({
   // Pedía 'journal_entry' y 'payment', que no existen, y no dejaba escribir
   // 'journal_entry_line' —el caso más común— ni los dos tipos de pago.
   matched_entity_type: z.enum(MATCHED_ENTITY_TYPES),
-  matched_entity_id: z.string().uuid(),
+  matched_entity_id: uuidString(),
   matched_amount: z.union([z.string(), z.number()]).optional(),
 });
 

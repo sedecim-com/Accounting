@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -79,6 +80,32 @@ describe('scripts/verify.sh gate selector', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("only 'icu' ran, and it passed");
     expect(r.stdout).not.toMatch(/all gates passed/);
+  });
+
+  it('sees the database URLs of .env, as the Node processes it launches do', () => {
+    // A scratch root with no package.json: the plan gate fails at once, and what
+    // is judged is the note verify.sh prints before running it.
+    const noteFor = (dotenv: string | null): string => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-spec-'));
+      try {
+        for (const rel of ['scripts/verify.sh', 'scripts/lib/env.sh', '.github/workflows/ci.yml']) {
+          fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+          fs.copyFileSync(path.join(ROOT, rel), path.join(dir, rel));
+        }
+        if (dotenv !== null) fs.writeFileSync(path.join(dir, '.env'), dotenv);
+        return spawnSync('bash', [path.join(dir, 'scripts/verify.sh'), '--only', 'plan'], {
+          encoding: 'utf8',
+          timeout: 60_000,
+          env: { PATH: process.env.PATH, HOME: process.env.HOME },
+        }).stdout;
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    expect(noteFor(null)).toContain('DATABASE_URL is not set');
+    expect(noteFor('DATABASE_URL=postgresql://postgres@localhost:5432/mnemosine_dev\n')).not.toContain(
+      'DATABASE_URL is not set',
+    );
   });
 
   it('lists a gate that cannot run here as SKIP, not as passed', () => {
