@@ -21,15 +21,12 @@ import { serializar, type Atributo, type NodoXml } from './xml.js';
 // La e.firma es el contribuyente firmando, no el software. Construir el
 // archivo y firmarlo son actos distintos y de manos distintas.
 //
-// LO QUE NO PUDE VERIFICAR, dicho en vez de afirmado:
-//   · El esquema NO se validó contra el XSD oficial: no hay ni un `.xsd` en el
-//     repositorio, ninguna librería aquí valida contra esquema, y esta máquina
-//     no tiene red. Lo de abajo es lo que el generador EMITE.
-//   · `NumOrden` y `NumTramite` NO se emiten. Los recuerdo en los esquemas que
-//     el SAT pide a requerimiento —auxiliares y pólizas— y no me consta que la
-//     Balanza los admita. Emitir un atributo que el XSD no declara invalida el
-//     archivo entero; omitir uno opcional, no. El día que se traiga el XSD, es
-//     una línea en `raiz`.
+// CHECKED AGAINST THE OFFICIAL XSD (#397), vendored in `xsd/` with its source:
+//   · What this emits validates against BalanzaComprobacion_1_3.xsd for N, C
+//     and month 13 (tests/sat/anexo24/official-xsd.spec.ts).
+//   · `NumOrden` and `NumTramite` are NOT emitted, and must not be: the Balanza
+//     does not declare them (only the journal and the two auxiliaries do), and
+//     an attribute the XSD does not declare invalidates the whole file.
 // ============================================================
 
 /** N normal, C complementaria. Es el atributo TipoEnvio del nodo raíz. */
