@@ -52,6 +52,16 @@ import { z } from 'zod';
 // To revert it, delete the range branch of $ZodCheckV3Int.
 // ============================================================
 
+/**
+ * The checks zod runs on `schema`, in its order. A format schema (z.url(),
+ * z.email(), z.uuid(), z.int()) is itself its first check and is not in
+ * `_zod.def.checks`, so a reader of that list alone would not see it.
+ */
+export function checksOf(schema: z.core.$ZodType): z.core.$ZodCheck[] {
+  const own = schema._zod.traits.has('$ZodCheck') ? [schema as unknown as z.core.$ZodCheck] : [];
+  return [...own, ...(schema._zod.def.checks ?? [])];
+}
+
 /** zod 3.25.76, v3/types.js:384, verbatim. */
 export const V3_EMAIL_PATTERN =
   /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i;

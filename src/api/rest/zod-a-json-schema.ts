@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { checksOf } from '../../utils/zod-compat.js';
 import { cotaDeArreglo } from './topes.js';
 
 // ============================================================
@@ -283,7 +284,9 @@ function checkName(check: z.core.$ZodCheck): string {
 
 function deCadena(esquema: z.core.$ZodString, donde: string): EsquemaJson {
   const nodo: EsquemaJson = { type: 'string' };
-  for (const check of esquema._zod.def.checks ?? []) {
+  // checksOf, not `_zod.def.checks`: z.url() or z.email() is its own first
+  // check, and reading the list alone published it as a bare string.
+  for (const check of checksOf(esquema)) {
     // The compat checks of src/utils/zod-compat.ts subclass these three, so
     // they are read as the built-ins they replace.
     if (check instanceof z.core.$ZodCheckMinLength) {
@@ -353,7 +356,8 @@ function applyStringFormat(node: EsquemaJson, check: z.core.$ZodCheckStringForma
 }
 
 function deNumero(esquema: z.core.$ZodNumber, donde: string): EsquemaJson {
-  const checks = esquema._zod.def.checks ?? [];
+  // z.int() is its own first check (see deCadena).
+  const checks = checksOf(esquema);
   // `.int()` is computed first so that `type` stays the node's first key.
   const integer = checks.some((c) => c instanceof z.core.$ZodCheckNumberFormat && c._zod.def.format === 'safeint');
   const nodo: EsquemaJson = { type: integer ? 'integer' : 'number' };

@@ -22,6 +22,30 @@ describe('the converter refuses what zod 4 added under familiar classes', () => 
   });
 });
 
+describe('the converter reads a format schema (z.url(), z.int()…) as its own first check, as zod runs it', () => {
+  // Such a schema IS its check: `_zod.def.checks` does not hold it, and a
+  // converter reading that list alone published z.url() as a bare string.
+  it.each([
+    ['z.url()', z.url(), { type: 'string', format: 'uri' }],
+    ['z.url().max(10)', z.url().max(10), { type: 'string', format: 'uri', maxLength: 10 }],
+    ['z.email()', z.email(), { type: 'string', format: 'email' }],
+    ['z.uuid()', z.uuid(), { type: 'string', format: 'uuid' }],
+    ['z.guid()', z.guid(), { type: 'string', format: 'uuid' }],
+    ['z.int()', z.int(), { type: 'integer' }],
+    ['z.int().min(1).max(208)', z.int().min(1).max(208), { type: 'integer', minimum: 1, maximum: 208 }],
+  ])('%s', (_label, schema, expected) => {
+    expect(convert(schema)).toEqual(expected);
+  });
+
+  it.each([
+    ['z.url() with a protocol', z.url({ protocol: /^https$/ })],
+    ['z.iso.datetime()', z.iso.datetime()],
+    ['z.int32()', z.int32()],
+  ])('refuses %s, which it cannot publish', (_label, schema) => {
+    expect(refuses(schema)).toThrow(ZodNoTraducible);
+  });
+});
+
 describe('the converter publishes the compat grammar as the contract always said', () => {
   it('guid is published as format uuid', () => {
     expect(convert(uuidString())).toEqual({ type: 'string', format: 'uuid' });

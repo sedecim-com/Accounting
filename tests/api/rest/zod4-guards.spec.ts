@@ -8,8 +8,10 @@ import { z } from 'zod';
 // src/utils/zod-compat.ts restores zod 3's grammar only where it is used.
 // This walks every mounted body schema and the config file schema through
 // `_zod.def` and fails on any node that validates with zod 4's own grammar
-// instead: a native `.uuid()`, `.url()`, `.int()` or string length, or one
-// of the shapes zod 3 and zod 4 read differently.
+// instead: a native `.uuid()`, `.url()`, `.int()` or string length, written
+// as a method or as a top-level z.uuid(), z.url(), z.int() (which is its own
+// check: see checksOf), or one of the shapes zod 3 and zod 4 read
+// differently. The walk fails on a kind it does not walk into.
 //
 // The agent tools are walked too, for string lengths only: their schemas were
 // already zod/v4 (the core bundled in zod 3.25.76), and the length count is
@@ -58,6 +60,12 @@ import {
   $ZodCheckV3Url,
   V3_EMAIL_PATTERN,
   ZodV3Record,
+  boundedString,
+  checksOf,
+  emailString,
+  integerNumber,
+  urlString,
+  uuidString,
 } from '../../../src/utils/zod-compat.js';
 
 interface Visit {
@@ -65,7 +73,25 @@ interface Visit {
   at: string;
 }
 
-/** Every node under `root`, with its path. */
+/** Kinds with nothing inside to walk into. */
+const LEAVES = [
+  z.core.$ZodString,
+  z.core.$ZodNumber,
+  z.core.$ZodBoolean,
+  z.core.$ZodEnum,
+  z.core.$ZodLiteral,
+  z.core.$ZodUnknown,
+  z.core.$ZodAny,
+  z.core.$ZodNull,
+  z.core.$ZodNever,
+  z.core.$ZodTransform,
+];
+
+/**
+ * Every node under `root`, with its path. A kind it neither walks into nor
+ * knows as a leaf (intersection, lazy, tuple, catch, readonly…) fails the
+ * walk: a node it skipped would be a node no guard looked at.
+ */
 function walk(root: z.core.$ZodType, at: string, out: Visit[] = []): Visit[] {
   out.push({ schema: root, at });
   if (root instanceof z.core.$ZodOptional || root instanceof z.core.$ZodNullable || root instanceof z.core.$ZodDefault) {
@@ -83,6 +109,8 @@ function walk(root: z.core.$ZodType, at: string, out: Visit[] = []): Visit[] {
     walk(root._zod.def.valueType, `${at}.*`, out);
   } else if (root instanceof z.core.$ZodUnion) {
     root._zod.def.options.forEach((option, i) => walk(option, `${at}|${i}`, out));
+  } else if (!LEAVES.some((leaf) => root instanceof leaf)) {
+    throw new Error(`${at}: the guards do not walk into a "${root._zod.def.type}" schema; teach walk() before using it`);
   }
   return out;
 }
@@ -112,9 +140,86 @@ const unwrap = (schema: z.core.$ZodType): z.core.$ZodType => {
   return schema instanceof z.core.$ZodPipe ? unwrap(schema._zod.def.in) : schema;
 };
 
-function offenders(test: (visit: Visit) => string | undefined): string[] {
-  return NODES.map((visit) => test(visit)).filter((found): found is string => found !== undefined);
+function offenders(test: (visit: Visit) => string | undefined, nodes: Visit[] = NODES): string[] {
+  return nodes.map((visit) => test(visit)).filter((found): found is string => found !== undefined);
 }
+
+// Each guard reads checksOf(schema), the list zod itself runs: a format
+// schema (z.url(), z.email(), z.uuid(), z.int()) IS its first check and is
+// not in `_zod.def.checks`.
+const GUARDS = {
+  uuid: ({ schema, at }: Visit) =>
+    checksOf(schema).some((c) => c instanceof z.core.$ZodCheckStringFormat && c._zod.def.format === 'uuid')
+      ? at
+      : undefined,
+  email: ({ schema, at }: Visit) =>
+    checksOf(schema).some(
+      (c) =>
+        c instanceof z.core.$ZodCheckStringFormat &&
+        c._zod.def.format === 'email' &&
+        c._zod.def.pattern !== V3_EMAIL_PATTERN
+    )
+      ? at
+      : undefined,
+  url: ({ schema, at }: Visit) =>
+    checksOf(schema).some(
+      (c) => c instanceof z.core.$ZodCheckStringFormat && c._zod.def.format === 'url' && !(c instanceof $ZodCheckV3Url)
+    )
+      ? at
+      : undefined,
+  lengths: ({ schema, at }: Visit) =>
+    schema instanceof z.core.$ZodString &&
+    checksOf(schema).some(
+      (c) =>
+        (c instanceof z.core.$ZodCheckMinLength && !(c instanceof $ZodCheckMinUnits)) ||
+        (c instanceof z.core.$ZodCheckMaxLength && !(c instanceof $ZodCheckMaxUnits)) ||
+        (c instanceof z.core.$ZodCheckLengthEquals && !(c instanceof $ZodCheckLengthUnits))
+    )
+      ? at
+      : undefined,
+  integer: ({ schema, at }: Visit) =>
+    checksOf(schema).some((c) => c instanceof z.core.$ZodCheckNumberFormat && !(c instanceof $ZodCheckV3Int))
+      ? at
+      : undefined,
+};
+
+describe('the guards catch zod 4 grammar however it is written', () => {
+  it.each([
+    ['uuid', 'z.string().uuid()', z.string().uuid()],
+    ['uuid', 'z.uuid()', z.uuid()],
+    ['email', 'z.string().email()', z.string().email()],
+    ['email', 'z.email()', z.email()],
+    ['url', 'z.string().url()', z.string().url()],
+    ['url', 'z.url()', z.url()],
+    ['lengths', 'z.string().max(3)', z.string().max(3)],
+    ['lengths', 'z.url().max(3)', z.url().max(3)],
+    ['integer', 'z.number().int()', z.number().int()],
+    ['integer', 'z.int()', z.int()],
+    ['integer', 'z.int().min(1).max(208)', z.int().min(1).max(208)],
+  ] as const)('%s: %s', (guard, _label, field) => {
+    expect(offenders(GUARDS[guard], walk(z.object({ field: field.optional() }), 'probe'))).toEqual(['probe.field']);
+  });
+
+  it.each([
+    ['uuid', uuidString()],
+    ['email', emailString()],
+    ['url', urlString()],
+    ['lengths', boundedString({ min: 2, max: 3 })],
+    ['integer', integerNumber()],
+  ] as const)('%s: not the compat helper', (guard, field) => {
+    expect(offenders(GUARDS[guard], walk(z.object({ field }), 'probe'))).toEqual([]);
+  });
+
+  it.each([
+    ['an intersection', z.intersection(z.object({ a: z.string() }), z.object({ b: z.url() }))],
+    ['a lazy', z.lazy(() => z.url())],
+    ['a tuple', z.tuple([z.url()])],
+    ['a catch', z.url().catch('x')],
+    ['a readonly', z.object({ u: z.url() }).readonly()],
+  ])('the walk refuses %s instead of skipping it', (_label, field) => {
+    expect(() => walk(z.object({ field }), 'probe')).toThrow(/do not walk into/);
+  });
+});
 
 describe('every client-reachable schema validates with the zod 3 grammar', () => {
   it('reaches the whole surface', () => {
@@ -122,73 +227,25 @@ describe('every client-reachable schema validates with the zod 3 grammar', () =>
   });
 
   it('checks uuids as guid, the zod 3 grammar, never as RFC 9562 uuid', () => {
-    const formats = NODES.flatMap(({ schema, at }) =>
-      (schema._zod.def.checks ?? [])
-        .filter((c) => c instanceof z.core.$ZodCheckStringFormat)
-        .filter((c) => c._zod.def.format === 'uuid')
-        .map(() => at)
-    );
-    expect(formats).toEqual([]);
-    const guids = NODES.flatMap(({ schema }) =>
-      (schema._zod.def.checks ?? []).filter((c) => c instanceof z.core.$ZodGUID)
-    );
+    expect(offenders(GUARDS.uuid)).toEqual([]);
+    const guids = NODES.flatMap(({ schema }) => checksOf(schema).filter((c) => c instanceof z.core.$ZodGUID));
     expect(guids.length).toBeGreaterThanOrEqual(45);
   });
 
   it('checks emails with the zod 3 regex', () => {
-    expect(
-      offenders(({ schema, at }) =>
-        (schema._zod.def.checks ?? []).some(
-          (c) =>
-            c instanceof z.core.$ZodCheckStringFormat &&
-            c._zod.def.format === 'email' &&
-            c._zod.def.pattern !== V3_EMAIL_PATTERN
-        )
-          ? at
-          : undefined
-      )
-    ).toEqual([]);
+    expect(offenders(GUARDS.email)).toEqual([]);
   });
 
   it('checks urls with $ZodCheckV3Url, which neither trims nor rewrites', () => {
-    expect(
-      offenders(({ schema, at }) =>
-        (schema._zod.def.checks ?? []).some(
-          (c) =>
-            c instanceof z.core.$ZodCheckStringFormat && c._zod.def.format === 'url' && !(c instanceof $ZodCheckV3Url)
-        )
-          ? at
-          : undefined
-      )
-    ).toEqual([]);
+    expect(offenders(GUARDS.url)).toEqual([]);
   });
 
   it('measures string lengths in UTF-16 units', () => {
-    expect(
-      offenders(({ schema, at }) =>
-        schema instanceof z.core.$ZodString &&
-        (schema._zod.def.checks ?? []).some(
-          (c) =>
-            (c instanceof z.core.$ZodCheckMinLength && !(c instanceof $ZodCheckMinUnits)) ||
-            (c instanceof z.core.$ZodCheckMaxLength && !(c instanceof $ZodCheckMaxUnits)) ||
-            (c instanceof z.core.$ZodCheckLengthEquals && !(c instanceof $ZodCheckLengthUnits))
-        )
-          ? at
-          : undefined
-      )
-    ).toEqual([]);
+    expect(offenders(GUARDS.lengths)).toEqual([]);
   });
 
   it('checks integers with $ZodCheckV3Int, which does not hide the bounds', () => {
-    expect(
-      offenders(({ schema, at }) =>
-        (schema._zod.def.checks ?? []).some(
-          (c) => c instanceof z.core.$ZodCheckNumberFormat && !(c instanceof $ZodCheckV3Int)
-        )
-          ? at
-          : undefined
-      )
-    ).toEqual([]);
+    expect(offenders(GUARDS.integer)).toEqual([]);
   });
 
   it('has none of the shapes zod 3 and zod 4 read differently', () => {
@@ -217,7 +274,7 @@ describe('every client-reachable schema validates with the zod 3 grammar', () =>
           // which src/utils/zod-client-errors.ts cannot turn back.
           const checked = schema._zod.def.options
             .map(unwrap)
-            .some((option) => option instanceof z.core.$ZodNumber && (option._zod.def.checks ?? []).length > 0);
+            .some((option) => option instanceof z.core.$ZodNumber && checksOf(option).length > 0);
           if (checked) return `${at}: a union with a checked number branch`;
         }
         return undefined;
@@ -266,7 +323,7 @@ describe('every agent tool input counts string lengths in UTF-16 units', () => {
     };
     const offenders = tools
       .flatMap(({ name, inputSchema }) => walk(inputSchema as z.core.$ZodType, `tool:${name}`))
-      .filter(({ schema }) => schema instanceof z.core.$ZodString && (schema._zod.def.checks ?? []).some(moved))
+      .filter(({ schema }) => schema instanceof z.core.$ZodString && checksOf(schema).some(moved))
       .map(({ at }) => at);
     expect(offenders).toEqual([]);
   });
