@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString, emailString, integerNumber, uuidString } from '../../../utils/zod-compat.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
@@ -40,8 +41,8 @@ const MAX_XML_POR_LOTE = 100;
 
 // ─── Schemas ───
 const uploadXmlSchema = z.object({
-  entity_id: z.string().uuid().optional(),
-  xml_content: z.string().min(1).optional(),
+  entity_id: uuidString().optional(),
+  xml_content: boundedString({ min: 1 }).optional(),
   // TOPE DURO AL LOTE.
   //
   // El manejador itera este arreglo llamando a processXMLUpload por elemento:
@@ -52,23 +53,23 @@ const uploadXmlSchema = z.object({
   //
   // 100 es el lote grande razonable de un despacho; más que eso es un trabajo
   // por lotes, no una petición HTTP, y para eso está `mnemosine ingest`.
-  xml_contents: z.array(z.string().min(1)).max(MAX_XML_POR_LOTE).optional(),
+  xml_contents: z.array(boundedString({ min: 1 })).max(MAX_XML_POR_LOTE).optional(),
   source: z.string().optional(),
 }).refine((o) => !!(o.xml_content || (o.xml_contents && o.xml_contents.length > 0)), {
   message: 'xml_content or xml_contents array is required',
 });
 
 const updatePreRegSchema = z.object({
-  vendor_id: z.string().uuid().nullable().optional(),
-  default_account_id: z.string().uuid().nullable().optional(),
+  vendor_id: uuidString().nullable().optional(),
+  default_account_id: uuidString().nullable().optional(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/).nullable().optional(),
   notes: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
-  lines: z.array(z.record(z.unknown())).optional(),
+  lines: z.array(z.record(z.string(), z.unknown())).optional(),
 }).refine((o) => Object.keys(o).length > 0, { message: 'At least one field required' });
 
 const rejectPreRegSchema = z.object({
-  reason: z.string().min(1),
+  reason: boundedString({ min: 1 }),
   notes: z.string().optional(),
 });
 
@@ -85,42 +86,42 @@ const bulkPreRegSchema = z.object({
   // el pool de conexiones durante cientos de miles de operaciones en serie: el
   // freno por petición no ve esa amplificación. `xml_contents` ya se acotó aquí
   // arriba por esto mismo; que este quedara sin acotar era el descuido.
-  ids: z.array(z.string().uuid()).min(1).max(MAX_XML_POR_LOTE),
-  params: z.record(z.unknown()).optional(),
+  ids: z.array(uuidString()).min(1).max(MAX_XML_POR_LOTE),
+  params: z.record(z.string(), z.unknown()).optional(),
 });
 
 const createProcessingRuleSchema = z.object({
-  entity_id: z.string().uuid().optional(),
-  rule_name: z.string().min(1).max(255),
-  rule_code: z.string().max(50).optional(),
+  entity_id: uuidString().optional(),
+  rule_name: boundedString({ min: 1, max: 255 }),
+  rule_code: boundedString({ max: 50 }).optional(),
   description: z.string().optional(),
-  rule_type: z.string().min(1),
-  priority: z.number().int().optional(),
-  conditions: z.record(z.unknown()),
-  actions: z.record(z.unknown()),
+  rule_type: boundedString({ min: 1 }),
+  priority: integerNumber().optional(),
+  conditions: z.record(z.string(), z.unknown()),
+  actions: z.record(z.string(), z.unknown()),
   applies_to_document_types: z.array(z.string()).optional(),
   is_active: z.boolean().optional(),
 });
 
 const updateProcessingRuleSchema = z.object({
-  rule_name: z.string().min(1).max(255).optional(),
+  rule_name: boundedString({ min: 1, max: 255 }).optional(),
   description: z.string().optional(),
-  priority: z.number().int().optional(),
+  priority: integerNumber().optional(),
   is_active: z.boolean().optional(),
-  conditions: z.record(z.unknown()).optional(),
-  actions: z.record(z.unknown()).optional(),
+  conditions: z.record(z.string(), z.unknown()).optional(),
+  actions: z.record(z.string(), z.unknown()).optional(),
 }).refine((o) => Object.keys(o).length > 0, { message: 'At least one field required' });
 
 const createBatchSchema = z.object({
-  entity_id: z.string().uuid().optional(),
-  batch_name: z.string().max(255).optional(),
+  entity_id: uuidString().optional(),
+  batch_name: boundedString({ max: 255 }).optional(),
   description: z.string().optional(),
   scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional(),
   scheduled_time: z.string().optional(),
-  include_filters: z.record(z.unknown()).optional(),
+  include_filters: z.record(z.string(), z.unknown()).optional(),
   auto_post: z.boolean().optional(),
   notify_on_complete: z.boolean().optional(),
-  notify_emails: z.array(z.string().email()).optional(),
+  notify_emails: z.array(emailString()).optional(),
 });
 
 // ============================================================

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString, emailString, uuidString } from '../../../utils/zod-compat.js';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
@@ -33,25 +34,25 @@ const router = Router();
 // ─── Schemas ───
 const numericLike = z.union([z.string(), z.number()]);
 const invoiceLineSchema = z.object({
-  item_id: z.string().uuid().nullable().optional(),
+  item_id: uuidString().nullable().optional(),
   description: z.string().optional(),
   quantity: numericLike.optional(),
   unit_price: numericLike,
-  revenue_account_id: z.string().uuid(),
+  revenue_account_id: uuidString(),
   tax_code: z.string().nullable().optional(),
   tax_rate: numericLike.nullable().optional(),
-  cost_center_id: z.string().uuid().nullable().optional(),
-  project_id: z.string().uuid().nullable().optional(),
+  cost_center_id: uuidString().nullable().optional(),
+  project_id: uuidString().nullable().optional(),
   cfdi_product_code: z.string().nullable().optional(),
   cfdi_unit_code: z.string().nullable().optional(),
 }).passthrough();
 
 const createInvoiceSchema = z.object({
-  entity_id: z.string().uuid(),
-  customer_id: z.string().uuid(),
+  entity_id: uuidString(),
+  customer_id: uuidString(),
   invoice_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
-  currency_code: z.string().length(3).optional(),
+  currency_code: boundedString({ length: 3 }).optional(),
   // Un renglón = un INSERT dentro de la transacción que crea la factura.
   // El porqué del número, en topes.ts.
   lines: arregloAcotado(invoiceLineSchema, {
@@ -79,14 +80,14 @@ const createInvoiceSchema = z.object({
 // ocurre. z.object() descarta claves desconocidas: un cliente que siga
 // mandándolos recibe 200, no 422.
 const sendInvoiceSchema = z.object({
-  to: z.string().email().optional(),
+  to: emailString().optional(),
 });
 
 const recordPaymentSchema = z.object({
   amount: numericLike,
   payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
   payment_method: z.string().optional(),
-  bank_account_id: z.string().uuid().optional(),
+  bank_account_id: uuidString().optional(),
   reference: z.string().optional(),
   notes: z.string().optional(),
 }).passthrough();
@@ -95,7 +96,7 @@ const recordPaymentSchema = z.object({
 // Enforcing it is an observable API change -- a body-less POST that used to
 // succeed now gets 422 VALIDATION_ERROR from validateBody.
 const voidInvoiceSchema = z.object({
-  reason: z.string().min(1, 'Reason is required for voiding'),
+  reason: boundedString({ min: 1 }, { min: 'Reason is required for voiding' }),
 });
 
 const meta = (req: Request) => ({
@@ -190,7 +191,7 @@ router.post('/:id/payments', declararRiesgoRuta({ riesgo: 'irreversible', escrib
   // el servicio, y el manejador los seguía leyendo: llegaban sin validar.
   payment_amount: numericLike,
   payment_method: z.string(),
-  bank_account_id: z.string().uuid().optional(),
+  bank_account_id: uuidString().optional(),
   reference_number: z.string().optional(),
 }).partial({ amount: true, reference: true })), asyncHandler(async (req: Request, res: Response) => {
   const { payment_date, payment_amount, payment_method, reference_number, bank_account_id } = req.body;

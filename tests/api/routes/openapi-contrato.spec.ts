@@ -433,8 +433,8 @@ describe('de Zod a JSON Schema: lo que la API usa', () => {
   });
 
   it('diccionarios y `unknown`', () => {
-    expect(conv(z.record(z.unknown()))).toEqual({ type: 'object', additionalProperties: {} });
-    expect(conv(z.record(z.number()))).toEqual({
+    expect(conv(z.record(z.string(), z.unknown()))).toEqual({ type: 'object', additionalProperties: {} });
+    expect(conv(z.record(z.string(), z.number()))).toEqual({
       type: 'object',
       additionalProperties: { type: 'number' },
     });

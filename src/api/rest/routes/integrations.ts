@@ -28,7 +28,7 @@ function esSimulado(adapter: IIntegrationAdapter): boolean | undefined {
   return 'simulado' in adapter ? Boolean(adapter.simulado) : undefined;
 }
 
-const configureProviderSchema = z.record(z.unknown());
+const configureProviderSchema = z.record(z.string(), z.unknown());
 
 const pacPreferencesSchema = z.object({
   pac_primary: z.string().optional(),

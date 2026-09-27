@@ -1,0 +1,71 @@
+import { z } from 'zod';
+
+// ============================================================
+// CONTRACT: one helper per validation whose grammar zod 4 changes (#367).
+//
+// The owner's decision on #367 is that the Zod 4 migration accepts and
+// rejects exactly what zod 3.25.76 did, and parses to the same output. Zod 4
+// changes six grammars the REST bodies and the config file use:
+//
+//   uuidString     v4 `.uuid()` is RFC 9562 (version and variant nibbles);
+//                  v3 accepted any 8-4-4-4-12 hex, and so must we.
+//   emailString    v4 rewrote the email regex.
+//   urlString      v4 trims the input before parsing it and returns the
+//                  normalized URL; v3 parsed the raw string and kept it.
+//   boundedString  v4 counts string lengths in code points; v3 counted
+//                  UTF-16 units, and so does every published maxLength.
+//   integerNumber  v4 stops at a failed `.int()`; v3 went on to report the
+//                  bounds after it too.
+//   recordOf       v4 `z.record` skips an own `__proto__` entry (JSON.parse
+//                  keeps one) without checking it; v3 checked it in key
+//                  order, and then left it out of the output.
+//
+// Every route and config schema builds those validations through here, so
+// the grammar lives in one file per Zod major. On zod 3 each helper is the
+// native method, and the goldens (tests/api/golden) pin what they do.
+// ============================================================
+
+/** Any 8-4-4-4-12 hex string, in either case. */
+export function uuidString(message?: string): z.ZodString {
+  return z.string().uuid(message);
+}
+
+export function emailString(): z.ZodString {
+  return z.string().email();
+}
+
+/** Whatever `new URL()` parses, kept exactly as sent. */
+export function urlString(): z.ZodString {
+  return z.string().url();
+}
+
+export interface StringBounds {
+  min?: number;
+  max?: number;
+  length?: number;
+}
+
+export interface StringBoundMessages {
+  min?: string;
+  max?: string;
+  length?: string;
+}
+
+/** A string whose bounds count UTF-16 units, checked in the fixed order min, max, length. */
+export function boundedString(bounds: StringBounds, messages: StringBoundMessages = {}): z.ZodString {
+  let schema = z.string();
+  if (bounds.min !== undefined) schema = schema.min(bounds.min, messages.min);
+  if (bounds.max !== undefined) schema = schema.max(bounds.max, messages.max);
+  if (bounds.length !== undefined) schema = schema.length(bounds.length, messages.length);
+  return schema;
+}
+
+/** An integer whose failure does not hide the bounds chained after it. */
+export function integerNumber(): z.ZodNumber {
+  return z.number().int();
+}
+
+/** A record keyed by any string whose values all pass `value`, an own `__proto__` entry included. */
+export function recordOf<V extends z.ZodTypeAny>(value: V): z.ZodRecord<z.ZodString, V> {
+  return z.record(z.string(), value);
+}
