@@ -138,6 +138,7 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | #327 | La sintaxis de los renglones | Regla fija del kernel, no configuración: `clave=valor` con «;», `cargo`/`abono` como sinónimos permanentes y lo actual aceptado |
 | #337 | La firma del SCOPE y de `catalog-info.yaml` | Un solo PR tras una sesión campo por campo; lo legal, como pregunta abierta al 2026-10-09 (falta la sesión) |
 | PR #249, PR #283 | La lectura de §5.3 del tablero y la revisión de seguridad; si se juzga el título del PR | #249 se fusionó el 2026-09-26; #283 sigue abierto |
+| #323, #397 | ¿Cómo se prueba que el XML del Anexo 24 es válido? | Contra el XSD oficial del SAT, guardado en el repositorio; la relectura estructural no basta. Decidido el 2026-09-27; el trabajo es #397 (MNE-001-133) |
 
 **Pendientes.** Al cruzar el backlog con las issues, el 2026-09-26, salieron preguntas que nadie había hecho. Cada una es una decisión en el backlog (`docs/backlog/PRD-001.md`) y bloquea tareas concretas:
 
