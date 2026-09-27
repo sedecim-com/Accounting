@@ -24,10 +24,9 @@ import { ValidationError } from '../../../src/utils/errors.js';
 //   SÍ · que las combinaciones que la autoridad rechaza se niegan ANTES de
 //        construir nada: RFC que no lo es, Mes 14, complementaria sin fecha.
 //
-//   NO · que el documento valide contra el XSD oficial. No hay ni un `.xsd` en
-//        el repositorio y esta máquina no tiene red. Estas pruebas dicen lo
-//        que el generador EMITE; el día que se traigan los esquemas, son ellas
-//        las que hay que confrontar.
+//   Whether the SAT's official XSD accepts the file is not here: it is
+//   tests/sat/anexo24/official-xsd.spec.ts, against the schemas vendored in
+//   src/services/sat/anexo24/xsd/ (#397).
 // ============================================================
 
 const cta = (over: Partial<CuentaDeBalanza> = {}): CuentaDeBalanza => ({
