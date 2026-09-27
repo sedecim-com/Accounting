@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString, emailString, uuidString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -30,29 +31,29 @@ const router = Router();
 
 // ─── Schemas ───
 const createVendorSchema = z.object({
-  entity_id: z.string().uuid(),
-  company_name: z.string().min(1).max(255),
-  contact_name: z.string().max(255).optional(),
-  tax_id: z.string().max(50).optional(),
-  tax_id_type: z.string().max(20).optional(),
-  email: z.string().email().optional(),
-  phone: z.string().max(50).optional(),
-  payment_terms: z.string().max(50).optional(),
-  default_expense_account_id: z.string().uuid().optional(),
-  currency_code: z.string().length(3).optional(),
+  entity_id: uuidString(),
+  company_name: boundedString({ min: 1, max: 255 }),
+  contact_name: boundedString({ max: 255 }).optional(),
+  tax_id: boundedString({ max: 50 }).optional(),
+  tax_id_type: boundedString({ max: 20 }).optional(),
+  email: emailString().optional(),
+  phone: boundedString({ max: 50 }).optional(),
+  payment_terms: boundedString({ max: 50 }).optional(),
+  default_expense_account_id: uuidString().optional(),
+  currency_code: boundedString({ length: 3 }).optional(),
   bank_account_number: z.string().optional(),
   bank_routing_number: z.string().optional(),
-  clabe: z.string().length(18).optional(),
-  bank_name: z.string().max(255).optional(),
+  clabe: boundedString({ length: 18 }).optional(),
+  bank_name: boundedString({ max: 255 }).optional(),
   is_1099_vendor: z.boolean().optional(),
 });
 
 const updateVendorSchema = z.object({
-  company_name: z.string().min(1).max(255).optional(),
-  contact_name: z.string().max(255).optional(),
-  email: z.string().email().optional(),
-  phone: z.string().max(50).optional(),
-  payment_terms: z.string().max(50).optional(),
+  company_name: boundedString({ min: 1, max: 255 }).optional(),
+  contact_name: boundedString({ max: 255 }).optional(),
+  email: emailString().optional(),
+  phone: boundedString({ max: 50 }).optional(),
+  payment_terms: boundedString({ max: 50 }).optional(),
   is_active: z.boolean().optional(),
   notes: z.string().optional(),
 }).refine((o) => Object.keys(o).length > 0, { message: 'At least one field must be provided' });

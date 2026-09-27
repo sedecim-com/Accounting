@@ -120,6 +120,51 @@ function today(): string {
 }
 
 /**
+ * What invoice `i` still owed at the end of `asOfParam` (a SQL date parameter).
+ * The ONE definition: `customer show --as-of` and `invoice list --as-of` both
+ * bind it, so the two doors cannot disagree about the same document.
+ *
+ * It mirrors what moves the maintained `amount_due`, dated:
+ *
+ *   - cash: allocations of payments dated on or before the reference date.
+ *     Allocations carry no date of their own, so the payment's date counts.
+ *     A `void` payment never happened. A `reversed` one (NSF) happened and
+ *     bounced, so it counts only until its `reversed_at`; the reversal also
+ *     closes its allocations, which the next rule reads.
+ *   - `unapplied_at`: an allocation closed on or before the reference date
+ *     no longer settles anything; one closed after it still did that day.
+ *   - credit notes: applying one lowers `amount_due` without touching
+ *     `payment_allocations`, so it must be subtracted here or a fully
+ *     credited invoice reappears as owed.
+ *
+ * NOTE: `credit_note_applications` has only `created_at` (migration 049), no
+ * application date and no unapply. Dating a credit note "as of" therefore uses
+ * the moment it was applied, not the note's issue date: a note issued in
+ * January and applied in March still leaves the invoice owed at 31 January,
+ * which is what the auxiliary showed that day. Timestamps are cut to a date in
+ * the session time zone.
+ */
+export function amountDueAsOfSql(asOfParam: string): string {
+  const asOf = `${asOfParam}::date`;
+  return `(i.total_amount
+      - COALESCE((
+          SELECT SUM(pa.amount_applied)
+          FROM payment_allocations pa
+          JOIN customer_payments p ON p.id = pa.payment_id
+          WHERE pa.invoice_id = i.id
+            AND p.payment_date <= ${asOf}
+            AND p.status <> 'void'
+            AND (p.status <> 'reversed' OR p.reversed_at::date > ${asOf})
+            AND (pa.unapplied_at IS NULL OR pa.unapplied_at::date > ${asOf})
+        ), 0)
+      - COALESCE((
+          SELECT SUM(cna.amount_applied)
+          FROM credit_note_applications cna
+          WHERE cna.invoice_id = i.id AND cna.created_at::date <= ${asOf}
+        ), 0))`;
+}
+
+/**
  * What one invoice still owes, and what makes it count as an open document.
  *
  * Two modes, because "what do they owe?" and "what did they owe on 31 March?"
@@ -128,10 +173,9 @@ function today(): string {
  *   NOW (`reconstruct: false`) reads the maintained `amount_due` and the open
  *   statuses. It is the balance every other AR surface shows.
  *
- *   AS OF A DATE (`reconstruct: true`) rebuilds it: what was billed on
- *   documents dated on or before the reference date, minus the cash actually
- *   applied by then — allocations carry no date of their own, so the payment's
- *   date is the one that counts. The known limit, stated rather than hidden:
+ *   AS OF A DATE (`reconstruct: true`) rebuilds it with `amountDueAsOfSql`:
+ *   what was billed on documents dated on or before the reference date, minus
+ *   what had settled them by then. The known limit, stated rather than hidden:
  *   a document VOIDED after the reference date is treated as never having been
  *   open, because the void carries no date either.
  */
@@ -147,12 +191,7 @@ function openDocumentExpr(
     };
   }
   return {
-    amount: `(i.total_amount - COALESCE((
-        SELECT SUM(pa.amount_applied)
-        FROM payment_allocations pa
-        JOIN customer_payments p ON p.id = pa.payment_id
-        WHERE pa.invoice_id = i.id AND p.payment_date <= ${asOfParam}::date AND p.status <> 'void'
-      ), 0))`,
+    amount: amountDueAsOfSql(asOfParam),
     where: `i.status <> ALL(${statusParam}::text[]) AND i.invoice_date <= ${asOfParam}::date`,
   };
 }

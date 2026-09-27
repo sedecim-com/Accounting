@@ -673,6 +673,23 @@ export interface TrialBalanceReportRow extends TrialBalanceQueryRow {
   cuadra?: boolean;
 }
 
+/** The rows where SaldoIni + Debe − Haber ≠ SaldoFin, with the difference named. */
+function unbalancedRows(rows: readonly TrialBalanceReportRow[]): DescuadreDeCuenta[] {
+  return rows
+    .filter((r) => r.cuadra === false)
+    .map((r) => {
+      const esperado = new Decimal(r.beginning_balance ?? 0).plus(r.debit_total).minus(r.credit_total);
+      const fin = new Decimal(r.final_balance ?? 0);
+      return {
+        account_id: r.account_id,
+        account_code: r.account_code,
+        esperado: esperado.toFixed(LEDGER_SCALE),
+        obtenido: fin.toFixed(LEDGER_SCALE),
+        diferencia: esperado.minus(fin).toFixed(LEDGER_SCALE),
+      };
+    });
+}
+
 /**
  * Añade a cada fila su SaldoIni y su SaldoFin, y comprueba el invariante que
  * el SAT recalcula. Devuelve null cuando la balanza no tiene un ANTES.
@@ -720,24 +737,12 @@ async function conSaldoInicial(
   );
 
   const cero = new Decimal(0);
-  const descuadres: DescuadreDeCuenta[] = [];
   const rows: TrialBalanceReportRow[] = filas.map((r) => {
     const ini = iniciales.get(r.account_id) ?? cero;
     const fin = finales.get(r.account_id) ?? cero;
-    const esperado = ini.plus(r.debit_total).minus(r.credit_total);
-    const diferencia = esperado.minus(fin);
     // Sin tolerancia: las cuatro columnas son DECIMAL(19,4) exactas y el SAT
     // rehace la resta con las mismas cifras. Un céntimo aquí no es redondeo.
-    const cuadra = diferencia.isZero();
-    if (!cuadra) {
-      descuadres.push({
-        account_id: r.account_id,
-        account_code: r.account_code,
-        esperado: esperado.toFixed(LEDGER_SCALE),
-        obtenido: fin.toFixed(LEDGER_SCALE),
-        diferencia: diferencia.toFixed(LEDGER_SCALE),
-      });
-    }
+    const cuadra = ini.plus(r.debit_total).minus(r.credit_total).equals(fin);
     return {
       ...r,
       // Las cuatro columnas salen a la escala del mayor, no a la de la nota al
@@ -749,6 +754,7 @@ async function conSaldoInicial(
     };
   });
 
+  const descuadres = unbalancedRows(rows);
   const conArrastre = [...iniciales.values()].filter((v) => !v.isZero()).length;
   const partes: string[] = [];
   if (origen === 'mayor') {
@@ -826,21 +832,115 @@ export interface TrialBalanceOptions extends TrialBalanceFilters {
   limit?: number;
   offset?: number;
   scale?: number;
+  /**
+   * Each account carries its own figures PLUS those of its whole subtree
+   * (`accounts.parent_id`), and `maxLevel` then trims the rolled-up rows
+   * instead of dropping the money of the deeper levels. The Anexo 24 trial
+   * balance needs it: the SAT reads a ledger account as the sum of its
+   * subaccounts, and declaring it at zero is accepted and wrong (#323).
+   */
+  rollUp?: boolean;
+}
+
+/** Account id → the ids of all its ancestors, and the account's level. */
+export interface AccountAncestry {
+  level: number;
+  ancestors: readonly string[];
+}
+
+/**
+ * Every account of the entity with ALL its ancestors, from one recursive CTE.
+ * `UNION` (not `UNION ALL`) is what ends the recursion on a hand-edited
+ * `parent_id` cycle: the pair repeats and the working set empties.
+ */
+export async function queryAccountAncestry(entityId: string): Promise<Map<string, AccountAncestry>> {
+  const r = await query<{ account_id: string; account_level: number; ancestors: string[] }>(
+    `WITH RECURSIVE up AS (
+       SELECT a.id AS account_id, a.parent_id AS ancestor_id
+         FROM accounts a
+        WHERE a.entity_id = $1 AND a.parent_id IS NOT NULL
+       UNION
+       SELECT up.account_id, p.parent_id
+         FROM up JOIN accounts p ON p.id = up.ancestor_id AND p.entity_id = $1
+        WHERE p.parent_id IS NOT NULL
+     )
+     SELECT a.id AS account_id, a.account_level,
+            COALESCE(array_agg(up.ancestor_id::text) FILTER (WHERE up.ancestor_id IS NOT NULL),
+                     '{}'::text[]) AS ancestors
+       FROM accounts a LEFT JOIN up ON up.account_id = a.id
+      WHERE a.entity_id = $1
+      GROUP BY a.id, a.account_level`,
+    [entityId]
+  );
+  return new Map(
+    r.rows.map((x) => [x.account_id, { level: Number(x.account_level), ancestors: x.ancestors }])
+  );
+}
+
+const ROLLED_COLUMNS = ['debit_total', 'credit_total', 'ending_balance', 'beginning_balance', 'final_balance'] as const;
+
+/**
+ * THE roll-up: each row gets its own figures plus those of every row below it.
+ *
+ * Pure, and the only one: the Anexo 24 balanza and `trial-balance --level`
+ * (#100) both come through here, so there is no second place where a subtree
+ * can be summed differently. Every column is debit-positive or a plain sum of
+ * amounts, so a credit-nature child (accumulated depreciation under fixed
+ * assets) nets against its parent instead of adding to it. `cuadra` is
+ * recomputed on the rolled figures, because that is the row the SAT redoes.
+ */
+export function rollUpTrialBalanceRows(
+  rows: readonly TrialBalanceReportRow[],
+  ancestry: ReadonlyMap<string, AccountAncestry>
+): TrialBalanceReportRow[] {
+  const sums = new Map(
+    rows.map((r) => [r.account_id, ROLLED_COLUMNS.map((c) => new Decimal(r[c] ?? 0))])
+  );
+  for (const r of rows) {
+    const own = ROLLED_COLUMNS.map((c) => new Decimal(r[c] ?? 0));
+    for (const a of ancestry.get(r.account_id)?.ancestors ?? []) {
+      const acc = a === r.account_id ? undefined : sums.get(a);
+      if (acc) own.forEach((v, i) => (acc[i] = acc[i].plus(v)));
+    }
+  }
+  return rows.map((r) => {
+    const s = sums.get(r.account_id)!;
+    const out: TrialBalanceReportRow = { ...r };
+    ROLLED_COLUMNS.forEach((c, i) => {
+      if (r[c] !== undefined) out[c] = s[i].toFixed(LEDGER_SCALE);
+    });
+    if (r.cuadra !== undefined) out.cuadra = s[3].plus(s[0]).minus(s[1]).equals(s[4]);
+    return out;
+  });
 }
 
 export async function getTrialBalance(
   entityId: string,
   opts: TrialBalanceOptions = {}
 ): Promise<TrialBalanceReport> {
-  const all = await queryTrialBalanceRows(entityId, opts);
+  // Rolled up, the level cut happens AFTER summing: in SQL it would drop the
+  // deeper levels' money before anyone could add it to their parents.
+  const { maxLevel, ...withoutLevel } = opts;
+  const queryOpts = opts.rollUp ? withoutLevel : opts;
+  const all = await queryTrialBalanceRows(entityId, queryOpts);
 
   // El saldo inicial se resuelve ANTES de recortar: `--exclude-zero` tiene que
   // poder mirar las cuatro columnas. Una cuenta sin movimiento en el mes pero
   // con saldo arrastrado es exactamente la que el Anexo 24 necesita —el SAT
   // recalcula sobre su SaldoIni— y la que la versión anterior del filtro
   // dejaba fuera por tener el movimiento en cero.
-  const cuatroColumnas = await conSaldoInicial(entityId, opts, all);
-  const filas: TrialBalanceReportRow[] = cuatroColumnas?.rows ?? all;
+  const cuatroColumnas = await conSaldoInicial(entityId, queryOpts, all);
+  let filas: TrialBalanceReportRow[] = cuatroColumnas?.rows ?? all;
+  // Footed over the OWN figures: rolled rows would count each amount once
+  // per level of the tree.
+  const footing = opts.rollUp ? totalTrialBalance(filas, opts.scale ?? LEDGER_SCALE) : null;
+  if (opts.rollUp) {
+    const ancestry = await queryAccountAncestry(entityId);
+    filas = rollUpTrialBalanceRows(filas, ancestry).filter(
+      (r) => maxLevel === undefined || (ancestry.get(r.account_id)?.level ?? 1) <= maxLevel
+    );
+    if (cuatroColumnas) cuatroColumnas.inicial.descuadres = unbalancedRows(filas);
+  }
   const matched = opts.excludeZero
     ? filas.filter(
         (r) =>
@@ -851,7 +951,7 @@ export async function getTrialBalance(
     : filas;
 
   // Footing happens here, over every matched row, BEFORE the page is cut.
-  const totals = totalTrialBalance(matched, opts.scale ?? LEDGER_SCALE);
+  const totals = footing ?? totalTrialBalance(matched, opts.scale ?? LEDGER_SCALE);
   const offset = opts.offset ?? 0;
   const rows = opts.limit === undefined
     ? matched.slice(offset)

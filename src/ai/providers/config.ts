@@ -4,8 +4,10 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
+import { boundedString, integerNumber, recordOf, urlString } from '../../utils/zod-compat.js';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
 import { languageOfLocale, resolveLocale, type Locale } from '../../i18n/locale.js';
+import { parseForClient } from '../../utils/zod-client-errors.js';
 
 // ============================================================
 // PROVIDER CONFIG
@@ -513,8 +515,8 @@ export function ventanaDe(nombre: string, cwd = process.cwd()): VentanaContexto 
 const profileSchema = z
   .object({
     type: z.enum(['anthropic', 'openai-compatible']),
-    model: z.string().min(1),
-    base_url: z.string().url().optional(),
+    model: boundedString({ min: 1 }),
+    base_url: urlString().optional(),
     api_key_env: z.string().optional(),
     api_key_cmd: z.string().optional(),
     stream: z.boolean().optional(),
@@ -528,21 +530,21 @@ const profileSchema = z
     stream_usage: z.boolean().optional(),
     max_tokens_param: z.enum(['max_tokens', 'max_completion_tokens']).optional(),
     tools: z.boolean().optional(),
-    headers: z.record(z.string()).optional(),
-    max_iterations: z.number().int().min(1).max(100).optional(),
+    headers: recordOf(z.string()).optional(),
+    max_iterations: integerNumber().min(1).max(100).optional(),
     /**
      * Ordered failover chain: names of OTHER profiles to try when this one
      * fails with a failover-eligible error (see providers/failover.ts).
      * Validated lazily by resolveFailoverChain (existence, self-references,
      * cycles) so a chain naming a profile defined later in the file works.
      */
-    failover: z.array(z.string().min(1)).optional(),
+    failover: z.array(boundedString({ min: 1 })).optional(),
     /**
      * Per-profile skills allowlist: when present, it is the FINAL set of
      * firm skills the model may see (src/ai/skills/gating.ts). Absent =
      * every visible (ungated) skill.
      */
-    skills: z.array(z.string().min(1)).optional(),
+    skills: z.array(boundedString({ min: 1 })).optional(),
     note: z.string().optional(),
   })
   .strict();
@@ -578,21 +580,38 @@ const budgetSchema = z
 const compactionSchema = z
   .object({
     /** Auto-compact above this many estimated in-flight tokens; 0 = off. */
-    threshold_tokens: z.number().int().min(0).optional(),
+    threshold_tokens: integerNumber().min(0).optional(),
     /** Intact recent tail the compaction must keep. */
-    keep_recent_tokens: z.number().int().min(1).optional(),
+    keep_recent_tokens: integerNumber().min(1).optional(),
     /** Identifier survival policy; only 'strict' exists today. */
     identifier_policy: z.enum(['strict']).optional(),
     /**
      * Tope de TURNOS DE DESCARGA DE MEMORIA por sesión. Ver
      * MAX_DESCARGAS_MEMORIA_POR_SESION: 0 apaga la descarga automática, un
      * número grande devuelve la conducta de una por compactación.
+     * The largest accepted is 2^53 - 1 (T2, see configFileSchema).
      */
-    max_memory_flushes: z.number().int().min(0).optional(),
+    max_memory_flushes: integerNumber().min(0).optional(),
   })
   .strict();
 
-const configFileSchema = z
+// CONTRACT: what a mnemosine.config.json may hold, and the prose that refuses
+// it, pinned by tests/ai/providers/config-contract.spec.ts (#367). Two
+// tightenings of the Zod 4 migration reach it, declared in catalog-info.yaml
+// under provides.cli, each row of that spec with a zod 3 and a zod 4 answer:
+//   T1  JSON 1e999 (Infinity), which zod 3 loaded as a number, is refused as
+//       budget.daily_usd, budget.monthly_usd and ingest.auto_post_max_amount.
+//       Their readers (budgetFileValues, ingestFileValues and
+//       resolveIngestThresholds) already treated it as unset; now the file
+//       is refused instead.
+//   T2  an integer beyond 2^53 - 1, which JSON cannot carry exactly, is refused
+//       as compaction.threshold_tokens, keep_recent_tokens and
+//       max_memory_flushes.
+// Either way the file is quarantined like any invalid one, and every command
+// that reads the config says which key to fix. Where zod 3 already refused
+// 1e999 (a field that is not a number, an integer, a bound it breaks), the
+// message is zod 3's.
+export const configFileSchema = z
   .object({
     /** Language for the AGENT's responses (CLI UI is English). Default: es. */
     language: z.enum(['en', 'es']).optional(),
@@ -626,7 +645,7 @@ const configFileSchema = z
      */
     tenant: z.string().optional(),
     default_provider: z.string().optional(),
-    providers: z.record(profileSchema).optional(),
+    providers: recordOf(profileSchema).optional(),
     ingest: ingestSchema.optional(),
     budget: budgetSchema.optional(),
     compaction: compactionSchema.optional(),
@@ -693,9 +712,9 @@ export function loadConfigFile(cwd = process.cwd()): { config: MnemosineConfig; 
           (quarantined ? ` (rejected copy kept at ${quarantined})` : '')
       );
     }
-    const parsed = configFileSchema.safeParse(raw);
+    const parsed = parseForClient(configFileSchema, raw);
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      const issues = parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ');
       const quarantined = quarantineInvalidConfig(file);
       throw new Error(
         `Invalid configuration in ${file}: ${issues}` +
@@ -1041,6 +1060,7 @@ export const DEFAULT_COMPACTION_THRESHOLD_TOKENS = 150_000;
 //
 // El operador manda con `compaction.max_memory_flushes`: 0 apaga el barrido
 // automático del todo, y un número grande devuelve la conducta anterior.
+// The largest the config accepts is 2^53 - 1 (T2, see configFileSchema).
 export const MAX_DESCARGAS_MEMORIA_POR_SESION = 5;
 
 /**
@@ -1368,9 +1388,9 @@ export function writeConfigPatch(
   }
   const merged = deepMerge(existing, patch);
 
-  const parsed = configFileSchema.safeParse(merged);
+  const parsed = parseForClient(configFileSchema, merged);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    const issues = parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ');
     throw new Error(`Refusing to write an invalid configuration to ${file}: ${issues}`);
   }
 

@@ -779,7 +779,7 @@ describe('balance check · el contrato de salida §4', () => {
     const r = await correr(['e-accounting', 'balance', 'check', '--check', 'saldo', ...E]);
     expect(r.exitCode).toBe(ExitCode.USAGE);
     expect(String((r.errs[0] as Error).message)).toMatch(/saldo/);
-    expect(String((r.errs[0] as Error).message)).toMatch(/mayor-sin-agregar/);
+    expect(String((r.errs[0] as Error).message)).toMatch(/sin-sello/);
     expect(mundo.llamadas).toBe(0);
   });
 

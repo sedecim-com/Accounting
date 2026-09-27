@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { uuidString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -14,7 +15,7 @@ import { declararRiesgoRuta } from '../risk.js';
 const router = Router();
 
 const closePeriodSchema = z.object({
-  entity_id: z.string().uuid().optional(),
+  entity_id: uuidString().optional(),
 });
 
 // GET /v1/fiscal-periods

@@ -444,12 +444,6 @@ function xmlDeLaBalanza(): string {
   );
 }
 
-const POR_NUMERO = new Map(CATALOGO_DE_APERTURA.map((c) => [c.num, c]));
-const HIJAS_DE = new Map<string, string[]>();
-for (const c of CATALOGO_DE_APERTURA) {
-  if (c.padre !== undefined) HIJAS_DE.set(c.padre, [...(HIJAS_DE.get(c.padre) ?? []), c.num]);
-}
-
 /** Deudor positivo. Es el único eje en el que un árbol contable se suma. */
 const ejeDelMayor = (natur: 'D' | 'A'): number => (natur === 'D' ? 1 : -1);
 
@@ -474,49 +468,19 @@ function importesPublicados(
 }
 
 /**
- * El acumulado de una cuenta CON SU SUBÁRBOL, en el eje del mayor.
- *
- * Hace falta porque `generarBalanza` NO agrega —lo declara `verificarMayorSinAgregar`
- * de F07b— mientras que el Anexo 24 declara cada mayor INCLUYENDO sus
- * subcuentas. Sin esta suma, las nueve cuentas de nivel 1 y 2 darían un falso
- * descuadre; y sin el eje, «171 Depreciación» (acreedora) bajo «100 Activo»
- * (deudor) sumaría en vez de restar y el activo saldría 292 000 en vez de
- * 232 000.
+ * The published figure of ONE account, in the ledger axis. No subtree sum:
+ * since #323 `generarBalanza` declares each ledger account with its
+ * subaccounts inside, as the Anexo 24 does, so the source file and ours are
+ * compared figure to figure. «171 Depreciación» (credit) under «100 Activo»
+ * (debit) must come out netted — 232 000, not 292 000 — and that is now the
+ * roll-up's job, judged here from the outside.
  */
-/**
- * El movimiento del subárbol, `Debe − Haber`, SIN traducir naturaleza.
- *
- * Es el hermano imprescindible del cotejo de saldos, y la razón es fina: una
- * inversión GLOBAL de la naturaleza —leer `Natur="D"` como acreedora— se
- * cancela sola en la ida y la vuelta. La apertura postea invertida y
- * `generarBalanza` publica con la MISMA convención invertida, así que el
- * SaldoFin que sale del XML es idéntico al del archivo mientras el mayor
- * queda con el activo de saldo acreedor por dentro.
- *
- * `Debe − Haber` no tiene convención que invertir: ES el eje del mayor por
- * definición. Comparado contra la naturaleza que declara el ARCHIVO —la
- * única referencia de fuera— dice de qué lado entró cada peso.
- */
-function movimientoDelSubarbol(
+function publicadoEnElEje(
   num: string,
-  debe: ReadonlyMap<string, Decimal>,
-  haber: ReadonlyMap<string, Decimal>
+  natur: 'D' | 'A',
+  publicado: ReadonlyMap<string, Decimal>
 ): Decimal {
-  const propio = (debe.get(num) ?? new Decimal(0)).minus(haber.get(num) ?? new Decimal(0));
-  return (HIJAS_DE.get(num) ?? []).reduce(
-    (suma, hija) => suma.plus(movimientoDelSubarbol(hija, debe, haber)),
-    propio
-  );
-}
-
-function acumuladoDelSubarbol(num: string, publicado: ReadonlyMap<string, Decimal>): Decimal {
-  const cuenta = POR_NUMERO.get(num);
-  if (cuenta === undefined) return new Decimal(0);
-  const propio = (publicado.get(num) ?? new Decimal(0)).times(ejeDelMayor(cuenta.natur));
-  return (HIJAS_DE.get(num) ?? []).reduce(
-    (suma, hija) => suma.plus(acumuladoDelSubarbol(hija, publicado)),
-    propio
-  );
+  return (publicado.get(num) ?? new Decimal(0)).times(ejeDelMayor(natur));
 }
 
 export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
@@ -1070,6 +1034,14 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
           'mayor de qué signo es cada cuenta, y con ella invertida la balanza que publicamos sale ' +
           'con el signo cambiado en las diecisiete',
       },
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: 'if (acc) own.forEach((v, i) => (acc[i] = acc[i].plus(v)));',
+        a: 'if (acc) own.forEach(() => undefined);',
+        porque:
+          'the roll-up stops adding the subaccounts: «100 Activo» goes back to its own zero while ' +
+          'the source file declares 232 000 for it (#323)',
+      },
     ],
     correr: async (app) => {
       const inq = await crearInquilino(app, 'O1 · apertura al peso');
@@ -1132,7 +1104,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         const publicado = importesPublicados(nuestra.xml, columna);
         for (const c of CATALOGO_DE_APERTURA) {
           const esperado = new Decimal(c.saldo).times(ejeDelMayor(c.natur));
-          const obtenido = acumuladoDelSubarbol(c.num, publicado);
+          const obtenido = publicadoEnElEje(c.num, c.natur, publicado);
           if (!obtenido.equals(esperado)) {
             diferencias.push(
               `${columna} de ${c.num} "${c.desc}": el archivo dice ${esperado.toFixed(2)} y ` +
@@ -1153,7 +1125,9 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       const haber = importesPublicados(enero.xml, 'Haber');
       for (const c of CATALOGO_DE_APERTURA) {
         const esperado = new Decimal(c.saldo).times(ejeDelMayor(c.natur));
-        const obtenido = movimientoDelSubarbol(c.num, debe, haber);
+        // `Debe − Haber` has no nature to invert: it IS the ledger axis, so a
+        // global inversion of Natur that cancels out in SaldoFin shows here.
+        const obtenido = (debe.get(c.num) ?? new Decimal(0)).minus(haber.get(c.num) ?? new Decimal(0));
         if (!obtenido.equals(esperado)) {
           diferencias.push(
             `Debe−Haber de ${c.num} "${c.desc}": el archivo declara ${esperado.toFixed(2)} y la ` +
