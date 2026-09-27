@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 207 of 322 subcommands
+  spelling is `-T` at the root and `-t` on the 208 of 324 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -66,6 +66,7 @@ Commands:
   entity|entidad                         Select and inspect the legal entity commands operate on
   payment|pago                           Vendor payments: record cash that already left the bank and settle the bill it pays
   account|cuenta                         Chart of accounts: inspect, create and retire accounts
+  opening-balance|saldo-inicial          Opening balances migrated from the Anexo 24 trial balance of the previous system
   entry|poliza                           Journal entries: draft, inspect, validate, post, reverse and void
   period|periodo                         Fiscal periods: what exists, what state it is in, and opening a future one
   year|ejercicio                         Fiscal years: the calendar an entity keeps its books in
@@ -1710,6 +1711,47 @@ Examples:
   mnemosine account restore 6150
   # Do it on a named entity instead of the active one.
   mnemosine account restore 6150 --entity "Molinos del Bajio SA de CV"
+```
+
+## `mnemosine opening-balance` (alias: saldo-inicial)
+
+```
+Usage: mnemosine opening-balance|saldo-inicial [options] [command]
+
+Opening balances migrated from the Anexo 24 trial balance of the previous system
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  check|verificar [options] <file>  Compare the source trial balance against the
+                                    ledger on the opening day, to the peso;
+                                    exits 4 if they differ
+  help [command]                    display help for command
+```
+
+### `mnemosine opening-balance check` (alias: verificar)
+
+```
+Usage: mnemosine opening-balance check|verificar [options] <file>
+
+Compare the source trial balance against the ledger on the opening day, to the
+peso; exits 4 if they differ
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # Exits 0 when the ledger equals the source to the peso, 4 when it does not.
+  mnemosine opening-balance check ./migration/balanza-2025-12.xml
 ```
 
 ## `mnemosine entry` (alias: poliza, asiento)
