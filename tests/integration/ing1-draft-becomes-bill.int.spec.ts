@@ -18,14 +18,25 @@ vi.mock('../../src/ai/draft-service.js', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   resolveReviewer: () => Promise.resolve(who.reviewer),
 }));
+// PR1b: the real engine, wrapped so one test can fail the approval AFTER the
+// vendor, the bill and the entry were written.
+vi.mock('../../src/services/accounting/posting.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/accounting/posting.js')>();
+  return { ...real, createJournalEntry: vi.fn(real.createJournalEntry) };
+});
 
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
-import { drainAttestations } from '../../src/services/accounting/posting.js';
+import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
+import { grantApproval } from '../../src/ai/approval-policy.js';
+import aiRouter from '../../src/api/rest/routes/ai.js';
+import { levantar, pedir, sesionDe } from './helpers/servidor.js';
+import { vendorToRegister } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { ingestCfdiFiles, type DraftCapture } from '../../src/ai/ingest-service.js';
 import { OpenAiCompatSession } from '../../src/ai/providers/openai-compat.js';
 import {
   approveDraft,
+  autoApproveDraftByPolicy,
   canonicalDraftHash,
   getDraft,
   type DraftLine,
@@ -106,6 +117,8 @@ interface IngestOptions {
   secondReply?: (capture: DraftCapture) => Promise<unknown>;
   /** The ingest status this file is expected to end in (default 'draft'). */
   expectStatus?: string;
+  /** Turns the auto-post on (default off: the draft waits for review). */
+  autoPost?: boolean;
 }
 
 async function ingest(
@@ -153,7 +166,7 @@ async function ingest(
   );
   const report = await ingestCfdiFiles({
     ctx, reviewer, files: [file],
-    thresholds: { autoPost: false, minConfidence: 0.95, maxAmount: 10000 },
+    thresholds: { autoPost: o.autoPost ?? false, minConfidence: 0.95, maxAmount: 10000 },
     session, capture,
   });
   expect(report.results[0].status, report.results[0].detail).toBe(o.expectStatus ?? 'draft');
@@ -421,5 +434,150 @@ describe('ING-1 · the CFDI link is born with the draft (WIT-01)', () => {
     expect(await statusOf(draftId)).toBe('rejected');
     const draft = await getDraft(ctx, draftId);
     expect(draft!.pre_registration_id ?? null).toBeNull();
+  });
+});
+
+describe('ING-1 · PR1b · proveedor_desconocido_al_aprobar', () => {
+  // One issuer per test, RFC AND name: a «s» registers its vendor for good,
+  // and the ingest matches vendors by name too (similarity > 0.7).
+  const NEW_NAME = "Proveedor O'Nuevo SC";
+  const pctx = () => ({ tenantId: f.tenantId, entityId: f.entityId });
+
+  async function vendorsWith(rfc: string): Promise<number> {
+    return Number((await query<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM vendors WHERE entity_id = $1 AND tax_id = $2`, [f.entityId, rfc]
+    )).rows[0].n);
+  }
+
+  /** A fresh CFDI from an unregistered issuer, ingested to one pending draft. */
+  async function unknownIssuerDraft(rfc: string, o: IngestOptions = {}, name = `Emisor ${rfc}`) {
+    const { xml, uuid } = cfdi({ rfc, name });
+    const [draftId] = await ingest(xml, [PPD], o);
+    const d = await getDraft(ctx, draftId);
+    return { draftId, uuid, rfc, hash: canonicalDraftHash(d!.payload, d!.origin) };
+  }
+
+  /** Nothing of the act survived: no vendor, no bill, no entry, the draft pending. */
+  async function nothingWritten(
+    { draftId, uuid, rfc }: { draftId: string; uuid: string; rfc: string },
+    entriesBefore: number
+  ) {
+    expect(await vendorsWith(rfc)).toBe(0);
+    expect(await billsOf(uuid)).toHaveLength(0);
+    expect(await entryCount()).toBe(entriesBefore);
+    expect(await statusOf(draftId)).toBe('pending_review');
+    expect((await preRegOf(uuid)).status).not.toBe('completed');
+  }
+
+  async function withAsk<T>(fn: () => Promise<T>): Promise<T> {
+    await resolvePolicy(pctx(), 'proveedor_desconocido_al_aprobar', 'preguntar', reviewer.email);
+    try {
+      return await fn();
+    } finally {
+      await reopenPolicy(pctx(), 'proveedor_desconocido_al_aprobar');
+    }
+  }
+
+  it('rechazar (default): refuses naming the RFC, the name and the command, and ignores a yes', async () => {
+    const draft = await unknownIssuerDraft('NUE020202BBB', {}, NEW_NAME);
+    const before = await entryCount();
+    const err = await approve(draft.draftId).then(() => new Error('approved'), (e: unknown) => e as Error);
+    expect(err.message).toContain('RFC NUE020202BBB');
+    expect(err.message).toContain(NEW_NAME);
+    expect(err.message).toContain("mnemosine vendor create 'Proveedor O'\\''Nuevo SC' --tax-id NUE020202BBB");
+    // Under 'rechazar' there is nothing to offer, and a consent changes nothing.
+    expect(vendorToRegister(err)).toBeNull();
+    await expect(approveDraft(ctx, draft.draftId, reviewer, undefined, draft.hash, undefined, { taxId: draft.rfc }))
+      .rejects.toThrow(/vendor catalog/);
+    await nothingWritten(draft, before);
+  });
+
+  it('preguntar + «N»: the same refusal as rechazar, and the review is told it may ask', async () => {
+    await withAsk(async () => {
+      const draft = await unknownIssuerDraft('NUE040404DDD');
+      const before = await entryCount();
+      const err = await approve(draft.draftId).then(() => new Error('approved'), (e: unknown) => e as Error);
+      expect(err.message).toMatch(/RFC NUE040404DDD.*vendor catalog.*mnemosine vendor create/);
+      expect(vendorToRegister(err)).toEqual({ name: 'Emisor NUE040404DDD', rfc: 'NUE040404DDD' });
+      await nothingWritten(draft, before);
+    });
+  });
+
+  it('preguntar + «s»: vendor, bill and entry are born together', async () => {
+    await withAsk(async () => {
+      const { draftId, uuid, hash } = await unknownIssuerDraft('NUE050505EEE');
+      // A yes for another RFC is not a yes for this issuer.
+      await expect(approveDraft(ctx, draftId, reviewer, undefined, hash, undefined, { taxId: VENDOR_RFC }))
+        .rejects.toThrow(/vendor catalog/);
+      const posted = await approveDraft(ctx, draftId, reviewer, undefined, hash, undefined, { taxId: 'NUE050505EEE' });
+      const [vendor] = (await query<{ id: string; created_by: string }>(
+        `SELECT id, created_by FROM vendors WHERE entity_id = $1 AND tax_id = $2`, [f.entityId, 'NUE050505EEE']
+      )).rows;
+      expect(vendor.created_by).toBe(reviewer.userId);
+      const [bill] = await billsOf(uuid);
+      expect(bill.journal_entry_id).toBe(posted.entryId);
+      expect((await query<{ vendor_id: string }>(`SELECT vendor_id FROM bills WHERE id = $1`, [bill.id])).rows[0].vendor_id)
+        .toBe(vendor.id);
+      expect(await statusOf(draftId)).toBe('approved');
+    });
+  });
+
+  it('preguntar + «s»: a failure after the vendor, the bill and the entry leaves none of the three', async () => {
+    await withAsk(async () => {
+      const draft = await unknownIssuerDraft('NUE030303CCC');
+      const before = await entryCount();
+      const real = (await vi.importActual<typeof import('../../src/services/accounting/posting.js')>(
+        '../../src/services/accounting/posting.js'
+      )).createJournalEntry;
+      vi.mocked(createJournalEntry).mockImplementationOnce(async (...args) => {
+        await real(...args);
+        throw new Error('injected after the entry');
+      });
+      await expect(approveDraft(ctx, draft.draftId, reviewer, undefined, draft.hash, undefined, { taxId: draft.rfc }))
+        .rejects.toThrow(/injected/);
+      expect(vi.mocked(createJournalEntry)).toHaveBeenCalled();
+      await nothingWritten(draft, before);
+    });
+  });
+
+  it('preguntar never asks through an unattended door: threshold, policy, ingest and REST all refuse', async () => {
+    await withAsk(async () => {
+      // Threshold auto-post: evaluarAutoPost already sends a new vendor to the
+      // policy path, and approveDraft with the threshold's own arguments refuses.
+      const threshold = await unknownIssuerDraft('NUE060606FFF', { autoPost: true });
+      const before = await entryCount();
+      await expect(approveDraft(ctx, threshold.draftId, reviewer, 'auto-post by threshold'))
+        .rejects.toThrow(/vendor catalog/);
+      await nothingWritten(threshold, before);
+
+      // Approval policy, called directly and through the ingest's policy path.
+      const grant = () => grantApproval(ctx, {
+        scope: 'draft', pattern: { max_amount: '10000' }, mode: 'once', grantedBy: reviewer.email,
+      });
+      await grant();
+      await expect(autoApproveDraftByPolicy(ctx, threshold.draftId, { configuredMaxAmount: 10000 }))
+        .rejects.toThrow(/vendor catalog/);
+      await nothingWritten(threshold, before);
+      const policyId = await grant();
+      const viaIngest = await unknownIssuerDraft('NUE060606FFF', { autoPost: true });
+      expect((await query<{ used: boolean }>(
+        `SELECT last_used_at IS NOT NULL AS used FROM ai_approval_policies WHERE id = $1 AND entity_id = $2`,
+        [policyId, f.entityId]
+      )).rows[0].used).toBe(true);
+      await nothingWritten(viaIngest, before);
+
+      // REST: even a body that asks for the vendor is not a person's yes.
+      const server = await levantar([['/v1/ai', aiRouter]], sesionDe(f));
+      try {
+        const r = await pedir(server, 'POST', `/v1/ai/drafts/${threshold.draftId}/approve`, {
+          notes: 'rest', allow_new_vendor: true, newVendor: { taxId: threshold.rfc },
+        });
+        expect(r.status).toBe(422);
+        expect(JSON.stringify(r.body)).toContain(threshold.rfc);
+      } finally {
+        await server.cerrar();
+      }
+      await nothingWritten(threshold, before);
+    });
   });
 });
