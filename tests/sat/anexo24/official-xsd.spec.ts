@@ -91,6 +91,8 @@ describe('the vendored schemas', () => {
       ['--nonet', '--noout', '--schema', path.join(XSD_ROOT, OFFICIAL_SCHEMAS.chart), '-'],
       { input: '<x/>', encoding: 'utf8', env }
     );
+    // Name the missing binary instead of failing on `status: null`.
+    expect(run.error?.message, 'xmllint did not run: install libxml2-utils').toBeUndefined();
     expect(run.status).toBe(5);
     expect(run.stderr).toContain('failed to compile');
   });
