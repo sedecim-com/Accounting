@@ -49,11 +49,11 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **237 comandos** repartidos en **67 familias** de primer nivel. De las **1635** filas del catálogo, **222** (13.6 %) ya se pueden invocar.
+El binario ejecuta hoy **238 comandos** repartidos en **68 familias** de primer nivel. De las **1635** filas del catálogo, **223** (13.6 %) ya se pueden invocar.
 
 Del motor que cada comando necesita, **276** filas lo declaran completo, **388** a medias y **971** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **390** filas, de las que **197** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **390** filas, de las que **198** ya se teclean.
 
 **El objetivo comprometible son 1392 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
@@ -78,7 +78,7 @@ Contadas por COMANDO, las 1635 filas son **1613 rutas únicas**: **17 rutas** es
 | `batch` | 7 | 5 |
 | `credit-note` | 7 | 5 |
 
-**1 de 617** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
+**1 de 616** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
 _Que una cita resuelva no prueba que siga apuntando a lo mismo: sólo que el archivo existe y tiene esa línea. El juicio ✅/🟡/❌ de cada fila es humano y se revisa a mano._
 
@@ -536,7 +536,7 @@ Cierra el único hueco estructural del catálogo: 27 filas de comando aceptan `-
 | `mnemosine year memo generate --account <name>` · `ejercicio memo generar` | Genera el papel de trabajo y el **borrador** de póliza de las cuentas de orden fiscales 801–813 (CUFIN, CUFINRE, CUCA, UFIN, ajuste anual por inflación, pérdidas fiscales, PTU); nunca se aplica solo | `--account`, `--year`, `--dry-run`, `--json` | ❌ el cálculo LISR/INPC pertenece a la familia fiscal MX; aquí vive únicamente el registro en cuentas de orden. Se colapsan siete comandos en uno porque el asiento resultante es siempre el mismo objeto | escritura | ✓ | 3 |
 | `mnemosine opening-balance import <file>` · `saldo-inicial importar` | Carga saldos iniciales desde archivo con fecha del día anterior al arranque, dejando la diferencia en la cuenta de cuadre indicada y un pendiente abierto. **Deja borrador; nunca aplica** | `--as-of`, `--layout`, `--balance-account`, `--dry-run`, `--idempotency-key` | 🟡 es el gemelo dirigido por archivo de `onboard`, que no se toca: `planOnboarding`/`executeOnboarding` (src/ai/onboarding-service.ts:72, :169) ya resuelven idempotencia por referencia `onboarding:<provider>:<cutoff>` (:78), cuadre por `--balance-account` (:191-212) y el camino a borrador. Falta el lector de archivo. A diferencia de `onboard`, **no se expone `--post`**: aplicar sigue siendo `review` o `entry post` | escritura | ✓ | 1 |
 | `mnemosine opening-balance show` · `saldo-inicial ver` | Muestra la póliza de apertura vigente, su referencia idempotente, su estado (`draft`, `loaded`, `verified`) y su cuadre | `--json` | 🟡 la referencia se construye en src/ai/onboarding-service.ts:78 y se consulta contra `journal_entries.reference` (:81-84); falta la lectura como comando | lectura | ✓ | 1 |
-| `mnemosine opening-balance check` · `saldo-inicial verificar` | Verifica localmente que la apertura cuadre y que los auxiliares (facturas y gastos abiertos, partidas de banco) sumen exactamente sus cuentas de control; sale 4 si no cuadra | `--check <name,…>`, `--as-of`, `--subledger`, `--strict`, `--json` | 🟡 `diffTrialBalance` (src/ai/external-service.ts:55, invocada en src/cli/mnemosine.ts:1400) compara contra el **sistema externo**, no contra los auxiliares locales; es complementaria, no la misma verificación | lectura | ✓ | 1 |
+| `mnemosine opening-balance check <file>` · `saldo-inicial verificar` | Coteja la `BalanzaComprobacion` de origen contra el mayor al día de la apertura, cuenta por cuenta y agregando el subárbol: sale 0 iguales al peso y 4 si no cuadra, nombrando la cuenta y la diferencia. Pendiente: que los auxiliares (facturas y gastos abiertos, partidas de banco) sumen exactamente sus cuentas de control | `--json`; pendientes `--check <name,…>`, `--as-of`, `--subledger`, `--strict` | 🟡 **el cotejo contra el origen, hecho en MNE-001-018**: src/cli/anexo24-migration-command.ts → `checkOpeningBalance` → `compareToSource` (src/services/accounting/opening-balance-check.ts). `diffTrialBalance` (src/ai/external-service.ts:55) compara contra el **sistema externo** y es complementaria | lectura | ✓ | 1 |
 | `mnemosine opening-balance suspense generate` · `saldo-inicial puente generar` | Reporta el saldo de la cuenta de cuadre de apertura y arma el borrador de reclasificación que la lleva a cero | `--account`, `--dry-run` | 🟡 hoy `executeOnboarding` (src/ai/onboarding-service.ts:191-212) manda el desbalance a la cuenta que se le pase en `--balance-account` (típicamente 3200) y ahí se queda sin seguimiento; falta el reporte y la propuesta | escritura | ✓ | 2 |
 
 #### Multimoneda
