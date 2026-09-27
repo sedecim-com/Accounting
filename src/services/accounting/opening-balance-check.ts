@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { naturDe, saldoDelMayor, type Natur } from '../sat/anexo24/balanza-invariantes.js';
 import type { BalanceFileRow } from '../sat/anexo24/balance-reader.js';
+import { MEMORANDUM_DOCTRINE } from './sat-agrupador-account-type.js';
 
 // ============================================================
 // O1 · EL COTEJO AL PESO — EL CRITERIO DE ACEPTACIÓN, ESCRITO
@@ -25,6 +26,16 @@ import type { BalanceFileRow } from '../sat/anexo24/balance-reader.js';
 // The ledger axis (debit-positive) still matters to PRINT a difference in the
 // account's own nature, which is where an accountant looks for it; the sum of
 // a credit child under a debit parent is now report-service's business.
+//
+// ── MEMORANDUM ACCOUNTS STAY OUT OF THE FOOTING (#219) ─────────────────
+//
+// The 8xx (UFIN, CUFIN, CUCA…) do not migrate in this version: the owner
+// decided it on 2026-09-26 and the doctrine is in `MEMORANDUM_DOCTRINE`. The
+// source declares them and our chart never has them, so without being told
+// the judge would call each one a missing account and never come out equal.
+// The caller names them (`memorandum`); they are not compared, and every one
+// is REPORTED as excluded with the source's figure: an exclusion that is not
+// written down is a difference someone hid.
 // ============================================================
 
 /** La forma del árbol y la naturaleza de cada cuenta: lo que el cotejo necesita. */
@@ -59,6 +70,8 @@ export interface BalanceComparison {
   faltantes: readonly string[];
   /** Dinero nuestro que el origen no declara NI BAJO UN ANTEPASADO SUYO. */
   sobrantes: readonly { numCta: string; importe: string }[];
+  /** Memorandum accounts of the source left out of the footing, with the figure it declares. */
+  excluded: readonly { code: string; amount: string }[];
   /** El veredicto. */
   iguales: boolean;
 }
@@ -148,12 +161,16 @@ function alEjeDeLaSuma(valor: string, natur: Natur, columna: BalanceColumn): Dec
  * Both files declare every ledger account with its subaccounts inside (the
  * Anexo 24 convention, and ours since #323), so the comparison is account to
  * account and nothing is summed here.
+ *
+ * `memorandum` names the source's memorandum accounts (#219): they are left
+ * out of the footing and listed in `excluded`, never silently dropped.
  */
 export function compareToSource(
   origen: readonly BalanceFileRow[],
   nuestra: readonly BalanceFileRow[],
   shapes: readonly AccountShape[],
-  columna: BalanceColumn = 'SaldoFin'
+  columna: BalanceColumn = 'SaldoFin',
+  memorandum: ReadonlySet<string> = new Set()
 ): BalanceComparison {
   const natur = new Map(shapes.map((s) => [s.code, s.natur]));
   const padre = new Map(shapes.map((s) => [s.code, s.parentCode]));
@@ -168,9 +185,20 @@ export function compareToSource(
 
   const diferencias: BalanceDifference[] = [];
   const faltantes: string[] = [];
-  const declaradasPorElOrigen = new Set(origen.map((f) => f.numCta));
-
+  const excluded: { code: string; amount: string }[] = [];
+  const comparables: BalanceFileRow[] = [];
   for (const f of origen) {
+    if (memorandum.has(f.numCta)) {
+      excluded.push({ code: f.numCta, amount: new Decimal(columnaDe(f, columna)).toFixed(ESCALA) });
+    } else {
+      comparables.push(f);
+    }
+  }
+  // An excluded code does not count as declared: money OUR ledger carries on
+  // it is money the source keeps off the balance, and it surfaces as surplus.
+  const declaradasPorElOrigen = new Set(comparables.map((f) => f.numCta));
+
+  for (const f of comparables) {
     const n = natur.get(f.numCta);
     if (n === undefined) {
       // El origen declara una cuenta que nuestro plan no tiene. No es una
@@ -215,18 +243,24 @@ export function compareToSource(
 
   return {
     columna,
-    comparadas: origen.length - faltantes.length,
+    comparadas: comparables.length - faltantes.length,
     diferencias,
     faltantes,
     sobrantes,
+    excluded,
     iguales: diferencias.length === 0 && faltantes.length === 0 && sobrantes.length === 0,
   };
 }
 
 /** El cotejo en texto, para quien lo está mirando en una terminal. */
 export function renderBalanceComparison(c: BalanceComparison): string {
+  const excludedLines = c.excluded.map(
+    (e) =>
+      `  ${e.code}: cuenta de orden, fuera del cuadre (el origen declara ${e.amount}); ` +
+      `no se migra, ver ${MEMORANDUM_DOCTRINE}`
+  );
   if (c.iguales) {
-    return `${c.columna}: ${c.comparadas} cuentas cotejadas · IGUALES AL PESO.`;
+    return [`${c.columna}: ${c.comparadas} cuentas cotejadas · IGUALES AL PESO.`, ...excludedLines].join('\n');
   }
   const l: string[] = [
     `${c.columna}: ${c.comparadas} cuentas cotejadas · ${c.diferencias.length} con diferencia · ` +
@@ -241,5 +275,6 @@ export function renderBalanceComparison(c: BalanceComparison): string {
   for (const s of c.sobrantes) {
     l.push(`  ${s.numCta}: aquí lleva ${s.importe} y el origen no la declara ni a ella ni a un padre suyo`);
   }
+  l.push(...excludedLines);
   return l.join('\n');
 }

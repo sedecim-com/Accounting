@@ -15,6 +15,7 @@ import {
   baseDesdeNaturaleza,
   baseOfAccountType,
   naturalezaDelTipo,
+  MEMORANDUM_DOCTRINE,
   type AgrupadorReading,
   type BaseAccountType,
 } from './sat-agrupador-account-type.js';
@@ -67,6 +68,9 @@ import type { AccountType, NormalBalance } from './account-service.js';
 //    criterio de esta tarjeta —la balanza vieja y la nuestra iguales AL
 //    PESO— dejaría de significar nada. Con `parcial: true` se escribe lo que
 //    se pueda, a sabiendas y por decisión de quien migra.
+//    The one exception is the memorandum accounts (8xx): they stay out by
+//    doctrine (#219, `MEMORANDUM_DOCTRINE`), not by defect, so they never
+//    make the chart incomplete.
 //
 // ── DOS COSAS QUE EL ARCHIVO NO DICE Y AQUÍ NO SE INVENTAN ──────────────
 //
@@ -167,8 +171,18 @@ export interface ChartImportPlan {
   findings: readonly CatalogReadFinding[];
   /** false si el archivo trae un defecto que impide importar nada. */
   puedeImportarse: boolean;
-  /** true cuando toda fila del archivo o se crea o ya estaba. */
+  /**
+   * true when every row of the file is created, already existed, or is a
+   * memorandum account left out BY DOCTRINE (`MEMORANDUM_DOCTRINE`, #219):
+   * that omission is the rule, not a defect, so it must not trip the
+   * all-or-nothing refusal.
+   */
   completa: boolean;
+}
+
+/** The rows left out by a defect, as opposed to the memorandum accounts left out by doctrine. */
+function defectiveOmissions(skipped: readonly SkippedRow[]): SkippedRow[] {
+  return skipped.filter((o) => o.motivo !== 'cuentas_de_orden');
 }
 
 function finding(
@@ -303,6 +317,31 @@ export function planSatChartImport(
   /** La profundidad efectiva de cada código, ya sea nueva o preexistente. */
   const nivelResuelto = new Map<string, number>();
   const descartadas = new Set<string>();
+  /**
+   * Memorandum accounts, and every row that hangs from one: a subaccount of
+   * UFIN is UFIN too, whatever its own CodAgrup says, so the whole 8xx
+   * subtree stays out by the same doctrine and none of it blocks.
+   */
+  const memorandum = new Set<string>();
+  const leaveOutAsMemorandum = (r: CatalogFileRow, detail: string, why: string): void => {
+    descartadas.add(r.numCta);
+    memorandum.add(r.numCta);
+    omitidas.push({ fila: r.fila, code: r.numCta, motivo: 'cuentas_de_orden', detalle: detail });
+    findings.push(
+      finding(
+        'IMP-CUENTAS-DE-ORDEN',
+        'aviso',
+        r.fila,
+        r.numCta,
+        `${why} Una cuenta de ORDEN es de memoria, fuera del balance y en pareja con su ` +
+          `contracuenta. Este esquema sólo tiene activo, pasivo, capital, ingreso y gasto, así que ` +
+          `no hay casilla honesta donde ponerla; meterla en cualquiera sumaría al balance dinero ` +
+          `que no existe. Las cuentas de orden NO se migran en esta versión: se quedan fuera, no ` +
+          `bloquean la importación, y la doctrina —qué hacer con la CUFIN, la CUCA o la UFIN— ` +
+          `está en ${MEMORANDUM_DOCTRINE}.`
+      )
+    );
+  };
 
   for (const e of existentes) {
     const base = baseOfAccountType(e.account_type);
@@ -358,6 +397,14 @@ export function planSatChartImport(
     let parentYaExistia = false;
     let nivelDelPadre = 0;
     if (r.subCtaDe !== null) {
+      if (memorandum.has(r.subCtaDe)) {
+        leaveOutAsMemorandum(
+          r,
+          `SubCtaDe="${r.subCtaDe}"`,
+          `"${r.numCta}" cuelga de "${r.subCtaDe}", que es cuenta de orden, así que también lo es.`
+        );
+        continue;
+      }
       if (descartadas.has(r.subCtaDe)) {
         descartadas.add(r.numCta);
         omitidas.push({
@@ -418,25 +465,10 @@ export function planSatChartImport(
     if (agrupador.verdict === 'cuentas_de_orden') {
       // NO hereda del padre a propósito: heredar metería una cuenta de orden
       // en el balance, que es justo lo que se está evitando.
-      descartadas.add(r.numCta);
-      omitidas.push({
-        fila: r.fila,
-        code: r.numCta,
-        motivo: 'cuentas_de_orden',
-        detalle: `CodAgrup="${r.codAgrup}" (${agrupador.rubroNombre ?? ''})`,
-      });
-      findings.push(
-        finding(
-          'IMP-CUENTAS-DE-ORDEN',
-          'aviso',
-          r.fila,
-          r.numCta,
-          `"${r.numCta}" tiene agrupador ${r.codAgrup} (${agrupador.rubroNombre ?? 'cuentas de orden'}), ` +
-            `que es una cuenta de ORDEN: de memoria, fuera del balance y en pareja con su ` +
-            `contracuenta. Este esquema sólo tiene activo, pasivo, capital, ingreso y gasto, así que ` +
-            `no hay casilla honesta donde ponerla; meterla en cualquiera sumaría al balance dinero ` +
-            `que no existe. Se queda fuera y se dice.`
-        )
+      leaveOutAsMemorandum(
+        r,
+        `CodAgrup="${r.codAgrup}" (${agrupador.rubroNombre ?? ''})`,
+        `"${r.numCta}" tiene agrupador ${r.codAgrup} (${agrupador.rubroNombre ?? 'cuentas de orden'}).`
       );
       continue;
     }
@@ -578,7 +610,7 @@ export function planSatChartImport(
     omitidas,
     findings,
     puedeImportarse: findings.every((f) => f.severidad !== 'bloquea'),
-    completa: omitidas.length === 0,
+    completa: defectiveOmissions(omitidas).length === 0,
   };
 }
 
@@ -711,6 +743,7 @@ export async function importSatChart(
 
   if (!plan.puedeImportarse) return base;
   if (!plan.completa && opts.parcial !== true) {
+    const defective = defectiveOmissions(plan.omitidas);
     return {
       ...base,
       findings: [
@@ -720,8 +753,8 @@ export async function importSatChart(
           'bloquea',
           undefined,
           undefined,
-          `No se escribe nada: ${plan.omitidas.length} de ${lectura.rows.length} cuentas del archivo ` +
-            `no se pueden crear (${[...new Set(plan.omitidas.map((o) => o.motivo))].join(', ')}). Un ` +
+          `No se escribe nada: ${defective.length} de ${lectura.rows.length} cuentas del archivo ` +
+            `no se pueden crear (${[...new Set(defective.map((o) => o.motivo))].join(', ')}). Un ` +
             `catálogo a medias hace que la balanza de apertura cuadre o descuadre por razones que ` +
             `nadie puede rastrear, y el criterio de esta migración es que cuadre AL PESO. Arregla lo ` +
             `nombrado, o vuelve a correr con --parcial a sabiendas.`

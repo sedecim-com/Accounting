@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -16,6 +18,7 @@ import {
   type ExistingAccountRow,
 } from '../../src/services/accounting/sat-chart-import.js';
 import { readCtaCatalogo } from '../../src/services/sat/anexo24/catalog-reader.js';
+import { MEMORANDUM_DOCTRINE } from '../../src/services/accounting/sat-agrupador-account-type.js';
 import { query, withTransaction } from '../../src/database/connection.js';
 import { registrarAuditoria } from '../../src/services/audit/audit-log.js';
 import { ValidationError } from '../../src/utils/errors.js';
@@ -242,6 +245,32 @@ describe('planSatChartImport · el tipo de cuenta', () => {
     expect(p.omitidas[0]).toMatchObject({ code: '800', motivo: 'cuentas_de_orden' });
     const h = p.findings.find((f) => f.regla === 'IMP-CUENTAS-DE-ORDEN');
     expect(h?.mensaje).toContain('sumaría al balance dinero que no existe');
+  });
+
+  // MNE-001-019 · #219: the owner decided (2026-09-26) that memorandum accounts
+  // do not migrate. Leaving them out is the doctrine, not a defect of the file.
+  it('the memorandum warning cites the written doctrine, and the file exists', () => {
+    const p = plan([{ numCta: '800', codAgrup: '801', natur: 'D', desc: 'UFIN' }]);
+    const h = p.findings.find((f) => f.regla === 'IMP-CUENTAS-DE-ORDEN');
+    expect(h?.severidad).toBe('aviso');
+    expect(h?.mensaje).toContain(MEMORANDUM_DOCTRINE);
+    expect(existsSync(resolve(__dirname, '../..', MEMORANDUM_DOCTRINE))).toBe(true);
+  });
+
+  it('a chart whose only omissions are memorandum accounts is complete: they stay out by doctrine', () => {
+    const p = plan([
+      { numCta: '100', codAgrup: '101', natur: 'D' },
+      { numCta: '800', codAgrup: '801', natur: 'D', desc: 'UFIN' },
+      { numCta: '800-01', codAgrup: '', subCtaDe: '800', nivel: 2, natur: 'D' },
+    ]);
+    expect(p.aCrear.map((c) => c.code)).toEqual(['100']);
+    expect(p.omitidas.map((o) => [o.code, o.motivo])).toEqual([
+      ['800', 'cuentas_de_orden'],
+      ['800-01', 'cuentas_de_orden'],
+    ]);
+    expect(p.completa).toBe(true);
+    const sub = p.findings.filter((f) => f.regla === 'IMP-CUENTAS-DE-ORDEN').map((f) => f.numCta);
+    expect(sub).toEqual(['800', '800-01']);
   });
 
   it('un padre existente con un tipo que este módulo no traduce no presta tipo a nadie', () => {
@@ -528,6 +557,46 @@ describe('importSatChart · escribir, o no escribir', () => {
     const h = r.findings.find((f) => f.regla === 'IMP-INCOMPLETO');
     expect(h?.severidad).toBe('bloquea');
     expect(h?.mensaje).toContain('AL PESO');
+  });
+
+  it('a memorandum account does not block the import: the rest of the chart is written', async () => {
+    conBase([]);
+    const { inserciones } = conTransaccion();
+    const r = await importSatChart(
+      { tenantId: 't1' },
+      {
+        entityId: 'e1',
+        userId: 'u1',
+        xml: archivo([
+          { numCta: '100', codAgrup: '101' },
+          { numCta: '800', codAgrup: '801', desc: 'UFIN' },
+        ]),
+      }
+    );
+    expect(r.escrito).toBe(true);
+    expect(r.creadas).toEqual(['100']);
+    expect(r.findings.find((f) => f.regla === 'IMP-INCOMPLETO')).toBeUndefined();
+    expect(inserciones).toHaveLength(1);
+  });
+
+  it('when something else blocks, the refusal counts only the rows that are a defect', async () => {
+    conBase([]);
+    conTransaccion();
+    const r = await importSatChart(
+      { tenantId: 't1' },
+      {
+        entityId: 'e1',
+        userId: 'u1',
+        xml: archivo([
+          { numCta: '100', codAgrup: '101' },
+          { numCta: '800', codAgrup: '801' },
+          { numCta: 'Z', codAgrup: '' },
+        ]),
+      }
+    );
+    const h = r.findings.find((f) => f.regla === 'IMP-INCOMPLETO');
+    expect(h?.mensaje).toContain('1 de 3 cuentas');
+    expect(h?.mensaje).toContain('(sin_tipo_deducible)');
   });
 
   it('con --parcial escribe lo que puede, a sabiendas', async () => {
