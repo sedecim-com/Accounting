@@ -2160,7 +2160,7 @@ ingest.action(async (files: string[], opts: {
         for (const r of preview) {
           console.log(
             `${icon[r.verdict] ?? '·'} ${r.file}  ${c.dim(
-              `${r.verdict}${r.tipo ? ` · tipo ${r.tipo}` : ''}${r.total ? ` · ${r.total}` : ''}` +
+              `${r.verdict}${r.direction ? ` · ${r.direction}` : ''}${r.tipo ? ` · tipo ${r.tipo}` : ''}${r.total ? ` · ${r.total}` : ''}` +
                 `${r.route ? ` · ${r.route}` : ''}${r.detail ? ` · ${r.detail}` : ''}`
             )}`
           );
