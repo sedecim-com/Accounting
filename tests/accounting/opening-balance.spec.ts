@@ -925,12 +925,22 @@ describe('el tipo de error', () => {
 
 describe('checkOpeningBalance · the penny check writes nothing and compares SaldoFin', () => {
   const ledger = (net1110: string, net3100: string) => [
-    { code: '1110', parent_code: null, normal_balance: 'debit', net: net1110 },
-    { code: '3100', parent_code: null, normal_balance: 'credit', net: net3100 },
+    { id: 'id-1110', code: '1110', parent_code: null, normal_balance: 'debit', net: net1110 },
+    { id: 'id-3100', code: '3100', parent_code: null, normal_balance: 'credit', net: net3100 },
   ];
-  const withLedger = (rows: unknown[], entity: unknown[] = [{ tax_id: ' xaxx010101000 ' }]) => {
+  const withLedger = (
+    rows: unknown[],
+    entity: unknown[] = [{ tax_id: ' xaxx010101000 ' }],
+    ancestry: unknown[] = [
+      { account_id: 'id-1110', account_level: 1, ancestors: [] },
+      { account_id: 'id-3100', account_level: 1, ancestors: [] },
+    ]
+  ) => {
     mockQuery.mockReset();
-    mockQuery.mockResolvedValueOnce({ rows: entity }).mockResolvedValueOnce({ rows });
+    mockQuery
+      .mockResolvedValueOnce({ rows: entity })
+      .mockResolvedValueOnce({ rows })
+      .mockResolvedValueOnce({ rows: ancestry });
   };
 
   it('an entity of another tenant does not exist: the tenant scopes inside the SQL', async () => {
@@ -970,5 +980,29 @@ describe('checkOpeningBalance · the penny check writes nothing and compares Sal
     const r = await checkOpeningBalance(CTX, { entityId: 'ent-1', xml: XML_SIMPLE });
     expect(r.comparison.iguales).toBe(false);
     expect(r.comparison.diferencias.map((d) => d.numCta).sort()).toEqual(['1110', '3100']);
+  });
+
+  it('a ledger account is compared WITH its subaccounts, as the source declares it (#323)', async () => {
+    withLedger(
+      [
+        { id: 'id-1100', code: '1100', parent_code: null, normal_balance: 'debit', net: '0' },
+        { id: 'id-1110', code: '1110', parent_code: '1100', normal_balance: 'debit', net: '1000.0000' },
+        { id: 'id-3100', code: '3100', parent_code: null, normal_balance: 'credit', net: '-1000.0000' },
+      ],
+      undefined,
+      [
+        { account_id: 'id-1100', account_level: 1, ancestors: [] },
+        { account_id: 'id-1110', account_level: 2, ancestors: ['id-1100'] },
+        { account_id: 'id-3100', account_level: 1, ancestors: [] },
+      ]
+    );
+    const xml = archivo([
+      { numCta: '1100', saldoFin: '1000.00' },
+      { numCta: '1110', saldoFin: '1000.00' },
+      { numCta: '3100', saldoFin: '1000.00' },
+    ]);
+    const r = await checkOpeningBalance(CTX, { entityId: 'ent-1', xml });
+    expect(r.comparison.diferencias).toEqual([]);
+    expect(r.comparison.iguales).toBe(true);
   });
 });
