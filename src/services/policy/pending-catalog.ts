@@ -150,10 +150,11 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question: 'Which depreciation drives the expense you post: book life or the tax rate?',
     impact:
       'Governs `depreciation run`. With "vida_util_nif" the monthly expense follows the useful ' +
-      'life you set per asset (NIF C-6). With "tasa_lisr" it follows the maximum rate the income ' +
-      'tax law allows for that asset class (arts. 31-38 LISR), which is what most Mexican SMEs ' +
-      'book so that the accounting and the deduction do not diverge. Either way BOTH schedules ' +
-      'can be computed; this decides which one reaches the ledger.',
+      'life you set per asset (NIF C-6). With "tasa_lisr" it follows the tax rate stored on each ' +
+      'asset, at most the maximum of its class (arts. 34-35 LISR), which is what most Mexican SMEs ' +
+      'book so that the accounting and the deduction do not diverge. Only ONE schedule is computed ' +
+      'and posted: the other basis is not kept in parallel (that is #112). An asset that already ' +
+      'posted rows keeps its basis: changing this answer does not switch it.',
     options: [
       { value: 'vida_util_nif', label: 'Book: the useful life you assigned to the asset (NIF C-6)' },
       { value: 'tasa_lisr', label: 'Tax: the maximum LISR rate for its class, so books and deduction agree' },

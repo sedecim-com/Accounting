@@ -783,6 +783,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'web.error.unexpected': 'No se pudo leer la respuesta.',
   // ==== MNE-001-018 · the Anexo 24 migration leaves ====================
   'migration.file_unreadable': 'No se pudo leer el archivo «{file}».',
+  'migration.subledger_not_array': '--subledger espera un arreglo JSON de documentos abiertos.',
+  'migration.chart.confirm': '¿Crear {count} cuenta(s) en {entity}?',
+  'migration.opening.confirm':
+    '¿Postear la apertura del ejercicio {year} al {date} (Debe {debit} · Haber {credit})? ' +
+    'El mayor no admite deshacer.',
   'migration.check.as_of': 'Al {date} · {comparison}',
   // ==== I11 · report labels (issue #153) ============================
   //

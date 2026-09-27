@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 208 of 324 subcommands
+  spelling is `-T` at the root and `-t` on the 211 of 329 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -66,6 +66,7 @@ Commands:
   entity|entidad                         Select and inspect the legal entity commands operate on
   payment|pago                           Vendor payments: record cash that already left the bank and settle the bill it pays
   account|cuenta                         Chart of accounts: inspect, create and retire accounts
+  chart|catalogo                         Chart of accounts: bring a firm catalog in
   opening-balance|saldo-inicial          Opening balances migrated from the Anexo 24 trial balance of the previous system
   entry|poliza                           Journal entries: draft, inspect, validate, post, reverse and void
   period|periodo                         Fiscal periods: what exists, what state it is in, and opening a future one
@@ -1713,6 +1714,50 @@ Examples:
   mnemosine account restore 6150 --entity "Molinos del Bajio SA de CV"
 ```
 
+## `mnemosine chart` (alias: catalogo)
+
+```
+Usage: mnemosine chart|catalogo [options] [command]
+
+Chart of accounts: bring a firm catalog in
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  import|importar [options] <file>  Import an Anexo 24 CatalogoCuentas XML,
+                                    keeping the firm codes and hierarchy
+  help [command]                    display help for command
+```
+
+### `mnemosine chart import` (alias: importar)
+
+```
+Usage: mnemosine chart import|importar [options] <file>
+
+Import an Anexo 24 CatalogoCuentas XML, keeping the firm codes and hierarchy
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --partial                                write even if some rows are left out (default: all or nothing)
+  --reason <text>                          why the chart is imported; goes to the audit log
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # See what would be created, writing nothing.
+  mnemosine chart import ./migration/catalogo.xml --entity "Sintetica SA" --dry-run
+  mnemosine chart import ./migration/catalogo.xml --entity "Sintetica SA" --yes
+```
+
 ## `mnemosine opening-balance` (alias: saldo-inicial)
 
 ```
@@ -1724,10 +1769,43 @@ Options:
   -h, --help                        display help for command
 
 Commands:
+  import|importar [options] <file>  Post the opening entry from an Anexo 24
+                                    BalanzaComprobacion XML, on the day after
+                                    its cutoff -- irreversible
   check|verificar [options] <file>  Compare the source trial balance against the
                                     ledger on the opening day, to the peso;
                                     exits 4 if they differ
   help [command]                    display help for command
+```
+
+### `mnemosine opening-balance import` (alias: importar)
+
+```
+Usage: mnemosine opening-balance import|importar [options] <file>
+
+Post the opening entry from an Anexo 24 BalanzaComprobacion XML, on the day
+after its cutoff -- irreversible
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --subledger <file>                       JSON array with the open documents of the receivable and payable control accounts
+  --reason <text>                          why the opening is loaded; goes to the audit log
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
+  -h, --help                               display help for command
+
+Examples:
+  # ALWAYS this one first: the opening is posted and the ledger cannot be undone.
+  mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --dry-run
+  mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --yes
 ```
 
 ### `mnemosine opening-balance check` (alias: verificar)
@@ -5586,6 +5664,8 @@ Options:
 Commands:
   create|crear [options] <name>  Register a fixed asset with its class, dates,
                                  cost and accounts — writes no journal entry
+  category|categoria             Asset classes: useful life, LISR rate and the
+                                 three default accounts
   help [command]                 display help for command
 ```
 
@@ -5646,6 +5726,47 @@ Examples:
   # exact amount still to be posted, because the credit side (bank, payables or
   # capital) is not something the register can guess.
   mnemosine asset create "Servidor Dell PowerEdge T360" --category "Equipo de Cómputo" --cost 62500.00 --acquired 2026-07-15 --capitalized no --life-years 4 --salvage 6250.00
+```
+
+### `mnemosine asset category` (alias: categoria)
+
+```
+Usage: mnemosine asset category|categoria [options] [command]
+
+Asset classes: useful life, LISR rate and the three default accounts
+
+Options:
+  -h, --help              display help for command
+
+Commands:
+  seed|sembrar [options]  Create the missing Mexican asset classes, with their
+                          LISR art. 34/35 maximum rate
+  help [command]          display help for command
+```
+
+#### `mnemosine asset category seed` (alias: sembrar)
+
+```
+Usage: mnemosine asset category seed|sembrar [options]
+
+Create the missing Mexican asset classes, with their LISR art. 34/35 maximum
+rate
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # An entity created before the seeding existed: give it the six classes.
+  # Running it again creates nothing and overwrites no class you adjusted.
+  mnemosine asset category seed --entity "Comercializadora del Bajío"
 ```
 
 ## `mnemosine depreciation` (alias: depreciacion)

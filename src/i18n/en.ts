@@ -907,6 +907,11 @@ export const EN = {
   'web.error.unexpected': 'The answer could not be read.',
   // ==== MNE-001-018 · the Anexo 24 migration leaves ====================
   'migration.file_unreadable': 'Could not read the file "{file}".',
+  'migration.subledger_not_array': '--subledger expects a JSON array of open documents.',
+  'migration.chart.confirm': 'Create {count} account(s) in {entity}?',
+  'migration.opening.confirm':
+    'Post the opening of fiscal year {year} on {date} (Debit {debit} · Credit {credit})? ' +
+    'The ledger cannot be undone.',
   'migration.check.as_of': 'As of {date} · {comparison}',
   // ==== I11 · report labels (issue #153) ============================
   //
