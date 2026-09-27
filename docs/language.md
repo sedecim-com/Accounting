@@ -103,7 +103,7 @@ manual act and its trace is the diff.
 | `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
 | `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 466 (baseline 468) | 0 |
 | `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 121 | 0 |
-| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 38 | 0 |
+| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 37 (baseline 38) | 0 |
 | `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 26 | 0 |
 | `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
 | `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
@@ -111,7 +111,7 @@ manual act and its trace is the diff.
 | `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 341 (baseline 344) | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28818 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28777 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 

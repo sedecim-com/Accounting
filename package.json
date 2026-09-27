@@ -34,6 +34,7 @@
     "backfill:account-roles": "tsx scripts/rellenar-roles-de-cuenta.ts",
     "corpus:estado": "tsx scripts/corpus-manifiesto.ts",
     "historial:estado": "tsx scripts/historial-estado.ts",
+    "mutation:census": "tsx scripts/mutation-census.ts",
     "openapi": "tsx scripts/openapi.ts",
     "eval": "tsx scripts/eval-clasificador.ts"
   },
