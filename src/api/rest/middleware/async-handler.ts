@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
-import type { ZodTypeAny } from 'zod';
+import type { z } from 'zod';
 import { ValidationError } from '../../../utils/errors.js';
 import { parseForClient } from '../../../utils/zod-client-errors.js';
 
@@ -42,10 +42,10 @@ export function asyncHandler<
 // ============================================================
 const MARCA_CUERPO = Symbol('esquema-de-cuerpo');
 
-type ManejadorConEsquema = RequestHandler & { [MARCA_CUERPO]?: ZodTypeAny };
+type ManejadorConEsquema = RequestHandler & { [MARCA_CUERPO]?: z.ZodType };
 
 /** El esquema de cuerpo que lleva un manejador, si lo lleva. */
-export function esquemaDeCuerpo(h: unknown): ZodTypeAny | undefined {
+export function esquemaDeCuerpo(h: unknown): z.ZodType | undefined {
   return typeof h === 'function' ? (h as ManejadorConEsquema)[MARCA_CUERPO] : undefined;
 }
 
@@ -60,8 +60,17 @@ export function esquemaDeCuerpo(h: unknown): ZodTypeAny | undefined {
  * El manejador que devuelve lleva colgado el esquema (`esquemaDeCuerpo`),
  * para que el contrato de la API pueda derivarse de lo que la API valida
  * de verdad y no de una copia.
+ *
+ * CONTRACT: an invalid body answers HTTP 422 with code `VALIDATION_ERROR`
+ * in the standard error envelope of errorHandler (`errors[0]` with `code`
+ * and `message` only, `meta` with request_id, timestamp and version), and
+ * the message `Invalid request body: <path>: <message>` for each issue,
+ * joined with '; ', where `<path>` is the dotted field path or `<root>`.
+ * The issues are worded and ordered as zod 3.25.76 did, by
+ * src/utils/zod-client-errors.ts (#367); tests/api/golden/rest-body.golden.json
+ * and tests/api/rest/body-contract.spec.ts pin every byte of it.
  */
-export function validateBody<S extends ZodTypeAny>(schema: S): RequestHandler {
+export function validateBody<S extends z.ZodType>(schema: S): RequestHandler {
   const validador: ManejadorConEsquema = (req, _res, next) => {
     const parsed = parseForClient<unknown>(schema, req.body);
     if (!parsed.success) {

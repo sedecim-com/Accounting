@@ -116,6 +116,17 @@ describe('the loader accepts what zod 3 accepted, and keeps it as written', () =
     expect(listProfiles(dir).profiles.p?.base_url).toBe(' https://a.com');
   });
 
+  it('keeps a base_url with an IDN host, however warm the process is', () => {
+    // Node 22's URL.canParse turns false for these once V8 optimizes the call;
+    // zod 3 ran `new URL`, which still parses them.
+    const { dir, file } = projectWith(profile({ base_url: 'https://a.com' }));
+    for (let i = 0; i < 20_000; i++) listProfiles(dir);
+    for (const url of ['https://señal.mx/hook', 'https://müller.de', 'https://ñ.com']) {
+      fs.writeFileSync(file, JSON.stringify(profile({ base_url: url })));
+      expect(listProfiles(dir).profiles.p?.base_url).toBe(url);
+    }
+  });
+
   it('returns typed profiles from a record of profiles', () => {
     const { dir } = projectWith(profile({ headers: { 'X-A': 'b' }, max_iterations: 3 }));
     const p = listProfiles(dir).profiles.p;

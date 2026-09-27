@@ -22,7 +22,20 @@ runtime: node-22                 # package.json engines ">=22.12"; CI y docker/D
 
 provides:
   - api: mnemosine-rest-v1       # contrato v0 = docs/openapi.json, generado del código y vigilado en CI (--check)
+    # CONTRACT: the 422 body of every request is pinned byte for byte by
+    # tests/api/golden/rest-body.golden.json, recorded on zod 3 and kept on zod 4 by
+    # src/utils/zod-client-errors.ts and src/utils/zod-compat.ts (#367). The only
+    # changes are two tightenings: JSON 1e999 (Infinity) is rejected wherever zod 3
+    # accepted it as a number (T1), and so is an integer beyond 2^53 - 1 on integer
+    # fields (T2). Where zod 3 already rejected 1e999 (a field that is not a number,
+    # an integer, a bound it breaks), the 422 is the one zod 3 gave.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
+    # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
+    # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
+    # apply: 1e999 as budget.daily_usd, budget.monthly_usd or ingest.auto_post_max_amount
+    # (T1), and an integer beyond 2^53 - 1 as compaction.threshold_tokens,
+    # keep_recent_tokens or max_memory_flushes (T2). A file zod 3 loaded with such a
+    # value is refused, and every command that reads the config reports why.
   - file: sat-anexo24            # XML de catálogo, balanza y pólizas; DIOT, SUA, CFDI de nómina (los presenta el contribuyente)
 
 consumes: []                     # ningún contrato de otro repo de Sedecim hoy. Lo externo va en `external`
