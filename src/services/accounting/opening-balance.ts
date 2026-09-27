@@ -16,6 +16,8 @@ import {
   ENTEROS_DEL_MAYOR,
 } from '../sat/anexo24/balance-reader.js';
 import { naturDe, saldoDelMayor } from '../sat/anexo24/balanza-invariantes.js';
+import { compareToSource, shapesFromRows, type BalanceComparison } from './opening-balance-check.js';
+import { queryAccountAncestry, rollUpTrialBalanceRows } from '../reporting/report-service.js';
 
 // ============================================================
 // O1 · LA BALANZA DE APERTURA — LA SEGUNDA CAPA DEL ONBOARDING
@@ -1024,6 +1026,7 @@ export async function importOpeningBalance(
        FROM journal_entries
       WHERE entity_id = $1 AND source_type = 'opening_balance'
         AND entry_date = $2::date AND status <> 'void'
+        AND reversed_by_entry_id IS NULL
       LIMIT 1`,
     [opts.entityId, ejercicio.startDate]
   );
@@ -1157,6 +1160,99 @@ export async function importOpeningBalance(
     ...base,
     asiento: { id: asiento.id, entry_number: asiento.entry_number },
     escrito: true,
+  };
+}
+
+export interface OpeningCheckReport {
+  entityId: string;
+  /** The day the opening lands on: the one after the file's cutoff. */
+  asOf: string;
+  comparison: BalanceComparison;
+}
+
+/**
+ * THE PENNY CHECK AS AN ACT, not only as a test (`opening-balance check`).
+ *
+ * Reads the source trial balance and compares its SaldoFin, account by
+ * account and rolled up the tree, against OUR ledger on the day the opening
+ * lands. Writes nothing.
+ *
+ * NOTE: reversal pairs are left out on both sides —the reversed entry
+ * (`reversed_by_entry_id`) and its mirror (`reverses_entry_id`)—. A reversed
+ * opening stays 'posted' dated on the opening day while its mirror is dated
+ * the day it was voided, so counting the original "as of" the opening day
+ * would double every balance right after a legitimate reload (087).
+ */
+export async function checkOpeningBalance(
+  ctx: PolicyContext,
+  opts: { entityId: string; xml: string }
+): Promise<OpeningCheckReport> {
+  const entity = await query<{ tax_id: string }>(
+    `SELECT tax_id FROM legal_entities WHERE id = $1 AND tenant_id = $2`,
+    [opts.entityId, ctx.tenantId]
+  );
+  const row = entity.rows[0];
+  if (row === undefined) {
+    throw new ValidationError(`La entidad ${opts.entityId} no existe en este inquilino.`);
+  }
+  const source = readBalanzaComprobacion(opts.xml);
+  const rfc = row.tax_id.trim().toUpperCase();
+  if (source.header.rfc !== rfc) {
+    throw new ValidationError(
+      `La balanza es del RFC ${source.header.rfc} y la entidad es ${rfc}: no hay nada que cotejar.`
+    );
+  }
+  const asOf = dayAfterCutoff(source.header.anio, source.header.mes);
+  const ledger = await query<{
+    id: string;
+    code: string;
+    parent_code: string | null;
+    normal_balance: string;
+    net: string;
+  }>(
+    `SELECT a.id, a.code, p.code AS parent_code, a.normal_balance,
+            COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
+                       FILTER (WHERE e.id IS NOT NULL), 0)::text AS net
+       FROM accounts a
+       LEFT JOIN accounts p ON p.id = a.parent_id AND p.entity_id = a.entity_id
+       LEFT JOIN journal_entry_lines l ON l.account_id = a.id
+       LEFT JOIN journal_entries e
+              ON e.id = l.journal_entry_id AND e.entity_id = a.entity_id
+             AND e.status = 'posted' AND e.entry_date <= $2::date
+             AND e.reversed_by_entry_id IS NULL AND e.reverses_entry_id IS NULL
+      WHERE a.entity_id = $1
+      GROUP BY a.id, a.code, p.code, a.normal_balance`,
+    [opts.entityId, asOf]
+  );
+  const shapes = shapesFromRows(ledger.rows);
+  // Ours, rolled up the tree by THE roll-up (#323), since both sides of
+  // compareToSource declare each ledger account with its subaccounts inside,
+  // then written like a file row: each balance in the account's own nature.
+  const rolled = rollUpTrialBalanceRows(
+    ledger.rows.map((r) => ({
+      account_id: r.id,
+      account_code: r.code,
+      account_name: r.code,
+      account_type: r.normal_balance,
+      debit_total: '0',
+      credit_total: '0',
+      ending_balance: r.net,
+    })),
+    await queryAccountAncestry(opts.entityId)
+  );
+  const natureOf = new Map(ledger.rows.map((r) => [r.code, naturDe(r.normal_balance)]));
+  const ours: BalanceFileRow[] = rolled.map((r, i) => ({
+    fila: i + 1,
+    numCta: r.account_code,
+    saldoIni: '0',
+    debe: '0',
+    haber: '0',
+    saldoFin: saldoDelMayor(r.ending_balance, natureOf.get(r.account_code)!).toFixed(ESCALA_DEL_MAYOR),
+  }));
+  return {
+    entityId: opts.entityId,
+    asOf,
+    comparison: compareToSource(source.rows, ours, shapes, 'SaldoFin'),
   };
 }
 

@@ -95,8 +95,8 @@ manual act and its trace is the diff.
 
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10578 (baseline 10579) | 0 |
-| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5774 | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10561 (baseline 10579) | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5773 (baseline 5774) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
@@ -111,7 +111,7 @@ manual act and its trace is the diff.
 | `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 341 | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28861 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28808 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 
