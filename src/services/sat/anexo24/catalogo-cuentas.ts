@@ -522,10 +522,11 @@ export async function generarCatalogoCuentas(
     );
   }
   // El mismo rango que el CHECK de la 062. Se comprueba AQUÍ y no sólo allí
-  // porque un año imposible saldría del validador como un simple aviso —el
-  // límite superior no se ha podido verificar contra el XSD— y luego reventaría
-  // al archivar con una violación de restricción en crudo. Un error de uso se
-  // dice en el idioma del que lo cometió, no en el del motor.
+  // porque un año imposible saldría del validador como un simple aviso y luego
+  // reventaría al archivar con una violación de restricción en crudo. Un error
+  // de uso se dice en el idioma del que lo cometió, no en el del motor.
+  // The official XSD confirms the range: CatalogoCuentas_1_3.xsd declares
+  // Anio from 2015 to 2099 (#397). Aligning the validator's warning is #404.
   if (!Number.isInteger(opts.anio) || opts.anio < 2015 || opts.anio > 2099) {
     throw new ValidationError(
       `Ejercicio ${String(opts.anio)} fuera de rango: la contabilidad electrónica arranca en 2015 y ` +

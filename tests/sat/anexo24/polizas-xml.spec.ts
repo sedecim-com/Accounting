@@ -31,9 +31,9 @@ import { ValidationError } from '../../../src/utils/errors.js';
 //        serializador, así que un `&` en el concepto de una póliza sale
 //        escapado sin que nadie se acuerde de escaparlo.
 //
-//   NO · que el documento valide contra el XSD oficial. No hay ni un `.xsd` en
-//        el repositorio y esta máquina no tiene red. Estas pruebas dicen lo
-//        que el generador EMITE.
+//   Whether the SAT's official XSD accepts the file is not here: it is
+//   tests/sat/anexo24/official-xsd.spec.ts, against the schemas vendored in
+//   src/services/sat/anexo24/xsd/ (#397).
 // ============================================================
 
 const renglon = (over: Partial<Transaccion> = {}): Transaccion => ({

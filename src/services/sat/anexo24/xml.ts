@@ -255,12 +255,10 @@ export function bytesDe(xml: string): Buffer {
 // Así que hay una conversión, y una conversión de dinero que nadie mira es
 // como se descuadra una balanza firmada.
 //
-// LO QUE ESTÁ COMPROBADO Y LO QUE NO. Que la balanza del Anexo 24 lleva dos
-// decimales es la forma en que la publica el SAT y en la que la reciben todos
-// los validadores; lo damos por firme. Lo que NO se ha podido comprobar contra
-// el XSD real —porque no hay ningún .xsd en este repositorio— son las facetas
-// exactas: si `tImporte` admite negativos y cuál es su `totalDigits`. Por eso
-// el negativo sale como AVISO del validador de reglas y no como bloqueo.
+// CHECKED AGAINST THE OFFICIAL XSD (#397). `t_Importe` has `fractionDigits`
+// 2, admits negatives, and has no `totalDigits`: its bounds are
+// ±9999999999999999999999.99 (`minExclusive` on the low end). The rule
+// validator still warns on a negative as if that were unknown; #404 aligns it.
 //
 // Y el residuo VIAJA CON EL IMPORTE, no se tira. Redondear por separado
 // SaldoIni, Debe, Haber y SaldoFin puede romper `SaldoIni + Debe − Haber =

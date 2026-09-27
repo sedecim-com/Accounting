@@ -30,22 +30,18 @@ import { serializar, type Atributo, type NodoXml } from './xml.js';
 // qué atributos lleva cada uno y qué combinaciones se niegan antes de
 // construir nada.
 //
-// ── LO QUE NO PUDE VERIFICAR, DICHO EN VEZ DE AFIRMADO ──────────────────
+// ── CHECKED AGAINST THE OFFICIAL XSD (#397) ─────────────────────────────
 //
-// No hay un solo `.xsd` en este repositorio y esta máquina no tiene red, así
-// que rige la misma regla que F07b se puso: lo que no se puede fundamentar NO
-// SE INVENTA, y lo que se emite se dice de dónde sale.
-//
-//   · Los nombres de nodo y de atributo de abajo son los de la estructura que
-//     el Anexo 24 publica para PolizasPeriodo 1.3 y los que implementa
-//     cualquier herramienta que hoy presente el archivo. NO están cotejados
-//     contra el XSD oficial.
-//   · En particular, el encargo de este tramo nombra el destino de una
-//     transferencia como «CtaDes» y «BancoDesNal», y aquí se emite `CtaDest`
-//     y `BancoDestNal`. Es una discrepancia real y se deja escrita: si el XSD
-//     dice lo otro, son dos literales de este archivo y una prueba. Emitir un
-//     atributo con el nombre equivocado invalida el archivo entero, así que
-//     esto es lo primero que hay que cotejar el día que se traiga el esquema.
+//   · A file with every evidence node and every payment node this module can
+//     emit validates against PolizasPeriodo_1_3.xsd, vendored in `xsd/`
+//     (tests/sat/anexo24/official-xsd.spec.ts). That settles the node and
+//     attribute names, including the transfer's destination: the schema says
+//     `CtaDest` and `BancoDestNal`, not the «CtaDes» and «BancoDesNal» this
+//     tranche's brief used.
+//   · The XSD found two defects on its first run, both fixed in #397: request
+//     numbers were not checked against its patterns, and the pre-CFDI voucher
+//     had no RFC. Enum values (c_Banco, c_Moneda, c_MetPagos) are still passed
+//     through unchecked: #404.
 //   · `Sello`, `noCertificado` y `Certificado` EXISTEN en el esquema y este
 //     módulo NO los emite ni tiene por dónde: no hay una sola rama que cargue
 //     una llave privada, y no debe haberla. La e.firma es el contribuyente

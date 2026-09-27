@@ -13,6 +13,11 @@ primero, porque un diff público es la divulgación.
 Node 22.12 o superior (`engines` lo exige: vitest 5 no soporta menos) y
 Postgres 15 para la suite de integración.
 
+`xmllint` (de libxml2: `libxml2-utils` en Debian y Ubuntu, `libxml2` en
+Homebrew). La suite unitaria valida el XML del Anexo 24 contra el XSD oficial
+del SAT, que vive en `src/services/sat/anexo24/xsd/`. Sin `xmllint` esas
+pruebas fallan; no se saltan.
+
 ```bash
 npm ci
 ```
