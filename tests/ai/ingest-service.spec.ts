@@ -658,3 +658,24 @@ describe('A7 · la sombra mide el modo que se va a encender', () => {
     expect(veredicto).toMatchObject({ wouldAutoPost: false });
   });
 });
+
+describe('ING-3 · #320 — the direction of the CFDI', () => {
+  it('an issued CFDI never reaches the model: no expense draft, blocked with the reason', async () => {
+    const { report, session, approve } = run({
+      plan: [{ confidence: 0.99 }],
+      uploads: [{ ...makeUpload(), direction: 'issued' }],
+    });
+    const r = (await report).results[0];
+    expect(r.status).toBe('blocked');
+    expect(r.detail).toMatch(/Issued by this entity: a sale, not an expense/);
+    expect(session.runTurn).not.toHaveBeenCalled();
+    expect(approve).not.toHaveBeenCalled();
+  });
+
+  it('the prompt states the direction instead of assuming a received CFDI', () => {
+    const received = buildCfdiPrompt({ ...makeUpload(), direction: 'received' });
+    expect(received).toMatch(/- Direction: received \(the entity is the receiver/);
+    expect(received).not.toMatch(/this received CFDI/);
+    expect(buildCfdiPrompt(makeUpload())).toMatch(/- Direction: not determined/);
+  });
+});
