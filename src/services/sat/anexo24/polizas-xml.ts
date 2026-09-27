@@ -233,6 +233,14 @@ const RFC_RE = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Dos decimales exactos, con signo o sin él. Lo que `importeAnexo24` produce. */
 const IMPORTE_RE = /^-?\d+\.\d{2}$/;
+/**
+ * The two request numbers, as the XSD pins them. PolizasPeriodo, AuxiliarFolios
+ * and AuxiliarCtas 1.3 declare the same patterns: an audit order is three
+ * letters, seven digits, a slash and two digits; a refund or offset filing is
+ * two letters and twelve digits. Any other value makes the whole file invalid.
+ */
+const AUDIT_ORDER_RE = /^[A-Z]{3}[0-9]{7}\/[0-9]{2}$/;
+const FILING_NUMBER_RE = /^[A-Z]{2}[0-9]{12}$/;
 
 /**
  * La cabecera de solicitud, que es COMPARTIDA con los dos auxiliares.
@@ -276,6 +284,18 @@ export function atributosDeSolicitud(s: Solicitud): Atributo[] {
   if (!conOrden && orden !== '') {
     throw new ValidationError(
       `TipoSolicitud «${s.tipo}» lleva NumTramite, no NumOrden.`
+    );
+  }
+  if (conOrden && !AUDIT_ORDER_RE.test(orden)) {
+    throw new ValidationError(
+      `NumOrden «${orden}» no tiene el formato del SAT: tres letras, siete dígitos, una diagonal ` +
+        `y dos dígitos (ABC1234567/26). Con otro valor el esquema rechaza el archivo entero.`
+    );
+  }
+  if (!conOrden && !FILING_NUMBER_RE.test(tramite)) {
+    throw new ValidationError(
+      `NumTramite «${tramite}» no tiene el formato del SAT: dos letras y doce dígitos ` +
+        `(DE202600000009). Con otro valor el esquema rechaza el archivo entero.`
     );
   }
 
