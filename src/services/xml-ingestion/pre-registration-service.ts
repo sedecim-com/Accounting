@@ -26,13 +26,45 @@ import { SATValidationService } from './sat-validation.js';
  * como antes; lo que cambia es que el REP deje de hacerlo, porque no es una
  * nota de crédito y tratarlo como tal lo mataba con UNSUPPORTED_TYPE.
  */
-function tipoDocumentoDe(tipo: string | undefined): string {
-  if (tipo === 'I') return 'bill';
+function tipoDocumentoDe(tipo: string | undefined, direction: CfdiDirection): string {
+  // ING-3 (#320): an 'I' the entity ISSUED is its sale, never its expense.
+  // 'invoice' is outside what `bill inbox run` and the draft approval accept.
+  if (tipo === 'I') return direction === 'issued' ? 'invoice' : 'bill';
   if (tipo === 'P') return 'payment';
   return 'credit_note';
 }
 import { RulesEngine, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
+
+/**
+ * Which side of the operation the entity is on (ING-3 · #320). The RFC of the
+ * entity decides it, never the CFDI alone: the same XML is 'issued' for one
+ * client of the firm and 'received' for another (F02).
+ */
+export type CfdiDirection = 'issued' | 'received' | 'foreign';
+
+export function cfdiDirection(entityRfc: string, issuerRfc: string, receiverRfc: string): CfdiDirection {
+  const norm = (v: string) => (v ?? '').trim().toUpperCase();
+  const own = norm(entityRfc);
+  if (own && norm(issuerRfc) === own) return 'issued';
+  if (own && norm(receiverRfc) === own) return 'received';
+  return 'foreign';
+}
+
+/** The entity's RFC, scoped by its id; the direction of every CFDI hangs on it. */
+export async function entityRfcOf(entityId: string): Promise<string> {
+  const r = await query<{ tax_id: string }>(`SELECT tax_id FROM legal_entities WHERE id = $1`, [entityId]);
+  if (r.rows.length === 0) throw new NotFoundError('Entity', entityId);
+  return r.rows[0].tax_id;
+}
+
+/** The reason a CFDI where the entity is neither party is refused, before anything is written. */
+export function foreignCfdiReason(entityRfc: string, issuerRfc: string, receiverRfc: string): string {
+  return (
+    `CFDI issued by ${issuerRfc} to ${receiverRfc}, and this entity is ${entityRfc}: it is not a party ` +
+    'to the operation, so it can be neither its sale nor its expense. Check that it was loaded into the right entity.'
+  );
+}
 
 export class DuplicateError extends Error {
   constructor(message: string, public existingId: string) {
@@ -132,11 +164,21 @@ export class PreRegistrationService {
     autoProcessed: boolean;
     bill?: Record<string, unknown>;
     journalEntry?: Record<string, unknown>;
+    direction: CfdiDirection;
   }> {
     const parsed = this.parser.parse(xmlContent);
     const validation = this.parser.validate(parsed);
     if (!validation.valid) {
       throw new ValidationError(`Invalid CFDI: ${validation.errors.join('; ')}`);
+    }
+
+    // ING-3 (#320): the direction is decided before anything is written. A
+    // CFDI the entity is not a party to is refused here; one it issued never
+    // reaches the vendor match, the tenant rules or the AI expense draft.
+    const entityRfc = await entityRfcOf(entityId);
+    const direction = cfdiDirection(entityRfc, parsed.emisor.rfc, parsed.receptor.rfc);
+    if (direction === 'foreign') {
+      throw new ValidationError(foreignCfdiReason(entityRfc, parsed.emisor.rfc, parsed.receptor.rfc));
     }
 
     const hash = this.parser.calculateHash(xmlContent);
@@ -222,7 +264,14 @@ export class PreRegistrationService {
     );
 
     // Create pre-registration
-    const preRegistration = await this.createPreRegistration(entityId, xmlDocument, parsed, uploadedBy);
+    const preRegistration = await this.createPreRegistration(entityId, xmlDocument, parsed, uploadedBy, direction);
+
+    // An issued REP still goes on: procesarREP reads the direction and books
+    // the collection. Any other issued CFDI waits for its AR path (#320, S3);
+    // the tenant rules are written for expenses and never see it.
+    if (direction === 'issued' && parsed.tipoDeComprobante !== 'P') {
+      return { xmlDocument, preRegistration, autoProcessed: false, direction };
+    }
 
     // Apply rules
     const rules = await this.getRulesForEntity(entityId);
@@ -258,16 +307,22 @@ export class PreRegistrationService {
       }
     }
 
-    return { xmlDocument, preRegistration: updated, autoProcessed, bill, journalEntry };
+    return { xmlDocument, preRegistration: updated, autoProcessed, bill, journalEntry, direction };
   }
 
   private async createPreRegistration(
     entityId: string,
     xmlDocument: Record<string, unknown>,
     parsed: CFDIParsed,
-    userId: string
+    userId: string,
+    direction: CfdiDirection
   ): Promise<Record<string, unknown>> {
-    const vendorMatch = await this.matchVendor(entityId, parsed.emisor);
+    // The issuer of an issued CFDI is the entity itself: matching it as a
+    // vendor is what put the entity's own sale in the inbox as «new vendor».
+    const vendorMatch =
+      direction === 'issued'
+        ? { vendor: null, confidence: 0, method: 'issued_by_entity', isNew: false, suggestedData: null }
+        : await this.matchVendor(entityId, parsed.emisor);
     const lines = await this.buildLinesWithSuggestions(entityId, parsed.conceptos, vendorMatch.vendor);
     const dueDate = this.calculateDueDate(parsed.fecha, vendorMatch.vendor?.payment_terms as string);
 
@@ -288,7 +343,7 @@ export class PreRegistrationService {
         // UNSUPPORTED_TYPE: el pre-registro quedaba en 'error' y el
         // comprobante que sostiene el acreditamiento del IVA no llegaba a
         // ninguna parte. El vocabulario de la columna ya admitía 'payment'.
-        tipoDocumentoDe(parsed.tipoDeComprobante),
+        tipoDocumentoDe(parsed.tipoDeComprobante, direction),
         vendorMatch.vendor?.id || null,
         vendorMatch.confidence, vendorMatch.method,
         vendorMatch.isNew, vendorMatch.suggestedData ? JSON.stringify(vendorMatch.suggestedData) : null,
@@ -1251,6 +1306,22 @@ async function insertarFacturaDePreRegistro(
   header: BillHeader,
   buildLines: () => BillLineRow[]
 ): Promise<{ billId: string; billNumber: string; vendorId: string }> {
+  // ING-3 (#320): the last door before `bills`, shared by `bill inbox run` and
+  // the draft approval. A pre-registration born before the direction existed
+  // can still say 'bill' for a CFDI the entity issued; its own sale is never
+  // its expense, whatever the row says.
+  const own = await db.query<{ emisor_rfc: string }>(
+    `SELECT x.emisor_rfc FROM xml_documents x JOIN legal_entities le ON le.id = x.entity_id
+      WHERE x.id = $1 AND x.entity_id = $2 AND UPPER(TRIM(x.emisor_rfc)) = UPPER(TRIM(le.tax_id))`,
+    [preReg.xml_document_id, preReg.entity_id]
+  );
+  if (own.rows.length > 0) {
+    throw new AccountingError(
+      'CFDI_ISSUED_BY_ENTITY',
+      `This CFDI was issued by the entity itself (RFC ${own.rows[0].emisor_rfc}): it is a sale, not a vendor bill. ` +
+        'Nothing was posted: an issued CFDI never becomes a vendor bill.'
+    );
+  }
   let vendorId = preReg.vendor_id as string | null;
 
   // ── EL ALTA DE PROVEEDOR ES UNA DECISIÓN, NO UN EFECTO COLATERAL.

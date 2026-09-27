@@ -905,6 +905,9 @@ export const EN = {
   'web.error.upstream_unavailable': 'The API is not reachable right now.',
   'web.error.session_expired': 'Your session ended. Sign in again.',
   'web.error.unexpected': 'The answer could not be read.',
+  // ==== MNE-001-018 · the Anexo 24 migration leaves ====================
+  'migration.file_unreadable': 'Could not read the file "{file}".',
+  'migration.check.as_of': 'As of {date} · {comparison}',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
