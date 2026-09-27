@@ -61,6 +61,11 @@ describe('.devcontainer pins what CI uses', () => {
     expect(dockerfile).toContain(`postgresql-client-${major}`);
   });
 
+  it('carries xmllint when CI installs it for the Anexo 24 XSD tests', () => {
+    expect(read('.github/workflows/ci.yml')).toContain('apt-get install -y libxml2-utils');
+    expect(read('.devcontainer/Dockerfile')).toMatch(/apt-get install[^\n]*libxml2-utils/);
+  });
+
   it('runs scripts/setup.sh when the container is created', () => {
     const config = JSON.parse(read('.devcontainer/devcontainer.json')) as { postCreateCommand?: string };
     expect(config.postCreateCommand).toBe('scripts/setup.sh');

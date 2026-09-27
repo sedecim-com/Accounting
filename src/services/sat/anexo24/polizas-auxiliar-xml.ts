@@ -49,12 +49,12 @@ import {
 // cuenta→movimiento, que no se parece a nada de lo anterior. Forzar un molde
 // común entre los dos habría sido la copia disfrazada de abstracción.
 //
-// ── LO QUE NO PUDE VERIFICAR ────────────────────────────────────────────
+// ── CHECKED AGAINST THE OFFICIAL XSD ────────────────────────────────────
 //
-// Lo mismo que en pólizas y por la misma razón: no hay un `.xsd` en este
-// repositorio. Los nombres de nodo y de atributo son los de la estructura
-// publicada del Anexo 24; el prefijo `RepAuxFol` es el habitual y no el
-// obligatorio. Ninguno de los dos archivos se sella aquí.
+// Both files validate against AuxiliarFolios_1_3.xsd and AuxiliarCtas_1_3.xsd,
+// vendored in `xsd/` (#397, tests/sat/anexo24/official-xsd.spec.ts). The
+// `RepAuxFol` prefix is the usual one, not a required one: the XSD binds the
+// namespace, not the prefix. Neither file is sealed here.
 // ============================================================
 
 const NS_XSI = 'http://www.w3.org/2001/XMLSchema-instance';

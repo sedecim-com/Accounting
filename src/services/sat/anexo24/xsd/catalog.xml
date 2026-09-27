@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OASIS XML catalog for the SAT's ContabilidadE 1.3 schemas vendored next to it.
+  The official XSDs import each other by absolute http URL; this maps that URL
+  prefix to the local copies, so validation never reaches sat.gob.mx and the
+  files stay byte for byte as the SAT publishes them (see provenance.json).
+  Point XML_CATALOG_FILES at this file and run xmllint with its nonet option.
+-->
+<catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
+  <rewriteURI uriStartString="http://www.sat.gob.mx/esquemas/ContabilidadE/1_3/" rewritePrefix="ContabilidadE/1_3/"/>
+  <rewriteSystem systemIdStartString="http://www.sat.gob.mx/esquemas/ContabilidadE/1_3/" rewritePrefix="ContabilidadE/1_3/"/>
+</catalog>
