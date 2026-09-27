@@ -1671,7 +1671,10 @@ export const E0_0: Criterio[] = [
       // 524 + 9 = 533, re-measured on the merged tree (512 in memory + 21 on disk).
       // 533 → 536: the three mirrors #296 adds to
       // `payroll-engines-fail-closed-on-missing-law` (IMSS employer quota).
-      const MIRRORS_FLOOR = 536;
+      // 536 → 540: the three mirrors of `bill-lines-carry-vat-columns`
+      // (MNE-001-027 · #284), measured on the tree at 540; the fourth unit is a
+      // mirror that landed on `main` without raising this floor.
+      const MIRRORS_FLOOR = 540;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -1709,7 +1712,9 @@ export const E0_0: Criterio[] = [
       // Both landed: 497 + 9 = 506 on the merged tree, measured with the same
       // `grep -cE` over the union.
       // 506 → 509: the three `de:` anchors #296 adds in `criteria/e4-1.ts`.
-      const ANCHORS_HERE = 509;
+      // 509 → 512: the three `de:` anchors of `bill-lines-carry-vat-columns`
+      // in `criteria/e1-2.ts` (MNE-001-027 · #284), same `grep -cE` over the union.
+      const ANCHORS_HERE = 512;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(

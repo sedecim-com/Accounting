@@ -7,7 +7,8 @@ import Decimal from 'decimal.js';
 // ============================================================
 
 export interface CFDIImpuesto {
-  base: number;
+  /** Absent when the node omits Base: an unknown base is not a zero base (#284). */
+  base?: number;
   impuesto: string; // '002' = IVA, '001' = ISR
   tipoFactor: string; // 'Tasa', 'Cuota', 'Exento'
   tasaOCuota?: number;
@@ -253,7 +254,7 @@ export class CFDIParser {
     const list = Array.isArray(items) ? items : [items];
 
     return list.map((i: Record<string, unknown>) => ({
-      base: isDeclared(i['@_Base']) ? parseFloat(String(i['@_Base'])) : 0,
+      base: isDeclared(i['@_Base']) ? parseFloat(String(i['@_Base'])) : undefined,
       impuesto: String(i['@_Impuesto']),
       tipoFactor: String(i['@_TipoFactor']),
       tasaOCuota: isDeclared(i['@_TasaOCuota']) ? parseFloat(String(i['@_TasaOCuota'])) : undefined,
@@ -370,7 +371,7 @@ export class CFDIParser {
         if (rate === 16) iva16 = iva16.plus(t.importe ?? 0);
         else if (rate === 8) iva8 = iva8.plus(t.importe ?? 0);
         // A 0 % rate transfers no tax: what it declares is its BASE.
-        else if (rate === 0) iva0 = iva0.plus(t.base);
+        else if (rate === 0) iva0 = iva0.plus(t.base ?? 0);
       }
 
       for (const r of concepto.impuestos?.retenciones ?? []) {
