@@ -38,6 +38,7 @@ import {
   $ZodCheckV3Int,
   $ZodCheckV3Url,
   V3_EMAIL_PATTERN,
+  ZodV3Record,
 } from '../../../src/utils/zod-compat.js';
 
 interface Visit {
@@ -186,6 +187,10 @@ describe('every client-reachable schema validates with the zod 3 grammar', () =>
         if (schema instanceof z.core.$ZodRecord) {
           if (!(schema._zod.def.keyType instanceof z.core.$ZodString)) return `${at}: a record keyed by a non-string`;
           if (schema._zod.def.mode === 'loose') return `${at}: a loose record`;
+          // zod 4 skips an own `__proto__` entry unvalidated; zod 3 checked it.
+          if (!(schema._zod.def.valueType instanceof z.core.$ZodUnknown) && !(schema instanceof ZodV3Record)) {
+            return `${at}: a typed record not built with recordOf`;
+          }
         }
         if (schema instanceof z.core.$ZodUnion) {
           // zod 3 answered ±Infinity on a checked number branch with that

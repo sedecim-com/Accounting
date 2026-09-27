@@ -7,10 +7,13 @@ import {
   $ZodCheckV3Int,
   $ZodCheckV3Url,
   boundedString,
+  ZodV3Record,
   integerNumber,
+  recordOf,
   urlString,
   uuidString,
 } from '../../src/utils/zod-compat.js';
+import { parseForClient } from '../../src/utils/zod-client-errors.js';
 import { arregloAcotado, cotaDeArreglo } from '../../src/api/rest/topes.js';
 
 // The compat checks of #367 are read by the converter as the zod built-ins
@@ -95,6 +98,63 @@ describe('the array cap travels on its check', () => {
     const valid = rows.safeParse({ rows: ['a', 'b', 'c', 'd'] });
     expect(valid.error?.issues.map((i) => [i.path.join('.'), i.message])).toEqual([
       ['rows', 'llegaron 4 filas y caben 3 por petición. Parte el lote.'],
+    ]);
+  });
+});
+
+describe('recordOf checks an own __proto__ entry, as zod 3 did', () => {
+  // JSON.parse keeps `__proto__` as an own key; express.json and the config
+  // loader both use it. The expectations were recorded on zod 3.25.76 with
+  // z.record(z.string(), value), which recordOf replaces.
+  const json = (text: string): unknown => JSON.parse(text);
+
+  it('is a record to any reader, and publishes the same JSON Schema', () => {
+    const schema = recordOf(z.number());
+    expect(schema).toBeInstanceOf(ZodV3Record);
+    expect(schema).toBeInstanceOf(z.core.$ZodRecord);
+    expect(schema).toBeInstanceOf(z.ZodRecord);
+    expect(schema._zod.def.keyType).toBeInstanceOf(z.core.$ZodString);
+    expect(z.toJSONSchema(schema)).toEqual(z.toJSONSchema(z.record(z.string(), z.number())));
+  });
+
+  it('reports the entry in key order, and each other key as before', () => {
+    expect(parseForClient(recordOf(z.number()), json('{"a":"y","__proto__":"x","b":"z"}'))).toEqual({
+      success: false,
+      issues: [
+        { path: 'a', message: 'Expected number, received string' },
+        { path: '__proto__', message: 'Expected number, received string' },
+        { path: 'b', message: 'Expected number, received string' },
+      ],
+    });
+    expect(parseForClient(recordOf(z.number()), json('{"__proto__":"x","1":"y"}'))).toEqual({
+      success: false,
+      issues: [
+        { path: '1', message: 'Expected number, received string' },
+        { path: '__proto__', message: 'Expected number, received string' },
+      ],
+    });
+  });
+
+  it('keeps the check through .optional(), .nullable() and .describe()', () => {
+    const body = json('{"__proto__":"x"}');
+    for (const schema of [recordOf(z.number()).optional(), recordOf(z.number()).nullable(), recordOf(z.number()).describe('d')]) {
+      expect(schema.safeParse(body).success).toBe(false);
+    }
+  });
+
+  it('leaves a valid entry out of the output and the prototype alone', () => {
+    const parsed = recordOf(z.object({ polluted: z.boolean() })).parse(json('{"__proto__":{"polluted":true},"a":{"polluted":false}}'));
+    expect(Object.keys(parsed)).toEqual(['a']);
+    expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
+  });
+
+  it('checks the entry in an async parse too', async () => {
+    const schema = recordOf(z.string().refine(async (v) => v === 'ok', 'not ok'));
+    const parsed = await schema.safeParseAsync(json('{"a":"ok","__proto__":"no","b":"no"}'));
+    expect(parsed.error?.issues.map((i) => [i.path.join('.'), i.message])).toEqual([
+      ['__proto__', 'not ok'],
+      ['b', 'not ok'],
     ]);
   });
 });

@@ -5,7 +5,7 @@ import { z } from 'zod';
 //
 // The owner's decision on #367 is that the move to Zod 4 accepts and rejects
 // exactly what zod 3.25.76 did, and parses to the same output. Zod 4 changed
-// five grammars the REST bodies and the config file use, and each one is
+// six grammars the REST bodies and the config file use, and each one is
 // restored here:
 //
 //   uuidString     `.uuid()` became RFC 9562 (version and variant nibbles).
@@ -24,13 +24,16 @@ import { z } from 'zod';
 //                  docs/openapi.json publishes says.
 //   integerNumber  a failed `.int()` stops the checks after it; $ZodCheckV3Int
 //                  lets the bounds report too, in zod 3's order.
+//   recordOf       `z.record` skips an own `__proto__` entry (JSON.parse keeps
+//                  one) without validating it; ZodV3Record validates it in
+//                  key order, as zod 3 did, and still leaves it out.
 //
 // The checks subclass zod's own ($ZodCheckMaxLength, $ZodCheckStringFormat,
-// $ZodCheckNumberFormat…) so they keep the base traits and `def.check`: the
-// converter (src/api/rest/zod-a-json-schema.ts) reads them as the built-ins
-// they replace. They rely on `z.core.$constructor`, the base `init` and
-// `_zod.check`; tests/api/rest/zod4-guards.spec.ts and the goldens fail
-// loudly on a Zod minor that reshapes any of them.
+// $ZodCheckNumberFormat…) and ZodV3Record subclasses ZodRecord, so they keep
+// the base traits and `def`: the converter (src/api/rest/zod-a-json-schema.ts)
+// reads them as the built-ins they replace. They rely on `z.core.$constructor`,
+// the base `init`, `_zod.check` and `_zod.parse`; tests/api/rest/zod4-guards.spec.ts
+// and the goldens fail loudly on a Zod minor that reshapes any of them.
 //
 // CONTRACT: the ONE deliberate tightening this file owns (T2 in #367): an
 // integer beyond ±(2^53 − 1), which JSON cannot carry exactly, is rejected
@@ -223,7 +226,53 @@ export function integerNumber(): z.ZodNumber {
   return z.number().check(new $ZodCheckV3Int({ check: 'number_format', format: 'safeint' }));
 }
 
-/** `z.record(z.string(), value)`: the one place a typed record is built (#367). */
+const PROTO = '__proto__';
+
+/**
+ * zod 4's ZodRecord, plus the check zod 3 ran on an own `__proto__` entry.
+ * The entry's issues take its place in key order; the entry itself stays out
+ * of the output, as it does on both majors. Built by recordOf.
+ */
+export const ZodV3Record = z.core.$constructor('ZodV3Record', (inst: z.ZodRecord, def: z.core.$ZodRecordDef) => {
+  z.ZodRecord.init(inst, def);
+  const parse = inst._zod.parse.bind(inst._zod);
+  inst._zod.parse = (payload, ctx) => {
+    const input: unknown = payload.value;
+    if (!z.core.util.isPlainObject(input) || !Object.prototype.hasOwnProperty.call(input, PROTO)) {
+      return parse(payload, ctx);
+    }
+    const start = payload.issues.length;
+    const entry = def.valueType._zod.run({ value: input[PROTO], issues: [] }, ctx);
+    const rest = parse(payload, ctx);
+    // zod 3 walked the keys with for-in, the string order of Reflect.ownKeys:
+    // the entry's issues go after those of the keys before it.
+    const merge = (own: z.core.ParsePayload): z.core.ParsePayload => {
+      if (own.issues.length === 0) return payload;
+      const keys = Reflect.ownKeys(input);
+      const after = new Set<PropertyKey>(keys.slice(keys.indexOf(PROTO) + 1));
+      const issues = payload.issues;
+      let at = start;
+      while (at < issues.length && !after.has(issues[at]?.path?.[0] ?? PROTO)) at++;
+      const tail = issues.splice(at);
+      for (const issue of z.core.util.prefixIssues(PROTO, own.issues)) issues.push(issue);
+      for (const issue of tail) issues.push(issue);
+      return payload;
+    };
+    if (entry instanceof Promise || rest instanceof Promise) {
+      return Promise.all([entry, rest]).then(([own]) => merge(own));
+    }
+    return merge(entry);
+  };
+});
+
+/**
+ * `z.record(z.string(), value)` that validates an own `__proto__` entry, as
+ * zod 3 did: JSON.parse keeps that key, zod 4's record skips it unvalidated,
+ * and zod 3 checked it in key order and then left it out of the output.
+ */
 export function recordOf<V extends z.ZodType>(value: V): z.ZodRecord<z.ZodString, V> {
-  return z.record(z.string(), value);
+  return new ZodV3Record({ type: 'record', keyType: z.string(), valueType: value }) as unknown as z.ZodRecord<
+    z.ZodString,
+    V
+  >;
 }
