@@ -1,5 +1,6 @@
 import { z } from 'zod/v4';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
+import { boundedString } from '../../utils/zod-compat.js';
 import type { AgentContext } from '../context.js';
 import type { ToolDeps } from './observer.js';
 import {
@@ -59,10 +60,8 @@ export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
       '`mnemosine questions` and you must continue without inventing data (or make clear what was blocked). ' +
       'The answer is stored as a precedent for the future.',
     inputSchema: z.object({
-      question: z.string().min(1).max(1000).describe('The question, concrete and self-contained'),
-      context: z
-        .string()
-        .max(2000)
+      question: boundedString({ min: 1, max: 1000 }).describe('The question, concrete and self-contained'),
+      context: boundedString({ max: 2000 })
         .optional()
         .describe('Context to decide: vendor, amount, document, what you found and what is missing'),
       options: z
@@ -71,9 +70,7 @@ export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
         .max(5)
         .optional()
         .describe('Suggested options if the question is multiple-choice (e.g. candidate accounts)'),
-      topic: z
-        .string()
-        .max(255)
+      topic: boundedString({ max: 255 })
         .optional()
         .describe('Topic slug for precedents, e.g. "clasificacion:Servicios Integrales SA"'),
     }),
