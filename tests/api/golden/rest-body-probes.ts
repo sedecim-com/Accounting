@@ -263,6 +263,25 @@ function leafViolations(node: JsonNode): Array<[string, unknown]> {
   return out;
 }
 
+/**
+ * JSON 1e999, which express.json parses to Infinity, on every leaf where zod 3
+ * refused it: a field that is not a number, an integer, a bound it breaks.
+ * Where zod 3 took it as a number, zod 4 refuses it on purpose (T1), and
+ * body-contract.spec.ts pins both answers instead of the golden.
+ */
+function infinityViolations(node: JsonNode): Array<[string, unknown]> {
+  if (Array.isArray(node.anyOf)) return [];
+  const type = primaryType(node);
+  if (type === 'number' || type === 'integer') {
+    const out: Array<[string, unknown]> = [];
+    const integer = type === 'integer';
+    if (integer || node.maximum !== undefined || node.exclusiveMaximum !== undefined) out.push(['plusInfinity', Infinity]);
+    if (integer || node.minimum !== undefined || node.exclusiveMinimum !== undefined) out.push(['minusInfinity', -Infinity]);
+    return out;
+  }
+  return wrongTypeFor(node) === undefined ? [] : [['infinity', Infinity]];
+}
+
 /** The first violation an element can carry, used to build multi-issue arrays. */
 function firstViolation(node: JsonNode, base: unknown): unknown {
   const properties = isNode(node.properties) ? node.properties : undefined;
@@ -307,6 +326,16 @@ function label(at: readonly PathKey[]): string {
 /** A JSON body whose own key is `__proto__`, exactly as express.json delivers it. */
 function protoKeyBody(): unknown {
   return JSON.parse('{"__proto__":{"x":1}}');
+}
+
+/**
+ * A record whose own `__proto__` entry carries `value` between two valid
+ * entries: zod 3 validated that entry in key order and left it out of the
+ * output, and zod 4's record skips it unless recordOf restores it (#367).
+ */
+function protoEntryRecord(value: unknown, valid: unknown): unknown {
+  const entries = [`"a":${JSON.stringify(valid)}`, `"__proto__":${JSON.stringify(value)}`, `"b":${JSON.stringify(valid)}`];
+  return JSON.parse(`{${entries.join(',')}}`);
 }
 
 /**
@@ -359,6 +388,7 @@ export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body)
     { id: '<root>:null', body: null },
     { id: '<root>:string', body: 'x' },
     { id: '<root>:number', body: 0 },
+    { id: '<root>:infinity', body: Infinity },
     { id: '<root>:emptyObject', body: {} },
     { id: '<root>:protoKey', body: protoKeyBody() },
     { id: 'minimalValid', body: fixup(sample(schema, 'minimal'), 'minimal', unfixed) },
@@ -368,7 +398,7 @@ export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body)
 
   const visit = (node: JsonNode, at: PathKey[]): void => {
     if (at.length > 0) {
-      for (const [name, value] of leafViolations(node)) {
+      for (const [name, value] of [...leafViolations(node), ...infinityViolations(node)]) {
         probes.push({ id: `${label(at)}:${name}`, body: setAt(full, at, value) });
       }
       if (acceptsNull(node)) probes.push({ id: `${label(at)}:null`, body: setAt(full, at, null) });
@@ -410,7 +440,14 @@ export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body)
           if (isNode(child)) visit(child, [...at, key]);
         }
       } else if (isNode(node.additionalProperties)) {
-        visit(node.additionalProperties, [...at, 'k']);
+        const values = node.additionalProperties;
+        const valid = sample(values, 'full');
+        probes.push({ id: `${label(at)}:protoEntryValid`, body: setAt(full, at, protoEntryRecord(valid, valid)) });
+        const wrong = wrongTypeFor(values);
+        if (wrong !== undefined) {
+          probes.push({ id: `${label(at)}:protoEntryWrongType`, body: setAt(full, at, protoEntryRecord(wrong, valid)) });
+        }
+        visit(values, [...at, 'k']);
       }
     }
   };
