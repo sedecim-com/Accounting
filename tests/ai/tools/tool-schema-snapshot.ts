@@ -42,14 +42,24 @@ function schemasOf(tools: readonly SchemaCarrier[]): Record<string, unknown> {
   return out;
 }
 
+/** Every agent tool, as the session builds it. */
+export function agentTools(): ReturnType<typeof buildTools> {
+  return buildTools(CONTEXT, DEPS);
+}
+
+/** The webhook reader's tools. */
+export function readerTools(): ReturnType<typeof buildReaderTools> {
+  return buildReaderTools(CONTEXT, DEPS);
+}
+
 /** Every agent tool's input schema, as the session hands it to a provider. */
 export function agentToolSchemas(): Record<string, unknown> {
-  return schemasOf(buildTools(CONTEXT, DEPS));
+  return schemasOf(agentTools());
 }
 
 /** The webhook reader's tools, which must be a subset with the same schemas. */
 export function readerToolSchemas(): Record<string, unknown> {
-  return schemasOf(buildReaderTools(CONTEXT, DEPS));
+  return schemasOf(readerTools());
 }
 
 /** The golden: canonical (sorted-key) schema per tool name. */
