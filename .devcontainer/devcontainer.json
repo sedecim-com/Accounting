@@ -1,0 +1,8 @@
+{
+  "name": "mnemosine",
+  "dockerComposeFile": "compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "remoteUser": "node",
+  "postCreateCommand": "scripts/setup.sh"
+}
