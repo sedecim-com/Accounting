@@ -534,22 +534,28 @@ export async function getPeriodCloseStatus(
   // activos daba «Depreciation calculated and posted» sin que existiera
   // depreciación alguna que calcular. Mismo remedio: el universo viaja en el
   // conteo y con cero activos el item confiesa que no comprobó nada.
-  const undepreciatedAssets = await q<{ total: string; sin_depreciar: string }>(
-    `SELECT COUNT(*) as total,
-            COUNT(*) FILTER (WHERE NOT EXISTS (
+  const undepreciatedAssets = await q<{ total: string; registered: string; sin_depreciar: string }>(
+    `SELECT COUNT(*) FILTER (WHERE fa.status = 'active') as total,
+            COUNT(*) as registered,
+            COUNT(*) FILTER (WHERE fa.status = 'active' AND NOT EXISTS (
               SELECT 1 FROM depreciation_schedules ds
               WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ds.is_posted = true
             )) as sin_depreciar
      FROM fixed_assets fa
-     WHERE fa.entity_id = $1 AND fa.status = 'active'`,
+     WHERE fa.entity_id = $1`,
     [entityId, periodId]
   );
   const totalActivos = parseInt(undepreciatedAssets.rows[0].total, 10);
+  const registeredAssets = parseInt(undepreciatedAssets.rows[0].registered, 10);
   const undepCount = parseInt(undepreciatedAssets.rows[0].sin_depreciar, 10);
   // ACT-2 (#322): an empty register is only "nothing to check" when the
   // ledger agrees. Fixed assets on the balance sheet with no asset registered
   // means the month was never depreciated, and that is a finding, not a pass.
-  const unregistered = totalActivos === 0 ? await fixedAssetBalanceWithoutRegister(q, entityId, periodId) : null;
+  // The register is empty only when it holds NO asset in any status: a fully
+  // depreciated asset keeps its gross cost on the books legitimately, and
+  // telling the accountant to register it again would duplicate it.
+  const unregistered =
+    registeredAssets === 0 ? await fixedAssetBalanceWithoutRegister(q, entityId, periodId) : null;
   checklist.push({
     codigo: 'depreciation-posted',
     item: CLOSE_CHECK_ITEMS['depreciation-posted'],

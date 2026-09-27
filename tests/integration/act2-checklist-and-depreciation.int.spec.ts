@@ -161,3 +161,18 @@ describe('the close run posts the depreciation of the registered asset', () => {
     expect(warnings.some((w) => /fixed-asset|depreciation/i.test(w))).toBe(false);
   });
 });
+
+describe('a registered asset that is no longer active still counts as a register', () => {
+  it('a fully depreciated asset with its gross cost on the books does not ask to register it again', async () => {
+    const setStatus = (status: string) =>
+      query(`UPDATE fixed_assets SET status = $2 WHERE entity_id = $1`, [f.entityId, status]);
+    await setStatus('fully_depreciated');
+    try {
+      const { box, warnings } = await depreciationBox();
+      expect(box.details ?? '').not.toMatch(/fixed assets registered, but/);
+      expect(warnings.some((w) => w.includes('no fixed asset is registered'))).toBe(false);
+    } finally {
+      await setStatus('active');
+    }
+  });
+});
