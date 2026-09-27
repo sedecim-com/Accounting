@@ -352,7 +352,9 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       fact('Currency', card.currency_code);
       fact('Credit status', card.credit_status);
       fact('Credit limit', card.credit_limit);
-      fact('Open balance', card.open_balance);
+      // What is still owed after cash AND credit notes — the same measure as an
+      // invoice's `amount_due` — not "open balance", which read as cash only.
+      fact('Amount due', card.open_balance);
       fact('Past due', card.overdue_balance);
       fact('Oldest due', card.oldest_due_date);
       if (opts.asOf) out.write(`  ${p.dim('As of'.padEnd(16))}${opts.asOf}\n`);
