@@ -360,7 +360,6 @@ describe('la ida y la vuelta contra el generador de F07b', () => {
     saldo_fin_mayor: fin,
     codigo_agrupador: null,
     natur_del_agrupador: null,
-    tiene_hijas: false,
   });
 
   it('lo que construirBalanzaXml escribe, este lector lo devuelve SIN UN SOLO HALLAZGO', () => {
