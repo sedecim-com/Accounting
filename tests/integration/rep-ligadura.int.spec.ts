@@ -1,5 +1,27 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+
+// A hook that runs just before the next statement matching `pattern`, on the
+// real pool: it stands in for a concurrent session writing between a SELECT
+// and the UPDATE that follows it. Every other query passes straight through.
+const race = vi.hoisted(() => ({
+  pattern: null as RegExp | null,
+  before: null as null | ((params: unknown[]) => Promise<void>),
+}));
+vi.mock('../../src/database/connection.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/database/connection.js')>();
+  const query = (async (sql: string, params?: unknown[]) => {
+    if (race.pattern?.test(sql) && race.before) {
+      const hook = race.before;
+      race.pattern = null;
+      race.before = null;
+      await hook(params ?? []);
+    }
+    return real.query(sql, params);
+  }) as typeof real.query;
+  return { ...real, query };
+});
+
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, fechaEnPeriodo, saldoDe, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
@@ -9,6 +31,7 @@ import { ligarPagoREP } from '../../src/services/xml-ingestion/rep-linkage.js';
 import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-service.js';
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import type { PagoREP } from '../../src/services/xml-ingestion/cfdi-facts.js';
+import { repXml } from './helpers/rep-xml.js';
 
 /**
  * EL MISMO HECHO ECONÓMICO POR LAS DOS PUERTAS DA EL MISMO MAYOR.
@@ -71,12 +94,18 @@ interface Gasto {
 /**
  * Un gasto a crédito aprobado, con su puente al CFDI que lo originó.
  *
- * El puente importa: `bills` no tiene columna de UUID fiscal, así que la
- * única forma de ir del `IdDocumento` de un REP al gasto es el pre-registro
- * que lo creó. Es el mismo rodeo que ya usan el IVA sobre flujo y el servicio
- * de gastos, y si esa cadena se rompe, la ligadura deja de encontrar nada.
+ * The bridge matters: a REP's `IdDocumento` reaches the bill either through
+ * the pre-registration that created it (the default here) or through the
+ * bill's own `cfdi_uuid` column (037). If both are missing, the linkage finds
+ * nothing.
  */
-async function gastoAprobado(subtotal = '1000.00', iva = '160.00'): Promise<Gasto> {
+async function gastoAprobado(
+  subtotal = '1000.00',
+  iva = '160.00',
+  // 'bill_cfdi_uuid': the bill carries its own UUID (the 037 column) and no
+  // pre-registration points at it — a bill that did not come from the inbox.
+  bridge: 'pre_registration' | 'bill_cfdi_uuid' = 'pre_registration'
+): Promise<Gasto> {
   const total = (Number(subtotal) + Number(iva)).toFixed(2);
   const fecha = fechaEnPeriodo();
   const billId = uuidv4();
@@ -94,9 +123,12 @@ async function gastoAprobado(subtotal = '1000.00', iva = '160.00'): Promise<Gast
     `INSERT INTO bills (
        id, entity_id, bill_number, vendor_id, vendor_invoice_number,
        subtotal, tax_amount, total_amount, amount_due, amount_paid,
-       currency_code, bill_date, due_date, status, created_by
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,0,'MXN',$9,$9,'draft',$10)`,
-    [billId, f.entityId, `BILL-${marca}`, vendorId, `CFDI-${marca}`, subtotal, iva, total, fecha, f.userId]
+       currency_code, bill_date, due_date, status, created_by, cfdi_uuid
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,0,'MXN',$9,$9,'draft',$10,$11)`,
+    [
+      billId, f.entityId, `BILL-${marca}`, vendorId, `CFDI-${marca}`, subtotal, iva, total, fecha, f.userId,
+      bridge === 'bill_cfdi_uuid' ? cfdiUuid : null,
+    ]
   );
   await query(
     `INSERT INTO bill_lines (id, bill_id, line_number, account_id, description, quantity, unit_price, line_amount, tax_amount, total_amount)
@@ -111,7 +143,7 @@ async function gastoAprobado(subtotal = '1000.00', iva = '160.00'): Promise<Gast
      ) VALUES ($1,$2,'cfdi_ingreso',$3,'4.0',$4,'CCC030303CC3','XAXX010101000',$5,$6,'MXN','<x/>',$7,'manual_upload')`,
     [xmlId, f.entityId, cfdiUuid, fecha, subtotal, total, marca]
   );
-  await query(
+  if (bridge === 'pre_registration') await query(
     `INSERT INTO pre_registrations (
        id, entity_id, xml_document_id, source_type, document_type, document_date,
        currency_code, subtotal, total_amount, lines, status, bill_id
@@ -414,43 +446,11 @@ describe('las decisiones son del usuario, no del código', () => {
  * sostiene el acreditamiento del IVA no se contabilizaba nunca.
  */
 describe('la ingesta reconoce un REP y lo procesa', () => {
-  function xmlDeREP(g: Gasto, repUuid: string): string {
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
-  xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-  Version="4.0" TipoDeComprobante="P" Moneda="XXX" Total="0" SubTotal="0"
-  Fecha="${fechaEnPeriodo().toISOString().slice(0, 19)}" LugarExpedicion="64000" Exportacion="01">
-  <cfdi:Emisor Rfc="CCC030303CC3" Nombre="Proveedor REP" RegimenFiscal="601"/>
-  <cfdi:Receptor Rfc="XAXX010101000" Nombre="Cliente" UsoCFDI="CP01"
-    DomicilioFiscalReceptor="64000" RegimenFiscalReceptor="601"/>
-  <cfdi:Conceptos>
-    <cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT"
-      Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/>
-  </cfdi:Conceptos>
-  <cfdi:Complemento>
-    <pago20:Pagos Version="2.0">
-      <pago20:Pago FechaPago="${fechaEnPeriodo().toISOString().slice(0, 19)}"
-        FormaDePagoP="03" MonedaP="MXN" Monto="${g.total}" NumOperacion="OP-9">
-        <pago20:DoctoRelacionado IdDocumento="${g.cfdiUuid}" MonedaDR="MXN" NumParcialidad="1"
-          ImpSaldoAnt="${g.total}" ImpPagado="${g.total}" ImpSaldoInsoluto="0" ObjetoImpDR="02">
-          <pago20:ImpuestosDR><pago20:TrasladosDR>
-            <pago20:TrasladoDR BaseDR="${(Number(g.total) - g.iva).toFixed(2)}" ImpuestoDR="002"
-              TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="${g.iva.toFixed(2)}"/>
-          </pago20:TrasladosDR></pago20:ImpuestosDR>
-        </pago20:DoctoRelacionado>
-      </pago20:Pago>
-    </pago20:Pagos>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="${repUuid}"
-      FechaTimbrado="${fechaEnPeriodo().toISOString().slice(0, 19)}" SelloCFD="x" NoCertificadoSAT="1" SelloSAT="y"/>
-  </cfdi:Complemento>
-</cfdi:Comprobante>`;
-  }
-
   it('el pre-registro nace como «payment», no como nota de crédito', async () => {
     const g = await gastoAprobado('1200.00', '192.00');
     const svc = new PreRegistrationService();
     const r = await svc.processXMLUpload(
-      f.entityId, xmlDeREP(g, uuidv4()), 'manual_upload', f.userId
+      f.entityId, repXml(g, uuidv4()), 'manual_upload', f.userId
     );
     expect(
       (r.preRegistration as { document_type: string }).document_type,
@@ -465,7 +465,7 @@ describe('la ingesta reconoce un REP y lo procesa', () => {
 
     const svc = new PreRegistrationService();
     const subida = await svc.processXMLUpload(
-      f.entityId, xmlDeREP(g, uuidv4()), 'manual_upload', f.userId
+      f.entityId, repXml(g, uuidv4()), 'manual_upload', f.userId
     );
     const res = await svc.processToAccounting(
       subida.preRegistration, f.userId
@@ -495,7 +495,7 @@ describe('la ingesta reconoce un REP y lo procesa', () => {
     const ajeno: Gasto = { ...g, cfdiUuid: uuidv4() };
     const svc = new PreRegistrationService();
     const subida = await svc.processXMLUpload(
-      f.entityId, xmlDeREP(ajeno, uuidv4()), 'manual_upload', f.userId
+      f.entityId, repXml(ajeno, uuidv4()), 'manual_upload', f.userId
     );
     await expect(
       svc.processToAccounting(subida.preRegistration, f.userId)
@@ -690,5 +690,47 @@ describe('regresiones de la auditoría del casamiento', () => {
     );
     expect(p.rows[0].currency_code, 'MXN registrado como USD').toBe('MXN');
     expect(p.rows[0].reference_number).toBe('OP-REP');
+  });
+});
+
+describe('ING-1 · #318 PR2: the REP finds the bill and never steals a link', () => {
+  it('resolves a bill by its own cfdi_uuid when no pre-registration points at it', async () => {
+    const g = await gastoAprobado('900.00', '144.00', 'bill_cfdi_uuid');
+    const pendingBefore = await saldoDe(cuentaPendiente, g.periodo);
+    const creditableBefore = await saldoDe(cuentaAcreditable, g.periodo);
+
+    const r = await ligar(g, pagoDe(g));
+
+    expect(r.accion, r.motivo).toBe('creado');
+    expect(await pagosDe(g.billId)).toBe(1);
+    const bill = await query<{ amount_due: string }>(`SELECT amount_due::text FROM bills WHERE id = $1`, [g.billId]);
+    expect(Number(bill.rows[0].amount_due)).toBe(0);
+    expect(await saldoDe(cuentaPendiente, g.periodo)).toBeCloseTo(pendingBefore - 144, 2);
+    expect(await saldoDe(cuentaAcreditable, g.periodo)).toBeCloseTo(creditableBefore + 144, 2);
+  });
+
+  it('a payment another REP claimed between the search and the UPDATE is not overwritten', async () => {
+    const g = await gastoAprobado('600.00', '96.00');
+    const pago = await recordVendorPayment(
+      {
+        entityId: f.entityId, paymentAmount: g.total, paymentDate: fechaEnPeriodo(),
+        paymentMethod: 'spei',
+        applications: [{ documentId: g.billId, amountApplied: g.total }],
+      },
+      f.userId
+    );
+    const other = uuidv4();
+    race.pattern = /^\s*UPDATE vendor_payments SET cfdi_uuid/;
+    race.before = async ([paymentId]) => {
+      await query(`UPDATE vendor_payments SET cfdi_uuid = $2, cfdi_pago_indice = 0 WHERE id = $1`, [paymentId, other]);
+    };
+
+    const r = await ligar(g, pagoDe(g));
+
+    expect(race.before, 'the race hook never fired: the casado path was not reached').toBeNull();
+    expect(r.accion).toBe('revision');
+    expect(r.motivo).toMatch(/otro comprobante/);
+    const p = await query<{ cfdi_uuid: string }>(`SELECT cfdi_uuid FROM vendor_payments WHERE id = $1`, [pago.paymentId]);
+    expect(p.rows[0].cfdi_uuid, 'the other REP\'s link was overwritten').toBe(other);
   });
 });

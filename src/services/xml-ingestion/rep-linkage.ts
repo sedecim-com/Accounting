@@ -267,10 +267,25 @@ export async function ligarPagoREP(opts: {
     // Casar es ANOTAR, no volver a postear: el asiento del pago ya existe y ya
     // liberó su IVA cuando se registró. Escribir aquí una segunda póliza es
     // exactamente el doble abono que este módulo evita.
-    await query(
-      `UPDATE ${tabla} SET cfdi_uuid = $2, cfdi_pago_indice = $3 WHERE id = $1`,
-      [candidato.id, opts.cfdiUuid, opts.indice]
+    //
+    // Invariant 3: entity scope and the same state predicate the search used
+    // (no REP linked yet), then rowCount. Between the search and this UPDATE
+    // another REP can claim the payment; overwriting its link would leave that
+    // REP pointing at nothing, so zero rows goes to review instead.
+    const linked = await query(
+      `UPDATE ${tabla} SET cfdi_uuid = $2, cfdi_pago_indice = $3
+        WHERE id = $1 AND entity_id = $4 AND cfdi_uuid IS NULL`,
+      [candidato.id, opts.cfdiUuid, opts.indice, opts.entityId]
     );
+    if (linked.rowCount !== 1) {
+      return {
+        accion: 'revision',
+        motivo:
+          `El pago ${candidato.numero} quedó ligado a otro comprobante mientras se procesaba éste. ` +
+          'No se sobrescribe esa ligadura: reprocesa este comprobante para buscar otra vez.',
+        avisos,
+      };
+    }
     return {
       accion: 'casado',
       paymentId: candidato.id,
@@ -359,9 +374,11 @@ export async function ligarPagoREP(opts: {
 /**
  * Del UUID fiscal al documento del sistema.
  *
- * Las facturas emitidas llevan su UUID en la propia tabla. Los gastos no: el
- * puente es el pre-registro que los creó, que sí guarda el documento XML. Es
- * el mismo rodeo que ya usan el IVA sobre flujo y el servicio de gastos.
+ * Issued invoices carry their UUID in their own table. A bill is looked up
+ * first through the pre-registration that created it (it keeps the XML), the
+ * same detour the cash-basis VAT and the bill service take; then, ING-1
+ * (#318), by its own `bills.cfdi_uuid` (migration 037), the column the DIOT
+ * and Anexo 24 already read. Same entity scope in both queries.
  */
 async function resolverDocumento(
   entityId: string,
@@ -405,7 +422,13 @@ async function resolverDocumento(
       ORDER BY p.created_at LIMIT 1`,
     [entityId, uuid]
   );
-  const row = r.rows[0];
+  const row = r.rows[0] ?? (await query<typeof r.rows[0]>(
+    `SELECT id, vendor_id, currency_code,
+            tax_amount::text AS tax_amount, total_amount::text AS total_amount
+       FROM bills WHERE entity_id = $1 AND cfdi_uuid = $2
+      ORDER BY created_at LIMIT 1`,
+    [entityId, uuid]
+  )).rows[0];
   return row
     ? {
         documentId: row.id, counterpartyId: row.vendor_id, currencyCode: row.currency_code,
