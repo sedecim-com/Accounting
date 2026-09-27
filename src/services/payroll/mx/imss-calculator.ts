@@ -25,7 +25,7 @@ interface ImssEmployerRates {
   retiro: number;
 }
 
-function riesgoRate(rates: ImssEmployerRates, clase: string | undefined): number {
+function riesgoRate(rates: Record<string, number>, clase: string | undefined): number {
   switch (clase) {
     case '01': return rates.riesgo_trabajo_clase_1;
     case '02': return rates.riesgo_trabajo_clase_2;
@@ -111,6 +111,26 @@ export class MexicoImssEmployeeCalculator implements ITaxCalculator {
 // Employer portion (patronal)
 // ============================================================
 
+/**
+ * Every employer rate the calculation reads, all five work-risk classes
+ * included: `riesgoRate` picks one of them per employee (#296).
+ */
+const EMPLOYER_RATE_KEYS = [
+  'enfermedades_maternidad_fija',
+  'enfermedades_maternidad_excedente',
+  'prestaciones_dinero',
+  'gastos_medicos_pensionados',
+  'invalidez_vida',
+  'guarderias',
+  'riesgo_trabajo_clase_1',
+  'riesgo_trabajo_clase_2',
+  'riesgo_trabajo_clase_3',
+  'riesgo_trabajo_clase_4',
+  'riesgo_trabajo_clase_5',
+  'cesantia_vejez',
+  'retiro',
+] as const satisfies readonly (keyof ImssEmployerRates)[];
+
 export class MexicoImssEmployerCalculator implements ITaxCalculator {
   jurisdiction = 'MX';
   taxType = 'imss_employer';
@@ -132,26 +152,29 @@ export class MexicoImssEmployerCalculator implements ITaxCalculator {
       const topeSbc = uma * 25;
       const sbcCapped = Math.min(sbc_daily, topeSbc);
       const excedente3uma = Math.max(0, sbcCapped - 3 * uma);
-      const er = (params.imss_employer as ImssEmployerRates) || ({} as ImssEmployerRates);
+      // NOTE(#296): an absent block or rate throws, as the employee side does
+      // since #200. `|| {}` plus `|| 0` per rate gave an employer quota of 0.00
+      // that reached the journal entry and the SUA as if it were the obligation.
+      const er = requiredRates(params, 'imss_employer', EMPLOYER_RATE_KEYS, tax_year);
 
       // EM fixed daily quota (cuota fija): 20.4% of UMA * days
-      add('em_fija', uma * (er.enfermedades_maternidad_fija || 0) * days);
+      add('em_fija', uma * er.enfermedades_maternidad_fija * days);
       // EM excess over 3 UMA
-      add('em_excedente', excedente3uma * (er.enfermedades_maternidad_excedente || 0) * days);
+      add('em_excedente', excedente3uma * er.enfermedades_maternidad_excedente * days);
       // Cash benefits (prestaciones en dinero)
-      add('prestaciones_dinero', sbcCapped * (er.prestaciones_dinero || 0) * days);
+      add('prestaciones_dinero', sbcCapped * er.prestaciones_dinero * days);
       // GMP
-      add('gmp', sbcCapped * (er.gastos_medicos_pensionados || 0) * days);
+      add('gmp', sbcCapped * er.gastos_medicos_pensionados * days);
       // Disability and life (invalidez y vida)
-      add('invalidez_vida', sbcCapped * (er.invalidez_vida || 0) * days);
+      add('invalidez_vida', sbcCapped * er.invalidez_vida * days);
       // Daycare and social benefits (guarderias y prestaciones sociales)
-      add('guarderias', sbcCapped * (er.guarderias || 0) * days);
+      add('guarderias', sbcCapped * er.guarderias * days);
       // Work risk (riesgo de trabajo)
       add('riesgo_trabajo', sbcCapped * riesgoRate(er, riesgo_puesto) * days);
       // Severance and old age (cesantia y vejez)
-      add('cesantia_vejez', sbcCapped * (er.cesantia_vejez || 0) * days);
+      add('cesantia_vejez', sbcCapped * er.cesantia_vejez * days);
       // Retirement (SAR) — 2% paid directly to the AFORE
-      add('retiro', sbcCapped * (er.retiro || 0) * days);
+      add('retiro', sbcCapped * er.retiro * days);
 
       taxableUsed += sbcCapped * days;
     }
