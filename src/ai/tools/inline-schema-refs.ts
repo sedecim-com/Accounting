@@ -24,16 +24,24 @@ function isObject(value: unknown): value is JsonSchemaObject {
 /**
  * Resolves every `#/$defs/<name>` in `schema` and drops `$defs`.
  *
- * A schema without `$defs` is returned as the same reference. A ref node's own
- * keys (a `description`, typically) are layered over the definition it names.
- * An unknown, non-local or cyclic ref throws: inlining must never publish a
- * schema that says less than the one it replaces.
+ * A schema without `$defs` is returned as the same reference once it is known
+ * to hold no ref. A ref node's own keys (a `description`, typically) are
+ * layered over the definition it names. An unknown, non-local or cyclic ref
+ * throws, with or without `$defs`: inlining must never publish a schema that
+ * says less than the one it replaces.
  */
 export function inlineLocalRefs(schema: JsonSchemaObject): JsonSchemaObject {
-  const defs = schema.$defs;
-  if (defs === undefined) return schema;
-  if (!isObject(defs)) throw new Error('inlineLocalRefs: $defs is not an object');
+  if (schema.$defs === undefined) {
+    // No definitions: every ref names none, so resolving against an empty set
+    // throws on the first one and otherwise leaves nothing to replace.
+    resolveRefs(schema, {});
+    return schema;
+  }
+  if (!isObject(schema.$defs)) throw new Error('inlineLocalRefs: $defs is not an object');
+  return resolveRefs(schema, schema.$defs);
+}
 
+function resolveRefs(schema: JsonSchemaObject, defs: JsonSchemaObject): JsonSchemaObject {
   const resolveValue = (value: unknown, stack: readonly string[]): unknown => {
     if (Array.isArray(value)) return value.map((v: unknown) => resolveValue(v, stack));
     return isObject(value) ? resolveObject(value, stack) : value;
@@ -44,7 +52,8 @@ export function inlineLocalRefs(schema: JsonSchemaObject): JsonSchemaObject {
     if (typeof ref === 'string') {
       if (!ref.startsWith(LOCAL_REF)) throw new Error(`inlineLocalRefs: ${ref} is not a local $defs ref`);
       const name = ref.slice(LOCAL_REF.length);
-      const target = defs[name];
+      // Own keys only: `__proto__` would otherwise name Object.prototype.
+      const target = Object.hasOwn(defs, name) ? defs[name] : undefined;
       if (!isObject(target)) throw new Error(`inlineLocalRefs: ${ref} names no definition`);
       if (stack.includes(name)) {
         throw new Error(`inlineLocalRefs: cyclic ref ${[...stack, name].join(' -> ')}`);

@@ -47,7 +47,8 @@ export interface ProbedRoute {
 }
 
 type SampleMode = 'minimal' | 'full';
-type SampleFixup = (body: unknown, mode: SampleMode) => unknown;
+/** Makes a sample valid where a refinement needs it; `full` is the full sample before any fixup. */
+type SampleFixup = (body: unknown, mode: SampleMode, full: unknown) => unknown;
 
 // ─── the valid samples ───
 
@@ -262,6 +263,25 @@ function leafViolations(node: JsonNode): Array<[string, unknown]> {
   return out;
 }
 
+/**
+ * JSON 1e999, which express.json parses to Infinity, on every leaf where zod 3
+ * refused it: a field that is not a number, an integer, a bound it breaks.
+ * Where zod 3 took it as a number, zod 4 refuses it on purpose (T1), and
+ * body-contract.spec.ts pins both answers instead of the golden.
+ */
+function infinityViolations(node: JsonNode): Array<[string, unknown]> {
+  if (Array.isArray(node.anyOf)) return [];
+  const type = primaryType(node);
+  if (type === 'number' || type === 'integer') {
+    const out: Array<[string, unknown]> = [];
+    const integer = type === 'integer';
+    if (integer || node.maximum !== undefined || node.exclusiveMaximum !== undefined) out.push(['plusInfinity', Infinity]);
+    if (integer || node.minimum !== undefined || node.exclusiveMinimum !== undefined) out.push(['minusInfinity', -Infinity]);
+    return out;
+  }
+  return wrongTypeFor(node) === undefined ? [] : [['infinity', Infinity]];
+}
+
 /** The first violation an element can carry, used to build multi-issue arrays. */
 function firstViolation(node: JsonNode, base: unknown): unknown {
   const properties = isNode(node.properties) ? node.properties : undefined;
@@ -309,11 +329,43 @@ function protoKeyBody(): unknown {
 }
 
 /**
+ * A record whose own `__proto__` entry carries `value` between two valid
+ * entries: zod 3 validated that entry in key order and left it out of the
+ * output, and zod 4's record skips it unless recordOf restores it (#367).
+ */
+function protoEntryRecord(value: unknown, valid: unknown): unknown {
+  const entries = [`"a":${JSON.stringify(valid)}`, `"__proto__":${JSON.stringify(value)}`, `"b":${JSON.stringify(valid)}`];
+  return JSON.parse(`{${entries.join(',')}}`);
+}
+
+/**
+ * For a refinement that wants at least one field, or one of two: the minimal
+ * sample carries `key`, valued as in the full sample. The full sample already
+ * holds every field, so it is left as it is.
+ */
+function withField(key: string): SampleFixup {
+  return (body, mode, full) =>
+    mode === 'minimal' && isNode(body) && isNode(full) && key in full ? { ...body, [key]: full[key] } : body;
+}
+
+/**
  * Valid samples that a refinement needs and JSON Schema cannot express (the
  * nodes published with `x-validacion-adicional`), keyed by route. Without
- * them every probe of the route would also carry the refinement's issue.
+ * them every probe of the route would also carry the refinement's issue, and
+ * a `minimalValid` or `fullValid` probe would record a rejection under the
+ * name of an acceptance (body-contract.spec.ts refuses that).
  */
 const SAMPLE_FIXUPS: Readonly<Record<string, SampleFixup>> = {
+  // "At least one field must be provided" (or "... required").
+  'PATCH /v1/accounts/:id': withField('name'),
+  'PATCH /v1/customers/:id': withField('company_name'),
+  'PATCH /v1/pre-registrations/:id': withField('notes'),
+  'PATCH /v1/vendors/:id': withField('company_name'),
+  'PUT /v1/processing-rules/:id': withField('rule_name'),
+  // "company_name or first_name is required".
+  'POST /v1/customers': withField('company_name'),
+  // "xml_content or xml_contents array is required".
+  'POST /v1/upload': withField('xml_content'),
   // A journal line carries a debit OR a credit, never both and never neither.
   'POST /v1/journal-entries': (body, mode) => {
     if (!isNode(body) || !Array.isArray(body.lines)) return body;
@@ -329,22 +381,24 @@ const SAMPLE_FIXUPS: Readonly<Record<string, SampleFixup>> = {
 
 /** Every probe for one published body schema, in a stable order. */
 export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body): BodyProbe[] {
-  const full = fixup(sample(schema, 'full'), 'full');
+  const unfixed = sample(schema, 'full');
+  const full = fixup(unfixed, 'full', unfixed);
   const probes: BodyProbe[] = [
     { id: '<root>:array', body: [] },
     { id: '<root>:null', body: null },
     { id: '<root>:string', body: 'x' },
     { id: '<root>:number', body: 0 },
+    { id: '<root>:infinity', body: Infinity },
     { id: '<root>:emptyObject', body: {} },
     { id: '<root>:protoKey', body: protoKeyBody() },
-    { id: 'minimalValid', body: fixup(sample(schema, 'minimal'), 'minimal') },
+    { id: 'minimalValid', body: fixup(sample(schema, 'minimal'), 'minimal', unfixed) },
     { id: 'fullValid', body: full },
   ];
   if (isNode(full)) probes.push({ id: 'extraKey', body: { ...full, __extra__: 1 } });
 
   const visit = (node: JsonNode, at: PathKey[]): void => {
     if (at.length > 0) {
-      for (const [name, value] of leafViolations(node)) {
+      for (const [name, value] of [...leafViolations(node), ...infinityViolations(node)]) {
         probes.push({ id: `${label(at)}:${name}`, body: setAt(full, at, value) });
       }
       if (acceptsNull(node)) probes.push({ id: `${label(at)}:null`, body: setAt(full, at, null) });
@@ -386,7 +440,14 @@ export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body)
           if (isNode(child)) visit(child, [...at, key]);
         }
       } else if (isNode(node.additionalProperties)) {
-        visit(node.additionalProperties, [...at, 'k']);
+        const values = node.additionalProperties;
+        const valid = sample(values, 'full');
+        probes.push({ id: `${label(at)}:protoEntryValid`, body: setAt(full, at, protoEntryRecord(valid, valid)) });
+        const wrong = wrongTypeFor(values);
+        if (wrong !== undefined) {
+          probes.push({ id: `${label(at)}:protoEntryWrongType`, body: setAt(full, at, protoEntryRecord(wrong, valid)) });
+        }
+        visit(values, [...at, 'k']);
       }
     }
   };

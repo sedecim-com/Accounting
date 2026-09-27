@@ -4001,7 +4001,7 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/accounting/ar-ap-posting.ts:88; también src/services/accounting/iva-cash-basis.ts:583, src/services/ap/ap-controls.ts:203, src/services/ar/ar-controls.ts:48 y src/services/xml-ingestion/pre-registration-service.ts:884; leído en src/cli/bill-command.ts:1222",
+      "where": "src/services/accounting/ar-ap-posting.ts:88; también src/services/accounting/iva-cash-basis.ts:583, src/services/ap/ap-controls.ts:203, src/services/ar/ar-controls.ts:53 y src/services/xml-ingestion/pre-registration-service.ts:884; leído en src/cli/bill-command.ts:1222",
       "es": "MISSING_ROLE_ACCOUNT",
       "en": null,
       "keptBecause": "identical-in-both",
@@ -4205,7 +4205,7 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/ar/ar-controls.ts:356",
+      "where": "src/services/ar/ar-controls.ts:375",
       "es": "UNKNOWN_CHECK",
       "en": null,
       "keptBecause": "identical-in-both",

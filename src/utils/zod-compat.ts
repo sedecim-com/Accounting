@@ -222,3 +222,8 @@ export function boundedString(bounds: StringBounds, messages: StringBoundMessage
 export function integerNumber(): z.ZodNumber {
   return z.number().check(new $ZodCheckV3Int({ check: 'number_format', format: 'safeint' }));
 }
+
+/** `z.record(z.string(), value)`: the one place a typed record is built (#367). */
+export function recordOf<V extends z.ZodType>(value: V): z.ZodRecord<z.ZodString, V> {
+  return z.record(z.string(), value);
+}

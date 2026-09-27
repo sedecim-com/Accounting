@@ -34,6 +34,12 @@ describe('inlineLocalRefs', () => {
     );
   });
 
+  it('refuses a ref to an inherited key of $defs', () => {
+    expect(() => inlineLocalRefs({ $defs: {}, properties: { a: { $ref: '#/$defs/__proto__' } } })).toThrow(
+      /names no definition/
+    );
+  });
+
   it('refuses a cyclic ref', () => {
     const schema = {
       properties: { a: { $ref: '#/$defs/x' } },
@@ -44,6 +50,15 @@ describe('inlineLocalRefs', () => {
 
   it('refuses a ref it cannot resolve locally', () => {
     expect(() => inlineLocalRefs({ $defs: {}, properties: { a: { $ref: 'https://x/y.json' } } })).toThrow(
+      /not a local \$defs ref/
+    );
+  });
+
+  it('refuses a ref in a schema that has no $defs at all', () => {
+    expect(() => inlineLocalRefs({ properties: { a: { $ref: '#/$defs/missing' } } })).toThrow(/names no definition/);
+    expect(() => inlineLocalRefs({ properties: { a: { $ref: '#/$defs/__proto__' } } })).toThrow(/names no definition/);
+    expect(() => inlineLocalRefs({ items: [{ $ref: 'https://x/y.json' }] })).toThrow(/not a local \$defs ref/);
+    expect(() => withInlinedInputSchema({ name: 't', input_schema: { type: 'object', properties: { a: { $ref: '#' } } } })).toThrow(
       /not a local \$defs ref/
     );
   });

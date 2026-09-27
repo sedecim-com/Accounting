@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { emailString, integerNumber, urlString, uuidString } from '../../../utils/zod-compat.js';
+import { emailString, integerNumber, recordOf, urlString, uuidString } from '../../../utils/zod-compat.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess, assertEntityAccess } from '../middleware/auth.js';
@@ -40,7 +40,7 @@ const validateConfigSchema = z.object({
 
 const disclosureConfigSchema = z.object({
   entity_id: uuidString().optional(),
-  category_disclosure: z.record(z.string(), z.number()).optional(),
+  category_disclosure: recordOf(z.number()).optional(),
   publish_geography: z.boolean().optional(),
   publish_line_of_business: z.boolean().optional(),
   publish_customer_segment: z.boolean().optional(),
