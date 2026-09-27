@@ -22,6 +22,7 @@ import {
   type DepreciationResult,
 } from '../../../src/services/assets/depreciation-math.js';
 import { DepreciationMethod } from '../../../src/types/index.js';
+import { basisLock } from '../../../src/services/assets/depreciation.js';
 
 /**
  * LA ARITMÉTICA DE LA DEPRECIACIÓN, SIN POSTGRES DETRÁS.
@@ -380,5 +381,28 @@ describe('lo que queda escrito del cálculo', () => {
     expect(esImporteCero('0.0000')).toBe(true);
     expect(esImporteCero('0.0001')).toBe(false);
     expect(esImporteCero('-0.0000')).toBe(true);
+  });
+});
+
+describe('the LISR rate drives the tax schedule (#322)', () => {
+  it('35 % charges base × 35 % / 12 each month and the 35th whole month takes the rest', () => {
+    const rows = calculateStraightLine(activo({ acquisition_cost: '120000.0000', annual_rate: '0.3500' }));
+    expect(rows).toHaveLength(35);
+    expect(rows[0].depreciation_expense).toBe('3500.0000');
+    expect(rows[34].depreciation_expense).toBe('1000.0000');
+    expect(sumaDeGastos(rows)).toBe('120000.0000');
+  });
+
+  it('without a rate the life still rules, so a pre-088 asset keeps its speed', () => {
+    const rows = calculateStraightLine(activo({ acquisition_cost: '120000.0000', useful_life_months: 35 }));
+    expect(rows[0].depreciation_expense).toBe('3428.5714');
+  });
+});
+
+describe('the basis lock of an asset with posted rows (#322)', () => {
+  it('refuses the other book once one has posted, and lets the same book go on', () => {
+    expect(basisLock(new Set(['book']), 'tax')).toMatch(/cannot change/);
+    expect(basisLock(new Set(['book']), 'book')).toBeNull();
+    expect(basisLock(undefined, 'tax')).toBeNull();
   });
 });

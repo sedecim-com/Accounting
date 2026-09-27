@@ -12,32 +12,19 @@ import type { BalanceFileRow } from '../sat/anexo24/balance-reader.js';
 // par de balanzas, en una prueba, en la terminal o en la revisión de una
 // migración de verdad, sin arrastrar la carga entera.
 //
-// ── POR QUÉ HAY QUE AGREGAR ANTES DE COMPARAR ───────────────────────────
+// ── BOTH SIDES ARE ALREADY AGGREGATED ───────────────────────────────────
 //
-// El Anexo 24 declara el saldo de una cuenta de mayor INCLUYENDO el de sus
-// subcuentas: «1120 Clientes» vale la suma de 1120-001, 1120-002… Este sistema
-// no hace eso, y no es un descuido de este tramo: `verificarMayorSinAgregar`
-// (F07b) lo declara por escrito y emite una advertencia cuando una cuenta con
-// hijas sale en ceros. El mayor guarda el saldo PROPIO de cada cuenta.
+// The Anexo 24 declares a ledger account INCLUDING its subaccounts: «1120
+// Clientes» is the sum of 1120-001, 1120-002… Until #323 our balanza declared
+// each account's OWN balance and this judge rolled our tree up before
+// comparing. Since #323 `generarBalanza` declares the rolled-up figure itself
+// (report-service `rollUpTrialBalanceRows`), so each account the source
+// declares is compared against the SAME account in ours, figure to figure.
+// Rolling up here again would count every level of the tree twice.
 //
-// Comparar las dos cosas cuenta por cuenta sin agregar daría un falso
-// descuadre en cada cuenta de mayor del catálogo —cientos de ellos— y ni uno
-// solo sería un peso perdido. Así que el cotejo suma nuestro árbol hacia
-// arriba y compara CADA cuenta declarada por el origen contra la suma de su
-// subárbol en nuestro mayor. Es la lectura que hace la autoridad, y es la
-// única que puede decir «al peso» sin mentir.
-//
-// ── Y POR QUÉ SE AGREGA EN EL EJE DEL MAYOR, NO EN EL DECLARADO ─────────
-//
-// Ésta es la trampa fina, y cuesta una cuenta de balance entera. Bajo «1200
-// Activo fijo» (deudora) cuelga «1290 Depreciación acumulada» (ACREEDORA). En
-// el archivo, la depreciación se declara POSITIVA —cada saldo va en su propia
-// naturaleza—, así que sumar las cifras declaradas de las hijas daría
-// «costo + depreciación» cuando el activo fijo neto es «costo − depreciación».
-// La suma sólo es correcta en el eje único del mayor —deudor positivo—, y por
-// eso las dos partes se traducen ahí con `saldoDelMayor` antes de sumar y sólo
-// se vuelve a la naturaleza de la cuenta para IMPRIMIR la diferencia, que es
-// donde un contador la va a buscar.
+// The ledger axis (debit-positive) still matters to PRINT a difference in the
+// account's own nature, which is where an accountant looks for it; the sum of
+// a credit child under a debit parent is now report-service's business.
 // ============================================================
 
 /** La forma del árbol y la naturaleza de cada cuenta: lo que el cotejo necesita. */
@@ -91,44 +78,6 @@ export function shapesFromRows(
     parentCode: f.parent_code,
     natur: naturDe(f.normal_balance),
   }));
-}
-
-/**
- * Suma cada subárbol: para cada cuenta, lo suyo MÁS lo de toda su descendencia.
- *
- * Se recorre de las hojas hacia arriba acumulando en los antepasados en vez de
- * recursar hacia abajo: así una jerarquía con un ciclo —que la base no debería
- * permitir, pero que un `parent_id` mal apuntado a mano sí produce— no cuelga
- * el proceso, porque el ascenso lleva su propio testigo de visitados y se
- * detiene en cuanto se repite.
- *
- * UNA CUENTA AUSENTE DEL RESULTADO VALE CERO. No se siembra el árbol entero
- * con ceros: en un plan de ochocientas cuentas con veinte movidas, sembrarlo
- * sería fabricar setecientas ochenta filas para decir «nada», y el llamador
- * tiene que escribir el cero de todas formas para la cuenta que ni siquiera
- * está en el plan.
- */
-export function rollUp(
-  shapes: readonly AccountShape[],
-  propio: ReadonlyMap<string, Decimal>
-): Map<string, Decimal> {
-  const padre = new Map(shapes.map((s) => [s.code, s.parentCode]));
-  const total = new Map<string, Decimal>();
-
-  for (const s of shapes) {
-    const valor = propio.get(s.code);
-    if (valor === undefined || valor.isZero()) continue;
-    let actual: string | null = s.code;
-    const visitados = new Set<string>();
-    while (actual !== null && !visitados.has(actual)) {
-      visitados.add(actual);
-      // Un padre que no está entre las cuentas conocidas no acumula nada: no
-      // se inventa una fila para él. Su ausencia ya la denuncia `faltantes`.
-      if (padre.has(actual)) total.set(actual, (total.get(actual) ?? new Decimal(0)).plus(valor));
-      actual = padre.get(actual) ?? null;
-    }
-  }
-  return total;
 }
 
 /** ¿Tiene esta cuenta algún antepasado entre los códigos dados? */
@@ -196,12 +145,9 @@ function alEjeDeLaSuma(valor: string, natur: Natur, columna: BalanceColumn): Dec
  * balanza que este sistema genera —leídas con el MISMO lector, que es lo que
  * hace que la comparación no dependa de dos maneras de interpretar el archivo—.
  *
- * Debe y Haber NO se agregan a la ligera y por eso la columna se elige: sumar
- * los cargos de las hijas en el padre es correcto (son sumas de importes), y
- * comparar los saldos exige el eje del mayor. Las dos cosas se hacen igual
- * aquí porque `saldoDelMayor` sobre un Debe —que nunca es negativo— sólo
- * cambiaría el signo de una columna que el archivo declara sin él; por eso el
- * uso normal, y el que la prueba de aceptación corre, es sobre los SALDOS.
+ * Both files declare every ledger account with its subaccounts inside (the
+ * Anexo 24 convention, and ours since #323), so the comparison is account to
+ * account and nothing is summed here.
  */
 export function compareToSource(
   origen: readonly BalanceFileRow[],
@@ -219,7 +165,6 @@ export function compareToSource(
     if (n === undefined) continue;
     propio.set(f.numCta, alEjeDeLaSuma(columnaDe(f, columna), n, columna));
   }
-  const agregado = rollUp(shapes, propio);
 
   const diferencias: BalanceDifference[] = [];
   const faltantes: string[] = [];
@@ -235,7 +180,7 @@ export function compareToSource(
       continue;
     }
     const esperado = alEjeDeLaSuma(columnaDe(f, columna), n, columna);
-    const obtenido = agregado.get(f.numCta) ?? new Decimal(0);
+    const obtenido = propio.get(f.numCta) ?? new Decimal(0);
     const diferencia = obtenido.minus(esperado);
     if (diferencia.isZero()) continue;
     // De vuelta a la naturaleza de la cuenta para imprimir: el contador
@@ -251,15 +196,17 @@ export function compareToSource(
   }
 
   // DINERO NUESTRO QUE EL ORIGEN NO DECLARA. Sólo cuenta si NO cuelga de una
-  // cuenta que el origen sí declare: si cuelga, su importe ya está dentro del
-  // agregado del antepasado y la diferencia —si la hay— se nombró allí.
-  // Enumerarlo también aquí llenaría el informe de ecos de un único defecto.
+  // cuenta que el origen sí declare, ni de una nuestra que ya lo lleve dentro
+  // de su agregado: la diferencia —si la hay— se nombró allí. Enumerarlo
+  // también aquí llenaría el informe de ecos de un único defecto.
+  const cubren = new Set(declaradasPorElOrigen);
+  for (const [code, v] of propio) if (!v.isZero()) cubren.add(code);
   const sobrantes: { numCta: string; importe: string }[] = [];
   for (const s of shapes) {
     const valor = propio.get(s.code);
     if (valor === undefined || valor.isZero()) continue;
     if (declaradasPorElOrigen.has(s.code)) continue;
-    if (tieneAntepasadoEn(s.code, padre, declaradasPorElOrigen)) continue;
+    if (tieneAntepasadoEn(s.code, padre, cubren)) continue;
     sobrantes.push({
       numCta: s.code,
       importe: alEjeDeLaSuma(valor.toString(), s.natur, columna).toFixed(ESCALA),

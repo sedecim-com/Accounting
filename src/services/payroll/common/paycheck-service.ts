@@ -222,7 +222,11 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
   const taxableIsr = sum(
     input.earnings.filter((e) => e.is_taxable_isr !== false).map((e) => e.amount)
   ) - preTaxDeductions;
-  const taxableImss = taxableIsr;
+  // NOTE(#296): the IMSS base is the period's SBC (capped at 25 UMA), not the
+  // ISR base: it was `taxableIsr`, so exempt earnings and pre-tax deductions
+  // leaked into `taxable_wages_imss`. It is set below from the IMSS engine,
+  // the only place that knows the cap; zero outside Mexico.
+  let taxableImss = 0;
 
   // --- YTD ---
   const ytd = await getEmployeeYtd(input.employee_id, period.tax_year, new Date(period.pay_date));
@@ -446,14 +450,16 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
 
     // IMSS employee
     const imssEeCalc = taxRegistry.getRequired('MX', 'imss_employee');
-    const imssEe = await imssEeCalc.calculate({ ...baseTaxInput, taxable_wages: taxableImss });
+    // The IMSS engines derive their base from `sbc_daily`, not `taxable_wages`.
+    const imssEe = await imssEeCalc.calculate({ ...baseTaxInput, taxable_wages: 0 });
     breakdown.imss_employee = imssEe.tax_amount;
     employeeTaxes = employeeTaxes.plus(imssEe.tax_amount);
     apuntar(imssEe, 'EE', { tax_type: 'imss' });
 
     // IMSS employer
     const imssErCalc = taxRegistry.getRequired('MX', 'imss_employer');
-    const imssEr = await imssErCalc.calculate({ ...baseTaxInput, taxable_wages: taxableImss });
+    const imssEr = await imssErCalc.calculate({ ...baseTaxInput, taxable_wages: 0 });
+    taxableImss = imssEr.taxable_wages_used;
     breakdown.imss_employer = imssEr.tax_amount;
     employerTaxes = employerTaxes.plus(imssEr.tax_amount);
     apuntar(imssEr, 'ER', { tax_type: 'imss' });

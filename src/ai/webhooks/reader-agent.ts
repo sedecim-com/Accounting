@@ -1,6 +1,7 @@
 import type { AgentContext } from '../context.js';
 import type { ToolDeps } from '../tools/observer.js';
 import { MAX_TOOL_RESULT_CHARS } from '../tools/index.js';
+import { withInlinedInputSchema } from '../tools/inline-schema-refs.js';
 import { buildSearchTools } from '../tools/search-tools.js';
 import { buildLedgerTools } from '../tools/ledger-tools.js';
 import { buildReportTools } from '../tools/report-tools.js';
@@ -101,7 +102,8 @@ export function buildReaderTools(ctx: AgentContext, deps: ToolDeps) {
   ];
   return tools
     .filter((tool) => !READER_FORBIDDEN_TOOL_PATTERNS.some((re) => re.test(tool.name)))
-    .map(capResult);
+    .map(capResult)
+    .map(withInlinedInputSchema);
 }
 
 // ─── Untrusted body wrapping ───

@@ -138,6 +138,7 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | #327 | La sintaxis de los renglones | Regla fija del kernel, no configuración: `clave=valor` con «;», `cargo`/`abono` como sinónimos permanentes y lo actual aceptado |
 | #337 | La firma del SCOPE y de `catalog-info.yaml` | Un solo PR tras una sesión campo por campo; lo legal, como pregunta abierta al 2026-10-09 (falta la sesión) |
 | PR #249, PR #283 | La lectura de §5.3 del tablero y la revisión de seguridad; si se juzga el título del PR | #249 se fusionó el 2026-09-26; #283 sigue abierto |
+| #323 | Cómo se prueba la validez del XML del Anexo 24 | Contra el XSD oficial del SAT guardado en el repositorio; la relectura estructural no basta (2026-09-27). El trabajo es MNE-001-136 (#397) |
 
 **Pendientes.** Al cruzar el backlog con las issues, el 2026-09-26, salieron preguntas que nadie había hecho. Cada una es una decisión en el backlog (`docs/backlog/PRD-001.md`) y bloquea tareas concretas:
 
@@ -150,6 +151,7 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | #357 | La `CONTALINK_API_KEY` global, ¿queda de respaldo de sólo lectura o se retira? | MNE-001-120 | La llave por entidad (121), y con ella el despliegue |
 | #231 | La semana a caballo entre meses: ¿la prorrata la fija la ley, como dice la decisión de #242, o es un criterio del panel? | MNE-001-131 | 071 |
 | #133 | N, los meses tras los que una norma verificada se considera vieja | MNE-001-123 | 078 |
+| #322 | Depreciación fiscal (`tasa_lisr`): ¿la tasa se aplica al monto original de la inversión (art. 31 LISR) o a costo menos valor de desecho, como hoy? | MNE-001-135 | — |
 | #337 | La sesión de firma del SCOPE | MNE-001-011 | — |
 
 ## 5. La cola de PRs (foto del 2026-09-25)
@@ -230,6 +232,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 | `docs/cli-command-catalog.md` (bloque) y `docs/catalogo-minimos.json` | Recuento del binario y suelo | `npm run catalogo:estado`. Ojo: **sin `--check` reescribe el archivo** |
 | `docs/HISTORY.md` | Censo generado y filas a mano | `npm run historial:estado` |
 | `docs/openapi.json` | Se genera de las rutas | `npm run openapi` |
+| `tests/api/golden/rest-body.golden.json` y `tests/ai/tools/tool-schemas.golden.json` | Se generan de los esquemas de cuerpo y de las herramientas del agente, y son contrato (#367) | `npx tsx scripts/zod-contract-goldens.ts --write`, sólo si el PR cambia ese contrato a propósito |
 
 **El entorno local.** Un solo comando, idempotente (#335):
 

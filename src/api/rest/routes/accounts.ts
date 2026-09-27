@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString, uuidString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -35,14 +36,14 @@ const fsCategoryEnum = z.enum(ACCOUNT_FS_CATEGORIES);
 const normalBalanceEnum = z.enum(NORMAL_BALANCES);
 
 const createAccountSchema = z.object({
-  code: z.string().min(1).max(50),
-  name: z.string().min(1).max(255),
+  code: boundedString({ min: 1, max: 50 }),
+  name: boundedString({ min: 1, max: 255 }),
   account_type: accountTypeEnum,
   account_subtype: z.string().optional(),
   fs_category: fsCategoryEnum.optional(),
-  parent_id: z.string().uuid().nullable().optional(),
-  entity_id: z.string().uuid(),
-  currency_code: z.string().length(3).optional(),
+  parent_id: uuidString().nullable().optional(),
+  entity_id: uuidString(),
+  currency_code: boundedString({ length: 3 }).optional(),
   normal_balance: normalBalanceEnum,
   allow_manual_entries: z.boolean().optional(),
   is_header: z.boolean().optional(),
@@ -52,7 +53,7 @@ const createAccountSchema = z.object({
 
 const updateAccountSchema = z
   .object({
-    name: z.string().min(1).max(255).optional(),
+    name: boundedString({ min: 1, max: 255 }).optional(),
     description: z.string().optional(),
     is_active: z.boolean().optional(),
     tags: z.array(z.string()).optional(),

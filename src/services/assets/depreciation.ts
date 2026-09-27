@@ -214,16 +214,64 @@ export async function criteriosDeLaCorrida(tenantId: string, entityId: string): 
  * que es NOT NULL: es el activo que se dio de alta sin distinguir las dos
  * depreciaciones, y para él ambas bases son la misma.
  *
- * LO QUE ESTA BASE TODAVÍA NO SABE. `tasa_lisr` cambia el MÉTODO y el
- * `schedule_type`, no la vida: la tasa máxima del artículo 34 —10 % edificios,
- * 30 % equipo de cómputo— no tiene columna en `fixed_assets`, así que el
- * calendario fiscal se reparte sobre `useful_life_months` igual que el
- * contable. Mientras no exista esa columna, elegir la base fiscal separa las
- * dos corridas y las etiqueta bien, pero no las hace divergir por sí sola.
+ * `tasa_lisr` also changes the SPEED: see `taxRateForBasis`.
  */
 export function metodoDeLaBase(asset: FixedAsset, base: BaseDepreciacion): DepreciationMethod {
   const elegido = base === 'tasa_lisr' ? asset.tax_depreciation_method : asset.book_depreciation_method;
   return elegido ?? asset.depreciation_method;
+}
+
+/**
+ * The annual rate the schedule runs at, or undefined to run on the life.
+ *
+ * Only under `tasa_lisr`, and only for an asset that stores its rate (088).
+ * An asset registered before 088 has none and keeps running on its useful
+ * life, as it did: inventing it from the class now would change the speed of
+ * an asset that may already have posted months.
+ */
+export function taxRateForBasis(asset: FixedAsset, base: BaseDepreciacion): string | undefined {
+  return base === 'tasa_lisr' && asset.tax_rate ? asset.tax_rate : undefined;
+}
+
+/**
+ * The books each asset of the entity has already POSTED rows under, any month.
+ *
+ * Read once per run (and once per plan, which must say what the run does).
+ */
+export async function postedBooks(entityId: string): Promise<Map<string, Set<string>>> {
+  const r = await query<{ asset_id: string; schedule_type: string }>(
+    `SELECT DISTINCT ds.asset_id, ds.schedule_type
+       FROM depreciation_schedules ds
+       JOIN fixed_assets fa ON fa.id = ds.asset_id
+      WHERE fa.entity_id = $1 AND ds.is_posted = true`,
+    [entityId]
+  );
+  const byAsset = new Map<string, Set<string>>();
+  for (const row of r.rows) {
+    byAsset.set(row.asset_id, (byAsset.get(row.asset_id) ?? new Set()).add(row.schedule_type));
+  }
+  return byAsset;
+}
+
+/**
+ * THE LOCK: an asset that already posted rows under one basis does not switch.
+ *
+ * Not configurable (owner, #322). The run counts months from the in-service
+ * date and the asset card sums posted rows with no cap, so posting the first
+ * months on the book life and the next ones on the 35 % rate depreciates more
+ * than 100 % of the cost. A prospective recalculation (NIF B-1) belongs to an
+ * explicit command, not to a panel answer. Returns the reason, or null.
+ */
+export function basisLock(
+  posted: ReadonlySet<string> | undefined,
+  book: 'book' | 'tax'
+): string | null {
+  const other = [...(posted ?? [])].find((t) => t !== book);
+  if (other === undefined) return null;
+  return (
+    `it already posted rows on the ${other} book, and \`base_depreciacion\` now says ${book}: ` +
+    'the basis of an asset with posted rows cannot change, or it could depreciate more than its cost'
+  );
 }
 
 export async function inquilinoDeLaEntidad(entityId: string): Promise<string> {
@@ -259,6 +307,7 @@ export async function runMonthlyDepreciation(
   const tenantId = await inquilinoDeLaEntidad(entityId);
   const criterios = await criteriosDeLaCorrida(tenantId, entityId);
   const tipoDeCalendario = TIPO_DE_CALENDARIO[criterios.base];
+  const posted = await postedBooks(entityId);
 
   const assets = await query<FixedAsset>(
     `SELECT * FROM fixed_assets WHERE entity_id = $1 AND status = 'active'`,
@@ -298,6 +347,12 @@ export async function runMonthlyDepreciation(
       );
       if (existente.rows.length > 0) continue;
 
+      const lock = basisLock(posted.get(asset.id), tipoDeCalendario);
+      if (lock !== null) {
+        errors.push(`Activo ${asset.asset_number}: ${lock}.`);
+        continue;
+      }
+
       const metodo = metodoDeLaBase(asset, criterios.base);
       if (metodo === DepreciationMethod.UNITS_OF_PRODUCTION) {
         errors.push(
@@ -319,6 +374,7 @@ export async function runMonthlyDepreciation(
         method: metodo,
         macrs_class: asset.macrs_class ?? undefined,
         convencion: criterios.convencion,
+        annual_rate: taxRateForBasis(asset, criterios.base),
       };
       const calendario = calculateDepreciation(entrada);
 

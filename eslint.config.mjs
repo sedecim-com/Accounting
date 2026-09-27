@@ -555,6 +555,24 @@ export const englishIdentifiersRule = {
   },
 };
 
+// Zod 4 still ships the v3 API under `zod/v3`, and loading it would bring
+// back the grammar #367 pinned away: its schemas are invisible to the
+// converter, to src/utils/zod-compat.ts and to the 422 adapter.
+// `no-restricted-imports` sees static imports, export-from and
+// `import x = require()`; these selectors catch `import()` and `require()`. They are spread into every block that
+// sets `no-restricted-syntax`, because a later block replaces the rule for its
+// files (tests/utils/zod-v3-ban.spec.ts asks ESLint for each tree).
+const ZOD_V3_MESSAGE = 'Use `zod` (and src/utils/zod-compat.ts); see #367.';
+const ZOD_V3 = '/^zod\\/v3(\\/|$)/';
+const ZOD_V3_SYNTAX = [
+  { selector: `ImportExpression[source.value=${ZOD_V3}]`, message: ZOD_V3_MESSAGE },
+  {
+    selector: `ImportExpression > TemplateLiteral.source > TemplateElement[value.cooked=${ZOD_V3}]`,
+    message: ZOD_V3_MESSAGE,
+  },
+  { selector: `CallExpression[callee.name='require'][arguments.0.value=${ZOD_V3}]`, message: ZOD_V3_MESSAGE },
+];
+
 export default tseslint.config(
   {
     name: 'accounting-core/ignores',
@@ -590,6 +608,17 @@ export default tseslint.config(
       // comments in src/ai are real and load-bearing. This makes sure a
       // disable comment that stops being needed is reported instead of rotting.
       reportUnusedDisableDirectives: 'error',
+    },
+    rules: {
+      // No zod/v3, however it is loaded: see ZOD_V3_SYNTAX above.
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [{ name: 'zod/v3', message: ZOD_V3_MESSAGE }],
+          patterns: [{ group: ['zod/v3/*'], message: ZOD_V3_MESSAGE }],
+        },
+      ],
+      'no-restricted-syntax': ['error', ...ZOD_V3_SYNTAX],
     },
   },
 
@@ -755,6 +784,8 @@ export default tseslint.config(
           selector: "NewExpression[callee.name='DOMParser']",
           message: 'DOMParser parses markup: build nodes through dom.ts.',
         },
+        // This block replaces the typed block's setting for these files.
+        ...ZOD_V3_SYNTAX,
       ],
     },
   },
