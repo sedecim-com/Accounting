@@ -19,7 +19,7 @@ import { z } from 'zod';
 //                  normalized URL; $ZodCheckV3Url parses the raw string with
 //                  `new URL` in a try/catch, as zod 3 did, and never rewrites
 //                  the value. NOT `URL.canParse`: on Node 22 it answers false
-//                  for a Latin-1 URL with a non-ASCII host (https://señal.mx)
+//                  for a Latin-1 URL whose host has a non-ASCII letter (an n-tilde)
 //                  once V8 optimizes the call, so what it accepted would
 //                  depend on how warm the process is.
 //   boundedString  lengths count code points; the units checks below count

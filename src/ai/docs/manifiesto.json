@@ -118,7 +118,7 @@
     "src/api/rest/routes/bank-reconciliation.ts": "76fff36da9353a083b6d5f8c4ada6329c37e9943",
     "src/database/enums.ts": "1d3fa1a0797797694c8ba6ff41ac694df45dc473",
     "src/ai/external-service.ts": "479fdbeae482297b16e3bb816f19320ff201b7bb",
-    "src/ai/tools/external-tools.ts": "283948b7b85553aff42f03cf69f59c932859b567",
+    "src/ai/tools/external-tools.ts": "33c132e283775f5d15cf5b79fe2e940955fa426b",
     "src/services/integrations/accounting/contalink-adapter.ts": "9c2dfe880f5a8d890d9f39630c124aaea900eade",
     "src/services/ap/bill-service.ts": "5bf3ff51be936be624c55fe17d4d15462afce16e",
     "src/services/ap/vendor-service.ts": "b01bd9bd640ae52901d5f5cc776afa7a26d7fa8b",
