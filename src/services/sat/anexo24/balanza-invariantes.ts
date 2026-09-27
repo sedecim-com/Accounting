@@ -42,9 +42,10 @@ export const ESCALA_DEL_MAYOR = 4;
  *
  * NO SE DEFINE AQUÍ: es la constante del constructor (`xml.ts`), y se reexporta
  * con este nombre para que el resto del frente de la balanza no tenga dos
- * fuentes para la misma cifra. Que sean dos y no cuatro no está verificado
- * contra el XSD —no hay ni un `.xsd` en este repositorio, y esta máquina no
- * tiene red—: es la forma en que el SAT publica la balanza.
+ * fuentes para la misma cifra.
+ *
+ * Two, checked against the official XSD (#397): `t_Importe` in
+ * BalanzaComprobacion_1_3.xsd has `fractionDigits` 2.
  */
 export const ESCALA_DEL_ARCHIVO = DECIMALES_IMPORTE_ANEXO24;
 
