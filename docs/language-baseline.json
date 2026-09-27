@@ -19,7 +19,8 @@
     "docs-dead-path-citations": 344,
     "src-spanish-comment-lines": 27780,
     "docs-english-pages-untwinned": 2,
-    "docs-spanish-twins-stale": 0
+    "docs-spanish-twins-stale": 0,
+    "untagged-comment-markers": 1
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1411,6 +1412,9 @@
     "docs-english-pages-untwinned": {
       "docs/cli-command-registry.md": 1,
       "docs/harness-best-practices.md": 1
+    },
+    "untagged-comment-markers": {
+      "src/services/accounting/validation.ts": 1
     }
   }
 }
