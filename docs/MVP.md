@@ -206,7 +206,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
    ```bash
    npm run typecheck && npm run typecheck:tests && npm test && npm run lint
    npm run test:integration          # con Postgres, ver la sección 7
-   npm run plan:status -- --piso --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1,E4.1
+   npm run plan:status -- --piso --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E1.4,E2.1,E2.2,E3.1,E4.1
    npx tsx scripts/catalogo-estado.ts --check
    npx tsx scripts/corpus-manifiesto.ts --check
    npx tsx scripts/historial-estado.ts --check
@@ -234,19 +234,31 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 | `docs/openapi.json` | Se genera de las rutas | `npm run openapi` |
 | `tests/api/golden/rest-body.golden.json` y `tests/ai/tools/tool-schemas.golden.json` | Se generan de los esquemas de cuerpo y de las herramientas del agente, y son contrato (#367) | `npx tsx scripts/zod-contract-goldens.ts --write`, sólo si el PR cambia ese contrato a propósito |
 
-**El entorno local.** Postgres 15 o superior. Así se midió todo lo de la sección 2, con un clúster local; `docker/docker-compose.yml` también sirve:
+**El entorno local.** Un solo comando, idempotente (#335):
 
 ```bash
-# base para medir y migrar (el rol debe poder hacer CREATE DATABASE para las bases efímeras)
-createdb -h localhost -U postgres mnemosine_plan
-export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mnemosine_plan
+scripts/setup.sh                  # dependencias, .env de desarrollo, Postgres, base, roles y migraciones
+scripts/verify.sh                 # ya con integración y con los criterios ▶
+```
+
+- **El devcontainer** (`.devcontainer/`) fija el Node y el Postgres de CI y corre `scripts/setup.sh` al crearse.
+- **En Claude Code en la web**, el hook `SessionStart` (`.claude/hooks/session-start.sh`) corre `scripts/setup.sh --local-cluster`. Esa bandera arranca el Postgres del contenedor y le pone la contraseña de desarrollo: es sólo para contenedores desechables.
+- **En tu máquina**, `setup.sh` usa el Postgres que responda en `TEST_ADMIN_DATABASE_URL`. Si no responde ninguno y hay Docker, levanta el contenedor `mnemosine-postgres` con la versión de CI. Con otra versión mayor, avisa y sigue.
+- **El `.env`** lo escribe sólo si no existe, y nunca reescribe uno tuyo. `scripts/verify.sh` lee de ahí las URLs de base, igual que los procesos Node.
+
+Lo que hace por dentro, por si hay que hacerlo a mano:
+
+```bash
+createdb -h localhost -U postgres mnemosine_dev
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mnemosine_dev
 export MIGRATION_DATABASE_URL=$DATABASE_URL
 export TEST_ADMIN_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
+psql "$MIGRATION_DATABASE_URL" -v app_pw=dev_app_pw -v owner_pw=dev_owner_pw -f scripts/provision-roles.sql   # sólo si faltan los roles, y antes de migrar
 npm run migrate && npm run plan:status
 ```
 
 Tres trampas que ya costaron tiempo:
 
-- Sin `TEST_ADMIN_DATABASE_URL`, los 6 criterios ▶ no corren y `plan:status` **no lo presenta como un fallo**: sale 10/15 en lugar de 11/15.
+- Sin `TEST_ADMIN_DATABASE_URL`, los criterios ▶ no corren y `plan:status` **no lo presenta como un fallo**: sale con menos paquetes en verde y lo dice sólo en la última línea.
 - Conectado como superusuario, la RLS no filtra nada y en silencio. Para probar aislamiento, usa el rol de `scripts/provision-roles.sql`, como el trabajo «Aislamiento por inquilino» de CI.
 - `historial-estado --check` necesita el historial completo: en un clon superficial, `git fetch --unshallow` primero.
