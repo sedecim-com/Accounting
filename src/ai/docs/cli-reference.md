@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 210 of 327 subcommands
+  spelling is `-T` at the root and `-t` on the 211 of 329 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -5664,6 +5664,8 @@ Options:
 Commands:
   create|crear [options] <name>  Register a fixed asset with its class, dates,
                                  cost and accounts — writes no journal entry
+  category|categoria             Asset classes: useful life, LISR rate and the
+                                 three default accounts
   help [command]                 display help for command
 ```
 
@@ -5724,6 +5726,47 @@ Examples:
   # exact amount still to be posted, because the credit side (bank, payables or
   # capital) is not something the register can guess.
   mnemosine asset create "Servidor Dell PowerEdge T360" --category "Equipo de Cómputo" --cost 62500.00 --acquired 2026-07-15 --capitalized no --life-years 4 --salvage 6250.00
+```
+
+### `mnemosine asset category` (alias: categoria)
+
+```
+Usage: mnemosine asset category|categoria [options] [command]
+
+Asset classes: useful life, LISR rate and the three default accounts
+
+Options:
+  -h, --help              display help for command
+
+Commands:
+  seed|sembrar [options]  Create the missing Mexican asset classes, with their
+                          LISR art. 34/35 maximum rate
+  help [command]          display help for command
+```
+
+#### `mnemosine asset category seed` (alias: sembrar)
+
+```
+Usage: mnemosine asset category seed|sembrar [options]
+
+Create the missing Mexican asset classes, with their LISR art. 34/35 maximum
+rate
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # An entity created before the seeding existed: give it the six classes.
+  # Running it again creates nothing and overwrites no class you adjusted.
+  mnemosine asset category seed --entity "Comercializadora del Bajío"
 ```
 
 ## `mnemosine depreciation` (alias: depreciacion)

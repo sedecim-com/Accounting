@@ -187,7 +187,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
     .option('--json', 'JSON output');
   // Creates rows but touches no ledger, and it is not the agent's to do:
   // bringing a company into existence is a decision with legal consequences.
-  declareRisk(create, { risk: 'escritura', agent: false, writes: 'legal_entities, organizations, accounts' });
+  declareRisk(create, { risk: 'escritura', agent: false, writes: 'legal_entities, organizations, accounts, asset_categories' });
   create.action(
     (
       name: string,
@@ -248,6 +248,11 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
             `${result.accounting.accountsCreated.length} role account(s), ` +
             `${result.accounting.nomina.bucketsMapped.length} payroll bucket(s)\n`)
         );
+        if (result.accounting.assetClasses) {
+          process.stderr.write(
+            p.dim(`  assets  ${result.accounting.assetClasses.creadas.length} asset class(es) with their LISR art. 34/35 rate\n`)
+          );
+        }
         for (const u of result.accounting.nomina.bucketsUnmappable) {
           process.stderr.write(
             p.yellow(`  ! payroll bucket ${u.bucket} needs account ${u.code}, which this chart lacks — map it before the first pay run\n`)
