@@ -19,10 +19,20 @@
 # log stays in .agent-logs/<gate>.log.
 #
 # Postgres gates need a role that can CREATE DATABASE (TEST_ADMIN_DATABASE_URL);
-# the suite creates and drops its own ephemeral databases. See docs/MVP.md §7.
+# the suite creates and drops its own ephemeral databases. scripts/setup.sh
+# leaves all of that ready. See docs/MVP.md §7.
 
 set -u
 cd "$(dirname "$0")/.."
+
+# The Node processes read the database URLs from .env through dotenv; the gate
+# decisions below have to see the same values, or a suite that would run is
+# reported as SKIP. The environment still wins over the file.
+. scripts/lib/env.sh
+for key in DATABASE_URL MIGRATION_DATABASE_URL TEST_ADMIN_DATABASE_URL; do
+  value=$(dotenv_value "$key")
+  [ -z "$value" ] || export "$key=$value"
+done
 
 GATES="typecheck typecheck-tests lint icu unit plan catalog corpus history openapi ux language repo-map integration restore isolation eval commit-subjects"
 
@@ -41,7 +51,7 @@ while [ $# -gt 0 ]; do
         exit 2
       fi
       ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
