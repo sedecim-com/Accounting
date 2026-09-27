@@ -19,8 +19,14 @@ del SAT, que vive en `src/services/sat/anexo24/xsd/`. Sin `xmllint` esas
 pruebas fallan; no se saltan.
 
 ```bash
-npm ci
+scripts/setup.sh
 ```
+
+Instala las dependencias y escribe un `.env` de desarrollo, pero sólo si no
+tienes uno. También deja Postgres, la base, los roles y las migraciones listos
+para `scripts/verify.sh`, integración incluida. Es idempotente: una segunda
+corrida no cambia nada. El devcontainer (`.devcontainer/`) lo corre solo. El
+detalle está en `docs/MVP.md` §7.
 
 ## Las puertas, en el orden en que fallan más barato
 

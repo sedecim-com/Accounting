@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString, uuidString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
@@ -39,23 +40,23 @@ const router = Router();
 // ─── Schemas ───
 const numericLike = z.union([z.string(), z.number()]);
 const billLineSchema = z.object({
-  account_id: z.string().uuid(),
-  item_id: z.string().uuid().nullable().optional(),
+  account_id: uuidString(),
+  item_id: uuidString().nullable().optional(),
   description: z.string().nullable().optional(),
   quantity: numericLike.optional(),
   unit_price: numericLike,
   tax_amount: numericLike.optional(),
-  cost_center_id: z.string().uuid().nullable().optional(),
-  project_id: z.string().uuid().nullable().optional(),
+  cost_center_id: uuidString().nullable().optional(),
+  project_id: uuidString().nullable().optional(),
 }).passthrough();
 
 const createBillSchema = z.object({
-  entity_id: z.string().uuid(),
-  vendor_id: z.string().uuid(),
+  entity_id: uuidString(),
+  vendor_id: uuidString(),
   vendor_invoice_number: z.string().optional(),
   bill_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
-  currency_code: z.string().length(3).optional(),
+  currency_code: boundedString({ length: 3 }).optional(),
   // El porqué del número, en topes.ts.
   lines: arregloAcotado(billLineSchema, {
     tope: MAX_RENGLONES_POR_DOCUMENTO,
@@ -69,17 +70,17 @@ const createBillSchema = z.object({
 });
 
 const vendorPaymentSchema = z.object({
-  entity_id: z.string().uuid(),
-  vendor_id: z.string().uuid(),
+  entity_id: uuidString(),
+  vendor_id: uuidString(),
   payment_amount: numericLike,
-  payment_method: z.string().min(1),
+  payment_method: boundedString({ min: 1 }),
   payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
-  bank_account_id: z.string().uuid().optional(),
+  bank_account_id: uuidString().optional(),
   // Ruta IRREVERSIBLE: cada aplicación mueve `amount_due` y entra en la
   // póliza que se postea, dentro de la transacción del pago.
   applications: arregloAcotado(
     z.object({
-      bill_id: z.string().uuid(),
+      bill_id: uuidString(),
       amount_applied: numericLike,
       discount_amount: numericLike.optional(),
     }),

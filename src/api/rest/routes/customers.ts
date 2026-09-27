@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { boundedString, emailString, uuidString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -33,32 +34,32 @@ const addressSchema = z.object({
 }).passthrough();
 
 const createCustomerSchema = z.object({
-  entity_id: z.string().uuid(),
-  company_name: z.string().min(1).max(255).optional(),
-  first_name: z.string().min(1).max(255).optional(),
-  last_name: z.string().max(255).optional(),
-  tax_id: z.string().max(50).optional(),
-  tax_id_type: z.string().max(20).optional(),
-  email: z.string().email().optional(),
-  phone: z.string().max(50).optional(),
+  entity_id: uuidString(),
+  company_name: boundedString({ min: 1, max: 255 }).optional(),
+  first_name: boundedString({ min: 1, max: 255 }).optional(),
+  last_name: boundedString({ max: 255 }).optional(),
+  tax_id: boundedString({ max: 50 }).optional(),
+  tax_id_type: boundedString({ max: 20 }).optional(),
+  email: emailString().optional(),
+  phone: boundedString({ max: 50 }).optional(),
   billing_address: addressSchema.optional(),
   shipping_address: addressSchema.optional(),
-  payment_terms: z.string().max(50).optional(),
+  payment_terms: boundedString({ max: 50 }).optional(),
   credit_limit: z.union([z.string(), z.number()]).optional(),
-  currency_code: z.string().length(3).optional(),
-  default_revenue_account_id: z.string().uuid().optional(),
-  default_ar_account_id: z.string().uuid().optional(),
+  currency_code: boundedString({ length: 3 }).optional(),
+  default_revenue_account_id: uuidString().optional(),
+  default_ar_account_id: uuidString().optional(),
 }).refine((o) => !!(o.company_name || o.first_name), { message: 'company_name or first_name is required' });
 
 const updateCustomerSchema = z.object({
-  company_name: z.string().min(1).max(255).optional(),
-  first_name: z.string().min(1).max(255).optional(),
-  last_name: z.string().max(255).optional(),
-  email: z.string().email().optional(),
-  phone: z.string().max(50).optional(),
-  payment_terms: z.string().max(50).optional(),
+  company_name: boundedString({ min: 1, max: 255 }).optional(),
+  first_name: boundedString({ min: 1, max: 255 }).optional(),
+  last_name: boundedString({ max: 255 }).optional(),
+  email: emailString().optional(),
+  phone: boundedString({ max: 50 }).optional(),
+  payment_terms: boundedString({ max: 50 }).optional(),
   credit_limit: z.union([z.string(), z.number()]).optional(),
-  credit_status: z.string().max(20).optional(),
+  credit_status: boundedString({ max: 20 }).optional(),
   is_active: z.boolean().optional(),
   notes: z.string().optional(),
 }).refine((o) => Object.keys(o).length > 0, { message: 'At least one field must be provided' });
