@@ -679,6 +679,8 @@ export interface FixedAsset {
   salvage_value: string;
   useful_life_years: number;
   useful_life_months: number;
+  /** Annual tax rate as a fraction, at most the class maximum (088). */
+  tax_rate?: string | null;
   depreciation_method: DepreciationMethod;
   book_depreciation_method: DepreciationMethod | null;
   tax_depreciation_method: DepreciationMethod | null;
