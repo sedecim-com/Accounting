@@ -213,8 +213,8 @@ describe('los arreglos que multiplican viajes a la base están acotados', () => 
   });
 
   it('el extracto bancario sigue exigiendo al menos un movimiento', async () => {
-    // El mínimo tenía que sobrevivir al cambio: `superRefine` devuelve un
-    // ZodEffects sin `.min()`, así que se pasa por dentro de `arregloAcotado`.
+    // The minimum had to survive the cap: `arregloAcotado` takes it as an
+    // option and checks it on the same array, ahead of the cap (#367).
     expect(await postear(rutaImport, { transactions: [] })).toBe(422);
   });
 
