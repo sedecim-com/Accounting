@@ -12,7 +12,11 @@ import type { JurisdictionCode } from './jurisdiction.js';
 // inventada con mejor presentación, y la presentación es justo lo que hace que
 // nadie la revise.
 //
-// ── POR QUÉ SEIS FILAS Y NO VEINTE ─────────────────────────────────────
+// ── POR QUÉ POCAS FILAS Y NO VEINTE ────────────────────────────────────
+//
+// It was born with six rows; the LFT minimums (T6 · #93) and the five rows of
+// the 2026 employment subsidy (#298) have joined since, each with its source.
+// The rule below still holds: a row enters when its figure is verified.
 //
 // El grueso de la ley lo carga J0.4 —UMA de cada año, tarifas del art. 96,
 // subsidio, wage base, FUTA, FMW, CCPA— con su puerta (`parametros import`,
