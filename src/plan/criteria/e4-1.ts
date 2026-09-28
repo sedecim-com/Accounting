@@ -2193,6 +2193,114 @@ export const E4_1: Criterio[] = [
   },
   {
     paquete: 'E4.1',
+    id: 'policy-panel-is-per-entity',
+    // T6 (#93), REMAINDER (c): THE PANEL ANSWERS FOR ONE ENTITY.
+    //
+    // The service could already scope a decision to an entity (017, A7), but
+    // no surface wrote one: `pending define` previewed with `--entity` and
+    // resolved with `{ tenantId }` alone, `dismiss` and `reopen` had no entity
+    // in their WHERE, and `concordanciaSombra` turned its own filter off when
+    // handed a NULL, so one company's shadow evidence switched on
+    // auto-posting in a sibling created yesterday.
+    //
+    // Each piece is anchored on its own: fixing the CLI while leaving the
+    // optional filter in `concordanciaSombra` leaves every other caller one
+    // missing argument away from the same leak.
+    enunciado:
+      'Answering, dismissing or reopening a policy with --entity moves only that entity, and one entity\'s shadow evidence never switches on another',
+    mutantes: [
+      {
+        archivo: 'src/cli/pending-command.ts',
+        de: 'await resolvePolicy(panelScope(ctx), key',
+        a: 'await resolvePolicy({ tenantId: ctx.tenantId }, key',
+        porque:
+          "the preview shows the entity and the write lands on the tenant: the accountant is shown one company's evidence and the gate opens on all of them",
+      },
+      {
+        archivo: 'src/cli/pending-command.ts',
+        de: 'return { tenantId: ctx.tenantId, entityId: ctx.entityId };',
+        a: 'return { tenantId: ctx.tenantId } as { tenantId: string; entityId: string };',
+        porque: 'every pending verb falls back to the tenant scope, which governs every entity',
+      },
+      {
+        archivo: 'src/ai/shadow-verdicts.ts',
+        de: 'AND v.entity_id = $2::uuid',
+        a: 'AND ($2::uuid IS NULL OR v.entity_id = $2)',
+        porque: 'the filter becomes optional again, and any caller without an entity measures the whole tenant',
+      },
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: "WHERE tenant_id = $1 AND key = $2 AND status != 'pending'\n       AND entity_id IS NOT DISTINCT FROM $3::uuid",
+        a: "WHERE tenant_id = $1 AND key = $2 AND status != 'pending'",
+        porque: 'reopen in one entity reopens the key in every entity of the tenant',
+      },
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: "WHERE tenant_id = $3 AND key = $4 AND status = 'pending'\n       AND entity_id IS NOT DISTINCT FROM $5::uuid",
+        a: "WHERE tenant_id = $3 AND key = $4 AND status = 'pending'",
+        porque: 'dismiss in one entity dismisses the key in every entity of the tenant',
+      },
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: '    if (!ctx.entityId) {\n      throw new ValidationError(\n        "Auto-posting is switched on per entity',
+        a: '    if (false) {\n      throw new ValidationError(\n        "Auto-posting is switched on per entity',
+        porque: "a tenant-wide 'on' governs every entity with no evidence that belongs to any of them",
+      },
+    ],
+    evaluar: () => {
+      const cli = 'src/cli/pending-command.ts';
+      const svc = 'src/services/policy/policy-service.ts';
+      const sv = 'src/ai/shadow-verdicts.ts';
+      const testFile = 'tests/integration/t6-panel-per-entity.int.spec.ts';
+      for (const f of [cli, svc, sv, testFile]) {
+        if (!existe(f)) return falla(`${f} is gone`);
+      }
+
+      const c = codigoDe(cli);
+      if (!/function panelScope\(ctx: AgentContext\): \{ tenantId: string; entityId: string \} \{\s*return \{ tenantId: ctx\.tenantId, entityId: ctx\.entityId \};/.test(c)) {
+        return falla('panelScope lost the entity: every pending verb falls back to the tenant scope, which governs them all');
+      }
+      for (const verb of ['resolvePolicy', 'dismissPolicy', 'reopenPolicy', 'listPending', 'listPolicies']) {
+        const calls = [...c.matchAll(new RegExp(`\\b${verb}\\(`, 'g'))];
+        if (calls.length === 0) return falla(`pending no longer calls ${verb}`);
+        const loose = calls.find((m) => !c.startsWith('panelScope(ctx)', (m.index ?? 0) + m[0].length));
+        if (loose) {
+          const arg = c.slice((loose.index ?? 0) + loose[0].length).split(/[,\n]/)[0];
+          return falla(`pending calls ${verb}(${arg}) instead of panelScope(ctx): that surface acts without the entity it resolved`);
+        }
+      }
+      if (!/previewFor\(key, \{ \.\.\.panelScope\(ctx\)/.test(c)) {
+        return falla('the `pending define` preview no longer comes from panelScope: it can show one entity and write another');
+      }
+
+      const v = codigoDe(sv);
+      if (/IS NULL OR v\.entity_id/.test(v) || !/AND v\.entity_id = \$2::uuid/.test(v)) {
+        return falla('concordanciaSombra has an OPTIONAL entity filter again: without an entity it measures the whole tenant');
+      }
+
+      const s = codigoDe(svc);
+      for (const [fn, param] of [['dismissPolicy', '$5'], ['reopenPolicy', '$3']] as const) {
+        const from = s.indexOf(`export async function ${fn}`);
+        const body = from < 0 ? '' : s.slice(from, s.indexOf('\n}\n', from));
+        if (!body.includes(`AND entity_id IS NOT DISTINCT FROM ${param}::uuid`)) {
+          return falla(`${fn} updates without the entity in its WHERE again: it touches the row of every entity in the tenant`);
+        }
+      }
+      const iGuard = s.indexOf('if (!ctx.entityId) {\n      throw new ValidationError(\n        "Auto-posting is switched on per entity');
+      const iMeasure = s.indexOf('await concordanciaSombra(');
+      if (iGuard < 0 || iMeasure < 0 || iGuard > iMeasure) {
+        return falla("a tenant-scope 'on' is measured and switched on again: one company's evidence is lent to all of them");
+      }
+
+      const t = crudoDe(testFile);
+      if (!/'--entity', entityB\], \['on'\]/.test(t) || !/no shadow history yet/.test(t)) {
+        return falla('the test no longer answers in B with the evidence in A, nor checks that the preview is B\'s');
+      }
+      return ok('pending answers, dismisses, reopens and previews with the same entity, and the shadow is measured only in it');
+    },
+  },
+  {
+    paquete: 'E4.1',
     id: 'sua-file-declares-the-month-and-only-the-month',
     // EL ÚNICO DE VÍA A QUE ESTABA ROTO POR OMISIÓN (#92).
     //

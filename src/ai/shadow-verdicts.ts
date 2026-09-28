@@ -45,9 +45,15 @@ export interface ConcordanciaSombra {
  * El cruce sombra-vs-humano: acuerdo = (habría posteado y el humano aprobó)
  * o (no habría y el humano rechazó). Los aprobados por política o por
  * umbral se excluyen: la concordancia mide contra el juicio HUMANO.
+ *
+ * The entity is REQUIRED (T6 · #93). The filter used to be
+ * `$2 IS NULL OR v.entity_id = $2`, an optional filter that the one caller
+ * that decides — `resolvePolicy` reached from `pending define` with no
+ * entity — switched off, so the evidence of every company in the tenant
+ * authorised auto-posting in each of them.
  */
 export async function concordanciaSombra(
-  ctx: { tenantId: string; entityId?: string | null }
+  ctx: { tenantId: string; entityId: string }
 ): Promise<ConcordanciaSombra> {
   const r = await query<{
     veredictos: number; decididos: number; acuerdos: number; dias: number;
@@ -64,8 +70,8 @@ export async function concordanciaSombra(
             COUNT(DISTINCT v.created_at::date)::int AS dias
        FROM ai_shadow_verdicts v
        JOIN ai_drafts d ON d.id = v.draft_id
-      WHERE v.tenant_id = $1 AND ($2::uuid IS NULL OR v.entity_id = $2)`,
-    [ctx.tenantId, ctx.entityId ?? null]
+      WHERE v.tenant_id = $1 AND v.entity_id = $2::uuid`,
+    [ctx.tenantId, ctx.entityId]
   );
   const fila = r.rows[0];
   return {
