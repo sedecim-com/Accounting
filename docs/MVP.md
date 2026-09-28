@@ -226,7 +226,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 
 | Archivo | Por qué choca | Cómo se resuelve |
 |---|---|---|
-| `src/plan/criteria/e0-0.ts` | Desde #294 el tablero va en un archivo por paquete, pero `MIRRORS_FLOOR` y `ANCHORS_HERE` siguen siendo cuentas exactas en este archivo | Re-medir sobre el árbol fusionado. #356 propone quitar ese choque |
+| `src/plan/mutation-census.txt` | El censo de espejos y anclas que sustituyó a `MIRRORS_FLOOR` y `ANCHORS_HERE` (#356). Una línea por espejo: dos PRs sólo chocan si tocan el mismo sitio | `npm run mutation:census` sobre el árbol fusionado; nunca se suma a mano |
 | `docs/language.md` y `docs/language.es.md` (bloque) | Lo genera el metro del idioma | `npm run language:status -- --write` |
 | `docs/language-baseline.json` | La línea base sólo baja | `npm run language:status -- --tighten` |
 | `src/i18n/en.ts` y `src/i18n/es.ts` | El extractor inserta antes del último `};` | Conservar el orden de los bloques en los dos archivos |

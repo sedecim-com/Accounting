@@ -869,3 +869,83 @@ describe('rejectionPrecedent redacta, no siembra', () => {
     expect(p.rule.match(/5201/g)).toHaveLength(1);
   });
 });
+
+// ============================================================
+// #318 · PR1b — proveedor_desconocido_al_aprobar = preguntar.
+//
+// The service refuses an approval whose CFDI issuer is not a vendor, and says
+// in the error whether the firm chose 'preguntar'. The loop then asks, ONLY
+// with a terminal, and retries with the yes bound to that RFC. The error is
+// built as the service builds it; vendorToRegister runs for real.
+// ============================================================
+
+describe('review offers to register an unknown vendor only when it can ask a person', () => {
+  const RFC = 'NUE010101AAA';
+  const refusal = (registerOnApproval: boolean) =>
+    Object.assign(new Error(`CFDI U1 is issued by "Proveedor Nuevo SC" (RFC ${RFC}): mnemosine vendor create`), {
+      code: 'PROVEEDOR_NUEVO_SIN_AUTORIZAR',
+      details: {
+        suggested_vendor: { company_name: 'Proveedor Nuevo SC', tax_id: RFC },
+        register_on_approval: registerOnApproval,
+      },
+    });
+  const consentOf = (i: number) => (mockApprove.mock.calls[i] as unknown[])[6];
+  const vendorPrompt = (prompts: string[]) =>
+    prompts.filter((p) => p.includes(`¿Dar de alta al proveedor Proveedor Nuevo SC (RFC ${RFC})? [s/N]`));
+
+  let wasTTY: boolean | undefined;
+  beforeEach(() => {
+    wasTTY = process.stdin.isTTY;
+    mockListDrafts.mockResolvedValue([borrador(1)]);
+  });
+  afterEach(() => {
+    process.stdin.isTTY = wasTTY as boolean;
+  });
+
+  it('«s» at a terminal retries the approval with the yes bound to that RFC', async () => {
+    process.stdin.isTTY = true;
+    mockApprove.mockRejectedValueOnce(refusal(true));
+
+    const { salida: output, prompts } = await correrRevision(['a', 's']);
+
+    expect(vendorPrompt(prompts)).toHaveLength(1);
+    expect(mockApprove).toHaveBeenCalledTimes(2);
+    expect(consentOf(0)).toBeUndefined();
+    expect(consentOf(1)).toEqual({ taxId: RFC });
+    expect(aprobacion(1)[4]).toBe(aprobacion(0)[4]); // same reviewed hash
+    expect(output).toContain('JE-2026-00001');
+  });
+
+  it('«N» is the same refusal as rechazar: one attempt, the command printed', async () => {
+    process.stdin.isTTY = true;
+    mockApprove.mockRejectedValueOnce(refusal(true));
+
+    const { salida: output, prompts } = await correrRevision(['a', 'n']);
+
+    expect(vendorPrompt(prompts)).toHaveLength(1);
+    expect(mockApprove).toHaveBeenCalledTimes(1);
+    expect(output).toContain('No se dio de alta al proveedor');
+    expect(output).toContain('mnemosine vendor create');
+  });
+
+  it('without a terminal nobody is asked, and the refusal stands', async () => {
+    process.stdin.isTTY = false;
+    mockApprove.mockRejectedValueOnce(refusal(true));
+
+    const { salida: output, prompts } = await correrRevision(['a', 's']);
+
+    expect(vendorPrompt(prompts)).toHaveLength(0);
+    expect(mockApprove).toHaveBeenCalledTimes(1);
+    expect(output).toContain('mnemosine vendor create');
+  });
+
+  it('under rechazar a terminal is not asked either', async () => {
+    process.stdin.isTTY = true;
+    mockApprove.mockRejectedValueOnce(refusal(false));
+
+    const { prompts } = await correrRevision(['a', 's']);
+
+    expect(vendorPrompt(prompts)).toHaveLength(0);
+    expect(mockApprove).toHaveBeenCalledTimes(1);
+  });
+});
