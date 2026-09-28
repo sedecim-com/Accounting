@@ -436,4 +436,16 @@ describe('el perfil fiscal del cliente', () => {
     const despues = await listCustomerTaxProfiles(scope, { missing: true });
     expect(despues.rows.map((r) => r.id)).not.toContain(clienteId);
   });
+
+  // #102 (MNE-001-033): current SAT codes the whitelist used to refuse.
+  it.each([
+    [{ usoCfdi: 'D10' }, 'uso_cfdi_name', 'Pagos por servicios educativos (colegiaturas)'],
+    [{ usoCfdi: 'CN01' }, 'uso_cfdi_name', 'Nómina'],
+    [{ taxRegime: '611' }, 'tax_regime_name', 'Ingresos por Dividendos (socios y accionistas)'],
+  ] as const)('accepts the current SAT code %o and names it', async (patch, field, name) => {
+    const scope = entityScope(f.tenantId, f.entityId);
+    const profile = await setCustomerTaxProfile(clienteId, scope, patch,
+      { userId: f.userId, tenantId: f.tenantId, reason: 'MNE-001-033' });
+    expect(profile[field]).toBe(name);
+  });
 });
