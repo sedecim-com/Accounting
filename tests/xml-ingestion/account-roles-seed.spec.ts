@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  NON_POSTING_ROLES,
   REQUIRED_ACCOUNTS,
   ROLE_MAP,
   rolesPara,
@@ -54,9 +55,29 @@ describe('the cash role (BAN-1, #324)', () => {
     expect(ancestry, `banco → ${roles.banco}`).toContain(roles.efectivo);
   });
 
-  it('is not a role any CFDI case posts to', () => {
-    const posted = CASES.flatMap((c) => (c.posting ?? []).map((l) => l.role));
-    expect(posted).not.toContain('efectivo');
+  it('is declared non-posting, and no CFDI case posts to a non-posting role', () => {
+    expect(NON_POSTING_ROLES).toContain('efectivo');
+    const posted = new Set(CASES.flatMap((c) => (c.posting ?? []).map((l) => l.role)));
+    expect(NON_POSTING_ROLES.filter((r) => posted.has(r))).toEqual([]);
+  });
+});
+
+describe('the bank role (BAN-1, #324)', () => {
+  // Posting to an account that has children breaks every report that rolls
+  // balances up the hierarchy: the parent carries a balance of its own on top
+  // of the sum of its children. 1110 «Caja y Bancos» is the parent of the bank
+  // accounts, so the role that every collection and payment posts to cannot
+  // live there.
+  it.each([
+    ['a Mexican entity', true, '1111'],
+    ['a non-Mexican entity', false, '1115'],
+  ])('lands on a leaf of the chart seeded for %s', (_label, mexican, leaf) => {
+    const chart = catalogoBasePara(mexican);
+    const parents = new Set(chart.map((a) => a.parent).filter(Boolean));
+    const bank = rolesPara(mexican).banco;
+    expect(bank).toBe(leaf);
+    expect(chart.map((a) => a.code), `${leaf} must be seeded`).toContain(leaf);
+    expect(parents.has(bank!), `${bank} has children`).toBe(false);
   });
 });
 

@@ -118,6 +118,9 @@ mirror	memory	E1.1 single-jurisdiction-switch	src/services/jurisdiction/jurisdic
 mirror	memory	E1.1 jurisdiction-module-born-english	src/services/jurisdiction/jurisdiction.ts	el revert del renombrado: vuelve el nombre que la issue nombra, y con él los otros seis por el mismo camino
 mirror	memory	E1.1 jurisdiction-module-born-english	docs/language-baseline.json	el módulo entra a la línea base de un carril EXIGIDO: sigue en inglés y ya no es gratis renombrarlo
 mirror	memory	E1.1 iva-accounts-seeded-mexican-entities	src/services/xml-ingestion/account-roles-seed.ts	el IVA de una factura PPD se queda sin cuenta donde esperar al pago; el mutante renumera en vez de borrar porque borrar el renglón entero también movería otras anclas, y un espejo debe fallar por la razón que dice
+mirror	memory	E1.1 posting-roles-point-to-leaf-accounts	src/services/xml-ingestion/account-roles-seed.ts	the defect of #324: every collection and payment posted to 1110 «Caja y Bancos», the parent of the bank accounts, so the parent carried a balance of its own
+mirror	memory	E1.1 posting-roles-point-to-leaf-accounts	src/services/xml-ingestion/account-roles-seed.ts	the same defect on the non-Mexican chart, which has its own bank leaf: a check that only read ROLE_MAP would bless it
+mirror	memory	E1.1 posting-roles-point-to-leaf-accounts	src/services/xml-ingestion/account-roles-seed.ts	the exemption turned into a way around the rule: `banco` is where money lands, and declaring it non-posting would let it sit on any parent without a word
 mirror	memory	E1.1 account-code-single-name	src/services/payroll/common/payroll-account-mapping-seed.ts	devolver la nómina al código de las devoluciones sobre compras es EL fallo que este criterio vino a impedir: el sueldo bruto cargado a un contra-costo acreedor
 mirror	memory	E1.1 account-code-single-name	src/services/accounting/chart-seed.ts	la colisión tiene dos lados y el criterio debe morder por los dos: renombrar la cuenta del catálogo base sin tocar las otras semillas es la mitad que un espejo de un solo sentido bendeciría
 mirror	memory	E1.2 payment-application-immutable-history	src/services/payments/payment-service.ts	«reversed» degradado a «void»: ocurrió-y-rebotó es otra afirmación ante un auditor
@@ -677,6 +680,9 @@ anchor	src/plan/criteria/e1-1.ts	de: 'books: AccountingStandard;',
 anchor	src/plan/criteria/e1-1.ts	de: 'export function keepsMexicanBooks(',
 anchor	src/plan/criteria/e1-1.ts	de: '"src/ai/agent-events.ts": 4',
 anchor	src/plan/criteria/e1-1.ts	de: "code: '1135', name: 'IVA Pendiente de Acreditar'",
+anchor	src/plan/criteria/e1-1.ts	de: " banco: '1111',",
+anchor	src/plan/criteria/e1-1.ts	de: " banco: '1115',",
+anchor	src/plan/criteria/e1-1.ts	de: "NON_POSTING_ROLES: readonly AccountRole[] = ['efectivo'];",
 anchor	src/plan/criteria/e1-1.ts	de: "code: '6110', name: 'Sueldos y Salarios'",
 anchor	src/plan/criteria/e1-1.ts	de: "code: '6110', name: 'Sueldos y Salarios'",
 anchor	src/plan/criteria/e1-2.ts	de: "SET status = 'reversed', reversed_at = NOW()",

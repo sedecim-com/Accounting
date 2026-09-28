@@ -102,7 +102,7 @@ describe('las cuentas de efectivo salen del mapa de roles, no de los nombres', (
     const porCodigo = new Map(cuentas.map((c) => [c.code, c]));
 
     expect(porCodigo.get('1110')?.via).toBe('rol');
-    expect(porCodigo.get('1111')?.via).toBe('descendiente');
+    expect(porCodigo.get('1111')?.via).toBe('rol'); // `banco` names it (BAN-1)
     expect(porCodigo.get('1112')?.via).toBe('descendiente');
     // Y NADA más: clientes (1120) es «Cuentas por Cobrar» y comparte padre
     // con 1110, así que un criterio por padre o por subtipo lo habría metido.
@@ -113,13 +113,10 @@ describe('las cuentas de efectivo salen del mapa de roles, no de los nombres', (
   it('se ancla en `efectivo`, no en la cuenta donde postea `banco`', async () => {
     const f = await crearInquilino('Efectivo anclado en su rol');
     enterTenant(f.tenantId);
-    // `banco` in its leaf, as BAN-1 seeds it. Cash must still be the whole
-    // 1110 tree: the USD bank 1112 is a bank the cash-flow statement cannot lose.
-    await query(
-      `UPDATE account_roles SET account_id = $1
-        WHERE entity_id = $2 AND role = 'banco' AND qualifier IS NULL`,
-      [f.cuentas['1111'], f.entityId]
-    );
+    // `banco` lives in its leaf 1111, as the seed maps it (BAN-1). Cash must
+    // still be the whole 1110 tree: the USD bank 1112 is a bank the cash-flow
+    // statement cannot lose.
+    expect(f.roles.banco).toBe(f.cuentas['1111']);
 
     const byCode = new Map(
       (await cuentasDeEfectivo(f.entityId, 'rol')).map((c) => [c.code, c])
@@ -159,7 +156,7 @@ describe('las cuentas de efectivo salen del mapa de roles, no de los nombres', (
     expect(porCodigo.get('1190')?.via).toBe('cuenta_bancaria');
     // Y la puerta vieja sigue abierta: esto SUMA cuentas, no las sustituye.
     expect(porCodigo.get('1110')?.via).toBe('rol');
-    expect(porCodigo.get('1111')?.via).toBe('descendiente');
+    expect(porCodigo.get('1111')?.via).toBe('rol'); // `banco` names it (BAN-1)
 
     // Y su dinero CUENTA: sin esta rama el movimiento sería invisible para
     // el amarre y el residuo saldría inventado por los 7 000.

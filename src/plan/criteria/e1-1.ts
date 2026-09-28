@@ -385,6 +385,129 @@ export const E1_1: Criterio[] = [
 
   {
     paquete: 'E1.1',
+    id: 'posting-roles-point-to-leaf-accounts',
+    enunciado: 'Ningún rol de posteo sembrado apunta a una cuenta con hijas',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: "  banco: '1111',",
+        a: "  banco: '1110',",
+        porque:
+          'the defect of #324: every collection and payment posted to 1110 «Caja y Bancos», the ' +
+          'parent of the bank accounts, so the parent carried a balance of its own',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: "  banco: '1115',",
+        a: "  banco: '1110',",
+        porque:
+          'the same defect on the non-Mexican chart, which has its own bank leaf: a check that ' +
+          'only read ROLE_MAP would bless it',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: "NON_POSTING_ROLES: readonly AccountRole[] = ['efectivo'];",
+        a: "NON_POSTING_ROLES: readonly AccountRole[] = ['efectivo', 'banco'];",
+        porque:
+          'the exemption turned into a way around the rule: `banco` is where money lands, and ' +
+          'declaring it non-posting would let it sit on any parent without a word',
+      },
+    ],
+    evaluar: () => {
+      // BAN-1 (#324). A role is where AUTOMATIC posting lands, and nobody
+      // looks at the account it picks. When that account has children the
+      // parent ends up with a balance of its own on top of the sum of its
+      // children, and every roll-up of the trial balance counts it twice
+      // (#323, #100). Read from the source, not from the imported module, so
+      // the in-memory mirrors above can reach it.
+      const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
+      const parents = new Set(
+        [...codigoDe('src/services/accounting/chart-seed.ts').matchAll(/parent:\s*'(\d+)'/g)].map(
+          (m) => m[1]
+        )
+      );
+      const pairsOf = (src: string, names: string[]): Array<[string, string, string]> =>
+        names.flatMap((name) => {
+          const block = new RegExp(`const ${name}\\b[^=]*=\\s*\\{([\\s\\S]*?)\\n\\};`).exec(src);
+          return block
+            ? [...block[1].matchAll(/^\s*(\w+):\s*'(\d+)'/gm)].map(
+                (m): [string, string, string] => [name, m[1], m[2]]
+              )
+            : [];
+        });
+      const roles = pairsOf(seed, ['ROLE_MAP', 'ROLES_NEUTROS']);
+      const buckets = pairsOf(codigoDe('src/services/payroll/common/payroll-account-mapping-seed.ts'), [
+        'MX_BUCKET_MAP',
+        'US_BUCKET_MAP',
+      ]);
+      // FAILS CLOSED: if a map changes shape the check has nothing to read
+      // and would stay green over any mapping at all.
+      if (parents.size === 0 || !roles.some(([, role]) => role === 'banco') || buckets.length === 0) {
+        return falla(
+          'no se pudieron leer el catálogo base, los roles o los buckets de nómina: el chequeo ' +
+            'se quedaría sin nada que medir'
+        );
+      }
+
+      // A role that only NAMES an account to read (`efectivo`, the anchor of
+      // cash) may sit on a parent. The exemption is earned, not declared: a
+      // role on that list that a CFDI case or a posting path uses is a
+      // posting role in disguise.
+      const declared = /NON_POSTING_ROLES\b[^=]*=\s*\[([^\]]*)\]/.exec(seed);
+      const nonPosting = new Set(declared ? [...declared[1].matchAll(/'(\w+)'/g)].map((m) => m[1]) : []);
+      const taxonomy = codigoDe('src/services/xml-ingestion/cfdi-taxonomy.ts');
+      const disguised = [...nonPosting].filter(
+        (role) =>
+          new RegExp(`role:\\s*'${role}'`).test(taxonomy) ||
+          dondeAparece(
+            new RegExp(`(requireRole|roleAccounts|accountsOf)\\([^)]*'${role}'`),
+            ['src/services'],
+            true
+          ).length > 0
+      );
+      if (disguised.length > 0) {
+        return falla(
+          `${disguised.join(', ')} figura como rol que no postea, y hay un caso del CFDI o un camino ` +
+            'de posteo que lo usa: la excepción de la regla de las hojas no se puede ganar así'
+        );
+      }
+
+      // NOTE: `gasto` and `impuestos_locales_gasto` land on 6100 «Gastos de
+      // Administración», which is also a parent (of 6110, 6120, ...). #324
+      // settles the bank role only; which leaf the generic expense uses is
+      // another task (owner's decision on #324, 2026-09-28). They are named
+      // here so they stay visible, and each one must still be true: once one
+      // is fixed, its line has to go.
+      const tolerated = new Map([
+        ['gasto', '6100'],
+        ['impuestos_locales_gasto', '6100'],
+      ]);
+      const stale = [...tolerated].filter(
+        ([role, code]) => !roles.some(([map, r, c]) => map === 'ROLE_MAP' && r === role && c === code)
+      );
+      if (stale.length > 0) {
+        return falla(
+          `la excepción ${stale.map(([r, c]) => `${r} → ${c}`).join(', ')} ya no es cierta: quítala del criterio`
+        );
+      }
+      const onParent = [...roles, ...buckets].filter(
+        ([, role, code]) => parents.has(code) && !nonPosting.has(role) && tolerated.get(role) !== code
+      );
+      return onParent.length === 0
+        ? ok(
+            `${roles.length} roles y ${buckets.length} buckets de nómina postean en cuentas sin hijas ` +
+              `(banco en ${roles.filter(([, r]) => r === 'banco').map(([, , c]) => c).join('/')}; ` +
+              `sin postear: ${[...nonPosting].join(', ')}); ` +
+              `pendiente: ${[...tolerated].map(([r, c]) => `${r} → ${c}`).join(', ')}`
+          )
+        : falla(
+            `posteo sobre una cuenta con hijas: ${onParent.map(([m, r, c]) => `${m}.${r} → ${c}`).join(', ')}`
+          );
+    },
+  },
+
+  {
+    paquete: 'E1.1',
     id: 'account-code-single-name',
     enunciado: 'Un código de cuenta significa UNA cuenta en todas las semillas',
     mutantes: [
