@@ -106,6 +106,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/services/reporting/report-service.ts`
 - `src/services/sat/anexo24/polizas-service.ts`
 - `src/services/xml-ingestion/pre-registration-service.ts`
+- `tests/accounting/opening-balance.spec.ts`
 - `tests/ai/eval/arnes-cableado.spec.ts`
 - `tests/ai/memoria-en-conflicto.spec.ts`
 - `tests/cli/bank-command.spec.ts`
