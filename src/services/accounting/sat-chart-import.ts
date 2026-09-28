@@ -15,6 +15,7 @@ import {
   baseDesdeNaturaleza,
   baseOfAccountType,
   naturalezaDelTipo,
+  MEMORANDUM_DOCTRINE,
   type AgrupadorReading,
   type BaseAccountType,
 } from './sat-agrupador-account-type.js';
@@ -67,6 +68,9 @@ import type { AccountType, NormalBalance } from './account-service.js';
 //    criterio de esta tarjeta —la balanza vieja y la nuestra iguales AL
 //    PESO— dejaría de significar nada. Con `parcial: true` se escribe lo que
 //    se pueda, a sabiendas y por decisión de quien migra.
+//    The one exception is the memorandum accounts (8xx): they stay out by
+//    doctrine (#219, `MEMORANDUM_DOCTRINE`), not by defect, so they never
+//    make the chart incomplete.
 //
 // ── DOS COSAS QUE EL ARCHIVO NO DICE Y AQUÍ NO SE INVENTAN ──────────────
 //
@@ -116,6 +120,12 @@ export interface ExistingAccountRow {
   normal_balance: string;
   account_level: number;
   codigo_agrupador_sat: string | null;
+  /**
+   * The code of its parent in the entity's own tree (`null` at the root). Optional
+   * because only the memorandum walk needs it; without it the file's SubCtaDe
+   * is the only hierarchy known for that account.
+   */
+  parent_code?: string | null;
 }
 
 export interface PlannedAccount {
@@ -167,8 +177,18 @@ export interface ChartImportPlan {
   findings: readonly CatalogReadFinding[];
   /** false si el archivo trae un defecto que impide importar nada. */
   puedeImportarse: boolean;
-  /** true cuando toda fila del archivo o se crea o ya estaba. */
+  /**
+   * true when every row of the file is created, already existed, or is a
+   * memorandum account left out BY DOCTRINE (`MEMORANDUM_DOCTRINE`, #219):
+   * that omission is the rule, not a defect, so it must not trip the
+   * all-or-nothing refusal.
+   */
   completa: boolean;
+}
+
+/** The rows left out by a defect, as opposed to the memorandum accounts left out by doctrine. */
+function defectiveOmissions(skipped: readonly SkippedRow[]): SkippedRow[] {
+  return skipped.filter((o) => o.motivo !== 'cuentas_de_orden');
 }
 
 function finding(
@@ -303,6 +323,59 @@ export function planSatChartImport(
   /** La profundidad efectiva de cada código, ya sea nueva o preexistente. */
   const nivelResuelto = new Map<string, number>();
   const descartadas = new Set<string>();
+  // ── WHICH CODES ARE MEMORANDUM ACCOUNTS ────────────────────────────
+  //
+  // A subaccount of UFIN is UFIN too, whatever its own CodAgrup says, so the
+  // whole 8xx subtree stays out by the same doctrine and none of it blocks.
+  // That holds THROUGH accounts that already exist (WIT-03, PR #415): an
+  // existing C under an existing 8xx M makes a new G under C memorandum too.
+  // So it is not decided row by row in file order: each code walks its
+  // ancestors in BOTH trees —the entity's own and the file's SubCtaDe— and is
+  // memorandum if any of them carries an 8xx agrupador, stored or declared.
+  // Excluding is the safe direction: it never adds money to the balance.
+  const ownMemorandum = new Set<string>();
+  const parentsOf = new Map<string, string[]>();
+  const addParent = (code: string, parent: string | null | undefined): void => {
+    if (parent === null || parent === undefined) return;
+    parentsOf.set(code, [...(parentsOf.get(code) ?? []), parent]);
+  };
+  for (const e of existentes) {
+    if (readAgrupador(e.codigo_agrupador_sat ?? '').verdict === 'cuentas_de_orden') ownMemorandum.add(e.code);
+    addParent(e.code, e.parent_code);
+  }
+  for (const r of orden) {
+    if (readAgrupador(r.codAgrup).verdict === 'cuentas_de_orden') ownMemorandum.add(r.numCta);
+    addParent(r.numCta, r.subCtaDe);
+  }
+  const isMemorandum = (code: string): boolean => {
+    const seen = new Set<string>();
+    const pending = [code];
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      if (ownMemorandum.has(next)) return true;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      pending.push(...(parentsOf.get(next) ?? []));
+    }
+    return false;
+  };
+  const leaveOutAsMemorandum = (r: CatalogFileRow, detail: string, why: string): void => {
+    descartadas.add(r.numCta);
+    omitidas.push({ fila: r.fila, code: r.numCta, motivo: 'cuentas_de_orden', detalle: detail });
+    findings.push(
+      finding(
+        'IMP-CUENTAS-DE-ORDEN',
+        'aviso',
+        r.fila,
+        r.numCta,
+        `${why} Una cuenta de ORDEN es de memoria, fuera del balance y en pareja con su ` +
+          `contracuenta. Este esquema sólo tiene activo, pasivo, capital, ingreso y gasto, así que ` +
+          `no hay casilla honesta donde ponerla; meterla en cualquiera sumaría al balance dinero ` +
+          `que no existe. Las cuentas de orden NO se migran en esta versión: se quedan fuera, no ` +
+          `bloquean la importación, y la doctrina —qué hacer con la CUFIN, la CUCA o la UFIN— ` +
+          `está en ${MEMORANDUM_DOCTRINE}.`
+      )
+    );
+  };
 
   for (const e of existentes) {
     const base = baseOfAccountType(e.account_type);
@@ -335,6 +408,25 @@ export function planSatChartImport(
       }
       yaExistian.push({ fila: r.fila, code: r.numCta, id: yaEsta.id, divergencias });
 
+      // The file saying 8xx is enough to classify it, even when the entity's
+      // row lost its agrupador. The account stays as it is; the conflict with
+      // the doctrine is declared, and its new subaccounts stay out.
+      if (isMemorandum(r.numCta)) {
+        findings.push(
+          finding(
+            'IMP-ORDEN-YA-EN-EL-MAYOR',
+            'aviso',
+            r.fila,
+            r.numCta,
+            `"${r.numCta}" es cuenta de orden —por su agrupador o porque cuelga de una— y ya existe ` +
+              `en la entidad como ${yaEsta.account_type}. ` +
+              `NO se toca —una importación no borra ni retipa lo que ya está—, pero según la doctrina ` +
+              `(${MEMORANDUM_DOCTRINE}) no debería estar en el mayor: revísala a mano. Sus subcuentas ` +
+              `nuevas no se crean.`
+          )
+        );
+      }
+
       if (divergencias.length > 0) {
         findings.push(
           finding(
@@ -358,6 +450,15 @@ export function planSatChartImport(
     let parentYaExistia = false;
     let nivelDelPadre = 0;
     if (r.subCtaDe !== null) {
+      if (isMemorandum(r.subCtaDe)) {
+        const existing = porCodigoExistente.has(r.subCtaDe) ? ' (ya existe en la entidad y no se toca)' : '';
+        leaveOutAsMemorandum(
+          r,
+          `SubCtaDe="${r.subCtaDe}"`,
+          `"${r.numCta}" cuelga de "${r.subCtaDe}"${existing}, que es cuenta de orden, así que también lo es.`
+        );
+        continue;
+      }
       if (descartadas.has(r.subCtaDe)) {
         descartadas.add(r.numCta);
         omitidas.push({
@@ -418,25 +519,10 @@ export function planSatChartImport(
     if (agrupador.verdict === 'cuentas_de_orden') {
       // NO hereda del padre a propósito: heredar metería una cuenta de orden
       // en el balance, que es justo lo que se está evitando.
-      descartadas.add(r.numCta);
-      omitidas.push({
-        fila: r.fila,
-        code: r.numCta,
-        motivo: 'cuentas_de_orden',
-        detalle: `CodAgrup="${r.codAgrup}" (${agrupador.rubroNombre ?? ''})`,
-      });
-      findings.push(
-        finding(
-          'IMP-CUENTAS-DE-ORDEN',
-          'aviso',
-          r.fila,
-          r.numCta,
-          `"${r.numCta}" tiene agrupador ${r.codAgrup} (${agrupador.rubroNombre ?? 'cuentas de orden'}), ` +
-            `que es una cuenta de ORDEN: de memoria, fuera del balance y en pareja con su ` +
-            `contracuenta. Este esquema sólo tiene activo, pasivo, capital, ingreso y gasto, así que ` +
-            `no hay casilla honesta donde ponerla; meterla en cualquiera sumaría al balance dinero ` +
-            `que no existe. Se queda fuera y se dice.`
-        )
+      leaveOutAsMemorandum(
+        r,
+        `CodAgrup="${r.codAgrup}" (${agrupador.rubroNombre ?? ''})`,
+        `"${r.numCta}" tiene agrupador ${r.codAgrup} (${agrupador.rubroNombre ?? 'cuentas de orden'}).`
       );
       continue;
     }
@@ -578,7 +664,7 @@ export function planSatChartImport(
     omitidas,
     findings,
     puedeImportarse: findings.every((f) => f.severidad !== 'bloquea'),
-    completa: omitidas.length === 0,
+    completa: defectiveOmissions(omitidas).length === 0,
   };
 }
 
@@ -676,9 +762,11 @@ export async function importSatChart(
   }
 
   const existentes = await query<ExistingAccountRow>(
-    `SELECT id, code, name, account_type, normal_balance, account_level, codigo_agrupador_sat
-       FROM accounts
-      WHERE entity_id = $1`,
+    `SELECT a.id, a.code, a.name, a.account_type, a.normal_balance, a.account_level,
+            a.codigo_agrupador_sat, p.code AS parent_code
+       FROM accounts a
+       LEFT JOIN accounts p ON p.id = a.parent_id AND p.entity_id = a.entity_id
+      WHERE a.entity_id = $1`,
     [opts.entityId]
   );
 
@@ -711,6 +799,7 @@ export async function importSatChart(
 
   if (!plan.puedeImportarse) return base;
   if (!plan.completa && opts.parcial !== true) {
+    const defective = defectiveOmissions(plan.omitidas);
     return {
       ...base,
       findings: [
@@ -720,8 +809,8 @@ export async function importSatChart(
           'bloquea',
           undefined,
           undefined,
-          `No se escribe nada: ${plan.omitidas.length} de ${lectura.rows.length} cuentas del archivo ` +
-            `no se pueden crear (${[...new Set(plan.omitidas.map((o) => o.motivo))].join(', ')}). Un ` +
+          `No se escribe nada: ${defective.length} de ${lectura.rows.length} cuentas del archivo ` +
+            `no se pueden crear (${[...new Set(defective.map((o) => o.motivo))].join(', ')}). Un ` +
             `catálogo a medias hace que la balanza de apertura cuadre o descuadre por razones que ` +
             `nadie puede rastrear, y el criterio de esta migración es que cuadre AL PESO. Arregla lo ` +
             `nombrado, o vuelve a correr con --parcial a sabiendas.`
