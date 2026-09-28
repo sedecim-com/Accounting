@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 211 of 329 subcommands
+  spelling is `-T` at the root and `-t` on the 212 of 330 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -4650,16 +4650,13 @@ Usage: mnemosine bank transaction|movimiento [options] [command]
 Bank transactions: what the bank says happened, before anyone explains it
 
 Options:
-  -h, --help                     display help for command
+  -h, --help                              display help for command
 
 Commands:
-  list|listar [options] [query]  List bank transactions filtered by account,
-                                 date range, direction, amount, text, type and
-                                 match state
-  show|ver [options] <id>        Show one transaction: the normalized line, the
-                                 statement it came from and the live matches
-                                 that explain it
-  help [command]                 display help for command
+  list|listar [options] [query]           List bank transactions filtered by account, date range, direction, amount, text, type and match state
+  show|ver [options] <id>                 Show one transaction: the normalized line, the statement it came from and the live matches that explain it
+  reclassify|reclasificar [options] <id>  Correct what kind of line a bank transaction is (fee, interest, debit, credit, adjustment); refused when the sign disagrees, the line is matched, or a treasury entry already posted it
+  help [command]                          display help for command
 ```
 
 #### `mnemosine bank transaction list` (alias: listar)
@@ -4733,6 +4730,35 @@ Examples:
   # With raw_data exactly as the bank published it: it can carry the
   # counterparty in the clear, so it is opt-in.
   mnemosine bank transaction show 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --raw
+```
+
+#### `mnemosine bank transaction reclassify` (alias: reclasificar)
+
+```
+Usage: mnemosine bank transaction reclassify|reclasificar [options] <id>
+
+Correct what kind of line a bank transaction is (fee, interest, debit, credit,
+adjustment); refused when the sign disagrees, the line is matched, or a treasury
+entry already posted it
+
+Arguments:
+  id                                             transaction id
+
+Options:
+  -e, --entity <idOrName>                        legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                              tenant (firm) whose data to scope to
+  -u, --user <email>                             acting user, for attribution and permissions
+  --type <debit|credit|fee|interest|adjustment>  what the line really is
+  --reason <text>                                justification recorded in the audit trail
+  --dry-run                                      run every check and write nothing
+  --json                                         JSON output
+  -h, --help                                     display help for command
+
+Examples:
+  # A commission the importer did not recognize, so `bank fee post` sees it.
+  mnemosine bank transaction reclassify 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --type fee --reason "Monthly account fee"
+  # Check what would happen without writing.
+  mnemosine bank transaction reclassify 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --type debit --dry-run
 ```
 
 ### `mnemosine bank book-item` (alias: partida-libros)
