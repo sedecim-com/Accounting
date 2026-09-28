@@ -242,6 +242,10 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   anticipo_clientes: '2150',
   cxc: '1120',
   banco: '1110',
+  // BAN-1 (#324): cash as a whole, read by the cash-flow statement with its
+  // descendants. 1110 «Caja y Bancos» is the parent of every bank account in
+  // both charts, the Mexican and the neutral one. Not a posting role.
+  efectivo: '1110',
   iva_trasladado: '2120',
   iva_trasladado_no_cobrado: '2125',
   // Purchases, expenses and assets

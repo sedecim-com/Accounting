@@ -1609,6 +1609,13 @@
     {
       "class": "account-role",
       "where": "account_roles.role",
+      "es": "efectivo",
+      "en": "cash",
+      "why": "BAN-1 (#324): the role that anchors cash for the cash-flow statement, seeded at 1110 «Caja y Bancos»; it does not post. `cash` and not `bank`: it covers every bank account under 1110 and the cash box beside them, which is exactly the difference with `banco`, the leaf money lands on."
+    },
+    {
+      "class": "account-role",
+      "where": "account_roles.role",
       "es": "cxc",
       "en": "accounts_receivable",
       "why": "`cxc` es una abreviatura, y su equivalente inglés `ar` —que el árbol usa para el MÓDULO (`src/services/ar`, `ar-ap-posting.ts`)— es igual de opaco leído en una fila de `account_roles`, que es exactamente el defecto que este renombrado corrige. El valor persistido se escribe entero; la abreviatura sigue valiendo para nombres de archivo y de módulo, que son otra clase. Se exige con `requireRole` en toda factura de venta (ar-ap-posting.ts:146, :381, :552, :695)."
@@ -2167,6 +2174,13 @@
       "es": "banco",
       "en": "bank",
       "why": "Mismo inglés que la entrada account-role de la que este arreglo es copia: es un valor de `account_roles.role` (015:12-13), columna VARCHAR(60) SIN CHECK, así que este arreglo y el literal quemado de cash-flow-service.ts:257 son la única declaración y renombrarlo es migrar filas de despachos reales. LA ADVERTENCIA VA AQUÍ SOBRE TODO, porque es este archivo el que quedará ambiguo: nueve líneas más abajo `SUBTIPOS_DE_EFECTIVO` (:56) ya contiene `'bank'` como valor de `account_subtype`, otra población de cuentas para el otro brazo de la misma política; tras el renombrado los dos arreglos comparten token y hay que dejar escrito que la coincidencia es de palabra, no de conjunto."
+    },
+    {
+      "class": "as-const",
+      "where": "src/services/reporting/cash-flow-reconcile.ts:ROLES_DE_EFECTIVO",
+      "es": "efectivo",
+      "en": "cash",
+      "why": "Copy of the account-role value of the same name (BAN-1, #324). A value of `account_roles.role`: renaming it migrates rows, same as `banco`."
     },
     {
       "class": "as-const",

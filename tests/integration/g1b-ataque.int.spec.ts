@@ -822,7 +822,10 @@ describe('un periodo sin movimientos', () => {
     const f = await crearInquilino('G1b sin efectivo');
     enterTenant(f.tenantId);
     await sembrarPoliticasDeFlujo(f);
-    await query(`DELETE FROM account_roles WHERE entity_id=$1 AND role='banco'`, [f.entityId]);
+    await query(`DELETE FROM account_roles WHERE entity_id=$1 AND role = ANY($2::text[])`, [
+      f.entityId,
+      [...ROLES_DE_EFECTIVO],
+    ]);
     await query(`DELETE FROM bank_accounts WHERE entity_id=$1`, [f.entityId]);
     await asiento(f, 7, 'Venta cobrada', f.cuentas['1110'], f.cuentas['4100'], '5000.0000');
 
@@ -835,7 +838,7 @@ describe('un periodo sin movimientos', () => {
       error = err;
     }
     expect(error).toBeDefined();
-    expect(String((error as Error).message).toLowerCase()).toContain('banco');
+    expect(String((error as Error).message).toLowerCase()).toContain('role set efectivo');
   });
 });
 
@@ -1228,10 +1231,10 @@ describe('dos cuentas sin clasificar que se compensan', () => {
 // 14 · EL PUNTO ÚNICO DE CRECIMIENTO, MEDIDO SOBRE LA LISTA
 //
 // `ROLES_DE_EFECTIVO` se declara «el conjunto crece aquí y en ningún otro
-// sitio» (cash-flow-reconcile.ts:39-47) mientras `cash-flow-service` escribía
-// `ar.role = 'banco'` a mano. Hoy la lista tiene un elemento y las dos
-// consultas coinciden por casualidad; el día que la taxonomía separe caja de
-// bancos, el AMARRE vería la cuenta nueva y el ESTADO no — dos definiciones de
+// sitio» (cash-flow-reconcile.ts) mientras `cash-flow-service` escribía
+// `ar.role = 'banco'` a mano. That day came with BAN-1 (#324): the list grew
+// to `efectivo` + `banco`, and with a literal left in either query the AMARRE
+// would see the new role's tree and the ESTADO would not — dos definiciones de
 // «efectivo» para el mismo periodo, que es el residuo inventado que este par
 // de módulos existe para no producir.
 //
