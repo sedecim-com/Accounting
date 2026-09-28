@@ -2,7 +2,7 @@ import { query, withTransaction } from '../../database/connection.js';
 import { ensureEntityAccounting } from './entity-accounting.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
-import { rolesPara } from '../xml-ingestion/account-roles-seed.js';
+import { NON_POSTING_ROLES, rolesPara } from '../xml-ingestion/account-roles-seed.js';
 import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 
 // ============================================================
@@ -96,10 +96,10 @@ export async function rellenarRoles(
     try {
       // ensureEntityAccounting, NO seedAccountRoles.
       //
-      // seedAccountRoles sólo crea REQUIRED_ACCOUNTS: 17 códigos, ninguno de
-      // los que todo posteo necesita. ROLE_MAP necesita once más —1110 banco,
-      // 1120 clientes, 2110 proveedores, 4100 ingresos, 6100 gastos y otros
-      // seis— que vienen del catálogo base. Llamando sólo al sembrador de
+      // seedAccountRoles sólo crea REQUIRED_ACCOUNTS, y ninguna es de las que
+      // todo posteo necesita. ROLE_MAP necesita además —1111 banco, 1120
+      // clientes, 2110 proveedores, 4100 ingresos, 6100 gastos y otras— las
+      // que vienen del catálogo base. Llamando sólo al sembrador de
       // roles, una entidad heredada terminaba con 17 roles y SIN cxc, cxp,
       // banco, ingreso ni gasto: seguía muriendo con MISSING_ROLE_ACCOUNT en
       // la primera factura, que es literalmente el fallo que este relleno
@@ -257,6 +257,149 @@ export async function addMissingRoles(
     });
     if (added) out.added += 1;
     else out.failures.push(`${row.entityName}: el rol ${row.role} ya estaba mapeado; no se tocó.`);
+  }
+  return out;
+}
+
+// ============================================================
+// BAN-1 (#324): ROLES SEEDED ONTO A PARENT ACCOUNT.
+//
+// The seed used to map `banco` to 1110 «Caja y Bancos», the PARENT of the
+// bank accounts, and `seedAccountRoles` never overwrites an existing mapping.
+// So fixing ROLE_MAP fixes new entities only; every entity seeded before keeps
+// posting its collections and payments onto the parent. This pass repoints
+// those rows.
+//
+// It moves a default mapping (qualifier NULL) only when all three hold:
+//   · its account has active children, so posting there is wrong whoever
+//     chose it;
+//   · the seed now maps that role to a DIFFERENT code for this entity's books;
+//   · that code exists in the entity as an active leaf.
+// Anything else is reported, not guessed: a qualified variant or a mapping
+// the seed cannot improve is the accountant's call (`account role set`).
+// NON_POSTING_ROLES are skipped: `efectivo` sits on 1110 by design.
+// Idempotent by construction: once repointed, the row no longer matches.
+// Entries already posted to the parent are NOT moved; that is a reclass.
+// ============================================================
+
+export interface RoleOnParent {
+  roleId: string;
+  entityId: string;
+  entityName: string;
+  tenantId: string;
+  role: string;
+  fromAccountId: string;
+  fromCode: string;
+  toAccountId: string;
+  toCode: string;
+}
+
+export interface RolesOnParentCensus {
+  fixable: RoleOnParent[];
+  /** Mappings on a parent that the seed cannot repoint by itself. */
+  unfixable: Array<{ entityName: string; role: string; code: string; why: string }>;
+}
+
+/** Read-only: which default posting-role mappings sit on an account with children. */
+export async function censusRolesOnParentAccounts(
+  tenantId?: string | null
+): Promise<RolesOnParentCensus> {
+  const r = await query<{
+    role_id: string; entity_id: string; entity_name: string; tenant_id: string;
+    role: string; from_account_id: string; from_code: string;
+    incorporation_country: string | null; accounting_standard: string | null;
+  }>(
+    `SELECT ar.id AS role_id, ar.entity_id, le.name AS entity_name, ar.tenant_id,
+            ar.role, a.id AS from_account_id, a.code AS from_code,
+            le.incorporation_country, le.accounting_standard
+       FROM account_roles ar
+       JOIN legal_entities le ON le.id = ar.entity_id AND le.tenant_id = ar.tenant_id
+       JOIN accounts a ON a.id = ar.account_id AND a.entity_id = ar.entity_id
+      WHERE le.is_active = true
+        AND ar.qualifier IS NULL
+        AND NOT (ar.role = ANY($2::text[]))
+        AND ($1::uuid IS NULL OR ar.tenant_id = $1::uuid)
+        AND EXISTS (SELECT 1 FROM accounts c
+                     WHERE c.parent_id = a.id AND c.entity_id = ar.entity_id AND c.is_active)
+      ORDER BY le.name, ar.role`,
+    [tenantId ?? null, [...NON_POSTING_ROLES]]
+  );
+
+  const census: RolesOnParentCensus = { fixable: [], unfixable: [] };
+  for (const row of r.rows) {
+    const mexican = keepsMexicanBooks(row.incorporation_country, row.accounting_standard);
+    const toCode = (rolesPara(mexican) as Record<string, string | undefined>)[row.role];
+    const base = { entityName: row.entity_name, role: row.role, code: row.from_code };
+    if (!toCode || toCode === row.from_code) {
+      census.unfixable.push({ ...base, why: 'the seed maps this role to the same account' });
+      continue;
+    }
+    const leaf = await query<{ id: string }>(
+      `SELECT t.id FROM accounts t
+        WHERE t.entity_id = $1 AND t.code = $2 AND t.is_active
+          AND NOT EXISTS (SELECT 1 FROM accounts c
+                           WHERE c.parent_id = t.id AND c.entity_id = t.entity_id AND c.is_active)`,
+      [row.entity_id, toCode]
+    );
+    if (!leaf.rows[0]) {
+      census.unfixable.push({ ...base, why: `${toCode} is missing, archived or has children` });
+      continue;
+    }
+    census.fixable.push({
+      roleId: row.role_id, entityId: row.entity_id, entityName: row.entity_name,
+      tenantId: row.tenant_id, role: row.role, fromAccountId: row.from_account_id,
+      fromCode: row.from_code, toAccountId: leaf.rows[0].id, toCode,
+    });
+  }
+  return census;
+}
+
+export interface RepointResult {
+  repointed: number;
+  failures: string[];
+}
+
+/**
+ * Repoints each census row in its own transaction, with an audit row per
+ * move: redirecting where half the ledger posts is the same act as
+ * `account role set`, and it leaves the same trail.
+ */
+export async function repointRolesToLeaves(
+  rows: RoleOnParent[],
+  actorByTenant: Map<string, string>
+): Promise<RepointResult> {
+  const out: RepointResult = { repointed: 0, failures: [] };
+  for (const row of rows) {
+    const actor = actorByTenant.get(row.tenantId);
+    if (!actor) {
+      out.failures.push(`${row.entityName}: el inquilino ${row.tenantId} no tiene ningún usuario activo que firme el cambio.`);
+      continue;
+    }
+    // The guard is the state we censused: same row, same entity, still on the
+    // parent. Zero rows means someone repointed it in between; that is left
+    // alone and said, never overwritten.
+    const moved = await withTransaction(async (client) => {
+      const u = await client.query(
+        `UPDATE account_roles SET account_id = $1, updated_at = NOW()
+          WHERE id = $2 AND entity_id = $3 AND tenant_id = $4
+            AND account_id = $5 AND qualifier IS NULL`,
+        [row.toAccountId, row.roleId, row.entityId, row.tenantId, row.fromAccountId]
+      );
+      if (u.rowCount !== 1) return false;
+      await registrarAuditoria(client, {
+        tenantId: row.tenantId,
+        userId: actor,
+        action: 'update',
+        entityType: 'account_role',
+        entityId: row.roleId,
+        oldValues: { role: row.role, qualifier: null, account_id: row.fromAccountId, code: row.fromCode },
+        newValues: { role: row.role, qualifier: null, account_id: row.toAccountId, code: row.toCode },
+        reason: `BAN-1 (#324): ${row.fromCode} tiene subcuentas; el rol pasa a la hoja ${row.toCode}`,
+      });
+      return true;
+    });
+    if (moved) out.repointed += 1;
+    else out.failures.push(`${row.entityName}: el rol ${row.role} cambió desde el censo; no se tocó.`);
   }
   return out;
 }
