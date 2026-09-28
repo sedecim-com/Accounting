@@ -263,8 +263,6 @@ export interface TrialBalanceFilters extends RangoConsultado {
   /** Activity between two dates. Used by the CLI's --since/--until and --period. */
   sinceDate?: string;
   untilDate?: string;
-  /** Roll up to at most this account level. The REST surface defaults it to 5. */
-  maxLevel?: number;
   /**
    * Pide la balanza EN CRUDO, sin pasar por `informes_asientos_de_cierre`.
    *
@@ -319,13 +317,8 @@ export async function queryTrialBalanceRows(
 ): Promise<TrialBalanceQueryRow[]> {
   const params: unknown[] = [entityId];
   let where = 'WHERE a.entity_id = $1';
-  let i = 2;
 
-  if (filters.maxLevel !== undefined) {
-    where += ` AND a.account_level <= $${i++}`;
-    params.push(filters.maxLevel);
-  }
-  const periodFilter = entryFilter(filters, params, i);
+  const periodFilter = entryFilter(filters, params, 2);
   // EL TOPE DEL INFORME, en el `$n` que `entryFilter` acaba de ocupar. Su
   // precedencia es la de aquél —periodo, luego corte, luego el `hasta` del
   // rango— y `sinceDate` a solas no cuenta: es cota INFERIOR y no sirve de
@@ -834,12 +827,18 @@ export interface TrialBalanceOptions extends TrialBalanceFilters {
   scale?: number;
   /**
    * Each account carries its own figures PLUS those of its whole subtree
-   * (`accounts.parent_id`), and `maxLevel` then trims the rolled-up rows
-   * instead of dropping the money of the deeper levels. The Anexo 24 trial
-   * balance needs it: the SAT reads a ledger account as the sum of its
-   * subaccounts, and declaring it at zero is accepted and wrong (#323).
+   * (`accounts.parent_id`). The Anexo 24 trial balance needs it: the SAT
+   * reads a ledger account as the sum of its subaccounts, and declaring it at
+   * zero is accepted and wrong (#323).
    */
   rollUp?: boolean;
+  /**
+   * Show accounts down to this level, and IMPLIES `rollUp` (#100): the cut
+   * happens after each subtree has been summed into its ancestors. As a plain
+   * SQL filter it printed 1110 at zero with 1111/1112 gone, and the footing
+   * OUT OF BALANCE, so there is no un-rolled way to ask for it.
+   */
+  maxLevel?: number;
 }
 
 /** Account id → the ids of all its ancestors, and the account's level. */
@@ -918,10 +917,10 @@ export async function getTrialBalance(
   entityId: string,
   opts: TrialBalanceOptions = {}
 ): Promise<TrialBalanceReport> {
-  // Rolled up, the level cut happens AFTER summing: in SQL it would drop the
-  // deeper levels' money before anyone could add it to their parents.
-  const { maxLevel, ...withoutLevel } = opts;
-  const queryOpts = opts.rollUp ? withoutLevel : opts;
+  // The level cut happens AFTER summing: in SQL it would drop the deeper
+  // levels' money before anyone could add it to their parents.
+  const { maxLevel, ...queryOpts } = opts;
+  const rollUp = opts.rollUp === true || maxLevel !== undefined;
   const all = await queryTrialBalanceRows(entityId, queryOpts);
 
   // El saldo inicial se resuelve ANTES de recortar: `--exclude-zero` tiene que
@@ -933,8 +932,8 @@ export async function getTrialBalance(
   let filas: TrialBalanceReportRow[] = cuatroColumnas?.rows ?? all;
   // Footed over the OWN figures: rolled rows would count each amount once
   // per level of the tree.
-  const footing = opts.rollUp ? totalTrialBalance(filas, opts.scale ?? LEDGER_SCALE) : null;
-  if (opts.rollUp) {
+  const footing = rollUp ? totalTrialBalance(filas, opts.scale ?? LEDGER_SCALE) : null;
+  if (rollUp) {
     const ancestry = await queryAccountAncestry(entityId);
     filas = rollUpTrialBalanceRows(filas, ancestry).filter(
       (r) => maxLevel === undefined || (ancestry.get(r.account_id)?.level ?? 1) <= maxLevel
