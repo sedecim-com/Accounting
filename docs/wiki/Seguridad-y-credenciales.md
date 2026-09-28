@@ -107,6 +107,17 @@ firma autógrafa, que quien la tenga podría firmar declaraciones, que el SAT no
 ofrece una credencial de alcance más estrecho para esto, y que existe la
 alternativa de correr la descarga en infraestructura propia.
 
+**Para qué se usará la e.firma.** El dueño decidió el 2026-09-28 (#312,
+MNE-001-140) que, dentro del MVP, el sistema la usa para dos cosas: autenticarse
+con el SAT y descargar los CFDI y sus metadatos (#439, #440, #441), y sellar el
+catálogo y la balanza del Anexo 24 cuando el despacho declara
+`sellar_con_custodia` (#442). Presentar ante el SAT sigue siendo manual, en el
+portal. Hoy nada de eso está construido: `withCredential` no tiene llamador de
+producción, y el texto de consentimiento todavía promete «We will not sign».
+El consentimiento v2, que dice los dos usos y sube `CONSENT_VERSION`, va en #313
+y precede al primer uso real. Cada uso pasará por `withCredential`, con su fila
+en la bitácora y bajo el tope diario y la política de anomalías.
+
 ---
 
 ## La regla que no se negocia: la e.firma no se pide por chat

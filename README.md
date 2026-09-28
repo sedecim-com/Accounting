@@ -87,8 +87,11 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
   configurar cualquiera de ellos por `/v1/integrations/:provider` muere en
   `PROVIDER_NOT_FOUND`. Contratar un PAC es una decisión de negocio; poder
   intentarlo es un renglón que falta.
-- **La descarga masiva del SAT no existe.** Ni SOAP, ni ZIP, ni comando. Un
-  despacho no puede afirmar completitud de CFDI recibidos desde aquí.
+- **La descarga masiva del SAT todavía no existe.** Ni SOAP, ni ZIP, ni
+  comando. Un despacho no puede afirmar completitud de CFDI recibidos desde
+  aquí. Entra al MVP por decisión del dueño del 2026-09-28 (#312): la e.firma
+  descarga (#439, #440, #441) y sella el Anexo 24 (#442); presentar ante el SAT
+  sigue siendo manual, en el portal.
 - **La nómina reporta ceros en 941/940.** `paycheck_taxes`,
   `employer_tax_liabilities` y `garnishments` se leen y ningún camino las
   escribe.
