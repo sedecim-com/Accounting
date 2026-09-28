@@ -59,7 +59,9 @@
       "src/ai/budget.ts",
       "src/ai/floor.ts",
       "src/services/policy/policy-service.ts",
-      "src/ai/tools/policy-tools.ts"
+      "src/ai/tools/policy-tools.ts",
+      "src/ai/tools/question-tools.ts",
+      "src/ai/memory-service.ts"
     ],
     "playbooks.md": [
       "src/ai/doctor-service.ts",
@@ -144,7 +146,7 @@
     "src/ai/providers/index.ts": "ed591a9ca62a734081e910ec1aceced42cdf5bbc",
     "src/ai/providers/config.ts": "42d6ba0c8d1d6957c80c9d2117b046bd1f16fc4e",
     "src/ai/draft-service.ts": "468ac6c39c30f1808dac7f85ccce560e2ea92dd2",
-    "src/ai/question-service.ts": "320a614fe4b7ae52646b1298b4e3339710ddc56c",
+    "src/ai/question-service.ts": "8cbfe1b2ca688f2e04e8cf31af7a3a86b8fdb4d4",
     "src/ai/budget.ts": "501401dcfc093c50e86ab33976d41ba7805010b6",
     "src/ai/floor.ts": "f1a5ebed1e5d3e8f4bdea31b831c812d86e4c6b7",
     "src/services/policy/policy-service.ts": "e9cc405664c498edb3b4b4e1c68729f7852a923e",
@@ -154,6 +156,8 @@
     "src/services/reporting/cash-flow-service.ts": "489bebf55f6fb975846d6cb0bf4c75d7a4d7390d",
     "src/services/reporting/cash-flow-reconcile.ts": "491acc77467d7409c59dd87b312dfd48af2ce401",
     "src/index.ts": "babd83796597690fcde97ba44918ffb1b60f86cc",
-    "src/ai/tools/report-tools.ts": "1240b430dfd3c5862d81728ee8082b4c4c8a28c3"
+    "src/ai/tools/report-tools.ts": "1240b430dfd3c5862d81728ee8082b4c4c8a28c3",
+    "src/ai/tools/question-tools.ts": "b8992141a7297cdd8ca366ed72472fde2b584da0",
+    "src/ai/memory-service.ts": "e6cda54c251a7946b45174d6f6c4c9d8153fcf40"
   }
 }

@@ -9,6 +9,7 @@ import {
   searchPrecedents,
 } from '../question-service.js';
 import { groupConflicts, type ConflictScope } from '../memory-service.js';
+import { envolverDatosDeTerceros } from '../untrusted.js';
 
 // ============================================================
 // QUESTION TOOLS (questions + precedents)
@@ -16,7 +17,9 @@ import { groupConflicts, type ConflictScope } from '../memory-service.js';
 // answered inline and stored as a precedent; with no human
 // available it stays 'pending' for `mnemosine questions`.
 // search_precedents: the firm's memory — already-resolved
-// criteria the agent must consult BEFORE asking.
+// criteria the agent must consult BEFORE asking. What it returns
+// is STORED text (questions drafted from CFDIs, answers typed by
+// any user of the firm), so it reaches the model fenced (#303).
 // ============================================================
 
 // ============================================================
@@ -34,11 +37,13 @@ import { groupConflicts, type ConflictScope } from '../memory-service.js';
 // un campo nuevo deja de compilar en silencio. La prueba cierra por su lado
 // el juego de claves del JSON que sale de verdad — el tipo ata la forma en
 // compilación y la prueba ata el efecto en ejecución.
+//
+// This is the DATA block, and it travels inside the untrusted envelope
+// (T17a, #303). The conflict note is not part of it: see CONFLICT_NOTE.
 // ============================================================
 interface SearchPrecedentsResult {
   count: number;
   conflicts?: Array<{ competing_for: string; grouped_by: ConflictScope; answers: string[] }>;
-  conflict_note?: string;
   precedents: Array<{
     question: string;
     answer: string | null;
@@ -48,6 +53,17 @@ interface SearchPrecedentsResult {
     answered_at: Date | null;
   }>;
 }
+
+// SECURITY: the conflict note is the SYSTEM telling the model what to do, so
+// it travels OUTSIDE the untrusted block, before it. Inside, it would sit under
+// a preamble saying the block never carries instructions, and the one
+// instruction that matters here would stop being one.
+const CONFLICT_NOTE =
+  'CONFLICT: the precedents in the block below give different answers for the same decision ' +
+  '(see `conflicts`). Do NOT pick one on your own and do NOT fall back on the most recent: say ' +
+  'out loud that the firm holds two contradicting criteria, use ask_user so a human decides which ' +
+  'one stands, and keep working on what does not depend on it. The human resolves it with ' +
+  '`mnemosine memory --conflicts`.';
 
 export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
   const askUserTool = betaZodTool({
@@ -142,9 +158,9 @@ export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
     description:
       'Searches precedents: questions already resolved by the firm (classification criteria, ' +
       'vendor treatment, policies). ALWAYS consult it before ask_user and before ' +
-      'classifying doubtful operations. The most recent precedent prevails — EXCEPT when the ' +
-      'result flags a conflict: two active precedents answering the same decision differently ' +
-      'are not a recency question, they are an unresolved one, and only a human resolves them.',
+      'classifying doubtful operations. Precedents never compete by date: when the result flags ' +
+      'a conflict, two active precedents answer the same decision differently, which is not a ' +
+      'recency question but an unresolved one, and only a human resolves it.',
     inputSchema: z.object({
       search: z.string().min(1).describe('Text to search: vendor, description, account, topic'),
     }),
@@ -161,30 +177,22 @@ export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
       // de criterio contable, en silencio y sin dejar rastro de que había
       // dos. Marcarla no la resuelve —no es del sistema resolverla— pero
       // convierte una elección invisible en una pregunta.
-      const conflictos = groupConflicts(rows);
+      const groups = groupConflicts(rows);
 
       // Sin `...spread`: el spread de un objeto condicional se cuela por
       // delante del chequeo de propiedades sobrantes, y lo que aquí importa
       // es justamente que no entre una clave que nadie declaró. Las claves
       // ausentes se escriben `undefined`: JSON.stringify no las emite, así
       // que la salida es la misma y la forma queda atada.
-      const salida: SearchPrecedentsResult = {
+      const data: SearchPrecedentsResult = {
         count: rows.length,
         conflicts:
-          conflictos.length > 0
-            ? conflictos.map((c) => ({
+          groups.length > 0
+            ? groups.map((c) => ({
                 competing_for: c.key,
                 grouped_by: c.scope,
                 answers: c.answers,
               }))
-            : undefined,
-        conflict_note:
-          conflictos.length > 0
-            ? 'CONFLICT: these precedents give different answers for the same decision. Do NOT ' +
-              'pick one on your own and do NOT fall back on the most recent: say out loud that ' +
-              'the firm holds two contradicting criteria, use ask_user so a human decides which ' +
-              'one stands, and keep working on what does not depend on it. The human resolves ' +
-              'it with `mnemosine memory --conflicts`.'
             : undefined,
         precedents: rows.map((r) => ({
           question: r.question,
@@ -195,7 +203,13 @@ export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
           answered_at: r.answered_at,
         })),
       };
-      return JSON.stringify(salida);
+      // SECURITY: every field of `data` is stored text, and the conflict keys
+      // and answers are that same text grouped, so the whole block goes inside
+      // the envelope, which neutralises any marker the text carries. Only the
+      // system's own note stays outside. The census in src/plan/criteria/e5-1.ts
+      // (`agent-tools-fence-third-party-text`) turns red if a path skips this.
+      const frame = groups.length > 0 ? `${CONFLICT_NOTE}\n` : '';
+      return frame + envolverDatosDeTerceros(data);
     },
   });
 

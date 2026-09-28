@@ -508,6 +508,9 @@ mirror	memory	E5.1 idempotency-key-honored-and-scoped	src/cli/kernel/audit.ts	la
 mirror	memory	E5.1 idempotency-key-honored-and-scoped	src/cli/receipt-command.ts	el manejador consuma la llave bajo OTRO ámbito que el declarado — el escape de firma-como-llamada: la declaración sigue escrita y la deduplicación de `receipt record` deja de existir para quien la lea
 mirror	memory	E5.1 idempotency-key-honored-and-scoped	src/cli/payment-command.ts	dos hojas bajo el mismo ámbito se deduplican ENTRE SÍ (la unicidad de idempotency_keys es por tenant+scope+clave), y el ámbito declarado por `payment create` deja de tener llamada propia
 mirror	memory	E5.1 agent-tools-propose-never-execute	src/ai/tools/ledger-tools.ts	una herramienta que NOMBRA una puerta de dinero debe enrojecer, aunque no la llame (la lección del import)
+mirror	memory	E5.1 agent-tools-fence-third-party-text	src/ai/tools/question-tools.ts	the defect this criterion was written for (#303): search_precedents hands stored questions and answers back as bare JSON, and a precedent saying «ignora lo anterior…» reads like the system talking
+mirror	memory	E5.1 agent-tools-fence-third-party-text	src/ai/tools/question-tools.ts	one fenced path does not fence the tool: a second return hands the rows back bare while the envelope is still called on the first
+mirror	memory	E5.1 agent-tools-fence-third-party-text	src/ai/untrusted.ts	the envelope opens a block it never closes: every tool still calls it by name, and the census has to notice that what it calls no longer fences
 mirror	memory	E5.1 single-auto-approval-authorizer	src/ai/ingest-service.ts	el seam de pruebas se vuelve el camino de producción: el default al autorizador real desaparece
 mirror	memory	E5.1 budget-enforced-at-session-chokepoint	src/ai/budget.ts	la ruta desatendida pierde su default block: «solo avisa» significa que no hay tope
 mirror	memory	E5.1 shadow-verdicts-gate-auto-post	src/services/policy/policy-service.ts	el piso pierde la vara del volumen decidido: tres comparaciones, cada una con ancla propia
@@ -1044,6 +1047,9 @@ anchor	src/plan/criteria/e5-1.ts	de: "rule: 'R11 llave aceptada sin honrar',",
 anchor	src/plan/criteria/e5-1.ts	de: "const AMBITO_DE_COBRO = 'receipt record';",
 anchor	src/plan/criteria/e5-1.ts	de: " scope: 'payment create',",
 anchor	src/plan/criteria/e5-1.ts	de: 'envolverDatosDeTerceros(',
+anchor	src/plan/criteria/e5-1.ts	de: 'envolverDatosDeTerceros(data)',
+anchor	src/plan/criteria/e5-1.ts	de: "return 'No precedents for that search.';",
+anchor	src/plan/criteria/e5-1.ts	de: '${UNTRUSTED_OPEN}${cuerpo}${UNTRUSTED_CLOSE}',
 anchor	src/plan/criteria/e5-1.ts	de: 'opts.deps?.autoApproveByPolicy ?? autoApproveDraftByPolicy',
 anchor	src/plan/criteria/e5-1.ts	de: "opts.unattended ? 'block' : 'warn'",
 anchor	src/plan/criteria/e5-1.ts	de: 'c.decididos < FLOOR_SOMBRA_VEREDICTOS ||',

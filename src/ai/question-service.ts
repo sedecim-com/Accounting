@@ -134,8 +134,9 @@ export async function listQuestions(
 
 /**
  * Precedent search: answered questions marked as precedent, matched by text
- * against question/answer/context/topic. Newest first — the firm's most
- * recent criterion wins.
+ * against question/answer/context/topic. Newest first, as an order and never
+ * as a tie-break: two answers to one decision are a conflict a human resolves
+ * (groupConflicts in memory-service.ts, T17a #303).
  */
 export async function searchPrecedents(ctx: AgentContext, search: string): Promise<QuestionRow[]> {
   // Escape LIKE metacharacters: the term is model-controlled and a literal
