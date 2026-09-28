@@ -49,19 +49,19 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **241 comandos** repartidos en **69 familias** de primer nivel. De las **1635** filas del catálogo, **226** (13.8 %) ya se pueden invocar.
+El binario ejecuta hoy **242 comandos** repartidos en **69 familias** de primer nivel. De las **1636** filas del catálogo, **227** (13.9 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **277** filas lo declaran completo, **388** a medias y **970** inexistente.
+Del motor que cada comando necesita, **278** filas lo declaran completo, **388** a medias y **970** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **390** filas, de las que **200** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **201** ya se teclean.
 
-**El objetivo comprometible son 1392 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1393 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1635 filas son **1613 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1636 filas son **1614 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
-| `bank` | 122 | 32 |
+| `bank` | 123 | 33 |
 | `account` | 20 | 15 |
 | `entry` | 35 | 13 |
 | `customer` | 26 | 9 |
@@ -1200,6 +1200,7 @@ La tesorería es la columna vertebral fiscal del sistema: en México el IVA se c
 |---|---|---|---|---|---|---|
 | `mnemosine bank transaction list [<query>]` · `banco movimiento listar` | Lista movimientos con filtros de cuenta, rango, sentido, monto, texto (`desc:`, `amt:` en la consulta posicional), tipo y estado de cotejo | `--account`, `--since`, `--until`, `--unmatched`, `--direction`, `-n/--limit`, `--json` | ✅ **hecha en F05a/b**: `bank transaction list` con filtros de cuenta, rango, sentido, tipo y estado de cotejo, más la consulta posicional `desc:`/`amt:`. Acotado por entidad vía JOIN a `bank_accounts` — la tabla no tiene entity_id propio | lectura | ✓ | 1 |
 | `mnemosine bank transaction show <id>` · `banco movimiento ver` | Muestra la línea cruda y la normalizada con los campos extraídos: clave de rastreo, CLABE y RFC de la contraparte, número de cheque, fecha valor y fecha de operación | `--fields`, `--raw`, `--json` | ✅ **hecha en F05b** para la línea cruda y la normalizada que el parser extrae. **Sin clave de rastreo, CLABE/RFC de contraparte ni número de cheque**: no hay extractores de esos campos ni columnas donde vivirían, y `--raw` enseña el `raw_data` entero para que no se finja lo que no se extrae | lectura | ✓ | 1 |
+| `mnemosine bank transaction reclassify <id>` · `banco movimiento reclasificar` | Corrige qué clase de línea es un movimiento (comisión, interés, cargo, abono, ajuste), que es lo que leen `bank fee post` y `bank interest post`; se niega si el signo contradice el tipo, si el movimiento está cotejado o si una póliza de tesorería ya lo contabilizó | `--type <debit\|credit\|fee\|interest\|adjustment>`, `--reason`, `--dry-run`, `--json` | ✅ **hecha en MNE-001-040 (#95)**: `reclassifyTransaction` (src/services/banking/transactions.ts) con UPDATE guardado y renglón en `audit_log`. Al importar, `classifyBankLine` (src/services/banking/transaction-classifier.ts) ya nombra comisión e interés por código del banco (MT940, camt.053) o por descripción (CSV de BBVA, Banorte y Santander), con el signo como guarda; esta hoja corrige lo que el clasificador no reconoció | escritura | ✗ | 1 |
 | `mnemosine bank transaction edit <id>` · `banco movimiento editar` | Propone y guarda como borrador la cuenta contable y el tratamiento fiscal de un movimiento sin contraparte en libros, y escribe la nota libre de la línea; con `--employee` enruta un cargo personal de tarjeta a cuenta por cobrar al empleado en lugar de a gastos | `--account <code>`, `--employee`, `--tax`, `--note`, `--dry-run` | 🟡 src/ai/draft-service.ts:208 (`createDraft`) + :88 (`validateDraftPayload` exige forma de póliza balanceada) | escritura | ✓ | 2 |
 | `mnemosine bank transaction assign <id>` · `banco movimiento asignar` | Asigna responsable y fecha esperada de liquidación a un movimiento pendiente, para que envejezca con dueño | `-u/--user`, `--expected-date` | ❌ | escritura | ✓ | 2 |
 | `mnemosine bank transaction allocate <id>` · `banco movimiento prorratear` | Distribuye **una línea del banco** entre sus componentes económicos (capital, comisión, retención, spread cambiario del emisor) para que cada parte se coteje por separado; no toca libros | `--parts`, `--dry-run` | ❌ | escritura | ✗ | 2 |

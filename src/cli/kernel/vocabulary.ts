@@ -66,6 +66,12 @@ export const VERBS: Readonly<Record<string, string>> = Object.freeze({
   'prepare'    : 'preparar',
   'preview'    : 'previsualizar',
   'reconcile'  : 'conciliar',
+  // Deliberate amendment (2026-09-28, MNE-001-040 · #95): `bank transaction
+  // reclassify` changes what KIND of thing a record is, keeping its amount,
+  // date and identity. `correct` amends a record's content, `edit` its free
+  // fields, `set` a mapping; none says «this charge is a fee». The owner's
+  // /confirmar on #95 names the leaf.
+  'reclassify' : 'reclasificar',
   'record'     : 'registrar',
   'recover'    : 'recuperar',
   'reject'     : 'rechazar',

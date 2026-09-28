@@ -42,6 +42,7 @@ import {
   exigirTipoDeMovimiento,
   listarMovimientos,
   obtenerMovimiento,
+  reclassifyTransaction,
   type CriterioImporte,
   type Direccion,
   type FichaMovimiento,
@@ -1660,6 +1661,13 @@ Examples:
   # counterparty in the clear, so it is opt-in.
   mnemosine bank transaction show 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --raw
 `,
+  txReclassify: `
+Examples:
+  # A commission the importer did not recognize, so \`bank fee post\` sees it.
+  mnemosine bank transaction reclassify 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --type fee --reason "Monthly account fee"
+  # Check what would happen without writing.
+  mnemosine bank transaction reclassify 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --type debit --dry-run
+`,
   bookList: `
 Examples:
   # What the books say went through the bank and the bank has not shown yet,
@@ -3064,6 +3072,61 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         );
       }
     })
+  );
+
+  // ---- bank transaction reclassify ---------------------------------
+  // The importer classifies by bank code, description and sign, and it can be
+  // wrong. `transaction_type` is what `bank fee post` and `bank interest post`
+  // read, so without this leaf a misclassified commission could only be fixed
+  // with SQL (#95).
+  const txReclassify = transaction
+    .command('reclassify')
+    .alias('reclasificar')
+    .argument('<id>', 'transaction id')
+    .description(
+      'Correct what kind of line a bank transaction is (fee, interest, debit, credit, adjustment); ' +
+        'refused when the sign disagrees, the line is matched, or a treasury entry already posted it'
+    );
+  withContext(txReclassify);
+  txReclassify
+    .requiredOption(`--type <${TIPOS_DE_MOVIMIENTO.join('|')}>`, 'what the line really is')
+    .option('--reason <text>', 'justification recorded in the audit trail')
+    .option('--dry-run', 'run every check and write nothing')
+    .option('--json', 'JSON output');
+  // ✗: calling a charge a fee decides that `bank fee post` will book it as an
+  // expense with creditable VAT. That is a fiscal treatment, and a person
+  // chooses it.
+  declareRisk(txReclassify, {
+    risk: 'escritura',
+    agent: false,
+    writes: 'bank_transactions.transaction_type + audit_log',
+  });
+  txReclassify.addHelpText('after', EJEMPLOS.txReclassify);
+  txReclassify.action(
+    (id: string, opts: CommonOpts & { type: string; reason?: string; dryRun?: boolean }) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun, reason } = gateMutation(txReclassify, opts as unknown as Record<string, unknown>);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const r = await reclassifyTransaction(ctx.entityId, id, opts.type, {
+          userId: reviewer.userId,
+          reason: reason ?? null,
+          dryRun,
+        });
+        render(
+          [
+            {
+              id: r.id,
+              amount: r.amount,
+              previous_type: r.previousType,
+              type: r.type,
+              changed: r.changed,
+              dry_run: r.dryRun,
+            },
+          ],
+          { ...opts, idField: 'id', numeric: ['amount'] }
+        );
+      })
   );
 
   // ---- bank book-item list -----------------------------------------
