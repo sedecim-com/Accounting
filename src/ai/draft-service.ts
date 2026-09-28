@@ -616,6 +616,11 @@ async function unicoUsuarioActivo(tenantId: string): Promise<Reviewer> {
  *
  * `correction` es corregir-y-aprobar: lo que se postea es la versión del
  * HUMANO, no la del modelo. Ver DraftCorrection.
+ *
+ * `newVendor` is a person's yes to registering the CFDI issuer (#318, PR1b).
+ * Only the interactive `mnemosine review` passes it, after asking; the
+ * threshold auto-post, the REST route and the onboarding never do, and the
+ * policy path cannot reach this parameter at all.
  */
 export async function approveDraft(
   ctx: AgentContext,
@@ -623,9 +628,19 @@ export async function approveDraft(
   reviewer: Reviewer,
   notes?: string,
   expectedHash?: string,
-  correction?: DraftCorrection
+  correction?: DraftCorrection,
+  newVendor?: NewVendorConsent
 ): Promise<{ entryId: string; entryNumber: string }> {
-  return approveDraftInternal(ctx, draftId, reviewer, notes, expectedHash, reviewer.email, correction);
+  return approveDraftInternal(ctx, draftId, reviewer, notes, expectedHash, reviewer.email, correction, newVendor);
+}
+
+/**
+ * A reviewer's yes to «register vendor X (RFC Y)?», bound to the RFC they were
+ * shown. Honored only when `proveedor_desconocido_al_aprobar` is 'preguntar'
+ * and the RFC is the issuer of the CFDI read under the lock.
+ */
+export interface NewVendorConsent {
+  taxId: string;
 }
 
 /**
@@ -668,7 +683,8 @@ async function approveDraftInternal(
   notes: string | undefined,
   expectedHash: string | undefined,
   reviewedByAs: string,
-  correction?: DraftCorrection
+  correction?: DraftCorrection,
+  newVendor?: NewVendorConsent
 ): Promise<{ entryId: string; entryNumber: string }> {
   return withTransaction(async (client) => {
     const locked = await client.query<DraftSqlRow>(
@@ -754,6 +770,7 @@ async function approveDraftInternal(
           approvedDescription: approvedPayload.description,
           accountIdByCode: validation.accountIdByCode,
           userId: reviewer.userId,
+          newVendorTaxId: newVendor?.taxId,
         })
       : null;
 
