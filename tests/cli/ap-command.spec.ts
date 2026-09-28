@@ -44,7 +44,7 @@ const LEAVES = [
   'bill list', 'bill show', 'bill create', 'bill line set', 'bill approve',
   // F04: la bandeja de CFDI —por donde entra el mes— y el cuadre del subdiario
   // contra la cuenta de control, que es con lo que se cierra CxP.
-  'bill inbox list', 'bill inbox run',
+  'bill inbox list', 'bill inbox edit', 'bill inbox run',
   'ap reconcile',
 ];
 
@@ -117,6 +117,7 @@ describe('the bilingual surface', () => {
     'bill approve': 'aprobar',
     'bill inbox': 'bandeja',
     'bill inbox list': 'listar',
+    'bill inbox edit': 'editar',
     'bill inbox run': 'ejecutar',
     ap: 'cxp',
     'ap reconcile': 'conciliar',

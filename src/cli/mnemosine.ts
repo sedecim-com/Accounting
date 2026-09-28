@@ -2379,7 +2379,7 @@ ingest.action(async (files: string[], opts: {
       if (report.toCode > 0) {
         console.log(
           `${report.toCode} left to code: the model was not consulted. ` +
-            c.dim('See them with: mnemosine bill inbox list')
+            c.dim('See them with `mnemosine bill inbox list`, code them with `mnemosine bill inbox edit`')
         );
       }
       if (cnt.blocked > report.toCode) console.log(c.dim('Answer the questions with: mnemosine questions'));

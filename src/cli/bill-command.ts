@@ -9,6 +9,10 @@ import {
   PreRegistrationService,
   PROVEEDOR_NUEVO_SIN_AUTORIZAR,
 } from '../services/xml-ingestion/pre-registration-service.js';
+import {
+  codePreRegistration,
+  PRE_REGISTRATION_NOT_CODABLE,
+} from '../services/xml-ingestion/pre-registration-coding.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import {
   listBills,
@@ -358,6 +362,13 @@ Examples:
   mnemosine bill inbox list --status ready
   # Only what is held waiting for a prior approval, for one vendor.
   mnemosine bill inbox list --requires-approval --vendor "Papeleria del Centro"
+`,
+  inboxEdit: `
+Examples:
+  # Code line 1 of a CFDI the model never classified, then post it with \`bill inbox run\`.
+  mnemosine bill inbox edit 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 --line 1 --account 6130
+  # One account for every line that has none of its own.
+  mnemosine bill inbox edit 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 --account 6130
 `,
   inboxRun: `
 Examples:
@@ -935,6 +946,81 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
                   '  `bill inbox run` los rechaza salvo que lleve --allow-new-vendor; la otra salida\n' +
                   '  es darlos de alta a mano con `vendor create`.\n'
               )
+          );
+        }
+      })
+  );
+
+  // ---- bill inbox edit ---------------------------------------------
+  // ING-2 (#319): the way to code a CFDI the model never classified. It only
+  // writes the pre-registration; the ledger is reached by `bill inbox run`.
+  const inboxEdit = inbox
+    .command('edit')
+    .alias('editar')
+    .argument('<id>', 'one pre-registration, by id')
+    .description('Code a pre-registration by hand: the account (and cost center) of a line, or its default account');
+  withContext(inboxEdit);
+  inboxEdit
+    .option('--line <n>', 'line number to code; without it, --account is the default for every line with none')
+    .option('--account <code>', 'expense account, by code or id')
+    .option('--cost-center <id>', 'cost center id of the --line');
+  declareRisk(inboxEdit, { risk: 'escritura', agent: false, writes: 'pre_registrations.lines, default_account_id' });
+  inboxEdit.addHelpText('after', EJEMPLOS.inboxEdit);
+  inboxEdit.action(
+    (idArg: string, opts: CommonOpts & { line?: string; account?: string; costCenter?: string }) =>
+      run(async () => {
+        bootstrapTenant(opts.tenant);
+        const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+        if (!UUID_RE.test(idArg.trim())) {
+          throw usageError(`"${idArg}" is not a pre-registration id (uuid). Take it from \`bill inbox list\`.`);
+        }
+        let lineNumber: number | undefined;
+        if (opts.line !== undefined) {
+          lineNumber = Number(opts.line);
+          if (!Number.isInteger(lineNumber) || lineNumber < 1) {
+            throw usageError(`--line must be a line number; got "${opts.line}".`);
+          }
+        }
+        if (opts.costCenter !== undefined && lineNumber === undefined) {
+          throw usageError('--cost-center codes one line: pass --line <n> too.');
+        }
+        if (opts.costCenter !== undefined && !UUID_RE.test(opts.costCenter.trim())) {
+          throw usageError(`--cost-center must be a cost center id (uuid); got "${opts.costCenter}".`);
+        }
+        if (!opts.account && opts.costCenter === undefined) {
+          throw usageError('Nothing to code: pass --account, or --line with --account or --cost-center.');
+        }
+        const accountId = opts.account ? (await resolveAccount(ctx.entityId, opts.account)).id : undefined;
+
+        let coded: Record<string, unknown>;
+        try {
+          coded = await codePreRegistration(
+            ctx.entityId,
+            idArg.trim(),
+            lineNumber === undefined
+              ? { defaultAccountId: accountId }
+              : { line: { lineNumber, accountId, costCenterId: opts.costCenter?.trim() } }
+          );
+        } catch (err) {
+          if ((err as { code?: string }).code === PRE_REGISTRATION_NOT_CODABLE) {
+            throw blockedByState((err as Error).message);
+          }
+          throw err;
+        }
+
+        const lines = (coded.lines ?? []) as Array<{ account_id?: string; suggested_account_id?: string | null }>;
+        const uncoded = coded.default_account_id
+          ? 0
+          : lines.filter((l) => !l.account_id && !l.suggested_account_id).length;
+        process.stdout.write(
+          `${deps.palette.green('✔')} ${idArg.trim().slice(0, 8)} ` +
+            (lineNumber === undefined ? 'default account set' : `line ${lineNumber} coded`) +
+            deps.palette.dim(` · ${uncoded} line(s) still without an account`) +
+            '\n'
+        );
+        if (uncoded === 0) {
+          process.stderr.write(
+            deps.palette.dim(`  Post it with \`mnemosine bill inbox run ${idArg.trim()}\`.\n`)
           );
         }
       })
