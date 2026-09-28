@@ -1,5 +1,13 @@
 import type { ITaxCalculator, TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
+import Decimal from 'decimal.js';
 import { getBrackets, applyBrackets, paymentYear, periodsPerYear } from '../tax-engine/tax-tables.js';
+import { legalParameterAt } from '../../jurisdiction/legal-parameters.js';
+import { toCalendarDate } from '../../../utils/calendar-date.js';
+import {
+  EMPLOYMENT_SUBSIDY_ROUNDING_POLICY,
+  employmentSubsidyForPeriod,
+  subsidyDaysInPeriod,
+} from './employment-subsidy.js';
 
 // ============================================================
 // MX — ISR (Impuesto Sobre la Renta)
@@ -85,30 +93,32 @@ export class MexicoIsrCalculator implements ITaxCalculator {
 
 // ============================================================
 // MX — Subsidio al Empleo (credit against ISR)
-// Applies when monthly salary is below threshold (~$10,171 monthly 2026 est.)
+// A share of the monthly UMA for monthly income up to a cap, both read from
+// `legal_parameters` on the payment date (#298). See ./employment-subsidy.ts.
 // ============================================================
 
 /**
- * Cuántos periodos de éstos caben en un MES, para prorratear lo que se tabula
- * mensualmente.
+ * Cuántos periodos de éstos caben en un MES, para llevar el sueldo del
+ * periodo a la base MENSUAL con la que se compara el tope de ingresos del
+ * subsidio.
  *
- * SE DERIVA DE `periodsPerYear`, Y ESO ES DELIBERADO. La primera versión de
- * este arreglo prorrateaba por días entre 30.4 —el divisor con el que el
- * Anexo 8 construye las tarifas del periodo— y con eso la quincena pasaba de
- * la mitad de un mes (0.5) a 15/30.4 = 0.4934. Es un 1.3 % menos de subsidio,
- * y lo cazó F08a, que fija la conducta ya verificada del subsidio quincenal:
- * `expected '98.68' to be '100.00'`.
- *
- * Cuál de los dos manda para el SUBSIDIO no está resuelto —el decreto ordena
- * el 30.4 para el prorrateo diario, pero la quincena tabulada como media
- * mensualidad es la práctica que este repositorio ya tenía medida—, así que
- * este tramo NO lo decide: conserva la proporción que ya estaba verificada
- * (24 periodos al año ⇒ media mensualidad) y se limita a arreglar lo que sí
- * estaba roto, que era tratar una SEMANA como si fuera un MES.
+ * SE DERIVA DE `periodsPerYear`, Y ESO ES DELIBERADO. El IMPORTE del subsidio
+ * ya no pasa por aquí: el decreto lo prorratea por días entre 30.4, y eso vive
+ * en `employmentSubsidyForPeriod` (#298). Lo que queda es la base de la
+ * elegibilidad, que este repositorio ya tenía medida como 24 quincenas al año
+ * ⇒ media mensualidad; si el tope se compara contra el sueldo × 30.4 / días
+ * del periodo es una pregunta que #298 no decidió, y este tramo no la cambia.
  */
 export function periodosPorMes(freq: PayFrequency): number {
   return periodsPerYear(freq) / 12;
 }
+
+/** The three `legal_parameters` keys the 2026 subsidy is computed from. */
+export const EMPLOYMENT_SUBSIDY_LAW = {
+  umaMonthly: 'uma.monthly',
+  rate: 'employment_subsidy.uma_monthly_rate',
+  incomeCap: 'employment_subsidy.monthly_income_cap',
+} as const;
 
 export class MexicoSubsidioEmpleoCalculator implements ITaxCalculator {
   jurisdiction = 'MX';
@@ -116,49 +126,53 @@ export class MexicoSubsidioEmpleoCalculator implements ITaxCalculator {
 
   async calculate(input: TaxInput): Promise<TaxOutput> {
     const { taxable_wages, pay_frequency } = input;
-    // The subsidy table of the year the wage is PAID (#242).
-    const tax_year = paymentYear(input);
 
-    // EL PRORRATEO, Y POR QUÉ 30.4.
-    //
-    // El subsidio se tabula por MES. Antes, la base del periodo se tomaba como
-    // si fuera mensual salvo en quincenal —o sea, un sueldo SEMANAL de 3 000
-    // se leía como un sueldo mensual de 3 000— y luego se entregaba el
-    // subsidio mensual ÍNTEGRO cada semana. Las dos mitades del error empujan
-    // en la misma dirección: base baja (tramo con más subsidio) por subsidio
-    // sin dividir. Medido: 3 000 semanales retenían 0.00.
-    //
-    // La regla de conversión es la del propio Decreto del subsidio para el
-    // empleo, que manda dividir entre 30.4 y multiplicar por los días del
-    // periodo. Es el mismo divisor con el que el Anexo 8 construye las
-    // tarifas diaria y de 7, 10 y 15 días desde la mensual.
-    const porMes = periodosPorMes(pay_frequency);
-    const monthlyBase = taxable_wages * porMes;
+    // THE LAW OF THE PAYMENT DATE (#242), and the date is required: the UMA
+    // changes on February 1st, so a year is not enough to know which one
+    // applies, and a default of «today» would recompute January with March.
+    if (!input.pay_date) {
+      throw new Error(
+        'El subsidio al empleo se calcula con la ley vigente en la fecha de pago, y esta entrada ' +
+          'no trae fecha de pago: la UMA cambia el 1 de febrero y el año no basta para saber cuál rige.'
+      );
+    }
+    const rounding = input.employment_subsidy_rounding;
+    if (!rounding) {
+      throw new Error(
+        `El subsidio al empleo necesita la política ${EMPLOYMENT_SUBSIDY_ROUNDING_POLICY}: el decreto no ` +
+          'dice cómo redondear, así que lo decide el despacho y no esta calculadora. Léela con ' +
+          'readEmploymentSubsidyRounding y pásala en la entrada.'
+      );
+    }
+    const days = subsidyDaysInPeriod(pay_frequency);
+    const onDate = toCalendarDate(input.pay_date);
 
-    const brackets = await getBrackets('MX', 'subsidio_empleo', tax_year, null, 'monthly');
-    if (brackets.length === 0) {
-      return { jurisdiction: 'MX', tax_type: this.taxType, tax_amount: 0, taxable_wages_used: 0 };
+    const none: TaxOutput = {
+      jurisdiction: 'MX', tax_type: this.taxType, tax_amount: 0,
+      taxable_wages_used: taxable_wages, is_credit: true,
+    };
+    if (taxable_wages <= 0) return none;
+
+    const cap = await legalParameterAt('MX', EMPLOYMENT_SUBSIDY_LAW.incomeCap, onDate);
+    const monthlyBase = new Decimal(taxable_wages).times(periodosPorMes(pay_frequency));
+    if (monthlyBase.greaterThan(cap.value)) {
+      return { ...none, notes: `Subsidio al empleo: ingreso mensual ${monthlyBase.toFixed(2)} sobre el tope ${cap.value}` };
     }
 
-    let monthlySubsidy = 0;
-    for (const b of brackets) {
-      const upper = b.bracket_high ?? Infinity;
-      if (monthlyBase >= b.bracket_low && monthlyBase <= upper) {
-        monthlySubsidy = b.base_tax;
-        break;
-      }
-    }
-
-    // Y de vuelta al periodo, por la misma proporción.
-    const subsidy = monthlySubsidy / porMes;
+    const uma = await legalParameterAt('MX', EMPLOYMENT_SUBSIDY_LAW.umaMonthly, onDate);
+    const rate = await legalParameterAt('MX', EMPLOYMENT_SUBSIDY_LAW.rate, onDate);
+    const { monthly, period } = employmentSubsidyForPeriod({
+      umaMonthly: uma.value, rate: rate.value, days, rounding,
+    });
 
     return {
-      jurisdiction: 'MX',
-      tax_type: this.taxType,
-      tax_amount: Math.round(subsidy * 100) / 100,
-      taxable_wages_used: taxable_wages,
-      is_credit: true,
-      notes: 'Subsidio al empleo (credit against ISR)',
+      ...none,
+      tax_amount: period.toNumber(),
+      notes:
+        `Subsidio al empleo (credit against ISR): ${new Decimal(rate.value).toString()} × UMA mensual ` +
+        `${new Decimal(uma.value).toFixed(2)} = ${monthly.toFixed(2)} al mes` +
+        (days === null ? '' : `, × ${days} / 30.4`) +
+        ` [${rounding}]`,
     };
   }
 }
