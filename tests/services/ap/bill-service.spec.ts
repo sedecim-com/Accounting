@@ -245,6 +245,26 @@ describe('computeBill', () => {
   it('refuses a bill with no lines', () => {
     expect(() => computeBill([])).toThrow(ValidationError);
   });
+
+  // MNE-001-027 · #284: the DIOT reads the rate and the value of the acts per
+  // line, and a manual bill left both NULL.
+  it('gives every line the rate its amounts declare and its base as the value of the acts', () => {
+    const c = computeBill([
+      { account_id: 'a1', unit_price: '1000', tax_amount: '160' },
+      { account_id: 'a1', unit_price: '33.33', tax_amount: '5.33' },
+      { account_id: 'a1', unit_price: '500', tax_amount: '40' },
+      { account_id: 'a1', unit_price: '250' },
+      { account_id: 'a1', unit_price: '100', tax_amount: '10' },
+    ]);
+    expect(c.lines.map((l) => l.tax_rate)).toEqual(['16.00', '16.00', '8.00', '0.00', '10.00']);
+    expect(c.lines.every((l) => l.factor_type === 'tasa')).toBe(true);
+    expect(c.lines[1].acts_value).toBe('33.3300');
+  });
+
+  it('a line with tax and no amount has no rate to declare', () => {
+    const c = computeBill([{ account_id: 'a1', unit_price: '0', tax_amount: '5' }]);
+    expect(c.lines[0].tax_rate).toBeNull();
+  });
 });
 
 // ============================================================
@@ -265,6 +285,13 @@ describe('createBill', () => {
     expect(committed).toBe(true);
     expect(sql(0)).toMatch(/INSERT INTO bills/);
     expect(sql(1)).toMatch(/INSERT INTO bill_lines/);
+  });
+
+  it('writes the rate, the factor type and the value of the acts of each line', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ id: 'new' }] });
+    await createBill(input);
+    expect(sql(1)).toMatch(/tax_rate, tipo_factor, valor_actos/);
+    expect(params(1).slice(-3)).toEqual(['16.00', 'tasa', '3000.0000']);
   });
 
   it('opens the bill as a draft, with amount_due equal to the total', async () => {

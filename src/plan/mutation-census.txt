@@ -190,6 +190,10 @@ mirror	memory	E1.2 import-batch-respects-state-flow	src/services/accounting/batc
 mirror	memory	E1.2 import-batch-respects-state-flow	src/cli/mnemosine.ts	tercera repetición del defecto de la casa: la familia pasa sus 72 pruebas sobre un programa que sólo construye el spec, y el staging de F01 vuelve a no tener salida
 mirror	memory	E1.2 dirty-value-fails-one-row	src/services/fiscal/inpc/factor.ts	el factor de actualización vuelve a cruzar bases distintas del INPC: sale un número creíble, se usa para deducir inversiones actualizadas y nadie lo nota hasta una revisión
 mirror	memory	E1.2 dirty-value-fails-one-row	src/services/sat/anexo24/polizas-service.ts	el saneador pierde la póliza y el campo que está limpiando: el aviso deja de decir DÓNDE estaba el dato sucio, y un archivo de cientos de pólizas vuelve a denunciar sin señalar
+mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-registration-service.ts	the inbox and the draft approval stop writing the three columns of 066: every line is born "tasa" with a NULL rate, the DIOT exempt box can never be populated and DIOT-BASE-EXENTA-DESCONOCIDA can never fire
+mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/ap/bill-service.ts	a manual bill stores a NULL rate again, and the DIOT falls back to measuring what its author declared
+mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-registration-service.ts	the first transfer is taken as the VAT again: an IEPS transfer ahead of the IVA one lands in bill_lines.tax_amount
+mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-registration-service.ts	the approval from the entry takes the debit as the value of the acts again: an exempt CFDI without Base is declared instead of raising DIOT-BASE-EXENTA-DESCONOCIDA
 mirror	memory	E1.2 sat-grouping-code-single-column	src/services/accounting/account-service.ts	devuelve el agrupador fiscal a la columna de presentación contable: el código NIF y el del SAT vuelven a pisarse, y el catálogo del Anexo 24 se construye sobre la casilla equivocada
 mirror	memory	E1.2 sat-grouping-code-single-column	src/api/rest/routes/reports.ts	la API vuelve a tirar la procedencia del saldo inicial, si es firme y los descuadres: el consumidor recibe una balanza que parece correcta sobre cuentas que no cuadran
 mirror	memory	E1.2 prepaid-schedule-backed-by-ledger	src/services/accruals/prepaid-service.ts	un renglón dejaría de exigir respaldo en el mayor: la ficha afirmaría gasto devengado que una reversa ya deshizo, y el saldo revertido se ofrecería otra vez como libre
@@ -757,6 +761,10 @@ anchor	src/plan/criteria/e1-2.ts	de: ' if (permitidos.includes(lote.status)) ret
 anchor	src/plan/criteria/e1-2.ts	de: 'registerBatchCommand(program, { palette: c, shutdown, reportError });',
 anchor	src/plan/criteria/e1-2.ts	de: ' if (baseAntiguo !== baseReciente) {',
 anchor	src/plan/criteria/e1-2.ts	de: 'type Saneador = (crudo: string, numUnIdenPol: string, campo: string) => string;',
+anchor	src/plan/criteria/e1-2.ts	de: ' tax_rate, tipo_factor, valor_actos',
+anchor	src/plan/criteria/e1-2.ts	de: ' tax_rate, tipo_factor, valor_actos)',
+anchor	src/plan/criteria/e1-2.ts	de: " const vat = (transfers ?? []).filter((t) => satKey(t.impuesto) === '002');",
+anchor	src/plan/criteria/e1-2.ts	de: ' acts_value: bases[i],',
 anchor	src/plan/criteria/e1-2.ts	de: " 'sat-agrupador': 'codigo_agrupador_sat',",
 anchor	src/plan/criteria/e1-2.ts	de: ' ...(report.inicial ? { opening_balance: report.inicial } : {}),',
 anchor	src/plan/criteria/e1-2.ts	de: 'export const RENGLON_VIGENTE = `s.is_posted = true AND EXISTS (',
@@ -788,7 +796,7 @@ anchor	src/plan/criteria/e1-2.ts	de: "sourceType: 'vendor_application'",
 anchor	src/plan/criteria/e1-2.ts	de: " USING ERRCODE = 'FX001';",
 anchor	src/plan/criteria/e1-2.ts	de: "isDeclared(i['@_TasaOCuota']) ? parseFloat",
 anchor	src/plan/criteria/e1-2.ts	de: "if (clave(t.impuesto) !== '002' || t.tipoFactor !== 'Tasa') continue;",
-anchor	src/plan/criteria/e1-2.ts	de: 'else if (rate === 0) iva0 = iva0.plus(t.base);',
+anchor	src/plan/criteria/e1-2.ts	de: 'else if (rate === 0) iva0 = iva0.plus(t.base ?? 0);',
 anchor	src/plan/criteria/e1-2.ts	de: "if (t.tipoFactor === 'Exento') {",
 anchor	src/plan/criteria/e1-3.ts	de: 'if (autorizado) {',
 anchor	src/plan/criteria/e1-3.ts	de: 'const tope = maxPolitica ?? Infinity;',
