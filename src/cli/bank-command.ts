@@ -1743,6 +1743,9 @@ Examples:
   # Assert the closing balance you were given: it is COMPARED against the
   # statement, never substituted for it.
   mnemosine bank reconciliation open "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --closing-balance 1284730.18
+  # The account's FIRST session, from the migrated opening: only July is left to
+  # explain. Refused, with the difference, if the books at June 30 disagree.
+  mnemosine bank reconciliation open "BBVA Operativa MXN" --period 2026-07 --baseline 260000.00 --dry-run
 `,
   reconList: `
 Examples:
@@ -2643,6 +2646,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               read: r.lineasLeidas,
               imported: r.importadas,
               duplicated: r.duplicadas,
+              skipped: r.skipped,
+              overlaps: r.overlaps,
+              overlap_policy: r.overlapPolicy,
               findings: r.hallazgos.length,
               dry_run: r.ensayo,
             })),
@@ -2830,7 +2836,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           format: 'table',
           idField: 'id',
           numeric: ['importe'],
-          fields: 'fecha,fechaValor,tipo,importe,descripcion,referencia,cotejada',
+          fields: 'fecha,fechaValor,tipo,importe,descripcion,referencia,cotejada,overlap',
         });
         if (d.lineasOmitidas > 0) {
           process.stderr.write(
@@ -4146,6 +4152,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'closing balance you assert; it is COMPARED against the statement, never substituted for it'
     )
     .option('--statement <id>', 'the statement to tie the session to, when the period has more than one')
+    .option(
+      '--baseline <amount>',
+      "first session only: the reconciled balance the account starts from; refused unless it equals the books at --baseline-date"
+    )
+    .option('--baseline-date <date>', 'date of --baseline (YYYY-MM-DD); by default the day before the period')
     .option('--dry-run', 'do the whole thing and roll it back')
     .option('--json', 'JSON output');
   // ESCRITURA + IA ✓, y `declareRisk` sólo lo admite con `draftOnly`. Aquí es
@@ -4173,9 +4184,14 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       opts: CommonOpts & {
         period?: string; since?: string; until?: string; closingBalance?: string;
         statement?: string; note?: string; dryRun?: boolean;
+        baseline?: string; baselineDate?: string;
       }
     ) =>
       run(async () => {
+        // A date with no balance declares nothing to check against the books.
+        if (opts.baselineDate !== undefined && opts.baseline === undefined) {
+          throw usageError(t('bank.reconciliation.open.baseline_date_without_baseline'));
+        }
         const ctx = await entityForWrite(opts);
         const { dryRun } = gateMutation(reconOpen, opts as unknown as Record<string, unknown>);
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -4192,6 +4208,13 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               : undefined,
             statementId: opts.statement ? uuidDeBandera('--statement', opts.statement) : undefined,
             notas: opts.note,
+            baseline:
+              opts.baseline === undefined
+                ? undefined
+                : {
+                    balance: exigirImporte('--baseline', opts.baseline),
+                    date: opts.baselineDate ? exigirFecha('--baseline-date', opts.baselineDate) : undefined,
+                  },
           },
           { userId: reviewer.userId, dryRun }
         );
@@ -4216,6 +4239,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
                 closing_as_published: r.saldoFinalDeclaradoPorElBanco,
                 previous_session: r.sesionAnterior?.id ?? '',
                 previous_closing: r.sesionAnterior?.saldoFinal ?? '',
+                baseline_date: r.baseline?.date ?? '',
+                baseline_balance: r.baseline?.balance ?? '',
                 warnings: r.avisos,
                 dry_run: r.ensayo,
                 id: r.sesionId,
@@ -4237,6 +4262,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
                   (r.sesionAnterior
                     ? ` · ${t('bank.reconciliation.open.continues', {
                         session: r.sesionAnterior.id,
+                      })}`
+                    : '') +
+                  (r.baseline
+                    ? ` · ${t('bank.reconciliation.open.baseline', {
+                        balance: r.baseline.balance,
+                        date: r.baseline.date,
                       })}`
                     : '')
               )}\n`
