@@ -3,7 +3,14 @@ import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
 import { FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_VEREDICTOS } from '../../ai/floor.js';
-import { POLICY_CATALOG, getPolicySpec, type PolicyOption, type PolicySpec } from './pending-catalog.js';
+import {
+  POLICY_CATALOG,
+  TIME_ZONE_POLICY_KEY,
+  getPolicySpec,
+  type PolicyOption,
+  type PolicySpec,
+} from './pending-catalog.js';
+import { assertTimeZone } from '../../utils/calendar-date.js';
 import type { JurisdictionCode } from '../jurisdiction/jurisdiction.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
 import Decimal from 'decimal.js';
@@ -530,6 +537,9 @@ export async function resolvePolicy(
   // detiene la errata en el teclado; la de `getPolicy` es la que cubre lo que
   // ya está escrito.
   validarDominio(spec, value);
+  // The zone is refused here too (#242), so a misspelt one never gets filed
+  // as the firm's answer; `todayFor` refuses it again on read.
+  if (key === TIME_ZONE_POLICY_KEY) assertTimeZone(value);
 
   // A4 · LA COMPUERTA DE LA EVIDENCIA: encender el auto-posteo exige el
   // historial de sombra que el piso manda (días, acuerdo y veredictos
