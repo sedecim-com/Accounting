@@ -68,7 +68,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   'src/services/fiscal-credentials': 'Custodia de e.firma y CSD y su consentimiento (ruta con dueño reforzado).',
   'src/services/fx': 'Tipos de cambio y conversión.',
   'src/services/idempotency': 'Almacén de llaves de idempotencia.',
-  'src/services/integrations': 'Adaptadores externos: PAC de timbrado, Contalink, almacenamiento.',
+  'src/services/integrations': 'Adaptadores externos: PAC de timbrado, Contalink y pasarelas de pago; sin almacenamiento desde #370.',
   'src/services/jurisdiction': 'La jurisdicción como dimensión y los parámetros legales con vigencia.',
   'src/services/payments': 'Cobros y pagos: aplicación, anticipos y descuentos.',
   'src/services/payroll': 'Nómina México y Estados Unidos: cálculo, corridas, asiento, SUA y formularios.',

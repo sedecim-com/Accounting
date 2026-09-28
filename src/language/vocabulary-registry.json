@@ -4305,11 +4305,11 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/integrations/mexico/pac/edicom-adapter.ts:54, finkok-adapter.ts:73 y :121, sw-sapien-adapter.ts:65; src/services/integrations/payments/conekta-adapter.ts:59 y stripe-adapter.ts:66 y :105; src/services/integrations/storage/s3-adapter.ts:67, :85, :98 y :104",
+      "where": "src/services/integrations/mexico/pac/edicom-adapter.ts:54, finkok-adapter.ts:73 y :121, sw-sapien-adapter.ts:65; src/services/integrations/payments/conekta-adapter.ts:59 y stripe-adapter.ts:66 y :105",
       "es": "NOT_CONFIGURED",
       "en": null,
       "keptBecause": "identical-in-both",
-      "why": "Ya es el término inglés; lo comparten los adaptadores de integración de las tres familias (PAC, pagos, almacenamiento) como «no hay credenciales para este inquilino». Se enumeran los once sitios porque el registro se lee como el mapa completo: es el código más repartido del lote y el más fácil de dejar a medias."
+      "why": "Ya es el término inglés; lo comparten los adaptadores de integración de las dos familias que quedan (PAC y pagos; el stub de almacenamiento S3 se retiró en #370) como «no hay credenciales para este inquilino». Se enumeran los siete sitios porque el registro se lee como el mapa completo: es el código más repartido del lote y el más fácil de dejar a medias."
     },
     {
       "class": "error-code",
@@ -4389,7 +4389,7 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/integrations/payments/conekta-adapter.ts:26 y stripe-adapter.ts:27; src/services/integrations/storage/s3-adapter.ts:28; src/services/integrations/mexico/pac/finkok-adapter.ts:32, edicom-adapter.ts:31, sw-sapien-adapter.ts:31 y sovos-reachcore-adapter.ts:137, :143 y :149",
+      "where": "src/services/integrations/payments/conekta-adapter.ts:26 y stripe-adapter.ts:27; src/services/integrations/mexico/pac/finkok-adapter.ts:32, edicom-adapter.ts:31, sw-sapien-adapter.ts:31 y sovos-reachcore-adapter.ts:137, :143 y :149",
       "es": "INVALID_CONFIG",
       "en": null,
       "keptBecause": "identical-in-both",

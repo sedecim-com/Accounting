@@ -119,11 +119,12 @@ export const config = {
     key: process.env.ENCRYPTION_KEY || DEV_ENCRYPTION_KEY,
   },
 
+  // No S3_BUCKET: nothing ever wrote to that bucket. The S3 adapter that would
+  // have was a stub, retired in #370.
   aws: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
     region: process.env.AWS_REGION || 'us-east-1',
-    s3Bucket: process.env.S3_BUCKET || 'accounting-core-documents',
   },
 
   elasticsearch: {
