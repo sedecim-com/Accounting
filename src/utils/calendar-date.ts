@@ -85,3 +85,43 @@ export function daysBetween(from: Date | string, to: Date | string): number {
   const [ty, tm, td] = toCalendarDate(to).split('-').map(Number);
   return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
 }
+
+/**
+ * TODAY'S CALENDAR DATE IN A TIME ZONE (#242).
+ *
+ * `new Date().toISOString().slice(0, 10)` is the UTC day: in Mexico City from
+ * 18:00 to midnight it is already tomorrow, and in Tokyo from midnight to 09:00
+ * it is still yesterday. The process's local fields are no better — the
+ * server runs in UTC — and neither is a bare `CURRENT_DATE`, which is the
+ * database session's day. The day a document is dated is the day in the zone
+ * its books live in, and that zone is the `zona_horaria` policy: callers reach
+ * this through `todayFor` (src/services/policy/today.ts), not directly.
+ *
+ * The zone is checked against `Intl.supportedValuesOf('timeZone')` first. A
+ * misspelt zone must be refused, not quietly read as some other clock.
+ */
+export function calendarDateIn(timeZone: string, now: Date = new Date()): string {
+  assertTimeZone(timeZone);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const field = (type: 'year' | 'month' | 'day') => Number(parts.find((p) => p.type === type)?.value);
+  return formatParts(field('year'), field('month'), field('day'));
+}
+
+let knownZones: Set<string> | undefined;
+
+/** Refuses a zone the runtime does not list (#242): the value is typed by a person. */
+export function assertTimeZone(timeZone: string): void {
+  knownZones ??= new Set(Intl.supportedValuesOf('timeZone'));
+  if (!knownZones.has(timeZone)) {
+    throw new ValidationError(
+      `"${timeZone}" is not a time zone this system knows. Use an IANA name such as ` +
+        'America/Mexico_City, America/Tijuana, America/Cancun or America/Hermosillo.',
+      'zona_horaria'
+    );
+  }
+}

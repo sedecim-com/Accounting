@@ -3970,7 +3970,8 @@ Options:
   --customer <ref>         customer, when there is no linked invoice
   --relates-to <uuid>      UUID of the original CFDI, when the invoice is not in
                            the system
-  --date <date>            credit date (YYYY-MM-DD); defaults to today
+  --date <date>            credit date (YYYY-MM-DD); defaults to today in the
+                           zona_horaria policy zone
   --memo <text>            memo
   --json                   JSON output
   -h, --help               display help for command

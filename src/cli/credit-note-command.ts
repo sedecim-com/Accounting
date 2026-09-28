@@ -204,7 +204,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
     .option('--invoice <ref>', 'the invoice this note credits (recommended: it drives the IVA side)')
     .option('--customer <ref>', 'customer, when there is no linked invoice')
     .option('--relates-to <uuid>', 'UUID of the original CFDI, when the invoice is not in the system')
-    .option('--date <date>', 'credit date (YYYY-MM-DD); defaults to today')
+    .option('--date <date>', 'credit date (YYYY-MM-DD); defaults to today in the zona_horaria policy zone')
     .option('--memo <text>', 'memo')
     .option('--json', 'JSON output');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'credit_notes (draft)' });

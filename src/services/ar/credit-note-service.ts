@@ -9,6 +9,7 @@ import { NotFoundError, ValidationError } from '../../utils/errors.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import type { JournalEntry } from '../../types/index.js';
 import { CREDIT_NOTE_TYPES } from '../../database/enums.js';
+import { todayFor } from '../policy/today.js';
 
 // ============================================================
 // NOTAS DE CRÉDITO (049 · F03)
@@ -146,10 +147,14 @@ export async function createCreditNote(
     if (cliente.rows.length === 0) throw new NotFoundError('Customer', customerId);
     currency = currency ?? cliente.rows[0].currency_code;
 
-    const fecha = input.credit_date ?? new Date().toISOString().slice(0, 10);
+    // #242: without --date the note is dated on the entity's day, in the zone
+    // of `zona_horaria` — not the UTC day, which at 20:00 in Mexico City is
+    // already tomorrow and would carry the next folio series and period.
+    const tenantId = await tenantDe(client, input.entity_id);
+    const fecha =
+      input.credit_date ?? (await todayFor({ tenantId, entityId: input.entity_id }, { client }));
     const folio = await nextEntityNumber(client, input.entity_id, 'credit_note', 'CN', fecha);
     const id = uuidv4();
-    const tenantId = await tenantDe(client, input.entity_id);
 
     await client.query(
       `INSERT INTO credit_notes (
