@@ -1674,7 +1674,8 @@ export const E0_0: Criterio[] = [
       // 536 → 540: the three mirrors of `bill-lines-carry-vat-columns`
       // (MNE-001-027 · #284), measured on the tree at 540; the fourth unit is a
       // mirror that landed on `main` without raising this floor.
-      const MIRRORS_FLOOR = 540;
+      // 540 → 541: the WIT-01 mirror (#418) of `bill-lines-carry-vat-columns`.
+      const MIRRORS_FLOOR = 541;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -1714,7 +1715,8 @@ export const E0_0: Criterio[] = [
       // 506 → 509: the three `de:` anchors #296 adds in `criteria/e4-1.ts`.
       // 509 → 512: the three `de:` anchors of `bill-lines-carry-vat-columns`
       // in `criteria/e1-2.ts` (MNE-001-027 · #284), same `grep -cE` over the union.
-      const ANCHORS_HERE = 512;
+      // 512 → 513: its `de:` anchor, in `criteria/e1-2.ts`.
+      const ANCHORS_HERE = 513;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(

@@ -1770,6 +1770,15 @@ export const E1_2: Criterio[] = [
         a: '  const vat = (transfers ?? []).slice(0, 1);',
         porque: 'the first transfer is taken as the VAT again: an IEPS transfer ahead of the IVA one lands in bill_lines.tax_amount',
       },
+      {
+        // WIT-01 on #418: under `poliza` the regime matched and the debit was
+        // stored as the base, so an exempt CFDI that omitted its Base was
+        // declared with the debit instead of blocking.
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: '        acts_value: bases[i],',
+        a: '        acts_value: regime ? l.dr.toFixed(4) : null,',
+        porque: 'the approval from the entry takes the debit as the value of the acts again: an exempt CFDI without Base is declared instead of raising DIOT-BASE-EXENTA-DESCONOCIDA',
+      },
     ],
     evaluar: () => {
       const columns = /tax_rate, tipo_factor, valor_actos/;
@@ -1781,6 +1790,9 @@ export const E1_2: Criterio[] = [
       }
       if (!columns.test(insertOf(manual))) {
         return falla('the INSERT of `bill create` no longer names tax_rate, tipo_factor and valor_actos: a manual bill is born with a NULL rate');
+      }
+      if (!/acts_value: bases\[i\]/.test(inbox) || /acts_value:[^,\n]*\bl\.dr\b/.test(inbox)) {
+        return falla('the approval from the entry no longer spreads only the declared Bases: a debit can stand in for a base the CFDI never declared');
       }
       return /\.filter\(\(t\) => satKey\(t\.impuesto\) === '002'\)/.test(inbox)
         ? ok('the three bill_lines writers store factor type, rate and value of the acts, and tax_amount is only the IVA transfer')

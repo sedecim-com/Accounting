@@ -1504,15 +1504,44 @@ export function vatColumnsOf(transfers: CFDIImpuesto[] | undefined): BillLineVat
  * read. When all the concepts share one factor type and rate that regime is
  * every line's; when they mix, no line can claim one and the columns keep their
  * defaults.
+ *
+ * `base` is the sum of the Bases the concepts DECLARED, and null as soon as one
+ * concept omitted its Base (WIT-01 on #418): a matching regime is no licence to
+ * take the entry's debit as the value of the acts. A base nobody declared stays
+ * unknown, and `diot_iva_exento_y_base` decides what the DIOT does about it.
  */
 export function uniformVatColumns(
   concepts: Array<Pick<LineWithSuggestion, 'impuestos'>>
-): Pick<BillLineVat, 'factor_type' | 'tax_rate'> | null {
+): (Pick<BillLineVat, 'factor_type' | 'tax_rate'> & { base: string | null }) | null {
   const regimes = concepts.map((c) => vatColumnsOf(c.impuestos?.traslados));
   const [first] = regimes;
   if (!first || (first.factor_type === 'tasa' && first.tax_rate === null)) return null;
   const same = regimes.every((r) => r.factor_type === first.factor_type && r.tax_rate === first.tax_rate);
-  return same ? { factor_type: first.factor_type, tax_rate: first.tax_rate } : null;
+  if (!same) return null;
+  const declared = regimes.every((r) => r.acts_value !== null);
+  const base = declared
+    ? regimes.reduce((s, r) => s.plus(r.acts_value as string), new Decimal(0)).toFixed(4)
+    : null;
+  return { factor_type: first.factor_type, tax_rate: first.tax_rate, base };
+}
+
+/**
+ * Splits a declared base across the lines of an approved entry in proportion
+ * to their debits, the last line taking the rounding so the parts add up to the
+ * declared base exactly. An unknown base stays unknown on every line.
+ */
+export function spreadDeclaredBase(base: string | null, debits: Decimal[]): Array<string | null> {
+  if (base === null) return debits.map(() => null);
+  const total = new Decimal(base);
+  const weight = debits.reduce((s, d) => s.plus(d), new Decimal(0));
+  let given = new Decimal(0);
+  return debits.map((d, i) => {
+    const share = i === debits.length - 1 || weight.isZero()
+      ? total.minus(given)
+      : total.times(d).dividedBy(weight).toDecimalPlaces(4);
+    given = given.plus(share);
+    return share.toFixed(4);
+  });
 }
 
 /**
@@ -1662,6 +1691,7 @@ export async function registrarFacturaDeBorradorAprobado(
 
   const concepts = Array.isArray(preReg.lines) ? (preReg.lines as LineWithSuggestion[]) : [];
   const regime = uniformVatColumns(concepts);
+  const bases = spreadDeclaredBase(regime?.base ?? null, expenses.map((l) => l.dr));
   const rows = linesFrom === 'poliza'
     ? expenses.map((l, i): BillLineRow => ({
         line_number: i + 1,
@@ -1672,11 +1702,11 @@ export async function registrarFacturaDeBorradorAprobado(
         line_amount: l.dr.toFixed(2),
         tax_amount: 0,
         total_amount: l.dr.toFixed(2),
-        // The debit was reconciled against subtotal minus discount above, so
-        // under one regime it is this line's share of that regime's base.
+        // Only the Bases the CFDI declared are spread across the debits; the
+        // debit itself is never taken as the base (WIT-01 on #418).
         factor_type: regime?.factor_type ?? 'tasa',
         tax_rate: regime?.tax_rate ?? null,
-        acts_value: regime ? l.dr.toFixed(4) : null,
+        acts_value: bases[i],
       }))
     : linesPerConcept(uuid, preReg.lines as LineWithSuggestion[], expenses);
 

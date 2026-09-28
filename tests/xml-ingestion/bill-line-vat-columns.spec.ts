@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../../src/database/connection.js', () => ({ query: vi.fn(), getClient: vi.fn() }));
 
-import { vatColumnsOf, uniformVatColumns } from '../../src/services/xml-ingestion/pre-registration-service.js';
+import Decimal from 'decimal.js';
+import { vatColumnsOf, uniformVatColumns, spreadDeclaredBase } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { CFDIParser } from '../../src/services/xml-ingestion/cfdi-parser.js';
 import type { CFDIImpuesto } from '../../src/services/xml-ingestion/cfdi-parser.js';
 
@@ -61,7 +62,15 @@ describe('vatColumnsOf', () => {
 describe('uniformVatColumns', () => {
   it('one regime for every concept is the regime of every line', () => {
     const exempt = { impuestos: { traslados: [{ base: 300, impuesto: '002', tipoFactor: 'Exento' }], retenciones: [] } };
-    expect(uniformVatColumns([exempt, exempt])).toEqual({ factor_type: 'exento', tax_rate: null });
+    expect(uniformVatColumns([exempt, exempt])).toEqual({ factor_type: 'exento', tax_rate: null, base: '600.0000' });
+  });
+
+  // WIT-01 on #418: the regime matching is no licence to invent the base.
+  it('one concept without a declared Base makes the whole base unknown, never the debit', () => {
+    const known = { impuestos: { traslados: [{ base: 300, impuesto: '002', tipoFactor: 'Exento' }], retenciones: [] } };
+    const missing = { impuestos: { traslados: [{ impuesto: '002', tipoFactor: 'Exento' }], retenciones: [] } };
+    expect(uniformVatColumns([missing])).toEqual({ factor_type: 'exento', tax_rate: null, base: null });
+    expect(uniformVatColumns([known, missing])).toEqual({ factor_type: 'exento', tax_rate: null, base: null });
   });
 
   it('mixed regimes have no line-level answer', () => {
@@ -69,6 +78,18 @@ describe('uniformVatColumns', () => {
     const taxed = { impuestos: { traslados: [iva16], retenciones: [] } };
     expect(uniformVatColumns([exempt, taxed])).toBeNull();
     expect(uniformVatColumns([])).toBeNull();
+  });
+});
+
+describe('spreadDeclaredBase', () => {
+  it('splits the declared base across the debits and adds up to it exactly', () => {
+    const d = (v: string) => new Decimal(v);
+    expect(spreadDeclaredBase('700.0000', [d('700')])).toEqual(['700.0000']);
+    expect(spreadDeclaredBase('100.0000', [d('1'), d('1'), d('1')])).toEqual(['33.3333', '33.3333', '33.3334']);
+  });
+
+  it('an unknown base stays unknown on every line', () => {
+    expect(spreadDeclaredBase(null, [new Decimal('500'), new Decimal('200')])).toEqual([null, null]);
   });
 });
 

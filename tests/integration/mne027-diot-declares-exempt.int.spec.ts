@@ -173,8 +173,16 @@ describe('the inbox (`bill inbox run`)', () => {
 });
 
 describe('the approval of an AI draft', () => {
-  /** Runs the approval constructor in a transaction that is rolled back after reading its lines. */
-  async function approve(xml: string, entry: Array<{ account_code: string; debit?: number; credit?: number }>) {
+  /**
+   * Runs the approval constructor in a transaction and reads its lines. The
+   * transaction is rolled back unless `keep`, which commits the bill (without
+   * the entry the draft would post) so the DIOT can be asked about it.
+   */
+  async function approveBill(
+    xml: string,
+    entry: Array<{ account_code: string; debit?: number; credit?: number }>,
+    keep = false
+  ): Promise<{ billId: string; lines: LineRow[] }> {
     const up = await svc.processXMLUpload(f.entityId, xml, 'manual_upload', f.userId);
     const codes = (await query<{ code: string; id: string }>(
       `SELECT code, id FROM accounts WHERE entity_id = $1`, [f.entityId]
@@ -191,12 +199,17 @@ describe('the approval of an AI draft', () => {
         accountIdByCode: new Map(codes.map((c) => [c.code, c.id])),
         userId: f.userId,
       });
-      return await linesOf(bill.billId, client);
-    } finally {
+      const lines = await linesOf(bill.billId, client);
+      await client.query(keep ? 'COMMIT' : 'ROLLBACK');
+      return { billId: bill.billId, lines };
+    } catch (err) {
       await client.query('ROLLBACK');
+      throw err;
+    } finally {
       client.release();
     }
   }
+  const approve = async (...a: Parameters<typeof approveBill>) => (await approveBill(...a)).lines;
 
   it('lineas_factura_desde = poliza (the default): an all-exempt CFDI makes every line exempt', async () => {
     const lines = await approve(
@@ -207,6 +220,40 @@ describe('the approval of an AI draft', () => {
       [{ account_code: '6100', debit: 700 }, { account_code: '2110', credit: 700 }]
     );
     expect(lines).toEqual([{ tipo_factor: 'exento', tax_rate: null, valor_actos: '700.0000', tax_amount: '0.0000' }]);
+  }, 90_000);
+
+  // WIT-01 on #418: a matching regime is no licence to take the debit as the base.
+  it('poliza + an exempt concept without Base: valor_actos stays NULL and exigir_base blocks, naming the bill', async () => {
+    const month = 7;
+    const { billId, lines } = await approveBill(
+      cfdi(month, [{ amount: '500.00', transfers: exempt(null) }], '0.00', '500.00'),
+      [{ account_code: '6100', debit: 500 }, { account_code: '2110', credit: 500 }],
+      true
+    );
+    expect(lines).toEqual([{ tipo_factor: 'exento', tax_rate: null, valor_actos: null, tax_amount: '0.0000' }]);
+
+    await payInFull(billId, '500.0000', month);
+    const diot = await construirDiot({ tenantId: f.tenantId, entityId: f.entityId, anio: 2026, mes: month });
+    const found = diot.hallazgos.find((h) => h.codigo === 'DIOT-BASE-EXENTA-DESCONOCIDA');
+    expect(found?.severidad).toBe('bloqueante');
+    expect(found?.documentId).toBe(billId);
+    expect(esEntregable(diot)).toBe(false);
+    const row = diot.renglones.find((r) => r.tercero.rfc === VENDOR_RFC);
+    expect(row?.desglose.exento.base ?? '0.0000').toBe('0.0000');
+  }, 90_000);
+
+  it('poliza + several exempt concepts with one Base missing: no line claims a base', async () => {
+    const lines = await approve(
+      cfdi(6, [
+        { amount: '400.00', transfers: exempt('400.00') },
+        { amount: '300.00', transfers: exempt(null) },
+      ], '0.00', '700.00'),
+      [{ account_code: '6100', debit: 400 }, { account_code: '6100', debit: 300 }, { account_code: '2110', credit: 700 }]
+    );
+    expect(lines).toEqual([
+      { tipo_factor: 'exento', tax_rate: null, valor_actos: null, tax_amount: '0.0000' },
+      { tipo_factor: 'exento', tax_rate: null, valor_actos: null, tax_amount: '0.0000' },
+    ]);
   }, 90_000);
 
   it('lineas_factura_desde = conceptos_cfdi: each line carries its own concept regime', async () => {
