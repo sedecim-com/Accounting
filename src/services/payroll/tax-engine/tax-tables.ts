@@ -1,6 +1,7 @@
 import { query } from '../../../database/connection.js';
 import type { PayFrequency, FilingStatus, TaxInput } from './tax-engine.interface.js';
 import { daysBetween, toCalendarDate } from '../../../utils/calendar-date.js';
+import { todayFor } from '../../policy/today.js';
 
 // ============================================================
 // TAX TABLE LOOKUP SERVICE
@@ -116,7 +117,9 @@ export async function getTaxParameters(
   // is how timezone conversions creep in.
   const requested =
     effectiveDate instanceof Date ? effectiveDate.toISOString().slice(0, 10) : effectiveDate;
-  const today = new Date().toISOString().slice(0, 10);
+  // #242: "today" is the day in the `zona_horaria` default, not the UTC day —
+  // no entity is in hand here, so the panel's declared default answers.
+  const today = await todayFor(null);
   const day = requested ?? (today.startsWith(`${taxYear}-`) ? today : `${taxYear}-12-31`);
 
   // AND THE TWO ARGUMENTS MUST AGREE (WIT-04).

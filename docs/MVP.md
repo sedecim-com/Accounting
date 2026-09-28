@@ -58,7 +58,16 @@
 
 ## 3. La línea de trabajo: cuatro olas
 
-Una ola no empieza cuando termina la anterior: empieza cuando lo suyo está en `status:agent-ready`. La ola dice qué conviene hacer **antes**, no qué está prohibido hacer después.
+Cada ola es una **etapa**, y cada etapa cierra en una entrega. Lo decidió el dueño el 2026-09-28: los sprints se planean etapa por etapa, y una ola empieza cuando la anterior ya quedó toda en el calendario, en el sprint siguiente a su último. Así ningún sprint mezcla trabajo de dos olas, y cada entrega se puede nombrar:
+
+| Ola | Etapa | Cierra en |
+|---|---|---|
+| 0 | Desbloquear | R0 · la entrega fluye |
+| 1 | Que el mes cuadre | R1 · MVP α: el mes cuadra en la terminal |
+| 2 | Lo que falta construir | R2 · MVP β: nómina, DIOT, papel de trabajo, retenciones y moneda extranjera |
+| 3 | El MVP se demuestra y se pule | v1.0 · el MVP demostrado de punta a punta |
+
+Lo entregado hasta el 2026-09-27 es **S1**; el trabajo abierto empieza en **S2**, el 2026-09-28. Una tarea no puede depender de otra de una ola posterior: `scripts/backlog.ts` lo rechaza.
 
 **El detalle tarea por tarea** está en [`docs/backlog/PRD-001.md`](backlog/PRD-001.md). Ahí cada issue de estas olas está partida en tareas atómicas `MNE-001-nnn`, con prioridad, dependencias y sprint sugerido, calculado por `scripts/backlog.ts`.
 

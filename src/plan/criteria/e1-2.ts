@@ -601,6 +601,144 @@ export const E1_2: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'today-is-the-day-in-zona-horaria',
+    // #242 · MNE-001-065. "Today" was `new Date().toISOString().slice(0, 10)`,
+    // the UTC day: from 18:00 to midnight in Mexico City it is already
+    // tomorrow. A credit note created without --date at 20:00 on the 31st was
+    // persisted on the 1st — date, folio series and period. The owner decided
+    // (2026-09-26) that the zone is the `zona_horaria` policy, America/Mexico_City
+    // by default, with a row per entity; that every "today" goes through one
+    // resolver; and that the zone is checked against Intl.supportedValuesOf.
+    //
+    // Three ways back to the wrong day, and the census names all three: the
+    // UTC day, the process's local fields (the server runs in UTC) and a bare
+    // CURRENT_DATE (the database session's day).
+    enunciado: 'El «hoy» de una nota de crédito sin fecha es el día de zona_horaria, no el día UTC',
+    mutantes: [
+      {
+        archivo: 'src/services/ar/credit-note-service.ts',
+        de: 'input.credit_date ?? (await todayFor({ tenantId, entityId: input.entity_id }, { client }))',
+        a: 'input.credit_date ?? new Date().toISOString().slice(0, 10)',
+        porque: 'the UTC day comes back: at 20:00 on the 31st in Mexico City the note is dated, numbered and posted on the 1st',
+      },
+      {
+        archivo: 'src/services/ar/credit-note-service.ts',
+        de: '(await todayFor({ tenantId, entityId: input.entity_id }, { client }))',
+        a: "(await client.query<{ d: string }>('SELECT CURRENT_DATE::text AS d')).rows[0].d",
+        porque: "a bare CURRENT_DATE is the database session's day, which on a UTC server is the same wrong day",
+      },
+      {
+        archivo: 'src/utils/calendar-date.ts',
+        de: "return formatParts(field('year'), field('month'), field('day'));",
+        a: 'return toCalendarDate(now);',
+        porque: "the resolver reads the process's local fields instead of the zone: on a UTC server that is the UTC day again",
+      },
+      {
+        archivo: 'src/utils/calendar-date.ts',
+        de: "knownZones ??= new Set(Intl.supportedValuesOf('timeZone'));",
+        a: 'knownZones ??= new Set([timeZone]);',
+        porque: 'the zone stops being checked: a misspelt zone is accepted and fails later, somewhere else',
+      },
+      {
+        archivo: 'src/services/policy/today.ts',
+        de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value',
+        a: 'defaultTimeZone()',
+        porque: "the policy stops being read: an entity in Tijuana or Cancún gets Mexico City's day whatever it answered",
+      },
+      {
+        archivo: 'src/services/payroll/tax-engine/tax-tables.ts',
+        de: 'const today = await todayFor(null);',
+        a: 'const today = new Date().toISOString().slice(0, 10);',
+        porque: 'the fallback of the legal parameters goes back to the UTC day and picks the row of the next day',
+      },
+      {
+        archivo: 'tests/utils/today-in-zone.spec.ts',
+        de: 'process.env.TZ = tz;',
+        a: 'process.env.TZ = process.env.TZ;',
+        porque: "the reproduction stops moving the process zone: it only runs in CI's UTC, where the process-local mirror is invisible",
+      },
+    ],
+    evaluar: () => {
+      const util = 'src/utils/calendar-date.ts';
+      const resolver = 'src/services/policy/today.ts';
+      const creditNotes = 'src/services/ar/credit-note-service.ts';
+      const taxTables = 'src/services/payroll/tax-engine/tax-tables.ts';
+      const spec = 'tests/utils/today-in-zone.spec.ts';
+      const integration = 'tests/integration/credit-note-today-in-zone.int.spec.ts';
+      for (const rel of [util, resolver, creditNotes, taxTables, 'src/services/policy/pending-catalog.ts']) {
+        if (!existe(rel)) return falla(`${rel} is gone`);
+      }
+
+      // 1. THE CENSUS: none of the three wrong days in the files that fill in
+      //    "today" by themselves.
+      const WRONG_DAYS: Array<[RegExp, string]> = [
+        [/new Date\(\)\s*\.toISOString\(\)/, 'the UTC day'],
+        [/toCalendarDate\(\s*(?:new Date\(\)|now)\s*\)|new Date\(\)\s*\.get(?:FullYear|Month|Date)\(\)/, "the process's local day"],
+        [/\bCURRENT_DATE\b/, 'a bare CURRENT_DATE'],
+      ];
+      const offenders: string[] = [];
+      for (const rel of [util, resolver, creditNotes, taxTables]) {
+        const code = codigoDe(rel);
+        for (const [pattern, what] of WRONG_DAYS) {
+          if (pattern.test(code)) offenders.push(`${rel} (${what})`);
+        }
+      }
+      if (offenders.length > 0) {
+        return falla(
+          `"today" is taken from the wrong clock in ${offenders.join(', ')}: at 20:00 in Mexico City ` +
+            'that is already tomorrow, and a credit note is dated, numbered and posted on it'
+        );
+      }
+
+      // 2. THE RESOLVER: it validates the zone, formats in it, and reads it
+      //    from the policy.
+      const u = codigoDe(util);
+      if (!u.includes("Intl.supportedValuesOf('timeZone')")) {
+        return falla('the zone is no longer checked against Intl.supportedValuesOf: a misspelt zone would pass');
+      }
+      if (!/new Intl\.DateTimeFormat\([^)]*\{\s*timeZone,/.test(u) || !u.includes("field('day')")) {
+        return falla('calendarDateIn no longer takes the day in the zone it was given');
+      }
+      if (!codigoDe(resolver).includes('await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)')) {
+        return falla('todayFor no longer reads the zona_horaria policy: the entity\'s answer is ignored');
+      }
+      if (!codigoDe('src/services/policy/pending-catalog.ts').includes("TIME_ZONE_POLICY_KEY = 'zona_horaria'")) {
+        return falla('the zona_horaria key left the panel');
+      }
+
+      // 3. THE TWO CALLERS go through it.
+      if (!codigoDe(creditNotes).includes('input.credit_date ?? (await todayFor(')) {
+        return falla('a credit note without a date no longer asks todayFor for its day');
+      }
+      if (!codigoDe(taxTables).includes('const today = await todayFor(null);')) {
+        return falla('the "today" fallback of getTaxParameters no longer goes through the resolver');
+      }
+
+      // 4. AND BEHAVIOUR with the clock fixed and the process zone moved.
+      if (!existe(spec) || !existe(integration)) {
+        return falla('there is no reproduction of "today" with a fixed clock');
+      }
+      const t = codigoDe(spec);
+      for (const [pattern, what] of [
+        [/2026-11-01T02:00:00Z/, 'fix the clock at 20:00 on the 31st in Mexico City'],
+        [/process\.env\.TZ = tz;/, 'move the process zone for real'],
+        [/Asia\/Tokyo/, 'measure east of Greenwich too'],
+        [/getTaxParameters\(/, 'measure the fallback of the legal parameters'],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(t)) return falla(`the reproduction no longer does: ${what}`);
+      }
+      if (!/CN-2026-/.test(codigoDe(integration))) {
+        return falla('the integration test no longer checks the folio series of the 31st');
+      }
+
+      return ok(
+        'no UTC day, process-local day or bare CURRENT_DATE where "today" is filled in; the resolver checks the zone and reads zona_horaria; credit notes and the tax-parameter fallback go through it; and a fixed-clock reproduction measures it'
+      );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
     id: 'an-advance-cannot-be-booked-in-another-currency',
     // T23 (#130). Un anticipo puro no tiene documento que le dé la moneda: sale
     // del propio cliente —o del parámetro— y se escribía CRUDA, sin compararla

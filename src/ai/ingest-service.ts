@@ -29,6 +29,7 @@ import type { AgentContext } from './context.js';
 import type { LlmSession } from './providers/types.js';
 import type { IngestThresholds } from './providers/config.js';
 import type { DraftCreatedInfo } from './tools/observer.js';
+import { classifyProviderError } from './providers/failover.js';
 
 // ============================================================
 // CFDI BATCH INGEST (phase 4)
@@ -72,11 +73,19 @@ export interface IngestFileResult {
    * era imposible de persistir sin re-parsear texto de consola.
    */
   sospechas?: string[];
+  /**
+   * ING-2 (#319): the model was never consulted for this CFDI (no provider,
+   * or the provider refused the credential). It sits in the inbox waiting
+   * for someone to code it; status is 'blocked', never 'error'.
+   */
+  toCode?: boolean;
 }
 
 export interface IngestReport {
   results: IngestFileResult[];
   counts: Record<IngestStatus, number>;
+  /** ING-2 (#319): how many CFDI were left in the inbox to code by hand. */
+  toCode: number;
 }
 
 /** Mutable holder the CLI wires into SessionCallbacks.onDraftCreated. */
@@ -104,6 +113,18 @@ export interface IngestDeps {
   /** A3: la vía secundaria de autorización (spec E1.3-c); inyectable solo para pruebas. */
   autoApproveByPolicy?: typeof autoApproveDraftByPolicy;
   readFile?: (file: string) => string;
+  reprocess?: (entityId: string, xmlDocumentId: string, userId: string) => Promise<UploadOutcome | null>;
+}
+
+/**
+ * ING-2 (#319): a model error that no other file of the batch can escape —
+ * there is no credential, or the provider refuses it or the account. Asking
+ * again for each remaining CFDI only repeats the failure file by file.
+ */
+export function isProviderUnavailable(err: unknown): boolean {
+  const category = classifyProviderError(err);
+  if (category === 'auth' || category === 'billing') return true;
+  return /could not resolve authentication method/i.test(String((err as Error)?.message ?? err));
 }
 
 const defaultService = new PreRegistrationService();
@@ -113,8 +134,11 @@ export async function ingestCfdiFiles(opts: {
   reviewer: Reviewer;
   files: string[];
   thresholds: IngestThresholds;
-  session: LlmSession;
+  /** null: no model provider. The deterministic layer runs; the rest waits to be coded. */
+  session: LlmSession | null;
   capture: DraftCapture;
+  /** ING-2 (#319): a CFDI already registered whose processing failed is reprocessed, not «duplicate». */
+  retry?: boolean;
   onProgress?: (message: string) => void;
   deps?: IngestDeps;
 }): Promise<IngestReport> {
@@ -124,6 +148,12 @@ export async function ingestCfdiFiles(opts: {
     ((entityId, xml, uploadedBy) => defaultService.processXMLUpload(entityId, xml, 'api', uploadedBy));
   const approve = opts.deps?.approve ?? approveDraft;
   const readFile = opts.deps?.readFile ?? ((file: string) => fs.readFileSync(file, 'utf-8'));
+  const reprocess =
+    opts.deps?.reprocess ??
+    ((entityId, xmlDocumentId, userId) => defaultService.reprocessXmlDocument(entityId, xmlDocumentId, userId));
+  // Why the model is not consulted: no provider at all, or one that already
+  // refused this batch's credential. Set once; every later file skips it.
+  let modelUnavailable: string | null = session === null ? 'no model provider configured' : null;
 
   const results: IngestFileResult[] = [];
 
@@ -137,7 +167,7 @@ export async function ingestCfdiFiles(opts: {
     rules: 0, auto_post: 0, draft: 0, blocked: 0, duplicate: 0, invalid: 0, error: 0,
   };
   for (const r of results) counts[r.status]++;
-  return { results, counts };
+  return { results, counts, toCode: results.filter((r) => r.toCode).length };
 
   async function ingestOne(file: string, name: string): Promise<IngestFileResult> {
     let xml: string;
@@ -153,12 +183,30 @@ export async function ingestCfdiFiles(opts: {
       upload = await processUpload(ctx.entityId, xml, reviewer.userId);
     } catch (err) {
       if (err instanceof DuplicateError) {
-        return { file: name, status: 'duplicate', detail: 'CFDI already registered (UUID/hash)' };
-      }
-      if (err instanceof ValidationError) {
+        if (!opts.retry) {
+          return {
+            file: name, status: 'duplicate',
+            detail: 'CFDI already registered (UUID/hash); if its processing failed, rerun with --retry',
+          };
+        }
+        try {
+          const again = await reprocess(ctx.entityId, err.existingId, reviewer.userId);
+          if (again === null) {
+            return {
+              file: name, status: 'duplicate',
+              detail: 'CFDI already registered and not reprocessable: already processed, in process, ' +
+                'rejected, or with a draft bound to it',
+            };
+          }
+          upload = again;
+        } catch (retryErr) {
+          return { file: name, status: 'error', detail: `Reprocess failed: ${(retryErr as Error).message}` };
+        }
+      } else if (err instanceof ValidationError) {
         return { file: name, status: 'invalid', detail: err.message };
+      } else {
+        return { file: name, status: 'error', detail: (err as Error).message };
       }
-      return { file: name, status: 'error', detail: (err as Error).message };
     }
 
     // Third-party-controlled fields are scanned up front. A flagged file is
@@ -174,6 +222,14 @@ export async function ingestCfdiFiles(opts: {
         `suspicious third-party content in ${suspicion.join(', ')} — sanitized and wrapped as untrusted data`;
     }
     return result;
+  }
+
+  function leftToCode(name: string): IngestFileResult {
+    return {
+      file: name, status: 'blocked', toCode: true,
+      detail: `Left in the inbox to code (${modelUnavailable}): see \`mnemosine bill inbox list\`; ` +
+        'once a provider answers, `mnemosine ingest --retry` reprocesses it',
+    };
   }
 
   async function classify(
@@ -235,6 +291,8 @@ export async function ingestCfdiFiles(opts: {
       };
     }
 
+    if (session === null || modelUnavailable !== null) return leftToCode(name);
+
     // Layer 2: the AI classifies and creates the draft
     capture.drafts = [];
     session.reset();
@@ -248,6 +306,10 @@ export async function ingestCfdiFiles(opts: {
     try {
       await session.runTurn(buildCfdiPrompt(upload));
     } catch (err) {
+      if (isProviderUnavailable(err)) {
+        modelUnavailable = `the model provider is unavailable: ${(err as Error).message}`;
+        return leftToCode(name);
+      }
       return { file: name, status: 'error', detail: `Model failure: ${(err as Error).message}` };
     } finally {
       capture.origin = undefined;

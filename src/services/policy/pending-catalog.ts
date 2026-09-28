@@ -81,6 +81,13 @@ export interface PolicySpec {
   ifSkipped?: string;
 }
 
+/**
+ * The key of the time-zone policy (#242). Exported because it has more than
+ * one reader: `todayFor` answers with it and `resolvePolicy` refuses a zone the
+ * runtime does not know before it is filed as the firm's answer.
+ */
+export const TIME_ZONE_POLICY_KEY = 'zona_horaria';
+
 export const POLICY_CATALOG: PolicySpec[] = [
   // ── Accounting ──
   {
@@ -1652,6 +1659,40 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'It goes to a receivable from the authority. Nothing breaks; if your criterion is to absorb it, payroll expense will be understated until you say so.',
     priority: 42,
   },
+  // #298 · MNE-001-064. The decree gives the percentage of the monthly UMA and
+  // the 30.4 divisor, and no rounding rule. Read by `readEmploymentSubsidyRounding`
+  // (payroll/mx/employment-subsidy.ts); decided by the owner in MNE-001-004.
+  {
+    key: 'subsidio_al_empleo_redondeo',
+    category: 'fiscal',
+    question:
+      'How do you round the employment subsidy of a pay period shorter than a month: once, on the period amount, or first on the daily amount?',
+    impact:
+      'It moves the subsidy of a week or a quincena by a few cents, and with it the ISR withheld, the cash handed to the worker and the payroll CFDI. In 2026 only January changes: the quincena is 264.58 with one rounding and 264.60 rounding the daily amount first.',
+    options: [
+      {
+        value: 'producto_al_centavo',
+        label: 'Once: the monthly amount to the cent, then monthly × days / 30.4 to the cent',
+      },
+      {
+        value: 'diario_al_centavo',
+        label: 'The daily amount first: monthly / 30.4 to the cent, then × the days of the period',
+      },
+    ],
+    defaultValue: 'producto_al_centavo',
+    defaultRationale:
+      'One rounding, half up, on the result is the reading that follows the decree literally — a percentage of the ' +
+      'monthly UMA, divided by 30.4 and multiplied by the days — without introducing an intermediate figure the ' +
+      'decree never names. From February to December 2026 it gives 535.65 a month, 264.30 a quincena and 123.34 ' +
+      'a week. The 536.22 of the decree recital is not an option: no rounding of the UMA in force produces it.',
+    whyAsking:
+      'The decree fixes the percentage of the UMA and says to divide by 30.4 and multiply by the days, but not where to round. Payroll software and firms do it both ways, and the difference reaches the worker and the SAT.',
+    whatIDo:
+      'Every Mexican pay run computes the monthly subsidy to the cent and derives the period from that rounded monthly amount, in the way you choose here. The payslip note names the rounding used.',
+    ifSkipped:
+      'I round once, on the period amount. From February to December the two options give the same figures.',
+    priority: 42,
+  },
   {
     key: 'isn_estado_que_causa',
     category: 'fiscal',
@@ -1820,8 +1861,41 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped: 'I publish it and name them.',
     priority: 40,
   },
+  {
+    // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
+    // is already tomorrow, and a credit note without --date was persisted with
+    // the next day's date, folio series and period. Which zone the books live
+    // in is the firm's answer (owner's decision, 2026-09-26), and an entity can
+    // carry its own row (Tijuana, Cancún, Sonora). Its reader is `todayFor`.
+    key: TIME_ZONE_POLICY_KEY,
+    category: 'operativa',
+    question: 'In which time zone does "today" fall for these books?',
+    impact:
+      'Every date the system fills in by itself — a credit note created without --date, for one — ' +
+      'is the calendar day in this zone at that moment. At 20:00 in Mexico City it is already the ' +
+      'next day in UTC; a date taken from UTC lands the document in the next day, and on the last ' +
+      'day of a month in the next period and folio series.',
+    options: [
+      { value: 'America/Mexico_City', label: 'Central Mexico (UTC−6 all year)' },
+      { value: 'America/Tijuana', label: 'Baja California (follows US daylight saving)' },
+      { value: 'America/Cancun', label: 'Quintana Roo (UTC−5 all year)' },
+      { value: 'America/Hermosillo', label: 'Sonora (UTC−7 all year)' },
+    ],
+    defaultValue: 'America/Mexico_City',
+    defaultRationale:
+      'Most Mexican books keep central time, which has no daylight saving since 2022. Any IANA zone ' +
+      'is accepted; one the runtime does not know is refused, because a misspelt zone would ' +
+      'otherwise fall back to some other clock without saying so.',
+    whyAsking:
+      'The server clock runs in UTC. Whether the day a document is dated is Mexico City\'s, ' +
+      'Tijuana\'s or Cancún\'s is a fact about your books that I cannot guess.',
+    whatIDo: 'I take the calendar day in this zone whenever a date is not given to me.',
+    ifSkipped: 'I use Mexico City\'s day.',
+    priority: 30,
+  },
 
 ];
+
 
 export function getPolicySpec(key: string): PolicySpec | undefined {
   return POLICY_CATALOG.find((p) => p.key === key);

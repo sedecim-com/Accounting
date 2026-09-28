@@ -196,11 +196,13 @@ function derivadoDe(e: CashFlowStatement) {
  * detectaba por `entry_type = 'auto_depreciation'`, y un motor que herede ese
  * criterio se deja los 1 000 fuera y el residuo sale −1 000.
  */
-async function julioConMovimiento(f: Fixture) {
-  await asiento(f, 7, 'Venta a crédito', f.cuentas['1120'], f.cuentas['4100'], '10000.0000');
-  await asiento(f, 7, 'Cobranza', f.cuentas['1110'], f.cuentas['1120'], '6000.0000');
-  await asiento(f, 7, 'Gasto a crédito', f.cuentas['6100'], f.cuentas['2110'], '4000.0000');
-  await asiento(f, 7, 'Pago a proveedor', f.cuentas['2110'], f.cuentas['1110'], '1500.0000');
+async function julioConMovimiento(f: Fixture, accounts = { receivable: '1120', payable: '2110' }) {
+  const receivable = f.cuentas[accounts.receivable];
+  const payable = f.cuentas[accounts.payable];
+  await asiento(f, 7, 'Venta a crédito', receivable, f.cuentas['4100'], '10000.0000');
+  await asiento(f, 7, 'Cobranza', f.cuentas['1110'], receivable, '6000.0000');
+  await asiento(f, 7, 'Gasto a crédito', f.cuentas['6100'], payable, '4000.0000');
+  await asiento(f, 7, 'Pago a proveedor', payable, f.cuentas['1110'], '1500.0000');
   await asiento(f, 7, 'Depreciación del mes', f.cuentas['6140'], f.cuentas['1290'], '1000.0000');
 }
 
@@ -947,7 +949,12 @@ describe('un ejercicio con cierre duro dentro del rango', () => {
     const f = await crearInquilino('G1b cierre en el rango');
     enterTenant(f.tenantId);
     await sembrarPoliticasDeFlujo(f);
-    await julioConMovimiento(f);
+    // The credit sale and the credit expense post outside the control
+    // accounts: the year is hard-closed here, and a hand entry on 1120/2110
+    // with no invoice or bill behind it leaves the subledger out of step
+    // with its control, which the close refuses to seal (#98). The cash
+    // movement, which is what this test measures, is the same.
+    await julioConMovimiento(f, { receivable: '1140', payable: '2140' });
     await asiento(f, 12, 'Venta cobrada de diciembre', f.cuentas['1110'], f.cuentas['4100'], '3000.0000');
 
     await softClosePeriod(f.periodos[12], f.entityId, f.userId);

@@ -137,6 +137,13 @@ mirror	memory	E1.2 a-stored-date-is-read-back-whole	tests/utils/stored-dates-are
 mirror	memory	E1.2 days-are-counted-on-the-calendar-not-on-a-clock	src/utils/calendar-date.ts	un extremo deja de normalizarse: el Date que pg entrega vuelve a leerse por su texto ISO en UTC y el conteo se descuadra al oeste de Greenwich
 mirror	memory	E1.2 days-are-counted-on-the-calendar-not-on-a-clock	src/services/ap/bill-service.ts	vuelve la resta de milisegundos justo donde reparte dinero: el descuento del 2 % se concede un día después de vencido en media esfera
 mirror	memory	E1.2 days-are-counted-on-the-calendar-not-on-a-clock	tests/utils/days-between.spec.ts	la reproducción deja de cambiar de zona: todas las aserciones corren en el huso de CI, que es UTC — la única zona donde el defecto no se ve
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/ar/credit-note-service.ts	the UTC day comes back: at 20:00 on the 31st in Mexico City the note is dated, numbered and posted on the 1st
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/ar/credit-note-service.ts	a bare CURRENT_DATE is the database session's day, which on a UTC server is the same wrong day
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/utils/calendar-date.ts	the resolver reads the process's local fields instead of the zone: on a UTC server that is the UTC day again
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/utils/calendar-date.ts	the zone stops being checked: a misspelt zone is accepted and fails later, somewhere else
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/policy/today.ts	the policy stops being read: an entity in Tijuana or Cancún gets Mexico City's day whatever it answered
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/payroll/tax-engine/tax-tables.ts	the fallback of the legal parameters goes back to the UTC day and picks the row of the next day
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	tests/utils/today-in-zone.spec.ts	the reproduction stops moving the process zone: it only runs in CI's UTC, where the process-local mirror is invisible
 mirror	memory	E1.2 an-advance-cannot-be-booked-in-another-currency	src/services/payments/payment-service.ts	la comparación se invierte: pasa el anticipo en otra moneda y se rehúsa el que sí está en la funcional
 mirror	memory	E1.2 an-advance-cannot-be-booked-in-another-currency	src/services/payments/payment-service.ts	la funcional deja de leerse de la entidad y se toma del propio anticipo: la comparación se vuelve tautológica y nunca acusa
 mirror	memory	E1.2 an-advance-cannot-be-booked-in-another-currency	src/services/payments/payment-service.ts	el anticipo a proveedor vuelve a caer en el respaldo literal «MXN» de currencyOf: se asienta en pesos sin preguntar al proveedor, al llamador ni a la entidad
@@ -443,6 +450,9 @@ mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/servic
 mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/cli/closing-command.ts	el ensayo aconseja --resume sobre la corrida que otro conductor sigue conduciendo
 mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/mx/cfdi-nomina-generator.ts	el comprobante deja de declarar el subsidio entregado con la clave que el SAT cruza, y el criterio tiene que verlo aunque el nodo siga ahí
 mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/gl-posting-service.ts	la rama del cargo queda escrita y nunca se toma: la corrida vuelve a descuadrarse por el importe entregado, que es el defecto original con una condición imposible en vez de un Math.max
+mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/payroll/mx/isr-calculator.ts	restaura la tabla por tramos de la migración 009: el subsidio vuelve a ser el de la ley derogada en mayo de 2024
+mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/payroll/common/paycheck-service.ts	el recibo lee la política y no se la pasa al motor: la clave del panel se vuelve decorativa
+mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/policy/pending-catalog.ts	el panel pierde uno de los dos valores decididos y ofrece truncar, que quedó descartado por no tener fuente
 mirror	memory	E4.1 isn-refuses-instead-of-zero	src/services/payroll/mx/isn-calculator.ts	un régimen escalonado calculado como si fuera tasa plana da un importe plausible y falso, y el criterio sólo lo ve si exige el hallazgo por su nombre
 mirror	memory	E4.1 imss-employee-rates-match-law	src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql	la corrección deja de corregir: vuelve el sobrecobro del 56 % en el ramo de enfermedades y maternidad a todo trabajador con SBC sobre tres UMA, y sale en el recibo, en el CFDI de nómina y en la línea de captura
 mirror	memory	E4.1 imss-employee-rates-match-law	src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql	un relleno que no alcanzó ninguna fila deja de detener la actualización: la migración se registra como aplicada sobre datos que siguen mal, que es la clase de silencio que este proyecto persigue
@@ -676,6 +686,13 @@ anchor	src/plan/criteria/e1-2.ts	de: "const [y, m, d] = iso.split('-').map(Numbe
 anchor	src/plan/criteria/e1-2.ts	de: 'const [ty, tm, td] = toCalendarDate(to).split(\'-\').map(Number);',
 anchor	src/plan/criteria/e1-2.ts	de: 'const daysUntilPayment = daysBetween(bill.bill_date, paymentDate);',
 anchor	src/plan/criteria/e1-2.ts	de: "process.env.TZ = tz;",
+anchor	src/plan/criteria/e1-2.ts	de: 'input.credit_date ?? (await todayFor({ tenantId, entityId: input.entity_id }, { client }))',
+anchor	src/plan/criteria/e1-2.ts	de: '(await todayFor({ tenantId, entityId: input.entity_id }, { client }))',
+anchor	src/plan/criteria/e1-2.ts	de: "return formatParts(field('year'), field('month'), field('day'));",
+anchor	src/plan/criteria/e1-2.ts	de: "knownZones ??= new Set(Intl.supportedValuesOf('timeZone'));",
+anchor	src/plan/criteria/e1-2.ts	de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value',
+anchor	src/plan/criteria/e1-2.ts	de: 'const today = await todayFor(null);',
+anchor	src/plan/criteria/e1-2.ts	de: 'process.env.TZ = tz;',
 anchor	src/plan/criteria/e1-2.ts	de: 'if (advanceCurrency !== functionalCurrency) {',
 anchor	src/plan/criteria/e1-2.ts	de: 'const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);',
 anchor	src/plan/criteria/e1-2.ts	de: 'vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod',
@@ -976,6 +993,9 @@ anchor	src/plan/criteria/e4-1.ts	de: ' // Not a verdict (see above): the silence
 anchor	src/plan/criteria/e4-1.ts	de: 'runClosingLine(outcome, stopAt, existingRun !== null, liveRun !== null)',
 anchor	src/plan/criteria/e4-1.ts	de: 'TipoOtroPago="002"',
 anchor	src/plan/criteria/e4-1.ts	de: 'isrDeLaCorrida.lessThan(0)',
+anchor	src/plan/criteria/e4-1.ts	de: "const rate = await legalParameterAt('MX', EMPLOYMENT_SUBSIDY_LAW.rate, onDate);",
+anchor	src/plan/criteria/e4-1.ts	de: 'employment_subsidy_rounding: employmentSubsidyRounding,',
+anchor	src/plan/criteria/e4-1.ts	de: "value: 'diario_al_centavo'",
 anchor	src/plan/criteria/e4-1.ts	de: 'isn_regimen_no_soportado',
 anchor	src/plan/criteria/e4-1.ts	de: "to_jsonb(0.004::numeric)",
 anchor	src/plan/criteria/e4-1.ts	de: "RAISE EXCEPTION 'La cuota obrera de enfermedades y maternidad sigue en 0.00625",
