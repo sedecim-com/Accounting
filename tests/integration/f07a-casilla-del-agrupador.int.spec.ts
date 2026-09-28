@@ -125,7 +125,7 @@ describe('con cuentas movidas y sin mapear', () => {
   it('un periodo ANTERIOR al movimiento no lo cuenta: la acumulación va hacia atrás', async () => {
     // Enero es el primer periodo del ejercicio, así que el corte anterior al
     // asiento no existe dentro del año; se comprueba con el asiento de marzo.
-    await postear(3, f.roles.cxc, f.roles.ingreso);
+    await postear(3, f.cuentas['1140'], f.roles.ingreso);
     const enFebrero = await casilla(2);
     const enMarzo = await casilla(3);
     expect(enFebrero.item.details).toMatch(/^2 de 2 /);
@@ -170,7 +170,7 @@ describe('mapeadas, la casilla se pone verde DE VERDAD', () => {
 describe("contestada 'bloquear', la misma casilla detiene el cierre", () => {
   it('el panel decide, y sólo su literal exacto bloquea', async () => {
     // Se desmapea una cuenta movida para que haya hueco que juzgar.
-    await setAccountMapping(f.roles.cxc, 'sat-agrupador', null, f.userId);
+    await setAccountMapping(f.cuentas['1140'], 'sat-agrupador', null, f.userId);
 
     const antes = await casilla(3);
     expect(antes.item.severity).toBe('warning');

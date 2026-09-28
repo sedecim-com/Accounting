@@ -40,13 +40,13 @@ import { archivarArtefacto } from '../../src/services/sat/anexo24/artefactos.js'
 // contra la base cuánto vale cada columna, así que aquí lo que se mide es la
 // TRADUCCIÓN al archivo, y en particular el signo.
 //
-//   ENERO    venta   1120 debe 7 000 · 4100 haber 7 000
-//            costo   5100 debe 2 500 · 1120 haber 2 500
-//   FEBRERO  venta   1120 debe 1 300 · 4100 haber 1 300
-//            gasto   5100 debe   400 · 1120 haber   400
+//   ENERO    venta   1140 debe 7 000 · 4100 haber 7 000
+//            costo   5100 debe 2 500 · 1140 haber 2 500
+//   FEBRERO  venta   1140 debe 1 300 · 4100 haber 1 300
+//            gasto   5100 debe   400 · 1140 haber   400
 //
 //   Balanza de FEBRERO en el MAYOR (deudor positivo) y EN EL ARCHIVO:
-//     1120  D   ini  4 500 → SaldoIni  4500.00 ... SaldoFin  5400.00
+//     1140  D   ini  4 500 → SaldoIni  4500.00 ... SaldoFin  5400.00
 //     4100  A   ini −7 000 → SaldoIni  7000.00 ... SaldoFin  8300.00
 //     5100  D   ini  2 500 → SaldoIni  2500.00 ... SaldoFin  2900.00
 //
@@ -98,10 +98,10 @@ const catalogoCon = (...cuentas: string[]): CatalogoDeReferencia => ({
 beforeAll(async () => {
   f = await crearInquilino('F07b balanza que se entrega');
   enterTenant(f.tenantId);
-  await asiento(f, 1, 'Venta de enero', f.cuentas['1120'], f.cuentas['4100'], '7000.0000');
-  await asiento(f, 1, 'Costo de enero', f.cuentas['5100'], f.cuentas['1120'], '2500.0000');
-  await asiento(f, 2, 'Venta de febrero', f.cuentas['1120'], f.cuentas['4100'], '1300.0000');
-  await asiento(f, 2, 'Gasto de febrero', f.cuentas['5100'], f.cuentas['1120'], '400.0000');
+  await asiento(f, 1, 'Venta de enero', f.cuentas['1140'], f.cuentas['4100'], '7000.0000');
+  await asiento(f, 1, 'Costo de enero', f.cuentas['5100'], f.cuentas['1140'], '2500.0000');
+  await asiento(f, 2, 'Venta de febrero', f.cuentas['1140'], f.cuentas['4100'], '1300.0000');
+  await asiento(f, 2, 'Gasto de febrero', f.cuentas['5100'], f.cuentas['1140'], '400.0000');
   await softClosePeriod(f.periodos[1], f.entityId, f.userId, 'cierre suave de enero');
 });
 
@@ -127,8 +127,8 @@ describe('la balanza de febrero, ya como archivo', () => {
     // Enero cerró en SUAVE: con la única fuente que había antes de F07a
     // —el arrastre del cierre duro— estas tres SaldoIni serían cero.
     const b = await generarBalanza(f.entityId, { periodo: f.periodos[2] });
-    expect(nodo(b.xml, '1120')).toBe(
-      '<BCE:Ctas NumCta="1120" SaldoIni="4500.00" Debe="1300.00" Haber="400.00" SaldoFin="5400.00"/>'
+    expect(nodo(b.xml, '1140')).toBe(
+      '<BCE:Ctas NumCta="1140" SaldoIni="4500.00" Debe="1300.00" Haber="400.00" SaldoFin="5400.00"/>'
     );
     expect(nodo(b.xml, '5100')).toBe(
       '<BCE:Ctas NumCta="5100" SaldoIni="2500.00" Debe="400.00" Haber="0.00" SaldoFin="2900.00"/>'
@@ -388,7 +388,7 @@ describe('el panel manda', () => {
     expect(recortada.meta.criterio_niveles).toBe('las_que_se_mueven');
     expect(recortada.meta.cuentas).toBeLessThan(completa.meta.cuentas);
     // Las tres del ejercicio siguen: llevan cifra.
-    for (const c of ['1120', '4100', '5100']) expect(recortada.xml).toContain(`NumCta="${c}"`);
+    for (const c of ['1140', '4100', '5100']) expect(recortada.xml).toContain(`NumCta="${c}"`);
     // La cuenta de banco no se movió y no arrastra nada: no tiene qué declarar.
     expect(completa.xml).toContain('NumCta="1111"');
     expect(recortada.xml).not.toContain('NumCta="1111"');
@@ -400,14 +400,14 @@ describe('el panel manda', () => {
     // La coherencia entre las dos entregas es el punto: si el catálogo omite
     // las cuentas sin agrupador, la balanza que las declara referencia cuentas
     // que la autoridad no conoce. El cotejo lo dice, cuenta por cuenta.
-    await query(`UPDATE accounts SET codigo_agrupador_sat = '105.01' WHERE id = $1`, [
-      f.cuentas['1120'],
+    await query(`UPDATE accounts SET codigo_agrupador_sat = '115.01' WHERE id = $1`, [
+      f.cuentas['1140'],
     ]);
     await fijarCriterio('anexo24_cuenta_sin_agrupador', 'omitir_y_avisar');
 
     const catalogo = await catalogoSegunElPlanDeCuentas(f.entityId);
     expect(catalogo.criterio_sin_agrupador).toBe('omitir_y_avisar');
-    expect(catalogo.cuentas).toEqual(['1120']);
+    expect(catalogo.cuentas).toEqual(['1140']);
     expect(catalogo.sin_agrupador).toContain('4100');
 
     const r = await verificarBalanza(f.entityId, { periodo: f.periodos[2] });
@@ -415,7 +415,7 @@ describe('el panel manda', () => {
       .filter((h) => h.check === 'cuentas-en-catalogo' && h.referencia !== '')
       .map((h) => h.referencia);
     expect(senaladas).toContain('4100');
-    expect(senaladas).not.toContain('1120');
+    expect(senaladas).not.toContain('1140');
     expect(r.hallazgos.find((h) => h.referencia === '4100')?.detalle).toContain('omitir_y_avisar');
     expect(checkExitCode(r.conteo)).toBe(ExitCode.VALIDATION);
 
@@ -434,7 +434,7 @@ describe('el panel manda', () => {
 // ============================================================
 
 describe('el descuadre que F07a calcula, publicado por check', () => {
-  const WITH_HEADERS = ['1000', '1100', '1120', '4000', '4100', '5000', '5100'];
+  const WITH_HEADERS = ['1000', '1100', '1140', '4000', '4100', '5000', '5100'];
   beforeAll(async () => {
     // EL PERIODO DE AJUSTES SE REUBICA SOBRE FEBRERO. Es el device de F07a:
     // dos periodos que cubren las mismas fechas hacen que el eje de la FECHA y
@@ -465,8 +465,8 @@ describe('el descuadre que F07a calcula, publicado por check', () => {
     expect(saldos.map((h) => h.referencia).sort()).toEqual(WITH_HEADERS);
     expect(saldos.every((h) => h.severity === 'blocking')).toBe(true);
 
-    // 1120 es DEUDORA: la diferencia sale con el signo del mayor.
-    expect(saldos.find((h) => h.referencia === '1120')?.detalle).toContain('-900.0000');
+    // 1140 es DEUDORA: la diferencia sale con el signo del mayor.
+    expect(saldos.find((h) => h.referencia === '1140')?.detalle).toContain('-900.0000');
     // 4100 es ACREEDORA: el mayor la descuadra en +1 300 y el archivo la
     // declara al revés. Ésta es la traducción que hace legible el hallazgo —y
     // la que un `abs()` habría perdido.
@@ -510,7 +510,7 @@ describe('el cotejo prefiere el artefacto archivado', () => {
     const xml =
       '<?xml version="1.0" encoding="UTF-8"?>\n' +
       '<catalogocuentas:Catalogo Version="1.3" RFC="XAXX010101000" Mes="02" Anio="2026">\n' +
-      '  <catalogocuentas:Ctas CodAgrup="105.01" NumCta="1120" Desc="Cuentas por Cobrar" Nivel="1" Natur="D"/>\n' +
+      '  <catalogocuentas:Ctas CodAgrup="115.01" NumCta="1140" Desc="Inventarios" Nivel="1" Natur="D"/>\n' +
       '  <catalogocuentas:Ctas CodAgrup="501.01" NumCta="5100" Desc="Costo de Ventas" Nivel="1" Natur="D"/>\n' +
       '</catalogocuentas:Catalogo>\n';
     await archivarArtefacto({
@@ -530,7 +530,7 @@ describe('el cotejo prefiere el artefacto archivado', () => {
 
     const r = await verificarBalanza(f.entityId, { periodo: f.periodos[2] });
     expect(r.catalogo?.origen).toBe('artefacto_archivado');
-    expect(r.catalogo?.cuentas).toEqual(['1120', '5100']);
+    expect(r.catalogo?.cuentas).toEqual(['1140', '5100']);
     // Y ahora el cotejo acusa DE VERDAD: 4100 está en la balanza y no en el
     // catálogo entregado. Es el error más caro del Anexo 24, y no se puede ver
     // mirando un solo archivo.

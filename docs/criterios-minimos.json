@@ -88,6 +88,7 @@
     "permission-gate-has-behavioural-proof",
     "policy-number-checked-on-read-and-write",
     "policy-panel-governs-writeoff-account",
+    "policy-panel-is-per-entity",
     "policy-panel-owns-auto-post",
     "policy-panel-reaches-deciding-turn",
     "posted-journal-entries-immutable",

@@ -77,7 +77,7 @@ export const PREVIEWS: Record<string, PreviewFn> = {
       lines.push(`  · too few yet to tell how often I would be right`);
     }
     // A4: la evidencia de SOMBRA — la que resolvePolicy exige para 'on'.
-    const sombra = await concordanciaSombra({ tenantId: ctx.tenantId, entityId: ctx.entityId ?? null });
+    const sombra = await concordanciaSombra({ tenantId: ctx.tenantId, entityId: ctx.entityId });
     if (sombra.veredictos > 0) {
       lines.push(
         `  · shadow: ${sombra.veredictos} verdict(s) over ${sombra.dias_con_veredictos} day(s), ` +
