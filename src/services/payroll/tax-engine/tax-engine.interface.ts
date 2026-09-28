@@ -1,3 +1,5 @@
+import type { EmploymentSubsidyRounding } from '../mx/employment-subsidy.js';
+
 // ============================================================
 // TAX ENGINE INTERFACES
 // Strategy + registry pattern — each jurisdiction + tax_type is a plugin.
@@ -45,6 +47,9 @@ export interface TaxInput {
   sbc_daily?: number;                   // SBC (Salario Base de Cotizacion — contribution base salary), daily amount
   days_in_period?: number;
   riesgo_puesto?: string;               // IMSS work risk class 01-05
+  // How the employment subsidy is rounded: a policy of the entity, read by
+  // the caller (`readEmploymentSubsidyRounding`), never chosen by the engine.
+  employment_subsidy_rounding?: EmploymentSubsidyRounding;
 
   // Employer experience rate overrides (SUTA etc.)
   experience_rate?: number;

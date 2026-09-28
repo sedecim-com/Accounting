@@ -129,6 +129,19 @@ const ENTRADA = {
   earnings: [{ earning_type: 'salary', amount: 3000 }],
 };
 
+/**
+ * The two payroll policies the Mexican paycheck reads: where the cash
+ * subsidy is booked, and how the subsidy is rounded (#298) — the latter is
+ * read on every paycheck, since the engine refuses to compute without it.
+ */
+function policies(treatment: string, decided: boolean): void {
+  mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) =>
+    key === 'subsidio_al_empleo_redondeo'
+      ? { key, value: 'producto_al_centavo', defined: false, question: 'q', rationale: null }
+      : { key, value: treatment, defined: decided, question: 'q', rationale: null }
+  );
+}
+
 beforeEach(() => {
   clienteEspia.query.mockReset();
   clienteEspia.query.mockResolvedValue({ rows: [], rowCount: 1 });
@@ -143,10 +156,7 @@ beforeEach(() => {
   doble('MX', 'imss_employer', { tax_amount: 300, taxable_wages_used: 7500 });
   doble('MX', 'infonavit_employer', { tax_amount: 150, rate_applied: 0.05, taxable_wages_used: 7500 });
   doble('MX', 'infonavit_credit', { tax_amount: 60, notes: 'Crédito INFONAVIT tipo factor' });
-  mockGetPolicy.mockResolvedValue({
-    key: 'subsidio_al_empleo_entregado_registro',
-    value: 'cuenta_por_cobrar_fisco', defined: false, question: 'q', rationale: null,
-  });
+  policies('cuenta_por_cobrar_fisco', false);
   prepararLecturas();
 });
 
@@ -257,10 +267,7 @@ describe('el subsidio que excede al ISR llega al trabajador', () => {
   });
 
   it('registra en el rastro de auditoría si el criterio lo decidió el despacho', async () => {
-    mockGetPolicy.mockResolvedValue({
-      key: 'subsidio_al_empleo_entregado_registro',
-      value: 'gasto_del_patron', defined: true, question: 'q', rationale: null,
-    });
+    policies('gasto_del_patron', true);
     await calculatePaycheck(ENTRADA);
     const detalle = JSON.parse(insercionDelRecibo().params[31] as string) as {
       subsidio_entregado_efectivo: string;
@@ -278,7 +285,9 @@ describe('el subsidio que excede al ISR llega al trabajador', () => {
     doble('MX', 'subsidio_empleo', { tax_amount: 300, is_credit: true });
     const r = await calculatePaycheck(ENTRADA);
     expect(r.subsidio_entregado_efectivo).toBe('0.0000');
-    expect(mockGetPolicy).not.toHaveBeenCalled();
+    expect(mockGetPolicy).not.toHaveBeenCalledWith(
+      expect.anything(), 'subsidio_al_empleo_entregado_registro', undefined
+    );
     // ISR retenido 500 + IMSS 75.50; el crédito INFONAVIT no es impuesto.
     expect(r.employee_taxes).toBeCloseTo(575.5, 4);
     expect(r.net_pay).toBeCloseTo(2364.5, 4);
@@ -375,5 +384,28 @@ describe('la frontera de inquilino', () => {
     });
     await expect(calculatePaycheck(ENTRADA)).rejects.toThrow(/Employee with id emp-1 not found/);
     expect(clienteEspia.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('the subsidy rounding is the entity policy (#298)', () => {
+  it('reads subsidio_al_empleo_redondeo for the entity and hands it to the subsidy engine', async () => {
+    mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
+      key, value: key === 'subsidio_al_empleo_redondeo' ? 'diario_al_centavo' : 'cuenta_por_cobrar_fisco',
+      defined: true, question: 'q', rationale: null,
+    }));
+    const seen: Array<string | undefined> = [];
+    calculadoras.set('MX:subsidio_empleo', {
+      jurisdiction: 'MX',
+      taxType: 'subsidio_empleo',
+      calculate: async (input): Promise<TaxOutput> => {
+        seen.push(input.employment_subsidy_rounding);
+        return { jurisdiction: 'MX', tax_type: 'subsidio_empleo', tax_amount: 0, taxable_wages_used: 0 };
+      },
+    });
+    await calculatePaycheck(ENTRADA);
+    expect(mockGetPolicy).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', entityId: 'ent-1' }, 'subsidio_al_empleo_redondeo', undefined
+    );
+    expect(seen).toEqual(['diario_al_centavo']);
   });
 });
