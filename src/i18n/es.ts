@@ -228,6 +228,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'aprobar, o rechazar — un rechazo puede sembrar el criterio para la próxima vez',
   'review.draft.bill_to_be_born':
     'Aprobar crea la factura del proveedor del CFDI {uuid} · emisor {issuer} ({rfc}) · método {method} · total {total}',
+  'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N] ',
+  'review.vendor.not_registered':
+    'No se dio de alta al proveedor: no se contabilizó nada y el borrador sigue pendiente.',
   'help.ingest.description':
     'Ingesta por lote de CFDI (XML): reglas → clasificación por IA → borradores (o alta ' +
     'automática según los umbrales)',

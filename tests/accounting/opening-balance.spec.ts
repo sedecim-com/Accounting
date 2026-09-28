@@ -1005,4 +1005,17 @@ describe('checkOpeningBalance · the penny check writes nothing and compares Sal
     expect(r.comparison.diferencias).toEqual([]);
     expect(r.comparison.iguales).toBe(true);
   });
+
+  it('a memorandum account the source declares is left out of the footing by name (#219)', async () => {
+    withLedger(ledger('1000.0000', '-1000.0000'));
+    const xml = archivo([
+      { numCta: '1110', saldoFin: '1000.00' },
+      { numCta: '3100', saldoFin: '1000.00' },
+      { numCta: '800', saldoFin: '75000.00' },
+    ]);
+    const r = await checkOpeningBalance(CTX, { entityId: 'ent-1', xml, memorandumCodes: ['800'] });
+    expect(r.comparison.iguales).toBe(true);
+    expect(r.comparison.faltantes).toEqual([]);
+    expect(r.comparison.excluded).toEqual([{ code: '800', amount: '75000.0000' }]);
+  });
 });
