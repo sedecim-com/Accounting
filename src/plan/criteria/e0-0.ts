@@ -1681,7 +1681,9 @@ export const E0_0: Criterio[] = [
       // `payroll-engines-fail-closed-on-missing-law` (IMSS employer quota).
       // 536 → 537: the mirror #334 adds to
       // `plan-job-gates-run-and-cannot-be-skipped` (the repo-map step).
-      const MIRRORS_FLOOR = 537;
+      // 537 → 541: the four mirrors #297 adds to
+      // `aguinaldo-isr-base-subtracts-the-exempt-part` (MNE-001-062).
+      const MIRRORS_FLOOR = 541;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -1720,7 +1722,8 @@ export const E0_0: Criterio[] = [
       // `grep -cE` over the union.
       // 506 → 509: the three `de:` anchors #296 adds in `criteria/e4-1.ts`.
       // 509 → 510: the `de:` anchor of the repo-map mirror #334 adds here.
-      const ANCHORS_HERE = 510;
+      // 510 → 514: the four `de:` anchors #297 adds in `criteria/e4-1.ts`.
+      const ANCHORS_HERE = 514;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(

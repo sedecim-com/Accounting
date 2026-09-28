@@ -222,6 +222,49 @@ describe('la base del IMSS es el SBC, no la del ISR (#296)', () => {
   });
 });
 
+describe('the aguinaldo is taxed only above 30 UMA (#297)', () => {
+  /** The period paid in February 2026 and the law it reads: 30 UMA of 117.31. */
+  function februaryBonusReads(): void {
+    const answer = mockQuery.getMockImplementation()!;
+    mockQuery.mockImplementation(async (sql: string, params: unknown[]) => {
+      if (/FROM pay_periods pp JOIN pay_schedules/.test(sql)) {
+        return { rows: [{ ...PERIODO, period_start: '2026-02-01', period_end: '2026-02-15', pay_date: '2026-02-15' }] };
+      }
+      if (/FROM legal_parameters/.test(sql)) {
+        return { rows: [{ jurisdiction: 'MX', key: params[1], value: '30.0000', unit: 'UMA',
+          effectiveFrom: '2016-01-28', sourceUrl: 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LISR.pdf', sourceNote: null }] };
+      }
+      if (/FROM tax_parameters/.test(sql)) return { rows: [{ params: { uma_daily: 117.31 } }] };
+      if (/FROM paycheck_earnings/.test(sql)) return { rows: [{ used: '0' }] };
+      return answer(sql, params);
+    });
+  }
+
+  it('ACCEPTANCE: 10 000.00 paid in February 2026 reaches the ISR engine as 6 480.70', async () => {
+    februaryBonusReads();
+    const seen: number[] = [];
+    const isr = calculadoras.get('MX:isr')!;
+    calculadoras.set('MX:isr', { ...isr, calculate: async (i) => { seen.push(i.taxable_wages); return isr.calculate(i); } });
+
+    await calculatePaycheck({ ...ENTRADA, earnings: [{ earning_type: 'aguinaldo', amount: 10000 }] });
+
+    expect(seen).toEqual([6480.7]);
+    const { sql, params } = insercionDelRecibo();
+    const columns = sql.slice(sql.indexOf('(') + 1, sql.indexOf(')')).split(',').map((x) => x.trim());
+    expect(params[columns.indexOf('taxable_wages_isr')]).toBe(6480.7);
+  });
+
+  it('writes the exempt and the taxable part on the earning row', async () => {
+    februaryBonusReads();
+    await calculatePaycheck({ ...ENTRADA, earnings: [{ earning_type: 'aguinaldo', amount: 10000 }] });
+    const c = clienteEspia.query.mock.calls.find((x) => /INSERT INTO paycheck_earnings/.test(String(x[0])))!;
+    const columns = String(c[0]).slice(String(c[0]).indexOf('(') + 1, String(c[0]).indexOf(')')).split(',').map((x) => x.trim());
+    const params = c[1] as unknown[];
+    expect(params[columns.indexOf('isr_exempt_amount')]).toBe('3519.3');
+    expect(params[columns.indexOf('isr_taxable_amount')]).toBe('6480.7');
+  });
+});
+
 describe('el subsidio que excede al ISR llega al trabajador', () => {
   it('entrega la diferencia en efectivo y la suma al neto', async () => {
     const r = await calculatePaycheck(ENTRADA);

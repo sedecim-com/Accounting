@@ -12,6 +12,7 @@ import {
   notaDelSubsidioEntregado,
   type RegistroSubsidioLeido,
 } from '../mx/subsidio-entregado.js';
+import { isrPartsOf } from '../mx/isr-exemption.js';
 import type { TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
 // ============================================================
@@ -219,9 +220,21 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
   // 401k is pre-tax for FIT but NOT for FICA
   const taxableFuta = taxableFica;
   const taxableState = taxableFit;
-  const taxableIsr = sum(
-    input.earnings.filter((e) => e.is_taxable_isr !== false).map((e) => e.amount)
-  ) - preTaxDeductions;
+  // Each earning's ISR parts (#297): the aguinaldo is exempt up to 30 UMA a
+  // year (LISR art. 93 fr. XIV) and only the rest is taxed. The parts are
+  // written on the earning row, and the ISR base is the sum of the taxable ones.
+  const isrParts = await isrPartsOf(
+    input.earnings,
+    emp.country_code === 'MX'
+      ? {
+          tenantId: input.tenant_id,
+          employeeId: input.employee_id,
+          payRunId: run.id,
+          payDate: toCalendarDate(period.pay_date),
+        }
+      : null
+  );
+  const taxableIsr = sum(isrParts.map((p) => p.taxable.toNumber())) - preTaxDeductions;
   // NOTE(#296): the IMSS base is the period's SBC (capped at 25 UMA), not the
   // ISR base: it was `taxableIsr`, so exempt earnings and pre-tax deductions
   // leaked into `taxable_wages_imss`. It is set below from the IMSS engine,
@@ -605,17 +618,19 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
       ]
     );
 
-    for (const e of input.earnings) {
+    for (const [i, e] of input.earnings.entries()) {
       await client.query(
         `INSERT INTO paycheck_earnings (paycheck_id, earning_type, hours, rate, amount,
           is_taxable_fit, is_taxable_state, is_taxable_fica, is_taxable_futa,
-          is_taxable_isr, is_taxable_imss, is_supplemental, cfdi_clave_sat, description)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          is_taxable_isr, is_taxable_imss, is_supplemental, cfdi_clave_sat, description,
+          isr_exempt_amount, isr_taxable_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           paycheckId, e.earning_type, e.hours || null, e.rate || null, e.amount,
           e.is_taxable_fit !== false, e.is_taxable_state !== false, e.is_taxable_fica !== false, e.is_taxable_futa !== false,
           e.is_taxable_isr !== false, e.is_taxable_imss !== false, e.is_supplemental || false,
           e.cfdi_clave_sat || null, e.description || null,
+          isrParts[i].exempt.toString(), isrParts[i].taxable.toString(),
         ]
       );
     }
