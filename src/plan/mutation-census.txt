@@ -450,6 +450,9 @@ mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/servic
 mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/cli/closing-command.ts	el ensayo aconseja --resume sobre la corrida que otro conductor sigue conduciendo
 mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/mx/cfdi-nomina-generator.ts	el comprobante deja de declarar el subsidio entregado con la clave que el SAT cruza, y el criterio tiene que verlo aunque el nodo siga ahí
 mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/gl-posting-service.ts	la rama del cargo queda escrita y nunca se toma: la corrida vuelve a descuadrarse por el importe entregado, que es el defecto original con una condición imposible en vez de un Math.max
+mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/payroll/mx/isr-calculator.ts	restaura la tabla por tramos de la migración 009: el subsidio vuelve a ser el de la ley derogada en mayo de 2024
+mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/payroll/common/paycheck-service.ts	el recibo lee la política y no se la pasa al motor: la clave del panel se vuelve decorativa
+mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/policy/pending-catalog.ts	el panel pierde uno de los dos valores decididos y ofrece truncar, que quedó descartado por no tener fuente
 mirror	memory	E4.1 isn-refuses-instead-of-zero	src/services/payroll/mx/isn-calculator.ts	un régimen escalonado calculado como si fuera tasa plana da un importe plausible y falso, y el criterio sólo lo ve si exige el hallazgo por su nombre
 mirror	memory	E4.1 imss-employee-rates-match-law	src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql	la corrección deja de corregir: vuelve el sobrecobro del 56 % en el ramo de enfermedades y maternidad a todo trabajador con SBC sobre tres UMA, y sale en el recibo, en el CFDI de nómina y en la línea de captura
 mirror	memory	E4.1 imss-employee-rates-match-law	src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql	un relleno que no alcanzó ninguna fila deja de detener la actualización: la migración se registra como aplicada sobre datos que siguen mal, que es la clase de silencio que este proyecto persigue
@@ -990,6 +993,9 @@ anchor	src/plan/criteria/e4-1.ts	de: ' // Not a verdict (see above): the silence
 anchor	src/plan/criteria/e4-1.ts	de: 'runClosingLine(outcome, stopAt, existingRun !== null, liveRun !== null)',
 anchor	src/plan/criteria/e4-1.ts	de: 'TipoOtroPago="002"',
 anchor	src/plan/criteria/e4-1.ts	de: 'isrDeLaCorrida.lessThan(0)',
+anchor	src/plan/criteria/e4-1.ts	de: "const rate = await legalParameterAt('MX', EMPLOYMENT_SUBSIDY_LAW.rate, onDate);",
+anchor	src/plan/criteria/e4-1.ts	de: 'employment_subsidy_rounding: employmentSubsidyRounding,',
+anchor	src/plan/criteria/e4-1.ts	de: "value: 'diario_al_centavo'",
 anchor	src/plan/criteria/e4-1.ts	de: 'isn_regimen_no_soportado',
 anchor	src/plan/criteria/e4-1.ts	de: "to_jsonb(0.004::numeric)",
 anchor	src/plan/criteria/e4-1.ts	de: "RAISE EXCEPTION 'La cuota obrera de enfermedades y maternidad sigue en 0.00625",
