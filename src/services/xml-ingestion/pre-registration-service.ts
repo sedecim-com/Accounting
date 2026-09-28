@@ -884,11 +884,18 @@ export class PreRegistrationService {
     // política CONTESTADA se vuelve respuesta automática de su decisión —
     // el clasificador deja de preguntar lo que el despacho ya respondió.
     const ctx = { tenantId: entidad.rows[0].tenant_id, entityId: preReg.entity_id as string };
-    const [umbralCap, polRestaurantes, polIeps, polInventarios] = await Promise.all([
+    //
+    // NOTE(#128): the prepaid floor was the fifth threshold the classifier
+    // accepts and the only one never read here, so the deferral question
+    // kept the 5,000 constant whatever the firm answered. The accrual
+    // service reads the same policy when a schedule is created
+    // (prepaid-service.ts), so the question and its answer now agree.
+    const [umbralCap, polRestaurantes, polIeps, polInventarios, prepaidThreshold] = await Promise.all([
       getPolicyNumber(ctx, 'umbral_capitalizacion_mxn'),
       getPolicy(ctx, 'politica_restaurantes'),
       getPolicy(ctx, 'tratamiento_ieps'),
       getPolicy(ctx, 'lleva_inventarios'),
+      getPolicyNumber(ctx, 'umbral_anticipado_mxn'),
     ]);
     const answers: Record<string, string> = {};
     if (polRestaurantes.defined) answers.consumo_restaurante = polRestaurantes.value;
@@ -929,6 +936,7 @@ export class PreRegistrationService {
         restaurantPolicy: polRestaurantes.value,
         iepsTreatment: polIeps.value,
         inventoryPolicy: polInventarios.value,
+        prepaidThreshold,
       },
     });
     if (fechaContableHoy) {

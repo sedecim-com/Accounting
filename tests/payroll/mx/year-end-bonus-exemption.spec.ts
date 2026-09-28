@@ -94,7 +94,7 @@ describe('isrPartsOf: each earning carries its exempt and its taxable part', () 
     expect(p.taxable.toFixed(2)).toBe('9480.70');
     const used = mockQuery.mock.calls.find((c) => /FROM paycheck_earnings/.test(String(c[0])));
     // Scoped by tenant and employee, the payment's calendar year, and never the run being calculated.
-    expect(used?.[1]).toEqual(['t-1', 'e-1', 2026, '2026-12-15', 'r-1']);
+    expect(used?.[1]).toEqual(['t-1', 'e-1', 2026, '2026-12-15', 'r-1', 'aguinaldo']);
   });
 
   it('two aguinaldo lines in one paycheck share one cap', async () => {

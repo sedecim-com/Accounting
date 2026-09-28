@@ -975,6 +975,56 @@ export async function postReceiptUnapplicationEntry(
 }
 
 /**
+ * Unapply a vendor payment from a bill, as a new event dated `app.date`:
+ * DR anticipo_proveedores (the cash is back on account; unapplying is not a
+ * refund) and DR devolucion_compras for the discount the application took,
+ * against CR cxp for both, since the bill is owed again. The IVA the
+ * application released goes back to pending: DR iva_pendiente_acreditar ·
+ * CR iva_acreditable, for the amount its rows stored.
+ */
+export async function postVendorUnapplicationEntry(
+  client: pg.PoolClient,
+  payment: PaymentRow,
+  app: { billNumber: string; amount: string; discount: string; iva: string; date: string },
+  userId: string
+): Promise<JournalEntry> {
+  const discount = new Decimal(app.discount);
+  const iva = new Decimal(app.iva);
+  const { from, to } = reclassRoles('received');
+  const roles = await roleAccounts(client, payment.entity_id, [
+    'cxp', 'anticipo_proveedores',
+    ...(discount.greaterThan(0) ? ['devolucion_compras'] : []),
+    ...(iva.greaterThan(0) ? [from, to] : []),
+  ]);
+  const tail = `${app.billNumber} (unapply ${payment.payment_number})`;
+  const lines: JeLine[] = [
+    { account_id: requireRole(roles, 'anticipo_proveedores'), debit_amount: app.amount, credit_amount: null,
+      description: `Back on account ${payment.payment_number}` },
+    { account_id: requireRole(roles, 'cxp'), debit_amount: null,
+      credit_amount: new Decimal(app.amount).plus(discount).toFixed(4), description: `AP reopened ${tail}` },
+  ];
+  if (discount.greaterThan(0)) {
+    lines.push({ account_id: requireRole(roles, 'devolucion_compras'), debit_amount: discount.toFixed(4),
+      credit_amount: null, description: `Early-payment discount given back ${tail}` });
+  }
+  if (iva.greaterThan(0)) {
+    lines.push({ account_id: requireRole(roles, from), debit_amount: iva.toFixed(4), credit_amount: null,
+      description: `IVA back in ${from} - Bill ${tail}` });
+    lines.push({ account_id: requireRole(roles, to), debit_amount: null, credit_amount: iva.toFixed(4),
+      description: `IVA re-parked out of ${to} - Bill ${tail}` });
+  }
+  return createJournalEntry(
+    payment.entity_id,
+    app.date,
+    JournalEntryType.AUTO_PAYMENT,
+    `Unapplication of ${payment.payment_number} from ${app.billNumber}`,
+    lines,
+    userId,
+    { autoPost: true, client, sourceType: 'vendor_unapplication', sourceId: payment.id, reference: payment.payment_number }
+  );
+}
+
+/**
  * DR cxp · CR bank, plus — for every PPD bill this payment applies to —
  * DR iva_acreditable · CR iva_pendiente_acreditar for the paid share. Under
  * LIVA art. 5 the input IVA becomes creditable here, not when the bill
@@ -1007,6 +1057,21 @@ export async function postVendorPaymentEntry(
         }
       : undefined
   );
+  // The IVA each application born with this payment released, 0 included,
+  // stored on its row (105) so `payment unapply` re-parks it exactly instead
+  // of re-deriving it under another context.
+  const released = new Map(iva.items.map((i) => [i.documentId, i.amount]));
+  const born = await client.query<{ id: string; bill_id: string }>(
+    `SELECT id, bill_id FROM payment_applications
+      WHERE payment_id = $1 AND unapplied_at IS NULL AND iva_reclass_amount IS NULL`,
+    [payment.id]
+  );
+  for (const row of born.rows) {
+    await client.query(
+      `UPDATE payment_applications SET iva_reclass_amount = $1 WHERE id = $2`,
+      [released.get(row.bill_id) ?? '0', row.id]
+    );
+  }
 
   if (fx) {
     const desglose = desgloseCambiarioDelPago(payment.payment_amount, fx);
@@ -1129,7 +1194,7 @@ export async function postVendorPaymentEntry(
   const aplic = await client.query<{ aplicado: string; descuento: string }>(
     `SELECT COALESCE(SUM(amount_applied), 0)::text  AS aplicado,
             COALESCE(SUM(discount_amount), 0)::text AS descuento
-       FROM payment_applications WHERE payment_id = $1`,
+       FROM payment_applications WHERE payment_id = $1 AND unapplied_at IS NULL`,
     [payment.id]
   );
   const aplicado = new Decimal(aplic.rows[0]?.aplicado ?? '0');

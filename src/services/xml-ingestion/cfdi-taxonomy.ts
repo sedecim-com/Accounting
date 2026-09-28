@@ -232,6 +232,7 @@ export const CASES: CfdiCase[] = [
       { role: 'ieps_por_pagar', side: 'credit', amount: A.ieps, description: 'IEPS transferred', omitIfZero: true },
       // Symmetric to received PPD: the VAT is triggered on collection.
       { role: 'iva_trasladado_no_cobrado', side: 'credit', amount: A.ivaTrasladado, description: 'Output VAT not collected (triggered with the REP)', omitIfZero: true },
+      { role: 'impuestos_locales_por_pagar', side: 'credit', amount: A.localesTras, description: 'Local taxes transferred', omitIfZero: true },
     ],
     notes:
       'The VAT on a PPD sale is triggered at the moment of collection. Booking it straight to ' +
@@ -250,6 +251,8 @@ export const CASES: CfdiCase[] = [
       { role: 'ingreso', side: 'credit', amount: A.subtotalNeto, description: 'Sale' },
       { role: 'ieps_por_pagar', side: 'credit', amount: A.ieps, description: 'IEPS transferred', omitIfZero: true },
       { role: 'iva_trasladado', side: 'credit', amount: A.ivaTrasladado, description: 'Output VAT', omitIfZero: true },
+      // A hotel's ISH (#102): collected for the state, so a liability, never revenue.
+      { role: 'impuestos_locales_por_pagar', side: 'credit', amount: A.localesTras, description: 'Local taxes transferred', omitIfZero: true },
     ],
     notes: 'Exports (Comercio Exterior complement) carry 0% VAT: there is no output VAT.',
     priority: 70,

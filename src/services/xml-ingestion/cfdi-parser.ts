@@ -96,6 +96,9 @@ export interface CFDIParsed {
  */
 const isDeclared = (v: unknown): boolean => v !== undefined && v !== null && v !== '';
 
+/** An optional total of the ImpuestosLocales complement; an absent one adds nothing. */
+const amountOf = (v: unknown): number => (isDeclared(v) ? parseFloat(String(v)) : 0);
+
 // ============================================================
 // CFDI PARSER
 // ============================================================
@@ -290,6 +293,19 @@ export class CFDIParser {
       complementos.push({ type: 'Nomina', data: complementoNode.Nomina as Record<string, unknown> });
     }
 
+    // Local taxes (lodging ISH, #102) live here and not in the Impuestos node:
+    // unread, a hotel CFDI's total never matches its parts.
+    if (complementoNode.ImpuestosLocales) {
+      const loc = complementoNode.ImpuestosLocales as Record<string, unknown>;
+      complementos.push({
+        type: 'ImpuestosLocales',
+        data: {
+          TotaldeTraslados: amountOf(loc['@_TotaldeTraslados']),
+          TotaldeRetenciones: amountOf(loc['@_TotaldeRetenciones']),
+        },
+      });
+    }
+
     return complementos;
   }
 
@@ -332,10 +348,13 @@ export class CFDIParser {
       errors.push('Conceptos total does not match SubTotal');
     }
 
+    const locales = cfdi.complementos.find((c) => c.type === 'ImpuestosLocales')?.data;
     const calculatedTotal = new Decimal(cfdi.subTotal)
       .minus(cfdi.descuento || 0)
       .plus(cfdi.impuestos.totalImpuestosTrasladados || 0)
-      .minus(cfdi.impuestos.totalImpuestosRetenidos || 0);
+      .minus(cfdi.impuestos.totalImpuestosRetenidos || 0)
+      .plus(amountOf(locales?.TotaldeTraslados))
+      .minus(amountOf(locales?.TotaldeRetenciones));
 
     if (calculatedTotal.minus(cfdi.total).abs().greaterThan('0.01')) {
       errors.push('Total calculation mismatch');
