@@ -37,6 +37,7 @@ mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	la segunda puerta se apaga igual que la primera, y un criterio que sólo nombrara a la primera lo dejaría pasar
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	la puerta se apaga SIN borrar nada: los siete pasos siguen escritos, siguen corriendo y siguen fallando, y la fusión pasa igual
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el `|| true` es el continue-on-error de un solo paso y no toca el encabezado del job: el ancla tiene que cerrar la línea por la derecha para verlo
+mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	the newest gate goes dark the way the first one did, commented out, and the map would go back to omitting new modules without a word (#334)
 mirror	memory	E0.0 audit-record-per-closed-flow	docs/auditorias/F03.md	el registro de un flujo cerrado desaparece: la compuerta debe acusarlo, que es lo único que vino a hacer
 mirror	memory	E0.0 audit-record-per-closed-flow	docs/cli-command-catalog.md	una celda reclama un tramo de la serie W que no tiene registro: la compuerta tiene que acusarlo, igual que con los flujos F, A y R
 mirror	memory	E0.0 audit-record-per-closed-flow	docs/cli-command-catalog.md	el catálogo reclama un flujo NUEVO sin auditoría: cerrar sin registro es exactamente lo prohibido
@@ -575,6 +576,7 @@ anchor	src/plan/criteria/e0-0.ts	de: ' - run: npm run plan:status -- --piso',
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npx tsx scripts/catalogo-estado.ts --check',
 anchor	src/plan/criteria/e0-0.ts	de: ' plan:\n name: Estado del plan',
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npx tsx scripts/historial-estado.ts --check',
+anchor	src/plan/criteria/e0-0.ts	de: ' - run: npx tsx scripts/repo-map.ts --check',
 anchor	src/plan/criteria/e0-0.ts	de: '# Auditoría adversarial de F03',
 anchor	src/plan/criteria/e0-0.ts	de: 'hecha en W0**',
 anchor	src/plan/criteria/e0-0.ts	de: 'hecha en F03',
