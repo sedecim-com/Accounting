@@ -129,7 +129,7 @@
     "src/services/banking/statement-checks.ts": "54a4b54f11f557740ccda5c25f5cef304ba8415e",
     "src/services/banking/match-service.ts": "9d1e1102f5eeaef433acf24cfbf3f6283fab17df",
     "src/services/banking/book-items.ts": "e6a4453810d68c32571e3eea87f334f45e073ce6",
-    "src/services/banking/reconciliation-service.ts": "bf1b2084653b37438d39593dcebf109d40d61ea7",
+    "src/services/banking/reconciliation-service.ts": "e47720550bf06ba8b0cd99192a6a5b1bf8195507",
     "src/services/banking/reconciling-items.ts": "7d552b4396a1518c3cd3ec98f4922e222d80c57b",
     "src/services/banking/reconciliation-adjustments.ts": "05f7dc904f77c9a6fa4b187b5a93b8b4274f10c8",
     "src/cli/bank-command.ts": "f152725ebb8ef6ea3ac400ab8cccaedcf17d1b31",
