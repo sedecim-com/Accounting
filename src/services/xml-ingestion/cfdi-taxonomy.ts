@@ -11,6 +11,11 @@ import { TIPO_RELACION, type CfdiFacts } from './cfdi-facts.js';
 export type AccountRole =
   // Revenue and collections
   | 'ingreso' | 'devolucion_ventas' | 'anticipo_clientes' | 'cxc' | 'banco'
+  // Cash as a whole: the account whose tree the cash-flow statement reads as
+  // cash (BAN-1, #324). It is NOT a posting role: no case posts to it, and
+  // `banco` is where money lands. They are separate so that `banco` can live on
+  // a leaf while cash keeps its parent and every bank account under it.
+  | 'efectivo'
   // Ingresos que no son ventas: hoy sólo el remanente de un pago corto que se
   // decide tratar como ganancia (política `pago_corto_residual`). Separado de
   // `ingreso` a propósito — meterlo en 4100 inflaría las ventas con algo que
