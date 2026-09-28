@@ -77,9 +77,12 @@ describe('el cero que el parser borraba', () => {
     // Trampa que el arreglo abre y cierra a la vez: mientras el cubo de 0 %
     // sumaba el importe, un `@_Base` ausente daba NaN y no lo notaba nadie.
     // Desde que suma la BASE, ese NaN envenenaría el Decimal de la partida.
+    // MNE-001-027 (#284): the parsed transfer keeps the Base ABSENT, because
+    // bill_lines.valor_actos must tell "not declared" from zero; the bucket
+    // still adds it as zero.
     const withoutBase = '<cfdi:Traslado Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.000000" Importe="0.00"/>';
     const t = parser.parse(xml(withoutBase)).conceptos[0].impuestos!.traslados![0];
-    expect(t.base).toBe(0);
+    expect(t.base).toBeUndefined();
     expect(parser.calculateTaxBreakdown(parser.parse(xml(withoutBase))).iva_0).toBe('0.0000');
   });
 });
