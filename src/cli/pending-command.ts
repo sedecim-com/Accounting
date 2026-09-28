@@ -59,6 +59,20 @@ function optOf<T>(
 }
 
 
+/**
+ * The panel scope of every `pending` verb: the entity `--entity` resolved,
+ * never the bare tenant (T6 · #93).
+ *
+ * `define` used to preview against the entity and resolve against the
+ * tenant, so the accountant was shown one company's evidence and the gate
+ * opened on all of them; `dismiss` and `reopen` touched every entity's row.
+ * One function, so the preview, the listing and the write cannot drift
+ * apart again.
+ */
+function panelScope(ctx: AgentContext): { tenantId: string; entityId: string } {
+  return { tenantId: ctx.tenantId, entityId: ctx.entityId };
+}
+
 /** Pluralize: "1 thing" / "4 things". */
 function plural(n: number, singular: string, plural_: string): string {
   return `${n} ${n === 1 ? singular : plural_}`;
@@ -253,7 +267,7 @@ export async function renderAll(
 ): Promise<string[]> {
   const out: string[] = [];
   const [board] = await Promise.all([getPendingBoard(ctx), seedPolicies({ tenantId: ctx.tenantId })]);
-  const policies = await listPending({ tenantId: ctx.tenantId });
+  const policies = await listPending(panelScope(ctx));
 
   out.push(...renderBoard(board, ctx.entityName, c));
 
@@ -308,7 +322,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
         }
 
         if (opts.all) {
-          const closed = (await listPolicies({ tenantId: ctx.tenantId })).filter(
+          const closed = (await listPolicies(panelScope(ctx))).filter(
             (r) => r.status !== 'pending'
           );
           if (closed.length > 0) {
@@ -348,7 +362,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
         const reviewer = await resolveReviewer(ctx.tenantId, optOf<string>(opts, command, 'user'));
         await seedPolicies({ tenantId: ctx.tenantId });
 
-        const pending = await listPending({ tenantId: ctx.tenantId });
+        const pending = await listPending(panelScope(ctx));
         const p = pending.find((x) => x.key === key);
         if (!p) {
           // A key that does not exist is NOT_FOUND (3) by the exit-code
@@ -375,12 +389,9 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
           for (const l of field('impact', wording.impact, c, '')) console.log(l);
           // The moment of the decision deserves the same explanation the
           // listing gives — and the preview against this entity's own data,
-          // which is the whole reason `previewFor` exists.
-          const preview = await previewFor(key, {
-            entityId: ctx.entityId,
-            tenantId: ctx.tenantId,
-            currency: ctx.currency,
-          });
+          // which is the whole reason `previewFor` exists. Built from the
+          // same `panelScope` the write below uses.
+          const preview = await previewFor(key, { ...panelScope(ctx), currency: ctx.currency });
           for (const l of renderExplanation(key, c, preview, '')) console.log(l);
           options.forEach((o, i) => {
             const head = `  ${i + 1}) `;
@@ -418,8 +429,8 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
           chosen = interpreted.value;
         }
 
-        await resolvePolicy({ tenantId: ctx.tenantId }, key, chosen, reviewer.email, optOf<string>(opts, command, 'note'));
-        const remaining = (await listPending({ tenantId: ctx.tenantId })).length;
+        await resolvePolicy(panelScope(ctx), key, chosen, reviewer.email, optOf<string>(opts, command, 'note'));
+        const remaining = (await listPending(panelScope(ctx))).length;
         console.log(`✔ ${c.bold(key)} = ${chosen}`);
         console.log(c.dim(`${plural(remaining, 'definition', 'definitions')} still pending.`));
         await shutdown(0);
@@ -442,7 +453,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
       try {
         const ctx = await resolveEntity(optOf<string>(opts, command, 'entity'));
         const reviewer = await resolveReviewer(ctx.tenantId, optOf<string>(opts, command, 'user'));
-        await dismissPolicy({ tenantId: ctx.tenantId }, key, reviewer.email, optOf<string>(opts, command, 'note'));
+        await dismissPolicy(panelScope(ctx), key, reviewer.email, optOf<string>(opts, command, 'note'));
         console.log(`✘ ${key} dismissed.`);
         await shutdown(0);
       } catch (err) {
@@ -460,7 +471,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
     .action(async (key: string, opts: { entity?: string }, command: unknown) => {
       try {
         const ctx = await resolveEntity(optOf<string>(opts, command, 'entity'));
-        await reopenPolicy({ tenantId: ctx.tenantId }, key);
+        await reopenPolicy(panelScope(ctx), key);
         console.log(`↻ ${key} is pending again.`);
         await shutdown(0);
       } catch (err) {
