@@ -102,7 +102,10 @@ export const config = {
     // decided by the token: it is deployment configuration.
     tenantId: process.env.AUTH_OIDC_TENANT_ID || '',
     get enabled(): boolean {
-      return Boolean(this.issuer && this.audience);
+      // Cognito's access tokens carry no aud: with AUTH_OIDC_PROVIDER=cognito
+      // the app clients in AUTH_OIDC_CLIENT_ID take the audience's place
+      // (accessTokenCheck in src/auth/oidc.ts, #369).
+      return Boolean(this.issuer && (this.provider === 'cognito' ? this.clientId : this.audience));
     },
   },
 
