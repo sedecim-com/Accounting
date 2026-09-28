@@ -79,6 +79,14 @@ import type { AccountType } from './account-service.js';
 /** Los cinco tipos del esquema que no son contracuenta. */
 export type BaseAccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
 
+/**
+ * Where the memorandum-account doctrine is written (#219, owner's decision of
+ * 2026-09-26): the 8xx do not migrate in this version. The importer's warning
+ * and the opening check's exclusion both cite it, so the accountant reading
+ * either one lands on the same page.
+ */
+export const MEMORANDUM_DOCTRINE = 'docs/memorandum-accounts.md';
+
 export type AgrupadorVerdict =
   /** El rubro está en el c_CodAgrup y este módulo sabe de qué es. */
   | 'oficial'

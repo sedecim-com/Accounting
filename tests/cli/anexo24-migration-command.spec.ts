@@ -145,7 +145,15 @@ describe('opening-balance check', () => {
   const report = (equal: boolean) => ({
     entityId: 'e-1',
     asOf: '2026-01-01',
-    comparison: { columna: 'SaldoFin', comparadas: 3, diferencias: [], faltantes: [], sobrantes: [], iguales: equal },
+    comparison: {
+      columna: 'SaldoFin',
+      comparadas: 3,
+      diferencias: [],
+      faltantes: [],
+      sobrantes: [],
+      excluded: [],
+      iguales: equal,
+    },
   });
 
   it('exits 0 when equal to the peso, and 4 when not', async () => {
