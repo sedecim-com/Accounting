@@ -2178,15 +2178,16 @@ export const E4_1: Criterio[] = [
       }
 
       const c = codigoDe(cli);
-      if (!/function panelScope\(ctx: AgentContext\)[^{]*\{\s*return \{ tenantId: ctx\.tenantId, entityId: ctx\.entityId \};/.test(c)) {
+      if (!/function panelScope\(ctx: AgentContext\): \{ tenantId: string; entityId: string \} \{\s*return \{ tenantId: ctx\.tenantId, entityId: ctx\.entityId \};/.test(c)) {
         return falla('panelScope lost the entity: every pending verb falls back to the tenant scope, which governs them all');
       }
       for (const verb of ['resolvePolicy', 'dismissPolicy', 'reopenPolicy', 'listPending', 'listPolicies']) {
-        const calls = [...c.matchAll(new RegExp(`\\b${verb}\\(([^,)]*)`, 'g'))];
+        const calls = [...c.matchAll(new RegExp(`\\b${verb}\\(`, 'g'))];
         if (calls.length === 0) return falla(`pending no longer calls ${verb}`);
-        const loose = calls.find((m) => m[1].trim() !== 'panelScope(ctx)');
+        const loose = calls.find((m) => !c.startsWith('panelScope(ctx)', (m.index ?? 0) + m[0].length));
         if (loose) {
-          return falla(`pending calls ${verb}(${loose[1].trim()}) instead of panelScope(ctx): that surface acts without the entity it resolved`);
+          const arg = c.slice((loose.index ?? 0) + loose[0].length).split(/[,\n]/)[0];
+          return falla(`pending calls ${verb}(${arg}) instead of panelScope(ctx): that surface acts without the entity it resolved`);
         }
       }
       if (!/previewFor\(key, \{ \.\.\.panelScope\(ctx\)/.test(c)) {
