@@ -315,6 +315,14 @@ jobs:
       # clase y el que mide la ayuda renderizada se cita, no se recuenta.
       - run: npx tsx scripts/language-status.ts --check
 
+      # THE REPOSITORY MAP (#334). docs/REPO_MAP.md is what an agent reads
+      # before opening files (AGENTS.md), and its module lines are written by
+      # hand in scripts/repo-map.ts. Without this step nobody ran --check, so a
+      # new directory under src/services/ could land with no line and the map
+      # would omit it without a word. It also fails when a file crosses 1000
+      # lines, on purpose: that file joins the map's «read by ranges» list.
+      - run: npx tsx scripts/repo-map.ts --check
+
   # EL ENSAYO DE LA RESTAURACIÓN (S3).
   #
   # Un respaldo no probado no es un respaldo. Este job siembra, respalda,
