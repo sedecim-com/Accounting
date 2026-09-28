@@ -137,6 +137,13 @@ mirror	memory	E1.2 a-stored-date-is-read-back-whole	tests/utils/stored-dates-are
 mirror	memory	E1.2 days-are-counted-on-the-calendar-not-on-a-clock	src/utils/calendar-date.ts	un extremo deja de normalizarse: el Date que pg entrega vuelve a leerse por su texto ISO en UTC y el conteo se descuadra al oeste de Greenwich
 mirror	memory	E1.2 days-are-counted-on-the-calendar-not-on-a-clock	src/services/ap/bill-service.ts	vuelve la resta de milisegundos justo donde reparte dinero: el descuento del 2 % se concede un día después de vencido en media esfera
 mirror	memory	E1.2 days-are-counted-on-the-calendar-not-on-a-clock	tests/utils/days-between.spec.ts	la reproducción deja de cambiar de zona: todas las aserciones corren en el huso de CI, que es UTC — la única zona donde el defecto no se ve
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/ar/credit-note-service.ts	the UTC day comes back: at 20:00 on the 31st in Mexico City the note is dated, numbered and posted on the 1st
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/ar/credit-note-service.ts	a bare CURRENT_DATE is the database session's day, which on a UTC server is the same wrong day
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/utils/calendar-date.ts	the resolver reads the process's local fields instead of the zone: on a UTC server that is the UTC day again
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/utils/calendar-date.ts	the zone stops being checked: a misspelt zone is accepted and fails later, somewhere else
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/policy/today.ts	the policy stops being read: an entity in Tijuana or Cancún gets Mexico City's day whatever it answered
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/payroll/tax-engine/tax-tables.ts	the fallback of the legal parameters goes back to the UTC day and picks the row of the next day
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	tests/utils/today-in-zone.spec.ts	the reproduction stops moving the process zone: it only runs in CI's UTC, where the process-local mirror is invisible
 mirror	memory	E1.2 an-advance-cannot-be-booked-in-another-currency	src/services/payments/payment-service.ts	la comparación se invierte: pasa el anticipo en otra moneda y se rehúsa el que sí está en la funcional
 mirror	memory	E1.2 an-advance-cannot-be-booked-in-another-currency	src/services/payments/payment-service.ts	la funcional deja de leerse de la entidad y se toma del propio anticipo: la comparación se vuelve tautológica y nunca acusa
 mirror	memory	E1.2 an-advance-cannot-be-booked-in-another-currency	src/services/payments/payment-service.ts	el anticipo a proveedor vuelve a caer en el respaldo literal «MXN» de currencyOf: se asienta en pesos sin preguntar al proveedor, al llamador ni a la entidad
@@ -679,6 +686,13 @@ anchor	src/plan/criteria/e1-2.ts	de: "const [y, m, d] = iso.split('-').map(Numbe
 anchor	src/plan/criteria/e1-2.ts	de: 'const [ty, tm, td] = toCalendarDate(to).split(\'-\').map(Number);',
 anchor	src/plan/criteria/e1-2.ts	de: 'const daysUntilPayment = daysBetween(bill.bill_date, paymentDate);',
 anchor	src/plan/criteria/e1-2.ts	de: "process.env.TZ = tz;",
+anchor	src/plan/criteria/e1-2.ts	de: 'input.credit_date ?? (await todayFor({ tenantId, entityId: input.entity_id }, { client }))',
+anchor	src/plan/criteria/e1-2.ts	de: '(await todayFor({ tenantId, entityId: input.entity_id }, { client }))',
+anchor	src/plan/criteria/e1-2.ts	de: "return formatParts(field('year'), field('month'), field('day'));",
+anchor	src/plan/criteria/e1-2.ts	de: "knownZones ??= new Set(Intl.supportedValuesOf('timeZone'));",
+anchor	src/plan/criteria/e1-2.ts	de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value',
+anchor	src/plan/criteria/e1-2.ts	de: 'const today = await todayFor(null);',
+anchor	src/plan/criteria/e1-2.ts	de: 'process.env.TZ = tz;',
 anchor	src/plan/criteria/e1-2.ts	de: 'if (advanceCurrency !== functionalCurrency) {',
 anchor	src/plan/criteria/e1-2.ts	de: 'const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);',
 anchor	src/plan/criteria/e1-2.ts	de: 'vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod',

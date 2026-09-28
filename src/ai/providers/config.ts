@@ -747,6 +747,17 @@ export function listProfiles(cwd = process.cwd()): {
 }
 
 /**
+ * The profile exists but has no credential to call it with. `ingest` reads it
+ * as «no model provider» and runs the deterministic layer alone (#319).
+ */
+export class MissingProviderCredentialError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MissingProviderCredentialError';
+  }
+}
+
+/**
  * Resolves the profile to use. `flagName` comes from --provider; `modelOverride`
  * from --model. Validates that the named API key exists in the environment.
  */
@@ -792,7 +803,7 @@ export function resolveProfile(
   // Anthropic resolves credentials on its own (ant profile, auth token);
   // for the rest the credential is mandatory if the profile names it.
   if (!apiKey && profile.api_key_env && profile.type === 'openai-compatible') {
-    throw new Error(
+    throw new MissingProviderCredentialError(
       `Provider "${name}" requires the environment variable ${profile.api_key_env} ` +
         '(add it to your .env) or an api_key_cmd in mnemosine.config.json'
     );

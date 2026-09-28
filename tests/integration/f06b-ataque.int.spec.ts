@@ -55,7 +55,7 @@ async function repAparcado(fx: Fixture, fecha: string): Promise<string> {
 }
 
 async function postearEn(fx: Fixture, mes: number, monto: string) {
-  const cargo = fx.roles.cxc ?? Object.values(fx.cuentas)[0];
+  const cargo = fx.cuentas['1140'] ?? Object.values(fx.cuentas)[0];
   const abono = fx.cuentas['4100'] ?? Object.values(fx.cuentas)[1];
   return createJournalEntry(
     fx.entityId,

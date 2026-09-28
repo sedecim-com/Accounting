@@ -74,8 +74,8 @@ beforeAll(async () => {
   // El ejercicio 2026: 10 000 de ventas en enero y 6 000 de costo en marzo.
   // Utilidad de 4 000, y es la cifra que el estado de resultados tiene que
   // seguir diciendo después de cerrar.
-  await asiento(f, '2026-01-15', JournalEntryType.STANDARD, '1120', '4100', '10000.0000', 'Venta del ejercicio');
-  await asiento(f, '2026-03-10', JournalEntryType.STANDARD, '5100', '1120', '6000.0000', 'Costo del ejercicio');
+  await asiento(f, '2026-01-15', JournalEntryType.STANDARD, '1111', '4100', '10000.0000', 'Venta del ejercicio');
+  await asiento(f, '2026-03-10', JournalEntryType.STANDARD, '5100', '1111', '6000.0000', 'Costo del ejercicio');
 
   // EL CIERRE, A MANO Y FECHADO EL ÚLTIMO DÍA DEL EJERCICIO.
   //
@@ -243,26 +243,26 @@ describe('el chequeo «balance» mira las columnas que el cierre escribe', () =>
     await query(
       `UPDATE account_balances SET ending_balance = 99999
         WHERE account_id = $1 AND fiscal_period_id = $2`,
-      [f.cuentas['1120'], f.periodos[1]]
+      [f.cuentas['1111'], f.periodos[1]]
     );
 
     const hallazgos = await hallazgosBalance();
     expect(hallazgos.length).toBeGreaterThan(0);
-    const h = hallazgos.find((x) => x.referencia.startsWith('1120'));
-    expect(h, 'el hallazgo tiene que nombrar la cuenta 1120').toBeDefined();
+    const h = hallazgos.find((x) => x.referencia.startsWith('1111'));
+    expect(h, 'el hallazgo tiene que nombrar la cuenta 1111').toBeDefined();
     expect(h!.referencia).toContain('Periodo 1/2026');
     expect(h!.detalle).toContain('99999');
     expect(h!.severity).toBe('blocking');
 
     // El filtro por cuenta lo encuentra igual (y no se vuelve estéril).
-    const porCuenta = await runLedgerChecks(f.entityId, ['balance'], { account: '1120' });
+    const porCuenta = await runLedgerChecks(f.entityId, ['balance'], { account: '1111' });
     expect(porCuenta.length).toBeGreaterThan(0);
 
     await query(
       `UPDATE account_balances
           SET ending_balance = beginning_balance + debit_total - credit_total
         WHERE account_id = $1 AND fiscal_period_id = $2`,
-      [f.cuentas['1120'], f.periodos[1]]
+      [f.cuentas['1111'], f.periodos[1]]
     );
     expect(await hallazgosBalance()).toEqual([]);
   });
@@ -274,7 +274,7 @@ describe('el chequeo «balance» mira las columnas que el cierre escribe', () =>
     await hardClosePeriod(f.periodos[1], f.entityId, f.userId, 'cierre de enero');
     expect(await hallazgosBalance()).toEqual([]);
 
-    const antes = await saldo(f.cuentas['1120'], f.periodos[2]);
+    const antes = await saldo(f.cuentas['1111'], f.periodos[2]);
     expect(antes?.beginning).toBe('10000.0000');
 
     // Se rompe SÓLO la cadena: el invariante dentro del renglón se mantiene,
@@ -284,7 +284,7 @@ describe('el chequeo «balance» mira las columnas que el cierre escribe', () =>
           SET beginning_balance = 1,
               ending_balance = 1 + debit_total - credit_total
         WHERE account_id = $1 AND fiscal_period_id = $2`,
-      [f.cuentas['1120'], f.periodos[2]]
+      [f.cuentas['1111'], f.periodos[2]]
     );
 
     const hallazgos = await hallazgosBalance();
@@ -297,7 +297,7 @@ describe('el chequeo «balance» mira las columnas que el cierre escribe', () =>
       `UPDATE account_balances
           SET beginning_balance = 10000, ending_balance = 10000 + debit_total - credit_total
         WHERE account_id = $1 AND fiscal_period_id = $2`,
-      [f.cuentas['1120'], f.periodos[2]]
+      [f.cuentas['1111'], f.periodos[2]]
     );
     expect(await hallazgosBalance()).toEqual([]);
   });
@@ -318,7 +318,7 @@ async function saldo(accountId: string, periodId: string) {
 
 describe('inicial_confiable', () => {
   it('febrero tiene inicial de fiar porque ENERO cerró duro, no porque febrero esté abierto', async () => {
-    const aux = await getAuxiliaryView(f.entityId, '1120', 'Periodo 2/2026');
+    const aux = await getAuxiliaryView(f.entityId, '1111', 'Periodo 2/2026');
     expect(aux.period_status).toBe('open');
     expect(aux.inicial).toBe('10000.0000');
     // Antes juraba por el periodo consultado: febrero abierto daba `false`
@@ -331,7 +331,7 @@ describe('inicial_confiable', () => {
     // Se cierra abril con marzo abierto — se cierra fuera de orden más a
     // menudo de lo que se admite, y el XML del Anexo 24 atesta este campo.
     await query(`UPDATE fiscal_periods SET status = 'hard_close' WHERE id = $1`, [f.periodos[4]]);
-    const aux = await getAuxiliaryView(f.entityId, '1120', 'Periodo 4/2026');
+    const aux = await getAuxiliaryView(f.entityId, '1111', 'Periodo 4/2026');
     expect(aux.period_status).toBe('hard_close');
     // Antes: `true`, porque miraba el estado de abril.
     expect(aux.inicial_confiable).toBe(false);
@@ -340,7 +340,7 @@ describe('inicial_confiable', () => {
   });
 
   it('el primer periodo del ejercicio no finge un acumulado que nadie arrastró', async () => {
-    const aux = await getAuxiliaryView(f.entityId, '1120', 'Periodo 1/2026');
+    const aux = await getAuxiliaryView(f.entityId, '1111', 'Periodo 1/2026');
     expect(aux.periodo_anterior).toBeNull();
     expect(aux.inicial_confiable).toBe(false);
   });
@@ -353,7 +353,7 @@ describe('inicial_confiable', () => {
 describe('volver a cerrar un periodo reabierto rehace el arrastre', () => {
   it('lo posteado durante la reapertura llega al saldo inicial del mes siguiente', async () => {
     // Enero quedó en hard_close arriba, y febrero abre en 10 000.
-    expect((await saldo(f.cuentas['1120'], f.periodos[2]))?.beginning).toBe('10000.0000');
+    expect((await saldo(f.cuentas['1111'], f.periodos[2]))?.beginning).toBe('10000.0000');
 
     const r = await reopenClosedPeriod(
       f.entityId,
@@ -363,7 +363,7 @@ describe('volver a cerrar un periodo reabierto rehace el arrastre', () => {
     );
     expect(r.previousStatus).toBe('hard_close');
 
-    await asiento(f, '2026-01-20', JournalEntryType.CORRECTION, '1120', '4100', '500.0000', 'Corrección de enero');
+    await asiento(f, '2026-01-20', JournalEntryType.CORRECTION, '1111', '4100', '500.0000', 'Corrección de enero');
 
     await restorePeriodStatus(
       f.entityId,
@@ -376,7 +376,7 @@ describe('volver a cerrar un periodo reabierto rehace el arrastre', () => {
     // ANTES: un UPDATE pelado del status devolvía la etiqueta y dejaba a
     // febrero abriendo en 10 000 — la corrección se quedaba dentro de enero y
     // desaparecía del ejercicio a partir de febrero.
-    const despues = await saldo(f.cuentas['1120'], f.periodos[2]);
+    const despues = await saldo(f.cuentas['1111'], f.periodos[2]);
     expect(despues?.beginning).toBe('10500.0000');
     expect(despues?.ending).toBe('10500.0000');
 
