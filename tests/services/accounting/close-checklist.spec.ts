@@ -5,6 +5,7 @@ import {
   severidadDeLineaSinPartida,
   severidadDelAgrupadorFaltante,
   casillaDelAgrupador,
+  subledgerDeltaCheck,
 } from '../../../src/services/accounting/period-close.js';
 import {
   REMEDIO_DE,
@@ -225,5 +226,45 @@ describe('el remedio de la casilla del agrupador', () => {
     expect(CLOSE_CHECK_ITEMS['sat-agrupador-missing']).toBe(
       'Accounts with movement have their SAT grouping code'
     );
+  });
+});
+
+describe('subledgerDeltaCheck (MNE-001-035, #98)', () => {
+  const agrees = { control: '1190000.00', subledger: '1190000.00', delta: '0.00', balanced: true };
+  const gap = { control: '1240000.00', subledger: '1190000.00', delta: '50000.00', balanced: false };
+
+  it('a subledger that agrees with its control is green, and still says it would block', () => {
+    const c = subledgerDeltaCheck('ar-subledger-delta', agrees);
+    expect(c).toMatchObject({ codigo: 'ar-subledger-delta', is_complete: true, severity: 'blocking' });
+    expect(c.details).toBeUndefined();
+  });
+
+  it('a delta is a BLOCKING finding that names both sides and the command that lists the causes', () => {
+    for (const [code, command] of [
+      ['ar-subledger-delta', 'ar reconcile'],
+      ['ap-subledger-delta', 'ap reconcile'],
+    ] as const) {
+      const c = subledgerDeltaCheck(code, gap);
+      expect(c.is_complete).toBe(false);
+      expect(c.severity).toBe('blocking');
+      expect(c.item).toBe(CLOSE_CHECK_ITEMS[code]);
+      expect(c.details).toBe(
+        `control 1240000.00 vs subledger 1190000.00 · delta 50000.00 (${command} lists the causes)`
+      );
+    }
+  });
+
+  it('without a control account it warns instead of signing a vacuous green', () => {
+    const c = subledgerDeltaCheck('ap-subledger-delta', null);
+    expect(c.is_complete).toBe(false);
+    expect(c.severity).toBe('warning');
+    expect(c.details).toContain('role cxp');
+  });
+
+  it('both codes are in the registry, with a remedy that is a mnemosine command', () => {
+    for (const code of ['ar-subledger-delta', 'ap-subledger-delta'] as const) {
+      expect(esCodigoDeCierre(code)).toBe(true);
+      expect(REMEDIO_DE[code]).toMatch(/^mnemosine a[rp] reconcile/);
+    }
   });
 });

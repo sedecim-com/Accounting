@@ -5,6 +5,8 @@ import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync, reverseWithinTransaction } from './posting.js';
 import { runLedgerChecks } from './ledger-checks.js';
 import { checkMappingCoverageDetallada } from './account-service.js';
+import { arReconcile } from '../ar/ar-controls.js';
+import { apReconcile } from '../ap/ap-controls.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { FiscalPeriodStatus } from '../../types/index.js';
@@ -53,6 +55,8 @@ export const CLOSE_CHECK_CODES = [
   'rep-parked',
   'rep-missing',
   'sat-agrupador-missing',
+  'ar-subledger-delta',
+  'ap-subledger-delta',
 ] as const;
 export type CloseCheckCode = (typeof CLOSE_CHECK_CODES)[number];
 
@@ -74,6 +78,8 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'rep-parked': 'Parked payment receipts (REP) resolved',
   'rep-missing': 'Payments in period have their REP',
   'sat-agrupador-missing': 'Accounts with movement have their SAT grouping code',
+  'ar-subledger-delta': 'Receivables subledger agrees with its control account',
+  'ap-subledger-delta': 'Payables subledger agrees with its control account',
 };
 
 export type CloseCheckSeverity = 'blocking' | 'warning';
@@ -206,6 +212,81 @@ async function fixedAssetBalanceWithoutRegister(
   );
   const balance = new Decimal(r.rows[0]?.balance ?? '0');
   return balance.isZero() ? null : balance.toFixed(2);
+}
+
+/** The two ledgers whose subledger the close reconciles against its control. */
+export type SubledgerCode = 'ar-subledger-delta' | 'ap-subledger-delta';
+
+/**
+ * One subledger against its control account, both as positive balances in
+ * their natural sign, and `delta = control − subledger`. `null` means the
+ * entity has no account mapped to the control role.
+ */
+export interface SubledgerSide {
+  control: string;
+  subledger: string;
+  delta: string;
+  balanced: boolean;
+}
+
+/**
+ * Reads one subledger against its control through the SAME service its own
+ * command uses (`ar reconcile`, `ap reconcile`), so the close and the
+ * command can never disagree about the figure.
+ *
+ * NOTE: both sides are read as of TODAY, not as of the period end. The
+ * subledger cannot be rebuilt at a past date (`amount_due` is today's
+ * balance; see `arReconcile` and `apReconcile`), and pairing today's
+ * subledger with a ledger cut at the period end would invent a delta for
+ * every document settled after the cut. A delta today means the subledger
+ * is out of step with its control right now, and sealing any month on top
+ * of that is what #98 forbids.
+ */
+export async function readSubledgerSide(
+  entityId: string,
+  code: SubledgerCode
+): Promise<SubledgerSide | null> {
+  try {
+    if (code === 'ar-subledger-delta') {
+      const r = await arReconcile(entityId);
+      return { control: r.control_balance, subledger: r.subledger_net, delta: r.delta, balanced: r.balanced };
+    }
+    const r = await apReconcile(entityId);
+    // `apReconcile` reports `subledger − ledger`; the close speaks `control − subledger`.
+    return { control: r.mayor, subledger: r.subdiario, delta: new Decimal(r.diferencia).negated().toFixed(2), balanced: r.cuadra };
+  } catch (err) {
+    if (err instanceof AccountingError && err.code === 'MISSING_ROLE_ACCOUNT') return null;
+    throw err;
+  }
+}
+
+/**
+ * The subledger check, separate from its reader so the judgement can be
+ * tested row by row without a database. A delta blocks: the close must not
+ * seal a subledger that disagrees with its control (#98). Without a control
+ * account there is nothing to reconcile against, and that is said as a
+ * warning instead of a vacuous green.
+ */
+export function subledgerDeltaCheck(code: SubledgerCode, side: SubledgerSide | null): PeriodCloseChecklistItem {
+  const command = code === 'ar-subledger-delta' ? 'ar reconcile' : 'ap reconcile';
+  if (side === null) {
+    return {
+      codigo: code,
+      item: CLOSE_CHECK_ITEMS[code],
+      is_complete: false,
+      severity: 'warning',
+      details: `no control account mapped (role ${code === 'ar-subledger-delta' ? 'cxc' : 'cxp'}): could not reconcile`,
+    };
+  }
+  return {
+    codigo: code,
+    item: CLOSE_CHECK_ITEMS[code],
+    is_complete: side.balanced,
+    severity: 'blocking',
+    details: side.balanced
+      ? undefined
+      : `control ${side.control} vs subledger ${side.subledger} · delta ${side.delta} (${command} lists the causes)`,
+  };
 }
 
 export async function getPeriodCloseStatus(
@@ -771,6 +852,21 @@ export async function getPeriodCloseStatus(
     );
   }
 
+  // 8. MNE-001-035 (#98) · EACH SUBLEDGER AGREES WITH ITS CONTROL ACCOUNT.
+  // `runArChecks` was born as the battery this checklist would consume and
+  // its `subledger-delta` probe is blocking, yet nothing here asked: a month
+  // could be hard-closed with 1 240 000 on the control and 1 190 000 in the
+  // subledger, and correcting it afterwards takes a reopen. Through the POOL,
+  // like runLedgerChecks and for the same reason: reads of committed data,
+  // with the period row already under FOR UPDATE inside a close.
+  for (const code of ['ar-subledger-delta', 'ap-subledger-delta'] as const) {
+    const check = subledgerDeltaCheck(code, await readSubledgerSide(entityId, code));
+    checklist.push(check);
+    if (!check.is_complete) {
+      (check.severity === 'blocking' ? blocking_issues : warnings).push(`${check.item}: ${check.details}`);
+    }
+  }
+
   return {
     can_close: blocking_issues.length === 0,
     blocking_issues,
@@ -886,6 +982,19 @@ export async function hardClosePeriod(
       throw new AccountingError(
         'PERIOD_NOT_SOFT_CLOSED',
         'Period must be in soft_close status before hard close'
+      );
+    }
+
+    // The seal re-reads the checklist, like the soft close does. Passing it
+    // at soft close is not enough: the period's own dates are frozen, but a
+    // hand entry on a control account in a later open month still leaves the
+    // subledger out of step (#98), and only the CLI used to ask again before
+    // the irreversible step — REST and any other caller sealed it anyway.
+    const status = await getPeriodCloseStatus(periodId, entityId, client);
+    if (!status.can_close) {
+      throw new AccountingError(
+        'CANNOT_CLOSE_PERIOD',
+        `Cannot close period: ${status.blocking_issues.join('; ')}`
       );
     }
 
