@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
-import { query } from '../../database/connection.js';
-import { NotFoundError, ValidationError } from '../../utils/errors.js';
+import { query, withTransaction } from '../../database/connection.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { resolverCuentaBancaria } from './bank-statement-service.js';
 
 // ============================================================
@@ -375,4 +376,141 @@ export function exigirTipoDeMovimiento(valor: string): TipoDeMovimiento {
     );
   }
   return tipo as TipoDeMovimiento;
+}
+
+// ============================================================
+// RECLASSIFY (MNE-001-040, #95)
+//
+// The importer classifies by bank code, description and sign
+// (`classifyBankLine`), and a classifier is wrong sometimes: a commission the
+// bank described in a way it does not know, or an «INTERESES» deposit that is a
+// customer's late fee. `transaction_type` is what `bank fee post` and
+// `bank interest post` read, so a person needs a way to correct it.
+//
+// THREE REFUSALS, and each one protects the ledger:
+//  · a type whose sign contradicts the amount: the posting engines would skip
+//    it anyway («signo-contrario»), so accepting it only hides the line;
+//  · a line with a live match: something in the books already explains it,
+//    and changing what it is under that explanation rewrites history;
+//  · a line a treasury entry already posted (`bank_fee`, `bank_interest`):
+//    the entry would stay in 6310 or 4310 while the line says otherwise.
+//    Reverse the entry first.
+// ============================================================
+
+/** The sign each type requires; `adjustment` takes any. */
+const REQUIRED_SIGN: Record<TipoDeMovimiento, 'out' | 'in' | null> = {
+  debit: 'out',
+  fee: 'out',
+  credit: 'in',
+  interest: 'in',
+  adjustment: null,
+};
+
+/** `source_type` of the treasury entries whose `source_id` is the bank line. */
+const TREASURY_SOURCES = ['bank_fee', 'bank_interest'] as const;
+
+export interface ReclassifyOptions {
+  /** Who. `audit_log.user_id` is NOT NULL: a change without an author is not recorded. */
+  userId: string;
+  reason?: string | null;
+  dryRun?: boolean;
+}
+
+export interface ReclassifyResult {
+  id: string;
+  amount: string;
+  previousType: TipoDeMovimiento;
+  type: TipoDeMovimiento;
+  changed: boolean;
+  dryRun: boolean;
+}
+
+export async function reclassifyTransaction(
+  entityId: string,
+  id: string,
+  requestedType: string,
+  opts: ReclassifyOptions
+): Promise<ReclassifyResult> {
+  const type = exigirTipoDeMovimiento(requestedType);
+  if (!UUID_RE.test(id)) throw new NotFoundError('Bank Transaction', id);
+
+  return withTransaction(async (client) => {
+    // The boundary by JOIN, and the row locked: two reclassifications of the
+    // same line must not both read the old type.
+    const r = await client.query<{ transaction_type: TipoDeMovimiento; amount: string; is_matched: boolean }>(
+      `SELECT bt.transaction_type, bt.amount::text AS amount, bt.is_matched
+         FROM bank_transactions bt
+         JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+        WHERE bt.id = $1 AND ba.entity_id = $2
+        FOR UPDATE OF bt`,
+      [id, entityId]
+    );
+    const row = r.rows[0];
+    if (!row) throw new NotFoundError('Bank Transaction', id);
+
+    const amount = new Decimal(row.amount);
+    const base = { id, amount: amount.toFixed(4), previousType: row.transaction_type, type, dryRun: opts.dryRun === true };
+    if (row.transaction_type === type) return { ...base, changed: false };
+
+    const sign = REQUIRED_SIGN[type];
+    if ((sign === 'out' && !amount.isNegative()) || (sign === 'in' && (amount.isNegative() || amount.isZero()))) {
+      throw new ValidationError(
+        `El movimiento ${id} es de ${amount.toFixed(4)} y "${type}" exige un importe ` +
+          `${sign === 'out' ? 'que SALGA de la cuenta (negativo)' : 'que ENTRE a la cuenta (positivo)'}. ` +
+          `Una devolución de comisión o una retención no cambian de signo por reclasificarlas.`
+      );
+    }
+    if (row.is_matched) {
+      throw new ConflictError(
+        `El movimiento ${id} está cotejado: algo en libros ya lo explica. ` +
+          `Deshaz el cotejo con \`bank match unapply\` antes de cambiar qué es.`
+      );
+    }
+    const posted = await client.query<{ entry_number: string }>(
+      `SELECT entry_number
+         FROM journal_entries
+        WHERE entity_id = $1 AND source_type = ANY($2::text[]) AND source_id = $3
+          AND status <> 'void'
+        LIMIT 1`,
+      [entityId, TREASURY_SOURCES, id]
+    );
+    if (posted.rows[0]) {
+      throw new ConflictError(
+        `El movimiento ${id} ya lo contabilizó la póliza ${posted.rows[0].entry_number}. ` +
+          `Revierte esa póliza antes de reclasificarlo.`
+      );
+    }
+
+    if (opts.dryRun) return { ...base, changed: true };
+
+    // Guarded UPDATE: the entity inside the SQL, the old type and the unmatched
+    // state in the predicate, and the row count checked after.
+    const u = await client.query(
+      `UPDATE bank_transactions bt
+          SET transaction_type = $3
+         FROM bank_accounts ba
+        WHERE bt.id = $1
+          AND ba.id = bt.bank_account_id
+          AND ba.entity_id = $2
+          AND bt.transaction_type = $4
+          AND bt.is_matched = false`,
+      [id, entityId, type, row.transaction_type]
+    );
+    if (u.rowCount !== 1) {
+      throw new ConflictError(`El movimiento ${id} cambió mientras se reclasificaba; vuelve a intentarlo.`);
+    }
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      userId: opts.userId,
+      action: 'update',
+      entityType: 'bank_transactions',
+      entityId: id,
+      oldValues: { transaction_type: row.transaction_type },
+      newValues: { transaction_type: type },
+      reason: opts.reason ?? null,
+    });
+
+    return { ...base, changed: true };
+  });
 }

@@ -377,8 +377,10 @@ npm run mnemosine -- logout
 Declaring `AUTH_OIDC_ISSUER`, `AUTH_OIDC_CLIENT_ID` and `AUTH_OIDC_AUDIENCE`
 is enough: the rest is read from the provider's
 `/.well-known/openid-configuration`, so the same block works for Google
-Workspace, Entra ID, Okta, Auth0, Keycloak, Zitadel or Cognito. SAML goes
-behind an IdP that translates it; it is not implemented here.
+Workspace, Entra ID, Okta, Auth0, Keycloak, Zitadel or Cognito. Cognito also
+needs `AUTH_OIDC_PROVIDER=cognito`, which takes the place of
+`AUTH_OIDC_AUDIENCE`: its access tokens name the app client, not the API. SAML
+goes behind an IdP that translates it; it is not implemented here.
 
 The first login creates the user **with no access to any entity**: an
 administrator grants `accessible_entities`, and that is audited. The IdP says

@@ -55,6 +55,7 @@ export function testConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfi
   return {
     issuer: 'https://idp.invalid',
     audience: AUDIENCE,
+    provider: '',
     webClientId: 'web-client',
     webClientSecret: WEB_CLIENT_SECRET,
     publicOrigin: PUBLIC_ORIGIN,

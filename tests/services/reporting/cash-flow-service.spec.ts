@@ -451,8 +451,8 @@ describe('qué cuentas son efectivo', () => {
   });
 
   it('no queda ni un rol de efectivo escrito a mano en la consulta', async () => {
-    // El literal, muerto. Con `ROLES_DE_EFECTIVO` = ['banco'] el conjunto de
-    // hoy es idéntico; lo que cambia es que mañana crece solo. Se comprueba
+    // El literal, muerto. The list already grew once (BAN-1 added
+    // `efectivo`), and it grew in one place only. Se comprueba
     // sobre CADA rol de la lista, y no sobre la palabra 'banco', porque un
     // criterio escrito contra un rol concreto es la misma trampa una capa más
     // arriba.
@@ -475,7 +475,7 @@ describe('qué cuentas son efectivo', () => {
     await expect(resolverCuentasDeEfectivo(ENTITY, 'rol')).rejects.toThrow(ValidationError);
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await expect(resolverCuentasDeEfectivo(ENTITY, 'rol')).rejects.toThrow(
-      /account role set banco/
+      /account role set efectivo/
     );
   });
 

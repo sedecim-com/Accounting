@@ -231,11 +231,11 @@ export interface CuentaDeEfectivo {
  * `ar-ap-posting.ts` lo dice en su propia firma («the linked bank account's
  * gl_account_id, else the banco role»):
  *
- *   · los roles que `ROLES_DE_EFECTIVO` declara efectivo —hoy sólo `banco`, y
+ *   · los roles que `ROLES_DE_EFECTIVO` declara efectivo —`efectivo` y `banco`, y
  *     la lista se importa en vez de repetirse: es el punto único donde crece—, y
  *   · toda cuenta de mayor atada a una `bank_accounts` de la entidad.
  *
- * Y el ÁRBOL, no la cuenta suelta: el rol `banco` apunta a 1110 «Caja y
+ * Y el ÁRBOL, no la cuenta suelta: el rol `efectivo` apunta a 1110 «Caja y
  * Bancos», que en el catálogo base es la MADRE de 1111, 1112 y 1115, donde de
  * verdad caen los cargos y abonos. Resolver sólo la cuenta del rol dejaba el
  * conjunto de efectivo vacío de movimiento y mandaba el estado entero al
@@ -311,9 +311,9 @@ export async function resolverCuentasDeEfectivo(
         ? 'Ninguna cuenta de esta entidad declara un subtipo de efectivo ' +
           `(${SUBTIPOS_DE_EFECTIVO.join(', ')}), así que no hay contra qué cuadrar el estado de ` +
           'flujos. Cambia `flujo_efectivo_cuentas_de_efectivo` a «rol» o marca el subtipo en el catálogo.'
-        : 'Esta entidad no tiene efectivo identificable: el rol `banco` no está mapeado y ninguna ' +
-          'cuenta bancaria apunta a una cuenta de mayor. Mapea el rol con ' +
-          '`mnemosine account role set banco <código>` (o ata la cuenta bancaria a su cuenta de ' +
+        : 'Esta entidad no tiene efectivo identificable: ni el rol `efectivo` ni el rol `banco` están ' +
+          'mapeados y ninguna cuenta bancaria apunta a una cuenta de mayor. Mapea el rol con ' +
+          '`mnemosine account role set efectivo <código>` (o ata la cuenta bancaria a su cuenta de ' +
           'mayor) — sin eso, el estado de flujos no se puede contrastar contra el banco.'
     );
   }

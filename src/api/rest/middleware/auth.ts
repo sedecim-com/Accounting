@@ -7,7 +7,13 @@ import {
   ValidationError,
   ExternalServiceError,
 } from '../../../utils/errors.js';
-import { isAsymmetric, isTokenRejection, verifyIdpToken, type VerifiedIdentity } from '../../../auth/oidc.js';
+import {
+  accessTokenCheck,
+  isAsymmetric,
+  isTokenRejection,
+  verifyIdpToken,
+  type VerifiedIdentity,
+} from '../../../auth/oidc.js';
 import {
   resolveIdentity,
   AccountDeactivatedError,
@@ -151,10 +157,7 @@ async function verifyExternal(token: string): Promise<JwtPayload> {
 
   let identity: VerifiedIdentity;
   try {
-    identity = await verifyIdpToken(token, {
-      issuer: config.auth.issuer,
-      audience: config.auth.audience,
-    });
+    identity = await verifyIdpToken(token, { issuer: config.auth.issuer, ...accessTokenCheck(config.auth) });
   } catch (err) {
     if (isTokenRejection(err)) throw new UnauthorizedError(`External token rejected: ${err.message}`);
     // Discovery or the JWKS could not be read (unreachable, timed out, an
