@@ -2755,7 +2755,7 @@ export const E4_1: Criterio[] = [
       const exemption = 'src/services/payroll/mx/isr-exemption.ts';
       if (!existe(exemption)) return falla('the ISR exemption module is gone: every earning is all or nothing again');
       const src = codigoDe(exemption);
-      if (!/legalParameterAt\('MX', YEAR_END_BONUS_EXEMPT_CAP_KEY, mx\.payDate\)/.test(src)) {
+      if (!/legalParameterAt\('MX', capKey, mx\.payDate\)/.test(src) || !/aguinaldo: YEAR_END_BONUS_EXEMPT_CAP_KEY,/.test(src)) {
         return falla('the aguinaldo cap is no longer read from legal_parameters on the payment date: the law has no date again');
       }
       if (!/const p = splitAgainstCap\(e\.amount, room\);/.test(src)) {
@@ -2777,6 +2777,76 @@ export const E4_1: Criterio[] = [
       return existe('tests/integration/t5a-year-end-bonus-exemption.int.spec.ts')
         ? ok('the aguinaldo is split against 30 UMA of the payment date, per calendar year, the split is stored, and tests run it down to 6 480.70')
         : falla('no test RUNS the exemption against a migrated database: reading the code does not prove what is withheld');
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'vacation-premium-exempt-and-cfdi-states-the-split',
+    enunciado:
+      'The vacation premium is taxed only above 15 UMA a year (LISR art. 93 fr. XIV), and the payroll CFDI declares the exempt and taxable parts the ISR was computed with',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: '  prima_vacacional: VACATION_PREMIUM_EXEMPT_CAP_KEY,',
+        a: '',
+        porque:
+          'THE DEFECT OF #297 FOR THE PREMIUM: the vacation premium loses its cap and is taxed whole again, while the aguinaldo keeps its exemption and hides it',
+      },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: 'AND pe.earning_type = $6',
+        a: "AND pe.earning_type IN ('aguinaldo', 'prima_vacacional')",
+        porque:
+          'the two caps are pooled: an aguinaldo paid earlier in the year consumes the room of the vacation premium, which the law gives "por cada uno de los conceptos"',
+      },
+      {
+        archivo: 'src/database/migrations/106_the_vacation_premium_is_exempt_up_to_fifteen_uma.sql',
+        de: "'income_tax.exempt_cap.vacation_premium_uma', '2016-01-28', '15.0000', 'UMA',",
+        a: "'income_tax.exempt_cap.vacation_premium_uma', '2016-01-28', '30.0000', 'UMA',",
+        porque: 'the premium is given the 30 UMA of the aguinaldo: twice the exemption the law allows, and ISR under-withheld',
+      },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: 'return { exempt: new Decimal(row.isr_exempt_amount), taxable: new Decimal(row.isr_taxable_amount) };',
+        a: 'return { exempt: new Decimal(0), taxable: new Decimal(row.amount) };',
+        porque:
+          'THE LITERAL OF #297: the payroll CFDI declares every perception with no exempt part, and contradicts the ISR withheld on it',
+      },
+    ],
+    evaluar: () => {
+      // #297 (MNE-001-063). The second half of the issue: the premium's own
+      // cap, and the CFDI stating the parts the engine computed.
+      const exemption = 'src/services/payroll/mx/isr-exemption.ts';
+      if (!existe(exemption)) return falla('the ISR exemption module is gone: every earning is all or nothing again');
+      const src = codigoDe(exemption);
+      if (!/prima_vacacional: VACATION_PREMIUM_EXEMPT_CAP_KEY,/.test(src)) {
+        return falla('the vacation premium has no cap of its own: it is taxed whole again (#297)');
+      }
+      if (!/AND pe\.earning_type = \$6/.test(src)) {
+        return falla('the used room is not read per earning type: one concept consumes the cap of another');
+      }
+
+      const mig = 'src/database/migrations/106_the_vacation_premium_is_exempt_up_to_fifteen_uma.sql';
+      if (!existe(mig) || !/'income_tax\.exempt_cap\.vacation_premium_uma', '2016-01-28', '15\.0000', 'UMA',/.test(sinProsa(crudoDe(mig)))) {
+        return falla('migration 106 no longer seeds the premium cap as 15 UMA with its date');
+      }
+
+      // The CFDI reads back the parts the ISR used. Found by who consumes the
+      // reader, not by the generator's path; the CFDI specs pin the figures.
+      if (!/return \{ exempt: new Decimal\(row\.isr_exempt_amount\), taxable: new Decimal\(row\.isr_taxable_amount\) \};/.test(src)) {
+        return falla('the stored parts are no longer what the payroll CFDI declares (#297)');
+      }
+      if (consumidoresDe('storedIsrParts', exemption).length === 0) {
+        return falla('nothing declares the stored parts: the payroll CFDI invents its exempt amounts again');
+      }
+
+      const unit = 'tests/payroll/mx/vacation-premium-exemption.spec.ts';
+      if (!existe(unit) || !/1759\.65/.test(crudoDe(unit)) || !existe('tests/payroll/mx/payroll-cfdi-exempt-amounts.spec.ts')) {
+        return falla('no unit test pins 15 × 117.31 for the premium or the CFDI figures');
+      }
+      return existe('tests/integration/mne-001-063-vacation-premium-exemption.int.spec.ts')
+        ? ok('the premium is split against its own 15 UMA of the payment date, and the CFDI declares the stored parts')
+        : falla('no test RUNS the premium exemption and the CFDI against a migrated database');
     },
   },
 ];
