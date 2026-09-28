@@ -49,7 +49,7 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **242 comandos** repartidos en **69 familias** de primer nivel. De las **1636** filas del catálogo, **227** (13.9 %) ya se pueden invocar.
+El binario ejecuta hoy **243 comandos** repartidos en **69 familias** de primer nivel. De las **1636** filas del catálogo, **228** (13.9 %) ya se pueden invocar.
 
 Del motor que cada comando necesita, **278** filas lo declaran completo, **388** a medias y **970** inexistente.
 
@@ -66,9 +66,9 @@ Contadas por COMANDO, las 1636 filas son **1614 rutas únicas**: **17 rutas** es
 | `entry` | 35 | 13 |
 | `customer` | 26 | 9 |
 | `invoice` | 19 | 9 |
+| `bill` | 41 | 8 |
 | `report` | 32 | 8 |
 | `cfdi` | 46 | 7 |
-| `bill` | 41 | 7 |
 | `closing` | 36 | 6 |
 | `period` | 15 | 6 |
 | `receipt` | 11 | 6 |
@@ -919,7 +919,7 @@ Cuentas por pagar es el subdiario que *debe dinero*: cada objeto crea una obliga
 | `mnemosine bill import` · `factura-proveedor importar` | Importa facturas en lote desde CSV o EDI 810 (el canal CFDI XML es `mnemosine ingest`, no este) | `--file`, `--layout csv\|edi810\|contpaqi`, `--dry-run`, `--continue-on-error`, `--idempotency-key` | ❌ (para CFDI ya existe src/cli/mnemosine.ts:1134 → src/services/xml-ingestion/pre-registration-service.ts:68; **no duplicar ese canal**) | escritura | ✗ | 2 |
 | `mnemosine bill inbox list` · `factura-proveedor bandeja listar` | Cola de preregistros pendientes de revisar antes de convertirse en factura | `-s/--status`, `--processing-mode`, `--requires-approval`, `--vendor`, `--json`, `-n/--limit` | ✅ **hecha en F04**: `bill inbox list` sobre `pre_registrations`, todo filtro dentro del SQL y acotado por entidad. La fila cuyo emisor NO está en el catálogo se marca `⚠ nuevo:` **en el dato** (no en color: el color se pierde en csv/json) y se cuenta al pie — es la que decide si `run` necesita `--allow-new-vendor` | lectura | ✓ | 1 |
 | `mnemosine bill inbox show <id>` · `factura-proveedor bandeja ver` | Muestra el preregistro con el CFDI de origen, el proveedor sugerido y la cuenta propuesta | `--json` | ✅ src/api/rest/routes/xml-ingestion.ts:243 | lectura | ✓ | 2 |
-| `mnemosine bill inbox edit <id>` · `factura-proveedor bandeja editar` | Corrige proveedor, cuenta por defecto, vencimiento, notas, etiquetas y líneas antes de procesar | `--vendor`, `--account`, `--due-date`, `--note`, `--tag`, `--line` | ✅ src/api/rest/routes/xml-ingestion.ts:263 (PATCH sobre exactamente esos seis campos) | escritura | ✗ | 2 |
+| `mnemosine bill inbox edit <id>` · `factura-proveedor bandeja editar` | Corrige proveedor, cuenta por defecto, vencimiento, notas, etiquetas y líneas antes de procesar | `--vendor`, `--account`, `--due-date`, `--note`, `--tag`, `--line`, `--cost-center` | ✅ **ING-2 (#319, MNE-001-030)**: codifica a mano el CFDI que el modelo no clasificó — `--line <n> --account` (y `--cost-center`) o `--account` como cuenta por defecto — con `codePreRegistration` (src/services/xml-ingestion/pre-registration-coding.ts): UPDATE guardado por estado (draft, ready o error; sin factura, sin póliza, sin borrador de IA vivo) y por entidad, cuenta asentable de la misma entidad, `account_mapping_method='manual'`. Al mayor se llega sólo por `bill inbox run`. `--vendor`, `--due-date`, `--note` y `--tag` siguen sólo en el PATCH REST, src/api/rest/routes/xml-ingestion.ts:365 | escritura | ✗ | 2 |
 | `mnemosine bill inbox approve <id>` · `factura-proveedor bandeja aprobar` | Aprueba el preregistro que requería autorización previa a su contabilización | `--note`, `-u/--user` | ✅ src/api/rest/routes/xml-ingestion.ts:336 | escritura | ✗ | 2 |
 | `mnemosine bill inbox reject <id>` · `factura-proveedor bandeja rechazar` | Rechaza el preregistro con motivo (p. ej. CFDI defectuoso o no es del ente). **Sin `--discard-xml` el `xml_documents` sigue vivo en la cola que despierta al agente** — ver `cfdi reject` | `--reason`, `--discard-xml`, `--note` | ✅ src/api/rest/routes/xml-ingestion.ts:320 | escritura | ✗ | 2 |
 | `mnemosine bill inbox run [id]` · `factura-proveedor bandeja ejecutar` | Convierte uno o varios preregistros en facturas de proveedor; `--query`/`--bulk` para la acción masiva (`process` es grafía borrada por §1.5, que la absorbe en `run`) | `--bulk`, `--query`, `--action process\|approve\|reject\|set-batch`, `--allow-new-vendor`, `--dry-run`, `--idempotency-key` | ✅ **hecha en F04**, y con el hueco de control CERRADO: `createBillFromPreReg` daba de alta la contraparte con el nombre y el RFC que traía el XML —dato maestro escrito por un tercero— y acto seguido reconocía el pasivo, sin que nadie aprobara nada. Ahora el alta exige que el LLAMADOR la autorice, y el defecto es que no: los caminos automáticos (motor de reglas, lote programado, agente, webhook) pasan `false` siempre y el CFDI se queda en la bandeja con su motivo; sólo los interactivos admiten `--allow-new-vendor` / `allow_new_vendor`. La búsqueda por RFC queda FUERA de la puerta a propósito, para que «dalo de alta tú y repite» funcione | escritura | ✗ | 1 |

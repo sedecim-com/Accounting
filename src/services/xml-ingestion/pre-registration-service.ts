@@ -1181,7 +1181,9 @@ export class PreRegistrationService {
           if (!accountId) {
             throw new ValidationError(`Line ${line.line_number}: no account assigned`);
           }
-          const taxAmt = line.impuestos?.traslados?.[0]?.importe || 0;
+          // Only the IVA transfer is `tax_amount`: taking the first transfer
+          // wrote an IEPS that came ahead of it as if it were VAT (#284).
+          const { tax, ...vat } = vatColumnsOf(line.impuestos?.traslados);
           return {
             line_number: line.line_number,
             account_id: accountId,
@@ -1189,8 +1191,9 @@ export class PreRegistrationService {
             quantity: line.cantidad,
             unit_price: line.valor_unitario,
             line_amount: line.importe,
-            tax_amount: taxAmt,
-            total_amount: new Decimal(line.importe).plus(taxAmt).toFixed(4),
+            tax_amount: tax,
+            total_amount: new Decimal(line.importe).plus(tax).toFixed(4),
+            ...vat,
           };
         })
     );
@@ -1343,6 +1346,10 @@ export interface BillLineRow {
   tax_amount: string | number;
   total_amount: string | number;
   tags?: Record<string, unknown>;
+  /** The three VAT columns of migration 066 that the DIOT reads (#284). */
+  tax_rate: string | null;
+  factor_type: BillLineVat['factor_type'];
+  acts_value: string | null;
 }
 
 interface BillHeader {
@@ -1477,12 +1484,14 @@ async function insertarFacturaDePreRegistro(
     await db.query(
       `INSERT INTO bill_lines (
         id, bill_id, line_number, account_id, description,
-        quantity, unit_price, line_amount, tax_amount, total_amount, tags
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+        quantity, unit_price, line_amount, tax_amount, total_amount, tags,
+        tax_rate, tipo_factor, valor_actos
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14)`,
       [
         uuidv4(), billId, line.line_number, line.account_id, line.description,
         line.quantity, line.unit_price, line.line_amount, line.tax_amount, line.total_amount,
         JSON.stringify(line.tags ?? {}),
+        line.tax_rate, line.factor_type, line.acts_value,
       ]
     );
   }
@@ -1521,6 +1530,88 @@ const money = (v: unknown): Decimal => new Decimal((v as string | number | null)
 
 const sumTax = (list: CFDIImpuesto[] | undefined, key: string): Decimal =>
   (list ?? []).filter((t) => satKey(t.impuesto) === key).reduce((s, t) => s.plus(money(t.importe)), new Decimal(0));
+
+/** What one bill line says about its VAT: the columns 066 added and the DIOT reads. */
+export interface BillLineVat {
+  /** Sum of the concept's IVA (002) transfers, unrounded. Never IEPS or any other tax. */
+  tax: string;
+  factor_type: 'tasa' | 'cuota' | 'exento';
+  /** Percent (0.160000 -> '16.00'), as `invoice_lines.tax_rate`. Null when there is no single rate. */
+  tax_rate: string | null;
+  /** The transfer's Base: the DIOT's value of the acts. Null when the CFDI did not say it. */
+  acts_value: string | null;
+}
+
+/**
+ * THE VAT OF ONE CFDI CONCEPT, AS ITS BILL LINE STORES IT (MNE-001-027 · #284).
+ *
+ * The CFDI says the factor type, the rate and the base on the IVA transfer
+ * itself, so they are copied at ingestion, which is the only time the document
+ * is at hand. A concept with no IVA transfer, or with more than one, keeps the
+ * column defaults: there is no single rate to copy, and the DIOT then measures
+ * the line from its amounts and says so instead of trusting a guess made here.
+ */
+export function vatColumnsOf(transfers: CFDIImpuesto[] | undefined): BillLineVat {
+  const vat = (transfers ?? []).filter((t) => satKey(t.impuesto) === '002');
+  const tax = vat.reduce((s, t) => s.plus(t.importe ?? 0), new Decimal(0)).toString();
+  if (vat.length !== 1) return { tax, factor_type: 'tasa', tax_rate: null, acts_value: null };
+  const [t] = vat;
+  const factor_type = t.tipoFactor === 'Exento' ? 'exento' : t.tipoFactor === 'Cuota' ? 'cuota' : 'tasa';
+  return {
+    tax,
+    factor_type,
+    tax_rate: factor_type === 'tasa' && t.tasaOCuota != null ? new Decimal(t.tasaOCuota).times(100).toFixed(2) : null,
+    acts_value: t.base != null ? new Decimal(t.base).toFixed(4) : null,
+  };
+}
+
+/**
+ * The regime every concept of a CFDI shares, or null when they differ.
+ *
+ * `lineas_factura_desde = poliza` builds the bill lines from the approved
+ * entry's debits, not from the concepts, so a line has no concept of its own to
+ * read. When all the concepts share one factor type and rate that regime is
+ * every line's; when they mix, no line can claim one and the columns keep their
+ * defaults.
+ *
+ * `base` is the sum of the Bases the concepts DECLARED, and null as soon as one
+ * concept omitted its Base (WIT-01 on #418): a matching regime is no licence to
+ * take the entry's debit as the value of the acts. A base nobody declared stays
+ * unknown, and `diot_iva_exento_y_base` decides what the DIOT does about it.
+ */
+export function uniformVatColumns(
+  concepts: Array<Pick<LineWithSuggestion, 'impuestos'>>
+): (Pick<BillLineVat, 'factor_type' | 'tax_rate'> & { base: string | null }) | null {
+  const regimes = concepts.map((c) => vatColumnsOf(c.impuestos?.traslados));
+  const [first] = regimes;
+  if (!first || (first.factor_type === 'tasa' && first.tax_rate === null)) return null;
+  const same = regimes.every((r) => r.factor_type === first.factor_type && r.tax_rate === first.tax_rate);
+  if (!same) return null;
+  const declared = regimes.every((r) => r.acts_value !== null);
+  const base = declared
+    ? regimes.reduce((s, r) => s.plus(r.acts_value as string), new Decimal(0)).toFixed(4)
+    : null;
+  return { factor_type: first.factor_type, tax_rate: first.tax_rate, base };
+}
+
+/**
+ * Splits a declared base across the lines of an approved entry in proportion
+ * to their debits, the last line taking the rounding so the parts add up to the
+ * declared base exactly. An unknown base stays unknown on every line.
+ */
+export function spreadDeclaredBase(base: string | null, debits: Decimal[]): Array<string | null> {
+  if (base === null) return debits.map(() => null);
+  const total = new Decimal(base);
+  const weight = debits.reduce((s, d) => s.plus(d), new Decimal(0));
+  let given = new Decimal(0);
+  return debits.map((d, i) => {
+    const share = i === debits.length - 1 || weight.isZero()
+      ? total.minus(given)
+      : total.times(d).dividedBy(weight).toDecimalPlaces(4);
+    given = given.plus(share);
+    return share.toFixed(4);
+  });
+}
 
 /**
  * THE VENDOR BILL BORN FROM AN APPROVED AI DRAFT (ING-1 · #318).
@@ -1682,6 +1773,9 @@ export async function registrarFacturaDeBorradorAprobado(
     );
   }
 
+  const concepts = Array.isArray(preReg.lines) ? (preReg.lines as LineWithSuggestion[]) : [];
+  const regime = uniformVatColumns(concepts);
+  const bases = spreadDeclaredBase(regime?.base ?? null, expenses.map((l) => l.dr));
   const rows = linesFrom === 'poliza'
     ? expenses.map((l, i): BillLineRow => ({
         line_number: i + 1,
@@ -1692,6 +1786,11 @@ export async function registrarFacturaDeBorradorAprobado(
         line_amount: l.dr.toFixed(2),
         tax_amount: 0,
         total_amount: l.dr.toFixed(2),
+        // Only the Bases the CFDI declared are spread across the debits; the
+        // debit itself is never taken as the base (WIT-01 on #418).
+        factor_type: regime?.factor_type ?? 'tasa',
+        tax_rate: regime?.tax_rate ?? null,
+        acts_value: bases[i],
       }))
     : linesPerConcept(uuid, preReg.lines as LineWithSuggestion[], expenses);
 
@@ -1833,7 +1932,11 @@ function linesPerConcept(
     if (k < 0) throw refuse(`no debit of the entry is ${amount.toFixed(2)}, the amount of concept ${i + 1}`);
     const [match] = free.splice(k, 1);
     const tax = sumTax(c.impuestos?.traslados, '002');
+    const { factor_type, tax_rate, acts_value } = vatColumnsOf(c.impuestos?.traslados);
     return {
+      factor_type,
+      tax_rate,
+      acts_value,
       line_number: i + 1,
       account_id: match.accountId,
       description: c.descripcion,

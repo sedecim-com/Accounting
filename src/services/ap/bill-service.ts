@@ -284,6 +284,25 @@ export interface ComputedBillLine extends BillLineInput {
   line_amount: string;
   tax_amount: string;
   total_amount: string;
+  /** Percent, as `bill_lines.tax_rate` (066) stores it; null only when no amount carries it. */
+  tax_rate: string | null;
+  factor_type: 'tasa';
+  /** The DIOT's value of the acts: the line amount, the base by construction. */
+  acts_value: string;
+}
+
+/**
+ * The VAT rate a manual line declares through the two amounts its author typed
+ * (#284). The catalog rates win within one cent, the tolerance the DIOT uses to
+ * measure the same thing; anything else is stored as the ratio itself, so an
+ * off-catalog rate lands in the DIOT's own "other rates" box, visible.
+ */
+function rateOfLine(lineAmount: Decimal, tax: Decimal): string | null {
+  if (tax.isZero()) return '0.00';
+  if (lineAmount.lte(0)) return null;
+  const cent = new Decimal('0.01');
+  const known = [16, 8].find((r) => lineAmount.times(r).dividedBy(100).minus(tax).abs().lte(cent));
+  return new Decimal(known ?? tax.dividedBy(lineAmount).times(100)).toFixed(2);
 }
 
 export interface ComputedBill {
@@ -327,6 +346,9 @@ export function computeBill(lines: BillLineInput[]): ComputedBill {
       line_amount: lineAmount.toFixed(4),
       tax_amount: lineTax.toFixed(4),
       total_amount: totalAmt.toFixed(4),
+      tax_rate: rateOfLine(lineAmount, lineTax),
+      factor_type: 'tasa' as const,
+      acts_value: lineAmount.toFixed(4),
     };
   });
 
@@ -363,12 +385,14 @@ export async function createBill(input: CreateBillInput): Promise<Bill> {
 
     for (const line of computed.lines) {
       await client.query(
-        `INSERT INTO bill_lines (id, bill_id, line_number, account_id, item_id, description, quantity, unit_price, line_amount, tax_amount, total_amount, cost_center_id, project_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        `INSERT INTO bill_lines (id, bill_id, line_number, account_id, item_id, description, quantity, unit_price, line_amount, tax_amount, total_amount, cost_center_id, project_id,
+           tax_rate, tipo_factor, valor_actos)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
           uuidv4(), billId, line.line_number, line.account_id, line.item_id || null,
           line.description || null, line.quantity, line.unit_price, line.line_amount,
           line.tax_amount, line.total_amount, line.cost_center_id || null, line.project_id || null,
+          line.tax_rate, line.factor_type, line.acts_value,
         ]
       );
     }
