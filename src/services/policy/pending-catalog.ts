@@ -613,8 +613,8 @@ export const POLICY_CATALOG: PolicySpec[] = [
     impact:
       'Below the threshold the whole amount hits the month it was paid; above it, a schedule is created ' +
       'and the expense spreads. `prepaid create` reads your answer and stops below it unless you pass ' +
-      '--force with a reason. At ingestion, the CFDI classifier only offers the deferral on amounts at ' +
-      'or above a floor, but today that floor is the fixed default of 5,000 MXN, not your answer.',
+      '--force with a reason. At ingestion, the CFDI classifier compares against your answer too: it ' +
+      'only offers the deferral on amounts at or above it (5,000 MXN until you answer).',
     options: [
       { value: '0', label: 'No threshold: defer every multi-period expense' },
       { value: '5000', label: '5,000 MXN' },
@@ -626,7 +626,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'in bookkeeping than the precision it buys, and clutters the schedule with rows nobody will ' +
       'check. Five thousand is the order of magnitude where the split starts paying for itself.',
     whyAsking: 'Not every yearly subscription is worth spreading over twelve months; you decide where the line is.',
-    whatIDo: 'I offer to defer multi-period expenses of 5,000 MXN or more and expense the rest as they come.',
+    whatIDo: 'I offer to defer multi-period expenses at or above your threshold (5,000 MXN by default) and expense the rest as they come.',
     ifSkipped: 'I use 5,000 MXN.',
     priority: 40,
   },
