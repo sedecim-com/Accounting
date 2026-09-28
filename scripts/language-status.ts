@@ -49,6 +49,7 @@ import type { Lane } from './language/lane.js';
 import { codeLanes } from './language/lanes/code.js';
 import { planLanes } from './language/lanes/plan.js';
 import { docsLanes } from './language/lanes/docs.js';
+import { commentTagsLanes } from './language/lanes/comment-tags.js';
 
 const ROOT = path.resolve(__dirname, '..');
 const BASELINE = path.join(ROOT, 'docs', 'language-baseline.json');
@@ -70,9 +71,9 @@ interface Baseline {
   perFile: Record<string, Record<string, number>>;
 }
 
-/** Los diecisiete lanes, en el orden en que se publican. */
+/** Every lane, in the order they are published. The count is the meter's to say, not this comment's. */
 export function measure(): Lane[] {
-  return [...codeLanes(), ...planLanes(), ...docsLanes()];
+  return [...codeLanes(), ...planLanes(), ...docsLanes(), ...commentTagsLanes()];
 }
 
 function readBaseline(): Baseline | null {

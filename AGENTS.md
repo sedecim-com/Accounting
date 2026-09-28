@@ -82,7 +82,7 @@ Explican el **por qué**, las restricciones y los contratos; un comentario que r
 | `CONTRACT:` | Punto donde se produce o consume un contrato: la API, un entregable SAT/IMSS o el esquema |
 | `AGENT-NO-TOUCH:` | Bloque que un agente no modifica sin aprobación humana explícita |
 
-Un `TODO` sin issue no entra; el check en CI es #334. Nada de código comentado: el historial de git lo conserva.
+Un `TODO` sin issue no entra, y tampoco `FIXME`, `XXX` ni `HACK`. Lo detiene el lint, con `house/comment-tags`; la deuda vieja vive en el carril `untagged-comment-markers` de `docs/language-baseline.json`, que sólo baja. Nada de código comentado: el historial de git lo conserva.
 
 ## Los siete invariantes (no se negocian en un PR)
 
