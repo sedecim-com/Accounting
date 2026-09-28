@@ -494,6 +494,10 @@ mirror	memory	E4.1 employee-benefits-accrue-monthly	src/services/accruals/provis
 mirror	memory	E4.1 employee-benefits-accrue-monthly	src/services/xml-ingestion/account-roles-seed.ts	el mapa cambia de forma y el chequeo se queda sin códigos que buscar: tiene que ponerse ROJO por no poder medir, no verde por no encontrar nada
 mirror	memory	E4.1 employee-benefits-accrue-monthly	src/services/accruals/provisions-run.ts	quema la base salarial en el motor: el despacho que provisiona sobre salario integrado deja de poder decirlo, y su pasivo sale corto todos los meses sin que nada lo acuse
 mirror	memory	E4.1 employee-benefits-accrue-monthly	src/services/accruals/provisions-math.ts	la tabla del art. 76 pasaría a estar escrita dos veces: el finiquito y la provisión pagarían distinto por el mismo derecho en cuanto una de las dos se actualice
+mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/services/payroll/common/paycheck-service.ts	THE DEFECT OF #297: the ISR base goes back to the whole amount of every earning, so an aguinaldo of 10 000.00 is taxed on 10 000.00 instead of 6 480.70 and December is over-withheld
+mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/services/payroll/mx/isr-exemption.ts	the split is still computed and stored, but against no room: the exempt part is always 0.00 and the aguinaldo is taxed whole with columns that look like an exemption was applied
+mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/services/payroll/mx/isr-exemption.ts	the cap stops being per calendar year: aguinaldos of earlier years consume this year's 30 UMA, and a worker in their second December gets no exemption at all
+mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/database/migrations/094_the_aguinaldo_is_exempt_up_to_thirty_uma.sql	the cap is seeded as 30 PESOS: every aguinaldo is exempt by 30.00 instead of 30 UMA, a figure that looks like an exemption and is off by a factor of the UMA
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre
@@ -1047,6 +1051,10 @@ anchor	src/plan/criteria/e4-1.ts	de: ' const mapa = new Map(r.rows.map((f) => [f
 anchor	src/plan/criteria/e4-1.ts	de: ` provision_aguinaldo: '2202',
 anchor	src/plan/criteria/e4-1.ts	de: " const base = await getPolicy(ctx, 'provision_base_salarial');",
 anchor	src/plan/criteria/e4-1.ts	de: "from '../payroll/mx/finiquito-math.js'",
+anchor	src/plan/criteria/e4-1.ts	de: 'const taxableIsr = sum(isrParts.map((p) => p.taxable.toNumber())) - preTaxDeductions;',
+anchor	src/plan/criteria/e4-1.ts	de: 'const p = splitAgainstCap(e.amount, room);',
+anchor	src/plan/criteria/e4-1.ts	de: 'AND pp.pay_date >= make_date($3, 1, 1)',
+anchor	src/plan/criteria/e4-1.ts	de: "'income_tax.exempt_cap.aguinaldo_uma', '2016-01-28', '30.0000', 'UMA',",
 anchor	src/plan/criteria/e4-2.ts	de: 'await getBalanceSheet(ctx.entityId',
 anchor	src/plan/criteria/e4-2.ts	de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
 anchor	src/plan/criteria/e4-2.ts	de: 'ending_balance: aEscala(',
