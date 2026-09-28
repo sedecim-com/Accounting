@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as ts from 'typescript';
 import {
   codigoDe,
   consumidoresDe,
@@ -23,6 +24,165 @@ import {
 // Moved verbatim from `src/plan/criterios.ts` (#294), in the board's order.
 // The index concatenates the packages back into `CRITERIOS`.
 // ============================================================
+
+// ============================================================
+// THE AGENT-TOOL CENSUS (T17a, #303)
+//
+// What each agent tool hands back to the model, return by return, read
+// through the seam and PARSED: whether a value is fenced is a question about
+// the shape of an expression, which a regex cannot answer. The envelope is
+// found by what it DOES (an export of src/ai/untrusted.ts that emits both
+// markers), not by its Spanish name, which the language epic (#141) renames.
+// ============================================================
+const ENVELOPE_MODULE = 'src/ai/untrusted.ts';
+
+/**
+ * `system`: literals, the model's own input echoed back, constants built from
+ * those. `fenced`: a call to the envelope. `data`: anything else, including
+ * whatever the classifier cannot prove is one of the other two (fails closed).
+ */
+type ToolReturn = 'system' | 'fenced' | 'data';
+
+/**
+ * Tools that answer WITHOUT the shared envelope, with the reason: no
+ * third-party text, or a fence of their own. A name here must exist, and a
+ * tool that starts calling the envelope must leave: the list only shrinks.
+ */
+const OWN_CHART = "codes, names and amounts of the entity's own chart of accounts";
+const OUTSIDE_THE_ENVELOPE: Readonly<Record<string, string>> = {
+  search_accounts: OWN_CHART,
+  get_trial_balance: OWN_CHART,
+  get_balance_sheet: OWN_CHART,
+  get_income_statement: OWN_CHART,
+  get_entity_status: 'counts, stage and next step the system computes, and the entity name the prompt already carries',
+  read_docs: 'the shipped corpus of src/ai/docs, sealed against its sources by the manifest',
+  get_accounting_policies: "the firm's own decisions, which ARE its instructions (policy-tools.ts): neutralised, not fenced",
+  draft_journal_entry: "the receipt of the draft it just created and the engine's validation errors",
+  external_push: 'the receipt of the operation it just queued',
+  ask_user:
+    'what the human just typed, or the option the model itself proposed: the principal speaking, like the policy panel; its stored copy comes back fenced through search_precedents',
+  session_search: 'fences recalled transcripts with its own copy of the same markers',
+  skill_view: 'fences the skill body with the skill markers of src/ai/skills/store.ts',
+  skills_list: 'firm-authored skill labels, neutralised one per line, not fenced',
+};
+
+/** Fences its third-party rows and answers `unfenced` paths with a value of its own. */
+const PARTLY_FENCED: Readonly<Record<string, { unfenced: number; why: string }>> = {
+  external_pull: { unfenced: 1, why: 'account_balance returns the number its adapter parsed; documents and trial_balance go fenced' },
+};
+
+const isFunctionLike = (n: ts.Node): boolean =>
+  ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n);
+
+/** `const` initializers declared in `root`, not inside the functions it nests. */
+function constsIn(root: ts.Node): Map<string, ts.Expression> {
+  const found = new Map<string, ts.Expression>();
+  const walk = (n: ts.Node): void => {
+    if (ts.isVariableDeclarationList(n) && n.flags & ts.NodeFlags.Const) {
+      for (const d of n.declarations) if (ts.isIdentifier(d.name) && d.initializer) found.set(d.name.text, d.initializer);
+    }
+    if (n === root || !isFunctionLike(n)) ts.forEachChild(n, walk);
+  };
+  walk(root);
+  return found;
+}
+
+/** Exported functions of the envelope module whose body emits BOTH markers. */
+function envelopesIn(source: string): Set<string> {
+  const found = new Set<string>();
+  for (const st of ts.createSourceFile(ENVELOPE_MODULE, source, ts.ScriptTarget.Latest, true).statements) {
+    if (!ts.isFunctionDeclaration(st) || !st.name || !st.body) continue;
+    if (!st.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    const names = new Set<string>();
+    const walk = (n: ts.Node): void => {
+      if (ts.isIdentifier(n)) names.add(n.text);
+      ts.forEachChild(n, walk);
+    };
+    walk(st.body);
+    if (names.has('UNTRUSTED_OPEN') && names.has('UNTRUSTED_CLOSE')) found.add(st.name.text);
+  }
+  return found;
+}
+
+/** The kind of every value a tool's `run` returns; a `run` it cannot read counts as data. */
+function returnsOf(run: ts.Node, envelopeNames: ReadonlySet<string>, moduleConsts: ReadonlyMap<string, ts.Expression>): ToolReturn[] {
+  if (!(ts.isArrowFunction(run) || ts.isFunctionExpression(run) || ts.isMethodDeclaration(run)) || !run.body) return ['data'];
+  const first = run.parameters[0]?.name;
+  const input = first && ts.isIdentifier(first) ? first.text : undefined;
+  const locals = constsIn(run.body);
+  const worst = (kinds: ToolReturn[]): ToolReturn =>
+    kinds.includes('data') ? 'data' : kinds.includes('fenced') ? 'fenced' : 'system';
+  const classify = (e: ts.Expression, seen: ReadonlySet<string>): ToolReturn => {
+    if (ts.isStringLiteralLike(e) || ts.isNumericLiteral(e)) return 'system';
+    if (ts.isParenthesizedExpression(e) || ts.isAwaitExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e)) {
+      return classify(e.expression, seen);
+    }
+    if (ts.isTemplateExpression(e)) return worst(e.templateSpans.map((s) => classify(s.expression, seen)));
+    if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      return worst([classify(e.left, seen), classify(e.right, seen)]);
+    }
+    if (ts.isConditionalExpression(e)) return worst([classify(e.whenTrue, seen), classify(e.whenFalse, seen)]);
+    // Only the CALL fences: its arguments are whatever the envelope wraps.
+    if (ts.isCallExpression(e) && ts.isIdentifier(e.expression) && envelopeNames.has(e.expression.text)) return 'fenced';
+    if (ts.isPropertyAccessExpression(e)) {
+      let root: ts.Expression = e;
+      while (ts.isPropertyAccessExpression(root)) root = root.expression;
+      return input !== undefined && ts.isIdentifier(root) && root.text === input ? 'system' : 'data';
+    }
+    if (!ts.isIdentifier(e) || seen.has(e.text)) return 'data';
+    const init = locals.get(e.text) ?? moduleConsts.get(e.text);
+    return init ? classify(init, new Set([...seen, e.text])) : 'data';
+  };
+  if (!ts.isBlock(run.body)) return [classify(run.body, new Set())];
+  const kinds: ToolReturn[] = [];
+  const walk = (n: ts.Node): void => {
+    if (ts.isReturnStatement(n) && n.expression) kinds.push(classify(n.expression, new Set()));
+    if (!isFunctionLike(n)) ts.forEachChild(n, walk);
+  };
+  ts.forEachChild(run.body, walk);
+  return kinds;
+}
+
+/** Every object literal under src/ai/tools with a literal `name` and a `run` is a tool. */
+function agentToolCensus(): { envelopes: Set<string>; tools: Map<string, { file: string; returns: ToolReturn[] }> } {
+  const envelopes = existe(ENVELOPE_MODULE) ? envelopesIn(crudoDe(ENVELOPE_MODULE)) : new Set<string>();
+  const tools = new Map<string, { file: string; returns: ToolReturn[] }>();
+  for (const abs of fuentes('src/ai/tools')) {
+    const rel = path.relative(rutaDe(), abs).split(path.sep).join('/');
+    const sf = ts.createSourceFile(rel, leer(abs), ts.ScriptTarget.Latest, true);
+    // The local names this file binds to an envelope, aliases included.
+    const envelopeNames = new Set<string>();
+    for (const st of sf.statements) {
+      if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
+      const target = path.posix.join(path.posix.dirname(rel), st.moduleSpecifier.text).replace(/\.js$/, '.ts');
+      const named = st.importClause?.namedBindings;
+      if (target !== ENVELOPE_MODULE || !named || !ts.isNamedImports(named)) continue;
+      for (const el of named.elements) if (envelopes.has((el.propertyName ?? el.name).text)) envelopeNames.add(el.name.text);
+    }
+    const moduleConsts = constsIn(sf);
+    const visit = (n: ts.Node): void => {
+      if (ts.isObjectLiteralExpression(n)) {
+        let name: string | undefined;
+        let run: ts.Node | undefined;
+        for (const p of n.properties) {
+          if (!p.name || !ts.isIdentifier(p.name)) continue;
+          if (p.name.text === 'name' && ts.isPropertyAssignment(p) && ts.isStringLiteralLike(p.initializer)) name = p.initializer.text;
+          if (p.name.text === 'run') run = ts.isPropertyAssignment(p) ? p.initializer : p;
+        }
+        if (name !== undefined && run !== undefined) {
+          // Two definitions under one name pool their returns: the second cannot hide behind the first.
+          const entry = tools.get(name) ?? { file: rel, returns: [] };
+          entry.returns.push(...returnsOf(run, envelopeNames, moduleConsts));
+          tools.set(name, entry);
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+  }
+  return { envelopes, tools };
+}
+
 export const E5_1: Criterio[] = [
 
   // ---- E5.1 · Madurez del agente ----
@@ -633,6 +793,72 @@ export const E5_1: Criterio[] = [
           )
         : falla(
             `una herramienta del agente alcanza un camino que no debería: ${culpables.join(', ')}`
+          );
+    },
+  },
+  {
+    paquete: 'E5.1',
+    id: 'agent-tools-fence-third-party-text',
+    enunciado:
+      'Toda herramienta del agente que devuelve texto de tercero lo entrega dentro de la envoltura no confiable, en cada camino',
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/question-tools.ts',
+        de: 'envolverDatosDeTerceros(data)',
+        a: 'JSON.stringify(data)',
+        porque:
+          'the defect this criterion was written for (#303): search_precedents hands stored questions and answers back as bare JSON, and a precedent saying «ignora lo anterior…» reads like the system talking',
+      },
+      {
+        archivo: 'src/ai/tools/question-tools.ts',
+        de: "return 'No precedents for that search.';",
+        a: 'return JSON.stringify(rows);',
+        porque:
+          'one fenced path does not fence the tool: a second return hands the rows back bare while the envelope is still called on the first',
+      },
+      {
+        archivo: 'src/ai/untrusted.ts',
+        de: '${UNTRUSTED_OPEN}${cuerpo}${UNTRUSTED_CLOSE}',
+        a: '${UNTRUSTED_OPEN}${cuerpo}',
+        porque:
+          'the envelope opens a block it never closes: every tool still calls it by name, and the census has to notice that what it calls no longer fences',
+      },
+    ],
+    evaluar: () => {
+      // T17a (#303): search_precedents handed stored questions and answers
+      // (drafted from CFDIs, typed by any user of the firm) back as bare JSON.
+      // The census names EVERY tool: a new one is red until it fences or is
+      // declared, with its reason, in OUTSIDE_THE_ENVELOPE.
+      const { envelopes, tools } = agentToolCensus();
+      if (envelopes.size === 0) {
+        return falla(`${ENVELOPE_MODULE} ya no exporta una envoltura que emita los dos marcadores: quien la llama ya no cerca nada`);
+      }
+      const declared = [...Object.keys(OUTSIDE_THE_ENVELOPE), ...Object.keys(PARTLY_FENCED)];
+      const problems = declared.filter((n) => !tools.has(n)).map((n) => `${n} está declarada y no existe: su renglón sobra`);
+      let fenced = 0;
+      for (const [name, t] of tools) {
+        const withEnvelope = t.returns.filter((k) => k === 'fenced').length;
+        const bare = t.returns.filter((k) => k === 'data').length;
+        const partly = PARTLY_FENCED[name];
+        if (name in OUTSIDE_THE_ENVELOPE) {
+          if (withEnvelope > 0) problems.push(`${name} ya usa la envoltura y sigue declarada fuera de ella: quita su renglón`);
+        } else if (partly) {
+          if (withEnvelope === 0 || bare !== partly.unfenced) {
+            problems.push(`${name} (${t.file}) debía cercar sus filas y dejar ${partly.unfenced} camino propio; cerca ${withEnvelope} y deja ${bare}`);
+          }
+        } else if (bare > 0) {
+          problems.push(
+            `${name} (${t.file}) devuelve ${bare} resultado(s) sin la envoltura: si carga texto de tercero, envuélvelo; si no, declárala con su razón`
+          );
+        } else if (withEnvelope > 0) fenced++;
+      }
+      return problems.length > 0
+        ? falla(`texto de tercero que llegaría al modelo sin cerco: ${problems.join('; ')}`)
+        : ok(
+            `${tools.size} herramientas censadas: ${fenced} cercan con la envoltura todo lo que devuelven, ` +
+              `${Object.keys(PARTLY_FENCED).length} todo salvo un número propio, ` +
+              `${tools.size - fenced - declared.length} sólo devuelven texto propio y ` +
+              `${Object.keys(OUTSIDE_THE_ENVELOPE).length} están declaradas fuera de ella, cada una con su razón`
           );
     },
   },

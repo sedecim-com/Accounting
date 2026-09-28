@@ -43,6 +43,7 @@ import {
   renderConflicts, renderDigestCoverage, registerMemoryCommand,
 } from '../../src/cli/memory-command.js';
 import { buildQuestionTools } from '../../src/ai/tools/question-tools.js';
+import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE } from '../../src/ai/untrusted.js';
 import { searchPrecedents } from '../../src/ai/question-service.js';
 import { query } from '../../src/database/connection.js';
 import type { AgentContext } from '../../src/ai/context.js';
@@ -1152,15 +1153,25 @@ describe('search_precedents marca el conflicto en el momento de usarlo', () => {
   type ToolHandle<I> = BetaTool & {
     run: (input: I) => Promise<string | BetaToolResultContentBlockParam[]>;
   };
-  /** La forma exacta del tool_result que el modelo recibe. */
+  /**
+   * The exact shape of the DATA block the model receives. Since T17a (#303) it
+   * travels inside the untrusted envelope and the conflict note stays outside,
+   * as system prose: see `frameOf`.
+   */
   interface Salida {
     count: number;
     conflicts?: Array<{ competing_for: string; grouped_by: string; answers: string[] }>;
-    conflict_note?: string;
     precedents: Array<{ answer: string | null }>;
   }
-  const correr = async (busqueda: string): Promise<Salida> =>
-    JSON.parse((await herramienta().run({ search: busqueda })) as string) as Salida;
+  const runRaw = async (search: string): Promise<string> =>
+    (await herramienta().run({ search })) as string;
+  const blockOf = (out: string): Salida =>
+    JSON.parse(
+      out.slice(out.indexOf(UNTRUSTED_OPEN) + UNTRUSTED_OPEN.length, out.lastIndexOf(UNTRUSTED_CLOSE))
+    ) as Salida;
+  /** What the system wrote before the block: never a row's text. */
+  const frameOf = (out: string): string => out.slice(0, out.indexOf(UNTRUSTED_OPEN));
+  const correr = async (busqueda: string): Promise<Salida> => blockOf(await runRaw(busqueda));
   const herramienta = () =>
     buildQuestionTools(CTX, { model: 'claude-opus-5' })
       .find((t) => t.name === 'search_precedents')! as ToolHandle<{ search: string }>;
@@ -1179,14 +1190,15 @@ describe('search_precedents marca el conflicto en el momento de usarlo', () => {
       precedente({ id: 'q-1', answer: '6130 Servicios generales' }),
       precedente({ id: 'q-2', answer: '5205 Honorarios' }),
     ]);
-    const salida = await correr('telmex');
+    const out = await runRaw('telmex');
+    const salida = blockOf(out);
 
     expect(salida.conflicts).toHaveLength(1);
     expect(salida.conflicts![0].competing_for).toBe('clasificacion:telmex');
     expect(salida.conflicts![0].answers).toEqual(['6130 Servicios generales', '5205 Honorarios']);
-    expect(salida.conflict_note).toMatch(/Do NOT/);
-    expect(salida.conflict_note).toMatch(/most recent/);
-    expect(salida.conflict_note).toMatch(/ask_user/);
+    expect(frameOf(out)).toMatch(/Do NOT/);
+    expect(frameOf(out)).toMatch(/most recent/);
+    expect(frameOf(out)).toMatch(/ask_user/);
     // Los precedentes siguen llegando enteros y EN EL ORDEN en que la
     // consulta los devolvió: reordenarlos ya sería insinuar un ganador.
     expect(salida.precedents).toHaveLength(2);
@@ -1235,7 +1247,6 @@ describe('search_precedents marca el conflicto en el momento de usarlo', () => {
       precedente({ id: 'q-2', answer: '5205 Honorarios', answered_at: new Date('2026-06-01') }),
     ]);
     expect(clavesUnicas(await correr('telmex'))).toEqual([
-      '.conflict_note',
       '.conflicts',
       '.conflicts[].answers',
       '.conflicts[].competing_for',
@@ -1243,6 +1254,22 @@ describe('search_precedents marca el conflicto en el momento de usarlo', () => {
       '.count',
       ...CLAVES_PRECEDENTE,
     ]);
+  });
+
+  it('what stays OUTSIDE the block is fixed system prose: it does not depend on the rows', async () => {
+    // The closed shape above binds the block; this binds the frame, so a
+    // winner cannot be smuggled in next to the note either.
+    mockSearch.mockResolvedValueOnce([
+      precedente({ id: 'q-1', answer: '6130 Servicios generales' }),
+      precedente({ id: 'q-2', answer: '5205 Honorarios' }),
+    ]);
+    const first = frameOf(await runRaw('telmex'));
+    mockSearch.mockResolvedValueOnce([
+      precedente({ id: 'q-3', topic: 'clasificacion:cfe', question: '¿CFE?', answer: '6140 Luz' }),
+      precedente({ id: 'q-4', topic: 'clasificacion:cfe', question: '¿CFE?', answer: '5205 Honorarios' }),
+    ]);
+    expect(frameOf(await runRaw('cfe'))).toBe(first);
+    expect(first).not.toMatch(/6130|5205|telmex/i);
   });
 
   it('sin conflicto tampoco aparece nada nuevo', async () => {
@@ -1255,7 +1282,8 @@ describe('search_precedents marca el conflicto en el momento de usarlo', () => {
       precedente({ id: 'q-1', answer: '6130 Servicios generales' }),
       precedente({ id: 'q-2', answer: '5205 Honorarios', answered_at: new Date('2026-06-01') }),
     ]);
-    const salida = await correr('telmex');
+    const out = await runRaw('telmex');
+    const salida = blockOf(out);
     // La clase, dicha por su nombre: nada de desempate en la forma. El juego
     // de claves de arriba ya lo cierra; esto nombra lo que se está evitando,
     // para que quien añada el campo lea por qué no.
@@ -1264,7 +1292,7 @@ describe('search_precedents marca el conflicto en el momento de usarlo', () => {
         .not.toMatch(/prevail|winner|ganador|suggested|chosen|stands|applies|effective|newest|most_recent/i);
     }
     // Y el desempate se sigue mandando al humano, por escrito.
-    expect(salida.conflict_note).toMatch(/only a human resolves|a human decides which one stands/i);
+    expect(frameOf(out)).toMatch(/only a human resolves|a human decides which one stands/i);
   });
 
   it('un precedente sin contexto ni topic conserva la misma forma', async () => {
@@ -1276,7 +1304,6 @@ describe('search_precedents marca el conflicto en el momento de usarlo', () => {
     ]);
     const salida = await correr('gasolina');
     expect(clavesUnicas(salida)).toEqual([
-      '.conflict_note',
       '.conflicts',
       '.conflicts[].answers',
       '.conflicts[].competing_for',
@@ -1293,15 +1320,19 @@ describe('search_precedents marca el conflicto en el momento de usarlo', () => {
       precedente({ id: 'q-1', answer: '6130 Servicios' }),
       precedente({ id: 'q-2', answer: '  6130   SERVICIOS ' }),
     ]);
-    const salida = await correr('telmex');
+    const out = await runRaw('telmex');
+    const salida = blockOf(out);
     expect(salida.conflicts).toBeUndefined();
-    expect(salida.conflict_note).toBeUndefined();
+    expect(frameOf(out)).not.toMatch(/CONFLICT/);
     expect(salida.count).toBe(2);
   });
 
   it('la descripción de la herramienta ya no manda desempatar por fecha a ciegas', () => {
+    // T17a (#303): not even «most recent prevails, EXCEPT…» — outside a
+    // flagged conflict there is nothing for recency to decide either.
     const desc = String(herramienta().description);
-    expect(desc).toMatch(/EXCEPT when the result flags a conflict/);
-    expect(desc).toMatch(/only a human resolves them/);
+    expect(desc).toMatch(/never compete by date/);
+    expect(desc).toMatch(/only a human resolves it/);
+    expect(desc).not.toMatch(/most recent precedent prevails/i);
   });
 });
