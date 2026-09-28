@@ -51,7 +51,7 @@ import { PAYABLE_OPEN_STATUSES } from '../reporting/report-service.js';
  * ruido que nadie lee. Lo mismo vale para cualquier flujo nuevo que toque el
  * 2110 (nómina y depreciación hoy no lo tocan).
  */
-const ORIGENES_CXP = ['bill', 'vendor_payment', 'vendor_application'] as const;
+const ORIGENES_CXP = ['bill', 'vendor_payment', 'vendor_application', 'vendor_unapplication'] as const;
 
 /** Los orígenes que LIQUIDAN un pasivo ya reconocido (débito al control). */
 const ORIGENES_LIQUIDACION = ['vendor_payment', 'vendor_application'] as const;
