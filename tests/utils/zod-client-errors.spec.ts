@@ -286,10 +286,9 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
     return [bestA, bestB];
   };
 
-  it('restores the zod 3 issue list for a quarter of the parse at most', () => {
-    // In turns, like the test below. The fastest of three runs of each side,
-    // taken apart, let a garbage collection land on one side only: a CI
-    // runner measured 0.276 on a step that measures well under 0.25 in turns.
+  it('restores the zod 3 issue list for well under half the parse', () => {
+    // In turns, like the test below, so a garbage collection lands on both
+    // sides of the ratio alike.
     let issues: z.core.$ZodIssue[] = [];
     const [floor, normalize] = fastestInTurns(
       () => {
@@ -299,7 +298,13 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
       () => void normalizeLegacyIssues(issues),
     );
     expect(issues).toHaveLength(N + 1);
-    expect(normalize / floor).toBeLessThan(0.25);
+    // Measured at 0.25 to 0.28 on CI runners in turns, and 0.35 on a loaded
+    // machine: a bound of 0.25 sat on the measurement and failed PRs that
+    // touch neither zod nor the adapter. The regression this guards against,
+    // a trie node and a tuple per issue, cost about half the parse (0.5), so
+    // 0.4 still catches it and leaves room for a noisy runner, as the test
+    // below does with its bound of 3.
+    expect(normalize / floor).toBeLessThan(0.4);
   }, TIMEOUT_MS);
 
   it('answers through validateBody for three times the parse at most', () => {
