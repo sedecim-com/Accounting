@@ -52,9 +52,9 @@ function file(xml: string): string {
   return p;
 }
 
-/** A session that fails the test if the model is ever asked about the CFDI. */
+/** A session whose model answers without drafting anything. */
 function silentModel(): LlmSession {
-  return { label: 'never called', reset: vi.fn(), runTurn: vi.fn(async () => 'should not run') };
+  return { label: 'silent', reset: vi.fn(), runTurn: vi.fn(async () => 'no draft') };
 }
 
 async function ingestOne(xml: string) {
@@ -110,12 +110,12 @@ afterAll(async () => {
 });
 
 describe('ING-3 · the ingest path', () => {
-  it('an issued CFDI is registered but never matched as a vendor nor drafted as an expense', async () => {
+  it('an issued CFDI is registered as a sale, never matched as a vendor, and the model is told so', async () => {
     const { xml, uuid } = cfdi('issued');
     const { result, session } = await ingestOne(xml);
     expect(result.status, result.detail).toBe('blocked');
-    expect(result.detail).toMatch(/Issued by this entity: a sale, not an expense/);
-    expect(session.runTurn).not.toHaveBeenCalled();
+    // MNE-001-028: the model now sees it, as the entity's sale (its draft becomes an AR invoice).
+    expect(String(vi.mocked(session.runTurn).mock.calls[0][0])).toMatch(/- Direction: issued \(the entity is the issuer: this is its SALE/);
     expect(await billsOf(uuid)).toHaveLength(0);
 
     const pre = (await query<{ document_type: string; vendor_id: string | null; is_new_vendor: boolean }>(
@@ -146,7 +146,7 @@ describe('ING-3 · the ingest path', () => {
     expect(rows.map((r) => [r.verdict, r.direction])).toEqual([
       ['would_process', 'issued'], ['would_process', 'received'], ['invalid', 'foreign'],
     ]);
-    expect(rows[0].route).toMatch(/never as a vendor bill/);
+    expect(rows[0].route).toMatch(/creates the customer invoice \(AR\), never a vendor bill/);
     expect(rows[2].detail).toMatch(/not a party to the operation/);
   });
 
