@@ -6,6 +6,7 @@ import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
+import { getPolicy } from '../policy/policy-service.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { decrypt } from '../../utils/encryption.js';
 import { STATEMENT_SOURCE_FORMATS } from '../../database/enums.js';
@@ -53,11 +54,16 @@ import {
 //     cuenta: la 072 lo suelta y pone `idx_bank_tx_contenido`, NO único,
 //     porque la huella de contenido es una HUELLA y no una llave —dos
 //     comisiones legítimamente idénticas el mismo día la comparten y las dos
-//     son ciertas—. El `ON CONFLICT DO NOTHING` de `insertarLineas` va SIN
-//     blanco de conflicto a propósito, así que cubre las restricciones únicas
-//     que existan; hoy es esa sola. Lo que el catálogo llama «deduplicando por
-//     id nativo o por hash de contenido determinista» describe el mundo
-//     anterior a la 072.
+//     son ciertas—. `insertarLineas` names that one conflict target and no
+//     other (T25, #138), and every line it skips is named with its cause by
+//     `nameSkippedLines`: the importer no longer reports a subtraction as the
+//     bank's duplicates.
+//   · Overlap: a quarterly that contains the monthly has different bytes and
+//     lines without native ids, so neither guard above sees it. The
+//     fingerprint, counted by multiplicity against the OTHER statements of
+//     the account (`probeOverlaps`), finds the repeated lines, and the panel
+//     key `bank_statement_overlap` decides: block, mark or warn. It is not
+//     configurable that two identical lines of the SAME file both enter.
 //   NUNCA se escribe `content_hash`: no es un campo de entrada, es una función
 //   de la fila que calcula el disparador, y mandarlo devolvería al llamador la
 //   capacidad de forjar la huella que la 051 le quitó.
@@ -164,8 +170,17 @@ export interface ResultadoImportacion {
   lineasLeidas: number;
   /** Las que entraron. */
   importadas: number;
-  /** Las que ya estaban, por hash de contenido o por id nativo. */
+  /**
+   * Las que no entraron porque su id nativo del banco ya está en la cuenta:
+   * `skipped.length`, cada una nombrada ahí. Ya no es una resta (T25, #138).
+   */
   duplicadas: number;
+  /** Every line that did not enter, with its proven cause. */
+  skipped: SkippedLine[];
+  /** Lines already present in another statement of the account (`bank_statement_overlap`). */
+  overlaps: OverlapLine[];
+  /** What the panel said to do with them. */
+  overlapPolicy: OverlapPolicy;
   /** Lo que el lector ignoró, adivinó o derivó, más lo que añade el importador. */
   avisos: string[];
   hallazgos: HallazgoEstado[];
@@ -611,18 +626,48 @@ export async function importarEstadoDeCuenta(
       ]
     );
 
-    const { importadas, duplicadas } = await insertarLineas(client, cuenta.id, statementId, leido);
+    const entered = await insertarLineas(client, cuenta.id, statementId, leido);
+    const importadas = entered.length;
+    const skipped = await nameSkippedLines(client, entrada.entityId, cuenta.id, leido, entered);
+    const duplicadas = skipped.length;
 
     const avisos = [...norm.avisos];
-    if (duplicadas > 0) {
+    if (skipped.length > 0) {
       avisos.push(
-        `${duplicadas} línea(s) ya estaban en la cuenta (mismo id nativo del banco) y no se reinsertaron; ` +
-          `siguen colgando del estado por el que entraron`
+        `${skipped.length} línea(s) no entraron porque su id nativo del banco ya está en la cuenta: ` +
+          skipped
+            .map((s) => `línea ${s.line} (${s.reference}, ya en ${s.existingStatementId ?? 'un movimiento sin estado de cuenta'})`)
+            .join('; ')
+      );
+    }
+
+    // T25 (#138) · THE OVERLAPPING STATEMENT. Probed AFTER the lines are
+    // written and BEFORE the transaction commits, on purpose: the fingerprint
+    // is computed by the database trigger and has ONE recipe (051, watched by
+    // E0.3). Recomputing it here to probe earlier would be a second recipe
+    // that drifts in silence. Inside the transaction "block" still means
+    // nothing of the file ever becomes visible.
+    const tenantId = await tenantDe(client, entrada.entityId);
+    const overlaps = await probeOverlaps(client, entrada.entityId, cuenta.id, statementId, leido, entered);
+    const overlapPolicy = await readOverlapPolicy(client, tenantId, entrada.entityId);
+    if (overlaps.length > 0) {
+      const listed = describeOverlaps(overlaps);
+      if (overlapPolicy === 'block') {
+        throw new ConflictError(
+          `${listed}. La política \`bank_statement_overlap\` está en "block": el archivo no se importó. ` +
+            `Recorta el archivo a lo que falta, o cambia la política si este despacho importa el ` +
+            `traslape y lo resuelve después.`
+        );
+      }
+      if (overlapPolicy === 'mark') await markOverlaps(client, entrada.entityId, cuenta.id, statementId, overlaps);
+      avisos.push(
+        `${listed}. Entraron DOS veces en la cuenta (política \`bank_statement_overlap\` = "${overlapPolicy}")` +
+          (overlapPolicy === 'mark' ? '; cada una lleva la marca del estado con el que se traslapa' : '')
       );
     }
 
     await registrarAuditoria(client, {
-      tenantId: await tenantDe(client, entrada.entityId),
+      tenantId,
       userId: entrada.userId,
       action: 'create',
       entityType: 'bank_statements',
@@ -637,6 +682,8 @@ export async function importarEstadoDeCuenta(
         line_count: leido.lineas.length,
         importadas,
         duplicadas,
+        overlaps: overlaps.length,
+        overlap_policy: overlapPolicy,
         dry_run: opts.dryRun === true,
       },
     });
@@ -662,6 +709,9 @@ export async function importarEstadoDeCuenta(
       lineasLeidas: leido.lineas.length,
       importadas,
       duplicadas,
+      skipped,
+      overlaps,
+      overlapPolicy,
       avisos,
       hallazgos,
       ensayo: opts.dryRun === true,
@@ -691,16 +741,23 @@ function esViolacionUnica(e: unknown, restriccion: string): boolean {
   return err.code === '23505' && err.constraint === restriccion;
 }
 
+/** A file line that entered, by its 0-based position. */
+interface EnteredLine {
+  index: number;
+  id: string;
+}
+
 async function insertarLineas(
   client: pg.PoolClient,
   bankAccountId: string,
   statementId: string,
   leido: ExtractoLeido
-): Promise<{ importadas: number; duplicadas: number }> {
+): Promise<EnteredLine[]> {
   const promovibles = referenciasPromovibles(leido.lineas);
-  let importadas = 0;
+  const entered: EnteredLine[] = [];
 
   for (let desde = 0; desde < leido.lineas.length; desde += LOTE_LINEAS) {
+    const indexById = new Map<string, number>();
     const lote = leido.lineas.slice(desde, desde + LOTE_LINEAS);
     const valores: unknown[] = [];
     const filas: string[] = [];
@@ -712,8 +769,10 @@ async function insertarLineas(
         `($${b + 1}::uuid, $${b + 2}::uuid, $${b + 3}::uuid, $${b + 4}, $${b + 5}::date, ` +
           `$${b + 6}::date, $${b + 7}::decimal, $${b + 8}, $${b + 9}, $${b + 10}::jsonb, $${b + 11}::uuid)`
       );
+      const id = uuidv4();
+      indexById.set(id, desde + i);
       valores.push(
-        uuidv4(),
+        id,
         bankAccountId,
         statementId,
         ref && promovibles.has(ref) ? ref : null,
@@ -736,27 +795,229 @@ async function insertarLineas(
       );
     });
 
-    // SIN blanco de conflicto a propósito, pero lo que cubre ya no es lo que
-    // decía: T1 (#136) convirtió `uq_bank_tx_contenido` en un índice NO único
-    // —la huella de contenido es una HUELLA, no una llave: dos comisiones
-    // legítimamente idénticas el mismo día la comparten y las dos son
-    // ciertas—, así que aquí sólo queda UNIQUE(cuenta, id nativo). Lo que
-    // impide reimportar un archivo es UNIQUE(bank_account_id, file_sha256)
-    // sobre `bank_statements`, y ése es el dedupe de verdad.
+    // THE CONFLICT TARGET IS NAMED (T25, #138). It used to be a bare
+    // `ON CONFLICT DO NOTHING`, which swallowed ANY unique violation and let
+    // the caller report the gap as "duplicates" by subtraction — blaming the
+    // bank for rows the system dropped. Now the only row that may be skipped
+    // is one whose native bank id is already in the account, and
+    // `nameSkippedLines` proves that cause line by line; any other violation
+    // raises. The content fingerprint is NOT a key (T1, #136: two identical
+    // fees on one day are two fees), so it is never a conflict target.
     // `content_hash` NO va en la lista de columnas: lo pone el disparador.
     const r = await client.query<{ id: string }>(
       `INSERT INTO bank_transactions (
          id, bank_account_id, statement_id, bank_transaction_id, transaction_date,
          posted_date, amount, transaction_type, description, raw_data, import_batch_id
        ) VALUES ${filas.join(', ')}
-       ON CONFLICT DO NOTHING
+       ON CONFLICT (bank_account_id, bank_transaction_id) DO NOTHING
        RETURNING id`,
       valores
     );
-    importadas += r.rowCount ?? r.rows.length;
+    for (const row of r.rows) {
+      entered.push({ index: indexById.get(row.id) as number, id: row.id });
+    }
   }
 
-  return { importadas, duplicadas: leido.lineas.length - importadas };
+  return entered.sort((x, y) => x.index - y.index);
+}
+
+/** Why a line of the file did not enter. Proven per line, never inferred by subtraction. */
+export type SkipCause = 'native-id-already-in-account';
+
+export interface SkippedLine {
+  /** 1-based position in the file. */
+  line: number;
+  date: string;
+  amount: string;
+  description: string;
+  reference: string | null;
+  cause: SkipCause;
+  /** Statement the existing line hangs from; null when it entered without one (REST). */
+  existingStatementId: string | null;
+}
+
+/** A line of the new file whose fingerprint is already in ANOTHER statement of the account. */
+export interface OverlapLine {
+  /** 1-based position in the file. */
+  line: number;
+  date: string;
+  amount: string;
+  description: string;
+  /** The new row in `bank_transactions` (the one "mark" marks). */
+  transactionId: string;
+  existingStatementId: string;
+  existingFile: string | null;
+}
+
+const OVERLAP_POLICY_KEY = 'bank_statement_overlap';
+export type OverlapPolicy = 'block' | 'mark' | 'warn';
+const OVERLAP_POLICIES: readonly OverlapPolicy[] = ['block', 'mark', 'warn'];
+
+/**
+ * Names every line that did not enter, with its cause. The only conflict the
+ * INSERT tolerates is the native bank id, so each skipped line must have one
+ * already in the account; if it does not, the import aborts instead of
+ * guessing — an unexplained missing row is exactly what #138 forbids.
+ */
+async function nameSkippedLines(
+  client: pg.PoolClient,
+  entityId: string,
+  bankAccountId: string,
+  leido: ExtractoLeido,
+  entered: EnteredLine[]
+): Promise<SkippedLine[]> {
+  const done = new Set(entered.map((e) => e.index));
+  const missing = leido.lineas.map((l, index) => ({ l, index })).filter((x) => !done.has(x.index));
+  if (missing.length === 0) return [];
+
+  const refs = missing.map((m) => m.l.referencia?.trim() ?? '');
+  const existing = await client.query<{ bank_transaction_id: string; statement_id: string | null }>(
+    `SELECT bt.bank_transaction_id, bt.statement_id
+       FROM bank_transactions bt
+       JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+      WHERE bt.bank_account_id = $1 AND ba.entity_id = $2
+        AND bt.bank_transaction_id = ANY($3::text[])`,
+    [bankAccountId, entityId, refs]
+  );
+  const statementOf = new Map(existing.rows.map((x) => [x.bank_transaction_id, x.statement_id]));
+
+  return missing.map(({ l, index }, k) => {
+    if (!statementOf.has(refs[k])) {
+      throw new Error(
+        `La línea ${index + 1} del archivo no entró y su id nativo no está en la cuenta: la causa no ` +
+          `se conoce, así que no se importa nada. Esto es un defecto del importador, no del banco.`
+      );
+    }
+    return {
+      line: index + 1,
+      date: l.fecha,
+      amount: monto(dec(l.importe, `línea ${index + 1}`)),
+      description: l.descripcion ?? '',
+      reference: refs[k],
+      cause: 'native-id-already-in-account' as const,
+      existingStatementId: statementOf.get(refs[k]) ?? null,
+    };
+  });
+}
+
+/**
+ * The lines of the new file already present in OTHER statements of the same
+ * account, by the fingerprint the database computed (`idx_bank_tx_contenido`
+ * makes the probe an index lookup). Counted by MULTIPLICITY: if the monthly
+ * holds two identical fees and the quarterly three, two overlap and the third
+ * is a new charge. Presence alone would call the third a repeat, which is #88
+ * again from the other side.
+ */
+async function probeOverlaps(
+  client: pg.PoolClient,
+  entityId: string,
+  bankAccountId: string,
+  statementId: string,
+  leido: ExtractoLeido,
+  entered: EnteredLine[]
+): Promise<OverlapLine[]> {
+  if (entered.length === 0) return [];
+  // The fingerprints are READ back after the INSERT, never sent with it.
+  const mine = await client.query<{ id: string; content_hash: string }>(
+    `SELECT bt.id, bt.content_hash FROM bank_transactions bt
+       JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+      WHERE bt.statement_id = $1 AND bt.bank_account_id = $2 AND ba.entity_id = $3`,
+    [statementId, bankAccountId, entityId]
+  );
+  const hashOf = new Map(mine.rows.map((x) => [x.id, x.content_hash]));
+  const r = await client.query<{ content_hash: string; statement_id: string; file_name: string | null; n: number }>(
+    `SELECT bt.content_hash, bt.statement_id, s.file_name, COUNT(*)::int AS n
+       FROM bank_transactions bt
+       JOIN bank_statements s ON s.id = bt.statement_id
+      WHERE bt.bank_account_id = $1 AND s.bank_account_id = $1 AND s.entity_id = $2
+        AND bt.statement_id <> $3
+        AND bt.content_hash = ANY($4::text[])
+      GROUP BY bt.content_hash, bt.statement_id, s.file_name, s.period_start
+      ORDER BY s.period_start, bt.statement_id`,
+    [bankAccountId, entityId, statementId, [...new Set(hashOf.values())]]
+  );
+  const pool = new Map<string, Array<{ statementId: string; file: string | null; left: number }>>();
+  for (const x of r.rows) {
+    const q = pool.get(x.content_hash) ?? [];
+    q.push({ statementId: x.statement_id, file: x.file_name, left: x.n });
+    pool.set(x.content_hash, q);
+  }
+
+  const overlaps: OverlapLine[] = [];
+  for (const e of entered) {
+    const source = pool.get(hashOf.get(e.id) ?? '')?.find((s) => s.left > 0);
+    if (!source) continue;
+    source.left -= 1;
+    const l = leido.lineas[e.index];
+    overlaps.push({
+      line: e.index + 1,
+      date: l.fecha,
+      amount: monto(dec(l.importe, `línea ${e.index + 1}`)),
+      description: l.descripcion ?? '',
+      transactionId: e.id,
+      existingStatementId: source.statementId,
+      existingFile: source.file,
+    });
+  }
+  return overlaps;
+}
+
+/** Reader of `bank_statement_overlap`. A value outside the catalog reads as the strictest. */
+async function readOverlapPolicy(
+  client: pg.PoolClient,
+  tenantId: string,
+  entityId: string
+): Promise<OverlapPolicy> {
+  const p = await getPolicy({ tenantId, entityId }, OVERLAP_POLICY_KEY, client);
+  return (OVERLAP_POLICIES as readonly string[]).includes(p.value) ? (p.value as OverlapPolicy) : 'block';
+}
+
+function describeOverlaps(overlaps: OverlapLine[]): string {
+  const files = [...new Set(overlaps.map((o) => o.existingFile ?? o.existingStatementId))];
+  return (
+    `${overlaps.length} línea(s) de este archivo ya están en otro estado de cuenta de la cuenta ` +
+    `(${files.join(', ')}): ` +
+    overlaps
+      .map((o) => `línea ${o.line} · ${o.date} · ${o.amount} · ${o.description} (en ${o.existingFile ?? o.existingStatementId})`)
+      .join('; ')
+  );
+}
+
+/**
+ * "mark": the mark lives in the importer's own envelope in `raw_data`, next to
+ * `referencia` and `tipo` and apart from `crudo` (the bank's row), so no new
+ * column is needed and a bank file cannot forge it. Guarded UPDATE: the new
+ * statement, its account, the entity, an unmatched line (nothing has used it
+ * yet), and the row count checked.
+ */
+async function markOverlaps(
+  client: pg.PoolClient,
+  entityId: string,
+  bankAccountId: string,
+  statementId: string,
+  overlaps: OverlapLine[]
+): Promise<void> {
+  const r = await client.query(
+    `UPDATE bank_transactions bt
+        SET raw_data = COALESCE(bt.raw_data, '{}'::jsonb) ||
+                       jsonb_build_object('overlap', jsonb_build_object('statement_id', m.statement_id::text))
+       FROM unnest($1::uuid[], $2::uuid[]) AS m(id, statement_id)
+      WHERE bt.id = m.id AND bt.statement_id = $3 AND bt.bank_account_id = $4
+        AND bt.is_matched = false
+        AND bt.bank_account_id IN (SELECT id FROM bank_accounts WHERE entity_id = $5)`,
+    [
+      overlaps.map((o) => o.transactionId),
+      overlaps.map((o) => o.existingStatementId),
+      statementId,
+      bankAccountId,
+      entityId,
+    ]
+  );
+  if (r.rowCount !== overlaps.length) {
+    throw new Error(
+      `Se iban a marcar ${overlaps.length} línea(s) traslapadas y se marcaron ${r.rowCount ?? 0}: no se importa nada.`
+    );
+  }
 }
 
 export interface ResultadoLote {
@@ -937,6 +1198,11 @@ export interface LineaDeEstado {
   /** El hash del disparador: es el que decide si una línea ya estaba. */
   contentHash: string;
   cotejada: boolean;
+  /**
+   * With `bank_statement_overlap` = "mark": the statement this line was
+   * already in when it was imported. Null for every other line.
+   */
+  overlap: string | null;
 }
 
 export interface DetalleEstadoDeCuenta extends ResumenEstadoDeCuenta {
@@ -971,13 +1237,14 @@ export async function obtenerEstadoDeCuenta(
     const l = await query<{
       id: string; transaction_date: string; posted_date: string | null; amount: string;
       transaction_type: string; description: string | null; bank_transaction_id: string | null;
-      content_hash: string; is_matched: boolean;
+      content_hash: string; is_matched: boolean; overlap: string | null;
     }>(
       // La entidad entra por JOIN porque bank_transactions no la lleva.
       `SELECT bt.id, bt.transaction_date::text AS transaction_date,
               bt.posted_date::text AS posted_date, bt.amount::text AS amount,
               bt.transaction_type, bt.description, bt.bank_transaction_id,
-              bt.content_hash, bt.is_matched
+              bt.content_hash, bt.is_matched,
+              bt.raw_data->'overlap'->>'statement_id' AS overlap
          FROM bank_transactions bt
          JOIN bank_accounts ba ON ba.id = bt.bank_account_id
         WHERE bt.statement_id = $1 AND ba.entity_id = $2
@@ -997,6 +1264,7 @@ export async function obtenerEstadoDeCuenta(
       referencia: x.bank_transaction_id,
       contentHash: x.content_hash,
       cotejada: x.is_matched,
+      overlap: x.overlap,
     }));
     omitidas = Math.max(base.lineasEnBase - lineas.length, 0);
   }

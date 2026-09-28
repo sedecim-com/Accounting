@@ -501,7 +501,7 @@ async function invoicesAppliedBy(
   return rows;
 }
 
-/** Bills this vendor payment was applied to. Mirror of invoicesAppliedBy. */
+/** Bills this vendor payment was applied to, live rows only (105). Mirror of invoicesAppliedBy. */
 async function billsAppliedBy(
   client: pg.PoolClient,
   entityId: string,
@@ -515,11 +515,13 @@ async function billsAppliedBy(
             SUM(pa.amount_applied)::text        AS applied_now,
             (SELECT COALESCE(SUM(pa2.amount_applied), 0)
                FROM payment_applications pa2
-              WHERE pa2.bill_id = pa.bill_id)::text AS applied_total,
+              WHERE pa2.bill_id = pa.bill_id
+                AND pa2.unapplied_at IS NULL)::text AS applied_total,
             b.terms, b.memo
        FROM payment_applications pa
        JOIN bills b ON b.id = pa.bill_id
       WHERE pa.payment_id = $1 AND b.entity_id = $2
+        AND pa.unapplied_at IS NULL
       GROUP BY pa.bill_id, b.bill_number, b.tax_amount, b.total_amount, b.terms, b.memo`,
     [paymentId, entityId]
   );

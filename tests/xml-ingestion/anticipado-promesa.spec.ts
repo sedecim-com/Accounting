@@ -134,8 +134,8 @@ describe('el piso de importe, que no existía', () => {
   });
 
   it('sin umbral en el objeto cae al defecto declarado y no a cero', () => {
-    // El constructor de umbrales de pre-registration-service.ts todavía no
-    // pasa este campo. Con `?? 0` la regex volvería a ser el único filtro.
+    // pre-registration-service.ts passes the field since MNE-001-045, but the
+    // type keeps it optional; with `?? 0` the regex would be the only filter.
     const sinCampo = {
       capitalizationThreshold: 20000, restaurantPolicy: 'split_85',
       iepsTreatment: 'costo', inventoryPolicy: 'directo',
