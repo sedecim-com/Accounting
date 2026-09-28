@@ -1175,7 +1175,8 @@ export interface OpeningCheckReport {
  *
  * Reads the source trial balance and compares its SaldoFin, account by
  * account and rolled up the tree, against OUR ledger on the day the opening
- * lands. Writes nothing.
+ * lands. Writes nothing. Memorandum accounts the caller names stay out of
+ * the footing and are reported as excluded (#219, `MEMORANDUM_DOCTRINE`).
  *
  * NOTE: reversal pairs are left out on both sides —the reversed entry
  * (`reversed_by_entry_id`) and its mirror (`reverses_entry_id`)—. A reversed
@@ -1185,7 +1186,16 @@ export interface OpeningCheckReport {
  */
 export async function checkOpeningBalance(
   ctx: PolicyContext,
-  opts: { entityId: string; xml: string }
+  opts: {
+    entityId: string;
+    xml: string;
+    /**
+     * Source codes that are memorandum accounts (8xx). They do not migrate
+     * (#219), so they are left out of the footing and named as excluded
+     * instead of reported as missing from our chart.
+     */
+    memorandumCodes?: readonly string[];
+  }
 ): Promise<OpeningCheckReport> {
   const entity = await query<{ tax_id: string }>(
     `SELECT tax_id FROM legal_entities WHERE id = $1 AND tenant_id = $2`,
@@ -1252,7 +1262,7 @@ export async function checkOpeningBalance(
   return {
     entityId: opts.entityId,
     asOf,
-    comparison: compareToSource(source.rows, ours, shapes, 'SaldoFin'),
+    comparison: compareToSource(source.rows, ours, shapes, 'SaldoFin', new Set(opts.memorandumCodes ?? [])),
   };
 }
 
