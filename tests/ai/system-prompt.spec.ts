@@ -5,6 +5,7 @@ vi.mock('../../src/database/connection.js', () => ({
 }));
 
 import { buildSystemBlocks } from '../../src/ai/system-prompt.js';
+import { groupConflicts } from '../../src/ai/memory-service.js';
 import { query } from '../../src/database/connection.js';
 import { DOC_TOPICS } from '../../src/ai/tools/docs-tools.js';
 import type { AgentContext } from '../../src/ai/context.js';
@@ -92,7 +93,8 @@ describe('buildSystemBlocks — firm memory digest', () => {
     });
     const [stable, volatile_] = await buildSystemBlocks(CTX);
     expect(stable.cache_control).toEqual({ type: 'ephemeral' });
-    const heading = 'Firm memory (recent precedents — most recent wins; verify accounts still exist):';
+    const heading =
+      'Firm memory (active precedents, newest first — the order never breaks a tie; verify accounts still exist):';
     expect(stable.text).toContain(heading);
     expect(stable.text).toContain('clasificacion:X: 5205 Honorarios (admin@demo.com, 2026-08-01)');
     // Frozen snapshot lives in the cached prefix, before the docs index
@@ -105,6 +107,60 @@ describe('buildSystemBlocks — firm memory digest', () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     const [stable] = await buildSystemBlocks(CTX);
     expect(stable.text).toContain('(no precedents recorded yet)');
+  });
+});
+
+// ============================================================
+// T17a (#303) · THE PROMPT SAYS WHAT THE MEMORY DOES
+//
+// The rule on blocking questions ended in «The most recent precedent wins»,
+// and the digest heading repeated it. memory-service does the opposite on
+// purpose: groupConflicts groups active precedents by the decision they
+// answer and leaves a disagreement to a human, because a recency tie-break
+// turns last week's mistake into next week's precedent.
+// ============================================================
+describe('buildSystemBlocks — precedents never compete by date (T17a, #303)', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockQuery.mockResolvedValueOnce({ rows: COA_ROWS }); // chart of accounts
+    mockQuery.mockResolvedValueOnce({
+      rows: [{
+        topic: 'clasificacion:X', question: 'q', answer: '5205 Honorarios',
+        answered_by: 'admin@demo.com', answered_at: new Date('2026-08-01'),
+      }],
+    });
+  });
+
+  it('no longer lets the most recent precedent win', async () => {
+    const [stable] = await buildSystemBlocks(CTX);
+    expect(stable.text).not.toContain('The most recent precedent wins');
+    expect(stable.text).not.toMatch(/most recent (precedent )?wins/i);
+  });
+
+  it('describes the grouping groupConflicts applies, and hands a conflict to a human', async () => {
+    const [stable] = await buildSystemBlocks(CTX);
+    expect(stable.text).toMatch(/PRECEDENTS NEVER COMPETE BY DATE/);
+    expect(stable.text).toMatch(
+      /groups active precedents by the decision they answer: the same topic or, when a precedent has no topic, the same literal question/
+    );
+    expect(stable.text).toMatch(/the same answer repeated, case and spacing aside, is not/);
+    expect(stable.text).toMatch(/do not pick either answer, not even the newest/);
+    expect(stable.text).toContain('mnemosine memory --conflicts');
+
+    // And what it describes is what the service does, so the two cannot drift apart unseen.
+    const p = (topic: string | null, question: string, answer: string) => ({ topic, question, answer });
+    // One topic, two answers: a conflict over the topic, whatever the questions say.
+    expect(
+      groupConflicts([p('clasificacion:telmex', '¿Telmex?', '6130'), p('clasificacion:telmex', '¿Y Telmex?', '5205')])
+        .map((g) => g.scope)
+    ).toEqual(['topic']);
+    // No topic: the literal question is the decision.
+    expect(
+      groupConflicts([p(null, '¿Gasolina deducible?', 'Sí'), p(null, '¿gasolina  deducible? ', 'No')])
+        .map((g) => g.scope)
+    ).toEqual(['question']);
+    // The same answer repeated, case and spacing aside, is not a conflict.
+    expect(groupConflicts([p('t', 'q', '6130 Servicios'), p('t', 'q', '  6130   SERVICIOS ')])).toEqual([]);
   });
 });
 
