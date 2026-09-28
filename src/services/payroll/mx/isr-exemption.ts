@@ -19,10 +19,12 @@ import { getTaxParameters, requiredParameter } from '../tax-engine/tax-tables.js
 // WHERE EACH NUMBER COMES FROM.
 //   · The cap, in UMA, is law with a validity date: `legal_parameters`, key
 //     YEAR_END_BONUS_EXEMPT_CAP_KEY, seeded by migration 094. No constant here.
-//   · The UMA is the one the rest of the payslip uses: `tax_parameters`
-//     (`uma_daily`) on the PAYMENT date, the date the law fixes for ISR
-//     (#242). The IMSS engine reads the same row, so one payslip cannot mix
-//     two UMAs.
+//   · The DAILY UMA comes from `tax_parameters` (`uma_daily`) on the PAYMENT
+//     date, the date the law fixes for ISR (#242): the same row the IMSS
+//     engine reads. The employment subsidy (#298) reads the MONTHLY UMA from
+//     `legal_parameters` (`uma.monthly`, migration 095), so a payslip reads
+//     the UMA from two tables that hold the same published figures.
+//     `legal_parameters` has no migrated `uma.daily`, only the demo seed's.
 // Both fail closed: a missing cap or UMA throws, never exempts nothing or
 // everything in silence.
 // ============================================================

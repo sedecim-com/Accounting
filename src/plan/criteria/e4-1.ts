@@ -1618,6 +1618,85 @@ export const E4_1: Criterio[] = [
   },
   {
     paquete: 'E4.1',
+    id: 'employment-subsidy-is-a-share-of-the-uma',
+    enunciado:
+      'El subsidio al empleo 2026 es un porcentaje de la UMA mensual vigente en la fecha de pago, redondeado según la política del despacho',
+    evaluar: () => {
+      // WHY IT EXISTS (#298, MNE-001-064). The calculator read the bracket
+      // table migration 009 seeded — the one the decree of 1 May 2024
+      // repealed — so a 2026 quincena of 1 500 received 203.31 instead of
+      // 264.58 in January and 264.30 from February. The law now lives in
+      // `legal_parameters` with its source, and the rounding the decree does
+      // not fix is a policy with its reader. Three layers, one fact: the
+      // engine reads the law, the paycheck reads the policy and hands it over,
+      // and the catalog declares the policy.
+      const engine = codigoDe('src/services/payroll/mx/isr-calculator.ts');
+      if (/getBrackets\(\s*'MX'\s*,\s*'subsidio_empleo'/.test(engine)) {
+        return falla(
+          'el subsidio al empleo vuelve a leer la tabla por tramos de la migración 009, derogada ' +
+            'desde mayo de 2024: una quincena de 1 500 recibe 203.31 en vez de 264.30'
+        );
+      }
+      const lawKeys = ['EMPLOYMENT_SUBSIDY_LAW.umaMonthly', 'EMPLOYMENT_SUBSIDY_LAW.rate', 'EMPLOYMENT_SUBSIDY_LAW.incomeCap'];
+      const unread = lawKeys.filter((k) => !engine.includes(`legalParameterAt('MX', ${k}, onDate)`));
+      if (unread.length > 0) {
+        return falla(
+          `el subsidio no lee de legal_parameters en la fecha de pago: ${unread.join(', ')}. La UMA ` +
+            'cambia el 1 de febrero y el porcentaje de enero no es el del resto del año'
+        );
+      }
+
+      const paycheck = codigoDe('src/services/payroll/common/paycheck-service.ts');
+      if (!/employment_subsidy_rounding:\s*employmentSubsidyRounding/.test(paycheck)) {
+        return falla(
+          'el recibo no le pasa al motor el redondeo que dice la política subsidio_al_empleo_redondeo: ' +
+            'la clave quedaría como catálogo decorativo'
+        );
+      }
+
+      const catalog = codigoDe('src/services/policy/pending-catalog.ts');
+      if (
+        !catalog.includes("key: 'subsidio_al_empleo_redondeo'") ||
+        !catalog.includes("value: 'producto_al_centavo'") ||
+        !catalog.includes("value: 'diario_al_centavo'")
+      ) {
+        return falla('el panel no declara subsidio_al_empleo_redondeo con sus dos valores');
+      }
+
+      return ok(
+        'el subsidio sale de la UMA mensual y el porcentaje vigentes en la fecha de pago, y el ' +
+          'redondeo lo declara el panel y lo lee el recibo'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/isr-calculator.ts',
+        de: "const rate = await legalParameterAt('MX', EMPLOYMENT_SUBSIDY_LAW.rate, onDate);",
+        a:
+          "const brackets = await getBrackets('MX', 'subsidio_empleo', paymentYear(input), null, 'monthly');\n" +
+          "    const rate = { value: String(brackets[0]?.base_tax ?? 0) };",
+        porque:
+          'restaura la tabla por tramos de la migración 009: el subsidio vuelve a ser el de la ley ' +
+          'derogada en mayo de 2024',
+      },
+      {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: 'employment_subsidy_rounding: employmentSubsidyRounding,',
+        a: '',
+        porque:
+          'el recibo lee la política y no se la pasa al motor: la clave del panel se vuelve decorativa',
+      },
+      {
+        archivo: 'src/services/policy/pending-catalog.ts',
+        de: "value: 'diario_al_centavo'",
+        a: "value: 'truncar'",
+        porque:
+          'el panel pierde uno de los dos valores decididos y ofrece truncar, que quedó descartado por no tener fuente',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.1',
     id: 'isn-refuses-instead-of-zero',
     enunciado: 'Un impuesto que no se puede calcular se nombra, no se cifra en cero',
     evaluar: () => {

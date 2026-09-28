@@ -47,14 +47,14 @@ function params(uma: number): Record<string, unknown> {
   };
 }
 
-// A tariff per YEAR: 2025 withholds 10 %, 2026 withholds 20 %; the subsidy
-// pays 100 in 2025 and 200 in 2026.
+// A tariff per YEAR: 2025 withholds 10 %, 2026 withholds 20 %.
+// The subsidy no longer has a table (#298): a read of one is the defect.
 function bracketRow(taxType: string, year: number) {
-  const isr = taxType === 'isr';
+  if (taxType !== 'isr') throw new Error(`unexpected ${taxType} table read`);
   return {
     bracket_order: 1, bracket_low: '0.01', bracket_high: null,
-    rate: isr ? (year === 2026 ? '0.20' : '0.10') : '0',
-    base_tax: isr ? '0' : year === 2026 ? '200' : '100',
+    rate: year === 2026 ? '0.20' : '0.10',
+    base_tax: '0',
     data: {},
   };
 }
@@ -68,6 +68,18 @@ beforeAll(() => {
     if (sql.includes('FROM tax_parameters')) {
       const day = String(args[1]);
       return Promise.resolve({ rows: [{ params: params(day >= '2026-02-01' ? UMA_FEB : UMA_JAN) }] });
+    }
+    if (sql.includes('FROM legal_parameters')) {
+      // The subsidy's law (#298), as migration 095 loads it: the rate is the
+      // January one and the monthly UMA the 2025 one until February 1st.
+      const [, key, day] = args as [string, string, string];
+      const feb = String(day) >= '2026-02-01';
+      const value: Record<string, string> = {
+        'uma.monthly': feb ? '3566.2200' : '3439.4600',
+        'employment_subsidy.uma_monthly_rate': feb ? '0.1502' : '0.1559',
+        'employment_subsidy.monthly_income_cap': '11492.6600',
+      };
+      return Promise.resolve({ rows: [{ key, value: value[key], unit: 'MXN', effectiveFrom: '2026-01-01', sourceUrl: 'x' }] });
     }
     if (sql.includes('FROM tax_tables')) {
       return Promise.resolve({ rows: [bracketRow(String(args[1]), Number(args[2]))] });
@@ -142,9 +154,15 @@ describe('ISR and subsidy go by the payment date', () => {
     expect(out.tax_amount).toBeCloseTo((10000 - 0.01) * 0.2, 2);
   });
 
-  it('the subsidy with the table of the payment year', async () => {
-    const out = await new MexicoSubsidioEmpleoCalculator().calculate(paidInJanuary);
-    expect(out.tax_amount).toBe(200);
+  it('the subsidy with the law in force on the payment date', async () => {
+    // A period labelled 2025 and paid on January 5th, 2026 takes January
+    // 2026's law: 15.59 % of the 2025 monthly UMA (#298).
+    const out = await new MexicoSubsidioEmpleoCalculator().calculate({
+      ...paidInJanuary,
+      taxable_wages: 6000,
+      employment_subsidy_rounding: 'producto_al_centavo',
+    });
+    expect(out.tax_amount).toBe(536.21);
   });
 
   it('and a generated period paid in the new year is labelled with the new year', () => {
