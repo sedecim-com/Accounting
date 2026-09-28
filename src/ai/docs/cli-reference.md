@@ -2426,8 +2426,8 @@ Commands:
                                  state and close progress
   show|ver [options] <year>      Show a fiscal year with each of its periods and
                                  their states
-  create|crear [options] <year>  Create a fiscal year and its twelve monthly
-                                 periods
+  create|crear [options] <year>  Create a fiscal year: its twelve monthly
+                                 periods and the year-end adjustment period (13)
   help [command]                 display help for command
 ```
 
@@ -2493,7 +2493,8 @@ Examples:
 ```
 Usage: mnemosine year create|crear [options] <year>
 
-Create a fiscal year and its twelve monthly periods
+Create a fiscal year: its twelve monthly periods and the year-end adjustment
+period (13)
 
 Arguments:
   year                     four-digit year, e.g. 2027
@@ -2509,7 +2510,7 @@ Options:
   -h, --help               display help for command
 
 Examples:
-  # Create a fiscal year and its twelve monthly periods.
+  # Create a fiscal year: twelve monthly periods and the year-end adjustment period (13).
   mnemosine year create 2027
   # See the calendar it would create, writing nothing.
   mnemosine year create 2027 --dry-run
