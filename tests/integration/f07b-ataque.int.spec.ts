@@ -255,10 +255,10 @@ beforeAll(async () => {
   desechables.push(hermana);
 
   // ENERO y FEBRERO, como en el ejercicio de F07a.
-  await asiento(f, 1, 'Venta de enero', f.cuentas['1120'], f.cuentas['4100'], '7000.0000');
-  await asiento(f, 1, 'Costo de enero', f.cuentas['5100'], f.cuentas['1120'], '2500.0000');
-  await asiento(f, 2, 'Venta de febrero', f.cuentas['1120'], f.cuentas['4100'], '1300.0000');
-  await asiento(f, 2, 'Gasto de febrero', f.cuentas['5100'], f.cuentas['1120'], '400.0000');
+  await asiento(f, 1, 'Venta de enero', f.cuentas['1130'], f.cuentas['4100'], '7000.0000');
+  await asiento(f, 1, 'Costo de enero', f.cuentas['5100'], f.cuentas['1130'], '2500.0000');
+  await asiento(f, 2, 'Venta de febrero', f.cuentas['1130'], f.cuentas['4100'], '1300.0000');
+  await asiento(f, 2, 'Gasto de febrero', f.cuentas['5100'], f.cuentas['1130'], '400.0000');
   await softClosePeriod(f.periodos[1], f.entityId, f.userId, 'cierre suave de enero');
 }, 120_000);
 
@@ -279,7 +279,7 @@ afterAll(async () => {
 describe('el ataque más viejo del mundo: el nombre que rompe el archivo', () => {
   it('un nombre con &, <, comillas y acentos sale escapado y VUELVE idéntico', async () => {
     const sucio = `Aceros & Cía <S.A. de C.V.> "El Ñandú" 'apóstrofo' 5 > 3 — ÁÉÍÓÚ`;
-    await query(`UPDATE accounts SET name = $2 WHERE entity_id = $1 AND code = '1120'`, [
+    await query(`UPDATE accounts SET name = $2 WHERE entity_id = $1 AND code = '1130'`, [
       f.entityId,
       sucio,
     ]);
@@ -302,7 +302,7 @@ describe('el ataque más viejo del mundo: el nombre que rompe el archivo', () =>
     expect(xml).not.toMatch(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/);
     expect(xml).not.toMatch(/="[^"]*<[^"]*"/);
     // 3. Y el dato VUELVE exactamente como entró: el SAT lee lo que se guardó.
-    expect(atributosDe(xml, '1120').Desc).toBe(sucio);
+    expect(atributosDe(xml, '1130').Desc).toBe(sucio);
     // Los acentos no se escapan ni se pierden: el archivo va en UTF-8.
     expect(xml).toContain('Ñandú');
   });
@@ -407,8 +407,8 @@ describe('el ataque más viejo del mundo: el nombre que rompe el archivo', () =>
       agrupador: '102.01',
     });
     // Se mueve y se salda dentro de febrero: Debe y Haber != 0, saldos = 0.
-    await asiento(f, 2, 'Alta del pasivo', f.cuentas['1120'], ceroA, '250.5550');
-    await asiento(f, 2, 'Pago del pasivo', ceroA, f.cuentas['1120'], '250.5550');
+    await asiento(f, 2, 'Alta del pasivo', f.cuentas['1130'], ceroA, '250.5550');
+    await asiento(f, 2, 'Pago del pasivo', ceroA, f.cuentas['1130'], '250.5550');
 
     const b = await generarBalanza(f.entityId, { periodo: f.periodos[2] });
     const c = atributosDe(b.xml, '2199');
@@ -554,7 +554,7 @@ describe('el descuadre inyectado', () => {
     await seedPolicies({ tenantId: g.tenantId });
     await mapearTodoElPlan(g.entityId);
 
-    await asiento(g, 2, 'Venta de febrero', g.cuentas['1120'], g.cuentas['4100'], '5000.0000');
+    await asiento(g, 2, 'Venta de febrero', g.cuentas['1130'], g.cuentas['4100'], '5000.0000');
 
     // EL ATAQUE: el asiento pertenece al periodo de FEBRERO
     // (fiscal_period_id) y su FECHA está en marzo. El movimiento se filtra por
@@ -564,7 +564,7 @@ describe('el descuadre inyectado', () => {
       g,
       g.periodos[2],
       '2026-03-05',
-      g.cuentas['1120'],
+      g.cuentas['1130'],
       g.cuentas['4100'],
       '1234.5600'
     );
@@ -575,12 +575,12 @@ describe('el descuadre inyectado', () => {
 
     // Nombra LA CUENTA y trae LA DIFERENCIA dentro del texto.
     const cuentas = saldos.map((h) => h.referencia);
-    expect(cuentas).toContain('1120');
+    expect(cuentas).toContain('1130');
     expect(cuentas).toContain('4100');
     expect(saldos.every((h) => h.severity === 'blocking')).toBe(true);
-    const deLa1120 = saldos.find((h) => h.referencia === '1120');
-    expect(deLa1120?.detalle).toContain('1234.5600');
-    expect(deLa1120?.detalle).toContain('deudora');
+    const deLa1130 = saldos.find((h) => h.referencia === '1130');
+    expect(deLa1130?.detalle).toContain('1234.5600');
+    expect(deLa1130?.detalle).toContain('deudora');
     // La acreedora publica su diferencia EN SU NATURALEZA, no en la del mayor.
     const deLa4100 = saldos.find((h) => h.referencia === '4100');
     expect(deLa4100?.detalle).toContain('acreedora');
@@ -606,8 +606,8 @@ describe('el redondeo, que rompe una resta que en el mayor cuadraba', () => {
     enterTenant(g.tenantId);
     await seedPolicies({ tenantId: g.tenantId });
     await mapearTodoElPlan(g.entityId);
-    await asiento(g, 1, 'Medio centavo de enero', g.cuentas['1120'], g.cuentas['4100'], '0.0050');
-    await asiento(g, 2, 'Medio centavo de febrero', g.cuentas['1120'], g.cuentas['4100'], '0.0050');
+    await asiento(g, 1, 'Medio centavo de enero', g.cuentas['1130'], g.cuentas['4100'], '0.0050');
+    await asiento(g, 2, 'Medio centavo de febrero', g.cuentas['1130'], g.cuentas['4100'], '0.0050');
 
     const v = await verificarBalanza(g.entityId, { periodo: g.periodos[2] });
     // El mayor NO tiene descuadre: por eso `saldos` calla y `redondeo` habla.
@@ -615,9 +615,9 @@ describe('el redondeo, que rompe una resta que en el mayor cuadraba', () => {
     const redondeo = v.hallazgos.filter((h) => h.check === 'redondeo');
     // With #323 the headers 1100/1000 and 4000 declare the same half cents
     // rolled up, and their rows fail the same way once presented.
-    expect(redondeo.map((h) => h.referencia).sort()).toEqual(['1000', '1100', '1120', '4000', '4100']);
+    expect(redondeo.map((h) => h.referencia).sort()).toEqual(['1000', '1100', '1130', '4000', '4100']);
     expect(redondeo.every((h) => h.severity === 'blocking')).toBe(true);
-    expect(redondeo.find((h) => h.referencia === '1120')?.detalle).toContain('0.02');
+    expect(redondeo.find((h) => h.referencia === '1130')?.detalle).toContain('0.02');
     expect(checkExitCode(v.conteo)).toBe(ExitCode.VALIDATION);
 
     // Y el archivo NO se llega a construir: se niega antes.
@@ -644,8 +644,8 @@ describe("con 'las_que_se_mueven', las dos entregas tienen que decir lo mismo", 
       'las_que_se_mueven',
       g.userId
     );
-    await asiento(g, 1, 'Venta de enero', g.cuentas['1120'], g.cuentas['4100'], '1000.0000');
-    await asiento(g, 2, 'Gasto de febrero', g.cuentas['5100'], g.cuentas['1120'], '250.0000');
+    await asiento(g, 1, 'Venta de enero', g.cuentas['1130'], g.cuentas['4100'], '1000.0000');
+    await asiento(g, 2, 'Gasto de febrero', g.cuentas['5100'], g.cuentas['1130'], '250.0000');
 
     const cat = await generarCatalogoCuentas(
       { tenantId: g.tenantId, entityId: g.entityId },
@@ -654,7 +654,7 @@ describe("con 'las_que_se_mueven', las dos entregas tienen que decir lo mismo", 
     expect(cat.puedeEntregarse, JSON.stringify(cat.hallazgos)).toBe(true);
     const declaradas = numerosDe(cat.xml as string);
     // Las movidas y SUS PADRES: sin el padre, SubCtaDe apuntaría fuera.
-    expect(declaradas).toEqual(expect.arrayContaining(['1120', '4100', '5100', '1000', '1100']));
+    expect(declaradas).toEqual(expect.arrayContaining(['1130', '4100', '5100', '1000', '1100']));
     expect(declaradas).not.toContain('1230');
 
     const v = await verificarBalanza(g.entityId, { periodo: g.periodos[2] });
@@ -691,7 +691,7 @@ describe('el cierre SUAVE, que es lo que F07a arregló', () => {
     const b = await generarBalanza(f.entityId, { periodo: f.periodos[2] });
     expect(b.inicial.origen).toBe('mayor');
     expect(b.inicial.firme).toBe(false);
-    expect(atributosDe(b.xml, '1120').SaldoIni).toBe('4500.00');
+    expect(atributosDe(b.xml, '1130').SaldoIni).toBe('4500.00');
     expect(atributosDe(b.xml, '4100').SaldoIni).toBe('7000.00');
     expect(atributosDe(b.xml, '5100').SaldoIni).toBe('2500.00');
   });
@@ -774,7 +774,7 @@ describe('la e.firma: construir el archivo y firmarlo son actos de manos distint
       'sellar_con_custodia',
       g.userId
     );
-    await asiento(g, 2, 'Venta', g.cuentas['1120'], g.cuentas['4100'], '10.0000');
+    await asiento(g, 2, 'Venta', g.cuentas['1130'], g.cuentas['4100'], '10.0000');
 
     const v = await verificarBalanza(g.entityId, { periodo: g.periodos[2] });
     const sello = v.hallazgos.find((h) => h.check === 'sin-sello');
@@ -868,7 +868,7 @@ describe('la frontera de entidad (serie TEN)', () => {
       hermana,
       2,
       'Movimiento sólo de la hermana',
-      hermana.cuentas['1120'],
+      hermana.cuentas['1130'],
       hermana.cuentas['4100'],
       '99999.0000'
     );
@@ -889,7 +889,7 @@ describe('la frontera de entidad (serie TEN)', () => {
     await query(`UPDATE legal_entities SET tax_id = '  xaxx010101000 ' WHERE id = $1`, [
       g.entityId,
     ]);
-    await asiento(g, 2, 'Venta', g.cuentas['1120'], g.cuentas['4100'], '10.0000');
+    await asiento(g, 2, 'Venta', g.cuentas['1130'], g.cuentas['4100'], '10.0000');
 
     const cat = await generarCatalogoCuentas(
       { tenantId: g.tenantId, entityId: g.entityId },
@@ -916,7 +916,7 @@ describe('la frontera de entidad (serie TEN)', () => {
     enterTenant(otro.tenantId);
     await seedPolicies({ tenantId: otro.tenantId });
     await mapearTodoElPlan(otro.entityId);
-    await asiento(otro, 2, 'Venta ajena', otro.cuentas['1120'], otro.cuentas['4100'], '777.0000');
+    await asiento(otro, 2, 'Venta ajena', otro.cuentas['1130'], otro.cuentas['4100'], '777.0000');
 
     // Volvemos al inquilino de f: es SU sesión la que pide la entidad ajena.
     enterTenant(f.tenantId);
