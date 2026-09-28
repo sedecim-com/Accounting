@@ -9,6 +9,10 @@ import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type
 // issuer, client_id and audience are declared, and the rest is read
 // from /.well-known/openid-configuration.
 //
+// Cognito is the one provider whose access tokens carry no `aud`: they name
+// their app client in `client_id`. AUTH_OIDC_PROVIDER=cognito trades that one
+// check (accessTokenCheck, #369); every other provider keeps `aud`.
+//
 // SAML is deliberately not implemented here: it goes behind an IdP
 // that translates it to OIDC (Keycloak, Okta, WorkOS, dex). Rolling
 // our own SAML is weeks of work and attack surface.
@@ -87,6 +91,31 @@ export function isAsymmetric(token: string): boolean {
   }
 }
 
+/** The AUTH_OIDC_PROVIDER value whose access tokens are checked by client_id and token_use instead of aud. */
+export const COGNITO_PROVIDER = 'cognito';
+
+/**
+ * What an access token must carry, besides signature, issuer and expiry, to
+ * be a credential for this API: the API named in `aud` (the OIDC norm), or,
+ * for Cognito, one of the listed app clients in `client_id`. Exactly one: a
+ * check with neither would verify no audience at all.
+ */
+export type AccessTokenCheck =
+  | { audience: string; cognitoClientIds?: undefined }
+  | { cognitoClientIds: readonly string[]; audience?: undefined };
+
+/**
+ * The check a deployment's AUTH_OIDC_* settings ask for. Only the exact value
+ * `cognito` trades `aud` for the app clients listed, comma-separated, in
+ * AUTH_OIDC_CLIENT_ID; any other value, unset included, keeps `aud`. The
+ * settings come in as an argument because the web gateway loads this module
+ * too, and it reads no engine configuration.
+ */
+export function accessTokenCheck(settings: { provider: string; audience: string; clientId: string }): AccessTokenCheck {
+  if (settings.provider !== COGNITO_PROVIDER) return { audience: settings.audience };
+  return { cognitoClientIds: settings.clientId.split(',').map((id) => id.trim()).filter((id) => id !== '') };
+}
+
 /**
  * Verifies an IdP access token: signature against the JWKS, plus issuer,
  * audience and expiration.
@@ -95,16 +124,25 @@ export function isAsymmetric(token: string): boolean {
  * ID token. Accepting an ID token as an API credential is the most common
  * mistake when integrating OIDC: that token was issued for the client, not
  * for the resource.
+ *
+ * SECURITY: a Cognito access token has no `aud`, and a Cognito ID token has
+ * the same issuer and keys. With `cognitoClientIds`, `token_use` must be
+ * "access" and `client_id` one of the listed app clients: together they
+ * stand where `aud` stands, and they are read only after the signature,
+ * issuer and expiry verified.
  */
 export async function verifyIdpToken(
   token: string,
-  opts: { issuer: string; audience: string; fetchImpl?: typeof fetch }
+  opts: { issuer: string; fetchImpl?: typeof fetch } & AccessTokenCheck
 ): Promise<VerifiedIdentity> {
   const conf = await discover(opts.issuer, opts.fetchImpl ?? fetch);
   const { payload } = await jwtVerify(token, jwksFor(conf.jwks_uri, opts.fetchImpl), {
     issuer: conf.issuer,
+    // NOTE: jose skips the aud check only when `audience` is undefined, which
+    // the type above allows in Cognito mode alone.
     audience: opts.audience,
   });
+  if (opts.cognitoClientIds !== undefined) assertCognitoAccessToken(payload, opts.cognitoClientIds);
 
   const sub = payload.sub;
   if (!sub) throw new TokenWithoutSubjectError();
@@ -129,6 +167,28 @@ export class TokenWithoutSubjectError extends Error {
   constructor() {
     super('The token has no "sub": it identifies nobody');
     this.name = 'TokenWithoutSubjectError';
+  }
+}
+
+/**
+ * A verified Cognito token that is not an access token issued to one of the
+ * accepted app clients. A verdict on the token (401), like a bad signature.
+ */
+export class CognitoTokenRejectedError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'CognitoTokenRejectedError';
+  }
+}
+
+// CONTRACT: Cognito's access token as AWS documents it: `token_use` says which
+// of its two tokens this is, `client_id` names the app client, no `aud`.
+function assertCognitoAccessToken(payload: JWTPayload, clientIds: readonly string[]): void {
+  if (payload.token_use !== 'access') {
+    throw new CognitoTokenRejectedError('The token\'s token_use is not "access": an ID token is not an API credential');
+  }
+  if (typeof payload.client_id !== 'string' || !clientIds.includes(payload.client_id)) {
+    throw new CognitoTokenRejectedError('The token\'s client_id is not an app client this API accepts');
   }
 }
 
@@ -157,7 +217,7 @@ const TOKEN_REJECTION_CODES: ReadonlySet<string> = new Set([
  * is the verification half only.
  */
 export function isTokenRejection(err: unknown): err is Error {
-  if (err instanceof TokenWithoutSubjectError) return true;
+  if (err instanceof TokenWithoutSubjectError || err instanceof CognitoTokenRejectedError) return true;
   if (!(err instanceof Error)) return false;
   const code = (err as { code?: unknown }).code;
   return typeof code === 'string' && TOKEN_REJECTION_CODES.has(code);
@@ -165,7 +225,7 @@ export function isTokenRejection(err: unknown): err is Error {
 
 /** Providers name groups differently; the usual ones are accepted. */
 function extractGroups(payload: JWTPayload): string[] {
-  for (const key of ['groups', 'roles', 'realm_access']) {
+  for (const key of ['groups', 'roles', 'realm_access', 'cognito:groups']) {
     const raw = payload[key];
     if (Array.isArray(raw)) return raw.filter((g): g is string => typeof g === 'string');
     // Keycloak: realm_access.roles

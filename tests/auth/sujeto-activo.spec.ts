@@ -39,7 +39,10 @@ vi.mock('../../src/auth/token-store.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../src/auth/token-store.js')>();
   return { ...real, loadToken: vi.fn() };
 });
-vi.mock('../../src/auth/oidc.js', () => ({ verifyIdpToken: vi.fn() }));
+vi.mock('../../src/auth/oidc.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/auth/oidc.js')>()),
+  verifyIdpToken: vi.fn(),
+}));
 
 import {
   decidirSujeto,
@@ -194,6 +197,26 @@ describe('sujetoAutenticado · la máquina', () => {
       issuer: 'https://idp.example.com',
       audience: 'https://api.mnemosine.mx',
     });
+  });
+
+  it('with AUTH_OIDC_PROVIDER=cognito the session is checked against its app client, as the API checks it (#369)', async () => {
+    configFalso.auth.provider = 'cognito';
+    try {
+      mockLoad.mockResolvedValue({
+        accessToken: 'token-fabricado',
+        expiresAt: Date.now() + 3_600_000,
+        issuer: 'https://idp.example.com',
+      });
+      mockVerify.mockRejectedValue(new Error('token_use is not "access"'));
+
+      await expect(sujetoAutenticado()).rejects.toThrow(SesionNoVerificableError);
+      expect(mockVerify).toHaveBeenCalledWith('token-fabricado', {
+        issuer: 'https://idp.example.com',
+        cognitoClientIds: ['cli'],
+      });
+    } finally {
+      configFalso.auth.provider = 'oidc';
+    }
   });
 
   it('un correo que el proveedor no da por verificado no elige usuario local', async () => {
