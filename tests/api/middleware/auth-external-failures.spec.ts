@@ -39,7 +39,13 @@ const ISSUER = 'https://idp.auth-failures.test';
 const AUDIENCE = 'https://api.auth-failures.test';
 const ENTITY = '11111111-1111-4111-8111-111111111111';
 
-const saved = { issuer: config.auth.issuer, audience: config.auth.audience, tenantId: config.auth.tenantId };
+const saved = {
+  issuer: config.auth.issuer,
+  audience: config.auth.audience,
+  tenantId: config.auth.tenantId,
+  provider: config.auth.provider,
+  clientId: config.auth.clientId,
+};
 let privateKey: PrivateKey;
 let otherKey: PrivateKey;
 let jwk: JWK;
@@ -207,6 +213,62 @@ describe('an IdP that cannot be read is 502, never 401', () => {
     jwksRoute = () => Promise.reject(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }));
     expect(await answer(await sign())).toEqual({ status: 502, code: 'EXTERNAL_SERVICE_FAILED' });
   });
+});
+
+// ============================================================
+// MNE-001-104 (#369) · AUTH_OIDC_PROVIDER=cognito. A Cognito access token
+// carries no aud: it names its app client in client_id and says what it is in
+// token_use. Every other provider keeps aud, exactly as above.
+// ============================================================
+
+const CLI_CLIENT = 'cli-app-client';
+const PLATFORM_CLIENT = 'platform-app-client';
+
+function signCognito(claims: Record<string, unknown> = {}, iss = ISSUER): Promise<string> {
+  return new SignJWT({ sub: 'user-1', token_use: 'access', client_id: PLATFORM_CLIENT, ...claims })
+    .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
+    .setIssuer(iss)
+    .setExpirationTime('10m')
+    .sign(privateKey);
+}
+
+describe('with AUTH_OIDC_PROVIDER=cognito', () => {
+  beforeEach(() => {
+    Object.assign(config.auth, { provider: 'cognito', clientId: `${CLI_CLIENT},${PLATFORM_CLIENT}`, audience: '' });
+  });
+  afterEach(() => {
+    Object.assign(config.auth, { provider: saved.provider, clientId: saved.clientId, audience: AUDIENCE });
+  });
+
+  it('accepts an access token from a listed app client, with no audience configured', async () => {
+    expect(await answer(await signCognito())).toEqual({ status: 200 });
+  });
+
+  it('refuses a Cognito ID token with 401', async () => {
+    expect(await answer(await signCognito({ token_use: 'id', aud: PLATFORM_CLIENT }))).toEqual({ status: 401, code: 'UNAUTHORIZED' });
+  });
+
+  it('refuses an access token issued to another app client with 401', async () => {
+    expect(await answer(await signCognito({ client_id: 'another-app-client' }))).toEqual({ status: 401, code: 'UNAUTHORIZED' });
+  });
+
+  it('refuses a token from another issuer with 401', async () => {
+    const foreign = await signCognito({}, 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_OTHER');
+    expect(await answer(foreign)).toEqual({ status: 401, code: 'UNAUTHORIZED' });
+  });
+});
+
+describe('any other provider keeps requiring aud', () => {
+  for (const provider of ['oidc', 'generic']) {
+    it(`with AUTH_OIDC_PROVIDER=${provider}, a Cognito access token without aud is 401`, async () => {
+      Object.assign(config.auth, { provider, clientId: PLATFORM_CLIENT });
+      try {
+        expect(await answer(await signCognito())).toEqual({ status: 401, code: 'UNAUTHORIZED' });
+      } finally {
+        Object.assign(config.auth, { provider: saved.provider, clientId: saved.clientId });
+      }
+    });
+  }
 });
 
 describe('a database error is 500, never 401', () => {
