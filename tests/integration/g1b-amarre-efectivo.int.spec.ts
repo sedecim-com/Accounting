@@ -85,9 +85,12 @@ function derivado(operacion: string, inversion = '0.0000', financiamiento = '0.0
 //
 // El defecto que esto mata: la ruta REST clasificaba con `name ILIKE
 // '%receivable%'` contra un catálogo sembrado en español. Aquí la
-// clasificación es por el MAPA DE ROLES, y la trampa es que el rol `banco`
-// apunta a 1110 «Caja y Bancos» —la cuenta de control— mientras el dinero se
-// postea en 1111 y 1112, que cuelgan de ella.
+// clasificación es por el MAPA DE ROLES, y la trampa es que el efectivo es
+// un ÁRBOL: el rol `efectivo` (BAN-1, #324) apunta a 1110 «Caja y Bancos»
+// —la cuenta de control, que no postea— mientras el dinero se postea en 1111
+// y 1112, que cuelgan de ella. `banco`, el rol donde cae el dinero, también
+// es efectivo, pero ya no es el ancla: el día que vive en su hoja, anclar
+// ahí dejaría fuera a 1112 y a todo hermano suyo.
 // ============================================================
 
 describe('las cuentas de efectivo salen del mapa de roles, no de los nombres', () => {
@@ -99,7 +102,7 @@ describe('las cuentas de efectivo salen del mapa de roles, no de los nombres', (
     const porCodigo = new Map(cuentas.map((c) => [c.code, c]));
 
     expect(porCodigo.get('1110')?.via).toBe('rol');
-    expect(porCodigo.get('1111')?.via).toBe('descendiente');
+    expect(porCodigo.get('1111')?.via).toBe('rol'); // `banco` names it (BAN-1)
     expect(porCodigo.get('1112')?.via).toBe('descendiente');
     // Y NADA más: clientes (1120) es «Cuentas por Cobrar» y comparte padre
     // con 1110, así que un criterio por padre o por subtipo lo habría metido.
@@ -107,11 +110,27 @@ describe('las cuentas de efectivo salen del mapa de roles, no de los nombres', (
     expect(porCodigo.has('1130')).toBe(false);
   });
 
+  it('se ancla en `efectivo`, no en la cuenta donde postea `banco`', async () => {
+    const f = await crearInquilino('Efectivo anclado en su rol');
+    enterTenant(f.tenantId);
+    // `banco` lives in its leaf 1111, as the seed maps it (BAN-1). Cash must
+    // still be the whole 1110 tree: the USD bank 1112 is a bank the cash-flow
+    // statement cannot lose.
+    expect(f.roles.banco).toBe(f.cuentas['1111']);
+
+    const byCode = new Map(
+      (await cuentasDeEfectivo(f.entityId, 'rol')).map((c) => [c.code, c])
+    );
+    expect(byCode.get('1110')?.via).toBe('rol');
+    expect(byCode.get('1111')?.via).toBe('rol');
+    expect(byCode.get('1112')?.via).toBe('descendiente');
+  });
+
   it('la cuenta bancaria atada FUERA del árbol del rol también es efectivo', async () => {
     const f = await crearInquilino('Efectivo por cuenta bancaria');
     enterTenant(f.tenantId);
 
-    // El efectivo entra al mayor por DOS puertas: el rol `banco` y
+    // El efectivo entra al mayor por DOS puertas: los roles de efectivo y
     // `bank_accounts.gl_account_id`. La segunda la fija el usuario con
     // `bank account set`, y nada la obliga a colgar del árbol del rol —
     // aquí se ata a una cuenta hermana, fuera de 1110, que es el caso que
@@ -137,7 +156,7 @@ describe('las cuentas de efectivo salen del mapa de roles, no de los nombres', (
     expect(porCodigo.get('1190')?.via).toBe('cuenta_bancaria');
     // Y la puerta vieja sigue abierta: esto SUMA cuentas, no las sustituye.
     expect(porCodigo.get('1110')?.via).toBe('rol');
-    expect(porCodigo.get('1111')?.via).toBe('descendiente');
+    expect(porCodigo.get('1111')?.via).toBe('rol'); // `banco` names it (BAN-1)
 
     // Y su dinero CUENTA: sin esta rama el movimiento sería invisible para
     // el amarre y el residuo saldría inventado por los 7 000.

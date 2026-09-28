@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  NON_POSTING_ROLES,
   REQUIRED_ACCOUNTS,
   ROLE_MAP,
+  rolesPara,
 } from '../../src/services/xml-ingestion/account-roles-seed.js';
+import { catalogoBasePara } from '../../src/services/accounting/chart-seed.js';
 import { CASES, type AccountRole } from '../../src/services/xml-ingestion/cfdi-taxonomy.js';
 
 describe('ROLE_MAP', () => {
@@ -29,6 +32,52 @@ describe('ROLE_MAP', () => {
     const mapped = new Set(Object.values(ROLE_MAP));
     const orphans = REQUIRED_ACCOUNTS.filter((a) => !mapped.has(a.code));
     expect(orphans.map((o) => o.code), 'accounts created but never used').toEqual([]);
+  });
+});
+
+describe('the cash role (BAN-1, #324)', () => {
+  // The cash-flow statement reads `efectivo` and its descendants as cash, so
+  // wherever `banco` posts has to sit inside that tree, or a bank's money
+  // would leave the statement the day `banco` moves.
+  it.each([
+    ['a Mexican entity', true],
+    ['a non-Mexican entity', false],
+  ])('anchors cash on 1110 and keeps the bank account inside its tree for %s', (_label, mexican) => {
+    const chart = catalogoBasePara(mexican);
+    const parentOf = new Map(chart.map((a) => [a.code, a.parent]));
+    const roles = rolesPara(mexican);
+    expect(roles.efectivo).toBe('1110');
+
+    const ancestry: string[] = [];
+    for (let code: string | undefined = roles.banco; code; code = parentOf.get(code)) {
+      ancestry.push(code);
+    }
+    expect(ancestry, `banco → ${roles.banco}`).toContain(roles.efectivo);
+  });
+
+  it('is declared non-posting, and no CFDI case posts to a non-posting role', () => {
+    expect(NON_POSTING_ROLES).toContain('efectivo');
+    const posted = new Set(CASES.flatMap((c) => (c.posting ?? []).map((l) => l.role)));
+    expect(NON_POSTING_ROLES.filter((r) => posted.has(r))).toEqual([]);
+  });
+});
+
+describe('the bank role (BAN-1, #324)', () => {
+  // Posting to an account that has children breaks every report that rolls
+  // balances up the hierarchy: the parent carries a balance of its own on top
+  // of the sum of its children. 1110 «Caja y Bancos» is the parent of the bank
+  // accounts, so the role that every collection and payment posts to cannot
+  // live there.
+  it.each([
+    ['a Mexican entity', true, '1111'],
+    ['a non-Mexican entity', false, '1115'],
+  ])('lands on a leaf of the chart seeded for %s', (_label, mexican, leaf) => {
+    const chart = catalogoBasePara(mexican);
+    const parents = new Set(chart.map((a) => a.parent).filter(Boolean));
+    const bank = rolesPara(mexican).banco;
+    expect(bank).toBe(leaf);
+    expect(chart.map((a) => a.code), `${leaf} must be seeded`).toContain(leaf);
+    expect(parents.has(bank!), `${bank} has children`).toBe(false);
   });
 });
 

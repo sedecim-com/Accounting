@@ -29,6 +29,7 @@ const SOURCE = path.join(__dirname, '..', '..', 'src', 'cli', 'web-command.ts');
 const CONFIG: GatewayConfig = {
   issuer: 'https://idp.example.test',
   audience: 'mnemosine-api',
+  provider: '',
   webClientId: 'mnemosine-web',
   webClientSecret: 'never-printed-secret',
   publicOrigin: 'http://127.0.0.1:8080',

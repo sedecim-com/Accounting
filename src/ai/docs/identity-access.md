@@ -43,7 +43,8 @@ entity is resolved, its tenant becomes the context automatically.
   to someone who did not do it and the audit trail is append-only. To act as
   someone else, sign in as them.
 - **a write fails asking for `mnemosine login`** → this deployment configured a
-  provider (`AUTH_OIDC_ISSUER` + `AUTH_OIDC_AUDIENCE`), so attribution requires
+  provider (`AUTH_OIDC_ISSUER` + `AUTH_OIDC_AUDIENCE`, or `AUTH_OIDC_ISSUER` +
+  `AUTH_OIDC_CLIENT_ID` with `AUTH_OIDC_PROVIDER=cognito`), so attribution requires
   a live session: `--user` on its own is a claim, not an identity. An expired
   or foreign-issuer session fails the same way instead of quietly falling back
   to the flag. With NO provider configured the flag still works, and stderr
@@ -107,6 +108,14 @@ arriving through this issuer belongs to (deployment configuration, never
 decided by the token) — it is NOT an Entra/Azure tenant id. Authentication
 counts as configured when ISSUER and AUDIENCE are both set: that is the switch
 that makes a session mandatory for attribution.
+
+Cognito is the exception (`AUTH_OIDC_PROVIDER=cognito`): its access tokens
+carry no `aud`, so ISSUER and CLIENT_ID are the switch and AUDIENCE is not read.
+A token is accepted when `token_use` is `access` (an ID token is refused) and
+its `client_id` is one of the app clients listed, comma-separated, in
+`AUTH_OIDC_CLIENT_ID`. Its access token carries no email by default, which a
+first login and CLI attribution both need. The web gateway refuses to start in
+this mode.
 
 ## First login of a new person (JIT provisioning)
 This happens on the REST API path, when a token from the provider arrives. The

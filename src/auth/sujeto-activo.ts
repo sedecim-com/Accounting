@@ -1,5 +1,5 @@
 import { config } from '../config/index.js';
-import { verifyIdpToken } from './oidc.js';
+import { accessTokenCheck, verifyIdpToken } from './oidc.js';
 import { loadToken, isFresh } from './token-store.js';
 
 // ============================================================
@@ -68,6 +68,8 @@ export class SuplantacionError extends Error {
  * Uno que no los configuró no tiene con qué comprobar nada, y romperlo
  * sería cambiar el producto por decreto: ahí la bandera sigue siendo la
  * única identidad que existe, pero se registra como DECLARADA.
+ *
+ * With AUTH_OIDC_PROVIDER=cognito, AUTH_OIDC_CLIENT_ID stands for the audience (config.auth.enabled).
  */
 export function autenticacionExigida(): boolean {
   return config.auth.enabled;
@@ -128,7 +130,7 @@ async function resolverSujeto(): Promise<SujetoAutenticado | null> {
   try {
     identidad = await verifyIdpToken(token.accessToken, {
       issuer: config.auth.issuer,
-      audience: config.auth.audience,
+      ...accessTokenCheck(config.auth),
     });
   } catch (err) {
     throw new SesionNoVerificableError(

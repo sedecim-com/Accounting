@@ -29,6 +29,10 @@ provides:
     # accepted it as a number (T1), and so is an integer beyond 2^53 - 1 on integer
     # fields (T2). Where zod 3 already rejected 1e999 (a field that is not a number,
     # an integer, a bound it breaks), the 422 is the one zod 3 gave.
+    # CONTRACT: /v1/admin/integrations no longer lists `s3`, and every
+    # /v1/admin/integrations/s3 route answers 422 PROVIDER_NOT_FOUND (#370). The adapter
+    # was a stub that kept the tenant's AWS keys and reported healthy without calling
+    # AWS; migration 102 deletes the keys already stored. There is no storage integration.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
@@ -62,7 +66,7 @@ related_repos:                   # extensión propuesta; ver docs/platform/inven
   - repo: sedecim-com/mx2
     relation: llama-a-accounting-manager   # quien dispara /accounting/policies/manual (docs/platform/harmony-review.md)
   - repo: sedecim-com/acceso-rbac
-    relation: identidad-candidata          # issuer = user pool de Cognito de Acceso; decisión en #371
+    relation: identidad-candidata          # issuer = user pool de Cognito de Acceso; decisión en #371. La API ya acepta sus access tokens con AUTH_OIDC_PROVIDER=cognito (#369)
   - repo: sedecim-com/acceso-organizations
     relation: mapeo-por-rfc                # organization ↔ entity (#371)
   - repo: sedecim-com/sat-services

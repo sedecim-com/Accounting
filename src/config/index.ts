@@ -102,7 +102,10 @@ export const config = {
     // decided by the token: it is deployment configuration.
     tenantId: process.env.AUTH_OIDC_TENANT_ID || '',
     get enabled(): boolean {
-      return Boolean(this.issuer && this.audience);
+      // Cognito's access tokens carry no aud: with AUTH_OIDC_PROVIDER=cognito
+      // the app clients in AUTH_OIDC_CLIENT_ID take the audience's place
+      // (accessTokenCheck in src/auth/oidc.ts, #369).
+      return Boolean(this.issuer && (this.provider === 'cognito' ? this.clientId : this.audience));
     },
   },
 
@@ -119,11 +122,12 @@ export const config = {
     key: process.env.ENCRYPTION_KEY || DEV_ENCRYPTION_KEY,
   },
 
+  // No S3_BUCKET: nothing ever wrote to that bucket. The S3 adapter that would
+  // have was a stub, retired in #370.
   aws: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
     region: process.env.AWS_REGION || 'us-east-1',
-    s3Bucket: process.env.S3_BUCKET || 'accounting-core-documents',
   },
 
   elasticsearch: {
