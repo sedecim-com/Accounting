@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   REQUIRED_ACCOUNTS,
   ROLE_MAP,
+  rolesPara,
 } from '../../src/services/xml-ingestion/account-roles-seed.js';
+import { catalogoBasePara } from '../../src/services/accounting/chart-seed.js';
 import { CASES, type AccountRole } from '../../src/services/xml-ingestion/cfdi-taxonomy.js';
 
 describe('ROLE_MAP', () => {
@@ -29,6 +31,32 @@ describe('ROLE_MAP', () => {
     const mapped = new Set(Object.values(ROLE_MAP));
     const orphans = REQUIRED_ACCOUNTS.filter((a) => !mapped.has(a.code));
     expect(orphans.map((o) => o.code), 'accounts created but never used').toEqual([]);
+  });
+});
+
+describe('the cash role (BAN-1, #324)', () => {
+  // The cash-flow statement reads `efectivo` and its descendants as cash, so
+  // wherever `banco` posts has to sit inside that tree, or a bank's money
+  // would leave the statement the day `banco` moves.
+  it.each([
+    ['a Mexican entity', true],
+    ['a non-Mexican entity', false],
+  ])('anchors cash on 1110 and keeps the bank account inside its tree for %s', (_label, mexican) => {
+    const chart = catalogoBasePara(mexican);
+    const parentOf = new Map(chart.map((a) => [a.code, a.parent]));
+    const roles = rolesPara(mexican);
+    expect(roles.efectivo).toBe('1110');
+
+    const ancestry: string[] = [];
+    for (let code: string | undefined = roles.banco; code; code = parentOf.get(code)) {
+      ancestry.push(code);
+    }
+    expect(ancestry, `banco → ${roles.banco}`).toContain(roles.efectivo);
+  });
+
+  it('is not a role any CFDI case posts to', () => {
+    const posted = CASES.flatMap((c) => (c.posting ?? []).map((l) => l.role));
+    expect(posted).not.toContain('efectivo');
   });
 });
 
