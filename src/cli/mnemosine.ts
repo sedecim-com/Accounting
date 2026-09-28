@@ -157,7 +157,9 @@ import {
   type DraftRow,
   type DraftPayload,
   type DraftCorrection,
+  type NewVendorConsent,
 } from '../ai/draft-service.js';
+import { vendorToRegister } from '../services/xml-ingestion/pre-registration-service.js';
 import { teachMemory } from '../ai/memory-service.js';
 import {
   listQuestions,
@@ -1935,6 +1937,7 @@ declareRisk(review, {
   writes:
     'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador; ' +
     'bills + bill_lines + pre_registrations cuando el borrador viene de un CFDI recibido (#318); ' +
+    'vendors cuando el revisor responde «s» a dar de alta al emisor (proveedor_desconocido_al_aprobar = preguntar); ' +
     'ai_questions al sembrar un precedente que el revisor confirmó tras un rechazo',
 });
 review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idempotencyKey?: string }) => {
@@ -2028,10 +2031,28 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
               continue;
             }
           }
+          const runApproval = (newVendor?: NewVendorConsent) =>
+            approveDraft(ctx, pending[i].id, reviewer, undefined, baseHash, correction, newVendor);
           try {
-            const posted = await approveDraft(
-              ctx, pending[i].id, reviewer, undefined, baseHash, correction
-            );
+            let posted: Awaited<ReturnType<typeof approveDraft>>;
+            try {
+              posted = await runApproval();
+            } catch (err) {
+              // #318 · proveedor_desconocido_al_aprobar = preguntar: the refused
+              // approval may be retried with the reviewer's yes to THIS RFC,
+              // and then vendor, bill and entry commit in one transaction.
+              // Without a terminal nobody can answer, so it stays a refusal.
+              const vendor = vendorToRegister(err);
+              if (!vendor || !stdin.isTTY) throw err;
+              const answer = await confirmarConReintento(
+                preguntar, c.cyan(t('review.vendor.register_prompt', { name: vendor.name, rfc: vendor.rfc }))
+              );
+              if (!answer.si) {
+                console.log(c.dim(t('review.vendor.not_registered')));
+                throw err; // «N» is exactly 'rechazar': the same refusal
+              }
+              posted = await runApproval({ taxId: vendor.rfc });
+            }
             approved++;
             if (correction) corrected++;
             console.log(`✔ Journal entry ${c.bold(posted.entryNumber)} created and posted.`);
