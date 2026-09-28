@@ -284,6 +284,8 @@ Options:
                            turned on
   --min-confidence <n>     Minimum confidence for auto-post (0-1)
   --max-amount <n>         Maximum auto-postable amount
+  --retry                  Reprocess CFDI already registered whose processing
+                           failed, instead of reporting them as duplicates
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
@@ -300,6 +302,8 @@ Examples:
   mnemosine ingest ./cfdi/julio/*.xml --no-auto-post --user contador@despacho.mx
   # Confirm the auto-posting the panel already authorized, with your own ceiling.
   mnemosine ingest ./cfdi/julio/*.xml --auto-post --min-confidence 0.95 --max-amount 20000
+  # Reprocess the CFDI whose processing failed (model down, no key) instead of «duplicate».
+  mnemosine ingest ./cfdi/julio/*.xml --retry
 ```
 
 ## `mnemosine lang` (alias: idioma)
@@ -3970,7 +3974,8 @@ Options:
   --customer <ref>         customer, when there is no linked invoice
   --relates-to <uuid>      UUID of the original CFDI, when the invoice is not in
                            the system
-  --date <date>            credit date (YYYY-MM-DD); defaults to today
+  --date <date>            credit date (YYYY-MM-DD); defaults to today in the
+                           zona_horaria policy zone
   --memo <text>            memo
   --json                   JSON output
   -h, --help               display help for command

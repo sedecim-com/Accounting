@@ -81,6 +81,13 @@ export interface PolicySpec {
   ifSkipped?: string;
 }
 
+/**
+ * The key of the time-zone policy (#242). Exported because it has more than
+ * one reader: `todayFor` answers with it and `resolvePolicy` refuses a zone the
+ * runtime does not know before it is filed as the firm's answer.
+ */
+export const TIME_ZONE_POLICY_KEY = 'zona_horaria';
+
 export const POLICY_CATALOG: PolicySpec[] = [
   // ── Accounting ──
   {
@@ -1854,8 +1861,41 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped: 'I publish it and name them.',
     priority: 40,
   },
+  {
+    // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
+    // is already tomorrow, and a credit note without --date was persisted with
+    // the next day's date, folio series and period. Which zone the books live
+    // in is the firm's answer (owner's decision, 2026-09-26), and an entity can
+    // carry its own row (Tijuana, Cancún, Sonora). Its reader is `todayFor`.
+    key: TIME_ZONE_POLICY_KEY,
+    category: 'operativa',
+    question: 'In which time zone does "today" fall for these books?',
+    impact:
+      'Every date the system fills in by itself — a credit note created without --date, for one — ' +
+      'is the calendar day in this zone at that moment. At 20:00 in Mexico City it is already the ' +
+      'next day in UTC; a date taken from UTC lands the document in the next day, and on the last ' +
+      'day of a month in the next period and folio series.',
+    options: [
+      { value: 'America/Mexico_City', label: 'Central Mexico (UTC−6 all year)' },
+      { value: 'America/Tijuana', label: 'Baja California (follows US daylight saving)' },
+      { value: 'America/Cancun', label: 'Quintana Roo (UTC−5 all year)' },
+      { value: 'America/Hermosillo', label: 'Sonora (UTC−7 all year)' },
+    ],
+    defaultValue: 'America/Mexico_City',
+    defaultRationale:
+      'Most Mexican books keep central time, which has no daylight saving since 2022. Any IANA zone ' +
+      'is accepted; one the runtime does not know is refused, because a misspelt zone would ' +
+      'otherwise fall back to some other clock without saying so.',
+    whyAsking:
+      'The server clock runs in UTC. Whether the day a document is dated is Mexico City\'s, ' +
+      'Tijuana\'s or Cancún\'s is a fact about your books that I cannot guess.',
+    whatIDo: 'I take the calendar day in this zone whenever a date is not given to me.',
+    ifSkipped: 'I use Mexico City\'s day.',
+    priority: 30,
+  },
 
 ];
+
 
 export function getPolicySpec(key: string): PolicySpec | undefined {
   return POLICY_CATALOG.find((p) => p.key === key);

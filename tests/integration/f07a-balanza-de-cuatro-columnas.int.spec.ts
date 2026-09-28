@@ -33,13 +33,13 @@ import { JournalEntryType } from '../../src/types/index.js';
 // EL EJERCICIO (cifras distintas entre sí, ninguna doble ni negativa de otra:
 // con números simétricos, sumar donde había que restar pasa en verde):
 //
-//   ENERO    venta   1120 debe 7 000 · 4100 haber 7 000
-//            costo   5100 debe 2 500 · 1120 haber 2 500
-//   FEBRERO  venta   1120 debe 1 300 · 4100 haber 1 300
-//            gasto   5100 debe   400 · 1120 haber   400
+//   ENERO    venta   1111 debe 7 000 · 4100 haber 7 000
+//            costo   5100 debe 2 500 · 1111 haber 2 500
+//   FEBRERO  venta   1111 debe 1 300 · 4100 haber 1 300
+//            gasto   5100 debe   400 · 1111 haber   400
 //
 //   Balanza de FEBRERO, las cuatro columnas:
-//     1120   SaldoIni  4 500   Debe 1 300   Haber   400   SaldoFin  5 400
+//     1111   SaldoIni  4 500   Debe 1 300   Haber   400   SaldoFin  5 400
 //     4100   SaldoIni −7 000   Debe     0   Haber 1 300   SaldoFin −8 300
 //     5100   SaldoIni  2 500   Debe   400   Haber     0   SaldoFin  2 900
 //
@@ -104,10 +104,10 @@ async function arrastreSembrado(fx: Fixture, periodId: string, accountId: string
 beforeAll(async () => {
   f = await crearInquilino('F07a balanza de cuatro columnas');
   enterTenant(f.tenantId);
-  await asiento(f, 1, 'Venta de enero', f.cuentas['1120'], f.cuentas['4100'], '7000.0000');
-  await asiento(f, 1, 'Costo de enero', f.cuentas['5100'], f.cuentas['1120'], '2500.0000');
-  await asiento(f, 2, 'Venta de febrero', f.cuentas['1120'], f.cuentas['4100'], '1300.0000');
-  await asiento(f, 2, 'Gasto de febrero', f.cuentas['5100'], f.cuentas['1120'], '400.0000');
+  await asiento(f, 1, 'Venta de enero', f.cuentas['1111'], f.cuentas['4100'], '7000.0000');
+  await asiento(f, 1, 'Costo de enero', f.cuentas['5100'], f.cuentas['1111'], '2500.0000');
+  await asiento(f, 2, 'Venta de febrero', f.cuentas['1111'], f.cuentas['4100'], '1300.0000');
+  await asiento(f, 2, 'Gasto de febrero', f.cuentas['5100'], f.cuentas['1111'], '400.0000');
   // SUAVE. Es el caso obligatorio: carryForwardBalances no corre, así que
   // nadie siembra el inicial de febrero.
   await softClosePeriod(f.periodos[1], f.entityId, f.userId, 'cierre suave de enero');
@@ -126,7 +126,7 @@ describe('un mes cuyo anterior sólo cerró en SUAVE', () => {
   it('la fuente vieja dice cero: es la declaración que F07a vino a impedir', async () => {
     // No es que falte la fila —posting la crea con cada asiento—: es que la
     // columna del arrastre vale 0 porque sólo la escribe el cierre duro.
-    expect(await arrastreSembrado(f, f.periodos[2], f.cuentas['1120'])).toBe('0.0000');
+    expect(await arrastreSembrado(f, f.periodos[2], f.cuentas['1111'])).toBe('0.0000');
     expect(await arrastreSembrado(f, f.periodos[2], f.cuentas['4100'])).toBe('0.0000');
   });
 
@@ -136,7 +136,7 @@ describe('un mes cuyo anterior sólo cerró en SUAVE', () => {
     expect(tb.inicial!.origen).toBe('mayor');
     expect(tb.inicial!.desde).toBe('2026-02-01');
 
-    expect(cuatroColumnas(tb, '1120')).toEqual({
+    expect(cuatroColumnas(tb, '1111')).toEqual({
       ini: '4500.0000', debe: '1300.0000', haber: '400.0000', fin: '5400.0000',
     });
     // El ingreso es ACREEDOR: su inicial es negativo en la convención
@@ -182,8 +182,8 @@ describe('un mes cuyo anterior sólo cerró en SUAVE', () => {
     const hasta = await queryAccumulatedBalances(f.entityId, { date: '2026-02-28', inclusive: true });
     const de = (rows: { account_id: string; balance: string }[], id: string) =>
       new Decimal(rows.find((r) => r.account_id === id)?.balance ?? 0).toFixed(4);
-    expect(de(antes, f.cuentas['1120'])).toBe('4500.0000');
-    expect(de(hasta, f.cuentas['1120'])).toBe('5400.0000');
+    expect(de(antes, f.cuentas['1111'])).toBe('4500.0000');
+    expect(de(hasta, f.cuentas['1111'])).toBe('5400.0000');
   });
 });
 
@@ -198,7 +198,7 @@ describe('después del cierre DURO de enero', () => {
 
   it('el inicial derivado vale lo mismo, y ahora es firme', async () => {
     const tb = await getTrialBalance(f.entityId, { fiscalPeriodId: f.periodos[2] });
-    expect(cuatroColumnas(tb, '1120').ini).toBe('4500.0000');
+    expect(cuatroColumnas(tb, '1111').ini).toBe('4500.0000');
     expect(tb.inicial!.firme).toBe(true);
     expect(tb.inicial!.note).toMatch(/Firm: Periodo 1\/2026 is hard_close/);
   });
@@ -209,7 +209,7 @@ describe('después del cierre DURO de enero', () => {
     // posible del SaldoIni queda incompleto para el Anexo 24 incluso DESPUÉS
     // de cerrar en duro: para el SAT, el SaldoIni de una cuenta de resultados
     // en febrero es el acumulado del ejercicio, no cero.
-    expect(await arrastreSembrado(f, f.periodos[2], f.cuentas['1120'])).toBe('4500.0000');
+    expect(await arrastreSembrado(f, f.periodos[2], f.cuentas['1111'])).toBe('4500.0000');
     expect(await arrastreSembrado(f, f.periodos[2], f.cuentas['4100'])).toBe('0.0000');
     expect(await arrastreSembrado(f, f.periodos[2], f.cuentas['5100'])).toBe('0.0000');
   });
@@ -225,9 +225,9 @@ describe('la balanza acumulada y la frontera de entidad', () => {
     // se leería como arrastre, que es exactamente la mentira que se persigue.
     const tb = await getTrialBalance(f.entityId, { asOfDate: '2026-02-28' });
     expect(tb.inicial).toBeUndefined();
-    expect(fila(tb, '1120').beginning_balance).toBeUndefined();
+    expect(fila(tb, '1111').beginning_balance).toBeUndefined();
     // Y el acumulado sigue siendo el de siempre, en su columna de siempre.
-    expect(new Decimal(fila(tb, '1120').ending_balance).toFixed(4)).toBe('5400.0000');
+    expect(new Decimal(fila(tb, '1111').ending_balance).toFixed(4)).toBe('5400.0000');
   });
 
   it('un periodo de la entidad HERMANA no fecha esta balanza', async () => {
@@ -265,13 +265,13 @@ describe('el SaldoFin se pide aparte, y por eso puede acusar', () => {
 
   it('nombra la cuenta y su diferencia en vez de absorberla', async () => {
     const tb = await getTrialBalance(f.entityId, { fiscalPeriodId: ajustes });
-    const c1120 = fila(tb, '1120');
-    expect(c1120.cuadra).toBe(false);
-    expect(cuatroColumnas(tb, '1120')).toEqual({
+    const c1111 = fila(tb, '1111');
+    expect(c1111.cuadra).toBe(false);
+    expect(cuatroColumnas(tb, '1111')).toEqual({
       ini: '4500.0000', debe: '0.0000', haber: '0.0000', fin: '5400.0000',
     });
 
-    const d = tb.inicial!.descuadres.find((x) => x.account_code === '1120');
+    const d = tb.inicial!.descuadres.find((x) => x.account_code === '1111');
     expect(d, 'la cuenta descuadrada no aparece señalada').toBeDefined();
     expect(d).toMatchObject({
       esperado: '4500.0000',
@@ -301,13 +301,13 @@ describe('anexo24_balanza_saldo_inicial', () => {
   });
 
   it('con exigir_cierre_duro el inicial sale del arrastre, y el hueco se ve', async () => {
-    // La contra-demostración del defecto: el arrastre existe para 1120 porque
+    // La contra-demostración del defecto: el arrastre existe para 1111 porque
     // enero cerró en duro, y NO existe para las de resultados. La balanza no
     // lo tapa: 4100 y 5100 quedan señaladas.
     const tb = await getTrialBalance(f.entityId, { fiscalPeriodId: f.periodos[2] });
     expect(tb.inicial!.criterio).toBe('exigir_cierre_duro');
     expect(tb.inicial!.origen).toBe('arrastre_del_cierre');
-    expect(cuatroColumnas(tb, '1120').ini).toBe('4500.0000');
+    expect(cuatroColumnas(tb, '1111').ini).toBe('4500.0000');
     expect(cuatroColumnas(tb, '4100').ini).toBe('0.0000');
     expect(tb.inicial!.descuadres.map((d) => d.account_code).sort()).toEqual(['4100', '5100']);
   });
