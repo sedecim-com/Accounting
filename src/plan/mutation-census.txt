@@ -499,6 +499,10 @@ mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/services/pay
 mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/services/payroll/mx/isr-exemption.ts	the split is still computed and stored, but against no room: the exempt part is always 0.00 and the aguinaldo is taxed whole with columns that look like an exemption was applied
 mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/services/payroll/mx/isr-exemption.ts	the cap stops being per calendar year: aguinaldos of earlier years consume this year's 30 UMA, and a worker in their second December gets no exemption at all
 mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/database/migrations/094_the_aguinaldo_is_exempt_up_to_thirty_uma.sql	the cap is seeded as 30 PESOS: every aguinaldo is exempt by 30.00 instead of 30 UMA, a figure that looks like an exemption and is off by a factor of the UMA
+mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/services/payroll/mx/isr-exemption.ts	THE DEFECT OF #297 FOR THE PREMIUM: the vacation premium loses its cap and is taxed whole again, while the aguinaldo keeps its exemption and hides it
+mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/services/payroll/mx/isr-exemption.ts	the two caps are pooled: an aguinaldo paid earlier in the year consumes the room of the vacation premium, which the law gives "por cada uno de los conceptos"
+mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/database/migrations/106_the_vacation_premium_is_exempt_up_to_fifteen_uma.sql	the premium is given the 30 UMA of the aguinaldo: twice the exemption the law allows, and ISR under-withheld
+mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/services/payroll/mx/isr-exemption.ts	THE LITERAL OF #297: the payroll CFDI declares every perception with no exempt part, and contradicts the ISR withheld on it
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre
@@ -1060,6 +1064,10 @@ anchor	src/plan/criteria/e4-1.ts	de: 'const taxableIsr = sum(isrParts.map((p) =>
 anchor	src/plan/criteria/e4-1.ts	de: 'const p = splitAgainstCap(e.amount, room);',
 anchor	src/plan/criteria/e4-1.ts	de: 'AND pp.pay_date >= make_date($3, 1, 1)',
 anchor	src/plan/criteria/e4-1.ts	de: "'income_tax.exempt_cap.aguinaldo_uma', '2016-01-28', '30.0000', 'UMA',",
+anchor	src/plan/criteria/e4-1.ts	de: ' prima_vacacional: VACATION_PREMIUM_EXEMPT_CAP_KEY,',
+anchor	src/plan/criteria/e4-1.ts	de: 'AND pe.earning_type = $6',
+anchor	src/plan/criteria/e4-1.ts	de: "'income_tax.exempt_cap.vacation_premium_uma', '2016-01-28', '15.0000', 'UMA',",
+anchor	src/plan/criteria/e4-1.ts	de: 'return { exempt: new Decimal(row.isr_exempt_amount), taxable: new Decimal(row.isr_taxable_amount) };',
 anchor	src/plan/criteria/e4-2.ts	de: 'await getBalanceSheet(ctx.entityId',
 anchor	src/plan/criteria/e4-2.ts	de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
 anchor	src/plan/criteria/e4-2.ts	de: 'ending_balance: aEscala(',
