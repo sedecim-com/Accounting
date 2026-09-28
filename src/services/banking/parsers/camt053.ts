@@ -328,14 +328,29 @@ function leerMovimientos(estado: unknown, avisos: ColectorAvisos): LineaLeida[] 
       importe: sentido === 'DBIT' ? negar(importe.valor) : importe.valor,
       descripcion: describir(entrada, detalles) || referencia || '',
       referencia,
-      tipo:
-        comoTexto(ruta(entrada, 'BkTxCd', 'Prtry', 'Cd')) ??
-        comoTexto(ruta(entrada, 'BkTxCd', 'Domn', 'Cd')),
+      tipo: comoTexto(ruta(entrada, 'BkTxCd', 'Prtry', 'Cd')) ?? isoBankTransactionCode(entrada),
       crudo: comoObjeto(entrada) ?? {},
     });
   });
 
   return lineas;
+}
+
+/**
+ * The ISO 20022 code as `Domain/Family/SubFamily` (e.g. `ACMT/MDOP/CHRG`).
+ *
+ * The domain alone (`PMNT`, `ACMT`) says nothing about whether the line is a
+ * charge or an interest: that lives in the sub-family, and it is what the
+ * classifier reads (#95). The full path is kept instead of just the sub-family
+ * so `raw_data.tipo` still shows what the bank published.
+ */
+function isoBankTransactionCode(entry: unknown): string | undefined {
+  const parts = [
+    comoTexto(ruta(entry, 'BkTxCd', 'Domn', 'Cd')),
+    comoTexto(ruta(entry, 'BkTxCd', 'Domn', 'Fmly', 'Cd')),
+    comoTexto(ruta(entry, 'BkTxCd', 'Domn', 'Fmly', 'SubFmlyCd')),
+  ].filter((p): p is string => Boolean(p));
+  return parts.length > 0 ? parts.join('/') : undefined;
 }
 
 /**
