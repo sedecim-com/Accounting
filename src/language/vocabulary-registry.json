@@ -2557,6 +2557,13 @@
     },
     {
       "class": "policy-key",
+      "where": "proveedor_desconocido_al_aprobar",
+      "es": "proveedor_desconocido_al_aprobar",
+      "en": "unknown_vendor_on_approval",
+      "why": "«Proveedor» es `vendor`, la tabla (`vendors`) y el comando (`mnemosine vendor create`). «Desconocido» es que no está en el catálogo, con el mismo `unknown` de `rep_documento_desconocido` → `rep_unknown_document`. «Al aprobar» es el momento: la aprobación del borrador de un CFDI recibido. La lee `registrarFacturaDeBorradorAprobado` (#318)."
+    },
+    {
+      "class": "policy-key",
       "where": "provision_cuotas_patronales",
       "es": "provision_cuotas_patronales",
       "en": "employer_contribution_accrual",
@@ -3396,6 +3403,20 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Es un número, no vocabulario: es una fracción decimal que `finiquito-math.ts` multiplica con `new Decimal(...).times(...)` (:185, :308). Traducirlo no significa nada y cambiar la cadena cambiaría el dato, no el idioma."
+    },
+    {
+      "class": "policy-value",
+      "where": "proveedor_desconocido_al_aprobar/preguntar",
+      "es": "preguntar",
+      "en": "ask",
+      "why": "`ask` ya es el verbo de esta casa para «devolver la decisión a una persona»: es el nombre del comando `mnemosine ask` (mnemosine.ts:922). Mismo inglés que en `cfdi_periodo_cerrado` y `rep_documento_desconocido`, que es lo que hace automatizable el renombrado por valor."
+    },
+    {
+      "class": "policy-value",
+      "where": "proveedor_desconocido_al_aprobar/rechazar",
+      "es": "rechazar",
+      "en": "reject",
+      "why": "`reject` y no `block`: se rechaza la aprobación, que es el mismo verbo del mensaje (the approval is refused) y el de `agrupador_valor_fuera_de_catalogo/rechazar`. Un solo inglés por término."
     },
     {
       "class": "policy-value",

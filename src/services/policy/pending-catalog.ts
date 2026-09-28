@@ -409,6 +409,36 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped: 'The bill lines follow the entry you approved.',
     priority: 50,
   },
+  {
+    // Read by registrarFacturaDeBorradorAprobado (#318, PR1b). Whatever the
+    // answer, an unattended approval (threshold auto-post, approval policy,
+    // REST) cannot ask anyone, so for it 'preguntar' behaves as 'rechazar'.
+    key: 'proveedor_desconocido_al_aprobar',
+    category: 'contable',
+    question:
+      'When you approve the draft of a received CFDI whose issuer is not in the vendor catalog, what happens?',
+    impact:
+      'Approving creates the vendor bill, and a bill needs a registered vendor. Registering one creates a ' +
+      'counterparty from the name and RFC written inside a third party\'s XML. Either the approval is refused ' +
+      'until someone registers the vendor, or `mnemosine review` asks you, and your yes registers the vendor, ' +
+      'the bill and the entry in one transaction.',
+    options: [
+      { value: 'rechazar', label: 'Refuse the approval and name the command that registers the vendor' },
+      { value: 'preguntar', label: 'Ask in `mnemosine review` whether to register the vendor; no means refuse' },
+    ],
+    defaultValue: 'rechazar',
+    defaultRationale:
+      'It is the rule `bill inbox run` already follows: no vendor is created without an explicit act by a ' +
+      'person, and the approval of an entry is not, by itself, the approval of new master data.',
+    whyAsking:
+      'Some firms register every supplier on purpose before booking anything; others prefer to confirm a new ' +
+      'supplier while they review its first invoice.',
+    whatIDo:
+      'By default I refuse the approval, nothing is posted, and I tell you the command that registers the ' +
+      'vendor. With "preguntar", the review asks you, and only your yes creates the vendor.',
+    ifSkipped: 'I refuse the approval until the vendor is registered.',
+    priority: 55,
+  },
 
   // ── Payment receipts (REP) ──
   //

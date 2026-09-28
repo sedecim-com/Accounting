@@ -155,7 +155,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 
 - Los paquetes en rojo de `npm run plan:status`.
 - Las issues `via-a`, de lo que ya está mal: la lista y su orden están en #329.
-- `MIRRORS_FLOOR` y `ANCHORS_HERE` en `src/plan/criteria/e0-0.ts`: cuentas exactas en las que siguen chocando los PRs que añaden espejos (#356). El resto del tablero ya no choca: va en un archivo por paquete (#294).
+- `docs/criterios-minimos.json`, `SIN_ESPEJO_MAXIMO` de `tests/plan/mutacion.spec.ts` y el `--exigir` de `ci.yml`: cifras a mano en las que todavía pueden chocar dos PRs (#356). Los espejos y las anclas ya no: van en un censo generado, `src/plan/mutation-census.txt` (`npm run mutation:census`), y el tablero va en un archivo por paquete (#294).
 - Los archivos de 1 000 líneas o más que lista `docs/REPO_MAP.md`: se buscan y se leen por rangos.
 
 ## Preguntas abiertas (dueño · fecha)
