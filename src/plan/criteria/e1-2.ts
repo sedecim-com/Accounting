@@ -1882,6 +1882,62 @@ export const E1_2: Criterio[] = [
     },
   },
 
+  // ---- MNE-001-027 · #284 · The DIOT can declare an exempt purchase ----
+
+  {
+    paquete: 'E1.2',
+    id: 'bill-lines-carry-vat-columns',
+    enunciado: 'Los renglones de gasto guardan tipo de factor, tasa y valor de los actos, y su impuesto es sólo el IVA',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: '        tax_rate, tipo_factor, valor_actos',
+        a: '',
+        porque:
+          'the inbox and the draft approval stop writing the three columns of 066: every line is born "tasa" with a NULL rate, the DIOT exempt box can never be populated and DIOT-BASE-EXENTA-DESCONOCIDA can never fire',
+      },
+      {
+        archivo: 'src/services/ap/bill-service.ts',
+        de: '           tax_rate, tipo_factor, valor_actos)',
+        a: '           )',
+        porque: 'a manual bill stores a NULL rate again, and the DIOT falls back to measuring what its author declared',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: "  const vat = (transfers ?? []).filter((t) => satKey(t.impuesto) === '002');",
+        a: '  const vat = (transfers ?? []).slice(0, 1);',
+        porque: 'the first transfer is taken as the VAT again: an IEPS transfer ahead of the IVA one lands in bill_lines.tax_amount',
+      },
+      {
+        // WIT-01 on #418: under `poliza` the regime matched and the debit was
+        // stored as the base, so an exempt CFDI that omitted its Base was
+        // declared with the debit instead of blocking.
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: '        acts_value: bases[i],',
+        a: '        acts_value: regime ? l.dr.toFixed(4) : null,',
+        porque: 'the approval from the entry takes the debit as the value of the acts again: an exempt CFDI without Base is declared instead of raising DIOT-BASE-EXENTA-DESCONOCIDA',
+      },
+    ],
+    evaluar: () => {
+      const columns = /tax_rate, tipo_factor, valor_actos/;
+      const insertOf = (src: string): string => /INSERT INTO bill_lines \(([^)]*)\)/.exec(src)?.[1] ?? '';
+      const inbox = codigoDe('src/services/xml-ingestion/pre-registration-service.ts');
+      const manual = codigoDe('src/services/ap/bill-service.ts');
+      if (!columns.test(insertOf(inbox))) {
+        return falla('the INSERT shared by the inbox and the draft approval no longer names tax_rate, tipo_factor and valor_actos: the DIOT cannot tell an exempt purchase from a 0 % one');
+      }
+      if (!columns.test(insertOf(manual))) {
+        return falla('the INSERT of `bill create` no longer names tax_rate, tipo_factor and valor_actos: a manual bill is born with a NULL rate');
+      }
+      if (!/acts_value: bases\[i\]/.test(inbox) || /acts_value:[^,\n]*\bl\.dr\b/.test(inbox)) {
+        return falla('the approval from the entry no longer spreads only the declared Bases: a debit can stand in for a base the CFDI never declared');
+      }
+      return /\.filter\(\(t\) => satKey\(t\.impuesto\) === '002'\)/.test(inbox)
+        ? ok('the three bill_lines writers store factor type, rate and value of the acts, and tax_amount is only the IVA transfer')
+        : falla('the VAT of a concept is no longer filtered by Impuesto 002: an IEPS transfer can land in bill_lines.tax_amount');
+    },
+  },
+
   // ---- F07a · Los cimientos del Anexo 24 ----
 
   {
@@ -2925,7 +2981,7 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/xml-ingestion/cfdi-parser.ts',
-        de: 'else if (rate === 0) iva0 = iva0.plus(t.base);',
+        de: 'else if (rate === 0) iva0 = iva0.plus(t.base ?? 0);',
         a: 'else if (rate === 0) iva0 = iva0.plus(t.importe ?? 0);',
         porque:
           'vuelve a sumar el importe en el cubo de tasa 0, que vale cero por definición: total_iva_0 regresa a ser siempre 0.00 con la columna llena de ceros que parecen un dato',
@@ -2994,7 +3050,12 @@ export const E1_2: Criterio[] = [
       }
 
       // 3. Y el cubo de tasa 0 se mide por la BASE: su importe vale cero por definición.
-      const porImporte = reparten.filter((f) => !/===\s*0\)[^;\n]*\bbase\b/i.test(codigoDe(f)));
+      //    Only a file that HAS a 0 % bucket is asked how it fills it: the bill
+      //    line writer of MNE-001-027 (#284) reads tasaOCuota to copy the rate
+      //    and the Base verbatim into bill_lines, and sums no bucket at all.
+      const porImporte = reparten
+        .filter((f) => /\b(?:rate|tasa)\s*===\s*0\)/.test(codigoDe(f)))
+        .filter((f) => !/===\s*0\)[^;\n]*\bbase\b/i.test(codigoDe(f)));
       if (porImporte.length > 0) {
         return falla(
           `${porImporte.join(', ')} suma el importe en el cubo de tasa 0, que es cero por definición: ` +
