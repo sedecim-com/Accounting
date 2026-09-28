@@ -77,9 +77,10 @@ export interface PolicyThresholds {
   iepsTreatment: string;
   inventoryPolicy: string;
   /**
-   * Floor below which a multi-period expense is NOT deferred. Optional so the
-   * existing builder keeps compiling; when it is missing the declared default
-   * applies, which is the same number the panel defaults to.
+   * Floor below which a multi-period expense is NOT deferred. Pre-registration
+   * reads it from the policy panel for each entity; when a caller leaves it
+   * out the declared default applies, which is the same number the panel
+   * defaults to.
    */
   prepaidThreshold?: number;
 }
