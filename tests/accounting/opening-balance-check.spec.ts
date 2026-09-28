@@ -285,4 +285,35 @@ describe('compareToSource · memorandum accounts are excluded from the footing',
     expect(c.sobrantes).toEqual([{ numCta: '800', importe: '5.0000' }]);
     expect(c.iguales).toBe(false);
   });
+
+  // WIT-01 (PR #415): an ancestor the source declares used to swallow it.
+  it('money of ours on an excluded code surfaces even when a declared ancestor covers it', () => {
+    const tree = [forma('P', null), forma('M', 'P')];
+    const c = compareToSource(
+      [fila('P', '100.00'), fila('M', '5.00')],
+      [fila('P', '100.00'), fila('M', '5.00')],
+      tree,
+      'SaldoFin',
+      new Set(['M'])
+    );
+    expect(c.iguales).toBe(false);
+    expect(c.sobrantes).toEqual([{ numCta: 'M', importe: '5.0000' }]);
+    expect(c.excluded).toEqual([{ code: 'M', amount: '5.0000' }]);
+    expect(renderBalanceComparison(c)).toContain(
+      'M: aquí lleva 5.0000 en una cuenta de orden, que no se migra'
+    );
+  });
+
+  it('a non-excluded subaccount under a declared ancestor is still covered by it, as before', () => {
+    const tree = [forma('P', null), forma('C', 'P')];
+    const c = compareToSource(
+      [fila('P', '100.00')],
+      [fila('P', '100.00'), fila('C', '5.00')],
+      tree,
+      'SaldoFin',
+      new Set(['M'])
+    );
+    expect(c.sobrantes).toEqual([]);
+    expect(c.iguales).toBe(true);
+  });
 });

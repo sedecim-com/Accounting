@@ -257,6 +257,52 @@ describe('planSatChartImport · el tipo de cuenta', () => {
     expect(existsSync(resolve(__dirname, '../..', MEMORANDUM_DOCTRINE))).toBe(true);
   });
 
+  // WIT-02 (PR #415): a memorandum account that ALREADY lives in the entity
+  // used to skip classification, and its new subaccounts were created under it.
+  describe('a memorandum account that already exists in the entity', () => {
+    const existingM = () =>
+      existente({ code: 'M', account_type: 'asset', normal_balance: 'debit', codigo_agrupador_sat: '801' });
+
+    it('does not lend a type to a new child: the child is left out by doctrine', () => {
+      const p = plan([{ numCta: 'C', codAgrup: '', subCtaDe: 'M', nivel: 2 }], [existingM()]);
+      expect(p.aCrear).toEqual([]);
+      expect(p.omitidas).toEqual([
+        expect.objectContaining({ code: 'C', motivo: 'cuentas_de_orden' }),
+      ]);
+      expect(p.completa).toBe(true);
+      const h = p.findings.find((f) => f.regla === 'IMP-CUENTAS-DE-ORDEN' && f.numCta === 'C');
+      expect(h?.mensaje).toContain('ya existe en la entidad');
+      expect(h?.mensaje).toContain(MEMORANDUM_DOCTRINE);
+    });
+
+    it('is not touched and the conflict is declared when the file lists it too; a rerun plans the same', () => {
+      const rows = [
+        { numCta: 'M', codAgrup: '801', desc: 'Cuenta M' },
+        { numCta: 'C', codAgrup: '', subCtaDe: 'M', nivel: 2 },
+      ];
+      const first = plan(rows, [existingM()]);
+      expect(first.aCrear).toEqual([]);
+      expect(first.yaExistian.map((y) => y.code)).toEqual(['M']);
+      expect(first.omitidas.map((o) => [o.code, o.motivo])).toEqual([['C', 'cuentas_de_orden']]);
+      const conflict = first.findings.find((f) => f.regla === 'IMP-ORDEN-YA-EN-EL-MAYOR');
+      expect(conflict).toMatchObject({ severidad: 'aviso', numCta: 'M' });
+      expect(conflict?.mensaje).toContain('NO se toca');
+      expect(plan(rows, [existingM()])).toEqual(first);
+    });
+
+    it('the file saying 8xx is enough even when the existing row carries no agrupador', () => {
+      const p = plan(
+        [
+          { numCta: 'M', codAgrup: '801' },
+          { numCta: 'C', codAgrup: '', subCtaDe: 'M', nivel: 2 },
+        ],
+        [existente({ code: 'M', codigo_agrupador_sat: null })]
+      );
+      expect(p.aCrear).toEqual([]);
+      expect(p.omitidas.map((o) => o.code)).toEqual(['C']);
+    });
+  });
+
   it('a chart whose only omissions are memorandum accounts is complete: they stay out by doctrine', () => {
     const p = plan([
       { numCta: '100', codAgrup: '101', natur: 'D' },

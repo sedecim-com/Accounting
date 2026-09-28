@@ -347,6 +347,12 @@ export function planSatChartImport(
     const base = baseOfAccountType(e.account_type);
     if (base !== null) baseResuelta.set(e.code, base);
     nivelResuelto.set(e.code, e.account_level);
+    // An account that already lives in the entity with an 8xx agrupador is a
+    // memorandum account too, whatever type it was given: it is never touched,
+    // but it must not lend that type to new subaccounts (WIT-02, PR #415).
+    if (readAgrupador(e.codigo_agrupador_sat ?? '').verdict === 'cuentas_de_orden') {
+      memorandum.add(e.code);
+    }
   }
 
   for (const r of orden) {
@@ -374,6 +380,25 @@ export function planSatChartImport(
       }
       yaExistian.push({ fila: r.fila, code: r.numCta, id: yaEsta.id, divergencias });
 
+      // The file saying 8xx is enough to classify it, even when the entity's
+      // row lost its agrupador. The account stays as it is; the conflict with
+      // the doctrine is declared, and its new subaccounts stay out.
+      if (memorandum.has(r.numCta) || readAgrupador(r.codAgrup).verdict === 'cuentas_de_orden') {
+        memorandum.add(r.numCta);
+        findings.push(
+          finding(
+            'IMP-ORDEN-YA-EN-EL-MAYOR',
+            'aviso',
+            r.fila,
+            r.numCta,
+            `"${r.numCta}" es cuenta de orden y ya existe en la entidad como ${yaEsta.account_type}. ` +
+              `NO se toca —una importación no borra ni retipa lo que ya está—, pero según la doctrina ` +
+              `(${MEMORANDUM_DOCTRINE}) no debería estar en el mayor: revísala a mano. Sus subcuentas ` +
+              `nuevas no se crean.`
+          )
+        );
+      }
+
       if (divergencias.length > 0) {
         findings.push(
           finding(
@@ -398,10 +423,11 @@ export function planSatChartImport(
     let nivelDelPadre = 0;
     if (r.subCtaDe !== null) {
       if (memorandum.has(r.subCtaDe)) {
+        const existing = porCodigoExistente.has(r.subCtaDe) ? ' (ya existe en la entidad y no se toca)' : '';
         leaveOutAsMemorandum(
           r,
           `SubCtaDe="${r.subCtaDe}"`,
-          `"${r.numCta}" cuelga de "${r.subCtaDe}", que es cuenta de orden, así que también lo es.`
+          `"${r.numCta}" cuelga de "${r.subCtaDe}"${existing}, que es cuenta de orden, así que también lo es.`
         );
         continue;
       }

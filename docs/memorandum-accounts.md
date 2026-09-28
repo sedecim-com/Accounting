@@ -12,8 +12,8 @@
 
 | Momento | Qué pasa |
 |---|---|
-| `chart import` (catálogo `CatalogoCuentas`) | Cada cuenta con agrupador 8xx —y toda subcuenta que cuelgue de una— se queda fuera con el aviso `IMP-CUENTAS-DE-ORDEN`, que remite a este documento. **Es aviso, no bloqueo**: el resto del catálogo se escribe sin `--parcial`. |
-| `opening-balance check` (el cotejo al peso) | Al servicio (`checkOpeningBalance`, `compareToSource`) se le nombran las cuentas de orden; no se cotejan, **se declaran excluidas con su código y el saldo que declara el origen**, y el cotejo puede salir igual al peso. Una exclusión que no se escribe es una diferencia escondida, así que siempre se imprime. Si el mayor de este sistema llevara dinero en uno de esos códigos, sale como sobrante: el origen lo tiene fuera del balance. |
+| `chart import` (catálogo `CatalogoCuentas`) | Cada cuenta con agrupador 8xx —y toda subcuenta que cuelgue de una— se queda fuera con el aviso `IMP-CUENTAS-DE-ORDEN`, que remite a este documento. **Es aviso, no bloqueo**: el resto del catálogo se escribe sin `--parcial`. Una cuenta de orden que **ya existe** en la entidad no se toca: se declara el conflicto (`IMP-ORDEN-YA-EN-EL-MAYOR`) y sus subcuentas nuevas tampoco se crean. |
+| `opening-balance check` (el cotejo al peso) | Al servicio (`checkOpeningBalance`, `compareToSource`) se le nombran las cuentas de orden; no se cotejan, **se declaran excluidas con su código y el saldo que declara el origen**, y el cotejo puede salir igual al peso. Una exclusión que no se escribe es una diferencia escondida, así que siempre se imprime. Si el mayor de este sistema llevara dinero en uno de esos códigos, sale como sobrante aunque cuelgue de una cuenta que el origen sí declara: el origen lo tiene fuera del balance. |
 
 ## Qué hace el contador con la CUFIN, la CUCA y la UFIN
 

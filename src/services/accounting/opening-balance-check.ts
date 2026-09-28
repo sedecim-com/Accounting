@@ -234,7 +234,10 @@ export function compareToSource(
     const valor = propio.get(s.code);
     if (valor === undefined || valor.isZero()) continue;
     if (declaradasPorElOrigen.has(s.code)) continue;
-    if (tieneAntepasadoEn(s.code, padre, cubren)) continue;
+    // An excluded code is never covered by an ancestor: the source keeps that
+    // money off the balance, so any of it in OUR ledger is its own finding,
+    // not an echo of a difference named further up (WIT-01, PR #415).
+    if (!memorandum.has(s.code) && tieneAntepasadoEn(s.code, padre, cubren)) continue;
     sobrantes.push({
       numCta: s.code,
       importe: alEjeDeLaSuma(valor.toString(), s.natur, columna).toFixed(ESCALA),
@@ -272,8 +275,14 @@ export function renderBalanceComparison(c: BalanceComparison): string {
   for (const f of c.faltantes) {
     l.push(`  ${f}: el origen la declara y no existe en el plan de cuentas`);
   }
+  const excludedCodes = new Set(c.excluded.map((e) => e.code));
   for (const s of c.sobrantes) {
-    l.push(`  ${s.numCta}: aquí lleva ${s.importe} y el origen no la declara ni a ella ni a un padre suyo`);
+    l.push(
+      excludedCodes.has(s.numCta)
+        ? `  ${s.numCta}: aquí lleva ${s.importe} en una cuenta de orden, que no se migra: ese saldo no ` +
+            `debería estar en el mayor (ver ${MEMORANDUM_DOCTRINE})`
+        : `  ${s.numCta}: aquí lleva ${s.importe} y el origen no la declara ni a ella ni a un padre suyo`
+    );
   }
   l.push(...excludedLines);
   return l.join('\n');
