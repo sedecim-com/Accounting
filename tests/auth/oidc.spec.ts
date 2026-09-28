@@ -1,9 +1,18 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
-import { discover, isAsymmetric, verifyIdpToken, resetOidcCaches } from '../../src/auth/oidc.js';
+import {
+  accessTokenCheck,
+  discover,
+  isAsymmetric,
+  isTokenRejection,
+  verifyIdpToken,
+  resetOidcCaches,
+} from '../../src/auth/oidc.js';
 
 const ISSUER = 'https://idp.ejemplo.mx';
 const AUDIENCE = 'https://api.midespacho.mx';
+const CLI_CLIENT = 'cli-app-client';
+const PLATFORM_CLIENT = 'platform-app-client';
 
 // A real IdP in miniature: key pair, JWKS and discovery served by a fake
 // fetch. This tests real signature verification, not a mock of jose.
@@ -43,7 +52,15 @@ async function fakeIdp() {
       .setExpirationTime((over.exp as string) ?? '10m')
       .sign(privateKey);
 
-  return { fetchImpl, sign, doc };
+  // Cognito's shape: no `aud`, the app client in `client_id`, the kind of token in `token_use`.
+  const signCognito = (claims: Record<string, unknown>, iss = ISSUER) =>
+    new SignJWT({ sub: 'cognito-sub', token_use: 'access', client_id: CLI_CLIENT, ...claims })
+      .setProtectedHeader({ alg: 'RS256', kid: 'key-1' })
+      .setIssuer(iss)
+      .setExpirationTime('10m')
+      .sign(privateKey);
+
+  return { fetchImpl, sign, signCognito, doc };
 }
 
 beforeEach(() => resetOidcCaches());
@@ -141,5 +158,68 @@ describe('verifyIdpToken', () => {
     const keycloak = await sign({ sub: 'b', realm_access: { roles: ['revisor'] } });
     expect((await verifyIdpToken(keycloak, { issuer: ISSUER, audience: AUDIENCE, fetchImpl })).groups)
       .toEqual(['revisor']);
+  });
+});
+
+// MNE-001-104 (#369): with AUTH_OIDC_PROVIDER=cognito, client_id and token_use stand where aud stands.
+describe('verifyIdpToken with Cognito access tokens', () => {
+  const COGNITO = { issuer: ISSUER, cognitoClientIds: [CLI_CLIENT, PLATFORM_CLIENT] };
+
+  /** The rejection, which must be a verdict on the token (401), never an IdP outage (502). */
+  async function refusal(token: string, fetchImpl: typeof fetch): Promise<Error> {
+    const err = await verifyIdpToken(token, { ...COGNITO, fetchImpl }).then(
+      () => new Error('the token was accepted'),
+      (e: unknown) => e as Error
+    );
+    expect(isTokenRejection(err), err.message).toBe(true);
+    return err;
+  }
+
+  it('accepts an access token by client_id and token_use, with no aud, and reads cognito:groups', async () => {
+    const { fetchImpl, signCognito } = await fakeIdp();
+    const token = await signCognito({ client_id: PLATFORM_CLIENT, 'cognito:groups': ['contadores'] });
+    const id = await verifyIdpToken(token, { ...COGNITO, fetchImpl });
+    expect(id.subject).toBe('cognito-sub');
+    expect(id.groups).toEqual(['contadores']);
+  });
+
+  it('refuses a Cognito ID token where an access token is required, even though its aud names the client', async () => {
+    const { fetchImpl, signCognito } = await fakeIdp();
+    const idToken = await signCognito({ token_use: 'id', aud: CLI_CLIENT, email: 'ana@despacho.mx' });
+    expect((await refusal(idToken, fetchImpl)).message).toMatch(/token_use/);
+  });
+
+  it('refuses an access token issued to an app client that is not listed', async () => {
+    const { fetchImpl, signCognito } = await fakeIdp();
+    const token = await signCognito({ client_id: 'another-app-client' });
+    expect((await refusal(token, fetchImpl)).message).toMatch(/client_id/);
+  });
+
+  it('refuses a token that does not say what it is or whom it was issued to', async () => {
+    const { fetchImpl, signCognito } = await fakeIdp();
+    await refusal(await signCognito({ token_use: undefined }), fetchImpl);
+    await refusal(await signCognito({ client_id: undefined }), fetchImpl);
+  });
+
+  it('refuses a token for another issuer, even one signed with the same key', async () => {
+    const { fetchImpl, signCognito } = await fakeIdp();
+    const token = await signCognito({}, 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_OTHER');
+    expect((await refusal(token, fetchImpl)).message).toMatch(/iss/);
+  });
+
+  it('outside Cognito mode the same access token is refused: aud is still required', async () => {
+    const { fetchImpl, signCognito } = await fakeIdp();
+    const token = await signCognito({});
+    await expect(verifyIdpToken(token, { issuer: ISSUER, audience: AUDIENCE, fetchImpl })).rejects.toThrow(/aud/);
+  });
+});
+
+describe('accessTokenCheck', () => {
+  it('only AUTH_OIDC_PROVIDER=cognito trades aud for the app clients listed in AUTH_OIDC_CLIENT_ID', () => {
+    expect(accessTokenCheck({ provider: 'cognito', audience: AUDIENCE, clientId: ` ${CLI_CLIENT} ,${PLATFORM_CLIENT},` }))
+      .toEqual({ cognitoClientIds: [CLI_CLIENT, PLATFORM_CLIENT] });
+    for (const provider of ['oidc', 'generic', '', 'Cognito']) {
+      expect(accessTokenCheck({ provider, audience: AUDIENCE, clientId: CLI_CLIENT }), provider).toEqual({ audience: AUDIENCE });
+    }
   });
 });
