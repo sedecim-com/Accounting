@@ -2405,6 +2405,33 @@ describe('bank reconciliation open · el contenedor, no la aseveración', () => 
   });
 });
 
+describe('bank reconciliation open --baseline · the first session starts from a baseline', () => {
+  const open = ['bank', 'reconciliation', 'open', 'BBVA MXN', '--period', '2026-07'];
+
+  it('stores the baseline on the day before the period when it equals the books', async () => {
+    const r = await run([...open, '--baseline', '750.00', '--json'], mundo({ saldoLibros: '750.0000' }));
+    expect(r.errs).toEqual([]);
+    const ins = r.sql.find((s) => /INSERT INTO reconciliation_sessions/.test(s.text));
+    expect(ins!.params).toEqual(expect.arrayContaining(['2026-06-30', '750.00']));
+    expect(r.out).toMatch(/"baseline_date": "2026-06-30"/);
+    // The statement opens at 0: the bank side disagrees, and that is said.
+    expect(r.out).toMatch(/difieren en -750\.00/);
+  });
+
+  it('refuses a baseline the books do not hold, saying by how much, and writes nothing', async () => {
+    const r = await run([...open, '--baseline', '700', '--baseline-date', '2026-06-30'], mundo({ saldoLibros: '750.0000' }));
+    expect(r.exitCode).toBe(4);
+    expect((r.errs[0] as Error).message).toMatch(/difieren en 50\.00/);
+    expect(r.sql.filter((s) => /INSERT INTO reconciliation_sessions/.test(s.text))).toEqual([]);
+  });
+
+  it('a --baseline-date with no --baseline is a usage error before any query', async () => {
+    const r = await run([...open, '--baseline-date', '2026-06-30'], mundo());
+    expect(r.exitCode).toBe(2);
+    expect(r.sql).toEqual([]);
+  });
+});
+
 describe('bank reconciliation generate · el expediente', () => {
   it('no finge un pdf ni un xlsx, y decirlo no cuesta una conexión', async () => {
     for (const formato of ['pdf', 'xlsx']) {

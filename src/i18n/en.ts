@@ -636,6 +636,9 @@ export const EN = {
   'bank.reconciliation.open.summary':
     'opening balance {opening} · bank close {closingBank} {currency} · statement {statement}',
   'bank.reconciliation.open.continues': 'continues {session}',
+  'bank.reconciliation.open.baseline': 'starts from the baseline {balance} as of {date}',
+  'bank.reconciliation.open.baseline_date_without_baseline':
+    '--baseline-date is the date of --baseline, and there is no --baseline. Pass the reconciled balance with --baseline, or drop --baseline-date.',
   'bank.reconciliation.open.no_arithmetic_yet':
     'The session is born with no arithmetic (`arithmetic_computed_at` NULL): `bank reconciliation ' +
     'status` computes it live and `close` signs it. None of this touches the ledger.',
