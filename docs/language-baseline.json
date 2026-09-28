@@ -3,7 +3,7 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10579,
+    "spanish-identifiers-src": 10578,
     "spanish-identifiers-tests": 5774,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 50,
@@ -55,7 +55,7 @@
       "src/ai/tools/superficie.ts": 3,
       "src/ai/untrusted.ts": 7,
       "src/api/rest/middleware/async-handler.ts": 4,
-      "src/api/rest/middleware/audit.ts": 3,
+      "src/api/rest/middleware/audit.ts": 2,
       "src/api/rest/middleware/auth.ts": 14,
       "src/api/rest/middleware/idempotencia.ts": 30,
       "src/api/rest/middleware/rate-limiter.ts": 1,
