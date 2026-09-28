@@ -913,8 +913,11 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'Exempt activity is not the absence of an operation: it is an operation the DIOT wants counted, ' +
       'and understating it understates the total the authority reconciles against your VAT return. ' +
       'Deriving from the subtotal is right often enough to be dangerous — it silently breaks wherever ' +
-      'a line mixes exempt and taxed concepts. Now that the base is captured at ingestion, requiring ' +
-      'it means requiring something the document already said.',
+      'a line mixes exempt and taxed concepts. The base is captured at ingestion: each bill line keeps ' +
+      'the Base its CFDI declared on the VAT transfer as its value of the acts, so requiring it means ' +
+      'requiring something the document already said. A Base the CFDI omitted stays unknown — it is ' +
+      'never filled in from an amount — and so does the base of every line built from the approved ' +
+      'entry when any concept of that CFDI omitted it; bills recorded before the capture existed lack it too.',
     whyAsking:
       'Exempt purchases still count on the filing, and they are the ones whose amount the system used to throw away without telling anyone.',
     whatIDo: 'I stop and name the documents whose exempt base is unknown instead of guessing it.',
