@@ -12,6 +12,7 @@ import {
   notaDelSubsidioEntregado,
   type RegistroSubsidioLeido,
 } from '../mx/subsidio-entregado.js';
+import { readEmploymentSubsidyRounding } from '../mx/employment-subsidy.js';
 import type { TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
 // ============================================================
@@ -395,8 +396,18 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
     const isr = await isrCalc.calculate({ ...baseTaxInput, taxable_wages: taxableIsr });
     breakdown.isr = isr.tax_amount;
 
+    // The decree leaves the rounding open, so the entity's policy decides it
+    // (#298); the engine refuses to compute without it.
     const subCalc = taxRegistry.getRequired('MX', 'subsidio_empleo');
-    const sub = await subCalc.calculate({ ...baseTaxInput, taxable_wages: taxableIsr });
+    const employmentSubsidyRounding = await readEmploymentSubsidyRounding({
+      tenantId: input.tenant_id,
+      entityId: period.entity_id,
+    });
+    const sub = await subCalc.calculate({
+      ...baseTaxInput,
+      taxable_wages: taxableIsr,
+      employment_subsidy_rounding: employmentSubsidyRounding,
+    });
     breakdown.subsidio_empleo = sub.tax_amount;
 
     // EL SUBSIDIO QUE EXCEDE AL ISR NO SE EVAPORA: SE ENTREGA.

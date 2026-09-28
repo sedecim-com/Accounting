@@ -149,7 +149,7 @@ async function reciboDe(paycheckId: string): Promise<FilaRecibo> {
 // Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
 // una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
 // suyo. El porqué entero, en helpers/catalogos-globales.ts.
-apartarCatalogos('mx_isn_tasas_estatales', 'tax_tables');
+apartarCatalogos('mx_isn_tasas_estatales', 'tax_tables', 'legal_parameters');
 
 beforeAll(async () => {
   f = await crearInquilino('F08a · ataque');
@@ -170,14 +170,22 @@ beforeAll(async () => {
   // centavo, mucho, e ISR cero— salen de una tarifa construida para
   // producirlos, en un año que no existe para que no pise a nadie.
   //   ISR quincenal: 0 hasta 50.00; 5.00 + 10 % del excedente después.
-  //   Subsidio mensual plano de 200.00 → 100.00 por quincena.
+  //   Subsidio: 10 % de una UMA mensual de 2 026.70 = 202.67 al mes, y
+  //   202.67 × 15 / 30.4 = 100.00 por quincena. Since #298 the subsidy is a
+  //   share of the UMA read from `legal_parameters`, not a table.
   await query(
     `INSERT INTO tax_tables (jurisdiction, tax_type, tax_year, filing_status, pay_frequency,
        bracket_order, bracket_low, bracket_high, rate, base_tax, effective_from)
      VALUES
        ('MX','isr',$1,NULL,'quincenal',1, 0.01, 50.00, 0, 0, '2026-01-01'),
-       ('MX','isr',$1,NULL,'quincenal',2, 50.01, NULL, 0.10, 5.00, '2026-01-01'),
-       ('MX','subsidio_empleo',$1,NULL,'monthly',1, 0.01, NULL, 0, 200.00, '2026-01-01')`,
+       ('MX','isr',$1,NULL,'quincenal',2, 50.01, NULL, 0.10, 5.00, '2026-01-01')`,
+    [ANIO_SINTETICO]
+  );
+  await query(
+    `INSERT INTO legal_parameters (jurisdiction, key, effective_from, value, unit, source_url, source_note)
+     VALUES
+       ('MX', 'uma.monthly', make_date($1, 1, 1), '2026.7000', 'MXN', 'https://example.invalid/synthetic', 'synthetic'),
+       ('MX', 'employment_subsidy.uma_monthly_rate', make_date($1, 1, 1), '0.1000', 'rate', 'https://example.invalid/synthetic', 'synthetic')`,
     [ANIO_SINTETICO]
   );
 });
@@ -275,8 +283,9 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
     periodo = await nuevoPeriodo('2026-03-01', '2026-03-15', '2026-03-15', 2026);
     corrida = await nuevaCorrida(periodo);
     // Tarifa REAL 2026 (la publicada en el Anexo 8, sembrada por la 073 del
-    // tramo T4a): quincena de 1 500 → ISR 77.28, subsidio 203.31, efectivo
-    // entregado 126.03. Antes de T4a estas cifras eran 79.29 y 124.02, con la
+    // tramo T4a): quincena de 1 500 → ISR 77.28, subsidio 264.30 (15.02 % de
+    // la UMA mensual de 2026, #298; era 203.31 con la tabla derogada de la
+    // 009), efectivo entregado 187.02. Antes de T4a estas cifras eran 79.29 y 124.02, con la
     // «quincenal» que la 009 fabricaba dividiendo la mensual entre dos — y que
     // no era la de ningún año. Lo que F08a fija es el CAMINO del subsidio
     // entregado en efectivo, no la tarifa: la tarifa cambió debajo, y estas
@@ -290,11 +299,11 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
     ).paycheck_id;
   });
 
-  it('el punto de partida: la quincena de 1 500 entrega 126.03 en efectivo', async () => {
+  it('el punto de partida: la quincena de 1 500 entrega 187.02 en efectivo', async () => {
     const fila = await reciboDe(recibo);
     expect(fila.isr_withheld).toBe('77.28');
-    expect(fila.subsidio_empleo).toBe('203.31');
-    expect(new Decimal(fila.subsidio_entregado_efectivo).toFixed(2)).toBe('126.03');
+    expect(fila.subsidio_empleo).toBe('264.30');
+    expect(new Decimal(fila.subsidio_entregado_efectivo).toFixed(2)).toBe('187.02');
   });
 
   it('el ISR NETO del periodo, sumado desde paycheck_taxes, es el que el fisco vería', async () => {
@@ -307,11 +316,11 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
       .reduce((a, x) => a.plus(x.tax_amount), new Decimal(0));
 
     // Lo que el patrón entregó de su bolsillo y acreditará contra el ISR
-    // retenido a otros son 126.03 — ni un peso más. Si la resta da −252.06,
+    // retenido a otros son 187.02 — ni un peso más. Si la resta da −374.04,
     // el subsidio está apuntado DOS VECES: entero como crédito, y otra vez
     // la parte entregada.
     const netoSegunLaTabla = cargo.minus(creditos);
-    expect(netoSegunLaTabla.toFixed(2)).toBe('-126.03');
+    expect(netoSegunLaTabla.toFixed(2)).toBe('-187.02');
   });
 });
 
@@ -354,21 +363,23 @@ describe('C · la corrida con subsidio entregado se puede postear al mayor', () 
   }
 
   it('control: cuando el ISR retenido supera al subsidio entregado, el asiento cuadra', async () => {
-    // 1 500 (entrega 126.03) + 8 000 (retiene 799.46): el ISR gana.
+    // 1 500 (entrega 187.02) + 8 000 (retiene 799.46): el ISR gana.
     const { payRunId } = await corridaCompleta('2026-04-01', '2026-04-15', '2026-04-15', [1500, 8000]);
     const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId);
     expect(entryId).toBeTruthy();
   });
 
   it('la corrida de PURO subsidio entregado también se tiene que poder postear', async () => {
-    // Dos trabajadores de 1 500: nadie retiene ISR y el patrón entrega 252.06.
+    // Dos trabajadores de 1 500: nadie retiene ISR y el patrón entrega 374.04.
     const { payRunId } = await corridaCompleta('2026-05-01', '2026-05-15', '2026-05-15', [1500, 1500]);
     await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
   });
 
   it('la corrida MIXTA en la que el subsidio entregado gana también se postea', async () => {
-    // 1 500 (entrega 126.03) + 3 000 (retiene 25.96): el subsidio gana por 100.07.
-    const { payRunId } = await corridaCompleta('2026-06-01', '2026-06-15', '2026-06-15', [1500, 3000]);
+    // 1 500 (entrega 187.02) + 4 500 (retiene 312.51 − 264.30 = 48.21): el
+    // subsidio gana por 138.81. It was 3 000, which with the 2026 subsidy
+    // (#298) also receives cash and no longer makes the run mixed.
+    const { payRunId } = await corridaCompleta('2026-06-01', '2026-06-15', '2026-06-15', [1500, 4500]);
     await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
   });
 });

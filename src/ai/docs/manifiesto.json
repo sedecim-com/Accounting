@@ -143,7 +143,7 @@
     "src/services/accounting/ar-ap-posting.ts": "d9dedddde0e6e750e574bf3d225a6c48a8b06814",
     "src/ai/providers/index.ts": "ed591a9ca62a734081e910ec1aceced42cdf5bbc",
     "src/ai/providers/config.ts": "0efc3e11411b898a12306aab3ccca3baf8cc58b3",
-    "src/ai/draft-service.ts": "04ed91b33ecfae87363b690309534b7a4cceda4d",
+    "src/ai/draft-service.ts": "468ac6c39c30f1808dac7f85ccce560e2ea92dd2",
     "src/ai/question-service.ts": "320a614fe4b7ae52646b1298b4e3339710ddc56c",
     "src/ai/budget.ts": "501401dcfc093c50e86ab33976d41ba7805010b6",
     "src/ai/floor.ts": "f1a5ebed1e5d3e8f4bdea31b831c812d86e4c6b7",

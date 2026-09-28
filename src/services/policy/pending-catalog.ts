@@ -409,6 +409,36 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped: 'The bill lines follow the entry you approved.',
     priority: 50,
   },
+  {
+    // Read by registrarFacturaDeBorradorAprobado (#318, PR1b). Whatever the
+    // answer, an unattended approval (threshold auto-post, approval policy,
+    // REST) cannot ask anyone, so for it 'preguntar' behaves as 'rechazar'.
+    key: 'proveedor_desconocido_al_aprobar',
+    category: 'contable',
+    question:
+      'When you approve the draft of a received CFDI whose issuer is not in the vendor catalog, what happens?',
+    impact:
+      'Approving creates the vendor bill, and a bill needs a registered vendor. Registering one creates a ' +
+      'counterparty from the name and RFC written inside a third party\'s XML. Either the approval is refused ' +
+      'until someone registers the vendor, or `mnemosine review` asks you, and your yes registers the vendor, ' +
+      'the bill and the entry in one transaction.',
+    options: [
+      { value: 'rechazar', label: 'Refuse the approval and name the command that registers the vendor' },
+      { value: 'preguntar', label: 'Ask in `mnemosine review` whether to register the vendor; no means refuse' },
+    ],
+    defaultValue: 'rechazar',
+    defaultRationale:
+      'It is the rule `bill inbox run` already follows: no vendor is created without an explicit act by a ' +
+      'person, and the approval of an entry is not, by itself, the approval of new master data.',
+    whyAsking:
+      'Some firms register every supplier on purpose before booking anything; others prefer to confirm a new ' +
+      'supplier while they review its first invoice.',
+    whatIDo:
+      'By default I refuse the approval, nothing is posted, and I tell you the command that registers the ' +
+      'vendor. With "preguntar", the review asks you, and only your yes creates the vendor.',
+    ifSkipped: 'I refuse the approval until the vendor is registered.',
+    priority: 55,
+  },
 
   // ── Payment receipts (REP) ──
   //
@@ -1620,6 +1650,40 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I compute the excess per paycheck, record it on the payslip as cash delivered, and post it to the account this policy names. With "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports.',
     ifSkipped:
       'It goes to a receivable from the authority. Nothing breaks; if your criterion is to absorb it, payroll expense will be understated until you say so.',
+    priority: 42,
+  },
+  // #298 · MNE-001-064. The decree gives the percentage of the monthly UMA and
+  // the 30.4 divisor, and no rounding rule. Read by `readEmploymentSubsidyRounding`
+  // (payroll/mx/employment-subsidy.ts); decided by the owner in MNE-001-004.
+  {
+    key: 'subsidio_al_empleo_redondeo',
+    category: 'fiscal',
+    question:
+      'How do you round the employment subsidy of a pay period shorter than a month: once, on the period amount, or first on the daily amount?',
+    impact:
+      'It moves the subsidy of a week or a quincena by a few cents, and with it the ISR withheld, the cash handed to the worker and the payroll CFDI. In 2026 only January changes: the quincena is 264.58 with one rounding and 264.60 rounding the daily amount first.',
+    options: [
+      {
+        value: 'producto_al_centavo',
+        label: 'Once: the monthly amount to the cent, then monthly × days / 30.4 to the cent',
+      },
+      {
+        value: 'diario_al_centavo',
+        label: 'The daily amount first: monthly / 30.4 to the cent, then × the days of the period',
+      },
+    ],
+    defaultValue: 'producto_al_centavo',
+    defaultRationale:
+      'One rounding, half up, on the result is the reading that follows the decree literally — a percentage of the ' +
+      'monthly UMA, divided by 30.4 and multiplied by the days — without introducing an intermediate figure the ' +
+      'decree never names. From February to December 2026 it gives 535.65 a month, 264.30 a quincena and 123.34 ' +
+      'a week. The 536.22 of the decree recital is not an option: no rounding of the UMA in force produces it.',
+    whyAsking:
+      'The decree fixes the percentage of the UMA and says to divide by 30.4 and multiply by the days, but not where to round. Payroll software and firms do it both ways, and the difference reaches the worker and the SAT.',
+    whatIDo:
+      'Every Mexican pay run computes the monthly subsidy to the cent and derives the period from that rounded monthly amount, in the way you choose here. The payslip note names the rounding used.',
+    ifSkipped:
+      'I round once, on the period amount. From February to December the two options give the same figures.',
     priority: 42,
   },
   {
