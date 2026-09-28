@@ -130,6 +130,8 @@ const LEAVES = [
   'bank book-item list',
   'bank match preview', 'bank match run', 'bank match apply',
   'bank match create', 'bank match unapply',
+  // MNE-001-040 · correcting what the importer classified.
+  'bank transaction reclassify',
   // F05c · la sesión que cuadra.
   'bank reconciliation run', 'bank reconciliation open', 'bank reconciliation list',
   'bank reconciliation status', 'bank reconciling-item list',
@@ -193,7 +195,7 @@ describe('the rulebook', () => {
     expect(violations).toEqual([]);
   });
 
-  it('ships exactly the thirty-two leaves, each ending in a verb from the closed list', () => {
+  it('ships exactly the thirty-three leaves, each ending in a verb from the closed list', () => {
     const leaves: string[] = [];
     const walk = (cmd: Command, prefix: string[]) => {
       const path = [...prefix, cmd.name()];
@@ -228,6 +230,7 @@ describe('the bilingual surface', () => {
     'bank transaction': 'movimiento',
     'bank transaction list': 'listar',
     'bank transaction show': 'ver',
+    'bank transaction reclassify': 'reclasificar',
     'bank book-item': 'partida-libros',
     'bank book-item list': 'listar',
     'bank match': 'cotejo',
@@ -1286,6 +1289,82 @@ describe('bank transaction show', () => {
     // extrae todavía se NOMBRAN, en vez de salir como columnas vacías que se
     // leerían como «este movimiento no los trae».
     expect(payload.rows[0].unextracted_fields).toContain('clave-de-rastreo');
+  });
+});
+
+describe('bank transaction reclassify', () => {
+  const reclassifyResponder = (over: { matched?: boolean; posted?: boolean; updated?: number } = {}) =>
+    (text: string) => {
+      if (/FOR UPDATE OF bt/.test(text)) {
+        return filas([{ transaction_type: 'debit', amount: '-116.0000', is_matched: over.matched ?? false }]);
+      }
+      if (/FROM journal_entries/.test(text)) return filas(over.posted ? [{ entry_number: 'P-0007' }] : []);
+      if (/UPDATE bank_transactions/.test(text)) return { rows: [], rowCount: over.updated ?? 1 };
+      return filas([]);
+    };
+
+  it('is a human-only write that names what it writes', () => {
+    expect(risks.get('bank transaction reclassify')).toMatchObject({
+      risk: 'escritura',
+      agentAllowed: false,
+      writes: 'bank_transactions.transaction_type + audit_log',
+    });
+  });
+
+  it('writes through a guarded UPDATE scoped to the entity, and audits it', async () => {
+    const r = await run(
+      ['bank', 'transaction', 'reclassify', TX, '--type', 'fee', '--reason', 'monthly fee', '--json'],
+      reclassifyResponder()
+    );
+    expect(r.exitCode ?? 0).toBe(0);
+    const update = r.sql.find((s) => /UPDATE bank_transactions/.test(s.text));
+    const text = update!.text.replace(/\s+/g, ' ');
+    expect(text).toMatch(/ba\.entity_id = \$2/);
+    expect(text).toMatch(/bt\.transaction_type = \$4/);
+    expect(text).toMatch(/bt\.is_matched = false/);
+    expect(update!.params).toEqual([TX, 'E1', 'fee', 'debit']);
+    const audit = r.sql.find((s) => /INSERT INTO audit_log/.test(s.text));
+    expect(audit!.params).toContain('monthly fee');
+    const payload = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
+    expect(payload.rows[0]).toMatchObject({ previous_type: 'debit', type: 'fee', changed: true });
+  });
+
+  it('--dry-run checks everything and writes nothing', async () => {
+    const r = await run(
+      ['bank', 'transaction', 'reclassify', TX, '--type', 'fee', '--dry-run', '--json'],
+      reclassifyResponder()
+    );
+    expect(r.sql.some((s) => /UPDATE bank_transactions|INSERT INTO audit_log/.test(s.text))).toBe(false);
+    const payload = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
+    expect(payload.rows[0]).toMatchObject({ changed: true, dry_run: true });
+  });
+
+  it('refuses the wrong sign, a matched line, a posted line and a lost race', async () => {
+    const sign = await run(['bank', 'transaction', 'reclassify', TX, '--type', 'interest'], reclassifyResponder());
+    expect(sign.exitCode).not.toBe(0);
+    const matched = await run(
+      ['bank', 'transaction', 'reclassify', TX, '--type', 'fee'],
+      reclassifyResponder({ matched: true })
+    );
+    expect(matched.exitCode).not.toBe(0);
+    const posted = await run(
+      ['bank', 'transaction', 'reclassify', TX, '--type', 'fee'],
+      reclassifyResponder({ posted: true })
+    );
+    expect(posted.exitCode).not.toBe(0);
+    const race = await run(
+      ['bank', 'transaction', 'reclassify', TX, '--type', 'fee'],
+      reclassifyResponder({ updated: 0 })
+    );
+    expect(race.exitCode).not.toBe(0);
+    const said = (r: { errs: unknown[] }) => r.errs.map(String).join('\n');
+    expect(said(sign)).toMatch(/exige un importe/);
+    expect(said(matched)).toMatch(/está cotejado/);
+    expect(said(posted)).toMatch(/P-0007/);
+    expect(said(race)).toMatch(/cambió mientras/);
+    for (const r of [sign, matched, posted, race]) {
+      expect(r.sql.some((s) => /INSERT INTO audit_log/.test(s.text))).toBe(false);
+    }
   });
 });
 
