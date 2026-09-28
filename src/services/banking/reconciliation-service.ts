@@ -1723,8 +1723,11 @@ export interface ResultadoCorridaGuiada {
  * `bank reconciliation run <account>`: el pase guiado del mes.
  *
  * ORQUESTA, NO REIMPLEMENTA. Cada paso es un servicio que ya existe y que ya
- * tiene sus propias guardas: `importarEstadoDeCuenta` (F05a) deduplica por hash
- * de documento y de línea y corre las siete pruebas; `correrCotejo` (F05b)
+ * tiene sus propias guardas: `importarEstadoDeCuenta` (F05a) rejects the same
+ * file by its sha256, skips a line whose native bank id is already in the
+ * account and names it, applies `bank_statement_overlap` to lines already in
+ * another statement (T25, #138) — the line fingerprint is NOT a dedupe key —
+ * and runs the seven checks; `correrCotejo` (F05b)
  * comprueba Σbanco = Σlibros + Σajustes antes de escribir y respeta el piso de
  * confianza; `abrirSesion` asevera la continuidad. Reescribir cualquiera de
  * los tres aquí habría duplicado sus invariantes en un sitio donde envejecen.
@@ -1784,7 +1787,9 @@ export async function correrConciliacion(
         hecho: true,
         detalle:
           `Importado ${importacion.archivo}: ${importacion.importadas} línea(s) nuevas, ` +
-          `${importacion.duplicadas} ya estaban. Cierre declarado ${importacion.saldoFinal}.`,
+          `${importacion.duplicadas} no entraron por id nativo repetido, ` +
+          `${importacion.overlaps.length} traslapadas con otro estado (${importacion.overlapPolicy}). ` +
+          `Cierre declarado ${importacion.saldoFinal}.`,
       });
     } else {
       const existentes = await extractosDelPeriodo(null, entityId, cuenta.id, desde, hasta);
