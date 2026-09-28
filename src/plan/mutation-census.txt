@@ -91,6 +91,8 @@ mirror	memory	E0.2 migration-numbering-guard-forgives-files-not-numbers	src/data
 mirror	memory	E0.2 migration-numbering-guard-forgives-files-not-numbers	src/database/migrate.ts	un choque con UN solo archivo histórico dentro deja de denunciarse: basta acompañar al intruso de un histórico para colarlo
 mirror	memory	E0.2 historic-runs-backfill-sees-its-rows	src/database/migrations/060_la_corrida_que_se_abre_antes.sql	sin el opt-in, migrate.ts corre con row_security=off y el UPDATE sobre una tabla acotada lanza 42501 en vez de filtrar: revierte el archivo entero en cualquier despacho instalado (#88)
 mirror	memory	E0.2 historic-runs-backfill-sees-its-rows	src/database/migrations/060_la_corrida_que_se_abre_antes.sql	el bucle deja de recorrer inquilinos: la migración se aplica sin error y cierra CERO corridas, que es peor que fallar porque nadie se entera
+mirror	memory	E0.3 audit-log-redacts-encrypted-fields	src/api/rest/middleware/audit.ts	the raw body is written again: every credential a request carries becomes a row that 033 forbids anyone to delete
+mirror	memory	E0.3 audit-log-redacts-encrypted-fields	src/api/rest/middleware/audit.ts	one stem leaves the list and nothing else changes: the middleware still redacts, and every password reaches the trail
 mirror	memory	E0.3 reconciliation-approval-sealed-snapshot	src/database/migrations/055_la_firma_y_el_sello.sql	una sesión podría quedar contabilizada sin decir cuándo ni por quién
 mirror	memory	E0.3 reconciliation-approval-sealed-snapshot	src/database/migrations/055_la_firma_y_el_sello.sql	se llegaría a approved sin instantánea sellada: la firma vuelve a ser una palabra que alguien escribe, que es de lo que este módulo viene
 mirror	memory	E0.3 reconciliation-balanced-requires-arithmetic	src/database/migrations/054_la_sesion_que_cuadra.sql	vuelve a caber el defecto histórico: un UPDATE poniendo balanced sin haber calculado nada, que el cierre de periodo lee como prueba de que la cuenta se verificó
@@ -660,6 +662,8 @@ anchor	src/plan/criteria/e0-2.ts	de: " '014_rls_tenant_isolation.sql',",
 anchor	src/plan/criteria/e0-2.ts	de: 'fs.some((f) => !DUPLICADOS_HISTORICOS.has(f))',
 anchor	src/plan/criteria/e0-2.ts	de: 'SET LOCAL row_security = on;\nDO $cierre$',
 anchor	src/plan/criteria/e0-2.ts	de: 'FOR t IN SELECT id FROM tenants LOOP',
+anchor	src/plan/criteria/e0-3.ts	de: 'JSON.stringify(redactarSensibles(req.body))',
+anchor	src/plan/criteria/e0-3.ts	de: "'secret', 'password', ",
 anchor	src/plan/criteria/e0-3.ts	de: "CHECK (status <> 'posted' OR (posted_at IS NOT NULL AND posted_by IS NOT NULL))",
 anchor	src/plan/criteria/e0-3.ts	de: "CHECK (status NOT IN ('approved', 'posted') OR approval_hash IS NOT NULL)",
 anchor	src/plan/criteria/e0-3.ts	de: ' OR arithmetic_computed_at IS NOT NULL',

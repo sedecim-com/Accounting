@@ -5,6 +5,8 @@ import {
   CLOSE_CHECK_CODES,
   CLOSE_CHECK_ITEMS,
   type CloseCheckCode,
+  type SubledgerCode,
+  readSubledgerSide,
 } from './period-close.js';
 import { MAPPING_SCHEMES } from './account-service.js';
 
@@ -57,6 +59,8 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'rep-parked': 'mnemosine rep reconcile',
   'rep-missing': 'mnemosine rep missing list',
   'sat-agrupador-missing': 'mnemosine account map set <code> --scheme sat-agrupador --value <c_CodAgrup>',
+  'ar-subledger-delta': 'mnemosine ar reconcile  (lists the manual entries on the control account)',
+  'ap-subledger-delta': 'mnemosine ap reconcile --explain  (splits the delta into named items)',
 };
 
 export interface OpcionesDeExplicacion {
@@ -81,6 +85,21 @@ async function filas(
   return {
     total,
     renglones: r.rows.map(({ total_ofensores: _omitido, ...resto }) => resto),
+  };
+}
+
+/**
+ * Mirror of check 8 (MNE-001-035): one row with both sides and the delta
+ * when a subledger disagrees with its control. The causes are enumerated by
+ * the reconcile command the remedy names; repeating that list here would be
+ * a second copy to drift.
+ */
+async function subledgerRows(entityId: string, code: SubledgerCode): ReturnType<Runner> {
+  const side = await readSubledgerSide(entityId, code);
+  if (side === null || side.balanced) return { total: 0, renglones: [] };
+  return {
+    total: 1,
+    renglones: [{ control_balance: side.control, subledger_balance: side.subledger, delta: side.delta }],
   };
 }
 
@@ -358,6 +377,9 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
         LIMIT $3`,
       [entityId, periodId, limit]
     ),
+
+  'ar-subledger-delta': (entityId) => subledgerRows(entityId, 'ar-subledger-delta'),
+  'ap-subledger-delta': (entityId) => subledgerRows(entityId, 'ap-subledger-delta'),
 };
 
 /** ¿Es un código del registro? (para validar entrada de CLI sin lanzar). */

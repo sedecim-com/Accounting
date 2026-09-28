@@ -28,7 +28,12 @@
 - **Estados Unidos más allá de lo que ya existe** ([#124](https://github.com/sedecim-com/Accounting/issues/124), [#131](https://github.com/sedecim-com/Accounting/issues/131)).
 - **La interfaz gráfica** ([#117](https://github.com/sedecim-com/Accounting/issues/117), PR #249) y **los canales de mensajería** ([#116](https://github.com/sedecim-com/Accounting/issues/116)).
 - **El renombrado del código al inglés** (epic [#141](https://github.com/sedecim-com/Accounting/issues/141)). Hay dos excepciones: el panel de políticas ([#152](https://github.com/sedecim-com/Accounting/issues/152)) y la ayuda del CLI ([#314](https://github.com/sedecim-com/Accounting/issues/314)), porque son lo único de ese epic que cambia lo que lee un contador en `es-MX`. Las hojas I8.x no lo cambian: el extractor copia a `es.ts` el español que ya se imprime.
-- **La descarga automática del SAT con e.firma** ([#312](https://github.com/sedecim-com/Accounting/issues/312)). El dueño decidió el 2026-09-26 que el MVP afirma la completitud por censo: el despacho carga el ZIP o los metadatos que baja del portal del SAT, y `sat download reconcile` dice qué CFDI faltan por traer y por contabilizar. La descarga automática reutiliza esas piezas después del MVP, y E3.2 sigue en rojo mientras no exista.
+**Dentro del MVP desde el 2026-09-28: la e.firma descarga del SAT y sella.** El dueño decidió ([#312](https://github.com/sedecim-com/Accounting/issues/312), MNE-001-140): «para efectos de scope del proyecto considera que sí se va a usar [la e.firma] para descargar y firmar… revisa el proyecto y mejora lo que se pueda automatizar con esta posibilidad.» Eso reemplaza la decisión del 2026-09-26, que dejaba la descarga automática después del MVP.
+
+- **Descargar:** la autenticación con la e.firma ([#439](https://github.com/sedecim-com/Accounting/issues/439)), la descarga masiva de XML y metadatos con sus comandos ([#440](https://github.com/sedecim-com/Accounting/issues/440)) y la sincronización diaria de metadatos que detecta cancelaciones ([#441](https://github.com/sedecim-com/Accounting/issues/441)). El censo por ZIP o metadatos del portal (MNE-001-096 y 119) se queda, y la descarga lo alimenta por el mismo lector. E3.2 sigue en rojo mientras el motor no exista.
+- **Sellar:** el catálogo y la balanza del Anexo 24, con la e.firma, cuando el despacho declara `sellar_con_custodia` ([#442](https://github.com/sedecim-com/Accounting/issues/442)). El valor por omisión de la política sigue siendo `nunca_sellar_en_el_sistema`.
+- **El consentimiento** que firma el contador al entregar su e.firma dice ambos usos antes de que el sistema la use ([#313](https://github.com/sedecim-com/Accounting/issues/313)).
+- **Sigue manual, por el portal del SAT:** presentar la contabilidad electrónica, la DIOT y las declaraciones, el buzón tributario, la opinión de cumplimiento (32-D) y la constancia. El SAT no ofrece un servicio web público para eso, y no se raspa el portal.
 
 ## 2. De dónde se parte (foto del 2026-09-25)
 
@@ -103,7 +108,8 @@ Los carriles C y E comparten `period-close.ts`: el checklist lo toca #98, y el a
 - el papel de trabajo de IVA e ISR ([#308](https://github.com/sedecim-com/Accounting/issues/308));
 - las retenciones ([#309](https://github.com/sedecim-com/Accounting/issues/309));
 - los documentos abiertos en la migración ([#310](https://github.com/sedecim-com/Accounting/issues/310), después de #220);
-- la factura en moneda extranjera y la revaluación ([#305](https://github.com/sedecim-com/Accounting/issues/305)).
+- la factura en moneda extranjera y la revaluación ([#305](https://github.com/sedecim-com/Accounting/issues/305));
+- el consentimiento de la e.firma que dice descarga y sellado ([#313](https://github.com/sedecim-com/Accounting/issues/313)) y la autenticación con el SAT ([#439](https://github.com/sedecim-com/Accounting/issues/439)).
 
 ### Armonía con la plataforma (revisión del 2026-09-26)
 
@@ -120,12 +126,13 @@ El despliegue mismo depende de la plataforma (Postgres gestionado, IAM y namespa
 ### Ola 3 · El MVP se demuestra y se pule
 
 - [#311](https://github.com/sedecim-com/Accounting/issues/311), el mes de punta a punta; conviene **empezarla en la Ola 1**, con `it.todo`.
-- El censo del SAT contra lo contabilizado ([#312](https://github.com/sedecim-com/Accounting/issues/312)); la descarga automática queda fuera.
+- El censo del SAT contra lo contabilizado ([#312](https://github.com/sedecim-com/Accounting/issues/312)), alimentado también por la descarga automática ([#440](https://github.com/sedecim-com/Accounting/issues/440), [#441](https://github.com/sedecim-com/Accounting/issues/441)).
+- El sellado del Anexo 24 con la e.firma bajo `sellar_con_custodia` ([#442](https://github.com/sedecim-com/Accounting/issues/442)).
 - El español del panel y de la ayuda ([#152](https://github.com/sedecim-com/Accounting/issues/152), [#314](https://github.com/sedecim-com/Accounting/issues/314)).
 - Los manuales ([#325](https://github.com/sedecim-com/Accounting/issues/325)).
 - El alta de despacho y de usuarios sin TTY ([#326](https://github.com/sedecim-com/Accounting/issues/326)).
 - La gramática de la terminal ([#327](https://github.com/sedecim-com/Accounting/issues/327)).
-- Y lo deseable: #328, #313, #315, #317, #100, #101, #215, #231, #133.
+- Y lo deseable: #328, #315, #317, #100, #101, #215, #231, #133.
 
 ## 4. Decisiones que sólo el dueño puede tomar
 
@@ -141,7 +148,8 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | #298, #308 | Redondeos del subsidio y del papel de trabajo | `subsidio_al_empleo_redondeo` = `producto_al_centavo`; `declaracion_redondeo_a_pesos` = `cada_renglon` |
 | #322 | Tasa contable (NIF C-6) frente a tasa fiscal (art. 34) | `base_depreciacion` = `vida_util_nif` por omisión; la tasa fiscal se guarda y `tasa_lisr` opera. El calendario paralelo, en #112 |
 | #305 | Si la revaluación se revierte, y con qué tipo de cambio se cierra | `revaluacion_cambiaria_reversion` = `revertir_al_inicio`; `sin_reversion` no se ofrece hasta tener su lector. `fuente_tipo_cambio_cierre` = `la_de_operaciones` (hoy DOF), del último día natural |
-| #312 | La descarga masiva, ¿entra al MVP? | Entra el censo; la descarga automática con e.firma, después |
+| #312 | La descarga masiva, ¿entra al MVP? | Entra el censo; la descarga automática con e.firma, después (2026-09-26). **Reemplazada** el 2026-09-28 por la fila siguiente |
+| #312 | La e.firma, ¿descarga y sella dentro del MVP? | Sí (2026-09-28, MNE-001-140): «para efectos de scope del proyecto considera que sí se va a usar [la e.firma] para descargar y firmar… revisa el proyecto y mejora lo que se pueda automatizar con esta posibilidad.» La descarga (#439, #440, #441) y el sellado del Anexo 24 bajo `sellar_con_custodia` (#442) entran; la presentación ante el SAT sigue siendo manual |
 | #294 | ¿Cuándo se parte el tablero por paquete? | Al arrancar S1, sin esperar a #283 ni a #249 (empezó con #360) |
 | #152, #314 | Formato de claves del panel y de la ayuda | `policy.<nombre inglés del registro de I4>.*` y `help.<cmd>.<sub>.*` |
 | #327 | La sintaxis de los renglones | Regla fija del kernel, no configuración: `clave=valor` con «;», `cargo`/`abono` como sinónimos permanentes y lo actual aceptado |
