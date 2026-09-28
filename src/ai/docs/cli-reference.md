@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 214 of 332 subcommands
+  spelling is `-T` at the root and `-t` on the 215 of 333 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -1089,15 +1089,13 @@ Vendor payments: record cash that already left the bank and settle the bill it
 pays
 
 Options:
-  -h, --help                         display help for command
+  -h, --help                              display help for command
 
 Commands:
-  create|crear [options] <bill>      Record a payment made against a bill and
-                                     recognize the IVA it was holding
-  apply|aplicar [options] <payment>  Apply an existing payment to specific
-                                     bills: partial, with discount, or
-                                     short-paid
-  help [command]                     display help for command
+  create|crear [options] <bill>           Record a payment made against a bill and recognize the IVA it was holding
+  apply|aplicar [options] <payment>       Apply an existing payment to specific bills: partial, with discount, or short-paid
+  unapply|desaplicar [options] <payment>  Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account
+  help [command]                          display help for command
 ```
 
 ### `mnemosine payment create` (alias: crear)
@@ -1187,6 +1185,41 @@ Examples:
   mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 9000.00 --mode partial
   # Close a bill short: what is unpaid stops being owed, so it needs a written reason.
   mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 15900.00 --mode residual --short-pay-reason "Nota de credito que el proveedor nunca emitio"
+```
+
+### `mnemosine payment unapply` (alias: desaplicar)
+
+```
+Usage: mnemosine payment unapply|desaplicar [options] <payment>
+
+Unapply a payment from a bill as a NEW dated event: the bill is owed again, the
+cash goes back on account
+
+Arguments:
+  payment                  payment number or id
+
+Options:
+  --bill <ref>             the bill to unapply from
+  --reason <text>          why: it lands in the audit trail
+  --date <date>            date of the unapply, for the closed row and its entry
+                           (YYYY-MM-DD); defaults to today
+  --json                   JSON output
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+
+Examples:
+  # A duplicated transfer landed on the wrong bill: undo it today, the bill is owed again.
+  mnemosine payment unapply VPMT-2026-00020 --bill BILL-2026-00007 --reason "Duplicate SPEI transfer"
+  # Date it inside the month still being closed, and look first.
+  mnemosine payment unapply VPMT-2026-00020 --bill BILL-2026-00007 --reason "Duplicate SPEI transfer" --date 2026-07-31 --dry-run
 ```
 
 ## `mnemosine account` (alias: cuenta)
