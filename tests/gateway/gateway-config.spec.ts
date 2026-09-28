@@ -92,6 +92,13 @@ describe('gatewayConfigProblems', () => {
     }
   });
 
+  it('refuses AUTH_OIDC_PROVIDER=cognito: it verifies aud, which a Cognito access token does not carry (#369)', () => {
+    expect(problemsFor({ ...VALID_ENV, AUTH_OIDC_PROVIDER: 'cognito' })).toEqual([
+      expect.stringMatching(/^AUTH_OIDC_PROVIDER=cognito is not supported by the web gateway/),
+    ]);
+    expect(problemsFor({ ...VALID_ENV, AUTH_OIDC_PROVIDER: 'oidc' })).toEqual([]);
+  });
+
   const matrix: Array<[string, Partial<GatewayConfig>, RegExp]> = [
     ['a web client id equal to the audience', { webClientId: 'https://api.example.com' }, /AUTH_OIDC_WEB_CLIENT_ID must differ/],
     ['an http public origin in production', { publicOrigin: 'http://localhost:8080', production: true }, /GATEWAY_PUBLIC_ORIGIN must use https/],
