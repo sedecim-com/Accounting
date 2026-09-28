@@ -2193,6 +2193,114 @@ export const E4_1: Criterio[] = [
   },
   {
     paquete: 'E4.1',
+    id: 'policy-panel-is-per-entity',
+    // T6 (#93), REMAINDER (c): THE PANEL ANSWERS FOR ONE ENTITY.
+    //
+    // The service could already scope a decision to an entity (017, A7), but
+    // no surface wrote one: `pending define` previewed with `--entity` and
+    // resolved with `{ tenantId }` alone, `dismiss` and `reopen` had no entity
+    // in their WHERE, and `concordanciaSombra` turned its own filter off when
+    // handed a NULL, so one company's shadow evidence switched on
+    // auto-posting in a sibling created yesterday.
+    //
+    // Each piece is anchored on its own: fixing the CLI while leaving the
+    // optional filter in `concordanciaSombra` leaves every other caller one
+    // missing argument away from the same leak.
+    enunciado:
+      'Answering, dismissing or reopening a policy with --entity moves only that entity, and one entity\'s shadow evidence never switches on another',
+    mutantes: [
+      {
+        archivo: 'src/cli/pending-command.ts',
+        de: 'await resolvePolicy(panelScope(ctx), key',
+        a: 'await resolvePolicy({ tenantId: ctx.tenantId }, key',
+        porque:
+          "the preview shows the entity and the write lands on the tenant: the accountant is shown one company's evidence and the gate opens on all of them",
+      },
+      {
+        archivo: 'src/cli/pending-command.ts',
+        de: 'return { tenantId: ctx.tenantId, entityId: ctx.entityId };',
+        a: 'return { tenantId: ctx.tenantId } as { tenantId: string; entityId: string };',
+        porque: 'every pending verb falls back to the tenant scope, which governs every entity',
+      },
+      {
+        archivo: 'src/ai/shadow-verdicts.ts',
+        de: 'AND v.entity_id = $2::uuid',
+        a: 'AND ($2::uuid IS NULL OR v.entity_id = $2)',
+        porque: 'the filter becomes optional again, and any caller without an entity measures the whole tenant',
+      },
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: "WHERE tenant_id = $1 AND key = $2 AND status != 'pending'\n       AND entity_id IS NOT DISTINCT FROM $3::uuid",
+        a: "WHERE tenant_id = $1 AND key = $2 AND status != 'pending'",
+        porque: 'reopen in one entity reopens the key in every entity of the tenant',
+      },
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: "WHERE tenant_id = $3 AND key = $4 AND status = 'pending'\n       AND entity_id IS NOT DISTINCT FROM $5::uuid",
+        a: "WHERE tenant_id = $3 AND key = $4 AND status = 'pending'",
+        porque: 'dismiss in one entity dismisses the key in every entity of the tenant',
+      },
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: '    if (!ctx.entityId) {\n      throw new ValidationError(\n        "Auto-posting is switched on per entity',
+        a: '    if (false) {\n      throw new ValidationError(\n        "Auto-posting is switched on per entity',
+        porque: "a tenant-wide 'on' governs every entity with no evidence that belongs to any of them",
+      },
+    ],
+    evaluar: () => {
+      const cli = 'src/cli/pending-command.ts';
+      const svc = 'src/services/policy/policy-service.ts';
+      const sv = 'src/ai/shadow-verdicts.ts';
+      const testFile = 'tests/integration/t6-panel-per-entity.int.spec.ts';
+      for (const f of [cli, svc, sv, testFile]) {
+        if (!existe(f)) return falla(`${f} is gone`);
+      }
+
+      const c = codigoDe(cli);
+      if (!/function panelScope\(ctx: AgentContext\): \{ tenantId: string; entityId: string \} \{\s*return \{ tenantId: ctx\.tenantId, entityId: ctx\.entityId \};/.test(c)) {
+        return falla('panelScope lost the entity: every pending verb falls back to the tenant scope, which governs them all');
+      }
+      for (const verb of ['resolvePolicy', 'dismissPolicy', 'reopenPolicy', 'listPending', 'listPolicies']) {
+        const calls = [...c.matchAll(new RegExp(`\\b${verb}\\(`, 'g'))];
+        if (calls.length === 0) return falla(`pending no longer calls ${verb}`);
+        const loose = calls.find((m) => !c.startsWith('panelScope(ctx)', (m.index ?? 0) + m[0].length));
+        if (loose) {
+          const arg = c.slice((loose.index ?? 0) + loose[0].length).split(/[,\n]/)[0];
+          return falla(`pending calls ${verb}(${arg}) instead of panelScope(ctx): that surface acts without the entity it resolved`);
+        }
+      }
+      if (!/previewFor\(key, \{ \.\.\.panelScope\(ctx\)/.test(c)) {
+        return falla('the `pending define` preview no longer comes from panelScope: it can show one entity and write another');
+      }
+
+      const v = codigoDe(sv);
+      if (/IS NULL OR v\.entity_id/.test(v) || !/AND v\.entity_id = \$2::uuid/.test(v)) {
+        return falla('concordanciaSombra has an OPTIONAL entity filter again: without an entity it measures the whole tenant');
+      }
+
+      const s = codigoDe(svc);
+      for (const [fn, param] of [['dismissPolicy', '$5'], ['reopenPolicy', '$3']] as const) {
+        const from = s.indexOf(`export async function ${fn}`);
+        const body = from < 0 ? '' : s.slice(from, s.indexOf('\n}\n', from));
+        if (!body.includes(`AND entity_id IS NOT DISTINCT FROM ${param}::uuid`)) {
+          return falla(`${fn} updates without the entity in its WHERE again: it touches the row of every entity in the tenant`);
+        }
+      }
+      const iGuard = s.indexOf('if (!ctx.entityId) {\n      throw new ValidationError(\n        "Auto-posting is switched on per entity');
+      const iMeasure = s.indexOf('await concordanciaSombra(');
+      if (iGuard < 0 || iMeasure < 0 || iGuard > iMeasure) {
+        return falla("a tenant-scope 'on' is measured and switched on again: one company's evidence is lent to all of them");
+      }
+
+      const t = crudoDe(testFile);
+      if (!/'--entity', entityB\], \['on'\]/.test(t) || !/no shadow history yet/.test(t)) {
+        return falla('the test no longer answers in B with the evidence in A, nor checks that the preview is B\'s');
+      }
+      return ok('pending answers, dismisses, reopens and previews with the same entity, and the shadow is measured only in it');
+    },
+  },
+  {
+    paquete: 'E4.1',
     id: 'sua-file-declares-the-month-and-only-the-month',
     // EL ÚNICO DE VÍA A QUE ESTABA ROTO POR OMISIÓN (#92).
     //
@@ -2596,5 +2704,79 @@ export const E4_1: Criterio[] = [
           'distinto por el mismo derecho en cuanto una de las dos se actualice',
       },
     ],
+  },
+  {
+    paquete: 'E4.1',
+    id: 'aguinaldo-isr-base-subtracts-the-exempt-part',
+    enunciado:
+      'The aguinaldo is taxed only above 30 UMA a year (LISR art. 93 fr. XIV): each earning stores its exempt and taxable part, and the ISR base is the taxable one',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: 'const taxableIsr = sum(isrParts.map((p) => p.taxable.toNumber())) - preTaxDeductions;',
+        a: 'const taxableIsr = sum(input.earnings.filter((e) => e.is_taxable_isr !== false).map((e) => e.amount)) - preTaxDeductions;',
+        porque:
+          'THE DEFECT OF #297: the ISR base goes back to the whole amount of every earning, so an aguinaldo of 10 000.00 is taxed on 10 000.00 instead of 6 480.70 and December is over-withheld',
+      },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: 'const p = splitAgainstCap(e.amount, room);',
+        a: 'const p = splitAgainstCap(e.amount, 0);',
+        porque:
+          'the split is still computed and stored, but against no room: the exempt part is always 0.00 and the aguinaldo is taxed whole with columns that look like an exemption was applied',
+      },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: 'AND pp.pay_date >= make_date($3, 1, 1)',
+        a: 'AND pp.pay_date >= make_date($3 - 100, 1, 1)',
+        porque:
+          'the cap stops being per calendar year: aguinaldos of earlier years consume this year\'s 30 UMA, and a worker in their second December gets no exemption at all',
+      },
+      {
+        archivo: 'src/database/migrations/094_the_aguinaldo_is_exempt_up_to_thirty_uma.sql',
+        de: "'income_tax.exempt_cap.aguinaldo_uma', '2016-01-28', '30.0000', 'UMA',",
+        a: "'income_tax.exempt_cap.aguinaldo_uma', '2016-01-28', '30.0000', 'MXN',",
+        porque:
+          'the cap is seeded as 30 PESOS: every aguinaldo is exempt by 30.00 instead of 30 UMA, a figure that looks like an exemption and is off by a factor of the UMA',
+      },
+    ],
+    evaluar: () => {
+      // #297 (MNE-001-062). `taxableIsr` treated every earning as all or
+      // nothing, so the aguinaldo was taxed whole. Three layers make the fix,
+      // and each one can be undone on its own without the others noticing.
+      const paycheck = codigoDe('src/services/payroll/common/paycheck-service.ts');
+      if (!/const taxableIsr = sum\(isrParts\.map\(\(p\) => p\.taxable\.toNumber\(\)\)\) - preTaxDeductions;/.test(paycheck)) {
+        return falla('the ISR base is no longer the sum of the taxable parts: the aguinaldo is taxed on its whole amount again (#297)');
+      }
+      if (!/isrParts\[i\]\.exempt\.toString\(\), isrParts\[i\]\.taxable\.toString\(\)/.test(paycheck)) {
+        return falla('the earning row no longer stores its exempt and taxable part: the second aguinaldo of the year cannot know what the first one exempted');
+      }
+
+      const exemption = 'src/services/payroll/mx/isr-exemption.ts';
+      if (!existe(exemption)) return falla('the ISR exemption module is gone: every earning is all or nothing again');
+      const src = codigoDe(exemption);
+      if (!/legalParameterAt\('MX', YEAR_END_BONUS_EXEMPT_CAP_KEY, mx\.payDate\)/.test(src)) {
+        return falla('the aguinaldo cap is no longer read from legal_parameters on the payment date: the law has no date again');
+      }
+      if (!/const p = splitAgainstCap\(e\.amount, room\);/.test(src)) {
+        return falla('the aguinaldo is no longer split against the room left under the cap');
+      }
+      if (!/AND pp\.pay_date >= make_date\(\$3, 1, 1\)/.test(src)) {
+        return falla('the 30 UMA stop being per calendar year: earlier years consume this year\'s exemption');
+      }
+
+      const mig = 'src/database/migrations/094_the_aguinaldo_is_exempt_up_to_thirty_uma.sql';
+      if (!existe(mig) || !/'income_tax\.exempt_cap\.aguinaldo_uma', '2016-01-28', '30\.0000', 'UMA',/.test(sinProsa(crudoDe(mig)))) {
+        return falla('migration 094 no longer seeds the cap as 30 UMA with its date: the exemption fails closed or uses another unit');
+      }
+
+      const unit = 'tests/payroll/mx/year-end-bonus-exemption.spec.ts';
+      if (!existe(unit) || !/6480\.70/.test(crudoDe(unit))) {
+        return falla('no unit test pins the acceptance figure of #297 (10 000.00 taxed on 6 480.70)');
+      }
+      return existe('tests/integration/t5a-year-end-bonus-exemption.int.spec.ts')
+        ? ok('the aguinaldo is split against 30 UMA of the payment date, per calendar year, the split is stored, and tests run it down to 6 480.70')
+        : falla('no test RUNS the exemption against a migrated database: reading the code does not prove what is withheld');
+    },
   },
 ];
