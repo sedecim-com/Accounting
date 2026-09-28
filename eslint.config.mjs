@@ -555,6 +555,85 @@ export const englishIdentifiersRule = {
   },
 };
 
+// ============================================================
+// THE COMMENT TAGS: `house/comment-tags` (#334)
+//
+// AGENTS.md allows TODO(#n):, FIXME(#n):, NOTE:, SECURITY:, CONTRACT: and
+// AGENT-NO-TOUCH:, and says a TODO without an issue does not get in. This rule
+// is that sentence enforced: a comment line that starts with TODO, FIXME, XXX
+// or HACK followed by `:` or `(` must be TODO(#n): or FIXME(#n):.
+//
+// The definition is the one in scripts/language/lanes/comment-tags.ts, written
+// again here because this file cannot import TypeScript;
+// tests/language/comment-tags.spec.ts runs both over the whole tree and fails
+// where they disagree. The quota is the same shape as the identifiers': per
+// file, from the `untagged-comment-markers` lane of docs/language-baseline.json,
+// zero without an entry, and lowered by `npm run language:status -- --tighten`.
+// ============================================================
+
+const COMMENT_MARKER = /^(TODO|FIXME|XXX|HACK)\s*[:(]/;
+const MARKER_WITH_ISSUE = /^(TODO|FIXME)\(#\d+\):/;
+
+/** Every comment line of the file that is a marker with no issue, with its line number. */
+function untaggedMarkerLines(sourceCode) {
+  const hits = [];
+  for (const comment of sourceCode.getAllComments()) {
+    comment.value.split('\n').forEach((raw, offset) => {
+      const text = raw.replace(/^[\s*]*/, '');
+      if (COMMENT_MARKER.test(text) && !MARKER_WITH_ISSUE.test(text)) {
+        hits.push({ line: comment.loc.start.line + offset, marker: text.split(/[:(]/)[0].trim() });
+      }
+    });
+  }
+  return hits;
+}
+
+/** @type {import('eslint').Rule.RuleModule} */
+export const commentTagsRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description: 'Work markers carry their issue: TODO(#n): or FIXME(#n):, per file against the baseline',
+    },
+    schema: [],
+    messages: {
+      untagged:
+        '{{marker}} with no issue: write TODO(#n): or FIXME(#n): with the issue that owns it, ' +
+        'or NOTE: if this is a reason and not pending work (AGENTS.md, comment tags).',
+      overBaseline:
+        '{{file}} has {{count}} comment markers with no issue and {{baseline}} in the baseline: ' +
+        '{{excess}} too many. List them with: npx tsx scripts/language/lanes/comment-tags.ts | grep {{file}}',
+    },
+  },
+
+  create(context) {
+    const file = housePath(context.filename);
+    return {
+      'Program:exit'() {
+        const hits = untaggedMarkerLines(context.sourceCode);
+        const baseline = BASELINE.perFile?.['untagged-comment-markers']?.[file] ?? 0;
+        if (hits.length <= baseline) return;
+        if (baseline === 0) {
+          for (const hit of hits) {
+            context.report({ loc: { line: hit.line, column: 0 }, messageId: 'untagged', data: { marker: hit.marker } });
+          }
+          return;
+        }
+        context.report({
+          loc: { line: 1, column: 0 },
+          messageId: 'overBaseline',
+          data: {
+            file,
+            count: String(hits.length),
+            baseline: String(baseline),
+            excess: String(hits.length - baseline),
+          },
+        });
+      },
+    };
+  },
+};
+
 // Zod 4 still ships the v3 API under `zod/v3`, and loading it would bring
 // back the grammar #367 pinned away: its schemas are invisible to the
 // converter, to src/utils/zod-compat.ts and to the 422 adapter.
@@ -838,7 +917,9 @@ export default tseslint.config(
     // vienen esquivando desde el principio.
     name: 'accounting-core/language',
     files: ['src/**/*.ts', 'tests/**/*.ts', 'scripts/**/*.ts'],
-    plugins: { house: { rules: { 'english-identifiers': englishIdentifiersRule } } },
-    rules: { 'house/english-identifiers': 'error' },
+    plugins: {
+      house: { rules: { 'english-identifiers': englishIdentifiersRule, 'comment-tags': commentTagsRule } },
+    },
+    rules: { 'house/english-identifiers': 'error', 'house/comment-tags': 'error' },
   },
 );

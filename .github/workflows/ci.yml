@@ -169,6 +169,10 @@ jobs:
             }
             console.log("ICU " + process.versions.icu + " completo en Node " + process.version);
           '
+      # xmllint (libxml2) checks the Anexo 24 XML against the SAT's official
+      # XSDs vendored in src/services/sat/anexo24/xsd/ (#397). The runner does
+      # not ship it, and without it those tests fail rather than skip.
+      - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: npm ci
       - run: npm test
       # Trinquete por archivo sobre el motor contable: no exige trabajo nuevo,
@@ -311,6 +315,14 @@ jobs:
       # clase y el que mide la ayuda renderizada se cita, no se recuenta.
       - run: npx tsx scripts/language-status.ts --check
 
+      # THE REPOSITORY MAP (#334). docs/REPO_MAP.md is what an agent reads
+      # before opening files (AGENTS.md), and its module lines are written by
+      # hand in scripts/repo-map.ts. Without this step nobody ran --check, so a
+      # new directory under src/services/ could land with no line and the map
+      # would omit it without a word. It also fails when a file crosses 1000
+      # lines, on purpose: that file joins the map's «read by ranges» list.
+      - run: npx tsx scripts/repo-map.ts --check
+
   # EL ENSAYO DE LA RESTAURACIÓN (S3).
   #
   # Un respaldo no probado no es un respaldo. Este job siembra, respalda,
@@ -390,6 +402,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      # xmllint: the rolled-up trial balance of #323 is checked against the
+      # official BalanzaComprobacion XSD (see the unit job).
+      - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: npm ci
       # SIETE PRUEBAS QUE NUNCA HABÍAN CORRIDO.
       #

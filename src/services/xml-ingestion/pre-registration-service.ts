@@ -1466,8 +1466,10 @@ const sumTax = (list: CFDIImpuesto[] | undefined, key: string): Decimal =>
  *   - the pre-registration is locked, entity-scoped, and still open
  *     ('ready' | 'draft' | 'error', no bill yet): a second draft of the same
  *     CFDI finds nothing to bill and fails;
- *   - the vendor must already exist (PR1a behaves as 'rechazar'; the
- *     configurable 'preguntar' path is PR1b);
+ *   - the vendor must already exist, unless `proveedor_desconocido_al_aprobar`
+ *     is 'preguntar' AND a person answered yes for this very RFC
+ *     (`newVendorTaxId`); then the inbox path's own vendor creation runs on
+ *     this client, so vendor, bill and entry commit or roll back together;
  *   - the approved entry matches the CFDI figure by figure within
  *     `cfdi_tolerancia_cuadre`, and a mismatch is refused, never absorbed;
  *   - the bill header comes from the XML; its lines follow
@@ -1483,6 +1485,12 @@ export async function registrarFacturaDeBorradorAprobado(
     approvedDescription: string;
     accountIdByCode: Map<string, string>;
     userId: string;
+    /**
+     * The issuer RFC a person agreed to register, answering yes in
+     * `mnemosine review`. Only the interactive review sets it; every
+     * unattended door leaves it out, so for them 'preguntar' is 'rechazar'.
+     */
+    newVendorTaxId?: string;
   }
 ): Promise<ApprovedDraftBill> {
   const { entityId, preRegistrationId, userId } = opts;
@@ -1514,6 +1522,13 @@ export async function registrarFacturaDeBorradorAprobado(
     throw new AccountingError(
       'POLICY_VALUE_UNKNOWN',
       `lineas_factura_desde = "${linesFrom}" is not a value this system knows (poliza | conceptos_cfdi); nothing was posted.`
+    );
+  }
+  const unknownVendor = (await getPolicy(policyCtx, 'proveedor_desconocido_al_aprobar', client)).value;
+  if (unknownVendor !== 'rechazar' && unknownVendor !== 'preguntar') {
+    throw new AccountingError(
+      'POLICY_VALUE_UNKNOWN',
+      `proveedor_desconocido_al_aprobar = "${unknownVendor}" is not a value this system knows (rechazar | preguntar); nothing was posted.`
     );
   }
   const answered = new Decimal((await getPolicy(policyCtx, 'cfdi_tolerancia_cuadre', client)).value || '0.01');
@@ -1617,11 +1632,11 @@ export async function registrarFacturaDeBorradorAprobado(
       client,
       preReg,
       userId,
-      // No vendor creation: the empty options ARE the refusal (the default is
-      // no). Not spelled as a literal `false` because criterion E0.3 counts
-      // that literal to prove the two UNATTENDED branches deny it, and a third
-      // occurrence here would let its mutant survive.
-      {},
+      // The vendor is created only when the firm chose 'preguntar' and a
+      // person said yes to THIS issuer, compared under the pre-registration
+      // lock. Never a literal `false` here: criterion E0.3 counts that literal
+      // to prove the two UNATTENDED branches deny it.
+      { permitirProveedorNuevo: unknownVendor === 'preguntar' && consentsTo(opts.newVendorTaxId, preReg) },
       {
         subtotal: preReg.x_subtotal,
         taxAmount: preReg.tax_amount,
@@ -1636,13 +1651,16 @@ export async function registrarFacturaDeBorradorAprobado(
     if ((err as { code?: string }).code !== PROVEEDOR_NUEVO_SIN_AUTORIZAR) throw err;
     const suggested = ((err as ValidationError).details?.suggested_vendor ?? {}) as Record<string, unknown>;
     const rfc = String(suggested.tax_id ?? '');
+    const name = String(suggested.company_name ?? '');
     const e = new ValidationError(
-      `CFDI ${uuid} is issued by "${String(suggested.company_name ?? '')}" (RFC ${rfc}), who is not in this ` +
+      `CFDI ${uuid} is issued by "${name}" (RFC ${rfc}), who is not in this ` +
         'entity\'s vendor catalog. Approving would create a bill against a vendor nobody registered. Register ' +
-        `it with \`mnemosine vendor create --tax-id ${rfc}\` and approve again; the draft stays pending and ` +
+        `it with \`${vendorCreateCommand(name, rfc)}\` and approve again; the draft stays pending and ` +
         'nothing was posted.',
       'vendor_id',
-      { suggested_vendor: suggested }
+      // Tells `mnemosine review` it may offer the registration: only when the
+      // firm chose 'preguntar'. The offer names the RFC the yes is bound to.
+      { suggested_vendor: suggested, register_on_approval: unknownVendor === 'preguntar' }
     );
     e.code = PROVEEDOR_NUEVO_SIN_AUTORIZAR;
     throw e;
@@ -1682,6 +1700,39 @@ export async function registrarFacturaDeBorradorAprobado(
       }
     },
   };
+}
+
+/**
+ * The command the refusal prints, runnable as printed. Name AND RFC come from
+ * a third party's XML, and a valid RFC may carry '&' (cfdi-parser's pattern),
+ * which the shell would read as «run in the background». Both go through
+ * single quotes, where the shell expands nothing; the one character left,
+ * the quote itself, becomes '\'' (same rule as completion-command.ts
+ * shellQuote).
+ */
+export function vendorCreateCommand(name: string, rfc: string): string {
+  const q = (raw: string) => `'${raw.replace(/'/g, "'\\''")}'`;
+  return `mnemosine vendor create ${q(name)} --tax-id ${q(rfc)}`;
+}
+
+/** Whether the RFC a person agreed to register is the issuer of this pre-registration. */
+function consentsTo(taxId: string | undefined, preReg: Record<string, unknown>): boolean {
+  const issuer = (preReg.suggested_vendor_data as { tax_id?: unknown } | null)?.tax_id;
+  const norm = (v: unknown) => String(v ?? '').trim().toUpperCase();
+  return taxId !== undefined && norm(taxId) !== '' && norm(taxId) === norm(issuer);
+}
+
+/**
+ * The vendor `mnemosine review` may offer to register after a refused
+ * approval: only when the refusal says the firm chose 'preguntar'. Null for
+ * any other error, and for 'rechazar'.
+ */
+export function vendorToRegister(err: unknown): { name: string; rfc: string } | null {
+  const e = err as { code?: string; details?: Record<string, unknown> } | null;
+  if (e?.code !== PROVEEDOR_NUEVO_SIN_AUTORIZAR || e.details?.register_on_approval !== true) return null;
+  const v = (e.details.suggested_vendor ?? {}) as Record<string, unknown>;
+  const rfc = typeof v.tax_id === 'string' ? v.tax_id : '';
+  return rfc ? { name: String(v.company_name ?? ''), rfc } : null;
 }
 
 /**

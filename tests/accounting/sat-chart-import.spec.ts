@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -16,6 +18,7 @@ import {
   type ExistingAccountRow,
 } from '../../src/services/accounting/sat-chart-import.js';
 import { readCtaCatalogo } from '../../src/services/sat/anexo24/catalog-reader.js';
+import { MEMORANDUM_DOCTRINE } from '../../src/services/accounting/sat-agrupador-account-type.js';
 import { query, withTransaction } from '../../src/database/connection.js';
 import { registrarAuditoria } from '../../src/services/audit/audit-log.js';
 import { ValidationError } from '../../src/utils/errors.js';
@@ -67,6 +70,7 @@ const existente = (p: Partial<ExistingAccountRow> & { code: string }): ExistingA
   account_level: p.account_level ?? 1,
   codigo_agrupador_sat: 'codigo_agrupador_sat' in p ? (p.codigo_agrupador_sat ?? null) : '100',
   code: p.code,
+  ...(p.parent_code === undefined ? {} : { parent_code: p.parent_code }),
 });
 
 describe('planSatChartImport · la jerarquía', () => {
@@ -242,6 +246,128 @@ describe('planSatChartImport · el tipo de cuenta', () => {
     expect(p.omitidas[0]).toMatchObject({ code: '800', motivo: 'cuentas_de_orden' });
     const h = p.findings.find((f) => f.regla === 'IMP-CUENTAS-DE-ORDEN');
     expect(h?.mensaje).toContain('sumaría al balance dinero que no existe');
+  });
+
+  // MNE-001-019 · #219: the owner decided (2026-09-26) that memorandum accounts
+  // do not migrate. Leaving them out is the doctrine, not a defect of the file.
+  it('the memorandum warning cites the written doctrine, and the file exists', () => {
+    const p = plan([{ numCta: '800', codAgrup: '801', natur: 'D', desc: 'UFIN' }]);
+    const h = p.findings.find((f) => f.regla === 'IMP-CUENTAS-DE-ORDEN');
+    expect(h?.severidad).toBe('aviso');
+    expect(h?.mensaje).toContain(MEMORANDUM_DOCTRINE);
+    expect(existsSync(resolve(__dirname, '../..', MEMORANDUM_DOCTRINE))).toBe(true);
+  });
+
+  // WIT-02 (PR #415): a memorandum account that ALREADY lives in the entity
+  // used to skip classification, and its new subaccounts were created under it.
+  describe('a memorandum account that already exists in the entity', () => {
+    const existingM = () =>
+      existente({ code: 'M', account_type: 'asset', normal_balance: 'debit', codigo_agrupador_sat: '801' });
+
+    it('does not lend a type to a new child: the child is left out by doctrine', () => {
+      const p = plan([{ numCta: 'C', codAgrup: '', subCtaDe: 'M', nivel: 2 }], [existingM()]);
+      expect(p.aCrear).toEqual([]);
+      expect(p.omitidas).toEqual([
+        expect.objectContaining({ code: 'C', motivo: 'cuentas_de_orden' }),
+      ]);
+      expect(p.completa).toBe(true);
+      const h = p.findings.find((f) => f.regla === 'IMP-CUENTAS-DE-ORDEN' && f.numCta === 'C');
+      expect(h?.mensaje).toContain('ya existe en la entidad');
+      expect(h?.mensaje).toContain(MEMORANDUM_DOCTRINE);
+    });
+
+    it('is not touched and the conflict is declared when the file lists it too; a rerun plans the same', () => {
+      const rows = [
+        { numCta: 'M', codAgrup: '801', desc: 'Cuenta M' },
+        { numCta: 'C', codAgrup: '', subCtaDe: 'M', nivel: 2 },
+      ];
+      const first = plan(rows, [existingM()]);
+      expect(first.aCrear).toEqual([]);
+      expect(first.yaExistian.map((y) => y.code)).toEqual(['M']);
+      expect(first.omitidas.map((o) => [o.code, o.motivo])).toEqual([['C', 'cuentas_de_orden']]);
+      const conflict = first.findings.find((f) => f.regla === 'IMP-ORDEN-YA-EN-EL-MAYOR');
+      expect(conflict).toMatchObject({ severidad: 'aviso', numCta: 'M' });
+      expect(conflict?.mensaje).toContain('NO se toca');
+      expect(plan(rows, [existingM()])).toEqual(first);
+    });
+
+    it('the file saying 8xx is enough even when the existing row carries no agrupador', () => {
+      const p = plan(
+        [
+          { numCta: 'M', codAgrup: '801' },
+          { numCta: 'C', codAgrup: '', subCtaDe: 'M', nivel: 2 },
+        ],
+        [existente({ code: 'M', codigo_agrupador_sat: null })]
+      );
+      expect(p.aCrear).toEqual([]);
+      expect(p.omitidas.map((o) => o.code)).toEqual(['C']);
+    });
+
+    // WIT-03 (PR #415): the classification has to travel THROUGH an existing
+    // account that hangs from a memorandum one, whatever the row order.
+    describe('propagates through existing descendants, in any row order', () => {
+      const chain = [
+        { numCta: 'M', codAgrup: '801', nivel: 1 },
+        { numCta: 'C', codAgrup: '', subCtaDe: 'M', nivel: 2 },
+        { numCta: 'G', codAgrup: '', subCtaDe: 'C', nivel: 3 },
+      ];
+      const existing = () => [existingM(), existente({ code: 'C', codigo_agrupador_sat: null })];
+
+      for (const [label, rows] of [
+        ['M, C, G', chain],
+        ['G, C, M', [...chain].reverse()],
+        ['C, G, M', [chain[1], chain[2], chain[0]]],
+      ] as const) {
+        it(`${label}: the new grandchild is left out and the existing accounts stay as they are`, () => {
+          const before = existing();
+          const p = plan([...rows], before);
+          expect(p.aCrear).toEqual([]);
+          expect(p.omitidas).toEqual([expect.objectContaining({ code: 'G', motivo: 'cuentas_de_orden' })]);
+          expect(p.completa).toBe(true);
+          expect(p.yaExistian.map((y) => y.code).sort()).toEqual(['C', 'M']);
+          const conflicts = p.findings.filter((f) => f.regla === 'IMP-ORDEN-YA-EN-EL-MAYOR').map((f) => f.numCta);
+          expect(conflicts.sort()).toEqual(['C', 'M']);
+          expect(before).toEqual(existing());
+        });
+      }
+
+      it('walks the entity own tree when the file names only the grandchild', () => {
+        const p = plan(
+          [{ numCta: 'G', codAgrup: '', subCtaDe: 'C', nivel: 3 }],
+          [existingM(), existente({ code: 'C', codigo_agrupador_sat: null, parent_code: 'M' })]
+        );
+        expect(p.aCrear).toEqual([]);
+        expect(p.omitidas.map((o) => [o.code, o.motivo])).toEqual([['G', 'cuentas_de_orden']]);
+      });
+
+      it('an ordinary existing subtree still lends its type to a new grandchild', () => {
+        const p = plan(
+          [{ numCta: 'G', codAgrup: '', subCtaDe: 'C', nivel: 3 }],
+          [
+            existente({ code: 'P', codigo_agrupador_sat: '101' }),
+            existente({ code: 'C', codigo_agrupador_sat: null, parent_code: 'P' }),
+          ]
+        );
+        expect(p.aCrear.map((c) => [c.code, c.accountType])).toEqual([['G', 'asset']]);
+        expect(p.omitidas).toEqual([]);
+      });
+    });
+  });
+
+  it('a chart whose only omissions are memorandum accounts is complete: they stay out by doctrine', () => {
+    const p = plan([
+      { numCta: '100', codAgrup: '101', natur: 'D' },
+      { numCta: '800', codAgrup: '801', natur: 'D', desc: 'UFIN' },
+      { numCta: '800-01', codAgrup: '', subCtaDe: '800', nivel: 2, natur: 'D' },
+    ]);
+    expect(p.aCrear.map((c) => c.code)).toEqual(['100']);
+    expect(p.omitidas.map((o) => [o.code, o.motivo])).toEqual([
+      ['800', 'cuentas_de_orden'],
+      ['800-01', 'cuentas_de_orden'],
+    ]);
+    expect(p.completa).toBe(true);
+    const sub = p.findings.filter((f) => f.regla === 'IMP-CUENTAS-DE-ORDEN').map((f) => f.numCta);
+    expect(sub).toEqual(['800', '800-01']);
   });
 
   it('un padre existente con un tipo que este módulo no traduce no presta tipo a nadie', () => {
@@ -438,7 +564,7 @@ describe('importSatChart · la frontera de entidad y de inquilino', () => {
     );
     const sql = String(mockQuery.mock.calls[1][0]);
     expect(sql).toContain('FROM accounts');
-    expect(sql).toContain('WHERE entity_id = $1');
+    expect(sql).toContain('WHERE a.entity_id = $1');
     expect(mockQuery.mock.calls[1][1]).toEqual(['e1']);
   });
 });
@@ -528,6 +654,58 @@ describe('importSatChart · escribir, o no escribir', () => {
     const h = r.findings.find((f) => f.regla === 'IMP-INCOMPLETO');
     expect(h?.severidad).toBe('bloquea');
     expect(h?.mensaje).toContain('AL PESO');
+  });
+
+  it('a memorandum account does not block the import: the rest of the chart is written', async () => {
+    conBase([]);
+    const { inserciones } = conTransaccion();
+    const r = await importSatChart(
+      { tenantId: 't1' },
+      {
+        entityId: 'e1',
+        userId: 'u1',
+        xml: archivo([
+          { numCta: '100', codAgrup: '101' },
+          { numCta: '800', codAgrup: '801', desc: 'UFIN' },
+        ]),
+      }
+    );
+    expect(r.escrito).toBe(true);
+    expect(r.creadas).toEqual(['100']);
+    expect(r.findings.find((f) => f.regla === 'IMP-INCOMPLETO')).toBeUndefined();
+    expect(inserciones).toHaveLength(1);
+  });
+
+  it("reads each existing account's parent, scoped to the entity, so the memorandum walk can climb it", async () => {
+    conBase([]);
+    conTransaccion();
+    await importSatChart(
+      { tenantId: 't1' },
+      { entityId: 'e1', userId: 'u1', dryRun: true, xml: archivo([{ numCta: '100', codAgrup: '101' }]) }
+    );
+    const sql = (mockQuery.mock.calls as [string][]).map(([s]) => s).find((s) => s.includes('FROM accounts'));
+    expect(sql).toContain('AS parent_code');
+    expect(sql).toMatch(/p\.entity_id = a\.entity_id/);
+  });
+
+  it('when something else blocks, the refusal counts only the rows that are a defect', async () => {
+    conBase([]);
+    conTransaccion();
+    const r = await importSatChart(
+      { tenantId: 't1' },
+      {
+        entityId: 'e1',
+        userId: 'u1',
+        xml: archivo([
+          { numCta: '100', codAgrup: '101' },
+          { numCta: '800', codAgrup: '801' },
+          { numCta: 'Z', codAgrup: '' },
+        ]),
+      }
+    );
+    const h = r.findings.find((f) => f.regla === 'IMP-INCOMPLETO');
+    expect(h?.mensaje).toContain('1 de 3 cuentas');
+    expect(h?.mensaje).toContain('(sin_tipo_deducible)');
   });
 
   it('con --parcial escribe lo que puede, a sabiendas', async () => {

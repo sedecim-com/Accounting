@@ -6,6 +6,7 @@ import {
   type AccountShape,
 } from '../../src/services/accounting/opening-balance-check.js';
 import type { BalanceFileRow } from '../../src/services/sat/anexo24/balance-reader.js';
+import { MEMORANDUM_DOCTRINE } from '../../src/services/accounting/sat-agrupador-account-type.js';
 
 // ============================================================
 // O1 · EL COTEJO AL PESO
@@ -221,6 +222,98 @@ describe('compareToSource · iguales al peso', () => {
     const c = compareToSource([fila('1110', '1.00')], [fila('1110', '1.00'), fila('ZZZ', '9.00')], [
       forma('1110', null),
     ]);
+    expect(c.iguales).toBe(true);
+  });
+});
+
+// MNE-001-019 · #219: memorandum accounts (8xx) do not migrate (owner, 2026-09-26),
+// so the source declares them and our chart never has them. The check leaves
+// them out of the footing BY NAME instead of calling them a missing account.
+describe('compareToSource · memorandum accounts are excluded from the footing', () => {
+  const shapes = [forma('1110', null), forma('3100', null, 'A')];
+  const source = () => [
+    fila('1110', '1000.00'),
+    fila('3100', '1000.00'),
+    fila('800', '250000.00'),
+    fila('810', '250000.00'),
+  ];
+  const ours = () => [fila('1110', '1000.00'), fila('3100', '1000.00')];
+
+  it('comes out equal to the penny and names each excluded account with the source figure', () => {
+    const c = compareToSource(source(), ours(), shapes, 'SaldoFin', new Set(['800', '810']));
+    expect(c.iguales).toBe(true);
+    expect(c.faltantes).toEqual([]);
+    expect(c.comparadas).toBe(2);
+    expect(c.excluded).toEqual([
+      { code: '800', amount: '250000.0000' },
+      { code: '810', amount: '250000.0000' },
+    ]);
+    const text = renderBalanceComparison(c);
+    expect(text).toContain('IGUALES AL PESO');
+    expect(text).toContain('800: cuenta de orden, fuera del cuadre');
+    expect(text).toContain(MEMORANDUM_DOCTRINE);
+  });
+
+  it('without the memorandum set the same source is a missing account, as before', () => {
+    const c = compareToSource(source(), ours(), shapes, 'SaldoFin');
+    expect(c.iguales).toBe(false);
+    expect(c.faltantes).toEqual(['800', '810']);
+    expect(c.excluded).toEqual([]);
+  });
+
+  it('an exclusion never hides a real difference elsewhere, and is named in the failing report too', () => {
+    const c = compareToSource(
+      source(),
+      [fila('1110', '999.00'), fila('3100', '1000.00')],
+      shapes,
+      'SaldoFin',
+      new Set(['800', '810'])
+    );
+    expect(c.iguales).toBe(false);
+    expect(c.diferencias.map((d) => d.numCta)).toEqual(['1110']);
+    expect(renderBalanceComparison(c)).toContain('810: cuenta de orden, fuera del cuadre');
+  });
+
+  it('money OUR ledger carries on an excluded code is a surplus: the source keeps it off the balance', () => {
+    const c = compareToSource(
+      source(),
+      [...ours(), fila('800', '5.00')],
+      [...shapes, forma('800', null)],
+      'SaldoFin',
+      new Set(['800', '810'])
+    );
+    expect(c.sobrantes).toEqual([{ numCta: '800', importe: '5.0000' }]);
+    expect(c.iguales).toBe(false);
+  });
+
+  // WIT-01 (PR #415): an ancestor the source declares used to swallow it.
+  it('money of ours on an excluded code surfaces even when a declared ancestor covers it', () => {
+    const tree = [forma('P', null), forma('M', 'P')];
+    const c = compareToSource(
+      [fila('P', '100.00'), fila('M', '5.00')],
+      [fila('P', '100.00'), fila('M', '5.00')],
+      tree,
+      'SaldoFin',
+      new Set(['M'])
+    );
+    expect(c.iguales).toBe(false);
+    expect(c.sobrantes).toEqual([{ numCta: 'M', importe: '5.0000' }]);
+    expect(c.excluded).toEqual([{ code: 'M', amount: '5.0000' }]);
+    expect(renderBalanceComparison(c)).toContain(
+      'M: aquí lleva 5.0000 en una cuenta de orden, que no se migra'
+    );
+  });
+
+  it('a non-excluded subaccount under a declared ancestor is still covered by it, as before', () => {
+    const tree = [forma('P', null), forma('C', 'P')];
+    const c = compareToSource(
+      [fila('P', '100.00')],
+      [fila('P', '100.00'), fila('C', '5.00')],
+      tree,
+      'SaldoFin',
+      new Set(['M'])
+    );
+    expect(c.sobrantes).toEqual([]);
     expect(c.iguales).toBe(true);
   });
 });
