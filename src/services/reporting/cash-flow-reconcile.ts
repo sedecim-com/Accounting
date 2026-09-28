@@ -39,12 +39,17 @@ import { LEDGER_SCALE } from './report-service.js';
 /**
  * Los roles de `account_roles` que significan «esto es efectivo».
  *
- * Hoy la taxonomía sólo tiene `banco`, que el catálogo base apunta a 1110
- * «Caja y Bancos». Se declara como lista y no como constante suelta porque
- * el día que la taxonomía separe caja de bancos —o añada inversiones
- * temporales— el conjunto crece aquí y en ningún otro sitio.
+ * Se declara como lista y no como constante suelta porque el conjunto crece
+ * aquí y en ningún otro sitio.
+ *
+ * BAN-1 (#324): cash is anchored on `efectivo`, a role that does not post and
+ * that the seed points at 1110 «Caja y Bancos», the parent of every bank
+ * account. `banco` stays in the list because it is where money actually
+ * lands: once it moves to its leaf (1111) it is still cash, and a qualified
+ * `banco` variant outside the 1110 tree still has to count. It also keeps an
+ * entity seeded before `efectivo` existed reading exactly what it read before.
  */
-export const ROLES_DE_EFECTIVO = ['banco'] as const;
+export const ROLES_DE_EFECTIVO = ['efectivo', 'banco'] as const;
 
 /**
  * Subtipos que se aceptan como efectivo cuando la política pide `subtipo`.
@@ -272,7 +277,7 @@ async function politicaDe(
  *    aquí se pregunta «¿cuánto efectivo hay?», y un despacho que mapeó una
  *    variante por banco tiene su dinero repartido entre ellas.
  *
- * 2. Se incluyen los DESCENDIENTES de la cuenta del rol. `banco` apunta a
+ * 2. Se incluyen los DESCENDIENTES de la cuenta del rol. `efectivo` apunta a
  *    1110 «Caja y Bancos», que es la cuenta de control; el dinero se
  *    postea en 1111, 1112 y 1115, que cuelgan de ella (y a las que apunta
  *    `bank_accounts.gl_account_id`). Tomar sólo la cuenta del rol daría
@@ -318,7 +323,7 @@ export async function cuentasDeEfectivo(
 
   // EL EFECTIVO ENTRA AL MAYOR POR DOS PUERTAS, y hay que abrir las dos.
   //
-  // Una es el rol `banco`. La otra es `bank_accounts.gl_account_id`, que es
+  // Una son los roles de ROLES_DE_EFECTIVO (`efectivo` y `banco`). La otra es `bank_accounts.gl_account_id`, que es
   // donde `ar-ap-posting` deposita cuando la cuenta bancaria tiene su cuenta
   // de mayor atada. Y `gl_account_id` lo fija el usuario con `bank account
   // set`: NADA obliga a que cuelgue del árbol del rol. Con una sola puerta,
@@ -412,7 +417,7 @@ export async function movimientoRealDeEfectivo(
     throw new ValidationError(
       `Ninguna cuenta de esta entidad califica como efectivo con el criterio «${criterio}». ` +
         (criterio === 'rol'
-          ? `Apunta el rol con \`mnemosine account role set banco <cuenta>\` o siembra la capa ` +
+          ? `Apunta el rol con \`mnemosine account role set efectivo <cuenta>\` o siembra la capa ` +
             `semántica con \`mnemosine init --section identity\`.`
           : `Marca las cuentas de efectivo con account_subtype en (${SUBTIPOS_DE_EFECTIVO.join(', ')}).`)
     );
