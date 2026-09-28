@@ -48,7 +48,18 @@ describe("A4 · encender ingest_auto_post='on' exige la evidencia de sombra", ()
       dias_con_veredictos: FLOOR_SOMBRA_DIAS,
     });
     await resolvePolicy(CTX, 'ingest_auto_post', 'on', 'victor@test');
-    expect(mockQuery).toHaveBeenCalledTimes(1);
+    // Two writes: the entity's own row (copied from the tenant's the first
+    // time, T6 · #93), then the UPDATE on it.
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(concordanciaMock).toHaveBeenCalledWith({ tenantId: 't1', entityId: 'e1' });
+  });
+
+  it("a tenant-wide 'on' is refused before measuring: the evidence belongs to one entity", async () => {
+    await expect(
+      resolvePolicy({ tenantId: 't1' }, 'ingest_auto_post', 'on', 'victor@test')
+    ).rejects.toThrow(/per entity/);
+    expect(concordanciaMock).not.toHaveBeenCalled();
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 
   it('acuerdo por debajo del piso rechaza aunque los días y el volumen sobren', async () => {
