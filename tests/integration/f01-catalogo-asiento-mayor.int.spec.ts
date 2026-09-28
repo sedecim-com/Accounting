@@ -262,7 +262,8 @@ describe('el mayor se verifica', () => {
       ],
       f.userId, { autoPost: true }
     );
-    const cuenta = await resolveAccount(f.entityId, '1110');
+    // `banco` posts to its leaf 1111 (BAN-1, #324), so that is where the row is.
+    const cuenta = await resolveAccount(f.entityId, '1111');
     const filas = await getAccountBalanceByPeriod(f.entityId, cuenta.id, {});
     expect(filas.length).toBeGreaterThan(0);
     expect(filas[0].debit_total).toBe('12.0000');
