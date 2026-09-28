@@ -27,10 +27,10 @@ El contador del despacho, que opera el CLI, y el dueño o auditor del despacho, 
 | RF-05 | Nómina básica | Must | Dada una quincena, cuando se corre desde la terminal, entonces salen ISR con subsidio, IMSS, INFONAVIT, ISN, el asiento y el SUA. |
 | RF-06 | Cierre | Must | Dado el mes, cuando se cierra, entonces corren devengos y depreciación, el checklist bloquea lo pendiente, y `closing run` produce el expediente; al cierre del ejercicio, el periodo 13. |
 | RF-07 | Estados financieros | Must | Dado el mes cerrado, cuando se piden, entonces salen balanza, estado de resultados, balance y flujo de efectivo, cuadrados entre sí. |
-| RF-08 | Obligaciones del mes | Must | Dado el mes cerrado, cuando se generan, entonces salen el catálogo y la balanza XML del Anexo 24, la DIOT en un archivo que el SAT recibe, y el papel de trabajo de IVA definitivo e ISR provisional. |
+| RF-08 | Obligaciones del mes | Must | Dado el mes cerrado, cuando se generan, entonces salen el catálogo y la balanza XML del Anexo 24, la DIOT en un archivo que el SAT recibe, y el papel de trabajo de IVA definitivo e ISR provisional. Si el despacho declara `sellar_con_custodia`, el catálogo y la balanza salen sellados con la e.firma; la presentación sigue siendo manual, en el portal (#442). |
 | RF-09 | Operación segura | Must | Dado un despacho con varios inquilinos y entidades, cuando opera, entonces ninguno ve datos de otro, y un respaldo se restaura y pasa los chequeos del mayor. |
 | RF-10 | El mes de punta a punta | Must | Dado el mes sintético, cuando corre el criterio ▶ de #311, entonces los nueve pasos anteriores pasan por el CLI, y cada cifra coincide al centavo con una cifra escrita a mano. |
-| RF-11 | Completitud de CFDI | Must | Dado el censo del SAT del periodo (el ZIP o los metadatos que baja el despacho), cuando se concilia, entonces el despacho sabe el estado de cada CFDI del censo: falta traerlo, falta contabilizarlo o cuadra. La descarga automática con e.firma queda después del MVP (#312). |
+| RF-11 | Completitud de CFDI | Must | Dado el censo del SAT del periodo (el ZIP o los metadatos que baja el despacho), cuando se concilia, entonces el despacho sabe el estado de cada CFDI del censo: falta traerlo, falta contabilizarlo o cuadra. Además, con la e.firma de la bóveda, el sistema descarga del SAT los XML y los metadatos del periodo y detecta las cancelaciones; esos paquetes alimentan el mismo censo (decisión del dueño del 2026-09-28, #312; #439, #440, #441). |
 | RF-12 | La superficie en español | Should | Dado un contador en `es-MX`, cuando lee el panel de políticas o la ayuda del CLI, entonces la lee en su idioma y por clave. |
 | RF-13 | Puesta en marcha sin fricción | Should | Dado un despacho nuevo, cuando se da de alta con sus usuarios sin TTY y sigue los manuales, entonces opera el mes sin ayuda del equipo. |
 
@@ -51,7 +51,7 @@ El contador del despacho, que opera el CLI, y el dueño o auditor del despacho, 
 - Estados Unidos más allá de lo que ya existe;
 - la interfaz gráfica y los canales de mensajería;
 - el renombrado del código al inglés, salvo RF-12;
-- la descarga automática del SAT con e.firma (el censo sí entra, RF-11).
+- presentar ante el SAT la contabilidad electrónica, la DIOT o las declaraciones: se hace en el portal, porque el SAT no ofrece un servicio web público para eso. Descargar con la e.firma y sellar el Anexo 24 sí entran desde el 2026-09-28 (RF-08, RF-11, #312).
 
 ## 7. Reutilización y dependencias de plataforma
 

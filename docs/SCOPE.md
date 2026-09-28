@@ -65,13 +65,13 @@ Un resumen de alto nivel, agrupado por área del oficio (catálogo y asiento, ba
 **Un despacho lleva, desde el CLI y con cifras correctas, el ciclo mensual completo de un cliente PyME mexicano:**
 
 - el alta y la migración desde su sistema anterior;
-- los CFDI hasta el mayor, con el agente proponiendo y una persona aprobando, o sin agente;
+- los CFDI hasta el mayor, con el agente proponiendo y una persona aprobando, o sin agente; con la e.firma del cliente, el sistema los descarga del SAT y sabe cuáles faltan y cuáles se cancelaron;
 - CxC y CxP;
 - banco y conciliación;
 - la nómina básica;
 - el cierre;
 - los estados financieros;
-- el Anexo 24, la DIOT y el papel de trabajo de IVA e ISR;
+- el Anexo 24, sellado con la e.firma si el despacho lo declara, la DIOT y el papel de trabajo de IVA e ISR;
 - con aislamiento y respaldo probados.
 
 Su prueba de aceptación es un criterio ▶ que recorre ese mes entero ([#311](https://github.com/sedecim-com/Accounting/issues/311)).
@@ -84,7 +84,10 @@ Queda fuera del MVP, con sus issues en la etiqueta `post-mvp`:
 - Estados Unidos más allá de lo que ya existe;
 - la interfaz gráfica;
 - los canales de mensajería;
-- el renombrado del código al inglés.
+- el renombrado del código al inglés;
+- presentar ante el SAT: la contabilidad electrónica, la DIOT y las declaraciones se suben en el portal, igual que el buzón tributario, la opinión de cumplimiento y la constancia se consultan ahí. El SAT no ofrece un servicio web público para eso, y este sistema no raspa el portal.
+
+La e.firma **sí** se usa dentro del MVP para descargar del SAT y para sellar el Anexo 24, por decisión del dueño del 2026-09-28 (#312, MNE-001-140), que reemplazó la del 2026-09-26.
 
 ## No-goals (declarados, no accidentales)
 
@@ -101,8 +104,9 @@ Queda fuera del MVP, con sus issues en la etiqueta `post-mvp`:
 | Expone | CLI `mnemosine`, su superficie medida por `catalogo:estado` y `ux-status` | El contador | Alta: es el producto |
 | Expone | API REST `/v1`, generada y verificada en `docs/openapi.json` | El tablero (PR #249) y las integraciones del despacho | Media |
 | Expone | Cifras públicas `/public/v1` | Terceros verificadores | Baja: apagada por omisión |
-| Produce | XML del Anexo 24 (catálogo, balanza y pólizas), DIOT, SUA y CFDI de nómina | SAT e IMSS, por medio del contribuyente, que presenta | Alta: un formato mal hecho se descubre al ser rechazado |
+| Produce | XML del Anexo 24 (catálogo, balanza y pólizas; sellado con la e.firma bajo `sellar_con_custodia`, #442), DIOT, SUA y CFDI de nómina | SAT e IMSS, por medio del contribuyente, que presenta | Alta: un formato mal hecho se descubre al ser rechazado |
 | Consume | CFDI 4.0 (XML) y estados de cuenta (CSV, MT940, camt053) | El SAT y los bancos, a través del cliente | Alta |
+| Consume | Servicio web de descarga masiva del SAT, autenticado con la e.firma de la bóveda (#439, #440, #441) | El SAT | Alta: sin él no hay completitud automática; el censo por ZIP del portal es el respaldo |
 | Consume | Proveedores de modelo (Anthropic y compatibles con OpenAI) | Terceros | Media: hay camino manual sin modelo (#319) |
 | Consume | PAC de timbrado (adaptadores precargados, sin hoja) | Terceros con contrato | Fuera del MVP |
 | Lee y escribe | Contalink: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Sistema contable externo | Media: `accounting-manager` escribe las comisiones de Grupo Promessa en su compañía; este repo no escribe en una compañía que ya tiene escritor (ADR-0004, #357) |
