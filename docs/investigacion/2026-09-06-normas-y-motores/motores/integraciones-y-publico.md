@@ -72,7 +72,7 @@ motor ausente (§1.16).
 | 5 | Adaptadores PAC simulados (Finkok, SW Sapien, Edicom) | `src/services/integrations/mexico/pac/*-adapter.ts` | inerte | MX |
 | 6 | Adaptador Sovos Reachcore (real) | `src/services/integrations/mexico/pac/sovos-reachcore-adapter.ts` | parcial | MX |
 | 7 | Pasarelas Stripe y Conekta | `src/services/integrations/payments/*.ts` | inerte | US / MX |
-| 8 | Almacenamiento S3/R2 | `src/services/integrations/storage/s3-adapter.ts` | inerte | ninguna |
+| 8 | Almacenamiento S3/R2 | `s3-adapter.ts` (retirado en #370) | inerte | ninguna |
 | 9 | Conector Contalink | `src/services/integrations/accounting/contalink-adapter.ts` | completo | MX |
 | 10 | Hash canónico y atestación de asiento | `src/services/blockchain/orchestrator.ts` (`attestJournalEntry`) | parcial | ninguna |
 | 11 | Sello de periodo (Merkle) | `src/services/blockchain/orchestrator.ts` (`commitPeriod`) | parcial | ninguna |
