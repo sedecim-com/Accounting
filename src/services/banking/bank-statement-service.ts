@@ -10,6 +10,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../../utils/error
 import { decrypt } from '../../utils/encryption.js';
 import { STATEMENT_SOURCE_FORMATS } from '../../database/enums.js';
 import type { ExtractoLeido } from './parsers/tipos.js';
+import { classifyBankLine } from './transaction-classifier.js';
 import {
   huellaDeCuenta,
   runStatementChecks,
@@ -337,10 +338,18 @@ export function referenciasPromovibles(lineas: { referencia?: string }[]): Set<s
   return unicas;
 }
 
-/** El tipo del CHECK de 003, respetando el del banco sólo si coincide con uno. */
-export function tipoDeMovimiento(importe: Decimal, tipoDeclarado?: string): string {
+/**
+ * El tipo del CHECK de 003, respetando el del banco sólo si coincide con uno.
+ *
+ * Before falling back to the sign, the bank code and the description get a
+ * chance to name a fee or an interest line (`classifyBankLine`, #95): without
+ * that, no native format could ever feed `bank fee post` or `bank interest post`.
+ */
+export function tipoDeMovimiento(importe: Decimal, tipoDeclarado?: string, description?: string): string {
   const t = tipoDeclarado?.trim().toLowerCase();
   if (t && (TIPOS_MOVIMIENTO as readonly string[]).includes(t)) return t;
+  const kind = classifyBankLine(importe, tipoDeclarado, description);
+  if (kind) return kind;
   if (importe.isZero()) return 'adjustment';
   return importe.isNegative() ? 'debit' : 'credit';
 }
@@ -711,7 +720,7 @@ async function insertarLineas(
         assertFecha(l.fecha, `línea ${desde + i + 1}`),
         l.fechaValor ? assertFecha(l.fechaValor, `fecha valor de la línea ${desde + i + 1}`) : null,
         importe.toFixed(4),
-        tipoDeMovimiento(importe, l.tipo),
+        tipoDeMovimiento(importe, l.tipo, l.descripcion),
         l.descripcion ?? '',
         // Envoltura y no volcado plano: `crudo` es la fila del banco tal cual y
         // tiene que poder releerse sin adivinar qué claves puso el importador.
