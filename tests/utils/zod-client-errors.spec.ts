@@ -260,22 +260,14 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
   // parse of it is the floor. The issue-list step once built a trie node and
   // a tuple per issue: about half the parse again, and with the rest of the
   // adapter a 3 GB heap ran out where zod 3 did not (#367). Ratios to zod's
-  // own parse, the fastest of three runs each, hold on a slow machine too.
+  // own parse, the fastest of seven runs each taken in turns, hold on a slow
+  // machine too.
   // Six parses of this body take longer than vitest's 5 s default on a CI
   // runner, and the ratio, not the wall clock, is what is judged here.
   const TIMEOUT_MS = 120_000;
   const N = 250_000;
   const schema = z.object({ xml_contents: z.array(z.string()).max(100) });
   const body: unknown = JSON.parse(`{"xml_contents":[${Array<string>(N).fill('1').join(',')}]}`);
-  const fastest = (run: () => void): number => {
-    let best = Infinity;
-    for (let i = 0; i < 3; i++) {
-      const started = performance.now();
-      run();
-      best = Math.min(best, performance.now() - started);
-    }
-    return best;
-  };
   // The fastest of seven runs of each, taken in turns, so a collection of
   // this body's garbage lands on both sides of the ratio alike. One run at a
   // time put it anywhere between 0.8 and 1.9 on the same machine, and 1.87
@@ -295,12 +287,17 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
   };
 
   it('restores the zod 3 issue list for a quarter of the parse at most', () => {
+    // In turns, like the test below. The fastest of three runs of each side,
+    // taken apart, let a garbage collection land on one side only: a CI
+    // runner measured 0.276 on a step that measures well under 0.25 in turns.
     let issues: z.core.$ZodIssue[] = [];
-    const floor = fastest(() => {
-      const parsed = schema.safeParse(body, { error: legacyIssueMessage, reportInput: true });
-      if (!parsed.success) issues = parsed.error.issues;
-    });
-    const normalize = fastest(() => void normalizeLegacyIssues(issues));
+    const [floor, normalize] = fastestInTurns(
+      () => {
+        const parsed = schema.safeParse(body, { error: legacyIssueMessage, reportInput: true });
+        if (!parsed.success) issues = parsed.error.issues;
+      },
+      () => void normalizeLegacyIssues(issues),
+    );
     expect(issues).toHaveLength(N + 1);
     expect(normalize / floor).toBeLessThan(0.25);
   }, TIMEOUT_MS);

@@ -92,10 +92,10 @@ async function inicialDe(cuentaId: string, periodoId: string): Promise<string> {
 
 /** El ejercicio del reconocimiento: utilidad de 3 000, con las dos contra-naturales. */
 async function poblarEjercicio(f: Fixture) {
-  await asiento(f, 12, 'Ventas', f.cuentas['1120'], f.cuentas['4100'], '10000.0000');
-  await asiento(f, 12, 'Devolución sobre ventas', f.cuentas['4400'], f.cuentas['1120'], '2000.0000');
-  await asiento(f, 12, 'Costo de ventas', f.cuentas['5100'], f.cuentas['1120'], '6000.0000');
-  await asiento(f, 12, 'Devolución sobre compras', f.cuentas['1120'], f.cuentas['5200'], '1000.0000');
+  await asiento(f, 12, 'Ventas', f.cuentas['1111'], f.cuentas['4100'], '10000.0000');
+  await asiento(f, 12, 'Devolución sobre ventas', f.cuentas['4400'], f.cuentas['1111'], '2000.0000');
+  await asiento(f, 12, 'Costo de ventas', f.cuentas['5100'], f.cuentas['1111'], '6000.0000');
+  await asiento(f, 12, 'Devolución sobre compras', f.cuentas['1111'], f.cuentas['5200'], '1000.0000');
 }
 
 async function cerrarEjercicio(f: Fixture, motivo?: string) {
@@ -146,7 +146,7 @@ describe('el estado de resultados de un ejercicio que se reabrió y se recerró'
     // bajar el ingreso.
     const f = await crearInquilino('Ataque reversa normal');
     enterTenant(f.tenantId);
-    const venta = await asiento(f, 6, 'Venta', f.cuentas['1120'], f.cuentas['4100'], '1000.0000');
+    const venta = await asiento(f, 6, 'Venta', f.cuentas['1111'], f.cuentas['4100'], '1000.0000');
 
     const { reverseJournalEntry } = await import('../../src/services/accounting/posting.js');
     await reverseJournalEntry(venta.id, f.userId, {
@@ -178,20 +178,21 @@ describe('rehacer el arrastre cuando la corrección deja la cuenta en CERO', () 
     const f = await crearInquilino('Ataque arrastre a cero');
     enterTenant(f.tenantId);
 
-    // Junio: una cuenta por cobrar de 3 000 contra una cuenta por pagar.
-    await asiento(f, 6, 'Alta de cuenta por cobrar', f.cuentas['1120'], f.cuentas['2110'], '3000.0000');
+    // June: an asset of 3 000 against a liability. Not 1120 or 2110: those are
+    // control accounts, and a hand entry on them breaks their subledger (#98).
+    await asiento(f, 6, 'Alta de un activo', f.cuentas['1111'], f.cuentas['2140'], '3000.0000');
     await softClosePeriod(f.periodos[6], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[6], f.entityId, f.userId, 'cierre de junio');
-    expect(await inicialDe(f.cuentas['1120'], f.periodos[7])).toBe('3000.0000');
+    expect(await inicialDe(f.cuentas['1111'], f.periodos[7])).toBe('3000.0000');
 
-    // Se reabre junio y se CANCELA la cuenta por cobrar: junio cierra en cero.
+    // June is reopened and the asset is CANCELLED: June closes at zero.
     const { previousStatus } = await reopenClosedPeriod(
       f.entityId,
       f.periodos[6],
       f.userId,
       'la factura nunca existió'
     );
-    await asiento(f, 6, 'Cancelación', f.cuentas['2110'], f.cuentas['1120'], '3000.0000');
+    await asiento(f, 6, 'Cancelación', f.cuentas['2140'], f.cuentas['1111'], '3000.0000');
     await restorePeriodStatus(
       f.entityId,
       f.periodos[6],
@@ -201,8 +202,8 @@ describe('rehacer el arrastre cuando la corrección deja la cuenta en CERO', () 
     );
 
     // Julio no puede abrir en 3 000 cuando junio cerró en 0.
-    expect(await inicialDe(f.cuentas['1120'], f.periodos[7])).toBe('0.0000');
-    expect(await inicialDe(f.cuentas['2110'], f.periodos[7])).toBe('0.0000');
+    expect(await inicialDe(f.cuentas['1111'], f.periodos[7])).toBe('0.0000');
+    expect(await inicialDe(f.cuentas['2140'], f.periodos[7])).toBe('0.0000');
   });
 
   it('y si sobrevive, el chequeo «balance» tiene que denunciarlo por su nombre', async () => {
@@ -210,12 +211,12 @@ describe('rehacer el arrastre cuando la corrección deja la cuenta en CERO', () 
     // puede declararse íntegro.
     const f = await crearInquilino('Ataque arrastre a cero, visto por el chequeo');
     enterTenant(f.tenantId);
-    await asiento(f, 6, 'Alta', f.cuentas['1120'], f.cuentas['2110'], '3000.0000');
+    await asiento(f, 6, 'Alta', f.cuentas['1111'], f.cuentas['2140'], '3000.0000');
     await softClosePeriod(f.periodos[6], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[6], f.entityId, f.userId);
 
     const { previousStatus } = await reopenClosedPeriod(f.entityId, f.periodos[6], f.userId, 'x');
-    await asiento(f, 6, 'Cancelación', f.cuentas['2110'], f.cuentas['1120'], '3000.0000');
+    await asiento(f, 6, 'Cancelación', f.cuentas['2140'], f.cuentas['1111'], '3000.0000');
     await restorePeriodStatus(f.entityId, f.periodos[6], previousStatus, f.userId, 'y');
 
     const hallazgos = await runLedgerChecks(f.entityId, ['balance']);
@@ -267,8 +268,8 @@ describe('un ejercicio con PÉRDIDA', () => {
   it('cuadra el asiento y lleva la pérdida al capital por el lado deudor', async () => {
     const f = await crearInquilino('Ataque pérdida');
     enterTenant(f.tenantId);
-    await asiento(f, 12, 'Ventas', f.cuentas['1120'], f.cuentas['4100'], '4000.0000');
-    await asiento(f, 12, 'Sueldos', f.cuentas['6110'], f.cuentas['1120'], '9000.0000');
+    await asiento(f, 12, 'Ventas', f.cuentas['1111'], f.cuentas['4100'], '4000.0000');
+    await asiento(f, 12, 'Sueldos', f.cuentas['6110'], f.cuentas['1111'], '9000.0000');
     await cerrarEjercicio(f);
 
     expect(await saldoDelEjercicio(f, f.cuentas['4100'])).toBe('0.0000');
@@ -290,8 +291,8 @@ describe('un ejercicio con PÉRDIDA', () => {
     // ACREEDOR (sólo devoluciones sobre compras).
     const f = await crearInquilino('Ataque puras contra-naturales');
     enterTenant(f.tenantId);
-    await asiento(f, 12, 'Devolución sobre ventas', f.cuentas['4400'], f.cuentas['1120'], '2000.0000');
-    await asiento(f, 12, 'Devolución sobre compras', f.cuentas['1120'], f.cuentas['5200'], '500.0000');
+    await asiento(f, 12, 'Devolución sobre ventas', f.cuentas['4400'], f.cuentas['1111'], '2000.0000');
+    await asiento(f, 12, 'Devolución sobre compras', f.cuentas['1111'], f.cuentas['5200'], '500.0000');
     await cerrarEjercicio(f);
 
     expect(await saldoDelEjercicio(f, f.cuentas['4400'])).toBe('0.0000');
@@ -314,8 +315,8 @@ describe('un ejercicio con PÉRDIDA', () => {
   it('un ejercicio cuyo resultado es CERO exacto no emite puente y deja todo en cero', async () => {
     const f = await crearInquilino('Ataque resultado cero');
     enterTenant(f.tenantId);
-    await asiento(f, 12, 'Ventas', f.cuentas['1120'], f.cuentas['4100'], '7000.0000');
-    await asiento(f, 12, 'Costo', f.cuentas['5100'], f.cuentas['1120'], '7000.0000');
+    await asiento(f, 12, 'Ventas', f.cuentas['1111'], f.cuentas['4100'], '7000.0000');
+    await asiento(f, 12, 'Costo', f.cuentas['5100'], f.cuentas['1111'], '7000.0000');
     await cerrarEjercicio(f);
 
     expect(await saldoDelEjercicio(f, f.cuentas['4100'])).toBe('0.0000');
@@ -337,9 +338,9 @@ describe('el residuo más pequeño que se puede firmar', () => {
     // 4100 netea a CERO con movimiento en los dos lados: no debe generar
     // línea de cierre, pero tampoco puede quedar fuera del barrido si queda
     // un residuo. 4200 lleva la diezmilésima.
-    await asiento(f, 12, 'Venta', f.cuentas['1120'], f.cuentas['4100'], '1234.5678');
-    await asiento(f, 12, 'Cancelación', f.cuentas['4100'], f.cuentas['1120'], '1234.5678');
-    await asiento(f, 12, 'Servicio mínimo', f.cuentas['1120'], f.cuentas['4200'], '0.0001');
+    await asiento(f, 12, 'Venta', f.cuentas['1111'], f.cuentas['4100'], '1234.5678');
+    await asiento(f, 12, 'Cancelación', f.cuentas['4100'], f.cuentas['1111'], '1234.5678');
+    await asiento(f, 12, 'Servicio mínimo', f.cuentas['1111'], f.cuentas['4200'], '0.0001');
     await cerrarEjercicio(f);
 
     expect(await saldoDelEjercicio(f, f.cuentas['4100'])).toBe('0.0000');
@@ -363,10 +364,10 @@ describe('el residuo más pequeño que se puede firmar', () => {
     // del barrido tiene que ser exacto a cuatro decimales, en decimal.
     const f = await crearInquilino('Ataque redondeo');
     enterTenant(f.tenantId);
-    await asiento(f, 12, 'Venta A', f.cuentas['1120'], f.cuentas['4100'], '0.1000');
-    await asiento(f, 12, 'Venta B', f.cuentas['1120'], f.cuentas['4200'], '0.2000');
-    await asiento(f, 12, 'Venta C', f.cuentas['1120'], f.cuentas['4300'], '0.3000');
-    await asiento(f, 12, 'Gasto', f.cuentas['6110'], f.cuentas['1120'], '0.6000');
+    await asiento(f, 12, 'Venta A', f.cuentas['1111'], f.cuentas['4100'], '0.1000');
+    await asiento(f, 12, 'Venta B', f.cuentas['1111'], f.cuentas['4200'], '0.2000');
+    await asiento(f, 12, 'Venta C', f.cuentas['1111'], f.cuentas['4300'], '0.3000');
+    await asiento(f, 12, 'Gasto', f.cuentas['6110'], f.cuentas['1111'], '0.6000');
     await cerrarEjercicio(f);
 
     for (const c of ['4100', '4200', '4300', '6110', '3900', '3300']) {
@@ -385,17 +386,17 @@ describe('checkBalance ve las tres mentiras, cada una con su cuenta y su periodo
   it('99 999 en beginning_balance da hallazgo, no silencio', async () => {
     const f = await crearInquilino('Ataque beginning');
     enterTenant(f.tenantId);
-    await asiento(f, 6, 'Alta', f.cuentas['1120'], f.cuentas['2110'], '1000.0000');
+    await asiento(f, 6, 'Alta', f.cuentas['1111'], f.cuentas['2140'], '1000.0000');
     expect(await runLedgerChecks(f.entityId, ['balance'])).toHaveLength(0);
 
     await query(
       `UPDATE account_balances SET beginning_balance = 99999
         WHERE account_id = $1 AND fiscal_period_id = $2`,
-      [f.cuentas['1120'], f.periodos[6]]
+      [f.cuentas['1111'], f.periodos[6]]
     );
     const hallazgos = await runLedgerChecks(f.entityId, ['balance']);
     expect(hallazgos.length).toBeGreaterThan(0);
-    expect(hallazgos.some((h) => h.referencia.startsWith('1120') && /Periodo 6/.test(h.referencia))).toBe(
+    expect(hallazgos.some((h) => h.referencia.startsWith('1111') && /Periodo 6/.test(h.referencia))).toBe(
       true
     );
     expect(hallazgos.every((h) => h.severity === 'blocking')).toBe(true);
@@ -404,11 +405,11 @@ describe('checkBalance ve las tres mentiras, cada una con su cuenta y su periodo
   it('99 999 en ending_balance da hallazgo, y nombra el invariante', async () => {
     const f = await crearInquilino('Ataque ending');
     enterTenant(f.tenantId);
-    await asiento(f, 6, 'Alta', f.cuentas['1120'], f.cuentas['2110'], '1000.0000');
+    await asiento(f, 6, 'Alta', f.cuentas['1111'], f.cuentas['2140'], '1000.0000');
     await query(
       `UPDATE account_balances SET ending_balance = 99999
         WHERE account_id = $1 AND fiscal_period_id = $2`,
-      [f.cuentas['1120'], f.periodos[6]]
+      [f.cuentas['1111'], f.periodos[6]]
     );
     const hallazgos = await runLedgerChecks(f.entityId, ['balance']);
     expect(hallazgos.some((h) => /ending_balance dice 99999/.test(h.detalle))).toBe(true);
@@ -417,7 +418,7 @@ describe('checkBalance ve las tres mentiras, cada una con su cuenta y su periodo
   it('romper el encadenamiento entre dos periodos sale nombrado por los dos', async () => {
     const f = await crearInquilino('Ataque cadena');
     enterTenant(f.tenantId);
-    await asiento(f, 6, 'Alta', f.cuentas['1120'], f.cuentas['2110'], '1000.0000');
+    await asiento(f, 6, 'Alta', f.cuentas['1111'], f.cuentas['2140'], '1000.0000');
     await softClosePeriod(f.periodos[6], f.entityId, f.userId);
     await hardClosePeriod(f.periodos[6], f.entityId, f.userId);
     expect(await runLedgerChecks(f.entityId, ['balance'])).toHaveLength(0);
@@ -430,12 +431,12 @@ describe('checkBalance ve las tres mentiras, cada una con su cuenta y su periodo
           SET beginning_balance = beginning_balance + 500,
               ending_balance = ending_balance + 500
         WHERE account_id = $1 AND fiscal_period_id = $2`,
-      [f.cuentas['1120'], f.periodos[7]]
+      [f.cuentas['1111'], f.periodos[7]]
     );
     const hallazgos = await runLedgerChecks(f.entityId, ['balance']);
     const cadena = hallazgos.find((h) => /arrastre no encadena/.test(h.detalle));
     expect(cadena, JSON.stringify(hallazgos)).toBeDefined();
-    expect(cadena!.referencia).toMatch(/1120/);
+    expect(cadena!.referencia).toMatch(/1111/);
     expect(cadena!.referencia).toMatch(/Periodo 6\/2026 → Periodo 7\/2026/);
   });
 });
@@ -513,13 +514,13 @@ describe('un cierre de la entidad A no ve ni toca a la B', () => {
     await query(
       `UPDATE account_balances SET ending_balance = 99999
         WHERE account_id = $1 AND fiscal_period_id = $2`,
-      [a.cuentas['1120'], a.periodos[12]]
+      [a.cuentas['1111'], a.periodos[12]]
     );
     expect(await runLedgerChecks(b.entityId, ['balance'])).toHaveLength(0);
     expect((await runLedgerChecks(a.entityId, ['balance'])).length).toBeGreaterThan(0);
 
     // Y el auxiliar de B habla de periodos de B.
-    const aux = await getAuxiliaryView(b.entityId, '1120', 'Periodo 12/2026');
+    const aux = await getAuxiliaryView(b.entityId, '1111', 'Periodo 12/2026');
     expect(aux.periodo_anterior?.period_name).toBe('Periodo 11/2026');
     expect(aux.inicial_confiable).toBe(false);
   });

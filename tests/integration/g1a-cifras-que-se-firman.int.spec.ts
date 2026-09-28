@@ -114,10 +114,10 @@ async function movimientoDelCierre(
 
 /** El ejercicio completo, sin cerrar todavía. */
 async function poblarEjercicio(fx: Fixture) {
-  await asiento(fx, 12, 'Ventas del ejercicio', fx.cuentas['1120'], fx.cuentas['4100'], '10000.0000');
-  await asiento(fx, 12, 'Devolución sobre ventas', fx.cuentas['4400'], fx.cuentas['1120'], '2000.0000');
-  await asiento(fx, 12, 'Costo de ventas', fx.cuentas['5100'], fx.cuentas['1120'], '6000.0000');
-  await asiento(fx, 12, 'Devolución sobre compras', fx.cuentas['1120'], fx.cuentas['5200'], '1000.0000');
+  await asiento(fx, 12, 'Ventas del ejercicio', fx.cuentas['1111'], fx.cuentas['4100'], '10000.0000');
+  await asiento(fx, 12, 'Devolución sobre ventas', fx.cuentas['4400'], fx.cuentas['1111'], '2000.0000');
+  await asiento(fx, 12, 'Costo de ventas', fx.cuentas['5100'], fx.cuentas['1111'], '6000.0000');
+  await asiento(fx, 12, 'Devolución sobre compras', fx.cuentas['1111'], fx.cuentas['5200'], '1000.0000');
 }
 
 beforeAll(async () => {
@@ -179,7 +179,7 @@ describe('antes del cierre, report-service ya tiene que decir 3 000', () => {
     expect(saldoEnBalanza(tb, '4400')).toBe('2000.0000'); //  contra-ingreso: DEUDOR
     expect(saldoEnBalanza(tb, '5100')).toBe('6000.0000'); //  gasto: deudor
     expect(saldoEnBalanza(tb, '5200')).toBe('-1000.0000'); //  contra-gasto: ACREEDOR
-    expect(saldoEnBalanza(tb, '1120')).toBe('3000.0000'); //  el efectivo que quedó
+    expect(saldoEnBalanza(tb, '1111')).toBe('3000.0000'); //  el efectivo que quedó
     expect(tb.totals.is_balanced).toBe(true);
   });
 
