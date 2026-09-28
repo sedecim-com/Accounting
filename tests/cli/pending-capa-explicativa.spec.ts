@@ -708,8 +708,9 @@ describe('el prompt interactivo de `pending define` explica antes de preguntar',
       expect([...printed.keys()], 'the numbered list printed').toEqual(SPEC.options.map((_, i) => i + 1));
       expect(printed.get(n)).toBe(SPEC.options[n - 1].value);
       expect(mockResolvePolicy).toHaveBeenCalledTimes(1);
+      // The entity's scope, not the bare tenant's (T6 · #93).
       expect(mockResolvePolicy).toHaveBeenCalledWith(
-        { tenantId: 'ten-1' },
+        { tenantId: 'ten-1', entityId: 'ent-1' },
         KEY,
         printed.get(n),
         'admin@demo.com',
@@ -736,7 +737,7 @@ describe('el prompt interactivo de `pending define` explica antes de preguntar',
     expect(text).toContain('impact: SNAPSHOT IMPACT OF A RETIRED POLICY');
     expect(printedOptions(output).get(2)).toBe('snapshot_b');
     expect(mockResolvePolicy).toHaveBeenCalledWith(
-      { tenantId: 'ten-1' },
+      { tenantId: 'ten-1', entityId: 'ent-1' },
       'retired_policy_not_in_catalog',
       'snapshot_b',
       'admin@demo.com',
