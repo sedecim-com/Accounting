@@ -82,7 +82,7 @@ export async function registerInvoiceFromApprovedDraft(
     [entityId, receiverRfc]
   );
   if (customer.rows.length === 0) {
-    const name = String(preReg.x_receptor_nombre ?? '');
+    const name = typeof preReg.x_receptor_nombre === 'string' ? preReg.x_receptor_nombre : '';
     throw new ValidationError(
       `CFDI ${uuid} is issued to "${name}" (RFC ${receiverRfc}), who is not in this entity's customer catalog. ` +
         `Register it with \`${customerCreateCommand(name, receiverRfc)}\` and approve again; the draft stays ` +

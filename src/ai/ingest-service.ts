@@ -753,7 +753,7 @@ CFDI:
 - UUID: ${d.cfdi_uuid}
 - Series/Folio: ${wrapUntrusted(serieFolio)}
 - Date: ${toCalendarDate(d.cfdi_fecha as Date | string)}
-- Issuer: ${wrapUntrusted(d.emisor_nombre)} (${d.emisor_rfc})${issued ? `\n- Receiver (the customer): ${wrapUntrusted(d.receptor_nombre)} (${d.receptor_rfc})` : ''}
+- Issuer: ${wrapUntrusted(d.emisor_nombre)} (${d.emisor_rfc})${issued ? `\n- Receiver (the customer): ${wrapUntrusted(d.receptor_nombre)} (${typeof d.receptor_rfc === 'string' ? d.receptor_rfc : ''})` : ''}
 - Subtotal: ${d.subtotal} · Transferred VAT: ${d.total_impuestos_trasladados} · Total: ${d.total} ${d.moneda}
 - Payment form: ${d.forma_pago ?? 'n/a'} · Method: ${d.metodo_pago ?? 'n/a'} (PUE = paid, PPD = on credit → account ${issued ? 'receivable' : 'payable'})
 ${issued ? '- The customer must already be registered: approving the draft creates the customer invoice for this RFC' : `- ${vendorInfo}`}
