@@ -43,6 +43,14 @@ vi.mock('../../src/services/xml-ingestion/pre-registration-service.js', async ()
   };
 });
 
+const codeSpy = vi.fn();
+vi.mock('../../src/services/xml-ingestion/pre-registration-coding.js', async () => {
+  const real = await vi.importActual<
+    typeof import('../../src/services/xml-ingestion/pre-registration-coding.js')
+  >('../../src/services/xml-ingestion/pre-registration-coding.js');
+  return { ...real, codePreRegistration: (...args: unknown[]) => codeSpy(...args) as unknown };
+});
+
 const ID = '11111111-1111-1111-1111-111111111111';
 
 function fila(over: Record<string, unknown> = {}) {
@@ -121,6 +129,7 @@ const defaultResp = (rows: unknown[]) => (text: string) => {
 beforeEach(() => {
   process.env.MNEMOSINE_ENTITY = 'E1';
   processSpy.mockReset();
+  codeSpy.mockReset();
 });
 
 // ============================================================
@@ -330,5 +339,47 @@ describe('bill inbox', () => {
     // que lleva varios clientes ese es justo el dato que no se puede regalar.
     expect(r.exitCode, 'cruzar de entidad no existe; no es «prohibido»').toBe(3);
     expect((r.errs[0] as Error | undefined)?.message).toMatch(/no está en la bandeja/);
+  });
+
+  // ING-2 (#319, MNE-001-030): coding a stranded CFDI by hand.
+  describe('edit', () => {
+    const accounts = (text: string) =>
+      /FROM accounts/.test(text) ? { rows: [{ id: 'A6100' }], rowCount: 1 } : { rows: [], rowCount: 0 };
+
+    it('codes one line with its account and cost center', async () => {
+      codeSpy.mockResolvedValue({ lines: [{ account_id: 'A6100' }], default_account_id: null });
+      const cc = '22222222-2222-2222-2222-222222222222';
+      const r = await run(['bill', 'inbox', 'edit', ID, '--line', '1', '--account', '6100', '--cost-center', cc], accounts);
+      expect(r.exitCode, String(r.errs[0])).toBe(0);
+      expect(codeSpy).toHaveBeenCalledWith('E1', ID, {
+        line: { lineNumber: 1, accountId: 'A6100', costCenterId: cc },
+      });
+    });
+
+    it('without --line, the account is the default of every line', async () => {
+      codeSpy.mockResolvedValue({ lines: [{}], default_account_id: 'A6100' });
+      const r = await run(['bill', 'inbox', 'edit', ID, '--account', '6100'], accounts);
+      expect(r.exitCode).toBe(0);
+      expect(codeSpy).toHaveBeenCalledWith('E1', ID, { defaultAccountId: 'A6100' });
+    });
+
+    it.each([
+      [['not-a-uuid', '--account', '6100']],
+      [[ID]],
+      [[ID, '--line', '0', '--account', '6100']],
+      [[ID, '--cost-center', '22222222-2222-2222-2222-222222222222']],
+      [[ID, '--line', '1', '--cost-center', 'cc-1']],
+    ])('usage error, nothing written: %j', async (argv) => {
+      const r = await run(['bill', 'inbox', 'edit', ...argv], accounts);
+      expect(r.exitCode).toBe(2);
+      expect(codeSpy).not.toHaveBeenCalled();
+    });
+
+    it('a posted pre-registration is blocked by state, not a failure', async () => {
+      const { AccountingError } = await import('../../src/utils/errors.js');
+      codeSpy.mockRejectedValue(new AccountingError('PRE_REGISTRATION_NOT_CODABLE', 'is "completed"'));
+      const r = await run(['bill', 'inbox', 'edit', ID, '--account', '6100'], accounts);
+      expect(r.exitCode).toBe(5);
+    });
   });
 });
