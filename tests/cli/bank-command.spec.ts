@@ -140,6 +140,8 @@ const LEAVES = [
   // F05d · la firma y el sello. Las cinco que tocan el mayor.
   'bank reconciliation approve', 'bank reconciliation post',
   'bank fee post', 'bank interest post', 'bank check reconcile',
+  // MNE-001-044 · the way out of a trapped month.
+  'bank reconciliation reopen',
 ];
 
 /** Las ocho de F05b, para no repetir la lista en cada aserción. */
@@ -195,7 +197,7 @@ describe('the rulebook', () => {
     expect(violations).toEqual([]);
   });
 
-  it('ships exactly the thirty-three leaves, each ending in a verb from the closed list', () => {
+  it('ships exactly the thirty-four leaves, each ending in a verb from the closed list', () => {
     const leaves: string[] = [];
     const walk = (cmd: Command, prefix: string[]) => {
       const path = [...prefix, cmd.name()];
@@ -261,6 +263,7 @@ describe('the bilingual surface', () => {
     // por eso vive a profundidad 3 y no en la raíz.
     'bank reconciliation approve': 'aprobar',
     'bank reconciliation post': 'contabilizar',
+    'bank reconciliation reopen': 'reabrir',
     'bank fee': 'comision',
     'bank fee post': 'contabilizar',
     'bank interest': 'interes',
@@ -2758,6 +2761,99 @@ describe('bank reconciliation approve · la firma que se enseña antes de darla'
       mundoDeFirma({ sesion: sesionBalanceada() })
     );
     expect(motor.asientos, 'la firma congela; el mayor lo mueve `post`').toEqual([]);
+  });
+});
+
+/** A signed session: the only state `reopen` accepts. */
+function signedSession(over: Record<string, unknown> = {}) {
+  return sesionBalanceada({
+    status: 'approved',
+    approved_by: 'U2',
+    approved_at: '2026-09-01 12:00:00+00',
+    approval_reason: null,
+    approval_hash: 'ab'.repeat(32),
+    ...over,
+  });
+}
+
+describe('bank reconciliation reopen · MNE-001-044', () => {
+  const reopenWrites = (r: { sql: Array<{ text: string }> }) =>
+    r.sql.filter((q) => /SET status = 'in_progress'/.test(q.text));
+
+  it('is irreversible, human only, and carries the kernel flags plus --reason', () => {
+    const risk = risks.get('bank reconciliation reopen');
+    expect(risk?.risk).toBe('irreversible');
+    expect(risk?.agentAllowed).toBe(false);
+    expect(ambitoDeLlave(find('bank reconciliation reopen'))).toBe('bank reconciliation reopen');
+    expect(find('bank reconciliation reopen').options.map((o) => o.long)).toEqual(
+      expect.arrayContaining(['--reason', '--dry-run', '--yes', '--idempotency-key'])
+    );
+  });
+
+  it('refuses without --reason before touching the database', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'reopen', SES, '-y'],
+      mundoDeFirma({ sesion: signedSession() })
+    );
+    expect(r.exitCode).toBe(2);
+    expect(reopenWrites(r)).toEqual([]);
+  });
+
+  it('writes one guarded UPDATE: state and entity in the WHERE, and an audit row', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'reopen', SES, '-y', '--reason', 'wrong item'],
+      mundoDeFirma({ sesion: signedSession() })
+    );
+    expect(r.errs).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    const writes = reopenWrites(r);
+    expect(writes).toHaveLength(1);
+    const text = writes[0].text.replace(/\s+/g, ' ');
+    expect(text).toMatch(/WHERE id = \$1 AND entity_id = \$2 AND status = 'approved'/);
+    expect(text).toMatch(/approval_hash = NULL/);
+    expect(text).toMatch(/closed_at = NULL/);
+    const audit = r.sql.find((q) => /INSERT INTO audit_log/.test(q.text));
+    expect(audit?.params).toContain('reopen');
+    expect(r.out).toMatch(/signature withdrawn/);
+  });
+
+  it('refuses a posted session and names the slice that will reverse it', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'reopen', SES, '-y', '--reason', 'wrong item'],
+      mundoDeFirma({
+        sesion: signedSession({
+          status: 'posted', posted_at: '2026-09-02 12:00:00+00', posted_by: 'U2',
+        }),
+      })
+    );
+    expect(r.exitCode).toBe(6);
+    expect((r.errs[0] as Error).message).toMatch(/MNE-001-130/);
+    expect(reopenWrites(r)).toEqual([]);
+  });
+
+  it('refuses under a closed fiscal period and names `period reopen`', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'reopen', SES, '-y', '--reason', 'wrong item'],
+      mundoDeFirma({
+        sesion: signedSession(),
+        periodo: { id: 'FP1', period_name: 'July 2026', status: 'soft_close' },
+      })
+    );
+    expect(r.exitCode).toBe(6);
+    expect((r.errs[0] as Error).message).toMatch(/mnemosine period reopen "July 2026"/);
+    expect(reopenWrites(r)).toEqual([]);
+  });
+
+  it('--dry-run --json shows the signature it would withdraw', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'reopen', SES, '--dry-run', '--json'],
+      mundoDeFirma({ sesion: signedSession() })
+    );
+    expect(r.exitCode).toBe(0);
+    const row = (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows[0];
+    expect(row.dry_run).toBe(true);
+    expect(row.status).toBe('in_progress');
+    expect(row.withdrawn_hash).toBe('ab'.repeat(32));
   });
 });
 

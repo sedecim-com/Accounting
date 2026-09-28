@@ -720,7 +720,8 @@ export const EN = {
     'You are about to SIGN session {session} with snapshot {hash}… ' +
     '({items, plural, one {# item} other {# items}}, ' +
     '{adjustments, plural, one {# adjustment} other {# adjustments}}, variance {variance}). ' +
-    'A signature is not withdrawn: approving it again is refused. Continue?',
+    'Approving it again is refused; withdrawing it takes `bank reconciliation reopen` and a ' +
+    'reason. Continue?',
   'bank.reconciliation.approve.already_signed': 'session {session} already signed',
   'bank.reconciliation.approve.summary': '· {status} · signed by {by} on {on}',
   'bank.reconciliation.approve.not_posted_yet':
@@ -728,6 +729,19 @@ export const EN = {
     'adjustments this signature has just frozen.',
   'bank.reconciliation.approve.dry_run':
     'Dry run: it really was signed, and then rolled back. The hash is the one that would remain.',
+
+  'bank.reconciliation.reopen.title': 'WHAT IS ABOUT TO BE REOPENED',
+  'bank.reconciliation.reopen.transition': 'session {session} · {from} → {to} · approved → in_progress',
+  'bank.reconciliation.reopen.withdrawn':
+    'signature withdrawn: {by} on {on} (the audit trail keeps it with its snapshot)',
+  'bank.reconciliation.reopen.confirm':
+    'You are about to REOPEN session {session} and withdraw its signature {hash}… ' +
+    'Continue?',
+  'bank.reconciliation.reopen.already_reopened': 'session {session} already reopened',
+  'bank.reconciliation.reopen.summary': '· {status} · signature withdrawn',
+  'bank.reconciliation.reopen.next':
+    'Correct what was wrong, then `bank reconciliation close` and `approve` again over the same range.',
+  'bank.reconciliation.reopen.dry_run': 'Dry run: it really was reopened, and then rolled back.',
 
   // --- bank reconciliation post · generate --------------------------------
   'bank.reconciliation.post.already_posted': 'The session is already posted',

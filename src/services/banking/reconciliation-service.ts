@@ -2519,6 +2519,188 @@ export async function aprobarSesion(
 }
 
 // ============================================================
+// `bank reconciliation reopen` — MNE-001-044 (#302)
+// ============================================================
+
+export interface ReopenOptions {
+  /** `--reason`: required, because reopening withdraws a signature. */
+  reason: string;
+}
+
+export interface ReopenResult {
+  sessionId: string;
+  previousStatus: 'approved';
+  status: 'in_progress';
+  from: string;
+  to: string;
+  /** The signature this act withdraws. The row forgets it; the audit trail keeps it whole. */
+  withdrawnSignature: { approvedBy: string; approvedAt: string; hash: string };
+  reason: string;
+  dryRun: boolean;
+}
+
+/** The fiscal period states in which `period reopen` has to act first. */
+const CLOSED_PERIOD_STATES = new Set(['soft_close', 'hard_close', 'locked']);
+
+/**
+ * `bank reconciliation reopen <session>`: moves an APPROVED session back to
+ * `in_progress` so a wrong item or match can be corrected and the SAME range
+ * closed and signed again. Without it the month stayed trapped: `close`
+ * refuses anything but `in_progress`, the item services refuse a closed
+ * session, and `open` refuses a second session over the same range.
+ *
+ * ONLY FROM `approved` (the /confirmar on #302 scopes MNE-001-044 to it). A
+ * `posted` session has adjustment entries in the ledger, and reopening it means
+ * reversing them; that is MNE-001-130 and is refused here by name.
+ *
+ * THE FISCAL PERIOD WINS. `period-close.ts` reads a balanced, approved or
+ * posted session as the evidence that the account was verified against the
+ * bank; reopening one under a closed period would take that evidence away from
+ * a month that already closed on it. The overlapping periods are locked
+ * `FOR SHARE` so a period close cannot slip in between the check and the write.
+ *
+ * THE SIGNATURE IS WITHDRAWN FROM THE ROW, NEVER FROM HISTORY. The 055 CHECK
+ * `sesion_firma_coherente` does not admit half a signature, so the five
+ * columns are cleared in one statement; the audit row carries the old hash and
+ * the whole snapshot, so «what was approved?» still has an answer.
+ */
+export async function reopenSession(
+  scope: Scope,
+  sessionId: string,
+  opts: ReopenOptions,
+  ctx: ContextoSesion
+): Promise<ReopenResult> {
+  const { tenantId, entityId } = exigirEntidad(scope);
+  const reason = (opts.reason ?? '').trim();
+  // Like the kernel's `gateMutation`: a dry run writes nothing, so it may look
+  // before a reason exists.
+  if (reason === '' && ctx.dryRun !== true) {
+    throw new ValidationError(
+      'Reabrir una conciliación aprobada retira una firma: el motivo (`--reason`) es obligatorio.'
+    );
+  }
+
+  return ejecutarActo(async (client) => {
+    const session = await sesionDeLaEntidad(client, entityId, sessionId, true);
+    if (session.status === 'posted') {
+      throw new ConflictError(
+        `La sesión ${sessionId} ya está contabilizada ('posted'): sus asientos de ajuste están en ` +
+          `el mayor y reabrirla exige revertirlos con asiento de reversa. Esa reapertura todavía ` +
+          `no existe (MNE-001-130, #302); este comando sólo reabre sesiones 'approved'.`
+      );
+    }
+    if (session.status !== 'approved') {
+      throw new ConflictError(
+        `La sesión ${sessionId} está en '${session.status}', no en 'approved': reabrir es sólo ` +
+          `para una conciliación firmada. ` +
+          (session.status === 'in_progress'
+            ? 'Ya es editable.'
+            : 'Una sesión cuadrada sin firmar todavía no tiene una firma que retirar.')
+      );
+    }
+
+    const periods = await client.query<{ period_name: string; status: string }>(
+      `SELECT period_name, status FROM fiscal_periods
+        WHERE entity_id = $1 AND period_type = 'regular'
+          AND start_date <= $3::date AND end_date >= $2::date
+        ORDER BY start_date
+        FOR SHARE`,
+      [entityId, session.start_date, session.end_date]
+    );
+    const closed = periods.rows.find((p) => CLOSED_PERIOD_STATES.has(p.status));
+    if (closed) {
+      if (closed.status === 'locked') {
+        throw new ConflictError(
+          `El periodo "${closed.period_name}" está 'locked': su información ya salió del sistema ` +
+            `y no se reabre, así que su conciliación tampoco. La corrección va en el periodo ` +
+            `abierto más próximo.`
+        );
+      }
+      const force = closed.status === 'hard_close' ? ' --force' : '';
+      throw new ConflictError(
+        `La sesión ${sessionId} cubre ${session.start_date} → ${session.end_date} y el periodo ` +
+          `"${closed.period_name}" está en '${closed.status}': su cierre leyó esta conciliación ` +
+          `como la evidencia de que la cuenta se verificó contra el banco. Reabre primero el ` +
+          `periodo con \`mnemosine period reopen "${closed.period_name}"${force} --reason …\`.`
+      );
+    }
+
+    // The snapshot is not in SELECT_SESION (every other reader would carry it
+    // for nothing); it is read here only so the audit row can keep it.
+    const signed = await client.query<{ approval_snapshot: unknown }>(
+      `SELECT approval_snapshot FROM reconciliation_sessions WHERE id = $1 AND entity_id = $2`,
+      [sessionId, entityId]
+    );
+
+    // Invariant 3: state predicate and entity in the WHERE, rowCount checked.
+    // The close columns go too: the item services read `closed_at` as well as
+    // the status, and a reopened row that kept it would refuse every edit.
+    const written = await client.query(
+      `UPDATE reconciliation_sessions
+          SET status = 'in_progress',
+              approved_by = NULL,
+              approved_at = NULL,
+              approval_reason = NULL,
+              approval_snapshot = NULL,
+              approval_hash = NULL,
+              arithmetic_computed_at = NULL,
+              closed_at = NULL,
+              closed_by = NULL,
+              completed_at = NULL,
+              completed_by = NULL,
+              updated_at = NOW()
+        WHERE id = $1 AND entity_id = $2 AND status = 'approved'`,
+      [sessionId, entityId]
+    );
+    if (written.rowCount !== 1) {
+      throw new ConflictError(
+        `La sesión ${sessionId} cambió de estado mientras se reabría: la reapertura no escribió ` +
+          `ninguna fila. Vuelve a mirarla con \`bank reconciliation status\` antes de reintentar.`
+      );
+    }
+
+    await registrarAuditoria(client, {
+      tenantId,
+      userId: ctx.userId,
+      action: 'reopen',
+      entityType: 'reconciliation_sessions',
+      entityId: sessionId,
+      oldValues: {
+        status: 'approved',
+        approved_by: session.approved_by,
+        approved_at: session.approved_at,
+        approval_reason: session.approval_reason,
+        approval_hash: session.approval_hash,
+        approval_snapshot: signed.rows[0]?.approval_snapshot ?? null,
+        closed_at: session.closed_at,
+        closed_by: session.closed_by,
+        variance: session.variance,
+      },
+      newValues: { status: 'in_progress' },
+      reason,
+    });
+
+    const result: ReopenResult = {
+      sessionId,
+      previousStatus: 'approved',
+      status: 'in_progress',
+      from: session.start_date,
+      to: session.end_date,
+      withdrawnSignature: {
+        // The 055 CHECK guarantees all three on an approved row.
+        approvedBy: session.approved_by as string,
+        approvedAt: session.approved_at as string,
+        hash: session.approval_hash as string,
+      },
+      reason,
+      dryRun: ctx.dryRun === true,
+    };
+    if (ctx.dryRun) throw new EnsayoSesion(result);
+    return result;
+  });
+}
+
+// ============================================================
 // `bank reconciliation post` — LA CONTABILIZACIÓN
 // ============================================================
 

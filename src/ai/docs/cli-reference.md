@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 213 of 331 subcommands
+  spelling is `-T` at the root and `-t` on the 214 of 332 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -5066,6 +5066,7 @@ Commands:
   status|estado [options] [session]      Recompute the variance LIVE and print the two-sided breakdown: bank balance, its items one by one, adjusted; books balance, its items, adjusted; and the difference
   close|cerrar [options] <session>       Recompute the whole arithmetic and move the session to `balanced` ONLY if the variance is exactly zero (or within the policy tolerance) and every item is classified and dated
   approve|aprobar [options] <session>    Sign the session, requiring that the approver is not the preparer, and freeze an immutable snapshot with a hash of its members and its balances
+  reopen|reabrir [options] <session>     Reopen an approved session to in_progress, withdrawing its signature (kept in the audit trail); refused under a closed fiscal period and for posted sessions
   post|contabilizar [options] <session>  Post the approved adjustment entries and seal the session’s book lines as reconciled, blocking their edit, their void and their date change
   generate|generar [options] <session>   Produce the two-sided bank reconciliation statement for the audit file: json for the whole document, md/csv/tsv for the line-by-line statement, plain text to print
   help [command]                         display help for command
@@ -5291,6 +5292,42 @@ Examples:
   mnemosine bank reconciliation approve 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "Revisada contra el estado de cuenta de julio"
   # A signature is not withdrawn: read what would be frozen before freezing it.
   mnemosine bank reconciliation approve 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
+```
+
+#### `mnemosine bank reconciliation reopen` (alias: reabrir)
+
+```
+Usage: mnemosine bank reconciliation reopen|reabrir [options] <session>
+
+Reopen an approved session to in_progress, withdrawing its signature (kept in
+the audit trail); refused under a closed fiscal period and for posted sessions
+
+Arguments:
+  session                  approved session to reopen
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --reason <text>          justification recorded in the audit trail (required)
+  -h, --help               display help for command
+
+Examples:
+  # Take a signed session back to in_progress to correct a wrong item or match.
+  # The signature leaves the session but not the audit trail, which keeps its hash.
+  mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "El cargo del 20 era un error de libros"
+  # See which signature would be withdrawn, writing nothing.
+  mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
+  # A closed fiscal period wins: the refusal names the `period reopen` to run
+  # first, and --force as well when the month is hard-closed.
+  mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "Cotejo equivocado en julio" --yes
 ```
 
 #### `mnemosine bank reconciliation post` (alias: contabilizar)
