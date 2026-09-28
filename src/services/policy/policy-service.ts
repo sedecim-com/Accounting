@@ -111,23 +111,69 @@ export async function seedPolicies(ctx: PolicyContext): Promise<{ inserted: numb
   return { inserted };
 }
 
+/**
+ * The panel AS ONE SCOPE SEES IT (T6 · #93): one row per key, the entity's
+ * own row when it has one and the tenant's otherwise — the same precedence
+ * `getPolicy` reads with, so what the listing calls pending is what the
+ * books are running on.
+ *
+ * Without an entity the scope is the tenant's, and only tenant rows are
+ * listed: an entity's answer is not the tenant's answer, and listing every
+ * entity's row side by side is how `pending` used to show one key twice.
+ */
 export async function listPolicies(
   ctx: PolicyContext,
   status?: PolicyRow['status']
 ): Promise<PolicyRow[]> {
-  const conditions = ['tenant_id = $1'];
-  const params: unknown[] = [ctx.tenantId];
+  const params: unknown[] = [ctx.tenantId, ctx.entityId ?? null];
+  let filter = '';
   if (status) {
-    conditions.push(`status = $${params.length + 1}`);
     params.push(status);
+    filter = `WHERE status = $${params.length}`;
   }
   const r = await query<PolicyRow>(
-    `SELECT ${COLUMNS} FROM policy_decisions
-     WHERE ${conditions.join(' AND ')}
+    `SELECT * FROM (
+       SELECT DISTINCT ON (key) ${COLUMNS} FROM policy_decisions
+        WHERE tenant_id = $1 AND (entity_id IS NULL OR entity_id = $2::uuid)
+        ORDER BY key, entity_id IS NULL ASC
+     ) scoped
+     ${filter}
      ORDER BY status = 'pending' DESC, priority ASC, key ASC`,
     params
   );
   return r.rows;
+}
+
+/**
+ * GIVES AN ENTITY ITS OWN ROW FOR ONE KEY, the first time that entity acts
+ * on it (T6 · #93).
+ *
+ * The panel is seeded at tenant scope, and a tenant row governs every
+ * entity. Writing on it from `--entity A` changed B; so an entity-scoped
+ * write first copies the tenant row — its STATE included — into a row of
+ * the entity's own, and then acts on that. Copying the state is what keeps
+ * this invisible until the write itself: before the action, the entity
+ * reads exactly what it read from the tenant row.
+ *
+ * Only the key being acted on is copied. Seeding a full entity panel would
+ * put a pending row in front of every tenant answer, and `getPolicy` would
+ * serve the default where the firm had already decided.
+ */
+async function ownRowForEntity(ctx: PolicyContext & { entityId: string }, key: string): Promise<void> {
+  await query(
+    `INSERT INTO policy_decisions (
+       tenant_id, entity_id, key, category, question, impact, options,
+       default_value, default_rationale, priority, source,
+       status, resolved_value, resolved_by, resolved_at, resolution_notes
+     )
+     SELECT tenant_id, $3::uuid, key, category, question, impact, options,
+            default_value, default_rationale, priority, 'entity-scope',
+            status, resolved_value, resolved_by, resolved_at, resolution_notes
+       FROM policy_decisions
+      WHERE tenant_id = $1 AND key = $2 AND entity_id IS NULL AND jurisdiction IS NULL
+     ON CONFLICT DO NOTHING`,
+    [ctx.tenantId, key, ctx.entityId]
+  );
 }
 
 export const listPending = (ctx: PolicyContext) => listPolicies(ctx, 'pending');
@@ -501,8 +547,21 @@ export async function resolvePolicy(
   // tiene dos llamadores (pending define y el wizard de init): un guard solo
   // en uno dejaría al otro como puerta trasera. reopen→resolve vuelve a
   // pasar por aquí, así que el ciclo shadow→on también queda cubierto.
+  //
+  // T6 · #93: the evidence is an ENTITY's, so switching on is too. A tenant
+  // row governs every entity, and there is no evidence that belongs to the
+  // tenant: measuring it as the sum of its entities is how the history of the
+  // busy company switched on one created yesterday.
   if (key === 'ingest_auto_post' && value === 'on') {
-    const c = await concordanciaSombra({ tenantId: ctx.tenantId, entityId: ctx.entityId ?? null });
+    if (!ctx.entityId) {
+      throw new ValidationError(
+        "Auto-posting is switched on per entity: the shadow evidence belongs to one company, and a " +
+          "tenant-wide 'on' would lend it to all of them. Use: mnemosine pending define " +
+          'ingest_auto_post on --entity <entity>',
+        'value'
+      );
+    }
+    const c = await concordanciaSombra({ tenantId: ctx.tenantId, entityId: ctx.entityId });
     const acuerdo = c.tasa_acuerdo === null ? 0 : Number(c.tasa_acuerdo);
     if (
       c.dias_con_veredictos < FLOOR_SOMBRA_DIAS ||
@@ -536,6 +595,7 @@ export async function resolvePolicy(
   //
   // IS NOT DISTINCT FROM: `entity_id = NULL` nunca casa en SQL, y el alcance
   // de inquilino es exactamente entity_id NULL.
+  if (ctx.entityId) await ownRowForEntity({ ...ctx, entityId: ctx.entityId }, key);
   const r = await query(
     `UPDATE policy_decisions
      SET status = 'resolved', resolved_value = $1, resolved_by = $2,
@@ -559,30 +619,45 @@ export async function dismissPolicy(
   dismissedBy: string,
   notes?: string
 ): Promise<void> {
+  // Same scope rule as `resolvePolicy`: with an entity, only its own row.
+  if (ctx.entityId) await ownRowForEntity({ ...ctx, entityId: ctx.entityId }, key);
   const r = await query(
     `UPDATE policy_decisions
      SET status = 'dismissed', resolved_by = $1, resolved_at = NOW(),
          resolution_notes = $2, updated_at = NOW()
-     WHERE tenant_id = $3 AND key = $4 AND status = 'pending'`,
-    [dismissedBy, notes ?? null, ctx.tenantId, key]
+     WHERE tenant_id = $3 AND key = $4 AND status = 'pending'
+       AND entity_id IS NOT DISTINCT FROM $5::uuid`,
+    [dismissedBy, notes ?? null, ctx.tenantId, key, ctx.entityId ?? null]
   );
   if (r.rowCount === 0) {
-    throw new Error(`There is no pending decision with key "${key}" in this tenant`);
+    throw new Error(`There is no pending decision with key "${key}" in ${scopeName(ctx)}`);
   }
 }
 
-/** Reopens an already-resolved decision (the policy changed). */
+/**
+ * Reopens an already-resolved decision (the policy changed).
+ *
+ * With an entity, only that entity's row reopens — including an answer it
+ * had only inherited from the tenant: the copy is reopened and the tenant
+ * row keeps governing the others.
+ */
 export async function reopenPolicy(ctx: PolicyContext, key: string): Promise<void> {
+  if (ctx.entityId) await ownRowForEntity({ ...ctx, entityId: ctx.entityId }, key);
   const r = await query(
     `UPDATE policy_decisions
      SET status = 'pending', resolved_value = NULL, resolved_by = NULL,
          resolved_at = NULL, updated_at = NOW()
-     WHERE tenant_id = $1 AND key = $2 AND status != 'pending'`,
-    [ctx.tenantId, key]
+     WHERE tenant_id = $1 AND key = $2 AND status != 'pending'
+       AND entity_id IS NOT DISTINCT FROM $3::uuid`,
+    [ctx.tenantId, key, ctx.entityId ?? null]
   );
   if (r.rowCount === 0) {
-    throw new Error(`Decision "${key}" is already pending or does not exist`);
+    throw new Error(`Decision "${key}" is already pending or does not exist in ${scopeName(ctx)}`);
   }
+}
+
+function scopeName(ctx: PolicyContext): string {
+  return ctx.entityId ? `this entity (${ctx.entityId})` : 'the tenant scope (entity_id NULL)';
 }
 
 export { POLICY_CATALOG, getPolicySpec } from './pending-catalog.js';
