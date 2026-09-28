@@ -204,7 +204,10 @@ describe('el cobro como historia: a cuenta, aplicar, desaplicar, reversar', () =
       [r.journalEntry!.id]
     );
     const porCuenta = Object.fromEntries(lineas.rows.map((l) => [l.code, l]));
-    expect(Number(porCuenta['1110'].debit)).toBeCloseTo(1500); // banco
+    // BAN-1 (#324): the bank role posts to the leaf 1111, never to 1110,
+    // which is the parent of the bank accounts.
+    expect(Number(porCuenta['1111'].debit)).toBeCloseTo(1500); // banco
+    expect(porCuenta['1110']).toBeUndefined();
     expect(Number(porCuenta['1120'].credit)).toBeCloseTo(1160); // cxc: lo aplicado
     expect(Number(porCuenta['2150'].credit)).toBeCloseTo(340); // anticipo: el resto
 

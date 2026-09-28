@@ -241,10 +241,15 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   devolucion_ventas: '4400',
   anticipo_clientes: '2150',
   cxc: '1120',
-  banco: '1110',
+  // BAN-1 (#324): a leaf, never 1110 «Caja y Bancos». 1110 is the PARENT of
+  // the bank accounts, and a role that posts to a parent leaves that parent
+  // with a balance of its own on top of its children's, which every roll-up
+  // of the trial balance then counts twice. Seeded entities that still point
+  // at 1110 are repointed by `npm run backfill:account-roles`.
+  banco: '1111',
   // BAN-1 (#324): cash as a whole, read by the cash-flow statement with its
   // descendants. 1110 «Caja y Bancos» is the parent of every bank account in
-  // both charts, the Mexican and the neutral one. Not a posting role.
+  // both charts, the Mexican and the neutral one. It is in NON_POSTING_ROLES.
   efectivo: '1110',
   iva_trasladado: '2120',
   iva_trasladado_no_cobrado: '2125',
@@ -293,6 +298,17 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   utilidad_cambiaria: '4320',
   perdida_cambiaria: '6320',
 };
+
+/**
+ * Roles that name an account to READ, not to post to (BAN-1, #324).
+ *
+ * `efectivo` anchors cash on 1110, a parent by design: the cash-flow statement
+ * reads it with its descendants, and nothing posts there. The plan criterion
+ * `posting-roles-point-to-leaf-accounts` exempts these roles from the leaf
+ * rule, and goes red if a CFDI case or a posting path ever uses one, so this
+ * list cannot become a way around the rule.
+ */
+export const NON_POSTING_ROLES: readonly AccountRole[] = ['efectivo'];
 
 // ── Qué de todo esto es mexicano ─────────────────────────────
 //
@@ -352,8 +368,11 @@ const ROLES_FISCALES_MX: readonly AccountRole[] = [
   'provision_prestaciones_gasto',
 ];
 
-/** Dónde caen los dos roles genéricos de impuesto en una entidad no mexicana. */
+/** Where the two generic tax roles and the bank role land in a non-Mexican entity. */
 const ROLES_NEUTROS: Partial<Record<AccountRole, string>> = {
+  // 1111 is a peso account of the Mexican stratum; the neutral chart has its
+  // own bank leaf, the same one `cash_payroll` uses in the US bucket map.
+  banco: '1115',            // Cuenta Bancaria Operativa
   iva_trasladado: '2135',   // Impuesto sobre Ventas por Pagar
   iva_acreditable: '1136',  // Impuesto Acreditable sobre Compras
 };
