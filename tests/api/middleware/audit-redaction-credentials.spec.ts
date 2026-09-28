@@ -116,10 +116,10 @@ describe('the audit trail and the integration credentials', () => {
   it('redacts at any depth, inside objects and inside arrays', () => {
     const body = {
       provider: 'stripe',
-      settings: { credentials: { secretKey: 'synthetic-a', environment: 'sandbox' } },
+      settings: { credentials: { secretKey: 'fake-a', environment: 'sandbox' } },
       accounts: [
-        { privateKey: 'synthetic-b', label: 'one' },
-        { clientSecret: 'synthetic-c', label: 'two' },
+        { privateKey: 'fake-b', label: 'one' },
+        { clientSecret: 'fake-c', label: 'two' },
       ],
     };
     expect(redactarSensibles(body)).toEqual({
