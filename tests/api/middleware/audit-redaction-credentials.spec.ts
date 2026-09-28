@@ -10,7 +10,7 @@ import { integrationRegistry } from '../../../src/services/integrations/index.js
 // `PUT /v1/admin/integrations/:provider` hands its body to the adapter's
 // configure(), and the audit middleware writes that same body to
 // audit_log.new_values, which migration 033 made append-only. Redaction used
-// to match a name only when its lowercase spelling was exactly one of its
+// to match a name only when its lowercase spelling was exactly one on its
 // list, so the camelCase names the adapters read (`secretKey`, `privateKey`,
 // `clientSecret`, `webhookSecret`) reached the table in clear.
 //
@@ -38,7 +38,7 @@ const CONFIGURE_BODIES: Record<string, Decision> = {
   sw_sapien: { redacted: ['token'], kept: ['environment'] },
 };
 
-/** The S3 stub retired in #370: rows written before it still carry its body. */
+/** The S3 stub retired in #370: rows written while it was registered still carry its body. */
 const RETIRED_S3: Decision = { redacted: ['accessKeyId', 'secretAccessKey'], kept: ['region', 'bucket'] };
 
 function expectDecision(provider: string, d: Decision): void {
@@ -100,10 +100,10 @@ describe('the audit trail and the integration credentials', () => {
     for (const n of names) expect(written[n], n).toBe(REDACTED);
   });
 
-  it('keeps a name that only contains a short stem inside another word', () => {
-    // `ssn` is inside business_name and `cer` inside no_certificado_sat, an
-    // invoice field; bank_account_id is the account a bill or invoice points
-    // at, not the account number.
+  it('keeps a name that holds a stem but names no secret', () => {
+    // `ssn` sits inside business_name, `cer` inside no_certificado_sat (an
+    // invoice field) and `key` inside keywords. bank_account_id is the account
+    // a bill or invoice points at, not an account number.
     const body = {
       business_name: 'Synthetic SA de CV',
       no_certificado_sat: '00001000000000000000',
