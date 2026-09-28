@@ -205,6 +205,20 @@ export const E0_3: Criterio[] = [
     paquete: 'E0.3',
     id: 'audit-log-redacts-encrypted-fields',
     enunciado: 'La bitácora no guarda en claro lo que las tablas cifran',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/middleware/audit.ts',
+        de: 'JSON.stringify(redactarSensibles(req.body))',
+        a: 'JSON.stringify(req.body)',
+        porque: 'the raw body is written again: every credential a request carries becomes a row that 033 forbids anyone to delete',
+      },
+      {
+        archivo: 'src/api/rest/middleware/audit.ts',
+        de: "'secret', 'password', ",
+        a: "'secret', ",
+        porque: 'one stem leaves the list and nothing else changes: the middleware still redacts, and every password reaches the trail',
+      },
+    ],
     evaluar: () => {
       // S1: el middleware de auditoría escribía JSON.stringify(req.body)
       // entero en audit_log.new_values — un alta de empleado dejaba ssn y

@@ -56,7 +56,9 @@ const conMutantes = CRITERIOS.filter((c) => (c.mutantes?.length ?? 0) > 0);
 // `criteria-mutation-harness`, que es donde el tablero la publica.
 // 56 → 55: al fusionar main con T1 (#255) y S4 (#232) la cuenta real bajó, y la
 // línea base baja con ella en el mismo commit que la ve.
-const SIN_ESPEJO_MAXIMO = 55;
+// 55 → 54: the audit-log redaction criterion gets its mirrors in the commit
+// that stops camelCase credentials from reaching audit_log in clear.
+const SIN_ESPEJO_MAXIMO = 54;
 
 describe('el arnés de mutación — un criterio sin mordida es prosa', () => {
   it('la línea base de criterios sin espejo sólo encoge', () => {
