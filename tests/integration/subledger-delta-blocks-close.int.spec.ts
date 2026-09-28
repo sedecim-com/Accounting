@@ -175,3 +175,31 @@ describe.each(cases)('the $ledger subledger delta blocks the close', ({ ledger, 
     });
   }, 180_000);
 });
+
+/**
+ * Without a control account there is nothing to reconcile against. The
+ * check must say so as a WARNING, not pass green, and it must not block a
+ * month that is otherwise ready: blocking on a missing mapping would stop
+ * every close for a reason the subledger check does not own.
+ * It is also the only path through readSubledgerSide's MISSING_ROLE_ACCOUNT
+ * branch, which the integration coverage floor of period-close.ts counts.
+ */
+describe('with no control account mapped', () => {
+  it('both checks warn «could not reconcile» and neither blocks the close', async () => {
+    const fx = await crearInquilino('MNE-001-035 no control');
+    await query(`DELETE FROM account_roles WHERE entity_id = $1 AND role = ANY($2::text[])`, [
+      fx.entityId,
+      ['cxc', 'cxp'],
+    ]);
+
+    const { readiness } = await closeCheck(fx, fx.periodos[1]);
+    for (const code of ['ar-subledger-delta', 'ap-subledger-delta']) {
+      const check = readiness.checklist.find((c) => c.codigo === code)!;
+      expect(check.is_complete).toBe(false);
+      expect(check.severity).toBe('warning');
+      expect(check.details).toMatch(/could not reconcile/);
+      expect(readiness.warnings.join('\n')).toContain(check.item);
+    }
+    expect(readiness.blockingIssues.join('\n')).not.toMatch(/subledger/);
+  }, 180_000);
+});
