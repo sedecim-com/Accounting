@@ -42,6 +42,17 @@ El agente nunca escribe el mayor ni sistemas externos, así que apagarlo no pier
 - Nunca en el repo ni en el chat (invariante 7). Si uno aparece en el historial se considera comprometido: **primero se rota, después se limpia**.
 - Las credenciales fiscales viven en la bóveda (`src/services/vault/`), cifradas.
 
+## Identidad con Cognito
+
+Con `AUTH_OIDC_PROVIDER=cognito`, la API acepta los access tokens del user pool (#369):
+
+- `AUTH_OIDC_ISSUER` es el issuer del pool, `https://cognito-idp.<región>.amazonaws.com/<id del pool>`, y `AUTH_OIDC_CLIENT_ID` lista, separadas por comas, las app clients cuyos tokens se aceptan. `AUTH_OIDC_AUDIENCE` no se lee: esos tokens no traen `aud`.
+- Un token pasa si verifican su firma, su issuer y su vigencia, `token_use` es `access` y su `client_id` está en la lista. Un ID token, otra app client u otro issuer reciben 401.
+- `cognito:groups` llega a la identidad igual que `groups`, y es informativo: los permisos salen de `users`, no del IdP.
+- El access token de Cognito no trae correo. Quien no tiene su identidad vinculada en `identities` no se puede dar de alta con él (401), salvo que el pool agregue `email` al access token con un disparador de pre-generación de tokens. La atribución desde la terminal exige además `email_verified`. El mapeo de identidad y tenant es #371.
+- `AUTH_OIDC_PROVIDER` es también la llave de `identities`: cambiarla en un despliegue que ya tiene usuarios desata sus vínculos.
+- El gateway web no arranca con `cognito`: verifica `aud`, y la GUI está fuera del MVP.
+
 ## Pendiente para un despliegue compartido
 
 Alertas, SLO (pregunta abierta en `docs/SCOPE.md`), on-call, canary con rollback automático, y ventana de congelamiento en el cierre de mes de los despachos: #333.

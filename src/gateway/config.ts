@@ -1,4 +1,5 @@
 import { isIP, isIPv4 } from 'node:net';
+import { COGNITO_PROVIDER } from '../auth/oidc.js';
 import { resolverTrustProxy, type ValorTrustProxy } from '../api/rest/trust-proxy.js';
 
 // ============================================================
@@ -10,7 +11,8 @@ import { resolverTrustProxy, type ValorTrustProxy } from '../api/rest/trust-prox
 // secret. This
 // module is therefore the ONLY place the gateway reads its environment, and it
 // reads a closed list of keys: GATEWAY_*, the four AUTH_OIDC_* keys the web
-// client needs, and NODE_ENV. Criterion web-gateway-never-reaches-the-engine
+// client needs, AUTH_OIDC_PROVIDER (read only to refuse the Cognito mode it
+// does not support), and NODE_ENV. Criterion web-gateway-never-reaches-the-engine
 // holds that list, and tests/config/env-example.spec.ts counts every key read
 // here through the `env` alias of the default parameter.
 //
@@ -22,6 +24,8 @@ import { resolverTrustProxy, type ValorTrustProxy } from '../api/rest/trust-prox
 export interface GatewayConfig {
   issuer: string;
   audience: string;
+  /** AUTH_OIDC_PROVIDER. Read only to refuse `cognito`: see gatewayConfigProblems. */
+  provider: string;
   webClientId: string;
   /** Never logged, never echoed in a problem. */
   webClientSecret: string;
@@ -55,6 +59,7 @@ function wholeNumber(raw: string | undefined, fallback: number): number {
 export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const issuer = env.AUTH_OIDC_ISSUER ?? '';
   const audience = env.AUTH_OIDC_AUDIENCE ?? '';
+  const provider = env.AUTH_OIDC_PROVIDER ?? '';
   const webClientId = env.AUTH_OIDC_WEB_CLIENT_ID ?? '';
   const webClientSecret = env.AUTH_OIDC_WEB_CLIENT_SECRET ?? '';
   const publicOrigin = env.GATEWAY_PUBLIC_ORIGIN ?? '';
@@ -69,6 +74,7 @@ export function readGatewayConfig(env: NodeJS.ProcessEnv = process.env): Gateway
   return {
     issuer: issuer.trim(),
     audience: audience.trim(),
+    provider,
     webClientId: webClientId.trim(),
     webClientSecret,
     publicOrigin: publicOrigin.trim(),
@@ -180,6 +186,17 @@ export function gatewayConfigProblems(config: GatewayConfig): string[] {
   }
 
   if (config.audience === '') problems.push('AUTH_OIDC_AUDIENCE is required');
+  // NOTE: excluded on purpose (MNE-001-104, #369). The API accepts Cognito
+  // access tokens by client_id; this gateway verifies every token it stores
+  // against AUTH_OIDC_AUDIENCE, sends `audience` to the IdP and keeps its web
+  // client apart from it, none of which holds for Cognito. Covering it is its
+  // own design, and the GUI is outside the MVP: refusing at startup beats
+  // starting and failing every login.
+  if (config.provider === COGNITO_PROVIDER) {
+    problems.push(
+      'AUTH_OIDC_PROVIDER=cognito is not supported by the web gateway: it verifies aud, which Cognito access tokens do not carry'
+    );
+  }
   if (config.webClientId === '') problems.push('AUTH_OIDC_WEB_CLIENT_ID is required');
   if (config.webClientId !== '' && config.webClientId === config.audience) {
     problems.push(

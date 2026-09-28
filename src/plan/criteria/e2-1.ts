@@ -1825,6 +1825,8 @@ export const E2_1: Criterio[] = [
       const allowedKeys = new Set([
         'AUTH_OIDC_ISSUER',
         'AUTH_OIDC_AUDIENCE',
+        // Read only to refuse the Cognito mode the gateway does not support (#369).
+        'AUTH_OIDC_PROVIDER',
         'AUTH_OIDC_WEB_CLIENT_ID',
         'AUTH_OIDC_WEB_CLIENT_SECRET',
         'NODE_ENV',
