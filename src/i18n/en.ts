@@ -321,6 +321,10 @@ export const EN = {
   /** `src/cli/mnemosine.ts` renderDraft: a draft linked to a received CFDI (#318). The issuer name comes from the XML. */
   'review.draft.bill_to_be_born':
     'Approving creates the vendor bill of CFDI {uuid} · issuer {issuer} ({rfc}) · method {method} · total {total}',
+  /** `src/cli/mnemosine.ts` review: `proveedor_desconocido_al_aprobar = preguntar` (#318). The name comes from the XML. */
+  'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})? [y/N] ',
+  /** `src/cli/mnemosine.ts` review: the reviewer answered no to registering the vendor. */
+  'review.vendor.not_registered': 'The vendor was not registered: nothing was posted and the draft stays pending.',
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
