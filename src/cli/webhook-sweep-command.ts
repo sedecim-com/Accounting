@@ -193,8 +193,10 @@ Examples:
           console.log(
             c.yellow(
               `  ${resultado.muertas} deliver(y/ies) exhausted their attempts and are now DEAD: ` +
-                'they will not be retried again. Inspect them with ' +
-                '`mnemosine subscription delivery list <subscriptionId> --status failed`.'
+                'they will not be retried again. Their ids are in the lines above; the CLI has no ' +
+                'verb to list or resend them yet, the API does: ' +
+                '`GET /v1/webhooks/<subscriptionId>/deliveries?status=failed` and ' +
+                '`POST /v1/webhooks/deliveries/<deliveryId>/retry`.'
             )
           );
         }

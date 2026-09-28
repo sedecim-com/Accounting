@@ -183,7 +183,8 @@ describe('lo que el barrido cuenta, el comando lo dice', () => {
     const salida = logs.join('\n');
     expect(salida).toContain('dead 2');
     expect(salida).toContain('are now DEAD');
-    expect(salida).toContain('subscription delivery list');
+    expect(salida).toContain('/v1/webhooks/deliveries/<deliveryId>/retry');
+    expect(salida).not.toContain('subscription delivery list');
   });
 
   it('las congeladas se dicen aunque nadie las haya tocado', async () => {

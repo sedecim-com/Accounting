@@ -417,7 +417,7 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
           deps.palette.yellow(
             '  ⚠ Rige al menos un defecto declarado y no una elección del despacho: entre ' +
               '`nominal` e `integrado` hay un 20 % de diferencia en el importe de cada mes. Se ' +
-              'contesta con `mnemosine pending resolve provision_base_salarial` / ' +
+              'contesta con `mnemosine pending define provision_base_salarial` / ' +
               '`devengo_vacaciones`.\n'
           )
         );

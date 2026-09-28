@@ -35,6 +35,7 @@ import {
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
+import { changePolicyHint } from '../services/policy/policy-hint.js';
 
 // ============================================================
 // mnemosine depreciation · depreciacion
@@ -388,7 +389,7 @@ export function registerDepreciationCommand(
       err.write(
         p.yellow(
           '  ⚠ Rige al menos un defecto declarado y no una elección del despacho. Se contesta con ' +
-            '`mnemosine pending resolve base_depreciacion` / `convencion_primer_mes`.\n'
+            '`mnemosine pending define base_depreciacion` / `convencion_primer_mes`.\n'
         )
       );
     }
@@ -568,7 +569,7 @@ export function registerDepreciationCommand(
           `No se contabiliza: ${plan.pendientes} activo(s) se quedan sin renglón de ` +
             `${plan.periodo} y la política \`depreciacion_faltante_al_cierre\` está en ` +
             '"bloquear". Resuélvelos (captura la producción del periodo, corrige la ficha) o ' +
-            'cambia la política con `mnemosine pending resolve depreciacion_faltante_al_cierre`.'
+            `cambia la política con ${changePolicyHint('depreciacion_faltante_al_cierre')}.`
         );
       }
 

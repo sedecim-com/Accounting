@@ -38,7 +38,7 @@ const importTransactionsSchema = z.object({
   transactions: arregloAcotado(bankTransactionSchema, {
     tope: MAX_MOVIMIENTOS_POR_IMPORTACION,
     plural: 'movimientos',
-    salida: 'Parte el extracto, o cárgalo con `mnemosine bank import`, que inserta por lotes.',
+    salida: 'Parte el extracto, o cárgalo con `mnemosine bank statement import`, que inserta por lotes.',
     minimo: 1,
   }),
   source: z.string().optional(),
