@@ -34,7 +34,7 @@ for key in DATABASE_URL MIGRATION_DATABASE_URL TEST_ADMIN_DATABASE_URL; do
   [ -z "$value" ] || export "$key=$value"
 done
 
-GATES="typecheck typecheck-tests lint icu unit plan catalog corpus history openapi ux language integration restore isolation eval commit-subjects"
+GATES="typecheck typecheck-tests lint icu unit plan catalog corpus history openapi ux language repo-map integration restore isolation eval commit-subjects"
 
 VERBOSE=0
 INTEGRATION=1
@@ -150,6 +150,8 @@ run_gate openapi          npx tsx scripts/openapi.ts --check
 run_gate ux               npx tsx scripts/ux-status.ts --check
 # ci: npx tsx scripts/language-status.ts --check
 run_gate language         npx tsx scripts/language-status.ts --check
+# ci: npx tsx scripts/repo-map.ts --check
+run_gate repo-map         npx tsx scripts/repo-map.ts --check
 
 # ci: npm run test:integration -- --coverage
 # (CI also provisions roles with scripts/provision-roles.sql; without them 7 attack cases report as skipped)

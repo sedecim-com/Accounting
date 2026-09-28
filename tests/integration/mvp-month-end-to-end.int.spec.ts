@@ -52,6 +52,7 @@ const VENDOR_RFC = 'PRV060101AB1';
 
 // ── THE MONTH, BY HAND ──────────────────────────────────────────────────
 //   12-01 opening        1111 Dr 100,000.00 / 3100 Cr 100,000.00
+//   12-01 computers      1220 Dr 36,000.00 / 1111 Cr 36,000.00
 //   12-05 invoice        1120 Dr 11,600.00 / 4100 Cr 10,000.00, 2120 Cr 1,600.00
 //                        (16 % of 10,000; no MetodoPago on a typed invoice → PUE)
 //   12-08 bill           6100 Dr 5,000.00, 1135 Dr 800.00 / 2110 Cr 5,800.00
@@ -60,26 +61,35 @@ const VENDOR_RFC = 'PRV060101AB1';
 //   12-18 credit note    4400 Dr 1,000.00, 2120 Dr 160.00 / 1120 Cr 1,160.00
 //   12-20 payment        2110 Dr 5,800.00 / bank Cr 5,800.00,
 //                        and the paid IVA moves 1135 → 1130: 800.00
-// Debits of the month: 100,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
-const MONTH_DEBITS = '130960.00';
+//   12-31 depreciation   6140 Dr 900.00 / 1290 Cr 900.00, posted by the close:
+//                        computer class, 30 % LISR maximum → 40-month book
+//                        life; whole-month convention, so 36,000 / 40
+// Debits of the month: 100,000 + 36,000 + 11,600 + 5,800 + 5,800 + 1,160
+// + 5,800 + 800 + 900
+const MONTH_DEBITS = '167860.00';
 const ENDING = {
-  '1111': '100000.00', // 100,000 − 5,800 + 5,800 (see MNE-001-039 in step 4)
+  '1111': '64000.00', // 100,000 − 36,000 − 5,800 + 5,800 (see MNE-001-039 in step 4)
   '1120': '4640.00', // 11,600 − 5,800 − 1,160
   '1130': '800.00',
+  '1220': '36000.00',
+  '1290': '-900.00', // accumulated depreciation, credit balance
   '2120': '-1440.00', // −1,600 + 160, credit balance
   '3100': '-100000.00',
   '4100': '-10000.00',
   '4400': '1000.00',
   '6100': '5000.00',
+  '6140': '900.00',
 } as const;
 const NET_SALES = '9000.00'; // 10,000 − 1,000 returned
-const NET_INCOME = '4000.00'; // 9,000 − 5,000
-const TOTAL_ASSETS = '105440.00'; // 100,000 + 4,640 + 800
+const NET_INCOME = '3100.00'; // 9,000 − 5,000 − 900
+const TOTAL_ASSETS = '104540.00'; // 64,000 + 4,640 + 800 + 36,000 − 900
 const TOTAL_LIABILITIES = '1440.00';
-const TOTAL_EQUITY = '104000.00'; // 100,000 + 4,000
-// Indirect method: 4,000 − 4,640 (AR up) − 800 (IVA credit up) + 1,440 (IVA
-// payable up) = 0, which is the 5,800 received minus the 5,800 paid.
+const TOTAL_EQUITY = '103100.00'; // 100,000 + 3,100
+// Indirect method: 3,100 + 900 (depreciation, no cash) − 4,640 (AR up) − 800
+// (IVA credit up) + 1,440 (IVA payable up) = 0, which is the 5,800 received
+// minus the 5,800 paid.
 const OPERATING_CASH = '0.00';
+const INVESTING_CASH = '-36000.00'; // the computers
 const FINANCING_CASH = '100000.00';
 
 let tenantId: string;
@@ -230,8 +240,31 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('6 · month-end close', () => {
-    it('conducts the close of December and seals a balanced dossier', () => {
-      expect(ok(['closing', 'run', '2025-12', '-y']).out).toMatch(/December 2025\s+completed/);
+    it('the checklist flags an entity with no fixed assets while 1220 carries the computers, and the asset is registered — MNE-001-020, MNE-001-021', () => {
+      const [purchase] = rowsOf<{ entry_number: string }>(
+        ok(['entry', 'create', '--date', '2025-12-01', '--description', 'Computer equipment',
+          '--line', '1220:debit:36000.00', '--line', '1111:credit:36000.00', '--json'])
+      );
+      ok(['entry', 'post', purchase.entry_number, '--yes']);
+
+      // A finding, not a pass: warning weight, so only --strict makes it fail.
+      const flagged = mnemosine(['closing', 'check', '--period', 'December 2025',
+        '--check', 'depreciation-posted', '--strict', '--json']);
+      expect(flagged.status, flagged.out + flagged.err).toBe(4);
+      expect(rowsOf<{ is_complete: boolean; details: string }>(flagged)[0]).toMatchObject({
+        is_complete: false,
+        details: '0 fixed assets registered, but the fixed-asset accounts carry 36000.00 at 2025-12-31: ' +
+          'register them (asset create) so the month can be depreciated',
+      });
+
+      ok(['asset', 'create', 'Laptops', '--category', 'Equipo de Cómputo', '--cost', '36000.00',
+        '--acquired', '2025-12-01', '--capitalized', 'yes']);
+    }, STEP_TIMEOUT_MS);
+
+    it('conducts the close of December, posts its depreciation, and seals a balanced dossier', () => {
+      const run = ok(['closing', 'run', '2025-12', '-y']).out;
+      expect(run).toMatch(/December 2025\s+completed/);
+      expect(run).toContain('1 asset(s) depreciated');
       const periods = rowsOf<{ period_name: string; status: string }>(ok(['period', 'list', '--json']));
       expect(periods.find((p) => p.period_name === 'December 2025')?.status).toBe('soft_close');
 
@@ -242,7 +275,6 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(sealed.balanced).toBe(true);
     }, STEP_TIMEOUT_MS);
 
-    it.todo('the checklist flags an entity with no fixed assets, and the month depreciation is posted — MNE-001-020, MNE-001-021');
     it.todo('closes the 2025 fiscal year into period 13: `balance generate --closing` nets to 0 and the closing entries are not in December — MNE-001-046');
   });
 
@@ -269,6 +301,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       const cf = rowsOf<StatementRow>(ok(['cashflow', 'generate', '--period', '2025-12', '--json']));
       expect(lineOf(cf, (r) => r.section === 'operating' && r.line === 'total')).toBe(OPERATING_CASH);
+      expect(lineOf(cf, (r) => r.section === 'investing' && r.line === 'total')).toBe(INVESTING_CASH);
       expect(lineOf(cf, (r) => r.section === 'financing' && r.line === 'total')).toBe(FINANCING_CASH);
       expect(lineOf(cf, (r) => r.line === 'residue')).toBe('0.00');
     }, STEP_TIMEOUT_MS);
