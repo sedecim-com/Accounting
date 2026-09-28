@@ -1359,9 +1359,9 @@ export const E0_0: Criterio[] = [
       // T2 · EL HABILITADOR, y la razón de que este tramo vaya segundo.
       //
       // El job `plan` es donde el tablero se juzga a sí mismo: su primer paso
-      // es el trinquete por criterio y los seis siguientes son las compuertas
+      // es el trinquete por criterio y los siete siguientes son las compuertas
       // que publican catálogo, corpus, historial, contrato de la API, censo de
-      // superficie e idioma. A nadie lo vigilaba. Se probaron las tres
+      // superficie, idioma y mapa del repositorio. A nadie lo vigilaba. Se probaron las tres
       // mutaciones —comentar el `--piso --exigir`, comentar el `--check` del
       // catálogo, y colgar `continue-on-error: true` del job— y las tres
       // dejaban los criterios EXACTAMENTE igual: los mismos rojos
@@ -1396,6 +1396,7 @@ export const E0_0: Criterio[] = [
         ['el contrato de la API', 'npx tsx scripts/openapi.ts --check', ''],
         ['el censo de superficie', 'npx tsx scripts/ux-status.ts --check', ''],
         ['el metro del idioma', 'npx tsx scripts/language-status.ts --check', ''],
+        ['el mapa del repositorio', 'npx tsx scripts/repo-map.ts --check', ''],
       ];
       const dark = GATES.filter(([, cmd, tail]) => !stepRuns(block, cmd, tail)).map(([q]) => q);
       if (dark.length > 0) {
@@ -1408,7 +1409,7 @@ export const E0_0: Criterio[] = [
       // `npm ci` y `npm run migrate` son los dos pasos que no son puerta:
       // preparan la corrida. El total sólo SUBE, y un paso nuevo se añade a
       // esta cifra en el mismo commit que lo escribe.
-      const MIN_LIVE_STEPS = 9;
+      const MIN_LIVE_STEPS = 10;
       const live = (block.match(/^[ \t]*- run: /gm) ?? []).length;
       return live >= MIN_LIVE_STEPS
         ? ok(`las ${GATES.length} puertas del job del plan corren, sin continue-on-error y con ${live} pasos vivos`)
@@ -1447,6 +1448,13 @@ export const E0_0: Criterio[] = [
         a: '      - run: npx tsx scripts/historial-estado.ts --check || true',
         porque:
           'el `|| true` es el continue-on-error de un solo paso y no toca el encabezado del job: el ancla tiene que cerrar la línea por la derecha para verlo',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '      - run: npx tsx scripts/repo-map.ts --check',
+        a: '      # - run: npx tsx scripts/repo-map.ts --check',
+        porque:
+          'the newest gate goes dark the way the first one did, commented out, and the map would go back to omitting new modules without a word (#334)',
       },
     ],
   },
@@ -1673,7 +1681,9 @@ export const E0_0: Criterio[] = [
       // `payroll-engines-fail-closed-on-missing-law` (IMSS employer quota).
       // 536 → 544: the real count was already 537, and
       // `today-is-the-day-in-zona-horaria` (#242) adds seven mirrors.
-      const MIRRORS_FLOOR = 544;
+      // 544 → 545: re-measured on the tree merged with `main` (the repo-map
+      // mirror #334 adds), not summed by hand.
+      const MIRRORS_FLOOR = 545;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -1713,7 +1723,9 @@ export const E0_0: Criterio[] = [
       // 506 → 509: the three `de:` anchors #296 adds in `criteria/e4-1.ts`.
       // 509 → 516: the seven anchors of `today-is-the-day-in-zona-horaria`
       // (#242) in `criteria/e1-2.ts`.
-      const ANCHORS_HERE = 516;
+      // 516 → 517: re-measured on the tree merged with `main` (the repo-map
+      // anchor #334 adds), not summed by hand.
+      const ANCHORS_HERE = 517;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
