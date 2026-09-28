@@ -23,7 +23,7 @@ import '../../src/services/payroll/tax-engine/register-all.js';
 //     menos, todos los periodos, sin una sola fila que lo delatara.
 //
 // Los importes salen de las tarifas 2026 sembradas por la migración 009:
-// quincena de 1 500, ISR 77.28, subsidio 203.31 → 126.03 que hasta hoy se
+// quincena de 1 500, ISR 77.28, subsidio 264.58 → 187.30 que hasta hoy se
 // evaporaban.
 // ============================================================
 
@@ -161,10 +161,11 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     );
     const p = rows[0];
 
-    // Subsidio 203.31 − ISR 77.28 = 126.03 que antes desaparecían.
+    // Subsidio 264.58 − ISR 77.28 = 187.30 que antes desaparecían. Paid on
+    // January 15th, 2026: 15.59 % of the 2025 monthly UMA (#298).
     expect(Number(p.isr_withheld)).toBeCloseTo(77.28, 2);
-    expect(Number(p.subsidio_empleo)).toBeCloseTo(203.31, 2);
-    expect(Number(p.subsidio_entregado_efectivo)).toBeCloseTo(126.03, 2);
+    expect(Number(p.subsidio_empleo)).toBeCloseTo(264.58, 2);
+    expect(Number(p.subsidio_entregado_efectivo)).toBeCloseTo(187.30, 2);
 
     // Y el neto lo refleja: bruto − IMSS − crédito INFONAVIT + subsidio
     // entregado. El ISR retenido es CERO porque el subsidio lo absorbió.
@@ -183,7 +184,7 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     )!;
     expect(r.employee_employer).toBe('EE');
     expect(r.is_credit).toBe(true);
-    expect(Number(r.tax_amount)).toBeCloseTo(126.03, 2);
+    expect(Number(r.tax_amount)).toBeCloseTo(187.30, 2);
   });
 
   it('dice en la nota que el criterio es el de omisión mientras nadie conteste', async () => {
@@ -286,7 +287,7 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
       tenant_id: f.tenantId, pay_run_id: otraCorrida, employee_id: empId,
       earnings: [{ earning_type: 'salary', amount: 1500 }],
     });
-    expect(r.subsidio_entregado_efectivo).toBe('126.0300');
+    expect(r.subsidio_entregado_efectivo).toBe('187.3000');
 
     const renglon = (await impuestosDe(r.paycheck_id)).find(
       (x) => x.tax_type === 'subsidio_entregado_efectivo'

@@ -33,7 +33,12 @@ import type { TaxInput } from '../../src/services/payroll/tax-engine/tax-engine.
 const AÑO = 2026;
 
 function entrada(sueldo: number, freq: string): TaxInput {
-  return { taxable_wages: sueldo, pay_frequency: freq, tax_year: AÑO } as unknown as TaxInput;
+  // Paid in March: the subsidy reads the law of the payment date and the
+  // entity's rounding policy (#298); the default is producto_al_centavo.
+  return {
+    taxable_wages: sueldo, pay_frequency: freq, tax_year: AÑO,
+    pay_date: '2026-03-13', employment_subsidy_rounding: 'producto_al_centavo',
+  } as unknown as TaxInput;
 }
 
 async function retencion(sueldo: number, freq: string): Promise<number> {

@@ -12,7 +12,11 @@ import type { JurisdictionCode } from './jurisdiction.js';
 // inventada con mejor presentación, y la presentación es justo lo que hace que
 // nadie la revise.
 //
-// ── POR QUÉ SEIS FILAS Y NO VEINTE ─────────────────────────────────────
+// ── POR QUÉ POCAS FILAS Y NO VEINTE ────────────────────────────────────
+//
+// It was born with six rows; the LFT minimums (T6 · #93) and the five rows of
+// the 2026 employment subsidy (#298) have joined since, each with its source.
+// The rule below still holds: a row enters when its figure is verified.
 //
 // El grueso de la ley lo carga J0.4 —UMA de cada año, tarifas del art. 96,
 // subsidio, wage base, FUTA, FMW, CCPA— con su puerta (`parametros import`,
@@ -78,6 +82,7 @@ export interface LegalParameterSeedRow {
 const LISR_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LISR.pdf';
 const LIVA_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LIVA.pdf';
 const LFT_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LFT.pdf';
+const SUBSIDY_DECREE_2026 = 'https://dof.gob.mx/nota_detalle.php?codigo=5777649&fecha=31/12/2025';
 
 /**
  * Lo que se siembra, y sólo lo que se pudo fundamentar.
@@ -202,6 +207,74 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
       'primeros días de enero para publicarla y fija su entrada en vigor el 1 de febrero. Enero de ' +
       '2026 se rige por la UMA de 2025, que este tramo NO siembra: preguntar por una fecha de ' +
       'enero falla cerrado, que es la respuesta correcta mientras esa fila no exista.',
+  },
+
+  // ── Subsidio al empleo 2026 (#298) ─────────────────────────────────────
+  //
+  // The same five rows migration 095 loads — the payroll engine reads them on
+  // every Mexican paycheck, so an install that only migrates must have them
+  // too (the 082 reason). The MONTHLY UMA is the published figure, not
+  // `uma.daily × 30.4`: the decree names the monthly value, and rounding it
+  // here would be a second rounding under the one the policy
+  // `subsidio_al_empleo_redondeo` declares.
+  {
+    jurisdiction: 'MX',
+    key: 'uma.monthly',
+    effectiveFrom: '2025-02-01',
+    value: '3439.4600',
+    unit: 'MXN',
+    sourceUrl: 'https://dof.gob.mx/nota_detalle.php?codigo=5746930&fecha=10/01/2025',
+    sourceNote:
+      'UMA 2025 published by INEGI in the DOF on 10-01-2025: daily 113.14, monthly 3,439.46, annual ' +
+      '41,273.52, in force from 1 February 2025 (LDVUMA art. 5). It governs January 2026, which is why ' +
+      'the January 2026 subsidy rate is applied to it.',
+  },
+  {
+    jurisdiction: 'MX',
+    key: 'uma.monthly',
+    effectiveFrom: '2026-02-01',
+    value: '3566.2200',
+    unit: 'MXN',
+    sourceUrl: 'https://dof.gob.mx/nota_detalle.php?codigo=5778072&fecha=09/01/2026',
+    sourceNote:
+      'UMA 2026 published by INEGI in the DOF on 09-01-2026: daily 117.31, monthly 3,566.22, annual ' +
+      '42,794.64, in force from 1 February 2026 (LDVUMA art. 5).',
+  },
+  {
+    jurisdiction: 'MX',
+    key: 'employment_subsidy.uma_monthly_rate',
+    effectiveFrom: '2026-01-01',
+    value: '0.1559',
+    unit: 'rate',
+    sourceUrl: SUBSIDY_DECREE_2026,
+    sourceNote:
+      'Decreto que modifica el subsidio para el empleo, DOF 31-12-2025, Segundo transitorio: in January ' +
+      '2026 the monthly subsidy is 15.59 % of the monthly UMA in force, which is still the 2025 UMA ' +
+      '(= 536.21 rounded once to the cent).',
+  },
+  {
+    jurisdiction: 'MX',
+    key: 'employment_subsidy.uma_monthly_rate',
+    effectiveFrom: '2026-02-01',
+    value: '0.1502',
+    unit: 'rate',
+    sourceUrl: SUBSIDY_DECREE_2026,
+    sourceNote:
+      'Decreto que modifica el subsidio para el empleo, DOF 31-12-2025: the monthly subsidy is 15.02 % ' +
+      'of the monthly UMA (= 535.65 with the 2026 UMA); for periods shorter than a month it is divided ' +
+      'by 30.4 and multiplied by the days. How to round is the policy subsidio_al_empleo_redondeo.',
+  },
+  {
+    jurisdiction: 'MX',
+    key: 'employment_subsidy.monthly_income_cap',
+    effectiveFrom: '2026-01-01',
+    value: '11492.6600',
+    unit: 'MXN',
+    sourceUrl: SUBSIDY_DECREE_2026,
+    sourceNote:
+      'Decreto que modifica el subsidio para el empleo, DOF 31-12-2025: only workers whose monthly ' +
+      'income does not exceed 11,492.66 receive the subsidy. Replaces the 10,171.00 of the DOF ' +
+      '31-12-2024 decree.',
   },
 
   // ── Salarios mínimos ───────────────────────────────────────────────────
