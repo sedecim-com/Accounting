@@ -468,6 +468,12 @@ mirror	memory	E4.1 policy-number-checked-on-read-and-write	src/services/policy/p
 mirror	memory	E4.1 policy-number-checked-on-read-and-write	src/services/policy/policy-service.ts	la errata deja de detenerse en el teclado: `pending define prima_vacacional_pct 25` vuelve a imprimir «✔» y el fallo aparece el día que alguien causa baja, ya archivado como decisión del despacho
 mirror	memory	E4.1 policy-number-checked-on-read-and-write	src/services/payroll/mx/finiquito-calculator.ts	el piso se mide contra la ley de HOY y no contra la de la baja: un finiquito reexpedido de un año anterior deja de dar el mismo número, que es exactamente la pregunta que la 080 existe para contestar
 mirror	memory	E4.1 policy-number-checked-on-read-and-write	src/services/accruals/provisions-run.ts	el finiquito queda blindado y la corrida mensual sigue acreditando al mayor un aguinaldo ilegal, mes tras mes y posteando sola: es el ÚNICO camino de estas claves que escribe en los libros
+mirror	memory	E4.1 policy-panel-is-per-entity	src/cli/pending-command.ts	the preview shows the entity and the write lands on the tenant: the accountant is shown one company's evidence and the gate opens on all of them
+mirror	memory	E4.1 policy-panel-is-per-entity	src/cli/pending-command.ts	every pending verb falls back to the tenant scope, which governs every entity
+mirror	memory	E4.1 policy-panel-is-per-entity	src/ai/shadow-verdicts.ts	the filter becomes optional again, and any caller without an entity measures the whole tenant
+mirror	memory	E4.1 policy-panel-is-per-entity	src/services/policy/policy-service.ts	reopen in one entity reopens the key in every entity of the tenant
+mirror	memory	E4.1 policy-panel-is-per-entity	src/services/policy/policy-service.ts	dismiss in one entity dismisses the key in every entity of the tenant
+mirror	memory	E4.1 policy-panel-is-per-entity	src/services/policy/policy-service.ts	a tenant-wide 'on' governs every entity with no evidence that belongs to any of them
 mirror	memory	E4.1 sua-file-declares-the-month-and-only-the-month	src/services/payroll/mx/sua-generator.ts	los movimientos del mes dejan de colgar del empleado: cada trabajador se lleva las cuotas de TODA la plantilla, y el archivo que se sube al SUA multiplica por el número de empleados
 mirror	memory	E4.1 sua-file-declares-the-month-and-only-the-month	src/services/payroll/mx/sua-generator.ts	una corrida en borrador —un recálculo que nadie aprobó— vuelve a declararse como cuota a pagar: el patrón le paga al IMSS por un cálculo que su propio despacho no cerró
 mirror	memory	E4.1 sua-file-declares-the-month-and-only-the-month	src/services/payroll/mx/sua-generator.ts	el archivo vuelve a entregarse aunque contradiga el pasivo que el patrón ya apuntó: se persiste un `draft` descuadrado, que es justo el que alguien sube al SUA sin volver a mirarlo
@@ -1011,6 +1017,12 @@ anchor	src/plan/criteria/e4-1.ts	de: ' validarDominio(spec, row.resolved_value);
 anchor	src/plan/criteria/e4-1.ts	de: ' validarDominio(spec, value);',
 anchor	src/plan/criteria/e4-1.ts	de: " String(await getPolicyNumber(panel, 'dias_aguinaldo')),\n input.termination_date",
 anchor	src/plan/criteria/e4-1.ts	de: " const dias = Number(\n await exigirPisoLegal('dias_aguinaldo', String(await getPolicyNumber(ctx, 'dias_aguinaldo')), enFecha)\n );",
+anchor	src/plan/criteria/e4-1.ts	de: 'await resolvePolicy(panelScope(ctx), key',
+anchor	src/plan/criteria/e4-1.ts	de: 'return { tenantId: ctx.tenantId, entityId: ctx.entityId };',
+anchor	src/plan/criteria/e4-1.ts	de: 'AND v.entity_id = $2::uuid',
+anchor	src/plan/criteria/e4-1.ts	de: "WHERE tenant_id = $1 AND key = $2 AND status != 'pending'\n AND entity_id IS NOT DISTINCT FROM $3::uuid",
+anchor	src/plan/criteria/e4-1.ts	de: "WHERE tenant_id = $3 AND key = $4 AND status = 'pending'\n AND entity_id IS NOT DISTINCT FROM $5::uuid",
+anchor	src/plan/criteria/e4-1.ts	de: ' if (!ctx.entityId) {\n throw new ValidationError(\n "Auto-posting is switched on per entity',
 anchor	src/plan/criteria/e4-1.ts	de: ' ) m ON m.employee_id = e.id',
 anchor	src/plan/criteria/e4-1.ts	de: " WHERE pr.status IN ('approved', 'paid')",
 anchor	src/plan/criteria/e4-1.ts	de: ' if (bloqueantes.length > 0) {',
