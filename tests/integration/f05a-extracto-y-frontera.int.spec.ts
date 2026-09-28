@@ -14,6 +14,7 @@ import {
   verificarEstadosDeCuenta,
 } from '../../src/services/banking/bank-statement-service.js';
 import { leerExtracto } from '../../src/services/banking/parsers/index.js';
+import { resolvePolicy, seedPolicies } from '../../src/services/policy/policy-service.js';
 import type { LeerExtracto } from '../../src/services/banking/bank-statement-service.js';
 
 const leer: LeerExtracto = ({ contenido, formato, perfil }) =>
@@ -236,5 +237,158 @@ describe('F05a · el dinero con cuatro decimales', () => {
       checks: ['cadena-de-saldos'],
     });
     expect(verificado.hallazgos).toEqual([]);
+  });
+});
+
+describe('F05a · an overlapping statement does not duplicate movements (T25, #138)', () => {
+  // The monthly statement, and the quarterly that contains it. The bytes
+  // differ, so UNIQUE(bank_account_id, file_sha256) does not see them, and the
+  // four January lines come twice. The two fees on the 20th are two real
+  // charges (#88): the overlap is counted by multiplicity, not by presence.
+  const MONTHLY = [
+    'fecha,descripcion,importe,saldo',
+    '2026-01-05,DEPOSITO,1000.00,1000.00',
+    '2026-01-10,PAGO PROVEEDOR,-250.00,750.00',
+    '2026-01-20,COMISION,-50.00,700.00',
+    '2026-01-20,COMISION,-50.00,650.00',
+    '',
+  ].join('\n');
+  const QUARTERLY = [
+    'fecha,descripcion,importe,saldo',
+    '2026-01-05,DEPOSITO,1000.00,1000.00',
+    '2026-01-10,PAGO PROVEEDOR,-250.00,750.00',
+    '2026-01-20,COMISION,-50.00,700.00',
+    '2026-01-20,COMISION,-50.00,650.00',
+    '2026-02-03,DEPOSITO,500.00,1150.00',
+    '2026-03-15,PAGO PROVEEDOR,-100.00,1050.00',
+    '',
+  ].join('\n');
+
+  /** Each case gets its own entity: its own bank GL account and its own panel. */
+  async function freshAccount(label: string): Promise<{ f: Fixture; account: string }> {
+    const f = await crearEntidadHermana(a, `Traslape ${label}`);
+    const account = await cuentaBancaria(f, `Operativa ${label}`, f.roles.banco ?? unaCuentaDe(f));
+    return { f, account };
+  }
+
+  function importInto(f: Fixture, account: string, file: string, text: string) {
+    return importarEstadoDeCuenta(
+      { entityId: f.entityId, userId: f.userId, bankAccountId: account, ruta: escribir(file, text) },
+      { leer }
+    );
+  }
+
+  async function monthlyThenQuarterly(label: string, policy?: string) {
+    const { f, account } = await freshAccount(label);
+    if (policy !== undefined) {
+      const ctx = { tenantId: f.tenantId, entityId: f.entityId };
+      await seedPolicies(ctx);
+      await resolvePolicy(ctx, 'bank_statement_overlap', policy, f.userId);
+    }
+    const monthly = await importInto(f, account, `enero-${label}.csv`, MONTHLY);
+    expect(monthly.importadas).toBe(4);
+    expect(monthly.overlaps).toEqual([]);
+    return {
+      f,
+      account,
+      monthlyId: monthly.statementId,
+      quarterly: () => importInto(f, account, `t1-${label}.csv`, QUARTERLY),
+    };
+  }
+
+  async function linesIn(account: string): Promise<number> {
+    const n = await query<{ c: string }>(
+      'SELECT COUNT(*)::text AS c FROM bank_transactions WHERE bank_account_id = $1',
+      [account]
+    );
+    return Number(n.rows[0].c);
+  }
+
+  it('a line skipped by its native bank id is named with that cause, not counted by subtraction', async () => {
+    const { f, account } = await freshAccount('id-nativo');
+    const header = 'fecha,descripcion,importe,saldo,referencia';
+    const first = await importInto(f, account, 'ref-1.csv', [header, '2026-05-02,SPEI,300.00,300.00,R-001', ''].join('\n'));
+    const second = await importInto(f, account, 'ref-2.csv', [
+      header,
+      '2026-05-02,SPEI,300.00,300.00,R-001',
+      '2026-05-09,SPEI,40.00,340.00,R-002',
+      '',
+    ].join('\n'));
+    expect(second.importadas).toBe(1);
+    expect(second.skipped).toEqual([
+      expect.objectContaining({
+        line: 1,
+        date: '2026-05-02',
+        amount: '300.00',
+        reference: 'R-001',
+        cause: 'native-id-already-in-account',
+        existingStatementId: first.statementId,
+      }),
+    ]);
+    expect(second.duplicadas).toBe(1);
+    expect(second.avisos.join('\n')).toMatch(/línea 1 .*R-001/);
+  });
+
+  it('by default the quarterly over the monthly is refused, naming each line already there', async () => {
+    const { account, quarterly } = await monthlyThenQuarterly('bloquear');
+    await expect(quarterly()).rejects.toThrow(
+      /4 línea\(s\).*enero-bloquear\.csv[\s\S]*línea 1 · 2026-01-05 · 1000\.00 · DEPOSITO[\s\S]*línea 4 · 2026-01-20 · -50\.00 · COMISION/
+    );
+    // Nothing of the quarterly entered: not the overlap, not the new lines.
+    expect(await linesIn(account)).toBe(4);
+    const stmts = await query<{ c: string }>(
+      'SELECT COUNT(*)::text AS c FROM bank_statements WHERE bank_account_id = $1',
+      [account]
+    );
+    expect(stmts.rows[0].c).toBe('1');
+  });
+
+  it('with "mark" the quarterly enters and each overlapping line carries the statement it overlaps', async () => {
+    const { f, account, monthlyId, quarterly } = await monthlyThenQuarterly('marcar', 'mark');
+    const r = await quarterly();
+    expect(r.importadas).toBe(6);
+    expect(r.overlaps.map((o) => [o.line, o.existingStatementId])).toEqual([
+      [1, monthlyId], [2, monthlyId], [3, monthlyId], [4, monthlyId],
+    ]);
+    expect(await linesIn(account)).toBe(10);
+
+    // The mark is durable: `show --lines` reads it back from the line.
+    const shown = await obtenerEstadoDeCuenta(f.entityId, r.statementId, { lineas: true });
+    const marked = (shown.lineas ?? []).filter((l) => l.overlap !== null);
+    expect(marked).toHaveLength(4);
+    expect(new Set(marked.map((l) => l.overlap))).toEqual(new Set([monthlyId]));
+    expect((shown.lineas ?? []).filter((l) => l.overlap === null).map((l) => l.fecha)).toEqual([
+      '2026-02-03', '2026-03-15',
+    ]);
+  });
+
+  it('with "warn" the quarterly enters, the import names the overlap, and no line is marked', async () => {
+    const { f, monthlyId, quarterly } = await monthlyThenQuarterly('avisar', 'warn');
+    const r = await quarterly();
+    expect(r.importadas).toBe(6);
+    expect(r.overlaps).toHaveLength(4);
+    expect(r.overlaps.every((o) => o.existingStatementId === monthlyId)).toBe(true);
+    expect(r.avisos.join('\n')).toMatch(/4 línea\(s\).*enero-avisar\.csv/);
+    const shown = await obtenerEstadoDeCuenta(f.entityId, r.statementId, { lineas: true });
+    expect((shown.lineas ?? []).every((l) => l.overlap === null)).toBe(true);
+  });
+
+  it('the overlap is counted by multiplicity: a reissue that adds a second identical fee overlaps only once', async () => {
+    const { f, account } = await freshAccount('reemitido');
+    await importInto(f, account, 'feb.csv', [
+      'fecha,descripcion,importe,saldo',
+      '2026-02-01,COMISION,-50.00,-50.00',
+      '',
+    ].join('\n'));
+    // Under the default "block" this refuses; what is under test is WHICH
+    // lines it names: one of the two fees is already there, the other is new.
+    await expect(
+      importInto(f, account, 'feb-corregido.csv', [
+        'fecha,descripcion,importe,saldo',
+        '2026-02-01,COMISION,-50.00,-50.00',
+        '2026-02-01,COMISION,-50.00,-100.00',
+        '',
+      ].join('\n'))
+    ).rejects.toThrow(/^1 línea\(s\).*: línea 1 · 2026-02-01 · -50\.00 · COMISION \(en feb\.csv\)\. /);
   });
 });

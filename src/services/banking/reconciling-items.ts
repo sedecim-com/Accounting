@@ -442,6 +442,22 @@ interface FilaCandidataLibros {
 }
 
 /**
+ * The account's baseline as a floor on dates (#324 · MNE-001-038): what is
+ * dated on or before the baseline declared by the account's first session was
+ * reconciled before any session existed, and is not an item of this session
+ * nor of any later one. Without a baseline the floor is `-infinity`, so
+ * discovery stays cumulative as described below.
+ *
+ * `account` and `entity` are SQL expressions of the caller's query; the
+ * subquery is bounded by both, like every read of this module.
+ */
+export function baselineFloorSql(account: string, entity: string): string {
+  return `COALESCE((SELECT MAX(b.baseline_date) FROM reconciliation_sessions b
+                     WHERE b.bank_account_id = ${account} AND b.entity_id = ${entity}),
+                   '-infinity'::date)`;
+}
+
+/**
  * Levanta como partidas conciliatorias todo lo que ninguno de los dos lados
  * explica todavía, TIPIFICADO por su signo.
  *
@@ -456,7 +472,9 @@ interface FilaCandidataLibros {
  * cobrarse es una partida de la conciliación de marzo, no un asunto cerrado de
  * enero. Acotar por `start_date` haría desaparecer exactamente las partidas
  * viejas, que son las únicas que importan. El límite superior sí está: nada
- * posterior al cierre del periodo entra en la sesión que lo concilia.
+ * posterior al cierre del periodo entra en la sesión que lo concilia. The
+ * only floor is the account's baseline (`baselineFloorSql`), which is a
+ * declared, checked reconciliation and not an arbitrary cut.
  *
  * IDEMPOTENTE POR ORIGEN, INCLUIDO LO YA RESUELTO. Se salta todo movimiento que
  * esta sesión ya levantó, esté abierto o no, y las dos mitades de esa frase
@@ -532,6 +550,7 @@ export async function clasificarPartidas(
       WHERE ba.entity_id = $1
         AND ba.id = $2
         AND bt.transaction_date <= $3::date
+        AND bt.transaction_date > ${baselineFloorSql('ba.id', '$1')}
         AND NOT EXISTS (SELECT 1 FROM reconciliation_matches rm
                          WHERE rm.bank_transaction_id = bt.id
                            AND rm.unapplied_at IS NULL)
@@ -579,6 +598,7 @@ export async function clasificarPartidas(
                            AND rm.matched_entity_id = jel.id
                            AND rm.unapplied_at IS NULL)
         AND je.entry_date <= $3::date
+        AND je.entry_date > ${baselineFloorSql('ba.id', '$1')}
         AND NOT EXISTS (SELECT 1 FROM reconciling_items ri
                          WHERE ri.journal_entry_line_id = jel.id
                            AND ri.reconciliation_session_id = $4

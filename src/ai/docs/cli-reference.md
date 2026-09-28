@@ -5138,6 +5138,11 @@ Options:
                               the statement, never substituted for it
   --statement <id>            the statement to tie the session to, when the
                               period has more than one
+  --baseline <amount>         first session only: the reconciled balance the
+                              account starts from; refused unless it equals the
+                              books at --baseline-date
+  --baseline-date <date>      date of --baseline (YYYY-MM-DD); by default the
+                              day before the period
   --dry-run                   do the whole thing and roll it back
   --json                      JSON output
   -h, --help                  display help for command
@@ -5149,6 +5154,9 @@ Examples:
   # Assert the closing balance you were given: it is COMPARED against the
   # statement, never substituted for it.
   mnemosine bank reconciliation open "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --closing-balance 1284730.18
+  # The account's FIRST session, from the migrated opening: only July is left to
+  # explain. Refused, with the difference, if the books at June 30 disagree.
+  mnemosine bank reconciliation open "BBVA Operativa MXN" --period 2026-07 --baseline 260000.00 --dry-run
 ```
 
 #### `mnemosine bank reconciliation list` (alias: listar)
