@@ -1526,9 +1526,9 @@ const RECONCILED_ROLES: AccountRole[] = [
 /** SAT tax keys arrive as numbers from the parser ("002" -> 2): normalize the width. */
 const satKey = (v: unknown): string => String(v ?? '').padStart(3, '0');
 
-const money = (v: unknown): Decimal => new Decimal((v as string | number | null) ?? 0).toDecimalPlaces(2);
+export const money = (v: unknown): Decimal => new Decimal((v as string | number | null) ?? 0).toDecimalPlaces(2);
 
-const sumTax = (list: CFDIImpuesto[] | undefined, key: string): Decimal =>
+export const sumTax = (list: CFDIImpuesto[] | undefined, key: string): Decimal =>
   (list ?? []).filter((t) => satKey(t.impuesto) === key).reduce((s, t) => s.plus(money(t.importe)), new Decimal(0));
 
 /** What one bill line says about its VAT: the columns 066 added and the DIOT reads. */

@@ -6,6 +6,7 @@ import { createJournalEntry, attestEntryAsync } from '../services/accounting/pos
 import { JournalEntryType } from '../types/index.js';
 import { matchApproval, type MatchApprovalOpts } from './approval-policy.js';
 import { registrarFacturaDeBorradorAprobado } from '../services/xml-ingestion/pre-registration-service.js';
+import { registerInvoiceFromApprovedDraft } from '../services/xml-ingestion/issued-invoice-approval.js';
 import {
   sujetoAutenticado,
   decidirSujeto,
@@ -70,6 +71,10 @@ export interface DraftOrigin {
   issuer_name?: string | null;
   payment_method?: string | null;
   total?: string | null;
+  /** ING-3 (#320): 'invoice' when the entity issued the CFDI; approving then creates the AR invoice. */
+  document_type?: string | null;
+  receiver_rfc?: string | null;
+  receiver_name?: string | null;
 }
 
 /**
@@ -80,7 +85,9 @@ const DRAFT_SELECT = `SELECT d.id, d.entity_id, d.status, d.payload, d.ai_confid
         d.ai_model, d.user_request, d.journal_entry_id, d.review_notes, d.reviewed_by, d.created_at,
         d.pre_registration_id, x.cfdi_uuid AS origin_cfdi_uuid, x.xml_hash AS origin_xml_hash,
         x.emisor_rfc AS origin_issuer_rfc, x.emisor_nombre AS origin_issuer_name,
-        x.metodo_pago AS origin_payment_method, x.total::text AS origin_total
+        x.metodo_pago AS origin_payment_method, x.total::text AS origin_total,
+        p.document_type AS origin_document_type, x.receptor_rfc AS origin_receiver_rfc,
+        x.receptor_nombre AS origin_receiver_name
    FROM ai_drafts d
    LEFT JOIN pre_registrations p ON p.id = d.pre_registration_id AND p.entity_id = d.entity_id
    LEFT JOIN xml_documents x ON x.id = p.xml_document_id AND x.entity_id = d.entity_id`;
@@ -89,7 +96,8 @@ type DraftSqlRow = DraftRow & Record<`origin_${string}`, string | null>;
 
 function withOrigin(row: DraftSqlRow): DraftRow {
   const { origin_cfdi_uuid, origin_xml_hash, origin_issuer_rfc, origin_issuer_name,
-    origin_payment_method, origin_total, ...draft } = row;
+    origin_payment_method, origin_total, origin_document_type, origin_receiver_rfc,
+    origin_receiver_name, ...draft } = row;
   return {
     ...draft,
     origin: row.pre_registration_id
@@ -101,6 +109,9 @@ function withOrigin(row: DraftSqlRow): DraftRow {
           issuer_name: origin_issuer_name ?? null,
           payment_method: origin_payment_method ?? null,
           total: origin_total ?? null,
+          document_type: origin_document_type ?? null,
+          receiver_rfc: origin_receiver_rfc ?? null,
+          receiver_name: origin_receiver_name ?? null,
         }
       : null,
   };
@@ -761,7 +772,20 @@ async function approveDraftInternal(
     // bill in THIS transaction. The bill is born first so the entry posts with
     // `sourceType: 'bill'` like the inbox path's own entry; the reconciliation
     // against the XML runs inside and a mismatch rolls everything back.
-    const bill = origin
+    // ING-3 (#320): one the entity issued turns into its customer invoice the
+    // same way, and the entry posts with `sourceType: 'invoice'`.
+    const invoice = origin?.document_type === 'invoice'
+      ? await registerInvoiceFromApprovedDraft(client, {
+          tenantId: ctx.tenantId,
+          entityId: ctx.entityId,
+          preRegistrationId: origin.pre_registration_id,
+          approvedLines: approvedPayload.lines,
+          approvedDescription: approvedPayload.description,
+          accountIdByCode: validation.accountIdByCode,
+          userId: reviewer.userId,
+        })
+      : null;
+    const bill = origin && !invoice
       ? await registrarFacturaDeBorradorAprobado(client, {
           tenantId: ctx.tenantId,
           entityId: ctx.entityId,
@@ -782,14 +806,14 @@ async function approveDraftInternal(
       lines,
       reviewer.userId,
       {
-        sourceType: bill ? 'bill' : 'ai_draft',
-        sourceId: bill ? bill.billId : draftId,
+        sourceType: invoice ? 'invoice' : bill ? 'bill' : 'ai_draft',
+        sourceId: invoice ? invoice.invoiceId : bill ? bill.billId : draftId,
         reference: approvedPayload.reference,
         autoPost: true,
         client, // same transaction as the draft update below
       }
     );
-    if (bill) await bill.close(entry.id);
+    await (invoice ?? bill)?.close(entry.id);
 
     const updated = await client.query(
       `UPDATE ai_drafts

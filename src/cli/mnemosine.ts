@@ -1647,7 +1647,12 @@ function renderDraft(draft: DraftRow, index: number, total: number): void {
   console.log(`${c.dim('description:')} ${p.description}`);
   if (p.reference) console.log(`${c.dim('reference:')} ${p.reference}`);
   const o = draft.origin;
-  if (o) {
+  if (o?.document_type === 'invoice') {
+    console.log(c.bold(t('review.draft.invoice_to_be_born', {
+      uuid: o.cfdi_uuid ?? '?', customer: o.receiver_name ?? '?', rfc: o.receiver_rfc ?? '?',
+      method: o.payment_method ?? '?', total: o.total ? formatMoney(o.total) : '?',
+    })));
+  } else if (o) {
     console.log(c.bold(t('review.draft.bill_to_be_born', {
       uuid: o.cfdi_uuid ?? '?', issuer: o.issuer_name ?? '?', rfc: o.issuer_rfc ?? '?',
       method: o.payment_method ?? '?', total: o.total ? formatMoney(o.total) : '?',
