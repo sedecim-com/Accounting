@@ -960,7 +960,11 @@ describe('bank statement import', () => {
       }]);
     }
     if (/INSERT INTO bank_transactions/.test(text)) {
-      return { rows: [], rowCount: params.length / 11 };
+      // RETURNING id: the importer names each line that entered (T25, #138),
+      // so a bare rowCount no longer describes the answer. The id is the
+      // first of the eleven parameters of each row.
+      const ids = Array.from({ length: params.length / 11 }, (_, i) => ({ id: params[i * 11] }));
+      return { rows: ids, rowCount: ids.length };
     }
     if (/FROM legal_entities WHERE id = \$1/.test(text)) return filas([{ tenant_id: 'T1' }]);
     return filas([]);

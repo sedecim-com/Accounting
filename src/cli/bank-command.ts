@@ -2633,6 +2633,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               read: r.lineasLeidas,
               imported: r.importadas,
               duplicated: r.duplicadas,
+              skipped: r.skipped,
+              overlaps: r.overlaps,
+              overlap_policy: r.overlapPolicy,
               findings: r.hallazgos.length,
               dry_run: r.ensayo,
             })),
@@ -2820,7 +2823,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           format: 'table',
           idField: 'id',
           numeric: ['importe'],
-          fields: 'fecha,fechaValor,tipo,importe,descripcion,referencia,cotejada',
+          fields: 'fecha,fechaValor,tipo,importe,descripcion,referencia,cotejada,overlap',
         });
         if (d.lineasOmitidas > 0) {
           process.stderr.write(
