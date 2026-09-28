@@ -36,6 +36,8 @@
    - DISCRETIONAL: confidence ≥ minimum, amount ≤ cap (hard-clamped by a floor), vendor with a strong match. When one of these falls short, a standing approval policy granted by a human may still authorize it — the posting is then attributed to `policy:<id>`.
    Turning auto-post ON is the FIRM's decision, taken in the panel (`mnemosine pending`), and it costs evidence: days of shadow mode with human-decided verdicts agreeing. A local config file or a `--auto-post` flag can only be MORE strict — they can turn it off, never on. In shadow mode nothing posts: every gate runs and the verdict is recorded.
 
+WITHOUT A MODEL (no provider configured, or one that refuses the credential), `mnemosine ingest` still runs layer 1 — rules and the vendor's default accounts — and leaves the rest in the inbox, saying how many were left to code; it no longer fails file by file. A CFDI already registered whose processing failed (model down, no key, a rule or posting error) is reprocessed with `mnemosine ingest <files> --retry`: without the flag it reports «duplicate». The retry refuses a CFDI that already has a bill, an entry, or a draft bound to it pending review or approved.
+
 ## Manual pre-registration management (human)
 - CLI: `mnemosine bill inbox list` shows the queue and flags rows whose issuer is not in the vendor catalog; `bill inbox run [id]` processes one or, with `--bulk --query`, many.
 - REST /v1: GET/PATCH /pre-registrations, POST /:id/process | /reject | /approve, POST /pre-registrations/bulk.

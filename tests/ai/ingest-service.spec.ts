@@ -38,6 +38,7 @@ import {
   ingestCfdiFiles,
   buildCfdiPrompt,
   scanImportedText,
+  isProviderUnavailable,
   UNTRUSTED_OPEN,
   UNTRUSTED_CLOSE,
   type DraftCapture,
@@ -77,7 +78,7 @@ function makeUpload(overrides: Record<string, unknown> = {}, preReg: Record<stri
   };
 }
 
-type PlanStep = { confidence: number; total?: string } | 'question' | 'throw' | 'double';
+type PlanStep = { confidence: number; total?: string } | 'question' | 'throw' | 'double' | 'no-key';
 
 /** Fake session: each runTurn "creates" the draft via the harness capture. */
 function fakeSession(capture: DraftCapture, plan: PlanStep[]): LlmSession {
@@ -88,6 +89,8 @@ function fakeSession(capture: DraftCapture, plan: PlanStep[]): LlmSession {
     runTurn: vi.fn(async () => {
       const step = plan[i++];
       if (step === 'throw') throw new Error('model down');
+      // What the Anthropic SDK throws when no credential resolves at all.
+      if (step === 'no-key') throw new Error('Could not resolve authentication method. Expected one of apiKey, authToken');
       if (step === 'question') return 'asked a question'; // no draft created
       if (step === 'double') {
         capture.drafts.push(
@@ -122,6 +125,10 @@ function run(opts: {
    * con un molde, y las aserciones de vitest no dependen de este tipo.
    */
   autoApproveByPolicy?: (...args: never[]) => unknown;
+  /** ING-2 (#319): no model provider at all. */
+  noModel?: boolean;
+  retry?: boolean;
+  reprocessed?: ReturnType<typeof makeUpload> | null;
 }) {
   const capture: DraftCapture = { drafts: [] };
   const uploads = opts.uploads ?? [makeUpload()];
@@ -141,17 +148,20 @@ function run(opts: {
       throw new NoMatchingApprovalPolicyError(`No approval policy authorizes draft ${draftId}`);
     });
   const session = fakeSession(capture, opts.plan);
+  const reprocess = vi.fn(async () => (opts.reprocessed === undefined ? makeUpload() : opts.reprocessed));
   const report = ingestCfdiFiles({
     ctx: CTX, reviewer: REVIEWER,
     files: opts.files ?? ['/tmp/f1.xml'],
     thresholds: opts.thresholds ?? OPEN,
-    session, capture,
+    session: opts.noModel ? null : session, capture,
+    retry: opts.retry,
     deps: {
       processUpload, approve, readFile: () => '<xml/>',
       autoApproveByPolicy: autoApproveByPolicy as never,
+      reprocess,
     },
   });
-  return { report, processUpload, approve, session, autoApproveByPolicy };
+  return { report, processUpload, approve, session, autoApproveByPolicy, reprocess };
 }
 
 describe('ingestCfdiFiles — layers and thresholds', () => {
@@ -677,5 +687,81 @@ describe('ING-3 · #320 — the direction of the CFDI', () => {
     expect(received).toMatch(/- Direction: received \(the entity is the receiver/);
     expect(received).not.toMatch(/this received CFDI/);
     expect(buildCfdiPrompt(makeUpload())).toMatch(/- Direction: not determined/);
+  });
+});
+
+describe('ING-2 · #319 — without a model, and after its failure', () => {
+  it('without a provider, the deterministic layer runs and the rest is left to code, not failed', async () => {
+    const { report, session } = run({
+      noModel: true,
+      plan: [],
+      files: ['/tmp/a.xml', '/tmp/b.xml', '/tmp/c.xml'],
+      uploads: [
+        { ...makeUpload(), autoProcessed: true },
+        makeUpload({ cfdi_uuid: 'UUID-2' }),
+        makeUpload({ cfdi_uuid: 'UUID-3' }),
+      ],
+    });
+    const r = await report;
+    expect(r.results.map((x) => x.status)).toEqual(['rules', 'blocked', 'blocked']);
+    expect(r.results[1].detail).toMatch(/no model provider/);
+    expect(r.counts.error).toBe(0);
+    expect(r.toCode).toBe(2);
+    expect(session.runTurn).not.toHaveBeenCalled();
+  });
+
+  it('a missing credential is asked once, not file by file: the batch falls back to the deterministic layer', async () => {
+    const { report, session } = run({
+      plan: ['no-key', { confidence: 0.99 }],
+      files: ['/tmp/a.xml', '/tmp/b.xml'],
+      uploads: [makeUpload(), makeUpload({ cfdi_uuid: 'UUID-2' })],
+    });
+    const r = await report;
+    expect(r.results.map((x) => x.status)).toEqual(['blocked', 'blocked']);
+    expect(r.counts.error).toBe(0);
+    expect(r.toCode).toBe(2);
+    expect(session.runTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('isProviderUnavailable: credential and billing errors yes, a transient failure no', () => {
+    expect(isProviderUnavailable(new Error('Could not resolve authentication method.'))).toBe(true);
+    expect(isProviderUnavailable({ name: 'AuthenticationError', message: 'invalid x-api-key' })).toBe(true);
+    expect(isProviderUnavailable(new Error('model down'))).toBe(false);
+  });
+
+  it('without --retry an already registered CFDI stays a duplicate, and the detail says how to reprocess it', async () => {
+    const { report, reprocess } = run({
+      plan: [],
+      uploads: [new DuplicateError('already exists', 'doc-1')],
+    });
+    const r = (await report).results[0];
+    expect(r.status).toBe('duplicate');
+    expect(r.detail).toMatch(/--retry/);
+    expect(reprocess).not.toHaveBeenCalled();
+  });
+
+  it('with --retry a failed CFDI is reprocessed instead of answering «duplicate»', async () => {
+    const { report, reprocess } = run({
+      retry: true,
+      thresholds: CLOSED,
+      plan: [{ confidence: 0.99 }],
+      uploads: [new DuplicateError('already exists', 'doc-1')],
+    });
+    const r = (await report).results[0];
+    expect(r.status).toBe('draft');
+    expect(reprocess).toHaveBeenCalledWith(CTX.entityId, 'doc-1', REVIEWER.userId);
+  });
+
+  it('with --retry a CFDI that is not reprocessable is still reported as a duplicate', async () => {
+    const { report, session } = run({
+      retry: true,
+      plan: [{ confidence: 0.99 }],
+      reprocessed: null,
+      uploads: [new DuplicateError('already exists', 'doc-1')],
+    });
+    const r = (await report).results[0];
+    expect(r.status).toBe('duplicate');
+    expect(r.detail).toMatch(/not reprocessable/);
+    expect(session.runTurn).not.toHaveBeenCalled();
   });
 });

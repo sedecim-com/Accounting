@@ -266,10 +266,79 @@ export class PreRegistrationService {
     // Create pre-registration
     const preRegistration = await this.createPreRegistration(entityId, xmlDocument, parsed, uploadedBy, direction);
 
+    return this.applyRulesAndProcess(entityId, xmlDocument, preRegistration, direction, uploadedBy);
+  }
+
+  /**
+   * ING-2 (#319): reprocess a CFDI already in the mirror whose processing
+   * failed (model down, no key, a rule or posting error). Re-ingesting it used
+   * to answer «duplicate» and leave the pre-registration stranded.
+   *
+   * Only a pre-registration that nothing has consumed is taken: no bill, no
+   * entry, and no draft bound to it waiting for a human or already approved
+   * (a second AI turn would draft the same expense twice). The claim is a
+   * guarded UPDATE, so two concurrent retries cannot both take it. Returns
+   * null, and writes nothing, when the CFDI is not reprocessable.
+   */
+  async reprocessXmlDocument(
+    entityId: string,
+    xmlDocumentId: string,
+    userId: string
+  ): Promise<{
+    xmlDocument: Record<string, unknown>;
+    preRegistration: Record<string, unknown>;
+    autoProcessed: boolean;
+    direction: CfdiDirection;
+  } | null> {
+    const doc = await query<Record<string, unknown>>(
+      'SELECT * FROM xml_documents WHERE id = $1 AND entity_id = $2',
+      [xmlDocumentId, entityId]
+    );
+    if (doc.rows.length === 0) return null;
+    const xmlDocument = doc.rows[0];
+
+    const claimed = await query<Record<string, unknown>>(
+      `UPDATE pre_registrations pr
+          SET status = 'draft', error_message = NULL, error_details = NULL, updated_at = NOW()
+        WHERE pr.xml_document_id = $1 AND pr.entity_id = $2
+          AND pr.status IN ('draft', 'ready', 'error')
+          AND pr.bill_id IS NULL AND pr.journal_entry_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ai_drafts d
+             WHERE d.pre_registration_id = pr.id AND d.entity_id = pr.entity_id
+               AND d.status IN ('pending_review', 'approved'))
+        RETURNING pr.*`,
+      [xmlDocumentId, entityId]
+    );
+    if (claimed.rowCount !== 1) return null;
+
+    const direction = cfdiDirection(
+      await entityRfcOf(entityId),
+      String(xmlDocument.emisor_rfc),
+      String(xmlDocument.receptor_rfc)
+    );
+    return this.applyRulesAndProcess(entityId, xmlDocument, claimed.rows[0], direction, userId);
+  }
+
+  /** The deterministic layer after registration: tenant rules, then auto-processing. */
+  private async applyRulesAndProcess(
+    entityId: string,
+    xmlDocument: Record<string, unknown>,
+    preRegistration: Record<string, unknown>,
+    direction: CfdiDirection,
+    uploadedBy: string
+  ): Promise<{
+    xmlDocument: Record<string, unknown>;
+    preRegistration: Record<string, unknown>;
+    autoProcessed: boolean;
+    bill?: Record<string, unknown>;
+    journalEntry?: Record<string, unknown>;
+    direction: CfdiDirection;
+  }> {
     // An issued REP still goes on: procesarREP reads the direction and books
     // the collection. Any other issued CFDI waits for its AR path (#320, S3);
     // the tenant rules are written for expenses and never see it.
-    if (direction === 'issued' && parsed.tipoDeComprobante !== 'P') {
+    if (direction === 'issued' && preRegistration.document_type !== 'payment') {
       return { xmlDocument, preRegistration, autoProcessed: false, direction };
     }
 

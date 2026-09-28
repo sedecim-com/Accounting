@@ -27,7 +27,12 @@ import {
   listProfiles,
   type LlmSession,
 } from '../ai/providers/index.js';
-import { resolveLanguage, setUserLocale, configFilePaths } from '../ai/providers/config.js';
+import {
+  resolveLanguage,
+  setUserLocale,
+  configFilePaths,
+  MissingProviderCredentialError,
+} from '../ai/providers/config.js';
 import {
   DEFAULT_LOCALE,
   LOCALES,
@@ -803,6 +808,8 @@ Examples:
   mnemosine ingest ./cfdi/julio/*.xml --no-auto-post --user contador@despacho.mx
   # Confirm the auto-posting the panel already authorized, with your own ceiling.
   mnemosine ingest ./cfdi/julio/*.xml --auto-post --min-confidence 0.95 --max-amount 20000
+  # Reprocess the CFDI whose processing failed (model down, no key) instead of «duplicate».
+  mnemosine ingest ./cfdi/julio/*.xml --retry
 `,
   lang: `
 Examples:
@@ -2097,6 +2104,7 @@ const ingest = describeCommand(
   .option('--no-auto-post', 'Disables auto-posting even if the config has it turned on')
   .option('--min-confidence <n>', 'Minimum confidence for auto-post (0-1)', parseFloat)
   .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat)
+  .option('--retry', 'Reprocess CFDI already registered whose processing failed, instead of reporting them as duplicates')
   .addHelpText('after', EJEMPLOS.ingest);
 // Irreversible por su camino más grave (el auto-posteo), declarado junto a su
 // registro (S0.6). El plan de cierre proponía partirlo por bandera, pero S0.3
@@ -2114,7 +2122,7 @@ declareRisk(ingest, {
 ingest.action(async (files: string[], opts: {
     entity?: string; provider?: string; model?: string; user?: string;
     autoPost?: boolean; minConfidence?: number; maxAmount?: number;
-    yes?: boolean; idempotencyKey?: string;
+    yes?: boolean; idempotencyKey?: string; retry?: boolean;
   }) => {
     try {
       const ctx = await resolveEntity(opts.entity);
@@ -2218,11 +2226,21 @@ ingest.action(async (files: string[], opts: {
           consumo.costoConocido = true;
         }
       };
-      const profile = resolveProfile(opts.provider, opts.model);
+      // ING-2 (#319): a profile without a credential is «no model provider».
+      // The run goes on with the deterministic layer (rules, the vendor's
+      // default accounts) and leaves the rest in the inbox, instead of failing
+      // each file with «Model failure».
+      let profile: ReturnType<typeof resolveProfile> | null = null;
+      try {
+        profile = resolveProfile(opts.provider, opts.model);
+      } catch (err) {
+        if (!(err instanceof MissingProviderCredentialError)) throw err;
+        console.error(c.yellow(`Warning: ${err.message}`) + c.dim('\n  Only the deterministic layer runs.'));
+      }
       // Batch pipeline with auto-post thresholds: the grounding corrective
       // turn is harness-initiated and must never be able to add drafts to
       // an unattended run — disabled here.
-      const session = await createLlmSession(profile, ctx, callbacks, {
+      const session = profile === null ? null : await createLlmSession(profile, ctx, callbacks, {
         grounding: { enabled: false },
         // A7·3 · y con su superficie NOMBRADA. Esta hoja construía su sesión
         // por su cuenta y no pasaba lista: recibía TODAS las herramientas
@@ -2240,7 +2258,7 @@ ingest.action(async (files: string[], opts: {
       console.log(
         c.bold('\nmnemosine ingest') +
           c.dim(
-            ` · ${ctx.entityName} · ${files.length} file(s) · ${session.label} · ` +
+            ` · ${ctx.entityName} · ${files.length} file(s) · ${session?.label ?? 'no model provider'} · ` +
               (thresholds.autoPost
                 ? `auto-post ≥${thresholds.minConfidence} up to ${thresholds.maxAmount}`
                 : 'no auto-post (everything to draft)')
@@ -2266,8 +2284,8 @@ ingest.action(async (files: string[], opts: {
       const report = await conCorridaRegistrada({
         ctx,
         apertura: {
-          provider: profile.name,
-          model: profile.model,
+          provider: profile?.name ?? 'none',
+          model: profile?.model ?? 'none',
           filesTotal: files.length,
           autoPostEnabled: thresholds.autoPost,
           createdBy: reviewer.email,
@@ -2275,7 +2293,7 @@ ingest.action(async (files: string[], opts: {
         cuerpo: (corridaId) => {
           fila.id = corridaId;
           return ingestCfdiFiles({
-            ctx, reviewer, files, thresholds, session, capture,
+            ctx, reviewer, files, thresholds, session, capture, retry: opts.retry === true,
             onProgress: (msg) => stderr.write(ce.dim(`\n── ${msg}\n`)),
           });
         },
@@ -2309,7 +2327,7 @@ ingest.action(async (files: string[], opts: {
         if ((r.sospechas?.length ?? 0) > 0) {
           registrarEventoEnSegundoPlano(ctx, {
             kind: 'sospecha',
-            provider: profile.name,
+            provider: profile?.name ?? 'none',
             detail: { archivo: r.file, campos: r.sospechas, corrida: fila.id },
           });
         }
@@ -2332,7 +2350,13 @@ ingest.action(async (files: string[], opts: {
           `${cnt.blocked} blocked, ${cnt.duplicate} duplicate(s), ${cnt.invalid + cnt.error} with errors`
       );
       if (cnt.draft > 0) console.log(c.dim('Review the drafts with: mnemosine review'));
-      if (cnt.blocked > 0) console.log(c.dim('Answer the questions with: mnemosine questions'));
+      if (report.toCode > 0) {
+        console.log(
+          `${report.toCode} left to code: the model was not consulted. ` +
+            c.dim('See them with: mnemosine bill inbox list')
+        );
+      }
+      if (cnt.blocked > report.toCode) console.log(c.dim('Answer the questions with: mnemosine questions'));
       // El registro es best-effort y NO cambia el código de salida — los CFDI
       // clasificados son verdad aunque la anotación falle. Pero el operador se
       // entera aquí, donde mira, y no sólo cuando pasó hace veinte minutos.
