@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 212 of 330 subcommands
+  spelling is `-T` at the root and `-t` on the 213 of 331 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -2952,6 +2952,8 @@ Options:
 Commands:
   list|listar [options]        The CFDI queue: what arrived, whose it is, and
                                what is holding it up
+  edit|editar [options] <id>   Code a pre-registration by hand: the account (and
+                               cost center) of a line, or its default account
   run|ejecutar [options] [id]  Turn pre-registrations into vendor bills, or
                                approve, reject and schedule them in bulk
   help [command]               display help for command
@@ -2987,6 +2989,35 @@ Examples:
   mnemosine bill inbox list --status ready
   # Only what is held waiting for a prior approval, for one vendor.
   mnemosine bill inbox list --requires-approval --vendor "Papeleria del Centro"
+```
+
+#### `mnemosine bill inbox edit` (alias: editar)
+
+```
+Usage: mnemosine bill inbox edit|editar [options] <id>
+
+Code a pre-registration by hand: the account (and cost center) of a line, or its
+default account
+
+Arguments:
+  id                       one pre-registration, by id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --line <n>               line number to code; without it, --account is the
+                           default for every line with none
+  --account <code>         expense account, by code or id
+  --cost-center <id>       cost center id of the --line
+  -h, --help               display help for command
+
+Examples:
+  # Code line 1 of a CFDI the model never classified, then post it with `bill inbox run`.
+  mnemosine bill inbox edit 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 --line 1 --account 6130
+  # One account for every line that has none of its own.
+  mnemosine bill inbox edit 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 --account 6130
 ```
 
 #### `mnemosine bill inbox run` (alias: ejecutar)
