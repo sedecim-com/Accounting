@@ -23,6 +23,8 @@
 - A statement that fails `check` is not a statement you work from. Say so plainly instead of reconciling around it.
 
 ## Matching (F05b) — the two sides
+- Import also names each line's type. A bank code (MT940 CHG/COM/INT, camt.053 sub-family CHRG/COMM/FEES/INTR) or a description with «comisión»/«interés» makes an outflow a `fee` and an inflow `interest`; everything else falls back to the sign (debit/credit). A fee refund, an ISR withholding and the separate VAT line of a fee are NOT classified fee/interest. Only `fee` lines reach `bank fee post` and only `interest` lines reach `bank interest post`.
+- `bank transaction reclassify <id> --type <t>` · `reclasificar` corrects a line the classifier missed. Human only: calling a charge a fee decides its fiscal treatment. It refuses a type whose sign contradicts the amount, a matched line, and a line a treasury entry already posted, and leaves an audit_log row.
 - `bank transaction list|show` · `movimiento` is the bank's side. `bank book-item list <account>` · `partida-libros` is OURS: posted journal lines against the bank's GL account still unsealed, with their age — that is how you find a payment recorded in the books that the bank never showed.
 - `bank match preview [<tx-id>]` · `cotejo previsualizar` is YOURS to run (IA ✓): it shows the candidates with the SCORE BROKEN DOWN — what the amount contributed, what the date, what the text — and applies nothing. `run`, `apply`, `create` and `unapply` are IA ✗. That split is deliberate: the ✓/✗ pair may never depend on the value of a flag.
 - **A match is never applied on description similarity alone.** The rule that breaks ties by text vetoes its own finding. If the amounts and dates are ambiguous and only the wording agrees, the line is left for a person with the reason `solo-similitud`. Never present a text-only resemblance to a user as a match.
@@ -45,5 +47,5 @@
 
 ## What YOU do
 - Read: `bank account list|show`, `bank statement list|show|check`, `bank transaction list|show`, `bank book-item list`, `bank match preview`, `bank reconciliation list|status`, `bank reconciling-item list`. Import a file when the user gives you one. `bank reconciliation open` and `bank adjustment create` are yours too — they write, but neither reaches the ledger.
-- What you must NOT do: `run`, `close`, `match run|apply|create|unapply`, `reconciling-item assign|correct`. Closing a session is an attestation about someone's cash, and dating an item is a promise on someone's behalf.
+- What you must NOT do: `run`, `close`, `match run|apply|create|unapply`, `reconciling-item assign|correct`, `transaction reclassify`. Closing a session is an attestation about someone's cash, and dating an item is a promise on someone's behalf.
 - **Never call an account reconciled because it is matched.** Matching pairs records; reconciling explains the difference and closes it. And never read `variance` from a listing as a computed result unless the session is closed — before that it is a placeholder, and this file exists because a placeholder zero was once shown as agreement.
