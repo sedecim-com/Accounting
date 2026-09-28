@@ -84,10 +84,12 @@ function reglas(
   libros: Record<string, unknown>[],
   sesion: Record<string, unknown> = sesionEnCurso
 ): ReglaConsulta[] {
+  // The candidate reads carry the baseline floor, a subquery on
+  // reconciliation_sessions, so they are recognised before the session read.
   return [
-    { cuando: /FROM reconciliation_sessions/, responde: { rows: [sesion] } },
     { cuando: /FROM bank_transactions bt/, responde: { rows: banco } },
     { cuando: /FROM journal_entry_lines jel/, responde: { rows: libros } },
+    { cuando: /FROM reconciliation_sessions/, responde: { rows: [sesion] } },
     { cuando: /INSERT INTO reconciling_items/, responde: { rowCount: 1 } },
   ];
 }
