@@ -70,6 +70,7 @@ const existente = (p: Partial<ExistingAccountRow> & { code: string }): ExistingA
   account_level: p.account_level ?? 1,
   codigo_agrupador_sat: 'codigo_agrupador_sat' in p ? (p.codigo_agrupador_sat ?? null) : '100',
   code: p.code,
+  ...(p.parent_code === undefined ? {} : { parent_code: p.parent_code }),
 });
 
 describe('planSatChartImport · la jerarquía', () => {
@@ -301,6 +302,56 @@ describe('planSatChartImport · el tipo de cuenta', () => {
       expect(p.aCrear).toEqual([]);
       expect(p.omitidas.map((o) => o.code)).toEqual(['C']);
     });
+
+    // WIT-03 (PR #415): the classification has to travel THROUGH an existing
+    // account that hangs from a memorandum one, whatever the row order.
+    describe('propagates through existing descendants, in any row order', () => {
+      const chain = [
+        { numCta: 'M', codAgrup: '801', nivel: 1 },
+        { numCta: 'C', codAgrup: '', subCtaDe: 'M', nivel: 2 },
+        { numCta: 'G', codAgrup: '', subCtaDe: 'C', nivel: 3 },
+      ];
+      const existing = () => [existingM(), existente({ code: 'C', codigo_agrupador_sat: null })];
+
+      for (const [label, rows] of [
+        ['M, C, G', chain],
+        ['G, C, M', [...chain].reverse()],
+        ['C, G, M', [chain[1], chain[2], chain[0]]],
+      ] as const) {
+        it(`${label}: the new grandchild is left out and the existing accounts stay as they are`, () => {
+          const before = existing();
+          const p = plan([...rows], before);
+          expect(p.aCrear).toEqual([]);
+          expect(p.omitidas).toEqual([expect.objectContaining({ code: 'G', motivo: 'cuentas_de_orden' })]);
+          expect(p.completa).toBe(true);
+          expect(p.yaExistian.map((y) => y.code).sort()).toEqual(['C', 'M']);
+          const conflicts = p.findings.filter((f) => f.regla === 'IMP-ORDEN-YA-EN-EL-MAYOR').map((f) => f.numCta);
+          expect(conflicts.sort()).toEqual(['C', 'M']);
+          expect(before).toEqual(existing());
+        });
+      }
+
+      it('walks the entity own tree when the file names only the grandchild', () => {
+        const p = plan(
+          [{ numCta: 'G', codAgrup: '', subCtaDe: 'C', nivel: 3 }],
+          [existingM(), existente({ code: 'C', codigo_agrupador_sat: null, parent_code: 'M' })]
+        );
+        expect(p.aCrear).toEqual([]);
+        expect(p.omitidas.map((o) => [o.code, o.motivo])).toEqual([['G', 'cuentas_de_orden']]);
+      });
+
+      it('an ordinary existing subtree still lends its type to a new grandchild', () => {
+        const p = plan(
+          [{ numCta: 'G', codAgrup: '', subCtaDe: 'C', nivel: 3 }],
+          [
+            existente({ code: 'P', codigo_agrupador_sat: '101' }),
+            existente({ code: 'C', codigo_agrupador_sat: null, parent_code: 'P' }),
+          ]
+        );
+        expect(p.aCrear.map((c) => [c.code, c.accountType])).toEqual([['G', 'asset']]);
+        expect(p.omitidas).toEqual([]);
+      });
+    });
   });
 
   it('a chart whose only omissions are memorandum accounts is complete: they stay out by doctrine', () => {
@@ -513,7 +564,7 @@ describe('importSatChart · la frontera de entidad y de inquilino', () => {
     );
     const sql = String(mockQuery.mock.calls[1][0]);
     expect(sql).toContain('FROM accounts');
-    expect(sql).toContain('WHERE entity_id = $1');
+    expect(sql).toContain('WHERE a.entity_id = $1');
     expect(mockQuery.mock.calls[1][1]).toEqual(['e1']);
   });
 });
@@ -623,6 +674,18 @@ describe('importSatChart · escribir, o no escribir', () => {
     expect(r.creadas).toEqual(['100']);
     expect(r.findings.find((f) => f.regla === 'IMP-INCOMPLETO')).toBeUndefined();
     expect(inserciones).toHaveLength(1);
+  });
+
+  it("reads each existing account's parent, scoped to the entity, so the memorandum walk can climb it", async () => {
+    conBase([]);
+    conTransaccion();
+    await importSatChart(
+      { tenantId: 't1' },
+      { entityId: 'e1', userId: 'u1', dryRun: true, xml: archivo([{ numCta: '100', codAgrup: '101' }]) }
+    );
+    const sql = (mockQuery.mock.calls as [string][]).map(([s]) => s).find((s) => s.includes('FROM accounts'));
+    expect(sql).toContain('AS parent_code');
+    expect(sql).toMatch(/p\.entity_id = a\.entity_id/);
   });
 
   it('when something else blocks, the refusal counts only the rows that are a defect', async () => {

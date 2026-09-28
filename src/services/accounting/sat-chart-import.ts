@@ -120,6 +120,12 @@ export interface ExistingAccountRow {
   normal_balance: string;
   account_level: number;
   codigo_agrupador_sat: string | null;
+  /**
+   * The code of its parent in the entity's own tree (`null` at the root). Optional
+   * because only the memorandum walk needs it; without it the file's SubCtaDe
+   * is the only hierarchy known for that account.
+   */
+  parent_code?: string | null;
 }
 
 export interface PlannedAccount {
@@ -317,15 +323,43 @@ export function planSatChartImport(
   /** La profundidad efectiva de cada código, ya sea nueva o preexistente. */
   const nivelResuelto = new Map<string, number>();
   const descartadas = new Set<string>();
-  /**
-   * Memorandum accounts, and every row that hangs from one: a subaccount of
-   * UFIN is UFIN too, whatever its own CodAgrup says, so the whole 8xx
-   * subtree stays out by the same doctrine and none of it blocks.
-   */
-  const memorandum = new Set<string>();
+  // ── WHICH CODES ARE MEMORANDUM ACCOUNTS ────────────────────────────
+  //
+  // A subaccount of UFIN is UFIN too, whatever its own CodAgrup says, so the
+  // whole 8xx subtree stays out by the same doctrine and none of it blocks.
+  // That holds THROUGH accounts that already exist (WIT-03, PR #415): an
+  // existing C under an existing 8xx M makes a new G under C memorandum too.
+  // So it is not decided row by row in file order: each code walks its
+  // ancestors in BOTH trees —the entity's own and the file's SubCtaDe— and is
+  // memorandum if any of them carries an 8xx agrupador, stored or declared.
+  // Excluding is the safe direction: it never adds money to the balance.
+  const ownMemorandum = new Set<string>();
+  const parentsOf = new Map<string, string[]>();
+  const addParent = (code: string, parent: string | null | undefined): void => {
+    if (parent === null || parent === undefined) return;
+    parentsOf.set(code, [...(parentsOf.get(code) ?? []), parent]);
+  };
+  for (const e of existentes) {
+    if (readAgrupador(e.codigo_agrupador_sat ?? '').verdict === 'cuentas_de_orden') ownMemorandum.add(e.code);
+    addParent(e.code, e.parent_code);
+  }
+  for (const r of orden) {
+    if (readAgrupador(r.codAgrup).verdict === 'cuentas_de_orden') ownMemorandum.add(r.numCta);
+    addParent(r.numCta, r.subCtaDe);
+  }
+  const isMemorandum = (code: string): boolean => {
+    const seen = new Set<string>();
+    const pending = [code];
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      if (ownMemorandum.has(next)) return true;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      pending.push(...(parentsOf.get(next) ?? []));
+    }
+    return false;
+  };
   const leaveOutAsMemorandum = (r: CatalogFileRow, detail: string, why: string): void => {
     descartadas.add(r.numCta);
-    memorandum.add(r.numCta);
     omitidas.push({ fila: r.fila, code: r.numCta, motivo: 'cuentas_de_orden', detalle: detail });
     findings.push(
       finding(
@@ -347,12 +381,6 @@ export function planSatChartImport(
     const base = baseOfAccountType(e.account_type);
     if (base !== null) baseResuelta.set(e.code, base);
     nivelResuelto.set(e.code, e.account_level);
-    // An account that already lives in the entity with an 8xx agrupador is a
-    // memorandum account too, whatever type it was given: it is never touched,
-    // but it must not lend that type to new subaccounts (WIT-02, PR #415).
-    if (readAgrupador(e.codigo_agrupador_sat ?? '').verdict === 'cuentas_de_orden') {
-      memorandum.add(e.code);
-    }
   }
 
   for (const r of orden) {
@@ -383,15 +411,15 @@ export function planSatChartImport(
       // The file saying 8xx is enough to classify it, even when the entity's
       // row lost its agrupador. The account stays as it is; the conflict with
       // the doctrine is declared, and its new subaccounts stay out.
-      if (memorandum.has(r.numCta) || readAgrupador(r.codAgrup).verdict === 'cuentas_de_orden') {
-        memorandum.add(r.numCta);
+      if (isMemorandum(r.numCta)) {
         findings.push(
           finding(
             'IMP-ORDEN-YA-EN-EL-MAYOR',
             'aviso',
             r.fila,
             r.numCta,
-            `"${r.numCta}" es cuenta de orden y ya existe en la entidad como ${yaEsta.account_type}. ` +
+            `"${r.numCta}" es cuenta de orden —por su agrupador o porque cuelga de una— y ya existe ` +
+              `en la entidad como ${yaEsta.account_type}. ` +
               `NO se toca —una importación no borra ni retipa lo que ya está—, pero según la doctrina ` +
               `(${MEMORANDUM_DOCTRINE}) no debería estar en el mayor: revísala a mano. Sus subcuentas ` +
               `nuevas no se crean.`
@@ -422,7 +450,7 @@ export function planSatChartImport(
     let parentYaExistia = false;
     let nivelDelPadre = 0;
     if (r.subCtaDe !== null) {
-      if (memorandum.has(r.subCtaDe)) {
+      if (isMemorandum(r.subCtaDe)) {
         const existing = porCodigoExistente.has(r.subCtaDe) ? ' (ya existe en la entidad y no se toca)' : '';
         leaveOutAsMemorandum(
           r,
@@ -734,9 +762,11 @@ export async function importSatChart(
   }
 
   const existentes = await query<ExistingAccountRow>(
-    `SELECT id, code, name, account_type, normal_balance, account_level, codigo_agrupador_sat
-       FROM accounts
-      WHERE entity_id = $1`,
+    `SELECT a.id, a.code, a.name, a.account_type, a.normal_balance, a.account_level,
+            a.codigo_agrupador_sat, p.code AS parent_code
+       FROM accounts a
+       LEFT JOIN accounts p ON p.id = a.parent_id AND p.entity_id = a.entity_id
+      WHERE a.entity_id = $1`,
     [opts.entityId]
   );
 
