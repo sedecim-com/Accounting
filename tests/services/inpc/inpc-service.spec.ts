@@ -262,7 +262,7 @@ describe('verificarSerie', () => {
     const r = await verificarSerie({ hasta: { anio: 2024, mes: 12 } });
     expect(r.peor).toBe('fail');
     expect(r.checks[0]).toMatchObject({ name: 'inpc-serie', level: 'fail' });
-    expect(r.checks[0].fix).toContain('inpc import');
+    expect(r.checks[0].fix).toContain('inpc import`, que todavía no existe');
   });
 
   it('nombra los meses que faltan hasta el periodo pedido', async () => {

@@ -73,7 +73,7 @@ describe('un periodo reabierto que nadie devolvió', () => {
     const check = await checkReopenedPeriods();
     expect(check.level).toBe('warn');
     expect(check.detail).toMatch(/reopened and never closed again/);
-    expect(check.fix).toMatch(/period close/);
+    expect(check.fix).toMatch(/close --period/);
   });
 
   it('en cuanto se devuelve a su cierre, deja de aparecer', async () => {
