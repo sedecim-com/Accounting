@@ -44,7 +44,8 @@
 - Whether the approver may be the person who closed it is the firm's decision, `segregacion_de_funciones` — the same key that governs manual posting, because it is the same question.
 - `bank reconciliation post <session>` posts the adjustment drafts and seals the book lines. From then on those lines cannot be edited, cancelled or re-dated.
 - `bank fee post` books the fee with its VAT in 1135, NOT 1130: the charge is on the statement but the bank's CFDI has not arrived, and without the receipt there is no credit however much the money already left. `bank interest post` books interest GROSS and the withheld ISR as a prepayment (1145) — never as an expense; treating it as expense loses the credit and understates income.
-- **All five are IA ✗ and all five are irreversible.** You may read and explain them; you may never run them.
+- `bank reconciliation reopen <session> --reason …` · `reabrir` takes an APPROVED session back to `in_progress` so a wrong item or match can be corrected and the same range closed and signed again. The signature leaves the session, not history: the audit trail keeps its hash and snapshot. It refuses when a fiscal period the session covers is closed (reopen the period first with `period reopen`), and it refuses a `posted` session: reversing its entries is not built yet (MNE-001-130). A `balanced` session that was never signed is not reopened either.
+- **All six are IA ✗ and all six are irreversible.** You may read and explain them; you may never run them.
 
 ## What YOU do
 - Read: `bank account list|show`, `bank statement list|show|check`, `bank transaction list|show`, `bank book-item list`, `bank match preview`, `bank reconciliation list|status`, `bank reconciling-item list`. Import a file when the user gives you one. `bank reconciliation open` and `bank adjustment create` are yours too — they write, but neither reaches the ledger.
