@@ -6,7 +6,16 @@
 import { describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { type Backlog, type Task, chainLengths, render, requirementIds, schedule, validate } from '../../scripts/backlog';
+import {
+  type Backlog,
+  type Task,
+  chainLengths,
+  releaseSprints,
+  render,
+  requirementIds,
+  schedule,
+  validate,
+} from '../../scripts/backlog';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -29,13 +38,14 @@ function task(id: string, extra: Partial<Task> = {}): Task {
   };
 }
 
-function backlog(tasks: Task[], capacity = { perSprint: 10, perLane: 10 }): Backlog {
+/** Without `perSprint`, the schedule declares no cap per sprint, as the real backlog does since 2026-09-29. */
+function backlog(tasks: Task[], capacity: { perSprint?: number; perLane: number } = { perSprint: 10, perLane: 10 }): Backlog {
   return {
     prd: 'docs/prd/PRD-001-mvp.md',
     schedule: {
       start: '2026-09-28',
       sprint_days: 14,
-      capacity_per_sprint: capacity.perSprint,
+      ...(capacity.perSprint === undefined ? {} : { capacity_per_sprint: capacity.perSprint }),
       capacity_per_lane: capacity.perLane,
       stages: {
         '0': { name: 'Cero', release: 'R0 · cero' },
@@ -100,14 +110,18 @@ describe('the schedule block', () => {
     expect(withSchedule({ start: '2026-02-30' }).join()).toMatch(/schedule.start/);
   });
 
-  it.each(['sprint_days', 'capacity_per_sprint', 'capacity_per_lane'])(
-    'rejects a missing, zero, negative or fractional %s',
-    (field) => {
-      for (const bad of [undefined, 0, -1, 1.5]) {
-        expect(withSchedule({ [field]: bad }).join()).toMatch(new RegExp(`schedule.${field}`));
-      }
-    },
-  );
+  it.each(['sprint_days', 'capacity_per_lane'])('rejects a missing, zero, negative or fractional %s', (field) => {
+    for (const bad of [undefined, 0, -1, 1.5]) {
+      expect(withSchedule({ [field]: bad }).join()).toMatch(new RegExp(`schedule.${field}`));
+    }
+  });
+
+  it('accepts no capacity_per_sprint (no cap), but rejects a declared one that is zero, negative or fractional', () => {
+    expect(validate(backlog([task('001')], { perLane: 2 }), REQS, '001')).toEqual([]);
+    for (const bad of [0, -1, 1.5]) {
+      expect(withSchedule({ capacity_per_sprint: bad }).join()).toMatch(/schedule.capacity_per_sprint/);
+    }
+  });
 });
 
 describe('dependencies and requirements', () => {
@@ -120,7 +134,7 @@ describe('dependencies and requirements', () => {
     expect(errorsOf(tasks).join()).toMatch(/dependency cycle/);
   });
 
-  it('rejects a task that depends on one of a later wave: that stage starts after it', () => {
+  it('rejects a task that depends on one of a later wave: its release would wait on a later one', () => {
     const tasks = [task('001', { wave: 2 }), task('002', { wave: 1, depends_on: ['MNE-001-001'] })];
     expect(errorsOf(tasks).join()).toMatch(/MNE-001-002: wave 1 cannot depend on MNE-001-001, of the later wave 2/);
     expect(errorsOf([task('001', { wave: 1 }), task('002', { wave: 2, depends_on: ['MNE-001-001'] })])).toEqual([]);
@@ -151,15 +165,21 @@ describe('dependencies and requirements', () => {
 });
 
 describe('the rendered view', () => {
-  it('groups the sprints under their stage, and says in which release each stage ends', () => {
+  it('shows where each wave’s tasks fall and when its release ships, and marks each task’s release in its sprint', () => {
     const tasks = [task('001'), task('002', { depends_on: ['MNE-001-001'] }), task('003', { wave: 2, lane: 'B' })];
     const b = backlog(tasks);
     const view = render(b, schedule(b));
     expect(view).toContain('## Por etapa');
-    expect(view).toContain('| 1 · Uno | S1–S2 | 2026-09-28 → 2026-10-25 | 2 | 2 | 0 | R1 · uno |');
-    expect(view).toContain('| 2 · Dos | S3 | 2026-10-26 → 2026-11-08 | 1 | 1 | 0 | R2 · dos |');
-    expect(view).toMatch(/## Etapa 1 · Uno → R1 · uno\n\nS1–S2, [^\n]*\n\n### S1 · desde el 2026-09-28/);
-    expect(view.indexOf('## Etapa 2 · Dos → R2 · dos')).toBeGreaterThan(view.indexOf('### S2 · desde el'));
+    // Wave 2's only task sits in S1, yet R2 ships with R1 in S2: it needs wave 1 done too.
+    expect(view).toContain('| 1 · Uno | 2 | 2 | 0 | S1–S2, 2026-09-28 → 2026-10-25 | R1 · uno | S2, el 2026-10-25 |');
+    expect(view).toContain('| 2 · Dos | 1 | 1 | 0 | S1, 2026-09-28 → 2026-10-11 | R2 · dos | S2, el 2026-10-25 |');
+    expect(view).toContain('- **R2 · dos** sale al cerrar S2, el 2026-10-25: espera 3 tareas abiertas de las olas ≤ 2.');
+    expect(view).toContain('| S1 | 1, 2 | 2026-09-28 | 2 | 2 | 0 | 0 | — |');
+    expect(view).toContain('| S2 | 1 | 2026-10-12 | 1 | 1 | 0 | 0 | R1, R2 |');
+    expect(view).toMatch(/### S1 · desde el 2026-09-28\n\nDel 2026-09-28 al 2026-10-11: 2 tareas\.\n/);
+    expect(view).toMatch(/\| MNE-001-003 \| task 003 \| [^\n]* \| RF-01 \| 2 → R2 \| Must \|/);
+    expect(view).toContain('Al cerrar sale **R1 · uno** y **R2 · dos**.');
+    expect(view).not.toMatch(/## Etapa|La etapa siguiente/);
   });
 
   it('numbers the sprints from first_open_sprint: done work is the sprint before, open work starts on the start date', () => {
@@ -223,18 +243,58 @@ describe('the suggested sprint', () => {
     );
   });
 
-  it('plans stage by stage: no wave-2 task shares or precedes the last wave-1 sprint, even with room to spare', () => {
+  it('does not gate by wave: a wave-2 task whose dependencies are met shares the first sprint with wave 1', () => {
     const tasks = [
       task('001'),
       task('002', { depends_on: ['MNE-001-001'] }),
       task('003', { wave: 2, lane: 'B' }),
-      task('004', { wave: 2, lane: 'B', priority: 'Should' }),
-      task('005', { wave: 3, lane: 'B' }),
+      task('004', { wave: 3, lane: 'B', depends_on: ['MNE-001-001'] }),
     ];
-    const s = schedule(backlog(tasks, { perSprint: 10, perLane: 1 }));
+    const s = schedule(backlog(tasks, { perLane: 2 }));
     expect([s.get('MNE-001-001'), s.get('MNE-001-002')]).toEqual([1, 2]);
-    expect([s.get('MNE-001-003'), s.get('MNE-001-004')]).toEqual([3, 4]);
-    expect(s.get('MNE-001-005')).toBe(5);
+    expect(s.get('MNE-001-003')).toBe(1);
+    expect(s.get('MNE-001-004')).toBe(2);
+  });
+
+  it('under lane contention, an earlier wave wins over a later wave of higher priority', () => {
+    const tasks = [
+      task('001', { wave: 1, priority: 'Could' }),
+      task('002', { wave: 2, priority: 'Must' }),
+      task('003', { wave: 2, lane: 'B' }),
+    ];
+    const s = schedule(backlog(tasks, { perLane: 1 }));
+    expect(s.get('MNE-001-001')).toBe(1);
+    expect(s.get('MNE-001-002')).toBe(2);
+    expect(s.get('MNE-001-003')).toBe(1);
+  });
+
+  it('ships release N in the last sprint of any open task of waves ≤ N, not of wave N alone', () => {
+    const tasks = [
+      task('000', { wave: 0, status: 'done' }),
+      task('001'),
+      task('002', { depends_on: ['MNE-001-001'] }),
+      task('003', { depends_on: ['MNE-001-002'] }),
+      task('004', { wave: 2, lane: 'B' }),
+      task('005', { wave: 3, lane: 'B', depends_on: ['MNE-001-004'] }),
+    ];
+    const b = backlog(tasks, { perLane: 2 });
+    const s = schedule(b);
+    expect([s.get('MNE-001-003'), s.get('MNE-001-004'), s.get('MNE-001-005')]).toEqual([3, 1, 2]);
+    expect([...releaseSprints(b, s)]).toEqual([
+      [0, 0],
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+  });
+
+  it('with no capacity_per_sprint, puts in one sprint everything the lanes allow', () => {
+    const tasks = Array.from({ length: 20 }, (_, i) =>
+      task(String(i + 1).padStart(3, '0'), { lane: i % 2 === 0 ? 'A' : 'B' }),
+    );
+    const b = backlog(tasks, { perLane: 10 });
+    expect(validate(b, REQS, '001')).toEqual([]);
+    expect(new Set(schedule(b).values())).toEqual(new Set([1]));
   });
 
   it('respects the lane capacity', () => {
