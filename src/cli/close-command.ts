@@ -8,7 +8,7 @@ import {
 import {
   softClosePeriod, hardClosePeriod, type CarryForwardResult,
 } from '../services/accounting/period-close.js';
-import { bootstrapTenant, type AgentContext } from '../ai/context.js';
+import { bootstrapTenant } from '../ai/context.js';
 import { resolveClosablePeriod } from './kernel/closable-period.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
