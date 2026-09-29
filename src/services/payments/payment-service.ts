@@ -28,6 +28,7 @@ import { NotFoundError, ValidationError, AccountingError } from '../../utils/err
 import type { JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { changePolicyHint } from '../policy/policy-hint.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -1699,7 +1700,7 @@ export async function applyVendorPayment(
       throw new ValidationError(
         'La política `pago_corto_residual` de este despacho está en "prohibir": ningún gasto ' +
           'se cierra pagando de menos. Pide al proveedor la nota de crédito y aplícala, o ' +
-          'cambia la política con `mnemosine pending resolve pago_corto_residual`.'
+          `cambia la política con ${changePolicyHint('pago_corto_residual')}.`
       );
     }
     const cuentaCondonacion =
