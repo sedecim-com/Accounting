@@ -4020,8 +4020,8 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/accounting/ar-ap-posting.ts:136",
-      "es": "FX_AR_NOT_WIRED",
+      "where": "src/services/payments/payment-service.ts:710",
+      "es": "FX_AR_RECEIPT_NOT_WIRED",
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Ya es el término inglés; FX y AR son acrónimos internacionales, no vocabulario nuestro."
