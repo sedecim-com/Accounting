@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
-import { query, closeDatabase } from '../../src/database/connection.js';
+import { query, closeDatabase, withTransaction } from '../../src/database/connection.js';
+import { linkPayRunEntry } from '../../src/services/payroll/common/pay-run-entry-link.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { seedPayrollAccountMapping } from '../../src/services/payroll/common/payroll-account-mapping-seed.js';
@@ -106,8 +107,10 @@ const draftsOf = async (runId: string) =>
   )).rows;
 
 const entriesOf = async (runId: string) =>
-  (await query<{ id: string; status: string; total_debits: string; total_credits: string }>(
-    `SELECT id, status, total_debits::text AS total_debits, total_credits::text AS total_credits
+  (await query<{
+    id: string; status: string; entry_type: string; reference: string; total_debits: string; total_credits: string;
+  }>(
+    `SELECT id, status, entry_type, reference, total_debits::text AS total_debits, total_credits::text AS total_credits
        FROM journal_entries WHERE entity_id = $1 AND source_type = 'pay_run' AND source_id = $2`,
     [f.entityId, runId]
   )).rows;
@@ -216,7 +219,15 @@ describe('pay-run post: a draft for review by default', () => {
     );
     expect(rows[0].status).toBe('posted');
     expect(new Decimal(rows[0].total_debits).equals(rows[0].total_credits)).toBe(true);
-    expect((await cli(['post', runId, '--post', '--yes', '--json'])).exitCode).toBe(5);
+    // The same trace as the --post road: a payroll entry of the run, linked.
+    const entries = await entriesOf(runId);
+    expect(entries.map((e) => [e.id, e.entry_type, e.reference])).toEqual([
+      [posted.entryId, 'payroll', `pay-run:${runId}`],
+    ]);
+    expect(await linkOf(runId)).toBe(posted.entryId);
+    const refused = await cli(['post', runId, '--post', '--yes', '--json']);
+    expect(refused.exitCode).toBe(5);
+    expect(String(refused.errs[0])).toContain('pay-run reverse');
   });
 });
 
@@ -238,6 +249,8 @@ describe('pay-run post --post: the escape', () => {
     const entries = await entriesOf(runId);
     expect(entries).toHaveLength(1);
     expect(entries[0].status).toBe('posted');
+    expect(entries[0].entry_type).toBe('payroll');
+    expect(entries[0].reference).toBe(`pay-run:${runId}`);
     expect(new Decimal(entries[0].total_debits).equals(entries[0].total_credits)).toBe(true);
     expect(await linkOf(runId)).toBe(entries[0].id);
     expect(row.journal_entry_id).toBe(entries[0].id);
@@ -255,6 +268,45 @@ describe('pay-run post --post: the escape', () => {
     expect((await cli(['post', runId, '--post', '--yes', '--json'])).exitCode).toBe(5);
     expect((await cli(['post', runId, '--json'])).exitCode).toBe(5);
     expect(await entriesOf(runId)).toHaveLength(1);
+    expect(await draftsOf(runId)).toEqual([]);
+  });
+});
+
+describe('pay-run post: what does not count as the run entry', () => {
+  it('an AI-authored draft carrying the run reference does not block the run', async () => {
+    const runId = await calculatedRun();
+    // Free text the agent can write; only the producer marks the run's draft.
+    await query(
+      `INSERT INTO ai_drafts (id, tenant_id, entity_id, draft_type, status, payload, ai_confidence, ai_reasoning, ai_model)
+       VALUES ($1, $2, $3, 'journal_entry', 'pending_review', $4, 0.5, 'steered by a document', 'some-model')`,
+      [
+        uuidv4(), f.tenantId, f.entityId,
+        JSON.stringify({ entry_date: '2026-07-15', description: 'x', reference: `pay-run:${runId}`, lines: [] }),
+      ]
+    );
+    const r = await cli(['post', runId, '--post', '--yes', '--json']);
+    expect(r.exitCode, String(r.errs[0])).toBe(0);
+    expect(await entriesOf(runId)).toHaveLength(1);
+  });
+
+  it('the link is scoped to the entity inside the UPDATE: the sibling cannot link the run', async () => {
+    const runId = await calculatedRun();
+    await expect(
+      withTransaction((client) =>
+        linkPayRunEntry(client, {
+          payRunId: runId, tenantId: f.tenantId, entityId: sibling.entityId, journalEntryId: uuidv4(),
+        })
+      )
+    ).rejects.toThrow('not in this entity');
+    expect(await linkOf(runId)).toBeNull();
+  });
+
+  it('an entry off by one cent is refused by the dry run too, not printed as balanced', async () => {
+    const runId = await calculatedRun();
+    await query('UPDATE pay_runs SET total_net_pay = total_net_pay + 0.01 WHERE id = $1', [runId]);
+    const r = await cli(['post', runId, '--dry-run', '--json']);
+    expect(r.exitCode).not.toBe(0);
+    expect(String(r.errs[0])).toContain('unbalanced');
     expect(await draftsOf(runId)).toEqual([]);
   });
 });

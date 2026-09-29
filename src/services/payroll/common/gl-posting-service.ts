@@ -7,6 +7,9 @@ import { JournalEntryType } from '../../../types/index.js';
 import { toCalendarDate } from '../../../utils/calendar-date.js';
 import { createDraft, type DraftPayload } from '../../../ai/draft-service.js';
 import { leerRegistroDelSubsidio } from '../mx/subsidio-entregado.js';
+import { PAYROLL_DRAFT_PRODUCER, linkPayRunEntry, payRunReference } from './pay-run-entry-link.js';
+
+export { payRunReference };
 
 // ============================================================
 // PAYROLL → GL POSTING
@@ -23,17 +26,20 @@ import { leerRegistroDelSubsidio } from '../mx/subsidio-entregado.js';
 //
 // All three refuse the same things, read under a row lock on the run: a run
 // that is not approved (or paid), a run that already has its entry, and a run
-// with a live draft (pending or approved). One pay run, one entry.
+// with a live draft (pending or approved). One pay run, one entry, and the
+// same entry on both roads: typed PAYROLL, sourced `pay_run`, referenced
+// `pay-run:<id>` and linked from `pay_runs.journal_entry_id` (approveDraft
+// closes the link for the review road, see pay-run-entry-link.ts).
 // Uses payroll_account_mapping table to resolve semantic buckets → GL accounts.
 // ============================================================
 
-/** What `ai_drafts.ai_model` says produced the draft: no model, the payroll engine. */
-const DRAFT_PRODUCER = 'mnemosine/payroll';
-
-/** The reference that ties a draft to its run; the double-post guard searches by it. */
-export function payRunReference(payRunId: string): string {
-  return `pay-run:${payRunId}`;
-}
+/**
+ * A reversed run entry still blocks the run: nothing clears the link or the
+ * approved draft yet. The refusal says so, so the operator knows the next step.
+ */
+const REVERSED_ENTRY_NOTE =
+  'If that entry was reversed, the run cannot be booked again until its link is cleared, ' +
+  'which no command does yet (catalog row `pay-run reverse`, pending)';
 
 interface MappedAccount {
   id: string;
@@ -156,23 +162,28 @@ async function buildPayRunEntry(
   // ONE RUN, ONE ENTRY. A second post used to write a second posted entry
   // and overwrite the link to the first one.
   if (pr.journal_entry_id !== null) {
-    throw new ConflictError(`Pay run ${payRunId} is already posted as entry ${pr.journal_entry_id}`);
+    throw new ConflictError(
+      `Pay run ${payRunId} is already posted as entry ${pr.journal_entry_id}. ${REVERSED_ENTRY_NOTE}`
+    );
   }
-  // A draft waiting for review, or already approved by it, is the run's entry
-  // too: posting another one would book the payroll twice.
+  // A draft waiting for review is the run's entry too: posting another one
+  // would book the payroll twice. Only the payroll engine's own drafts count:
+  // the reference is free text an AI-authored draft can carry, the producer
+  // is not. (An approved one has already linked the run, above; it is still
+  // read here for a draft approved before that link existed.)
   const live = await client.query<{ id: string; status: string }>(
     `SELECT id, status FROM ai_drafts
       WHERE tenant_id = $1 AND entity_id = $2 AND payload->>'reference' = $3
-        AND status IN ('pending_review', 'approved')
+        AND ai_model = $4 AND status IN ('pending_review', 'approved')
       LIMIT 1`,
-    [tenantId, entityId, payRunReference(payRunId)]
+    [tenantId, entityId, payRunReference(payRunId), PAYROLL_DRAFT_PRODUCER]
   );
   if (live.rows.length > 0) {
     const d = live.rows[0];
     throw new ConflictError(
       d.status === 'pending_review'
         ? `Pay run ${payRunId} already has draft ${d.id} awaiting \`mnemosine review\`; approve or reject it there`
-        : `Pay run ${payRunId} was already posted through review (draft ${d.id})`
+        : `Pay run ${payRunId} was already posted through review (draft ${d.id}). ${REVERSED_ENTRY_NOTE}`
     );
   }
 
@@ -310,12 +321,11 @@ async function buildPayRunEntry(
     creditIfPresent('garnishment_payable', benefitsPost, 'Post-tax deductions/garnishments');
   }
 
-  // Verify debits = credits
-  // El cuadre se medía restando floats, y el mensaje lo delataba: imprimía
-  // diferencias como «96.05000000000018». La tolerancia de un centavo se queda
-  // —cada renglón se redondea a dos decimales desde importes de cuatro, y en
-  // una corrida de cien trabajadores eso puede dejar un centavo honesto— pero
-  // ahora la diferencia que se compara y la que se imprime son la misma.
+  // Verify debits = credits, EXACTLY. The one-cent tolerance this used to keep
+  // was dead: the engine (validation.ts balanceRule) and the DB CHECK both
+  // require equality, so a one-cent entry passed here, was printed by the dry
+  // run as balanced, and then failed on both roads with a generic error. Now
+  // the dry run and both roads refuse the same entry, with the same message.
   const totalDebits = lines
     .filter((l) => l.debit_amount)
     .reduce((a, l) => a.plus(l.debit_amount!), new Decimal(0));
@@ -323,7 +333,7 @@ async function buildPayRunEntry(
     .filter((l) => l.credit_amount)
     .reduce((a, l) => a.plus(l.credit_amount!), new Decimal(0));
   const diff = totalDebits.minus(totalCredits).abs();
-  if (diff.greaterThan('0.01')) {
+  if (!diff.isZero()) {
     throw new Error(
       `Payroll GL entry unbalanced: debits ${totalDebits.toFixed(2)} credits ${totalCredits.toFixed(2)} diff ${diff.toFixed(2)}`
     );
@@ -386,7 +396,7 @@ export async function draftPayRunEntry(
         reasoning:
           `Journal entry of approved pay run ${payRunId}: gross wages and employer taxes against net pay ` +
           'and each withholding payable, from payroll_account_mapping.',
-        model: DRAFT_PRODUCER,
+        model: PAYROLL_DRAFT_PRODUCER,
       },
       client
     );
@@ -428,16 +438,9 @@ export async function postPayRunEntry(
         description,
       })),
       userId,
-      { sourceType: 'pay_run', sourceId: payRunId, reference: payRunId, autoPost: true, client }
+      { sourceType: 'pay_run', sourceId: payRunId, reference: entry.reference, autoPost: true, client }
     );
-    const linked = await client.query(
-      `UPDATE pay_runs SET journal_entry_id = $1
-        WHERE id = $2 AND tenant_id = $3 AND journal_entry_id IS NULL`,
-      [je.id, payRunId, tenantId]
-    );
-    if (linked.rowCount !== 1) {
-      throw new ConflictError(`Pay run ${payRunId} changed while it was being posted; nothing was written`);
-    }
+    await linkPayRunEntry(client, { payRunId, tenantId, entityId: entry.entityId, journalEntryId: je.id });
     return { journalEntryId: je.id, entryNumber: je.entry_number, entry };
   });
   // The attestation reads the entry back, so it runs after the commit.

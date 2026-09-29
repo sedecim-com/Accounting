@@ -8,6 +8,7 @@ import { JournalEntryType } from '../types/index.js';
 import { matchApproval, type MatchApprovalOpts } from './approval-policy.js';
 import { registrarFacturaDeBorradorAprobado } from '../services/xml-ingestion/pre-registration-service.js';
 import { registerInvoiceFromApprovedDraft } from '../services/xml-ingestion/issued-invoice-approval.js';
+import { linkPayRunEntry, payRunOfDraft } from '../services/payroll/common/pay-run-entry-link.js';
 import {
   sujetoAutenticado,
   decidirSujeto,
@@ -805,22 +806,36 @@ async function approveDraftInternal(
         })
       : null;
 
+    // MNE-001-069: a pay run's draft (the payroll engine's, read from the
+    // STORED payload so a correction cannot redirect it) posts as the run's
+    // entry, exactly as `pay-run post --post` would: typed PAYROLL, sourced
+    // `pay_run`, and linked from the run in this same transaction.
+    const payRunId = payRunOfDraft(draft);
+
     const entry = await createJournalEntry(
       ctx.entityId,
       new Date(`${approvedPayload.entry_date}T00:00:00`),
-      JournalEntryType.STANDARD,
+      payRunId ? JournalEntryType.PAYROLL : JournalEntryType.STANDARD,
       approvedPayload.description,
       lines,
       reviewer.userId,
       {
-        sourceType: invoice ? 'invoice' : bill ? 'bill' : 'ai_draft',
-        sourceId: invoice ? invoice.invoiceId : bill ? bill.billId : draftId,
+        sourceType: invoice ? 'invoice' : bill ? 'bill' : payRunId ? 'pay_run' : 'ai_draft',
+        sourceId: invoice ? invoice.invoiceId : bill ? bill.billId : payRunId ?? draftId,
         reference: approvedPayload.reference,
         autoPost: true,
         client, // same transaction as the draft update below
       }
     );
     await (invoice ?? bill)?.close(entry.id);
+    if (payRunId) {
+      await linkPayRunEntry(client, {
+        payRunId,
+        tenantId: ctx.tenantId,
+        entityId: ctx.entityId,
+        journalEntryId: entry.id,
+      });
+    }
 
     const updated = await client.query(
       `UPDATE ai_drafts
