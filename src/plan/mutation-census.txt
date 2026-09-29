@@ -212,6 +212,8 @@ mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-r
 mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/ap/bill-service.ts	a manual bill stores a NULL rate again, and the DIOT falls back to measuring what its author declared
 mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-registration-service.ts	the first transfer is taken as the VAT again: an IEPS transfer ahead of the IVA one lands in bill_lines.tax_amount
 mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-registration-service.ts	the approval from the entry takes the debit as the value of the acts again: an exempt CFDI without Base is declared instead of raising DIOT-BASE-EXENTA-DESCONOCIDA
+mirror	memory	E1.2 diot-sat-layout-cited	src/services/sat/diot/sat-batch.ts	the layout loses its official source: the batch file is again a shape nobody can trace to the SAT, the invented-layout mistake this repository already deleted once
+mirror	memory	E1.2 diot-sat-layout-cited	src/services/sat/diot/sat-batch.ts	the citation no longer says when the SAT document was read: nobody can tell whether a later layout replaced it
 mirror	memory	E1.2 sat-grouping-code-single-column	src/services/accounting/account-service.ts	devuelve el agrupador fiscal a la columna de presentación contable: el código NIF y el del SAT vuelven a pisarse, y el catálogo del Anexo 24 se construye sobre la casilla equivocada
 mirror	memory	E1.2 sat-grouping-code-single-column	src/api/rest/routes/reports.ts	la API vuelve a tirar la procedencia del saldo inicial, si es firme y los descuadres: el consumidor recibe una balanza que parece correcta sobre cuentas que no cuadran
 mirror	memory	E1.2 prepaid-schedule-backed-by-ledger	src/services/accruals/prepaid-service.ts	un renglón dejaría de exigir respaldo en el mayor: la ficha afirmaría gasto devengado que una reversa ya deshizo, y el saldo revertido se ofrecería otra vez como libre
@@ -834,6 +836,8 @@ anchor	src/plan/criteria/e1-2.ts	de: ' tax_rate, tipo_factor, valor_actos',
 anchor	src/plan/criteria/e1-2.ts	de: ' tax_rate, tipo_factor, valor_actos)',
 anchor	src/plan/criteria/e1-2.ts	de: " const vat = (transfers ?? []).filter((t) => satKey(t.impuesto) === '002');",
 anchor	src/plan/criteria/e1-2.ts	de: ' acts_value: bases[i],',
+anchor	src/plan/criteria/e1-2.ts	de: " url: 'https://www.sat.gob.mx/cs/Satellite?blobcol=urldata&blobkey=id&blobtable=MungoBlobs&blobwhere=1461176417476&ssbinary=true',",
+anchor	src/plan/criteria/e1-2.ts	de: " consulted: '2026-09-29',",
 anchor	src/plan/criteria/e1-2.ts	de: " 'sat-agrupador': 'codigo_agrupador_sat',",
 anchor	src/plan/criteria/e1-2.ts	de: ' ...(report.inicial ? { opening_balance: report.inicial } : {}),',
 anchor	src/plan/criteria/e1-2.ts	de: 'export const RENGLON_VIGENTE = `s.is_posted = true AND EXISTS (',

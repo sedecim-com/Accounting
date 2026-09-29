@@ -10,9 +10,9 @@ import type { Hallazgo } from './hallazgos.js';
 // F07c · EL TERCERO QUE SE DECLARA
 //
 // Los primeros campos del formato, y los que la 063 le dio dónde vivir: TIPO
-// DE TERCERO (04 nacional, 05 extranjero, 15 global), TIPO DE OPERACIÓN (03
-// servicios profesionales, 06 arrendamiento, 85 otros) y, para el extranjero,
-// su identificación fiscal, su país y su nacionalidad.
+// DE TERCERO (04 nacional, 05 extranjero, 15 global), TIPO DE OPERACIÓN (the
+// 2025 catalogue, see `TipoOperacion`) y, para el extranjero, su
+// identificación fiscal, su país y su nacionalidad.
 //
 // TODO ES PURO. Las dos políticas que deciden aquí se LEEN en diot-service.ts
 // y entran como argumento, para que la regla se pueda probar con las cuatro
@@ -26,10 +26,28 @@ import type { Hallazgo } from './hallazgos.js';
 // ============================================================
 
 export type TipoTercero = '04' | '05' | '15';
-export type TipoOperacion = '03' | '06' | '85';
+/**
+ * Operation types of the 2025 DIOT catalogue (SAT instructivo de carga masiva,
+ * Enero 2025, §3.1 — cited in sat-batch.ts): 02 transfer of goods, 03
+ * professional services, 06 temporary use of goods, 07 import of goods or
+ * services, 08 import by virtual transfer, 85 other. 87 (global operations)
+ * is not stored: it follows from third-party type 15.
+ */
+export type TipoOperacion = '02' | '03' | '06' | '07' | '08' | '85';
 
 const TIPOS_TERCERO: readonly string[] = ['04', '05', '15'];
-const TIPOS_OPERACION: readonly string[] = ['03', '06', '85'];
+const TIPOS_OPERACION: readonly string[] = ['02', '03', '06', '07', '08', '85'];
+
+/** Operation types §3.1 accepts for each third-party type. */
+export const OPERATIONS_BY_PARTY_TYPE: Readonly<Record<TipoTercero, readonly string[]>> = Object.freeze({
+  '04': ['02', '03', '06', '08', '85'],
+  '05': ['02', '03', '07'],
+  '15': ['87'],
+});
+
+/** Values each default-operation policy may hold, besides its "block" value. */
+const NATIONAL_DEFAULTS: readonly string[] = ['85', '02', '03', '06'];
+const FOREIGN_DEFAULTS: readonly string[] = ['07', '03', '02'];
 
 /** La fila de `vendors`, con lo que la 063 le añadió. */
 export interface TerceroCrudo {
@@ -69,6 +87,8 @@ export interface PoliticasDelTercero {
   tipoOperacionPorOmision: string;
   /** `diot_tercero_sin_rfc`: 'bloquear' | 'declarar_global'. */
   terceroSinRfc: string;
+  /** `diot_default_operation_type_foreign`: '07' | '03' | '02' | 'block'. */
+  foreignOperationDefault: string;
 }
 
 export interface ResolucionDeTercero {
@@ -79,20 +99,41 @@ export interface ResolucionDeTercero {
 
 function tipoOperacionDe(
   crudo: TerceroCrudo,
+  partyType: TipoTercero,
   politicas: PoliticasDelTercero,
   hallazgos: Hallazgo[]
 ): { valor: TipoOperacion; procedencia: Procedencia } | null {
+  const foreign = partyType === '05';
+  // Global (15) is written as 87 whatever is stored; it borrows the national
+  // policy only so the working paper has something to show.
+  const allowed = OPERATIONS_BY_PARTY_TYPE[foreign ? '05' : '04'];
   const declarado = (crudo.tipoOperacion ?? '').trim();
   if (TIPOS_OPERACION.includes(declarado)) {
+    if (partyType !== '15' && !allowed.includes(declarado)) {
+      // Caught while building, not when the batch file is written: the fix is
+      // in the vendor record, and `diot check` must already say so.
+      hallazgos.push({
+        codigo: 'DIOT-OPERATION-TYPE-NOT-ALLOWED',
+        severidad: 'bloqueante',
+        vendorId: crudo.vendorId,
+        mensaje:
+          `El proveedor ${crudo.nombre} es tercero ${partyType} y tiene capturado el tipo de ` +
+          `operación ${declarado}, que el catálogo 2025 de la DIOT no admite para ese tipo de ` +
+          `tercero (§3.1: ${allowed.join(', ')}). Corrige el tipo de operación del proveedor.`,
+      });
+      return null;
+    }
     return { valor: declarado as TipoOperacion, procedencia: 'declarado' };
   }
 
-  const politica = politicas.tipoOperacionPorOmision.trim();
-  if (politica === 'bloquear') {
+  const key = foreign ? 'diot_default_operation_type_foreign' : 'diot_tipo_operacion_por_omision';
+  const politica = (foreign ? politicas.foreignOperationDefault : politicas.tipoOperacionPorOmision).trim();
+  const defaults = foreign ? FOREIGN_DEFAULTS : NATIONAL_DEFAULTS;
+  if (politica === (foreign ? 'block' : 'bloquear')) {
     hallazgos.push({
       codigo: 'DIOT-TIPO-OPERACION-SIN-DECLARAR',
       severidad: 'bloqueante',
-      politica: 'diot_tipo_operacion_por_omision',
+      politica: key,
       vendorId: crudo.vendorId,
       mensaje:
         `El proveedor ${crudo.nombre} no tiene tipo de operación declarado y la política ` +
@@ -101,14 +142,14 @@ function tipoOperacionDe(
     });
     return null;
   }
-  if (!TIPOS_OPERACION.includes(politica)) {
+  if (!defaults.includes(politica)) {
     hallazgos.push({
       codigo: 'DIOT-POLITICA-FUERA-DE-CATALOGO',
       severidad: 'bloqueante',
-      politica: 'diot_tipo_operacion_por_omision',
+      politica: key,
       vendorId: crudo.vendorId,
       mensaje:
-        `La política diot_tipo_operacion_por_omision vale "${politica}", que no es 03, 06 ni 85. ` +
+        `La política ${key} vale "${politica}", que no es ${defaults.join(', ')}. ` +
         `Se prefiere detenerse a inventar una equivalencia: el catálogo lo fija la autoridad.`,
     });
     return null;
@@ -117,12 +158,12 @@ function tipoOperacionDe(
   hallazgos.push({
     codigo: 'DIOT-TIPO-OPERACION-POR-OMISION',
     severidad: 'aviso',
-    politica: 'diot_tipo_operacion_por_omision',
+    politica: key,
     vendorId: crudo.vendorId,
     mensaje:
       `El proveedor ${crudo.nombre} se declara con tipo de operación ${politica} por omisión: ` +
-      `no lo tiene capturado. Afínalo si su operación es servicios profesionales (03) o ` +
-      `arrendamiento (06).`,
+      `no lo tiene capturado. Afínalo si su operación es otra de las que admite el catálogo ` +
+      `(§3.1: ${allowed.join(', ')}).`,
   });
   return { valor: politica as TipoOperacion, procedencia: 'politica' };
 }
@@ -227,8 +268,9 @@ export function resolverTercero(
     }
   }
 
-  const operacion = tipoOperacionDe(crudo, politicas, hallazgos);
-  if (operacion === null || tipoTercero === null) return { tercero: null, hallazgos };
+  if (tipoTercero === null) return { tercero: null, hallazgos };
+  const operacion = tipoOperacionDe(crudo, tipoTercero, politicas, hallazgos);
+  if (operacion === null) return { tercero: null, hallazgos };
 
   return {
     tercero: {

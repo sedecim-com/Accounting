@@ -154,6 +154,7 @@
     "import-batch-respects-state-flow",
     "dirty-value-fails-one-row",
     "bill-lines-carry-vat-columns",
+    "diot-sat-layout-cited",
     "sat-grouping-code-single-column",
     "prepaid-schedule-backed-by-ledger",
     "close-lock-without-row-rewrite",

@@ -892,26 +892,64 @@ export const POLICY_CATALOG: PolicySpec[] = [
     key: 'diot_tipo_operacion_por_omision',
     textKey: 'diot_default_operation_type',
     category: 'contable',
-    question: 'A supplier with no operation type declared: which one does the DIOT report?',
+    question: 'A national supplier with no operation type declared: which one does the DIOT report?',
     impact:
-      'The DIOT reports each supplier under an operation type — 03 professional services, 06 ' +
-      'property leasing, 85 other. It is per SUPPLIER, not per invoice, so a wrong default is ' +
-      'wrong for every month until someone corrects it.',
+      'The DIOT reports each supplier under an operation type. For a national supplier the 2025 ' +
+      'catalogue offers 02 transfer of goods, 03 professional services, 06 temporary use of goods, ' +
+      '08 import by virtual transfer and 85 other. It is per SUPPLIER, not per invoice, so a wrong ' +
+      'default is wrong for every month until someone corrects it. Foreign suppliers have their ' +
+      'own key, diot_default_operation_type_foreign.',
     options: [
-      { value: '85', label: 'Other (85) — the catch-all the catalogue provides' },
+      { value: '85', label: 'Other (85) — the residual key the catalogue provides' },
+      { value: '02', label: 'Transfer of goods (02)' },
       { value: '03', label: 'Professional services (03)' },
+      { value: '06', label: 'Temporary use or enjoyment of goods (06)' },
       { value: 'bloquear', label: 'None: refuse to build the DIOT until every supplier declares one' },
     ],
     defaultValue: '85',
     defaultRationale:
-      'The catalogue itself provides 85 as the residual category, so using it is not a guess: it is ' +
-      'the answer the form expects when the operation is neither professional services nor leasing. ' +
-      'Refusing would block a monthly filing over suppliers whose classification does not change the ' +
-      'tax, and 03 or 06 asserted by default would put a specific claim in your name.',
+      'SAT, Instructivo para el armado del archivo de carga masiva DIOT (Enero 2025), §3.1: 85 ' +
+      '"Otros" is the residual key for a national supplier whose operation is not one of the ' +
+      'specific ones (02 goods, 03 professional services, 06 use of goods, 08 virtual-transfer ' +
+      'import). The ledger does not know whether an undeclared supplier sold goods or services, so ' +
+      'asserting 02, 03 or 06 by default would put a specific claim in your name; 85 claims only ' +
+      'that no specific key was captured, and every supplier that takes it is listed so the ones ' +
+      'that matter can be refined. 08 is not offered as a default: it requires a customs pedimento ' +
+      'and cannot be a blanket answer. Refusing would block a monthly filing over a classification ' +
+      'that does not change the tax.',
     whyAsking:
-      'The form classifies each supplier by the kind of operation you have with them, and most of them are neither professional services nor leasing — but the two that are, you have to tell me.',
-    whatIDo: 'I report suppliers with no declared type under 85, and list them so you can refine the ones that matter.',
+      'The form classifies each supplier by the kind of operation you have with them; the ones with a specific key you have to tell me.',
+    whatIDo: 'I report national suppliers with no declared type under 85, and list them so you can refine the ones that matter.',
     ifSkipped: 'I use 85 and tell you which suppliers took it.',
+    priority: 35,
+  },
+  {
+    key: 'diot_default_operation_type_foreign',
+    textKey: 'diot_default_operation_type_foreign',
+    category: 'contable',
+    question: 'A foreign supplier with no operation type declared: which one does the DIOT report?',
+    impact:
+      'For a foreign supplier (third-party type 05) the 2025 DIOT catalogue accepts only 02 ' +
+      'transfer of goods, 03 professional services and 07 import of goods or services. 85 and 06 ' +
+      'are not accepted, so the national default cannot be reused for them.',
+    options: [
+      { value: '07', label: 'Import of goods or services (07)' },
+      { value: '03', label: 'Professional services (03)' },
+      { value: '02', label: 'Transfer of goods (02)' },
+      { value: 'block', label: 'None: refuse to build the DIOT until every foreign supplier declares one' },
+    ],
+    defaultValue: '07',
+    defaultRationale:
+      'SAT, Instructivo para el armado del archivo de carga masiva DIOT (Enero 2025), §3.1 limits a ' +
+      'foreign supplier to 02, 03 and 07. Under LIVA art. 24 (frac. I–V) bringing in goods, or acquiring ' +
+      'or using in Mexico intangibles or services supplied by a non-resident, is an IMPORT, so 07 is ' +
+      'the key that describes what the entity did in the usual case, and it matches the import ' +
+      'boxes where the file already puts that IVA. 02 and 03 remain available for a firm whose ' +
+      'foreign suppliers are better described that way; a supplier that differs declares its own key.',
+    whyAsking:
+      'Foreign suppliers cannot use the national "other" key, and the file is rejected if they carry it.',
+    whatIDo: 'I report foreign suppliers with no declared type under 07, and list them.',
+    ifSkipped: 'I use 07 and tell you which suppliers took it.',
     priority: 35,
   },
   {
@@ -968,6 +1006,36 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'Exempt purchases still count on the filing, and they are the ones whose amount the system used to throw away without telling anyone.',
     whatIDo: 'I stop and name the documents whose exempt base is unknown instead of guessing it.',
     ifSkipped: 'I require the base and name what is missing.',
+    priority: 35,
+  },
+  {
+    key: 'diot_creditable_iva_proportion',
+    textKey: 'diot_creditable_iva_proportion',
+    category: 'contable',
+    question: 'Does this entity credit its IVA through the LIVA art. 5 frac. V proportion?',
+    impact:
+      'The 2025 DIOT batch layout splits the creditable IVA of each supplier into two boxes: IVA ' +
+      'tied EXCLUSIVELY to taxed activities, and IVA to which a proportion was applied because the ' +
+      'entity also has exempt or non-taxed activities. The ledger credits every peso of IVA paid; ' +
+      'it does not compute that proportion yet.',
+    options: [
+      { value: 'taxed_only', label: 'No: every activity is taxed, so all IVA paid goes to the exclusively-taxed box' },
+      { value: 'block', label: 'Yes: refuse the SAT batch file until the proportional treatment exists (capture in the portal)' },
+    ],
+    defaultValue: 'taxed_only',
+    defaultRationale:
+      'LIVA art. 5 frac. V only requires the proportion when the taxpayer also performs exempt or ' +
+      'non-taxed activities; a firm whose activities are all taxed credits the IVA in full, and that ' +
+      'is exactly what the ledger already records in iva_acreditable. Declaring it in the ' +
+      'exclusively-taxed box (SAT DIOT instructivo, Enero 2025, §3.3) keeps the file equal to the ' +
+      'books and to the monthly VAT return. The DIOT refuses this default when the ledger shows ' +
+      'exempt revenue in the fiscal year (accounts mapped to agrupador 401.07–401.09), and an ' +
+      'entity that applies the proportion must answer "block": the proportional boxes are not ' +
+      'computed here yet, and a factor nobody computed is not declared.',
+    whyAsking:
+      'Only you know whether the entity also has exempt activities, and that decides which box of the DIOT its creditable IVA belongs in.',
+    whatIDo: 'I declare all IVA paid as tied exclusively to taxed activities, and stop if the ledger shows exempt revenue.',
+    ifSkipped: 'I declare it as exclusively taxed and remind you on every DIOT; answer "block" if the entity applies the proportion.',
     priority: 35,
   },
   {
