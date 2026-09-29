@@ -734,11 +734,14 @@ export const EN = {
     'Dry run: it really was signed, and then rolled back. The hash is the one that would remain.',
 
   'bank.reconciliation.reopen.title': 'WHAT IS ABOUT TO BE REOPENED',
-  'bank.reconciliation.reopen.transition': 'session {session} · {from} → {to} · approved → in_progress',
+  'bank.reconciliation.reopen.transition': 'session {session} · {from} → {to} · {previous} → in_progress',
+  'bank.reconciliation.reopen.reversal':
+    'entry {entry} reversed by {reversal} (never deleted); its adjustment is a pending draft again',
   'bank.reconciliation.reopen.withdrawn':
     'signature withdrawn: {by} on {on} (the audit trail keeps it with its snapshot)',
   'bank.reconciliation.reopen.confirm':
-    'You are about to REOPEN session {session} and withdraw its signature {hash}… ' +
+    'You are about to REOPEN session {session} and withdraw its signature {hash}…' +
+    '{reversals, plural, =0 {} one { It reverses # posted entry.} other { It reverses # posted entries.}} ' +
     'Continue?',
   'bank.reconciliation.reopen.already_reopened': 'session {session} already reopened',
   'bank.reconciliation.reopen.summary': '· {status} · signature withdrawn',

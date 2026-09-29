@@ -614,11 +614,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'Ensayo: se firmó de verdad y se deshizo. El hash es el que quedaría.',
 
   'bank.reconciliation.reopen.title': 'LO QUE SE VA A REABRIR',
-  'bank.reconciliation.reopen.transition': 'sesión {session} · {from} → {to} · approved → in_progress',
+  'bank.reconciliation.reopen.transition': 'sesión {session} · {from} → {to} · {previous} → in_progress',
+  'bank.reconciliation.reopen.reversal':
+    'asiento {entry} revertido por {reversal} (nunca borrado); su ajuste vuelve a ser un borrador pendiente',
   'bank.reconciliation.reopen.withdrawn':
     'firma que se retira: {by} el {on} (la bitácora la conserva con su instantánea)',
   'bank.reconciliation.reopen.confirm':
-    'Vas a REABRIR la sesión {session} y retirar su firma {hash}… ¿Continuar?',
+    'Vas a REABRIR la sesión {session} y retirar su firma {hash}…' +
+    '{reversals, plural, =0 {} one { Revierte # asiento contabilizado.} other { Revierte # asientos contabilizados.}} ' +
+    '¿Continuar?',
   'bank.reconciliation.reopen.already_reopened': 'sesión {session} ya reabierta',
   'bank.reconciliation.reopen.summary': '· {status} · firma retirada',
   'bank.reconciliation.reopen.next':

@@ -5100,7 +5100,7 @@ Commands:
   status|estado [options] [session]      Recompute the variance LIVE and print the two-sided breakdown: bank balance, its items one by one, adjusted; books balance, its items, adjusted; and the difference
   close|cerrar [options] <session>       Recompute the whole arithmetic and move the session to `balanced` ONLY if the variance is exactly zero (or within the policy tolerance) and every item is classified and dated
   approve|aprobar [options] <session>    Sign the session, requiring that the approver is not the preparer, and freeze an immutable snapshot with a hash of its members and its balances
-  reopen|reabrir [options] <session>     Reopen an approved session to in_progress, withdrawing its signature (kept in the audit trail); refused under a closed fiscal period and for posted sessions
+  reopen|reabrir [options] <session>     Reopen an approved or posted session to in_progress, withdrawing its signature (kept in the audit trail) and reversing the entries a post booked; refused under a closed fiscal period
   post|contabilizar [options] <session>  Post the approved adjustment entries and seal the session’s book lines as reconciled, blocking their edit, their void and their date change
   generate|generar [options] <session>   Produce the two-sided bank reconciliation statement for the audit file: json for the whole document, md/csv/tsv for the line-by-line statement, plain text to print
   help [command]                         display help for command
@@ -5341,11 +5341,12 @@ Examples:
 ```
 Usage: mnemosine bank reconciliation reopen|reabrir [options] <session>
 
-Reopen an approved session to in_progress, withdrawing its signature (kept in
-the audit trail); refused under a closed fiscal period and for posted sessions
+Reopen an approved or posted session to in_progress, withdrawing its signature
+(kept in the audit trail) and reversing the entries a post booked; refused under
+a closed fiscal period
 
 Arguments:
-  session                  approved session to reopen
+  session                  approved or posted session to reopen
 
 Options:
   -e, --entity <idOrName>  legal entity to operate on (defaults to the active
@@ -5365,7 +5366,8 @@ Examples:
   # Take a signed session back to in_progress to correct a wrong item or match.
   # The signature leaves the session but not the audit trail, which keeps its hash.
   mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "El cargo del 20 era un error de libros"
-  # See which signature would be withdrawn, writing nothing.
+  # See which signature would be withdrawn, writing nothing. On a posted session
+  # it also names each adjustment entry it would reverse (never delete).
   mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
   # A closed fiscal period wins: the refusal names the `period reopen` to run
   # first, and --force as well when the month is hard-closed.
