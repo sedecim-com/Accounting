@@ -7,6 +7,7 @@ import { runLedgerChecks } from './ledger-checks.js';
 import { checkMappingCoverageDetallada } from './account-service.js';
 import { arReconcile } from '../ar/ar-controls.js';
 import { apReconcile } from '../ap/ap-controls.js';
+import { revisionDeAmortizacionAlCierre, type RevisionDeCierre } from '../accruals/prepaid-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { FiscalPeriodStatus } from '../../types/index.js';
@@ -50,6 +51,7 @@ export const CLOSE_CHECK_CODES = [
   'bank-lines-unexplained',
   'invoices-reviewed',
   'depreciation-posted',
+  'prepaid-amortized',
   'trial-balance',
   'ledger-integrity',
   'rep-parked',
@@ -73,6 +75,7 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'bank-lines-unexplained': 'Bank statement lines explained',
   'invoices-reviewed': 'All invoices reviewed',
   'depreciation-posted': 'Depreciation calculated and posted',
+  'prepaid-amortized': 'Prepaid expenses amortized for the period',
   'trial-balance': 'Trial balance balanced',
   'ledger-integrity': 'Ledger passes its blocking checks',
   'rep-parked': 'Parked payment receipts (REP) resolved',
@@ -109,6 +112,17 @@ export function severidadDeLineaSinPartida(valorDelPanel: string): CloseCheckSev
  */
 export function severidadDelAgrupadorFaltante(valorDelPanel: string): CloseCheckSeverity {
   return valorDelPanel === 'bloquear' ? 'blocking' : 'warning';
+}
+
+/**
+ * MNE-001-129 (#128). The weight of a missing accrual run at close, as
+ * `depreciacion_faltante_al_cierre` and `amortizacion_faltante_al_cierre`
+ * answer it. Only the literal 'bloquear' blocks; 'avisar' (the default of
+ * both) and any odd value warn, by the same defensive rule as the other
+ * policy-governed boxes: an odd panel value cannot freeze a firm's close.
+ */
+export function severityOfMissingAccrual(policyValue: string): CloseCheckSeverity {
+  return policyValue === 'bloquear' ? 'blocking' : 'warning';
 }
 
 export interface PeriodCloseChecklistItem {
@@ -258,6 +272,27 @@ export async function readSubledgerSide(
     if (err instanceof AccountingError && err.code === 'MISSING_ROLE_ACCOUNT') return null;
     throw err;
   }
+}
+
+/**
+ * MNE-001-129 (#128). The prepaid box, separate from its reader like the
+ * subledger one. The review comes from `revisionDeAmortizacionAlCierre`, the
+ * SAME service `prepaid run` uses to pick what to accrue, so the close and
+ * the run can never disagree about which schedules are pending.
+ *
+ * With no schedule covering the period the box is green: unlike a bank or a
+ * fixed-asset register, most entities have no prepaid expenses at all, and
+ * "no schedule owes this month" is the fact the policy asks about.
+ */
+export function prepaidAmortizedCheck(review: RevisionDeCierre): PeriodCloseChecklistItem {
+  const pending = review.pendientes.length;
+  return {
+    codigo: 'prepaid-amortized',
+    item: CLOSE_CHECK_ITEMS['prepaid-amortized'],
+    is_complete: pending === 0,
+    severity: severityOfMissingAccrual(review.reaccion),
+    details: pending > 0 ? `${pending} prepaid schedule(s) not amortized in ${review.periodo} (prepaid run)` : undefined,
+  };
 }
 
 /**
@@ -637,6 +672,14 @@ export async function getPeriodCloseStatus(
   // telling the accountant to register it again would duplicate it.
   const unregistered =
     registeredAssets === 0 ? await fixedAssetBalanceWithoutRegister(q, entityId, periodId) : null;
+  // MNE-001-129 (#128): the panel promised this box follows
+  // `depreciacion_faltante_al_cierre` and it carried a literal 'warning'. The
+  // policy speaks of ACTIVE assets whose run is missing, so it weighs the box
+  // only when there are some; an empty register is "could not check" and
+  // keeps warning, or 'bloquear' would freeze every entity without assets.
+  const polDepreciation = await getPolicy(ctxPanel, 'depreciacion_faltante_al_cierre');
+  const depreciationSeverity: CloseCheckSeverity =
+    totalActivos > 0 ? severityOfMissingAccrual(polDepreciation.value) : 'warning';
   checklist.push({
     codigo: 'depreciation-posted',
     item: CLOSE_CHECK_ITEMS['depreciation-posted'],
@@ -644,7 +687,7 @@ export async function getPeriodCloseStatus(
     // «completo» por vacuidad. Revisado-y-bien y nada-que-revisar no son
     // lo mismo, y en un checklist de cierre esa diferencia es el punto.
     is_complete: totalActivos > 0 && undepCount === 0,
-    severity: 'warning',
+    severity: depreciationSeverity,
     details: unregistered
       ? `0 fixed assets registered, but the fixed-asset accounts carry ${unregistered} at ${finDelPeriodo}: ` +
         'register them (asset create) so the month can be depreciated'
@@ -654,10 +697,27 @@ export async function getPeriodCloseStatus(
           ? `${undepCount} assets without depreciation`
           : undefined,
   });
-  if (undepCount > 0) warnings.push(`${undepCount} assets without depreciation posted`);
+  if (undepCount > 0) {
+    (depreciationSeverity === 'blocking' ? blocking_issues : warnings).push(
+      `${undepCount} assets without depreciation posted`
+    );
+  }
   if (unregistered) {
     warnings.push(
       `Fixed-asset accounts carry ${unregistered} and no fixed asset is registered: nothing was depreciated`
+    );
+  }
+
+  // 4b. MNE-001-129 (#128) · PREPAID SCHEDULES RUN FOR THE PERIOD. The panel
+  // promised `amortizacion_faltante_al_cierre` turns "the checklist item"
+  // red and the checklist had none: its only reader was `prepaid run`.
+  // Through the POOL, like runLedgerChecks: reads of committed data, with the
+  // period row already under FOR UPDATE inside a close.
+  const prepaidCheck = prepaidAmortizedCheck(await revisionDeAmortizacionAlCierre(entityId, periodId));
+  checklist.push(prepaidCheck);
+  if (!prepaidCheck.is_complete) {
+    (prepaidCheck.severity === 'blocking' ? blocking_issues : warnings).push(
+      `${prepaidCheck.item}: ${prepaidCheck.details}`
     );
   }
 
