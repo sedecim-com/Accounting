@@ -50,6 +50,7 @@ import {
   requireExplicitEntity,
   usageError,
   notFound,
+  RETIRED_OPTION_PREFIX,
   exitCodeFor,
   checkExitCode,
 } from './kernel/index.js';
@@ -809,7 +810,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     // SIN VALOR POR OMISIÓN, a propósito: la bandera ya no recorta nada y lo
     // único honesto es decírselo a quien la escribe. Con un defecto, commander
     // la daría por puesta siempre y el error saltaría sin que nadie la pidiera.
-    .option('--level <n>', 'retired: the gate no longer measures by account level');
+    .option('--level <n>', `${RETIRED_OPTION_PREFIX}the gate no longer measures by account level`);
   declareRisk(mapCheck, { risk: 'lectura', agent: true });
   mapCheck.addHelpText('after', EJEMPLOS.mapCheck);
   mapCheck.action((opts: CommonOpts & { check?: string; scheme: string; level?: string; strict?: boolean }) =>
