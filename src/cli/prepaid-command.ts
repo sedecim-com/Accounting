@@ -7,9 +7,14 @@ import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
 import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
-import { query } from '../database/connection.js';
+import { getClient, query } from '../database/connection.js';
 import { t } from '../i18n/index.js';
-import { conLlave, mirarLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
+import {
+  conLlave,
+  mirarLlave,
+  hashDeCarga,
+  type ActoIdempotente,
+} from '../services/idempotency/idempotency-store.js';
 import { indiceDeCalendario, primerDiaDelMes } from '../services/assets/depreciation-math.js';
 import {
   CONVENCIONES_AMORTIZACION,
@@ -35,10 +40,16 @@ import {
   periodoDeLaCorrida,
   runMonthlyAmortization,
 } from '../services/accruals/amortization-run.js';
+import {
+  releaseLockConnection,
+  startLockKeepalive,
+  watchLockConnection,
+} from '../services/accounting/closing-conductor.js';
 import type { Palette } from './palette.js';
 import {
   ExitCode,
   abortedByUser,
+  blockedByState,
   dateOnly,
   declareRisk,
   exitCodeFor,
@@ -517,25 +528,91 @@ interface RecordedRun extends Record<string, unknown> {
   total: string;
   skipped: number;
   errors: string[];
-  /** The entries this run posted. Absent in results recorded before MNE-001-053. */
-  journalEntryIds?: string[];
+  /**
+   * The entries this run posted. Always present: a result recorded before
+   * MNE-001-053 was keyed on another payload (it also hashed the previewed
+   * count and total), so its key no longer matches and `mirarLlave` reports
+   * reuse (exit 6) instead of handing that result back.
+   */
+  journalEntryIds: string[];
 }
 
 /**
- * The entries this run posted: the standing schedule rows of the period for
- * the prepaids that had none before it. Scoped by entity inside the SQL.
+ * The entries this run posted: the standing schedule rows of the period that
+ * were written after `since` (the database clock read just before the engine
+ * ran) by this reviewer. Not "the rows of the prepaids the preview listed":
+ * the engine re-reads the prepaids and may post one the preview did not see,
+ * and a row of a listed prepaid may belong to another run. The engine writes
+ * a fresh row (it deletes the voided one first), so `created_at` is the
+ * moment of this run's own transaction. Scoped by entity inside the SQL.
  */
-async function entriesOfRun(entityId: string, periodId: string, prepaidIds: string[]): Promise<string[]> {
-  if (prepaidIds.length === 0) return [];
+async function entriesOfRun(entityId: string, periodId: string, since: Date, userId: string): Promise<string[]> {
   const r = await query<{ journal_entry_id: string }>(
     `SELECT s.journal_entry_id FROM prepaid_amortization_schedules s
-      WHERE s.entity_id = $1 AND s.fiscal_period_id = $2 AND s.prepaid_expense_id = ANY($3::uuid[])
-        AND ${RENGLON_VIGENTE}
+       JOIN journal_entries je ON je.id = s.journal_entry_id AND je.entity_id = s.entity_id
+      WHERE s.entity_id = $1 AND s.fiscal_period_id = $2 AND s.created_at >= $3
+        AND je.created_by = $4 AND ${RENGLON_VIGENTE}
       ORDER BY s.journal_entry_id`,
-    [entityId, periodId, prepaidIds]
+    [entityId, periodId, since, userId]
   );
   return r.rows.map((row) => row.journal_entry_id);
 }
+
+/**
+ * The advisory lock that serializes keyed runs of the same key. Exported so
+ * the integration test can hold it and watch two runs queue behind it.
+ */
+export function keyLockName(tenantId: string, scope: string, key: string): string {
+  return `idempotency-key:${tenantId}:${scope}:${key}`;
+}
+
+/**
+ * Runs `fn` holding the lock of one idempotency key.
+ *
+ * `mirarLlave` and `conLlave` read the key and record it AFTER the act, so two
+ * processes with the same new key both miss it, both run the engine, and the
+ * loser — the one the schedule's UNIQUE refused — could record its
+ * `{processed: 0, errors: [duplicate key]}` first, which every retry would
+ * then replay. Under this lock the second one waits, looks the key up again,
+ * and replays the winner's result instead of running.
+ *
+ * Same mechanism as the closing conductor (`withConductorLock`): a
+ * transaction-scoped lock on a dedicated connection, released by its COMMIT or
+ * by Postgres if the process dies, with a keepalive against an
+ * idle-in-transaction timeout. Unlike the conductor it WAITS for the lock,
+ * because the holder is a retry of the same order and its result is the
+ * answer; the wait is bounded by the pool's `lock_timeout`.
+ */
+async function underKeyLock<T>(name: string, key: string, fn: () => Promise<T>): Promise<T> {
+  const client = await getClient();
+  const watch = watchLockConnection(client);
+  try {
+    await client.query('BEGIN');
+    try {
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [name]);
+    } catch (e) {
+      // 55P03 lock_not_available: `lock_timeout` ran out while the other run held it.
+      if ((e as { code?: string }).code === '55P03') {
+        throw blockedByState({ key: 'prepaid.run.key_busy', params: { key } });
+      }
+      throw e;
+    }
+    const keepalive = startLockKeepalive(client, KEY_LOCK_KEEPALIVE_MS);
+    try {
+      return await fn();
+    } finally {
+      await keepalive.stop();
+    }
+  } finally {
+    try {
+      await releaseLockConnection(client);
+    } finally {
+      watch.stop();
+    }
+  }
+}
+
+const KEY_LOCK_KEEPALIVE_MS = 5_000;
 
 /**
  * Of the recorded entries, those that no longer stand: not posted, or
@@ -1077,19 +1154,36 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
         clave: opts.idempotencyKey,
         payloadHash: hashDeCarga(ctx.entityId, corrida.id),
       };
-      const recorded = await mirarLlave<RecordedRun>({ tenantId: ctx.tenantId }, keyAct);
-      if (recorded !== undefined) {
+      const key = opts.idempotencyKey ?? '';
+
+      // What a keyed retry answers with the recorded result, instead of running.
+      const replay = async (recorded: RecordedRun): Promise<ExitCodeValue> => {
         // A recorded result whose entries were reversed no longer describes
         // the ledger: replaying "accrued" would hide a month that is not. The
         // engine lets a reversed month run again, so the answer is a new key.
-        const reversed = await reversedEntries(ctx.entityId, recorded.journalEntryIds ?? []);
+        const reversed = await reversedEntries(ctx.entityId, recorded.journalEntryIds);
         if (reversed.length > 0) {
           throw usageError({
             key: 'prepaid.run.key_reversed',
-            params: { key: opts.idempotencyKey ?? '', entries: reversed.join(', '), period: corrida.nombre },
+            params: { key, entries: reversed.join(', '), period: corrida.nombre },
           });
         }
+        // Nor is a PARTIAL result replayed while the month is still missing
+        // prepaids: the key would repeat that failure on every retry, even
+        // after the broken prepaid is fixed, and never try it again. Once
+        // nothing is pending (fixed and run by other means), the recorded
+        // failure is history and is replayed as it was, errors included.
+        if (recorded.errors.length > 0) {
+          const pending = (await revisionDeAmortizacionAlCierre(ctx.entityId, periodo.id)).pendientes;
+          if (pending.length > 0) {
+            throw usageError({
+              key: 'prepaid.run.key_partial',
+              params: { key, period: corrida.nombre, failed: recorded.errors.length, pending: pending.length },
+            });
+          }
+        }
         err.write(deps.palette.dim(`${t('prepaid.run.key_replayed')}\n`));
+        for (const e of recorded.errors) err.write(deps.palette.yellow(`  ⚠ ${e}\n`));
         render(
           [
             {
@@ -1097,13 +1191,16 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
               devengados: recorded.processed,
               omitidos: recorded.skipped,
               total: recorded.total,
-              asientos: (recorded.journalEntryIds ?? []).join(', ') || '—',
+              asientos: recorded.journalEntryIds.join(', ') || '—',
             },
           ],
           { ...opts, idField: 'periodo', numeric: ['total'] }
         );
         return recorded.errors.length > 0 ? ExitCode.VALIDATION : ExitCode.OK;
-      }
+      };
+
+      const recorded = await mirarLlave<RecordedRun>({ tenantId: ctx.tenantId }, keyAct);
+      if (recorded !== undefined) return replay(recorded);
 
       if (entran.length === 0) {
         render(filasPrevistas(previsiones), { ...opts, idField: 'id' });
@@ -1170,60 +1267,71 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
         }
       }
 
-      // `--idempotency-key`, honoured: `conLlave` still arbitrates the race of
-      // two processes with the same new key through its unique constraint.
-      const { repetido, resultado } = await conLlave<RecordedRun>(
-        { tenantId: ctx.tenantId, entityId: ctx.entityId },
-        keyAct,
-        async () => {
-          const r = await runMonthlyAmortization(ctx.entityId, corrida.id, reviewer.userId);
-          // Copied into a plain object because `conLlave` stores it as JSON and
-          // its signature wants it indexable. The entry ids are what lets a
-          // replay tell whether the recorded result still stands; they are
-          // only looked up when there is a key to record them under.
-          return {
-            processed: r.processed,
-            total: r.total,
-            skipped: r.skipped,
-            errors: r.errors,
-            journalEntryIds: opts.idempotencyKey
-              ? await entriesOfRun(ctx.entityId, corrida.id, entran.map((e) => e.id))
-              : [],
-          };
-        }
-      );
+      // `--idempotency-key`, honoured. The engine runs under the key's lock
+      // (see `underKeyLock`), and the key is looked up AGAIN under it: a run
+      // with the same key that was working while this one previewed has
+      // recorded its result by now, and that result is the answer.
+      const accrue = async (): Promise<RecordedRun> => {
+        // The entry ids are what lets a replay tell whether the recorded
+        // result still stands; they are only looked up when there is a key to
+        // record them under, from the database clock read before the engine.
+        const since = opts.idempotencyKey
+          ? (await query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0].now
+          : undefined;
+        const r = await runMonthlyAmortization(ctx.entityId, corrida.id, reviewer.userId);
+        // Copied into a plain object because `conLlave` stores it as JSON and
+        // its signature wants it indexable.
+        return {
+          processed: r.processed,
+          total: r.total,
+          skipped: r.skipped,
+          errors: r.errors,
+          journalEntryIds: since ? await entriesOfRun(ctx.entityId, corrida.id, since, reviewer.userId) : [],
+        };
+      };
+      const keyed = async (): Promise<ActoIdempotente<RecordedRun> | ExitCodeValue> => {
+        const now = await mirarLlave<RecordedRun>({ tenantId: ctx.tenantId }, keyAct);
+        if (now !== undefined) return replay(now);
+        return conLlave<RecordedRun>({ tenantId: ctx.tenantId, entityId: ctx.entityId }, keyAct, accrue);
+      };
+      const outcome = opts.idempotencyKey
+        ? await underKeyLock(keyLockName(ctx.tenantId, keyAct.scope, key), key, keyed)
+        : { repetido: false, resultado: await accrue() };
+      if (typeof outcome === 'number') return outcome;
+      const repeated = outcome.repetido;
+      const result = outcome.resultado;
 
-      if (repetido) err.write(deps.palette.dim(`${t('prepaid.run.key_replayed')}\n`));
+      if (repeated) err.write(deps.palette.dim(`${t('prepaid.run.key_replayed')}\n`));
 
       // LA COMPARACIÓN CONTRA LO QUE DE VERDAD PASÓ. La previa y el motor
       // comparten las funciones puras pero no el bucle, y ésta es la red que
       // impide que se separen en silencio (ver la SÉPTIMA decisión).
-      if (!repetido && resultado.processed !== entran.length) {
+      if (!repeated && result.processed !== entran.length) {
         err.write(
           deps.palette.yellow(
             `  ⚠ La vista previa enseñaba ${entran.length} asiento(s) y la corrida hizo ` +
-              `${resultado.processed}. La previa y el motor no coincidieron: revisa los errores ` +
+              `${result.processed}. La previa y el motor no coincidieron: revisa los errores ` +
               'antes de dar el mes por cerrado.\n'
           )
         );
       }
-      if (!repetido && !new Decimal(resultado.total).equals(total)) {
+      if (!repeated && !new Decimal(result.total).equals(total)) {
         err.write(
           deps.palette.yellow(
             `  ⚠ La vista previa sumaba ${total.toFixed(4)} y la corrida devengó ` +
-              `${resultado.total}.\n`
+              `${result.total}.\n`
           )
         );
       }
-      for (const e of resultado.errors) err.write(deps.palette.yellow(`  ⚠ ${e}\n`));
+      for (const e of result.errors) err.write(deps.palette.yellow(`  ⚠ ${e}\n`));
       err.write(
         deps.palette.green(
-          `✔ ${resultado.processed} asiento(s) de devengo contabilizados en ${corrida.nombre} por ` +
-            `${resultado.total}.\n`
+          `✔ ${result.processed} asiento(s) de devengo contabilizados en ${corrida.nombre} por ` +
+            `${result.total}.\n`
         )
       );
 
-      return resultado.errors.length > 0 ? ExitCode.VALIDATION : ExitCode.OK;
+      return result.errors.length > 0 ? ExitCode.VALIDATION : ExitCode.OK;
     })
   );
 }

@@ -873,6 +873,14 @@ export const ES: Record<keyof typeof EN, string> = {
     'La llave "{key}" grabó asientos que después se reversaron ({entries}). Devolver ese resultado ' +
     'diría que {period} está devengado cuando no lo está. Vuelve a correr con una llave nueva ' +
     '(es otra corrida, no un reintento) o sin --idempotency-key.',
+  'prepaid.run.key_partial':
+    'La llave "{key}" grabó una corrida de {period} que falló en {failed} anticipo(s), y {pending} ' +
+    'anticipo(s) siguen sin devengar en {period}. Devolver ese resultado repetiría la falla sin ' +
+    'volver a intentarlo. Vuelve a correr con una llave nueva (es otra corrida, no un reintento) o ' +
+    'sin --idempotency-key; ahí se imprimen los errores.',
+  'prepaid.run.key_busy':
+    'Otra corrida con la llave "{key}" sigue trabajando. Espera a que termine y reintenta con la ' +
+    'misma llave: el reintento devuelve su resultado grabado.',
   'payrun.post.confirm':
     'Vas a CONTABILIZAR la póliza de la corrida {id} (cargos {debits} = abonos {credits}) ' +
     'sin pasar por la revisión. Una póliza contabilizada sólo se deshace con una reversa. ¿Continuar?',
