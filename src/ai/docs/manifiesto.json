@@ -109,7 +109,7 @@
   "hashes": {
     "src/services/accounting/posting.ts": "4ec9db45ea0b481871c25544371062bf771fea67",
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
-    "src/services/accounting/fiscal-calendar-service.ts": "1cbafe272892a9ebd5d0a132e8935f677187fc46",
+    "src/services/accounting/fiscal-calendar-service.ts": "1eff4952210da9e55a02c30debd078b73587a247",
     "src/cli/entry-command.ts": "d56c3d61ddb1d8cf2b0d912ca919b8fde1cf3c6c",
     "src/services/accounting/iva-cash-basis.ts": "813ab12206be1b3354da71d5858947274c3efa52",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "09d0cd7d7216a381ffd9ac85a25f927146446109",
