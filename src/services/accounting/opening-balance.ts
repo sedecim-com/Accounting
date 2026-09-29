@@ -3,7 +3,7 @@ import { query, withTransaction } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { JournalEntryType } from '../../types/index.js';
-import type { PolicyContext } from '../policy/policy-service.js';
+import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
 import { createJournalEntry, attestEntryAsync } from './posting.js';
 import { rubroDe } from './sat-agrupadores-catalogo.js';
 import { readAgrupador } from './sat-agrupador-account-type.js';
@@ -933,6 +933,17 @@ export interface ImportOpeningBalanceOptions {
   reason?: string | null;
 }
 
+/**
+ * The panel key that decides whether the load posts or leaves a draft
+ * (MNE-001-099 · #220). The owner's decision of 2026-09-26: posting is the
+ * default; `borrador` leaves a draft that `entry post` applies, and whose
+ * lines and date nobody edits (`updateDraftEntry`).
+ */
+export const OPENING_LOAD_MODE_POLICY_KEY = 'apertura_modo_de_carga';
+
+/** `post` unless the key says exactly `borrador`: an unknown value falls to the default. */
+export type OpeningLoadMode = 'post' | 'draft';
+
 export interface OpeningBalanceReport extends OpeningPlan {
   entityId: string;
   /** El RFC de la entidad, que es el que el archivo tuvo que traer. */
@@ -943,13 +954,16 @@ export interface OpeningBalanceReport extends OpeningPlan {
   dryRun: boolean;
   /** Cuántos nodos `Ctas` traía el archivo, defectuosos incluidos. */
   filasLeidas: number;
-  /** El asiento que quedó posteado, o `null`. */
+  /** What `apertura_modo_de_carga` said: posted, or left as a draft. */
+  loadMode: OpeningLoadMode;
+  /** The entry written (posted, or a draft under `loadMode: 'draft'`), or `null`. */
   asiento: { id: string; entry_number: string } | null;
   escrito: boolean;
 }
 
 /**
- * Lee la balanza, planea la apertura y la postea.
+ * Lee la balanza, planea la apertura y la postea — or, when
+ * `apertura_modo_de_carga` is `borrador`, leaves it as a draft for `entry post`.
  *
  * LANZA cuando la petición es imposible —la entidad no existe o no es de este
  * inquilino, el archivo no es una balanza, el RFC es de otro contribuyente, o
@@ -1021,8 +1035,8 @@ export async function importOpeningBalance(
   // LA IDEMPOTENCIA VA POR EL ASIENTO QUE YA EXISTE, no por una bandera: dos
   // corridas de la apertura duplicarían todos los saldos de golpe, que es el
   // accidente más caro que esta superficie puede tener.
-  const yaCargada = await query<{ entry_number: string }>(
-    `SELECT entry_number
+  const yaCargada = await query<{ entry_number: string; status: string }>(
+    `SELECT entry_number, status
        FROM journal_entries
       WHERE entity_id = $1 AND source_type = 'opening_balance'
         AND entry_date = $2::date AND status <> 'void'
@@ -1035,18 +1049,31 @@ export async function importOpeningBalance(
   const anterior = yaCargada.rows[0];
   if (anterior !== undefined) {
     puedeCargarse = false;
+    // A draft holds the 081 slot too: two drafts posted one after the other
+    // would double every balance just the same.
+    const draft = anterior.status === 'draft';
     findings.push(
       finding(
         'APE-YA-CARGADA',
         'bloquea',
         undefined,
-        `Esta entidad ya tiene una apertura posteada el ${ejercicio.startDate}: el asiento ` +
-          `${anterior.entry_number}. Cargarla otra vez DUPLICARÍA todos los saldos de una sola vez. Si ` +
-          `aquélla estaba mal, anúlala primero —queda el rastro de quién y por qué— y vuelve a correr ` +
-          `ésta.`
+        `Esta entidad ya tiene una apertura ${draft ? 'en borrador' : 'posteada'} el ` +
+          `${ejercicio.startDate}: el asiento ${anterior.entry_number}. Cargarla otra vez DUPLICARÍA ` +
+          `todos los saldos de una sola vez. ` +
+          (draft
+            ? `Aplícala con \`mnemosine entry post ${anterior.entry_number}\`, o anúlala con \`entry void\` ` +
+              `y vuelve a correr ésta.`
+            : `Si aquélla estaba mal, anúlala primero —queda el rastro de quién y por qué— y vuelve a ` +
+              `correr ésta.`)
       )
     );
   }
+
+  const loadMode: OpeningLoadMode =
+    (await getPolicy({ tenantId: ctx.tenantId, entityId: opts.entityId }, OPENING_LOAD_MODE_POLICY_KEY))
+      .value === 'borrador'
+      ? 'draft'
+      : 'post';
 
   const base: OpeningBalanceReport = {
     ...plan,
@@ -1058,6 +1085,7 @@ export async function importOpeningBalance(
     origenMes: lectura.header.mes,
     dryRun: opts.dryRun === true,
     filasLeidas: lectura.rowsLeidas,
+    loadMode,
     asiento: null,
     escrito: false,
   };
@@ -1098,7 +1126,9 @@ export async function importOpeningBalance(
         // veinte mil asientos, y lo que hace idempotente esta superficie.
         sourceType: 'opening_balance',
         reference: `${rfc}${lectura.header.anio}${lectura.header.mes}B`,
-        autoPost: true,
+        // Under `borrador` the entry is born a draft and `entry post` applies
+        // it later, through the same ledger door as any other draft.
+        autoPost: loadMode === 'post',
         client,
       }
     );
@@ -1122,6 +1152,7 @@ export async function importOpeningBalance(
         documentos_de_auxiliar: plan.lines.filter((l) => l.documento !== undefined).length,
         total_debe: plan.totalDebe,
         total_haber: plan.totalHaber,
+        load_mode: loadMode === 'draft' ? 'borrador' : 'contabilizar',
       },
       reason: opts.reason ?? null,
     });
@@ -1154,7 +1185,8 @@ export async function importOpeningBalance(
 
   // La atestación mira el asiento YA confirmado, así que se lanza después del
   // commit: dentro de la transacción leería una fila que todavía no existe.
-  attestEntryAsync(ctx.tenantId, opts.entityId, asiento.id);
+  // A draft is attested by `postJournalEntry` when it is applied, not here.
+  if (loadMode === 'post') attestEntryAsync(ctx.tenantId, opts.entityId, asiento.id);
 
   return {
     ...base,
@@ -1361,10 +1393,18 @@ export function renderOpeningBalanceReport(r: OpeningBalanceReport): string {
       );
     }
   }
-  if (r.asiento !== null) {
-    l.push(`  POSTEADO: asiento ${r.asiento.entry_number}.`);
-  } else {
+  if (r.asiento === null) {
     l.push(r.dryRun ? '  NADA ESCRITO: es un ensayo (--dry-run).' : '  NADA ESCRITO: ver los hallazgos.');
+    if (r.dryRun && r.loadMode === 'draft') {
+      l.push('  Con apertura_modo_de_carga = borrador, la carga dejará un BORRADOR sin postear.');
+    }
+  } else if (r.loadMode === 'draft') {
+    l.push(
+      `  BORRADOR: asiento ${r.asiento.entry_number}. Aplícalo con ` +
+        `\`mnemosine entry post ${r.asiento.entry_number}\`; sus renglones y su fecha no se editan.`
+    );
+  } else {
+    l.push(`  POSTEADO: asiento ${r.asiento.entry_number}.`);
   }
   if (r.findings.length > 0) {
     l.push('  Hallazgos:');
