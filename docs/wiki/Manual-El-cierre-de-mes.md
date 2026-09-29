@@ -32,7 +32,7 @@ mnemosine close --period August       # funciona si sólo un periodo se llama as
 mnemosine close --period agosto       # NO encuentra nada: el nombre está en inglés
 ```
 
-Si no encuentra, el comando enumera los que se pueden cerrar. Si el mes existe pero ya está cerrado en duro o bloqueado, lo dice por su estado en vez de contestar «no encontrado». Y si fijaste una entidad con `entity use`, `close` la respeta como el resto de los comandos: `-e` gana, luego `MNEMOSINE_ENTITY`, luego la entidad fijada. Las banderas `--period` caen en dos familias:
+Si no encuentra, el comando enumera los que se pueden cerrar. Si el mes existe pero ya está cerrado en duro o bloqueado, lo dice por su estado en vez de contestar «no encontrado». Y si fijaste una entidad con `entity use`, `close` y `closing` la respetan: `-e` gana, luego `MNEMOSINE_ENTITY`, luego la entidad fijada. No todos los comandos lo hacen todavía (`drafts` y `review`, por ejemplo, aún no leen la entidad fijada): en una firma con varias entidades, pásales `-e`. Las banderas `--period` caen en dos familias:
 
 | Familia | Banderas | Qué acepta |
 |---|---|---|
@@ -317,17 +317,23 @@ Es un segundo acto deliberado, y exige que el periodo ya esté en `soft_close`. 
 2. **Arrastra los saldos de balance** al periodo siguiente, después de los asientos de cierre para que el arrastre de fin de año ya refleje el resultado traspasado.
 3. Sella el periodo y deja su rastro en la bitácora, en la misma transacción.
 
+**El último periodo del ejercicio es el 13, no diciembre.** Cada ejercicio trae un periodo de ajustes de cierre («Year-end adjustments 2026», el periodo 13) que empieza el 31 de diciembre. Cerrar diciembre en duro no genera los asientos de cierre; cerrar el 13 sí. Como los dos empiezan en diciembre, `close --period 2026-12` **se niega** y enumera ambos con su id: nombra el que quieres por su nombre completo o su id.
+
+```bash
+mnemosine close --period "Year-end adjustments 2026" --hard --reason "Cierre anual 2026" --dry-run
+```
+
 Dos advertencias sobre el cierre anual:
 
 **A dónde va el resultado lo decide el panel.** Por omisión, a la 3300 «Resultado del Ejercicio», y una reclasificación posterior, cuando la asamblea lo aprueba, lo lleva a la 3200 «Resultado de Ejercicios Anteriores»; la otra opción de `destino_del_resultado_del_ejercicio` lo manda directo a la 3200. Si la política pide 3300 y el catálogo no la tiene, se usa la 3200 y el cierre lo dice. La cuenta se resuelve por **código** y tiene que estar marcada como cuenta de sistema. Nunca a la 3100: es Capital Social, y NIF C-11 sólo lo mueve por actos corporativos formales.
 
-**Si faltan la 3900 o la 3200, el barrido no se puede hacer, y el cierre lo dice.** Sin cuentas puente no se emite ningún asiento de cierre, y entonces se comprueba si alguna cuenta de resultados conserva saldo. Si la hay, por omisión el cierre duro se revierte entero, el periodo sigue abierto y el error nombra cada cuenta con su saldo; la política `severidad_resultado_sin_barrer` puede bajarlo a un aviso. Con el catálogo sembrado por el sistema las dos existen y están marcadas; con un catálogo importado del sistema anterior, puede que no. **Compruébalo antes de cerrar diciembre en duro:**
+**Si faltan la 3900 o la 3200, el barrido no se puede hacer, y el cierre lo dice.** Sin cuentas puente no se emite ningún asiento de cierre, y entonces se comprueba si alguna cuenta de resultados conserva saldo. Si la hay, por omisión el cierre duro se revierte entero, el periodo sigue abierto y el error nombra cada cuenta con su saldo; la política `severidad_resultado_sin_barrer` puede bajarlo a un aviso. Con el catálogo sembrado por el sistema las dos existen y están marcadas; con un catálogo importado del sistema anterior, puede que no. **Compruébalo antes del cierre anual en duro:**
 
 ```bash
 mnemosine account list --type equity
 ```
 
-Si no están, o no están marcadas como cuentas de sistema, dales de alta o márcalas antes de cerrar: el cierre duro de diciembre se va a detener hasta que el resultado se pueda barrer. Si el panel lo dejó en aviso, el cierre termina y el balance de enero arrastra ingresos y gastos del año anterior.
+Si no están, o no están marcadas como cuentas de sistema, dales de alta o márcalas antes de cerrar: el cierre duro del periodo 13 se va a detener hasta que el resultado se pueda barrer. Si el panel lo dejó en aviso, el cierre termina y el balance de enero arrastra ingresos y gastos del año anterior.
 
 ---
 

@@ -3,18 +3,17 @@ import { stdin, stdout } from 'node:process';
 import type { Command } from 'commander';
 import {
   listClosablePeriods, nextPeriodToClose, getCloseReadiness,
-  type CloseReadiness, type ClosablePeriod,
+  type CloseReadiness,
 } from '../ai/close-service.js';
 import {
   softClosePeriod, hardClosePeriod, type CarryForwardResult,
 } from '../services/accounting/period-close.js';
 import { bootstrapTenant, type AgentContext } from '../ai/context.js';
-import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
-import { NotFoundError } from '../utils/errors.js';
+import { resolveClosablePeriod } from './kernel/closable-period.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import {
-  abortedByUser, blockedByState, exitCodeFor, notFound, resolveActiveEntity,
+  abortedByUser, exitCodeFor, notFound, resolveActiveEntity,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
@@ -45,42 +44,6 @@ export interface CloseCliDeps {
   ask?: (rl: readline.Interface, prompt: string) => Promise<string | null>;
   /** Where `entity use` keeps its pin; tests point it at a temp dir. */
   home?: string;
-}
-
-/**
- * The closable period a person named, in the grammar every other family
- * speaks: uuid, YYYY-MM, or an unambiguous part of the name (#327).
- *
- * It resolves against ALL the entity's periods first and only then asks
- * whether that one can be closed, so a month that exists but is already
- * sealed is refused for its state instead of reported as missing. An
- * ambiguous name is refused by `resolvePeriod` rather than matched to the
- * first hit: this is the irreversible leaf, and it must not resolve more
- * loosely than `period show`.
- */
-export async function pickClosablePeriod(
-  ctx: AgentContext,
-  ref: string,
-  closable: ClosablePeriod[]
-): Promise<ClosablePeriod> {
-  const available = closable.map((p) => p.period_name).join(', ') || 'none';
-  let resolved: Awaited<ReturnType<typeof resolvePeriod>>;
-  try {
-    resolved = await resolvePeriod(ctx.entityId, ref);
-  } catch (err) {
-    if (err instanceof NotFoundError) {
-      throw notFound(`No period matches "${ref}". Closable: ${available}.`);
-    }
-    throw err;
-  }
-  const chosen = closable.find((p) => p.id === resolved.id);
-  if (!chosen) {
-    throw blockedByState(
-      `${resolved.period_name} is ${resolved.status}: only open or soft-closed periods can be closed. ` +
-        `Closable: ${available}.`
-    );
-  }
-  return chosen;
 }
 
 const MARK = { done: '✔', missing: '✘' } as const;
@@ -184,7 +147,10 @@ export async function confirmarCierre(
 // EJEMPLOS · invocaciones copiables, con datos mexicanos
 //
 // `--period` takes YYYY-MM, the period id, or an unambiguous part of its
-// name — the grammar of `period show` and every other family (#327).
+// name — the grammar of `period show` and every other family (#327). A
+// YYYY-MM that two periods share is refused: December and the year-end
+// adjustments period (13) both start in December, and only closing 13 posts
+// the annual closing entries (period-close.ts, isYearEnd).
 //
 // Sin `--period` cierra el periodo abierto MÁS ANTIGUO, que es lo correcto:
 // uno no se cierra mientras otro anterior siga abierto.
@@ -198,8 +164,12 @@ Examples:
   mnemosine close --list
   # Soft-close one month.
   mnemosine close --period 2026-07 --reason "Cierre mensual de julio"
-  # Hard close posts the closing entries and carries balances forward: see it first.
-  mnemosine close --period 2026-12 --hard --reason "Cierre anual 2026" --dry-run
+  # Hard-close a month. It is irreversible: see it first.
+  mnemosine close --period 2026-11 --hard --reason "Cierre definitivo de noviembre" --dry-run
+  # The annual close is the hard close of the year-end adjustments period (13):
+  # it posts the closing entries. 2026-12 is refused because December shares
+  # it, so name period 13 by its full name or its id.
+  mnemosine close --period "Year-end adjustments 2026" --hard --reason "Cierre anual 2026" --dry-run
 `;
 
 export function registerCloseCommand(program: Command, deps: CloseCliDeps): void {
@@ -257,7 +227,7 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
         // A period cannot be closed while an earlier one is open, so the
         // default is always the oldest — never "the current month".
         const period = opts.period
-          ? await pickClosablePeriod(ctx, opts.period, periods)
+          ? await resolveClosablePeriod(ctx, opts.period, periods)
           : await nextPeriodToClose(ctx);
         if (!period) throw notFound('No open periods: nothing to close.');
 

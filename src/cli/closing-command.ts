@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { stdin } from 'node:process';
 import type { Command } from 'commander';
 import { bootstrapTenant, type AgentContext } from '../ai/context.js';
-import { pickClosablePeriod } from './close-command.js';
+import { resolveClosablePeriod } from './kernel/closable-period.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import {
   listClosablePeriods,
@@ -346,7 +346,7 @@ async function periodoOMasViejo(ctx: AgentContext, nombre?: string): Promise<Clo
   }
   // The same resolver as `close --period`, so both answer about the same
   // month for the same text (#327).
-  return pickClosablePeriod(ctx, nombre, periodos);
+  return resolveClosablePeriod(ctx, nombre, periodos);
 }
 
 /**
@@ -365,20 +365,11 @@ async function periodToConduct(ctx: AgentContext, name?: string): Promise<Closab
     if (!chosen) throw notFound('No open periods: nothing to conduct.');
     return chosen;
   }
-  // EL MISMO RESOLVEDOR QUE `closing pack generate` y `period show`: id,
-  // AAAA-MM o nombre, y un nombre ambiguo se NIEGA en vez de tomar la primera
-  // coincidencia. La hoja irreversible no puede resolver con más holgura que
-  // la de lectura: «July» casaba primero con el julio ya cerrado y la negativa
-  // hablaba de otro mes.
-  const resolved = await resolvePeriod(ctx.entityId, name);
-  const chosen = candidates.find((p) => p.id === resolved.id);
-  if (!chosen || chosen.status !== 'open') {
-    throw blockedByState(
-      `${resolved.period_name} is already ${resolved.status}: there is nothing left to conduct. ` +
-        `Seal it with \`mnemosine closing pack generate "${resolved.period_name}"\`.`
-    );
-  }
-  return chosen;
+  // The same resolver as `close` and `closing preview`: id, YYYY-MM or name,
+  // and ambiguity is REFUSED instead of taking the first match. The leaf that
+  // posts cannot resolve more loosely than the one that reads: «July» used to
+  // hit the July already closed and the refusal spoke of another month.
+  return resolveClosablePeriod(ctx, name, candidates, { openOnly: true });
 }
 
 /**

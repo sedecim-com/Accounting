@@ -9554,8 +9554,12 @@ Examples:
   mnemosine close --list
   # Soft-close one month.
   mnemosine close --period 2026-07 --reason "Cierre mensual de julio"
-  # Hard close posts the closing entries and carries balances forward: see it first.
-  mnemosine close --period 2026-12 --hard --reason "Cierre anual 2026" --dry-run
+  # Hard-close a month. It is irreversible: see it first.
+  mnemosine close --period 2026-11 --hard --reason "Cierre definitivo de noviembre" --dry-run
+  # The annual close is the hard close of the year-end adjustments period (13):
+  # it posts the closing entries. 2026-12 is refused because December shares
+  # it, so name period 13 by its full name or its id.
+  mnemosine close --period "Year-end adjustments 2026" --hard --reason "Cierre anual 2026" --dry-run
 ```
 
 ## `mnemosine web`
