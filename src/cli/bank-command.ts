@@ -1155,7 +1155,20 @@ function comisionesComoDocumento(r: ResultadoDeComisiones): Row {
       entry_number: c.entryNumber,
     })),
     skipped: r.omitidas.map(omitidaComoFila),
-    totals: { total: r.totales.total, base: r.totales.base, vat: r.totales.iva },
+    // The fee's VAT moved from 1135 to 1130, each by its own entry.
+    vat_released: r.releases.map((v) => ({
+      transaction: v.transactionId,
+      date: v.date,
+      vat: v.iva,
+      journal_entry: v.entryId,
+      entry_number: v.entryNumber,
+    })),
+    totals: {
+      total: r.totales.total,
+      base: r.totales.base,
+      vat: r.totales.iva,
+      vat_released: r.totales.ivaReleased,
+    },
     dry_run: r.ensayo,
     id: r.cuenta.id,
   };
@@ -1827,7 +1840,8 @@ Examples:
   # Take a signed session back to in_progress to correct a wrong item or match.
   # The signature leaves the session but not the audit trail, which keeps its hash.
   mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "El cargo del 20 era un error de libros"
-  # See which signature would be withdrawn, writing nothing.
+  # See which signature would be withdrawn, writing nothing. On a posted session
+  # it also names each adjustment entry it would reverse (never delete).
   mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
   # A closed fiscal period wins: the refusal names the \`period reopen\` to run
   # first, and --force as well when the month is hard-closed.
@@ -1856,8 +1870,8 @@ Examples:
 `,
   feePost: `
 Examples:
-  # July's bank fees, one entry per charge, with their VAT parked as pending
-  # until the bank issues the CFDI. --iva-rate is the VAT the charge already
+  # July's bank fees, one entry per charge, and a second entry per charge that
+  # moves its VAT to creditable. --iva-rate is the VAT the charge already
   # carries INSIDE it, as a fraction, and it has no default: a rate written
   # into the code is a tax decision nobody takes and nobody sees.
   mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0.16
@@ -5160,19 +5174,21 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
 
   // ---- bank reconciliation reopen ----------------------------------
   //
-  // MNE-001-044 (#302). The way out of a trapped month: an approved session
-  // with a wrong item or match goes back to `in_progress`, and the same range
-  // is closed and signed again. Irreversible for the same reason as `approve`:
+  // MNE-001-044 and MNE-001-130 (#302). The way out of a trapped month: an
+  // approved or posted session with a wrong item or match goes back to
+  // `in_progress`, and the same range is closed and signed again. A posted
+  // session's adjustment entries are reversed, never deleted. Irreversible for the same reason as `approve`:
   // the signature it withdraws cannot be put back, only given again. The
   // kernel adds --dry-run, --yes and --idempotency-key, and --reason is
   // required because `reopen` is an undo verb.
   const reconReopen = reconciliation
     .command('reopen')
     .alias('reabrir')
-    .argument('<session>', 'approved session to reopen')
+    .argument('<session>', 'approved or posted session to reopen')
     .description(
-      'Reopen an approved session to in_progress, withdrawing its signature (kept in the audit ' +
-        'trail); refused under a closed fiscal period and for posted sessions'
+      'Reopen an approved or posted session to in_progress, withdrawing its signature (kept in ' +
+        'the audit trail) and reversing the entries a post booked; refused under a closed ' +
+        'fiscal period'
     );
   withContext(reconReopen);
   reconReopen.option('--json', 'JSON output');
@@ -5181,9 +5197,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     llave: { scope: 'bank reconciliation reopen' },
     agent: false,
     writes:
-      'reconciliation_sessions (status approved → in_progress, signature and close columns ' +
-      'cleared in ONE guarded statement); audit_log action reopen with the withdrawn hash and ' +
-      'snapshot; NEVER journal_entries',
+      'reconciliation_sessions (status approved|posted → in_progress, signature, close and post ' +
+      'columns cleared in ONE guarded statement); for a posted session, journal_entries ' +
+      '(a reversing mirror per adjustment entry, never a delete), ai_drafts (a new pending ' +
+      'draft per adjustment), reconciliation_matches (closed) and the seals; audit_log action ' +
+      'reopen with the withdrawn hash and snapshot',
   });
   reconReopen.addHelpText('after', EJEMPLOS.reconReopen);
   reconReopen.action(
@@ -5216,9 +5234,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           process.stdout.write(`\n  ${p.bold(t('bank.reconciliation.reopen.title'))}\n`);
           process.stdout.write(
             `    ${t('bank.reconciliation.reopen.transition', {
-              session: r.sessionId, from: r.from, to: r.to,
+              session: r.sessionId, from: r.from, to: r.to, previous: r.previousStatus,
             })}\n`
           );
+          for (const x of r.reversals) {
+            process.stdout.write(
+              `    ${t('bank.reconciliation.reopen.reversal', {
+                entry: x.entryNumber, reversal: x.reversalNumber,
+              })}\n`
+            );
+          }
           process.stdout.write(
             `    ${t('bank.reconciliation.reopen.withdrawn', {
               by: r.withdrawnSignature.approvedBy, on: r.withdrawnSignature.approvedAt,
@@ -5247,6 +5272,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             t('bank.reconciliation.reopen.confirm', {
               session: preview.sessionId,
               hash: preview.withdrawnSignature.hash.slice(0, 12),
+              reversals: preview.reversals.length,
             }),
         });
         if (repeated) {
@@ -5267,6 +5293,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
                 withdrawn_hash: r.withdrawnSignature.hash,
                 withdrawn_approved_by: r.withdrawnSignature.approvedBy,
                 withdrawn_approved_at: r.withdrawnSignature.approvedAt,
+                reversals: r.reversals.map((x) => ({
+                  adjustment: x.adjustmentId,
+                  entry: x.entryNumber,
+                  reversal: x.reversalNumber,
+                  new_draft: x.newDraftId,
+                })),
                 reason: r.reason,
                 dry_run: r.dryRun,
               },
@@ -5606,8 +5638,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .command('fee')
     .alias('comision')
     .description(
-      'Bank fees as an accounting act: the charge as an expense and its VAT parked until the ' +
-        'bank issues the CFDI'
+      'Bank fees as an accounting act: the charge as an expense and its VAT moved to ' +
+        'creditable in the month of the charge'
     );
 
   const feePost = fee
@@ -5615,8 +5647,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .alias('contabilizar')
     .argument('<account>', 'bank account whose fees to post (name or id)')
     .description(
-      'Post the period’s bank fees from the statement, one entry per charge, leaving their VAT ' +
-        'in pending-creditable until the bank’s CFDI arrives'
+      'Post the period’s bank fees from the statement, one entry per charge, and move their VAT ' +
+        'from pending-creditable to creditable'
     );
   withContext(feePost);
   feePost
@@ -5641,8 +5673,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     llave: { scope: 'bank fee post' },
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines POSTED (source_type=bank_fee, one per charge, ' +
-      'idempotent by (source_type, source_id))',
+      'journal_entries + journal_entry_lines POSTED (source_type=bank_fee, one per charge, and ' +
+      'source_type=bank_fee_vat_release, 1135 to 1130; idempotent by (source_type, source_id))',
   });
   feePost.addHelpText('after', EJEMPLOS.feePost);
   feePost.action(
@@ -5691,11 +5723,18 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               )}\n`
             );
             renglonDeAsiento('comision_bancaria', c.base, null);
-            // El IVA va a 1135 y no a 1130 A PROPÓSITO: el art. 5 frac. II
-            // pide comprobante fiscal, y aquí sólo hay una línea del extracto.
-            // Se acredita cuando llegue el CFDI del banco.
             if (c.iva !== '0.0000') renglonDeAsiento('iva_pendiente_acreditar', c.iva, null);
             renglonDeAsiento(r.cuenta.nombre, null, c.total);
+          }
+          // The second entry of each fee: its VAT leaves 1135 for 1130.
+          for (const v of r.releases) {
+            out.write(
+              `\n    ${v.date} ${p.dim(
+                t('bank.fee.post.vat_release_ref', { entry: v.entryNumber ?? t('bank.entry_dry_run') })
+              )}\n`
+            );
+            renglonDeAsiento('iva_acreditable', v.iva, null);
+            renglonDeAsiento('iva_pendiente_acreditar', null, v.iva);
           }
           imprimirOmitidas(r.omitidas);
           out.write(
@@ -5735,6 +5774,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               account: previo.cuenta.nombre,
               total: previo.totales.total,
               vat: previo.totales.iva,
+              released: previo.totales.ivaReleased,
             }),
         });
         if (repetido) {
@@ -5759,7 +5799,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             )}\n`
           );
         }
-        process.stderr.write(p.dim(`  ${t('bank.fee.post.vat_pending_note')}\n`));
+        if (r.releases.length > 0) {
+          process.stderr.write(
+            p.dim(`  ${t('bank.fee.post.vat_released_note', { vat: r.totales.ivaReleased })}\n`)
+          );
+        }
         if (dryRun) {
           process.stderr.write(p.yellow(`  ${t('bank.posting.dry_run')}\n`));
         }

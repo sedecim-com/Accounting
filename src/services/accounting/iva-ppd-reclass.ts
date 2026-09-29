@@ -140,6 +140,18 @@ export interface ResultadoReclasificacion {
   montoReclasificado: number;
 }
 
+/**
+ * The part of a document's IVA that is still unpaid, at the ledger's scale.
+ *
+ * ONE rounding, to the four decimals the entry is posted at (#95). Rounding to
+ * cents first and posting at four left up to 0.005 per document in 1130 that
+ * was never creditable: a hundred times the residue the four-decimal scale
+ * allows, and one no later payment would clear.
+ */
+export function unpaidShareOfIva(iva: string, unpaid: string, total: string): Decimal {
+  return new Decimal(iva).times(new Decimal(unpaid).dividedBy(total)).toDecimalPlaces(4);
+}
+
 export interface OpcionesReclasificacion {
   /** Reabre los periodos cerrados y los devuelve a su estado. 'locked' nunca. */
   reabrirCerrados?: boolean;
@@ -193,8 +205,7 @@ export async function reclasificarIvaPpd(
     // dejaba varado para siempre: el pago que lo liberaría ya ocurrió, y
     // nada reevalúa un pago contabilizado. El backfill destruía crédito
     // legítimo en vez de repararlo.
-    const proporcion = new Decimal(h.saldo_documento).dividedBy(h.total_documento);
-    const aReclasificar = new Decimal(h.importe).times(proporcion).toDecimalPlaces(2);
+    const aReclasificar = unpaidShareOfIva(h.importe, h.saldo_documento, h.total_documento);
 
     if (aReclasificar.lessThanOrEqualTo(0)) {
       omitir(
@@ -209,7 +220,7 @@ export async function reclasificarIvaPpd(
       `Reclasificación de IVA: el CFDI ${h.cfdi_uuid} es PPD y su IVA no era acreditable ` +
       `al recibir la factura (se acredita con el REP).` +
       (parcial
-        ? ` Sólo la parte no pagada: ${aReclasificar.toFixed(2)} de ${Number(h.importe).toFixed(2)}.`
+        ? ` Sólo la parte no pagada: ${aReclasificar.toFixed(4)} de ${new Decimal(h.importe).toFixed(4)}.`
         : '');
     let estadoPrevio: string | null = null;
 
