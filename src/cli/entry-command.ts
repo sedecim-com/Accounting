@@ -134,6 +134,8 @@ const BLOCKED_CODES = new Set([
   // F01: una pending_approval/approved no se edita — ya salió de las manos
   // de su autor; el estado lo prohíbe, no la entrada del usuario.
   'ENTRY_NOT_EDITABLE',
+  // MNE-001-099: the lines and date of an opening draft are locked.
+  'OPENING_DRAFT_LOCKED',
   // F01 · maker-checker: la política del panel prohíbe que quien creó
   // postee. No es entrada inválida: es el estado del control interno.
   'SOD_QUIEN_CREA_NO_POSTEA',
