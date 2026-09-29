@@ -4,6 +4,7 @@ import { runLedgerChecks } from './ledger-checks.js';
 import {
   CLOSE_CHECK_CODES,
   CLOSE_CHECK_ITEMS,
+  FEES_WITHOUT_WITHHOLDING_ROWS,
   type CloseCheckCode,
   type SubledgerCode,
   getPeriodCloseStatus,
@@ -11,6 +12,7 @@ import {
   staleOpenings,
 } from './period-close.js';
 import { MAPPING_SCHEMES } from './account-service.js';
+import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 import { revisionDeAmortizacionAlCierre } from '../accruals/prepaid-service.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { listPaymentsAwaitingRep, watchedAtClose } from './rep-expected.js';
@@ -58,6 +60,7 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'bank-items-overdue': 'mnemosine bank reconciling-item assign <session> <item> --expected <YYYY-MM-DD>',
   'bank-lines-unexplained': 'mnemosine bank reconciliation run <account> --period <YYYY-MM>',
   'invoices-reviewed': 'mnemosine invoice issue <invoice_number>',
+  'fees-without-withholding': 'mnemosine cfdi explain <uuid>  (and ask the vendor for a substitute CFDI with the withholding)',
   'depreciation-posted': 'mnemosine depreciation run --period <YYYY-MM>',
   'prepaid-amortized': 'mnemosine prepaid run --period <YYYY-MM>',
   'trial-balance':
@@ -69,6 +72,7 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'sat-agrupador-missing': 'mnemosine account map set <code> --scheme sat-agrupador --value <c_CodAgrup>',
   'ar-subledger-delta': 'mnemosine ar reconcile  (lists the manual entries on the control account)',
   'ap-subledger-delta': 'mnemosine ap reconcile --explain  (splits the delta into named items)',
+  'withholding-accounts-layout': 'mnemosine account role sync --dry-run  (then without --dry-run to apply it)',
 };
 
 export interface OpcionesDeExplicacion {
@@ -249,6 +253,9 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
       [entityId, periodId, limit]
     ),
 
+  'fees-without-withholding': (entityId, periodId, limit) =>
+    filas(FEES_WITHOUT_WITHHOLDING_ROWS, [entityId, periodId, limit]),
+
   'depreciation-posted': (entityId, periodId, limit) =>
     filas(
       `SELECT fa.asset_number, fa.asset_name,
@@ -399,6 +406,12 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
 
   'ar-subledger-delta': (entityId) => subledgerRows(entityId, 'ar-subledger-delta'),
   'ap-subledger-delta': (entityId) => subledgerRows(entityId, 'ap-subledger-delta'),
+  // Mirror of check 9 (MNE-001-147): one row per change the plan would make.
+  'withholding-accounts-layout': async (entityId) => {
+    const [plan] = await censusWithholdingLayout({ entityId });
+    const rows = plan && needsSync(plan) ? describeWithholdingPlan(plan).map((change) => ({ change })) : [];
+    return { total: rows.length, renglones: rows };
+  },
 };
 
 /** ¿Es un código del registro? (para validar entrada de CLI sin lanzar). */

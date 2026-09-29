@@ -5725,6 +5725,102 @@
       "en": null,
       "keptBecause": "authority-field",
       "why": "FALTANTE ACEPTADA Y VERIFICADA. Las entradas de los cinco prefijos citan en su `where` la pareja PREFIJO_* / NS_*, pero cada módulo define una TERCERA constante, `UBICACION_XSD_*`, con el nombre del fichero XSD publicado por el SAT, y esa constante se EMITE dentro del documento: `['xsi:schemaLocation', UBICACION_XSD_CATALOGO]` (catalogo-cuentas.ts:407), `['xsi:schemaLocation', `${NS_BALANZA} ${UBICACION_XSD_BALANZA}`]` (balanza-xml.ts:137), y sus tres hermanas en polizas-xml.ts:580, polizas-auxiliar-xml.ts:125 y :225. Son nombres españoles (BalanzaComprobacion, CatalogoCuentas, PolizasPeriodo, AuxiliarFolios, AuxiliarCtas) que viajan en los bytes del XML y por tanto en `hash_sha256`, con el mismo coste que los prefijos: unicidad rota (062:80), `diff` con ruido y XSD que rechaza. Comprobado sobre el registro: 0 entradas contienen `UBICACION_XSD`, `schemaLocation` ni `.xsd`."
+    },
+    {
+      "class": "policy-key",
+      "where": "fees_without_withholding",
+      "es": "fees_without_withholding",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-148): what happens to a professional-fees CFDI from an individual (regime 612) that declares no ISR withheld."
+    },
+    {
+      "class": "policy-value",
+      "where": "fees_without_withholding/request_substitute_cfdi",
+      "es": "request_substitute_cfdi",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI is held and the vendor is asked for a substitute CFDI with the withholding."
+    },
+    {
+      "class": "policy-value",
+      "where": "fees_without_withholding/withhold_by_law",
+      "es": "withhold_by_law",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the law's withholding is computed from legal_parameters and the entry is held for review."
+    },
+    {
+      "class": "policy-value",
+      "where": "fees_without_withholding/record_as_issued",
+      "es": "record_as_issued",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI posts as issued, with a warning in the close checklist."
+    },
+    {
+      "class": "policy-key",
+      "where": "withholding_accounts_layout",
+      "es": "withholding_accounts_layout",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-147): which accounts the ISR and VAT the entity withholds as payer accumulate on."
+    },
+    {
+      "class": "policy-key",
+      "where": "withholding_accounts_existing",
+      "es": "withholding_accounts_existing",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-147): what happens to an entity whose withholding roles do not follow withholding_accounts_layout."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_layout/per_tax",
+      "es": "per_tax",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: one account per tax withheld (2141 ISR, 2142 VAT)."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_layout/single",
+      "es": "single",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: one account for every withholding (2143)."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_layout/by_concept",
+      "es": "by_concept",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: three accounts by SAT grouping line (2144 216.03, 2145 216.04, 2142 216.10)."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_existing/warn",
+      "es": "warn",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: doctor and the close checklist warn and name `account role sync`."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_existing/repoint",
+      "es": "repoint",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: setting either key repoints the roles, audited and signed by whoever answered."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_existing/keep",
+      "es": "keep",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the entity keeps its roles and nothing warns."
     }
   ]
 }

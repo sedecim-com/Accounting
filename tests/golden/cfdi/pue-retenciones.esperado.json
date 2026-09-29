@@ -20,10 +20,17 @@
     },
     {
       "cuenta": [
-        "2140"
+        "2141"
       ],
       "lado": "abono",
-      "monto": "2066.67"
+      "monto": "1000.00"
+    },
+    {
+      "cuenta": [
+        "2142"
+      ],
+      "lado": "abono",
+      "monto": "1066.67"
     },
     {
       "cuenta": [
@@ -34,5 +41,5 @@
       "monto": "9533.33"
     }
   ],
-  "nota": "Honorarios de persona fisica: ISR retenido 10% e IVA retenido 2/3 van a Retenciones por Pagar 2140; al banco sale el neto."
+  "nota": "Honorarios de persona fisica: ISR retenido 10% e IVA retenido 2/3 van a ISR Retenido por Enterar 2141 e IVA Retenido por Enterar 2142; al banco sale el neto."
 }

@@ -36,7 +36,7 @@ describe('el corpus golden', () => {
     expect(tratamientos.has('PPD')).toBe(true);
     expect(casos.some((c) => c.esperado.sospecha)).toBe(true);
     expect(
-      casos.some((c) => c.esperado.asiento?.some((l) => l.cuenta.includes('2140')))
+      casos.some((c) => c.esperado.asiento?.some((l) => l.cuenta.includes(ROLE_MAP.isr_retenido_por_pagar)))
     ).toBe(true);
   });
 
@@ -67,7 +67,7 @@ describe('el corpus golden', () => {
   it('el asiento esperado de cada draft cuadra contra el BRUTO del propio CFDI', () => {
     // Los cargos igualan subtotal + trasladados (el bruto), no el total: con
     // retenciones, el total neto es bruto − retenido y la diferencia vive en
-    // el abono a 2140. El cuadre cargos==abonos ya lo exige el cargador.
+    // los abonos a 2141 y 2142. El cuadre cargos==abonos ya lo exige el cargador.
     const parser = new CFDIParser();
     for (const caso of casos.filter((c) => c.esperado.resultado === 'draft')) {
       const cfdi = parser.parse(caso.xml);
@@ -159,13 +159,12 @@ describe('el reparto del asiento esperado, línea por línea', () => {
       const contra = lineas.filter((l) => l.lado !== iva.lado);
       const retenidos = cfdi.impuestos?.totalImpuestosRetenidos ?? 0;
       const retenciones = contra.filter(esDe(CUENTAS_DE_RETENCION));
+      // One line per withheld tax: ISR and VAT have accounts of their own (MNE-001-056).
       expect(
-        retenciones.length,
+        retenciones.length > 0,
         `${caso.nombre}: ${retenidos > 0 ? 'la retención necesita su línea' : 'no hay retención que registrar'}`
-      ).toBe(retenidos > 0 ? 1 : 0);
-      if (retenidos > 0) {
-        expect(cerca(Number(retenciones[0].monto), retenidos), caso.nombre).toBe(true);
-      }
+      ).toBe(retenidos > 0);
+      expect(cerca(suma(retenciones), retenidos), caso.nombre).toBe(true);
       const contrapartida = suma(contra.filter((l) => !retenciones.includes(l)));
       expect(
         cerca(contrapartida, cfdi.total),

@@ -101,6 +101,9 @@ const A = {
   ieps: (f: CfdiFacts) => f.iepsTrasladado,
   isrRet: (f: CfdiFacts) => f.isrRetenido,
   ivaRet: (f: CfdiFacts) => f.ivaRetenido,
+  // What the entity withholds as payer: the law's amount when it applies.
+  isrRetDue: (f: CfdiFacts) => f.withholdingDue?.isr ?? f.isrRetenido,
+  ivaRetDue: (f: CfdiFacts) => f.withholdingDue?.iva ?? f.ivaRetenido,
   localesTras: (f: CfdiFacts) => f.impuestosLocalesTrasladados,
   pagado: (f: CfdiFacts) => f.docsRelacionados.reduce((s, d) => s + d.impPagado, 0),
 };
@@ -167,8 +170,8 @@ export const CASES: CfdiCase[] = [
       { role: 'impuestos_locales_gasto', side: 'debit', amount: A.localesTras, description: 'Local taxes', omitIfZero: true },
       // The key difference vs PUE: the VAT is NOT creditable yet.
       { role: 'iva_pendiente_acreditar', side: 'debit', amount: A.ivaTrasladado, description: 'VAT pending crediting (credited with the REP)', omitIfZero: true },
-      { role: 'isr_retenido_por_pagar', side: 'credit', amount: A.isrRet, description: 'ISR withheld from vendor', omitIfZero: true },
-      { role: 'iva_retenido_por_pagar', side: 'credit', amount: A.ivaRet, description: 'VAT withheld from vendor', omitIfZero: true },
+      { role: 'isr_retenido_por_pagar', side: 'credit', amount: A.isrRetDue, description: 'ISR withheld from vendor', omitIfZero: true },
+      { role: 'iva_retenido_por_pagar', side: 'credit', amount: A.ivaRetDue, description: 'VAT withheld from vendor', omitIfZero: true },
       { role: 'cxp', side: 'credit', amount: A.total, description: 'Vendor' },
     ],
     decisions: ['gasto_vs_activo', 'gasto_vs_anticipado', 'cuenta_ambigua', 'ieps_acreditable', 'por_cuenta_terceros'],
@@ -187,8 +190,8 @@ export const CASES: CfdiCase[] = [
       { role: 'ieps_acreditable', side: 'debit', amount: A.ieps, description: 'IEPS', omitIfZero: true },
       { role: 'impuestos_locales_gasto', side: 'debit', amount: A.localesTras, description: 'Local taxes', omitIfZero: true },
       { role: 'iva_acreditable', side: 'debit', amount: A.ivaTrasladado, description: 'Creditable VAT', omitIfZero: true },
-      { role: 'isr_retenido_por_pagar', side: 'credit', amount: A.isrRet, description: 'ISR withheld from vendor', omitIfZero: true },
-      { role: 'iva_retenido_por_pagar', side: 'credit', amount: A.ivaRet, description: 'VAT withheld from vendor', omitIfZero: true },
+      { role: 'isr_retenido_por_pagar', side: 'credit', amount: A.isrRetDue, description: 'ISR withheld from vendor', omitIfZero: true },
+      { role: 'iva_retenido_por_pagar', side: 'credit', amount: A.ivaRetDue, description: 'VAT withheld from vendor', omitIfZero: true },
       { role: 'cxp', side: 'credit', amount: A.total, description: 'Vendor' },
     ],
     decisions: [

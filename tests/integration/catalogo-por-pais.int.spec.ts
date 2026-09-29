@@ -92,7 +92,7 @@ describe('la entidad extranjera no recibe nada mexicano', () => {
   it('no tiene ninguna cuenta de impuesto mexicano', async () => {
     const cat = await catalogoDe(usa.entityId);
     // Las cuatro del catálogo base y las seis del CFDI.
-    for (const code of ['1130', '1135', '1145', '1146', '1165', '2120', '2125', '2130', '2140', '2170', '2180', '2190']) {
+    for (const code of ['1130', '1135', '1145', '1146', '1165', '2120', '2125', '2130', '2140', '2141', '2142', '2170', '2180', '2190']) {
       expect(cat[code], `${code} «${cat[code]}» no debería existir en una entidad extranjera`).toBeUndefined();
     }
   });

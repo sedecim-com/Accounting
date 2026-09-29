@@ -506,7 +506,7 @@ export async function resolvePolicy(
   value: string,
   resolvedBy: string,
   notes?: string
-): Promise<void> {
+): Promise<string[]> {
   const spec = getPolicySpec(key);
 
   // UNA RESPUESTA EN BLANCO NO ES UNA RESPUESTA, y hasta hoy sí lo era.
@@ -611,6 +611,16 @@ export async function resolvePolicy(
         '. A decision is resolved in the SAME scope its evidence was measured.'
     );
   }
+
+  // MNE-001-147 (#309): under withholding_accounts_existing = "repoint",
+  // setting either withholding key repoints the entities it governs. Here and
+  // not in the CLI for the reason of the evidence gate above: two callers.
+  // Loaded lazily because that module reads the panel through this one.
+  if (key === 'withholding_accounts_layout' || key === 'withholding_accounts_existing') {
+    const { followWithholdingPolicy } = await import('../accounting/withholding-accounts.js');
+    return followWithholdingPolicy(ctx, resolvedBy);
+  }
+  return [];
 }
 
 export async function dismissPolicy(
