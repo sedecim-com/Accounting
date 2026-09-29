@@ -13,6 +13,7 @@ import {
   postVendorApplicationEntry,
   postCustomerPaymentEntry,
   postVendorPaymentEntry,
+  postVendorUnapplicationEntry,
   type AplicacionPosterior,
 } from '../../src/services/accounting/ar-ap-posting.js';
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
@@ -53,17 +54,26 @@ interface EstadoFalso {
   totales: { aplicado: string; descuento: string };
   /** gl_account_id de la cuenta bancaria ligada, si la hay. */
   bankGl: string | null;
+  /** T11 · the bills a vendor payment applies to, as `billsAppliedBy` reads them. */
+  applied: Array<Record<string, string | null>>;
+  /** T11 · applications born with the payment that have not stored their IVA yet. */
+  born: Array<{ id: string; bill_id: string }>;
 }
 
 let state: EstadoFalso;
+let writes: Array<{ sql: string; params: unknown[] }>;
 
 function fakeClient(): pg.PoolClient {
   const query = async (text: string, params?: unknown[]): Promise<{ rows: unknown[] }> => {
     const sql = String(text).replace(/\s+/g, ' ');
     const p = params ?? [];
+    if (/^UPDATE/.test(sql.trim())) writes.push({ sql, params: p });
 
     if (sql.includes('FROM legal_entities')) {
       return { rows: [{ incorporation_country: state.country, accounting_standard: state.standard }] };
+    }
+    if (sql.includes('SELECT id, bill_id FROM payment_applications')) {
+      return { rows: state.born };
     }
     // El metodo_pago del gasto llega por la pre-registración que lo creó:
     // un gasto no tiene columna cfdi_uuid. Así se declara un PUE sin
@@ -96,7 +106,10 @@ function fakeClient(): pg.PoolClient {
     if (sql.includes('AS aplicado')) {
       return { rows: [{ aplicado: state.totales.aplicado, descuento: state.totales.descuento }] };
     }
-    if (sql.includes('FROM payment_allocations pa') || sql.includes('FROM payment_applications pa')) {
+    if (sql.includes('FROM payment_applications pa')) {
+      return { rows: state.applied };
+    }
+    if (sql.includes('FROM payment_allocations pa')) {
       return { rows: [] };
     }
     if (sql.includes('FROM bank_accounts')) {
@@ -117,7 +130,10 @@ beforeEach(() => {
     rolesFaltantes: [],
     totales: { aplicado: '0', descuento: '0' },
     bankGl: null,
+    applied: [],
+    born: [],
   };
+  writes = [];
 });
 
 interface Linea {
@@ -574,5 +590,62 @@ describe('el cobro y el pago reparten su importe entre el auxiliar y lo que qued
     expect(lineasDe('acct:anticipo_proveedores')).toHaveLength(0);
     expect(entryDescription()).toBe('Vendor payment PMT-001 · early-payment discount 20.00');
     cuadra();
+  });
+});
+
+// ============================================================
+// T11 · UNAPPLYING, AND THE IVA EACH APPLICATION STORES (105)
+// ============================================================
+
+describe('the vendor unapply entry mirrors the application it undoes', () => {
+  const unapply = (over: Partial<Parameters<typeof postVendorUnapplicationEntry>[2]> = {}) =>
+    postVendorUnapplicationEntry(
+      fakeClient(),
+      pago({ payment_number: 'VPMT-001' }),
+      { billNumber: 'BILL-001', amount: '1100.0000', discount: '60.0000', iva: '160.0000', date: '2026-08-20', ...over },
+      USER
+    );
+
+  it('cash back on account, the discount given back, AP reopened and the IVA re-parked, on its date', async () => {
+    await unapply();
+
+    expect(lineaDe('acct:anticipo_proveedores').debit_amount).toBe('1100.0000');
+    expect(lineaDe('acct:devolucion_compras').debit_amount).toBe('60.0000');
+    expect(lineaDe('acct:cxp').credit_amount).toBe('1160.0000');
+    expect(lineaDe('acct:iva_pendiente_acreditar').debit_amount).toBe('160.0000');
+    expect(lineaDe('acct:iva_acreditable').credit_amount).toBe('160.0000');
+    expect(mockCreate.mock.calls[0][1]).toBe('2026-08-20');
+    expect(entryDescription()).toBe('Unapplication of VPMT-001 from BILL-001');
+    expect(mockCreate.mock.calls[0][6]).toMatchObject({ sourceType: 'vendor_unapplication', sourceId: 'pay-1' });
+    cuadra();
+  });
+
+  it('with no discount and no IVA it is two lines and asks for no other role', async () => {
+    await unapply({ discount: '0.0000', iva: '0.0000' });
+
+    expect(lines()).toHaveLength(2);
+    expect(lineaDe('acct:anticipo_proveedores').debit_amount).toBe('1100.0000');
+    expect(lineaDe('acct:cxp').credit_amount).toBe('1100.0000');
+    cuadra();
+  });
+});
+
+describe('an application born with its payment stores the IVA it released (105)', () => {
+  it('the released amount on the PPD bill, 0 on the one that released nothing', async () => {
+    state.metodoPorGasto = { 'bill-1': 'PPD', 'bill-2': 'PUE' };
+    state.parked = { 'bill-1': '160.0000' };
+    state.totales = { aplicado: '2320.0000', descuento: '0' };
+    state.applied = [
+      { document_id: 'bill-1', document_number: 'BILL-001', tax_amount: '160.0000', total_amount: '1160.0000',
+        applied_now: '1160.0000', applied_total: '1160.0000', terms: null, memo: null },
+    ];
+    state.born = [{ id: 'app-1', bill_id: 'bill-1' }, { id: 'app-2', bill_id: 'bill-2' }];
+
+    await postVendorPaymentEntry(fakeClient(), pago({ payment_amount: '2320.0000' }), USER);
+
+    const stored = writes
+      .filter((w) => w.sql.includes('SET iva_reclass_amount'))
+      .map((w) => [w.params[1], w.params[0]]);
+    expect(stored).toEqual([['app-1', '160.0000'], ['app-2', '0']]);
   });
 });

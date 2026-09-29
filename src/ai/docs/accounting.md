@@ -23,6 +23,7 @@
 
 ## Fiscal periods
 - States: future → open → soft_close → hard_close → locked.
+- A fiscal year has THIRTEEN periods (#304): the twelve months and the year-end adjustment period, number 13, type 'adjustment', spanning December 31 alone. The annual close is the hard close of period 13, and its closing entries are booked INTO it, never into December; an ordinary entry dated December 31 lands in December while December still accepts postings. Period 13 is what the Anexo 24 closing balance (`mnemosine e-accounting balance generate --period <year> --closing`, Mes 13) declares. Years that existed before got it from migration 104, except those already closed in December: those keep twelve periods and `--closing` refuses for them, because their close sits in December.
 - soft_close: warning, only recommended adjustments. hard_close/locked: posting is NOT possible (your drafts for those dates will fail at approval; validate the date first).
 - Human: GET /fiscal-periods, GET /fiscal-periods/:id/close-status, POST /:id/soft-close, POST /:id/hard-close.
 

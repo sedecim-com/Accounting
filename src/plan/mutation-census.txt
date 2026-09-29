@@ -77,6 +77,8 @@ mirror	memory	E0.1 posting-and-close-lock-period	src/services/accounting/posting
 mirror	memory	E0.1 single-maker-checker-gate	src/services/accounting/posting.ts	el lector deja de comparar contra el literal del panel: la política existiría sin morder
 mirror	memory	E0.1 credit-note-posts-at-issue	src/services/accounting/ar-ap-posting.ts	la nota pierde su source_type: el asiento quedaría sin documento
 mirror	memory	E0.1 invoice-gap-and-tax-profile	src/database/migrations/049_cobrar.sql	el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \b lo mata
+mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the defect of #102: the whitelist lacked a current SAT code, so `customer tax set --uso-cfdi D10` refused every school customer
+mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the same defect on c_RegimenFiscal: `--tax-regime 611` refused a current regime
 mirror	memory	E0.2 migration-fails-loud-under-rls	src/database/migrate.ts	apagar el piso es exactamente la regresión que costó cuatro siembras silenciosas
 mirror	memory	E0.2 matview-migration-survives-rls-floor	src/database/migrations/071_las_vistas_que_perdian_la_archivada.sql	EL DEFECTO MEDIDO: sin el traje del refrescador, `CREATE MATERIALIZED VIEW ... AS SELECT ... FROM accounts` muere con 42501 contra el piso `row_security = off` y la actualización de TODO despacho instalado se detiene ahí — en instalación nueva no se nota, porque las políticas aún no existen cuando corre
 mirror	memory	E0.2 distributed-migration-repaired-by-new-file	src/database/migrations/072_la_huella_que_se_podia_forjar.sql	la trampa medida: recrear el disparador se lleva por delante el `ENABLE ALWAYS` de la 058, y el remedio dejaría el sello «garantia-sellada» colgado de un disparador que vuelve a poder apagarse con session_replication_role
@@ -270,6 +272,10 @@ mirror	memory	E2.1 write-route-hands-entity-to-its-resolver	tests/integration/te
 mirror	memory	E2.1 child-policy-predicate-hangs-on-parent	src/database/rls-policies.sql	el `USING (true OR …)` que el issue nombra: la política de las hijas admite cualquier fila y el EXISTS que las ata a un padre visible queda de adorno
 mirror	memory	E2.1 anexo24-balance-scope-and-nature	src/services/sat/anexo24/balanza-service.ts	la balanza del Anexo 24 vuelve a resolver el contribuyente sin acotar por inquilino: se publica el plan de cuentas de otro despacho y se archiva un artefacto fiscal con su tenant_id
 mirror	memory	E2.1 anexo24-balance-scope-and-nature	src/services/sat/anexo24/balanza-invariantes.ts	el recálculo deja de mirar la naturaleza de la cuenta: una acreedora se verifica con la aritmética de una deudora y el archivo entregado cuadra donde el SAT dirá que no cuadra
+mirror	memory	E2.1 anexo24-closing-balance-has-its-period-13	src/services/accounting/fiscal-calendar-service.ts	the fiscal year goes back to regular periods only: no period is of adjustment type and `balance generate --closing` refuses for every new entity, as it did for all of them
+mirror	memory	E2.1 anexo24-closing-balance-has-its-period-13	src/services/accounting/period-close.ts	the closing entry is booked wherever its date points: with December still open that is December, and month 13 is filed without the close
+mirror	memory	E2.1 anexo24-closing-balance-has-its-period-13	src/services/reporting/report-service.ts	the ending cut goes back to the date alone: December generated after the annual close counts the closing entries in SaldoFin and not in its movement, and it no longer balances
+mirror	memory	E2.1 anexo24-closing-balance-has-its-period-13	src/services/accounting/period-close.ts	closing December carries its balances to January and period 13 opens empty; closing period 13 then overwrites January with its activity alone
 mirror	memory	E2.1 openapi-census-and-delivery-retry	src/api/rest/openapi.ts	la especificación deja de derivar de la pila real y pasa a describir un vacío: publicaría lo que alguien recordó y no lo que la app sirve, que es el defecto que este proyecto lleva un mes cazando
 mirror	memory	E2.1 openapi-census-and-delivery-retry	src/services/webhooks/barrido-entregas.ts	el barrido reclama justo las entregas que NO toca reintentar todavía y deja las vencidas donde estaban: la cola vuelve a no vaciarse nunca y la caída de treinta segundos vuelve a perder el evento para siempre
 mirror	memory	E2.1 mutating-route-risk-declaration	src/api/rest/risk.ts	una declaración escrita DETRÁS del manejador vuelve a contar como declaración: el manejador ya respondió cuando al marcador le tocaría correr, así que la ruta se queda sin llave de idempotencia y sin el renglón de auditoría, y el censo la cuenta como cerrada — medido, el acto irreversible se ejecuta DOS veces con la misma llave
@@ -652,6 +658,8 @@ anchor	src/plan/criteria/e0-1.ts	de: 'bloquearPeriodoParaPostear(client',
 anchor	src/plan/criteria/e0-1.ts	de: "politica.value === 'exigir'",
 anchor	src/plan/criteria/e0-1.ts	de: "sourceType: 'credit_note'",
 anchor	src/plan/criteria/e0-1.ts	de: 'ADD COLUMN tax_regime VARCHAR(3),',
+anchor	src/plan/criteria/e0-1.ts	de: " 'D10': 'Pagos por servicios educativos (colegiaturas)',\n",
+anchor	src/plan/criteria/e0-1.ts	de: " '611': 'Ingresos por Dividendos (socios y accionistas)',\n",
 anchor	src/plan/criteria/e0-2.ts	de: "await client.query('SET row_security = off');",
 anchor	src/plan/criteria/e0-2.ts	de: "EXECUTE 'SET LOCAL ROLE mnemosine_refresher';",
 anchor	src/plan/criteria/e0-2.ts	de: 'ALTER TABLE bank_transactions ENABLE ALWAYS TRIGGER bank_transactions_content_hash;',
@@ -736,7 +744,7 @@ anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.
 anchor	src/plan/criteria/e1-2.ts	de: ' pr.pay_date,',
 anchor	src/plan/criteria/e1-2.ts	de: 'value.getDate()',
 anchor	src/plan/criteria/e1-2.ts	de: '.exec(String(value).trim());',
-anchor	src/plan/criteria/e1-2.ts	de: ' [entityId, entryDay]',
+anchor	src/plan/criteria/e1-2.ts	de: ' [entityId, entryDay, options?.fiscalPeriodId ?? null]',
 anchor	src/plan/criteria/e1-2.ts	de: "const offset = new Date('2026-03-01T12:00:00Z').getTimezoneOffset();",
 anchor	src/plan/criteria/e1-2.ts	de: "const natural = CREDIT_NATURAL_TYPES.has(row.account_type) ? debitPositive.negated() : debitPositive;",
 anchor	src/plan/criteria/e1-2.ts	de: "if (closingPolicy.enEstadoDeResultados) includeClosingIn.push('revenue', 'expense');",
@@ -845,6 +853,10 @@ anchor	src/plan/criteria/e2-1.ts	de: 'expect(r.status, JSON.stringify(r.body)).t
 anchor	src/plan/criteria/e2-1.ts	de: " || '(EXISTS (SELECT 1 FROM public.%I p WHERE p.id = %I.%I))',",
 anchor	src/plan/criteria/e2-1.ts	de: ' WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,',
 anchor	src/plan/criteria/e2-1.ts	de: 'export function recalculoDelSat(i: ImportesDeclarados, natur: Natur): Decimal {',
+anchor	src/plan/criteria/e2-1.ts	de: ") VALUES ($1,$2,$3,$4,$5,$6,'adjustment',$7)`,",
+anchor	src/plan/criteria/e2-1.ts	de: 'sourceId: periodId, fiscalPeriodId: periodId }',
+anchor	src/plan/criteria/e2-1.ts	de: '{ date: rango.hasta, inclusive: true, periodId: rango.fiscal_period_id },',
+anchor	src/plan/criteria/e2-1.ts	de: 'AND (fp.start_date, fp.period_number) > (closed.start_date, closed.period_number)',
 anchor	src/plan/criteria/e2-1.ts	de: "import { censarRutas, VERBOS_QUE_MUTAN, alcanceDeIdempotencia, type RutaCensada } from './risk.js';",
 anchor	src/plan/criteria/e2-1.ts	de: ' AND d.next_retry_at <= NOW()',
 anchor	src/plan/criteria/e2-1.ts	de: ' if (resumen.malColocadas.length > 0) {',
