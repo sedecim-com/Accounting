@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 219 of 338 subcommands
+  spelling is `-T` at the root and `-t` on the 220 of 339 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -959,6 +959,7 @@ Commands:
   show|ver [options] [idOrName]          Show one entity — with no argument, the one commands would use, and why
   use|usar [options] <idOrName>          Pin the entity that later commands operate on
   create|crear [options] <name>          Create a legal entity with its chart of accounts, roles and payroll mapping
+  edit|editar [options] <idOrName>       Set the tax regime or fiscal postal code of an entity, validated against the SAT catalog
   archive|archivar [options] <idOrName>  Archive an entity (never deletes: its ledger has to survive)
   unset|limpiar                          Clear the pinned entity; commands go back to requiring --entity
   help [command]                         display help for command
@@ -985,6 +986,10 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
+
+Examples:
+  # Every active company of the firm; the pinned one carries a *.
+  mnemosine entity list
 ```
 
 ### `mnemosine entity show` (alias: ver)
@@ -1007,6 +1012,12 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
+
+Examples:
+  # The entity commands would use right now, and why that one.
+  mnemosine entity show
+  # One company by RFC, with its tax regime and fiscal postal code.
+  mnemosine entity show GAL150623QK8 --json
 ```
 
 ### `mnemosine entity use` (alias: usar)
@@ -1025,6 +1036,10 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   -h, --help               display help for command
+
+Examples:
+  # Pin a company so later commands stop needing --entity.
+  mnemosine entity use GAL150623QK8
 ```
 
 ### `mnemosine entity create` (alias: crear)
@@ -1047,8 +1062,45 @@ Options:
   --currency <code>        functional currency (defaults to the country's)
   --chart <strategy>       auto | siempre | nunca — whether to seed the base
                            chart (default: "auto")
+  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>   fiscal address postal code (5 digits)
   --json                   JSON output
   -h, --help               display help for command
+
+Examples:
+  # A Mexican company with its c_RegimenFiscal and fiscal postal code.
+  mnemosine entity create "Grupo Alameda SA de CV" --tax-id GAL150623QK8 --tax-regime 601 --tax-postal-code 01000
+  # A US company: the EIN, and the functional currency follows the country.
+  mnemosine entity create "Alameda Holdings Inc" --tax-id 12-3456789 --country USA
+```
+
+### `mnemosine entity edit` (alias: editar)
+
+```
+Usage: mnemosine entity edit|editar [options] <idOrName>
+
+Set the tax regime or fiscal postal code of an entity, validated against the SAT
+catalog
+
+Arguments:
+  idOrName                 entity id, tax id, or a fragment of the name
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>   fiscal address postal code (5 digits)
+  --reason <text>          justification recorded in the audit trail
+  --json                   JSON output
+  -h, --help               display help for command
+
+Examples:
+  # Declare the regime of an entity created without it.
+  mnemosine entity edit GAL150623QK8 --tax-regime 626 --reason "Tax status certificate 2026"
+  # Correct the fiscal postal code only.
+  mnemosine entity edit GAL150623QK8 --tax-postal-code 64000
 ```
 
 ### `mnemosine entity archive` (alias: archivar)
@@ -1068,6 +1120,10 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
+
+Examples:
+  # Archive a company the firm no longer keeps; its ledger stays.
+  mnemosine entity archive GAL150623QK8 --reason "Engagement ended"
 ```
 
 ### `mnemosine entity unset` (alias: limpiar)
@@ -1079,6 +1135,10 @@ Clear the pinned entity; commands go back to requiring --entity
 
 Options:
   -h, --help  display help for command
+
+Examples:
+  # Go back to naming the company on every command.
+  mnemosine entity unset
 ```
 
 ## `mnemosine payment` (alias: pago)
@@ -4353,7 +4413,7 @@ Commands:
   reconciliation|conciliacion             The reconciliation session: the two-sided arithmetic that makes `balanced` mean something
   reconciling-item|partida-conciliatoria  Reconciling items as rows: what explains the difference, with age, owner, due date and escalation
   adjustment|ajuste                       The fees, VAT, interest and withholdings a reconciliation uncovers, created as DRAFTS
-  fee|comision                            Bank fees as an accounting act: the charge as an expense and its VAT parked until the bank issues the CFDI
+  fee|comision                            Bank fees as an accounting act: the charge as an expense and its VAT moved to creditable in the month of the charge
   interest|interes                        Interest earned on bank balances: income at its GROSS amount and the tax the bank withheld as a prepayment in the entity’s favour
   check|cheque                            Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law is when the payment counts
   help [command]                          display help for command
@@ -5656,14 +5716,14 @@ Examples:
 ```
 Usage: mnemosine bank fee|comision [options] [command]
 
-Bank fees as an accounting act: the charge as an expense and its VAT parked
-until the bank issues the CFDI
+Bank fees as an accounting act: the charge as an expense and its VAT moved to
+creditable in the month of the charge
 
 Options:
   -h, --help                             display help for command
 
 Commands:
-  post|contabilizar [options] <account>  Post the period’s bank fees from the statement, one entry per charge, leaving their VAT in pending-creditable until the bank’s CFDI arrives
+  post|contabilizar [options] <account>  Post the period’s bank fees from the statement, one entry per charge, and move their VAT from pending-creditable to creditable
   help [command]                         display help for command
 ```
 
@@ -5672,8 +5732,8 @@ Commands:
 ```
 Usage: mnemosine bank fee post|contabilizar [options] <account>
 
-Post the period’s bank fees from the statement, one entry per charge, leaving
-their VAT in pending-creditable until the bank’s CFDI arrives
+Post the period’s bank fees from the statement, one entry per charge, and move
+their VAT from pending-creditable to creditable
 
 Arguments:
   account                  bank account whose fees to post (name or id)
@@ -5700,8 +5760,8 @@ Options:
   -h, --help               display help for command
 
 Examples:
-  # July's bank fees, one entry per charge, with their VAT parked as pending
-  # until the bank issues the CFDI. --iva-rate is the VAT the charge already
+  # July's bank fees, one entry per charge, and a second entry per charge that
+  # moves its VAT to creditable. --iva-rate is the VAT the charge already
   # carries INSIDE it, as a fraction, and it has no default: a rate written
   # into the code is a tax decision nobody takes and nobody sees.
   mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0.16

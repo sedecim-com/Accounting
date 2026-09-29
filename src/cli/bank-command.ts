@@ -1155,7 +1155,20 @@ function comisionesComoDocumento(r: ResultadoDeComisiones): Row {
       entry_number: c.entryNumber,
     })),
     skipped: r.omitidas.map(omitidaComoFila),
-    totals: { total: r.totales.total, base: r.totales.base, vat: r.totales.iva },
+    // The fee's VAT moved from 1135 to 1130, each by its own entry.
+    vat_released: r.releases.map((v) => ({
+      transaction: v.transactionId,
+      date: v.date,
+      vat: v.iva,
+      journal_entry: v.entryId,
+      entry_number: v.entryNumber,
+    })),
+    totals: {
+      total: r.totales.total,
+      base: r.totales.base,
+      vat: r.totales.iva,
+      vat_released: r.totales.ivaReleased,
+    },
     dry_run: r.ensayo,
     id: r.cuenta.id,
   };
@@ -1856,8 +1869,8 @@ Examples:
 `,
   feePost: `
 Examples:
-  # July's bank fees, one entry per charge, with their VAT parked as pending
-  # until the bank issues the CFDI. --iva-rate is the VAT the charge already
+  # July's bank fees, one entry per charge, and a second entry per charge that
+  # moves its VAT to creditable. --iva-rate is the VAT the charge already
   # carries INSIDE it, as a fraction, and it has no default: a rate written
   # into the code is a tax decision nobody takes and nobody sees.
   mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0.16
@@ -5597,8 +5610,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .command('fee')
     .alias('comision')
     .description(
-      'Bank fees as an accounting act: the charge as an expense and its VAT parked until the ' +
-        'bank issues the CFDI'
+      'Bank fees as an accounting act: the charge as an expense and its VAT moved to ' +
+        'creditable in the month of the charge'
     );
 
   const feePost = fee
@@ -5606,8 +5619,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .alias('contabilizar')
     .argument('<account>', 'bank account whose fees to post (name or id)')
     .description(
-      'Post the period’s bank fees from the statement, one entry per charge, leaving their VAT ' +
-        'in pending-creditable until the bank’s CFDI arrives'
+      'Post the period’s bank fees from the statement, one entry per charge, and move their VAT ' +
+        'from pending-creditable to creditable'
     );
   withContext(feePost);
   feePost
@@ -5632,8 +5645,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     llave: { scope: 'bank fee post' },
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines POSTED (source_type=bank_fee, one per charge, ' +
-      'idempotent by (source_type, source_id))',
+      'journal_entries + journal_entry_lines POSTED (source_type=bank_fee, one per charge, and ' +
+      'source_type=bank_fee_vat_release, 1135 to 1130; idempotent by (source_type, source_id))',
   });
   feePost.addHelpText('after', EJEMPLOS.feePost);
   feePost.action(
@@ -5682,11 +5695,18 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               )}\n`
             );
             renglonDeAsiento('comision_bancaria', c.base, null);
-            // El IVA va a 1135 y no a 1130 A PROPÓSITO: el art. 5 frac. II
-            // pide comprobante fiscal, y aquí sólo hay una línea del extracto.
-            // Se acredita cuando llegue el CFDI del banco.
             if (c.iva !== '0.0000') renglonDeAsiento('iva_pendiente_acreditar', c.iva, null);
             renglonDeAsiento(r.cuenta.nombre, null, c.total);
+          }
+          // The second entry of each fee: its VAT leaves 1135 for 1130.
+          for (const v of r.releases) {
+            out.write(
+              `\n    ${v.date} ${p.dim(
+                t('bank.fee.post.vat_release_ref', { entry: v.entryNumber ?? t('bank.entry_dry_run') })
+              )}\n`
+            );
+            renglonDeAsiento('iva_acreditable', v.iva, null);
+            renglonDeAsiento('iva_pendiente_acreditar', null, v.iva);
           }
           imprimirOmitidas(r.omitidas);
           out.write(
@@ -5726,6 +5746,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               account: previo.cuenta.nombre,
               total: previo.totales.total,
               vat: previo.totales.iva,
+              released: previo.totales.ivaReleased,
             }),
         });
         if (repetido) {
@@ -5750,7 +5771,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             )}\n`
           );
         }
-        process.stderr.write(p.dim(`  ${t('bank.fee.post.vat_pending_note')}\n`));
+        if (r.releases.length > 0) {
+          process.stderr.write(
+            p.dim(`  ${t('bank.fee.post.vat_released_note', { vat: r.totales.ivaReleased })}\n`)
+          );
+        }
         if (dryRun) {
           process.stderr.write(p.yellow(`  ${t('bank.posting.dry_run')}\n`));
         }
