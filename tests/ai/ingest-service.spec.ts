@@ -692,6 +692,20 @@ describe('ING-3 · #320 — the direction of the CFDI', () => {
 });
 
 describe('ING-2 · #319 — without a model, and after its failure', () => {
+  it('a CFDI a firm rule posted names the rule that decided (MNE-001-032)', async () => {
+    const { report } = run({
+      noModel: true,
+      plan: [],
+      files: ['/tmp/a.xml', '/tmp/b.xml'],
+      uploads: [
+        { ...makeUpload({}, { rules_applied: [{ ruleId: 'R1', ruleName: 'Consultoria SIN' }, { ruleId: 'R2' }] }), autoProcessed: true },
+        { ...makeUpload({ cfdi_uuid: 'UUID-2' }, { rules_applied: 'not-a-list' }), autoProcessed: true },
+      ],
+    });
+    const r = await report;
+    expect(r.results.map((x) => x.detail)).toEqual(['Processed by firm rules: «Consultoria SIN»', 'Processed by firm rules']);
+  });
+
   it('without a provider, the deterministic layer runs and the rest is left to code, not failed', async () => {
     const { report, session } = run({
       noModel: true,

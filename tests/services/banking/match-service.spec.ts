@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   asignarGrupo,
+  combineMatchGates,
   cuadrarGrupo,
   exigirCuadre,
   exigirSinRepetidos,
@@ -314,5 +315,38 @@ describe('MOTIVOS_DESAPLICACION', () => {
     for (const motivo of MOTIVOS_DESAPLICACION) {
       expect(motivo).toMatch(/^[a-z][a-z-]*[a-z]$/);
     }
+  });
+});
+
+describe('combineMatchGates (MNE-001-043)', () => {
+  const panel = (threshold: string, ceiling: string) => ({ threshold, ceiling });
+
+  it('without flags, the panel answers both gates', () => {
+    expect(combineMatchGates(panel('0.95', '10000'), {})).toEqual({
+      minConfidence: 0.95,
+      maxAmount: 10000,
+    });
+  });
+
+  it('a flag tightens the threshold but never loosens it', () => {
+    expect(combineMatchGates(panel('0.85', '50000'), { minConfianza: 0.9 }).minConfidence).toBe(0.9);
+    expect(combineMatchGates(panel('0.95', '50000'), { minConfianza: 0.75 }).minConfidence).toBe(0.95);
+  });
+
+  it('the ceiling is the Math.min of panel, flag and floor', () => {
+    expect(combineMatchGates(panel('0.85', '10000'), { maxMonto: '40000' }).maxAmount).toBe(10000);
+    expect(combineMatchGates(panel('0.85', '50000'), { maxMonto: '25000' }).maxAmount).toBe(25000);
+    // '0' in the panel means "no amount gate of its own": only the floor remains.
+    expect(combineMatchGates(panel('0.85', '0'), { maxMonto: '999999' }).maxAmount).toBe(50000);
+    expect(combineMatchGates(panel('0.85', '999999'), {}).maxAmount).toBe(50000);
+  });
+
+  it('an unreadable or blank panel value fails closed, not open', () => {
+    expect(combineMatchGates(panel('   ', '50000'), {}).minConfidence).toBe(Number.POSITIVE_INFINITY);
+    expect(combineMatchGates(panel('strict', '50000'), { minConfianza: 0.5 }).minConfidence).toBe(
+      Number.POSITIVE_INFINITY
+    );
+    expect(combineMatchGates(panel('0.85', '  '), {}).maxAmount).toBe(0);
+    expect(combineMatchGates(panel('0.85', '-1'), {}).maxAmount).toBe(0);
   });
 });

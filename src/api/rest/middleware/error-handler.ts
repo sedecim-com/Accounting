@@ -2,13 +2,32 @@ import { Request, Response, NextFunction } from 'express';
 import { AppError } from '../../../utils/errors.js';
 import { responseLanguage, responseLocale } from './locale.js';
 
+/**
+ * CONTRACT: body-parser refuses a request before any route runs, and its
+ * errors are plain `Error`s with a `type` and a 4xx `status`, not AppErrors.
+ * Left alone they fell through to the 500 below, so a malformed JSON body sent
+ * to /v1/ai (or any JSON route) told the client the server had failed (#315).
+ * They are mapped here to the same codes the AI webhook route answers for the
+ * same faults, so one malformed body reads the same on every route.
+ */
+function bodyParserError(err: Error): AppError | undefined {
+  const { type, status } = err as Error & { type?: unknown; status?: unknown };
+  if (typeof type !== 'string' || typeof status !== 'number') return undefined;
+  if (type === 'entity.parse.failed') return new AppError(400, 'INVALID_JSON', 'Body must be valid JSON');
+  if (type === 'entity.too.large') return new AppError(413, 'PAYLOAD_TOO_LARGE', 'Body exceeds the size limit');
+  if (status === 415) return new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', err.message);
+  if (status >= 400 && status < 500) return new AppError(400, 'MALFORMED_BODY', 'Malformed request body');
+  return undefined;
+}
+
 export function errorHandler(
-  err: Error,
+  rawErr: Error,
   req: Request,
   res: Response,
   _next: NextFunction
 ): void {
   const requestId = req.headers['x-request-id'] as string;
+  const err = bodyParserError(rawErr) ?? rawErr;
 
   if (err instanceof AppError) {
     // The `code` is wire contract and goes out the same in every language; the

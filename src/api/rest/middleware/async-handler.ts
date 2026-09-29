@@ -83,3 +83,46 @@ export function validateBody<S extends z.ZodType>(schema: S): RequestHandler {
   validador[MARCA_CUERPO] = schema;
   return validador;
 }
+
+// The query-string twin of the body mark above: the schema of one query
+// parameter hangs from the middleware that validates it, so the OpenAPI census
+// (src/api/rest/openapi.ts) publishes the parameters a route really checks.
+const QUERY_MARK = Symbol('query-parameter-schema');
+
+/** One validated query parameter: its name and the schema it must satisfy. */
+export interface QueryParameter {
+  readonly name: string;
+  readonly schema: z.ZodType;
+}
+
+type HandlerWithQuery = RequestHandler & { [QUERY_MARK]?: QueryParameter };
+
+/** The query parameter a handler validates, if it validates one. */
+export function queryParameterOf(h: unknown): QueryParameter | undefined {
+  return typeof h === 'function' ? (h as HandlerWithQuery)[QUERY_MARK] : undefined;
+}
+
+/**
+ * Validate one query-string parameter, `req.query[name]`, against a Zod
+ * schema. On success the parsed value replaces the raw one.
+ *
+ * CONTRACT: an invalid parameter answers what `validateBody` answers for a bad
+ * body (#315): HTTP 422 `VALIDATION_ERROR` in the error envelope, with the
+ * message `Invalid query parameter: <name>: <message>` (issues joined with
+ * '; ', worded by src/utils/zod-client-errors.ts) and `field` set to the
+ * parameter's name. A bare `.parse()` inside the handler threw a ZodError,
+ * which is not an AppError, and errorHandler answered 500 to a client typo.
+ */
+export function validateQuery(name: string, schema: z.ZodType): RequestHandler {
+  const validator: HandlerWithQuery = (req, _res, next) => {
+    const parsed = parseForClient<unknown>(schema, req.query[name]);
+    if (!parsed.success) {
+      const details = parsed.issues.map((issue) => issue.message).join('; ');
+      return next(new ValidationError(`Invalid query parameter: ${name}: ${details}`, name));
+    }
+    if (parsed.data !== undefined) (req.query as Record<string, unknown>)[name] = parsed.data;
+    next();
+  };
+  validator[QUERY_MARK] = { name, schema };
+  return validator;
+}

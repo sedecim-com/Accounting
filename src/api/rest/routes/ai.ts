@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { boundedString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
-import { asyncHandler, validateBody } from '../middleware/async-handler.js';
+import { asyncHandler, validateBody, validateQuery } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { withTenant } from '../../../database/connection.js';
 import { resolveEntity } from '../../../ai/context.js';
@@ -68,12 +68,14 @@ const answerSchema = z.object({
 });
 const draftStatus = z.enum(['pending_review', 'approved', 'rejected']);
 const questionStatus = z.enum(['pending', 'answered', 'dismissed']);
+const precedentSearch = boundedString({ min: 1 });
 
 // ─── Drafts ───
 
 router.get('/drafts', requirePermission('journal_entries:read'), requireEntityAccess,
+  validateQuery('status', draftStatus.optional()),
   scoped(async (req, res, ctx) => {
-    const status = draftStatus.optional().parse(req.query.status);
+    const status = req.query.status as z.infer<typeof draftStatus> | undefined;
     const drafts = await listDrafts(ctx, status, { limit: 100, newestFirst: true });
     res.json({ data: drafts, meta: meta(req) });
   })
@@ -114,8 +116,9 @@ router.post('/drafts/:id/reject', declararRiesgoRuta({ riesgo: 'escritura', agen
 // ─── Questions and precedents ───
 
 router.get('/questions', requirePermission('journal_entries:read'), requireEntityAccess,
+  validateQuery('status', questionStatus.optional()),
   scoped(async (req, res, ctx) => {
-    const status = questionStatus.optional().parse(req.query.status);
+    const status = req.query.status as z.infer<typeof questionStatus> | undefined;
     const questions = await listQuestions(ctx, status);
     res.json({ data: questions, meta: meta(req) });
   })
@@ -137,8 +140,9 @@ router.post('/questions/:id/dismiss', declararRiesgoRuta({ riesgo: 'escritura', 
 );
 
 router.get('/precedents', requirePermission('journal_entries:read'), requireEntityAccess,
+  validateQuery('search', precedentSearch),
   scoped(async (req, res, ctx) => {
-    const search = boundedString({ min: 1 }).parse(req.query.search);
+    const search = req.query.search as string;
     const precedents = await searchPrecedents(ctx, search);
     res.json({ data: precedents, meta: meta(req) });
   })

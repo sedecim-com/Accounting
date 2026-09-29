@@ -364,7 +364,7 @@ npm run mnemosine -- payment create F-0001 \
 
 Los métodos son `cash`, `check`, `ach`, `wire`, `spei`, `credit_card` y `other`.
 
-**Sobre `--bank`:** pide el identificador de una cuenta bancaria dada de alta, y **no hay comando para dar de alta cuentas bancarias**. En la práctica, omítela: sin ella el sistema usa la cuenta del rol `banco` de la entidad, que fijaste en el alta.
+**Sobre `--bank`:** pide el **id** de una cuenta bancaria dada de alta con `bank account create`; el id sale en `bank account list`, y con `-q` sólo los ids (ver [[Manual-Bancos-y-conciliacion]]). Si la omites, el sistema usa la cuenta del rol `banco` de la entidad, que fijaste en el alta; con dos chequeras, pásala para que el pago caiga en la correcta.
 
 ### Un cobro de cliente
 
@@ -431,7 +431,9 @@ npm run mnemosine -- report aged-receivable show --as-of 2026-08-31
 npm run mnemosine -- report aged-payable show --as-of 2026-08-31
 ```
 
-**Lo que no hay:** estado de flujos de efectivo (NIF B-2), estado de variaciones en el capital contable (NIF B-4), ni columna comparativa contra el mes o el ejercicio anterior. Cada reporte es de un corte; si quieres agosto contra julio, corres dos veces y comparas fuera.
+El estado de flujos de efectivo (NIF B-2) no está en la familia `report`: sale con `cashflow generate --period 2026-08`, y `cashflow reconcile` lo amarra contra el efectivo real.
+
+**Lo que no hay:** estado de variaciones en el capital contable (NIF B-4), ni columna comparativa contra el mes o el ejercicio anterior. Cada reporte es de un corte; si quieres agosto contra julio, corres dos veces y comparas fuera.
 
 ### El auxiliar de una cuenta
 
@@ -496,12 +498,12 @@ npm run mnemosine -- close --period August --check
 
 **Fíjate en el `August`, no es un descuido.** `close --period` es una de las dos banderas de periodo que buscan por fragmento del nombre guardado —y los nombres se acuñan en inglés—, así que `--period 2026-08` no encuentra nada y el comando te enumera los disponibles. Las tres familias de `--period`, con lo que acepta cada una, están en [[Manual-El-cierre-de-mes]].
 
-Sólo revisa; nunca cierra. Evalúa siete partidas: pólizas en borrador o pendientes de aprobación (bloquea), conciliaciones bancarias (avisa), facturas de cliente en borrador (avisa), depreciación del periodo (avisa), balanza cuadrada (bloquea), REP apartados para revisión (avisa), y pagos y cobros sin REP (bloquea o avisa según lo que hayas definido en el panel).
+Sólo revisa; nunca cierra. Recorre la lista de verificación del cierre —pólizas sin contabilizar, conciliaciones bancarias, facturas en borrador, depreciación, balanza cuadrada, REP, agrupador del SAT y el resto— y separa lo que bloquea de lo que sólo avisa; en varias partidas eso lo decide una política del panel. Cada partida, con su severidad y su remedio, está en [[Manual-El-cierre-de-mes]].
 
-**Dos partidas dan verde por vacío y hay que verificarlas fuera del sistema:**
+**Dos partidas dicen «no se pudo comprobar» cuando no hay nada que contar**, en vez de salir en verde:
 
-- **Conciliaciones bancarias.** Como no se pueden dar de alta cuentas bancarias, el conteo de cuentas sin conciliar da cero y la partida sale cumplida. No significa que esté conciliado.
-- **Depreciación.** No hay alta de activos fijos, así que la partida tampoco comprueba nada real.
+- **Conciliaciones bancarias.** Sin cuentas dadas de alta con `bank account create`, no hay nada que revisar. Con cuentas, la partida pide una sesión cerrada con `bank reconciliation close` que cubra el mes.
+- **Depreciación.** Sin activos registrados con `asset create` y sin saldo en las cuentas de activo fijo, igual. Si esas cuentas **sí** traen saldo y el registro está vacío, ya no es «no se pudo comprobar»: es un hallazgo que te pide registrarlos. Con activos, pide la corrida del mes contabilizada con `depreciation post`, y la severidad la fija la política `depreciacion_faltante_al_cierre`.
 
 Y antes de cerrar, dos comprobaciones que sí valen:
 
@@ -519,7 +521,7 @@ npm run mnemosine -- close --period August --dry-run
 npm run mnemosine -- close --period August --reason "cierre mensual agosto"
 ```
 
-**Y aquí, más que en ningún otro sitio, cuida la respuesta.** La compuerta de `close` es laxa: cualquier respuesta que empiece con `s` —incluida `salir`— se toma como **sí**. Para cancelar escribe `n`. Y recuerda que **no hay comando para reabrir un periodo cerrado**.
+**Y aquí, más que en ningún otro sitio, cuida la respuesta.** La compuerta de `close` es laxa: cualquier respuesta que empiece con `s` —incluida `salir`— se toma como **sí**. Para cancelar escribe `n`. Un cierre suave se deshace con `period reopen <periodo> --reason "..."`; uno duro pide además `--force`, y uno bloqueado no se reabre nunca (ver [[Manual-El-cierre-de-mes]]).
 
 El cierre normal es reversible por diseño (`soft close`); el `--hard` es irreversible y sólo se hace al final del ejercicio.
 
@@ -603,7 +605,19 @@ npm run mnemosine -- report balance-sheet show --as-of 2026-08-31 --format csv -
 npm run mnemosine -- report income-statement show --period 2026-08 --format csv -o resultados.csv
 ```
 
-Y lo que sigue haciéndose fuera de mnemosine, sin excepción: bajar los CFDI del portal del SAT, timbrar, cancelar, emitir los REP, conciliar el banco y generar la contabilidad electrónica y la DIOT.
+Y lo que sigue haciéndose fuera de mnemosine, sin excepción:
+
+- bajar los CFDI del portal del SAT: la descarga masiva no está construida;
+- timbrar, cancelar ante el SAT y emitir los REP, en el portal del PAC;
+- sellar con la e.firma y presentar ante el SAT los XML del Anexo 24 y la DIOT.
+
+La conciliación del banco, en cambio, se hace aquí con `bank reconciliation` ([[Manual-Bancos-y-conciliacion]]), y los archivos del SAT se generan aquí con `e-accounting` y `diot` ([[Manual-El-cierre-de-mes]]): lo único que queda de tu lado es sellarlos y presentarlos.
+
+```bash
+npm run mnemosine -- bank reconciliation run "BBVA Operativa MXN" --period 2026-08 --dry-run
+npm run mnemosine -- e-accounting balance generate --period 2026-08 --dry-run
+npm run mnemosine -- diot generate --period 2026-08
+```
 
 ---
 

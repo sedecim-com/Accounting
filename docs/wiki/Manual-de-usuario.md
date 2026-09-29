@@ -200,19 +200,13 @@ Un manual que promete un paso que no existe es peor que no tener manual. Ésta e
 | Timbrar un CFDI | No existe | Timbrar en el portal del PAC. `invoice issue` sólo contabiliza |
 | Cancelar un CFDI ante el SAT | No existe | Cancelar en el PAC y después `entry reverse <folio> --reason "CFDI cancelado, acuse ..."` |
 | Emitir el REP (complemento de pago) | No existe | Emitirlo en el PAC. `rep missing list` sí te dice cuáles faltan |
-| Conciliación bancaria | No hay familia `bank` en la terminal, ni alta de cuentas bancarias | Conciliar fuera y capturar los hallazgos (comisiones, intereses, cheques en tránsito) como pólizas manuales |
-| XML de contabilidad electrónica (Anexo 24) y DIOT | No se generan | Exportar la balanza y el auxiliar a CSV y generarlos fuera |
-| Reabrir un periodo cerrado | No hay comando | La corrección se registra en un periodo abierto. Piénsalo antes de cerrar |
-| Aplicar un lote de `entry import` | El lote se queda escenificado; la familia que lo aplica no existe todavía | Capturar los saldos iniciales como una póliza manual (ver [[Manual-Primer-cliente]]) |
-| Migrar desde CONTPAQi o Aspel con `onboard` | Sólo hay adaptador de Contalink | Saldos iniciales a mano, como póliza |
+| Sellar y presentar el Anexo 24 o la DIOT | `e-accounting` y `diot` los arman, sin sello; no firman ni envían | Sellar con la e.firma y presentar en el Buzón Tributario o el portal del SAT |
+| Pólizas y auxiliares del Anexo 24 en XML | No se generan (catálogo y balanza sí) | Exportar pólizas y auxiliar a CSV y armarlos fuera |
+| Migrar desde CONTPAQi o Aspel con `onboard` | Sólo hay adaptador de Contalink | `opening-balance import` con la balanza XML del Anexo 24 que exporta el sistema anterior, o los saldos a mano como póliza |
 | Programar pagos | No existe, y el sistema lo dice: no habla con ningún banco | `payment create` registra dinero que **ya salió**, no lo manda |
 | Estados financieros en PDF o Excel | No existe | `--format csv -o archivo.csv` y darles formato en Excel |
 
-Dos ausencias merecen un aviso especial, porque no fallan: pasan calladas.
-
-**El checklist de cierre da verde en la conciliación bancaria.** Como no hay forma de dar de alta una cuenta bancaria desde la terminal, el conteo de cuentas sin conciliar da cero, y `mnemosine close --check` reporta «Bank reconciliations complete». No significa que esté conciliado: significa que no había nada que contar. Trátalo como una partida que verificas fuera del sistema.
-
-**El cierre duro de fin de ejercicio puede saltarse los asientos de cierre.** Si el catálogo de la entidad no tiene las cuentas 3900 y 3200 marcadas como cuentas de sistema —cosa que pasa cuando el catálogo se importó de otro sistema en vez de sembrarse—, `close --hard` de diciembre reporta éxito sin generar el traspaso de resultados a capital. Antes de cerrar un ejercicio, verifica que esas dos cuentas existan.
+**El cierre duro de fin de ejercicio necesita sus cuentas puente.** Si el catálogo de la entidad no tiene las cuentas 3900 y 3200 marcadas como cuentas de sistema —cosa que pasa cuando el catálogo se importó de otro sistema en vez de sembrarse—, `close --hard` de diciembre no puede barrer el resultado. Por omisión se detiene, revierte el cierre y nombra las cuentas de resultados que quedaron con saldo; qué tan estricto es lo fija la política `severidad_resultado_sin_barrer` del panel. Verifica esas dos cuentas antes de cerrar el ejercicio y te ahorras el rechazo.
 
 ---
 
