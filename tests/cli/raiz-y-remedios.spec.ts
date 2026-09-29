@@ -283,6 +283,13 @@ describe('reportError renders a keyed AppError in the active language', () => {
     expect((translated as { exitCode?: number }).exitCode).toBe(5);
   });
 
+  it('a locked opening draft is BLOCKED by its state, not bad input (MNE-001-099)', () => {
+    const translated = translateDomainError(
+      new AccountingError('OPENING_DRAFT_LOCKED', 'JE-2026-0001: sus renglones y su fecha no se editan.')
+    );
+    expect((translated as { exitCode?: number }).exitCode).toBe(5);
+  });
+
   it('the remedy writer still sees the rendered message of an AppError', () => {
     setLanguage('es');
     const output = stderrOf(
