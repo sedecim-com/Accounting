@@ -750,6 +750,20 @@ export const E0_1: Criterio[] = [
         a: 'ADD COLUMN tax_regimen VARCHAR(3),',
         porque: 'el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \\b lo mata',
       },
+      {
+        archivo: 'src/services/xml-ingestion/sat-catalogs.ts',
+        de: "    'D10': 'Pagos por servicios educativos (colegiaturas)',\n",
+        a: '',
+        porque:
+          'the defect of #102: the whitelist lacked a current SAT code, so `customer tax set ' +
+          '--uso-cfdi D10` refused every school customer',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/sat-catalogs.ts',
+        de: "    '611': 'Ingresos por Dividendos (socios y accionistas)',\n",
+        a: '',
+        porque: 'the same defect on c_RegimenFiscal: `--tax-regime 611` refused a current regime',
+      },
     ],
     evaluar: () => {
       // F03: borrar un borrador es legal; borrar su rastro no. El DELETE
@@ -793,6 +807,20 @@ export const E0_1: Criterio[] = [
         (cust.match(/SAT_CATALOGS\.USO_CFDI/g) ?? []).length < 2
       ) {
         return falla('el perfil fiscal dejó de validar contra los catálogos del SAT: un código inventado se guardaría y fallaría al timbrar');
+      }
+      // #102: a whitelist is only honest when it is COMPLETE. These are the
+      // SAT's current c_RegimenFiscal and c_UsoCFDI codes; one missing from
+      // sat-catalogs.ts rejects a legitimate customer at `customer tax set`.
+      const catalogs = codigoDe('src/services/xml-ingestion/sat-catalogs.ts');
+      const current = [
+        '601', '603', '605', '606', '607', '608', '609', '610', '611', '612', '614', '615', '616',
+        '620', '621', '622', '623', '624', '625', '626', '628', '629', '630',
+        'G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08',
+        'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'S01', 'CP01', 'CN01',
+      ];
+      const missing = current.filter((code) => !new RegExp(`^\\s*'${code}':`, 'm').test(catalogs));
+      if (missing.length > 0) {
+        return falla(`the SAT catalogs the tax profile validates against lack current codes: ${missing.join(', ')}`);
       }
       if (!/RFC_CLIENTE_RE\.test\(rfc\)/.test(cust)) {
         return falla('el RFC del cliente dejó de validarse en forma antes de escribirse');
