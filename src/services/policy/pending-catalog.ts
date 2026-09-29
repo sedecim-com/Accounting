@@ -1946,8 +1946,10 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'stays on 2140 in every layout. One account per tax gives the two lines of the monthly ' +
       'payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping ' +
       'code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything ' +
-      'that is not a lease is booked as professional services. One account needs the working paper ' +
-      'to split ISR from VAT, and the approval of a draft can only check their sum.',
+      'that is not a lease is booked as professional services. With one account per tax, 2141 holds ' +
+      'lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can ' +
+      'only be one of the two. One account needs the working paper to split ISR from VAT, and the ' +
+      'approval of a draft can only check their sum.',
     options: [
       { value: 'per_tax', label: 'One account per tax: 2141 ISR withheld, 2142 VAT withheld' },
       { value: 'single', label: 'One account for both: 2143 ISR and VAT withheld' },
@@ -1958,8 +1960,10 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ],
     defaultValue: 'per_tax',
     defaultRationale:
-      'The 17th and the DIOT ask for ISR and VAT withheld on separate lines, and a balance per tax ' +
-      'is what they read without any split. It is what entities are seeded with.',
+      'The withholder pays the ISR (LISR 106, 116) and the VAT (LIVA 1-A, 5-D) it withheld with the ' +
+      'monthly return due on the 17th, as separate taxes, and the DIOT reports the VAT withheld per ' +
+      'supplier (LIVA 32-VIII): a balance per tax is what both read without any split. It is the ' +
+      'owner\'s default on #309 and what entities are seeded with.',
     whyAsking:
       'Some firms keep one withholdings account, others one per tax, others follow the SAT grouping code line by line.',
     whatIDo:
@@ -1990,7 +1994,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
     defaultValue: 'warn',
     defaultRationale:
       'Repointing changes where next month\'s withholdings land, and the balance already on 2140 ' +
-      'stays there until someone reclassifies it. That is worth a person looking at the plan first.',
+      'stays there until someone reclassifies it with an entry. The books must let each operation be ' +
+      'traced to its account (CFF 28, RCFF 33): a change a person reviewed with --dry-run is one the ' +
+      'firm can explain to an auditor, a change nobody looked at is not.',
     whyAsking: 'Moving the roles of a company that is already posting changes its books from the next entry on.',
     whatIDo: 'I warn and name `account role sync`; with "repoint" I run it myself when the layout is set.',
     ifSkipped: 'I warn, and change nothing.',
