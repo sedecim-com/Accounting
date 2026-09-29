@@ -2,6 +2,7 @@ import { query } from '../../database/connection.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { NotFoundError, ValidationError } from '../../utils/errors.js';
 import type { DepreciationMethod } from '../../types/index.js';
+import { changePolicyHint } from '../policy/policy-hint.js';
 
 // ============================================================
 // RESOLVER LA CATEGORÍA QUE UNA PERSONA TECLEA (F06a)
@@ -177,7 +178,7 @@ export function exigirLibroDelPanel(
         `el libro que llega al mayor es ${vigente.libro}${vigente.definida ? '' : ' (defecto declarado, nadie ha contestado)'}. ` +
         'Esta bandera declara sobre qué libro crees estar operando, no lo elige: cuál de las dos ' +
         'depreciaciones se postea es criterio del despacho y se contesta con ' +
-        '`mnemosine pending resolve base_depreciacion`.',
+        `${changePolicyHint('base_depreciacion')}.`,
       'book'
     );
   }
