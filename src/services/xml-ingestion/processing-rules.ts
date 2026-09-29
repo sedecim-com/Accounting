@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { boundedString, integerNumber, uuidString } from '../../utils/zod-compat.js';
 import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
+import { parseForClient } from '../../utils/zod-client-errors.js';
 import {
   CONDITION_OPERATORS,
   RULE_FIELDS,
@@ -130,11 +131,10 @@ export function parseRuleAction(spec: string): RuleActions {
 
 /** Validates the body exactly as the REST route does, plus the rule type the table accepts. */
 export function validateProcessingRule(input: unknown): CreateProcessingRuleInput {
-  const parsed = createProcessingRuleSchema.safeParse(input);
+  // Through the adapter, as every client-facing zod message is (#367).
+  const parsed = parseForClient(createProcessingRuleSchema, input);
   if (!parsed.success) {
-    throw new ValidationError(
-      parsed.error.issues.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`).join('; ')
-    );
+    throw new ValidationError(parsed.issues.map((i) => `${i.path || '<root>'}: ${i.message}`).join('; '));
   }
   if (!(RULE_TYPES as readonly string[]).includes(parsed.data.rule_type)) {
     throw new ValidationError(`Unknown rule type "${parsed.data.rule_type}": use ${RULE_TYPES.join(', ')}.`, 'rule_type');
