@@ -68,9 +68,75 @@ export function assertNumeracionUnica(files: string[]): void {
 }
 
 
-async function runMigrations() {
-  const client = await pool.connect();
+/**
+ * The advisory lock every run takes before it reads public.migrations.
+ * Advisory locks are per database, so two firms' databases on one cluster
+ * never wait on each other; hashed the same way as closing-conductor.ts.
+ */
+export const MIGRATION_LOCK_NAME = 'mnemosine:migrate';
+
+export interface MigrationRunOptions {
+  /** Directory of NNN_name.sql files, applied in sorted order. */
+  migrationsDir: string;
+  /** Hardening script re-applied after every run, or null to skip it. */
+  hardeningPath: string | null;
+}
+
+/**
+ * Re-applies the hardening script; false when it failed. Called from the
+ * finally of applyMigrations, never from inside its try.
+ *
+ * El endurecimiento corre SIEMPRE — su comentario decía «ALWAYS» y vivía
+ * dentro del try, así que un fallo a mitad de la corrida se lo saltaba:
+ * las migraciones que SÍ se aplicaron antes del fallo quedaban con sus
+ * tablas creadas y sin política, que es la fuga silenciosa que este
+ * bloque existe para impedir. En el finally cubre lo aplicado pase lo
+ * que pase, y el proceso sale en rojo igualmente.
+ */
+async function applyHardening(client: pg.ClientBase, rlsPath: string | null): Promise<boolean> {
+  if (!rlsPath || !fs.existsSync(rlsPath)) return true;
+  console.log('  Applying isolation policies...');
+  try {
+    await client.query(fs.readFileSync(rlsPath, 'utf-8'));
+    return true;
+  } catch (rlsError) {
+    console.error('Hardening failed:', rlsError);
+    return false;
+  }
+}
+
+/**
+ * Applies the pending migrations on `client` and returns true when every
+ * step succeeded. It never exits the process: runMigrations below owns that.
+ */
+export async function applyMigrations(
+  client: pg.ClientBase,
+  options: MigrationRunOptions
+): Promise<boolean> {
   let fallo = false;
+  // ============================================================
+  // ONE RUNNER AT A TIME PER DATABASE (#373).
+  //
+  // The deploy runs migrate as a pre-step or a Job, so two replicas or two
+  // overlapping deploys can start it together. Without this, both read the
+  // same pending file from public.migrations and both execute it: the loser
+  // dies on a duplicate (even CREATE TABLE IF NOT EXISTS races in the
+  // catalog) and anything non-transactional in the file happens twice.
+  //
+  // A SESSION lock, not a transaction one: it must span every per-file
+  // transaction and the hardening. It is taken BEFORE the try, so a run that
+  // never got it never unlocks, and it is released in the finally, so a
+  // failed run frees it at once instead of when its connection closes.
+  // No timeout of its own: the waiter is bounded by the deploy step.
+  // ============================================================
+  const free = await client.query<{ ok: boolean }>(
+    'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS ok',
+    [MIGRATION_LOCK_NAME]
+  );
+  if (!free.rows[0].ok) {
+    console.log('  Another migrate run holds the lock; waiting for it to finish...');
+    await client.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [MIGRATION_LOCK_NAME]);
+  }
   try {
     // ============================================================
     // EL PISO: FILTRAR EN SILENCIO SE VUELVE ERROR.
@@ -97,7 +163,7 @@ async function runMigrations() {
       )
     `);
 
-    const migrationsDir = path.join(__dirname, 'migrations');
+    const { migrationsDir } = options;
     const files = fs.readdirSync(migrationsDir)
       .filter((f) => f.endsWith('.sql'))
       .sort();
@@ -145,26 +211,44 @@ async function runMigrations() {
     console.error('Migration failed:', error);
     fallo = true;
   } finally {
-    // El endurecimiento corre SIEMPRE — su comentario decía «ALWAYS» y vivía
-    // dentro del try, así que un fallo a mitad de la corrida se lo saltaba:
-    // las migraciones que SÍ se aplicaron antes del fallo quedaban con sus
-    // tablas creadas y sin política, que es la fuga silenciosa que este
-    // bloque existe para impedir. En el finally cubre lo aplicado pase lo
-    // que pase, y el proceso sale en rojo igualmente.
-    const rlsPath = path.join(__dirname, 'rls-policies.sql');
-    if (fs.existsSync(rlsPath)) {
-      console.log('  Applying isolation policies...');
-      try {
-        await client.query(fs.readFileSync(rlsPath, 'utf-8'));
-      } catch (rlsError) {
-        console.error('Hardening failed:', rlsError);
+    if (!(await applyHardening(client, options.hardeningPath))) fallo = true;
+    // After the hardening, which also must not interleave with another run.
+    // If the connection is gone the server already dropped the lock with it.
+    // A false here means this session never held it: the lock was taken on
+    // another backend, which is what a transaction-mode pooler does, and it
+    // stays held there, so every later run would wait on it. That is a red run.
+    try {
+      const unlocked = await client.query<{ released: boolean }>(
+        'SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS released',
+        [MIGRATION_LOCK_NAME]
+      );
+      if (!unlocked.rows[0].released) {
+        console.error(
+          'Migration lock was not held by this session (is MIGRATION_DATABASE_URL a transaction-mode pooler?)'
+        );
         fallo = true;
       }
+    } catch (unlockError) {
+      console.error('Releasing the migration lock failed:', unlockError);
+      fallo = true;
     }
+  }
+  return !fallo;
+}
+
+async function runMigrations() {
+  const client = await pool.connect();
+  let ok = false;
+  try {
+    ok = await applyMigrations(client, {
+      migrationsDir: path.join(__dirname, 'migrations'),
+      hardeningPath: path.join(__dirname, 'rls-policies.sql'),
+    });
+  } finally {
     client.release();
     await pool.end();
   }
-  if (fallo) {
+  if (!ok) {
     process.exit(1);
   }
 }

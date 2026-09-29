@@ -1,6 +1,7 @@
 import express, { Router, Request, Response } from 'express';
 import { withTenant } from '../../../database/connection.js';
 import { asyncHandler } from '../middleware/async-handler.js';
+import { AppError, UnauthorizedError } from '../../../utils/errors.js';
 import {
   verifyWebhookToken,
   touchWebhookToken,
@@ -78,9 +79,12 @@ const NO_RETENIDO =
   'same document returns "duplicate" without processing it. Recover the document from the ' +
   'source system.';
 
-function unauthorized(res: Response): void {
-  res.status(401).json({ error: 'Unknown or disabled webhook token' });
-}
+// CONTRACT: every refusal below is an AppError handed to the global errorHandler, so a
+// webhook caller reads the same error envelope as the rest of the API
+// (`errors[0].code` + `message`, and `meta` with the request id) instead of a
+// bare `{error}` (#315). The status codes are unchanged; the `code` is the
+// stable, machine-readable part a sender can branch on.
+const unknownToken = (): AppError => new UnauthorizedError('Unknown or disabled webhook token');
 
 export function createAiWebhooksRouter(deps: AiWebhooksRouterDeps = {}): Router {
   const router = Router();
@@ -100,35 +104,36 @@ export function createAiWebhooksRouter(deps: AiWebhooksRouterDeps = {}): Router 
     (req: Request, res: Response, next) =>
       rawParser(req, res, (err: unknown) => {
         if (!err) return next();
-        const status = (err as { status?: number }).status === 413 ? 413 : 400;
-        return res.status(status).json({
-          error: status === 413 ? 'Body exceeds the 1MB limit' : 'Malformed request body',
-        });
+        return next(
+          (err as { status?: number }).status === 413
+            ? new AppError(413, 'PAYLOAD_TOO_LARGE', 'Body exceeds the 1MB limit')
+            : new AppError(400, 'MALFORMED_BODY', 'Malformed request body')
+        );
       }),
     asyncHandler(async (req: Request, res: Response) => {
       const header = req.headers.authorization ?? '';
       const [scheme, rawToken] = header.split(' ');
       if (scheme !== 'Bearer' || !rawToken) {
-        return unauthorized(res);
+        throw unknownToken();
       }
 
       const token = await verifyWebhookToken(rawToken, req.params.tokenName);
       if (!token) {
         // Same response for unknown name, disabled token and bad secret:
         // the endpoint confirms nothing to a prober.
-        return unauthorized(res);
+        throw unknownToken();
       }
 
       // express.raw only populates a Buffer for matching content types.
       if (!Buffer.isBuffer(req.body)) {
-        return res.status(415).json({ error: 'Content-Type must be application/json' });
+        throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Content-Type must be application/json');
       }
       const rawBody = req.body.toString('utf8');
       let body: unknown;
       try {
         body = JSON.parse(rawBody);
       } catch {
-        return res.status(400).json({ error: 'Body must be valid JSON' });
+        throw new AppError(400, 'INVALID_JSON', 'Body must be valid JSON');
       }
 
       // Everything past authentication is scoped to the TOKEN's tenant.
