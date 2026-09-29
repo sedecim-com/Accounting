@@ -18,7 +18,10 @@ import { AUTENTICA_SOAP_ACTION, TIMESTAMP_LIFETIME_MS, buildSignedAutentica } fr
 // the SAT says it is valid (and never past the 5 minutes of the signed
 // Timestamp). It is never written to the database, a log line, an error
 // message or disk. A cached token is dropped as soon as the credential that
-// minted it stops being the entity's active one (revoked or replaced).
+// minted it stops being the entity's active one (revoked, replaced or past
+// its valid_to). A cache hit never widens access: an unattended caller gets a
+// cached token only if the credential allows unattended use; otherwise it
+// goes through withCredential, which denies and logs the denial.
 // ============================================================
 
 export interface SatAuthContext {
@@ -58,22 +61,44 @@ interface CachedToken extends SatToken {
 }
 
 const tokenCache = new Map<string, CachedToken>();
+/** Concurrent misses share one signature (and one unit of the daily cap). */
+const inFlight = new Map<string, Promise<SatToken>>();
 
 export function clearSatTokenCache(): void {
   tokenCache.clear();
+  inFlight.clear();
 }
 
 function cacheKey(ctx: SatAuthContext): string {
   return `${ctx.tenantId}:${ctx.entityId}`;
 }
 
-async function activeCredentialId(ctx: SatAuthContext): Promise<string | undefined> {
-  const r = await query<{ id: string }>(
-    `SELECT id FROM fiscal_credentials
+interface ActiveCredential {
+  id: string;
+  unattended_access: boolean;
+  valid_to: Date;
+}
+
+/** A cached token is served only where withCredential would let this caller in. */
+async function mayServeCached(ctx: SatAuthContext, cached: CachedToken): Promise<boolean> {
+  const r = await query<ActiveCredential>(
+    `SELECT id, unattended_access, valid_to FROM fiscal_credentials
      WHERE entity_id = $1 AND tenant_id = $2 AND credential_type = 'efirma' AND status = 'active'`,
     [ctx.entityId, ctx.tenantId]
   );
-  return r.rows[0]?.id;
+  const row = r.rows[0];
+  return (
+    row !== undefined &&
+    row.id === cached.credentialId &&
+    new Date(row.valid_to) > new Date() &&
+    (!ctx.unattended || row.unattended_access)
+  );
+}
+
+/** Third-party text bound for an error message: no control characters, bounded. */
+function sanitizeFault(fault: string): string {
+  // eslint-disable-next-line no-control-regex
+  return fault.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, 200);
 }
 
 const parser = new XMLParser({ removeNSPrefix: true, parseTagValue: false });
@@ -100,8 +125,9 @@ function parseAutenticaResponse(status: number, xml: string, now: Date): SatToke
   const fault = text(child(child(body, 'Fault'), 'faultstring'));
   const value = text(child(child(body, 'AutenticaResponse'), 'AutenticaResult'))?.trim();
   if (status !== 200 || fault || !value) {
-    // The fault text is the SAT's, not ours: data, cut short, never a token.
-    const detail = fault ? `: ${fault.slice(0, 200)}` : '';
+    // The fault text is the SAT's, not ours: data, quoted, stripped of control
+    // characters (it reaches the access log and the audit terminal), cut short.
+    const detail = fault ? `; SAT said: "${sanitizeFault(fault)}"` : '';
     throw new SatAuthenticationError(`The SAT refused the authentication (HTTP ${status})${detail}`);
   }
   const ceiling = now.getTime() + TIMESTAMP_LIFETIME_MS;
@@ -120,12 +146,23 @@ export async function authenticateWithSat(ctx: SatAuthContext, deps: SatAuthDeps
   const cached = tokenCache.get(key);
   if (cached) {
     const stillValid = cached.expiresAt.getTime() - EXPIRY_MARGIN_MS > now().getTime();
-    if (stillValid && (await activeCredentialId(ctx)) === cached.credentialId) {
+    if (stillValid && (await mayServeCached(ctx, cached))) {
       return { value: cached.value, expiresAt: cached.expiresAt };
     }
     tokenCache.delete(key);
   }
 
+  // Keyed by the unattended flag too: an unattended caller never rides on an
+  // attended caller's pass through the credential policy.
+  const flightKey = `${key}:${ctx.unattended ? 'unattended' : 'attended'}`;
+  const pending = inFlight.get(flightKey);
+  if (pending) return pending;
+  const flight = signAndAuthenticate(ctx, deps, now).finally(() => inFlight.delete(flightKey));
+  inFlight.set(flightKey, flight);
+  return flight;
+}
+
+async function signAndAuthenticate(ctx: SatAuthContext, deps: SatAuthDeps, now: () => Date): Promise<SatToken> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const url = deps.url ?? config.sat.descargaMasivaAuthUrl;
   let credentialId = '';
@@ -137,6 +174,11 @@ export async function authenticateWithSat(ctx: SatAuthContext, deps: SatAuthDeps
       credentialId = row.id;
       const created = now();
       const envelope = buildSignedAutentica(material, { created, tokenId: `uuid-${randomUUID()}-1` });
+      // The material is no longer needed: it leaves memory before the network
+      // round trip (withCredential zeroizes again in its finally; idempotent).
+      material.key.fill(0);
+      material.cer.fill(0);
+      material.password = '';
       const res = await fetchImpl(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: AUTENTICA_SOAP_ACTION },
@@ -146,6 +188,6 @@ export async function authenticateWithSat(ctx: SatAuthContext, deps: SatAuthDeps
       return parseAutenticaResponse(res.status, await res.text(), created);
     }
   );
-  tokenCache.set(key, { ...token, credentialId });
+  tokenCache.set(cacheKey(ctx), { ...token, credentialId });
   return token;
 }

@@ -63,11 +63,20 @@ describe('buildSignedAutentica', () => {
       '<u:Timestamp xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" u:Id="_0">' +
         '<u:Created>2026-09-29T12:00:00.000Z</u:Created><u:Expires>2026-09-29T12:05:00.000Z</u:Expires></u:Timestamp>'
     );
+    // SignatureValue is RSA over these exact bytes, so SignedInfo must already
+    // be in exclusive-c14n form (double-quoted attributes, explicit end tags,
+    // no whitespace). Asserted whole: this string was checked once against a
+    // general exc-c14n XML-DSig verifier (xml-crypto's SignedXml.checkSignature).
     const signedInfo = between(envelope, /<SignedInfo /, '</SignedInfo>');
-    expect(signedInfo).toContain('<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>');
-    expect(signedInfo).toContain('<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>');
-    expect(signedInfo).toContain('<Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform>');
-    expect(signedInfo).toContain('<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>');
+    expect(signedInfo).toBe(
+      '<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">' +
+        '<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>' +
+        '<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>' +
+        '<Reference URI="#_0"><Transforms>' +
+        '<Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></Transform></Transforms>' +
+        '<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>' +
+        `<DigestValue>${TIMESTAMP_SHA1}</DigestValue></Reference></SignedInfo>`
+    );
   });
 
   it('carries the certificate as an X509v3 BinarySecurityToken referenced from KeyInfo', () => {

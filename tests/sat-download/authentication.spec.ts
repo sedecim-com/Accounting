@@ -16,6 +16,19 @@ vi.mock('../../src/database/connection.js', () => ({
   withTransaction: vi.fn(),
 }));
 
+// The real signer, wrapped only to keep a handle on the material it was given.
+const signed = vi.hoisted(() => ({ material: undefined as undefined | { key: Buffer; cer: Buffer; password: string } }));
+vi.mock('../../src/services/sat-download/ws-security.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/sat-download/ws-security.js')>();
+  return {
+    ...real,
+    buildSignedAutentica: (material: Parameters<typeof real.buildSignedAutentica>[0], opts: Parameters<typeof real.buildSignedAutentica>[1]) => {
+      signed.material = material;
+      return real.buildSignedAutentica(material, opts);
+    },
+  };
+});
+
 import {
   authenticateWithSat,
   clearSatTokenCache,
@@ -51,11 +64,19 @@ function row(id = 'cred-1') {
   };
 }
 
-/** A tiny fake of the two tables withCredential and the cache read. */
+/**
+ * A tiny fake of the two tables withCredential and the cache read. The cap
+ * count honours the outcomes its SQL names, over the rows this test logged
+ * plus `usedToday` preloaded successes.
+ */
 function installDatabase() {
   mockQuery.mockImplementation(async (sql: string) => {
     if (sql.includes('FROM fiscal_credentials')) return { rows: credential ? [credential] : [] };
-    if (sql.includes('count(*)')) return { rows: [{ n: String(usedToday) }] };
+    if (sql.includes('count(*)')) {
+      const counted = ['success', 'error', 'denied'].filter((o) => sql.includes(`'${o}'`));
+      const logged = logRows().filter((r) => counted.includes(String(r[8]))).length;
+      return { rows: [{ n: String(logged + (counted.includes('success') ? usedToday : 0)) }] };
+    }
     return { rows: [], rowCount: 1 };
   });
 }
@@ -101,7 +122,7 @@ describe('authenticateWithSat — through withCredential', () => {
     sim.failing = true;
     await expect(authenticateWithSat(CTX, { url: sim.url })).rejects.toBeInstanceOf(SatAuthenticationError);
     expect(logRows()).toEqual([expect.arrayContaining(['sat_auth', 'error'])]);
-    expect(String(logRows()[0].at(-1))).toMatch(/HTTP 500\): An error occurred when verifying security/);
+    expect(String(logRows()[0].at(-1))).toMatch(/HTTP 500\); SAT said: "An error occurred when verifying security/);
 
     sim.failing = false;
     await authenticateWithSat(CTX, { url: sim.url });
@@ -123,6 +144,20 @@ describe('authenticateWithSat — through withCredential', () => {
     expect(sim.requests).toHaveLength(0);
   });
 
+  it('counts SAT refusals toward the daily cap: after `cap` refusals the next call is denied offline', async () => {
+    credential = { ...row(), max_daily_access: 3 };
+    sim.failing = true;
+    for (let i = 0; i < 3; i++) {
+      await expect(authenticateWithSat(CTX, { url: sim.url })).rejects.toBeInstanceOf(SatAuthenticationError);
+    }
+    expect(sim.requests).toHaveLength(3);
+
+    await expect(authenticateWithSat(CTX, { url: sim.url })).rejects.toBeInstanceOf(CredentialAccessDenied);
+    expect(sim.requests).toHaveLength(3);
+    expect(vaultGet).toHaveBeenCalledTimes(3);
+    expect(logRows().at(-1)).toEqual(expect.arrayContaining(['sat_auth', 'denied', 'rate_limit']));
+  });
+
   it('goes on with an alert row when the panel says alertar', async () => {
     usedToday = 24;
     policy.action = 'alertar';
@@ -140,6 +175,48 @@ describe('authenticateWithSat — the token lives in memory only while valid', (
     expect(sim.requests).toHaveLength(1);
     expect(vaultGet).toHaveBeenCalledTimes(1);
     expect(logRows()).toHaveLength(1);
+  });
+
+  it('does not hand an attended token to an unattended caller the credential does not allow', async () => {
+    credential = { ...row(), unattended_access: false };
+    await authenticateWithSat({ ...CTX, unattended: false }, { url: sim.url });
+
+    await expect(authenticateWithSat(CTX, { url: sim.url })).rejects.toBeInstanceOf(CredentialAccessDenied);
+    expect(sim.requests).toHaveLength(1);
+    expect(logRows().at(-1)).toEqual(expect.arrayContaining(['sat_auth', 'denied', 'unattended_disabled']));
+  });
+
+  it('does not serve a cached token once the credential is past its valid_to', async () => {
+    await authenticateWithSat(CTX, { url: sim.url });
+    credential = { ...row(), valid_to: new Date(Date.now() - 1000) };
+    await expect(authenticateWithSat(CTX, { url: sim.url })).rejects.toBeInstanceOf(CredentialAccessDenied);
+    expect(sim.requests).toHaveLength(1);
+    expect(logRows().at(-1)).toEqual(expect.arrayContaining(['sat_auth', 'denied', 'expired']));
+  });
+
+  it('shares one signature among concurrent misses for the same entity', async () => {
+    const [a, b, c] = await Promise.all([
+      authenticateWithSat(CTX, { url: sim.url }),
+      authenticateWithSat(CTX, { url: sim.url }),
+      authenticateWithSat(CTX, { url: sim.url }),
+    ]);
+    expect(b).toEqual(a);
+    expect(c).toEqual(a);
+    expect(sim.requests).toHaveLength(1);
+    expect(vaultGet).toHaveBeenCalledTimes(1);
+    expect(logRows()).toHaveLength(1);
+  });
+
+  it('wipes the decrypted material before the request leaves the process', async () => {
+    let wiped = false;
+    await authenticateWithSat(CTX, {
+      fetchImpl: async () => {
+        const m = signed.material!;
+        wiped = m.key.every((b) => b === 0) && m.cer.every((b) => b === 0) && m.password === '';
+        return new Response(tokenResponse(new Date(), null), { status: 200 });
+      },
+    });
+    expect(wiped).toBe(true);
   });
 
   it('never writes the token to the database', async () => {
@@ -194,6 +271,14 @@ describe('authenticateWithSat — the token lives in memory only while valid', (
     const garbage = async () => new Response('<not xml', { status: 502 });
     await expect(authenticateWithSat(CTX, { fetchImpl: garbage })).rejects.toThrow(/HTTP 502/);
     const fault = async () => new Response(faultResponse('x'.repeat(500)), { status: 500 });
-    await expect(authenticateWithSat(CTX, { fetchImpl: fault })).rejects.toThrow(/: x{200}$/);
+    await expect(authenticateWithSat(CTX, { fetchImpl: fault })).rejects.toThrow(/SAT said: "x{200}"$/);
+  });
+
+  it('strips control characters from the SAT fault before it reaches the log or a terminal', async () => {
+    const hostile = async () => new Response(faultResponse('bad\u001b[2J\nOK forged line\u009b'), { status: 500 });
+    const err = await authenticateWithSat(CTX, { fetchImpl: hostile }).catch((e: unknown) => e);
+    expect((err as Error).message).toBe('The SAT refused the authentication (HTTP 500); SAT said: "bad [2J OK forged line "');
+    // eslint-disable-next-line no-control-regex
+    expect(String(logRows().at(-1)?.at(-1))).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
   });
 });
