@@ -4,6 +4,7 @@ import { runLedgerChecks } from './ledger-checks.js';
 import {
   CLOSE_CHECK_CODES,
   CLOSE_CHECK_ITEMS,
+  FEES_WITHOUT_WITHHOLDING_ROWS,
   type CloseCheckCode,
   type SubledgerCode,
   getPeriodCloseStatus,
@@ -58,6 +59,7 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'bank-items-overdue': 'mnemosine bank reconciling-item assign <session> <item> --expected <YYYY-MM-DD>',
   'bank-lines-unexplained': 'mnemosine bank reconciliation run <account> --period <YYYY-MM>',
   'invoices-reviewed': 'mnemosine invoice issue <invoice_number>',
+  'fees-without-withholding': 'mnemosine cfdi explain <uuid>  (and ask the vendor for a substitute CFDI with the withholding)',
   'depreciation-posted': 'mnemosine depreciation run --period <YYYY-MM>',
   'prepaid-amortized': 'mnemosine prepaid run --period <YYYY-MM>',
   'trial-balance':
@@ -248,6 +250,9 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
         LIMIT $3`,
       [entityId, periodId, limit]
     ),
+
+  'fees-without-withholding': (entityId, periodId, limit) =>
+    filas(FEES_WITHOUT_WITHHOLDING_ROWS, [entityId, periodId, limit]),
 
   'depreciation-posted': (entityId, periodId, limit) =>
     filas(
