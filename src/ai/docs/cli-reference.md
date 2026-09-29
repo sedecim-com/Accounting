@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 225 of 346 subcommands
+  spelling is `-T` at the root and `-t` on the 225 of 349 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -64,6 +64,7 @@ Commands:
   compact|compactar [options]            Dry-run compaction report for a session transcript (no API calls)
   approvals|aprobaciones                 Graduated approval policies for staged writes (once / session / always)
   entity|entidad                         Select and inspect the legal entity commands operate on
+  tenant|despacho                        Create and list the firms (tenants) of this installation
   payment|pago                           Vendor payments: record cash that already left the bank and settle the bill it pays
   account|cuenta                         Chart of accounts: inspect, create and retire accounts
   chart|catalogo                         Chart of accounts: bring a firm catalog in
@@ -1140,6 +1141,71 @@ Options:
 Examples:
   # Go back to naming the company on every command.
   mnemosine entity unset
+```
+
+## `mnemosine tenant` (alias: despacho)
+
+```
+Usage: mnemosine tenant|despacho [options] [command]
+
+Create and list the firms (tenants) of this installation
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  list|listar [options]          List the tenants of this installation, archived
+                                 ones included
+  create|crear [options] <name>  Create a tenant for a new firm, with its system
+                                 account
+  help [command]                 display help for command
+```
+
+### `mnemosine tenant list` (alias: listar)
+
+```
+Usage: mnemosine tenant list|listar [options]
+
+List the tenants of this installation, archived ones included
+
+Options:
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # Every firm of this installation; the one in session carries a *.
+  mnemosine tenant list
+```
+
+### `mnemosine tenant create` (alias: crear)
+
+```
+Usage: mnemosine tenant create|crear [options] <name>
+
+Create a tenant for a new firm, with its system account
+
+Arguments:
+  name                  name of the firm
+
+Options:
+  --subdomain <handle>  unique handle of the firm (derived from the name when
+                        omitted)
+  --json                JSON output
+  -h, --help            display help for command
+
+Examples:
+  # A second firm on the same installation; its id goes to --tenant afterwards.
+  mnemosine tenant create "Despacho Alameda"
+  # Name the handle yourself when the derived one is taken.
+  mnemosine tenant create "Despacho Alameda" --subdomain alameda-norte --json
 ```
 
 ## `mnemosine payment` (alias: pago)
