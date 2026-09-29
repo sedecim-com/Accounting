@@ -99,14 +99,14 @@ export const ACCOUNT_FS_CATEGORIES = [
 
 // ── Cobros y pagos ──
 
+/** 'reversed' (118): the payment happened and was undone by `payment reverse`. */
 export const VENDOR_PAYMENT_STATUSES = [
-  'draft', 'pending', 'processing', 'completed', 'failed', 'void',
+  'draft', 'pending', 'processing', 'completed', 'failed', 'void', 'reversed',
 ] as const;
 
 /**
  * 'reversed' (049): el cobro OCURRIÓ y rebotó (NSF). Distinto de 'void' —
- * que nunca debió existir. El lado del proveedor no lo tiene: un pago
- * nuestro devuelto es otra historia, con su propia fase.
+ * que nunca debió existir.
  */
 export const CUSTOMER_PAYMENT_STATUSES = [
   'draft', 'pending', 'processing', 'completed', 'failed', 'void', 'reversed',

@@ -79,6 +79,19 @@ const PERIOD_COLUMNS = [
   'period_name', 'period_number', 'status', 'start_date', 'end_date', 'overdue',
 ] as const;
 
+/**
+ * How to put a reopened period back where it was. A hard-closed period needs
+ * both steps: a soft close alone leaves it in 'soft_close', its carry-forward
+ * is never redone, and every later month keeps opening at the old figure
+ * while the chain check stays silent, because it only reads hard closes (#99).
+ */
+export function reopenRemedy(periodName: string, previousStatus: string): string[] {
+  const close = `mnemosine close --period "${periodName}"`;
+  return previousStatus === 'hard_close'
+    ? [`Close it again with: ${close}`, `  then seal it, which redoes its carry-forward: ${close} --hard`]
+    : [`Close it again with: ${close}`];
+}
+
 function periodRow(row: Record<string, unknown>): Record<string, unknown> {
   return {
     period_name: row.period_name,
@@ -550,7 +563,9 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
             `${deps.palette.dim(`(was ${acto.resultado.previous_status}, by ${reviewer.email}; reason recorded)`)}\n` +
             deps.palette.dim(
               '  Statements or filings derived from this period are now stale: regenerate them after re-closing.\n' +
-              '  Close it again with: mnemosine close --period ' + acto.resultado.period_name + '\n'
+              reopenRemedy(acto.resultado.period_name, acto.resultado.previous_status)
+                .map((line) => `  ${line}\n`)
+                .join('')
             )
         );
       })

@@ -42,8 +42,9 @@ import {
 // check, which until now only the plan's criterion could call.
 //
 // The owner decided (2026-09-26, option b) that the opening load POSTS:
-// `irreversible`, agent closed, `--dry-run` first and `--yes` to apply. The
-// draft mode behind `apertura_modo_de_carga` is MNE-001-099, not this file.
+// `irreversible`, agent closed, `--dry-run` first and `--yes` to apply. Under
+// `apertura_modo_de_carga = borrador` (MNE-001-099) the same leaf leaves a
+// draft instead: the service reads the key, this file only words the question.
 // The preview is the SAME service call with `dryRun: true`: nothing here
 // re-derives what would be written.
 // ============================================================
@@ -248,7 +249,9 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
   declareRisk(openingImport, {
     risk: 'irreversible',
     agent: false,
-    writes: 'journal_entries + journal_entry_lines (ONE opening entry, posted)',
+    writes:
+      'journal_entries + journal_entry_lines (ONE opening entry, posted; ' +
+      'a locked draft when the panel key for the opening load mode says so)',
     llave: {
       innecesaria:
         'the ledger refuses a second live opening for the same entity and date ' +
@@ -282,7 +285,7 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
         written: (r) => r.escrito,
         text: renderOpeningBalanceReport,
         question: (r) =>
-          t('migration.opening.confirm', {
+          t(r.loadMode === 'draft' ? 'migration.opening.confirm_draft' : 'migration.opening.confirm', {
             year: r.ejercicio,
             date: r.fecha,
             debit: r.totalDebe,
