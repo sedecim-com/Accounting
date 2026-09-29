@@ -142,7 +142,7 @@
     "src/services/ar/customer-service.ts": "a3f612f473b9f5bbebdede4ffd83f0ef781ea567",
     "src/services/ar/credit-note-service.ts": "02175b4cb65c6c9cc05eff4965c877eb3581dae1",
     "src/services/ar/ar-controls.ts": "68c66ea11e17ec27d331d4db9ed162884644cf68",
-    "src/services/accounting/ar-ap-posting.ts": "8f515f13ce844b80e7cb70e4df950b30fca1ad94",
+    "src/services/accounting/ar-ap-posting.ts": "d7927abb46263f8812b058ca8604ff6c8030e7f1",
     "src/ai/providers/index.ts": "ed591a9ca62a734081e910ec1aceced42cdf5bbc",
     "src/ai/providers/config.ts": "0efc3e11411b898a12306aab3ccca3baf8cc58b3",
     "src/ai/draft-service.ts": "c5e4d16b6f051487df72a832f9b9f8114c630c10",

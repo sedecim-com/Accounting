@@ -524,7 +524,7 @@ describe('MNE-001-082 · collecting a USD invoice recognises the realised exchan
     const lines = await lineasDe(entryId);
     expect(lines.find((l) => l.account_id === f.roles.cxc)?.credit_amount).toBe('10150.0000'); // 580 × 17.50
     expect(lines.find((l) => l.account_id === f.cuentas['4320'])?.credit_amount).toBe('290.0000'); // 580 × 0.50
-    // 80 USD of IVA (half of 160) leaves 2125 at 17.50, the rate it was parked at.
+    // 80 USD of IVA (half of 160) is released at 17.50, the rate it was parked at: 1 400.
     const released = lines.find((l) => l.account_id === f.roles.iva_trasladado_no_cobrado);
     expect(released?.debit_amount).toBe('1400.0000');
     expect(released?.foreign_debit).toBe('80.0000');

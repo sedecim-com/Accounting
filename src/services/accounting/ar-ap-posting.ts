@@ -617,9 +617,9 @@ export async function postCustomerPaymentEntry(
     // midnight, and west of Greenwich the entry landed a day before its payment.
     payment.payment_date,
     JournalEntryType.AUTO_PAYMENT,
-    (iva.documents.length
-      ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}`
-      : `Customer payment ${payment.payment_number}`) + memo,
+    iva.documents.length
+      ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}${memo}`
+      : `Customer payment ${payment.payment_number}${memo}`,
     jeLines,
     userId,
     { autoPost: true, client, sourceType: 'customer_payment', sourceId: payment.id, reference: payment.payment_number }
