@@ -1840,7 +1840,8 @@ Examples:
   # Take a signed session back to in_progress to correct a wrong item or match.
   # The signature leaves the session but not the audit trail, which keeps its hash.
   mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "El cargo del 20 era un error de libros"
-  # See which signature would be withdrawn, writing nothing.
+  # See which signature would be withdrawn, writing nothing. On a posted session
+  # it also names each adjustment entry it would reverse (never delete).
   mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
   # A closed fiscal period wins: the refusal names the \`period reopen\` to run
   # first, and --force as well when the month is hard-closed.
@@ -5164,19 +5165,21 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
 
   // ---- bank reconciliation reopen ----------------------------------
   //
-  // MNE-001-044 (#302). The way out of a trapped month: an approved session
-  // with a wrong item or match goes back to `in_progress`, and the same range
-  // is closed and signed again. Irreversible for the same reason as `approve`:
+  // MNE-001-044 and MNE-001-130 (#302). The way out of a trapped month: an
+  // approved or posted session with a wrong item or match goes back to
+  // `in_progress`, and the same range is closed and signed again. A posted
+  // session's adjustment entries are reversed, never deleted. Irreversible for the same reason as `approve`:
   // the signature it withdraws cannot be put back, only given again. The
   // kernel adds --dry-run, --yes and --idempotency-key, and --reason is
   // required because `reopen` is an undo verb.
   const reconReopen = reconciliation
     .command('reopen')
     .alias('reabrir')
-    .argument('<session>', 'approved session to reopen')
+    .argument('<session>', 'approved or posted session to reopen')
     .description(
-      'Reopen an approved session to in_progress, withdrawing its signature (kept in the audit ' +
-        'trail); refused under a closed fiscal period and for posted sessions'
+      'Reopen an approved or posted session to in_progress, withdrawing its signature (kept in ' +
+        'the audit trail) and reversing the entries a post booked; refused under a closed ' +
+        'fiscal period'
     );
   withContext(reconReopen);
   reconReopen.option('--json', 'JSON output');
@@ -5185,9 +5188,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     llave: { scope: 'bank reconciliation reopen' },
     agent: false,
     writes:
-      'reconciliation_sessions (status approved → in_progress, signature and close columns ' +
-      'cleared in ONE guarded statement); audit_log action reopen with the withdrawn hash and ' +
-      'snapshot; NEVER journal_entries',
+      'reconciliation_sessions (status approved|posted → in_progress, signature, close and post ' +
+      'columns cleared in ONE guarded statement); for a posted session, journal_entries ' +
+      '(a reversing mirror per adjustment entry, never a delete), ai_drafts (a new pending ' +
+      'draft per adjustment), reconciliation_matches (closed) and the seals; audit_log action ' +
+      'reopen with the withdrawn hash and snapshot',
   });
   reconReopen.addHelpText('after', EJEMPLOS.reconReopen);
   reconReopen.action(
@@ -5220,9 +5225,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           process.stdout.write(`\n  ${p.bold(t('bank.reconciliation.reopen.title'))}\n`);
           process.stdout.write(
             `    ${t('bank.reconciliation.reopen.transition', {
-              session: r.sessionId, from: r.from, to: r.to,
+              session: r.sessionId, from: r.from, to: r.to, previous: r.previousStatus,
             })}\n`
           );
+          for (const x of r.reversals) {
+            process.stdout.write(
+              `    ${t('bank.reconciliation.reopen.reversal', {
+                entry: x.entryNumber, reversal: x.reversalNumber,
+              })}\n`
+            );
+          }
           process.stdout.write(
             `    ${t('bank.reconciliation.reopen.withdrawn', {
               by: r.withdrawnSignature.approvedBy, on: r.withdrawnSignature.approvedAt,
@@ -5251,6 +5263,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             t('bank.reconciliation.reopen.confirm', {
               session: preview.sessionId,
               hash: preview.withdrawnSignature.hash.slice(0, 12),
+              reversals: preview.reversals.length,
             }),
         });
         if (repeated) {
@@ -5271,6 +5284,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
                 withdrawn_hash: r.withdrawnSignature.hash,
                 withdrawn_approved_by: r.withdrawnSignature.approvedBy,
                 withdrawn_approved_at: r.withdrawnSignature.approvedAt,
+                reversals: r.reversals.map((x) => ({
+                  adjustment: x.adjustmentId,
+                  entry: x.entryNumber,
+                  reversal: x.reversalNumber,
+                  new_draft: x.newDraftId,
+                })),
                 reason: r.reason,
                 dry_run: r.dryRun,
               },
