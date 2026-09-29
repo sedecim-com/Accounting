@@ -634,8 +634,8 @@ describe('catalog generate · el archivo y la advertencia que lo acompaña', () 
         {
           regla: 'desc-longitud',
           severidad: 'aviso',
-          procedencia: 'faceta_no_verificada',
-          mensaje: 'Desc de 1120 supera la longitud conjeturada',
+          procedencia: 'coherencia_interna',
+          mensaje: 'Desc de 1120 repite la de su padre',
           numCta: '1120',
         },
       ],

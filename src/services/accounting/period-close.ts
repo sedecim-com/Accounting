@@ -4,6 +4,7 @@ import { getPolicy } from '../policy/policy-service.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync, reverseWithinTransaction } from './posting.js';
 import { runLedgerChecks } from './ledger-checks.js';
+import { listPaymentsAwaitingRep, watchedAtClose } from './rep-expected.js';
 import { checkMappingCoverageDetallada } from './account-service.js';
 import { arReconcile } from '../ar/ar-controls.js';
 import { apReconcile } from '../ap/ap-controls.js';
@@ -226,6 +227,106 @@ async function fixedAssetBalanceWithoutRegister(
   );
   const balance = new Decimal(r.rows[0]?.balance ?? '0');
   return balance.isZero() ? null : balance.toFixed(2);
+}
+
+/** A balance-sheet account whose carried beginning is not what the ledger gives. */
+export interface StaleOpening {
+  code: string;
+  carried: string;
+  ledger: string;
+  difference: string;
+}
+
+/**
+ * MNE-001-049 (#99). The balance-sheet accounts whose beginning balance in
+ * this period, as the carry wrote it, differs from the sum of every posted
+ * line of the periods before it, in the books' order (start_date,
+ * period_number) that the carry and the chain check follow.
+ *
+ * Asked only when the previous period is hard closed or locked: only then has
+ * a carry claimed the figure. Before that the column was never seeded, and a
+ * zero there is absence (the auxiliary says `inicial_confiable: false`), not a
+ * wrong beginning. Balance-sheet accounts only: income accounts do not carry.
+ */
+export async function staleOpenings(
+  entityId: string,
+  periodId: string,
+  q: ChecklistQuery = query
+): Promise<StaleOpening[]> {
+  const r = await q<{ code: string; carried: string; ledger: string; difference: string }>(
+    `WITH cut AS (
+       SELECT start_date, period_number FROM fiscal_periods WHERE id = $2 AND entity_id = $1
+     ), previous AS (
+       SELECT fp.status FROM fiscal_periods fp CROSS JOIN cut
+        WHERE fp.entity_id = $1 AND (fp.start_date, fp.period_number) < (cut.start_date, cut.period_number)
+        ORDER BY fp.start_date DESC, fp.period_number DESC LIMIT 1
+     ), ledger AS (
+       SELECT jel.account_id,
+              COALESCE(SUM(jel.debit_amount), 0) - COALESCE(SUM(jel.credit_amount), 0) AS balance
+         FROM journal_entry_lines jel
+         JOIN journal_entries je ON je.id = jel.journal_entry_id AND je.entity_id = $1 AND je.status = 'posted'
+         JOIN fiscal_periods jp ON jp.id = je.fiscal_period_id AND jp.entity_id = $1
+        CROSS JOIN cut
+        WHERE (jp.start_date, jp.period_number) < (cut.start_date, cut.period_number)
+        GROUP BY jel.account_id
+     )
+     SELECT a.code,
+            COALESCE(ab.beginning_balance, 0)::text AS carried,
+            COALESCE(l.balance, 0)::text AS ledger,
+            (COALESCE(ab.beginning_balance, 0) - COALESCE(l.balance, 0))::text AS difference
+       FROM accounts a
+       LEFT JOIN account_balances ab ON ab.account_id = a.id AND ab.fiscal_period_id = $2
+       LEFT JOIN ledger l ON l.account_id = a.id
+      WHERE a.entity_id = $1
+        AND a.account_type IN ('asset', 'liability', 'equity',
+                               'contra_asset', 'contra_liability', 'contra_equity')
+        AND EXISTS (SELECT 1 FROM previous WHERE status IN ('hard_close', 'locked'))
+        AND COALESCE(ab.beginning_balance, 0) <> COALESCE(l.balance, 0)
+      ORDER BY a.code`,
+    [entityId, periodId]
+  );
+  return r.rows;
+}
+
+/**
+ * MNE-001-049 (#99). Closes the period's fiscal year once none of its
+ * periods, period 13 included, is left outside 'hard_close' or 'locked', and
+ * returns the year closed, or null. Nothing wrote `fiscal_years.status`
+ * before, so a year sealed to its last period still read 'open'. Guarded like
+ * every UPDATE here: entity, the state it leaves and the condition it needs,
+ * in the same statement.
+ */
+export async function closeFiscalYearIfSealed(
+  client: pg.PoolClient,
+  entityId: string,
+  periodId: string
+): Promise<number | null> {
+  const r = await client.query<{ year_number: number }>(
+    `UPDATE fiscal_years fy SET status = 'closed', updated_at = NOW()
+      WHERE fy.entity_id = $1 AND fy.status = 'open'
+        AND fy.id = (SELECT fiscal_year_id FROM fiscal_periods WHERE id = $2 AND entity_id = $1)
+        AND NOT EXISTS (SELECT 1 FROM fiscal_periods p
+                         WHERE p.fiscal_year_id = fy.id AND p.status NOT IN ('hard_close', 'locked'))
+      RETURNING fy.year_number`,
+    [entityId, periodId]
+  );
+  return r.rows[0]?.year_number ?? null;
+}
+
+/** The other half: reopening a period of a closed year opens the year again. */
+export async function reopenFiscalYearOf(
+  client: pg.PoolClient,
+  entityId: string,
+  periodId: string
+): Promise<number | null> {
+  const r = await client.query<{ year_number: number }>(
+    `UPDATE fiscal_years fy SET status = 'open', updated_at = NOW()
+      WHERE fy.entity_id = $1 AND fy.status = 'closed'
+        AND fy.id = (SELECT fiscal_year_id FROM fiscal_periods WHERE id = $2 AND entity_id = $1)
+      RETURNING fy.year_number`,
+    [entityId, periodId]
+  );
+  return r.rows[0]?.year_number ?? null;
 }
 
 /** The two ledgers whose subledger the close reconciles against its control. */
@@ -721,7 +822,17 @@ export async function getPeriodCloseStatus(
     );
   }
 
-  // 5. Trial balance check
+  // 5. THE TRIAL BALANCE, AGAINST THE LEDGER (MNE-001-049, #99).
+  //
+  // This box was decorative: it only foots debit_total against credit_total,
+  // two sums posting raises by the same amount after validation refused any
+  // entry that does not foot, so it can only catch a table written from
+  // outside. That footing stays. What the box now also reads is the column
+  // no other box does: the period's BEGINNING balances, the figure the
+  // auxiliary publishes and the Anexo 24 attests. A correction the carry did
+  // not reach leaves the month opening at the old figure, and ledger-integrity
+  // stays green: its chain check only reads the links touching this period,
+  // and a stale carry agrees with itself link by link.
   const trialBalance = await q<{ diff: string }>(
     `SELECT ABS(SUM(COALESCE(debit_total, 0)) - SUM(COALESCE(credit_total, 0))) as diff
      FROM account_balances
@@ -729,14 +840,34 @@ export async function getPeriodCloseStatus(
     [periodId, entityId]
   );
   const tbDiff = new Decimal(trialBalance.rows[0]?.diff || '0');
+  const stale = await staleOpenings(entityId, periodId, q);
+  const tbFindings = [
+    ...(tbDiff.greaterThan('0.01') ? [`Out of balance by ${tbDiff.toFixed(4)}`] : []),
+    ...(stale.length > 0
+      ? [
+          `${stale.length} account(s) open at a figure the ledger does not give, ` +
+            stale
+              .slice(0, 3)
+              .map((s) => `${s.code} carried ${s.carried}, ledger ${s.ledger}`)
+              .join('; ') +
+            ' (closing explain trial-balance lists them all)',
+        ]
+      : []),
+  ];
   checklist.push({
     codigo: 'trial-balance',
     item: CLOSE_CHECK_ITEMS['trial-balance'],
-    is_complete: tbDiff.lessThanOrEqualTo('0.01'),
+    is_complete: tbFindings.length === 0,
     severity: 'blocking',
-    details: tbDiff.greaterThan('0.01') ? `Out of balance by ${tbDiff.toFixed(4)}` : undefined,
+    details: tbFindings.length > 0 ? tbFindings.join('; ') : undefined,
   });
   if (tbDiff.greaterThan('0.01')) blocking_issues.push(`Trial balance out of balance by ${tbDiff.toFixed(4)}`);
+  if (stale.length > 0) {
+    blocking_issues.push(
+      `${stale.length} account(s) open at a figure the ledger does not give: a correction the carry ` +
+        `did not reach (closing explain trial-balance lists them)`
+    );
+  }
 
   // 5b. EL MAYOR PASA SUS VERIFICACIONES BLOQUEANTES. `runLedgerChecks`
   // existía desde F01 y el cierre NO lo consumía: sólo lo llamaban
@@ -777,14 +908,16 @@ export async function getPeriodCloseStatus(
     );
   }
 
-  // 6. F02 · REP-2: el checklist del IVA aparcado. Dos conteos que el cierre
-  // no miraba: los REP que llegaron y quedaron aparcados (needs_review), y
-  // los pagos del periodo sin REP — recibidos (el IVA sigue en 1135, no es
-  // acreditable) y emitidos (obligación fiscal PROPIA con plazo). Si cada
-  // uno bloquea o solo avisa lo deciden rep_faltante_recibido y
-  // rep_faltante_emitido: SOLO el literal 'bloquear' bloquea (cerrado al
-  // declarar); 'avisar' o un valor desconocido avisan — un valor raro del
-  // panel no puede congelar el cierre de un despacho.
+  // 6. F02 · REP-2: the REP checklist. Two counts the close did not look at:
+  // the REPs that arrived and were parked (needs_review), and the period's
+  // payments still without a REP — received (the payment already credited
+  // its IVA; the REP is the receipt that supports that credit) and issued
+  // (our OWN filing obligation, with a SAT deadline). Whether each one
+  // blocks or only warns is decided by rep_faltante_recibido and
+  // rep_faltante_emitido: ONLY the literal 'bloquear' blocks (closed when
+  // declared); 'avisar' or an unknown value warns — an odd panel value must
+  // not freeze a firm's close. rep_faltante_recibido='no_vigilar' takes the
+  // supplier side out of the close altogether.
   //
   // ACOTADO POR `document_date` DENTRO DEL PERIODO. Esta casilla tenía el
   // vicio de F05c en su forma pura: contaba pre_registrations SIN ningún
@@ -814,27 +947,21 @@ export async function getPeriodCloseStatus(
   });
   if (aparcados > 0) warnings.push(`${aparcados} REP(s) aparcados en needs_review`);
 
-  const sinRep = await q<{ recibidos: string; emitidos: string }>(
-    `SELECT
-       (SELECT COUNT(*) FROM vendor_payments vp
-         WHERE vp.entity_id = $1 AND vp.cfdi_uuid IS NULL AND vp.status <> 'void'
-           AND vp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                   AND (SELECT end_date FROM fiscal_periods WHERE id = $2))::text AS recibidos,
-       (SELECT COUNT(*) FROM customer_payments cp
-         WHERE cp.entity_id = $1 AND cp.cfdi_uuid IS NULL AND cp.status <> 'void'
-           AND cp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                   AND (SELECT end_date FROM fiscal_periods WHERE id = $2))::text AS emitidos`,
-    [entityId, periodId]
-  );
-  const pagosSinRepRecibidos = parseInt(sinRep.rows[0].recibidos, 10);
-  const pagosSinRepEmitidos = parseInt(sinRep.rows[0].emitidos, 10);
-  // Las dos políticas se leen SIEMPRE (no sólo con conteo > 0): la casilla
-  // publica su `severity` también cuando está completa, para que
-  // `closing check` pueda decir con qué peso vigila cada verificación.
-  const [polRecibido, polEmitido] = await Promise.all([
+  // MNE-001-125 (#327): only payments that really await a REP — completed,
+  // applied to a document the ledger treats as PPD (a PUE never takes one),
+  // and for collections only on a stamped invoice. See rep-expected.ts: the
+  // same list feeds `closing explain rep-missing` and `rep missing list`.
+  // The two policies are ALWAYS read (not only with a count > 0): the box
+  // publishes its `severity` even when complete, so `closing check` can say
+  // how strictly it watches each check.
+  const [repExpected, polRecibido, polEmitido] = await Promise.all([
+    listPaymentsAwaitingRep(q, entityId, { periodId }),
     getPolicy(ctxPanel, 'rep_faltante_recibido'),
     getPolicy(ctxPanel, 'rep_faltante_emitido'),
   ]);
+  const watched = watchedAtClose(repExpected, polRecibido.value);
+  const pagosSinRepRecibidos = watched.filter((p) => p.direction === 'received').length;
+  const pagosSinRepEmitidos = watched.filter((p) => p.direction === 'issued').length;
   // Con pendientes, la severidad es la del pendiente que HAY (un cobro sin
   // REP bajo 'avisar' no puede volverse bloqueante porque la otra política
   // sea estricta); completa, es la más grave de las dos configuradas.
@@ -850,17 +977,27 @@ export async function getPeriodCloseStatus(
     severity: repFaltanteBloquea ? 'blocking' : 'warning',
     details:
       pagosSinRepRecibidos + pagosSinRepEmitidos > 0
-        ? `${pagosSinRepRecibidos} pago(s) sin REP del proveedor, ${pagosSinRepEmitidos} cobro(s) sin REP emitido (rep missing list)`
+        ? `${pagosSinRepRecibidos} pago(s) sin REP del proveedor, ${pagosSinRepEmitidos} cobro(s) sin REP emitido (closing explain rep-missing)`
         : undefined,
   });
   if (pagosSinRepRecibidos > 0) {
     (polRecibido.value === 'bloquear' ? blocking_issues : warnings).push(
-      `${pagosSinRepRecibidos} pago(s) a proveedor sin REP: el IVA sigue aparcado en 1135`
+      `${pagosSinRepRecibidos} pago(s) a proveedor sobre gastos PPD sin REP: el REP es el comprobante ` +
+        `que respalda el acreditamiento del IVA de ese pago`
     );
   }
   if (pagosSinRepEmitidos > 0) {
     (polEmitido.value === 'bloquear' ? blocking_issues : warnings).push(
       `${pagosSinRepEmitidos} cobro(s) sin REP emitido: obligación fiscal propia con plazo`
+    );
+  }
+  // Collections of stamped invoices whose method is not in the mirror: the
+  // ledger assumed PUE, so they are not counted above, but the doubt is
+  // said out loud rather than hidden.
+  if (repExpected.unknownIssuedMethod.length > 0) {
+    warnings.push(
+      `${repExpected.unknownIssuedMethod.length} cobro(s) de facturas timbradas sin método de pago conocido: ` +
+        `el mayor las trató como PUE; si alguna fue PPD, su REP es obligación propia (rep missing list --direction issued)`
     );
   }
 
@@ -1014,7 +1151,11 @@ async function inquilinoDe(client: pg.PoolClient, entityId: string): Promise<str
 }
 
 /** A hard-closed period, with what its carry-forward reached. */
-export type HardClosedPeriod = FiscalPeriod & { carry_forward: CarryForwardResult };
+export type HardClosedPeriod = FiscalPeriod & {
+  carry_forward: CarryForwardResult;
+  /** The fiscal year this close sealed to its last period, or null. */
+  fiscal_year_closed: number | null;
+};
 
 export async function hardClosePeriod(
   periodId: string,
@@ -1101,6 +1242,7 @@ export async function hardClosePeriod(
        WHERE id = $1`,
       [periodId]
     );
+    const yearClosed = await closeFiscalYearIfSealed(client, entityId, periodId);
 
     // El sello duro deja rastro en la misma transacción, igual que el suave.
     // Antes NO auditaba nada: el único vestigio era hard_close_date, sin
@@ -1121,6 +1263,7 @@ export async function hardClosePeriod(
         ...(avisosDelCierre.length > 0 ? { resultados_sin_barrer: avisosDelCierre } : {}),
         carried_into: carry.periods,
         ...(carry.stopped_at_locked ? { carry_stopped_at_locked: carry.stopped_at_locked } : {}),
+        ...(yearClosed !== null ? { fiscal_year_closed: yearClosed } : {}),
       },
       reason,
     });
@@ -1158,7 +1301,7 @@ export async function hardClosePeriod(
       [periodId]
     );
 
-    return { ...result.rows[0], carry_forward: carry };
+    return { ...result.rows[0], carry_forward: carry, fiscal_year_closed: yearClosed };
   });
 
   const tenantId = currentTenant();

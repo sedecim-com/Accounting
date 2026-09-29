@@ -181,7 +181,7 @@ El prorrateo se calcula como la diferencia entre dos acumulados, no importe por 
 
 Una factura se puede cobrar mientras esté en `sent`, `viewed`, `partially_paid` u `overdue`. Un borrador no: primero hay que contabilizarlo.
 
-Sobre `--bank`: pide el **id de una cuenta bancaria**, y hoy no hay comando que dé de alta una. Sin la bandera se usa el rol `banco` de la entidad, que sí funciona. Ver [[Manual-Bancos-y-conciliacion]].
+Sobre `--bank`: pide el **id de una cuenta bancaria** dada de alta con `bank account create`; `bank account list -q` imprime los ids. Sin la bandera se usa el rol `banco` de la entidad. Ver [[Manual-Bancos-y-conciliacion]].
 
 ### 7. ❌ Emitir el REP
 
@@ -199,7 +199,7 @@ Ojo con el idioma de esta bandera: aquí los valores son ingleses (`issued`, `re
 
 ## La nota de crédito
 
-No hay comando de nota de crédito. Conviene decir con precisión hasta dónde llega el sistema, porque el hueco tiene dos mitades.
+La nota de crédito **a tu cliente** tiene su familia, `credit-note`. La que **te llega de un proveedor** por CFDI no tiene camino todavía. Conviene decir con precisión hasta dónde llega cada mitad.
 
 **En la ingesta.** Un CFDI tipo `E` se guarda en el espejo como `cfdi_egreso` y se pre-registra como `credit_note`, pero cuando toca contabilizarlo el motor se detiene con `UNSUPPORTED_TYPE`: sólo sabe procesar los tipos `bill` y `payment` ([`pre-registration-service.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/xml-ingestion/pre-registration-service.ts), líneas 487-495). El comprobante queda registrado y sin asiento.
 
@@ -232,41 +232,23 @@ mnemosine invoice void F-2026-0088 --reason "Cancelada a solicitud del cliente"
 mnemosine entry reverse JE-2026-0341 --reason "CFDI cancelado ante el SAT, acuse 8f3a..."
 ```
 
-Si lo que hay es una nota de crédito parcial —una devolución, un descuento posterior— no hay nada que reversar entero, y la ruta es una póliza manual:
+Si lo que hay es una nota de crédito parcial —una devolución, un descuento posterior— no hay nada que reversar entero, y la ruta es `credit-note`. Nace como borrador, se emite y después se aplica:
 
 ```bash
-mnemosine entry create \
-  --date 2026-09-05 --type correction \
-  --description "Nota de crédito NC-0012 s/factura F-2026-0088" \
-  --reference "NC-0012" \
-  --line "4100:debit:2000.00:Devolución de servicios" \
-  --line "2120:debit:320.00:IVA trasladado de la devolución" \
-  --line "1120:credit:2320.00:Comercializadora del Norte"
+mnemosine credit-note create --type devolucion --invoice F-2026-0088 \
+  --amount 2000.00 --tax 320.00 --memo "Devolución de servicios, NC-0012"
+mnemosine credit-note issue CN-2026-00007 --dry-run
+mnemosine credit-note issue CN-2026-00007
+mnemosine credit-note apply CN-2026-00007 --invoice "F-2026-0088:2320.00"
 ```
 
-Dos puntos como separador aquí, y el orden es `<cuenta>:<debit|credit>:<importe>[:descripción]`.
+Los tipos son `devolucion`, `descuento`, `correccion` y `anticipo`. `issue` contabiliza —cargo a devoluciones y al IVA, abono a clientes— y **no timbra**: el CFDI de egreso se timbra en el PAC, como la factura. Lígala con `--invoice` siempre que la factura esté en el sistema: la liga es la que decide el IVA. Si la factura era PPD y no se ha cobrado, la nota revierte el IVA aparcado y no el trasladado. Si la factura no está en el sistema, usa `--customer` con `--relates-to <uuid del CFDI original>`.
 
-**Cuidado con la cuenta de IVA.** Si la factura original era PPD y todavía no se cobraba, su IVA no está en la 2120 sino aparcado en la 2125. Compruébalo antes de escribir el renglón:
+`apply` baja el saldo de la factura, así que la antigüedad de saldos y el mayor dicen lo mismo. Lo que no apliques queda como saldo a favor del cliente:
 
 ```bash
-mnemosine ledger balance show --account 2125 --as-of 2026-09-05
+mnemosine credit-note list --open
 ```
-
-Y valida antes de contabilizar. La póliza nace siempre como borrador:
-
-```bash
-mnemosine entry check --entry JE-2026-0402 --strict
-```
-
-```bash
-mnemosine entry preview JE-2026-0402
-```
-
-```bash
-mnemosine entry post JE-2026-0402
-```
-
-**Una limitación que hay que conocer.** Una póliza manual corrige el **mayor**, no el auxiliar de clientes. `report aged-receivable` lee `invoices.amount_due` directamente, así que la factura seguirá apareciendo con su saldo original en la antigüedad de saldos aunque la contabilidad ya esté corregida. Mientras no exista el comando de nota de crédito, la antigüedad de saldos y el mayor van a discrepar en esos casos, y hay que documentarlo en el papel de trabajo del mes.
 
 ---
 
@@ -353,7 +335,7 @@ Si el saldo ya bajó, el pago se registró y repetirlo lo duplicaría. La bander
 
 ### 6. El REP del proveedor
 
-Si la factura era PPD, su IVA sigue aparcado en la 1135 hasta que llegue el REP del proveedor. Cuando llegue, entra por la ingesta como cualquier otro CFDI:
+Si la factura era PPD, el pago que acabas de registrar ya pasó su IVA de la 1135 a la 1130. Lo que falta es el REP del proveedor, el comprobante que respalda ese acreditamiento. Cuando llegue, entra por la ingesta como cualquier otro CFDI:
 
 ```bash
 mnemosine ingest ./cfdis/rep-septiembre/*.xml
@@ -426,7 +408,7 @@ Sin terminal (dentro de un `cron`, por ejemplo) el comando no asume tu consentim
 | Timbrar una factura de cliente | ❌ No existe | Timbrar en el portal del PAC con los mismos datos |
 | Cancelar un CFDI ante el SAT | ❌ No existe | Cancelar en el PAC, después `entry reverse --reason` con el acuse |
 | Emitir el REP de un cobro | ❌ No existe | Emitirlo en el PAC; llevar la cuenta con `rep missing list --direction issued` |
-| Contabilizar una nota de crédito | ❌ No existe como comando | `invoice void` si no se timbró ni se cobró; si no, póliza manual con `entry create` |
+| Contabilizar la nota de crédito que te manda un proveedor | ❌ El CFDI tipo `E` recibido se registra sin asiento | Póliza manual con `entry create` |
 | Corregir una factura de proveedor ya aprobada | ❌ No hay `bill edit` ni `bill void` | `entry reverse` del asiento y volver a capturar |
 | Programar un pago | ❌ No existe, y el sistema lo dice: no tiene programador de pagos ni conexión con ningún banco | Pagar en el banco y registrar el hecho con `payment create` |
 | Alta masiva de clientes o proveedores | ❌ No hay `customer import` ni `vendor import` | Capturar uno a uno |
@@ -436,7 +418,7 @@ Sin terminal (dentro de un `cron`, por ejemplo) el comando no asume tu consentim
 
 ## Ver también
 
-- [[Manual-Bancos-y-conciliacion]] — qué pasa con el efectivo que estos comandos mueven, y por qué la conciliación se acaba a medio camino.
+- [[Manual-Bancos-y-conciliacion]] — cómo se concilia contra el banco el efectivo que estos comandos mueven.
 - [[Manual-El-cierre-de-mes]] — la lista de verificación, el barrido del IVA de los REP y los dos cierres.
 - [[Fiscal-mexicano]] — el porqué de la base de flujo, la taxonomía del CFDI y los límites del timbrado.
 - [[Glosario]] — póliza, auxiliar, balanza, REP y el resto del vocabulario, con el comando de cada uno.

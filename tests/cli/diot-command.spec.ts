@@ -23,13 +23,12 @@ import {
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, ExitCode } from '../../src/cli/kernel/index.js';
 import { FLAG_DICTIONARY } from '../../src/cli/kernel/flags.js';
-import { LO_QUE_FALTA_CONFIRMAR } from '../../src/services/sat/diot/index.js';
 
 // ============================================================
 // F07c · `diot` contra sus filas del catálogo (docs/cli-command-catalog.md
 // 2040-2043) y contra el contrato de salida del núcleo (§4): limpio 0,
 // bloqueante 4, aviso 0 salvo --strict, nombre desconocido 2, layout sin
-// fundamentar 11.
+// fundamentar (fiscal year 2024 and earlier) 11.
 //
 // El patrón es el de e-accounting-command.spec: el programa se arma con un
 // doble de `construirDiot` —el motor lo prueban tests/sat/diot/** y la
@@ -655,15 +654,20 @@ describe('diot export · el papel de trabajo, y la negativa del archivo de lote'
     expect(fs.readFileSync(destino, 'utf8')).toContain('PAPEL DE TRABAJO');
   });
 
-  it('--layout sat SE NIEGA con 11 y enumera lo que hay que confirmar', async () => {
+  it('--layout sat writes the batch file to stdout, exits 0 and files nothing', async () => {
     const r = await correr(['diot', 'export', '--period', '2026-02', '--layout', 'sat', ...E]);
-    // 11 y no 1: el trabajo no falló, espera a que una persona confirme el
-    // layout contra el vigente. Y no 0 con un archivo inventado, que es el
-    // error que este repositorio ya cometió y borró.
+    expect(r.exitCode).toBe(ExitCode.OK);
+    expect(r.out.split('\r\n')[0].split('|')).toHaveLength(54);
+    expect(r.out).not.toContain('PAPEL DE TRABAJO');
+    // Presenting is still a person's act, and stderr says so.
+    expect(r.err).toContain(TITULAR_NO_PRESENTADA);
+  });
+
+  it('--layout sat on a 2024 period needs a human: that layout is not grounded', async () => {
+    mundo.diot = diot({ periodo: { anio: 2024, mes: 12, desde: '2024-12-01', hasta: '2024-12-31' } });
+    const r = await correr(['diot', 'export', '--period', '2024-12', '--layout', 'sat', ...E]);
     expect(r.exitCode).toBe(ExitCode.NEEDS_HUMAN);
-    const mensaje = (r.errs[0] as Error).message;
-    for (const punto of LO_QUE_FALTA_CONFIRMAR) expect(mensaje).toContain(punto);
-    expect(mensaje).toContain('--layout working-paper');
+    expect((r.errs[0] as Error).message).toContain('--layout working-paper');
     expect(r.out).toBe('');
   });
 

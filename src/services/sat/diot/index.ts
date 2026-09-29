@@ -67,11 +67,20 @@ export {
   exigirEntregable,
   DiotFormatoNoFundamentado,
   DiotNoEntregable,
-  LO_QUE_FALTA_CONFIRMAR,
   PAPEL_DE_TRABAJO,
   SERIALIZADOR_SAT,
   type SerializadorDiot,
 } from './serializador.js';
+
+export {
+  LAYOUT_ANSWERS,
+  SAT_BATCH_LAYOUTS,
+  SAT_SOURCE,
+  layoutForYear,
+  serializeSatBatch,
+  toWholeUnits,
+  type LayoutAnswer,
+} from './sat-batch.js';
 
 export type {
   DiotConstruida,

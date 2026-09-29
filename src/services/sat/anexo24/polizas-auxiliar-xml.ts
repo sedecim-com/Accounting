@@ -2,8 +2,10 @@ import { ValidationError } from '../../../utils/errors.js';
 import { serializar, type Atributo, type NodoXml } from './xml.js';
 import {
   atributosDeCabecera,
+  assertOnOfficialLists,
   atributosDeSolicitud,
   nodoDeComprobante,
+  offListValuesOfVoucher,
   type Comprobante,
   type Solicitud,
 } from './polizas-xml.js';
@@ -116,6 +118,16 @@ export function nodoDeAuxiliarFolios(d: DatosDeAuxiliarFolios): NodoXml {
       );
     }
   }
+  // This file has no findings report to carry them, so a value the XSD
+  // rejects is refused here, with every entry that carries one named at once
+  // instead of the first attribute alone (#404).
+  assertOnOfficialLists(
+    d.detalles.flatMap((det) =>
+      det.comprobantes
+        .flatMap((c) => offListValuesOfVoucher(PREFIJO_AUX_FOLIOS, COMPROBANTES_DE_FOLIOS, c))
+        .map((value) => ({ numUnIdenPol: det.numUnIdenPol, value }))
+    )
+  );
 
   return {
     nombre: `${PREFIJO_AUX_FOLIOS}:RepAuxFol`,

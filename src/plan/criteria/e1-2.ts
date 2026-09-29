@@ -739,6 +739,135 @@ export const E1_2: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'reports-lists-and-the-agent-read-today-in-zona-horaria',
+    // #242 · MNE-001-111. The reads kept the UTC day after the credit note
+    // stopped using it: at 20:00 on the 31st in Mexico City an invoice due on
+    // the 31st showed one day overdue in the REST aging, the agent's aging
+    // tools, `invoice list` and `customer list`, and the agent was told it was
+    // already the 1st. They now ask the same resolver the credit note asks.
+    enunciado: 'El «hoy» de informes, listas y el agente es el día de zona_horaria, no el día UTC',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/reports.ts',
+        de: "const asOf = as_of_date as string || (await todayForEntity(entityId as string));\n\n  // Unlike",
+        a: "const asOf = as_of_date as string || new Date().toISOString().split('T')[0];\n\n  // Unlike",
+        porque: 'the REST aging goes back to the UTC day: at 20:00 on the 31st an invoice due that day is one day overdue',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: "const asOf = input.as_of_date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));\n      const all = await queryAgedReceivableRows(",
+        a: "const asOf = input.as_of_date ?? new Date().toISOString().split('T')[0];\n      const all = await queryAgedReceivableRows(",
+        porque: "the agent's aging tool reads the UTC day and reports as overdue what is due today",
+      },
+      {
+        archivo: 'src/services/ar/invoice-service.ts',
+        de: 'const asOfValue = filters.asOf ?? (needsToday ? await todayForEntity(entityId) : undefined);',
+        a: 'const asOfValue = filters.asOf ?? (needsToday ? new Date().toISOString().slice(0, 10) : undefined);',
+        porque: '`invoice list` counts days overdue from the UTC day',
+      },
+      {
+        archivo: 'src/services/ar/customer-service.ts',
+        de: 'params.push(filters.asOf ?? (await todayForEntity(entityId)));',
+        a: "params.push(filters.asOf ?? (await query<{ d: string }>('SELECT CURRENT_DATE::text AS d', [])).rows[0].d);",
+        porque: "`customer list` takes a bare CURRENT_DATE, the database session's day, and lists as overdue what is due today",
+      },
+      {
+        archivo: 'src/ai/system-prompt.ts',
+        de: "`Today's date: ${today}.`",
+        a: "`Today's date: ${new Date().toISOString().split('T')[0]}.`",
+        porque: 'the agent is told it is already tomorrow and drafts on that day',
+      },
+      {
+        archivo: 'src/services/policy/today.ts',
+        de: 'return todayFor(tenantId ? { tenantId, entityId } : null, opts);',
+        a: 'return todayFor(null, opts);',
+        porque: "the entity's own zona_horaria row stops being read: an entity in Tokyo gets Mexico City's day",
+      },
+    ],
+    evaluar: () => {
+      const readers = [
+        'src/api/rest/routes/reports.ts',
+        'src/ai/tools/report-tools.ts',
+        'src/services/ar/invoice-service.ts',
+        'src/services/ar/customer-service.ts',
+        'src/ai/system-prompt.ts',
+      ];
+      const resolver = 'src/services/policy/today.ts';
+      const integration = 'tests/integration/today-in-zone-reads.int.spec.ts';
+      for (const rel of [...readers, resolver]) {
+        if (!existe(rel)) return falla(`${rel} is gone`);
+      }
+
+      // 1. THE CENSUS: no UTC day cut from a timestamp, and no bare
+      //    CURRENT_DATE, in the readers. (A full ISO timestamp is fine: it is
+      //    an instant, not a day.)
+      const WRONG_DAYS: Array<[RegExp, string]> = [
+        [/new Date\(\)\s*\.toISOString\(\)\s*\.(?:slice\(\s*0\s*,\s*10\s*\)|split\(\s*'T'\s*\))/, 'the UTC day'],
+        [/\bCURRENT_DATE\b/, 'a bare CURRENT_DATE'],
+      ];
+      const offenders: string[] = [];
+      for (const rel of readers) {
+        const code = codigoDe(rel);
+        for (const [pattern, what] of WRONG_DAYS) {
+          if (pattern.test(code)) offenders.push(`${rel} (${what})`);
+        }
+      }
+      if (offenders.length > 0) {
+        return falla(
+          `"today" is read from the wrong clock in ${offenders.join(', ')}: at 20:00 in Mexico City ` +
+            'an invoice due that day is shown one day overdue'
+        );
+      }
+
+      // 2. EACH READER goes through the resolver.
+      const through: Array<[string, RegExp, string]> = [
+        [readers[0], /as_of_date as string \|\| \(await todayForEntity\(/g, 'the REST aging'],
+        [readers[1], /input\.as_of_date \?\? \(await todayFor\(\{ tenantId: ctx\.tenantId, entityId: ctx\.entityId \}\)\)/g, "the agent's aging tools"],
+        [readers[2], /filters\.asOf \?\? \(needsToday \? await todayForEntity\(entityId\)/g, '`invoice list`'],
+        [readers[3], /filters\.asOf \?\? \(await todayForEntity\(entityId\)\)/g, '`customer list`'],
+        [readers[4], /const today = await todayFor\(\{ tenantId: ctx\.tenantId, entityId: ctx\.entityId \}\)/g, "the agent's prompt"],
+      ];
+      const expected = [2, 2, 1, 1, 1];
+      for (let k = 0; k < through.length; k++) {
+        const [rel, pattern, what] = through[k];
+        if ((codigoDe(rel).match(pattern) ?? []).length !== expected[k]) {
+          return falla(`${what} no longer asks the zona_horaria resolver for "today"`);
+        }
+      }
+      if (!codigoDe(readers[4]).includes("`Today's date: ${today}.`")) {
+        return falla("the agent's prompt no longer states the resolved day");
+      }
+      const r = codigoDe(resolver);
+      if (!r.includes('return todayFor(tenantId ? { tenantId, entityId } : null, opts);')) {
+        return falla("todayForEntity no longer reads the entity's zona_horaria row");
+      }
+      if (!r.includes('return todayFor(row ? { tenantId: row.tenant_id, entityId: row.entity_id } : null, opts);')) {
+        return falla("todayForCustomer no longer reads the zone of the customer's entity");
+      }
+
+      // 3. AND BEHAVIOUR, with the clock at 20:00 on the 31st in Mexico City.
+      if (!existe(integration)) return falla('there is no reproduction of the reads with a fixed clock');
+      const t = codigoDe(integration);
+      for (const [pattern, what] of [
+        [/2026-11-01T02:00:00Z/, 'fix the clock at 20:00 on the 31st in Mexico City'],
+        [/aged-receivables/, 'ask the REST aging'],
+        [/get_aged_receivables/, "ask the agent's aging tool"],
+        [/listInvoices\(/, 'ask `invoice list`'],
+        [/listCustomers\(/, 'ask `customer list`'],
+        [/Today's date: 2026-10-31\./, "read the agent's prompt"],
+        [/Asia\/Tokyo/, "honour the entity's own row"],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(t)) return falla(`the reproduction no longer does: ${what}`);
+      }
+
+      return ok(
+        'the REST aging, the agent aging tools, invoice list, customer list and the agent prompt take "today" from zona_horaria, and a fixed-clock reproduction measures all five'
+      );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
     id: 'an-advance-cannot-be-booked-in-another-currency',
     // T23 (#130). Un anticipo puro no tiene documento que le dé la moneda: sale
     // del propio cliente —o del parámetro— y se escribía CRUDA, sin compararla
@@ -1277,6 +1406,99 @@ export const E1_2: Criterio[] = [
       return libros
         ? ok('los dos verbos atan su movimiento y un cotejo vivo explica la línea aunque el sello llegue después')
         : falla('el clasificador volvió a juzgar la partida de libros sólo por el sello: la línea ya cotejada seguiría levantándose');
+    },
+  },
+
+  // ---- #95 · MNE-001-041 · The bank fee's VAT leaves 1135 ----
+  {
+    paquete: 'E1.2',
+    id: 'bank-fee-vat-leaves-1135',
+    // `bank fee post` parked the fee's VAT in 1135 and pointed at `bank fee
+    // apply`, which never existed; nothing else reached a `bank_fee` entry, so
+    // every fee's VAT stayed there and the monthly return understated the
+    // creditable VAT. Proven against Postgres in
+    // tests/integration/mne-001-041-fee-vat-release.int.spec.ts.
+    enunciado: 'Contabilizar una comisión bancaria deja la 1135 en cero: su IVA pasa a acreditable en el mes del cargo',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/treasury-posting.ts',
+        de: '      await release(mov);\n',
+        a: '\n',
+        porque:
+          'the fee is posted and its VAT stays parked in 1135 again: the return understates the ' +
+          'creditable VAT every month there is a bank fee',
+      },
+      {
+        archivo: 'src/services/banking/treasury-posting.ts',
+        de: '[entityId, [ORIGEN_COMISION, FEE_VAT_RELEASE_SOURCE], mov.id, pending]',
+        a: '[entityId, [ORIGEN_COMISION], mov.id, pending]',
+        porque:
+          'the ledger read forgets what earlier releases took out: running the month again moves ' +
+          'the same VAT a second time and 1135 goes negative',
+      },
+      {
+        archivo: 'src/i18n/es.ts',
+        de: "'El IVA de las comisiones ({vat}) pasó de pendiente de acreditar a IVA acreditable en el mes ' +",
+        a: "'El IVA ({vat}) se acredita con `bank fee apply` cuando llegue el CFDI del banco, en el mes ' +",
+        porque: 'the notice sends the accountant to `bank fee apply` again, a command that does not exist',
+      },
+    ],
+    evaluar: () => {
+      const t = codigoDe('src/services/banking/treasury-posting.ts');
+      if (!/async function releaseFeeVat\(/.test(t)) {
+        return falla('the release of the fee VAT is gone: nothing moves it out of 1135');
+      }
+      // Posted now AND posted before: both paths release.
+      const calls = (t.match(/await release\(/g) ?? []).length;
+      if (calls < 2) {
+        return falla(`only ${calls} of the 2 fee paths (posted now, posted earlier) release the VAT: the other leaves it in 1135`);
+      }
+      if (!/, FEE_VAT_RELEASE_SOURCE\]/.test(t)) {
+        return falla('the parked amount no longer nets earlier releases: a rerun releases the same VAT twice');
+      }
+      const dead = ['src/i18n/es.ts', 'src/i18n/en.ts', 'src/cli/bank-command.ts'].filter((f) =>
+        codigoDe(f).includes('bank fee apply')
+      );
+      return dead.length === 0
+        ? ok('the fee VAT is released in the same act, netting earlier releases, and no message cites `bank fee apply`')
+        : falla(`${dead.join(', ')} cite \`bank fee apply\` again, a command that does not exist`);
+    },
+  },
+
+  // ---- #95 · MNE-001-041 · The PPD reclass backfill rounds once, at scale 4 ----
+  {
+    paquete: 'E1.2',
+    id: 'iva-ppd-reclass-posts-at-scale-4',
+    // The backfill rounded the unpaid share to cents and posted it at four
+    // decimals, leaving up to 0.005 of non-creditable IVA per document in 1130.
+    enunciado: 'La reclasificación de IVA PPD redondea una sola vez, a los cuatro decimales con que postea',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/iva-ppd-reclass.ts',
+        de: 'dividedBy(total)).toDecimalPlaces(4);',
+        a: 'dividedBy(total)).toDecimalPlaces(2);',
+        porque:
+          'the unpaid share is rounded to cents and posted at four decimals: up to 0.005 per document ' +
+          'stays in 1130 that was never creditable',
+      },
+      {
+        archivo: 'src/services/accounting/iva-ppd-reclass.ts',
+        de: 'const aReclasificar = unpaidShareOfIva(h.importe, h.saldo_documento, h.total_documento);',
+        a: 'const aReclasificar = new Decimal(h.importe).times(new Decimal(h.saldo_documento).dividedBy(h.total_documento)).toDecimalPlaces(2);',
+        porque: 'the reclass computes its own share again, inline and at cents, beside the one that is tested',
+      },
+    ],
+    evaluar: () => {
+      const r = codigoDe('src/services/accounting/iva-ppd-reclass.ts');
+      if (/toDecimalPlaces\(\s*[0-3]\s*\)/.test(r)) {
+        return falla('iva-ppd-reclass rounds below four decimals again: the residue stays in 1130');
+      }
+      if (!/export function unpaidShareOfIva\([^)]*\)[^{]*\{[^}]*toDecimalPlaces\(4\)/.test(r)) {
+        return falla('the unpaid share no longer rounds once, at four decimals');
+      }
+      return /= unpaidShareOfIva\(h\./.test(r)
+        ? ok('the unpaid share of a PPD document is rounded once, at the four decimals it is posted at')
+        : falla('the reclass no longer takes its amount from unpaidShareOfIva');
     },
   },
 
@@ -1935,6 +2157,44 @@ export const E1_2: Criterio[] = [
       return /\.filter\(\(t\) => satKey\(t\.impuesto\) === '002'\)/.test(inbox)
         ? ok('the three bill_lines writers store factor type, rate and value of the acts, and tax_amount is only the IVA transfer')
         : falla('the VAT of a concept is no longer filtered by Impuesto 002: an IEPS transfer can land in bill_lines.tax_amount');
+    },
+  },
+
+  // ---- MNE-001-055 · #307 · The DIOT batch file the SAT receives ----
+
+  {
+    paquete: 'E1.2',
+    id: 'diot-sat-layout-cited',
+    enunciado: 'The DIOT batch file follows a SAT layout cited by URL and consultation date',
+    mutantes: [
+      {
+        archivo: 'src/services/sat/diot/sat-batch.ts',
+        de: "  url: 'https://www.sat.gob.mx/cs/Satellite?blobcol=urldata&blobkey=id&blobtable=MungoBlobs&blobwhere=1461176417476&ssbinary=true',",
+        a: "  url: '',",
+        porque: 'the layout loses its official source: the batch file is again a shape nobody can trace to the SAT, the invented-layout mistake this repository already deleted once',
+      },
+      {
+        archivo: 'src/services/sat/diot/sat-batch.ts',
+        de: "  consulted: '2026-09-29',",
+        a: "  consulted: '',",
+        porque: 'the citation no longer says when the SAT document was read: nobody can tell whether a later layout replaced it',
+      },
+    ],
+    evaluar: () => {
+      const batch = codigoDe('src/services/sat/diot/sat-batch.ts');
+      if (!/url: 'https:\/\/www\.sat\.gob\.mx\/[^']+'/.test(batch)) {
+        return falla('the DIOT batch layout no longer cites an sat.gob.mx URL: its 54 fields are unsourced');
+      }
+      if (!/consulted: '\d{4}-\d{2}-\d{2}'/.test(batch)) {
+        return falla('the DIOT batch layout citation lost its consultation date');
+      }
+      const answers = (batch.match(/^ {4}section: '§/gm) ?? []).length;
+      if (answers !== 7) {
+        return falla(`the seven layout questions of #307 have ${answers} sourced answer(s), not 7`);
+      }
+      return /firstYear: \d{4}, fields: 54/.test(batch)
+        ? ok('the SAT batch file is written from a layout cited by URL and date, declared with the first fiscal year it governs')
+        : falla('the 54-field layout lost the fiscal year from which it governs: a 2024 period would be written in the 2025 shape');
     },
   },
 

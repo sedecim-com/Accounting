@@ -31,6 +31,7 @@ const proveedor = (o: Partial<TerceroCrudo> = {}): TerceroCrudo => ({
 const POR_OMISION: PoliticasDelTercero = {
   tipoOperacionPorOmision: '85',
   terceroSinRfc: 'bloquear',
+  foreignOperationDefault: '07',
 };
 
 describe('el tipo de tercero', () => {
@@ -158,5 +159,54 @@ describe('diot_tipo_operacion_por_omision · contestarla cambia el resultado', (
     const r = resolverTercero(proveedor(), { ...POR_OMISION, tipoOperacionPorOmision: '99' });
     expect(r.tercero).toBeNull();
     expect(r.hallazgos.map((h) => h.codigo)).toContain('DIOT-POLITICA-FUERA-DE-CATALOGO');
+  });
+});
+
+describe('the 2025 operation-type catalogue (§3.1)', () => {
+  const foreign = (o: Partial<TerceroCrudo> = {}) =>
+    proveedor({
+      tipoTercero: '05',
+      taxId: null,
+      idFiscalExtranjero: 'US-99-1234567',
+      paisResidencia: 'USA',
+      nacionalidad: 'Estadounidense',
+      ...o,
+    });
+
+  it('a foreign supplier with no declared type takes the foreign default (07), not the national 85', () => {
+    const r = resolverTercero(foreign(), POR_OMISION);
+    expect(r.tercero).toMatchObject({ tipoTercero: '05', tipoOperacion: '07' });
+    expect(r.hallazgos.find((h) => h.codigo === 'DIOT-TIPO-OPERACION-POR-OMISION')?.politica).toBe(
+      'diot_default_operation_type_foreign'
+    );
+  });
+
+  it('answering the foreign key changes the answer, and "block" refuses', () => {
+    expect(resolverTercero(foreign(), { ...POR_OMISION, foreignOperationDefault: '03' }).tercero?.tipoOperacion).toBe('03');
+    const blocked = resolverTercero(foreign(), { ...POR_OMISION, foreignOperationDefault: 'block' });
+    expect(blocked.tercero).toBeNull();
+    expect(blocked.hallazgos.map((h) => h.codigo)).toContain('DIOT-TIPO-OPERACION-SIN-DECLARAR');
+    const national85 = resolverTercero(foreign(), { ...POR_OMISION, foreignOperationDefault: '85' });
+    expect(national85.hallazgos.map((h) => h.codigo)).toContain('DIOT-POLITICA-FUERA-DE-CATALOGO');
+  });
+
+  it('a declared type the catalogue does not accept for that party type blocks at build time', () => {
+    for (const [raw, type] of [
+      [foreign({ tipoOperacion: '85' }), '85'],
+      [foreign({ tipoOperacion: '06' }), '06'],
+      [proveedor({ tipoOperacion: '07' }), '07'],
+    ] as const) {
+      const r = resolverTercero(raw, POR_OMISION);
+      expect(r.tercero, type).toBeNull();
+      const h = r.hallazgos.find((x) => x.codigo === 'DIOT-OPERATION-TYPE-NOT-ALLOWED');
+      expect(h?.severidad).toBe('bloqueante');
+      expect(h?.mensaje).toContain(type);
+    }
+  });
+
+  it('a national supplier can be declared, or defaulted, as 02 transfer of goods', () => {
+    expect(resolverTercero(proveedor({ tipoOperacion: '02' }), POR_OMISION).tercero?.tipoOperacion).toBe('02');
+    expect(resolverTercero(proveedor(), { ...POR_OMISION, tipoOperacionPorOmision: '02' }).tercero?.tipoOperacion).toBe('02');
+    expect(resolverTercero(foreign({ tipoOperacion: '07' }), POR_OMISION).tercero?.tipoOperacion).toBe('07');
   });
 });
