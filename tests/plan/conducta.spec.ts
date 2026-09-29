@@ -72,9 +72,9 @@ describe('el contrato del criterio de conducta', () => {
       for (const r of p.legitimateRefactors ?? []) {
         const files = new Map<string, string>();
         for (const e of r.edits) {
-          const current = files.get(e.archivo) ?? crudoDe(e.archivo);
-          expect(current.includes(e.de), `«${p.id}» refactor «${r.why}»: «${e.de}» is not in ${e.archivo}`).toBe(true);
-          files.set(e.archivo, current.replace(e.de, e.a));
+          const current = files.get(e.file) ?? crudoDe(e.file);
+          expect(current.includes(e.from), `«${p.id}» refactor «${r.why}»: «${e.from}» is not in ${e.file}`).toBe(true);
+          files.set(e.file, current.replace(e.from, e.to));
         }
       }
     }

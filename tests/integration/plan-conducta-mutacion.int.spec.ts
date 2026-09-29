@@ -41,9 +41,12 @@ const RAIZ = path.resolve(__dirname, '..', '..');
 /** El contenido original de cada archivo que algún espejo toca, leído UNA vez. */
 const originales = new Map<string, string>();
 for (const p of PRUEBAS_DE_CONDUCTA) {
-  const touched = [...p.mutantes, ...(p.legitimateRefactors ?? []).flatMap((r) => r.edits)];
-  for (const m of touched) {
-    const abs = path.join(RAIZ, m.archivo);
+  const touched = [
+    ...p.mutantes.map((m) => m.archivo),
+    ...(p.legitimateRefactors ?? []).flatMap((r) => r.edits.map((e) => e.file)),
+  ];
+  for (const file of touched) {
+    const abs = path.join(RAIZ, file);
     if (!originales.has(abs)) originales.set(abs, fs.readFileSync(abs, 'utf-8'));
   }
 }
@@ -139,10 +142,10 @@ describe('los espejos del criterio que EJECUTA', () => {
     ({ id, refactor }: (typeof refactors)[number]) => {
       try {
         for (const edit of refactor.edits) {
-          const abs = path.join(RAIZ, edit.archivo);
+          const abs = path.join(RAIZ, edit.file);
           const current = fs.readFileSync(abs, 'utf-8');
-          const edited = current.replace(edit.de, edit.a);
-          expect(edited, `the refactor did not change ${edit.archivo}`).not.toBe(current);
+          const edited = current.replace(edit.from, edit.to);
+          expect(edited, `the refactor did not change ${edit.file}`).not.toBe(current);
           fs.writeFileSync(abs, edited, 'utf-8');
         }
 

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
@@ -99,8 +99,8 @@ export interface App {
   policies: typeof import('../services/policy/policy-service.js');
   /** E2.1 · the API exactly as it is served: `bootstrap()` builds it without listening. */
   server: typeof import('../index.js');
-  /** E2.1 · the startup guard whose refusal bootstrap() must propagate. */
-  rlsGuard: typeof import('../database/rls-guard.js');
+  /** E2.1 · the /v1 mount table, so every prefix is asked and none is copied by hand. */
+  mounts: typeof import('../api/rest/montajes.js');
   settings: typeof import('../config/index.js');
 }
 
@@ -141,7 +141,7 @@ export interface PruebaDeConducta {
 
 export interface LegitimateRefactor {
   why: string;
-  edits: Array<{ archivo: string; de: string; a: string }>;
+  edits: Array<{ file: string; from: string; to: string }>;
 }
 
 const ok = (detalle: string): Resultado => ({ estado: 'ok', detalle });
@@ -590,81 +590,96 @@ const showLedger = (l: Record<string, string>): string =>
 // is recorded: every statement any pg client sends, and the tenant Postgres
 // itself reports for that connection at that moment.
 //
-// The tenant is asked of Postgres (`current_setting`) on the same client just
-// before the statement, instead of inferred from which helper was called: an
-// instrument that trusts connection.ts's own bookkeeping would inherit its
+// The tenant is asked of Postgres (`current_setting`) on the same client, in
+// the same synchronous call that queues the statement: the probe goes into
+// the client's queue and the statement right behind it, and pg runs its queue
+// in order, so nothing can run between the two and the caller's own order is
+// untouched. Submittables (cursors, streams) are probed the same way. An
+// instrument that trusted connection.ts's own bookkeeping would inherit its
 // bugs. Transaction control and the set_config that opens the context are not
 // data access and are not recorded.
 //
-// Only statements issued from inside the request count. The scenario process
+// Only statements issued from inside a request count. The scenario process
 // has other work in flight — an earlier test's asynchronous SAT validation
 // updated xml_documents in the middle of the first measurement — so each
 // request is served inside its own AsyncLocalStorage, which follows it through
 // every middleware, handler and `finish` listener and through nothing else.
+// A request is over when the pool has no client checked out, not after a
+// fixed sleep; a statement a request still sends after that lands in
+// `lateStatements`, which the criterion reads, so it is never silently lost.
 // ------------------------------------------------------------
 
-const insideRequest = new AsyncLocalStorage<true>();
+interface ObservedStatement {
+  text: string;
+  /** The tenant the connection carried, or null when it carried none (or the probe failed). */
+  tenant: string | null;
+}
+
+interface Recorder {
+  statements: ObservedStatement[];
+  probes: Array<Promise<void>>;
+  closed: boolean;
+}
+
+const insideRequest = new AsyncLocalStorage<Recorder>();
+const lateStatements: ObservedStatement[] = [];
+let recorderInstalled = false;
 
 const TENANT_PROBE = "SELECT current_setting('app.current_tenant', true) AS tenant";
 const CONTROL_STATEMENT = /^\s*(BEGIN|COMMIT|ROLLBACK|SELECT set_config\()/i;
 
-interface ObservedStatement {
-  text: string;
-  /** The tenant the connection carried, or null when it carried none. */
-  tenant: string | null;
-}
-
-async function recordStatements<T>(fn: () => Promise<T>): Promise<{ value: T; statements: ObservedStatement[] }> {
+/** Wraps pg.Client#query once; outside a request it only passes through. */
+async function installRecorder(): Promise<void> {
+  if (recorderInstalled) return;
   const { default: pg } = await import('pg');
   type Query = (this: unknown, ...args: unknown[]) => unknown;
   const proto = pg.Client.prototype as unknown as { query: Query };
   const original = proto.query;
-  const statements: ObservedStatement[] = [];
   proto.query = function (this: unknown, ...args: unknown[]): unknown {
-    const first = args[0] as string | { text?: unknown; submit?: unknown } | undefined;
+    const recorder = insideRequest.getStore();
+    const first = args[0] as string | { text?: unknown } | undefined;
     const text = typeof first === 'string' ? first : typeof first?.text === 'string' ? first.text : undefined;
-    const submittable = typeof first === 'object' && typeof first?.submit === 'function';
-    if (
-      insideRequest.getStore() !== true ||
-      text === undefined ||
-      submittable ||
-      text === TENANT_PROBE ||
-      CONTROL_STATEMENT.test(text)
-    ) {
+    if (recorder === undefined || text === undefined || text === TENANT_PROBE || CONTROL_STATEMENT.test(text)) {
       return original.apply(this, args);
     }
-    const callback =
-      typeof args[args.length - 1] === 'function'
-        ? (args.pop() as (err: unknown, res?: unknown) => void)
-        : undefined;
-    const run = async (): Promise<unknown> => {
-      const probe = (await original.call(this, TENANT_PROBE)) as { rows: Array<{ tenant: string | null }> };
-      statements.push({ text: text.replace(/\s+/g, ' ').trim().slice(0, 80), tenant: probe.rows[0]?.tenant || null });
-      return original.apply(this, args);
-    };
-    const pending = run();
-    if (!callback) return pending;
-    pending.then(
-      (res) => callback(null, res),
-      (err: unknown) => callback(err)
+    const shown = text.replace(/\s+/g, ' ').trim().slice(0, 80);
+    const sink = recorder.closed ? lateStatements : recorder.statements;
+    const probe = (original.call(this, TENANT_PROBE) as Promise<{ rows: Array<{ tenant: string | null }> }>).then(
+      (r) => r.rows[0]?.tenant || null,
+      () => null
     );
-    return undefined;
+    recorder.probes.push(probe.then((tenant) => void sink.push({ text: shown, tenant })));
+    return original.apply(this, args);
   };
-  try {
-    return { value: await fn(), statements };
-  } finally {
-    proto.query = original;
+  recorderInstalled = true;
+}
+
+/** Waits until every probe settled and the pool has had no client out for two polls in a row. */
+async function settle(recorder: Recorder, pool: import('pg').Pool, deadlineMs = 10_000): Promise<boolean> {
+  const deadline = Date.now() + deadlineMs;
+  let quiet = 0;
+  while (Date.now() < deadline) {
+    const seen = recorder.probes.length;
+    await Promise.all(recorder.probes);
+    const idle = pool.totalCount === pool.idleCount && pool.waitingCount === 0;
+    quiet = idle && seen === recorder.probes.length ? quiet + 1 : 0;
+    if (quiet >= 2) return true;
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
+  return false;
 }
 
 /** A /v1 request against the API that bootstrap() built, over a real socket. */
 async function requestV1(
   built: import('express').Express,
+  pool: import('pg').Pool,
   route: string,
   token: string
-): Promise<{ value: number; statements: ObservedStatement[] }> {
+): Promise<{ value: number; statements: ObservedStatement[]; settled: boolean }> {
+  await installRecorder();
+  const recorder: Recorder = { statements: [], probes: [], closed: false };
   const server = http.createServer((req, res) => {
-    insideRequest.run(true, () => {
+    insideRequest.run(recorder, () => {
       built(req, res);
     });
   });
@@ -676,19 +691,50 @@ async function requestV1(
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   try {
-    return await recordStatements(async () => {
-      const res = await fetch(`http://127.0.0.1:${port}${route}`, {
-        headers: { authorization: `Bearer ${token}` },
-      });
-      await res.text();
-      // The audit write runs on `finish`, after the body left: give it a turn.
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      return res.status;
+    const res = await fetch(`http://127.0.0.1:${port}${route}`, {
+      headers: { authorization: `Bearer ${token}` },
     });
+    await res.text();
+    const settled = await settle(recorder, pool);
+    recorder.closed = true;
+    return { value: res.status, statements: recorder.statements, settled };
   } finally {
+    recorder.closed = true;
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+}
+
+/** Runs src/index.ts as the entry point, the way production starts it. */
+async function runEntryPoint(
+  env: NodeJS.ProcessEnv,
+  timeoutMs = 60_000
+): Promise<{ code: number | null; output: string; started: boolean; timedOut: boolean }> {
+  const child = spawn(process.execPath, ['--import', 'tsx', path.join(RAIZ, 'src', 'index.ts')], {
+    cwd: RAIZ,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  let started = false;
+  let timedOut = false;
+  const onData = (chunk: Buffer): void => {
+    output += chunk.toString('utf-8');
+    // Started: stop it the way an orchestrator does, and demand a clean exit.
+    if (!started && output.includes('"message":"server_started"')) {
+      started = true;
+      child.kill('SIGTERM');
+    }
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill('SIGKILL');
+  }, timeoutMs);
+  const code = await new Promise<number | null>((resolve) => child.once('close', (c) => resolve(c)));
+  clearTimeout(timer);
+  return { code, output, started, timedOut };
 }
 
 export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
@@ -1875,10 +1921,13 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // Was `/tenantContext/.test(src/index.ts)`: a word standing in for a mount.
   // It punished the refactor src/index.ts itself invites (the /v1 chain moving
   // to montajes.ts) and absolved a removed mount whose import stayed behind.
-  // Now the API is built by the real bootstrap() and asked twice:
+  // Now the API is built by the real bootstrap() and asked:
   //
-  //   · with a signed token that names no tenant, nothing reaches Postgres
-  //     and the answer is 401;
+  //   · with a signed token that names no tenant, on EVERY prefix of
+  //     MONTAJES_V1 and on a path no router owns, nothing reaches Postgres
+  //     and the answer is 401. One route is not enough: a mount narrowed to
+  //     /v1/accounts passes that route and leaves the other routers unscoped,
+  //     and only a mount at the /v1 root refuses a path no router matches;
   //   · with a token for a tenant, every statement the request sends travels
   //     with THAT tenant set on its connection, and at least one is sent — an
   //     instrument that saw nothing would absolve a request that never ran.
@@ -1899,6 +1948,12 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         porque: 'mount removed: the import stays, which is exactly what the old regex could not tell apart',
       },
       {
+        archivo: 'src/index.ts',
+        de: '  app.use(apiPrefix, tenantContext);\n',
+        a: '  app.use(`${apiPrefix}/accounts`, tenantContext);\n',
+        porque: 'mount narrowed to /v1/accounts: that route stays scoped and the other sixteen routers query with no tenant',
+      },
+      {
         archivo: 'src/api/rest/middleware/tenant-context.ts',
         de: '  void withTenant(tenantId, async () => {\n    next();\n  });',
         a: '  next();',
@@ -1916,9 +1971,9 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         why: 'the /v1 mount moves to src/api/rest/montajes.ts, the file src/index.ts already delegates its table to',
         edits: [
           {
-            archivo: 'src/api/rest/montajes.ts',
-            de: 'export const MONTAJES_V1: ReadonlyArray<readonly [string, Router]> = [',
-            a:
+            file: 'src/api/rest/montajes.ts',
+            from: 'export const MONTAJES_V1: ReadonlyArray<readonly [string, Router]> = [',
+            to:
               "import { tenantContext } from './middleware/tenant-context.js';\n\n" +
               'export function mountTenantContext(app: Express, prefix: string): void {\n' +
               '  app.use(prefix, tenantContext);\n' +
@@ -1926,19 +1981,19 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
               'export const MONTAJES_V1: ReadonlyArray<readonly [string, Router]> = [',
           },
           {
-            archivo: 'src/index.ts',
-            de: "import { tenantContext } from './api/rest/middleware/tenant-context.js';\n",
-            a: '',
+            file: 'src/index.ts',
+            from: "import { tenantContext } from './api/rest/middleware/tenant-context.js';\n",
+            to: '',
           },
           {
-            archivo: 'src/index.ts',
-            de: "import { MONTAJES_V1 } from './api/rest/montajes.js';",
-            a: "import { MONTAJES_V1, mountTenantContext } from './api/rest/montajes.js';",
+            file: 'src/index.ts',
+            from: "import { MONTAJES_V1 } from './api/rest/montajes.js';",
+            to: "import { MONTAJES_V1, mountTenantContext } from './api/rest/montajes.js';",
           },
           {
-            archivo: 'src/index.ts',
-            de: '  app.use(apiPrefix, tenantContext);',
-            a: '  mountTenantContext(app, apiPrefix);',
+            file: 'src/index.ts',
+            from: '  app.use(apiPrefix, tenantContext);',
+            to: '  mountTenantContext(app, apiPrefix);',
           },
         ],
       },
@@ -1964,23 +2019,41 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         );
 
       const built = await app.server.bootstrap();
+      const pool = app.conexion.getPool();
+      lateStatements.length = 0;
+
+      // Every prefix of the table, plus a path no router owns.
+      const probes = [
+        ...new Set([...app.mounts.MONTAJES_V1.map(([suffix]) => `/v1${suffix}`), '/v1/__no-such-route']),
+      ];
+      const tenantless = sign(undefined);
+      for (const route of probes) {
+        const anonymous = await requestV1(built, pool, route, tenantless);
+        if (anonymous.statements.length > 0) {
+          return falla(
+            `GET ${route} with a token that names no tenant sent ${anonymous.statements.length} ` +
+              `statement(s) to Postgres (answer ${anonymous.value}), first «${anonymous.statements[0]?.text}»: ` +
+              'nothing opened or demanded a tenant before that router'
+          );
+        }
+        if (anonymous.value !== 401) {
+          return falla(
+            `GET ${route} with a token that names no tenant answered ${anonymous.value}, not 401: ` +
+              'the tenant context does not cover every /v1 path'
+          );
+        }
+        if (!anonymous.settled) {
+          return falla(`GET ${route} left a pool client checked out for 10 s: the recorder cannot tell what it sent`);
+        }
+      }
+
       const route = '/v1/accounts';
-
-      const anonymous = await requestV1(built, route, sign(undefined));
-      if (anonymous.statements.length > 0) {
-        return falla(
-          `GET ${route} with a token that names no tenant sent ${anonymous.statements.length} ` +
-            `statement(s) to Postgres (answer ${anonymous.value}), first «${anonymous.statements[0]?.text}»: ` +
-            'nothing opened or demanded a tenant before the routers'
-        );
-      }
-      if (anonymous.value !== 401) {
-        return falla(`GET ${route} with a token that names no tenant answered ${anonymous.value}, not 401`);
-      }
-
-      const scoped = await requestV1(built, route, sign(tenantId));
+      const scoped = await requestV1(built, pool, route, sign(tenantId));
       if (scoped.value !== 200) {
         return falla(`GET ${route} with a valid tenant token answered ${scoped.value}: the scenario did not reach the router`);
+      }
+      if (!scoped.settled) {
+        return falla(`GET ${route} left a pool client checked out for 10 s: the recorder cannot tell what it sent`);
       }
       if (scoped.statements.length === 0) {
         return falla(`GET ${route} answered 200 and no statement was observed: the recorder sees nothing, so it cannot absolve`);
@@ -1993,9 +2066,16 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
             'the RLS policies would read no tenant'
         );
       }
+      if (lateStatements.length > 0) {
+        return falla(
+          `${lateStatements.length} statement(s) arrived after their request had gone idle, first ` +
+            `«${lateStatements[0]?.text}»: the recorder closed too early to judge them`
+        );
+      }
       return ok(
-        `with the API built by bootstrap(), a token without tenant is refused (401) before any statement, ` +
-          `and the ${scoped.statements.length} statement(s) of an authenticated GET ${route} all carry its tenant`
+        `with the API built by bootstrap(), a token without tenant is refused (401) before any statement on ` +
+          `all ${probes.length} /v1 prefixes, and the ${scoped.statements.length} statement(s) of an ` +
+          `authenticated GET ${route} all carry its tenant`
       );
     },
   },
@@ -2004,11 +2084,16 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // E2.1 · STARTUP FAILS CLOSED ON A ROLE THAT IGNORES RLS
   //
   // Was three regexes: the guard throws, has a valve, and index.ts names it.
-  // Now bootstrap() itself is run as production against this scenario's own
-  // connection role. The scenario connects as the administrative role that
-  // created the throwaway database, which in every setup this runs in is a
-  // superuser; when it is not, there is no bypassing role to refuse and the
-  // test says so instead of passing.
+  // Now the real entry point, src/index.ts, is started in a child process
+  // with NODE_ENV=production against this scenario's own database and role,
+  // the way a deployment starts it: nothing in this process is faked, so a
+  // refactor that reads the environment another way stays green, and the
+  // exit code — start()'s job, not bootstrap()'s — is measured too.
+  //
+  // The scenario connects as the administrative role that created the
+  // throwaway database, which in every setup this runs in is a superuser;
+  // when it is not, there is no bypassing role to refuse and the test says
+  // so instead of passing.
   // ----------------------------------------------------------
   {
     id: 'startup-rejects-rls-bypass-role',
@@ -2033,6 +2118,24 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         a: 'const breakGlass = false;',
         porque: 'no explicit break-glass: the only way left to start in an emergency is to comment the guard out',
       },
+      {
+        archivo: 'src/index.ts',
+        de: "stack: err instanceof Error ? err.stack : undefined });\n    process.exit(1);\n",
+        a: "stack: err instanceof Error ? err.stack : undefined });\n",
+        porque: 'start() logs the refusal and never exits: the process lingers with an open pool and no server',
+      },
+    ],
+    legitimateRefactors: [
+      {
+        why: 'the guard reads NODE_ENV directly, which is what config.env is made of',
+        edits: [
+          {
+            file: 'src/database/rls-guard.ts',
+            from: "if (config.env === 'production' && !breakGlass) {",
+            to: "if (process.env.NODE_ENV === 'production' && !breakGlass) {",
+          },
+        ],
+      },
     ],
     correr: async (app) => {
       const { rows } = await app.conexion.query<{ role: string; bypasses: boolean }>(
@@ -2047,41 +2150,48 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         };
       }
 
-      // NOTE: `config` is frozen in type (`as const`) but not at runtime, and
-      // the guard reads `config.env` when it is called. Flipping it here is the
-      // only way to run the production branch of the REAL bootstrap() in a
-      // process whose config was already loaded; it is restored in `finally`.
-      const settings = app.settings.config as { env: string };
-      const saved = { env: settings.env, valve: process.env.ALLOW_RLS_BYPASS_ROLE };
-      try {
-        settings.env = 'production';
-        delete process.env.ALLOW_RLS_BYPASS_ROLE;
-        let refusal: unknown;
-        try {
-          await app.server.bootstrap();
-        } catch (e) {
-          refusal = e;
-        }
-        if (refusal === undefined) {
-          return falla(`bootstrap() built the API in production connected as «${role.role}», which ignores RLS`);
-        }
-        if (!(refusal instanceof app.rlsGuard.RolIgnoraRlsError)) {
-          return falla(`bootstrap() failed in production, but not on the role: ${String((refusal as Error)?.message ?? refusal).slice(0, 200)}`);
-        }
+      const url = app.settings.config.database.url;
+      // Explicit values, not deletions: dotenv never overrides a variable that
+      // is set, so an empty ALLOW_RLS_BYPASS_ROLE also keeps a local .env out.
+      const production: NodeJS.ProcessEnv = {
+        ...process.env,
+        NODE_ENV: 'production',
+        DATABASE_URL: url,
+        MIGRATION_DATABASE_URL: url,
+        DATABASE_SSH_HOST: '',
+        PORT: '0',
+        JWT_SECRET: crypto.randomBytes(32).toString('hex'),
+        ENCRYPTION_KEY: crypto.randomBytes(32).toString('hex'),
+        ALLOW_RLS_BYPASS_ROLE: '',
+      };
+      const tail = (s: string): string => s.replace(/\s+/g, ' ').trim().slice(-240);
 
-        process.env.ALLOW_RLS_BYPASS_ROLE = 'I_UNDERSTAND';
-        try {
-          await app.server.bootstrap();
-        } catch (e) {
-          return falla(`with ALLOW_RLS_BYPASS_ROLE=I_UNDERSTAND bootstrap() still refused: ${(e as Error).message.slice(0, 200)}`);
-        }
-      } finally {
-        settings.env = saved.env;
-        if (saved.valve === undefined) delete process.env.ALLOW_RLS_BYPASS_ROLE;
-        else process.env.ALLOW_RLS_BYPASS_ROLE = saved.valve;
+      const refused = await runEntryPoint(production);
+      if (refused.started) {
+        return falla(`src/index.ts started in production connected as «${role.role}», which ignores RLS`);
+      }
+      if (refused.timedOut) {
+        return falla(`src/index.ts in production neither started nor exited within 60 s: ${tail(refused.output)}`);
+      }
+      if (refused.code === 0) {
+        return falla(`src/index.ts in production stopped with exit code 0 without starting: ${tail(refused.output)}`);
+      }
+      if (!refused.output.includes('RolIgnoraRlsError')) {
+        return falla(`src/index.ts failed in production (code ${refused.code}), but not on the role: ${tail(refused.output)}`);
+      }
+
+      const valve = await runEntryPoint({ ...production, ALLOW_RLS_BYPASS_ROLE: 'I_UNDERSTAND' });
+      if (!valve.started) {
+        return falla(
+          `with ALLOW_RLS_BYPASS_ROLE=I_UNDERSTAND src/index.ts still did not start (code ${valve.code}): ${tail(valve.output)}`
+        );
+      }
+      if (valve.code !== 0) {
+        return falla(`with the break-glass src/index.ts started, and SIGTERM ended it with code ${valve.code}: ${tail(valve.output)}`);
       }
       return ok(
-        `bootstrap() in production refuses to start as «${role.role}», which ignores RLS, and starts only with the explicit break-glass`
+        `src/index.ts in production exits ${refused.code} on RolIgnoraRlsError as «${role.role}», which ignores RLS, ` +
+          'and starts (and stops cleanly) only with the explicit break-glass'
       );
     },
   },
@@ -2387,7 +2497,7 @@ async function main(salida: string): Promise<void> {
     preRegistrations: await import('../services/xml-ingestion/pre-registration-service.js'),
     policies: await import('../services/policy/policy-service.js'),
     server: await import('../index.js'),
-    rlsGuard: await import('../database/rls-guard.js'),
+    mounts: await import('../api/rest/montajes.js'),
     settings: await import('../config/index.js'),
   };
 
