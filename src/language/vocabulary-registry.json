@@ -2746,6 +2746,22 @@
       "why": "Literal. The key is exported as `TIME_ZONE_POLICY_KEY` (pending-catalog.ts) because two readers use it: `todayFor` (today.ts) and `resolvePolicy`, which refuses a zone the runtime does not know (policy-service.ts:542). Renaming it means renaming that constant only."
     },
     {
+      "class": "policy-key",
+      "where": "diot_default_operation_type_foreign",
+      "es": "diot_default_operation_type_foreign",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-055): the foreign-supplier twin of `diot_tipo_operacion_por_omision`, whose English name this registry already decided as `diot_default_operation_type`; `_foreign` names the supplier kind the DIOT separates (tipo de tercero 05)."
+    },
+    {
+      "class": "policy-key",
+      "where": "diot_creditable_iva_proportion",
+      "es": "diot_creditable_iva_proportion",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-055): whether the entity credits IVA through the LIVA art. 5 frac. V proportion, which decides the box of the DIOT batch file the IVA paid goes into. IVA stays as the name of the tax the file reports."
+    },
+    {
       "class": "policy-value",
       "where": "agrupador_alcance_de_la_compuerta/cuentas_con_movimientos",
       "es": "cuentas_con_movimientos",
@@ -3960,6 +3976,54 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "An IANA time-zone identifier, not vocabulary: it is the same string in every language and it is what `Intl` reads. `assertTimeZone` (policy-service.ts:542) refuses a zone the runtime does not know, so a translated spelling would be rejected."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/07",
+      "es": "07",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "DIOT 2025 operation-type code 07 «Importación de bienes o servicios» of the SAT batch-file catalog; written as is into the file (sat-batch.ts). Renumbering it makes the SAT reject the upload."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/03",
+      "es": "03",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "DIOT operation-type code 03 «Prestación de servicios profesionales»; the same authority catalog as `diot_tipo_operacion_por_omision/03`, written as is into the SAT batch file."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/02",
+      "es": "02",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "DIOT 2025 operation-type code 02 «Enajenación de bienes»; an authority catalog code written as is into the SAT batch file (sat-batch.ts)."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/block",
+      "es": "block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English, and the English this registry gives to `bloquear` elsewhere (see `bank_statement_overlap/block`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_creditable_iva_proportion/taxed_only",
+      "es": "taxed_only",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: all IVA paid goes to the exclusively-taxed-activities box of the DIOT batch file, which is what the ledger already credits."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_creditable_iva_proportion/block",
+      "es": "block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English, and the English this registry gives to `bloquear` elsewhere (see `bank_statement_overlap/block`)."
     },
     {
       "class": "migration-name",

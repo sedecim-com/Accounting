@@ -925,6 +925,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'diot_default_operation_type_foreign',
+    textKey: 'diot_default_operation_type_foreign',
     category: 'contable',
     question: 'A foreign supplier with no operation type declared: which one does the DIOT report?',
     impact:
@@ -1009,6 +1010,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'diot_creditable_iva_proportion',
+    textKey: 'diot_creditable_iva_proportion',
     category: 'contable',
     question: 'Does this entity credit its IVA through the LIVA art. 5 frac. V proportion?',
     impact:
