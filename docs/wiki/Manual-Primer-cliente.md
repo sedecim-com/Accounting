@@ -129,7 +129,7 @@ Si necesitas capturar en un mes que todavía no está abierto:
 npm run mnemosine -- period open 2026-09 --reason "captura anticipada de septiembre"
 ```
 
-`period open` sólo abre periodos **futuros**. No reabre uno cerrado, y **no existe un comando para reabrir un periodo cerrado**: el motor lo tiene, pero no está expuesto. Piénsalo bien antes de cerrar un mes, porque una corrección que pertenecía a marzo se va a tener que registrar en el mes abierto.
+`period open` sólo abre periodos **futuros**; no reabre uno cerrado. Para eso está `period reopen`, que exige `--reason` y deja en la bitácora quién, por qué y el estado anterior; un cierre duro pide además `--force`, y un periodo bloqueado no se reabre nunca. Los detalles están en [[Manual-El-cierre-de-mes]].
 
 **Qué hacer si sale distinto.** Si `year create` te dice que el ejercicio ya existe, corre `period list` y sigue. Si un comando posterior te contesta «No open fiscal period covers 2026-08-31», es este paso el que faltó.
 
@@ -217,10 +217,10 @@ npm run mnemosine -- account map list --scheme sat-agrupador
 ```
 
 ```bash
-npm run mnemosine -- account map check --scheme sat-agrupador --level 3 --strict
+npm run mnemosine -- account map check --scheme sat-agrupador --strict
 ```
 
-**Qué vas a ver.** `account map check` es una compuerta de cobertura: lista las cuentas de los primeros niveles que todavía no tienen agrupador. Con `--strict`, si encuentra algo, el comando termina con código de salida 4 —o sea, «encontré hallazgos», no «fallé»—, que es lo que permite meterlo en una automatización.
+**Qué vas a ver.** `account map check` es una compuerta de cobertura: lista las cuentas que todavía no tienen agrupador, dentro del alcance que fija la política `agrupador_alcance_de_la_compuerta` —por omisión, las cuentas con movimientos en el periodo—. Ya no mide por nivel de cuenta: `--level` se rechaza con código 2 y el mensaje te dice cómo cambiar la política. Con `--strict`, si encuentra algo, el comando termina con código de salida 4 —o sea, «encontré hallazgos», no «fallé»—, que es lo que permite meterlo en una automatización.
 
 También puedes mapear una cuenta suelta:
 
@@ -236,7 +236,7 @@ npm run mnemosine -- account map set 5110 --scheme sat-agrupador --value 601.01
 
 **Qué quieres lograr.** Meter en el mayor los saldos con los que el cliente llega, a la fecha de corte.
 
-Hay tres caminos y sólo dos funcionan hoy. Léelos antes de elegir.
+Hay tres caminos. Léelos antes de elegir.
 
 ### Camino A · Importar del sistema anterior (sólo Contalink)
 
@@ -279,15 +279,25 @@ Si son muchos renglones, `entry create` también acepta `--file <ruta>` con un d
 
 Un detalle práctico: el importe se escribe con punto decimal y **sin separador de miles**. `12000.00`, no `12,000.00`.
 
-### Camino C · Migrar el histórico completo (hoy no llega al mayor)
+### Camino C · Migrar el histórico completo, en dos tiempos
 
 ```bash
 npm run mnemosine -- entry import polizas-2025.csv --layout csv
 ```
 
-Este comando existe, funciona y **deja el lote escenificado sin tocar el mayor**. El propio comando te lo dice al terminar. La familia que valida y aplica ese lote todavía no existe, así que un `batch_id` hoy no se puede consumir con ningún comando. Los layouts de CONTPAQi, Aspel, IIF y pólizas del SAT están anunciados en la ayuda pero todavía sin lector: los formatos que sí lee son `csv` y `ndjson`.
+`entry import` **deja el lote escenificado sin tocar el mayor** y te devuelve su `batch_id`. Lo aplica la familia `batch`: se revisa, se valida, se ve el efecto y se contabiliza en una sola transacción —todos los renglones o ninguno—:
 
-**Recomendación:** para el alta de un cliente, usa el camino B. El histórico completo déjalo en el sistema anterior hasta que la familia de lotes exista.
+```bash
+npm run mnemosine -- batch list --status staged
+npm run mnemosine -- batch show <batch_id> --errors-only
+npm run mnemosine -- batch check <batch_id>
+npm run mnemosine -- batch post <batch_id> --dry-run
+npm run mnemosine -- batch post <batch_id>
+```
+
+`batch post` se niega con un lote que no pasó `batch check`; `--partial` aplica los renglones válidos y deja los demás escenificados. Si el archivo venía mal, `batch reverse <batch_id> --reason "..."` refleja todas sus pólizas como una unidad. Los layouts de CONTPAQi, Aspel, IIF y pólizas del SAT están anunciados en la ayuda pero todavía sin lector: los formatos que sí lee son `csv` y `ndjson`.
+
+**Recomendación:** para el alta de un cliente, el camino B sigue siendo el más corto. El C es para cuando el histórico tiene que vivir aquí.
 
 ---
 

@@ -103,9 +103,13 @@ mnemosine entry post JE-2026-0455
 
 ### 2. `Bank reconciliations complete` — avisa
 
-Cuenta las cuentas bancarias activas sin sesión conciliada que cubra el periodo.
+Cuenta las cuentas bancarias activas sin una sesión `balanced`, `approved` o `posted` que cubra el periodo completo.
 
-**Lee esta partida con desconfianza.** Hoy no existe comando ni ruta para dar de alta una cuenta bancaria, así que el conteo da cero, la palomita sale en verde, y no se comprobó absolutamente nada. Y aunque la cuenta existiera, la conciliación no se puede cerrar: el endpoint que lo hacía está retirado a propósito. El detalle completo, y qué hacer en su lugar, está en [[Manual-Bancos-y-conciliacion]].
+**Con cero cuentas bancarias dadas de alta la partida no sale en verde**: dice «0 cuentas bancarias registradas: no se pudo comprobar». Nada que revisar no es lo mismo que revisado y bien. Las cuentas se dan de alta con `bank account create` y la sesión del mes se cierra con `bank reconciliation close`, que sólo la pasa a `balanced` si la aritmética de verdad cuadra. El recorrido completo está en [[Manual-Bancos-y-conciliacion]].
+
+```bash
+mnemosine bank reconciliation list --status in_progress
+```
 
 ### 3. `All invoices reviewed` — avisa
 
@@ -123,17 +127,19 @@ mnemosine invoice issue F-2026-0091
 
 Activos fijos activos sin depreciación contabilizada del periodo.
 
-Segunda partida que hay que leer con desconfianza, y por la misma razón que la segunda: **no existe un solo `INSERT INTO fixed_assets` en todo el código**, y el cálculo mensual de depreciación no tiene ni un llamador. Así que no hay activos que contar y la palomita sale en verde por vacuidad. Si el cliente tiene activo fijo, su depreciación se captura como póliza de ajuste, a mano, todos los meses:
+Con el registro vacío la partida tampoco sale en verde: dice «0 activos fijos registrados: no se pudo comprobar», y si las cuentas de activo fijo sí traen saldo te pide registrarlos con `asset create`. Con activos registrados, la depreciación del mes se calcula, se mira y después se contabiliza, una póliza por activo:
 
 ```bash
-mnemosine entry create \
-  --date 2026-08-31 --type adjusting \
-  --description "Depreciación de agosto" \
-  --line "6200:debit:8333.33:Depreciación del ejercicio" \
-  --line "1290:credit:8333.33:Depreciación acumulada"
+mnemosine asset create "Camioneta Nissan NP300 2026" --category "Equipo de Transporte" \
+  --cost 489000.00 --acquired 2026-07-08 --capitalized yes --dry-run
+mnemosine depreciation run --period 2026-08
+mnemosine depreciation post --period 2026-08 --dry-run
+mnemosine depreciation post --period 2026-08
 ```
 
-El sistema es honesto sobre esto en el punto de decisión: cuando la IA pregunta si un desembolso se capitaliza, la opción dice literalmente que la depreciación *no* la calcula el sistema todavía. Vale la pena tenerlo presente al elegir.
+`--capitalized yes` dice que el costo **ya** está cargado en la cuenta de activo —porque el CFDI se capitalizó al ingerirlo— y entonces `asset create` no escribe póliza: una segunda duplicaría el activo. Si `asset create` te dice que la entidad no tiene clases de activo, siémbralas una vez con `asset category seed`. La severidad de esta partida la fija la política `depreciacion_faltante_al_cierre`.
+
+Un aviso que todavía no se entera: cuando la ingesta capitaliza un CFDI como activo fijo, el aviso que viaja con el documento dice que el sistema no registra el activo ni calcula su depreciación. La segunda mitad ya no es cierta —el camino es `asset create` y `depreciation post`, arriba—; la primera sí: la ingesta no da de alta el activo en el registro, eso lo haces tú.
 
 ### 5. `Trial balance balanced` — **BLOQUEA**
 
@@ -311,24 +317,31 @@ Si no están, o no están marcadas como cuentas de sistema, el cierre de diciemb
 
 ## Qué se puede reabrir y qué no
 
-Aquí hay que ser directo, porque el mensaje del propio comando promete algo que no está.
-
 Al terminar un cierre suave, el sistema imprime:
 
 ```
   Soft close is reversible. To seal it: mnemosine close --hard
 ```
 
-Es cierto como afirmación de diseño y **falso como instrucción operativa**: no existe ningún comando que reabra un periodo. La función está escrita, probada y con sus tres cerrojos —no reabre un periodo `locked`, exige motivo, y devuelve el estado anterior— pero su único invocador es un guion interno de recálculo de IVA. No hay `period reopen`, no hay ruta REST, y el propio catálogo de permisos lo declara así.
+Y es cierto: `period reopen` reabre un periodo cerrado para que la corrección caiga en el mes al que pertenece. Exige `--reason`, y la bitácora guarda quién, por qué y el estado anterior. Mira primero la transición con `--dry-run`, que no escribe ni registra nada:
+
+```bash
+mnemosine period reopen 2026-07 --dry-run
+mnemosine period reopen "July 2026" --reason "Llegó un CFDI de CFE con fecha de julio"
+```
 
 | Estado | ¿Se reabre? |
 |---|---|
 | `open` | No aplica |
-| `soft_close` | Reversible por diseño — **pero no hay comando** |
-| `hard_close` | Reversible por diseño — **pero no hay comando** |
-| `locked` | **Nunca.** Su información ya salió del sistema |
+| `soft_close` | Sí, con `period reopen --reason` |
+| `hard_close` | Sí, con `--force` además de `--reason`: conserva sus asientos de cierre y su arrastre de saldos |
+| `locked` | **Nunca**, ni con `--force`. Su información ya salió del sistema |
 
-**Consecuencia práctica.** Una corrección que pertenece a un mes cerrado no se puede registrar en ese mes. Se registra en el periodo abierto más próximo, con una descripción que diga a qué mes corresponde, y se anota en el papel de trabajo:
+```bash
+mnemosine period reopen "December 2026" --force --reason "Ajuste pedido por el auditor externo"
+```
+
+**Cuando el periodo está `locked`.** La corrección que pertenece a ese mes no se puede registrar en él. Se registra en el periodo abierto más próximo, con una descripción que diga a qué mes corresponde, y se anota en el papel de trabajo:
 
 ```bash
 mnemosine entry create \
@@ -338,15 +351,15 @@ mnemosine entry create \
   --line "..."
 ```
 
-Es lo que el propio mensaje de la función dice cuando el periodo está `locked`: *«La corrección va en el periodo abierto más próximo.»* Hoy vale también para `soft_close` y `hard_close`, no por regla contable sino porque falta el cable.
+Es lo que el propio mensaje de la función dice cuando el periodo está `locked`: *«La corrección va en el periodo abierto más próximo.»*
 
-Cierra en suave con confianza; piénsatelo dos veces antes del duro.
+Cierra en suave con confianza; piénsatelo dos veces antes del duro, y mucho más antes de bloquear.
 
 ---
 
 ## Los reportes que se sacan al cerrar
 
-Cinco de los siete estados que un despacho entrega. Todos aceptan `--format csv|md|json` y `-o <archivo>`, y el archivo se escribe de verdad.
+Los de la familia `report`; el flujo de efectivo sale de `cashflow`, más abajo. Todos aceptan `--format csv|md|json` y `-o <archivo>`, y el archivo se escribe de verdad.
 
 ```bash
 mnemosine report trial-balance show --period 2026-08 --level 4 --exclude-zero \
@@ -388,20 +401,37 @@ mnemosine ledger auxiliary show --account 1120 --period August \
 
 Dos notas de lectura. En la balanza, la fila de totales sale por el flujo de diagnóstico y **no entra al CSV**, a propósito: una fila TOTAL extraviada dentro de un archivo que alguien importa a Excel es una mina. Y los totales se calculan sobre **todas** las cuentas antes de paginar, así que un `--limit` cambia lo que ves pero nunca lo que la balanza dice.
 
+### Los entregables del SAT y el flujo de efectivo
+
+Se generan desde aquí, y ninguno se sella ni se presenta desde aquí: sellar con la e.firma y enviar por el Buzón Tributario o capturar en el portal son actos tuyos, fuera del sistema.
+
+```bash
+mnemosine e-accounting catalog generate --period 2026-08 --dry-run
+mnemosine e-accounting balance check --period 2026-08
+mnemosine e-accounting balance generate --period 2026-08 --dry-run
+mnemosine diot generate --period 2026-08
+mnemosine diot check --period 2026-08 --strict
+mnemosine diot export --period 2026-08 -o diot-2026-08.txt
+mnemosine cashflow generate --period 2026-08
+mnemosine cashflow reconcile --period 2026-08
+```
+
+- **Anexo 24.** `e-accounting` arma el catálogo (CtaCatalogo 1.3) y la balanza (BCE 1.3, normal, complementaria con `--type C --modified <fecha>`, o de cierre con `--closing`). Las pólizas y los auxiliares en XML no se generan.
+- **DIOT.** `diot export` saca hoy el papel de trabajo por tercero; `--layout sat` se niega en vez de inventar el formato de carga masiva. `vendor list --no-tax-id` sigue siendo la lista de proveedores que la bloquean.
+- **Flujos de efectivo (NIF B-2).** `cashflow generate` usa el método de la política `flujo_efectivo_metodo` salvo que pases `--method`, y `cashflow reconcile` imprime el residuo contra el efectivo real en vez de absorberlo.
+
 ### Lo que no se genera
 
 | Entregable | Estado | Sustituto |
 |---|---|---|
-| XML de contabilidad electrónica (Anexo 24) | ❌ No existe el generador | Exportar la balanza a CSV y armarlo fuera |
-| DIOT | ❌ No existe | `vendor list --no-tax-id` para desbloquear los RFC faltantes; el armado, fuera |
-| Estado de flujos de efectivo (NIF B-2) | ❌ No existe | Fuera del sistema |
+| Pólizas y auxiliares del Anexo 24 en XML | ❌ No existe el generador | Exportar pólizas y auxiliar a CSV y armarlos fuera |
 | Estado de variaciones en el capital contable (NIF B-4) | ❌ No existe | Fuera del sistema |
 | Comparativo contra el mes o el ejercicio anterior | ❌ No hay columna de variación | Correr el reporte dos veces y comparar |
 
-La materia prima del Anexo 24 sí está —el agrupador del SAT por cuenta, la compuerta de cobertura y el auxiliar con la forma XC—, pero el armado del XML sigue pendiente. La compuerta previa se corre así, y sale con código 4 si quedan cuentas sin mapear:
+Antes del catálogo XML va la compuerta de cobertura del agrupador, que sale con código 4 si quedan cuentas sin mapear:
 
 ```bash
-mnemosine account map check --scheme sat-agrupador --level 3 --strict
+mnemosine account map check --scheme sat-agrupador --strict
 ```
 
 ---
