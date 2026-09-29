@@ -63,6 +63,23 @@ describe('el contrato del criterio de conducta', () => {
     }
   });
 
+  it('every legitimate refactor anchors on text that exists today, applied in order', () => {
+    // Same discipline as the mirrors: an edit whose anchor is gone changes
+    // nothing, and the "refactor stays green" case would pass on an untouched
+    // tree. Edits apply in sequence, so each is checked against the text the
+    // previous ones left.
+    for (const p of PRUEBAS_DE_CONDUCTA) {
+      for (const r of p.legitimateRefactors ?? []) {
+        const files = new Map<string, string>();
+        for (const e of r.edits) {
+          const current = files.get(e.archivo) ?? crudoDe(e.archivo);
+          expect(current.includes(e.de), `«${p.id}» refactor «${r.why}»: «${e.de}» is not in ${e.archivo}`).toBe(true);
+          files.set(e.archivo, current.replace(e.de, e.a));
+        }
+      }
+    }
+  });
+
   it('el id que viaja al hijo es único: si dos coinciden, uno se queda sin veredicto', () => {
     const ids = PRUEBAS_DE_CONDUCTA.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);

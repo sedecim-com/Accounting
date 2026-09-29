@@ -597,6 +597,12 @@ mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/po
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	a query-string selector would be silently accepted, the first step toward letting it choose the set
 mirror	disk	E1.2 received-ppd-cfdi-becomes-bill-and-rep-releases-vat	src/ai/draft-service.ts	the approval would post the entry and never create the vendor bill, the defect #318 measured
 mirror	disk	E1.2 received-ppd-cfdi-becomes-bill-and-rep-releases-vat	src/services/xml-ingestion/pre-registration-service.ts	an approved entry whose VAT is not the CFDI VAT would become the bill and reach the ledger
+mirror	disk	E2.1 tenant-context-mounted-globally	src/index.ts	mount removed: the import stays, which is exactly what the old regex could not tell apart
+mirror	disk	E2.1 tenant-context-mounted-globally	src/api/rest/middleware/tenant-context.ts	the middleware still rejects a token without tenant but no longer opens the context: every query travels unscoped
+mirror	disk	E2.1 tenant-context-mounted-globally	src/api/rest/middleware/tenant-context.ts	fail-open: a token that names no tenant goes on to the routers instead of being refused
+mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/index.ts	the guard exists and startup no longer calls it
+mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/database/rls-guard.ts	back to a log line in production: isolation hangs on someone reading it
+mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/database/rls-guard.ts	no explicit break-glass: the only way left to start in an emergency is to comment the guard out
 anchor	src/plan/criteria/e0-0.ts	de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
 anchor	src/plan/criteria/e0-0.ts	de: 'Los comentarios y la documentación **nacen en inglés**',
 anchor	src/plan/criteria/e0-0.ts	de: 'Lo que identifica no se traduce nunca',

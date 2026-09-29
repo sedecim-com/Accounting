@@ -1,6 +1,8 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawnSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import Decimal from 'decimal.js';
@@ -95,6 +97,11 @@ export interface App {
   /** E1.2 · the CFDI upload and the REP linkage behind processToAccounting. */
   preRegistrations: typeof import('../services/xml-ingestion/pre-registration-service.js');
   policies: typeof import('../services/policy/policy-service.js');
+  /** E2.1 · the API exactly as it is served: `bootstrap()` builds it without listening. */
+  server: typeof import('../index.js');
+  /** E2.1 · the startup guard whose refusal bootstrap() must propagate. */
+  rlsGuard: typeof import('../database/rls-guard.js');
+  settings: typeof import('../config/index.js');
 }
 
 /**
@@ -119,6 +126,22 @@ export interface PruebaDeConducta {
    * tests/integration/plan-conducta-mutacion.int.spec.ts, que corre en serie.
    */
   mutantes: Mutante[];
+  /**
+   * Refactors that MUST keep the test green — the other half of a mirror.
+   *
+   * A mutant proves the test bites; this proves it does not bite the repair.
+   * A criterion that punishes a legitimate move of the code it guards (the
+   * `/tenantContext/` regex that went red if the /v1 mount left src/index.ts,
+   * #215) is replaced rather than obeyed. Each refactor is a list of edits,
+   * applied in order and possibly across files, because a move touches both
+   * ends. The same serial harness applies them and demands `ok`.
+   */
+  legitimateRefactors?: LegitimateRefactor[];
+}
+
+export interface LegitimateRefactor {
+  why: string;
+  edits: Array<{ archivo: string; de: string; a: string }>;
 }
 
 const ok = (detalle: string): Resultado => ({ estado: 'ok', detalle });
@@ -556,6 +579,117 @@ const showLedger = (l: Record<string, string>): string =>
   Object.keys(l).length === 0
     ? '(vacío)'
     : Object.keys(l).sort().map((c) => `${c} ${l[c]}`).join(', ');
+
+// ------------------------------------------------------------
+// E2.1 · WHAT REACHES POSTGRES DURING ONE REQUEST (#215)
+//
+// The two E2.1 startup criteria used to look for a WORD in src/index.ts. The
+// tenant one went red if the /v1 mount moved to another file with the defence
+// intact, and stayed green if the word survived in an import with the mount
+// gone. What matters is what a request does to the database, so that is what
+// is recorded: every statement any pg client sends, and the tenant Postgres
+// itself reports for that connection at that moment.
+//
+// The tenant is asked of Postgres (`current_setting`) on the same client just
+// before the statement, instead of inferred from which helper was called: an
+// instrument that trusts connection.ts's own bookkeeping would inherit its
+// bugs. Transaction control and the set_config that opens the context are not
+// data access and are not recorded.
+//
+// Only statements issued from inside the request count. The scenario process
+// has other work in flight — an earlier test's asynchronous SAT validation
+// updated xml_documents in the middle of the first measurement — so each
+// request is served inside its own AsyncLocalStorage, which follows it through
+// every middleware, handler and `finish` listener and through nothing else.
+// ------------------------------------------------------------
+
+const insideRequest = new AsyncLocalStorage<true>();
+
+const TENANT_PROBE = "SELECT current_setting('app.current_tenant', true) AS tenant";
+const CONTROL_STATEMENT = /^\s*(BEGIN|COMMIT|ROLLBACK|SELECT set_config\()/i;
+
+interface ObservedStatement {
+  text: string;
+  /** The tenant the connection carried, or null when it carried none. */
+  tenant: string | null;
+}
+
+async function recordStatements<T>(fn: () => Promise<T>): Promise<{ value: T; statements: ObservedStatement[] }> {
+  const { default: pg } = await import('pg');
+  type Query = (this: unknown, ...args: unknown[]) => unknown;
+  const proto = pg.Client.prototype as unknown as { query: Query };
+  const original = proto.query;
+  const statements: ObservedStatement[] = [];
+  proto.query = function (this: unknown, ...args: unknown[]): unknown {
+    const first = args[0] as string | { text?: unknown; submit?: unknown } | undefined;
+    const text = typeof first === 'string' ? first : typeof first?.text === 'string' ? first.text : undefined;
+    const submittable = typeof first === 'object' && typeof first?.submit === 'function';
+    if (
+      insideRequest.getStore() !== true ||
+      text === undefined ||
+      submittable ||
+      text === TENANT_PROBE ||
+      CONTROL_STATEMENT.test(text)
+    ) {
+      return original.apply(this, args);
+    }
+    const callback =
+      typeof args[args.length - 1] === 'function'
+        ? (args.pop() as (err: unknown, res?: unknown) => void)
+        : undefined;
+    const run = async (): Promise<unknown> => {
+      const probe = (await original.call(this, TENANT_PROBE)) as { rows: Array<{ tenant: string | null }> };
+      statements.push({ text: text.replace(/\s+/g, ' ').trim().slice(0, 80), tenant: probe.rows[0]?.tenant || null });
+      return original.apply(this, args);
+    };
+    const pending = run();
+    if (!callback) return pending;
+    pending.then(
+      (res) => callback(null, res),
+      (err: unknown) => callback(err)
+    );
+    return undefined;
+  };
+  try {
+    return { value: await fn(), statements };
+  } finally {
+    proto.query = original;
+  }
+}
+
+/** A /v1 request against the API that bootstrap() built, over a real socket. */
+async function requestV1(
+  built: import('express').Express,
+  route: string,
+  token: string
+): Promise<{ value: number; statements: ObservedStatement[] }> {
+  const server = http.createServer((req, res) => {
+    insideRequest.run(true, () => {
+      built(req, res);
+    });
+  });
+  server.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  try {
+    return await recordStatements(async () => {
+      const res = await fetch(`http://127.0.0.1:${port}${route}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      await res.text();
+      // The audit write runs on `finish`, after the body left: give it a turn.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return res.status;
+    });
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
 
 export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // ----------------------------------------------------------
@@ -1735,6 +1869,222 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       );
     },
   },
+  // ----------------------------------------------------------
+  // E2.1 · /v1 WITHOUT A TENANT DOES NOT REACH THE DATABASE (#215)
+  //
+  // Was `/tenantContext/.test(src/index.ts)`: a word standing in for a mount.
+  // It punished the refactor src/index.ts itself invites (the /v1 chain moving
+  // to montajes.ts) and absolved a removed mount whose import stayed behind.
+  // Now the API is built by the real bootstrap() and asked twice:
+  //
+  //   · with a signed token that names no tenant, nothing reaches Postgres
+  //     and the answer is 401;
+  //   · with a token for a tenant, every statement the request sends travels
+  //     with THAT tenant set on its connection, and at least one is sent — an
+  //     instrument that saw nothing would absolve a request that never ran.
+  //
+  // The tenant of the token is a fresh uuid no other test has entered, so a
+  // context leaked into this process by an earlier `enterTenant` cannot pass
+  // for the one the middleware opens.
+  // ----------------------------------------------------------
+  {
+    id: 'tenant-context-mounted-globally',
+    paquete: 'E2.1',
+    enunciado: 'El contexto de inquilino se monta una sola vez para todo /v1',
+    mutantes: [
+      {
+        archivo: 'src/index.ts',
+        de: '  app.use(apiPrefix, tenantContext);\n',
+        a: '',
+        porque: 'mount removed: the import stays, which is exactly what the old regex could not tell apart',
+      },
+      {
+        archivo: 'src/api/rest/middleware/tenant-context.ts',
+        de: '  void withTenant(tenantId, async () => {\n    next();\n  });',
+        a: '  next();',
+        porque: 'the middleware still rejects a token without tenant but no longer opens the context: every query travels unscoped',
+      },
+      {
+        archivo: 'src/api/rest/middleware/tenant-context.ts',
+        de: '  if (!tenantId) {',
+        a: "  if (tenantId === '') {",
+        porque: 'fail-open: a token that names no tenant goes on to the routers instead of being refused',
+      },
+    ],
+    legitimateRefactors: [
+      {
+        why: 'the /v1 mount moves to src/api/rest/montajes.ts, the file src/index.ts already delegates its table to',
+        edits: [
+          {
+            archivo: 'src/api/rest/montajes.ts',
+            de: 'export const MONTAJES_V1: ReadonlyArray<readonly [string, Router]> = [',
+            a:
+              "import { tenantContext } from './middleware/tenant-context.js';\n\n" +
+              'export function mountTenantContext(app: Express, prefix: string): void {\n' +
+              '  app.use(prefix, tenantContext);\n' +
+              '}\n\n' +
+              'export const MONTAJES_V1: ReadonlyArray<readonly [string, Router]> = [',
+          },
+          {
+            archivo: 'src/index.ts',
+            de: "import { tenantContext } from './api/rest/middleware/tenant-context.js';\n",
+            a: '',
+          },
+          {
+            archivo: 'src/index.ts',
+            de: "import { MONTAJES_V1 } from './api/rest/montajes.js';",
+            a: "import { MONTAJES_V1, mountTenantContext } from './api/rest/montajes.js';",
+          },
+          {
+            archivo: 'src/index.ts',
+            de: '  app.use(apiPrefix, tenantContext);',
+            a: '  mountTenantContext(app, apiPrefix);',
+          },
+        ],
+      },
+    ],
+    correr: async (app) => {
+      await app.posting.drainAttestations(3000);
+      const { default: jwt } = await import('jsonwebtoken');
+      const secret = app.settings.config.jwt.secret;
+      const tenantId = crypto.randomUUID();
+      const sign = (tenant: string | undefined): string =>
+        jwt.sign(
+          {
+            user_id: crypto.randomUUID(),
+            ...(tenant ? { tenant_id: tenant } : {}),
+            email: 'plan-bootstrap@example.test',
+            roles: ['owner'],
+            permissions: ['*'],
+            entities: [crypto.randomUUID()],
+            session_id: crypto.randomUUID(),
+          },
+          secret,
+          { algorithm: 'HS256', expiresIn: 300 }
+        );
+
+      const built = await app.server.bootstrap();
+      const route = '/v1/accounts';
+
+      const anonymous = await requestV1(built, route, sign(undefined));
+      if (anonymous.statements.length > 0) {
+        return falla(
+          `GET ${route} with a token that names no tenant sent ${anonymous.statements.length} ` +
+            `statement(s) to Postgres (answer ${anonymous.value}), first «${anonymous.statements[0]?.text}»: ` +
+            'nothing opened or demanded a tenant before the routers'
+        );
+      }
+      if (anonymous.value !== 401) {
+        return falla(`GET ${route} with a token that names no tenant answered ${anonymous.value}, not 401`);
+      }
+
+      const scoped = await requestV1(built, route, sign(tenantId));
+      if (scoped.value !== 200) {
+        return falla(`GET ${route} with a valid tenant token answered ${scoped.value}: the scenario did not reach the router`);
+      }
+      if (scoped.statements.length === 0) {
+        return falla(`GET ${route} answered 200 and no statement was observed: the recorder sees nothing, so it cannot absolve`);
+      }
+      const unscoped = scoped.statements.filter((st) => st.tenant !== tenantId);
+      if (unscoped.length > 0) {
+        return falla(
+          `${unscoped.length} of ${scoped.statements.length} statement(s) of GET ${route} reached Postgres ` +
+            `without the token's tenant, first «${unscoped[0]?.text}» with tenant ${unscoped[0]?.tenant ?? 'none'}: ` +
+            'the RLS policies would read no tenant'
+        );
+      }
+      return ok(
+        `with the API built by bootstrap(), a token without tenant is refused (401) before any statement, ` +
+          `and the ${scoped.statements.length} statement(s) of an authenticated GET ${route} all carry its tenant`
+      );
+    },
+  },
+
+  // ----------------------------------------------------------
+  // E2.1 · STARTUP FAILS CLOSED ON A ROLE THAT IGNORES RLS
+  //
+  // Was three regexes: the guard throws, has a valve, and index.ts names it.
+  // Now bootstrap() itself is run as production against this scenario's own
+  // connection role. The scenario connects as the administrative role that
+  // created the throwaway database, which in every setup this runs in is a
+  // superuser; when it is not, there is no bypassing role to refuse and the
+  // test says so instead of passing.
+  // ----------------------------------------------------------
+  {
+    id: 'startup-rejects-rls-bypass-role',
+    paquete: 'E2.1',
+    enunciado: 'El arranque falla cerrado ante un rol que ignora RLS',
+    mutantes: [
+      {
+        archivo: 'src/index.ts',
+        de: '  await verificarRolSujetoARls();\n',
+        a: '',
+        porque: 'the guard exists and startup no longer calls it',
+      },
+      {
+        archivo: 'src/database/rls-guard.ts',
+        de: '    throw new RolIgnoraRlsError(fila.rol);',
+        a: "    logger.error('db_role_bypasses_rls_in_production', { role: fila.rol });",
+        porque: 'back to a log line in production: isolation hangs on someone reading it',
+      },
+      {
+        archivo: 'src/database/rls-guard.ts',
+        de: "const breakGlass = process.env.ALLOW_RLS_BYPASS_ROLE === 'I_UNDERSTAND';",
+        a: 'const breakGlass = false;',
+        porque: 'no explicit break-glass: the only way left to start in an emergency is to comment the guard out',
+      },
+    ],
+    correr: async (app) => {
+      const { rows } = await app.conexion.query<{ role: string; bypasses: boolean }>(
+        `SELECT current_user AS role, COALESCE(rolsuper OR rolbypassrls, false) AS bypasses
+           FROM pg_roles WHERE rolname = current_user`
+      );
+      const role = rows[0];
+      if (!role?.bypasses) {
+        return {
+          estado: 'no-evaluable',
+          detalle: `the scenario connects as «${role?.role ?? '?'}», which is subject to RLS: there is no bypassing role for startup to refuse`,
+        };
+      }
+
+      // NOTE: `config` is frozen in type (`as const`) but not at runtime, and
+      // the guard reads `config.env` when it is called. Flipping it here is the
+      // only way to run the production branch of the REAL bootstrap() in a
+      // process whose config was already loaded; it is restored in `finally`.
+      const settings = app.settings.config as { env: string };
+      const saved = { env: settings.env, valve: process.env.ALLOW_RLS_BYPASS_ROLE };
+      try {
+        settings.env = 'production';
+        delete process.env.ALLOW_RLS_BYPASS_ROLE;
+        let refusal: unknown;
+        try {
+          await app.server.bootstrap();
+        } catch (e) {
+          refusal = e;
+        }
+        if (refusal === undefined) {
+          return falla(`bootstrap() built the API in production connected as «${role.role}», which ignores RLS`);
+        }
+        if (!(refusal instanceof app.rlsGuard.RolIgnoraRlsError)) {
+          return falla(`bootstrap() failed in production, but not on the role: ${String((refusal as Error)?.message ?? refusal).slice(0, 200)}`);
+        }
+
+        process.env.ALLOW_RLS_BYPASS_ROLE = 'I_UNDERSTAND';
+        try {
+          await app.server.bootstrap();
+        } catch (e) {
+          return falla(`with ALLOW_RLS_BYPASS_ROLE=I_UNDERSTAND bootstrap() still refused: ${(e as Error).message.slice(0, 200)}`);
+        }
+      } finally {
+        settings.env = saved.env;
+        if (saved.valve === undefined) delete process.env.ALLOW_RLS_BYPASS_ROLE;
+        else process.env.ALLOW_RLS_BYPASS_ROLE = saved.valve;
+      }
+      return ok(
+        `bootstrap() in production refuses to start as «${role.role}», which ignores RLS, and starts only with the explicit break-glass`
+      );
+    },
+  },
 ];
 
 // ============================================================
@@ -2036,6 +2386,9 @@ async function main(salida: string): Promise<void> {
     drafts: await import('../ai/draft-service.js'),
     preRegistrations: await import('../services/xml-ingestion/pre-registration-service.js'),
     policies: await import('../services/policy/policy-service.js'),
+    server: await import('../index.js'),
+    rlsGuard: await import('../database/rls-guard.js'),
+    settings: await import('../config/index.js'),
   };
 
   const { config } = await import('../config/index.js');
