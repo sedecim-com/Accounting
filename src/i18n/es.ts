@@ -866,4 +866,12 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.approve.done': 'Corrida {id} aprobada · {status}',
   'payrun.approve.repeated': 'La corrida {id} ya se aprobó con esta llave: se muestra el resultado grabado · {status}',
   'payrun.approve.dry_run': 'Ensayo: la corrida {id} se aprobó y se deshizo; sigue en {status}.',
+  'payrun.post.confirm':
+    'Vas a CONTABILIZAR la póliza de la corrida {id} (cargos {debits} = abonos {credits}) ' +
+    'sin pasar por la revisión. Una póliza contabilizada sólo se deshace con una reversa. ¿Continuar?',
+  'payrun.post.aborted': 'Sin cambios: la póliza no se contabilizó.',
+  'payrun.post.dry_run': 'Ensayo: la póliza de la corrida {id} cuadra (cargos {debits} = abonos {credits}); no se escribió nada.',
+  'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
+  'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
+  'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
 };

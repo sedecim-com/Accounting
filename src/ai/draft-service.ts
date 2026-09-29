@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type pg from 'pg';
 import Decimal from 'decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../database/connection.js';
@@ -416,8 +417,14 @@ export interface CreateDraftInput {
 }
 
 export async function createDraft(
-  ctx: AgentContext,
-  input: CreateDraftInput
+  ctx: Pick<AgentContext, 'tenantId' | 'entityId'>,
+  input: CreateDraftInput,
+  /**
+   * The caller's transaction, when the draft must be born under a lock the
+   * caller holds (a pay run's entry, MNE-001-069): the INSERT then commits or
+   * rolls back with the caller's own checks.
+   */
+  client?: pg.PoolClient
 ): Promise<{ id: string; totalDebits: string; totalCredits: string }> {
   const validation = await validateDraftPayload(ctx.entityId, input.payload);
   if (validation.errors.length > 0) {
@@ -428,7 +435,7 @@ export async function createDraft(
   // The link, when there is one, must point at a pre-registration of THIS
   // entity: the row is inserted only if it does, so a stale or foreign id
   // can never produce a draft bound to another entity's CFDI.
-  const inserted = await query(
+  const inserted = await (client ? client.query.bind(client) : query)(
     `INSERT INTO ai_drafts (
       id, tenant_id, entity_id, draft_type, status, payload,
       ai_confidence, ai_reasoning, ai_model, user_request, pre_registration_id

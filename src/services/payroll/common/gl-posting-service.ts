@@ -1,24 +1,77 @@
+import type pg from 'pg';
 import Decimal from 'decimal.js';
-import { NotFoundError } from '../../../utils/errors.js';
-import { query } from '../../../database/connection.js';
-import { createJournalEntry, postJournalEntry } from '../../accounting/posting.js';
+import { ConflictError, NotFoundError } from '../../../utils/errors.js';
+import { withTransaction } from '../../../database/connection.js';
+import { attestEntryAsync, createJournalEntry } from '../../accounting/posting.js';
 import { JournalEntryType } from '../../../types/index.js';
+import { toCalendarDate } from '../../../utils/calendar-date.js';
+import { createDraft, type DraftPayload } from '../../../ai/draft-service.js';
 import { leerRegistroDelSubsidio } from '../mx/subsidio-entregado.js';
 
 // ============================================================
 // PAYROLL → GL POSTING
-// Creates a compound journal entry for a pay run.
+// Builds the compound journal entry of a pay run and takes it to the ledger
+// by one of two roads (MNE-001-069, #306):
+//
+//   · `draftPayRunEntry` leaves it as a draft in `ai_drafts` for the
+//     `mnemosine review` that already exists: the default of `pay-run post`;
+//   · `postPayRunToGL` posts it directly: `pay-run post --post` and the REST
+//     route `POST /pay-runs/:id/post-to-gl`.
+//
+// `previewPayRunEntry` is the dry run of both: the same checks and the same
+// lines, nothing written.
+//
+// All three refuse the same things, read under a row lock on the run: a run
+// that is not approved (or paid), a run that already has its entry, and a run
+// with a live draft (pending or approved). One pay run, one entry.
 // Uses payroll_account_mapping table to resolve semantic buckets → GL accounts.
 // ============================================================
 
-async function resolveAccounts(entityId: string): Promise<Record<string, string>> {
-  const result = await query<{ bucket: string; account_id: string }>(
-    `SELECT bucket, account_id FROM payroll_account_mapping WHERE entity_id = $1`,
+/** What `ai_drafts.ai_model` says produced the draft: no model, the payroll engine. */
+const DRAFT_PRODUCER = 'mnemosine/payroll';
+
+/** The reference that ties a draft to its run; the double-post guard searches by it. */
+export function payRunReference(payRunId: string): string {
+  return `pay-run:${payRunId}`;
+}
+
+interface MappedAccount {
+  id: string;
+  code: string;
+}
+
+async function resolveAccounts(client: pg.PoolClient, entityId: string): Promise<Record<string, MappedAccount>> {
+  const result = await client.query<{ bucket: string; account_id: string; code: string }>(
+    `SELECT m.bucket, m.account_id, a.code
+       FROM payroll_account_mapping m
+       JOIN accounts a ON a.id = m.account_id AND a.entity_id = m.entity_id
+      WHERE m.entity_id = $1`,
     [entityId]
   );
-  const map: Record<string, string> = {};
-  for (const r of result.rows) map[r.bucket] = r.account_id;
+  const map: Record<string, MappedAccount> = {};
+  for (const r of result.rows) map[r.bucket] = { id: r.account_id, code: r.code };
   return map;
+}
+
+export interface PayRunEntryLine {
+  account_id: string;
+  account_code: string;
+  debit_amount: string | null;
+  credit_amount: string | null;
+  description: string;
+}
+
+/** The entry of a pay run, as it would post. */
+export interface PayRunEntry {
+  payRunId: string;
+  entityId: string;
+  /** The pay date of the period, YYYY-MM-DD. */
+  entryDate: string;
+  description: string;
+  reference: string;
+  lines: PayRunEntryLine[];
+  totalDebits: string;
+  totalCredits: string;
 }
 
 /**
@@ -33,15 +86,19 @@ async function resolveAccounts(entityId: string): Promise<Record<string, string>
  * se cerró en `calculatePaycheck`; ésta es la otra mitad, y va DENTRO del SQL
  * porque cualquier escritor futuro de `paychecks` vuelve a abrirla si no.
  */
-export async function postPayRunToGL(
+async function buildPayRunEntry(
+  client: pg.PoolClient,
   payRunId: string,
-  userId: string,
   tenantId: string,
   entityId: string
-): Promise<string> {
-  // Load pay run + totals
-  const prResult = await query<{
+): Promise<PayRunEntry> {
+  // Load pay run + totals, and LOCK it: two posts of the same run (two
+  // terminals, a terminal and the API, a draft and a --post) serialize here,
+  // so the second one sees the first one's entry or draft and refuses.
+  const prResult = await client.query<{
     tenant_id: string;
+    status: string;
+    journal_entry_id: string | null;
     pay_period_id: string;
     entity_id: string;
     tax_year_used: number;
@@ -53,7 +110,7 @@ export async function postPayRunToGL(
     totals_er_taxes: string;
     totals_post: string;
   }>(
-    `SELECT pr.tenant_id, pr.pay_period_id, ps.entity_id, pr.tax_year_used,
+    `SELECT pr.tenant_id, pr.status, pr.journal_entry_id, pr.pay_period_id, ps.entity_id, pr.tax_year_used,
             pp.pay_date,
             pr.total_gross AS totals_gross,
             pr.total_pre_tax_deductions AS totals_pretax,
@@ -64,7 +121,8 @@ export async function postPayRunToGL(
      FROM pay_runs pr
      JOIN pay_periods pp ON pp.id = pr.pay_period_id
      JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
-     WHERE pr.id = $1 AND pr.tenant_id = $2 AND ps.entity_id = $3`,
+     WHERE pr.id = $1 AND pr.tenant_id = $2 AND ps.entity_id = $3
+       FOR UPDATE OF pr`,
     [payRunId, tenantId, entityId]
   );
   // T9 (#96): LA ENTIDAD LA DECIDE EL TOKEN, NO EL ID QUE SE MANDA.
@@ -87,8 +145,39 @@ export async function postPayRunToGL(
   if (prResult.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
   const pr = prResult.rows[0];
 
+  // ONLY A SEALED RUN REACHES THE LEDGER. This used to post a `draft` or a
+  // `calculated` run, whose paychecks can still be recalculated: the ledger
+  // would carry figures the run itself no longer has.
+  if (pr.status !== 'approved' && pr.status !== 'paid') {
+    throw new ConflictError(
+      `Pay run ${payRunId} is ${pr.status}; only an approved or paid run is posted (approve it first)`
+    );
+  }
+  // ONE RUN, ONE ENTRY. A second post used to write a second posted entry
+  // and overwrite the link to the first one.
+  if (pr.journal_entry_id !== null) {
+    throw new ConflictError(`Pay run ${payRunId} is already posted as entry ${pr.journal_entry_id}`);
+  }
+  // A draft waiting for review, or already approved by it, is the run's entry
+  // too: posting another one would book the payroll twice.
+  const live = await client.query<{ id: string; status: string }>(
+    `SELECT id, status FROM ai_drafts
+      WHERE tenant_id = $1 AND entity_id = $2 AND payload->>'reference' = $3
+        AND status IN ('pending_review', 'approved')
+      LIMIT 1`,
+    [tenantId, entityId, payRunReference(payRunId)]
+  );
+  if (live.rows.length > 0) {
+    const d = live.rows[0];
+    throw new ConflictError(
+      d.status === 'pending_review'
+        ? `Pay run ${payRunId} already has draft ${d.id} awaiting \`mnemosine review\`; approve or reject it there`
+        : `Pay run ${payRunId} was already posted through review (draft ${d.id})`
+    );
+  }
+
   // Aggregate tax breakdown across all paychecks
-  const breakdownResult = await query<{
+  const breakdownResult = await client.query<{
     fit: string; fica_ss_ee: string; fica_med_ee: string; addl_med: string; sit: string; sdi: string;
     local_tax: string;
     fica_ss_er: string; fica_med_er: string; futa: string; suta: string;
@@ -119,14 +208,19 @@ export async function postPayRunToGL(
   );
   const b = breakdownResult.rows[0];
 
-  const accounts = await resolveAccounts(pr.entity_id);
+  const accounts = await resolveAccounts(client, pr.entity_id);
   const required = ['wages_expense', 'payroll_tax_expense', 'cash_payroll'];
   for (const k of required) {
     if (!accounts[k]) throw new Error(`Missing payroll_account_mapping for bucket: ${k}`);
   }
 
-  type Line = { account_id: string; debit_amount: string | null; credit_amount: string | null; description: string };
-  const lines: Line[] = [];
+  const lines: PayRunEntryLine[] = [];
+  const debit = (a: MappedAccount, amount: string, description: string): void => {
+    lines.push({ account_id: a.id, account_code: a.code, debit_amount: amount, credit_amount: null, description });
+  };
+  const credit = (a: MappedAccount, amount: string, description: string): void => {
+    lines.push({ account_id: a.id, account_code: a.code, debit_amount: null, credit_amount: amount, description });
+  };
 
   const n = (s: string): number => parseFloat(s);
   const totalGross = parseFloat(pr.totals_gross);
@@ -134,36 +228,21 @@ export async function postPayRunToGL(
   const totalErTaxes = parseFloat(pr.totals_er_taxes);
 
   // DR: Wages expense (gross)
-  lines.push({
-    account_id: accounts.wages_expense,
-    debit_amount: totalGross.toFixed(2),
-    credit_amount: null,
-    description: `Gross wages for pay run ${payRunId.slice(0, 8)}`,
-  });
+  debit(accounts.wages_expense, totalGross.toFixed(2), `Gross wages for pay run ${payRunId.slice(0, 8)}`);
 
   // DR: Payroll tax expense (employer-only taxes)
   if (totalErTaxes > 0) {
-    lines.push({
-      account_id: accounts.payroll_tax_expense,
-      debit_amount: totalErTaxes.toFixed(2),
-      credit_amount: null,
-      description: 'Employer payroll taxes',
-    });
+    debit(accounts.payroll_tax_expense, totalErTaxes.toFixed(2), 'Employer payroll taxes');
   }
 
   // CR: Cash payroll (net pay)
-  lines.push({
-    account_id: accounts.cash_payroll,
-    debit_amount: null,
-    credit_amount: totalNet.toFixed(2),
-    description: 'Net pay disbursement',
-  });
+  credit(accounts.cash_payroll, totalNet.toFixed(2), 'Net pay disbursement');
 
   const creditIfPresent = (bucket: string, amount: number, desc: string) => {
     if (amount <= 0) return;
     const acct = accounts[bucket];
     if (!acct) return;
-    lines.push({ account_id: acct, debit_amount: null, credit_amount: amount.toFixed(2), description: desc });
+    credit(acct, amount.toFixed(2), desc);
   };
 
   // Employee withholding payables
@@ -211,15 +290,13 @@ export async function postPayRunToGL(
           `subsidio_al_empleo_entregado_registro dice registrarlo como ${registro.valor}.`
       );
     }
-    lines.push({
-      account_id: cuenta,
-      debit_amount: entregado.toFixed(2),
-      credit_amount: null,
-      description:
-        registro.valor === 'cuenta_por_cobrar_fisco'
-          ? 'Subsidio al empleo entregado en efectivo (acreditable contra ISR retenido)'
-          : 'Subsidio al empleo entregado en efectivo (absorbido por el patrón)',
-    });
+    debit(
+      cuenta,
+      entregado.toFixed(2),
+      registro.valor === 'cuenta_por_cobrar_fisco'
+        ? 'Subsidio al empleo entregado en efectivo (acreditable contra ISR retenido)'
+        : 'Subsidio al empleo entregado en efectivo (absorbido por el patrón)'
+    );
   }
   creditIfPresent('imss_payable', n(b.imss_ee) + n(b.imss_er), 'IMSS EE+ER');
   creditIfPresent('infonavit_payable', n(b.infonavit_ee) + n(b.infonavit_er), 'INFONAVIT');
@@ -252,19 +329,118 @@ export async function postPayRunToGL(
     );
   }
 
-  const entry = await createJournalEntry(
-    pr.entity_id,
-    pr.pay_date,
-    JournalEntryType.PAYROLL,
-    `Payroll run ${payRunId.slice(0, 8)}`,
+  return {
+    payRunId,
+    entityId: pr.entity_id,
+    entryDate: toCalendarDate(pr.pay_date),
+    description: `Payroll run ${payRunId.slice(0, 8)}`,
+    reference: payRunReference(payRunId),
     lines,
-    userId,
-    { sourceType: 'pay_run', sourceId: payRunId, reference: payRunId }
-  );
+    totalDebits: totalDebits.toFixed(2),
+    totalCredits: totalCredits.toFixed(2),
+  };
+}
 
-  await postJournalEntry(entry.id, userId);
+/**
+ * THE DRY RUN of `pay-run post`: the same lock, the same refusals and the same
+ * lines as the two roads below, in a transaction that only reads.
+ */
+export async function previewPayRunEntry(
+  payRunId: string,
+  tenantId: string,
+  entityId: string
+): Promise<PayRunEntry> {
+  return withTransaction((client) => buildPayRunEntry(client, payRunId, tenantId, entityId));
+}
 
-  await query(`UPDATE pay_runs SET journal_entry_id = $1 WHERE id = $2`, [entry.id, payRunId]);
+/**
+ * THE DEFAULT ROAD: the entry becomes a draft for `mnemosine review`, which
+ * validates it again and posts it under the reviewer's name. The draft is
+ * inserted under the run's lock, so no second draft and no direct post can
+ * slip in between the check and the insert.
+ */
+export async function draftPayRunEntry(
+  payRunId: string,
+  tenantId: string,
+  entityId: string
+): Promise<{ draftId: string; entry: PayRunEntry }> {
+  return withTransaction(async (client) => {
+    const entry = await buildPayRunEntry(client, payRunId, tenantId, entityId);
+    const payload: DraftPayload = {
+      entry_date: entry.entryDate,
+      description: entry.description,
+      reference: entry.reference,
+      lines: entry.lines.map((l) => ({
+        account_code: l.account_code,
+        ...(l.debit_amount !== null ? { debit: Number(l.debit_amount) } : { credit: Number(l.credit_amount) }),
+        description: l.description,
+      })),
+    };
+    const draft = await createDraft(
+      { tenantId, entityId: entry.entityId },
+      {
+        payload,
+        // The figures are the engine's and the accounts the firm's mapping:
+        // nothing here is a guess. What the review adds is a person's yes.
+        confidence: 1,
+        reasoning:
+          `Journal entry of approved pay run ${payRunId}: gross wages and employer taxes against net pay ` +
+          'and each withholding payable, from payroll_account_mapping.',
+        model: DRAFT_PRODUCER,
+      },
+      client
+    );
+    return { draftId: draft.id, entry };
+  });
+}
 
-  return entry.id;
+/**
+ * THE ESCAPE: posts the entry directly (`pay-run post --post`, and the REST
+ * route). The entry and the link on the run commit together or not at all.
+ */
+export async function postPayRunToGL(
+  payRunId: string,
+  userId: string,
+  tenantId: string,
+  entityId: string
+): Promise<string> {
+  return (await postPayRunEntry(payRunId, userId, tenantId, entityId)).journalEntryId;
+}
+
+/** `postPayRunToGL` with the entry and its number, for a caller that prints them. */
+export async function postPayRunEntry(
+  payRunId: string,
+  userId: string,
+  tenantId: string,
+  entityId: string
+): Promise<{ journalEntryId: string; entryNumber: string; entry: PayRunEntry }> {
+  const result = await withTransaction(async (client) => {
+    const entry = await buildPayRunEntry(client, payRunId, tenantId, entityId);
+    const je = await createJournalEntry(
+      entry.entityId,
+      entry.entryDate,
+      JournalEntryType.PAYROLL,
+      entry.description,
+      entry.lines.map(({ account_id, debit_amount, credit_amount, description }) => ({
+        account_id,
+        debit_amount,
+        credit_amount,
+        description,
+      })),
+      userId,
+      { sourceType: 'pay_run', sourceId: payRunId, reference: payRunId, autoPost: true, client }
+    );
+    const linked = await client.query(
+      `UPDATE pay_runs SET journal_entry_id = $1
+        WHERE id = $2 AND tenant_id = $3 AND journal_entry_id IS NULL`,
+      [je.id, payRunId, tenantId]
+    );
+    if (linked.rowCount !== 1) {
+      throw new ConflictError(`Pay run ${payRunId} changed while it was being posted; nothing was written`);
+    }
+    return { journalEntryId: je.id, entryNumber: je.entry_number, entry };
+  });
+  // The attestation reads the entry back, so it runs after the commit.
+  attestEntryAsync(tenantId, result.entry.entityId, result.journalEntryId);
+  return result;
 }

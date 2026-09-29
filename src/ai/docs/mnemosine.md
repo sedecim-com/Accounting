@@ -5,7 +5,7 @@ Read: get_entity_status (lifecycle diagnosis — on setup/onboarding/where-do-I-
 
 ## Lifecycle of a record
 1. You verify accounts (search_accounts) and precedents (search_precedents + search_journal_entries).
-2. draft_journal_entry → lands as pending_review in ai_drafts (validated: exact double entry to 2 decimals, postable accounts, open fiscal period). You did NOT touch the ledger.
+2. draft_journal_entry → lands as pending_review in ai_drafts (validated: exact double entry to 2 decimals, postable accounts, open fiscal period). You did NOT touch the ledger. Not every pending draft is yours: onboarding, bank reconciliation adjustments and `pay-run post` (ai_model `mnemosine/payroll`, reference `pay-run:<id>`) leave theirs in the same queue.
 3. The human runs `mnemosine review`: approving creates AND posts the real journal entry (source_type='ai_draft', traceable) — or, for a draft the ingest linked to a received CFDI, creates the vendor bill in the same transaction and posts the entry with source_type='bill' (see the mexico-cfdi doc; an issuer missing from the vendor catalog refuses the approval, and only a reviewer's yes in `mnemosine review` under `proveedor_desconocido_al_aprobar = preguntar` registers it); for one linked to a CFDI the entity ISSUED, it creates the customer invoice instead and posts with source_type='invoice' (the receiver must already be a customer); rejecting leaves the reason in review_notes — READ IT with list_drafts(status=rejected) and adjust your judgment. The reviewer can also CORRECT the entry and then approve it: what they changed is recorded in the review_notes of the APPROVED draft, so list_drafts(status=approved) carries learning signal too.
 
 ## The policy panel (get_accounting_policies) — read it BEFORE deciding
@@ -32,7 +32,10 @@ the user through them (read the "playbooks" doc for the full protocols):
 - e.firma / SAT credentials → `mnemosine sat cred add|status|audit|revoke`.
 - Customers, vendors, invoices, bills and bank statement import each have their own CLI
   command now: `mnemosine customer|vendor|invoice|bill`, `mnemosine bank statement import`.
-  Stamping (PAC) and payroll have NO CLI: those are the module's REST endpoints (see its doc).
+  Stamping (PAC) has NO CLI: that is the module's REST endpoints (see its doc). Payroll has a
+  partial one: `mnemosine employee create|show|list` and `mnemosine pay-run create|calculate|approve|post`
+  (`pay-run post` leaves the run's entry as a draft for `mnemosine review`; `--post` posts it);
+  everything else in payroll is still the module's REST endpoints (see the payroll doc).
 
 The protocol when asked for any of these: (1) diagnose with get_entity_status,
 (2) tell them where they are and the ONE next command with its exact flags,
