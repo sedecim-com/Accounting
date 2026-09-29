@@ -12,6 +12,10 @@ vi.mock('../../src/services/accounting/posting.js', () => ({
   createJournalEntry: vi.fn(),
   attestEntryAsync: vi.fn(),
 }));
+vi.mock('../../src/services/ar/opening-invoices.js', () => ({
+  prepareOpeningInvoices: vi.fn(),
+  writeOpeningInvoices: vi.fn(),
+}));
 
 import {
   planOpeningBalance,
@@ -29,12 +33,15 @@ import { query, withTransaction } from '../../src/database/connection.js';
 import { registrarAuditoria } from '../../src/services/audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync } from '../../src/services/accounting/posting.js';
 import { ValidationError } from '../../src/utils/errors.js';
+import { prepareOpeningInvoices, writeOpeningInvoices } from '../../src/services/ar/opening-invoices.js';
 
 const mockQuery = query as unknown as Mock;
 const mockTx = withTransaction as unknown as Mock;
 const mockAudit = registrarAuditoria as unknown as Mock;
 const mockCrear = createJournalEntry as unknown as Mock;
 const mockAtestar = attestEntryAsync as unknown as Mock;
+const mockPrepareInvoices = prepareOpeningInvoices as unknown as Mock;
+const mockWriteInvoices = writeOpeningInvoices as unknown as Mock;
 
 // ============================================================
 // O1 · LA BALANZA DE APERTURA
@@ -654,6 +661,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockTx.mockImplementation(async (fn: (c: unknown) => Promise<unknown>) => fn({}));
   mockCrear.mockResolvedValue({ id: 'je-1', entry_number: 'JE-2026-0001' });
+  mockPrepareInvoices.mockResolvedValue({ drafts: [], findings: [] });
   conBase();
 });
 
@@ -1017,5 +1025,46 @@ describe('checkOpeningBalance · the penny check writes nothing and compares Sal
     expect(r.comparison.iguales).toBe(true);
     expect(r.comparison.faltantes).toEqual([]);
     expect(r.comparison.excluded).toEqual([{ code: '800', amount: '75000.0000' }]);
+  });
+});
+
+// ------------------------------------------------------------
+// MNE-001-022 · the receivable documents also become invoices
+// ------------------------------------------------------------
+
+describe('importOpeningBalance · the AR invoices of the opening (MNE-001-022)', () => {
+  const DRAFTS = [{ number: 'A-1' }, { number: 'A-2' }];
+
+  it('writes them in the SAME transaction, linked to the opening entry, and counts them', async () => {
+    const tx = { tx: true };
+    mockTx.mockImplementation(async (fn: (c: unknown) => Promise<unknown>) => fn(tx));
+    mockPrepareInvoices.mockResolvedValue({ drafts: DRAFTS, findings: [] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(true);
+    expect(r.arInvoices).toBe(2);
+    expect(mockPrepareInvoices).toHaveBeenCalledWith('ent-1', expect.objectContaining({ lines: r.lines }));
+    expect(mockWriteInvoices).toHaveBeenCalledWith(tx, 'ent-1', 'user-1', 'je-1', DRAFTS);
+    const auditEntry = mockAudit.mock.calls[0][1] as { newValues: Record<string, unknown> };
+    expect(auditEntry.newValues.ar_invoices).toBe(2);
+    expect(renderOpeningBalanceReport(r)).toContain('2 factura(s) de clientes entran al auxiliar de CxC');
+  });
+
+  it('a blocking finding of the invoices stops the whole load: no entry, no invoice', async () => {
+    const blocking = { regla: 'APE-CXC-OTRA-CUENTA', severidad: 'bloquea', numCta: '1110', mensaje: 'rol' };
+    mockPrepareInvoices.mockResolvedValue({ drafts: DRAFTS, findings: [blocking] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(false);
+    expect(r.findings).toContainEqual(blocking);
+    expect(mockCrear).not.toHaveBeenCalled();
+    expect(mockWriteInvoices).not.toHaveBeenCalled();
+  });
+
+  it('a warning is reported and does not stop the load', async () => {
+    const warning = { regla: 'APE-CXC-SIN-ROL', severidad: 'warning', numCta: '1110', mensaje: 'sin rol' };
+    mockPrepareInvoices.mockResolvedValue({ drafts: [], findings: [warning] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(true);
+    expect(r.findings).toContainEqual(warning);
+    expect(renderOpeningBalanceReport(r)).not.toContain('factura(s) de clientes');
   });
 });

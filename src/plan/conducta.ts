@@ -1076,6 +1076,17 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         );
       }
 
+      // MNE-001-022: the seeded `cxc` role points at the seeded chart; the
+      // migration points it at the imported control account first, or the
+      // load stops (APE-CXC-OTRA-CUENTA) instead of writing its invoices.
+      const roleUpdate = await app.conexion.query(
+        `UPDATE account_roles
+            SET account_id = (SELECT id FROM accounts WHERE entity_id = $1 AND code = '105-001')
+          WHERE entity_id = $1 AND role = 'cxc' AND qualifier IS NULL`,
+        [inq.entityId]
+      );
+      if (roleUpdate.rowCount !== 1) return falla('the scenario has no default cxc role to point at 105-001');
+
       // ── LA CAPA 2: la balanza al corte, con su auxiliar abierto ───────
       const carga = await app.apertura.importOpeningBalance(ctx, {
         entityId: inq.entityId,

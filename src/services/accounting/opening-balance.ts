@@ -18,6 +18,7 @@ import {
 import { naturDe, saldoDelMayor } from '../sat/anexo24/balanza-invariantes.js';
 import { compareToSource, shapesFromRows, type BalanceComparison } from './opening-balance-check.js';
 import { queryAccountAncestry, rollUpTrialBalanceRows } from '../reporting/report-service.js';
+import { prepareOpeningInvoices, writeOpeningInvoices } from '../ar/opening-invoices.js';
 
 // ============================================================
 // O1 · LA BALANZA DE APERTURA — LA SEGUNDA CAPA DEL ONBOARDING
@@ -147,6 +148,13 @@ export interface OpeningDocument {
   importe: string;
   /** UUID del CFDI que lo respalda, cuando lo hay. */
   uuid?: string;
+  /**
+   * ISO 4217 currency of the open balance. Omitted means the functional one;
+   * any other is refused for a receivable (MNE-001-022, `opening-invoices.ts`).
+   */
+  currency?: string;
+  /** Counterparty RFC: finds the existing customer before one is created. */
+  rfc?: string;
 }
 
 /** Una cuenta de la entidad tal como está HOY. El plan se calcula contra esto. */
@@ -946,6 +954,8 @@ export interface OpeningBalanceReport extends OpeningPlan {
   /** El asiento que quedó posteado, o `null`. */
   asiento: { id: string; entry_number: string } | null;
   escrito: boolean;
+  /** Customer invoices this load creates (or created) in the AR subledger. */
+  arInvoices: number;
 }
 
 /**
@@ -1030,8 +1040,11 @@ export async function importOpeningBalance(
       LIMIT 1`,
     [opts.entityId, ejercicio.startDate]
   );
-  const findings: OpeningFinding[] = [...plan.findings];
-  let puedeCargarse = plan.puedeCargarse;
+  // MNE-001-022: the receivable documents also become invoices, so that
+  // `ar reconcile` sees the subledger behind the control balance.
+  const arInvoicePlan = await prepareOpeningInvoices(opts.entityId, plan);
+  const findings: OpeningFinding[] = [...plan.findings, ...arInvoicePlan.findings];
+  let puedeCargarse = plan.puedeCargarse && arInvoicePlan.findings.every((x) => x.severidad !== 'bloquea');
   const anterior = yaCargada.rows[0];
   if (anterior !== undefined) {
     puedeCargarse = false;
@@ -1060,6 +1073,7 @@ export async function importOpeningBalance(
     filasLeidas: lectura.rowsLeidas,
     asiento: null,
     escrito: false,
+    arInvoices: arInvoicePlan.drafts.length,
   };
 
   if (!puedeCargarse || opts.dryRun === true) return base;
@@ -1120,11 +1134,13 @@ export async function importOpeningBalance(
         rfc,
         cuentas: plan.lines.length,
         documentos_de_auxiliar: plan.lines.filter((l) => l.documento !== undefined).length,
+        ar_invoices: arInvoicePlan.drafts.length,
         total_debe: plan.totalDebe,
         total_haber: plan.totalHaber,
       },
       reason: opts.reason ?? null,
     });
+    await writeOpeningInvoices(client, opts.entityId, opts.userId, entry.id, arInvoicePlan.drafts);
 
     return entry;
     });
@@ -1351,6 +1367,9 @@ export function renderOpeningBalanceReport(r: OpeningBalanceReport): string {
   const conDocumento = r.lines.filter((x) => x.documento !== undefined).length;
   if (conDocumento > 0) {
     l.push(`  ${conDocumento} renglón(es) vienen del auxiliar, documento a documento.`);
+  }
+  if (r.arInvoices > 0) {
+    l.push(`  ${r.arInvoices} factura(s) de clientes entran al auxiliar de CxC, ligadas a la apertura.`);
   }
   if (r.control.length > 0) {
     l.push('  Cuentas de control:');
