@@ -1435,7 +1435,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // closing the month without it is the firm's call, not the system's.
     key: 'rep_faltante_recibido',
     category: 'fiscal',
-    question: 'At close, a supplier payment on a PPD bill still has no REP (its VAT was credited on payment without the receipt that supports it). Block the close or just warn?',
+    question: 'At close, a supplier payment on a PPD bill has no REP yet, though its VAT was already credited. Block the close or just warn?',
     impact:
       'With "bloquear", the soft close refuses while any period payment lacks its REP; with "avisar" it ' +
       'closes and the checklist records the unsupported credit.',
