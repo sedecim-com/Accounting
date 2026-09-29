@@ -402,6 +402,8 @@ interface ChartCase {
   xml: (xml: string) => string;
   /** The rule that blocks, or null when the XSD accepts the value. */
   rule: string | null;
+  /** Where the rule comes from, when it is not a facet of the XSD alone. */
+  source?: string;
 }
 
 const lastRow =
@@ -427,10 +429,25 @@ const yearCase = (year: string, rule: string | null): ChartCase => ({
   rule,
 });
 
+const rfcCase = (rfc: string, rule: string | null): ChartCase => ({
+  header: { RFC: rfc },
+  xml: headerAttribute('RFC', rfc),
+  rule,
+  source: 'estructura_publicada',
+});
+// 399 letters and one astral character: 400 characters to XML Schema, 401
+// UTF-16 code units to `String.length`.
+const emojiDesc = (letters: number): string => `${'d'.repeat(letters)}\u{1F4B0}`;
+
 const chartCases: Array<[string, ChartCase]> = [
   ['a Desc of 150 characters', rowCase('Desc', 'd'.repeat(150), null)],
   ['a Desc of exactly 400', rowCase('Desc', 'd'.repeat(400), null)],
   ['a Desc of 401', rowCase('Desc', 'd'.repeat(401), 'CAT-LONGITUD')],
+  ['a Desc of 400 characters, one of them an emoji', rowCase('Desc', emojiDesc(399), null)],
+  ['a Desc of 401 characters, one of them an emoji', rowCase('Desc', emojiDesc(400), 'CAT-LONGITUD')],
+  ['an RFC whose month digit is above 1', rfcCase('AAA019901AA1', 'CAT-RFC')],
+  ['an RFC whose day digit is above 3', rfcCase('AAA010141AA1', 'CAT-RFC')],
+  ['an RFC dated 1999-12-31', rfcCase('AAA991231AA1', null)],
   ['a NumCta of exactly 100', rowCase('NumCta', '9'.repeat(100), null)],
   ['a NumCta of 101', rowCase('NumCta', '9'.repeat(101), 'CAT-LONGITUD')],
   ['a Desc with leading and trailing spaces', rowCase('Desc', ' Caja ', null)],
@@ -455,9 +472,9 @@ describe('the chart rule validator blocks exactly what CatalogoCuentas_1_3.xsd r
       expect(verdict).toEqual({ valid: true, errors: [] });
     } else {
       expect(findings.map((h) => [h.regla, h.severidad, h.procedencia])).toEqual([
-        [c.rule, 'bloquea', 'official_xsd'],
+        [c.rule, 'bloquea', c.source ?? 'official_xsd'],
       ]);
-      expect(findings[0]!.mensaje).toMatch(/\.xsd/);
+      if (c.source === undefined) expect(findings[0]!.mensaje).toMatch(/\.xsd/);
       expect(verdict.valid).toBe(false);
     }
   });
@@ -491,6 +508,7 @@ const evidence = (d: DatosDePolizas, i: number): object => d.polizas[0]!.transac
 const journalCases: Array<[node: string, attribute: string, bad: string, mutate: JournalMutation]> = [
   ['CompNal', 'Moneda', 'QQQ', (d) => Object.assign(evidence(d, 0), { moneda: 'QQQ' })],
   ['CompNalOtr', 'CFD_CBB_Serie', 'b1', (d) => Object.assign(evidence(d, 1), { serie: 'b1' })],
+  ['CompNalOtr', 'CFD_CBB_Serie', 'ABCDEFGHIJK', (d) => Object.assign(evidence(d, 1), { serie: 'ABCDEFGHIJK' })],
   ['CompExt', 'Moneda', 'MXP', (d) => Object.assign(evidence(d, 2), { moneda: 'MXP' })],
   ['Cheque', 'BanEmisNal', '003', (d) => Object.assign(payment(d, 0), { banEmisNal: '003' })],
   ['Cheque', 'Moneda', 'QQQ', (d) => Object.assign(payment(d, 0), { moneda: 'QQQ' })],
@@ -517,6 +535,19 @@ describe('the journal generator refuses, by name, a value the XSD rejects', () =
     const verdict = validateAgainstOfficialXsd(xml, 'journal');
     expect(verdict.valid).toBe(false);
     expect(verdict.errors.join('\n')).toContain(`attribute '${attribute}'`);
+  });
+
+  it('names every entry at once, and builds anyway for a caller that reported them', () => {
+    const data = journal();
+    Object.assign(evidence(data, 0), { moneda: 'VES' });
+    Object.assign(payment(data, 1), { bancoOriNal: '003' });
+    const entry = data.polizas[0]!.numUnIdenPol;
+    expect(() => construirPolizasXml(data)).toThrow(
+      new RegExp(`póliza ${entry}: PLZ:CompNal/@Moneda = «VES».*póliza ${entry}: PLZ:Transferencia/@BancoOriNal = «003»`)
+    );
+    const shown = construirPolizasXml(data, { allowOffList: true });
+    expect(shown).toContain('Moneda="VES"');
+    expect(shown).toContain('BancoOriNal="003"');
   });
 
   it('the folio auxiliary shares the voucher node, and with it the check', () => {

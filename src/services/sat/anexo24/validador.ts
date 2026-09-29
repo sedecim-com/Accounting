@@ -7,8 +7,9 @@ import { officialEnumeration, OFFICIAL_ENUMERATIONS_XSD } from './official-enume
 // accounts BEFORE it is serialized, so a finding can name the account the
 // accountant has to fix instead of a line number in a file.
 //
-// Every rule now says what the official schema says. The SAT's ContabilidadE
-// 1.3 XSDs are vendored in `xsd/` with their source and SHA-256 (#397), and
+// Every rule that stands for a facet refuses what the official schema
+// refuses. The SAT's ContabilidadE 1.3 XSDs are vendored in `xsd/` with their
+// source and SHA-256 (#397), and
 // tests/sat/anexo24/official-xsd.spec.ts checks that the XSD rejects what the
 // blocking rules here reject. Each finding carries `procedencia`:
 //
@@ -25,9 +26,13 @@ import { officialEnumeration, OFFICIAL_ENUMERATIONS_XSD } from './official-enume
 // WHAT #404 SETTLED. Until the XSDs were vendored, four rules were
 // `faceta_no_verificada` warnings, guesses that never blocked. Against the
 // schema:
-//   · CAT-LONGITUD: `NumCta` and `SubCtaDe` have maxLength 100, `Desc` 400.
-//     The guess was 100 for both, so a valid `Desc` of 101-400 characters got
-//     a warning. Now it blocks at the schema's limits.
+//   · CAT-LONGITUD: `NumCta` has maxLength 100, `Desc` 400. The guess was 100
+//     for both, so a valid `Desc` of 101-400 characters got a warning. Now it
+//     blocks at the schema's limits. `SubCtaDe` (maxLength 100 too) is not
+//     measured: one over 100 cannot name a `NumCta` that fits, so
+//     CAT-PADRE-AUSENTE or the parent's own CAT-LONGITUD already blocks it.
+//   · CAT-RFC: the date digits now follow the schema's pattern (month digit
+//     0-1, day digit 0-3). The homoclave stays stricter than the XSD.
 //   · CAT-ANIO-RANGO: `Anio` is an xs:int from 2015 to 2099. Now it blocks.
 //   · CAT-CODAGRUP-ENUM (was CAT-CODAGRUP-FORMA): `CodAgrup` is `c_CodAgrup`,
 //     a closed enumeration, not a pattern. `100.99` has the right shape and is
@@ -83,20 +88,24 @@ export interface CabeceraCatalogo {
 }
 
 /**
- * El RFC de una persona moral (12) o física (13). Este patrón sí se puede
- * fundamentar: es el mismo que el SAT publica en todos sus esquemas y el que
- * ya vive en este repositorio para el NIF mexicano.
+ * The RFC of a legal entity (12) or an individual (13). The date digits follow
+ * CatalogoCuentas_1_3.xsd, `[0-9]{2}[0-1][0-9][0-3][0-9]`: a month digit above
+ * 1 or a day digit above 3 is refused by the schema, so it blocks here too.
+ * The homoclave is STRICTER than the XSD's three optional characters: it
+ * requires all three, the last a digit or `A`, which is the RFC's own check
+ * digit. So an RFC can block here and pass the XSD, never the other way round.
  */
-const PATRON_RFC = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{2}[0-9A]$/;
+const PATRON_RFC = /^[A-ZÑ&]{3,4}[0-9]{2}[0-1][0-9][0-3][0-9][A-Z0-9]{2}[0-9A]$/;
 
 /** The schema that pins the attributes of `Ctas` and the header, relative to `xsd/`. */
 export const CHART_XSD = 'ContabilidadE/1_3/CatalogoCuentas/CatalogoCuentas_1_3.xsd';
 
 /**
  * maxLength of each free-text attribute of `Ctas`, as CatalogoCuentas_1_3.xsd
- * declares it. minLength 1 is CAT-OBLIGATORIO's job.
+ * declares it. minLength 1 is CAT-OBLIGATORIO's job. `SubCtaDe` is left out
+ * on purpose: see CAT-LONGITUD in the header.
  */
-const CTAS_MAX_LENGTH = { NumCta: 100, Desc: 400, SubCtaDe: 100 } as const;
+const CTAS_MAX_LENGTH = { NumCta: 100, Desc: 400 } as const;
 
 /** `Anio` is an xs:int with these inclusive bounds in CatalogoCuentas_1_3.xsd. */
 const YEAR_MIN = 2015;
@@ -344,7 +353,6 @@ export function validarCatalogo(
     for (const [nombre, valor] of [
       ['NumCta', f.NumCta],
       ['Desc', f.Desc],
-      ['SubCtaDe', f.SubCtaDe ?? ''],
     ] as const) {
       const length = [...valor].length;
       if (length > CTAS_MAX_LENGTH[nombre]) {

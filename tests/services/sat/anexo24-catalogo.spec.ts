@@ -259,9 +259,16 @@ describe('CtaCatalogo 1.3', () => {
   describe('el agrupador contra el c_CodAgrup', () => {
     it('BLOQUEA el agrupador que no está en el catálogo vigente', () => {
       const r = construirCatalogoCuentas(
-        entrada([cuenta({ code: '100', codigo_agrupador_sat: '999.99', estado_agrupador: 'fuera_de_catalogo' })])
+        entrada([cuenta({ code: '100', codigo_agrupador_sat: '101.01', estado_agrupador: 'fuera_de_catalogo' })])
       );
       expect(r.hallazgos.find((h) => h.regla === 'CAT-AGRUPADOR-FUERA-DE-CATALOGO')?.severidad).toBe('bloquea');
+    });
+
+    it('a code off the XSD list too is reported once, by CAT-CODAGRUP-ENUM', () => {
+      const r = construirCatalogoCuentas(
+        entrada([cuenta({ code: '100', codigo_agrupador_sat: '999.99', estado_agrupador: 'fuera_de_catalogo' })])
+      );
+      expect(r.hallazgos.filter((h) => h.numCta === '100').map((h) => h.regla)).toEqual(['CAT-CODAGRUP-ENUM']);
     });
 
     it('sólo AVISA cuando no hay catálogo sembrado, y nombra la causa real', () => {
@@ -273,6 +280,9 @@ describe('CtaCatalogo 1.3', () => {
       const h = r.hallazgos.find((x) => x.regla === 'CAT-AGRUPADOR-SIN-CATALOGO');
       expect(h?.severidad).toBe('aviso');
       expect(h?.mensaje).toContain('no hay');
+      // The XSD list was checked; only the seeded list in force was not.
+      expect(h?.mensaje).toContain('XSD');
+      expect(h?.mensaje).not.toContain('SIN VALIDAR');
       expect(r.puedeEntregarse).toBe(true);
     });
 
@@ -331,6 +341,8 @@ describe('CtaCatalogo 1.3', () => {
       expect(h?.procedencia).toBe('official_xsd');
       expect(h?.mensaje).toContain('CatalogosParaEsqContE.xsd');
       expect(r.puedeEntregarse).toBe(false);
+      expect(r.hallazgos.map((x) => x.mensaje).join('\n')).not.toContain('SIN VALIDAR');
+      expect(r.hallazgos.filter((x) => x.numCta === '100').map((x) => x.regla)).toEqual(['CAT-CODAGRUP-ENUM']);
     });
   });
 

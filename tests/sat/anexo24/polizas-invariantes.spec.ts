@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   bancoEnCatalogo,
+  codeInOfficialList,
   contarHallazgos,
   correrVerificaciones,
   estadoDeBanco,
@@ -140,6 +141,24 @@ describe('la clave de banco contra el c_Banco', () => {
     expect(hs[0].severity).toBe('warning');
     expect(hs[0].detalle).toContain('sat_bancos');
     expect(hs[0].detalle).toContain('no se miraron');
+    // The XSD list was checked; only the seeded list in force was not.
+    expect(hs[0].detalle).not.toContain('SIN VALIDAR');
+    expect(hs[0].detalle).toContain('XSD');
+  });
+
+  it('a code off the XSD c_Banco blocks and names the entry, even with no seeded catalog', () => {
+    const hs = bancoEnCatalogo([p({ ...conPago('003'), numUnIdenPol: 'JE-7' })], SIN_CATALOGO);
+    expect(hs).toHaveLength(1);
+    expect(hs[0].severity).toBe('blocking');
+    expect(hs[0].referencia).toBe('JE-7');
+    expect(hs[0].detalle).toContain('PLZ:Transferencia/@BancoDestNal = «003»');
+    expect(hs[0].detalle).toContain('CatalogosParaEsqContE.xsd');
+  });
+
+  it('a code off both the XSD and the seeded list is reported once, for the XSD', () => {
+    const hs = bancoEnCatalogo([conPago('003')], CON_CATALOGO);
+    expect(hs).toHaveLength(1);
+    expect(hs[0].detalle).toContain('c_Banco de');
   });
 
   it('el aviso de «no hay catálogo» sale UNA vez, no una por póliza', () => {
@@ -149,6 +168,59 @@ describe('la clave de banco contra el c_Banco', () => {
 
   it('con catálogo sembrado y clave válida, no dice nada', () => {
     expect(bancoEnCatalogo([conPago('012')], CON_CATALOGO)).toEqual([]);
+  });
+});
+
+describe('the other closed lists of the XSD', () => {
+  const withNodes = (over: Partial<Transaccion>): Poliza =>
+    p({ numUnIdenPol: 'JE-8', transacciones: [t({ debe: '100.00', haber: '0.00', numCta: '5100' }), t(over)] });
+
+  it('each off-list value blocks, names its entry, its node and its attribute', () => {
+    const hs = codeInOfficialList([
+      withNodes({
+        comprobantes: [
+          { clase: 'nacional', uuid: 'u', rfc: 'AAA010101AAA', montoTotal: '1.00', moneda: 'VES' },
+          { clase: 'nacional_otro', serie: 'ABCDEFGHIJK', numFolio: '1', rfc: 'AAA010101AAA', montoTotal: '1.00' },
+        ],
+        pagos: [
+          { clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', monto: '1.00', moneda: 'BYN' },
+          // Bank codes are banco-en-catalogo's, not this check's.
+          { clase: 'cheque', num: '1', banEmisNal: '003', ctaOri: '1', fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '1.00' },
+        ],
+      }),
+    ]);
+    expect(hs.map((h) => [h.check, h.severity, h.referencia])).toEqual(
+      Array(4).fill(['code-in-official-list', 'blocking', 'JE-8'])
+    );
+    expect(hs.map((h) => h.detalle.split(' no está')[0])).toEqual([
+      'PLZ:CompNal/@Moneda = «VES»',
+      'PLZ:CompNalOtr/@CFD_CBB_Serie = «ABCDEFGHIJK»',
+      'PLZ:OtrMetodoPago/@MetPagoPol = «28»',
+      'PLZ:OtrMetodoPago/@Moneda = «BYN»',
+    ]);
+  });
+
+  it('values on the lists say nothing', () => {
+    expect(
+      codeInOfficialList([
+        withNodes({
+          comprobantes: [{ clase: 'nacional_otro', serie: 'ABCDEFGHIJ', numFolio: '1', rfc: 'AAA010101AAA', montoTotal: '1.00', moneda: 'USD' }],
+          pagos: [{ clase: 'otro', metPagoPol: '99', fecha: '2026-02-10', monto: '1.00', moneda: 'MXN' }],
+        }),
+      ])
+    ).toEqual([]);
+  });
+
+  it('runs by default in the orchestrator', () => {
+    const hs = correrVerificaciones({
+      polizas: [withNodes({ pagos: [{ clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', monto: '1.00' }] })],
+      sinRastro: [],
+      sinComprobante: [],
+      bancos: CON_CATALOGO,
+      validarUuids: false,
+      normalizados: [],
+    });
+    expect(hs.map((h) => h.check)).toContain('code-in-official-list');
   });
 });
 

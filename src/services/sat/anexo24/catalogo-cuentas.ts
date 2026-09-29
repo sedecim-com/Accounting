@@ -3,6 +3,7 @@ import { ValidationError } from '../../../utils/errors.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import type { PolicyContext } from '../../policy/policy-service.js';
 import { serializar, type NodoXml } from './xml.js';
+import { officialEnumeration } from './official-enumerations.js';
 import {
   validarCatalogo,
   bloquean,
@@ -342,7 +343,13 @@ export function construirCatalogoCuentas(entrada: EntradaCatalogo): CatalogoCons
       });
     }
 
-    if (c.estado_agrupador === 'fuera_de_catalogo') {
+    // A code off the XSD's own c_CodAgrup is CAT-CODAGRUP-ENUM's (validador.ts),
+    // which blocks whatever is seeded. Weighing it against the seeded list as
+    // well would report the same account twice, or warn that a code the XSD
+    // already refused went out unchecked (#404).
+    const groupingCode = c.codigo_agrupador_sat ?? '';
+    const offOfficialList = groupingCode !== '' && !officialEnumeration('c_CodAgrup').has(groupingCode);
+    if (!offOfficialList && c.estado_agrupador === 'fuera_de_catalogo') {
       hallazgos.push({
         regla: 'CAT-AGRUPADOR-FUERA-DE-CATALOGO',
         severidad: 'bloquea',
@@ -353,7 +360,7 @@ export function construirCatalogoCuentas(entrada: EntradaCatalogo): CatalogoCons
           `autoridad no reconoce es un rechazo seguro.`,
         numCta: c.code,
       });
-    } else if (c.estado_agrupador === 'sin_catalogo') {
+    } else if (!offOfficialList && c.estado_agrupador === 'sin_catalogo') {
       // Mismo criterio que `validarCodigoAgrupador` de F07a: sin catálogo
       // sembrado no se rechaza, se avisa nombrando la causa REAL. Rechazar
       // contra un catálogo ausente es inventarse una respuesta.
@@ -362,8 +369,10 @@ export function construirCatalogoCuentas(entrada: EntradaCatalogo): CatalogoCons
         severidad: 'aviso',
         procedencia: 'coherencia_interna',
         mensaje:
-          `El agrupador "${c.codigo_agrupador_sat ?? ''}" de "${c.code}" se emite SIN VALIDAR: no hay ` +
-          `c_CodAgrup sembrado que cubra este periodo. Siembra el catálogo del ejercicio para que esta comprobación sirva.`,
+          `El agrupador "${groupingCode}" de "${c.code}" está en la enumeración c_CodAgrup del XSD ` +
+          `oficial, pero no se comprobó contra el c_CodAgrup vigente para el ejercicio: no hay ` +
+          `catálogo sembrado que cubra este periodo. Siembra el del ejercicio para que esta ` +
+          `comprobación sirva.`,
         numCta: c.code,
       });
     }

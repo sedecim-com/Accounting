@@ -379,10 +379,15 @@ async function cobrosDeClientes(
 /**
  * Los métodos de pago que el sistema registra, traducidos al c_MetPagos.
  *
- * NOTE: c_MetPagos in CatalogosParaEsqContE.xsd has no debit-card code. `28`
- * is the CFDI's c_FormaPago for it, and it made every journal file with a
- * debit-card payment invalid. The closest faithful code is `99` (Otros); `04`
- * is credit card and would be a false statement (#404).
+ * NOTE: `28` is the CFDI's c_FormaPago for a debit card, and it is not on
+ * c_MetPagos in CatalogosParaEsqContE.xsd (01-17, 98, 99), so it made every
+ * journal file with a debit-card payment invalid (#404). The vendored XSD
+ * carries the codes without their descriptions, so it cannot settle which
+ * listed code a debit card is. `99` (Otros) is the residual code and makes
+ * no claim about the instrument; `04` is credit card and would be false.
+ * Whether `03` (a debit card moves funds electronically from the account) or
+ * `07` fits better is an accounting choice left open for the owner: it
+ * belongs in the policy panel with all three options, not decided here.
  */
 export const METODO_A_SAT: Readonly<Record<string, string>> = {
   cash: '01',
@@ -1003,13 +1008,19 @@ export async function generarPolizas(
   const conteo = contarHallazgos(hallazgos);
   const puedeEntregarse = conteo.blocking === 0;
 
-  const xml = construirPolizasXml({
-    rfc: L.e.rfc,
-    anio: L.periodo.anio,
-    mes: L.periodo.mes,
-    solicitud: opts.solicitud,
-    polizas,
-  });
+  // A blocked file is still built, off-list codes included, because looking
+  // at it is how the accountant fixes it (f07d). A deliverable one keeps the
+  // builder's last-resort assertion: it cannot fire once the checks ran.
+  const xml = construirPolizasXml(
+    {
+      rfc: L.e.rfc,
+      anio: L.periodo.anio,
+      mes: L.periodo.mes,
+      solicitud: opts.solicitud,
+      polizas,
+    },
+    { allowOffList: !puedeEntregarse }
+  );
 
   const meta: MetaDePolizas = {
     tenant_id: L.e.tenant_id,
