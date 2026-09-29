@@ -53,6 +53,7 @@ import {
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
+import { changePolicyHint } from '../services/policy/policy-hint.js';
 
 // ============================================================
 // mnemosine prepaid · pago-anticipado
@@ -241,8 +242,7 @@ export function exigirConvencionDelPanel(
       `--convention ${pedida} contradice al panel: \`amortizacion_anticipados_convencion\` vale ` +
         `"${criterios.convencion}"${criterios.convencionDefinida ? '' : ' (defecto declarado, nadie ha contestado)'}, ` +
         'y es lo que se congela en el calendario. Esta bandera declara con qué convención crees ' +
-        'estar dando de alta, no la elige: se cambia con `mnemosine pending resolve ' +
-        'amortizacion_anticipados_convencion`.'
+        `estar dando de alta, no la elige: se cambia con ${changePolicyHint('amortizacion_anticipados_convencion')}.`
     );
   }
   return criterios.convencion;
@@ -611,7 +611,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       process.stderr.write(
         deps.palette.yellow(
           '  ⚠ Rige al menos un defecto declarado y no una elección del despacho. Se contesta con ' +
-            '`mnemosine pending resolve amortizacion_anticipados_convencion` / ' +
+            '`mnemosine pending define amortizacion_anticipados_convencion` / ' +
             '`umbral_anticipado_mxn`.\n'
         )
       );

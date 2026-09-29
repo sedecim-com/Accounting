@@ -517,8 +517,8 @@ export async function crearAjuste(
   } catch (err) {
     throw new ConflictError(
       `El borrador ${draft.id} se creó pero el ajuste no pudo registrarse en la sesión ` +
-        `${sessionId}: ${(err as Error).message}. Recházalo con \`mnemosine review reject ` +
-        `${draft.id}\` para que no quede pendiente sin dueño.`
+        `${sessionId}: ${(err as Error).message}. Recházalo en \`mnemosine review\` (opción ` +
+        '[r]eject) para que no quede pendiente sin dueño.'
     );
   }
 

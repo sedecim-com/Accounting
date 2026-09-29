@@ -11,6 +11,7 @@ import {
   type AmortizationResult,
   type ConvencionAmortizacion,
 } from './amortization-math.js';
+import { changePolicyHint } from '../policy/policy-hint.js';
 
 // ============================================================
 // EL ALTA DEL PAGO ANTICIPADO, Y EL HUECO QUE YA EXISTE (D1a)
@@ -253,7 +254,7 @@ export async function criteriosDeAnticipo(
     throw new ValidationError(
       `La política \`amortizacion_anticipados_convencion\` vale "${convencion.value}", que no es ` +
         `ninguna de las dos convenciones posibles (${CONVENCIONES_AMORTIZACION.join(', ')}). ` +
-        'Corrígela con `mnemosine pending resolve amortizacion_anticipados_convencion` antes de ' +
+        `Corrígela con ${changePolicyHint('amortizacion_anticipados_convencion')} antes de ` +
         'dar de alta el calendario.'
     );
   }
@@ -265,7 +266,7 @@ export async function criteriosDeAnticipo(
   } catch {
     throw new ValidationError(
       `La política \`umbral_anticipado_mxn\` vale "${umbral.value}", que no es un importe. ` +
-        'Corrígela con `mnemosine pending resolve umbral_anticipado_mxn`.'
+        `Corrígela con ${changePolicyHint('umbral_anticipado_mxn')}.`
     );
   }
   if (!umbralDecimal.isFinite() || umbralDecimal.isNegative()) {

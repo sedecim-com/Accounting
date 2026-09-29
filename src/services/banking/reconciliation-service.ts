@@ -45,6 +45,7 @@ import {
   type AjusteDeSesion,
   type TipoDeAjuste,
 } from './reconciliation-adjustments.js';
+import { changePolicyHint } from '../policy/policy-hint.js';
 
 // ============================================================
 // LA SESIÓN QUE CUADRA (F05c · 053)
@@ -1000,7 +1001,7 @@ export async function criteriosDeCierre(
         `La política \`conciliacion_tolerancia\` de este despacho está en "${tol.value}": la ` +
           `conciliación cierra con variación EXACTAMENTE cero y \`--tolerance\` no la afloja. ` +
           `Si el criterio tiene que cambiar, cámbialo donde vive: ` +
-          `\`mnemosine pending resolve conciliacion_tolerancia\`.`
+          `${changePolicyHint('conciliacion_tolerancia')}.`
       );
     }
     const t = dec(toleranciaPedida, '--tolerance');
@@ -2443,7 +2444,7 @@ export async function aprobarSesion(
           `La sesión ${sesionId} la cerró ${ctx.userId}, que es quien intenta aprobarla, y la ` +
             `política de segregación de funciones de este despacho está en "exigir": quien hace ` +
             `la conciliación no la firma. Que la apruebe otro usuario, o cambia el criterio ` +
-            `donde vive, con \`mnemosine pending resolve segregacion_de_funciones\`.`,
+            `donde vive, con ${changePolicyHint('segregacion_de_funciones')}.`,
           { rule: 'maker_checker', politica: 'segregacion_de_funciones', sesion: sesionId }
         );
       }

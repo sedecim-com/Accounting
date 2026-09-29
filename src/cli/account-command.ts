@@ -53,6 +53,7 @@ import {
   exitCodeFor,
   checkExitCode,
 } from './kernel/index.js';
+import { changePolicyHint } from '../services/policy/policy-hint.js';
 
 // ============================================================
 // mnemosine account
@@ -835,7 +836,8 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
           '--level ya no aplica: la compuerta medía por nivel de cuenta y ése era el defecto ' +
             '(43 huecos sobre una entidad real, 42 de ellos cuentas sin un solo movimiento, ' +
             'y la cuenta movida sin agrupador fuera de la lista por estar en nivel 3). ' +
-            'Hoy la población la fija la política agrupador_alcance_de_la_compuerta: mnemosine pending list.'
+            'Hoy la población la fija la política agrupador_alcance_de_la_compuerta; se cambia con ' +
+            `${changePolicyHint('agrupador_alcance_de_la_compuerta')}.`
         );
       }
       const ctx = await entityOf(opts);
