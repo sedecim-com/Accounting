@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -27,7 +28,15 @@ import aiWebhooksRouter from './api/rest/routes/ai-webhooks.js';
 import './services/integrations/index.js'; // Register all adapters
 import './services/payroll/tax-engine/register-all.js'; // Register all tax calculators
 
-async function bootstrap() {
+/**
+ * Builds the API exactly as it is served — database init, the RLS role guard,
+ * every middleware and every mount — and returns it WITHOUT listening.
+ *
+ * It is exported, and kept apart from `start()`, so that the plan's behaviour
+ * criteria (src/plan/conducta.ts) can run this very function and measure what
+ * a request does, instead of reading which words appear in this file.
+ */
+export async function bootstrap(): Promise<Express> {
   // Túnel y TLS resueltos antes de la primera consulta.
   const { tunneled, warning } = await initDatabase();
   if (tunneled) logger.info('db_tunnel_open');
@@ -215,6 +224,12 @@ async function bootstrap() {
   // ============================================================
   app.use(errorHandler);
 
+  return app;
+}
+
+async function start(): Promise<void> {
+  const app = await bootstrap();
+
   // ============================================================
   // Start Server
   // ============================================================
@@ -272,7 +287,11 @@ async function bootstrap() {
   process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
-bootstrap().catch((err) => {
-  logger.error('bootstrap_failed', { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
-  process.exit(1);
-});
+// Only as the entry point (`node dist/index.js`, `tsx src/index.ts`):
+// importing this module to call bootstrap() must not open a port.
+if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
+  start().catch((err) => {
+    logger.error('bootstrap_failed', { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
+    process.exit(1);
+  });
+}

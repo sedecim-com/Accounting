@@ -9,6 +9,7 @@ import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '.
 import { PreRegistrationService, DuplicateError } from '../../../services/xml-ingestion/pre-registration-service.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 import { declararRiesgoRuta } from '../risk.js';
+import { createProcessingRuleSchema } from '../../../services/xml-ingestion/processing-rules.js';
 
 const router = Router();
 const service = new PreRegistrationService();
@@ -88,19 +89,6 @@ const bulkPreRegSchema = z.object({
   // arriba por esto mismo; que este quedara sin acotar era el descuido.
   ids: z.array(uuidString()).min(1).max(MAX_XML_POR_LOTE),
   params: z.record(z.string(), z.unknown()).optional(),
-});
-
-const createProcessingRuleSchema = z.object({
-  entity_id: uuidString().optional(),
-  rule_name: boundedString({ min: 1, max: 255 }),
-  rule_code: boundedString({ max: 50 }).optional(),
-  description: z.string().optional(),
-  rule_type: boundedString({ min: 1 }),
-  priority: integerNumber().optional(),
-  conditions: z.record(z.string(), z.unknown()),
-  actions: z.record(z.string(), z.unknown()),
-  applies_to_document_types: z.array(z.string()).optional(),
-  is_active: z.boolean().optional(),
 });
 
 const updateProcessingRuleSchema = z.object({
