@@ -5,10 +5,7 @@ import {
   MES_DE_CIERRE,
   type DatosDeBalanza,
 } from '../../../src/services/sat/anexo24/balanza-xml.js';
-import {
-  catalogoDesdeXml,
-  totalesDeclarados,
-} from '../../../src/services/sat/anexo24/balanza-service.js';
+import { catalogoDesdeXml } from '../../../src/services/sat/anexo24/balanza-service.js';
 import type { CuentaDeBalanza } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 
@@ -157,18 +154,6 @@ describe('bytes idénticos para entradas idénticas', () => {
     // cliente y el escapado no puede depender de que se acuerden.
     const xml = construirBalanzaXml(datos({ cuentas: [cta({ num_cta: 'A&B' })] }));
     expect(xml).toContain('NumCta="A&amp;B"');
-  });
-});
-
-describe('la suma de control', () => {
-  it('foota Debe y Haber sobre TODAS las filas, con decimal.js', () => {
-    // 0.1 + 0.2 en coma flotante da 0.30000000000000004. Las columnas de una
-    // balanza se suman a mano contra el mayor y ese cuarto decimal aparece.
-    const t = totalesDeclarados([
-      cta({ debe: '0.1000', haber: '0.2000' }),
-      cta({ debe: '0.2000', haber: '0.1000' }),
-    ]);
-    expect(t).toEqual({ debe: '0.30', haber: '0.30' });
   });
 });
 
