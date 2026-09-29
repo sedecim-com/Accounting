@@ -1,5 +1,5 @@
 import { query } from '../../database/connection.js';
-import { consultaCfdi, toValidationStatus } from '../sat/cfdi-status.js';
+import { consultaCfdi, markInvoiceCfdiCancelled, toValidationStatus } from '../sat/cfdi-status.js';
 
 export interface SATValidationResult {
   uuid: string;
@@ -95,12 +95,13 @@ export class SATValidationService {
    */
   async validateAndUpdate(xmlDocumentId: string): Promise<SATValidationResult | null> {
     const doc = await query<{
+      entity_id: string;
       cfdi_uuid: string;
       emisor_rfc: string;
       receptor_rfc: string;
       total: string;
     }>(
-      `SELECT cfdi_uuid, emisor_rfc, receptor_rfc, total
+      `SELECT entity_id, cfdi_uuid, emisor_rfc, receptor_rfc, total
        FROM xml_documents WHERE id = $1`,
       [xmlDocumentId]
     );
@@ -126,6 +127,11 @@ export class SATValidationService {
         xmlDocumentId,
       ]
     );
+    // The same bridge as the sweep in cfdi-status.ts (MNE-001-076): a SAT
+    // «Cancelado» reaches the invoice that carries the UUID.
+    if (result.status === 'cancelled') {
+      await markInvoiceCfdiCancelled(d.entity_id, d.cfdi_uuid);
+    }
 
     return result;
   }
