@@ -10,6 +10,7 @@ import { OPEN_INVOICE_STATUSES, NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql } fr
 import { InvoiceStatus } from '../../types/index.js';
 import type { Invoice, InvoiceLine, JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
+import { todayForEntity } from '../policy/today.js';
 
 // ============================================================
 // CUSTOMER INVOICES — domain service
@@ -51,10 +52,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Statuses that can no longer be issued or voided into the ledger. */
 export const TERMINAL_INVOICE_STATUSES = ['void', 'cancelled'] as const;
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export interface InvoiceFilters {
   customerId?: string;
@@ -131,7 +128,10 @@ export async function listInvoices(
     i++;
   }
 
-  const asOfValue = filters.asOf ?? today();
+  // "Today" is the entity's day in zona_horaria (#242), and only asked for
+  // when something reads it: the aging column or the overdue filter.
+  const needsToday = filters.withAging === true || filters.overdueDays !== undefined;
+  const asOfValue = filters.asOf ?? (needsToday ? await todayForEntity(entityId) : undefined);
 
   if (filters.asOf) {
     where.push(`${dateColumn} <= $${i++}::date`);
@@ -633,6 +633,19 @@ export async function voidInvoice(
       let attest: { entityId: string; entryId: string } | null = null;
       let reversalEntryId: string | null = null;
       if (voided.journal_entry_id) {
+        // MNE-001-022: an invoice migrated with the opening balance points at
+        // the ONE opening entry every account shares. Reversing it here would
+        // undo the whole migration to cancel a single receivable.
+        const origin = await client.query<{ source_type: string | null }>(
+          `SELECT source_type FROM journal_entries WHERE id = $1 AND entity_id = $2`,
+          [voided.journal_entry_id, voided.entity_id]
+        );
+        if (origin.rows[0]?.source_type === 'opening_balance') {
+          throw new ConflictError(
+            `${voided.invoice_number} came in with the opening balance and shares its entry. ` +
+              'Voiding it would reverse the whole opening; cancel it with a credit note instead.'
+          );
+        }
         const memo = opts.reason
           ? `Invoice ${voided.invoice_number} voided: ${opts.reason}`
           : `Invoice ${voided.invoice_number} voided`;

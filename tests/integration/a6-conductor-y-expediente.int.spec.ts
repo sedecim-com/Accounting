@@ -263,7 +263,7 @@ async function killLockOf(killer: LockKiller, lockKey: string): Promise<{ heldBy
 }
 
 describe('A6 · el conductor', () => {
-  it('recorre los cinco pasos en su orden y deja el periodo en cierre suave', async () => {
+  it('walks the six steps in order and ends with the hard close, which carries the month forward (#99)', async () => {
     enterTenant(f.tenantId);
     const julio = await periodOf(f, JULIO);
     const r = await conductClose(ctx, julio, { userId: f.userId });
@@ -279,7 +279,15 @@ describe('A6 · el conductor', () => {
     expect(dep?.processed).toBe(1);
     expect(dep?.journalEntryIds).toHaveLength(1);
 
-    expect(await periodStatusOf(julio.id)).toBe('soft_close');
+    expect(await periodStatusOf(julio.id)).toBe('hard_close');
+    expect(r.steps.find((p) => p.step === 'hard-close')?.detail).toContain(
+      `balances carried into ${(await periodOf(f, AGOSTO)).period_name}`
+    );
+    const carried = await query<{ b: string }>(
+      `SELECT beginning_balance::text AS b FROM account_balances WHERE account_id = $1 AND fiscal_period_id = $2`,
+      [f.roles.banco, f.periodos[AGOSTO]]
+    );
+    expect(carried.rows[0]?.b).toBe('1000.0000');
 
     const steps = await query<{ step_key: string }>(
       `SELECT step_key FROM closing_run_steps WHERE run_id = $1 ORDER BY ordinal`,
@@ -675,7 +683,7 @@ describe('A6 · el conductor', () => {
     expect(resumed.runId).toBe(run.rows[0].id);
     expect(resumed.status).toBe('completed');
     expect(await depreciationIn(march.id)).toBeGreaterThan(0);
-    expect(await periodStatusOf(march.id)).toBe('soft_close');
+    expect(await periodStatusOf(march.id)).toBe('hard_close');
   });
 
   it('a lock lost while the checklist is judged stops the run at the door of the soft close', async () => {
@@ -795,7 +803,7 @@ describe('A6 · el conductor', () => {
     const october = await periodOf(g, 10);
     try {
       engineWatch.afterRecordOf = {
-        step: 'soft-close',
+        step: 'hard-close',
         act: async () => {
           await query(
             `UPDATE closing_runs SET conductor_token = uuid_generate_v4(), heartbeat_at = NOW()
@@ -807,16 +815,16 @@ describe('A6 · el conductor', () => {
       const refusal = (await conductClose(ctxG, october, { userId: g.userId }).catch((e: unknown) => e)) as ClosingRunStateError;
       expect(refusal).toMatchObject({
         code: 'CLOSING_RUN_LOCK_LOST',
-        details: { haltedAtStep: 'soft-close', stepRan: true, stepRecorded: true, takenOver: true },
+        details: { haltedAtStep: 'hard-close', stepRan: true, stepRecorded: true, takenOver: true },
       });
-      expect(refusal.message).toMatch(/after soft-close and its record, without closing the run, after 5 recorded step\(s\)/);
+      expect(refusal.message).toMatch(/after hard-close and its record, without closing the run, after 6 recorded step\(s\)/);
       expect(refusal.message).toMatch(/ended or taken over by another conductor/);
       expect(refusal.message).not.toMatch(/--resume/);
     } finally {
       engineWatch.afterRecordOf = undefined;
     }
-    // The soft close did happen, and its record stands; the run was not this conductor's to close.
-    expect(await periodStatusOf(october.id)).toBe('soft_close');
+    // The hard close did happen, and its record stands; the run was not this conductor's to close.
+    expect(await periodStatusOf(october.id)).toBe('hard_close');
   });
 
   it('a close cycle ended by another path does not abandon a run whose conductor is still beating', async () => {
@@ -1064,7 +1072,7 @@ describe('A6 · el conductor', () => {
   it('un paso inventado se niega antes de tocar nada', async () => {
     enterTenant(f.tenantId);
     await expect(
-      conductClose(ctx, await periodOf(f, 9), { userId: f.userId, stopAt: 'hard-close' as never })
+      conductClose(ctx, await periodOf(f, 9), { userId: f.userId, stopAt: 'seal' as never })
     ).rejects.toMatchObject({ code: 'UNKNOWN_CLOSING_STEP' });
     expect(await openRunOf(f.entityId, (await periodOf(f, 9)).id)).toBeNull();
   });

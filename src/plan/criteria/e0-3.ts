@@ -413,6 +413,61 @@ export const E0_3: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'reconciliation-reopen-reverses-posted-entries',
+    enunciado: 'Reopening a reconciliation is a guarded transition, and a posted one reverses its entries instead of deleting them',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/reconciliation-service.ts',
+        de: '        WHERE id = $1 AND entity_id = $2 AND status = $3`,',
+        a: '        WHERE id = $1 AND entity_id = $2`,',
+        porque: 'the reopen UPDATE loses its state predicate: a concurrent reopen or post lands on a row that already moved, and a posted session could be reopened twice, reversing its entries twice (#302)',
+      },
+      {
+        archivo: 'src/services/banking/reconciliation-service.ts',
+        de: '    if (!REOPENABLE_STATES.has(session.status)) {',
+        a: '    if (false) {',
+        porque: 'the state guard is gone: an in_progress or balanced session is "reopened", and a signature it never had is withdrawn in the audit trail (#302)',
+      },
+      {
+        archivo: 'src/services/banking/reconciliation-service.ts',
+        de: '      reversal = await reverseWithinTransaction(',
+        a: '      await client.query(`DELETE FROM journal_entries WHERE id = $1`, [entry.id]); reversal = await reverseWithinTransaction(',
+        porque: 'a posted entry is corrected by deleting it: the ledger forgets what was booked, which NIF B-1 and the 041 trigger forbid (#302)',
+      },
+    ],
+    evaluar: () => {
+      // MNE-001-130 (#302). Reopening moves a signed session back to
+      // in_progress; from `posted` it also undoes the entries `post` booked.
+      // Both halves are the kind of write that loses money silently when it
+      // is not guarded, so the criterion reads the service itself.
+      const svc = codigoDe('src/services/banking/reconciliation-service.ts');
+      const start = svc.indexOf('export async function reopenSession(');
+      const end = svc.indexOf('export async function contabilizarSesion(');
+      if (start < 0 || end < start) {
+        return falla('reopenSession is gone or moved after post: there is no way out of a trapped month');
+      }
+      const reopen = svc.slice(start, end);
+      if (!/REOPENABLE_STATES = new Set\(\['approved', 'posted'\]\)/.test(svc)) {
+        return falla('the reopenable states are no longer exactly approved and posted');
+      }
+      if (!/if \(!REOPENABLE_STATES\.has\(session\.status\)\) \{/.test(reopen)) {
+        return falla('reopenSession no longer refuses a state it cannot reopen');
+      }
+      if (!/WHERE id = \$1 AND entity_id = \$2 AND status = \$3`/.test(reopen)) {
+        return falla('the reopen UPDATE lost its state or entity predicate (invariant 3)');
+      }
+      if (!/reversal = await reverseWithinTransaction\(/.test(reopen)) {
+        return falla('a posted session is reopened without reversing its entries');
+      }
+      if (/DELETE FROM journal_entries/.test(reopen)) {
+        return falla('the reopen deletes ledger entries instead of reversing them');
+      }
+      return ok('reopen is guarded by state and entity, and a posted session reverses its entries, never deleting them');
+    },
+  },
+
+  {
+    paquete: 'E0.3',
     id: 'reconciled-mark-atomic-unapply-closes',
     enunciado: 'El sello de una partida es todo o nada, y desaplicar lo libera sin borrar el cotejo',
     mutantes: [

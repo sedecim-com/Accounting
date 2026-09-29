@@ -12,6 +12,17 @@ vi.mock('../../src/services/accounting/posting.js', () => ({
   createJournalEntry: vi.fn(),
   attestEntryAsync: vi.fn(),
 }));
+vi.mock('../../src/services/ar/opening-invoices.js', () => ({
+  prepareOpeningInvoices: vi.fn(),
+  skippedUnderDraftMode: vi.fn(),
+  writeOpeningInvoices: vi.fn(),
+}));
+vi.mock('../../src/services/ap/opening-bills.js', () => ({
+  openingPayableIvaPolicy: (value: string) => (value === 'assume_zero_rate' ? value : 'require_rate'),
+  prepareOpeningBills: vi.fn(),
+  payablesSkippedUnderDraftMode: vi.fn(),
+  writeOpeningBills: vi.fn(),
+}));
 vi.mock('../../src/services/policy/policy-service.js', () => ({
   getPolicy: vi.fn(),
 }));
@@ -32,6 +43,16 @@ import { query, withTransaction } from '../../src/database/connection.js';
 import { registrarAuditoria } from '../../src/services/audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync } from '../../src/services/accounting/posting.js';
 import { ValidationError } from '../../src/utils/errors.js';
+import {
+  prepareOpeningInvoices,
+  skippedUnderDraftMode,
+  writeOpeningInvoices,
+} from '../../src/services/ar/opening-invoices.js';
+import {
+  payablesSkippedUnderDraftMode,
+  prepareOpeningBills,
+  writeOpeningBills,
+} from '../../src/services/ap/opening-bills.js';
 import { getPolicy } from '../../src/services/policy/policy-service.js';
 
 const mockQuery = query as unknown as Mock;
@@ -39,7 +60,13 @@ const mockTx = withTransaction as unknown as Mock;
 const mockAudit = registrarAuditoria as unknown as Mock;
 const mockCrear = createJournalEntry as unknown as Mock;
 const mockAtestar = attestEntryAsync as unknown as Mock;
+const mockPrepareInvoices = prepareOpeningInvoices as unknown as Mock;
+const mockWriteInvoices = writeOpeningInvoices as unknown as Mock;
+const mockSkippedUnderDraft = skippedUnderDraftMode as unknown as Mock;
 const mockPolicy = getPolicy as unknown as Mock;
+const mockPrepareBills = prepareOpeningBills as unknown as Mock;
+const mockWriteBills = writeOpeningBills as unknown as Mock;
+const mockBillsSkippedUnderDraft = payablesSkippedUnderDraftMode as unknown as Mock;
 /** What `apertura_modo_de_carga` answers in the test at hand. */
 const loadModeIs = (value: string) =>
   mockPolicy.mockResolvedValue({ key: 'apertura_modo_de_carga', value, defined: true });
@@ -473,8 +500,30 @@ describe('la negativa a cargar CxC agregada', () => {
     expect(h?.numCta).toBe('1120');
     expect(h?.mensaje).toContain('11999.00');
     expect(h?.mensaje).toContain('12000.00');
-    expect(h?.mensaje).toContain('-1.00');
+    // MNE-001-023: a short subledger says what is MISSING, not «sobran -1.00».
+    expect(h?.mensaje).toContain('faltan 1.00');
+    expect(h?.mensaje).not.toContain('-1.00');
     expect(p.puedeCargarse).toBe(false);
+  });
+
+  it('a payable subledger that does not tie stops too, naming the account and the direction (MNE-001-023)', () => {
+    const receivableDocs: OpeningDocument[] = [
+      { cuenta: '1120', documento: 'A-1', contraparte: 'Aceros SA', fecha: '2025-11-02', importe: '12000.00' },
+    ];
+    const short = plan(balanza, cxcYBanco, [
+      ...receivableDocs,
+      { cuenta: '2110', documento: 'F-77', contraparte: 'Papelera', fecha: '2025-12-01', importe: '13000.00' },
+    ]);
+    const h = short.findings.find((f) => f.regla === 'APE-DETALLE-NO-CUADRA');
+    expect(h?.numCta).toBe('2110');
+    expect(h?.mensaje).toContain('suman 13000.00 y la balanza declara 14000.00 para esa cuenta: faltan 1000.00');
+    expect(short.puedeCargarse).toBe(false);
+
+    const over = plan(balanza, cxcYBanco, [
+      ...receivableDocs,
+      { cuenta: '2110', documento: 'F-77', contraparte: 'Papelera', fecha: '2025-12-01', importe: '14500.00' },
+    ]);
+    expect(over.findings.find((f) => f.regla === 'APE-DETALLE-NO-CUADRA')?.mensaje).toContain('sobran 500.00');
   });
 
   it('un documento sin vencimiento entra y se AVISA: la antigüedad no lo podrá clasificar', () => {
@@ -664,6 +713,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockTx.mockImplementation(async (fn: (c: unknown) => Promise<unknown>) => fn({}));
   mockCrear.mockResolvedValue({ id: 'je-1', entry_number: 'JE-2026-0001' });
+  mockPrepareInvoices.mockResolvedValue({ drafts: [], findings: [] });
+  mockSkippedUnderDraft.mockReturnValue({ drafts: [], findings: [] });
+  mockPrepareBills.mockResolvedValue({ drafts: [], findings: [] });
+  mockBillsSkippedUnderDraft.mockReturnValue({ drafts: [], findings: [] });
   loadModeIs('contabilizar');
   conBase();
 });
@@ -1093,5 +1146,119 @@ describe('checkOpeningBalance · the penny check writes nothing and compares Sal
     expect(r.comparison.iguales).toBe(true);
     expect(r.comparison.faltantes).toEqual([]);
     expect(r.comparison.excluded).toEqual([{ code: '800', amount: '75000.0000' }]);
+  });
+});
+
+// ------------------------------------------------------------
+// MNE-001-022 · the receivable documents also become invoices
+// ------------------------------------------------------------
+
+describe('importOpeningBalance · the AR invoices of the opening (MNE-001-022)', () => {
+  const DRAFTS = [{ number: 'A-1' }, { number: 'A-2' }];
+
+  it('writes them in the SAME transaction, linked to the opening entry, and counts them', async () => {
+    const tx = { tx: true };
+    mockTx.mockImplementation(async (fn: (c: unknown) => Promise<unknown>) => fn(tx));
+    mockPrepareInvoices.mockResolvedValue({ drafts: DRAFTS, findings: [] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(true);
+    expect(r.arInvoices).toBe(2);
+    expect(mockPrepareInvoices).toHaveBeenCalledWith('ent-1', expect.objectContaining({ lines: r.lines }));
+    expect(mockWriteInvoices).toHaveBeenCalledWith(tx, 'ent-1', 'user-1', 'je-1', DRAFTS);
+    const auditEntry = mockAudit.mock.calls[0][1] as { newValues: Record<string, unknown> };
+    expect(auditEntry.newValues.ar_invoices).toBe(2);
+    expect(renderOpeningBalanceReport(r)).toContain('2 factura(s) de clientes entran al auxiliar de CxC');
+  });
+
+  it('a blocking finding of the invoices stops the whole load: no entry, no invoice', async () => {
+    const blocking = { regla: 'APE-CXC-OTRA-CUENTA', severidad: 'bloquea', numCta: '1110', mensaje: 'rol' };
+    mockPrepareInvoices.mockResolvedValue({ drafts: DRAFTS, findings: [blocking] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(false);
+    expect(r.findings).toContainEqual(blocking);
+    expect(mockCrear).not.toHaveBeenCalled();
+    expect(mockWriteInvoices).not.toHaveBeenCalled();
+  });
+
+  it('under borrador no invoice is planned or written: the skip is reported instead', async () => {
+    loadModeIs('borrador');
+    const warning = { regla: 'APE-CXC-BORRADOR', severidad: 'aviso', numCta: '1110', mensaje: 'borrador' };
+    mockSkippedUnderDraft.mockReturnValue({ drafts: [], findings: [warning] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(true);
+    expect(r.loadMode).toBe('draft');
+    expect(mockPrepareInvoices).not.toHaveBeenCalled();
+    expect(mockSkippedUnderDraft).toHaveBeenCalledWith(expect.objectContaining({ lines: r.lines }));
+    expect(mockWriteInvoices).toHaveBeenCalledWith(expect.anything(), 'ent-1', 'user-1', 'je-1', []);
+    expect(r.findings).toContainEqual(warning);
+    expect(r.arInvoices).toBe(0);
+  });
+
+  it('a warning is reported and does not stop the load', async () => {
+    const warning = { regla: 'APE-CXC-SIN-ROL', severidad: 'warning', numCta: '1110', mensaje: 'sin rol' };
+    mockPrepareInvoices.mockResolvedValue({ drafts: [], findings: [warning] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(true);
+    expect(r.findings).toContainEqual(warning);
+    expect(renderOpeningBalanceReport(r)).not.toContain('factura(s) de clientes');
+  });
+});
+
+// ------------------------------------------------------------
+// MNE-001-023 · the payable documents also become bills
+// ------------------------------------------------------------
+
+describe('importOpeningBalance · the AP bills of the opening (MNE-001-023)', () => {
+  const DRAFTS = [{ vendorInvoiceNumber: 'F-77' }, { vendorInvoiceNumber: 'F-88' }, { vendorInvoiceNumber: 'F-99' }];
+
+  it('writes them in the SAME transaction as the opening entry and the invoices, and counts them', async () => {
+    const tx = { tx: true };
+    mockTx.mockImplementation(async (fn: (c: unknown) => Promise<unknown>) => fn(tx));
+    const bills = { drafts: DRAFTS, findings: [], voids: ['stale-1'] };
+    mockPrepareBills.mockResolvedValue(bills);
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(true);
+    expect(r.apBills).toBe(3);
+    expect(mockPrepareBills).toHaveBeenCalledWith('ent-1', expect.objectContaining({ lines: r.lines }), 'require_rate');
+    // The drafts AND the stale bills of a reversed opening to void, in the same transaction.
+    expect(mockWriteBills).toHaveBeenCalledWith(tx, 'ent-1', 'user-1', 'je-1', bills);
+    const auditEntry = mockAudit.mock.calls[0][1] as { newValues: Record<string, unknown> };
+    expect(auditEntry.newValues.ap_bills).toBe(3);
+    expect(renderOpeningBalanceReport(r)).toContain('3 factura(s) de proveedores entran al auxiliar de CxP');
+  });
+
+  it('reads opening_payable_iva for THIS entity and hands its answer to the bills plan', async () => {
+    mockPolicy.mockImplementation(async (_scope: unknown, key: string) => ({
+      key,
+      value: key === 'opening_payable_iva' ? 'assume_zero_rate' : 'contabilizar',
+      defined: true,
+    }));
+    mockPrepareBills.mockResolvedValue({ drafts: [], findings: [], voids: [] });
+    await importOpeningBalance(CTX, OPTS);
+    expect(mockPolicy).toHaveBeenCalledWith({ tenantId: CTX.tenantId, entityId: 'ent-1' }, 'opening_payable_iva');
+    expect(mockPrepareBills).toHaveBeenCalledWith('ent-1', expect.anything(), 'assume_zero_rate');
+  });
+
+  it('a blocking finding of the bills stops the whole load: no entry, no invoice, no bill', async () => {
+    const blocking = { regla: 'APE-CXP-OTRA-CUENTA', severidad: 'bloquea', numCta: '2110', mensaje: 'rol' };
+    mockPrepareBills.mockResolvedValue({ drafts: DRAFTS, findings: [blocking] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(false);
+    expect(r.findings).toContainEqual(blocking);
+    expect(mockCrear).not.toHaveBeenCalled();
+    expect(mockWriteInvoices).not.toHaveBeenCalled();
+    expect(mockWriteBills).not.toHaveBeenCalled();
+  });
+
+  it('under borrador no bill is planned: the skip is reported instead', async () => {
+    loadModeIs('borrador');
+    const warning = { regla: 'APE-CXP-BORRADOR', severidad: 'aviso', numCta: '2110', mensaje: 'borrador' };
+    mockBillsSkippedUnderDraft.mockReturnValue({ drafts: [], findings: [warning] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(true);
+    expect(mockPrepareBills).not.toHaveBeenCalled();
+    expect(r.findings).toContainEqual(warning);
+    expect(r.apBills).toBe(0);
+    expect(renderOpeningBalanceReport(r)).not.toContain('factura(s) de proveedores');
   });
 });

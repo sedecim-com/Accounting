@@ -3,6 +3,8 @@ import { bootstrapTenant, listEntities } from '../ai/context.js';
 import {
   createEntity,
   archiveEntity,
+  getEntityTaxProfile,
+  updateEntityTaxProfile,
   COUNTRY_PROFILES,
   type Country,
 } from '../services/entity/entity-service.js';
@@ -43,6 +45,50 @@ import {
 // deprecated alias per the naming rulebook (R9): old names keep
 // working and say so on stderr.
 // ============================================================
+
+const EXAMPLES = {
+  list: `
+Examples:
+  # Every active company of the firm; the pinned one carries a *.
+  mnemosine entity list
+`,
+  show: `
+Examples:
+  # The entity commands would use right now, and why that one.
+  mnemosine entity show
+  # One company by RFC, with its tax regime and fiscal postal code.
+  mnemosine entity show GAL150623QK8 --json
+`,
+  use: `
+Examples:
+  # Pin a company so later commands stop needing --entity.
+  mnemosine entity use GAL150623QK8
+`,
+  create: `
+Examples:
+  # A Mexican company with its c_RegimenFiscal and fiscal postal code.
+  mnemosine entity create "Grupo Alameda SA de CV" --tax-id GAL150623QK8 --tax-regime 601 --tax-postal-code 01000
+  # A US company: the EIN, and the functional currency follows the country.
+  mnemosine entity create "Alameda Holdings Inc" --tax-id 12-3456789 --country USA
+`,
+  edit: `
+Examples:
+  # Declare the regime of an entity created without it.
+  mnemosine entity edit GAL150623QK8 --tax-regime 626 --reason "Tax status certificate 2026"
+  # Correct the fiscal postal code only.
+  mnemosine entity edit GAL150623QK8 --tax-postal-code 64000
+`,
+  archive: `
+Examples:
+  # Archive a company the firm no longer keeps; its ledger stays.
+  mnemosine entity archive GAL150623QK8 --reason "Engagement ended"
+`,
+  unset: `
+Examples:
+  # Go back to naming the company on every command.
+  mnemosine entity unset
+`,
+};
 
 export interface EntityCommandDeps {
   palette: Palette;
@@ -88,6 +134,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
     .description('List the active legal entities');
   withOutput(withSelection(withContext(list)));
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EXAMPLES.list);
   list.action((opts: ListOpts) =>
     run(async () => {
       bootstrapTenant(opts.tenant);
@@ -115,6 +162,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
     .description('Show one entity — with no argument, the one commands would use, and why');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EXAMPLES.show);
   show.action((idOrName: string | undefined, opts: ListOpts & { entity?: string }) =>
     run(async () => {
       bootstrapTenant(opts.tenant);
@@ -128,6 +176,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
         stored: 'pinned with `mnemosine entity use`',
         only: 'the only active entity',
       };
+      const fiscal = await getEntityTaxProfile(ctx.entityId, ctx.tenantId);
       render(
         [
           {
@@ -137,6 +186,9 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
             country: ctx.country,
             currency: ctx.currency,
             standard: ctx.accountingStandard,
+            tax_regime: fiscal.tax_regime,
+            tax_regime_name: fiscal.tax_regime_name,
+            tax_postal_code: fiscal.tax_postal_code,
             selected_because: SOURCE_LABEL[source],
           },
         ],
@@ -156,6 +208,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
   // silently redirecting the operator's next command is exactly the kind of
   // side effect a human must own.
   declareRisk(use, { risk: 'escritura', agent: false, writes: 'active entity pointer (~/.mnemosine/state.json)' });
+  use.addHelpText('after', EXAMPLES.use);
   use.action((idOrName: string, opts: { tenant?: string }) =>
     run(async () => {
       bootstrapTenant(opts.tenant);
@@ -184,10 +237,13 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
     .option('--country <code>', `MX or USA`, 'MX')
     .option('--currency <code>', 'functional currency (defaults to the country\'s)')
     .option('--chart <strategy>', 'auto | siempre | nunca — whether to seed the base chart', 'auto')
+    .option('--tax-regime <code>', 'c_RegimenFiscal code: 601, 612, 626…')
+    .option('--tax-postal-code <cp>', 'fiscal address postal code (5 digits)')
     .option('--json', 'JSON output');
   // Creates rows but touches no ledger, and it is not the agent's to do:
   // bringing a company into existence is a decision with legal consequences.
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'legal_entities, organizations, accounts, asset_categories' });
+  create.addHelpText('after', EXAMPLES.create);
   create.action(
     (
       name: string,
@@ -198,7 +254,10 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
         // optsWithGlobals, not opts: the root program declares --tenant, so
         // Commander keeps the user's value there and this command's own
         // opts.tenant is undefined. See globalsOf() in the kernel.
-        const opts = globalsOf<ListOpts & { taxId: string; country?: string; currency?: string; chart?: string }>(command);
+        const opts = globalsOf<ListOpts & {
+          taxId: string; country?: string; currency?: string; chart?: string;
+          taxRegime?: string; taxPostalCode?: string;
+        }>(command);
         bootstrapTenant(opts.tenant);
         const country = (opts.country ?? 'MX').toUpperCase();
         if (!(country in COUNTRY_PROFILES)) {
@@ -231,8 +290,15 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
           tenantId: opts.tenant,
           createdBy,
           estrategia: chart as 'auto' | 'siempre' | 'nunca',
+          taxRegime: opts.taxRegime,
+          taxPostalCode: opts.taxPostalCode,
         });
 
+        // Warnings go to stderr in both modes: a --json consumer still gets
+        // clean stdout, and the operator still sees what is missing.
+        for (const w of result.warnings) {
+          process.stderr.write(deps.palette.yellow(`  ! ${w}\n`));
+        }
         if (opts.json) {
           render([result as unknown as Record<string, unknown>], { json: true });
           return;
@@ -267,6 +333,50 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
       })
   );
 
+  // ---- entity edit -------------------------------------------------
+  //
+  // Only the fiscal profile for now (#321): regime and fiscal postal code,
+  // validated like `entity create` validates them. Name, RFC and standard
+  // stay out until their own slice decides what a posted ledger allows.
+  const edit = entity
+    .command('edit')
+    .alias('editar')
+    .argument('<idOrName>', 'entity id, tax id, or a fragment of the name')
+    .description('Set the tax regime or fiscal postal code of an entity, validated against the SAT catalog');
+  withContext(edit);
+  edit
+    .option('--tax-regime <code>', 'c_RegimenFiscal code: 601, 612, 626…')
+    .option('--tax-postal-code <cp>', 'fiscal address postal code (5 digits)')
+    .option('--reason <text>', 'justification recorded in the audit trail')
+    .option('--json', 'JSON output');
+  declareRisk(edit, { risk: 'escritura', agent: false, writes: 'legal_entities.tax_regime/tax_postal_code' });
+  edit.addHelpText('after', EXAMPLES.edit);
+  edit.action((idOrName: string, _opts: ListOpts, command: Command) =>
+    run(async () => {
+      const opts = globalsOf<ListOpts & {
+        taxRegime?: string; taxPostalCode?: string; reason?: string; json?: boolean;
+      }>(command);
+      bootstrapTenant(opts.tenant);
+      const { ctx } = await resolveActiveEntity({ entity: idOrName }, { home: deps.home });
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const profile = await updateEntityTaxProfile(
+        ctx.entityId,
+        ctx.tenantId,
+        { taxRegime: opts.taxRegime, taxPostalCode: opts.taxPostalCode },
+        { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason }
+      );
+      if (opts.json) {
+        render([{ id: ctx.entityId, ...profile }], { json: true });
+        return;
+      }
+      const p = deps.palette;
+      process.stdout.write(
+        `${p.green('✔')} ${p.bold(ctx.entityName)} fiscal profile updated ` +
+          p.dim(`(regime ${profile.tax_regime ?? '—'}, postal code ${profile.tax_postal_code ?? '—'})\n`)
+      );
+    })
+  );
+
   // ---- entity archive ----------------------------------------------
   const archive = entity
     .command('archive')
@@ -278,6 +388,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
   // declaring it twice is a Commander error at startup. That collision is
   // the kernel doing its job — the safety flags have exactly one owner.
   declareRisk(archive, { risk: 'escritura', agent: false, writes: 'legal_entities.is_active' });
+  archive.addHelpText('after', EXAMPLES.archive);
   archive.action((idOrName: string, opts: ListOpts & { reason?: string }) =>
     run(async () => {
       bootstrapTenant(opts.tenant);
@@ -298,6 +409,7 @@ export function registerEntityCommand(program: Command, deps: EntityCommandDeps)
     .alias('limpiar')
     .description('Clear the pinned entity; commands go back to requiring --entity');
   declareRisk(unset, { risk: 'escritura', agent: false, writes: 'active entity pointer' });
+  unset.addHelpText('after', EXAMPLES.unset);
   unset.action(() =>
     run(async () => {
       const had = readState(deps.home).entityName;

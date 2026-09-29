@@ -65,6 +65,21 @@ vi.mock('../../src/ai/close-service.js', () => ({
   },
 }));
 
+// The house period resolver (#327), answered from the same world: an id or
+// the YYYY-MM of a listed period finds it, anything else is NOT_FOUND.
+vi.mock('../../src/services/accounting/fiscal-calendar-service.js', async (importOriginal) => {
+  const { NotFoundError } = await import('../../src/utils/errors.js');
+  return {
+    ...(await importOriginal<object>()),
+    resolvePeriod: (_entityId: string, ref: string) => {
+      const hit = (mundo.periodos as ClosablePeriod[]).find(
+        (p) => p.id === ref || p.start_date.startsWith(`${ref}-`)
+      );
+      return hit ? Promise.resolve(hit) : Promise.reject(new NotFoundError('Fiscal period', ref));
+    },
+  };
+});
+
 vi.mock('../../src/services/accounting/close-explain.js', () => ({
   explainCloseCheck: () => {
     mundo.consultas += 1;
@@ -420,6 +435,17 @@ describe('closing explain · la lente, no el veredicto', () => {
     expect(sobre.truncated).toBe(true);
     expect(r.err, 'el remedio es nota: viaja por stderr, no ensucia el pipe').toMatch(/fix with:/);
   });
+
+  it('json and csv carry the remedy in every row: the stderr note is lost in a file (#99)', async () => {
+    mundo.periodos = [PERIODO];
+    mundo.explicacion = EXPLICACION;
+    const json = await correr(['closing', 'explain', 'bank-items-overdue', '--json']);
+    const rows = (JSON.parse(json.out) as { rows: Array<Record<string, unknown>> }).rows;
+    expect(rows.map((x) => x.fix_with)).toEqual([EXPLICACION.remedio, EXPLICACION.remedio]);
+    const csv = await correr(['closing', 'explain', 'bank-items-overdue', '--format', 'csv']);
+    expect(csv.out.split('\n')[0]).toMatch(/fix_with/);
+    expect(csv.out).toContain('mnemosine bank reconciling-item assign');
+  });
 });
 
 // ============================================================
@@ -570,6 +596,17 @@ describe('A6 · la última línea dice lo que de verdad pasó', () => {
     expect(r).not.toMatch(/Fix the cause/);
   });
 
+  it('past the soft close there is nothing to resume: the seal goes to close --hard (#99)', () => {
+    for (const r of [
+      runClosingLine({ ...base, status: 'stopped', haltedAtStep: 'hard-close' }, 'hard-close'),
+      runClosingLine({ ...base, status: 'failed', haltedAtStep: 'hard-close' }),
+    ]) {
+      expect(r).toMatch(/the period is soft-closed/);
+      expect(r).toContain('mnemosine close --period "July 2026" --hard');
+      expect(r).not.toMatch(/--resume/);
+    }
+  });
+
   it('bloqueado y fallido dicen dónde, y cómo continuar', () => {
     expect(runClosingLine({ ...base, status: 'blocked', haltedAtStep: 'verify-checklist' })).toMatch(
       /Blocked at verify-checklist.*--resume/
@@ -642,12 +679,14 @@ describe('A6 · el orden de los pasos es contrato', () => {
       'depreciate-assets',
       'verify-checklist',
       'soft-close',
+      'hard-close',
     ]);
   });
 
   it('isClosingStep no admite un paso inventado', () => {
     expect(isClosingStep('soft-close')).toBe(true);
-    expect(isClosingStep('hard-close')).toBe(false);
+    expect(isClosingStep('hard-close')).toBe(true);
+    expect(isClosingStep('seal')).toBe(false);
     expect(isClosingStep('')).toBe(false);
   });
 });

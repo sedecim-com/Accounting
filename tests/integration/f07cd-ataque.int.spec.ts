@@ -388,8 +388,9 @@ describe('el tercero extranjero (05) y sus tres datos', () => {
   }, 60_000);
 
   it('completo, el extranjero se declara por su identificación fiscal y NO por RFC', async () => {
+    // 2025 catalog (MNE-001-055): a foreign supplier takes 02, 03 or 07, never 85.
     const v = await sembrarProveedor(f.entityId, f.userId, 'Complete Foreign Co', {
-      rfc: null, tipoTercero: '05', tipoOperacion: '85',
+      rfc: null, tipoTercero: '05', tipoOperacion: '03',
       idFiscalExtranjero: '12-3456789', paisResidencia: 'USA', nacionalidad: 'Estadounidense',
     });
     const g = await sembrarGasto(f, v, MES, 'PPD', [

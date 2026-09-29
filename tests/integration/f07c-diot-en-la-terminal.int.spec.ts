@@ -12,7 +12,6 @@ import { approveBill } from '../../src/services/ap/bill-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { registerDiotCommand, TITULAR_NO_PRESENTADA } from '../../src/cli/diot-command.js';
 import { ExitCode } from '../../src/cli/kernel/index.js';
-import { LO_QUE_FALTA_CONFIRMAR } from '../../src/services/sat/diot/index.js';
 
 // ============================================================
 // F07c · LAS TRES HOJAS DE `diot`, CONTRA POSTGRES DE VERDAD
@@ -203,9 +202,23 @@ describe('diot generate · lo que imprime la terminal es lo que movió el mayor'
       'diot_tipo_operacion_por_omision',
       'diot_tercero_sin_rfc',
       'diot_iva_exento_y_base',
+      'diot_default_operation_type_foreign',
+      'diot_creditable_iva_proportion',
     ]) {
       expect(fila[`criterio_${clave}`], clave).toBeTruthy();
     }
+  });
+
+  it('diot export --layout sat writes the batch .txt from the real ledger, exits 0 and files nothing', async () => {
+    // Runs while May is still clean: the vendor without RFC is seeded later.
+    const target = path.join(tmpRaiz, 'diot-sat-202605.txt');
+    const r = await correr(['diot', 'export', ...PERIODO, '--layout', 'sat', '-o', target]);
+    expect(r.exitCode, r.err).toBe(ExitCode.OK);
+    const fields = fs.readFileSync(target, 'utf8').split('|');
+    expect(fields).toHaveLength(54);
+    expect(fields.slice(0, 3)).toEqual(['04', '03', 'SDG010101AA1']);
+    expect([fields[11], fields[21], fields[53]]).toEqual(['1000', '160', '01']);
+    expect(r.err).toContain(TITULAR_NO_PRESENTADA);
   });
 
   it('un mes sin una sola operación pagada no inventa terceros y sigue saliendo 0', async () => {
@@ -227,7 +240,10 @@ describe('diot check · las verificaciones contra el libro real', () => {
     const r = await correr(['diot', 'check', ...PERIODO]);
     expect(r.exitCode, `${r.out}${r.err}`).toBe(ExitCode.OK);
     expect(r.out).toContain('DIOT-PUE-SIN-PAGO');
-    expect(r.out).toMatch(/0 bloqueante\(s\), 1 aviso\(s\)/);
+    // The second notice: diot_creditable_iva_proportion is unanswered, so its
+    // default is named on every DIOT instead of applied in silence.
+    expect(r.out).toContain('DIOT-PROPORTION-BY-DEFAULT');
+    expect(r.out).toMatch(/0 bloqueante\(s\), 2 aviso\(s\)/);
 
     // El contrato §4: un aviso sólo tumba la tubería si se pide.
     const estricto = await correr(['diot', 'check', ...PERIODO, '--strict']);
@@ -256,7 +272,7 @@ describe('diot check · las verificaciones contra el libro real', () => {
   });
 });
 
-describe('diot export · el papel de trabajo que se escribe, y el lote que se niega', () => {
+describe('diot export · el papel de trabajo y el lote del SAT', () => {
   it('escribe un papel de trabajo con el tercero y sus casillas', async () => {
     const destino = path.join(tmpRaiz, 'diot-202605.txt');
     const r = await correr(['diot', 'export', ...PERIODO, '-o', destino]);
@@ -279,13 +295,10 @@ describe('diot export · el papel de trabajo que se escribe, y el lote que se ni
     expect(fs.readFileSync(a)).toEqual(fs.readFileSync(b));
   });
 
-  it('--layout sat NO inventa el archivo: se niega y enumera lo que falta', async () => {
+  it('--layout sat does not write an empty batch file for a month without third parties', async () => {
     const r = await correr(['diot', 'export', '--period', '2026-11', '--layout', 'sat']);
-    // Noviembre no tiene bloqueantes (no tiene nada), así que la negativa que
-    // llega es la del LAYOUT y no la de entregabilidad: 11, no 4.
-    expect(r.exitCode).toBe(ExitCode.NEEDS_HUMAN);
-    const mensaje = (r.errs[0] as Error).message;
-    for (const punto of LO_QUE_FALTA_CONFIRMAR) expect(mensaje).toContain(punto);
+    expect(r.exitCode).toBe(ExitCode.VALIDATION);
+    expect((r.errs[0] as Error).message).toContain('no tiene terceros');
     expect(r.out).toBe('');
   });
 });

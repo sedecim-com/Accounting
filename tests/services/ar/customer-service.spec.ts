@@ -42,6 +42,14 @@ vi.mock('../../../src/database/scope.js', async () => {
 });
 
 
+// "Today" comes from zona_horaria through its own resolver (#242), which the
+// zone tests cover; here it is a fixed day so the query sequences stay aligned.
+vi.mock('../../../src/services/policy/today.js', () => ({
+  todayFor: vi.fn(async () => '2026-10-31'),
+  todayForEntity: vi.fn(async () => '2026-10-31'),
+  todayForCustomer: vi.fn(async () => '2026-10-31'),
+}));
+
 import {
   listCustomers,
   getCustomerById,

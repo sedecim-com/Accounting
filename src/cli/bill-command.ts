@@ -52,6 +52,7 @@ import {
   type ExitCodeValue,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { registerBillRuleCommands } from './bill-rule-command.js';
 
 // ============================================================
 // mnemosine bill
@@ -1294,6 +1295,9 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         return needsHuman === failed ? ExitCode.NEEDS_HUMAN : ExitCode.FAILURE;
       })
   );
+
+  // ---- bill rule create|list (ING-2 · #319, MNE-001-032) ---------
+  registerBillRuleCommands(bill, { palette: deps.palette, home: deps.home, run });
 }
 
 /**

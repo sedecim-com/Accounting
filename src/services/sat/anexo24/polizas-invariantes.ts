@@ -1,6 +1,15 @@
 import Decimal from 'decimal.js';
 import { DECIMALES_IMPORTE_ANEXO24 } from './xml.js';
-import type { NodoDePago, Poliza, Transaccion } from './polizas-xml.js';
+import {
+  COMPROBANTES_DE_POLIZA,
+  describeOffListValue,
+  offListValuesOfPayment,
+  offListValuesOfVoucher,
+  PREFIJO_POLIZAS,
+  type NodoDePago,
+  type Poliza,
+  type Transaccion,
+} from './polizas-xml.js';
 
 // ============================================================
 // F07d · LAS INVARIANTES DE LAS PÓLIZAS, SIN TOCAR LA BASE
@@ -39,12 +48,23 @@ import type { NodoDePago, Poliza, Transaccion } from './polizas-xml.js';
 // aceptar en silencio. Es literalmente la lección de F07a con el c_CodAgrup:
 // rechazar contra un catálogo ausente es inventarse una respuesta, y
 // aprobar contra un catálogo ausente es inventarse la contraria.
+//
+// TWO LISTS FOR c_Banco, AND WHAT EACH ONE SAYS (#404). The official XSD
+// declares c_Banco as a closed enumeration, and it is always there: a code off
+// it is refused by the SAT's schema whatever `sat_bancos` holds, so it blocks
+// first and names the XSD. `sat_bancos` is the list in force that the firm
+// seeds (migration 064); it can only narrow the XSD's list, and it is checked
+// second. The same holds for c_Moneda, c_MetPagos and the CFD_CBB_Serie
+// pattern (`code-in-official-list`). The builder refuses these values only as
+// a last resort; the service builds the XML anyway so the accountant can look
+// at what is wrong.
 // ============================================================
 
 export const POLIZA_CHECK_NAMES = [
   'poliza-cuadra',
   'poliza-con-dinero-sin-rastro',
   'banco-en-catalogo',
+  'code-in-official-list',
   'uuid-de-comprobante',
   'comprobante-sin-rfc-usable',
   'renglon-con-un-solo-lado',
@@ -203,7 +223,21 @@ export function bancoEnCatalogo(
   for (const p of polizas) {
     for (const t of p.transacciones) {
       for (const pago of t.pagos ?? []) {
+        const offXsd = offListValuesOfPayment(pago).filter((v) => v.rule === 'c_Banco');
+        for (const v of offXsd) {
+          hs.push(
+            hallazgo(
+              'banco-en-catalogo',
+              'blocking',
+              p.numUnIdenPol,
+              `${describeOffListValue(v)}: el esquema del SAT rechaza el archivo entero. ` +
+                `Corrige la clave de banco de la cuenta o del pago de esta póliza.`
+            )
+          );
+        }
         for (const [campo, clave] of clavesDeBanco(pago)) {
+          // Off the XSD's list is already reported above, and says more.
+          if (offXsd.some((v) => v.attribute === campo)) continue;
           const estado = estadoDeBanco(clave, bancos);
           if (estado === 'fuera_de_catalogo') {
             hs.push(
@@ -222,10 +256,11 @@ export function bancoEnCatalogo(
                 'banco-en-catalogo',
                 'warning',
                 '',
-                `Las claves de banco de este archivo SE EMITEN SIN VALIDAR: la tabla \`sat_bancos\` ` +
-                  `(el c_Banco, migración 064) está vacía, así que comprobarlas sería comparar contra ` +
-                  `la nada. Siembra el catálogo para que esta comprobación afirme algo; mientras tanto ` +
-                  `no dice que las claves sean correctas, dice que no se miraron.`
+                `Las claves de banco de este archivo se comprobaron contra la enumeración c_Banco del ` +
+                  `XSD oficial, pero NO contra el c_Banco vigente: la tabla \`sat_bancos\` (migración ` +
+                  `064) está vacía. Una clave dada de baja después del XSD pasaría; siembra el catálogo ` +
+                  `para que esta comprobación afirme algo. Sobre la lista vigente no dice que las claves ` +
+                  `sean correctas, dice que no se miraron.`
               )
             );
           }
@@ -234,6 +269,33 @@ export function bancoEnCatalogo(
     }
   }
   return hs;
+}
+
+/**
+ * THE OTHER CLOSED LISTS: c_Moneda on every voucher and payment, c_MetPagos
+ * on `OtrMetodoPago`, and the pattern of `CFD_CBB_Serie`. The SAT's schema
+ * refuses the whole file for one of them, so each blocks and names its entry.
+ * Bank codes are `banco-en-catalogo`'s, which also weighs `sat_bancos`.
+ */
+export function codeInOfficialList(entries: readonly Poliza[]): HallazgoPoliza[] {
+  return entries.flatMap((p) =>
+    p.transacciones.flatMap((t) =>
+      [
+        ...(t.comprobantes ?? []).flatMap((c) =>
+          offListValuesOfVoucher(PREFIJO_POLIZAS, COMPROBANTES_DE_POLIZA, c)
+        ),
+        ...(t.pagos ?? []).flatMap(offListValuesOfPayment).filter((v) => v.rule !== 'c_Banco'),
+      ].map((v) =>
+        hallazgo(
+          'code-in-official-list',
+          'blocking',
+          p.numUnIdenPol,
+          `${describeOffListValue(v)}: el esquema del SAT rechaza el archivo entero. Corrige el ` +
+            `dato de origen de esta póliza.`
+        )
+      )
+    )
+  );
 }
 
 /** Los campos de clave de banco NACIONAL de cada nodo de pago, con su nombre. */
@@ -394,6 +456,7 @@ export function correrVerificaciones(
     hs.push(...polizaConDineroSinRastro(ctx.sinRastro));
   }
   if (checks.includes('banco-en-catalogo')) hs.push(...bancoEnCatalogo(ctx.polizas, ctx.bancos));
+  if (checks.includes('code-in-official-list')) hs.push(...codeInOfficialList(ctx.polizas));
   if (checks.includes('uuid-de-comprobante')) {
     hs.push(...uuidDeComprobante(ctx.polizas, ctx.validarUuids));
   }
