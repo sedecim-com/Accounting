@@ -16,7 +16,6 @@ import {
 import { voidJournalEntryInTx, reverseWithinTransaction } from '../accounting/posting.js';
 import { earlyPaymentDiscount } from '../ap/bill-service.js';
 import {
-  desgloseCambiarioDelPago,
   functionalCurrencyOf,
   resolverTipoCambio,
   type AplicacionCambiaria,
@@ -340,6 +339,62 @@ function assertMoneda(numero: string, delDocumento: string, delPago: string | un
   }
 }
 
+/**
+ * R4 · The exchange context of a payment or a collection, or null when its
+ * documents are in the entity's functional currency.
+ *
+ * assertMoneda already made the payment and its documents share a currency;
+ * what is left is whether that currency is the functional one. If it is not,
+ * the entry needs the rate of the PAYMENT DAY: explicit from the caller, or
+ * resolved from exchange_rates with the source the `fuente_tipo_cambio`
+ * policy dictates. Each document is extinguished at the rate it was born
+ * with (bills.exchange_rate, or the one MNE-001-081 wrote back to the
+ * invoice), so a document still carrying the 1.0 capture default was booked
+ * unconverted and is refused: paying it here would invent an "exchange
+ * difference" that is really the conversion that never happened.
+ *
+ * One reader for both sides (vendor payment and customer receipt, since
+ * MNE-001-082), so the two cannot drift on which rate a day has.
+ */
+async function foreignCurrencyContext(
+  client: pg.PoolClient,
+  entrada: EntradaPago,
+  documentos: DocumentoAplicado[],
+  apps: AplicacionCambiaria[],
+  settle: 'pagarlo' | 'cobrarlo'
+): Promise<ContextoCambiario | null> {
+  if (documentos.length === 0) return null;
+  const funcional = await functionalCurrencyOf(client, entrada.entityId);
+  const moneda = currencyOf(documentos);
+  if (moneda === funcional) return null;
+
+  for (const a of apps) {
+    const th = new Decimal(a.tasaHistorica || '0');
+    if (!th.greaterThan(0) || th.equals(1)) {
+      throw new ValidationError(
+        `${a.numero} está en ${moneda} pero su exchange_rate es ` +
+          `${a.tasaHistorica} (el default de captura): se asentó sin ` +
+          `convertir. Corrige el documento antes de ${settle} — la diferencia ` +
+          `cambiaria se mide contra la tasa a la que el documento nació (NIF B-15).`
+      );
+    }
+  }
+  if (entrada.exchangeRate !== undefined) {
+    if (!new Decimal(entrada.exchangeRate).greaterThan(0)) {
+      throw new ValidationError(
+        `El tipo de cambio del pago (${entrada.exchangeRate}) tiene que ser mayor que cero.`
+      );
+    }
+    return { moneda, monedaFuncional: funcional, tasaPago: entrada.exchangeRate, fuenteTasa: 'parametro', aplicaciones: apps };
+  }
+  const resolved = await resolverTipoCambio(
+    client,
+    { tenantId: await tenantDe(client, entrada.entityId), entityId: entrada.entityId },
+    { de: moneda, a: funcional, fecha: entrada.paymentDate }
+  );
+  return { moneda, monedaFuncional: funcional, tasaPago: resolved.tasa, fuenteTasa: resolved.fuente, aplicaciones: apps };
+}
+
 // ── Proveedores ──
 
 export async function recordVendorPayment(
@@ -424,55 +479,7 @@ export async function recordVendorPayment(
       });
     }
 
-    // ── R4 · ¿EL PAGO ESTÁ EN OTRA MONEDA QUE LOS LIBROS? ──────────────
-    //
-    // assertMoneda ya garantizó que pago y documentos comparten moneda; lo
-    // que falta saber es si esa moneda es la funcional. Si no lo es, el
-    // asiento necesita la tasa del DÍA DEL PAGO: explícita del llamador, o
-    // resuelta de exchange_rates con la fuente que dicta la política
-    // `fuente_tipo_cambio` (su primer lector real).
-    let fx: ContextoCambiario | null = null;
-    if (documentos.length > 0) {
-      const funcional = await functionalCurrencyOf(client, entrada.entityId);
-      const moneda = currencyOf(documentos);
-      if (moneda !== funcional) {
-        for (const a of fxApps) {
-          const th = new Decimal(a.tasaHistorica || '0');
-          // Un gasto extranjero con tasa 1.0 (el default de captura) o nula
-          // se asentó sin convertir — anterior a R4 o capturado a medias.
-          // Pagarlo por este camino fabricaría una «diferencia cambiaria»
-          // que es en realidad la conversión que nunca ocurrió.
-          if (!th.greaterThan(0) || th.equals(1)) {
-            throw new ValidationError(
-              `${a.numero} está en ${moneda} pero su exchange_rate es ` +
-                `${a.tasaHistorica} (el default de captura): su pasivo se asentó sin ` +
-                `convertir. Corrige el documento antes de pagarlo — la diferencia ` +
-                `cambiaria se mide contra la tasa a la que el pasivo nació (NIF B-15).`
-            );
-          }
-        }
-        let tasaPago: string;
-        let fuenteTasa: string;
-        if (entrada.exchangeRate !== undefined) {
-          if (!new Decimal(entrada.exchangeRate).greaterThan(0)) {
-            throw new ValidationError(
-              `El tipo de cambio del pago (${entrada.exchangeRate}) tiene que ser mayor que cero.`
-            );
-          }
-          tasaPago = entrada.exchangeRate;
-          fuenteTasa = 'parametro';
-        } else {
-          const resuelto = await resolverTipoCambio(
-            client,
-            { tenantId: await tenantDe(client, entrada.entityId), entityId: entrada.entityId },
-            { de: moneda, a: funcional, fecha: entrada.paymentDate }
-          );
-          tasaPago = resuelto.tasa;
-          fuenteTasa = resuelto.fuente;
-        }
-        fx = { moneda, monedaFuncional: funcional, tasaPago, fuenteTasa, aplicaciones: fxApps };
-      }
-    }
+    const fx = await foreignCurrencyContext(client, entrada, documentos, fxApps, 'pagarlo');
 
     const vendorId = entrada.counterpartyId
       ?? (await client.query<{ vendor_id: string }>(
@@ -584,14 +591,11 @@ export async function recordVendorPayment(
       fx ?? undefined
     );
 
-    // La misma aritmética pura que usó el asiento: determinista, así que
-    // bitácora y mayor no pueden contar historias distintas.
-    const diferencia = fx
-      ? {
-          ...desgloseCambiarioDelPago(entrada.paymentAmount, fx).diferencia,
-          tasaPago: fx.tasaPago,
-          fuente: fx.fuenteTasa,
-        }
+    // The difference the entry itself booked (cash, bills and the IVA gap
+    // between the bill's rate and today's), so the audit trail and the
+    // ledger cannot tell different stories.
+    const diferencia = fx && entry?.realisedFx
+      ? { ...entry.realisedFx, tasaPago: fx.tasaPago, fuente: fx.fuenteTasa }
       : null;
 
     // R1: el pago deja su rastro propio — antes sólo el asiento derivado
@@ -655,13 +659,18 @@ export async function recordCustomerPayment(
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     const documentos: DocumentoAplicado[] = [];
+    // What the exchange breakdown needs from each invoice: the rate its
+    // receivable was born with travels next to what is applied.
+    const fxApps: AplicacionCambiaria[] = [];
 
     for (const app of entrada.applications) {
       const r = await client.query<{
         id: string; invoice_number: string; amount_due: string; amount_paid: string;
-        customer_id: string; currency_code: string; status: string;
+        customer_id: string; currency_code: string; status: string; exchange_rate: string;
+        total_amount: string;
       }>(
-        `SELECT id, invoice_number, amount_due, amount_paid, customer_id, currency_code, status
+        `SELECT id, invoice_number, amount_due, amount_paid, customer_id, currency_code, status,
+                exchange_rate::text AS exchange_rate, total_amount::text AS total_amount
            FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entrada.entityId]
       );
@@ -695,6 +704,38 @@ export async function recordCustomerPayment(
         estado: nuevo.lessThanOrEqualTo(0) ? 'paid' : 'partially_paid',
         moneda: inv.currency_code,
       });
+      fxApps.push({
+        billId: inv.id,
+        numero: inv.invoice_number,
+        aplicado: aplicado.toFixed(4),
+        descuento: '0',
+        tasaHistorica: inv.exchange_rate,
+        priorApplied: new Decimal(inv.amount_paid).toFixed(4),
+        documentTotal: new Decimal(inv.total_amount).toFixed(4),
+      });
+    }
+
+    // MNE-001-082 · A FOREIGN-CURRENCY COLLECTION CONVERTS AND REALISES ITS
+    // DIFFERENCE (NIF B-15), with the same reader the vendor payment uses:
+    // each receivable is extinguished at the rate its invoice was born with,
+    // the cash comes in at the rate of the collection day, and the gap goes
+    // to utilidad_cambiaria / perdida_cambiaria.
+    const fx = await foreignCurrencyContext(client, entrada, documentos, fxApps, 'cobrarlo');
+    // Cash left on account in another currency is refused, not converted:
+    // applying it later (`applyCustomerPayment`) and unapplying it do not
+    // convert, so an advance born here would be moved later as if its dollars
+    // were pesos. T23 refuses the pure foreign advance for the same reason.
+    if (fx) {
+      const applied = fxApps.reduce((s, a) => s.plus(a.aplicado), new Decimal(0));
+      const onAccount = new Decimal(entrada.paymentAmount).minus(applied);
+      if (onAccount.greaterThan(0)) {
+        throw new AccountingError(
+          'FX_AR_ON_ACCOUNT_NOT_WIRED',
+          `El cobro en ${fx.moneda} deja ${onAccount.toFixed(2)} a cuenta del cliente. Un saldo a ` +
+            'cuenta en otra moneda todavía no se puede aplicar ni desaplicar convertido, así que ' +
+            `no lo registro: aplica el cobro completo a facturas en ${fx.moneda}.`
+        );
+      }
     }
 
     const customerId = entrada.counterpartyId
@@ -725,10 +766,10 @@ export async function recordCustomerPayment(
       // SE REHÚSA, NO SE CONVIERTE, y es deliberado: convertir exige elegir una
       // tasa y una FUENTE, y esa es una decisión del despacho
       // (`fuente_tipo_cambio`), no un valor por omisión que esta función pueda
-      // inventarse. Es además lo que el manual ya promete para cuentas por
-      // cobrar — «a foreign-currency invoice REFUSES to post (phase 2) rather
-      // than record dollars as pesos»—; el anticipo era la puerta por la que
-      // esa promesa no se cumplía.
+      // inventarse. It is the same promise the receivables manual makes for
+      // cash left on account by a foreign-currency collection
+      // (FX_AR_ON_ACCOUNT_NOT_WIRED, above): nothing records dollars as pesos,
+      // and the advance was the door through which that promise was not kept.
       const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);
       if (advanceCurrency !== functionalCurrency) {
         throw new ValidationError(
@@ -756,14 +797,17 @@ export async function recordCustomerPayment(
          id, entity_id, payment_number, customer_id, payment_amount, currency_code,
          payment_method, reference_number, bank_account_id, payment_date,
          status, created_by, cfdi_uuid, cfdi_pago_indice,
-         check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+         check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero, exchange_rate
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
       [paymentId, entrada.entityId, paymentNumber, customerId, entrada.paymentAmount,
        advanceCurrency ?? currencyOf(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate, ESTADO, userId,
        entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null,
        oNulo(entrada.checkNumber), oNulo(entrada.cuentaDestino),
-       oNulo(entrada.bancoDestinoSat), oNulo(entrada.bancoDestinoExtranjero)]
+       oNulo(entrada.bancoDestinoSat), oNulo(entrada.bancoDestinoExtranjero),
+       // The rate of the collection day in foreign currency, an explicit 1.0
+       // in the functional one: the column's DEFAULT cannot tell the two apart.
+       fx?.tasaPago ?? '1.0']
     );
 
     for (const app of entrada.applications) {
@@ -794,8 +838,15 @@ export async function recordCustomerPayment(
         bank_account_id: entrada.bankAccountId ?? null,
         journal_entry_id: null,
       },
-      userId
+      userId,
+      fx ?? undefined
     );
+
+    // The difference the entry itself booked, so the audit trail and the
+    // ledger cannot tell different stories.
+    const fxDifference = fx && entry?.realisedFx
+      ? { ...entry.realisedFx, tasaPago: fx.tasaPago, fuente: fx.fuenteTasa }
+      : null;
 
     // R1: mismo rastro que el pago a proveedor, del lado del cobro.
     await registrarAuditoria(client, {
@@ -809,6 +860,15 @@ export async function recordCustomerPayment(
         payment_amount: entrada.paymentAmount,
         journal_entry_id: entry?.id ?? null,
         documentos: documentos.length,
+        ...(fx && fxDifference
+          ? {
+              moneda: fx.moneda,
+              tipo_cambio_pago: fx.tasaPago,
+              fuente_tipo_cambio: fx.fuenteTasa,
+              diferencia_cambiaria: fxDifference.montoFuncional,
+              diferencia_cambiaria_tipo: fxDifference.tipo,
+            }
+          : {}),
       },
     });
 
@@ -816,6 +876,7 @@ export async function recordCustomerPayment(
       paymentId, paymentNumber, journalEntry: entry,
       attestation: entry ? { entityId: entrada.entityId, entryId: entry.id } : null,
       documentos,
+      diferenciaCambiaria: fxDifference,
     };
     if (opts.dryRun) throw new EnsayoTerminado(salida);
     return salida;
@@ -1128,6 +1189,15 @@ export async function unapplyCustomerPayment(
 ): Promise<ResultadoDesaplicacion> {
   const correr = async (client: pg.PoolClient): Promise<ResultadoDesaplicacion> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
+    // MNE-001-082: a foreign-currency collection now exists, and its unapply
+    // entry would move the applied dollars between cxc and anticipo_clientes
+    // as if they were pesos. Refused, like the vendor side, until it converts.
+    if (pago.currency_code !== (await functionalCurrencyOf(client, entityId))) {
+      throw new ValidationError(
+        `${pago.payment_number} is in ${pago.currency_code}: unapplying a foreign-currency collection ` +
+          'needs the rate of each leg, which its allocations do not store.'
+      );
+    }
 
     const inv = await client.query<{
       id: string; invoice_number: string; amount_due: string; amount_paid: string;

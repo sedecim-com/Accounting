@@ -251,7 +251,11 @@ const MUTANTES = new Set(['escritura', 'irreversible', 'externo']);
 // tree that `web start` lands on. Eight leaves with examples arrived in merges
 // without moving the line, and `web start` is the ninth. `npm run ux:status`
 // crosses it: 231 leaves − 47 without an example = 184.
-const SUELO_HOJAS_CON_EJEMPLOS = 184;
+// 184 -> 206 (MNE-001-017): measured on the tree where `entity edit` lands,
+// merged with main. `npm run ux:status` crosses it: 247 leaves − 41 without
+// an example = 206. The seven `entity` leaves are seven of those points; the
+// rest arrived in merges without moving the line.
+const SUELO_HOJAS_CON_EJEMPLOS = 206;
 
 /**
  * LOS TRES SUELOS SE VOLVIERON A MEDIR AL CERRAR EL LOTE, Y CONTRA EL ÁRBOL

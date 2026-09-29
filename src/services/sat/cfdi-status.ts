@@ -181,6 +181,39 @@ export interface RevalidacionResumen {
   cancelados: number;
   no_encontrados: number;
   errores: number;
+  /** Stamped invoices this sweep marked cancelled because the SAT says so. */
+  invoices_cancelled: number;
+}
+
+/**
+ * THE SAT'S WORD REACHES THE INVOICE (MNE-001-076, #313).
+ *
+ * When the SAT reports an issued CFDI as «Cancelado», the receivable invoice
+ * that carries its UUID becomes `cfdi_status = 'cancelled'`. Before this
+ * bridge only `xml_documents.sat_estado` learned it, and the AR control
+ * `cancelled-cfdi-open` (ar-controls.ts), which reads `invoices.cfdi_status`,
+ * never fired: a cancelled CFDI stayed collectable.
+ *
+ * Guarded UPDATE (invariant 3): the state predicate (only a 'stamped' CFDI
+ * can be cancelled by the SAT) and the entity scope live in the same
+ * statement. Zero rows is a legitimate answer, not a silent loss: a received
+ * CFDI has no invoice, and an invoice already marked stays as it is. The
+ * count is returned so the caller reports what moved.
+ *
+ * It does not touch `status`, the ledger or the balance: what the cancelled
+ * invoice means for the books is the accountant's call, and the control is
+ * what puts it in front of them. EFIRMA-3 (#441) reuses this bridge.
+ */
+export async function markInvoiceCfdiCancelled(entityId: string, cfdiUuid: string): Promise<number> {
+  const r = await query(
+    `UPDATE invoices
+        SET cfdi_status = 'cancelled', updated_at = NOW()
+      WHERE entity_id = $1
+        AND UPPER(cfdi_uuid) = UPPER($2)
+        AND cfdi_status = 'stamped'`,
+    [entityId, cfdiUuid]
+  );
+  return r.rowCount ?? 0;
 }
 
 /**
@@ -207,6 +240,7 @@ export async function revalidateEntityCfdis(
 
   const resumen: RevalidacionResumen = {
     consultados: 0, vigentes: 0, cancelados: 0, no_encontrados: 0, errores: 0,
+    invoices_cancelled: 0,
   };
   const LOTE = 5;
   for (let i = 0; i < filas.rows.length; i += LOTE) {
@@ -231,6 +265,9 @@ export async function revalidateEntityCfdis(
               WHERE id = $4`,
             [vs, st.estado, st.estatusCancelacion, fila.id]
           );
+          if (vs === 'cancelled') {
+            resumen.invoices_cancelled += await markInvoiceCfdiCancelled(ctx.entityId, fila.cfdi_uuid);
+          }
           resumen.consultados += 1;
           if (vs === 'valid') resumen.vigentes += 1;
           else if (vs === 'cancelled') resumen.cancelados += 1;

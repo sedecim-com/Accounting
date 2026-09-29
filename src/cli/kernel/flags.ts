@@ -32,6 +32,14 @@ export const BANNED_FLAGS = [
   '--against', '--sandbox', '--test',
 ] as const;
 
+/**
+ * Opening words of the description of an option that is still declared only
+ * so it can be refused with a remedy. Tools that check documentation against
+ * the tree (tests/docs/wiki-manual-commands.spec.ts) read this prefix instead
+ * of guessing from free text, so a retired flag stays recognisable.
+ */
+export const RETIRED_OPTION_PREFIX = 'retired: ';
+
 /** Every long flag the dictionary defines, with its short form when it has one. */
 export const FLAG_DICTIONARY: Record<string, string | null> = {
   '--entity': '-e', '--tenant': '-t', '--user': '-u',

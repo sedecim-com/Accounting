@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { query } from '../../database/connection.js';
+import { query, currentTenant } from '../../database/connection.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
@@ -77,8 +77,14 @@ export class UsuariosSection implements SetupSection {
   }
 
   async configure(ctx: SectionContext): Promise<void> {
+    const tenantId = await this.tenantForNewUser(ctx);
+    if (!tenantId) return;
+
+    // Scoped to that firm: `users` sits outside RLS, so without the filter this
+    // listed the logins of every firm of the installation.
     const existing = await query<{ email: string; roles: string[] }>(
-      `SELECT email, roles FROM users WHERE is_active = true ORDER BY created_at`
+      `SELECT email, roles FROM users WHERE is_active = true AND tenant_id = $1 ORDER BY created_at`,
+      [tenantId]
     );
 
     if (existing.rows.length > 0) {
@@ -88,14 +94,6 @@ export class UsuariosSection implements SetupSection {
         ctx.print(`    · ${u.email} [${roles || 'no role'}]`);
       }
       if (!(await ctx.confirm('  Add another user?', false))) return;
-    }
-
-    const tenant = await query<{ id: string }>(
-      `SELECT id FROM public.tenants ORDER BY created_at ASC LIMIT 1`
-    );
-    if (tenant.rows.length === 0) {
-      ctx.print('  Configure the identity section first (there is no tenant).');
-      return;
     }
 
     const email = ctx.flags.user ?? (await ctx.askText('  User email: '));
@@ -125,10 +123,48 @@ export class UsuariosSection implements SetupSection {
        ON CONFLICT (tenant_id, email) DO UPDATE SET
          roles = EXCLUDED.roles, permissions = EXCLUDED.permissions, updated_at = NOW()`,
       [
-        tenant.rows[0].id, email.toLowerCase(), hash, email.split('@')[0],
+        tenantId, email.toLowerCase(), hash, email.split('@')[0],
         JSON.stringify([role]), JSON.stringify(ROLES[role].permissions),
       ]
     );
     ctx.print(`  ✔ User ${email} created with role ${role}`);
+  }
+
+  /**
+   * The firm the new login belongs to, resolved the way `entity create` does
+   * (resolveTenantForCreation): the tenant in effect (--tenant, else
+   * MNEMOSINE_TENANT) when it exists; the only one when there is one; and a
+   * refusal naming them all when there are several. Guessing here would grant
+   * one firm's staff access to another firm's books. Null means "stop".
+   */
+  private async tenantForNewUser(ctx: SectionContext): Promise<string | null> {
+    const named = currentTenant() ?? process.env.MNEMOSINE_TENANT ?? null;
+    if (named) {
+      const found = await query<{ id: string }>(
+        `SELECT id FROM public.tenants WHERE id::text = $1`,
+        [named]
+      );
+      if (found.rows.length === 0) {
+        ctx.print(`  Tenant ${named} does not exist; section incomplete (see: mnemosine tenant list).`);
+        return null;
+      }
+      return found.rows[0].id;
+    }
+
+    const all = await query<{ id: string; name: string }>(
+      `SELECT id, name FROM public.tenants ORDER BY created_at ASC`
+    );
+    if (all.rows.length === 0) {
+      ctx.print('  Configure the identity section first (there is no tenant).');
+      return null;
+    }
+    if (all.rows.length > 1) {
+      ctx.print('  This installation has more than one tenant: name the firm with --tenant.');
+      ctx.print('  Choosing for you could give this login another firm\'s books:');
+      for (const t of all.rows) ctx.print(`    - ${t.name} → ${t.id}`);
+      ctx.print('  Section incomplete.');
+      return null;
+    }
+    return all.rows[0].id;
   }
 }

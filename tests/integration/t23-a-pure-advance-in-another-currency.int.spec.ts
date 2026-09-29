@@ -17,8 +17,9 @@ import { ValidationError } from '../../src/utils/errors.js';
 // entry recorded the same figure: a thousand dollars booked as a thousand pesos.
 //
 // The vendor side already refuses the equivalent case, and `accounting.md` says
-// the rule out loud for AR: «a foreign-currency invoice REFUSES to post (phase
-// 2) rather than record dollars as pesos». The advance is the door where that
+// the rule out loud for AR: nothing records dollars as pesos (the collection of
+// a foreign-currency invoice converts, and cash it would leave on account
+// refuses with FX_AR_ON_ACCOUNT_NOT_WIRED). The advance is the door where that
 // promise was not kept.
 //
 // Refusing is the whole fix. Converting would mean choosing a rate and a

@@ -129,7 +129,7 @@ Si necesitas capturar en un mes que todavía no está abierto:
 npm run mnemosine -- period open 2026-09 --reason "captura anticipada de septiembre"
 ```
 
-`period open` sólo abre periodos **futuros**. No reabre uno cerrado, y **no existe un comando para reabrir un periodo cerrado**: el motor lo tiene, pero no está expuesto. Piénsalo bien antes de cerrar un mes, porque una corrección que pertenecía a marzo se va a tener que registrar en el mes abierto.
+`period open` sólo abre periodos **futuros**; no reabre uno cerrado. Para eso está `period reopen`, que exige `--reason` y deja en la bitácora quién, por qué y el estado anterior; un cierre duro pide además `--force`, y un periodo bloqueado no se reabre nunca. Los detalles están en [[Manual-El-cierre-de-mes]].
 
 **Qué hacer si sale distinto.** Si `year create` te dice que el ejercicio ya existe, corre `period list` y sigue. Si un comando posterior te contesta «No open fiscal period covers 2026-08-31», es este paso el que faltó.
 
@@ -182,13 +182,13 @@ Los tipos válidos son `asset`, `liability`, `equity`, `revenue`, `expense`, `co
 
 **Qué hacer si sale distinto.** Si `account create` se queja de la cuenta padre, créala primero o quita `--parent`. Si `account role set` te dice que el rol no existe, corre `account role list` para ver la lista exacta: los nombres de rol están en español (`banco`, `cxc`, `cxp`) y no admiten sinónimos.
 
-**Antes de seguir**, verifica que existan las cuentas **3900** (resultado del ejercicio, cuenta puente del cierre) y **3200** (resultado de ejercicios anteriores) marcadas como cuentas de sistema. Si el catálogo se sembró con `--chart auto` ya están. Si lo importaste de otro sistema, puede que no, y en diciembre el cierre duro va a reportar éxito **sin generar los asientos de cierre**, en silencio. Es la falla más cara de esta página y se previene ahora, no en diciembre.
+**Antes de seguir**, verifica que existan las cuentas **3900** (resultado del ejercicio, cuenta puente del cierre) y **3200** (resultado de ejercicios anteriores) marcadas como cuentas de sistema. Si el catálogo se sembró con `--chart auto` ya están. Si lo importaste de otro sistema, puede que no, y en diciembre el cierre duro no va a poder barrer el resultado: por omisión se detiene y lo revierte, nombrando las cuentas que quedaron con saldo (la política `severidad_resultado_sin_barrer` fija qué tan estricto es). Se previene ahora, no en diciembre.
 
 ---
 
 ## Paso 5 · El agrupador del SAT (Anexo 24)
 
-**Qué quieres lograr.** Asociar cada cuenta del catálogo con su código agrupador del SAT. Es el trabajo más pesado del alta de un cliente mexicano, y hay que hacerlo aunque hoy mnemosine todavía no genere el XML de contabilidad electrónica: el mapeo es el que después alimenta esa generación y el que te permite exportar el catálogo a un generador externo.
+**Qué quieres lograr.** Asociar cada cuenta del catálogo con su código agrupador del SAT. Es el trabajo más pesado del alta de un cliente mexicano, y el mapeo es el que después alimenta el XML del catálogo y de la balanza que arma `e-accounting` (ver [[Manual-El-cierre-de-mes]]).
 
 El formato del archivo es un CSV de dos columnas —código de cuenta y valor del agrupador—, una cuenta por línea, con coma o punto y coma como separador:
 
@@ -217,10 +217,10 @@ npm run mnemosine -- account map list --scheme sat-agrupador
 ```
 
 ```bash
-npm run mnemosine -- account map check --scheme sat-agrupador --level 3 --strict
+npm run mnemosine -- account map check --scheme sat-agrupador --strict
 ```
 
-**Qué vas a ver.** `account map check` es una compuerta de cobertura: lista las cuentas de los primeros niveles que todavía no tienen agrupador. Con `--strict`, si encuentra algo, el comando termina con código de salida 4 —o sea, «encontré hallazgos», no «fallé»—, que es lo que permite meterlo en una automatización.
+**Qué vas a ver.** `account map check` es una compuerta de cobertura: lista las cuentas que todavía no tienen agrupador, dentro del alcance que fija la política `agrupador_alcance_de_la_compuerta` —por omisión, las cuentas con movimientos en el periodo—. Ya no mide por nivel de cuenta: `--level` se rechaza con código 2 y el mensaje te dice cómo cambiar la política. Con `--strict`, si encuentra algo, el comando termina con código de salida 4 —o sea, «encontré hallazgos», no «fallé»—, que es lo que permite meterlo en una automatización.
 
 También puedes mapear una cuenta suelta:
 
@@ -236,7 +236,7 @@ npm run mnemosine -- account map set 5110 --scheme sat-agrupador --value 601.01
 
 **Qué quieres lograr.** Meter en el mayor los saldos con los que el cliente llega, a la fecha de corte.
 
-Hay tres caminos y sólo dos funcionan hoy. Léelos antes de elegir.
+Hay cuatro caminos. Léelos antes de elegir.
 
 ### Camino A · Importar del sistema anterior (sólo Contalink)
 
@@ -252,7 +252,7 @@ Si el plan se ve bien, quita `--dry-run`. `--balance-account` es la cuenta donde
 
 **El saldo inicial llega como borrador**, no contabilizado: hay que aprobarlo con `mnemosine review` (ver [[Manual-El-dia-a-dia]]). Si quieres que se contabilice de inmediato, añade `--post`.
 
-**Límite importante:** el único adaptador que existe es `contalink`. **No hay adaptador de CONTPAQi ni de Aspel**, que son de donde viene la mayoría de los clientes de un despacho mexicano. Si el cliente viene de ahí, usa el camino B. Y si escribes un proveedor que no existe, el error que vas a recibir puede ser un error de base de datos, no un «ese proveedor no existe»: la validación del nombre ocurre después de conectar.
+**Límite importante:** el único adaptador de `onboard` es `contalink`; no lo hay de CONTPAQi ni de Aspel, que son de donde viene la mayoría de los clientes de un despacho mexicano. Si el cliente viene de ahí, usa el camino D: esos sistemas exportan el catálogo y la balanza en los XML del Anexo 24, y eso es lo que lee `opening-balance import`. Y si escribes un proveedor que no existe, el error que vas a recibir puede ser un error de base de datos, no un «ese proveedor no existe»: la validación del nombre ocurre después de conectar.
 
 ### Camino B · Capturar los saldos como una póliza (el camino que siempre funciona)
 
@@ -279,15 +279,80 @@ Si son muchos renglones, `entry create` también acepta `--file <ruta>` con un d
 
 Un detalle práctico: el importe se escribe con punto decimal y **sin separador de miles**. `12000.00`, no `12,000.00`.
 
-### Camino C · Migrar el histórico completo (hoy no llega al mayor)
+### Camino C · Migrar el histórico completo, en dos tiempos
 
 ```bash
 npm run mnemosine -- entry import polizas-2025.csv --layout csv
 ```
 
-Este comando existe, funciona y **deja el lote escenificado sin tocar el mayor**. El propio comando te lo dice al terminar. La familia que valida y aplica ese lote todavía no existe, así que un `batch_id` hoy no se puede consumir con ningún comando. Los layouts de CONTPAQi, Aspel, IIF y pólizas del SAT están anunciados en la ayuda pero todavía sin lector: los formatos que sí lee son `csv` y `ndjson`.
+`entry import` **deja el lote escenificado sin tocar el mayor** y te devuelve su `batch_id`. Lo aplica la familia `batch`: se revisa, se valida, se ve el efecto y se contabiliza en una sola transacción —todos los renglones o ninguno—:
 
-**Recomendación:** para el alta de un cliente, usa el camino B. El histórico completo déjalo en el sistema anterior hasta que la familia de lotes exista.
+```bash
+npm run mnemosine -- batch list --status staged
+npm run mnemosine -- batch show <batch_id> --errors-only
+npm run mnemosine -- batch check <batch_id>
+npm run mnemosine -- batch post <batch_id> --dry-run
+npm run mnemosine -- batch post <batch_id>
+```
+
+`batch post` se niega con un lote que no pasó `batch check`; `--partial` aplica los renglones válidos y deja los demás escenificados. Si el archivo venía mal, `batch reverse <batch_id> --reason "..."` refleja todas sus pólizas como una unidad. Los layouts de CONTPAQi, Aspel, IIF y pólizas del SAT están anunciados en la ayuda pero todavía sin lector: los formatos que sí lee son `csv` y `ndjson`.
+
+### Camino D · Desde los XML del Anexo 24 del sistema anterior (CONTPAQi, Aspel y cualquier otro)
+
+Todo sistema contable mexicano exporta el catálogo (`CatalogoCuentas`) y la balanza (`BalanzaComprobacion`) que se le presentan al SAT. Con esos dos archivos, primero el catálogo, con los códigos y la jerarquía del despacho:
+
+```bash
+npm run mnemosine -- chart import ./migracion/catalogo.xml --dry-run
+npm run mnemosine -- chart import ./migracion/catalogo.xml --yes
+```
+
+Y después la balanza del cierre anterior, que se contabiliza como la póliza de apertura el primer día del ejercicio. **Es irreversible**, así que siempre en seco primero; `--subledger` trae los documentos abiertos de clientes y proveedores, para que CxC y CxP nazcan documento a documento:
+
+```bash
+npm run mnemosine -- opening-balance import ./migracion/balanza-2025-12.xml --subledger ./migracion/documentos-abiertos.json --dry-run
+npm run mnemosine -- opening-balance import ./migracion/balanza-2025-12.xml --subledger ./migracion/documentos-abiertos.json --yes
+npm run mnemosine -- opening-balance check ./migracion/balanza-2025-12.xml
+```
+
+**El archivo de documentos abiertos** (`--subledger`) es un JSON: una lista con un objeto por documento que seguía abierto al corte, de clientes y de proveedores juntos. Cada objeto lleva:
+
+| Campo | Obligatorio | Qué es |
+|---|---|---|
+| `cuenta` | sí | El `NumCta` de la cuenta de control tal como lo declara la balanza: `105-001`, `201-001`. |
+| `documento` | sí | El folio de la factura: `A-123` de un cliente, `F-77` de un proveedor. |
+| `contraparte` | sí | El nombre del cliente o del proveedor. |
+| `fecha` | sí | Fecha del documento, `AAAA-MM-DD`. |
+| `vencimiento` | no | `AAAA-MM-DD`. Sin él la carga avisa: la antigüedad de saldos no lo podrá clasificar. |
+| `importe` | sí | El saldo **pendiente** (no el importe original), en la naturaleza de la cuenta y como texto: `"9000.00"`. |
+| `rfc` | no | RFC de la contraparte. Con él se encuentra al cliente o proveedor que ya exista; sin él, se busca por nombre exacto y, si no hay, se da de alta. |
+| `uuid` | no | UUID del CFDI que respalda el documento. |
+| `currency` | no | Moneda ISO 4217. Si se omite, la funcional de la entidad; otra moneda detiene la carga. |
+| `ivaRate` | proveedores | La tasa de IVA dentro del saldo pendiente, como la `TasaOCuota` del CFDI: `"0.16"`, `"0.08"`, `"0"` o `"exento"`. Con ella el gasto guarda su base y su IVA pendiente de acreditar: al pagarlo, el IVA pasa a acreditable y la DIOT de ese mes lo declara por tasa. Sin ella decide la política `opening_payable_iva`: por omisión la carga se detiene (`require_rate`, LIVA art. 5 fr. III); con `assume_zero_rate` entra al 0 % y avisa. |
+
+```json
+[
+  { "cuenta": "105-001", "documento": "A-123", "contraparte": "Aceros del Norte SA", "rfc": "AND010101AB1",
+    "fecha": "2025-11-02", "vencimiento": "2025-12-02", "importe": "4000.00" },
+  { "cuenta": "201-001", "documento": "F-77", "contraparte": "Papelera del Centro",
+    "fecha": "2025-12-01", "vencimiento": "2026-01-15", "importe": "9000.00", "ivaRate": "0.16" }
+]
+```
+
+Con la apertura contabilizada, cada documento de clientes entra como factura por cobrar y cada documento de proveedores como factura de proveedor aprobada, ligadas a la póliza de apertura: el saldo no se cuenta dos veces, y se cobran y se pagan igual que las que nazcan aquí. Antes de cargar, apunta los roles `cxc` y `cxp` a las cuentas de control migradas, y `iva_pendiente_acreditar` a la cuenta de la balanza donde vive el IVA de las compras no pagadas (el IVA que traen los documentos tiene que estar ahí, o la carga se detiene con `APE-CXP-IVA-SIN-SALDO`). Si el rol `cxc` apunta a otra cuenta, la carga se detiene y te dice cuál. De proveedores, sólo la cuenta del rol `cxp` entra como gastos: los documentos de otra cuenta de pasivo (por ejemplo `205` Acreedores diversos junto a `201` Proveedores) quedan como renglones de la apertura, la carga lo avisa (`APE-CXP-FUERA-DEL-ROL`), y `ap reconcile` concilia sólo la cuenta del rol.
+
+```bash
+npm run mnemosine -- account role set cxc 105-001
+npm run mnemosine -- account role set cxp 201-001
+npm run mnemosine -- account role set iva_pendiente_acreditar 119-001
+```
+
+Un RFC genérico (`XAXX010101000`, `XEXX010101000`) no identifica a nadie: esos proveedores y clientes se distinguen por nombre exacto. Si anulas la apertura y la vuelves a cargar (por ejemplo, con el nombre de un proveedor corregido), los gastos sin pagar de la apertura anulada que el archivo nuevo ya no trae se anulan en el mismo acto (`APE-CXP-ANULA-HUERFANAS`).
+
+**Si no cuadra, no carga.** Los documentos de cada cuenta de control tienen que sumar, al peso, lo que la balanza declara para ella. Si no, la carga se detiene sin escribir nada y dice la diferencia por cuenta («suman 13000.00 y la balanza declara 14000.00 para esa cuenta: faltan 1000.00»). No se postea ningún ajuste para hacerlo cuadrar: la diferencia se corrige en el origen. También se detiene si un documento viene con saldo contrario (un anticipo, una nota de crédito: nétalo en el origen), en otra moneda, o si la factura (por folio del mismo proveedor, o por UUID) ya está registrada aquí. Después de cargar, `ar reconcile` y `ap reconcile` dan diferencia 0.
+
+`opening-balance check` coteja la balanza de origen contra el mayor al día de la apertura, cuenta por cuenta, y sale con 4 si algo no cuadra al peso. Si el día siguiente al corte de la balanza no es el primer día de un ejercicio dado de alta (Paso 3), la carga se niega y te dice qué archivo hace falta.
+
+**Recomendación:** si el cliente viene de CONTPAQi o Aspel, el camino D; si no, el B sigue siendo el más corto. El C es para cuando el histórico tiene que vivir aquí.
 
 ---
 

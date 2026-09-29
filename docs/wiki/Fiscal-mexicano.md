@@ -146,7 +146,7 @@ Por eso [`rep-linkage.ts`](https://github.com/sedecim-com/Accounting/blob/main/s
 El camino, en orden:
 
 1. **Idempotencia primero.** La llave es `(entidad, uuid, índice del nodo de pago)`: un REP puede documentar varios movimientos de banco y cada uno es una fila de pago. La impone además un índice único parcial en la migración 036; la consulta previa evita el error, no lo sustituye.
-2. **Moneda.** Si el pago viene en moneda distinta de la funcional, la diferencia cambiaria no se calcula todavía —nada postea a utilidad o pérdida cambiaria—, así que por omisión el comprobante queda para revisión en vez de casarse con un tipo de cambio inventado. La política `rep_moneda_extranjera` puede autorizar casar al tipo de cambio del documento, y entonces el aviso lo dice.
+2. **Moneda.** Si el pago viene en moneda distinta de la funcional, por omisión el comprobante queda para revisión. Con la política `rep_moneda_extranjera` en `payment_day_rate`, se registra por el motor de pagos: cada documento se extingue al tipo con el que nació, el efectivo y el IVA causado o acreditable se convierten al tipo del día del pago de la fuente `fuente_tipo_cambio` (art. 20 CFF), y la diferencia realizada va a utilidad o pérdida cambiaria (NIF B-15). El `TipoCambioP` del comprobante no se lee, y el aviso lo dice.
 3. **Documentos relacionados.** Los UUID se resuelven a documentos del sistema. Las facturas emitidas llevan su UUID en la propia tabla; los gastos no, y el puente es el pre-registro que los creó. Si falta alguno, por omisión el impuesto se queda aparcado —que es donde la ley lo quiere hasta que haya documento que lo ampare—.
 4. **Cotejo del IVA declarado.** `ImpuestosDR` es la cifra del SAT para esa parcialidad; el prorrateo sobre el documento es la nuestra. Si divergen más que la tolerancia, se detiene con **las dos cifras nombradas** en vez de elegir una en silencio: puede ser otra parcialidad, un documento corregido o un error del emisor.
 5. **Búsqueda del pago existente.** Mismo tercero, importe dentro de tolerancia, fecha dentro de ventana, sin comprobante ya ligado — **y aplicado a alguno de los documentos que el REP relaciona**. Los tres primeros criterios no bastan: dos pagos iguales al mismo proveedor en la misma semana (una renta quincenal, una iguala) se cruzarían, y el gasto equivocado quedaría «con comprobante» mientras el del REP se queda sin pago y con su IVA aparcado. La aplicación es lo que dice de qué hecho económico es el dinero.
@@ -172,10 +172,10 @@ El checklist de faltantes va por dirección, porque son dos obligaciones distint
 mnemosine rep missing list --direction received
 ```
 
-- **`received`**: facturas PPD ya pagadas cuyo comprobante del proveedor no ha llegado. Mientras no llegue, el IVA sigue en la 1135 y **no es acreditable**.
+- **`received`**: facturas PPD ya pagadas cuyo comprobante del proveedor no ha llegado. El pago ya pasó su IVA a la 1130; el REP es lo que respalda ese acreditamiento.
 - **`issued`**: cobros nuestros sin REP emitido. Es obligación fiscal propia, con plazo.
 
-El método de pago sale del **espejo** de CFDI. Cuando el comprobante propio no está espejado, el método es desconocido y la fila se lista **con esa marca**: listar de más con la duda dicha es mejor que esconder un REP exigible.
+La regla es una sola, en `rep-expected.ts`, y la comparten la casilla del cierre, `closing explain rep-missing` y esta lista: pagos `completed`, con una aplicación viva a un documento que el mayor trata como PPD (el mismo `decideMetodoPago`: espejo, luego el token PUE/PPD de `terms` o `memo`, luego el valor conservador), y del lado emitido sólo facturas con `cfdi_status = stamped`. Un cobro de factura timbrada sin método conocido lo trató el mayor como PUE, así que la casilla no lo cuenta; aun así el cierre lo avisa y esta lista lo muestra **marcado `desconocido`**: listar la duda dicha es mejor que esconder un REP exigible.
 
 ### El espejo es por entidad
 

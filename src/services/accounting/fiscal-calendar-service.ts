@@ -7,7 +7,7 @@ import { registrarAuditoria } from '../audit/audit-log.js';
 // corrija. (El ciclo con period-close → ledger-checks → este módulo se
 // resuelve en tiempo de llamada, no de carga: nadie usa el otro módulo
 // mientras se evalúa el suyo.)
-import { carryForwardBalances } from './period-close.js';
+import { carryForwardBalances, closeFiscalYearIfSealed, reopenFiscalYearOf } from './period-close.js';
 import {
   NotFoundError,
   ValidationError,
@@ -107,8 +107,18 @@ export async function listFiscalPeriods(
  * unambiguous part of the period name ("august", "August 2026"). Refuses an
  * ambiguous match instead of picking the first, which is how `close -p` can
  * silently close a different month than the one that was meant.
+ *
+ * `YYYY-MM` names the regular month by default. December also starts the
+ * year-end adjustments period (period 13, which starts on YYYY-12-31), so a
+ * caller that must not guess — the close leaves, where hard-closing period 12
+ * instead of 13 skips the annual closing entries — passes
+ * `refuseSharedMonth` and gets the same refusal an ambiguous name gets.
  */
-export async function resolvePeriod(entityId: string, ref: string): Promise<FiscalPeriodRow> {
+export async function resolvePeriod(
+  entityId: string,
+  ref: string,
+  opts: { refuseSharedMonth?: boolean } = {}
+): Promise<FiscalPeriodRow> {
   const trimmed = ref.trim();
 
   if (UUID_RE.test(trimmed)) {
@@ -134,6 +144,13 @@ export async function resolvePeriod(entityId: string, ref: string): Promise<Fisc
       [entityId, Number(yearMonth[1]), Number(yearMonth[2])]
     );
     if (byDate.rows.length === 0) throw new NotFoundError('Fiscal period', trimmed);
+    if (opts.refuseSharedMonth && byDate.rows.length > 1) {
+      throw new ValidationError(
+        `"${trimmed}" matches ${byDate.rows.length} periods: ` +
+          `${byDate.rows.map((p) => `${p.period_name} (${p.id})`).join(', ')}. ` +
+          'Name one of them by its full name or its id.'
+      );
+    }
     return byDate.rows[0];
   }
 
@@ -267,6 +284,8 @@ export async function reopenClosedPeriod(
        WHERE id = $1 AND entity_id = $2 RETURNING *`,
       [periodId, entityId]
     );
+    // A closed year with an open period in it would be a lie (#99).
+    const yearReopened = await reopenFiscalYearOf(client, entityId, periodId);
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
@@ -275,7 +294,7 @@ export async function reopenClosedPeriod(
       entityType: 'fiscal_period',
       entityId: periodId,
       oldValues: { status: previousStatus },
-      newValues: { status: 'open' },
+      newValues: { status: 'open', ...(yearReopened !== null ? { fiscal_year_reopened: yearReopened } : {}) },
       reason,
     });
 
@@ -332,6 +351,8 @@ export async function restorePeriodStatus(
     // arrastre rehecho, o no vuelve a estar cerrado.
     const carry =
       status === 'hard_close' ? await carryForwardBalances(client, entityId, periodId) : null;
+    // The reopen took the year back to 'open'; sealing its period again closes it again.
+    const yearClosed = status === 'hard_close' ? await closeFiscalYearIfSealed(client, entityId, periodId) : null;
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
@@ -345,6 +366,7 @@ export async function restorePeriodStatus(
         carried_accounts: carry?.carried ?? 0,
         ...(carry ? { carried_into: carry.periods } : {}),
         ...(carry?.stopped_at_locked ? { carry_stopped_at_locked: carry.stopped_at_locked } : {}),
+        ...(yearClosed !== null ? { fiscal_year_closed: yearClosed } : {}),
       },
       reason,
     });

@@ -52,7 +52,17 @@ export interface PolicyLegalFloor {
 }
 
 export interface PolicySpec {
+  /** The persisted key in `policy_decisions`. Never translated here (I23, #166, renames it). */
   key: string;
+  /**
+   * The segment under which the panel's texts live in the i18n catalog:
+   * `policy.<textKey>.{question,impact,...}` (#152, owner decision 2026-09-26).
+   * It is the English name the I4 vocabulary registry already decided for
+   * `key` (`en ?? es`), so the text keys are born with their final name and
+   * I23 does not drag them along. The criterion
+   * `policy-text-key-matches-vocabulary-registry` holds the two together.
+   */
+  textKey: string;
   category: 'contable' | 'fiscal' | 'seguridad' | 'operativa' | 'comercial';
   question: string;
   /** What changes in the system depending on the answer. */
@@ -99,6 +109,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // entidad se le siembra el catálogo de la casa o se le deja sin él para
     // traer el suyo—, y por eso vive aquí y no en un `if`.
     key: 'catalogo_entidad_no_mexicana',
+    textKey: 'non_mexican_entity_chart',
     category: 'contable',
     question: 'What chart of accounts does an entity that does not keep Mexican books receive?',
     impact:
@@ -153,6 +164,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // `tax_depreciation_method`— y nadie la leía: el motor usaba la columna
     // única y clavaba `schedule_type: 'book'`.
     key: 'base_depreciacion',
+    textKey: 'depreciation_basis',
     category: 'contable',
     question: 'Which depreciation drives the expense you post: book life or the tax rate?',
     impact:
@@ -184,6 +196,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // F06a · El primer y el último mes de cada activo. El motor no tenía
     // convención: indexaba filas de un calendario.
     key: 'convencion_primer_mes',
+    textKey: 'first_month_convention',
     category: 'contable',
     question: 'An asset bought mid-month: does it depreciate that whole month, or only the days it was owned?',
     impact:
@@ -212,6 +225,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // archivo: `rep_faltante_recibido` y `rep_faltante_emitido` preguntan lo
     // mismo y las lee `getPeriodCloseStatus`.
     key: 'depreciacion_faltante_al_cierre',
+    textKey: 'depreciation_missing_at_close',
     category: 'operativa',
     question: 'Closing a month with assets whose depreciation was never run: warn, or refuse?',
     impact:
@@ -238,6 +252,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'umbral_capitalizacion_mxn',
+    textKey: 'capitalization_threshold_mxn',
     category: 'contable',
     question: 'From what amount is an item capitalized as a fixed asset instead of expensed?',
     impact:
@@ -260,6 +275,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'politica_restaurantes',
+    textKey: 'restaurant_meal_treatment',
     category: 'fiscal',
     question: 'Restaurant meals (8.5% deductible): how are they recorded?',
     impact:
@@ -281,6 +297,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'tratamiento_ieps',
+    textKey: 'ieps_treatment',
     category: 'fiscal',
     question: 'Is the company an IEPS taxpayer that passes it on?',
     impact:
@@ -302,6 +319,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'lleva_inventarios',
+    textKey: 'inventory_method',
     category: 'contable',
     question: 'Does the company keep perpetual inventories?',
     impact:
@@ -323,6 +341,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'cfdi_periodo_cerrado',
+    textKey: 'cfdi_from_closed_period',
     category: 'contable',
     question: 'A CFDI from an already-closed period: in which period is it recorded?',
     impact:
@@ -351,6 +370,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   // read by registrarFacturaDeBorradorAprobado (pre-registration-service.ts).
   {
     key: 'cfdi_tolerancia_cuadre',
+    textKey: 'cfdi_reconciliation_tolerance',
     category: 'contable',
     question:
       'When an approved draft is checked against its CFDI, how much difference per figure still counts as rounding?',
@@ -391,6 +411,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'lineas_factura_desde',
+    textKey: 'bill_lines_source',
     category: 'contable',
     question: 'When an approved draft creates the vendor bill, where do the bill lines come from?',
     impact:
@@ -423,6 +444,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // answer, an unattended approval (threshold auto-post, approval policy,
     // REST) cannot ask anyone, so for it 'preguntar' behaves as 'rechazar'.
     key: 'proveedor_desconocido_al_aprobar',
+    textKey: 'unknown_vendor_on_approval',
     category: 'contable',
     question:
       'When you approve the draft of a received CFDI whose issuer is not in the vendor catalog, what happens?',
@@ -459,6 +481,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   // firm's criteria, not the system's.
   {
     key: 'rep_pago_no_registrado',
+    textKey: 'rep_payment_not_recorded',
     category: 'contable',
     question: 'A payment receipt (REP) arrives and no matching payment is on file: what happens?',
     impact:
@@ -487,6 +510,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'rep_tolerancia_importe',
+    textKey: 'rep_amount_tolerance',
     category: 'contable',
     question: 'How much difference between the receipt and the recorded payment still counts as rounding?',
     impact:
@@ -512,6 +536,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'rep_documento_desconocido',
+    textKey: 'rep_unknown_document',
     category: 'fiscal',
     question: 'The receipt names an invoice the system does not have: what happens to that VAT?',
     impact:
@@ -537,6 +562,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'rep_ventana_dias',
+    textKey: 'rep_match_window_days',
     category: 'operativa',
     question: 'How many days apart can the receipt date and the recorded payment be and still be the same event?',
     impact:
@@ -560,6 +586,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'amortizacion_anticipados_convencion',
+    textKey: 'prepaid_amortization_convention',
     category: 'contable',
     question: 'A prepayment that starts mid-month: does the first month accrue in full, or only for the days it covers?',
     impact:
@@ -585,6 +612,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'amortizacion_faltante_al_cierre',
+    textKey: 'prepaid_amortization_missing_at_close',
     category: 'contable',
     question: 'Closing a month with prepayment schedules whose amortisation was never run: warn, or refuse?',
     impact:
@@ -608,6 +636,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'umbral_anticipado_mxn',
+    textKey: 'prepaid_threshold_mxn',
     category: 'contable',
     question: 'Above what amount is a multi-period expense deferred to prepayments instead of expensed at once?',
     impact:
@@ -639,6 +668,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   // despacho a despacho es CÓMO se reconoce.
   {
     key: 'provision_base_salarial',
+    textKey: 'benefit_accrual_wage_base',
     category: 'contable',
     question: 'Which daily wage does the monthly benefit provision use as its base?',
     impact:
@@ -663,6 +693,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'devengo_vacaciones',
+    textKey: 'vacation_accrual_timing',
     category: 'contable',
     question: 'When does the vacation liability get recognised?',
     impact:
@@ -687,6 +718,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'provision_ptu_mensual',
+    textKey: 'monthly_ptu_accrual',
     category: 'contable',
     question: 'Does the firm provision PTU monthly, or only at year end?',
     impact:
@@ -710,6 +742,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'dias_aguinaldo',
+    textKey: 'aguinaldo_days_per_year',
     category: 'contable',
     question: 'How many days of aguinaldo does the firm grant per year of service?',
     impact:
@@ -740,6 +773,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'prima_vacacional_pct',
+    textKey: 'vacation_premium_pct',
     category: 'contable',
     question: 'What vacation premium does the firm pay over the vacation days earned?',
     impact: 'Applies to the settlement and to the monthly vacation provision alike.',
@@ -774,6 +808,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'flujo_efectivo_metodo',
+    textKey: 'cash_flow_method',
     category: 'contable',
     question: 'Is the statement of cash flows presented by the indirect or the direct method?',
     impact:
@@ -803,6 +838,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'flujo_efectivo_cuentas_de_efectivo',
+    textKey: 'cash_flow_cash_accounts',
     category: 'contable',
     question: 'Which accounts count as «cash and cash equivalents» when the statement of cash flows is squared?',
     impact:
@@ -827,6 +863,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'flujo_efectivo_descuadre',
+    textKey: 'cash_flow_mismatch',
     category: 'contable',
     question: 'When the cash flow statement does not equal the real movement of cash, do I publish it, name it, or refuse?',
     impact:
@@ -853,31 +890,71 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'diot_tipo_operacion_por_omision',
+    textKey: 'diot_default_operation_type',
     category: 'contable',
-    question: 'A supplier with no operation type declared: which one does the DIOT report?',
+    question: 'A national supplier with no operation type declared: which one does the DIOT report?',
     impact:
-      'The DIOT reports each supplier under an operation type — 03 professional services, 06 ' +
-      'property leasing, 85 other. It is per SUPPLIER, not per invoice, so a wrong default is ' +
-      'wrong for every month until someone corrects it.',
+      'The DIOT reports each supplier under an operation type. For a national supplier the 2025 ' +
+      'catalogue offers 02 transfer of goods, 03 professional services, 06 temporary use of goods, ' +
+      '08 import by virtual transfer and 85 other. It is per SUPPLIER, not per invoice, so a wrong ' +
+      'default is wrong for every month until someone corrects it. Foreign suppliers have their ' +
+      'own key, diot_default_operation_type_foreign.',
     options: [
-      { value: '85', label: 'Other (85) — the catch-all the catalogue provides' },
+      { value: '85', label: 'Other (85) — the residual key the catalogue provides' },
+      { value: '02', label: 'Transfer of goods (02)' },
       { value: '03', label: 'Professional services (03)' },
+      { value: '06', label: 'Temporary use or enjoyment of goods (06)' },
       { value: 'bloquear', label: 'None: refuse to build the DIOT until every supplier declares one' },
     ],
     defaultValue: '85',
     defaultRationale:
-      'The catalogue itself provides 85 as the residual category, so using it is not a guess: it is ' +
-      'the answer the form expects when the operation is neither professional services nor leasing. ' +
-      'Refusing would block a monthly filing over suppliers whose classification does not change the ' +
-      'tax, and 03 or 06 asserted by default would put a specific claim in your name.',
+      'SAT, Instructivo para el armado del archivo de carga masiva DIOT (Enero 2025), §3.1: 85 ' +
+      '"Otros" is the residual key for a national supplier whose operation is not one of the ' +
+      'specific ones (02 goods, 03 professional services, 06 use of goods, 08 virtual-transfer ' +
+      'import). The ledger does not know whether an undeclared supplier sold goods or services, so ' +
+      'asserting 02, 03 or 06 by default would put a specific claim in your name; 85 claims only ' +
+      'that no specific key was captured, and every supplier that takes it is listed so the ones ' +
+      'that matter can be refined. 08 is not offered as a default: it requires a customs pedimento ' +
+      'and cannot be a blanket answer. Refusing would block a monthly filing over a classification ' +
+      'that does not change the tax.',
     whyAsking:
-      'The form classifies each supplier by the kind of operation you have with them, and most of them are neither professional services nor leasing — but the two that are, you have to tell me.',
-    whatIDo: 'I report suppliers with no declared type under 85, and list them so you can refine the ones that matter.',
+      'The form classifies each supplier by the kind of operation you have with them; the ones with a specific key you have to tell me.',
+    whatIDo: 'I report national suppliers with no declared type under 85, and list them so you can refine the ones that matter.',
     ifSkipped: 'I use 85 and tell you which suppliers took it.',
     priority: 35,
   },
   {
+    key: 'diot_default_operation_type_foreign',
+    textKey: 'diot_default_operation_type_foreign',
+    category: 'contable',
+    question: 'A foreign supplier with no operation type declared: which one does the DIOT report?',
+    impact:
+      'For a foreign supplier (third-party type 05) the 2025 DIOT catalogue accepts only 02 ' +
+      'transfer of goods, 03 professional services and 07 import of goods or services. 85 and 06 ' +
+      'are not accepted, so the national default cannot be reused for them.',
+    options: [
+      { value: '07', label: 'Import of goods or services (07)' },
+      { value: '03', label: 'Professional services (03)' },
+      { value: '02', label: 'Transfer of goods (02)' },
+      { value: 'block', label: 'None: refuse to build the DIOT until every foreign supplier declares one' },
+    ],
+    defaultValue: '07',
+    defaultRationale:
+      'SAT, Instructivo para el armado del archivo de carga masiva DIOT (Enero 2025), §3.1 limits a ' +
+      'foreign supplier to 02, 03 and 07. Under LIVA art. 24 (frac. I–V) bringing in goods, or acquiring ' +
+      'or using in Mexico intangibles or services supplied by a non-resident, is an IMPORT, so 07 is ' +
+      'the key that describes what the entity did in the usual case, and it matches the import ' +
+      'boxes where the file already puts that IVA. 02 and 03 remain available for a firm whose ' +
+      'foreign suppliers are better described that way; a supplier that differs declares its own key.',
+    whyAsking:
+      'Foreign suppliers cannot use the national "other" key, and the file is rejected if they carry it.',
+    whatIDo: 'I report foreign suppliers with no declared type under 07, and list them.',
+    ifSkipped: 'I use 07 and tell you which suppliers took it.',
+    priority: 35,
+  },
+  {
     key: 'diot_tercero_sin_rfc',
+    textKey: 'diot_third_party_without_rfc',
     category: 'contable',
     question: 'A supplier with a missing, invalid or generic RFC when the DIOT is built: refuse, or report it as global?',
     impact:
@@ -903,6 +980,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'diot_iva_exento_y_base',
+    textKey: 'diot_exempt_vat_and_base',
     category: 'contable',
     question: 'How is exempt activity reported when the source document did not carry its base?',
     impact:
@@ -931,7 +1009,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 35,
   },
   {
+    key: 'diot_creditable_iva_proportion',
+    textKey: 'diot_creditable_iva_proportion',
+    category: 'contable',
+    question: 'Does this entity credit its IVA through the LIVA art. 5 frac. V proportion?',
+    impact:
+      'The 2025 DIOT batch layout splits the creditable IVA of each supplier into two boxes: IVA ' +
+      'tied EXCLUSIVELY to taxed activities, and IVA to which a proportion was applied because the ' +
+      'entity also has exempt or non-taxed activities. The ledger credits every peso of IVA paid; ' +
+      'it does not compute that proportion yet.',
+    options: [
+      { value: 'taxed_only', label: 'No: every activity is taxed, so all IVA paid goes to the exclusively-taxed box' },
+      { value: 'block', label: 'Yes: refuse the SAT batch file until the proportional treatment exists (capture in the portal)' },
+    ],
+    defaultValue: 'taxed_only',
+    defaultRationale:
+      'LIVA art. 5 frac. V only requires the proportion when the taxpayer also performs exempt or ' +
+      'non-taxed activities; a firm whose activities are all taxed credits the IVA in full, and that ' +
+      'is exactly what the ledger already records in iva_acreditable. Declaring it in the ' +
+      'exclusively-taxed box (SAT DIOT instructivo, Enero 2025, §3.3) keeps the file equal to the ' +
+      'books and to the monthly VAT return. The DIOT refuses this default when the ledger shows ' +
+      'exempt revenue in the fiscal year (accounts mapped to agrupador 401.07–401.09), and an ' +
+      'entity that applies the proportion must answer "block": the proportional boxes are not ' +
+      'computed here yet, and a factor nobody computed is not declared.',
+    whyAsking:
+      'Only you know whether the entity also has exempt activities, and that decides which box of the DIOT its creditable IVA belongs in.',
+    whatIDo: 'I declare all IVA paid as tied exclusively to taxed activities, and stop if the ledger shows exempt revenue.',
+    ifSkipped: 'I declare it as exclusively taxed and remind you on every DIOT; answer "block" if the entity applies the proportion.',
+    priority: 35,
+  },
+  {
     key: 'efirma_sellado_contabilidad_electronica',
+    textKey: 'efirma_sealing_e_accounting',
     category: 'contable',
     question: 'Does the system seal the Anexo 24 files with your e.firma, or do you seal them yourself?',
     impact:
@@ -963,6 +1072,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'anexo24_cuenta_sin_agrupador',
+    textKey: 'anexo24_account_without_grouping_code',
     category: 'contable',
     question: 'Generating the Anexo 24 catalogue with accounts that have no grouping code: refuse, or emit them?',
     impact:
@@ -987,6 +1097,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'catalogo_coherencia_padre_hijo',
+    textKey: 'chart_parent_child_coherence',
     category: 'contable',
     question: 'May a subaccount sit in a different section of the statements than its parent?',
     impact:
@@ -1018,6 +1129,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'anexo24_niveles_a_presentar',
+    textKey: 'anexo24_levels_to_report',
     category: 'contable',
     question: 'Which levels of the chart go into the Anexo 24 catalogue?',
     impact:
@@ -1042,6 +1154,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'agrupador_alcance_de_la_compuerta',
+    textKey: 'grouping_code_gate_scope',
     category: 'contable',
     question: 'Which accounts must carry a SAT grouping code before the books can be filed?',
     impact:
@@ -1066,6 +1179,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'agrupador_faltante_al_cierre',
+    textKey: 'grouping_code_missing_at_close',
     category: 'contable',
     question: 'Closing a month with accounts that moved and have no SAT grouping code: warn, or refuse?',
     impact:
@@ -1088,6 +1202,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'agrupador_valor_fuera_de_catalogo',
+    textKey: 'grouping_code_outside_catalog',
     category: 'contable',
     question: 'A grouping code that is not in the official SAT catalogue for that year: accept or reject?',
     impact:
@@ -1110,6 +1225,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'anexo24_balanza_saldo_inicial',
+    textKey: 'anexo24_trial_balance_opening_balance',
     category: 'contable',
     question: 'Where does the opening balance of the Anexo 24 trial balance come from?',
     impact:
@@ -1143,6 +1259,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // `importOpeningBalance` (opening-balance.ts); the guard that keeps the
     // draft's lines and date still is `updateDraftEntry`.
     key: 'apertura_modo_de_carga',
+    textKey: 'opening_balance_load_mode',
     category: 'contable',
     question: 'When the Anexo 24 opening balance is loaded, is it posted or left as a draft?',
     impact:
@@ -1166,7 +1283,40 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 40,
   },
   {
+    // MNE-001-023 · #310: the reader is `importOpeningBalance`
+    // (opening-balance.ts), and `planOpeningBills` (ap/opening-bills.ts)
+    // applies it to each payable document that does not carry `ivaRate`.
+    key: 'opening_payable_iva',
+    textKey: 'opening_payable_iva',
+    category: 'fiscal',
+    question:
+      'When a migrated vendor invoice does not say the IVA rate inside its open balance, what does the opening load do?',
+    impact:
+      'A migrated vendor invoice becomes a bill. With its IVA rate, the bill carries the base and the ' +
+      'IVA pending to credit, so paying it moves that IVA to creditable and the DIOT of that month ' +
+      'declares it by rate. Without the rate, "require_rate" stops the load and names the documents; ' +
+      '"assume_zero_rate" loads them at 0 %: paying them credits no IVA and the DIOT declares them as ' +
+      '0 % acts. The IVA of the documents must also be in the pending-IVA account of the opening.',
+    options: [
+      { value: 'require_rate', label: 'Stop the load until each vendor document says its IVA rate' },
+      { value: 'assume_zero_rate', label: 'Load them at 0 % and warn: no IVA is credited when they are paid' },
+    ],
+    defaultValue: 'require_rate',
+    defaultRationale:
+      'Under cash-basis IVA the tax of an unpaid purchase becomes creditable when it is paid (LIVA ' +
+      'art. 1-B and art. 5 fr. III), and the DIOT reports what was paid by rate (LIVA art. 32 fr. VIII). ' +
+      'Assuming 0 % loses the credit and declares acts at a rate they did not have; asking for the ' +
+      'rate costs one column in the file.',
+    whyAsking:
+      'The old system gives me what is still owed to each vendor, not always how much of it is IVA. I either wait until you tell me, or I load it as having no IVA.',
+    whatIDo:
+      'By default I stop the load and list the vendor documents without a rate. With "assume_zero_rate" I load them at 0 % and tell you which ones.',
+    ifSkipped: 'I stop the load until each vendor document says its IVA rate.',
+    priority: 41,
+  },
+  {
     key: 'informes_asientos_de_cierre',
+    textKey: 'closing_entries_in_reports',
     category: 'contable',
     question:
       'When a report covers the date the year was closed, do its closing entries count as activity?',
@@ -1197,6 +1347,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'destino_del_resultado_del_ejercicio',
+    textKey: 'year_result_destination',
     category: 'contable',
     question: 'At year-end close, where does the result go: straight to retained earnings, or through «Result of the Period» first?',
     impact:
@@ -1224,6 +1375,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'cierre_recierre_de_periodo_reabierto',
+    textKey: 'reclose_of_reopened_period',
     category: 'contable',
     question: 'If a year-end period that already emitted its closing entry is reopened and closed again, what happens to the first one?',
     impact:
@@ -1252,6 +1404,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'severidad_resultado_sin_barrer',
+    textKey: 'unswept_pl_accounts_severity',
     category: 'contable',
     question: 'If the year-end close finishes and some revenue or expense account still carries a balance, is that a warning or a failure?',
     impact:
@@ -1280,6 +1433,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'fuente_tipo_cambio',
+    textKey: 'exchange_rate_source',
     category: 'contable',
     question: 'When I need an exchange rate for a date, which published source do I use?',
     impact:
@@ -1305,26 +1459,34 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'rep_moneda_extranjera',
+    textKey: 'rep_foreign_currency',
     category: 'contable',
-    question: 'A receipt in a currency other than the functional one: what do we do with the exchange difference?',
+    question: 'A receipt in a currency other than the functional one: register it, or leave it for review?',
     impact:
-      'Decides whether foreign-currency receipts are matched at all. Vendor payments now compute the ' +
-      'realised difference (R4), but the REP matcher still does not, so matching here would post an ' +
-      'invented figure.',
+      'Decides whether a foreign-currency REP creates its payment. When it does, it goes through the same ' +
+      'payment engine as a payment typed by hand (vendor payments since R4, collections since MNE-001-082): ' +
+      'each document is extinguished at the rate it was born with, the cash converts at the payment day\'s ' +
+      'rate from `fuente_tipo_cambio`, the IVA becomes due at that same rate, and the gap is posted to the ' +
+      'exchange gain/loss accounts. The REP\'s own TipoCambioP is not read; the firm\'s source is.',
     options: [
       { value: 'no_casar', label: 'Do not match: leave it for review with a multi-currency warning' },
-      { value: 'tc_documento', label: "Match at the document's rate and recognise no difference" },
+      {
+        value: 'payment_day_rate',
+        label: "Register it through the payment engine, realising the exchange difference at the payment day's rate",
+      },
     ],
     defaultValue: 'no_casar',
     defaultRationale:
-      'Since R4 the vendor-payment path DOES post realised differences to the exchange gain/loss ' +
-      'accounts, but the REP matcher does not share that engine yet. The problem is also double, ' +
-      'not single: NIF B-15 wants the fluctuation in the period it occurs, while for VAT the creditable ' +
-      'amount is the one actually paid converted at the DOF rate of the payment date — two different ' +
-      'rates the system does not yet tell apart. Stopping and saying so is honest.',
+      'NIF B-15 wants the realised difference in the period the payment settles the document, and for VAT ' +
+      'the amount caused or creditable is the one actually paid converted at the rate of the payment date ' +
+      '(LIVA arts. 1-B, 5-III and 11; art. 20 CFF). The payment engine now books both, so registering is ' +
+      'sound; the default still stops at review because a REP the firm did not type is created with no bank ' +
+      'account and a rate nobody looked at, and a person should see the first ones before they post. There ' +
+      'is no option that matches at the document\'s rate and recognises no difference: that would leave the ' +
+      'VAT at the wrong rate and hide a realised result B-15 requires.',
     whyAsking:
-      'A payment in dollars against an invoice in pesos creates an exchange difference that has to land somewhere. I cannot compute it correctly yet, so I would rather stop than invent it.',
-    whatIDo: 'I leave the receipt unmatched and tell you, instead of guessing a rate.',
+      'A payment in dollars settles documents booked at another rate: the difference is real money and lands in the exchange gain/loss accounts.',
+    whatIDo: 'I leave the receipt unmatched and tell you, or register it with its realised difference if you say so.',
     ifSkipped: 'I do not match foreign-currency receipts, and I say so each time.',
     priority: 55,
   },
@@ -1332,6 +1494,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   // ── Security ──
   {
     key: 'efirma_max_accesos_diarios',
+    textKey: 'efirma_max_daily_accesses',
     category: 'seguridad',
     question: 'How many e.firma decryptions per day are normal?',
     impact:
@@ -1354,6 +1517,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'efirma_accion_anomalia',
+    textKey: 'efirma_anomaly_action',
     category: 'seguridad',
     question: 'When an anomalous e.firma access pattern is detected, block or only alert?',
     impact:
@@ -1380,6 +1544,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   // ── Operations ──
   {
     key: 'ingest_auto_post',
+    textKey: 'ingest_auto_post',
     category: 'operativa',
     question: 'Is auto-posting enabled for CFDI ingestion?',
     impact:
@@ -1403,6 +1568,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'ingest_auto_post_max_monto',
+    textKey: 'ingest_auto_post_max_amount',
     category: 'operativa',
     question: 'What is the maximum amount the AI can post without human review?',
     impact: 'Hard cap for auto-posting. Above this amount it always goes through review.',
@@ -1429,27 +1595,35 @@ export const POLICY_CATALOG: PolicySpec[] = [
   // política cambia el comportamiento de alguien») y entrena al despacho a
   // ignorar el panel. Vuelve CON el flujo de descarga, como su primera clave.
   {
-    // F02 · REP-2: qué hace el CIERRE con un pago a proveedor sin REP. El
-    // IVA de ese pago sigue aparcado en 1135 y no es acreditable; cerrar el
-    // mes con eso pendiente es una decisión del despacho, no del sistema.
+    // F02 · REP-2: what the CLOSE does with a supplier payment on a PPD bill
+    // that has no REP. The payment is what makes the IVA creditable (LIVA
+    // art. 5 fr. III) and the ledger credits it then (MNE-001-125); the REP
+    // is the receipt that supports that credit (CFF art. 29, RMF 2.7.1.35).
+    // Whether a missing one is a close item at all, and how heavy, is the
+    // firm's call, not the system's.
     key: 'rep_faltante_recibido',
+    textKey: 'rep_missing_received',
     category: 'fiscal',
-    question: 'At close, a supplier payment still has no REP (its VAT is parked). Block the close or just warn?',
+    question: 'At close, a supplier payment on a PPD bill has no REP yet, though its VAT was already credited. Block the close, just warn, or not watch it at close?',
     impact:
       'With "bloquear", the soft close refuses while any period payment lacks its REP; with "avisar" it ' +
-      'closes and the checklist records the parked VAT.',
+      'closes and the checklist records the unsupported credit; with "no_vigilar" the close ignores the ' +
+      'supplier side and rep missing list is the only place that shows it.',
     options: [
-      { value: 'avisar', label: 'Warn: close proceeds, the parked VAT stays visible in the checklist' },
+      { value: 'avisar', label: 'Warn: close proceeds, the missing REP stays visible in the checklist' },
       { value: 'bloquear', label: 'Block: no close until every payment has its REP' },
+      { value: 'no_vigilar', label: 'Do not watch at close: the credit is already booked; chase REPs from rep missing list' },
     ],
     defaultValue: 'avisar',
     defaultRationale:
-      'A supplier who is late with their REP should not freeze your whole close; the parked VAT is ' +
-      'visible either way and rep missing list names the culprits.',
+      'The VAT of a PPD bill is creditable when paid (LIVA art. 5 fr. III), and the supplier must issue the ' +
+      'REP that supports that credit (CFF art. 29, RMF 2.7.1.35). A late supplier should not freeze your ' +
+      'close, but a credit without its receipt is an audit exposure, so the close keeps it visible; rep ' +
+      'missing list names the culprits.',
     whyAsking:
-      'The REP is what makes PPD VAT creditable. Some firms refuse to close a month with parked VAT; others close and chase the supplier.',
+      'The REP is what supports crediting PPD VAT. Some firms refuse to close a month whose VAT credits still lack their REP; others close and chase the supplier; others track it outside the close.',
     whatIDo:
-      'It decides whether getPeriodCloseStatus counts missing supplier REPs as a blocking issue or a warning.',
+      'It decides whether getPeriodCloseStatus counts missing supplier REPs as a blocking issue, a warning, or not at all.',
     ifSkipped: 'It warns: the close proceeds and the checklist shows the pending REPs.',
     priority: 22,
   },
@@ -1457,6 +1631,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // F02 · REP-2: el espejo del anterior, pero con OBLIGACIÓN PROPIA — el
     // REP de un cobro nuestro lo debemos EMITIR nosotros, con plazo del SAT.
     key: 'rep_faltante_emitido',
+    textKey: 'rep_missing_issued',
     category: 'fiscal',
     question: 'At close, a customer collection has no REP issued by us. Block the close or just warn?',
     impact:
@@ -1485,6 +1660,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // (nómina, aprobación de borradores de IA, reversas) creador=posteador
     // es intencional y el maker real queda trazado por source_type/source_id.
     key: 'segregacion_de_funciones',
+    textKey: 'segregation_of_duties',
     category: 'seguridad',
     question: 'May the person who did the work also sign it off?',
     impact:
@@ -1515,6 +1691,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // variación EXACTAMENTE cero; la familia genérica de certificación habla
     // de tolerancia. El criterio es del despacho, no del programa.
     key: 'conciliacion_tolerancia',
+    textKey: 'reconciliation_tolerance',
     category: 'contable',
     question: 'Must a bank reconciliation come to exactly zero, or may a small residual be carried?',
     impact:
@@ -1541,6 +1718,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   {
     // F05c · La línea de banco que nadie explica al cerrar.
     key: 'linea_banco_sin_partida_al_cierre',
+    textKey: 'unexplained_bank_line_at_close',
     category: 'contable',
     question: 'At close, what happens to a bank line with no book entry to explain it?',
     impact:
@@ -1574,6 +1752,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // new file is already in another statement is the firm's call, not ours.
     // Reader: `bank-statement-service.ts`, inside the import transaction.
     key: 'bank_statement_overlap',
+    textKey: 'bank_statement_overlap',
     category: 'contable',
     question: 'When a new bank statement repeats movements already imported from another one, what happens?',
     impact:
@@ -1607,6 +1786,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // F05b · El cotejo automático. `confidence >= 0.85` estaba escrito a mano
     // en el motor, sin bandera y sin que nadie lo hubiera elegido.
     key: 'cotejo_umbral_confianza',
+    textKey: 'match_confidence_threshold',
     category: 'operativa',
     question: 'How sure must the matching engine be before it pairs a bank line on its own?',
     impact:
@@ -1635,6 +1815,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // F05b · El techo por importe. El catálogo manda engancharse al piso
     // existente y no inventar una compuerta paralela.
     key: 'cotejo_monto_maximo_auto',
+    textKey: 'match_max_auto_amount',
     category: 'operativa',
     question: 'Above what amount must a human confirm a match, however sure the engine is?',
     impact:
@@ -1664,6 +1845,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // ir a alguna cuenta. Cuál, es criterio del despacho — no del programa —
     // y por eso se pregunta aquí en vez de decidirse en el código.
     key: 'pago_corto_residual',
+    textKey: 'short_payment_residual',
     category: 'contable',
     question: 'When a bill is closed paying less than it owed, where does the shortfall go?',
     impact:
@@ -1703,6 +1885,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
 
   {
     key: 'subsidio_al_empleo_entregado_registro',
+    textKey: 'employment_subsidy_paid_treatment',
     category: 'contable',
     question:
       'When the employment subsidy exceeds the ISR withheld and you hand the difference to the worker in cash, is that a receivable from the tax authority or an expense of the firm?',
@@ -1737,6 +1920,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   // (payroll/mx/employment-subsidy.ts); decided by the owner in MNE-001-004.
   {
     key: 'subsidio_al_empleo_redondeo',
+    textKey: 'employment_subsidy_rounding',
     category: 'fiscal',
     question:
       'How do you round the employment subsidy of a pay period shorter than a month: once, on the period amount, or first on the daily amount?',
@@ -1768,6 +1952,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'isn_estado_que_causa',
+    textKey: 'isn_taxing_state',
     category: 'fiscal',
     question:
       'For the state payroll tax (ISN), which state does a worker belong to: the one where the work is performed, or the one of the firm\'s tax domicile?',
@@ -1799,6 +1984,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'isn_momento_de_causacion',
+    textKey: 'isn_recognition_basis',
     category: 'contable',
     question:
       'Do you accrue the ISN when the payroll is earned, or when it is paid?',
@@ -1822,6 +2008,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'provision_cuotas_patronales',
+    textKey: 'employer_contribution_accrual',
     category: 'contable',
     question:
       'Do you accrue the employer IMSS and INFONAVIT contributions with every pay run, or once a month when they are paid?',
@@ -1861,6 +2048,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // Lo que sí es criterio, y por eso vive aquí, es lo que queda cuando el
     // dinero ya está a salvo: el renglón VACÍO.
     key: 'informes_cuentas_archivadas',
+    textKey: 'archived_accounts_in_reports',
     category: 'contable',
     question:
       'Once an account is archived, does it keep its row in a trial balance where it has nothing to show?',
@@ -1908,6 +2096,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
   {
     key: 'flujo_efectivo_sin_clasificar',
+    textKey: 'cash_flow_unclassified',
     category: 'contable',
     question:
       'When an account moved but belongs to no section of the cash flow statement, do I publish the statement naming it, or refuse until it has one?',
@@ -1941,6 +2130,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // in is the firm's answer (owner's decision, 2026-09-26), and an entity can
     // carry its own row (Tijuana, Cancún, Sonora). Its reader is `todayFor`.
     key: TIME_ZONE_POLICY_KEY,
+    textKey: 'time_zone',
     category: 'operativa',
     question: 'In which time zone does "today" fall for these books?',
     impact:

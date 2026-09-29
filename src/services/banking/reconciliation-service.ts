@@ -13,11 +13,15 @@ import {
   type DraftPayload,
 } from '../../ai/draft-service.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
-import { attestEntryAsync, createJournalEntry } from '../accounting/posting.js';
-import { JournalEntryType } from '../../types/index.js';
+import {
+  attestEntryAsync,
+  createJournalEntry,
+  reverseWithinTransaction,
+} from '../accounting/posting.js';
+import { JournalEntryType, type JournalEntry } from '../../types/index.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { sellarPartidas } from './book-items.js';
-import { correrCotejo, type ResultadoCorrida } from './match-service.js';
+import { correrCotejo, liberarPartidas as releaseGroupSeal, type ResultadoCorrida } from './match-service.js';
 import {
   importarEstadoDeCuenta,
   resolverCuentaBancaria,
@@ -2622,7 +2626,7 @@ export async function aprobarSesion(
 }
 
 // ============================================================
-// `bank reconciliation reopen` — MNE-001-044 (#302)
+// `bank reconciliation reopen` — MNE-001-044 and MNE-001-130 (#302)
 // ============================================================
 
 export interface ReopenOptions {
@@ -2630,14 +2634,30 @@ export interface ReopenOptions {
   reason: string;
 }
 
+/** One adjustment entry that a posted session's reopen reversed (MNE-001-130). */
+export interface ReversedAdjustment {
+  adjustmentId: string;
+  /** The entry `post` booked or adopted. It stays posted: the ledger never forgets. */
+  entryId: string;
+  entryNumber: string;
+  /** Its mirror. `reusedReversal` says it existed already and was only recognised. */
+  reversalId: string;
+  reversalNumber: string;
+  reusedReversal: boolean;
+  /** The new pending draft the adjustment now points at, so a new `post` books it again. */
+  newDraftId: string | null;
+}
+
 export interface ReopenResult {
   sessionId: string;
-  previousStatus: 'approved';
+  previousStatus: 'approved' | 'posted';
   status: 'in_progress';
   from: string;
   to: string;
   /** The signature this act withdraws. The row forgets it; the audit trail keeps it whole. */
   withdrawnSignature: { approvedBy: string; approvedAt: string; hash: string };
+  /** Empty for an approved session: only `post` reaches the ledger. */
+  reversals: ReversedAdjustment[];
   reason: string;
   dryRun: boolean;
 }
@@ -2645,16 +2665,20 @@ export interface ReopenResult {
 /** The fiscal period states in which `period reopen` has to act first. */
 const CLOSED_PERIOD_STATES = new Set(['soft_close', 'hard_close', 'locked']);
 
+/** The only states a reopen starts from. `balanced` is left out on purpose (#302 /confirmar). */
+const REOPENABLE_STATES = new Set(['approved', 'posted']);
+
 /**
- * `bank reconciliation reopen <session>`: moves an APPROVED session back to
- * `in_progress` so a wrong item or match can be corrected and the SAME range
- * closed and signed again. Without it the month stayed trapped: `close`
+ * `bank reconciliation reopen <session>`: moves an APPROVED or POSTED session
+ * back to `in_progress` so a wrong item or match can be corrected and the SAME
+ * range closed and signed again. Without it the month stayed trapped: `close`
  * refuses anything but `in_progress`, the item services refuse a closed
  * session, and `open` refuses a second session over the same range.
  *
- * ONLY FROM `approved` (the /confirmar on #302 scopes MNE-001-044 to it). A
- * `posted` session has adjustment entries in the ledger, and reopening it means
- * reversing them; that is MNE-001-130 and is refused here by name.
+ * A POSTED SESSION HAS ENTRIES IN THE LEDGER, and those are reversed, never
+ * deleted (MNE-001-130, NIF B-1): see `reversePostedAdjustments`. The dry run
+ * walks the same path and rolls it back, so it names each entry it would
+ * reverse.
  *
  * THE FISCAL PERIOD WINS. `period-close.ts` reads a balanced, approved or
  * posted session as the evidence that the account was verified against the
@@ -2683,24 +2707,22 @@ export async function reopenSession(
     );
   }
 
-  return ejecutarActo(async (client) => {
+  // Attestation reads the entry back, so it fires after the commit and never
+  // for a dry run, exactly as in `post`.
+  const toAttest: string[] = [];
+
+  const outcome = await ejecutarActo(async (client) => {
     const session = await sesionDeLaEntidad(client, entityId, sessionId, true);
-    if (session.status === 'posted') {
+    if (!REOPENABLE_STATES.has(session.status)) {
       throw new ConflictError(
-        `La sesión ${sessionId} ya está contabilizada ('posted'): sus asientos de ajuste están en ` +
-          `el mayor y reabrirla exige revertirlos con asiento de reversa. Esa reapertura todavía ` +
-          `no existe (MNE-001-130, #302); este comando sólo reabre sesiones 'approved'.`
-      );
-    }
-    if (session.status !== 'approved') {
-      throw new ConflictError(
-        `La sesión ${sessionId} está en '${session.status}', no en 'approved': reabrir es sólo ` +
-          `para una conciliación firmada. ` +
+        `La sesión ${sessionId} está en '${session.status}', no en 'approved' ni en 'posted': ` +
+          `reabrir es sólo para una conciliación firmada. ` +
           (session.status === 'in_progress'
             ? 'Ya es editable.'
             : 'Una sesión cuadrada sin firmar todavía no tiene una firma que retirar.')
       );
     }
+    const previousStatus = session.status as 'approved' | 'posted';
 
     const periods = await client.query<{ period_name: string; status: string }>(
       `SELECT period_name, status FROM fiscal_periods
@@ -2735,9 +2757,17 @@ export async function reopenSession(
       [sessionId, entityId]
     );
 
+    const reversals =
+      previousStatus === 'posted'
+        ? await reversePostedAdjustments(client, entityId, session, ctx.userId, reason)
+        : [];
+    for (const r of reversals) if (!r.reusedReversal) toAttest.push(r.reversalId);
+
     // Invariant 3: state predicate and entity in the WHERE, rowCount checked.
     // The close columns go too: the item services read `closed_at` as well as
-    // the status, and a reopened row that kept it would refuse every edit.
+    // the status, and a reopened row that kept it would refuse every edit. The
+    // post columns go with them, since the reversals above undid what they
+    // recorded; the audit row keeps them.
     const written = await client.query(
       `UPDATE reconciliation_sessions
           SET status = 'in_progress',
@@ -2751,9 +2781,11 @@ export async function reopenSession(
               closed_by = NULL,
               completed_at = NULL,
               completed_by = NULL,
+              posted_at = NULL,
+              posted_by = NULL,
               updated_at = NOW()
-        WHERE id = $1 AND entity_id = $2 AND status = 'approved'`,
-      [sessionId, entityId]
+        WHERE id = $1 AND entity_id = $2 AND status = $3`,
+      [sessionId, entityId, previousStatus]
     );
     if (written.rowCount !== 1) {
       throw new ConflictError(
@@ -2769,7 +2801,7 @@ export async function reopenSession(
       entityType: 'reconciliation_sessions',
       entityId: sessionId,
       oldValues: {
-        status: 'approved',
+        status: previousStatus,
         approved_by: session.approved_by,
         approved_at: session.approved_at,
         approval_reason: session.approval_reason,
@@ -2777,30 +2809,238 @@ export async function reopenSession(
         approval_snapshot: signed.rows[0]?.approval_snapshot ?? null,
         closed_at: session.closed_at,
         closed_by: session.closed_by,
+        posted_at: session.posted_at,
+        posted_by: session.posted_by,
         variance: session.variance,
       },
-      newValues: { status: 'in_progress' },
+      newValues: {
+        status: 'in_progress',
+        reversals: reversals.map((r) => ({
+          adjustment: r.adjustmentId,
+          entry: r.entryId,
+          reversal: r.reversalId,
+          new_draft: r.newDraftId,
+        })),
+      },
       reason,
     });
 
     const result: ReopenResult = {
       sessionId,
-      previousStatus: 'approved',
+      previousStatus,
       status: 'in_progress',
       from: session.start_date,
       to: session.end_date,
       withdrawnSignature: {
-        // The 055 CHECK guarantees all three on an approved row.
+        // The 055 CHECK guarantees all three on an approved or posted row.
         approvedBy: session.approved_by as string,
         approvedAt: session.approved_at as string,
         hash: session.approval_hash as string,
       },
+      reversals,
       reason,
       dryRun: ctx.dryRun === true,
     };
     if (ctx.dryRun) throw new EnsayoSesion(result);
     return result;
   });
+
+  if (!ctx.dryRun) {
+    for (const entryId of toAttest) attestEntryAsync(tenantId, entityId, entryId);
+  }
+  return outcome;
+}
+
+/**
+ * Undoes what `post` did to a session, inside the reopen's transaction, so
+ * that closing the SAME range again yields the balance it yielded before
+ * `post`. Four things, because `post` wrote four:
+ *
+ *   1. THE ENTRY IS REVERSED, NEVER DELETED (NIF B-1; the 041 trigger forbids
+ *      the delete anyway). The mirror is dated on the entry's own date: the
+ *      session's range is what gets closed again, and a mirror dated today
+ *      would leave the adjustment inside that range's book balance while its
+ *      reconciling item counts it a second time. The period guard above has
+ *      already proved that period open. An entry someone already reversed by
+ *      hand is recognised, not reversed twice.
+ *   2. THE ADJUSTMENT BECOMES A PROMISE AGAIN. `journal_entry_id` goes back to
+ *      NULL and the adjustment points at a NEW pending draft with the same
+ *      payload. The old draft keeps its approval and its entry: rewriting a
+ *      reviewed draft is rewriting history, and leaving the adjustment on it
+ *      would make the next `post` adopt an entry that is already reversed.
+ *   3. THE MATCH AND THE SEAL `post` wrote are closed (`unapplied_at`, never a
+ *      delete) and released, and the entry's bank lines are sealed again
+ *      TOGETHER WITH their mirror's, in a group of their own that sums zero.
+ *      Left loose, the pair would come back as two reconciling items that
+ *      cancel each other and explain nothing.
+ *   4. THE ITEM THE ADJUSTMENT EXPLAINED IS OPEN AGAIN, as it was before
+ *      `post`: its bank movement has no live match any more.
+ */
+async function reversePostedAdjustments(
+  client: pg.PoolClient,
+  entityId: string,
+  session: FilaSesion,
+  userId: string,
+  reason: string
+): Promise<ReversedAdjustment[]> {
+  const adjustments = await client.query<{ id: string; journal_entry_id: string; draft_id: string | null }>(
+    `SELECT ra.id, ra.journal_entry_id, ra.draft_id
+       FROM reconciliation_adjustments ra
+       JOIN reconciliation_sessions s ON s.id = ra.reconciliation_session_id
+      WHERE ra.entity_id = $1 AND s.entity_id = $1
+        AND ra.reconciliation_session_id = $2
+        AND ra.journal_entry_id IS NOT NULL
+      ORDER BY ra.created_at, ra.id
+      FOR UPDATE OF ra`,
+    [entityId, session.id]
+  );
+  if (adjustments.rows.length === 0) return [];
+
+  const reversed: ReversedAdjustment[] = [];
+  for (const adj of adjustments.rows) {
+    const found = await client.query<JournalEntry & { entry_day: string }>(
+      `SELECT *, entry_date::text AS entry_day FROM journal_entries
+        WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+      [adj.journal_entry_id, entityId]
+    );
+    const entry = found.rows[0];
+    if (!entry) throw new NotFoundError('Journal entry', adj.journal_entry_id);
+
+    let reversal: { id: string; entry_number: string };
+    let reusedReversal = false;
+    if (entry.reversed_by_entry_id) {
+      const existing = await client.query<{ id: string; entry_number: string }>(
+        `SELECT id, entry_number FROM journal_entries WHERE id = $1 AND entity_id = $2`,
+        [entry.reversed_by_entry_id, entityId]
+      );
+      reversal = existing.rows[0];
+      reusedReversal = true;
+    } else {
+      reversal = await reverseWithinTransaction(
+        client,
+        entry,
+        userId,
+        `Reversal of ${entry.entry_number}: bank reconciliation ${session.id} reopened · ${reason}`,
+        entry.entry_day
+      );
+    }
+
+    let newDraftId: string | null = null;
+    if (adj.draft_id !== null) {
+      newDraftId = uuidv4();
+      await exigirUnaFila(
+        client.query(
+          `INSERT INTO ai_drafts (id, tenant_id, entity_id, draft_type, status, payload,
+                                  ai_confidence, ai_reasoning, ai_model, user_request)
+           SELECT $1, tenant_id, entity_id, draft_type, 'pending_review', payload,
+                  ai_confidence, $2, ai_model, user_request
+             FROM ai_drafts WHERE id = $3 AND entity_id = $4`,
+          [
+            newDraftId,
+            `Reissued: bank reconciliation ${session.id} was reopened and entry ` +
+              `${entry.entry_number} reversed by ${reversal.entry_number}. Same payload as ${adj.draft_id}.`,
+            adj.draft_id,
+            entityId,
+          ]
+        ),
+        `The draft ${adj.draft_id} of adjustment ${adj.id} could not be reissued`
+      );
+    }
+    await exigirUnaFila(
+      client.query(
+        `UPDATE reconciliation_adjustments
+            SET journal_entry_id = NULL, draft_id = COALESCE($1, draft_id)
+          WHERE id = $2 AND entity_id = $3 AND journal_entry_id = $4`,
+        [newDraftId, adj.id, entityId, adj.journal_entry_id]
+      ),
+      `The adjustment ${adj.id} changed while its entry was being reversed`
+    );
+
+    reversed.push({
+      adjustmentId: adj.id,
+      entryId: entry.id,
+      entryNumber: entry.entry_number,
+      reversalId: reversal.id,
+      reversalNumber: reversal.entry_number,
+      reusedReversal,
+      newDraftId,
+    });
+  }
+
+  const originals = reversed.map((r) => r.entryId);
+  const pairs = [...originals, ...reversed.map((r) => r.reversalId)];
+
+  // 3a. The groups THIS session's post sealed the entries with. A seal from
+  // another group is someone else's assertion and is left alone.
+  const groups = await client.query<{ id: string }>(
+    `SELECT DISTINCT g.id
+       FROM journal_entry_lines jel
+       JOIN journal_entries je ON je.id = jel.journal_entry_id
+       JOIN reconciliation_match_groups g ON g.id = jel.reconciliation_id
+      WHERE je.id = ANY($1::uuid[]) AND je.entity_id = $2
+        AND g.entity_id = $2 AND g.reconciliation_session_id = $3`,
+    [originals, entityId, session.id]
+  );
+  const groupIds = groups.rows.map((g) => g.id);
+  if (groupIds.length > 0) {
+    const closedMatches = await client.query<{ bank_transaction_id: string }>(
+      `UPDATE reconciliation_matches
+          SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = 'session-reopened'
+        WHERE group_id = ANY($2::uuid[]) AND unapplied_at IS NULL
+        RETURNING bank_transaction_id`,
+      [userId, groupIds]
+    );
+    for (const g of groupIds) await releaseGroupSeal(client, entityId, g);
+    await client.query(
+      `UPDATE bank_transactions bt
+          SET is_matched = false, matched_at = NULL, matched_by = NULL
+        WHERE bt.id = ANY($1::uuid[]) AND bt.bank_account_id = $2
+          AND NOT EXISTS (SELECT 1 FROM reconciliation_matches rm
+                           WHERE rm.bank_transaction_id = bt.id AND rm.unapplied_at IS NULL)`,
+      [closedMatches.rows.map((m) => m.bank_transaction_id), session.bank_account_id]
+    );
+  }
+
+  // 3b. The entry and its mirror against the bank's ledger account, sealed as
+  // one group. Only when they cancel: a lone mirror is not explained by
+  // anything and must stay visible.
+  const loose = await client.query<{ id: string; amount: string }>(
+    `SELECT jel.id, (COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS amount
+       FROM journal_entry_lines jel
+       JOIN journal_entries je ON je.id = jel.journal_entry_id
+       JOIN bank_accounts ba ON ba.gl_account_id = jel.account_id AND ba.entity_id = je.entity_id
+      WHERE je.id = ANY($1::uuid[]) AND je.entity_id = $2 AND ba.id = $3
+        AND je.status = 'posted' AND jel.is_reconciled = false
+      ORDER BY jel.id`,
+    [pairs, entityId, session.bank_account_id]
+  );
+  const net = loose.rows.reduce((acc, l) => acc.plus(l.amount), new Decimal(0));
+  if (loose.rows.length > 0 && net.isZero()) {
+    const pairGroup = uuidv4();
+    await client.query(
+      `INSERT INTO reconciliation_match_groups (
+         id, entity_id, bank_account_id, reconciliation_session_id,
+         total_banco, total_libros, total_ajustes, residual, residual_mode, origen, created_by
+       ) VALUES ($1, $2, $3, $4, 0, 0, 0, 0, 'keep', 'manual', $5)`,
+      [pairGroup, entityId, session.bank_account_id, session.id, userId]
+    );
+    await sellarPartidas(client, loose.rows.map((l) => l.id), pairGroup);
+  }
+
+  // 4. The items these adjustments had resolved.
+  await client.query(
+    `UPDATE reconciling_items ri
+        SET resuelta_at = NULL
+       FROM reconciliation_adjustments ra
+      WHERE ra.reconciling_item_id = ri.id
+        AND ra.id = ANY($1::uuid[])
+        AND ra.entity_id = $2 AND ri.entity_id = $2
+        AND ri.reconciliation_session_id = $3
+        AND ri.resuelta_at IS NOT NULL`,
+    [reversed.map((r) => r.adjustmentId), entityId, session.id]
+  );
+
+  return reversed;
 }
 
 // ============================================================

@@ -1,6 +1,6 @@
 import type { Express, Router } from 'express';
 import { censarRutas, VERBOS_QUE_MUTAN, alcanceDeIdempotencia, type RutaCensada } from './risk.js';
-import { esquemaDeCuerpo } from './middleware/async-handler.js';
+import { esquemaDeCuerpo, queryParameterOf } from './middleware/async-handler.js';
 import { permisosDeManejador } from './middleware/auth.js';
 import { jsonSchemaDeZod, type EsquemaJson } from './zod-a-json-schema.js';
 import { CABECERA_LLAVE, LARGO_MAX_CLAVE } from './middleware/idempotencia.js';
@@ -269,6 +269,20 @@ function operacionDe(r: RutaCensada, camino: string): Operacion {
     op['x-permisos-requeridos'] = [...permisos];
     op.security = [{ bearerAuth: [] }];
   }
+  // Query parameters come from the `validateQuery` marks, like the body comes
+  // from `validateBody`'s: required exactly when the schema rejects absence.
+  const queryParams = r.manejadores.flatMap((h) => {
+    const q = queryParameterOf(h);
+    return q ? [q] : [];
+  });
+  for (const q of queryParams) {
+    parametros.push({
+      name: q.name,
+      in: 'query',
+      required: !q.schema.safeParse(undefined).success,
+      schema: jsonSchemaDeZod(q.schema, `${r.metodo.toUpperCase()} ${r.ruta} ?${q.name}`),
+    });
+  }
   if (parametros.length > 0) op.parameters = parametros;
 
   if (esquema) {
@@ -287,6 +301,7 @@ function operacionDe(r: RutaCensada, camino: string): Operacion {
 
   op.responses = respuestas(
     Boolean(esquema),
+    queryParams.length > 0,
     Boolean(permisos),
     riesgo?.exigeLlaveDeIdempotencia,
     r.metodo === 'get' ? LABELLED_STATEMENTS.get(camino) : undefined
@@ -305,7 +320,7 @@ function resumen(r: RutaCensada, clase: string | undefined): string {
  * Las respuestas que SÍ se derivan de la cadena que el censo ve.
  *
  * Cada una está atada a un manejador concreto: el 422 lo produce
- * `validateBody`, el 401/403 los produce `assertPermissions`, el 409 lo
+ * `validateBody` (or `validateQuery`, for a route with no body), el 401/403 los produce `assertPermissions`, el 409 lo
  * produce el guardián de idempotencia cuando la misma llave llega con otra
  * carga, y el 500 lo produce `errorHandler` para todo lo que no sea un
  * `AppError`. No hay ninguna que se haya supuesto.
@@ -316,6 +331,7 @@ function resumen(r: RutaCensada, clase: string | undefined): string {
  */
 function respuestas(
   conCuerpo: boolean,
+  withQuery: boolean,
   conPermiso: boolean,
   conLlave: boolean | undefined,
   sections: readonly ReportSectionKey[] | undefined
@@ -328,6 +344,7 @@ function respuestas(
   }
   if (conLlave) r['409'] = { $ref: '#/components/responses/LlaveReusada' };
   if (conCuerpo) r['422'] = { $ref: '#/components/responses/CuerpoInvalido' };
+  else if (withQuery) r['422'] = { $ref: '#/components/responses/InvalidQuery' };
   r['500'] = { $ref: '#/components/responses/ErrorInterno' };
   return r;
 }
@@ -630,6 +647,10 @@ const COMPONENTES: Record<string, unknown> = {
     CuerpoInvalido: respuesta(
       'The request body failed the schema in requestBody (VALIDATION_ERROR). Note the status ' +
         'is 422, not 400.'
+    ),
+    InvalidQuery: respuesta(
+      'A query parameter failed its schema in parameters (VALIDATION_ERROR, with `field` ' +
+        'naming the parameter). Note the status is 422, not 400.'
     ),
     ErrorInterno: respuesta('Unhandled failure (INTERNAL_SERVER_ERROR).'),
   },

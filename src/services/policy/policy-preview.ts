@@ -158,14 +158,14 @@ export const PREVIEWS: Record<string, PreviewFn> = {
       `SELECT count(*)::text n,
               GREATEST(1, EXTRACT(DAY FROM (NOW() - MIN(accessed_at))))::text days
        FROM fiscal_credential_access_log
-       WHERE entity_id = $1 AND outcome = 'success'`,
+       WHERE entity_id = $1 AND outcome IN ('success', 'error')`,
       [ctx.entityId]
     );
     const n = Number(r.rows[0]?.n ?? 0);
     if (n === 0) return [`No e.firma accesses recorded yet.`];
     const days = Number(r.rows[0].days ?? 1);
     return [
-      `${n} successful access${n === 1 ? '' : 'es'} over ${days} day${days === 1 ? '' : 's'} ` +
+      `${n} access${n === 1 ? '' : 'es'} counted toward the cap over ${days} day${days === 1 ? '' : 's'} ` +
         `(~${(n / days).toFixed(1)} per day).`,
     ];
   },

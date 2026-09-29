@@ -6,9 +6,14 @@ import {
   CLOSE_CHECK_ITEMS,
   type CloseCheckCode,
   type SubledgerCode,
+  getPeriodCloseStatus,
   readSubledgerSide,
+  staleOpenings,
 } from './period-close.js';
 import { MAPPING_SCHEMES } from './account-service.js';
+import { revisionDeAmortizacionAlCierre } from '../accruals/prepaid-service.js';
+import { getPolicy } from '../policy/policy-service.js';
+import { listPaymentsAwaitingRep, watchedAtClose } from './rep-expected.js';
 
 // ============================================================
 // F06b · `closing explain <codigo>` — LOS RENGLONES OFENSORES
@@ -54,7 +59,10 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'bank-lines-unexplained': 'mnemosine bank reconciliation run <account> --period <YYYY-MM>',
   'invoices-reviewed': 'mnemosine invoice issue <invoice_number>',
   'depreciation-posted': 'mnemosine depreciation run --period <YYYY-MM>',
-  'trial-balance': 'mnemosine ledger check --check balance --period <YYYY-MM>',
+  'prepaid-amortized': 'mnemosine prepaid run --period <YYYY-MM>',
+  'trial-balance':
+    'mnemosine close --period <period> --hard  (re-seals the earlier month whose correction the carry did not reach; ' +
+    'a cache that does not foot is named by mnemosine ledger check --check balance)',
   'ledger-integrity': 'mnemosine ledger check --period <YYYY-MM>',
   'rep-parked': 'mnemosine rep reconcile',
   'rep-missing': 'mnemosine rep missing list',
@@ -257,10 +265,19 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
       [entityId, periodId, limit]
     ),
 
-  // La balanza es un AGREGADO: su renglón ofensor es la diferencia misma.
-  // El detalle cuenta por cuenta es de `ledger check --check balance`, que
-  // ya lista renglones señalables — el remedio apunta ahí.
-  'trial-balance': async (entityId, periodId) => {
+  // The same review the checklist box reads (`prepaidAmortizedCheck`), so
+  // the list and the count cannot drift apart.
+  'prepaid-amortized': async (entityId, periodId, limit) => {
+    const review = await revisionDeAmortizacionAlCierre(entityId, periodId);
+    return {
+      total: review.pendientes.length,
+      renglones: review.pendientes.slice(0, limit).map((p) => ({ ...p })),
+    };
+  },
+
+  // The footing is an AGGREGATE: its offending row is the difference itself.
+  // The beginnings the ledger does not give are one row per account (#99).
+  'trial-balance': async (entityId, periodId, limit) => {
     const r = await query<{ d: string; c: string; diff: string }>(
       `SELECT COALESCE(SUM(COALESCE(debit_total, 0)), 0)::text AS d,
               COALESCE(SUM(COALESCE(credit_total, 0)), 0)::text AS c,
@@ -270,13 +287,12 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
       [entityId, periodId]
     );
     const fila = r.rows[0];
-    const descuadrada = Number(fila.diff) > 0.01;
-    return descuadrada
-      ? {
-          total: 1,
-          renglones: [{ debit_total: fila.d, credit_total: fila.c, difference: fila.diff }],
-        }
-      : { total: 0, renglones: [] };
+    const rows: RenglonOfensor[] =
+      Number(fila.diff) > 0.01 ? [{ debit_total: fila.d, credit_total: fila.c, difference: fila.diff }] : [];
+    for (const s of await staleOpenings(entityId, periodId)) {
+      rows.push({ account: s.code, carried_opening: s.carried, ledger_opening: s.ledger, difference: s.difference });
+    }
+    return { total: rows.length, renglones: rows.slice(0, limit) };
   },
 
   // Espejo de la casilla 5b: los hallazgos BLOQUEANTES de runLedgerChecks,
@@ -314,32 +330,35 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
       [entityId, periodId, limit]
     ),
 
-  // Los dos lados en una sola lista, marcados por dirección: recibido = el
-  // pago al proveedor cuyo REP no llegó; emitido = el cobro cuyo REP debemos.
-  'rep-missing': (entityId, periodId, limit) =>
-    filas(
-      `SELECT pagos.*, COUNT(*) OVER()::text AS total_ofensores
-       FROM (
-         SELECT 'recibido' AS direction, vp.payment_number,
-                to_char(vp.payment_date, 'YYYY-MM-DD') AS payment_date,
-                vp.payment_amount::text AS payment_amount, vp.currency_code
-           FROM vendor_payments vp
-          WHERE vp.entity_id = $1 AND vp.cfdi_uuid IS NULL AND vp.status <> 'void'
-            AND vp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                    AND (SELECT end_date   FROM fiscal_periods WHERE id = $2)
-         UNION ALL
-         SELECT 'emitido' AS direction, cp.payment_number,
-                to_char(cp.payment_date, 'YYYY-MM-DD') AS payment_date,
-                cp.payment_amount::text AS payment_amount, cp.currency_code
-           FROM customer_payments cp
-          WHERE cp.entity_id = $1 AND cp.cfdi_uuid IS NULL AND cp.status <> 'void'
-            AND cp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                    AND (SELECT end_date   FROM fiscal_periods WHERE id = $2)
-       ) pagos
-       ORDER BY pagos.payment_date, pagos.payment_number
-       LIMIT $3`,
-      [entityId, periodId, limit]
-    ),
+  // Mirror of the rep-missing box (MNE-001-125): the SAME list the box
+  // counts, from rep-expected.ts, after the same rep_faltante_recibido
+  // filter, so `total` always equals the box's received + issued. Both
+  // sides in one list, tagged by direction: recibido = the supplier payment
+  // whose REP has not arrived; emitido = the collection whose REP we owe.
+  'rep-missing': async (entityId, periodId, limit) => {
+    const owner = await query<{ tenant_id: string }>(
+      `SELECT tenant_id FROM legal_entities WHERE id = $1`,
+      [entityId]
+    );
+    const [expected, receivedPolicy] = await Promise.all([
+      listPaymentsAwaitingRep(query, entityId, { periodId }),
+      getPolicy({ tenantId: owner.rows[0].tenant_id, entityId }, 'rep_faltante_recibido'),
+    ]);
+    const watched = watchedAtClose(expected, receivedPolicy.value).sort(
+      (x, y) => x.payment_date.localeCompare(y.payment_date) || x.payment_number.localeCompare(y.payment_number)
+    );
+    return {
+      total: watched.length,
+      renglones: watched.slice(0, limit).map((p) => ({
+        direction: p.direction === 'received' ? 'recibido' : 'emitido',
+        payment_number: p.payment_number,
+        payment_date: p.payment_date,
+        payment_amount: p.amount,
+        currency_code: p.currency_code,
+        method: p.method,
+      })),
+    };
+  },
 
   // Espejo de la casilla 7 (F07a): las cuentas CON MOVIMIENTO POSTEADO hasta
   // el corte del periodo a las que les falta el agrupador del Anexo 24. Mismo
@@ -420,12 +439,30 @@ export async function explainCloseCheck(
   if (dueno.rows.length === 0) {
     throw new NotFoundError('Fiscal period', periodId);
   }
-  const { total, renglones } = await RUNNERS[codigo](entityId, periodId, limit);
+  const found = await RUNNERS[codigo](entityId, periodId, limit);
   return {
     codigo,
     item: CLOSE_CHECK_ITEMS[codigo],
     remedio: REMEDIO_DE[codigo],
-    total,
-    renglones,
+    ...(found.total > 0 ? found : await findingOfTheBox(entityId, periodId, codigo)),
   };
+}
+
+/**
+ * ✘ WITH NO ROW TO LIST (#99). A box can fail on an EMPTY universe —no bank
+ * account, no fixed asset, no account with movement, no control account—
+ * and then no detector here has a row to return, while the checklist says ✘.
+ * This surface printed «nothing to explain» over it. So when the detector is
+ * empty the box itself is asked, and a ✘ comes back as one row with its own
+ * words: explain can no longer contradict the checklist, for any box.
+ */
+async function findingOfTheBox(
+  entityId: string,
+  periodId: string,
+  code: CloseCheckCode
+): Promise<{ total: number; renglones: RenglonOfensor[] }> {
+  const box = (await getPeriodCloseStatus(periodId, entityId)).checklist.find((c) => c.codigo === code);
+  return box && !box.is_complete
+    ? { total: 1, renglones: [{ finding: box.details ?? box.item }] }
+    : { total: 0, renglones: [] };
 }

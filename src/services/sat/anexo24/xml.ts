@@ -257,8 +257,8 @@ export function bytesDe(xml: string): Buffer {
 //
 // CHECKED AGAINST THE OFFICIAL XSD (#397). `t_Importe` has `fractionDigits`
 // 2, admits negatives, and has no `totalDigits`: its bounds are
-// ±9999999999999999999999.99 (`minExclusive` on the low end). The rule
-// validator still warns on a negative as if that were unknown; #404 aligns it.
+// ±9999999999999999999999.99 (`minExclusive` on the low end). A negative
+// amount is valid, so no rule refuses or warns about one (#404).
 //
 // Y el residuo VIAJA CON EL IMPORTE, no se tira. Redondear por separado
 // SaldoIni, Debe, Haber y SaldoFin puede romper `SaldoIni + Debe − Haber =

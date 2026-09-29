@@ -1,13 +1,14 @@
 import express from 'express';
+import type { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { config } from './config/index.js';
-import { query, closeDatabase, initDatabase } from './database/connection.js';
+import { closeDatabase, initDatabase } from './database/connection.js';
 import { verificarRolSujetoARls } from './database/rls-guard.js';
 import { drainAttestations } from './services/accounting/posting.js';
 import { authenticate } from './api/rest/middleware/auth.js';
-import { asyncHandler } from './api/rest/middleware/async-handler.js';
+import { readyHandler } from './api/rest/readiness.js';
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
 import { tenantContext } from './api/rest/middleware/tenant-context.js';
 import { errorHandler } from './api/rest/middleware/error-handler.js';
@@ -27,7 +28,15 @@ import aiWebhooksRouter from './api/rest/routes/ai-webhooks.js';
 import './services/integrations/index.js'; // Register all adapters
 import './services/payroll/tax-engine/register-all.js'; // Register all tax calculators
 
-async function bootstrap() {
+/**
+ * Builds the API exactly as it is served — database init, the RLS role guard,
+ * every middleware and every mount — and returns it WITHOUT listening.
+ *
+ * It is exported, and kept apart from `start()`, so that the plan's behaviour
+ * criteria (src/plan/conducta.ts) can run this very function and measure what
+ * a request does, instead of reading which words appear in this file.
+ */
+export async function bootstrap(): Promise<Express> {
   // Túnel y TLS resueltos antes de la primera consulta.
   const { tunneled, warning } = await initDatabase();
   if (tunneled) logger.info('db_tunnel_open');
@@ -130,19 +139,7 @@ async function bootstrap() {
   app.get('/live', (_req, res) => {
     res.json({ status: 'alive', timestamp: new Date().toISOString() });
   });
-  app.get('/ready', asyncHandler(async (_req, res) => {
-    try {
-      await query('SELECT 1');
-      res.json({ status: 'ready', db: 'ok', timestamp: new Date().toISOString() });
-    } catch (err) {
-      res.status(503).json({
-        status: 'not_ready',
-        db: 'error',
-        error: err instanceof Error ? err.message : String(err),
-        timestamp: new Date().toISOString(),
-      });
-    }
-  }));
+  app.get('/ready', readyHandler);
   app.get('/health', (_req, res) => {
     res.json({ status: 'healthy', version: '1.0.0', timestamp: new Date().toISOString() });
   });
@@ -227,6 +224,12 @@ async function bootstrap() {
   // ============================================================
   app.use(errorHandler);
 
+  return app;
+}
+
+async function start(): Promise<void> {
+  const app = await bootstrap();
+
   // ============================================================
   // Start Server
   // ============================================================
@@ -284,7 +287,11 @@ async function bootstrap() {
   process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
-bootstrap().catch((err) => {
-  logger.error('bootstrap_failed', { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
-  process.exit(1);
-});
+// Only as the entry point (`node dist/index.js`, `tsx src/index.ts`):
+// importing this module to call bootstrap() must not open a port.
+if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
+  start().catch((err) => {
+    logger.error('bootstrap_failed', { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
+    process.exit(1);
+  });
+}
