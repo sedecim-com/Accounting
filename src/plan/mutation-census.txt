@@ -100,6 +100,9 @@ mirror	memory	E0.3 reconciliation-approval-sealed-snapshot	src/database/migratio
 mirror	memory	E0.3 reconciliation-balanced-requires-arithmetic	src/database/migrations/054_la_sesion_que_cuadra.sql	vuelve a caber el defecto histórico: un UPDATE poniendo balanced sin haber calculado nada, que el cierre de periodo lee como prueba de que la cuenta se verificó
 mirror	memory	E0.3 reconciliation-balanced-requires-arithmetic	src/services/banking/reconciliation-service.ts	el único escritor legítimo deja de dejar constancia: la base rechazaría el cierre y `close` quedaría roto, que es mejor que cerrar en falso pero sigue siendo un fallo
 mirror	memory	E0.3 reconciliation-adjustment-never-posts	src/services/banking/reconciliation-adjustments.ts	basta un camino al mayor dentro del creador de ajustes para que su promesa de «nunca contabiliza por su cuenta» sea falsa
+mirror	memory	E0.3 reconciliation-reopen-reverses-posted-entries	src/services/banking/reconciliation-service.ts	the reopen UPDATE loses its state predicate: a concurrent reopen or post lands on a row that already moved, and a posted session could be reopened twice, reversing its entries twice (#302)
+mirror	memory	E0.3 reconciliation-reopen-reverses-posted-entries	src/services/banking/reconciliation-service.ts	the state guard is gone: an in_progress or balanced session is "reopened", and a signature it never had is withdrawn in the audit trail (#302)
+mirror	memory	E0.3 reconciliation-reopen-reverses-posted-entries	src/services/banking/reconciliation-service.ts	a posted entry is corrected by deleting it: the ledger forgets what was booked, which NIF B-1 and the 041 trigger forbid (#302)
 mirror	memory	E0.3 reconciled-mark-atomic-unapply-closes	src/database/migrations/052_el_cotejo.sql	una partida puede quedar marcada como conciliada sin decir cuándo ni por quién: el sello deja de ser rastreable y nadie puede deshacerlo
 mirror	memory	E0.3 reconciled-mark-atomic-unapply-closes	src/services/banking/match-service.ts	la clausura pierde su fecha y el cotejo deshecho sigue contando como vivo en todo índice que filtre por unapplied_at IS NULL
 mirror	memory	E0.3 guard-triggers-enable-always-watched	src/database/migrations/058_el_sello_de_las_garantias.sql	deja una garantía del mayor en disparador ordinario: una línea de SET session_replication_role la apagaría con las demás y la inmutabilidad de la línea posteada se evapora sin dejar rastro
@@ -151,6 +154,12 @@ mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/utils/calendar-date.ts	t
 mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/policy/today.ts	the policy stops being read: an entity in Tijuana or Cancún gets Mexico City's day whatever it answered
 mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/payroll/tax-engine/tax-tables.ts	the fallback of the legal parameters goes back to the UTC day and picks the row of the next day
 mirror	memory	E1.2 today-is-the-day-in-zona-horaria	tests/utils/today-in-zone.spec.ts	the reproduction stops moving the process zone: it only runs in CI's UTC, where the process-local mirror is invisible
+mirror	memory	E1.2 reports-lists-and-the-agent-read-today-in-zona-horaria	src/api/rest/routes/reports.ts	the REST aging goes back to the UTC day: at 20:00 on the 31st an invoice due that day is one day overdue
+mirror	memory	E1.2 reports-lists-and-the-agent-read-today-in-zona-horaria	src/ai/tools/report-tools.ts	the agent's aging tool reads the UTC day and reports as overdue what is due today
+mirror	memory	E1.2 reports-lists-and-the-agent-read-today-in-zona-horaria	src/services/ar/invoice-service.ts	`invoice list` counts days overdue from the UTC day
+mirror	memory	E1.2 reports-lists-and-the-agent-read-today-in-zona-horaria	src/services/ar/customer-service.ts	`customer list` takes a bare CURRENT_DATE, the database session's day, and lists as overdue what is due today
+mirror	memory	E1.2 reports-lists-and-the-agent-read-today-in-zona-horaria	src/ai/system-prompt.ts	the agent is told it is already tomorrow and drafts on that day
+mirror	memory	E1.2 reports-lists-and-the-agent-read-today-in-zona-horaria	src/services/policy/today.ts	the entity's own zona_horaria row stops being read: an entity in Tokyo gets Mexico City's day
 mirror	memory	E1.2 an-advance-cannot-be-booked-in-another-currency	src/services/payments/payment-service.ts	la comparación se invierte: pasa el anticipo en otra moneda y se rehúsa el que sí está en la funcional
 mirror	memory	E1.2 an-advance-cannot-be-booked-in-another-currency	src/services/payments/payment-service.ts	la funcional deja de leerse de la entidad y se toma del propio anticipo: la comparación se vuelve tautológica y nunca acusa
 mirror	memory	E1.2 an-advance-cannot-be-booked-in-another-currency	src/services/payments/payment-service.ts	el anticipo a proveedor vuelve a caer en el respaldo literal «MXN» de currencyOf: se asienta en pesos sin preguntar al proveedor, al llamador ni a la entidad
@@ -174,6 +183,11 @@ mirror	memory	E1.2 published-figures-are-the-firms-own	src/services/blockchain/o
 mirror	memory	E1.2 published-figures-are-the-firms-own	tests/integration/x0-published-figures-match-the-income-statement.int.spec.ts	la reproducción deja de sembrar un asiento de cierre: el caso que publicaba −8 000 desaparece y la prueba queda verde sobre el defecto
 mirror	memory	E1.2 treasury-entry-date-local-midnight	src/services/banking/treasury-posting.ts	vuelve la medianoche UTC: en México el asiento se fecha el día ANTERIOR, y el día 1 de mes eso lo manda al mes anterior con su IVA a otra declaración, cuadrando igual de bien
 mirror	memory	E1.2 treasury-posting-matches-its-movement	src/services/banking/treasury-posting.ts	el cargo contabilizado vuelve a levantar DOS partidas conciliatorias que se anulan entre sí: la sesión informa que cuadra y la comisión se puede contabilizar otra vez
+mirror	memory	E1.2 bank-fee-vat-leaves-1135	src/services/banking/treasury-posting.ts	the fee is posted and its VAT stays parked in 1135 again: the return understates the creditable VAT every month there is a bank fee
+mirror	memory	E1.2 bank-fee-vat-leaves-1135	src/services/banking/treasury-posting.ts	the ledger read forgets what earlier releases took out: running the month again moves the same VAT a second time and 1135 goes negative
+mirror	memory	E1.2 bank-fee-vat-leaves-1135	src/i18n/es.ts	the notice sends the accountant to `bank fee apply` again, a command that does not exist
+mirror	memory	E1.2 iva-ppd-reclass-posts-at-scale-4	src/services/accounting/iva-ppd-reclass.ts	the unpaid share is rounded to cents and posted at four decimals: up to 0.005 per document stays in 1130 that was never creditable
+mirror	memory	E1.2 iva-ppd-reclass-posts-at-scale-4	src/services/accounting/iva-ppd-reclass.ts	the reclass computes its own share again, inline and at cents, beside the one that is tested
 mirror	memory	E1.2 reconciling-item-datable-and-correctable	src/cli/bank-command.ts	sin la hoja que fecha una partida, `close` exige una fecha que nadie puede escribir y la primera sesión con una partida queda bloqueada para siempre
 mirror	memory	E1.2 reconciliation-session-covers-period	src/services/accounting/period-close.ts	la sesión de septiembre volvería a tildar la casilla de agosto: la casilla diría «conciliado» sobre un mes que nadie miró
 mirror	memory	E1.2 text-similarity-never-auto-applies	src/services/banking/matching.ts	la compuerta deja de mirar el veto de la regla: un desempate decidido por la descripción vuelve a aplicarse en firme y a sellar la partida de libros
@@ -379,6 +393,14 @@ mirror	memory	E2.2 report-api-declares-the-language-it-rendered	src/i18n/report-
 mirror	memory	E2.2 report-api-declares-the-language-it-rendered	src/api/rest/middleware/error-handler.ts	la-unificacion-que-rompe-la-otra-mitad: al ver dos sitios declarando idioma, lo natural es igualarlos — y allí no se puede, porque casi todo mensaje sigue siendo prosa: un 401 inglés volvería a salir etiquetado es-MX
 mirror	memory	E2.2 report-api-declares-the-language-it-rendered	src/api/rest/middleware/error-handler.ts	la-condicion-vaciada-por-dentro: la forma del `if` sobrevive y la distinción desaparece, así que la cabecera y meta.language salen sobre prosa con toda la estructura intacta
 mirror	memory	E3.1 no-simulated-email-delivery	src/api/rest/routes/invoices.ts	la ruta vuelve a mentir que transmite: el «sent:true sin envío» que CLI-5 purgó
+mirror	memory	E3.2 efirma-consent-states-actual-uses	src/services/fiscal-credentials/service.ts	the text changes and the version does not: a consent recorded as 2026-08-1 could mean either text
+mirror	memory	E3.2 efirma-consent-states-actual-uses	src/services/fiscal-credentials/service.ts	the text stops tying the sealing to sellar_con_custodia: the taxpayer is told the system seals whatever the firm declared
+mirror	memory	E3.2 efirma-consent-states-actual-uses	src/services/fiscal-credentials/service.ts	storing again rewrites the version an earlier consent was given under
+mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the sweep writes sat_estado and never tells the invoice: the control stays quiet over a cancelled CFDI
+mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/xml-ingestion/sat-validation.ts	the single-document path writes sat_estado and forgets the invoice
+mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its entity scope: another entity carrying the same UUID is marked cancelled
+mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its state predicate: a draft or failed CFDI could be marked cancelled
+mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/ar/ar-controls.ts	the control reads a value the bridge never writes: it never fires
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/cli/mnemosine.ts	el escritor se queda de capacidad huérfana: el INSERT existe, typechecka y no lo alcanza ningún camino, que es exactamente el estado que este criterio existe para prohibir — y el criterio del literal seguiría verde
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	el llamador vuelve a afirmar un hecho DERIVADO: el disparador de la 077 sobrescribe `tenant_id` con el del empleado, así que la columna en la lista no cambia lo guardado y sí publica una propiedad que el escritor no decide
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	`is_active` es NULABLE y la 085 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar
@@ -416,6 +438,7 @@ mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	el paso real se inventa un veredicto limpio mientras el ensayo sigue preguntando de verdad: la versión anterior del criterio no distinguía las dos llamadas
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	el juez del checklist ignora canClose: la llamada sigue ahí, en su rama, y todo sale limpio
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	la llamada se conserva y su resultado se tira: una ancla de presencia la daba por buena
+mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	the conductor reports the seal without sealing: the month reads conducted and its balances are never carried into the next one (#99)
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	la reanudación vuelve a fiarse de lo anotado: el checklist de ayer autoriza el cierre de hoy con un borrador de IA pendiente dentro del mes
 mirror	memory	E4.1 closing-run-never-continues-another-run-in-silence	src/services/accounting/closing-conductor.ts	el conductor continúa en silencio la corrida que otro dejó a medias; la cortesía de la hoja sigue escrita y no alcanza a quien llama al conductor por otro camino
 mirror	memory	E4.1 closing-run-never-continues-another-run-in-silence	src/services/accounting/closing-conductor.ts	un motor postea antes de decidir si se puede continuar: la negativa llega con el mes ya tocado
@@ -687,6 +710,9 @@ anchor	src/plan/criteria/e0-3.ts	de: "CHECK (status NOT IN ('approved', 'posted'
 anchor	src/plan/criteria/e0-3.ts	de: ' OR arithmetic_computed_at IS NOT NULL',
 anchor	src/plan/criteria/e0-3.ts	de: ' arithmetic_computed_at = NOW(),',
 anchor	src/plan/criteria/e0-3.ts	de: ' await query(',
+anchor	src/plan/criteria/e0-3.ts	de: ' WHERE id = $1 AND entity_id = $2 AND status = $3`,',
+anchor	src/plan/criteria/e0-3.ts	de: ' if (!REOPENABLE_STATES.has(session.status)) {',
+anchor	src/plan/criteria/e0-3.ts	de: ' reversal = await reverseWithinTransaction(',
 anchor	src/plan/criteria/e0-3.ts	de: ' (is_reconciled = true AND reconciled_at IS NOT NULL AND reconciliation_id IS NOT NULL)',
 anchor	src/plan/criteria/e0-3.ts	de: ' SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2',
 anchor	src/plan/criteria/e0-3.ts	de: 'ALTER TABLE journal_entry_lines ENABLE ALWAYS TRIGGER journal_entry_lines_posteada_inmutable;',
@@ -738,6 +764,12 @@ anchor	src/plan/criteria/e1-2.ts	de: "knownZones ??= new Set(Intl.supportedValue
 anchor	src/plan/criteria/e1-2.ts	de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value',
 anchor	src/plan/criteria/e1-2.ts	de: 'const today = await todayFor(null);',
 anchor	src/plan/criteria/e1-2.ts	de: 'process.env.TZ = tz;',
+anchor	src/plan/criteria/e1-2.ts	de: "const asOf = as_of_date as string || (await todayForEntity(entityId as string));\n\n // Unlike",
+anchor	src/plan/criteria/e1-2.ts	de: "const asOf = input.as_of_date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));\n const all = await queryAgedReceivableRows(",
+anchor	src/plan/criteria/e1-2.ts	de: 'const asOfValue = filters.asOf ?? (needsToday ? await todayForEntity(entityId) : undefined);',
+anchor	src/plan/criteria/e1-2.ts	de: 'params.push(filters.asOf ?? (await todayForEntity(entityId)));',
+anchor	src/plan/criteria/e1-2.ts	de: "`Today's date: ${today}.`",
+anchor	src/plan/criteria/e1-2.ts	de: 'return todayFor(tenantId ? { tenantId, entityId } : null, opts);',
 anchor	src/plan/criteria/e1-2.ts	de: 'if (advanceCurrency !== functionalCurrency) {',
 anchor	src/plan/criteria/e1-2.ts	de: 'const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);',
 anchor	src/plan/criteria/e1-2.ts	de: 'vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod',
@@ -761,6 +793,11 @@ anchor	src/plan/criteria/e1-2.ts	de: 'if (roundTo.lessThanOrEqualTo(0)) {',
 anchor	src/plan/criteria/e1-2.ts	de: "JournalEntryType.CLOSING",
 anchor	src/plan/criteria/e1-2.ts	de: " return new Date(`${iso}T00:00:00`);",
 anchor	src/plan/criteria/e1-2.ts	de: ' await cotejarMovimientoConSuLinea(client, {',
+anchor	src/plan/criteria/e1-2.ts	de: ' await release(mov);\n',
+anchor	src/plan/criteria/e1-2.ts	de: '[entityId, [ORIGEN_COMISION, FEE_VAT_RELEASE_SOURCE], mov.id, pending]',
+anchor	src/plan/criteria/e1-2.ts	de: "'El IVA de las comisiones ({vat}) pasó de pendiente de acreditar a IVA acreditable en el mes ' +",
+anchor	src/plan/criteria/e1-2.ts	de: 'dividedBy(total)).toDecimalPlaces(4);',
+anchor	src/plan/criteria/e1-2.ts	de: 'const aReclasificar = unpaidShareOfIva(h.importe, h.saldo_documento, h.total_documento);',
 anchor	src/plan/criteria/e1-2.ts	de: " .command('assign')",
 anchor	src/plan/criteria/e1-2.ts	de: ' AND rs.start_date <= (SELECT start_date FROM fiscal_periods WHERE id = $2)',
 anchor	src/plan/criteria/e1-2.ts	de: ' if (!result.auto_applicable) return false;',
@@ -961,6 +998,14 @@ anchor	src/plan/criteria/e2-2.ts	de: ' const report = await getTrialBalance(enti
 anchor	src/plan/criteria/e2-2.ts	de: ' name: subsectionLabel(sub.key, language),',
 anchor	src/plan/criteria/e2-2.ts	de: ' const keyed = err.messageKey !== undefined;',
 anchor	src/plan/criteria/e3-1.ts	de: 'transmitted: false',
+anchor	src/plan/criteria/e3-2.ts	de: "export const CONSENT_VERSION = '2026-09-1';",
+anchor	src/plan/criteria/e3-2.ts	de: 'efirma_sellado_contabilidad_electronica = sellar_con_custodia',
+anchor	src/plan/criteria/e3-2.ts	de: 'vault_version = EXCLUDED.vault_version,',
+anchor	src/plan/criteria/e3-2.ts	de: 'resumen.invoices_cancelled += await markInvoiceCfdiCancelled(ctx.entityId, fila.cfdi_uuid);',
+anchor	src/plan/criteria/e3-2.ts	de: 'await markInvoiceCfdiCancelled(d.entity_id, d.cfdi_uuid);',
+anchor	src/plan/criteria/e3-2.ts	de: 'WHERE entity_id = $1',
+anchor	src/plan/criteria/e3-2.ts	de: "AND cfdi_status = 'stamped'",
+anchor	src/plan/criteria/e3-2.ts	de: "cfdi_status = 'cancelled' AND amount_due > 0",
 anchor	src/plan/criteria/e4-1.ts	de: 'registerGarnishmentCommand(program, { palette: c, shutdown, reportError });',
 anchor	src/plan/criteria/e4-1.ts	de: ' employee_id, garnishment_type, priority, amount_type, amount_value,',
 anchor	src/plan/criteria/e4-1.ts	de: ' case_number, issuing_authority, payee_name, start_date, is_active, metadata',
@@ -997,6 +1042,7 @@ anchor	src/plan/criteria/e4-1.ts	de: ' const r = await runMonthlyDepreciation(ct
 anchor	src/plan/criteria/e4-1.ts	de: ' return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
 anchor	src/plan/criteria/e4-1.ts	de: " status: r.canClose ? 'done' : 'blocked',",
 anchor	src/plan/criteria/e4-1.ts	de: ' return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
+anchor	src/plan/criteria/e4-1.ts	de: ' const sealed = await hardClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason);',
 anchor	src/plan/criteria/e4-1.ts	de: ' let outcome: ClosingStepOutcome;\n',
 anchor	src/plan/criteria/e4-1.ts	de: " if (opts.resume !== true) {\n throw new ClosingRunStateError(\n 'CLOSING_RUN_OPEN',",
 anchor	src/plan/criteria/e4-1.ts	de: ' const runId = await openRun(ctx, period.id, opts, token);',

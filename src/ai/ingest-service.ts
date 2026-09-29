@@ -224,6 +224,15 @@ export async function ingestCfdiFiles(opts: {
     return result;
   }
 
+  /** ING-2 (#319): which firm rules decided, from the trace the pre-registration keeps. */
+  function rulesNamed(preRegistration: Record<string, unknown>): string {
+    const applied = Array.isArray(preRegistration.rules_applied)
+      ? (preRegistration.rules_applied as Array<{ ruleName?: unknown }>)
+      : [];
+    const names = applied.map((r) => r.ruleName).filter((n): n is string => typeof n === 'string');
+    return names.length > 0 ? `: ${names.map((n) => `«${n}»`).join(', ')}` : '';
+  }
+
   function leftToCode(name: string): IngestFileResult {
     return {
       file: name, status: 'blocked', toCode: true,
@@ -238,7 +247,7 @@ export async function ingestCfdiFiles(opts: {
     suspicion: string[] = []
   ): Promise<IngestFileResult> {
     if (upload.autoProcessed) {
-      return { file: name, status: 'rules', detail: 'Processed by firm rules' };
+      return { file: name, status: 'rules', detail: `Processed by firm rules${rulesNamed(upload.preRegistration)}` };
     }
 
     // Un CFDI tipo P no se clasifica: SE LIGA. Antes caía en la capa del

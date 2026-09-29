@@ -113,10 +113,12 @@ con el SAT y descargar los CFDI y sus metadatos (#439, #440, #441), y sellar el
 catálogo y la balanza del Anexo 24 cuando el despacho declara
 `sellar_con_custodia` (#442). Presentar ante el SAT sigue siendo manual, en el
 portal. Hoy nada de eso está construido: `withCredential` no tiene llamador de
-producción, y el texto de consentimiento todavía promete «We will not sign».
-El consentimiento v2, que dice los dos usos y sube `CONSENT_VERSION`, va en #313
-y precede al primer uso real. Cada uso pasará por `withCredential`, con su fila
-en la bitácora y bajo el tope diario y la política de anomalías.
+producción. El texto de consentimiento ya lo dice: la versión `2026-09-1` (#313,
+MNE-001-076) nombra los dos usos, ata el sellado a `sellar_con_custodia` y dice
+que la presentación queda manual. Quien aceptó la versión `2026-08-1`, que
+prometía «We will not sign», conserva esa versión en su renglón: no se reescribe.
+Cada uso pasará por `withCredential`, con su fila en la bitácora y bajo el tope
+diario y la política de anomalías.
 
 ---
 
