@@ -813,6 +813,19 @@ export const ES: Record<keyof typeof EN, string> = {
     '¿Dejar en BORRADOR la apertura del ejercicio {year} al {date} (Debe {debit} · Haber {credit})? ' +
     'No entra al mayor hasta que la apliques con `entry post`.',
   'migration.check.as_of': 'Al {date} · {comparison}',
+  // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
+  'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',
+  'help.period.list.description': 'Lista todos los periodos con su estado, sus fechas y la marca de vencido',
+  'help.period.list.option.year': 'sólo los periodos de este ejercicio fiscal',
+  'help.period.show.description':
+    'Muestra un periodo: su estado, quién lo cerró, la lista de verificación con que se cerró y sus pólizas',
+  'help.period.show.argument.name': 'nombre del periodo, AAAA-MM o id',
+  'help.period.open.description': 'Abre un periodo futuro para poder capturar operaciones en él',
+  'help.period.open.argument.name': 'nombre del periodo, AAAA-MM o id',
+  'help.period.open.option.reason': 'por qué se abre; queda en el rastro de auditoría',
+  'help.period.reopen.description':
+    'Reabre un periodo cerrado para que una corrección se registre en el mes al que pertenece',
+  'help.period.reopen.argument.name': 'nombre del periodo, AAAA-MM o id',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT

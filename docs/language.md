@@ -89,7 +89,7 @@ The live measurement, written by the meter itself. **Do not edit by hand**: `npm
 
 ### How much Spanish is left, and where
 
-17 lanes under the ratchet and 1 measured but not yet required.
+18 lanes under the ratchet and 1 measured but not yet required.
 The ratchet lives in `docs/language-baseline.json` and only goes down; raising a number is a
 manual act and its trace is the diff.
 
@@ -112,6 +112,7 @@ manual act and its trace is the diff.
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
+| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 1234 | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28767 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->

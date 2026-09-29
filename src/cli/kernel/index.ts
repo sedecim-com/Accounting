@@ -81,9 +81,13 @@ export {
   describeCommand,
   describeLastOption,
   optionByKey,
+  describeArgument,
+  argumentByKey,
+  helpKeyOf,
   englishOf,
   localizeCommanderError,
   type OptionByKeyOptions,
+  type ArgumentByKeyOptions,
 } from './help.js';
 
 export { type KeyedMessage, type KeyedLine } from './exit.js';

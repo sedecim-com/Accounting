@@ -140,6 +140,9 @@ export const EN = {
   //     `src/cli/mnemosine.ts` registra por su cuenta. Las demás familias
   //     viven en sus propios archivos y NO están aquí; su adopción es otro
   //     tramo, y decirlo es más útil que insinuar que ya están.
+  //     Update (#314): families registered in their own files now adopt keys
+  //     one per PR, each in its own block below (the first is `period`); the
+  //     lane `help-descriptions-without-key` counts the families still pending.
   //
   // LAS DOS CARAS DE UNA DESCRIPCIÓN, Y POR QUÉ NO SON LA MISMA. Lo que se
   // guarda en el objeto de Commander (`Option.description`, `Command._description`)
@@ -940,6 +943,23 @@ export const EN = {
     'Leave the opening of fiscal year {year} on {date} as a DRAFT (Debit {debit} · Credit {credit})? ' +
     'It stays out of the ledger until you apply it with `entry post`.',
   'migration.check.as_of': 'As of {date} · {comparison}',
+  // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
+  //
+  // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,
+  // .option.<flag> and .argument.<name>, in snake_case; generic flags reuse
+  // cli.flag.*. The lane `help-descriptions-without-key` counts what is left.
+  'help.period.description': 'Fiscal periods: what exists, what state it is in, and opening a future one',
+  'help.period.list.description': 'List every period with its state, dates and overdue mark',
+  'help.period.list.option.year': 'only periods of this fiscal year',
+  'help.period.show.description':
+    'Show a period: state, who closed it, the checklist it closed with, its entries',
+  'help.period.show.argument.name': 'period name, YYYY-MM, or id',
+  'help.period.open.description': 'Open a future period so work can be captured in it',
+  'help.period.open.argument.name': 'period name, YYYY-MM, or id',
+  'help.period.open.option.reason': 'why it is being opened; recorded in the audit trail',
+  'help.period.reopen.description':
+    'Reopen a closed period so a correction can land in the month it belongs to',
+  'help.period.reopen.argument.name': 'period name, YYYY-MM, or id',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and

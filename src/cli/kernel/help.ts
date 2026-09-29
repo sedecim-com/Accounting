@@ -1,4 +1,4 @@
-import { Help, type Command, type Option } from 'commander';
+import { Help, type Argument, type Command, type Option } from 'commander';
 import { t, type MessageParams, type TranslationKey } from '../../i18n/index.js';
 
 // ============================================================
@@ -101,6 +101,7 @@ function stillOurs(current: string, text: LocalizedText): boolean {
  */
 const COMMAND_TEXT = new WeakMap<Command, LocalizedText>();
 const OPTION_TEXT = new WeakMap<Option, LocalizedText>();
+const ARGUMENT_TEXT = new WeakMap<Argument, LocalizedText>();
 
 /** La instancia con las implementaciones DE FÁBRICA de `Help`, para delegar. */
 const BASE_HELP = new Help();
@@ -153,6 +154,73 @@ export function describeLastOption(
   const last = cmd.options[cmd.options.length - 1];
   if (last) describeOption(last, key, params);
   return cmd;
+}
+
+/**
+ * Registers the description of an already built argument by its key (#314).
+ *
+ * The argument twin of `describeOption`: Commander keeps the English of the
+ * key, so the machine readers still see one English prose, and the `Help`
+ * hook renders the key in the viewer's locale.
+ */
+export function describeArgument(
+  argument: Argument,
+  key: TranslationKey,
+  params: MessageParams = {}
+): Argument {
+  const english = englishOf(key, params);
+  ARGUMENT_TEXT.set(argument, { key, params, english });
+  argument.description = english;
+  return argument;
+}
+
+/** What `cmd.argument(name, desc, parser, default)` could do, plus the key. */
+export interface ArgumentByKeyOptions {
+  readonly params?: MessageParams;
+  readonly parser?: (value: string, previous: unknown) => unknown;
+  readonly defaultValue?: unknown;
+}
+
+/**
+ * Declares a positional argument whose help lives in the catalog (#314).
+ *
+ * Replaces `cmd.argument(name, 'prose', ...)`. The argument's name, parser and
+ * default are machine contract and do not change; only the prose becomes a key.
+ */
+export function argumentByKey(
+  cmd: Command,
+  name: string,
+  key: TranslationKey,
+  options: ArgumentByKeyOptions = {}
+): Command {
+  const argument = cmd.createArgument(name, englishOf(key, options.params ?? {}));
+  describeArgument(argument, key, options.params ?? {});
+  if (options.parser) argument.argParser<unknown>(options.parser);
+  if (options.defaultValue !== undefined) argument.default(options.defaultValue);
+  return cmd.addArgument(argument);
+}
+
+/**
+ * The catalog key that renders this description, or `null` when its prose has
+ * no key or a leaf overwrote it after registration (see `stillOurs`).
+ *
+ * This is what the `help-descriptions-without-key` lane of
+ * `scripts/language-status.ts` asks of every description in the tree: the
+ * lane and the `Help` hooks use the same rule, so "counted as keyed" and
+ * "rendered in the viewer's locale" are the same statement.
+ */
+export function helpKeyOf(target: Command | Option | Argument): TranslationKey | null {
+  if (isCommand(target)) {
+    const text = COMMAND_TEXT.get(target);
+    return text && stillOurs(target.description(), text) ? text.key : null;
+  }
+  const text = OPTION_TEXT.get(target as Option) ?? ARGUMENT_TEXT.get(target as Argument);
+  return text && stillOurs(target.description, text) ? text.key : null;
+}
+
+/** A Commander `Command` has `commands`; an `Option` or an `Argument` does not. */
+function isCommand(target: Command | Option | Argument): target is Command {
+  return Array.isArray((target as Command).commands);
 }
 
 /** Lo que `cmd.option(flags, desc, parser|default)` sabía hacer, más la clave. */
@@ -349,6 +417,19 @@ export function installHelpChrome(program: Command): void {
       const shadow: Option = Object.create(option) as Option;
       shadow.description = t(text.key, text.params);
       return BASE_HELP.optionDescription(shadow);
+    },
+
+    // The same rule as `optionDescription`, for positional arguments (#314):
+    // render the key when the prose is still ours, and let the stock method
+    // append its `(choices: …)` and `(default: …)` suffixes to a shadow.
+    argumentDescription: (argument: Argument): string => {
+      const text = ARGUMENT_TEXT.get(argument);
+      if (!text || !stillOurs(argument.description, text)) {
+        return BASE_HELP.argumentDescription(argument);
+      }
+      const shadow: Argument = Object.create(argument) as Argument;
+      shadow.description = t(text.key, text.params);
+      return BASE_HELP.argumentDescription(shadow);
     },
   });
 

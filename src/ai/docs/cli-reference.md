@@ -2491,7 +2491,8 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --reason <text>          why it is being opened; recorded in the audit trail
-  --dry-run                show the transition without performing it
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
   -h, --help               display help for command
 
 Examples:
