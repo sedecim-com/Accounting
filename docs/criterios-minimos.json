@@ -92,6 +92,7 @@
     "policy-panel-is-per-entity",
     "policy-panel-owns-auto-post",
     "policy-panel-reaches-deciding-turn",
+    "policy-text-key-matches-vocabulary-registry",
     "posted-journal-entries-immutable",
     "posting-and-close-lock-period",
     "posting-code-without-matview-refresh",

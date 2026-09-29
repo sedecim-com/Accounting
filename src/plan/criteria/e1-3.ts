@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { optionSegmentCollisions } from '../../services/policy/policy-text-key.js';
 import {
   codigoDe,
   type Criterio,
@@ -433,6 +434,105 @@ export const E1_3: Criterio[] = [
         return falla('memory-service volvió a tomar el vocabulario de opciones de la fila: la detección de contradicciones depende otra vez del día de siembra');
       }
       return ok(`las ${screens.length} pantallas del panel y la memoria del agente piden el texto a la costura, que es su único lector`);
+    },
+  },
+  {
+    paquete: 'E1.3',
+    id: 'policy-text-key-matches-vocabulary-registry',
+    // I10 · issue #152, part 0 (MNE-001-122). The owner decided (2026-09-26)
+    // that the panel's i18n keys are born with the English name the I4
+    // registry already chose for each policy key, so I23 (#166) can rename
+    // the persisted key without dragging ~1000 text entries along. Each
+    // PolicySpec declares that name as `textKey`; this criterion holds it to
+    // `en ?? es` of the registry, and requires every option value to be
+    // registered and to keep its own `option.<segment>` key.
+    //
+    // It reads the RAW sources through the read seam, so a mutant in either
+    // file reaches it. `tsc` cannot check keys built at run time; this is
+    // what does.
+    enunciado:
+      'Every policy declares a textKey equal to the English name the vocabulary registry decided, and every option value is registered and keeps its own i18n key',
+    mutantes: [
+      {
+        archivo: 'src/services/policy/pending-catalog.ts',
+        de: "    textKey: 'time_zone',",
+        a: "    textKey: 'zona_horaria',",
+        porque:
+          'text-key-born-spanish: the panel texts of the time zone would be keyed by the persisted Spanish name, and I23 would have to rename them too',
+      },
+      {
+        archivo: 'src/language/vocabulary-registry.json',
+        de: '"es": "sin_regla",',
+        a: '"es": "sin_regla_DELETED",',
+        porque:
+          'unregistered-option-value: a persisted option value has no English name decided, so I23 would rename it without a map',
+      },
+    ],
+    evaluar: () => {
+      const registryRel = 'src/language/vocabulary-registry.json';
+      const catalogRel = 'src/services/policy/pending-catalog.ts';
+      if (!existe(registryRel) || !existe(catalogRel)) {
+        return noEvaluable('the vocabulary registry or the policy catalog is missing: nothing to compare');
+      }
+      let entries: { class: string; where: string; es: string; en: string | null }[];
+      try {
+        entries = (JSON.parse(crudoDe(registryRel)) as { entries: typeof entries }).entries;
+      } catch {
+        return falla('the vocabulary registry is not valid JSON');
+      }
+      const head = (w: string): string => w.split(' · ')[0].split(' (')[0].trim();
+      const keyName = new Map<string, string>();
+      const values = new Set<string>();
+      for (const e of entries) {
+        if (e.class === 'policy-key') keyName.set(head(e.where), e.en ?? e.es);
+        if (e.class === 'policy-value') values.add(`${head(e.where).split('/')[0]}\u0000${e.es}`);
+      }
+
+      const source = crudoDe(catalogRel)
+        .split('\n')
+        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+        .join('\n');
+      const tzKey = /TIME_ZONE_POLICY_KEY = '([^']+)'/.exec(source)?.[1];
+      const chunks = source.split(/^(?=    key: )/m).slice(1);
+      if (chunks.length < 50) {
+        return noEvaluable(`only ${chunks.length} policies read from ${catalogRel}: it changed shape`);
+      }
+
+      const problems: string[] = [];
+      const seenTextKeys = new Map<string, string>();
+      for (const chunk of chunks) {
+        const m = /^ {4}key: (?:'([^']+)'|(TIME_ZONE_POLICY_KEY)),/.exec(chunk);
+        const key = m?.[1] ?? (m?.[2] ? tzKey : undefined);
+        if (!key) {
+          problems.push(`a policy key could not be read: «${chunk.split('\n')[0].trim()}»`);
+          continue;
+        }
+        const textKey = /^ {4}textKey: '([^']+)',$/m.exec(chunk)?.[1];
+        const decided = keyName.get(key);
+        if (decided === undefined) problems.push(`${key} has no policy-key entry in the registry`);
+        if (textKey === undefined) problems.push(`${key} declares no textKey`);
+        else if (decided !== undefined && textKey !== decided) {
+          problems.push(`${key} has textKey «${textKey}» but the registry decided «${decided}»`);
+        }
+        if (textKey !== undefined) {
+          const other = seenTextKeys.get(textKey);
+          if (other) problems.push(`${key} and ${other} share textKey «${textKey}»`);
+          seenTextKeys.set(textKey, key);
+        }
+        const optionValues = [...chunk.matchAll(/(?<![A-Za-z])value: '([^']+)'/g)].map((v) => v[1]);
+        if (optionValues.length === 0) problems.push(`${key} has no option values the criterion can read`);
+        for (const c of optionSegmentCollisions(optionValues)) problems.push(`${key}: options share a key (${c})`);
+        for (const v of optionValues) {
+          if (!values.has(`${key}\u0000${v}`)) problems.push(`${key}/${v} has no policy-value entry in the registry`);
+        }
+      }
+      if (problems.length) {
+        return falla(`${problems.length} problem(s): ${problems.slice(0, 3).join(' · ')}`);
+      }
+      return ok(
+        `the ${chunks.length} policies declare the textKey the registry decided, and their option values ` +
+          'are registered and keep one i18n key each'
+      );
     },
   },
   {
