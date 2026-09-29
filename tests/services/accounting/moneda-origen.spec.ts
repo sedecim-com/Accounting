@@ -3,7 +3,6 @@ import {
   convertirAFuncional,
   diferenciaCambiariaRealizada,
   desgloseCambiarioDelPago,
-  receiptFxBreakdown,
   type ContextoCambiario,
 } from '../../../src/services/accounting/moneda-origen.js';
 
@@ -140,28 +139,5 @@ describe('desgloseCambiarioDelPago', () => {
     expect(d.anticipoExtranjero).toBe('200.0000');
     expect(d.anticipoFuncional).toBe('3500.0000'); // 200 × 17.50, tasa del pago
     expect(d.diferencia.tipo).toBe('ninguna');
-  });
-});
-
-describe('receiptFxBreakdown · MNE-001-082: the collecting side of B-15', () => {
-  const invoice = (bornAt: string): ContextoCambiario['aplicaciones'] => [
-    { billId: 'inv-1', numero: 'INV-1', aplicado: '1000.00', descuento: '0', tasaHistorica: bornAt },
-  ];
-
-  it('collecting at 18.00 a receivable born at 17.50 is a GAIN of 500, not a loss', () => {
-    const r = receiptFxBreakdown('1000.00', ctx('18.00', invoice('17.50')));
-    expect(r.diferencia).toEqual({ tipo: 'utilidad', montoFuncional: '500.0000' });
-    expect(r.bancoFuncional).toBe('18000.0000');
-    expect(r.pasivos[0].montoFuncional).toBe('17500.0000');
-  });
-
-  it('collecting at 17.20 a receivable born at 17.50 is a LOSS of 300', () => {
-    const r = receiptFxBreakdown('1000.00', ctx('17.20', invoice('17.50')));
-    expect(r.diferencia).toEqual({ tipo: 'perdida', montoFuncional: '300.0000' });
-  });
-
-  it('the same rate on both days realises nothing', () => {
-    const r = receiptFxBreakdown('1000.00', ctx('17.50', invoice('17.50')));
-    expect(r.diferencia.tipo).toBe('ninguna');
   });
 });

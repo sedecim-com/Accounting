@@ -1429,25 +1429,32 @@ export const POLICY_CATALOG: PolicySpec[] = [
     key: 'rep_moneda_extranjera',
     textKey: 'rep_foreign_currency',
     category: 'contable',
-    question: 'A receipt in a currency other than the functional one: what do we do with the exchange difference?',
+    question: 'A receipt in a currency other than the functional one: register it, or leave it for review?',
     impact:
-      'Decides whether foreign-currency receipts are matched at all. Vendor payments now compute the ' +
-      'realised difference (R4), but the REP matcher still does not, so matching here would post an ' +
-      'invented figure.',
+      'Decides whether a foreign-currency REP creates its payment. When it does, it goes through the same ' +
+      'payment engine as a payment typed by hand (vendor payments since R4, collections since MNE-001-082): ' +
+      'each document is extinguished at the rate it was born with, the cash converts at the payment day\'s ' +
+      'rate from `fuente_tipo_cambio`, the IVA becomes due at that same rate, and the gap is posted to the ' +
+      'exchange gain/loss accounts. The REP\'s own TipoCambioP is not read; the firm\'s source is.',
     options: [
       { value: 'no_casar', label: 'Do not match: leave it for review with a multi-currency warning' },
-      { value: 'tc_documento', label: "Match at the document's rate and recognise no difference" },
+      {
+        value: 'payment_day_rate',
+        label: "Register it through the payment engine, realising the exchange difference at the payment day's rate",
+      },
     ],
     defaultValue: 'no_casar',
     defaultRationale:
-      'Since R4 the vendor-payment path DOES post realised differences to the exchange gain/loss ' +
-      'accounts, but the REP matcher does not share that engine yet. The problem is also double, ' +
-      'not single: NIF B-15 wants the fluctuation in the period it occurs, while for VAT the creditable ' +
-      'amount is the one actually paid converted at the DOF rate of the payment date — two different ' +
-      'rates the system does not yet tell apart. Stopping and saying so is honest.',
+      'NIF B-15 wants the realised difference in the period the payment settles the document, and for VAT ' +
+      'the amount caused or creditable is the one actually paid converted at the rate of the payment date ' +
+      '(LIVA arts. 1-B, 5-III and 11; art. 20 CFF). The payment engine now books both, so registering is ' +
+      'sound; the default still stops at review because a REP the firm did not type is created with no bank ' +
+      'account and a rate nobody looked at, and a person should see the first ones before they post. There ' +
+      'is no option that matches at the document\'s rate and recognises no difference: that would leave the ' +
+      'VAT at the wrong rate and hide a realised result B-15 requires.',
     whyAsking:
-      'A payment in dollars against an invoice in pesos creates an exchange difference that has to land somewhere. I cannot compute it correctly yet, so I would rather stop than invent it.',
-    whatIDo: 'I leave the receipt unmatched and tell you, instead of guessing a rate.',
+      'A payment in dollars settles documents booked at another rate: the difference is real money and lands in the exchange gain/loss accounts.',
+    whatIDo: 'I leave the receipt unmatched and tell you, or register it with its realised difference if you say so.',
     ifSkipped: 'I do not match foreign-currency receipts, and I say so each time.',
     priority: 55,
   },

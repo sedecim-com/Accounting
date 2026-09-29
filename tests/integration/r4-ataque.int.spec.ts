@@ -515,7 +515,7 @@ describe('MNE-001-082 · collecting a USD invoice recognises the realised exchan
     expect(stored.rows[0].status).toBe('paid');
   });
 
-  it('a partial collection of a PPD invoice releases its IVA at the rate it was parked, and realises only its share', async () => {
+  it('a partial collection of a PPD invoice releases 2125 at the parked rate and causes 2120 at the collection rate', async () => {
     const { invId, custId } = await issuedUsdInvoice({ tax: '160', terms: 'PPD' });
     const r = await collect(invId, custId, '580.00');
     const entryId = r.journalEntry?.id as string;
@@ -523,11 +523,19 @@ describe('MNE-001-082 · collecting a USD invoice recognises the realised exchan
     await origenVerificado(entryId);
     const lines = await lineasDe(entryId);
     expect(lines.find((l) => l.account_id === f.roles.cxc)?.credit_amount).toBe('10150.0000'); // 580 × 17.50
-    expect(lines.find((l) => l.account_id === f.cuentas['4320'])?.credit_amount).toBe('290.0000'); // 580 × 0.50
-    // 80 USD of IVA (half of 160) is released at 17.50, the rate it was parked at: 1 400.
+    // 80 USD of IVA (half of 160) leaves 2125 at 17.50, the rate it was parked at: 1 400.
     const released = lines.find((l) => l.account_id === f.roles.iva_trasladado_no_cobrado);
     expect(released?.debit_amount).toBe('1400.0000');
     expect(released?.foreign_debit).toBe('80.0000');
+    // And it is caused at the collection day's rate (LIVA 1-B/11, art. 20 CFF):
+    // 80 × 18.00 = 1 440, the figure the SAT is owed and the REP reports.
+    const caused = lines.find((l) => l.account_id === f.roles.iva_trasladado);
+    expect(caused?.credit_amount).toBe('1440.0000');
+    expect(caused?.foreign_credit).toBe('80.0000');
+    expect(caused?.exchange_rate).toBe('18.0000000000');
+    // 580 × 0.50 = 290 on the receivable, less the 40 more IVA owed than was parked.
+    expect(lines.find((l) => l.account_id === f.cuentas['4320'])?.credit_amount).toBe('250.0000');
+    expect(r.diferenciaCambiaria?.montoFuncional).toBe('250.0000');
   });
 
   it('cash left on account in dollars is refused, because applying or unapplying it later does not convert', async () => {
@@ -590,7 +598,9 @@ describe('la diferencia cambiaria realizada', () => {
     const lineas = await lineasDe(r.journalEntry!.id);
     const perdida = lineas.filter((l) => l.account_id === f.cuentas['6320']);
     expect(perdida).toHaveLength(1);
-    expect(new Decimal(perdida[0].debit_amount as string).equals('580.0000')).toBe(true);
+    // 1160 × 0.50 = 580 on the cash, less 160 × 0.50 = 80 of IVA that becomes
+    // creditable at 17.50 while it was parked at 17.00 (LIVA 5-III, art. 20 CFF).
+    expect(new Decimal(perdida[0].debit_amount as string).equals('500.0000')).toBe(true);
     // Y a la 6320 de verdad, no a la 6300 de gastos financieros ni a la 4300.
     expect(f.roles.perdida_cambiaria).toBe(f.cuentas['6320']);
     expect(lineas.some((l) => l.account_id === f.cuentas['6300'])).toBe(false);
@@ -601,7 +611,7 @@ describe('la diferencia cambiaria realizada', () => {
     expect(new Decimal(cxp!.debit_amount as string).equals('19720.0000')).toBe(true); // 1160 × 17.00
 
     expect(r.diferenciaCambiaria?.tipo).toBe('perdida');
-    expect(r.diferenciaCambiaria?.montoFuncional).toBe('580.0000');
+    expect(r.diferenciaCambiaria?.montoFuncional).toBe('500.0000');
   });
 
   it('UTILIDAD: registrado a 17.00, pagado a 16.40 — 696 a la 4320, no fundida en la 4300', async () => {
@@ -622,7 +632,9 @@ describe('la diferencia cambiaria realizada', () => {
     const lineas = await lineasDe(r.journalEntry!.id);
     const utilidad = lineas.filter((l) => l.account_id === f.cuentas['4320']);
     expect(utilidad).toHaveLength(1);
-    expect(new Decimal(utilidad[0].credit_amount as string).equals('696.0000')).toBe(true);
+    // 1160 × 0.60 = 696 on the cash, less 160 × 0.60 = 96 of IVA that becomes
+    // creditable at 16.40 while it was parked at 17.00.
+    expect(new Decimal(utilidad[0].credit_amount as string).equals('600.0000')).toBe(true);
     // B-15 exige IDENTIFICAR la fluctuación: la 4300 (otros ingresos) queda fuera.
     expect(lineas.some((l) => l.account_id === f.cuentas['4300'])).toBe(false);
     expect(r.diferenciaCambiaria?.tipo).toBe('utilidad');
@@ -646,12 +658,17 @@ describe('la diferencia cambiaria realizada', () => {
     const lineas = await lineasDe(r.journalEntry!.id);
     const cxp = lineas.find((l) => l.account_id === f.roles.cxp);
     expect(new Decimal(cxp!.debit_amount as string).equals('9860.0000')).toBe(true); // 580 × 17.00
+    // The parked IVA leaves 1135 at the bill's rate (80 USD × 17.00), and the
+    // creditable IVA is the one actually paid at the payment day's rate
+    // (LIVA art. 5-III, art. 20 CFF): 80 × 17.50 = 1 400.
+    const liberado = lineas.find((l) => l.account_id === f.roles.iva_pendiente_acreditar);
+    expect(new Decimal(liberado!.credit_amount as string).equals('1360.0000')).toBe(true);
+    const creditable = lineas.find((l) => l.account_id === f.roles.iva_acreditable);
+    expect(new Decimal(creditable!.debit_amount as string).equals('1400.0000')).toBe(true);
+    expect(new Decimal(creditable!.foreign_debit as string).equals('80.0000')).toBe(true);
+    // 580 × 0.50 = 290 of loss on the cash, less the 40 of extra creditable IVA.
     const perdida = lineas.find((l) => l.account_id === f.cuentas['6320']);
-    expect(new Decimal(perdida!.debit_amount as string).equals('290.0000')).toBe(true); // 580 × 0.50
-    // El IVA liberado es el pro-rata A LA TASA HISTÓRICA: 80 USD × 17.00.
-    const liberado = lineas.find((l) => l.debit_amount !== null && /IVA/.test(l.description));
-    expect(new Decimal(liberado!.debit_amount as string).equals('1360.0000')).toBe(true);
-    expect(new Decimal(liberado!.foreign_debit as string).equals('80.0000')).toBe(true);
+    expect(new Decimal(perdida!.debit_amount as string).equals('250.0000')).toBe(true);
 
     const bd = await query<{ amount_due: string; status: string }>(
       `SELECT amount_due::text, status FROM bills WHERE id = $1`, [g.billId]
@@ -704,13 +721,17 @@ describe('la diferencia cambiaria realizada', () => {
     const p2 = await pagar(); // antes del arreglo: reventaba aquí
     await cuadra(p2.journalEntry!.id);
     await origenVerificado(p2.journalEntry!.id);
-    const iva2 = (await lineasDe(p2.journalEntry!.id)).find(
-      (l) => l.debit_amount !== null && /IVA/.test(l.description)
-    );
+    const lines2 = await lineasDe(p2.journalEntry!.id);
+    const iva2 = lines2.find((l) => l.account_id === f.roles.iva_pendiente_acreditar);
     // Segundo pago: el telescopio dice 0.4923 − 0.2462 = 0.2461, y como
     // ningún origen honesto reproduce esa cifra, la línea va sin columnas FX.
-    expect(new Decimal(iva2!.debit_amount as string).equals('0.2461')).toBe(true);
+    expect(new Decimal(iva2!.credit_amount as string).equals('0.2461')).toBe(true);
     expect(iva2!.currency_code).toBeNull();
+    // The creditable side is this payment's own tax figure, 0.0135 × 18.2345,
+    // with its origin; the ten-thousandth between them is realised difference.
+    const creditable2 = lines2.find((l) => l.account_id === f.roles.iva_acreditable);
+    expect(new Decimal(creditable2!.debit_amount as string).equals('0.2462')).toBe(true);
+    expect(creditable2!.currency_code).toBe('USD');
 
     // Y el aparcado del documento queda EXACTAMENTE en cero: 0.2462 + 0.2461
     // = 0.4923 — ni un diezmilésimo varado en la 1135, ni la 1135 en negativo

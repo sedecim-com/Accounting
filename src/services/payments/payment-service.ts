@@ -16,9 +16,7 @@ import {
 import { voidJournalEntryInTx, reverseWithinTransaction } from '../accounting/posting.js';
 import { earlyPaymentDiscount } from '../ap/bill-service.js';
 import {
-  desgloseCambiarioDelPago,
   functionalCurrencyOf,
-  receiptFxBreakdown,
   resolverTipoCambio,
   type AplicacionCambiaria,
   type ContextoCambiario,
@@ -593,14 +591,11 @@ export async function recordVendorPayment(
       fx ?? undefined
     );
 
-    // La misma aritmética pura que usó el asiento: determinista, así que
-    // bitácora y mayor no pueden contar historias distintas.
-    const diferencia = fx
-      ? {
-          ...desgloseCambiarioDelPago(entrada.paymentAmount, fx).diferencia,
-          tasaPago: fx.tasaPago,
-          fuente: fx.fuenteTasa,
-        }
+    // The difference the entry itself booked (cash, bills and the IVA gap
+    // between the bill's rate and today's), so the audit trail and the
+    // ledger cannot tell different stories.
+    const diferencia = fx && entry?.realisedFx
+      ? { ...entry.realisedFx, tasaPago: fx.tasaPago, fuente: fx.fuenteTasa }
       : null;
 
     // R1: el pago deja su rastro propio — antes sólo el asiento derivado
@@ -672,9 +667,10 @@ export async function recordCustomerPayment(
       const r = await client.query<{
         id: string; invoice_number: string; amount_due: string; amount_paid: string;
         customer_id: string; currency_code: string; status: string; exchange_rate: string;
+        total_amount: string;
       }>(
         `SELECT id, invoice_number, amount_due, amount_paid, customer_id, currency_code, status,
-                exchange_rate::text AS exchange_rate
+                exchange_rate::text AS exchange_rate, total_amount::text AS total_amount
            FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entrada.entityId]
       );
@@ -714,6 +710,8 @@ export async function recordCustomerPayment(
         aplicado: aplicado.toFixed(4),
         descuento: '0',
         tasaHistorica: inv.exchange_rate,
+        priorApplied: new Decimal(inv.amount_paid).toFixed(4),
+        documentTotal: new Decimal(inv.total_amount).toFixed(4),
       });
     }
 
@@ -844,14 +842,10 @@ export async function recordCustomerPayment(
       fx ?? undefined
     );
 
-    // The same pure arithmetic the entry used, so the audit trail and the
+    // The difference the entry itself booked, so the audit trail and the
     // ledger cannot tell different stories.
-    const fxDifference = fx
-      ? {
-          ...receiptFxBreakdown(entrada.paymentAmount, fx).diferencia,
-          tasaPago: fx.tasaPago,
-          fuente: fx.fuenteTasa,
-        }
+    const fxDifference = fx && entry?.realisedFx
+      ? { ...entry.realisedFx, tasaPago: fx.tasaPago, fuente: fx.fuenteTasa }
       : null;
 
     // R1: mismo rastro que el pago a proveedor, del lado del cobro.

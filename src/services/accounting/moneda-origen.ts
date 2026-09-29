@@ -76,8 +76,18 @@ export interface AplicacionCambiaria {
   aplicado: string;
   /** Descuento por pronto pago, en la moneda del documento. */
   descuento: string;
-  /** Tipo de cambio al que se registró el pasivo (bills.exchange_rate). */
+  /**
+   * The rate the document was born with: bills.exchange_rate, or
+   * invoices.exchange_rate as MNE-001-081 wrote it back.
+   */
   tasaHistorica: string;
+  /**
+   * Collection side only: what earlier collections already applied to the
+   * invoice, and its total, both in its currency. They let the receivable
+   * be credited telescopically and emptied exactly by the last tranche.
+   */
+  priorApplied?: string;
+  documentTotal?: string;
 }
 
 export interface ContextoCambiario {
@@ -182,29 +192,6 @@ export function desgloseCambiarioDelPago(
     anticipoFuncional,
     bancoFuncional,
     diferencia,
-  };
-}
-
-/**
- * The same breakdown seen from the collecting side (MNE-001-082). The
- * arithmetic is identical — each receivable is extinguished at the rate it
- * was born with, the cash comes in at today's rate — but the cash is now a
- * DEBIT and the document a CREDIT, so the sign of the gap flips: more
- * functional currency in than the receivable was worth is a GAIN, not a loss.
- * `aplicaciones[].billId` carries the invoice id here. There is no discount
- * on this side (a discount granted to a customer is a credit note), so
- * `descuentos` is always empty.
- */
-export function receiptFxBreakdown(cash: string, ctx: ContextoCambiario): DesgloseCambiario {
-  const breakdown = desgloseCambiarioDelPago(cash, ctx);
-  const flipped: Record<DiferenciaCambiaria['tipo'], DiferenciaCambiaria['tipo']> = {
-    perdida: 'utilidad',
-    utilidad: 'perdida',
-    ninguna: 'ninguna',
-  };
-  return {
-    ...breakdown,
-    diferencia: { ...breakdown.diferencia, tipo: flipped[breakdown.diferencia.tipo] },
   };
 }
 

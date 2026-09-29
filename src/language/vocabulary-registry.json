@@ -3745,10 +3745,11 @@
     },
     {
       "class": "policy-value",
-      "where": "rep_moneda_extranjera/tc_documento",
-      "es": "tc_documento",
-      "en": "document_rate",
-      "why": "`tc` es la abreviatura de «tipo de cambio»: en inglés es `rate`, y la tabla ya se llama `exchange_rates` (001_core_schema.sql:374). Se antepone `document` porque es el tipo del documento original, no el del pago: sin ese calificador el valor no diría cuál de los dos tipos de cambio rige, que es lo único que la opción decide."
+      "where": "rep_moneda_extranjera/payment_day_rate",
+      "es": "payment_day_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English: it replaced `tc_documento` (MNE-001-082), whose promise of matching at the document's rate with no difference the payment engine no longer keeps. It names the rate that governs, the payment day's from `fuente_tipo_cambio`, which is the only thing the option decides."
     },
     {
       "class": "policy-value",
