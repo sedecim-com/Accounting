@@ -42,6 +42,7 @@ import {
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
+import { changePolicyHint } from '../services/policy/policy-hint.js';
 
 // ============================================================
 // mnemosine e-accounting · contabilidad-electronica — EL XML QUE SE ENTREGA
@@ -650,7 +651,7 @@ Examples:
                     ? `${r.sinAgrupador.length} cuenta(s) del alcance no tienen código agrupador y ` +
                       "la política `anexo24_cuenta_sin_agrupador` está en 'bloquear'. " +
                       'Asígnalos, o cambia la política con ' +
-                      '`mnemosine pending resolve anexo24_cuenta_sin_agrupador`.'
+                      `${changePolicyHint('anexo24_cuenta_sin_agrupador')}.`
                     : 'Resuelve los hallazgos bloqueantes de arriba y vuelve a generar.')
               ) +
               '\n\n'

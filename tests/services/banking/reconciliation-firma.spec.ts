@@ -364,7 +364,7 @@ describe('criteriosDeCierre · el techo de `--tolerance`', () => {
     // el despacho ya fijó, y el mensaje tiene que seguir mandando al panel.
     conPolitica('cero_exacto');
 
-    await expect(criteriosDeCierre('t-1', 'ent-1', '1')).rejects.toThrow(/pending resolve/);
+    await expect(criteriosDeCierre('t-1', 'ent-1', '1')).rejects.toThrow(/pending define conciliacion_tolerancia/);
   });
 
   it('sin bandera la tolerancia es cero, y no el techo', async () => {
