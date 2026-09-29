@@ -39,6 +39,13 @@ export interface Lane {
    * todo a la vez, y con él cada PR cierra los archivos que toca.
    */
   perFile?: Record<string, number>;
+  /**
+   * What a per-entry finding tells its author, when the breakdown's unit is
+   * not a file or the fix is not "translate the file" (#314). Replaces the
+   * default "un archivo nuevo no nace con deuda" on a new entry and is
+   * appended to an entry that grew, so the CI message names the remedy.
+   */
+  perEntryRule?: string;
 }
 
 /** Lo que devuelve un módulo de carriles. */

@@ -74,4 +74,14 @@ describe('mnemosine period, help by key (#314 pilot)', () => {
       expect(leaf(name)).not.toContain(t(`help.period.${name}.description` as TranslationKey, {}, 'en'));
     }
   });
+
+  it('the subcommand listing of `period --help` and the family row of `mnemosine --help` are in Spanish', () => {
+    setLanguage('es');
+    const flat = (text: string): string => text.replace(/\s+/g, ' ');
+    const listing = flat(family('period').helpInformation());
+    for (const name of ['list', 'show', 'open', 'reopen']) {
+      expect(listing, name).toContain(t(`help.period.${name}.description` as TranslationKey, {}, 'es'));
+    }
+    expect(flat(program.helpInformation())).toContain(t('help.period.description', {}, 'es'));
+  });
 });

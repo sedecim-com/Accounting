@@ -226,7 +226,7 @@ function isCommand(target: Command | Option | Argument): target is Command {
 /** Lo que `cmd.option(flags, desc, parser|default)` sabía hacer, más la clave. */
 export interface OptionByKeyOptions {
   readonly params?: MessageParams;
-  readonly parser?: (value: string) => unknown;
+  readonly parser?: (value: string, previous: unknown) => unknown;
   readonly defaultValue?: unknown;
 }
 

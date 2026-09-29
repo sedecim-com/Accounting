@@ -41,6 +41,15 @@ import { helpKeyOf } from '../../../src/cli/kernel/help.js';
 const EXAMPLE_COUNT = 8;
 const ROOT_FAMILY = 'mnemosine';
 
+/**
+ * What the ratchet tells the author of a CLI PR that trips this lane. The
+ * breakdown's unit is a family, not a file, and the fix is not to translate
+ * prose at the call site but to register it by key.
+ */
+export const HELP_PER_ENTRY_RULE =
+  'la ayuda nueva de una familia no nace sin clave: regístrala con describeCommand/optionByKey/argumentByKey ' +
+  '(src/cli/kernel/help.ts, docs/language.md)';
+
 export interface UnkeyedDescription {
   /** The top-level command it belongs to, or `mnemosine` for the root. */
   family: string;
@@ -106,6 +115,7 @@ export const helpLanes: LaneMeter = () => {
       command: 'npx tsx scripts/language/lanes/help.ts | wc -l',
       examples: hits.slice(0, EXAMPLE_COUNT).map(line),
       perFile: sorted,
+      perEntryRule: HELP_PER_ENTRY_RULE,
     } satisfies Lane,
   ];
 };

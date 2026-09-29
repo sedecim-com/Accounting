@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Command, Option } from 'commander';
 import { argumentByKey, describeCommand, optionByKey } from '../../src/cli/kernel/help.js';
-import { unkeyedDescriptions } from '../../scripts/language/lanes/help.js';
+import { HELP_PER_ENTRY_RULE, helpLanes, unkeyedDescriptions } from '../../scripts/language/lanes/help.js';
 
 // ============================================================
 // THE `help-descriptions-without-key` LANE (#314)
@@ -49,5 +49,14 @@ describe('unkeyedDescriptions', () => {
     expect(unkeyedDescriptions(root).filter((hit) => hit.family === 'period')).toEqual([
       { family: 'period', command: 'period', kind: 'command', term: '' },
     ]);
+  });
+});
+
+describe('helpLanes', () => {
+  it('tells the author to register by key, per family, not to translate a file', () => {
+    const [lane] = helpLanes();
+    expect(lane.perEntryRule).toBe(HELP_PER_ENTRY_RULE);
+    expect(HELP_PER_ENTRY_RULE).toContain('describeCommand/optionByKey/argumentByKey');
+    expect(HELP_PER_ENTRY_RULE).not.toContain('archivo');
   });
 });

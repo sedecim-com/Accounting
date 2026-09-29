@@ -40,7 +40,8 @@
  * No mide la ayuda renderizada del CLI: eso lo mide `ux-status.ts` y aquí se
  * CITA por su `--json` en vez de recontarse. Dos instrumentos midiendo la
  * misma superficie divergen el día que uno cambie su recorrido, y entonces
- * hay que decidir cuál tiene razón sin nadie que lo sepa. *
+ * hay que decidir cuál tiene razón sin nadie que lo sepa.
+ *
  * The one lane that walks the CLI tree, `help-descriptions-without-key`
  * (scripts/language/lanes/help.ts, #314), does not measure the rendered prose
  * either: it asks each description whether it comes from a catalog KEY, a
@@ -160,13 +161,14 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
         if (n > 0) {
           findings.push({
             lane: c.id,
-            detail: `${file}: 0 → ${n} — sin entrada en la línea base; un archivo nuevo no nace con deuda`,
+            detail: `${file}: 0 → ${n} — sin entrada en la línea base; ${c.perEntryRule ?? 'un archivo nuevo no nace con deuda'}`,
           });
         }
         continue;
       }
       if (n > previous) {
-        findings.push({ lane: c.id, detail: `${file}: creció ${previous} → ${n}` });
+        const rule = c.perEntryRule ? `; ${c.perEntryRule}` : '';
+        findings.push({ lane: c.id, detail: `${file}: creció ${previous} → ${n}${rule}` });
       }
     }
   }
