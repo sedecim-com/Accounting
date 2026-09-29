@@ -33,6 +33,10 @@ provides:
     # /v1/admin/integrations/s3 route answers 422 PROVIDER_NOT_FOUND (#370). The adapter
     # was a stub that kept the tenant's AWS keys and reported healthy without calling
     # AWS; migration 102 deletes the keys already stored. There is no storage integration.
+    # CONTRACT: GET /v1/reports/trial-balance without `account_level` returns every
+    # account; it used to default to 5 and drop the deeper ones (#100). A given
+    # `account_level` rolls each subtree up into its ancestors before cutting, and a
+    # value that is not a whole number of at least 1 answers 422 VALIDATION_ERROR.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
