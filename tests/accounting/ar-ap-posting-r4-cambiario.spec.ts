@@ -34,14 +34,36 @@ const USER = 'u0000000-0000-0000-0000-000000000001';
 // `acct:<rol>`, así que afirmar un account_id es afirmar EL ROL elegido.
 // ============================================================
 
-function fakeClient(): pg.PoolClient {
-  const query = async (text: string, params?: unknown[]): Promise<{ rows: unknown[] }> => {
+const sqlLog: { sql: string; params: unknown[] }[] = [];
+
+function fakeClient(
+  opts: { publishedRate?: string | null; invoiceUpdateRows?: number } = {}
+): pg.PoolClient {
+  const query = async (
+    text: string,
+    params?: unknown[]
+  ): Promise<{ rows: unknown[]; rowCount?: number }> => {
     const sql = String(text).replace(/\s+/g, ' ');
     const p = params ?? [];
+    sqlLog.push({ sql, params: p });
     // La moneda funcional VA ANTES que la rama genérica de legal_entities:
     // las dos consultan la misma tabla y se distinguen por la columna.
     if (sql.includes('functional_currency')) {
       return { rows: [{ functional_currency: 'MXN' }] };
+    }
+    if (sql.includes('SELECT tenant_id FROM legal_entities')) {
+      return { rows: [{ tenant_id: 't0000000-0000-0000-0000-000000000001' }] };
+    }
+    // No policy row: `fuente_tipo_cambio` answers with its catalog default (dof).
+    if (sql.includes('FROM policy_decisions')) return { rows: [] };
+    if (sql.includes('FROM exchange_rates')) {
+      const published = opts.publishedRate === undefined ? '17.5000000000' : opts.publishedRate;
+      // Only the direct pair is published; the inverse lookup finds nothing.
+      return { rows: published && sql.includes('rate::text AS rate') ? [{ rate: published }] : [] };
+    }
+    if (sql.startsWith('UPDATE invoices')) {
+      const n = opts.invoiceUpdateRows ?? 1;
+      return { rows: [], rowCount: n };
     }
     if (sql.includes('FROM legal_entities')) {
       return { rows: [{ incorporation_country: 'MX', accounting_standard: 'mx_nif' }] };
@@ -107,6 +129,7 @@ function cuadre(): void {
 
 beforeEach(() => {
   mockCreate.mockClear();
+  sqlLog.length = 0;
 });
 
 describe('postVendorPaymentEntry · la mitad realizada de NIF B-15', () => {
@@ -286,21 +309,96 @@ describe('postBillEntry · R4: el pasivo nace al tipo del documento', () => {
   });
 });
 
-describe('postInvoiceEntry · R4: el lado AR no miente mientras no convierte', () => {
-  it('la factura en moneda extranjera SE NIEGA a postearse nombrando lo que falta', async () => {
-    const invoice = {
+describe('postInvoiceEntry · MNE-001-081: a foreign-currency invoice converts at the policy rate', () => {
+  const usdInvoice = (over: Record<string, unknown> = {}): Invoice =>
+    ({
       id: 'inv-1', entity_id: ENTITY, invoice_number: 'INV-USD-1', customer_id: 'c1',
       subtotal: '1000.00', tax_amount: '160.00', total_amount: '1160.00',
-      currency_code: 'USD', exchange_rate: '17.5000000000',
+      currency_code: 'USD', exchange_rate: '1.0000000000',
       invoice_date: '2026-08-15', journal_entry_id: null,
-    } as unknown as Invoice;
-    const lineas = [
-      { id: 'il-1', invoice_id: 'inv-1', line_number: 1, revenue_account_id: null, description: 'Servicio exportado', line_amount: '1000.00' },
+      ...over,
+    }) as unknown as Invoice;
+  const usdLines = (amount = '1000.00'): InvoiceLine[] =>
+    [
+      { id: 'il-1', invoice_id: 'inv-1', line_number: 1, revenue_account_id: null, description: 'Exported service', line_amount: amount },
     ] as unknown as InvoiceLine[];
-    await expect(postInvoiceEntry(fakeClient(), invoice, lineas, USER)).rejects.toThrow(
-      /fase 2 de R4|sin rastro del importe/
-    );
+
+  it('USD 1 000 + IVA at 17.50 posts 17 500 of revenue and 20 300 of cxc, each line keeping its dollars', async () => {
+    await postInvoiceEntry(fakeClient(), usdInvoice(), usdLines(), USER);
+
+    const revenue = de('acct:ingreso');
+    expect(revenue?.credit_amount).toBe('17500.0000');
+    expect(revenue?.currency_code).toBe('USD');
+    expect(revenue?.foreign_credit).toBe('1000.00');
+    expect(revenue?.exchange_rate).toBe('17.5000000000');
+
+    const vat = de('acct:iva_trasladado');
+    expect(vat?.credit_amount).toBe('2800.0000');
+    expect(vat?.foreign_credit).toBe('160.00');
+
+    const receivable = de('acct:cxc');
+    expect(receivable?.debit_amount).toBe('20300.0000');
+    expect(receivable?.foreign_debit).toBe('1160.00');
+    expect(receivable?.exchange_rate).toBe('17.5000000000');
+    cuadre();
+
+    // The rate is the one the policy's source published for the invoice
+    // date, and it is written back to the invoice for its collection.
+    const rateLookup = sqlLog.find((q) => q.sql.includes('FROM exchange_rates'));
+    expect(rateLookup?.params).toEqual(['USD', 'MXN', '2026-08-15', 'dof']);
+    const link = sqlLog.find((q) => q.sql.startsWith('UPDATE invoices'));
+    expect(link?.sql).toContain('exchange_rate = $2');
+    expect(link?.sql).toContain('journal_entry_id IS NULL');
+    expect(link?.params).toEqual(['je-1', '17.5000000000', 'inv-1', ENTITY]);
+  });
+
+  it('with no rate published for the invoice date it fails closed instead of posting dollars as pesos', async () => {
+    await expect(
+      postInvoiceEntry(fakeClient({ publishedRate: null }), usdInvoice(), usdLines(), USER)
+    ).rejects.toThrow(/No hay tipo de cambio USD→MXN de la fuente 'dof' para 2026-08-15/);
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('a captured rate that disagrees with the policy source is refused, not silently overwritten', async () => {
+    await expect(
+      postInvoiceEntry(fakeClient(), usdInvoice({ exchange_rate: '17.2000000000' }), usdLines(), USER)
+    ).rejects.toThrow(/17\.2000000000.*17\.5000000000/);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('a captured rate equal to the published one posts normally', async () => {
+    await postInvoiceEntry(fakeClient(), usdInvoice({ exchange_rate: '17.5000000000' }), usdLines(), USER);
+    expect(de('acct:ingreso')?.credit_amount).toBe('17500.0000');
+  });
+
+  it('when per-line rounding differs from total × rate, the receivable debit is the sum of the credits and carries no FX columns', async () => {
+    // 0.0270 + 0.0270 @ 18.2345: each product rounds to 0.4923 (sum 0.9846)
+    // but q4(0.0540 × 18.2345) = 0.9847 — no honest (amount, rate) pair
+    // reproduces the posted sum, the same case postBillEntry pins.
+    await postInvoiceEntry(
+      fakeClient({ publishedRate: '18.2345000000' }),
+      usdInvoice({ subtotal: '0.0270', tax_amount: '0.0270', total_amount: '0.0540' }),
+      usdLines('0.0270'),
+      USER
+    );
+    const receivable = de('acct:cxc');
+    expect(receivable?.debit_amount).toBe('0.9846');
+    expect(receivable?.foreign_debit).toBeUndefined();
+    expect(receivable?.currency_code).toBeUndefined();
+    cuadre();
+  });
+
+  it('refuses to link a second entry when the guarded update touches no row', async () => {
+    await expect(
+      postInvoiceEntry(fakeClient({ invoiceUpdateRows: 0 }), usdInvoice(), usdLines(), USER)
+    ).rejects.toThrow(/ya tiene póliza/);
+  });
+
+  it('an invoice in the functional currency posts exactly as before: no rate lookup, no FX columns', async () => {
+    await postInvoiceEntry(fakeClient(), usdInvoice({ currency_code: 'MXN' }), usdLines(), USER);
+    expect(de('acct:cxc')?.debit_amount).toBe('1160.00');
+    expect(de('acct:cxc')?.currency_code).toBeUndefined();
+    expect(sqlLog.some((q) => q.sql.includes('FROM exchange_rates'))).toBe(false);
   });
 });
 
