@@ -903,12 +903,14 @@ export class PreRegistrationService {
     // kept the 5,000 constant whatever the firm answered. The accrual
     // service reads the same policy when a schedule is created
     // (prepaid-service.ts), so the question and its answer now agree.
-    const [umbralCap, polRestaurantes, polIeps, polInventarios, prepaidThreshold] = await Promise.all([
+    const [umbralCap, polRestaurantes, polIeps, polInventarios, prepaidThreshold, unwithheldFees] = await Promise.all([
       getPolicyNumber(ctx, 'umbral_capitalizacion_mxn'),
       getPolicy(ctx, 'politica_restaurantes'),
       getPolicy(ctx, 'tratamiento_ieps'),
       getPolicy(ctx, 'lleva_inventarios'),
       getPolicyNumber(ctx, 'umbral_anticipado_mxn'),
+      // MNE-001-148: professional fees that declare no ISR withheld.
+      getPolicy(ctx, 'fees_without_withholding'),
     ]);
     const answers: Record<string, string> = {};
     if (polRestaurantes.defined) answers.consumo_restaurante = polRestaurantes.value;
@@ -950,6 +952,7 @@ export class PreRegistrationService {
         iepsTreatment: polIeps.value,
         inventoryPolicy: polInventarios.value,
         prepaidThreshold,
+        unwithheldFees: unwithheldFees.value,
       },
     });
     if (fechaContableHoy) {
@@ -1800,8 +1803,10 @@ export async function registrarFacturaDeBorradorAprobado(
     },
     { figure: 'transferred VAT', entry: net(vat, 'debit'), cfdi: sumTax(summary.traslados, '002') },
   ];
-  // NOTE: the seeded chart points both withholding roles at the same account
-  // (2140); then only their sum can be checked, and it is.
+  // NOTE: the 'single' withholding layout (MNE-001-147) and entities seeded
+  // before MNE-001-056 (2140) point both withholding roles at one account;
+  // then only their sum can be checked, and it is. Every qualifier counts, so
+  // the lease and fees ISR accounts of 'by_concept' are checked together.
   if ([...isrWithheld].some((id) => vatWithheld.has(id))) {
     figures.push({
       figure: 'withholdings (ISR + VAT, same account)',

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="A" Folio="57" Fecha="2026-08-01T10:00:00" FormaPago="03" MetodoPago="PUE" TipoDeComprobante="I" Moneda="MXN" SubTotal="8000.00" Total="7626.67" LugarExpedicion="06600">
+  <cfdi:Emisor Rfc="RUAL750505KX2" Nombre="Laura Ruiz Avila" RegimenFiscal="606"/>
+  <cfdi:Receptor Rfc="EMP010101AB1" Nombre="Empresa Sintetica SA de CV" UsoCFDI="G03" DomicilioFiscalReceptor="06600" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="80131500" ClaveUnidad="E48" Unidad="Servicio" Descripcion="Renta de oficina agosto 2026" Cantidad="1" ValorUnitario="8000.00" Importe="8000.00" ObjetoImp="02">
+      <cfdi:Impuestos>
+        <cfdi:Traslados>
+          <cfdi:Traslado Base="8000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="1280.00"/>
+        </cfdi:Traslados>
+        <cfdi:Retenciones>
+          <cfdi:Retencion Base="8000.00" Impuesto="001" TipoFactor="Tasa" TasaOCuota="0.100000" Importe="800.00"/>
+          <cfdi:Retencion Base="8000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.106667" Importe="853.33"/>
+        </cfdi:Retenciones>
+      </cfdi:Impuestos>
+    </cfdi:Concepto>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosRetenidos="1653.33" TotalImpuestosTrasladados="1280.00">
+    <cfdi:Retenciones>
+      <cfdi:Retencion Impuesto="001" Importe="800.00"/>
+      <cfdi:Retencion Impuesto="002" Importe="853.33"/>
+    </cfdi:Retenciones>
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="8000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="1280.00"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="5C0E0A56-0001-4056-8056-000000000606" FechaTimbrado="2026-08-01T10:05:00" RfcProvCertif="SAT970701NN3" SelloCFD="selloCFD" NoCertificadoSAT="30001000000500000001" SelloSAT="selloSAT"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

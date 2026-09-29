@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 226 of 350 subcommands
+  spelling is `-T` at the root and `-t` on the 227 of 351 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -1660,6 +1660,9 @@ Commands:
   seed|sembrar [options]             Create the missing base accounts and map
                                      every unmapped role (never overwrites a
                                      manual choice)
+  sync|sincronizar [options]         Point the withholding roles at the accounts
+                                     withholding_accounts_layout chooses,
+                                     creating the missing ones
   help [command]                     display help for command
 ```
 
@@ -1745,6 +1748,29 @@ Examples:
   mnemosine account role seed
   # Do it on a named entity instead of the active one.
   mnemosine account role seed --entity "Molinos del Bajio SA de CV"
+```
+
+#### `mnemosine account role sync` (alias: sincronizar)
+
+```
+Usage: mnemosine account role sync|sincronizar [options]
+
+Point the withholding roles at the accounts withholding_accounts_layout chooses,
+creating the missing ones
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --dry-run                show the plan, without writing
+  -h, --help               display help for command
+
+Examples:
+  # What would move for the withholding layout the panel chose, without writing.
+  mnemosine account role sync --dry-run
+  # Create the missing accounts and repoint the roles, audited.
+  mnemosine account role sync --entity "Molinos del Bajio SA de CV"
 ```
 
 ### `mnemosine account map` (alias: mapeo)
@@ -6553,7 +6579,7 @@ Print the offending rows of one check (ids, amounts, dates) and the exact
 command that fixes it
 
 Arguments:
-  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, fees-without-withholding, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)

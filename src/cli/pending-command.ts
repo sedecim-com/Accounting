@@ -429,9 +429,10 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
           chosen = interpreted.value;
         }
 
-        await resolvePolicy(panelScope(ctx), key, chosen, reviewer.email, optOf<string>(opts, command, 'note'));
+        const followUp = await resolvePolicy(panelScope(ctx), key, chosen, reviewer.email, optOf<string>(opts, command, 'note'));
         const remaining = (await listPending(panelScope(ctx))).length;
         console.log(`✔ ${c.bold(key)} = ${chosen}`);
+        for (const line of followUp) console.log(`  ${line}`);
         console.log(c.dim(`${plural(remaining, 'definition', 'definitions')} still pending.`));
         await shutdown(0);
       } catch (err) {

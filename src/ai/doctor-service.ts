@@ -4,6 +4,11 @@ import { checkSoDViolations } from '../api/rest/middleware/auth.js';
 import { query, withTenant } from '../database/connection.js';
 import { REQUIRED_BUCKETS } from '../services/payroll/common/payroll-account-mapping-seed.js';
 import { sqlKeepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
+import {
+  censusWithholdingLayout,
+  describeWithholdingPlan,
+  needsSync,
+} from '../services/accounting/withholding-accounts.js';
 import { config } from '../config/index.js';
 import { isLocalHost, defaultSslMode } from '../database/ssl.js';
 import { DB_PROVIDERS } from '../database/providers.js';
@@ -76,6 +81,7 @@ export const CHECK_IDENTITIES = {
   migrations: { id: 'migrations-applied', name: 'Migrations' },
   entities: { id: 'active-legal-entities', name: 'Legal entities' },
   accountRoles: { id: 'account-roles-seeded', name: 'Account roles' },
+  withholdingAccounts: { id: 'withholding-roles-follow-layout', name: 'Withholding accounts' },
   cliConsistency: { id: 'cli-surface-baseline', name: 'CLI consistency' },
   connectionTransport: { id: 'database-transport-security', name: 'Connection transport' },
   tenantIsolation: { id: 'rls-enforced-on-connection', name: 'Tenant isolation' },
@@ -127,6 +133,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(await checkMigrations(deps));
     checks.push(await checkEntities());
     checks.push(await checkAccountRoles());
+    checks.push(await checkWithholdingAccounts());
     checks.push(...(await checkLookupTables()));
     checks.push(checkOrphanedCapability(deps));
     checks.push(checkConnectionTransport());
@@ -303,6 +310,28 @@ export async function checkAccountRoles(): Promise<CheckResult> {
     ...CHECK_IDENTITIES.accountRoles,
     level: 'ok',
     detail: `${total} role(s) mapped across ${r.rows.length} entity(ies)`,
+  };
+}
+
+/**
+ * MNE-001-147 (#309): entities whose withholding roles do not follow
+ * `withholding_accounts_layout` — the ones seeded before MNE-001-056 still
+ * have both on 2140, with payroll ISR. A warning, never a failure: they post
+ * fine, only not where the panel says, and `withholding_accounts_existing` =
+ * "keep" silences it.
+ */
+export async function checkWithholdingAccounts(scope: { tenantId?: string } = {}): Promise<CheckResult> {
+  const off = (await censusWithholdingLayout(scope)).filter(needsSync);
+  if (off.length === 0) {
+    return { ...CHECK_IDENTITIES.withholdingAccounts, level: 'ok', detail: 'withholding roles follow withholding_accounts_layout' };
+  }
+  return {
+    ...CHECK_IDENTITIES.withholdingAccounts,
+    level: 'warn',
+    detail:
+      `${off.length} entity(ies) whose withholding roles do not follow withholding_accounts_layout: ` +
+      off.slice(0, 3).map((p) => `${p.entityName} (${describeWithholdingPlan(p).join('; ')})`).join(' · '),
+    fix: 'mnemosine account role sync --entity <entity> --dry-run, then without --dry-run',
   };
 }
 

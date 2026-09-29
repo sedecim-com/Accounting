@@ -7,6 +7,11 @@ import {
   decisionsFor, getDecision, DEFAULT_THRESHOLDS,
   type DecisionPoint, type PolicyThresholds,
 } from './cfdi-decisions.js';
+import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
+import {
+  isUnwithheldProfessionalFees, settleWithholding, substituteCfdiFinding, unwithheldFeesPolicyOf,
+  withholdingByLaw, withholdingCaseOf, type LegalParameterReader,
+} from './withholding-law.js';
 
 // ============================================================
 // CFDI CLASSIFIER
@@ -62,15 +67,21 @@ export interface Classification {
 
 const parser = new CFDIParser();
 
-/** Role → account map for the entity (account_roles table). */
+/** Key of a qualified mapping in the role map: `isr_retenido_por_pagar:lease`. */
+export const qualifiedRole = (role: string, qualifier: string): string => `${role}:${qualifier}`;
+
+/** Role → account map for the entity (account_roles table), qualified variants included. */
 async function loadRoleMap(entityId: string): Promise<Map<string, { code: string; name: string }>> {
-  const r = await query<{ role: string; code: string; name: string }>(
-    `SELECT ar.role, a.code, a.name
+  const r = await query<{ role: string; qualifier: string | null; code: string; name: string }>(
+    `SELECT ar.role, ar.qualifier, a.code, a.name
      FROM account_roles ar JOIN accounts a ON a.id = ar.account_id
-     WHERE ar.entity_id = $1 AND ar.qualifier IS NULL`,
+     WHERE ar.entity_id = $1`,
     [entityId]
   );
-  return new Map(r.rows.map((x) => [x.role, { code: x.code, name: x.name }]));
+  return new Map(r.rows.map((x) => [
+    x.qualifier == null ? x.role : qualifiedRole(x.role, x.qualifier),
+    { code: x.code, name: x.name },
+  ]));
 }
 
 export interface ClassifyOptions {
@@ -87,6 +98,8 @@ export interface ClassifyOptions {
   roleMap?: Map<string, { code: string; name: string }>;
   /** Policy-resolved thresholds; without them the defaults are used. */
   thresholds?: PolicyThresholds;
+  /** Where the withholding rates are read; Postgres' `legal_parameters` by default. */
+  readLegalParameter?: LegalParameterReader;
 }
 
 export async function classifyXml(xml: string, opts: ClassifyOptions): Promise<Classification> {
@@ -133,6 +146,43 @@ export async function classifyParsed(
       reason: matched.notes,
       lines: [], decisions: [], missingRoles: [], linkage: [], warnings,
     };
+  }
+
+  // ── MNE-001-148: professional fees that declare no ISR withheld follow the
+  // firm's `fees_without_withholding`. By default nothing is proposed and the
+  // CFDI waits for a substitute that declares the withholding.
+  const feesPolicy = isUnwithheldProfessionalFees(facts)
+    ? unwithheldFeesPolicyOf(opts.thresholds?.unwithheldFees)
+    : undefined;
+  if (feesPolicy) facts.feesWithoutWithholding = feesPolicy;
+  if (feesPolicy === 'request_substitute_cfdi') {
+    return { ...blocked(facts, matched, substituteCfdiFinding(facts)), verdict: 'needs_input' };
+  }
+
+  // ── Withholdings the entity owes by law (MNE-001-056): the rates come from
+  // `legal_parameters`, and a missing rate fails closed instead of booking none.
+  const law = await withholdingByLaw(
+    facts,
+    opts.readLegalParameter ?? ((key, onDate) => legalParameterAt('MX', key, onDate)),
+    feesPolicy === 'withhold_by_law' ? 'professional_fees' : undefined
+  );
+  let heldForReview: string | null = null;
+  if (law) {
+    const settled = settleWithholding(facts, law);
+    facts.withholdingDue = settled.due;
+    if (settled.mismatch) warnings.push(settled.mismatch);
+    if (feesPolicy === 'withhold_by_law') {
+      heldForReview =
+        'Professional fees with no ISR withheld declared, held for review by policy ' +
+        `fees_without_withholding=withhold_by_law. ${settled.mismatch ?? law.basis}`;
+    }
+  }
+  if (feesPolicy === 'record_as_issued') {
+    warnings.push(
+      'Professional fees from an individual (regime 612) recorded as issued, with no ISR withheld, by ' +
+        'policy fees_without_withholding=record_as_issued: the expense may not be deductible (LISR 27-V) ' +
+        'and the close checklist lists it.'
+    );
   }
 
   // ── Decisions applicable given the facts + those from external context
@@ -190,7 +240,11 @@ export async function classifyParsed(
     const amount = t.amount(facts);
     if (t.omitIfZero && Math.abs(amount) < 0.005) continue;
     const role = (t.role === 'gasto' && roleOverride ? roleOverride : t.role);
-    const acct = roleMap.get(role);
+    // MNE-001-147: ISR withheld on a lease has its own mapping when the
+    // withholding layout splits it (withholding-accounts.ts); otherwise the
+    // default one.
+    const withheldOn = role === 'isr_retenido_por_pagar' ? withholdingCaseOf(facts) : null;
+    const acct = (withheldOn && roleMap.get(qualifiedRole(role, withheldOn))) || roleMap.get(role);
     if (!acct) missingRoles.push(role);
     lines.push({
       role,
@@ -251,7 +305,9 @@ export async function classifyParsed(
 
   const hasBlocking = pending.some((p) => p.severity === 'blocking');
   const verdict: Verdict =
-    hasBlocking || missingRoles.length > 0 || !debits.equals(credits) ? 'needs_input' : 'ready';
+    hasBlocking || missingRoles.length > 0 || !debits.equals(credits) || heldForReview !== null
+      ? 'needs_input'
+      : 'ready';
 
   return {
     facts,
@@ -262,7 +318,8 @@ export async function classifyParsed(
         ? matched.label
         : missingRoles.length > 0
           ? `Missing accounts for roles: ${[...new Set(missingRoles)].join(', ')}`
-          : `Requires a decision: ${pending.filter((p) => p.severity === 'blocking').map((p) => p.id).join(', ')}`,
+          : (heldForReview ??
+            `Requires a decision: ${pending.filter((p) => p.severity === 'blocking').map((p) => p.id).join(', ')}`),
     lines,
     decisions: pending,
     missingRoles: [...new Set(missingRoles)],

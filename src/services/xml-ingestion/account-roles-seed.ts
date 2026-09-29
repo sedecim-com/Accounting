@@ -11,7 +11,7 @@ import type { AccountRole } from './cfdi-taxonomy.js';
 // mapped to something close enough.
 // ============================================================
 
-interface AccountSpec {
+export interface AccountSpec {
   code: string;
   name: string;
   account_type:
@@ -95,6 +95,24 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     description:
       'IVA de ventas PPD aún no cobradas. El IVA se causa al COBRAR: llevarlo directo a ' +
       'IVA Trasladado adelanta el entero del impuesto.',
+  },
+  {
+    // MNE-001-056 (#309). The two withholding roles shared 2140 «Retenciones
+    // por Pagar» with each other and with payroll ISR, so no balance said how
+    // much had been withheld from vendors, nor of which tax: the 17th pays
+    // them on separate lines. One account per tax, each only these.
+    code: '2141', name: 'ISR Retenido por Enterar', account_type: 'liability',
+    normal_balance: 'credit', fs_category: 'current_liabilities',
+    description:
+      'ISR retenido a personas físicas por honorarios (LISR 106) y arrendamiento (LISR 116), ' +
+      'pendiente de enterar el día 17. Su saldo es la suma de lo retenido.',
+  },
+  {
+    code: '2142', name: 'IVA Retenido por Enterar', account_type: 'liability',
+    normal_balance: 'credit', fs_category: 'current_liabilities',
+    description:
+      'IVA retenido a personas físicas —dos terceras partes del trasladado (RLIVA 3-I)—, ' +
+      'pendiente de enterar el día 17. Su saldo es la suma de lo retenido.',
   },
   {
     code: '2150', name: 'Anticipos de Clientes', account_type: 'liability',
@@ -267,8 +285,8 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   iva_acreditable: '1130',
   iva_pendiente_acreditar: '1135',
   // Withholdings
-  isr_retenido_por_pagar: '2140',
-  iva_retenido_por_pagar: '2140',
+  isr_retenido_por_pagar: '2141',
+  iva_retenido_por_pagar: '2142',
   isr_retenido_a_favor: '1145',
   iva_retenido_a_favor: '1146',
   // Other taxes
@@ -334,6 +352,8 @@ const CODIGOS_FISCALES_MX = new Set([
   '1165', // IEPS Acreditable
   '2120', // IVA Trasladado
   '2125', // IVA Trasladado No Cobrado
+  '2141', // ISR Retenido por Enterar
+  '2142', // IVA Retenido por Enterar
   '2170', // IMSS por Pagar
   '2180', // IEPS por Pagar
   '2190', // Impuestos Locales por Pagar

@@ -445,9 +445,9 @@ describe('ING-1 · the approved entry must match the CFDI', () => {
     await refused(cfdi({ isr800: true }).xml, [
       { account_code: '6100', debit: 8000 },
       { account_code: '1135', debit: 1280 },
-      { account_code: '2140', credit: 700 },
+      { account_code: '2141', credit: 700 },
       { account_code: '2110', credit: 8580 },
-    ], /withholdings \(ISR \+ VAT, same account\) is 700\.00 in the entry and 800\.00/);
+    ], /ISR withheld is 700\.00 in the entry and 800\.00/);
   });
 
   it('with the withholding right, the bill is born for the net total', async () => {
@@ -455,7 +455,7 @@ describe('ING-1 · the approved entry must match the CFDI', () => {
     const [draftId] = await ingest(xml, [[
       { account_code: '6100', debit: 8000 },
       { account_code: '1135', debit: 1280 },
-      { account_code: '2140', credit: 800 },
+      { account_code: '2141', credit: 800 },
       { account_code: '2110', credit: 8480 },
     ]]);
     await approve(draftId);

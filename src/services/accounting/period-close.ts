@@ -8,6 +8,7 @@ import { listPaymentsAwaitingRep, watchedAtClose } from './rep-expected.js';
 import { checkMappingCoverageDetallada } from './account-service.js';
 import { arReconcile } from '../ar/ar-controls.js';
 import { apReconcile } from '../ap/ap-controls.js';
+import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 import { revisionDeAmortizacionAlCierre, type RevisionDeCierre } from '../accruals/prepaid-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
@@ -51,6 +52,7 @@ export const CLOSE_CHECK_CODES = [
   'bank-items-overdue',
   'bank-lines-unexplained',
   'invoices-reviewed',
+  'fees-without-withholding',
   'depreciation-posted',
   'prepaid-amortized',
   'trial-balance',
@@ -60,6 +62,7 @@ export const CLOSE_CHECK_CODES = [
   'sat-agrupador-missing',
   'ar-subledger-delta',
   'ap-subledger-delta',
+  'withholding-accounts-layout',
 ] as const;
 export type CloseCheckCode = (typeof CLOSE_CHECK_CODES)[number];
 
@@ -75,6 +78,7 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'bank-items-overdue': 'Reconciling items within their expected dates',
   'bank-lines-unexplained': 'Bank statement lines explained',
   'invoices-reviewed': 'All invoices reviewed',
+  'fees-without-withholding': 'Professional fees received carry their ISR withholding',
   'depreciation-posted': 'Depreciation calculated and posted',
   'prepaid-amortized': 'Prepaid expenses amortized for the period',
   'trial-balance': 'Trial balance balanced',
@@ -84,6 +88,7 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'sat-agrupador-missing': 'Accounts with movement have their SAT grouping code',
   'ar-subledger-delta': 'Receivables subledger agrees with its control account',
   'ap-subledger-delta': 'Payables subledger agrees with its control account',
+  'withholding-accounts-layout': 'Withholding roles follow the withholding accounts layout',
 };
 
 export type CloseCheckSeverity = 'blocking' | 'warning';
@@ -425,6 +430,23 @@ export function subledgerDeltaCheck(code: SubledgerCode, side: SubledgerSide | n
   };
 }
 
+/**
+ * MNE-001-148 (#309) · Professional fees from an individual (regime 612) that
+ * `fees_without_withholding=record_as_issued` posted with no ISR withheld, in
+ * entries of the period. The classifier marks them in the facts it stores; the
+ * checkbox counts these rows and `closing explain` lists them, so the two
+ * cannot disagree. $3 is the row limit.
+ */
+export const FEES_WITHOUT_WITHHOLDING_ROWS = `
+  SELECT cc.cfdi_uuid, je.entry_number, cc.facts->>'emisorRfc' AS issuer_rfc,
+         cc.facts->>'subtotal' AS subtotal, COUNT(*) OVER()::text AS total_ofensores
+    FROM cfdi_classifications cc
+    JOIN journal_entries je ON je.id = cc.journal_entry_id AND je.entity_id = cc.entity_id
+   WHERE cc.entity_id = $1 AND je.fiscal_period_id = $2 AND je.status = 'posted'
+     AND cc.facts->>'feesWithoutWithholding' = 'record_as_issued'
+   ORDER BY je.entry_date, je.entry_number
+   LIMIT $3`;
+
 export async function getPeriodCloseStatus(
   periodId: string,
   entityId: string,
@@ -745,6 +767,25 @@ export async function getPeriodCloseStatus(
   });
   if (draftInvCount > 0) warnings.push(`${draftInvCount} draft invoices in period`);
 
+  // 3b. MNE-001-148 · FEES RECORDED WITHOUT THE ISR WITHHELD. Only a warning:
+  // the firm chose to record them, and what is at stake is the deduction
+  // (LISR 27-V), which the close cannot fix.
+  const unwithheldFees = await q<{ total_ofensores: string }>(FEES_WITHOUT_WITHHOLDING_ROWS, [entityId, periodId, 1]);
+  const unwithheldCount = parseInt(unwithheldFees.rows[0]?.total_ofensores ?? '0', 10);
+  checklist.push({
+    codigo: 'fees-without-withholding',
+    item: CLOSE_CHECK_ITEMS['fees-without-withholding'],
+    is_complete: unwithheldCount === 0,
+    severity: 'warning',
+    details:
+      unwithheldCount > 0
+        ? `${unwithheldCount} fees CFDI(s) recorded as issued with no ISR withheld: the expense may not be deductible (LISR 27-V)`
+        : undefined,
+  });
+  if (unwithheldCount > 0) {
+    warnings.push(`${unwithheldCount} professional fees recorded without the ISR withheld (LISR 27-V)`);
+  }
+
   // 4. Check depreciation calculated
   //
   // El gemelo del item bancario, con la misma mentira por vacuidad: cero
@@ -1063,6 +1104,23 @@ export async function getPeriodCloseStatus(
       (check.severity === 'blocking' ? blocking_issues : warnings).push(`${check.item}: ${check.details}`);
     }
   }
+
+  // 9. MNE-001-147 (#309) · THE WITHHOLDING ROLES FOLLOW THE PANEL'S LAYOUT.
+  // A warning and never a block, by the owner's decision: the month posts
+  // fine either way, only not on the accounts the firm chose. Through the
+  // pool, like checks 7 and 8.
+  const [withholding] = await censusWithholdingLayout({ tenantId: ctxPanel.tenantId, entityId });
+  const withholdingOff = withholding !== undefined && needsSync(withholding);
+  checklist.push({
+    codigo: 'withholding-accounts-layout',
+    item: CLOSE_CHECK_ITEMS['withholding-accounts-layout'],
+    is_complete: !withholdingOff,
+    severity: 'warning',
+    details: withholdingOff
+      ? `${describeWithholdingPlan(withholding).join('; ')} (account role sync --dry-run shows the plan)`
+      : undefined,
+  });
+  if (withholdingOff) warnings.push(`${CLOSE_CHECK_ITEMS['withholding-accounts-layout']}: account role sync`);
 
   return {
     can_close: blocking_issues.length === 0,
