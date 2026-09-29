@@ -452,6 +452,14 @@ export interface ReclassItem {
   importeOriginal?: string;
   /** R4 · la tasa histórica con la que `amount` se convirtió, cuando aplica. */
   tasa?: string;
+  /**
+   * The IVA of this tranche in the document's currency (the pro-rata before
+   * conversion), present when a rate was given and the parked cap did not
+   * trim the release. The caller converts it at the PAYMENT day's rate for
+   * the side that becomes due: the tax is caused when the money moves (LIVA
+   * arts. 1-B, 5-III and 11) and art. 20 CFF converts it at that day's rate.
+   */
+  documentAmount?: string;
 }
 
 interface AppliedDocumentRow {
@@ -633,10 +641,12 @@ export async function ivaReclassificationsFor(
   entityId: string,
   paymentId: string,
   /**
-   * R4 · tasa histórica (bills.exchange_rate) por id de documento, para los
-   * documentos en moneda extranjera. El pro-rata sale en la moneda del
-   * documento y el saldo aparcado vive en funcional: sin convertir ANTES del
-   * tope, la comparación sería entre monedas distintas y el tope mentiría.
+   * The historical rate per document id for foreign-currency documents:
+   * bills.exchange_rate on a vendor payment, invoices.exchange_rate (written
+   * back by MNE-001-081) on a customer collection. The pro-rata comes out in
+   * the document's currency and the parked balance lives in the functional
+   * one: without converting BEFORE the cap, the comparison would mix
+   * currencies and the cap would lie.
    */
   tasasPorDocumento?: Map<string, string>
 ): Promise<ReclassItem[]> {
@@ -735,6 +745,7 @@ export async function ivaReclassificationsFor(
       ...(tasa && releasable.equals(new Decimal(amount).times(tasa).toDecimalPlaces(SCALE))
         ? { importeOriginal: amount, tasa }
         : {}),
+      ...(tasa && releasable.equals(enFuncional) ? { documentAmount: amount } : {}),
     });
   }
   return items;

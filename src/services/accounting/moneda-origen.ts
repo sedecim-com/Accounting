@@ -76,8 +76,18 @@ export interface AplicacionCambiaria {
   aplicado: string;
   /** Descuento por pronto pago, en la moneda del documento. */
   descuento: string;
-  /** Tipo de cambio al que se registró el pasivo (bills.exchange_rate). */
+  /**
+   * The rate the document was born with: bills.exchange_rate, or
+   * invoices.exchange_rate as MNE-001-081 wrote it back.
+   */
   tasaHistorica: string;
+  /**
+   * Collection side only: what earlier collections already applied to the
+   * invoice, and its total, both in its currency. They let the receivable
+   * be credited telescopically and emptied exactly by the last tranche.
+   */
+  priorApplied?: string;
+  documentTotal?: string;
 }
 
 export interface ContextoCambiario {
