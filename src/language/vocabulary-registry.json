@@ -5728,6 +5728,38 @@
     },
     {
       "class": "policy-key",
+      "where": "fees_without_withholding",
+      "es": "fees_without_withholding",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-148): what happens to a professional-fees CFDI from an individual (regime 612) that declares no ISR withheld."
+    },
+    {
+      "class": "policy-value",
+      "where": "fees_without_withholding/request_substitute_cfdi",
+      "es": "request_substitute_cfdi",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI is held and the vendor is asked for a substitute CFDI with the withholding."
+    },
+    {
+      "class": "policy-value",
+      "where": "fees_without_withholding/withhold_by_law",
+      "es": "withhold_by_law",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the law's withholding is computed from legal_parameters and the entry is held for review."
+    },
+    {
+      "class": "policy-value",
+      "where": "fees_without_withholding/record_as_issued",
+      "es": "record_as_issued",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI posts as issued, with a warning in the close checklist."
+    },
+    {
+      "class": "policy-key",
       "where": "withholding_accounts_layout",
       "es": "withholding_accounts_layout",
       "en": null,

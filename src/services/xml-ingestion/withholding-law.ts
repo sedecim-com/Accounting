@@ -15,8 +15,9 @@ import type { CfdiFacts } from './cfdi-facts.js';
 // 12-character RFC), the issuer an individual (13). Regime 606 is a lease.
 // Regime 612 covers both business and professional activity, and only the
 // professional one is withheld on; the CFDI says which by declaring an ISR
-// withholding. A 612 invoice that should declare one and does not is the
-// discrepancy MNE-001-057 will name.
+// withholding. A 612 invoice for professional services that declares none is
+// MNE-001-148's case, below: the firm's `fees_without_withholding` policy
+// decides what happens to it.
 // ============================================================
 
 export const WITHHOLDING_KEYS = {
@@ -46,11 +47,65 @@ export function withholdingCaseOf(f: CfdiFacts): WithholdingCase | null {
   return null;
 }
 
+// ── MNE-001-148 · PROFESSIONAL FEES THAT DECLARE NO ISR WITHHELD ──
+//
+// Regime 612 also sells goods, and a purchase of goods is never withheld on,
+// so the case is told from the c_ClaveProdServ of EVERY concept, and
+// conservatively: only families of the catalog that are liberal professions
+// count, and a CFDI with one concept outside them (a good, a lease, freight,
+// construction, a software licence) is not flagged. Missing a real fee leaves
+// the CFDI booked as declared, as before this task; flagging a purchase of
+// goods would hold a legitimate invoice. The advance key 84111506 sits in the
+// accounting family and is excluded: an advance may be for goods.
+//
+// The full c_ClaveProdServ catalog is not in the repo yet: these are family
+// prefixes, the same device as the fixed-asset and restaurant prefixes of
+// cfdi-decisions.ts.
+const PROFESSIONAL_SERVICE_PREFIXES = [
+  '8010', // management advisory (consulting)
+  '8012', // legal services
+  '8110', // professional engineering
+  '811115', // software or hardware engineering
+  '811116', // computer programmers
+  '8411', // accounting, audit and tax
+  '8512', // medical practice
+];
+
+export const UNWITHHELD_FEES_POLICIES = ['request_substitute_cfdi', 'withhold_by_law', 'record_as_issued'] as const;
+export type UnwithheldFeesPolicy = (typeof UNWITHHELD_FEES_POLICIES)[number];
+
+/** A 612 CFDI to a legal entity, all professional services, with no ISR withheld declared. */
+export function isUnwithheldProfessionalFees(f: CfdiFacts): boolean {
+  if (f.direction !== 'recibido' || f.tipo !== 'I' || f.esAnticipo) return false;
+  if (f.receptorRfc.length !== 12 || f.emisorRfc.length !== 13 || f.issuerRegime !== '612') return false;
+  if (f.isrRetenido > 0) return false;
+  return (
+    f.clavesProdServ.length > 0 &&
+    f.clavesProdServ.every((k) => PROFESSIONAL_SERVICE_PREFIXES.some((p) => k.startsWith(p)))
+  );
+}
+
+/** The panel's answer; anything it does not know holds the CFDI, which never posts by mistake. */
+export function unwithheldFeesPolicyOf(value: string | undefined): UnwithheldFeesPolicy {
+  return UNWITHHELD_FEES_POLICIES.find((p) => p === value) ?? 'request_substitute_cfdi';
+}
+
+/** The finding of the default: nothing is proposed, the vendor is asked for a substitute. */
+export function substituteCfdiFinding(f: CfdiFacts): string {
+  return (
+    `Professional fees from an individual (${f.emisorRfc}, regime 612) with no ISR withheld declared: ` +
+    'a legal entity withholds ISR and VAT on them (LISR 106, LIVA 1-A). ' +
+    'Ask the vendor for a substitute CFDI that declares the withholding; nothing was written to the ledger. ' +
+    'Policy fees_without_withholding=request_substitute_cfdi.'
+  );
+}
+
 export async function withholdingByLaw(
   f: CfdiFacts,
-  read: LegalParameterReader
+  read: LegalParameterReader,
+  /** Forced by the fees policy when the CFDI itself does not say it is fees. */
+  which: WithholdingCase | null = withholdingCaseOf(f)
 ): Promise<WithholdingByLaw | null> {
-  const which = withholdingCaseOf(f);
   if (which === null) return null;
   const onDate = toCalendarDate(f.fecha);
   const isrRate = await read(

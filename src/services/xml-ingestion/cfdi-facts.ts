@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import type { CFDIParsed } from './cfdi-parser.js';
+import type { UnwithheldFeesPolicy } from './withholding-law.js';
 
 // ============================================================
 // CFDI FACTS
@@ -106,6 +107,12 @@ export interface CfdiFacts {
    * withholdings are booked as declared.
    */
   withholdingDue?: { isr: number; iva: number };
+  /**
+   * What the `fees_without_withholding` policy did with professional fees that
+   * declare no ISR withheld (MNE-001-148). Set by the classifier; the close
+   * checklist reads 'record_as_issued' from the stored facts.
+   */
+  feesWithoutWithholding?: UnwithheldFeesPolicy;
 
   // Complements and relations
   complementos: string[];

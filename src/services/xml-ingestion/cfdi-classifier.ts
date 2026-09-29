@@ -8,7 +8,10 @@ import {
   type DecisionPoint, type PolicyThresholds,
 } from './cfdi-decisions.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
-import { settleWithholding, withholdingByLaw, withholdingCaseOf, type LegalParameterReader } from './withholding-law.js';
+import {
+  isUnwithheldProfessionalFees, settleWithholding, substituteCfdiFinding, unwithheldFeesPolicyOf,
+  withholdingByLaw, withholdingCaseOf, type LegalParameterReader,
+} from './withholding-law.js';
 
 // ============================================================
 // CFDI CLASSIFIER
@@ -145,16 +148,41 @@ export async function classifyParsed(
     };
   }
 
+  // ── MNE-001-148: professional fees that declare no ISR withheld follow the
+  // firm's `fees_without_withholding`. By default nothing is proposed and the
+  // CFDI waits for a substitute that declares the withholding.
+  const feesPolicy = isUnwithheldProfessionalFees(facts)
+    ? unwithheldFeesPolicyOf(opts.thresholds?.unwithheldFees)
+    : undefined;
+  if (feesPolicy) facts.feesWithoutWithholding = feesPolicy;
+  if (feesPolicy === 'request_substitute_cfdi') {
+    return { ...blocked(facts, matched, substituteCfdiFinding(facts)), verdict: 'needs_input' };
+  }
+
   // ── Withholdings the entity owes by law (MNE-001-056): the rates come from
   // `legal_parameters`, and a missing rate fails closed instead of booking none.
   const law = await withholdingByLaw(
     facts,
-    opts.readLegalParameter ?? ((key, onDate) => legalParameterAt('MX', key, onDate))
+    opts.readLegalParameter ?? ((key, onDate) => legalParameterAt('MX', key, onDate)),
+    feesPolicy === 'withhold_by_law' ? 'professional_fees' : undefined
   );
+  let heldForReview: string | null = null;
   if (law) {
     const settled = settleWithholding(facts, law);
     facts.withholdingDue = settled.due;
     if (settled.mismatch) warnings.push(settled.mismatch);
+    if (feesPolicy === 'withhold_by_law') {
+      heldForReview =
+        'Professional fees with no ISR withheld declared, held for review by policy ' +
+        `fees_without_withholding=withhold_by_law. ${settled.mismatch ?? law.basis}`;
+    }
+  }
+  if (feesPolicy === 'record_as_issued') {
+    warnings.push(
+      'Professional fees from an individual (regime 612) recorded as issued, with no ISR withheld, by ' +
+        'policy fees_without_withholding=record_as_issued: the expense may not be deductible (LISR 27-V) ' +
+        'and the close checklist lists it.'
+    );
   }
 
   // ── Decisions applicable given the facts + those from external context
@@ -277,7 +305,9 @@ export async function classifyParsed(
 
   const hasBlocking = pending.some((p) => p.severity === 'blocking');
   const verdict: Verdict =
-    hasBlocking || missingRoles.length > 0 || !debits.equals(credits) ? 'needs_input' : 'ready';
+    hasBlocking || missingRoles.length > 0 || !debits.equals(credits) || heldForReview !== null
+      ? 'needs_input'
+      : 'ready';
 
   return {
     facts,
@@ -288,7 +318,8 @@ export async function classifyParsed(
         ? matched.label
         : missingRoles.length > 0
           ? `Missing accounts for roles: ${[...new Set(missingRoles)].join(', ')}`
-          : `Requires a decision: ${pending.filter((p) => p.severity === 'blocking').map((p) => p.id).join(', ')}`,
+          : (heldForReview ??
+            `Requires a decision: ${pending.filter((p) => p.severity === 'blocking').map((p) => p.id).join(', ')}`),
     lines,
     decisions: pending,
     missingRoles: [...new Set(missingRoles)],

@@ -52,6 +52,7 @@ export const CLOSE_CHECK_CODES = [
   'bank-items-overdue',
   'bank-lines-unexplained',
   'invoices-reviewed',
+  'fees-without-withholding',
   'depreciation-posted',
   'prepaid-amortized',
   'trial-balance',
@@ -77,6 +78,7 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'bank-items-overdue': 'Reconciling items within their expected dates',
   'bank-lines-unexplained': 'Bank statement lines explained',
   'invoices-reviewed': 'All invoices reviewed',
+  'fees-without-withholding': 'Professional fees received carry their ISR withholding',
   'depreciation-posted': 'Depreciation calculated and posted',
   'prepaid-amortized': 'Prepaid expenses amortized for the period',
   'trial-balance': 'Trial balance balanced',
@@ -428,6 +430,23 @@ export function subledgerDeltaCheck(code: SubledgerCode, side: SubledgerSide | n
   };
 }
 
+/**
+ * MNE-001-148 (#309) · Professional fees from an individual (regime 612) that
+ * `fees_without_withholding=record_as_issued` posted with no ISR withheld, in
+ * entries of the period. The classifier marks them in the facts it stores; the
+ * checkbox counts these rows and `closing explain` lists them, so the two
+ * cannot disagree. $3 is the row limit.
+ */
+export const FEES_WITHOUT_WITHHOLDING_ROWS = `
+  SELECT cc.cfdi_uuid, je.entry_number, cc.facts->>'emisorRfc' AS issuer_rfc,
+         cc.facts->>'subtotal' AS subtotal, COUNT(*) OVER()::text AS total_ofensores
+    FROM cfdi_classifications cc
+    JOIN journal_entries je ON je.id = cc.journal_entry_id AND je.entity_id = cc.entity_id
+   WHERE cc.entity_id = $1 AND je.fiscal_period_id = $2 AND je.status = 'posted'
+     AND cc.facts->>'feesWithoutWithholding' = 'record_as_issued'
+   ORDER BY je.entry_date, je.entry_number
+   LIMIT $3`;
+
 export async function getPeriodCloseStatus(
   periodId: string,
   entityId: string,
@@ -747,6 +766,25 @@ export async function getPeriodCloseStatus(
     details: draftInvCount > 0 ? `${draftInvCount} draft invoices` : undefined,
   });
   if (draftInvCount > 0) warnings.push(`${draftInvCount} draft invoices in period`);
+
+  // 3b. MNE-001-148 · FEES RECORDED WITHOUT THE ISR WITHHELD. Only a warning:
+  // the firm chose to record them, and what is at stake is the deduction
+  // (LISR 27-V), which the close cannot fix.
+  const unwithheldFees = await q<{ total_ofensores: string }>(FEES_WITHOUT_WITHHOLDING_ROWS, [entityId, periodId, 1]);
+  const unwithheldCount = parseInt(unwithheldFees.rows[0]?.total_ofensores ?? '0', 10);
+  checklist.push({
+    codigo: 'fees-without-withholding',
+    item: CLOSE_CHECK_ITEMS['fees-without-withholding'],
+    is_complete: unwithheldCount === 0,
+    severity: 'warning',
+    details:
+      unwithheldCount > 0
+        ? `${unwithheldCount} fees CFDI(s) recorded as issued with no ISR withheld: the expense may not be deductible (LISR 27-V)`
+        : undefined,
+  });
+  if (unwithheldCount > 0) {
+    warnings.push(`${unwithheldCount} professional fees recorded without the ISR withheld (LISR 27-V)`);
+  }
 
   // 4. Check depreciation calculated
   //
