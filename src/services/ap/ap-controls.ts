@@ -329,6 +329,11 @@ export async function apReconcile(
                WHERE orig.id = je.reverses_entry_id
                  AND orig.entity_id = je.entity_id
                  AND orig.source_type = ANY($4::text[]))
+        -- MNE-001-023: an opening whose payable documents came in as bills
+        -- HAS documents behind it. Listed as manual, it tied at 0 and still
+        -- printed a manual entry plus a residue of the same amount.
+        AND NOT (je.source_type = 'opening_balance' AND EXISTS (
+              SELECT 1 FROM bills ob WHERE ob.journal_entry_id = je.id AND ob.entity_id = je.entity_id))
       GROUP BY je.id, je.entry_number, je.entry_date, je.description, u.email, je.created_by
       ORDER BY je.entry_date DESC, je.entry_number DESC
       LIMIT $5`,

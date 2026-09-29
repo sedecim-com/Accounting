@@ -10,7 +10,9 @@ import { JournalEntryType } from '../../src/types/index.js';
 import { setAccountRole } from '../../src/services/accounting/account-roles-service.js';
 import { arReconcile } from '../../src/services/ar/ar-controls.js';
 import { voidInvoice } from '../../src/services/ar/invoice-service.js';
-import { recordCustomerPayment } from '../../src/services/payments/payment-service.js';
+import { recordCustomerPayment, recordVendorPayment } from '../../src/services/payments/payment-service.js';
+import { apReconcile } from '../../src/services/ap/ap-controls.js';
+import { prepareOpeningBills } from '../../src/services/ap/opening-bills.js';
 import { importSatChart } from '../../src/services/accounting/sat-chart-import.js';
 import {
   checkOpeningBalance,
@@ -143,20 +145,23 @@ const AUXILIAR: OpeningDocument[] = [
 const ctxDe = (fx: Fixture) => ({ tenantId: fx.tenantId, entityId: fx.entityId });
 
 /**
- * MNE-001-022: the seeded `cxc` role points at the seeded chart, so a
- * migration points it at the imported control account BEFORE the opening.
- * Otherwise the load stops (APE-CXC-OTRA-CUENTA): collections would credit
- * one account while the migrated balance sits in another.
+ * MNE-001-022/023: the seeded `cxc` and `cxp` roles point at the seeded
+ * chart, so a migration points them at the imported control accounts BEFORE
+ * the opening. Otherwise the load stops (APE-CXC-OTRA-CUENTA,
+ * APE-CXP-OTRA-CUENTA): collections and payments would move one account
+ * while the migrated balance sits in another.
  */
-async function pointReceivableRoleAtMigratedAccount(fx: Fixture): Promise<void> {
-  const cxc = await query<{ id: string }>(
-    `SELECT id FROM accounts WHERE entity_id = $1 AND code = '105-001'`,
-    [fx.entityId]
-  );
-  await setAccountRole(fx.entityId, fx.tenantId, 'cxc', cxc.rows[0].id, {
-    userId: fx.userId,
-    notes: 'la cuenta de clientes del catálogo migrado',
-  });
+async function pointControlRolesAtMigratedAccounts(fx: Fixture): Promise<void> {
+  for (const [role, code] of [['cxc', '105-001'], ['cxp', '201-001']] as const) {
+    const account = await query<{ id: string }>(
+      `SELECT id FROM accounts WHERE entity_id = $1 AND code = $2`,
+      [fx.entityId, code]
+    );
+    await setAccountRole(fx.entityId, fx.tenantId, role, account.rows[0].id, {
+      userId: fx.userId,
+      notes: 'la cuenta de control del catálogo migrado',
+    });
+  }
 }
 
 /** Las cuentas de la entidad con lo que el cotejo necesita del árbol. */
@@ -294,7 +299,7 @@ describe('CxC y CxP: documento a documento, jamás agregados', () => {
 
 describe('la apertura se carga al primer día del ejercicio', () => {
   it('un asiento de AJUSTE, al 1 de enero, con su source_type y cuadrado', async () => {
-    await pointReceivableRoleAtMigratedAccount(f);
+    await pointControlRolesAtMigratedAccounts(f);
     const r = await importOpeningBalance(ctxDe(f), {
       entityId: f.entityId,
       xml: balanzaDeOrigen(),
@@ -441,7 +446,7 @@ describe('dos aperturas concurrentes de la misma entidad', () => {
       userId: solo.userId,
       reason: 'migración O1 · carrera',
     });
-    await pointReceivableRoleAtMigratedAccount(solo);
+    await pointControlRolesAtMigratedAccounts(solo);
 
     const cargar = (): Promise<OpeningBalanceReport> =>
       importOpeningBalance(ctxDe(solo), {
@@ -526,7 +531,7 @@ describe('a reversed opening can be loaded again', () => {
   it('void, reload, and `opening-balance check` is equal to the peso — with no doubled balance', async () => {
     const own = await crearEntidadHermana(f, 'MNE-001-018 reload');
     await importSatChart(ctxDe(own), { entityId: own.entityId, xml: XML_CATALOGO, userId: own.userId });
-    await pointReceivableRoleAtMigratedAccount(own);
+    await pointControlRolesAtMigratedAccounts(own);
     const load = () =>
       importOpeningBalance(ctxDe(own), {
         entityId: own.entityId,
@@ -717,7 +722,10 @@ describe('la balanza del sistema viejo y la nuestra', () => {
 
 describe('MNE-001-022: open receivables come in as invoices with the opening', () => {
   /** A sibling entity with the migrated chart and the roles a collection reads. */
-  async function migrated(name: string, roles: Record<string, string> = { cxc: '105-001', banco: '102-001' }) {
+  async function migrated(
+    name: string,
+    roles: Record<string, string> = { cxc: '105-001', cxp: '201-001', banco: '102-001' }
+  ) {
     const own = await crearEntidadHermana(f, name);
     await importSatChart(ctxDe(own), { entityId: own.entityId, xml: XML_CATALOGO, userId: own.userId });
     const ids = Object.fromEntries(
@@ -754,7 +762,7 @@ describe('MNE-001-022: open receivables come in as invoices with the opening', (
   });
 
   it('a cxc role that points at another account stops the load: collections would credit the wrong one', async () => {
-    const { own } = await migrated('MNE-001-022 role elsewhere', { cxc: '102-001' });
+    const { own } = await migrated('MNE-001-022 role elsewhere', { cxc: '102-001', cxp: '201-001' });
     const r = await load(own);
     expect(r.escrito).toBe(false);
     expect(r.findings.find((x) => x.regla === 'APE-CXC-OTRA-CUENTA')?.numCta).toBe('105-001');
@@ -823,5 +831,133 @@ describe('MNE-001-022: open receivables come in as invoices with the opening', (
     );
     expect(opening.rows[0].reversed_by_entry_id).toBeNull();
     expect((await arReconcile(own.entityId)).delta).toBe('0.00');
+  });
+});
+
+// ============================================================
+// MNE-001-023 · THE OPEN PAYABLES OF THE MIGRATION (#310)
+// ============================================================
+
+describe('MNE-001-023: open payables come in as bills with the opening', () => {
+  async function migrated(name: string, roles: Record<string, string> = { cxc: '105-001', cxp: '201-001', banco: '102-001' }) {
+    const own = await crearEntidadHermana(f, name);
+    await importSatChart(ctxDe(own), { entityId: own.entityId, xml: XML_CATALOGO, userId: own.userId });
+    const ids = Object.fromEntries(
+      (
+        await query<{ code: string; id: string }>(`SELECT code, id FROM accounts WHERE entity_id = $1`, [own.entityId])
+      ).rows.map((x) => [x.code, x.id])
+    );
+    for (const [role, code] of Object.entries(roles)) {
+      await setAccountRole(own.entityId, own.tenantId, role, ids[code], { userId: own.userId });
+    }
+    return { own, ids };
+  }
+  const count = async (table: string, entityId: string) =>
+    (await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM ${table} WHERE entity_id = $1`, [entityId])).rows[0].n;
+  const load = (own: Fixture, documentos: OpeningDocument[] = AUXILIAR) =>
+    importOpeningBalance(ctxDe(own), { entityId: own.entityId, xml: balanzaDeOrigen(), userId: own.userId, documentos });
+
+  it('the load writes one approved bill per vendor document, and ap reconcile ties at 0 with nothing to explain', async () => {
+    const { own } = await migrated('MNE-001-023 tie');
+    const r = await load(own);
+    expect(r.escrito).toBe(true);
+    expect(r.apBills).toBe(2);
+
+    const bills = await query<{ vendor_invoice_number: string; amount_due: string; status: string; company_name: string; je: string }>(
+      `SELECT b.vendor_invoice_number, b.amount_due::text AS amount_due, b.status, v.company_name,
+              b.journal_entry_id::text AS je
+         FROM bills b JOIN vendors v ON v.id = b.vendor_id AND v.entity_id = b.entity_id
+        WHERE b.entity_id = $1 ORDER BY b.vendor_invoice_number`,
+      [own.entityId]
+    );
+    expect(bills.rows).toEqual([
+      { vendor_invoice_number: 'F-77', amount_due: '9000.0000', status: 'approved', company_name: 'Papelera del Centro', je: r.asiento?.id },
+      { vendor_invoice_number: 'F-88', amount_due: '5000.0000', status: 'approved', company_name: 'Tornillos Industriales', je: r.asiento?.id },
+    ]);
+
+    const ap = await apReconcile(own.entityId);
+    expect(ap.cuentaControl.code).toBe('201-001');
+    expect(ap.mayor).toBe('14000.00');
+    expect(ap.subdiario).toBe('14000.00');
+    expect(ap.diferencia).toBe('0.00');
+    expect(ap.cuadra).toBe(true);
+    // The opening has documents behind it now: not a manual entry, no residue.
+    expect(ap.partidas).toEqual([]);
+    expect(ap.sinExplicar).toBe('0.00');
+    expect((await arReconcile(own.entityId)).delta).toBe('0.00');
+  });
+
+  it('payable documents that do not tie stop the load, say what is missing on the account, and post nothing', async () => {
+    const { own } = await migrated('MNE-001-023 no tie');
+    const r = await load(own, AUXILIAR.map((d) => (d.documento === 'F-88' ? { ...d, importe: '4000.00' } : d)));
+    expect(r.escrito).toBe(false);
+    const finding = r.findings.find((x) => x.regla === 'APE-DETALLE-NO-CUADRA');
+    expect(finding?.numCta).toBe('201-001');
+    expect(finding?.mensaje).toContain('suman 13000.00 y la balanza declara 14000.00 para esa cuenta: faltan 1000.00');
+    expect(r.control.find((c) => c.code === '201-001')).toMatchObject({ residual: '14000.0000', detalle: '13000.0000', cubierto: false });
+    for (const table of ['journal_entries', 'bills', 'vendors', 'invoices']) {
+      expect(await count(table, own.entityId)).toBe('0');
+    }
+  });
+
+  it('a cxp role that points at another account stops the load: payments would debit the wrong one', async () => {
+    const { own } = await migrated('MNE-001-023 role elsewhere', { cxc: '105-001', cxp: '213' });
+    const r = await load(own);
+    expect(r.escrito).toBe(false);
+    expect(r.findings.find((x) => x.regla === 'APE-CXP-OTRA-CUENTA')?.numCta).toBe('201-001');
+    expect(await count('bills', own.entityId)).toBe('0');
+  });
+
+  it('paying a migrated bill works like paying a native one, and ap reconcile stays at 0', async () => {
+    const { own, ids } = await migrated('MNE-001-023 pay');
+    const r = await load(own, AUXILIAR.map((d) => (d.documento === 'F-77' ? { ...d, rfc: 'pce010101aaa' } : d)));
+    expect(r.escrito).toBe(true);
+    const bill = (
+      await query<{ id: string; vendor_id: string; tax_id: string | null }>(
+        `SELECT b.id, b.vendor_id, v.tax_id FROM bills b JOIN vendors v ON v.id = b.vendor_id
+          WHERE b.entity_id = $1 AND b.vendor_invoice_number = 'F-77'`,
+        [own.entityId]
+      )
+    ).rows[0];
+    expect(bill.tax_id).toBe('PCE010101AAA');
+
+    const payment = await recordVendorPayment(
+      {
+        entityId: own.entityId,
+        counterpartyId: bill.vendor_id,
+        paymentAmount: '4000.00',
+        paymentDate: '2026-01-15',
+        paymentMethod: 'spei',
+        applications: [{ documentId: bill.id, amountApplied: '4000.00' }],
+      },
+      own.userId
+    );
+    expect(payment.documentos).toEqual([
+      expect.objectContaining({ saldoAnterior: '9000.00', saldoNuevo: '5000.00', estado: 'partially_paid' }),
+    ]);
+    // DR the migrated control account · CR bank: the entry a native bill gets.
+    const lines = await query<{ account_id: string; debit_amount: string | null; credit_amount: string | null }>(
+      `SELECT account_id, debit_amount::text AS debit_amount, credit_amount::text AS credit_amount
+         FROM journal_entry_lines WHERE journal_entry_id = $1 ORDER BY line_number`,
+      [payment.journalEntry?.id]
+    );
+    expect(lines.rows).toEqual([
+      { account_id: ids['201-001'], debit_amount: '4000.0000', credit_amount: null },
+      { account_id: ids['102-001'], debit_amount: null, credit_amount: '4000.0000' },
+    ]);
+    const ap = await apReconcile(own.entityId);
+    expect(ap.mayor).toBe('10000.00');
+    expect(ap.diferencia).toBe('0.00');
+    expect(ap.partidas).toEqual([]);
+  });
+
+  it('a vendor invoice already registered as a bill is refused against the database: the liability would count twice', async () => {
+    const { own } = await migrated('MNE-001-023 twice');
+    const r = await load(own);
+    expect(r.escrito).toBe(true);
+    // The same documents, planned again against what is now in the tables.
+    const again = await prepareOpeningBills(own.entityId, r);
+    expect(again.drafts).toEqual([]);
+    expect(again.findings.map((x) => x.regla)).toEqual(['APE-CXP-FOLIO-TOMADO', 'APE-CXP-FOLIO-TOMADO']);
   });
 });

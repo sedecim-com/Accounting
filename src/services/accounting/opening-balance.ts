@@ -23,6 +23,11 @@ import {
   skippedUnderDraftMode,
   writeOpeningInvoices,
 } from '../ar/opening-invoices.js';
+import {
+  payablesSkippedUnderDraftMode,
+  prepareOpeningBills,
+  writeOpeningBills,
+} from '../ap/opening-bills.js';
 
 // ============================================================
 // O1 · LA BALANZA DE APERTURA — LA SEGUNDA CAPA DEL ONBOARDING
@@ -154,10 +159,11 @@ export interface OpeningDocument {
   uuid?: string;
   /**
    * ISO 4217 currency of the open balance. Omitted means the functional one;
-   * any other is refused for a receivable (MNE-001-022, `opening-invoices.ts`).
+   * any other is refused for a receivable or a payable (MNE-001-022/023,
+   * `opening-invoices.ts` and `opening-bills.ts`).
    */
   currency?: string;
-  /** Counterparty RFC: finds the existing customer before one is created. */
+  /** Counterparty RFC: finds the existing customer or vendor before one is created. */
   rfc?: string;
 }
 
@@ -793,7 +799,10 @@ export function planOpeningBalance(
 
       if (!cubierto) {
         bloqueado = true;
-        const diferencia = suma.minus(residuo);
+        // MNE-001-023: the difference in the account's own nature, and said
+        // with its direction. «sobran -1000.00» on a short payable read as a
+        // surplus of a negative amount; the stop names what is missing.
+        const diferencia = saldoDelMayor(suma.minus(residuo).toString(), natur);
         findings.push(
           finding(
             'APE-DETALLE-NO-CUADRA',
@@ -801,8 +810,8 @@ export function planOpeningBalance(
             f.numCta,
             `Los ${docs.length} documento(s) de "${f.numCta}" suman ` +
               `${saldoDelMayor(suma.toString(), natur).toFixed(2)} y la balanza declara ` +
-              `${saldoDelMayor(residuo.toString(), natur).toFixed(2)} para esa cuenta: sobran ` +
-              `${saldoDelMayor(diferencia.toString(), natur).toFixed(2)}. El auxiliar y la balanza del ` +
+              `${saldoDelMayor(residuo.toString(), natur).toFixed(2)} para esa cuenta: ` +
+              `${diferencia.isNegative() ? 'faltan' : 'sobran'} ${diferencia.abs().toFixed(2)}. El auxiliar y la balanza del ` +
               `mismo corte tienen que decir lo mismo AL PESO; que no lo digan es un descuadre del ` +
               `origen, y cargarlo lo traería aquí convertido en un misterio.`
           )
@@ -973,6 +982,8 @@ export interface OpeningBalanceReport extends OpeningPlan {
   escrito: boolean;
   /** Customer invoices this load creates (or created) in the AR subledger. */
   arInvoices: number;
+  /** Vendor bills this load creates (or created) in the AP subledger (MNE-001-023). */
+  apBills: number;
 }
 
 /**
@@ -1072,8 +1083,12 @@ export async function importOpeningBalance(
     loadMode === 'post'
       ? await prepareOpeningInvoices(opts.entityId, plan)
       : skippedUnderDraftMode(plan);
-  const findings: OpeningFinding[] = [...plan.findings, ...arInvoicePlan.findings];
-  let puedeCargarse = plan.puedeCargarse && arInvoicePlan.findings.every((x) => x.severidad !== 'bloquea');
+  // MNE-001-023: the mirror for the payable documents, under the same rule.
+  const apBillPlan =
+    loadMode === 'post' ? await prepareOpeningBills(opts.entityId, plan) : payablesSkippedUnderDraftMode(plan);
+  const subledgerFindings = [...arInvoicePlan.findings, ...apBillPlan.findings];
+  const findings: OpeningFinding[] = [...plan.findings, ...subledgerFindings];
+  let puedeCargarse = plan.puedeCargarse && subledgerFindings.every((x) => x.severidad !== 'bloquea');
   const anterior = yaCargada.rows[0];
   if (anterior !== undefined) {
     puedeCargarse = false;
@@ -1111,6 +1126,7 @@ export async function importOpeningBalance(
     asiento: null,
     escrito: false,
     arInvoices: arInvoicePlan.drafts.length,
+    apBills: apBillPlan.drafts.length,
   };
 
   if (!puedeCargarse || opts.dryRun === true) return base;
@@ -1174,6 +1190,7 @@ export async function importOpeningBalance(
         cuentas: plan.lines.length,
         documentos_de_auxiliar: plan.lines.filter((l) => l.documento !== undefined).length,
         ar_invoices: arInvoicePlan.drafts.length,
+        ap_bills: apBillPlan.drafts.length,
         total_debe: plan.totalDebe,
         total_haber: plan.totalHaber,
         load_mode: loadMode === 'draft' ? 'borrador' : 'contabilizar',
@@ -1181,6 +1198,7 @@ export async function importOpeningBalance(
       reason: opts.reason ?? null,
     });
     await writeOpeningInvoices(client, opts.entityId, opts.userId, entry.id, arInvoicePlan.drafts);
+    await writeOpeningBills(client, opts.entityId, opts.userId, entry.id, apBillPlan.drafts);
 
     return entry;
     });
@@ -1411,6 +1429,9 @@ export function renderOpeningBalanceReport(r: OpeningBalanceReport): string {
   }
   if (r.arInvoices > 0) {
     l.push(`  ${r.arInvoices} factura(s) de clientes entran al auxiliar de CxC, ligadas a la apertura.`);
+  }
+  if (r.apBills > 0) {
+    l.push(`  ${r.apBills} factura(s) de proveedores entran al auxiliar de CxP, ligadas a la apertura.`);
   }
   if (r.control.length > 0) {
     l.push('  Cuentas de control:');

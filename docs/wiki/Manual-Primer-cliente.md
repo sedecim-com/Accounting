@@ -314,6 +314,38 @@ npm run mnemosine -- opening-balance import ./migracion/balanza-2025-12.xml --su
 npm run mnemosine -- opening-balance check ./migracion/balanza-2025-12.xml
 ```
 
+**El archivo de documentos abiertos** (`--subledger`) es un JSON: una lista con un objeto por documento que seguía abierto al corte, de clientes y de proveedores juntos. Cada objeto lleva:
+
+| Campo | Obligatorio | Qué es |
+|---|---|---|
+| `cuenta` | sí | El `NumCta` de la cuenta de control tal como lo declara la balanza: `105-001`, `201-001`. |
+| `documento` | sí | El folio de la factura: `A-123` de un cliente, `F-77` de un proveedor. |
+| `contraparte` | sí | El nombre del cliente o del proveedor. |
+| `fecha` | sí | Fecha del documento, `AAAA-MM-DD`. |
+| `vencimiento` | no | `AAAA-MM-DD`. Sin él la carga avisa: la antigüedad de saldos no lo podrá clasificar. |
+| `importe` | sí | El saldo **pendiente** (no el importe original), en la naturaleza de la cuenta y como texto: `"9000.00"`. |
+| `rfc` | no | RFC de la contraparte. Con él se encuentra al cliente o proveedor que ya exista; sin él, se busca por nombre exacto y, si no hay, se da de alta. |
+| `uuid` | no | UUID del CFDI que respalda el documento. |
+| `currency` | no | Moneda ISO 4217. Si se omite, la funcional de la entidad; otra moneda detiene la carga. |
+
+```json
+[
+  { "cuenta": "105-001", "documento": "A-123", "contraparte": "Aceros del Norte SA", "rfc": "AND010101AB1",
+    "fecha": "2025-11-02", "vencimiento": "2025-12-02", "importe": "4000.00" },
+  { "cuenta": "201-001", "documento": "F-77", "contraparte": "Papelera del Centro",
+    "fecha": "2025-12-01", "vencimiento": "2026-01-15", "importe": "9000.00" }
+]
+```
+
+Con la apertura contabilizada, cada documento de clientes entra como factura por cobrar y cada documento de proveedores como factura de proveedor aprobada, ligadas a la póliza de apertura: el saldo no se cuenta dos veces, y se cobran y se pagan igual que las que nazcan aquí. Antes de cargar, apunta los roles `cxc` y `cxp` a las cuentas de control migradas; si apuntan a otra cuenta, la carga se detiene y te dice cuál:
+
+```bash
+npm run mnemosine -- account role set cxc 105-001
+npm run mnemosine -- account role set cxp 201-001
+```
+
+**Si no cuadra, no carga.** Los documentos de cada cuenta de control tienen que sumar, al peso, lo que la balanza declara para ella. Si no, la carga se detiene sin escribir nada y dice la diferencia por cuenta («suman 13000.00 y la balanza declara 14000.00 para esa cuenta: faltan 1000.00»). No se postea ningún ajuste para hacerlo cuadrar: la diferencia se corrige en el origen. También se detiene si un documento viene con saldo contrario (un anticipo, una nota de crédito: nétalo en el origen), en otra moneda, o si la factura ya está registrada aquí. Después de cargar, `ar reconcile` y `ap reconcile` dan diferencia 0.
+
 `opening-balance check` coteja la balanza de origen contra el mayor al día de la apertura, cuenta por cuenta, y sale con 4 si algo no cuadra al peso. Si el día siguiente al corte de la balanza no es el primer día de un ejercicio dado de alta (Paso 3), la carga se niega y te dice qué archivo hace falta.
 
 **Recomendación:** si el cliente viene de CONTPAQi o Aspel, el camino D; si no, el B sigue siendo el más corto. El C es para cuando el histórico tiene que vivir aquí.

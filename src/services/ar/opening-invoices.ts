@@ -3,7 +3,12 @@ import type pg from 'pg';
 import { query } from '../../database/connection.js';
 import { ConflictError } from '../../utils/errors.js';
 import { generateEntryNumber } from '../../utils/sequence.js';
-import type { OpeningDocument, OpeningFinding, OpeningPlan } from '../accounting/opening-balance.js';
+import type {
+  OpeningDocument,
+  OpeningFinding,
+  OpeningPlan,
+  SubledgerKind,
+} from '../accounting/opening-balance.js';
 
 // ============================================================
 // OPEN RECEIVABLES OF A MIGRATION (MNE-001-022 · #310, layer 3 of O1)
@@ -77,15 +82,21 @@ export interface OpeningInvoicesPlan {
   findings: OpeningFinding[];
 }
 
-/** The documents of the `cxc` control accounts, with the account they hang from. */
-function receivableDocuments(
-  plan: Pick<OpeningPlan, 'lines' | 'control'>
+/**
+ * The documents of the control accounts of one kind, with the account they
+ * hang from. Shared with the payables mirror (`ap/opening-bills.ts`).
+ */
+export function controlDocuments(
+  plan: Pick<OpeningPlan, 'lines' | 'control'>,
+  kind: SubledgerKind
 ): { code: string; doc: OpeningDocument }[] {
-  const arCodes = new Set(plan.control.filter((c) => c.kind === 'cxc').map((c) => c.code));
+  const codes = new Set(plan.control.filter((c) => c.kind === kind).map((c) => c.code));
   return plan.lines.flatMap((l) =>
-    l.documento !== undefined && arCodes.has(l.code) ? [{ code: l.code, doc: l.documento }] : []
+    l.documento !== undefined && codes.has(l.code) ? [{ code: l.code, doc: l.documento }] : []
   );
 }
+
+const receivableDocuments = (plan: Pick<OpeningPlan, 'lines' | 'control'>) => controlDocuments(plan, 'cxc');
 
 const block = (rule: string, account: string, message: string): OpeningFinding => ({
   regla: rule,

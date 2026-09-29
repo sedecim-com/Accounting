@@ -97,6 +97,9 @@ export interface App {
   /** E1.2 · the CFDI upload and the REP linkage behind processToAccounting. */
   preRegistrations: typeof import('../services/xml-ingestion/pre-registration-service.js');
   policies: typeof import('../services/policy/policy-service.js');
+  /** O1c · the payables reconciliation and the real vendor-payment path. */
+  payables: typeof import('../services/ap/ap-controls.js');
+  payments: typeof import('../services/payments/payment-service.js');
   /** E2.1 · the API exactly as it is served: `bootstrap()` builds it without listening. */
   server: typeof import('../index.js');
   /** E2.1 · the /v1 mount table, so every prefix is asked and none is copied by hand. */
@@ -470,6 +473,25 @@ function xmlDeLaBalanza(): string {
     ).join('') +
     `</BCE:Balanza>`
   );
+}
+
+/**
+ * MNE-001-022/023: the seeded `cxc` and `cxp` roles point at the seeded
+ * chart; a migration points them at the imported control accounts first, or
+ * the load stops (APE-CXC-OTRA-CUENTA, APE-CXP-OTRA-CUENTA) instead of
+ * writing its invoices and bills. Returns why it could not, or null.
+ */
+async function pointControlRoles(app: App, entityId: string): Promise<string | null> {
+  for (const [role, code] of [['cxc', '105-001'], ['cxp', '201-001']] as const) {
+    const r = await app.conexion.query(
+      `UPDATE account_roles
+          SET account_id = (SELECT id FROM accounts WHERE entity_id = $1 AND code = $2)
+        WHERE entity_id = $1 AND role = $3 AND qualifier IS NULL`,
+      [entityId, code, role]
+    );
+    if (r.rowCount !== 1) return `the scenario has no default ${role} role to point at ${code}`;
+  }
+  return null;
 }
 
 /** Deudor positivo. Es el único eje en el que un árbol contable se suma. */
@@ -1330,16 +1352,8 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         );
       }
 
-      // MNE-001-022: the seeded `cxc` role points at the seeded chart; the
-      // migration points it at the imported control account first, or the
-      // load stops (APE-CXC-OTRA-CUENTA) instead of writing its invoices.
-      const roleUpdate = await app.conexion.query(
-        `UPDATE account_roles
-            SET account_id = (SELECT id FROM accounts WHERE entity_id = $1 AND code = '105-001')
-          WHERE entity_id = $1 AND role = 'cxc' AND qualifier IS NULL`,
-        [inq.entityId]
-      );
-      if (roleUpdate.rowCount !== 1) return falla('the scenario has no default cxc role to point at 105-001');
+      const roles = await pointControlRoles(app, inq.entityId);
+      if (roles !== null) return falla(roles);
 
       // ── LA CAPA 2: la balanza al corte, con su auxiliar abierto ───────
       const carga = await app.apertura.importOpeningBalance(ctx, {
@@ -1414,6 +1428,145 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
           `vuelta: SaldoFin del primer periodo, SaldoIni del segundo y el Debe−Haber de la propia ` +
           `apertura, los tres iguales AL PESO contra el archivo de origen, en los tres niveles ` +
           `del árbol y con la depreciación acumulada (acreedora) colgando de un padre deudor`
+      );
+    },
+  },
+
+  // ----------------------------------------------------------
+  // O1c · THE OPEN PAYABLES OF A MIGRATION (MNE-001-023, #310)
+  //
+  // Layer 3 of O1 for the payable side, run end to end: the SAME migration as
+  // the scenario above, and then the questions a firm asks on day one. Does
+  // `ap reconcile` tie at 0 with nothing to explain? Does paying a migrated
+  // bill move the ledger and the subledger like a native one? And does a
+  // subledger that does not tie with the trial balance STOP the load, name
+  // the account and what is missing, and post nothing?
+  //
+  // The judge is `apReconcile` and the tables, not the opening's own plan.
+  // ----------------------------------------------------------
+  {
+    id: 'opening-payables-tie-and-stop',
+    paquete: 'E0.1',
+    enunciado:
+      'Las facturas de proveedores abiertas entran con la apertura: ap reconcile en 0, un pago las salda como a una nativa, y un auxiliar que no cuadra detiene la carga sin postear',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/opening-balance.ts',
+        de: '    await writeOpeningBills(client, opts.entityId, opts.userId, entry.id, apBillPlan.drafts);\n',
+        a: '',
+        porque:
+          'the gap of #310 as it was: the opening carries the 14 000 of vendors line by line and no ' +
+          'bill stands behind them, so ap reconcile reports the whole balance as a difference',
+      },
+      {
+        archivo: 'src/services/ap/opening-bills.ts',
+        de: "'approved', $11, NOW()",
+        a: "'draft', $11, NOW()",
+        porque:
+          'the bill is born outside the open statuses: the subledger leaves it out and a payment ' +
+          'refuses it, while its liability is already in the ledger',
+      },
+      {
+        archivo: 'src/services/ap/ap-controls.ts',
+        de: "AND NOT (je.source_type = 'opening_balance' AND EXISTS (",
+        a: "AND NOT (je.source_type = 'opening_balance_' AND EXISTS (",
+        porque:
+          'the opening is listed again as a manual entry on the control account: ap reconcile ties ' +
+          'at 0 and still prints a manual entry and a residue of 14 000',
+      },
+      {
+        archivo: 'src/services/accounting/opening-balance.ts',
+        de: "${diferencia.isNegative() ? 'faltan' : 'sobran'} ${diferencia.abs().toFixed(2)}",
+        a: 'sobran ${diferencia.toFixed(2)}',
+        porque: 'the stop names a short payable subledger as «sobran -1000.00»: a surplus of a negative amount',
+      },
+    ],
+    correr: async (app) => {
+      const reason = 'plan · conducta O1c';
+      /** A fresh tenant with the migrated chart and its control roles pointed. */
+      const migrate = async (nombre: string) => {
+        const inq = await crearInquilino(app, nombre);
+        app.conexion.enterTenant(inq.tenantId);
+        const ctx = { tenantId: inq.tenantId, entityId: inq.entityId };
+        const chart = await app.catalogoSat.importSatChart(ctx, {
+          entityId: inq.entityId, xml: xmlDelCatalogo(), userId: inq.userId, reason,
+        });
+        const roles = chart.escrito ? await pointControlRoles(app, inq.entityId) : 'the migrated chart did not load';
+        return { inq, ctx, roles };
+      };
+      const countRows = async (sql: string, entityId: string) =>
+        (await app.conexion.query<{ n: string }>(sql, [entityId])).rows[0]?.n;
+
+      // ── IT TIES: the whole file, as the trial balance declares it ──────
+      const a = await migrate('O1c · CxP abierta');
+      if (a.roles !== null) return falla(a.roles);
+      const load = await app.apertura.importOpeningBalance(a.ctx, {
+        entityId: a.inq.entityId, xml: xmlDeLaBalanza(), userId: a.inq.userId,
+        documentos: AUXILIAR_DE_APERTURA, reason,
+      });
+      if (!load.escrito) {
+        return falla(`the opening did not load: ${load.findings.map((h) => `[${h.regla}] ${h.mensaje}`).slice(0, 3).join('; ')}`);
+      }
+      await app.posting.drainAttestations(3000);
+      const afterLoad = await app.payables.apReconcile(a.inq.entityId);
+      if (afterLoad.mayor !== '14000.00' || afterLoad.diferencia !== '0.00' || afterLoad.partidas.length > 0) {
+        return falla(
+          `after the load ap reconcile reads ledger ${afterLoad.mayor}, subledger ${afterLoad.subdiario}, difference ` +
+            `${afterLoad.diferencia} and ${afterLoad.partidas.length} item(s) to explain ` +
+            `(${afterLoad.partidas.map((x) => `${x.tipo} ${x.importe}`).join(', ')}); expected 14000.00, 0.00 and none`
+        );
+      }
+
+      // ── PAYING A MIGRATED BILL, by the real vendor-payment path ───────
+      const { rows: bills } = await app.conexion.query<{ id: string; vendor_id: string }>(
+        `SELECT id, vendor_id FROM bills
+          WHERE entity_id = $1 AND vendor_invoice_number = 'F-77' AND journal_entry_id = $2`,
+        [a.inq.entityId, load.asiento?.id]
+      );
+      const f77 = bills[0];
+      if (f77 === undefined) return falla('F-77 is not a bill hanging from the opening entry');
+      const payment = await app.payments.recordVendorPayment(
+        {
+          entityId: a.inq.entityId, counterpartyId: f77.vendor_id, paymentAmount: '9000.00',
+          paymentDate: '2026-01-15', paymentMethod: 'spei',
+          applications: [{ documentId: f77.id, amountApplied: '9000.00' }],
+        },
+        a.inq.userId
+      );
+      const settled = payment.documentos[0];
+      const afterPayment = await app.payables.apReconcile(a.inq.entityId);
+      if (settled?.estado !== 'paid' || afterPayment.mayor !== '5000.00' || afterPayment.diferencia !== '0.00') {
+        return falla(
+          `paying F-77 in full left it "${settled?.estado}", the ledger at ${afterPayment.mayor} and a ` +
+            `difference of ${afterPayment.diferencia}; expected paid, 5000.00 and 0.00`
+        );
+      }
+
+      // ── IT DOES NOT TIE: F-88 comes 1 000 short ─────────────────────────
+      const b = await migrate('O1c · CxP que no cuadra');
+      if (b.roles !== null) return falla(b.roles);
+      const short = await app.apertura.importOpeningBalance(b.ctx, {
+        entityId: b.inq.entityId, xml: xmlDeLaBalanza(), userId: b.inq.userId, reason,
+        documentos: AUXILIAR_DE_APERTURA.map((d) => (d.documento === 'F-88' ? { ...d, importe: '4000.00' } : d)),
+      });
+      const stop = short.findings.find((h) => h.regla === 'APE-DETALLE-NO-CUADRA' && h.numCta === '201-001');
+      if (short.escrito || stop === undefined || !stop.mensaje.includes('faltan 1000.00')) {
+        return falla(
+          `a payable subledger 1 000 short ${short.escrito ? 'WAS LOADED' : 'stopped'} and said: ` +
+            `${stop?.mensaje ?? 'nothing about 201-001'}; expected a stop naming 201-001 and «faltan 1000.00»`
+        );
+      }
+      const written = [
+        await countRows('SELECT COUNT(*)::text AS n FROM journal_entries WHERE entity_id = $1', b.inq.entityId),
+        await countRows('SELECT COUNT(*)::text AS n FROM bills WHERE entity_id = $1', b.inq.entityId),
+      ];
+      if (written.some((n) => n !== '0')) {
+        return falla(`the stopped load still wrote ${written[0]} entrie(s) and ${written[1]} bill(s): no adjustment may be posted`);
+      }
+      return ok(
+        'the two vendor documents came in as bills of the opening: ap reconcile 14000.00 against ' +
+          '14000.00 with nothing to explain, F-77 paid in full leaves 5000.00 still tied at 0, and a ' +
+          'subledger 1 000 short stopped the load naming 201-001 with nothing written'
       );
     },
   },
@@ -2496,6 +2649,8 @@ async function main(salida: string): Promise<void> {
     drafts: await import('../ai/draft-service.js'),
     preRegistrations: await import('../services/xml-ingestion/pre-registration-service.js'),
     policies: await import('../services/policy/policy-service.js'),
+    payables: await import('../services/ap/ap-controls.js'),
+    payments: await import('../services/payments/payment-service.js'),
     server: await import('../index.js'),
     mounts: await import('../api/rest/montajes.js'),
     settings: await import('../config/index.js'),
