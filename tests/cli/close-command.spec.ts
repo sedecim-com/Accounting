@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderReadiness } from '../../src/cli/close-command.js';
+import { renderReadiness, renderCarryForward } from '../../src/cli/close-command.js';
 import type { CloseReadiness } from '../../src/ai/close-service.js';
 
 // Identity palette: assert on the text, not on ANSI codes
@@ -74,5 +74,25 @@ describe('renderReadiness', () => {
     const out = renderReadiness(BASE, plain).join('\n');
     expect(out).not.toMatch(/Blocking:/);
     expect(out).not.toMatch(/Warnings:/);
+  });
+});
+
+describe('renderCarryForward', () => {
+  it('lists every period the cascade rewrote', () => {
+    const out = renderCarryForward(
+      { carried: 6, periods: ['July 2026', 'August 2026'], stopped_at_locked: null },
+      plain
+    ).join('\n');
+    expect(out).toMatch(/carried into: July 2026, August 2026/);
+    expect(out).not.toMatch(/locked/);
+  });
+
+  it('names the locked period it stopped at, and says it was not rewritten', () => {
+    const out = renderCarryForward(
+      { carried: 0, periods: [], stopped_at_locked: 'July 2026' },
+      plain
+    ).join('\n');
+    expect(out).toMatch(/✘ July 2026 is locked: its beginning balances were NOT rewritten/);
+    expect(out).not.toMatch(/carried into/);
   });
 });

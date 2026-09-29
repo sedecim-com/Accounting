@@ -2339,6 +2339,13 @@
     },
     {
       "class": "policy-key",
+      "where": "apertura_modo_de_carga",
+      "es": "apertura_modo_de_carga",
+      "en": "opening_balance_load_mode",
+      "why": "`opening_balance` ya es el término del árbol para «apertura»: es el `source_type` que escribe `importOpeningBalance` y que excluye el índice de la 081/087, y es el prefijo de la hoja `opening-balance import`. «Modo de carga» es `load_mode`, que es también el nombre del campo `loadMode` del informe y de `load_mode` en el rastro de auditoría de la carga (opening-balance.ts). Nombre del dueño en #220 (MNE-001-001); lo lee `importOpeningBalance`."
+    },
+    {
+      "class": "policy-key",
       "where": "base_depreciacion",
       "es": "base_depreciacion",
       "en": "depreciation_basis",
@@ -2799,6 +2806,20 @@
       "es": "las_que_se_mueven",
       "en": "with_movement_and_parents",
       "why": "Se explicita `and_parents` porque esta opción SÍ arrastra los padres («Only accounts with posted movement, plus their parents», pending-catalog.ts:736) y la opción `cuentas_con_movimientos` de `agrupador_alcance_de_la_compuerta` (:758) NO. Dos cadenas españolas distintas para dos alcances distintos: si las dos recibieran el mismo inglés el registro habría fundido dos criterios que el despacho puede haber contestado en sentidos opuestos. Si la colisión de `cuentas_con_movimientos` se resuelve hacia `accounts_with_postings`, esta entrada debe seguirla en forma para que la pareja siga leyéndose como pareja."
+    },
+    {
+      "class": "policy-value",
+      "where": "apertura_modo_de_carga/borrador",
+      "es": "borrador",
+      "en": "draft",
+      "why": "Es el estado `draft` de `journal_entries.status`, que es exactamente lo que la opción deja: el asiento nace en ese estado y `entry post` lo aplica. El informe ya lo nombra así (`loadMode: 'draft'`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "apertura_modo_de_carga/contabilizar",
+      "es": "contabilizar",
+      "en": "post",
+      "why": "`post` es el verbo del árbol para llevar un asiento al mayor (`postJournalEntry`, `autoPost`, `entry post`), y el informe ya lo nombra así (`loadMode: 'post'`)."
     },
     {
       "class": "policy-value",
