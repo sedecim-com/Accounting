@@ -6,6 +6,17 @@ Cada migración lleva prefijo de tres dígitos. `npm run migrate` **falla** si d
 archivos comparten número (`assertNumeracionUnica` en `src/database/migrate.ts`),
 y el test `tests/database/migration-numbering.spec.ts` lo fija.
 
+## Una sola corrida a la vez
+
+`npm run migrate` toma un advisory lock de sesión
+(`pg_advisory_lock(hashtextextended('mnemosine:migrate', 0))`) antes de leer
+`public.migrations`, y lo suelta en el `finally`, después del endurecimiento,
+aunque una migración falle. Dos réplicas o dos despliegues que lo lancen a la
+vez contra la misma base se forman: el segundo espera, relee la tabla y
+aplica sólo lo que siga pendiente. El candado es por base, así que dos bases
+del mismo clúster no se esperan. No tiene tiempo límite propio: lo acota el
+paso de despliegue. Lo fija `tests/integration/migrate-advisory-lock.int.spec.ts` (#373).
+
 ## Duplicados históricos
 
 Estos cuatro números quedaron duplicados antes de que existiera la guarda y **ya
