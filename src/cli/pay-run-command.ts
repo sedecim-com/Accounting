@@ -23,6 +23,7 @@ import { parseForClient } from '../utils/zod-client-errors.js';
 import { t } from '../i18n/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
+import { registerPayRunPostCommand } from './pay-run-post-command.js';
 import {
   ExitCode,
   abortedByUser,
@@ -216,7 +217,7 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
   const payRun = program
     .command('pay-run')
     .alias('corrida')
-    .description('Payroll runs of a pay period: create, calculate gross to net, approve');
+    .description('Payroll runs of a pay period: create, calculate gross to net, approve, post the entry');
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -419,4 +420,7 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
         return blocking.length > 0 ? ExitCode.VALIDATION : ExitCode.OK;
       })
   );
+
+  // ---- pay-run post (MNE-001-069, its own file) -----------------------
+  registerPayRunPostCommand(payRun, { palette: p, run, scopeForWrite, ask, blockedOnConflict });
 }
