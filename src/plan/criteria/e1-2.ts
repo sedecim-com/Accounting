@@ -1409,6 +1409,99 @@ export const E1_2: Criterio[] = [
     },
   },
 
+  // ---- #95 · MNE-001-041 · The bank fee's VAT leaves 1135 ----
+  {
+    paquete: 'E1.2',
+    id: 'bank-fee-vat-leaves-1135',
+    // `bank fee post` parked the fee's VAT in 1135 and pointed at `bank fee
+    // apply`, which never existed; nothing else reached a `bank_fee` entry, so
+    // every fee's VAT stayed there and the monthly return understated the
+    // creditable VAT. Proven against Postgres in
+    // tests/integration/mne-001-041-fee-vat-release.int.spec.ts.
+    enunciado: 'Contabilizar una comisión bancaria deja la 1135 en cero: su IVA pasa a acreditable en el mes del cargo',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/treasury-posting.ts',
+        de: '      await release(mov);\n',
+        a: '\n',
+        porque:
+          'the fee is posted and its VAT stays parked in 1135 again: the return understates the ' +
+          'creditable VAT every month there is a bank fee',
+      },
+      {
+        archivo: 'src/services/banking/treasury-posting.ts',
+        de: '[entityId, [ORIGEN_COMISION, FEE_VAT_RELEASE_SOURCE], mov.id, pending]',
+        a: '[entityId, [ORIGEN_COMISION], mov.id, pending]',
+        porque:
+          'the ledger read forgets what earlier releases took out: running the month again moves ' +
+          'the same VAT a second time and 1135 goes negative',
+      },
+      {
+        archivo: 'src/i18n/es.ts',
+        de: "'El IVA de las comisiones ({vat}) pasó de pendiente de acreditar a IVA acreditable en el mes ' +",
+        a: "'El IVA ({vat}) se acredita con `bank fee apply` cuando llegue el CFDI del banco, en el mes ' +",
+        porque: 'the notice sends the accountant to `bank fee apply` again, a command that does not exist',
+      },
+    ],
+    evaluar: () => {
+      const t = codigoDe('src/services/banking/treasury-posting.ts');
+      if (!/async function releaseFeeVat\(/.test(t)) {
+        return falla('the release of the fee VAT is gone: nothing moves it out of 1135');
+      }
+      // Posted now AND posted before: both paths release.
+      const calls = (t.match(/await release\(/g) ?? []).length;
+      if (calls < 2) {
+        return falla(`only ${calls} of the 2 fee paths (posted now, posted earlier) release the VAT: the other leaves it in 1135`);
+      }
+      if (!/, FEE_VAT_RELEASE_SOURCE\]/.test(t)) {
+        return falla('the parked amount no longer nets earlier releases: a rerun releases the same VAT twice');
+      }
+      const dead = ['src/i18n/es.ts', 'src/i18n/en.ts', 'src/cli/bank-command.ts'].filter((f) =>
+        codigoDe(f).includes('bank fee apply')
+      );
+      return dead.length === 0
+        ? ok('the fee VAT is released in the same act, netting earlier releases, and no message cites `bank fee apply`')
+        : falla(`${dead.join(', ')} cite \`bank fee apply\` again, a command that does not exist`);
+    },
+  },
+
+  // ---- #95 · MNE-001-041 · The PPD reclass backfill rounds once, at scale 4 ----
+  {
+    paquete: 'E1.2',
+    id: 'iva-ppd-reclass-posts-at-scale-4',
+    // The backfill rounded the unpaid share to cents and posted it at four
+    // decimals, leaving up to 0.005 of non-creditable IVA per document in 1130.
+    enunciado: 'La reclasificación de IVA PPD redondea una sola vez, a los cuatro decimales con que postea',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/iva-ppd-reclass.ts',
+        de: 'dividedBy(total)).toDecimalPlaces(4);',
+        a: 'dividedBy(total)).toDecimalPlaces(2);',
+        porque:
+          'the unpaid share is rounded to cents and posted at four decimals: up to 0.005 per document ' +
+          'stays in 1130 that was never creditable',
+      },
+      {
+        archivo: 'src/services/accounting/iva-ppd-reclass.ts',
+        de: 'const aReclasificar = unpaidShareOfIva(h.importe, h.saldo_documento, h.total_documento);',
+        a: 'const aReclasificar = new Decimal(h.importe).times(new Decimal(h.saldo_documento).dividedBy(h.total_documento)).toDecimalPlaces(2);',
+        porque: 'the reclass computes its own share again, inline and at cents, beside the one that is tested',
+      },
+    ],
+    evaluar: () => {
+      const r = codigoDe('src/services/accounting/iva-ppd-reclass.ts');
+      if (/toDecimalPlaces\(\s*[0-3]\s*\)/.test(r)) {
+        return falla('iva-ppd-reclass rounds below four decimals again: the residue stays in 1130');
+      }
+      if (!/export function unpaidShareOfIva\([^)]*\)[^{]*\{[^}]*toDecimalPlaces\(4\)/.test(r)) {
+        return falla('the unpaid share no longer rounds once, at four decimals');
+      }
+      return /= unpaidShareOfIva\(h\./.test(r)
+        ? ok('the unpaid share of a PPD document is rounded once, at the four decimals it is posted at')
+        : falla('the reclass no longer takes its amount from unpaidShareOfIva');
+    },
+  },
+
   {
     paquete: 'E1.2',
     id: 'reconciling-item-datable-and-correctable',
