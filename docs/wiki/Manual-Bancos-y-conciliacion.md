@@ -157,11 +157,11 @@ La partida `Reconciliation variance frozen at zero` mira el dato que ese estado 
 El lado del mayor, para la hoja de trabajo, sigue saliendo del auxiliar:
 
 ```bash
-mnemosine ledger auxiliary show --account 1111 --period August \
+mnemosine ledger auxiliary show --account 1111 --period 2026-08 \
   --format csv -o auxiliar-bancos-agosto.csv
 ```
 
-El periodo de `ledger auxiliary` va por **fragmento del nombre** —en inglés—, no por fecha (ver la tabla de las tres familias en [[Manual-El-cierre-de-mes]]).
+El periodo de `ledger auxiliary` acepta `2026-08`, el uuid o un fragmento inequívoco del nombre (ver la tabla de las familias de `--period` en [[Manual-El-cierre-de-mes]]).
 
 ---
 

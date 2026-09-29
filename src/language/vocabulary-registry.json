@@ -2346,6 +2346,14 @@
     },
     {
       "class": "policy-key",
+      "where": "opening_payable_iva",
+      "es": "opening_payable_iva",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): `opening` is the tree's term for the opening balance (`opening_balance`, `opening-balance import`), `payable` is the AP side, `iva` is the tax's name in both languages. Read by `importOpeningBalance` and applied by `planOpeningBills` (ap/opening-bills.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "bank_statement_overlap",
       "es": "bank_statement_overlap",
       "en": null,
@@ -2900,6 +2908,22 @@
       "es": "contabilizar",
       "en": "post",
       "why": "`post` es el verbo del árbol para llevar un asiento al mayor (`postJournalEntry`, `autoPost`, `entry post`), y el informe ya lo nombra así (`loadMode: 'post'`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_payable_iva/require_rate",
+      "es": "require_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) reads; the load stops until each vendor document says its IVA rate."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_payable_iva/assume_zero_rate",
+      "es": "assume_zero_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
     },
     {
       "class": "policy-value",
@@ -3745,10 +3769,11 @@
     },
     {
       "class": "policy-value",
-      "where": "rep_moneda_extranjera/tc_documento",
-      "es": "tc_documento",
-      "en": "document_rate",
-      "why": "`tc` es la abreviatura de «tipo de cambio»: en inglés es `rate`, y la tabla ya se llama `exchange_rates` (001_core_schema.sql:374). Se antepone `document` porque es el tipo del documento original, no el del pago: sin ese calificador el valor no diría cuál de los dos tipos de cambio rige, que es lo único que la opción decide."
+      "where": "rep_moneda_extranjera/payment_day_rate",
+      "es": "payment_day_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English: it replaced `tc_documento` (MNE-001-082), whose promise of matching at the document's rate with no difference the payment engine no longer keeps. It names the rate that governs, the payment day's from `fuente_tipo_cambio`, which is the only thing the option decides."
     },
     {
       "class": "policy-value",
@@ -4355,8 +4380,8 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/payments/payment-service.ts:710",
-      "es": "FX_AR_RECEIPT_NOT_WIRED",
+      "where": "src/services/payments/payment-service.ts:735",
+      "es": "FX_AR_ON_ACCOUNT_NOT_WIRED",
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Ya es el término inglés; FX y AR son acrónimos internacionales, no vocabulario nuestro."

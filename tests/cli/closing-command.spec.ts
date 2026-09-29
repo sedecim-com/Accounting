@@ -65,6 +65,21 @@ vi.mock('../../src/ai/close-service.js', () => ({
   },
 }));
 
+// The house period resolver (#327), answered from the same world: an id or
+// the YYYY-MM of a listed period finds it, anything else is NOT_FOUND.
+vi.mock('../../src/services/accounting/fiscal-calendar-service.js', async (importOriginal) => {
+  const { NotFoundError } = await import('../../src/utils/errors.js');
+  return {
+    ...(await importOriginal<object>()),
+    resolvePeriod: (_entityId: string, ref: string) => {
+      const hit = (mundo.periodos as ClosablePeriod[]).find(
+        (p) => p.id === ref || p.start_date.startsWith(`${ref}-`)
+      );
+      return hit ? Promise.resolve(hit) : Promise.reject(new NotFoundError('Fiscal period', ref));
+    },
+  };
+});
+
 vi.mock('../../src/services/accounting/close-explain.js', () => ({
   explainCloseCheck: () => {
     mundo.consultas += 1;

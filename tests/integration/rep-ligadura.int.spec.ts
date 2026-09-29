@@ -32,6 +32,9 @@ import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-se
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import type { PagoREP } from '../../src/services/xml-ingestion/cfdi-facts.js';
 import { repXml } from './helpers/rep-xml.js';
+import { issueInvoice } from '../../src/services/ar/invoice-service.js';
+import { exigirPar, fijarTipo } from '../../src/services/fx/rate-service.js';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 
 /**
  * EL MISMO HECHO ECONÓMICO POR LAS DOS PUERTAS DA EL MISMO MAYOR.
@@ -55,6 +58,10 @@ import { repXml } from './helpers/rep-xml.js';
  * —`ivaReclassLines` lee las filas de aplicación, no el pago— así que el
  * traspaso sale gratis y sin una línea de impuesto escrita en la ingesta.
  */
+
+// The USD block below publishes DOF rates, and `exchange_rates` is global:
+// it is returned as it was found (helpers/catalogos-globales.ts).
+apartarCatalogos('exchange_rates');
 
 let f: Fixture;
 let cuentaAcreditable: string;
@@ -574,6 +581,101 @@ describe('el lado EMITIDO: cobros de clientes', () => {
       [fac.invoiceId]
     );
     expect(Number(alloc.rows[0].n)).toBe(1);
+  });
+});
+
+/**
+ * An ISSUED REP in dollars (review of #500). Since MNE-001-082 the collection
+ * engine converts and realises the difference, so the panel option that lets
+ * such a REP through must say so: `payment_day_rate` registers it through that
+ * engine; the default `no_casar` still leaves it for review.
+ */
+describe('an issued REP in USD, under each value of rep_moneda_extranjera', () => {
+  const INVOICE_DAY = '2026-08-04';
+  const COLLECTION_DAY = '2026-08-06';
+  beforeAll(async () => {
+    const par = exigirPar('USD/MXN');
+    await fijarTipo({ par, fecha: INVOICE_DAY, tasa: '17.5000', fuente: 'dof', creadoPor: f.userId });
+    await fijarTipo({ par, fecha: COLLECTION_DAY, tasa: '18.0000', fuente: 'dof', creadoPor: f.userId });
+  });
+
+  async function usdInvoiceWithCfdi(): Promise<{ invoiceId: string; cfdiUuid: string }> {
+    const invoiceId = uuidv4();
+    const customerId = uuidv4();
+    const cfdiUuid = uuidv4();
+    const tag = uuidv4().slice(0, 8);
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, tax_id, tax_id_type, currency_code, created_by)
+       VALUES ($1,$2,$3,'Cliente REP USD','XEXX010101000','rfc','USD',$4)`,
+      [customerId, f.entityId, `CU-${tag}`, f.userId]
+    );
+    await query(
+      `INSERT INTO invoices (id, entity_id, invoice_number, customer_id, subtotal, tax_amount, total_amount,
+         amount_due, currency_code, invoice_date, due_date, status, cfdi_uuid, created_by)
+       VALUES ($1,$2,$3,$4,1000,0,1000,1000,'USD',$5,$5,'draft',$6,$7)`,
+      [invoiceId, f.entityId, `INV-USD-${tag}`, customerId, INVOICE_DAY, cfdiUuid, f.userId]
+    );
+    await query(
+      `INSERT INTO invoice_lines (id, invoice_id, line_number, description, quantity, unit_price,
+         revenue_account_id, tax_amount, line_amount, total_amount)
+       VALUES ($1,$2,1,'Servicio exportado',1,1000,$3,0,1000,1000)`,
+      [uuidv4(), invoiceId, await cuentaPorCodigo(f.entityId, '4100')]
+    );
+    await issueInvoice(invoiceId, f.userId, { entityId: f.entityId });
+    return { invoiceId, cfdiUuid };
+  }
+
+  const linkUsdRep = (cfdiUuid: string) =>
+    ligarPagoREP({
+      tenantId: f.tenantId,
+      entityId: f.entityId,
+      userId: f.userId,
+      cfdiUuid: uuidv4(),
+      direction: 'emitido',
+      indice: 0,
+      pago: {
+        fechaPago: `${COLLECTION_DAY}T12:00:00`,
+        formaDePagoP: '03', monedaP: 'USD', tipoCambioP: 17.9, monto: 1000,
+        docsRelacionados: [{
+          uuid: cfdiUuid, impSaldoAnt: 1000, impPagado: 1000, impSaldoInsoluto: 0, monedaDR: 'USD',
+        }],
+      },
+      fechaCfdi: new Date(`${COLLECTION_DAY}T12:00:00Z`),
+      monedaFuncional: 'MXN',
+    });
+
+  it('no_casar (the default) leaves it for review and registers nothing', async () => {
+    const inv = await usdInvoiceWithCfdi();
+    const r = await linkUsdRep(inv.cfdiUuid);
+    expect(r.accion).toBe('revision');
+    expect(r.motivo).toMatch(/rep_moneda_extranjera/);
+    const alloc = await query(`SELECT 1 FROM payment_allocations WHERE invoice_id = $1`, [inv.invoiceId]);
+    expect(alloc.rows).toHaveLength(0);
+  });
+
+  it('payment_day_rate registers it through the payment engine and realises the difference at the DOF of the payment day', async () => {
+    await fijarPoliticaGlobal('rep_moneda_extranjera', 'payment_day_rate');
+    try {
+      const inv = await usdInvoiceWithCfdi();
+      const r = await linkUsdRep(inv.cfdiUuid);
+      expect(r.accion, r.motivo).toBe('creado');
+      expect(r.avisos.join(' ')).toMatch(/día del pago/);
+
+      const pay = await query<{ exchange_rate: string; journal_entry_id: string }>(
+        `SELECT exchange_rate::text AS exchange_rate, journal_entry_id FROM customer_payments WHERE id = $1`,
+        [r.paymentId]
+      );
+      // The firm's source (DOF 18.00) governs, not the REP's TipoCambioP (17.90).
+      expect(Number(pay.rows[0].exchange_rate)).toBe(18);
+      const gain = await query<{ credit_amount: string }>(
+        `SELECT credit_amount::text AS credit_amount FROM journal_entry_lines
+          WHERE journal_entry_id = $1 AND account_id = $2`,
+        [pay.rows[0].journal_entry_id, await cuentaPorCodigo(f.entityId, '4320')]
+      );
+      expect(gain.rows.map((g) => Number(g.credit_amount))).toEqual([500]);
+    } finally {
+      await borrarPoliticaGlobal('rep_moneda_extranjera');
+    }
   });
 });
 

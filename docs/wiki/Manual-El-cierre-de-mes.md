@@ -23,21 +23,20 @@ El valor por omisión del periodo es siempre **el más viejo abierto**, nunca «
 
 ## Cómo se nombra el periodo
 
-Hay una trampa aquí que cuesta diez minutos la primera vez. Los nombres de periodo se **guardan en inglés** —`August 2026`— porque se acuñan al crear el ejercicio y no se traducen al mostrarlos ([`fiscal-calendar-service.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/fiscal-calendar-service.ts), línea 505). Y `close --period` busca por **fragmento del nombre**, no por fecha:
+Los nombres de periodo se **guardan en inglés** —`August 2026`— porque se acuñan al crear el ejercicio y no se traducen al mostrarlos ([`fiscal-calendar-service.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/fiscal-calendar-service.ts)). Por eso lo más seguro es nombrar el mes por su fecha: `close --period` acepta `2026-08`, el uuid del periodo o un fragmento **inequívoco** del nombre, igual que `period show` (#327):
 
 ```bash
-mnemosine close --period August       # funciona
+mnemosine close --period 2026-08      # funciona, y es la forma recomendada
 mnemosine close --period "August 2026" # funciona
-mnemosine close --period 2026-08      # NO encuentra nada
-mnemosine close --period agosto       # NO encuentra nada
+mnemosine close --period August       # funciona si sólo un periodo se llama así
+mnemosine close --period agosto       # NO encuentra nada: el nombre está en inglés
 ```
 
-Si no encuentra, el comando enumera los disponibles, así que la corrección es rápida. Pero ojo: **`close` no es la única bandera `--period` que se comporta así, y tampoco se comportan todas igual.** Hay tres familias, y conviene saber en cuál cae lo que vas a teclear:
+Si no encuentra, el comando enumera los que se pueden cerrar. Si el mes existe pero ya está cerrado en duro o bloqueado, lo dice por su estado en vez de contestar «no encontrado». Y si fijaste una entidad con `entity use`, `close` y `closing` la respetan: `-e` gana, luego `MNEMOSINE_ENTITY`, luego la entidad fijada. No todos los comandos lo hacen todavía (`drafts` y `review`, por ejemplo, aún no leen la entidad fijada): en una firma con varias entidades, pásales `-e`. Las banderas `--period` caen en dos familias:
 
 | Familia | Banderas | Qué acepta |
 |---|---|---|
-| **Sólo fragmento del nombre** | `close --period` · `ledger auxiliary show --period` | `August`, `August 2026`. **No** `2026-08` ni `agosto`. |
-| **Resuelto contra el calendario** | `ledger check` · `ledger stale-draft list` · `ledger balance show` · `account balance show` · `entry list` · `entry export` · `invoice list` · `period show` | `2026-08`, el nombre, un fragmento inequívoco, o el uuid. Un periodo que no existe **lanza** en vez de contestar sobre la nada. |
+| **Resuelto contra el calendario** | `close` · `closing preview/check/explain/run` · `ledger auxiliary show` · `ledger check` · `ledger stale-draft list` · `ledger balance show` · `account balance show` · `entry list` · `entry export` · `invoice list` · `period show` | `2026-08`, el nombre, un fragmento inequívoco, o el uuid. Un periodo que no existe **lanza** en vez de contestar sobre la nada. |
 | **Selector de rango (reportes)** | `report trial-balance show` y los demás `report`, `bill list` | `2026-08`, `2026-Q3`, `FY2026`, `2026`, y rangos `2026-01..2026-06`. |
 
 Dos advertencias sobre esa tabla, las dos comprobadas corriendo:
@@ -60,7 +59,7 @@ mnemosine period list
 ## La lista de verificación
 
 ```bash
-mnemosine close --period August --check
+mnemosine close --period 2026-08 --check
 ```
 
 `--check` nunca cierra. Imprime la lista con `✔` y `✘`, después lo que bloquea y lo que sólo avisa, y termina diciendo si el periodo está listo. Sale con **1** cuando no puede cerrar, para que un `cron` pueda actuar sobre eso.
@@ -74,7 +73,7 @@ Abajo van las partidas que todo mes encuentra, en el orden en que salen ([`perio
 Cuenta las pólizas del periodo en `draft` o `pending_approval`. Es el bloqueador número uno de todo cierre, y casi siempre son borradores viejos que nadie revisó.
 
 ```bash
-mnemosine ledger stale-draft list --days 7 --period August
+mnemosine ledger stale-draft list --days 7 --period 2026-08
 ```
 
 ```bash
@@ -162,7 +161,7 @@ mnemosine report view sync
 Y si el descuadre es real, las verificaciones de integridad del mayor lo localizan:
 
 ```bash
-mnemosine ledger check --period August
+mnemosine ledger check --period 2026-08
 ```
 
 Corre las verificaciones bloqueantes (`balance`, `audit-trail`, `continuity`) y sale con **código 4** si encuentra algo. Ese 4 significa «encontré problemas», nunca «no pude mirar»: si la base no responde, sale 1, 2, 3 u 8, jamás 4. Es lo que permite meter la verificación en un `cron` sin que una caída de red se disfrace de balanza descuadrada.
@@ -269,7 +268,7 @@ mnemosine ledger balance show --account 2125 --as-of 2026-08-31
 ```
 
 ```bash
-mnemosine ledger auxiliary show --account 1135 --period August \
+mnemosine ledger auxiliary show --account 1135 --period 2026-08 \
   --format csv -o iva-pendiente-agosto.csv
 ```
 
@@ -289,11 +288,11 @@ Cuando el asiento tomó una suposición, la lleva escrita: busca `· MetodoPago 
 Cuando la lista está en verde:
 
 ```bash
-mnemosine close --period August --dry-run
+mnemosine close --period 2026-08 --dry-run
 ```
 
 ```bash
-mnemosine close --period August --reason "Cierre mensual de agosto"
+mnemosine close --period 2026-08 --reason "Cierre mensual de agosto"
 ```
 
 El periodo pasa a `soft_close`. El `--reason` no es decorativo: queda en la bitácora de auditoría junto con quién cerró y cuándo, dentro de la misma transacción del cierre. Antes esa transacción y el renglón de auditoría eran dos operaciones distintas, y si la segunda fallaba el periodo quedaba cerrado sin constancia de quién lo cerró.
@@ -309,7 +308,7 @@ Sin terminal el comando no asume tu consentimiento: se niega y te dice que vuelv
 ## El cierre duro
 
 ```bash
-mnemosine close --period August --hard --reason "Cierre definitivo de agosto"
+mnemosine close --period 2026-08 --hard --reason "Cierre definitivo de agosto"
 ```
 
 Es un segundo acto deliberado, y exige que el periodo ya esté en `soft_close`. Hace tres cosas:
@@ -318,17 +317,23 @@ Es un segundo acto deliberado, y exige que el periodo ya esté en `soft_close`. 
 2. **Arrastra los saldos de balance** al periodo siguiente, después de los asientos de cierre para que el arrastre de fin de año ya refleje el resultado traspasado.
 3. Sella el periodo y deja su rastro en la bitácora, en la misma transacción.
 
+**El último periodo del ejercicio es el 13, no diciembre.** Cada ejercicio trae un periodo de ajustes de cierre («Year-end adjustments 2026», el periodo 13) que empieza el 31 de diciembre. Cerrar diciembre en duro no genera los asientos de cierre; cerrar el 13 sí. Como los dos empiezan en diciembre, `close --period 2026-12` **se niega** y enumera ambos con su id: nombra el que quieres por su nombre completo o su id.
+
+```bash
+mnemosine close --period "Year-end adjustments 2026" --hard --reason "Cierre anual 2026" --dry-run
+```
+
 Dos advertencias sobre el cierre anual:
 
 **A dónde va el resultado lo decide el panel.** Por omisión, a la 3300 «Resultado del Ejercicio», y una reclasificación posterior, cuando la asamblea lo aprueba, lo lleva a la 3200 «Resultado de Ejercicios Anteriores»; la otra opción de `destino_del_resultado_del_ejercicio` lo manda directo a la 3200. Si la política pide 3300 y el catálogo no la tiene, se usa la 3200 y el cierre lo dice. La cuenta se resuelve por **código** y tiene que estar marcada como cuenta de sistema. Nunca a la 3100: es Capital Social, y NIF C-11 sólo lo mueve por actos corporativos formales.
 
-**Si faltan la 3900 o la 3200, el barrido no se puede hacer, y el cierre lo dice.** Sin cuentas puente no se emite ningún asiento de cierre, y entonces se comprueba si alguna cuenta de resultados conserva saldo. Si la hay, por omisión el cierre duro se revierte entero, el periodo sigue abierto y el error nombra cada cuenta con su saldo; la política `severidad_resultado_sin_barrer` puede bajarlo a un aviso. Con el catálogo sembrado por el sistema las dos existen y están marcadas; con un catálogo importado del sistema anterior, puede que no. **Compruébalo antes de cerrar diciembre en duro:**
+**Si faltan la 3900 o la 3200, el barrido no se puede hacer, y el cierre lo dice.** Sin cuentas puente no se emite ningún asiento de cierre, y entonces se comprueba si alguna cuenta de resultados conserva saldo. Si la hay, por omisión el cierre duro se revierte entero, el periodo sigue abierto y el error nombra cada cuenta con su saldo; la política `severidad_resultado_sin_barrer` puede bajarlo a un aviso. Con el catálogo sembrado por el sistema las dos existen y están marcadas; con un catálogo importado del sistema anterior, puede que no. **Compruébalo antes del cierre anual en duro:**
 
 ```bash
 mnemosine account list --type equity
 ```
 
-Si no están, o no están marcadas como cuentas de sistema, dales de alta o márcalas antes de cerrar: el cierre duro de diciembre se va a detener hasta que el resultado se pueda barrer. Si el panel lo dejó en aviso, el cierre termina y el balance de enero arrastra ingresos y gastos del año anterior.
+Si no están, o no están marcadas como cuentas de sistema, dales de alta o márcalas antes de cerrar: el cierre duro del periodo 13 se va a detener hasta que el resultado se pueda barrer. Si el panel lo dejó en aviso, el cierre termina y el balance de enero arrastra ingresos y gastos del año anterior.
 
 ---
 
@@ -421,7 +426,7 @@ mnemosine entry export --period 2026-08 --format csv -o polizas-2026-08.csv
 Más el auxiliar por cuenta, que es la forma que pide el auxiliar XC del SAT:
 
 ```bash
-mnemosine ledger auxiliary show --account 1120 --period August \
+mnemosine ledger auxiliary show --account 1120 --period 2026-08 \
   --format csv -o auxiliar-clientes-agosto.csv
 ```
 
@@ -467,10 +472,10 @@ mnemosine account map check --scheme sat-agrupador --strict
 ```bash
 mnemosine entity use <RFC>
 mnemosine close --list
-mnemosine close --period August --check
+mnemosine close --period 2026-08 --check
 
 # 1 · pólizas sin contabilizar (BLOQUEA)
-mnemosine ledger stale-draft list --days 7 --period August
+mnemosine ledger stale-draft list --days 7 --period 2026-08
 mnemosine drafts -s pending_review
 mnemosine review
 mnemosine entry list -s draft --period 2026-08
@@ -488,13 +493,13 @@ mnemosine ledger balance show --account 2125 --as-of 2026-08-31
 # 5 · la balanza cuadra (BLOQUEA)
 mnemosine report view show
 mnemosine report view sync
-mnemosine ledger check --period August
+mnemosine ledger check --period 2026-08
 
 # 2 · la conciliación, fuera del sistema; dejar los papeles en el expediente
 
 # cerrar
-mnemosine close --period August --dry-run
-mnemosine close --period August --reason "Cierre mensual de agosto"
+mnemosine close --period 2026-08 --dry-run
+mnemosine close --period 2026-08 --reason "Cierre mensual de agosto"
 
 # reportes
 mnemosine report trial-balance show --period 2026-08 --format csv -o balanza-2026-08.csv
