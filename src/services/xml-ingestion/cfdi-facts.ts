@@ -69,6 +69,8 @@ export interface CfdiFacts {
   emisorRfc: string;
   receptorRfc: string;
   emisorNombre: string;
+  /** The issuer's c_RegimenFiscal ('606' leases, '612' business and professional activity). */
+  issuerRegime?: string;
   fecha: Date;
 
   // Payment
@@ -98,6 +100,12 @@ export interface CfdiFacts {
   ivaRetenido: number;
   impuestosLocalesTrasladados: number;
   impuestosLocalesRetenidos: number;
+  /**
+   * What the entity has to withhold, when the law says it withholds
+   * (withholding-law.ts). Set by the classifier; absent, the CFDI's own
+   * withholdings are booked as declared.
+   */
+  withholdingDue?: { isr: number; iva: number };
 
   // Complements and relations
   complementos: string[];
@@ -158,6 +166,7 @@ export function extractFacts(cfdi: CFDIParsed, entityRfc: string): CfdiFacts {
     emisorRfc: emisor,
     receptorRfc: receptor,
     emisorNombre: cfdi.emisor.nombre ?? '',
+    issuerRegime: clave(cfdi.emisor.regimenFiscal, 3) || undefined,
     fecha: cfdi.fecha,
 
     metodoPago: cfdi.metodoPago,
