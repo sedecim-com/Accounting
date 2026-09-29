@@ -11,6 +11,7 @@ import {
   staleOpenings,
 } from './period-close.js';
 import { MAPPING_SCHEMES } from './account-service.js';
+import { revisionDeAmortizacionAlCierre } from '../accruals/prepaid-service.js';
 
 // ============================================================
 // F06b · `closing explain <codigo>` — LOS RENGLONES OFENSORES
@@ -56,6 +57,7 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'bank-lines-unexplained': 'mnemosine bank reconciliation run <account> --period <YYYY-MM>',
   'invoices-reviewed': 'mnemosine invoice issue <invoice_number>',
   'depreciation-posted': 'mnemosine depreciation run --period <YYYY-MM>',
+  'prepaid-amortized': 'mnemosine prepaid run --period <YYYY-MM>',
   'trial-balance':
     'mnemosine close --period <period> --hard  (re-seals the earlier month whose correction the carry did not reach; ' +
     'a cache that does not foot is named by mnemosine ledger check --check balance)',
@@ -260,6 +262,16 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
         LIMIT $3`,
       [entityId, periodId, limit]
     ),
+
+  // The same review the checklist box reads (`prepaidAmortizedCheck`), so
+  // the list and the count cannot drift apart.
+  'prepaid-amortized': async (entityId, periodId, limit) => {
+    const review = await revisionDeAmortizacionAlCierre(entityId, periodId);
+    return {
+      total: review.pendientes.length,
+      renglones: review.pendientes.slice(0, limit).map((p) => ({ ...p })),
+    };
+  },
 
   // The footing is an AGGREGATE: its offending row is the difference itself.
   // The beginnings the ledger does not give are one row per account (#99).
