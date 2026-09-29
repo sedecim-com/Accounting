@@ -3518,6 +3518,13 @@
     },
     {
       "class": "policy-value",
+      "where": "rep_faltante_recibido/no_vigilar",
+      "es": "no_vigilar",
+      "en": "do_not_watch",
+      "why": "MNE-001-125: the third option, the close does not watch the supplier REP. `do_not_` and not `dont_`, as in `rep_moneda_extranjera/no_casar`: a persisted value must not carry a contraction."
+    },
+    {
+      "class": "policy-value",
       "where": "rep_moneda_extranjera/no_casar",
       "es": "no_casar",
       "en": "do_not_match",

@@ -19,24 +19,43 @@ beforeEach(() => {
 });
 
 describe('listPagosSinRep', () => {
-  it('received: pagos a proveedor sin REP, con el método del espejo y los PUE excluidos', async () => {
-    await listPagosSinRep('ent-1', { direction: 'received' });
-    const [sql, params] = mockQuery.mock.calls[0];
-    expect(sql).toMatch(/FROM vendor_payments/);
-    expect(sql).toMatch(/vp\.cfdi_uuid IS NULL/);
-    // El método sale del ESPEJO (join a xml_documents por el CFDI del bill)…
-    expect(sql).toMatch(/LEFT JOIN xml_documents/);
-    // …y un PUE confirmado no exige REP: se excluye en el HAVING.
-    expect(sql).toMatch(/<> 'PUE'/);
-    expect(params[0]).toBe('ent-1');
+  // MNE-001-125: the list reads accounting/rep-expected.ts, the same one the
+  // close counts: first the entity's jurisdiction, then received, then issued.
+  const MEXICAN = { rows: [{ incorporation_country: 'MX', accounting_standard: 'mx_nif' }] };
+  const row = (payment_id: string, over: Record<string, unknown> = {}) => ({
+    payment_id, payment_number: payment_id.toUpperCase(), payment_date: '2026-08-10', counterparty: 'X',
+    amount: '100.0000', currency_code: 'MXN', age_days: 3,
+    cfdi_metodo: null, terms: null, memo: null, stamped: true, ...over,
   });
 
-  it('issued: cobros propios sin REP emitido — la obligación es NUESTRA', async () => {
-    await listPagosSinRep('ent-1', { direction: 'issued', minAmount: 100 });
-    const [sql, params] = mockQuery.mock.calls[0];
-    expect(sql).toMatch(/FROM customer_payments/);
-    expect(sql).toMatch(/cp\.cfdi_uuid IS NULL/);
-    expect(params[1]).toBe(100);
+  it('received: supplier payments on PPD bills, PUE excluded, with the method the ledger used', async () => {
+    mockQuery
+      .mockResolvedValueOnce(MEXICAN)
+      .mockResolvedValueOnce({ rows: [row('vp-1', { cfdi_metodo: 'PUE' }), row('vp-2', { cfdi_metodo: 'PPD' }), row('vp-3')] })
+      .mockResolvedValueOnce({ rows: [row('cp-1', { cfdi_metodo: 'PPD' })] });
+    const rows = await listPagosSinRep('ent-1', { direction: 'received' });
+    expect(rows.map((r) => [r.payment_number, r.metodo])).toEqual([['VP-2', 'PPD'], ['VP-3', 'desconocido']]);
+    const [sql, params] = mockQuery.mock.calls[1];
+    expect(sql).toMatch(/FROM vendor_payments/);
+    expect(sql).toMatch(/status = 'completed'/);
+    expect(sql).toMatch(/unapplied_at IS NULL/);
+    expect(params).toEqual(['ent-1']);
+  });
+
+  it('issued: our collections without a REP, plus the stamped ones whose method is unknown, above the minimum', async () => {
+    mockQuery
+      .mockResolvedValueOnce(MEXICAN)
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          row('cp-1', { cfdi_metodo: 'PPD', amount: '50.0000' }),
+          row('cp-2', { cfdi_metodo: 'PPD', payment_date: '2026-08-12' }),
+          row('cp-3'),
+          row('cp-4', { cfdi_metodo: 'PUE' }),
+        ],
+      });
+    const rows = await listPagosSinRep('ent-1', { direction: 'issued', minAmount: 100 });
+    expect(rows.map((r) => [r.payment_number, r.metodo])).toEqual([['CP-3', 'desconocido'], ['CP-2', 'PPD']]);
   });
 
   it('una dirección inventada es error de uso, no una lista vacía silenciosa', async () => {
