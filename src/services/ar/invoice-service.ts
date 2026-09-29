@@ -10,6 +10,7 @@ import { OPEN_INVOICE_STATUSES, NEVER_RECEIVABLE_STATUSES, amountDueAsOfSql } fr
 import { InvoiceStatus } from '../../types/index.js';
 import type { Invoice, InvoiceLine, JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
+import { todayForEntity } from '../policy/today.js';
 
 // ============================================================
 // CUSTOMER INVOICES — domain service
@@ -51,10 +52,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Statuses that can no longer be issued or voided into the ledger. */
 export const TERMINAL_INVOICE_STATUSES = ['void', 'cancelled'] as const;
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export interface InvoiceFilters {
   customerId?: string;
@@ -131,7 +128,10 @@ export async function listInvoices(
     i++;
   }
 
-  const asOfValue = filters.asOf ?? today();
+  // "Today" is the entity's day in zona_horaria (#242), and only asked for
+  // when something reads it: the aging column or the overdue filter.
+  const needsToday = filters.withAging === true || filters.overdueDays !== undefined;
+  const asOfValue = filters.asOf ?? (needsToday ? await todayForEntity(entityId) : undefined);
 
   if (filters.asOf) {
     where.push(`${dateColumn} <= $${i++}::date`);
