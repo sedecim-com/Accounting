@@ -154,6 +154,8 @@ const TOP_LEVEL: Record<string, string> = {
   // adjudicó a fiscal-us (la provisión del impuesto corporativo) en su
   // dictamen 39, y no `benefit`, que ya nombra los PLANES de prestaciones.
   payroll: 'nomina',
+  // MNE-001-068: the run of a pay period, with the catalog's noun.
+  'pay-run': 'corrida',
   // MNE-001-018: the Anexo 24 migration, with the catalog's own nouns.
   chart: 'catalogo',
   'opening-balance': 'saldo-inicial',
@@ -261,6 +263,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   fx: { rate: 'tipo' },
   prepaid: { create: 'crear', list: 'listar', show: 'ver', run: 'ejecutar' },
   payroll: { accrue: 'devengar' },
+  'pay-run': { create: 'crear', calculate: 'calcular', approve: 'aprobar' },
   chart: { import: 'importar' },
   'opening-balance': { import: 'importar', check: 'verificar' },
   'e-accounting': { catalog: 'catalogo', balance: 'balanza' },
@@ -381,7 +384,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'garnishment', 'employee', 'web', 'tenant'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'garnishment', 'employee', 'web', 'tenant'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

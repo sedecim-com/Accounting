@@ -32,7 +32,7 @@ The figures are the ones **corrected by the skeptics**; each has its command in 
 ### 1.2 The user layer is upside down in two places
 
 - **CLI**: the **help** is 99 % English (1,397 strings; 6 in Spanish, the 7 nodes the census already knows) and so demand `tests/cli/bilingual-matrix.spec.ts:310-323` ("help text is English"), `scripts/ux-status.ts:214` (baseline of 7 nodes outside the canonical language; `--check` in `ci.yml:176`) and rule R8 of `docs/cli-command-catalog.md:204-208` ("Spanish is an alias layer, never a second surface"). But the **execution** is bilingual by family: of 1,827 output, error and prompt strings, 495 are Spanish and 199 mixed, concentrated in the families merged on September 1–3 (`bank` 246, `prepaid` 49, `batch` 43, `e-accounting` 39, `bill` 31, `account` 30, `diot` 28, `depreciation` 26, `backup` 23). **24 files teach in English and answer in Spanish**, and no gate measures it because `ux:status` only censuses the help. Outside the census: ~95 card labels (`fact`/`linea`/`renglon`) and **305 error messages from `src/services` and `src/utils` that reach the user verbatim through `reportError`** (`mnemosine.ts:291-317`), 46 with accents.
-- **API**: `src/api` emits 85 % of its strings in English and `src/services` 81 % in Spanish, and almost everything travels through the same envelope (`{errors:[{code,message,field,details}],meta}`) — almost: `ai-webhooks.ts:82,124,131` answer `{ error }` without a code, `/ready` leaks the PostgreSQL message and there is no own 404. Of 72 error codes in circulation, **24 carry a Spanish word** (`SOD_QUIEN_CREA_NO_POSTEA`, `CFDI_REQUIERE_DECISION`, `INPC_*`…), `PERIOD_ALREADY_OPEN` comes out in Spanish at `fiscal-calendar-service.ts:246` and in English at `:376`, and `docs/openapi.json` publishes 10 Spanish extension keys (`x-escribe`, `x-riesgo`…) that are contract. Zero reads of `Accept-Language`.
+- **API**: `src/api` emits 85 % of its strings in English and `src/services` 81 % in Spanish, and almost everything travels through the same envelope (`{errors:[{code,message,field,details}],meta}`) — almost: there is no own 404 (the webhook router joined the envelope and `/ready` stopped leaking the PostgreSQL message in #315, and a body the JSON parser refuses is a 4xx in the envelope since the same issue). Of 72 error codes in circulation, **24 carry a Spanish word** (`SOD_QUIEN_CREA_NO_POSTEA`, `CFDI_REQUIERE_DECISION`, `INPC_*`…), `PERIOD_ALREADY_OPEN` comes out in Spanish at `fiscal-calendar-service.ts:246` and in English at `:376`, and `docs/openapi.json` publishes 10 Spanish extension keys (`x-escribe`, `x-riesgo`…) that are contract. Zero reads of `Accept-Language`.
 - **The policy panel is exactly upside down, and persisted**: 53 keys and 93 values **in Spanish** — persisted in `policy_decisions` and compared as literals by the readers — under ~450 user strings **in English** (`question`, `impact`, `defaultRationale`, `whyAsking`, `whatIDo`, `ifSkipped` × 53, plus 133 option labels). And those English strings **are also persisted per tenant** (`016:17-24`; `policy-service.ts:51-61` seeds them with `ON CONFLICT DO NOTHING`) and the three readers render them **from the row** (`policy-service.ts:148`, `pending-command.ts:223-234`, `policy-tools.ts:212`): "closing the panel with a label catalog" requires changing the readers, not just adding texts.
 - **The agent** already has the only language resolver in the system — `MNEMOSINE_LANG` > `./mnemosine.config.json` > `~/.mnemosine/config.json` > `'es'` (`config.ts:1119-1131`; `.env.example:350` promises "the system's" and the code does not read it) — and only it uses it (`system-prompt.ts:171-185`). The prompt, the 25 tools and their 49 descriptions are already English; the corpus is Spanish where it is standards (`nif-*`, `niif-*`) and English where it is system.
 - **Format**: zero `Intl` in `src/`; 8 `toLocaleString` with a hard-wired locale; 614 `toFixed`; 304 hand-made plurals "palabra(s)" and 18 by ternary; a hand-made thousands separator (`output.ts:176`) and **two regexes that only understand comma thousands** (`output.ts:186`, `compaction.ts:249`); `DD/MM` dates by default in the bank readers; "today" with **two clocks** (18 `CURRENT_DATE` in SQL versus `now.getMonth()` in Node, on a `postgres:15-alpine` with neither `LANG` nor `TZ`); 58 `ORDER BY` over text whose collation Postgres decides. `tenants.settings` (JSONB, `001:23`) exists and has no reader; there is no `--locale`.
@@ -95,14 +95,14 @@ manual act and its trace is the diff.
 
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10547 (baseline 10578) | 0 |
-| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5773 (baseline 5774) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10535 (baseline 10578) | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5772 (baseline 5774) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
 | `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
 | `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 466 | 0 |
-| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 121 | 0 |
+| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 119 (baseline 121) | 0 |
 | `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 37 (baseline 38) | 0 |
 | `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 26 | 0 |
 | `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
@@ -112,7 +112,7 @@ manual act and its trace is the diff.
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28746 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28733 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 

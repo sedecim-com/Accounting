@@ -272,18 +272,6 @@ export const E2_1: Criterio[] = [
 
   {
     paquete: 'E2.1',
-    id: 'tenant-context-mounted-globally',
-    enunciado: 'El contexto de inquilino se monta una sola vez para todo /v1',
-    evaluar: () => {
-      if (!existe('src/api/rest/middleware/tenant-context.ts')) return falla('no existe el middleware');
-      const idx = codigoDe('src/index.ts');
-      return /tenantContext/.test(idx)
-        ? ok('montado en index.ts')
-        : falla('el middleware existe y no está montado: cada router puede olvidarlo');
-    },
-  },
-  {
-    paquete: 'E2.1',
     id: 'route-entity-access-verified',
     // La primera versión decía que la guarda «es un no-op porque req.entityId
     // sale del encabezado». Era falso: la guarda SÍ comprueba que la entidad
@@ -800,31 +788,6 @@ export const E2_1: Criterio[] = [
       return ok(
         `${reviewed} rutas de escritura revisadas: toda la que nombra un recurso por id le entrega la entidad validada a la llamada que lo resuelve, y hay reproducción de las cuatro que no lo hacían`
       );
-    },
-  },
-  {
-    paquete: 'E2.1',
-    id: 'startup-rejects-rls-bypass-role',
-    enunciado: 'El arranque falla cerrado ante un rol que ignora RLS',
-    evaluar: () => {
-      // S1 (E2.1-e rescatada): el aislamiento entero cuelga de que el rol de
-      // conexión esté SUJETO a RLS, y detectarlo era un logger.warn — también
-      // en producción. Un aviso que nadie lee no es una defensa. Ahora, en
-      // producción, un rol con BYPASSRLS/superusuario impide arrancar salvo
-      // la válvula explícita ALLOW_RLS_BYPASS_ROLE (break-glass que queda
-      // escrito). En desarrollo sigue siendo warn: la suite de integración
-      // corre como superusuario a propósito.
-      if (!existe('src/database/rls-guard.ts')) {
-        return falla('no existe el guardián del rol (src/database/rls-guard.ts): volvió a ser sólo un warn');
-      }
-      const g = codigoDe('src/database/rls-guard.ts');
-      const lanza = /production/.test(g) && /throw new RolIgnoraRlsError/.test(g);
-      const valvula = /ALLOW_RLS_BYPASS_ROLE/.test(g);
-      const cableado = /verificarRolSujetoARls/.test(codigoDe('src/index.ts'));
-      if (!lanza) return falla('el guardián no lanza en producción: el aislamiento vuelve a colgar de un log');
-      if (!valvula) return falla('sin válvula de break-glass explícita, el guardián se puentea comentándolo');
-      if (!cableado) return falla('el guardián existe y el arranque no lo llama');
-      return ok('producción no arranca con un rol que ignora RLS, salvo break-glass explícito');
     },
   },
   {

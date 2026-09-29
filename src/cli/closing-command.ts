@@ -81,7 +81,7 @@ import {
 // A6 AÑADE EL CONDUCTOR, y sólo él:
 //
 //   run           — conduce el cierre: devengo, amortización, depreciación,
-//                   checklist y cierre suave, en ese orden y una vez cada uno
+//                   checklist, cierre suave y cierre duro (#99), en ese orden
 //   pack generate — sella las cifras del periodo en un expediente
 //   pack verify   — el expediente vuelve a correrse contra los libros
 //
@@ -284,15 +284,21 @@ export function runClosingLine(
   // acting on is not one to resume yet: the conductor would refuse that too.
   const resumable = hasOpenRun ? 'run it with --resume' : 'run it without --dry-run';
   const how = hasLiveRun ? 'wait until the conductor acting on its run stops, then run it with --resume' : resumable;
+  const seal = `\`mnemosine close --period "${outcome.periodName}" --hard\``;
   switch (outcome.status) {
     case 'completed':
       return `The close is conducted. Seal the dossier with \`mnemosine closing pack generate "${outcome.periodName}"\`.`;
     case 'stopped':
-      return `Stopped before ${step}, as asked. The period stays open; continue with --resume.`;
+      return step === 'hard-close'
+        ? `Stopped before the seal, as asked: the period is soft-closed. Seal it with ${seal}.`
+        : `Stopped before ${step}, as asked. The period stays open; continue with --resume.`;
     case 'blocked':
       return `Blocked at ${step}. Clear the blocking items, then continue with --resume.`;
     case 'failed':
-      return `Failed at ${step}. Fix the cause, then continue with --resume.`;
+      // Past the soft close there is no open period to resume: the seal is by hand.
+      return step === 'hard-close'
+        ? `Failed at the seal: the period is soft-closed. Fix the cause, then seal it with ${seal}.`
+        : `Failed at ${step}. Fix the cause, then continue with --resume.`;
     case 'previewed':
       if (step && step === stopAt) {
         return `Nothing was written. A real run would stop before ${step}; to conduct, ${how}.`;
@@ -468,6 +474,8 @@ Examples:
   mnemosine closing run "July 2026" --entity "Acme SA de CV" --yes
   # Do the month but leave the period open: --stop-at stops BEFORE the step.
   mnemosine closing run --stop-at soft-close --yes
+  # Soft-close it and leave the irreversible seal to a person.
+  mnemosine closing run --stop-at hard-close --yes
   # Continue a run somebody left halted. Without --resume it refuses, on
   # purpose: continuing another person's run in silence is how "I ran it"
   # stops being a claim anybody can stand behind. Every step runs again; the
@@ -719,12 +727,13 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         if (!legible(opts)) {
           // Los renglones SON las filas — un csv de ofensores con `-o` es el
           // anexo que pide un auditor. El total real viaja en el sobre
-          // (`total`), así el recorte de `--limit` nunca pasa en silencio; el
-          // remedio va por stderr, que es donde viven las notas.
-          render(explicacion.renglones, {
-            ...opts,
-            total: explicacion.total,
-          });
+          // (`total`), así el recorte de `--limit` nunca pasa en silencio. The
+          // remedy travels IN each row (#99): as a stderr note only, the csv
+          // annex and the json a script reads lost it.
+          render(
+            explicacion.renglones.map((r) => ({ ...r, fix_with: explicacion.remedio })),
+            { ...opts, total: explicacion.total }
+          );
           if (explicacion.total > 0) {
             process.stderr.write(deps.palette.dim(`fix with: ${explicacion.remedio}\n`));
           }
@@ -761,7 +770,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     .alias('ejecutar')
     .argument('[period]', 'open period name or id (default: the oldest open one)')
     .description(
-      'Conduct the close: accrue, amortize, depreciate, verify the checklist and soft-close, in that order'
+      'Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order'
     );
   withContext(runLeaf);
   withOutput(runLeaf);
@@ -770,8 +779,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     `stop BEFORE this step: ${CLOSING_STEPS.join(', ')}`
   );
   runLeaf.option('--resume', 'continue the open run of this period; every step runs again, posting only what is missing');
-  // IRREVERSIBLE, and it does not pretend otherwise: three of its five steps
-  // post to the ledger of migration 041, where nothing is edited or deleted.
+  // IRREVERSIBLE, and it does not pretend otherwise: three of its six steps
+  // post to the ledger of migration 041, where nothing is edited or deleted,
+  // and the last one seals the period.
   // The agent is refused: it proposes, a human conducts.
   //
   // LA LLAVE ES INNECESARIA, y se declara para que la ayuda lo diga en vez de
@@ -787,7 +797,8 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     agent: false,
     writes:
       'journal_entries + journal_entry_lines (through the accrual, amortization and depreciation engines), ' +
-      'closing_runs, closing_run_steps, and fiscal_periods.status on the soft close',
+      'closing_runs, closing_run_steps, fiscal_periods.status on the soft and the hard close, and with the ' +
+      'hard close the carry-forward, the closing entries of the year\'s last period and fiscal_years.status',
     llave: {
       innecesaria:
         'the engines never post the same month twice and an advisory lock keeps two conductors off the ' +
@@ -854,7 +865,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         if (!dryRun && opts.yes !== true) {
           const si = await ask(
             `Conduct the close of ${period.period_name}? Three of its steps post to the ledger, ` +
-              'which does not admit undo, and the last one soft-closes the period.'
+              'which does not admit undo, and the last one hard-closes the period.'
           );
           if (!si) {
             throw abortedByUser(

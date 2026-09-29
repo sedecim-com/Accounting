@@ -62,7 +62,7 @@ Qué es cada cosa y por qué: [`docs/SCOPE.md`](SCOPE.md), [`AGENTS.md`](../AGEN
 | `src/services/webhooks/` | Suscripciones y entrega de webhooks salientes. |
 | `src/services/xml-ingestion/` | Lectura de CFDI, pre-registro, taxonomía y decisiones de posteo. |
 | `src/types/` | Tipos compartidos. |
-| `src/utils/` | Utilidades: fechas de calendario, limpieza de comentarios, CSV, cifrado, secuencias, errores. |
+| `src/utils/` | Utilidades: fechas de calendario, limpieza de comentarios, CSV, cifrado, secuencias, errores, y `xml-reader.ts`, el analizador compartido de XML de terceros (acentos `&#233;`, `&#10;` como espacio, atributos como texto). |
 
 Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Postgres, `tests/fixtures/` sintéticos),
 `scripts/` (instrumentos y `verify.sh`), `docs/` (rectores, wiki, auditorías) y `.github/workflows/ci.yml`.
@@ -81,6 +81,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/cli/mnemosine.ts`
 - `src/cli/payroll-isn-command.ts`
 - `src/cli/prepaid-command.ts`
+- `src/i18n/en.ts`
 - `src/plan/conducta.ts`
 - `src/plan/criteria/e0-0.ts`
 - `src/plan/criteria/e1-2.ts`

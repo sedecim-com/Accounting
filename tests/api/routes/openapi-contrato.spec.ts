@@ -272,6 +272,34 @@ describe('el cuerpo publicado es el que la API valida', () => {
   });
 });
 
+describe('the published query parameters are the ones the API validates (#315)', () => {
+  const queryParams = (op: Operacion | undefined) =>
+    ((op?.parameters ?? []) as Array<Record<string, unknown>>).filter((p) => p.in === 'query');
+
+  it('GET /v1/ai/precedents publishes `search` as required, and its 422', () => {
+    const op = operacionDe('get', '/v1/ai/precedents');
+    expect(queryParams(op)).toEqual([
+      { name: 'search', in: 'query', required: true, schema: { type: 'string', minLength: 1 } },
+    ]);
+    expect((op?.responses as Record<string, unknown>)['422']).toEqual({
+      $ref: '#/components/responses/InvalidQuery',
+    });
+  });
+
+  it('GET /v1/ai/drafts and /questions publish `status` as an optional enum', () => {
+    for (const [route, values] of [
+      ['/v1/ai/drafts', ['pending_review', 'approved', 'rejected']],
+      ['/v1/ai/questions', ['pending', 'answered', 'dismissed']],
+    ] as const) {
+      const op = operacionDe('get', route);
+      expect(queryParams(op)).toEqual([
+        { name: 'status', in: 'query', required: false, schema: { type: 'string', enum: [...values] } },
+      ]);
+      expect((op?.responses as Record<string, unknown>)['422']).toBeDefined();
+    }
+  });
+});
+
 describe('el documento se sostiene solo', () => {
   it('todos los $ref apuntan a algo que existe', () => {
     const doc = construirOpenAPI(APP);
