@@ -739,6 +739,135 @@ export const E1_2: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'reports-lists-and-the-agent-read-today-in-zona-horaria',
+    // #242 · MNE-001-111. The reads kept the UTC day after the credit note
+    // stopped using it: at 20:00 on the 31st in Mexico City an invoice due on
+    // the 31st showed one day overdue in the REST aging, the agent's aging
+    // tools, `invoice list` and `customer list`, and the agent was told it was
+    // already the 1st. They now ask the same resolver the credit note asks.
+    enunciado: 'El «hoy» de informes, listas y el agente es el día de zona_horaria, no el día UTC',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/reports.ts',
+        de: "const asOf = as_of_date as string || (await todayForEntity(entityId as string));\n\n  // Unlike",
+        a: "const asOf = as_of_date as string || new Date().toISOString().split('T')[0];\n\n  // Unlike",
+        porque: 'the REST aging goes back to the UTC day: at 20:00 on the 31st an invoice due that day is one day overdue',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: "const asOf = input.as_of_date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));\n      const all = await queryAgedReceivableRows(",
+        a: "const asOf = input.as_of_date ?? new Date().toISOString().split('T')[0];\n      const all = await queryAgedReceivableRows(",
+        porque: "the agent's aging tool reads the UTC day and reports as overdue what is due today",
+      },
+      {
+        archivo: 'src/services/ar/invoice-service.ts',
+        de: 'const asOfValue = filters.asOf ?? (needsToday ? await todayForEntity(entityId) : undefined);',
+        a: 'const asOfValue = filters.asOf ?? (needsToday ? new Date().toISOString().slice(0, 10) : undefined);',
+        porque: '`invoice list` counts days overdue from the UTC day',
+      },
+      {
+        archivo: 'src/services/ar/customer-service.ts',
+        de: 'params.push(filters.asOf ?? (await todayForEntity(entityId)));',
+        a: "params.push(filters.asOf ?? (await query<{ d: string }>('SELECT CURRENT_DATE::text AS d', [])).rows[0].d);",
+        porque: "`customer list` takes a bare CURRENT_DATE, the database session's day, and lists as overdue what is due today",
+      },
+      {
+        archivo: 'src/ai/system-prompt.ts',
+        de: "`Today's date: ${today}.`",
+        a: "`Today's date: ${new Date().toISOString().split('T')[0]}.`",
+        porque: 'the agent is told it is already tomorrow and drafts on that day',
+      },
+      {
+        archivo: 'src/services/policy/today.ts',
+        de: 'return todayFor(tenantId ? { tenantId, entityId } : null, opts);',
+        a: 'return todayFor(null, opts);',
+        porque: "the entity's own zona_horaria row stops being read: an entity in Tokyo gets Mexico City's day",
+      },
+    ],
+    evaluar: () => {
+      const readers = [
+        'src/api/rest/routes/reports.ts',
+        'src/ai/tools/report-tools.ts',
+        'src/services/ar/invoice-service.ts',
+        'src/services/ar/customer-service.ts',
+        'src/ai/system-prompt.ts',
+      ];
+      const resolver = 'src/services/policy/today.ts';
+      const integration = 'tests/integration/today-in-zone-reads.int.spec.ts';
+      for (const rel of [...readers, resolver]) {
+        if (!existe(rel)) return falla(`${rel} is gone`);
+      }
+
+      // 1. THE CENSUS: no UTC day cut from a timestamp, and no bare
+      //    CURRENT_DATE, in the readers. (A full ISO timestamp is fine: it is
+      //    an instant, not a day.)
+      const WRONG_DAYS: Array<[RegExp, string]> = [
+        [/new Date\(\)\s*\.toISOString\(\)\s*\.(?:slice\(\s*0\s*,\s*10\s*\)|split\(\s*'T'\s*\))/, 'the UTC day'],
+        [/\bCURRENT_DATE\b/, 'a bare CURRENT_DATE'],
+      ];
+      const offenders: string[] = [];
+      for (const rel of readers) {
+        const code = codigoDe(rel);
+        for (const [pattern, what] of WRONG_DAYS) {
+          if (pattern.test(code)) offenders.push(`${rel} (${what})`);
+        }
+      }
+      if (offenders.length > 0) {
+        return falla(
+          `"today" is read from the wrong clock in ${offenders.join(', ')}: at 20:00 in Mexico City ` +
+            'an invoice due that day is shown one day overdue'
+        );
+      }
+
+      // 2. EACH READER goes through the resolver.
+      const through: Array<[string, RegExp, string]> = [
+        [readers[0], /as_of_date as string \|\| \(await todayForEntity\(/g, 'the REST aging'],
+        [readers[1], /input\.as_of_date \?\? \(await todayFor\(\{ tenantId: ctx\.tenantId, entityId: ctx\.entityId \}\)\)/g, "the agent's aging tools"],
+        [readers[2], /filters\.asOf \?\? \(needsToday \? await todayForEntity\(entityId\)/g, '`invoice list`'],
+        [readers[3], /filters\.asOf \?\? \(await todayForEntity\(entityId\)\)/g, '`customer list`'],
+        [readers[4], /const today = await todayFor\(\{ tenantId: ctx\.tenantId, entityId: ctx\.entityId \}\)/g, "the agent's prompt"],
+      ];
+      const expected = [2, 2, 1, 1, 1];
+      for (let k = 0; k < through.length; k++) {
+        const [rel, pattern, what] = through[k];
+        if ((codigoDe(rel).match(pattern) ?? []).length !== expected[k]) {
+          return falla(`${what} no longer asks the zona_horaria resolver for "today"`);
+        }
+      }
+      if (!codigoDe(readers[4]).includes("`Today's date: ${today}.`")) {
+        return falla("the agent's prompt no longer states the resolved day");
+      }
+      const r = codigoDe(resolver);
+      if (!r.includes('return todayFor(tenantId ? { tenantId, entityId } : null, opts);')) {
+        return falla("todayForEntity no longer reads the entity's zona_horaria row");
+      }
+      if (!r.includes('return todayFor(row ? { tenantId: row.tenant_id, entityId: row.entity_id } : null, opts);')) {
+        return falla("todayForCustomer no longer reads the zone of the customer's entity");
+      }
+
+      // 3. AND BEHAVIOUR, with the clock at 20:00 on the 31st in Mexico City.
+      if (!existe(integration)) return falla('there is no reproduction of the reads with a fixed clock');
+      const t = codigoDe(integration);
+      for (const [pattern, what] of [
+        [/2026-11-01T02:00:00Z/, 'fix the clock at 20:00 on the 31st in Mexico City'],
+        [/aged-receivables/, 'ask the REST aging'],
+        [/get_aged_receivables/, "ask the agent's aging tool"],
+        [/listInvoices\(/, 'ask `invoice list`'],
+        [/listCustomers\(/, 'ask `customer list`'],
+        [/Today's date: 2026-10-31\./, "read the agent's prompt"],
+        [/Asia\/Tokyo/, "honour the entity's own row"],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(t)) return falla(`the reproduction no longer does: ${what}`);
+      }
+
+      return ok(
+        'the REST aging, the agent aging tools, invoice list, customer list and the agent prompt take "today" from zona_horaria, and a fixed-clock reproduction measures all five'
+      );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
     id: 'an-advance-cannot-be-booked-in-another-currency',
     // T23 (#130). Un anticipo puro no tiene documento que le dé la moneda: sale
     // del propio cliente —o del parámetro— y se escribía CRUDA, sin compararla
