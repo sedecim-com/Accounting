@@ -170,6 +170,11 @@ export const config = {
       process.env.SAT_CONSULTA_URL ||
       'https://consultaqr.facturaelectronica.sat.gob.mx/ConsultaCFDIService.svc',
     statusMode: (process.env.SAT_STATUS_MODE || 'on') as 'on' | 'off',
+    // EFIRMA-1 (#439): the Descarga Masiva authentication, signed with the
+    // e.firma through withCredential. Tests point it at a local simulator.
+    descargaMasivaAuthUrl:
+      process.env.SAT_DESCARGA_AUTH_URL ||
+      'https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/Autenticacion/Autenticacion.svc',
   },
 } as const;
 

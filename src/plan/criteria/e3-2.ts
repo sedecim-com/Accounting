@@ -158,4 +158,70 @@ export const E3_2: Criterio[] = [
         : falla('el control de CxC dejó de leer cfdi_status = cancelled: el puente escribe algo que nadie mira');
     },
   },
+
+  // ---- EFIRMA-1 · MNE-001-141 (#439) · the SAT authentication signs through withCredential ----
+  {
+    paquete: 'E3.2',
+    id: 'sat-auth-signs-through-withcredential',
+    enunciado: 'La autenticación con el SAT firma con la e.firma sólo dentro de withCredential, con purpose sat_auth, y cada uso deja su fila en la bitácora',
+    mutantes: [
+      {
+        archivo: 'src/services/sat-download/authentication.ts',
+        de: "import { withCredential } from '../fiscal-credentials/service.js';",
+        a: "import { withCredential } from '../fiscal-credentials/service.js';\nimport { getVault } from '../vault/index.js';",
+        porque: 'the client reaches the vault itself: the key is decrypted outside withCredential, with no log row and no daily cap',
+      },
+      {
+        archivo: 'src/services/sat-download/authentication.ts',
+        de: 'await withCredential(',
+        a: 'await signWithoutCredential(',
+        porque: 'the signing runs through another path: the cap, the anomaly policy and the log are skipped',
+      },
+      {
+        archivo: 'src/services/sat-download/authentication.ts',
+        de: "purpose: 'sat_auth'",
+        a: "purpose: 'healthcheck'",
+        porque: 'the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was',
+      },
+      {
+        archivo: 'src/services/fiscal-credentials/service.ts',
+        de: "await logAccess(row, opts, 'success');",
+        a: 'void row;',
+        porque: 'a successful use of the e.firma leaves no row in the log',
+      },
+      {
+        archivo: 'src/services/fiscal-credentials/service.ts',
+        de: "await logAccess(row, opts, 'error',",
+        a: 'void (',
+        porque: 'a refusal from the SAT leaves no error row in the log',
+      },
+    ],
+    evaluar: () => {
+      // The owner's decision MNE-001-140 (#312) makes this the first
+      // production caller of the vault. The key may be decrypted only inside
+      // withCredential, which is what logs, caps and applies
+      // efirma_accion_anomalia before the network is touched.
+      const file = 'src/services/sat-download/authentication.ts';
+      if (!existe(file)) return falla('no existe el cliente de autenticación con el SAT');
+      const auth = codigoDe(file);
+      const signer = codigoDe('src/services/sat-download/ws-security.ts');
+      const direct = /\b(getVault|deserializeMaterial|privateKeyToPem)\b|vault\/index/;
+      if (direct.test(auth) || direct.test(signer)) {
+        return falla('el cliente del SAT toca la bóveda o descifra por su cuenta: la llave sale sin bitácora ni tope diario');
+      }
+      const i = auth.indexOf('await withCredential(');
+      if (i < 0 || auth.slice(0, i).includes('buildSignedAutentica(')) {
+        return falla('la firma del Autentica no corre dentro de withCredential');
+      }
+      if (!/purpose: 'sat_auth'/.test(auth.slice(i)) || !/buildSignedAutentica\(material/.test(auth.slice(i))) {
+        return falla('withCredential no se llama con purpose sat_auth, o la firma no usa el material que entrega');
+      }
+      const svc = codigoDe('src/services/fiscal-credentials/service.ts');
+      const j = svc.indexOf('export async function withCredential');
+      const body = j >= 0 ? svc.slice(j, svc.indexOf('\nasync function logAccess', j)) : '';
+      return body.includes("await logAccess(row, opts, 'success');") && body.includes("await logAccess(row, opts, 'error',")
+        ? ok('el Autentica se firma sólo dentro de withCredential con purpose sat_auth, y el éxito y el error dejan su fila')
+        : falla('withCredential dejó de escribir la bitácora en el éxito o en el error: un uso de la e.firma queda sin rastro');
+    },
+  },
 ];
