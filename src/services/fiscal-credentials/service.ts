@@ -18,14 +18,29 @@ import {
 // access log: there is no path to use the credential without a trace.
 // ============================================================
 
-export const CONSENT_VERSION = '2026-08-1';
+// NOTE: CONSENT_VERSION is stored on every fiscal_credentials row as the
+// version the taxpayer accepted. Changing CONSENT_TEXT means raising it; rows
+// accepted under an earlier version keep theirs (they are revoked, never
+// rewritten). 2026-08-1 promised «nothing else, we will not sign»; 2026-09-1
+// follows the owner's scope decision MNE-001-140 (#312, #313): download and,
+// only under sellar_con_custodia, sealing of the Anexo 24 files.
+export const CONSENT_VERSION = '2026-09-1';
 
 export const CONSENT_TEXT = `
 You are about to hand over your SAT e.firma (FIEL): certificate, private key, and password.
 
 WHAT WE WILL DO WITH IT
-  · Authenticate with the SAT to download your issued and received CFDIs.
-  · Nothing else. We will not sign tax returns or filings on your behalf.
+  · Authenticate with the SAT to download your issued and received CFDI and
+    their metadata, including the SAT's report of which ones were cancelled.
+  · Seal the Anexo 24 electronic accounting files (chart of accounts and trial
+    balance) with your e.firma, ONLY if your firm sets the policy
+    efirma_sellado_contabilidad_electronica = sellar_con_custodia. Under any
+    other value the files are delivered unsealed and you seal them yourself.
+  · Nothing beyond these two uses.
+
+WHAT STAYS MANUAL
+  · Submitting the Anexo 24 files, and filing any tax return or declaration,
+    is done by a person in the SAT portal. We do not file on your behalf.
 
 HOW WE STORE IT
   · Encrypted in a dedicated custody service (not in our database).
@@ -39,8 +54,8 @@ WHAT YOU SHOULD KNOW (IMPORTANT)
   · Whoever holds it could sign tax returns or generate digital seals.
   · The SAT does not offer a narrower-scope credential for this service: bulk
     download requires the e.firma (the CSD is rejected).
-  · If you prefer not to hand it over, there is the alternative of running the
-    download on your own infrastructure.
+  · If you prefer not to hand it over, you can download from the SAT and seal
+    the Anexo 24 files on your own infrastructure, then upload the results.
 `.trim();
 
 export interface StoreCredentialInput {

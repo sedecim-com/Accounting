@@ -136,7 +136,7 @@
     "src/services/webhooks/webhook-service.ts": "1207441f2f2f4fe020ef37789269afb23f3261bc",
     "src/services/integrations/index.ts": "dbc0e6ce18781390ac18dfab30d2f70576156225",
     "src/database/rls-policies.sql": "83d22e4779e2430a9ccc33bc4451507714af18a5",
-    "src/services/fiscal-credentials/service.ts": "5427809dedc39c29abd51628ee49100c76f96b6b",
+    "src/services/fiscal-credentials/service.ts": "e7ae025e30d2b36184a0e15c2ff797fe42465f5f",
     "src/services/reporting/report-service.ts": "2935317e2551353f738179c172e75eaf2ab0554e",
     "src/services/ar/invoice-service.ts": "cb0c07d689c778230adb39e31e86047562e68e4b",
     "src/services/ar/customer-service.ts": "abb8eb403a6beb1e6773c4fc9103c1b33c06befa",

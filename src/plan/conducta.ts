@@ -90,6 +90,11 @@ export interface App {
   portfolio: typeof import('../services/portfolio/portfolio-service.js');
   /** W1 · the CLI pending board, the reference the portfolio counts must match. */
   pendingBoard: typeof import('../ai/pending-service.js');
+  /** E1.2 · the draft queue and its human approval. */
+  drafts: typeof import('../ai/draft-service.js');
+  /** E1.2 · the CFDI upload and the REP linkage behind processToAccounting. */
+  preRegistrations: typeof import('../services/xml-ingestion/pre-registration-service.js');
+  policies: typeof import('../services/policy/policy-service.js');
 }
 
 /**
@@ -482,6 +487,75 @@ function publicadoEnElEje(
 ): Decimal {
   return (publicado.get(num) ?? new Decimal(0)).times(ejeDelMayor(natur));
 }
+
+// ------------------------------------------------------------
+// E1.2 · THE RECEIVED PPD CIRCUIT (ING-1 · #318, MNE-001-117)
+//
+// The CFDI is the repository's synthetic fixture: a PPD invoice from the
+// vendor below to XAXX010101000, subtotal 8000, VAT 1280, total 9280. It is
+// read from disk rather than imported: tsconfig excludes tests/, and the file
+// is data.
+// ------------------------------------------------------------
+
+const PPD_FIXTURE = path.join(RAIZ, 'tests', 'fixtures', 'cfdi', 'factura-consultoria-2001.xml');
+const PPD_FIXTURE_UUID = 'F7C0E1A3-6D41-4C8F-B05E-314C5D6E7F80';
+const PPD_VENDOR_RFC = 'SIN060101AB1';
+
+/**
+ * The vendor's REP (a type P CFDI, payments complement 2.0) paying `cfdiUuid` in full: a twin
+ * of tests/integration/helpers/rep-xml.ts, kept here for the same tsconfig
+ * reason as the tenant fixture.
+ */
+function vendorRepXml(cfdiUuid: string, repUuid: string, paidOn: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" TipoDeComprobante="P" Moneda="XXX" Total="0" SubTotal="0"
+  Fecha="${paidOn}" LugarExpedicion="64000" Exportacion="01">
+  <cfdi:Emisor Rfc="${PPD_VENDOR_RFC}" Nombre="Servicios Integrales SA" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="${RFC_DEL_ESCENARIO}" Nombre="Cliente" UsoCFDI="CP01"
+    DomicilioFiscalReceptor="64000" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT"
+      Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <pago20:Pagos Version="2.0">
+      <pago20:Pago FechaPago="${paidOn}" FormaDePagoP="03" MonedaP="MXN" Monto="9280.00" NumOperacion="OP-1">
+        <pago20:DoctoRelacionado IdDocumento="${cfdiUuid}" MonedaDR="MXN" NumParcialidad="1"
+          ImpSaldoAnt="9280.00" ImpPagado="9280.00" ImpSaldoInsoluto="0" ObjetoImpDR="02">
+          <pago20:ImpuestosDR><pago20:TrasladosDR>
+            <pago20:TrasladoDR BaseDR="8000.00" ImpuestoDR="002"
+              TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="1280.00"/>
+          </pago20:TrasladosDR></pago20:ImpuestosDR>
+        </pago20:DoctoRelacionado>
+      </pago20:Pago>
+    </pago20:Pagos>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="${repUuid}"
+      FechaTimbrado="${paidOn}" SelloCFD="x" NoCertificadoSAT="1" SelloSAT="y"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+}
+
+/** Every account of the entity with a non-zero balance over the year, by code, debit positive. */
+async function ledgerByCode(app: App, tenant: Inquilino): Promise<Record<string, string>> {
+  const { rows } = await app.conexion.query<{ code: string; s: string }>(
+    `SELECT a.code, SUM(ab.debit_total - ab.credit_total)::numeric(18,2)::text AS s
+       FROM account_balances ab
+       JOIN accounts a ON a.id = ab.account_id AND a.entity_id = ab.entity_id
+      WHERE ab.entity_id = $1
+      GROUP BY a.code
+     HAVING SUM(ab.debit_total - ab.credit_total) <> 0
+      ORDER BY a.code`,
+    [tenant.entityId]
+  );
+  return Object.fromEntries(rows.map((r) => [r.code, r.s]));
+}
+
+const showLedger = (l: Record<string, string>): string =>
+  Object.keys(l).length === 0
+    ? '(vacío)'
+    : Object.keys(l).sort().map((c) => `${c} ${l[c]}`).join(', ');
 
 export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // ----------------------------------------------------------
@@ -1497,6 +1571,170 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       );
     },
   },
+
+  // ----------------------------------------------------------
+  // E1.2 · THE RECEIVED PPD CIRCUIT (ING-1 · #318, MNE-001-117)
+  //
+  // Measured on 2026-09-25: after approving eight agent drafts, `bill list`
+  // said «No rows.», the REP found no invoice and the PPD VAT stayed in 1135
+  // forever. The ledger balanced; accounts payable did not exist.
+  //
+  // The scenario runs the circuit the agent feeds, minus the model: the CFDI is
+  // uploaded, the draft is created bound to its pre-registration as the ingest
+  // does, a draft whose VAT is not the CFDI's is approved and must be refused,
+  // the corrected one is approved, and the vendor's REP is ingested. Every
+  // figure is worked out by hand and the whole ledger is compared, not deltas.
+  // ----------------------------------------------------------
+  {
+    id: 'received-ppd-cfdi-becomes-bill-and-rep-releases-vat',
+    paquete: 'E1.2',
+    enunciado:
+      'Aprobar el borrador de un CFDI recibido PPD crea la factura del proveedor sólo si cuadra con el XML, ' +
+      'y su REP la salda y mueve el IVA de 1135 a 1130',
+    mutantes: [
+      {
+        archivo: 'src/ai/draft-service.ts',
+        de: 'const bill = origin && !invoice',
+        a: 'const bill = origin && !invoice && false',
+        porque: 'the approval would post the entry and never create the vendor bill, the defect #318 measured',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'const mismatches = figures.filter((c) => c.entry.minus(c.cfdi).abs().gt(tolerance));',
+        a: 'const mismatches = figures.filter(() => false);',
+        porque: 'an approved entry whose VAT is not the CFDI VAT would become the bill and reach the ledger',
+      },
+    ],
+    correr: async (app) => {
+      const { query } = app.conexion;
+      const tenant = await crearInquilino(app, 'E1.2 · received PPD circuit');
+      const ctx = {
+        entityId: tenant.entityId, entityName: 'E1.2 PPD', tenantId: tenant.tenantId, currency: 'MXN',
+        country: 'MX', accountingStandard: 'mx_nif', taxId: RFC_DEL_ESCENARIO,
+      };
+      const email = (await query<{ email: string }>('SELECT email FROM users WHERE id = $1', [tenant.userId]))
+        .rows[0].email;
+      const reviewer = { userId: tenant.userId, email };
+      await app.policies.seedPolicies({ tenantId: tenant.tenantId, entityId: tenant.entityId });
+      await query(
+        `INSERT INTO vendors (id, entity_id, vendor_number, company_name, tax_id, tax_id_type, currency_code, created_by)
+         VALUES ($1, $2, 'V-E12', 'Servicios Integrales SA', $3, 'rfc', 'MXN', $4)`,
+        [crypto.randomUUID(), tenant.entityId, PPD_VENDOR_RFC, tenant.userId]
+      );
+
+      const uuid = crypto.randomUUID().toUpperCase();
+      const svc = new app.preRegistrations.PreRegistrationService();
+      const upload = await svc.processXMLUpload(
+        tenant.entityId,
+        fs.readFileSync(PPD_FIXTURE, 'utf-8').replace(PPD_FIXTURE_UUID, uuid),
+        'manual_upload',
+        tenant.userId
+      );
+      if (upload.autoProcessed) {
+        return falla('el CFDI lo procesaron reglas del despacho y no llegó al borrador: el escenario no mide la aprobación');
+      }
+      const payload = (lines: Array<{ account_code: string; debit?: number; credit?: number }>) => ({
+        entry_date: '2026-08-20',
+        description: 'Servicios Integrales B2001',
+        reference: 'B2001',
+        lines,
+      });
+      const draft = await app.drafts.createDraft(ctx, {
+        payload: payload([
+          { account_code: '6100', debit: 8080 },
+          { account_code: '1135', debit: 1200 },
+          { account_code: '2110', credit: 9280 },
+        ]),
+        confidence: 0.9,
+        reasoning: 'Consulting expense on credit',
+        model: 'plan-scenario',
+        preRegistrationId: String(upload.preRegistration.id),
+      });
+      const shown = await app.drafts.getDraft(ctx, draft.id);
+      if (!shown?.origin) return falla('el borrador nació sin su vínculo al CFDI: la aprobación no sabría qué factura crear');
+      const shownHash = app.drafts.canonicalDraftHash(shown.payload, shown.origin);
+      const billOf = async () =>
+        (await query<{ id: string; status: string; amount_due: string; journal_entry_id: string | null }>(
+          `SELECT id, status, amount_due::text, journal_entry_id FROM bills WHERE entity_id = $1 AND cfdi_uuid = $2`,
+          [tenant.entityId, uuid]
+        )).rows;
+
+      // 1. VAT 1200 against a CFDI that says 1280: refused, nothing written.
+      let refusal: string | null = null;
+      try {
+        await app.drafts.approveDraft(ctx, draft.id, reviewer, undefined, shownHash);
+      } catch (e) {
+        refusal = (e as Error).message;
+      }
+      if (refusal === null || !/transferred VAT is 1200\.00 in the entry and 1280\.00 in the CFDI/.test(refusal)) {
+        return falla(
+          `el borrador con IVA 1200 frente a 1280 del CFDI ${refusal === null ? 'se aprobó' : `se rechazó por otra cosa: ${refusal.slice(0, 160)}`}; ` +
+            'o la aprobación ya no crea la factura del proveedor, o la factura ya no se cuadra contra el XML'
+        );
+      }
+      const afterRefusal = await ledgerByCode(app, tenant);
+      if ((await billOf()).length > 0 || Object.keys(afterRefusal).length > 0) {
+        return falla(`la aprobación rechazada dejó rastro: mayor ${showLedger(afterRefusal)}`);
+      }
+
+      // 2. The reviewer corrects the VAT and approves: the bill is born and the entry posts as it.
+      const posted = await app.drafts.approveDraft(ctx, draft.id, reviewer, undefined, shownHash, {
+        payload: payload([
+          { account_code: '6100', debit: 8000 },
+          { account_code: '1135', debit: 1280 },
+          { account_code: '2110', credit: 9280 },
+        ]),
+        basedOnHash: shownHash,
+      });
+      const [bill] = await billOf();
+      if (!bill || bill.amount_due !== '9280.0000' || bill.journal_entry_id !== posted.entryId) {
+        return falla(
+          `aprobar el borrador no dejó la factura del proveedor por 9280.00 ligada a su póliza ` +
+            `(${bill ? `saldo ${bill.amount_due}, póliza ${bill.journal_entry_id ?? 'ninguna'}` : 'no hay factura'}): ` +
+            'CxP no existe para lo que entró por el agente'
+        );
+      }
+      const source = (await query<{ source_type: string; source_id: string }>(
+        'SELECT source_type, source_id FROM journal_entries WHERE id = $1 AND entity_id = $2',
+        [posted.entryId, tenant.entityId]
+      )).rows[0];
+      if (source?.source_type !== 'bill' || source.source_id !== bill.id) {
+        return falla(`la póliza aprobada salió con origen ${source?.source_type ?? '?'}, no con la factura: el REP no podría liberar su IVA`);
+      }
+      const approvedLedger = showLedger(await ledgerByCode(app, tenant));
+      const approvedExpected = showLedger({ '6100': '8000.00', '1135': '1280.00', '2110': '-9280.00' });
+      if (approvedLedger !== approvedExpected) {
+        return falla(`tras aprobar, el mayor dice ${approvedLedger} y a mano sale ${approvedExpected}`);
+      }
+
+      // 3. The vendor's REP pays 9280: 2110 clears, the bank pays, 1280 moves from 1135 to 1130.
+      const rep = await svc.processXMLUpload(
+        tenant.entityId,
+        vendorRepXml(uuid, crypto.randomUUID().toUpperCase(), '2026-08-25T00:00:00'),
+        'manual_upload',
+        tenant.userId
+      );
+      await svc.processToAccounting(rep.preRegistration, tenant.userId);
+      const [paid] = await billOf();
+      if (paid?.status !== 'paid' || paid.amount_due !== '0.0000') {
+        return falla(`el REP no saldó la factura: queda ${paid?.status ?? '?'} con saldo ${paid?.amount_due ?? '?'}`);
+      }
+      const bankCode = (await query<{ code: string }>(
+        'SELECT code FROM accounts WHERE id = $1 AND entity_id = $2',
+        [tenant.roles.banco, tenant.entityId]
+      )).rows[0]?.code;
+      const finalLedger = showLedger(await ledgerByCode(app, tenant));
+      const finalExpected = showLedger({ '6100': '8000.00', '1130': '1280.00', [bankCode ?? 'banco']: '-9280.00' });
+      if (finalLedger !== finalExpected) {
+        return falla(`tras el REP, el mayor dice ${finalLedger} y a mano sale ${finalExpected}`);
+      }
+      return ok(
+        'el borrador con IVA 1200 frente a 1280 del CFDI se rechazó sin escribir nada; corregido y aprobado, ' +
+          'nació la factura por 9280.00 con la póliza como origen; el REP la saldó y el mayor quedó en ' +
+          `${finalLedger}, igual que a mano: 1135 en cero y 2110 en cero`
+      );
+    },
+  },
 ];
 
 // ============================================================
@@ -1795,6 +2033,9 @@ async function main(salida: string): Promise<void> {
     balanza: await import('../services/sat/anexo24/balanza-service.js'),
     portfolio: await import('../services/portfolio/portfolio-service.js'),
     pendingBoard: await import('../ai/pending-service.js'),
+    drafts: await import('../ai/draft-service.js'),
+    preRegistrations: await import('../services/xml-ingestion/pre-registration-service.js'),
+    policies: await import('../services/policy/policy-service.js'),
   };
 
   const { config } = await import('../config/index.js');
