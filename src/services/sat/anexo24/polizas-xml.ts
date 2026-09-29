@@ -1,5 +1,10 @@
 import { ValidationError } from '../../../utils/errors.js';
 import { serializar, type Atributo, type NodoXml } from './xml.js';
+import {
+  officialEnumeration,
+  OFFICIAL_ENUMERATIONS_XSD,
+  type OfficialEnumeration,
+} from './official-enumerations.js';
 
 // ============================================================
 // F07d · EL XML DE LAS PÓLIZAS DEL PERIODO — Polizas 1.3
@@ -40,8 +45,12 @@ import { serializar, type Atributo, type NodoXml } from './xml.js';
 //     tranche's brief used.
 //   · The XSD found two defects on its first run, both fixed in #397: request
 //     numbers were not checked against its patterns, and the pre-CFDI voucher
-//     had no RFC. Enum values (c_Banco, c_Moneda, c_MetPagos) are still passed
-//     through unchecked: #404.
+//     had no RFC.
+//   · The closed lists (c_Banco, c_Moneda, c_MetPagos) and the pattern of
+//     `CFD_CBB_Serie` are enforced before building (#404). The lists are read
+//     from the vendored CatalogosParaEsqContE.xsd (official-enumerations.ts),
+//     never copied here, so a bad value is refused by name instead of being
+//     caught only by the XSD test, and only if a fixture happened to carry it.
 //   · `Sello`, `noCertificado` y `Certificado` EXISTEN en el esquema y este
 //     módulo NO los emite ni tiene por dónde: no hay una sola rama que cargue
 //     una llave privada, y no debe haberla. La e.firma es el contribuyente
@@ -362,6 +371,25 @@ function exigirFecha(donde: string, atributo: string, valor: string): string {
   return valor;
 }
 
+/** An optional attribute typed as one of the XSD's closed lists: absent, or on the list. */
+function requireOfficialCode(
+  node: string,
+  attribute: string,
+  type: OfficialEnumeration,
+  value: string | undefined
+): string | undefined {
+  if (value !== undefined && !officialEnumeration(type).has(value)) {
+    throw new ValidationError(
+      `${node}/@${attribute} = «${value}» no está en la enumeración ${type} de ` +
+        `${OFFICIAL_ENUMERATIONS_XSD}: con otro valor el esquema rechaza el archivo entero.`
+    );
+  }
+  return value;
+}
+
+/** `CFD_CBB_Serie` in PolizasPeriodo and AuxiliarFolios 1.3: pattern [A-Z]+, length 1 to 10. */
+const CFD_CBB_SERIES_RE = /^[A-Z]{1,10}$/;
+
 // ── LOS ÁRBOLES ─────────────────────────────────────────────────────────
 
 /**
@@ -395,7 +423,7 @@ export function nodoDeComprobante(
           ['UUID_CFDI', c.uuid],
           ['RFC', c.rfc],
           ['MontoTotal', exigirImporte(nombre, 'MontoTotal', c.montoTotal)],
-          ['Moneda', c.moneda],
+          ['Moneda', requireOfficialCode(nombre, 'Moneda', 'c_Moneda', c.moneda)],
           ['TipCamb', c.tipCamb],
         ],
       };
@@ -411,6 +439,12 @@ export function nodoDeComprobante(
             `a la contraparte por su RFC, y el esquema del SAT lo exige.`
         );
       }
+      if (c.serie !== undefined && !CFD_CBB_SERIES_RE.test(c.serie)) {
+        throw new ValidationError(
+          `${nombre}/@CFD_CBB_Serie = «${c.serie}»: el esquema del SAT sólo admite de 1 a 10 letras ` +
+            `mayúsculas sin acento (patrón [A-Z]+). Con otro valor rechaza el archivo entero.`
+        );
+      }
       return {
         nombre,
         atributos: [
@@ -418,7 +452,7 @@ export function nodoDeComprobante(
           ['CFD_CBB_NumFol', c.numFolio],
           ['RFC', c.rfc],
           ['MontoTotal', exigirImporte(nombre, 'MontoTotal', c.montoTotal)],
-          ['Moneda', c.moneda],
+          ['Moneda', requireOfficialCode(nombre, 'Moneda', 'c_Moneda', c.moneda)],
           ['TipCamb', c.tipCamb],
         ],
       };
@@ -431,7 +465,7 @@ export function nodoDeComprobante(
           ['NumFactExt', c.numFactExt],
           ['TaxID', c.taxId],
           ['MontoTotal', exigirImporte(nombre, 'MontoTotal', c.montoTotal)],
-          ['Moneda', c.moneda],
+          ['Moneda', requireOfficialCode(nombre, 'Moneda', 'c_Moneda', c.moneda)],
           ['TipCamb', c.tipCamb],
         ],
       };
@@ -455,14 +489,14 @@ function nodoDePago(p: NodoDePago): NodoXml {
         nombre,
         atributos: [
           ['Num', p.num],
-          ['BanEmisNal', p.banEmisNal],
+          ['BanEmisNal', requireOfficialCode(nombre, 'BanEmisNal', 'c_Banco', p.banEmisNal)],
           ['BanEmisExt', p.banEmisExt],
           ['CtaOri', p.ctaOri],
           ['Fecha', exigirFecha(nombre, 'Fecha', p.fecha)],
           ['Benef', p.benef],
           ['RFC', p.rfc],
           ['Monto', exigirImporte(nombre, 'Monto', p.monto)],
-          ['Moneda', p.moneda],
+          ['Moneda', requireOfficialCode(nombre, 'Moneda', 'c_Moneda', p.moneda)],
           ['TipCamb', p.tipCamb],
         ],
       };
@@ -481,16 +515,16 @@ function nodoDePago(p: NodoDePago): NodoXml {
         nombre,
         atributos: [
           ['CtaOri', p.ctaOri],
-          ['BancoOriNal', p.bancoOriNal],
+          ['BancoOriNal', requireOfficialCode(nombre, 'BancoOriNal', 'c_Banco', p.bancoOriNal)],
           ['BancoOriExt', p.bancoOriExt],
           ['CtaDest', p.ctaDest],
-          ['BancoDestNal', p.bancoDestNal],
+          ['BancoDestNal', requireOfficialCode(nombre, 'BancoDestNal', 'c_Banco', p.bancoDestNal)],
           ['BancoDestExt', p.bancoDestExt],
           ['Fecha', exigirFecha(nombre, 'Fecha', p.fecha)],
           ['Benef', p.benef],
           ['RFC', p.rfc],
           ['Monto', exigirImporte(nombre, 'Monto', p.monto)],
-          ['Moneda', p.moneda],
+          ['Moneda', requireOfficialCode(nombre, 'Moneda', 'c_Moneda', p.moneda)],
           ['TipCamb', p.tipCamb],
         ],
       };
@@ -500,12 +534,12 @@ function nodoDePago(p: NodoDePago): NodoXml {
       return {
         nombre,
         atributos: [
-          ['MetPagoPol', p.metPagoPol],
+          ['MetPagoPol', requireOfficialCode(nombre, 'MetPagoPol', 'c_MetPagos', p.metPagoPol)],
           ['Fecha', exigirFecha(nombre, 'Fecha', p.fecha)],
           ['Benef', p.benef],
           ['RFC', p.rfc],
           ['Monto', exigirImporte(nombre, 'Monto', p.monto)],
-          ['Moneda', p.moneda],
+          ['Moneda', requireOfficialCode(nombre, 'Moneda', 'c_Moneda', p.moneda)],
           ['TipCamb', p.tipCamb],
         ],
       };

@@ -376,15 +376,22 @@ async function cobrosDeClientes(
   return new Map(r.rows.map((x) => [x.id, x]));
 }
 
-/** Los métodos de pago que el sistema registra, traducidos al c_MetPago. */
-const METODO_A_SAT: Record<string, string> = {
+/**
+ * Los métodos de pago que el sistema registra, traducidos al c_MetPagos.
+ *
+ * NOTE: c_MetPagos in CatalogosParaEsqContE.xsd has no debit-card code. `28`
+ * is the CFDI's c_FormaPago for it, and it made every journal file with a
+ * debit-card payment invalid. The closest faithful code is `99` (Otros); `04`
+ * is credit card and would be a false statement (#404).
+ */
+export const METODO_A_SAT: Readonly<Record<string, string>> = {
   cash: '01',
   check: '02',
   spei: '03',
   wire: '03',
   ach: '03',
   credit_card: '04',
-  debit_card: '28',
+  debit_card: '99',
   other: '99',
 };
 

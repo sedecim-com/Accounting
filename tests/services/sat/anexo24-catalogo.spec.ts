@@ -314,14 +314,23 @@ describe('CtaCatalogo 1.3', () => {
       expect(r.puedeEntregarse).toBe(false);
     });
 
-    it('las facetas que no se pudieron verificar contra el XSD real salen como AVISO, nunca bloquean', () => {
-      const r = construirCatalogoCuentas(
-        entrada([cuenta({ code: '100', name: 'x'.repeat(300), codigo_agrupador_sat: 'RARO' })])
-      );
-      const conjeturas = r.hallazgos.filter((h) => h.procedencia === 'faceta_no_verificada');
-      expect(conjeturas.length).toBeGreaterThan(0);
-      expect(conjeturas.every((h) => h.severidad === 'aviso')).toBe(true);
+    // The facets CatalogoCuentas_1_3.xsd pins block and cite it (#404); the
+    // case-by-case agreement with the schema is in official-xsd.spec.ts.
+    it('a Desc of 300 characters is valid: the XSD admits up to 400', () => {
+      const r = construirCatalogoCuentas(entrada([cuenta({ code: '100', name: 'x'.repeat(300) })]));
+      expect(r.hallazgos).toEqual([]);
       expect(r.puedeEntregarse).toBe(true);
+    });
+
+    it('a CodAgrup off the c_CodAgrup of the XSD blocks and cites the schema, even with no seeded catalog', () => {
+      const r = construirCatalogoCuentas(
+        entrada([cuenta({ code: '100', codigo_agrupador_sat: 'RARO', estado_agrupador: 'sin_catalogo' })])
+      );
+      const h = r.hallazgos.find((x) => x.regla === 'CAT-CODAGRUP-ENUM');
+      expect(h?.severidad).toBe('bloquea');
+      expect(h?.procedencia).toBe('official_xsd');
+      expect(h?.mensaje).toContain('CatalogosParaEsqContE.xsd');
+      expect(r.puedeEntregarse).toBe(false);
     });
   });
 
@@ -464,9 +473,9 @@ describe('generarCatalogoCuentas (la envoltura de E/S)', () => {
   });
 
   it('rehúsa un ejercicio imposible con un mensaje, no con una violación de restricción en crudo', async () => {
-    // Sin esta puerta, el año saldría del validador como simple AVISO —el
-    // límite superior no se pudo verificar contra el XSD— y reventaría al
-    // archivar contra el CHECK de la migración 062.
+    // CatalogoCuentas_1_3.xsd admits Anio from 2015 to 2099, and so does the
+    // CHECK of migration 062. The gate refuses before any query, with a
+    // message, instead of reaching the validator or a raw constraint error.
     await expect(generarCatalogoCuentas(ctx, { ...opts, anio: 20226 })).rejects.toThrow(/2015/);
     await expect(generarCatalogoCuentas(ctx, { ...opts, anio: 2014 })).rejects.toThrow(ValidationError);
     expect(mockQuery).not.toHaveBeenCalled();

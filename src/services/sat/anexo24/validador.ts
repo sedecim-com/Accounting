@@ -1,56 +1,43 @@
+import { officialEnumeration, OFFICIAL_ENUMERATIONS_XSD } from './official-enumerations.js';
+
 // ============================================================
 // F07b · EL VALIDADOR DE REGLAS DEL ANEXO 24
 //
-// ESTO NO ES UN XSD, Y EL NOMBRE DEL ARCHIVO NO DEBE DEJAR CREERLO.
+// This is not the XSD, and it does not replace it. It checks the chart of
+// accounts BEFORE it is serialized, so a finding can name the account the
+// accountant has to fix instead of a line number in a file.
 //
-// UPDATE (#397): the official XSDs are now vendored in `xsd/`, with their
-// source and hash, and tests/sat/anexo24/official-xsd.spec.ts validates what
-// the generators emit against them with xmllint. Steps 1 and 2 below are
-// done. Step 3, turning each `faceta_no_verificada` rule into what the XSD
-// says, is #404. Until then, the paragraphs below describe this file, not
-// the repository.
+// Every rule now says what the official schema says. The SAT's ContabilidadE
+// 1.3 XSDs are vendored in `xsd/` with their source and SHA-256 (#397), and
+// tests/sat/anexo24/official-xsd.spec.ts checks that the XSD rejects what the
+// blocking rules here reject. Each finding carries `procedencia`:
 //
-// El encargo decía: o se traen los XSD oficiales, o se escribe un validador de
-// reglas — y si no se puede fundamentar el XSD, NO SE INVENTA. No se puede
-// fundamentar. En este repositorio no hay ni un `.xsd`, no hay ninguna
-// librería capaz de validar contra esquema (se comprobó: nada de libxmljs,
-// xmllint ni equivalente en node_modules), y el contenido exacto de
-// `CatalogoCuentas_1_3.xsd` —sus `pattern`, sus `maxLength`, sus
-// `minInclusive`— no se puede reconstruir de memoria con la certeza que exige
-// firmar una declaración. Un XSD inventado valida contra las suposiciones de
-// quien lo escribió y devuelve un «válido» que no vale nada: es peor que no
-// validar, porque además tranquiliza.
+//   · `estructura_publicada` — node and attribute names, which are required,
+//     `Version` fixed at 1.3, `Natur` with its two values. Blocks.
+//   · `xml_1_0` — the XML recommendation, not the SAT. Blocks.
+//   · `coherencia_interna` — what the document owes itself: a `SubCtaDe` that
+//     points to a `NumCta` that is not there, a duplicated number, a level that
+//     does not fit the parent's. No XSD says so, and it is what the authority
+//     reviews underneath. Blocks.
+//   · `official_xsd` — a facet CatalogoCuentas_1_3.xsd or
+//     CatalogosParaEsqContE.xsd pins. Blocks, and the message cites the file.
 //
-// Lo que sí se puede hacer con honestidad es comprobar las reglas, y decir de
-// CADA UNA de dónde sale. Por eso cada hallazgo lleva `procedencia`:
-//
-//   · `estructura_publicada` — nombres de nodo y de atributo, cuáles son
-//     obligatorios, el espacio de nombres, `Version` fija en 1.3, `Natur` con
-//     dos valores. Es la forma del documento tal como el Anexo 24 la publica y
-//     tal como la implementa cualquier herramienta que hoy presente el archivo.
-//     Bloquea.
-//   · `xml_1_0` — la recomendación XML, no el SAT. Bloquea.
-//   · `coherencia_interna` — lo que el documento se debe a sí mismo: un
-//     `SubCtaDe` que apunta a un `NumCta` que no está, dos cuentas con el mismo
-//     número, un nivel que no encaja con el del padre. No hace falta el XSD
-//     para saberlo y es lo que la autoridad revisa en el fondo. Bloquea.
-//   · `faceta_no_verificada` — longitudes máximas, patrones exactos, si un
-//     importe admite negativo, el rango de `Anio`. Son las que SÓLO el XSD
-//     real puede zanjar. Salen como AVISO, nunca bloquean, y dicen que son
-//     conjeturas. Un aviso que resulte falso cuesta una lectura; un bloqueo
-//     falso impide presentar.
-//
-// QUÉ HARÍA FALTA PARA TENER EL XSD DE VERDAD, en concreto:
-//   1. Descargar el paquete de esquemas del portal del SAT
-//      (`.../esquemas/ContabilidadE/1_3/CatalogoCuentas/CatalogoCuentas_1_3.xsd`
-//      y su hermano de BalanzaComprobacion), versionarlos en el repositorio
-//      con su fecha y su suma de comprobación, igual que se hizo con el
-//      c_CodAgrup en F07a — la procedencia se escribe junto al dato.
-//   2. Añadir una dependencia que valide contra esquema. Ninguna de las que
-//      hay hoy lo hace.
-//   3. Convertir entonces cada regla `faceta_no_verificada` de este archivo en
-//      lo que el XSD diga, y las que sobrevivan pasan a bloquear.
-// Mientras tanto, este validador cubre lo comprobable y NO PRESUME de más.
+// WHAT #404 SETTLED. Until the XSDs were vendored, four rules were
+// `faceta_no_verificada` warnings, guesses that never blocked. Against the
+// schema:
+//   · CAT-LONGITUD: `NumCta` and `SubCtaDe` have maxLength 100, `Desc` 400.
+//     The guess was 100 for both, so a valid `Desc` of 101-400 characters got
+//     a warning. Now it blocks at the schema's limits.
+//   · CAT-ANIO-RANGO: `Anio` is an xs:int from 2015 to 2099. Now it blocks.
+//   · CAT-CODAGRUP-ENUM (was CAT-CODAGRUP-FORMA): `CodAgrup` is `c_CodAgrup`,
+//     a closed enumeration, not a pattern. `100.99` has the right shape and is
+//     not on the list. Now it blocks on membership in the list the XSD itself
+//     declares.
+//   · CAT-ESPACIOS: removed. `NumCta` and `Desc` are xs:string restrictions
+//     with no pattern and no whiteSpace facet, so the schema admits leading
+//     and trailing spaces. Warning about them cited a rule the SAT does not
+//     have.
+// Nothing is left that the XSD does not pin, so `faceta_no_verificada` is gone.
 // ============================================================
 
 export type Severidad = 'bloquea' | 'aviso';
@@ -59,7 +46,7 @@ export type ProcedenciaDeRegla =
   | 'estructura_publicada'
   | 'xml_1_0'
   | 'coherencia_interna'
-  | 'faceta_no_verificada';
+  | 'official_xsd';
 
 export interface Hallazgo {
   /** Identificador estable de la regla, para poder filtrar y silenciar. */
@@ -102,21 +89,18 @@ export interface CabeceraCatalogo {
  */
 const PATRON_RFC = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{2}[0-9A]$/;
 
-/**
- * La forma del código agrupador: rubro (`100`) o subcuenta (`100.01`). NO sale
- * de un XSD: sale de la lista oficial que F07a sembró en este repositorio
- * (src/services/accounting/sat-agrupadores-catalogo.ts, 1060 códigos, todos de
- * una de las dos formas). Por eso es un aviso y no un bloqueo: la comprobación
- * FUERTE es la existencia en `sat_codigos_agrupadores`, y ésa la hace el
- * generador, que tiene base de datos. Esto es sólo la red de abajo.
- */
-const FORMA_CODAGRUP = /^[0-9]{3}(\.[0-9]{2})?$/;
+/** The schema that pins the attributes of `Ctas` and the header, relative to `xsd/`. */
+export const CHART_XSD = 'ContabilidadE/1_3/CatalogoCuentas/CatalogoCuentas_1_3.xsd';
 
 /**
- * Longitud máxima conjeturada para NumCta y Desc. NO verificada contra el XSD:
- * ver la cabecera. Sale como aviso.
+ * maxLength of each free-text attribute of `Ctas`, as CatalogoCuentas_1_3.xsd
+ * declares it. minLength 1 is CAT-OBLIGATORIO's job.
  */
-const LONGITUD_CONJETURADA = 100;
+const CTAS_MAX_LENGTH = { NumCta: 100, Desc: 400, SubCtaDe: 100 } as const;
+
+/** `Anio` is an xs:int with these inclusive bounds in CatalogoCuentas_1_3.xsd. */
+const YEAR_MIN = 2015;
+const YEAR_MAX = 2099;
 
 function hallazgo(
   regla: string,
@@ -179,16 +163,14 @@ export function validarCatalogo(
     );
   } else {
     const anio = Number(cabecera.Anio);
-    // La contabilidad electrónica arranca en 2015. El límite superior es
-    // conjetura: el XSD lo fija y no lo tenemos.
-    if (anio < 2015 || anio > 2099) {
+    if (anio < YEAR_MIN || anio > YEAR_MAX) {
       hs.push(
         hallazgo(
           'CAT-ANIO-RANGO',
-          'aviso',
-          'faceta_no_verificada',
-          `Anio ${cabecera.Anio} cae fuera de 2015–2099. La obligación de contabilidad electrónica ` +
-            `empieza en 2015; el rango exacto que acepta el esquema no se ha podido verificar.`
+          'bloquea',
+          'official_xsd',
+          `Anio ${cabecera.Anio} cae fuera de ${YEAR_MIN}–${YEAR_MAX}, el rango que ${CHART_XSD} ` +
+            `admite: el SAT rechaza el archivo entero.`
         )
       );
     }
@@ -343,43 +325,36 @@ export function validarCatalogo(
       }
     }
 
-    if (f.CodAgrup.length > 0 && !FORMA_CODAGRUP.test(f.CodAgrup)) {
+    if (f.CodAgrup.length > 0 && !officialEnumeration('c_CodAgrup').has(f.CodAgrup)) {
       hs.push(
         hallazgo(
-          'CAT-CODAGRUP-FORMA',
-          'aviso',
-          'faceta_no_verificada',
-          `CodAgrup "${f.CodAgrup}" en "${f.NumCta}" no tiene la forma NNN ni NNN.NN, que es la de los ` +
-            `1060 códigos del c_CodAgrup sembrado. El patrón exacto lo fija el XSD, que no tenemos.`,
+          'CAT-CODAGRUP-ENUM',
+          'bloquea',
+          'official_xsd',
+          `CodAgrup "${f.CodAgrup}" en "${f.NumCta}" no está en la enumeración c_CodAgrup de ` +
+            `${OFFICIAL_ENUMERATIONS_XSD}: el SAT rechaza el archivo entero.`,
           f.NumCta
         )
       );
     }
 
+    // Lengths are counted in characters, as XML Schema counts them, not in
+    // UTF-16 code units: an emoji is one character to the SAT and two to
+    // `String.length`.
     for (const [nombre, valor] of [
       ['NumCta', f.NumCta],
       ['Desc', f.Desc],
+      ['SubCtaDe', f.SubCtaDe ?? ''],
     ] as const) {
-      if (valor.length > LONGITUD_CONJETURADA) {
+      const length = [...valor].length;
+      if (length > CTAS_MAX_LENGTH[nombre]) {
         hs.push(
           hallazgo(
             'CAT-LONGITUD',
-            'aviso',
-            'faceta_no_verificada',
-            `${nombre} de "${f.NumCta}" mide ${valor.length} caracteres. Se conjetura un máximo de ` +
-              `${LONGITUD_CONJETURADA}; el real lo fija el XSD, que no tenemos.`,
-            f.NumCta
-          )
-        );
-      }
-      if (valor !== valor.trim()) {
-        hs.push(
-          hallazgo(
-            'CAT-ESPACIOS',
-            'aviso',
-            'faceta_no_verificada',
-            `${nombre} de "${f.NumCta}" empieza o acaba en espacio. La normalización de XML no lo ` +
-              `quita, pero los tipos de cadena del SAT suelen prohibirlo; no se ha podido verificar.`,
+            'bloquea',
+            'official_xsd',
+            `${nombre} de "${f.NumCta}" mide ${length} caracteres y ${CHART_XSD} admite ` +
+              `${CTAS_MAX_LENGTH[nombre]} como máximo: el SAT rechaza el archivo entero.`,
             f.NumCta
           )
         );

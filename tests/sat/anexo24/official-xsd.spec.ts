@@ -17,6 +17,18 @@ import {
   type DatosDeAuxiliarFolios,
 } from '../../../src/services/sat/anexo24/polizas-auxiliar-xml.js';
 import {
+  validarCatalogo,
+  type CabeceraCatalogo,
+  type FilaCtas,
+} from '../../../src/services/sat/anexo24/validador.js';
+import {
+  officialEnumeration,
+  parseEnumerations,
+  OFFICIAL_ENUMERATIONS_XSD,
+} from '../../../src/services/sat/anexo24/official-enumerations.js';
+import { METODO_A_SAT } from '../../../src/services/sat/anexo24/polizas-service.js';
+import { ValidationError } from '../../../src/utils/errors.js';
+import {
   OFFICIAL_SCHEMAS,
   XSD_ROOT,
   validateAgainstOfficialXsd,
@@ -366,5 +378,150 @@ describe('the validation bites', () => {
     const verdict = validateAgainstOfficialXsd('<BCE:Balanza', 'trialBalance');
     expect(verdict.valid).toBe(false);
     expect(verdict.errors.length).toBeGreaterThan(0);
+  });
+});
+
+// ── #404 · The rules say what the XSD says ─────────────────────────────────
+//
+// Each case is applied twice: to the rows the rule validator sees, and to the
+// XML the chart generator emits for the same rows. The rule must block
+// exactly when the SAT's schema rejects.
+
+const chartHeader: CabeceraCatalogo = { RFC: 'AAA010101AAA', Mes: '01', Anio: '2026' };
+const chartRows: FilaCtas[] = [
+  { NumCta: '1000', Desc: 'Activo', CodAgrup: '100', Nivel: 1, Natur: 'D' },
+  { NumCta: '1110', Desc: 'Caja y bancos', SubCtaDe: '1000', CodAgrup: '102.01', Nivel: 2, Natur: 'D' },
+  { NumCta: '2110', Desc: 'Proveedores & Cía', CodAgrup: '201', Nivel: 1, Natur: 'A' },
+];
+
+interface ChartCase {
+  header?: Partial<CabeceraCatalogo>;
+  /** Replaces attributes of the last account, 2110, which has no children. */
+  row?: Partial<FilaCtas>;
+  /** The same change, on the emitted XML. */
+  xml: (xml: string) => string;
+  /** The rule that blocks, or null when the XSD accepts the value. */
+  rule: string | null;
+}
+
+const lastRow =
+  (attribute: string, value: string) =>
+  (xml: string): string =>
+    xml.replace(
+      /(<catalogocuentas:Ctas [^>]*NumCta="2110"[^>]*)\/>/,
+      (_m, node: string) => `${node.replace(new RegExp(` ${attribute}="[^"]*"`), ` ${attribute}="${value}"`)}/>`
+    );
+const headerAttribute =
+  (attribute: string, value: string) =>
+  (xml: string): string =>
+    xml.replace(new RegExp(` ${attribute}="[^"]*"`), ` ${attribute}="${value}"`);
+
+const rowCase = (attribute: keyof FilaCtas, value: string, rule: string | null): ChartCase => ({
+  row: { [attribute]: value },
+  xml: lastRow(attribute, value),
+  rule,
+});
+const yearCase = (year: string, rule: string | null): ChartCase => ({
+  header: { Anio: year },
+  xml: headerAttribute('Anio', year),
+  rule,
+});
+
+const chartCases: Array<[string, ChartCase]> = [
+  ['a Desc of 150 characters', rowCase('Desc', 'd'.repeat(150), null)],
+  ['a Desc of exactly 400', rowCase('Desc', 'd'.repeat(400), null)],
+  ['a Desc of 401', rowCase('Desc', 'd'.repeat(401), 'CAT-LONGITUD')],
+  ['a NumCta of exactly 100', rowCase('NumCta', '9'.repeat(100), null)],
+  ['a NumCta of 101', rowCase('NumCta', '9'.repeat(101), 'CAT-LONGITUD')],
+  ['a Desc with leading and trailing spaces', rowCase('Desc', ' Caja ', null)],
+  ['a CodAgrup of the right shape that is not on c_CodAgrup', rowCase('CodAgrup', '100.99', 'CAT-CODAGRUP-ENUM')],
+  ['Anio 2014', yearCase('2014', 'CAT-ANIO-RANGO')],
+  ['Anio 2015', yearCase('2015', null)],
+  ['Anio 2099', yearCase('2099', null)],
+  ['Anio 2100', yearCase('2100', 'CAT-ANIO-RANGO')],
+];
+
+describe('the chart rule validator blocks exactly what CatalogoCuentas_1_3.xsd rejects', () => {
+  it.each(chartCases)('%s', (_label, c) => {
+    const rows = chartRows.map((r, i) => (i === chartRows.length - 1 ? { ...r, ...c.row } : r));
+    const findings = validarCatalogo({ ...chartHeader, ...c.header }, rows);
+    const original = chartXml();
+    const xml = c.xml(original);
+    expect(xml).not.toBe(original);
+    const verdict = validateAgainstOfficialXsd(xml, 'chart');
+
+    if (c.rule === null) {
+      expect(findings).toEqual([]);
+      expect(verdict).toEqual({ valid: true, errors: [] });
+    } else {
+      expect(findings.map((h) => [h.regla, h.severidad, h.procedencia])).toEqual([
+        [c.rule, 'bloquea', 'official_xsd'],
+      ]);
+      expect(findings[0]!.mensaje).toMatch(/\.xsd/);
+      expect(verdict.valid).toBe(false);
+    }
+  });
+});
+
+describe('the closed lists are read from CatalogosParaEsqContE.xsd, not copied', () => {
+  it('the parser finds every enumeration value the schema declares', () => {
+    const xsd = fs.readFileSync(path.join(XSD_ROOT, OFFICIAL_ENUMERATIONS_XSD), 'utf8');
+    // The SAT's file repeats four values of c_CodAgrupH, so compare sets.
+    const declared = new Set([...xsd.matchAll(/<xs:enumeration value="([^"]*)"/g)].map((m) => m[1]));
+    const parsed = parseEnumerations(xsd);
+    expect(declared.size).toBeGreaterThan(0);
+    expect(new Set([...parsed.values()].flatMap((values) => [...values]))).toEqual(declared);
+    expect([...parsed.keys()]).toEqual(expect.arrayContaining(['c_CodAgrup', 'c_Banco', 'c_Moneda', 'c_MetPagos']));
+  });
+
+  it('every payment method the system records maps to a code on c_MetPagos', () => {
+    const offList = Object.entries(METODO_A_SAT).filter(([, code]) => !officialEnumeration('c_MetPagos').has(code));
+    expect(offList).toEqual([]);
+  });
+
+  it('an unknown list is a setup error, not an empty list', () => {
+    expect(() => officialEnumeration('c_Inventado' as 'c_Banco')).toThrow(/c_Inventado/);
+  });
+});
+
+type JournalMutation = (d: DatosDePolizas) => void;
+const payment = (d: DatosDePolizas, i: number): object => d.polizas[0]!.transacciones[1]!.pagos![i]!;
+const evidence = (d: DatosDePolizas, i: number): object => d.polizas[0]!.transacciones[0]!.comprobantes![i]!;
+
+const journalCases: Array<[node: string, attribute: string, bad: string, mutate: JournalMutation]> = [
+  ['CompNal', 'Moneda', 'QQQ', (d) => Object.assign(evidence(d, 0), { moneda: 'QQQ' })],
+  ['CompNalOtr', 'CFD_CBB_Serie', 'b1', (d) => Object.assign(evidence(d, 1), { serie: 'b1' })],
+  ['CompExt', 'Moneda', 'MXP', (d) => Object.assign(evidence(d, 2), { moneda: 'MXP' })],
+  ['Cheque', 'BanEmisNal', '003', (d) => Object.assign(payment(d, 0), { banEmisNal: '003' })],
+  ['Cheque', 'Moneda', 'QQQ', (d) => Object.assign(payment(d, 0), { moneda: 'QQQ' })],
+  ['Transferencia', 'BancoOriNal', '003', (d) => Object.assign(payment(d, 1), { bancoOriNal: '003' })],
+  ['Transferencia', 'BancoDestNal', '001', (d) => Object.assign(payment(d, 1), { bancoDestNal: '001' })],
+  ['OtrMetodoPago', 'MetPagoPol', '18', (d) => Object.assign(payment(d, 2), { metPagoPol: '18' })],
+];
+
+describe('the journal generator refuses, by name, a value the XSD rejects', () => {
+  it.each(journalCases)('PLZ:%s/@%s = %s', (node, attribute, bad, mutate) => {
+    const data = journal();
+    mutate(data);
+    expect(() => construirPolizasXml(data)).toThrow(ValidationError);
+    expect(() => construirPolizasXml(data)).toThrow(`PLZ:${node}/@${attribute} = «${bad}»`);
+
+    // The same value, written into a valid file: the XSD rejects it too.
+    // Attribute order is not significant in XML, so an absent one goes first.
+    const valid = construirPolizasXml(journal());
+    const present = new RegExp(`(<PLZ:${node} [^>]*?)${attribute}="[^"]*"`);
+    const xml = present.test(valid)
+      ? valid.replace(present, `$1${attribute}="${bad}"`)
+      : valid.replace(`<PLZ:${node} `, `<PLZ:${node} ${attribute}="${bad}" `);
+    expect(xml).not.toBe(valid);
+    const verdict = validateAgainstOfficialXsd(xml, 'journal');
+    expect(verdict.valid).toBe(false);
+    expect(verdict.errors.join('\n')).toContain(`attribute '${attribute}'`);
+  });
+
+  it('the folio auxiliary shares the voucher node, and with it the check', () => {
+    const data = voucherAuxiliary();
+    Object.assign(data.detalles[0]!.comprobantes[2]!, { moneda: 'QQQ' });
+    expect(() => construirAuxiliarFoliosXml(data)).toThrow('RepAuxFol:ComprExt/@Moneda = «QQQ»');
   });
 });

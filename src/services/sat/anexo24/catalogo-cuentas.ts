@@ -521,16 +521,14 @@ export async function generarCatalogoCuentas(
         `El 13 es de la balanza de cierre, no de éste.`
     );
   }
-  // El mismo rango que el CHECK de la 062. Se comprueba AQUÍ y no sólo allí
-  // porque un año imposible saldría del validador como un simple aviso y luego
-  // reventaría al archivar con una violación de restricción en crudo. Un error
-  // de uso se dice en el idioma del que lo cometió, no en el del motor.
-  // The official XSD confirms the range: CatalogoCuentas_1_3.xsd declares
-  // Anio from 2015 to 2099 (#397). Aligning the validator's warning is #404.
+  // The range CatalogoCuentas_1_3.xsd declares for Anio, and the CHECK of
+  // migration 062. The validator's CAT-ANIO-RANGO blocks outside it too
+  // (#404); this gate runs first so a usage error is refused with a message
+  // before any query, not as a raw constraint violation.
   if (!Number.isInteger(opts.anio) || opts.anio < 2015 || opts.anio > 2099) {
     throw new ValidationError(
       `Ejercicio ${String(opts.anio)} fuera de rango: la contabilidad electrónica arranca en 2015 y ` +
-        `este sistema archiva hasta 2099.`
+        `el esquema del SAT admite hasta 2099.`
     );
   }
 
