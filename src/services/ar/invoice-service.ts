@@ -633,6 +633,19 @@ export async function voidInvoice(
       let attest: { entityId: string; entryId: string } | null = null;
       let reversalEntryId: string | null = null;
       if (voided.journal_entry_id) {
+        // MNE-001-022: an invoice migrated with the opening balance points at
+        // the ONE opening entry every account shares. Reversing it here would
+        // undo the whole migration to cancel a single receivable.
+        const origin = await client.query<{ source_type: string | null }>(
+          `SELECT source_type FROM journal_entries WHERE id = $1 AND entity_id = $2`,
+          [voided.journal_entry_id, voided.entity_id]
+        );
+        if (origin.rows[0]?.source_type === 'opening_balance') {
+          throw new ConflictError(
+            `${voided.invoice_number} came in with the opening balance and shares its entry. ` +
+              'Voiding it would reverse the whole opening; cancel it with a credit note instead.'
+          );
+        }
         const memo = opts.reason
           ? `Invoice ${voided.invoice_number} voided: ${opts.reason}`
           : `Invoice ${voided.invoice_number} voided`;

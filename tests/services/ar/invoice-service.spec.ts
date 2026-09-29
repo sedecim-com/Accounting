@@ -32,7 +32,7 @@ import { query } from '../../../src/database/connection.js';
 import { postInvoiceEntry } from '../../../src/services/accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../../../src/services/accounting/posting.js';
 import { OPEN_INVOICE_STATUSES, NEVER_RECEIVABLE_STATUSES } from '../../../src/services/ar/customer-service.js';
-import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as Mock;
 const mockPost = postInvoiceEntry as unknown as Mock;
@@ -394,6 +394,18 @@ describe('voidInvoice', () => {
     expect(mockVoidJe).toHaveBeenCalledWith(client, 'je-1', USER, 'Invoice INV-2026-00002 voided');
     expect(result.reversalEntryId).toBe('rev-1');
     expect(result.attest).toEqual({ entityId: ENTITY, entryId: 'rev-1' });
+  });
+
+  it('refuses an invoice migrated with the opening: reversing its entry would undo the whole opening', async () => {
+    client.query.mockImplementation(async (text: string) =>
+      /FROM journal_entries/.test(text) ? { rows: [{ source_type: 'opening_balance' }] } : { rows: [voided] }
+    );
+    const err: unknown = await voidInvoice(INVOICE, USER, { entityId: ENTITY, allowStamped: true, allowApplied: true })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as Error).message).toContain('credit note');
+    expect(mockVoidJe).not.toHaveBeenCalled();
+    expect(client.query.mock.calls[1][1]).toEqual(['je-1', ENTITY]);
   });
 
   it('carries the reason into the reversal when one was given', async () => {
