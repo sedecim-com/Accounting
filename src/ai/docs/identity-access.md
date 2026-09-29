@@ -158,4 +158,5 @@ agent may never invoke `sat cred add` or `sat cred revoke` — they are declared
 Use is capped twice: by the credential's own `max_daily_access` and by the
 policy panel's `efirma_max_accesos_diarios`, whichever is stricter, and at the
 cap `efirma_accion_anomalia` decides — only the literal `alertar` lets an
-access through; any other value denies.
+access through; any other value denies. Every use that reached the key counts
+toward the cap, including one the SAT refused; a denied attempt does not.

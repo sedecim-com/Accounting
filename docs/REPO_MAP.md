@@ -57,6 +57,7 @@ Qué es cada cosa y por qué: [`docs/SCOPE.md`](SCOPE.md), [`AGENTS.md`](../AGEN
 | `src/services/portfolio/` | Cartera del despacho: una fila por entidad del token dentro de su inquilino (`GET /v1/portfolio`). |
 | `src/services/reporting/` | Estados financieros, balanza y flujo de efectivo. |
 | `src/services/sat/` | Obligaciones ante el SAT: Anexo 24, DIOT y estado de CFDI. |
+| `src/services/sat-download/` | SAT Descarga Masiva client: the Autentica request signed with the vault e.firma through withCredential (EFIRMA-1). |
 | `src/services/tenant/` | Inquilinos (despachos) de la instalación: alta y lista, fuera de RLS y fuera del alcance del agente. |
 | `src/services/vault/` | Cifrado y bóveda de secretos (ruta con dueño reforzado). |
 | `src/services/webhooks/` | Suscripciones y entrega de webhooks salientes. |
