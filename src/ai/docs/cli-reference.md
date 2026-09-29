@@ -5019,8 +5019,8 @@ Options:
   --since <date>                           transactions on or after this date (YYYY-MM-DD)
   --until <date>                           transactions on or before this date (YYYY-MM-DD)
   --top <n>                                maximum TRANSACTIONS to preview (not candidates per transaction)
-  --min-confidence <n>                     engine confidence a proposal needs before `run` would apply it (0..1)
-  --max-amount <amount>                    ceiling for an automatic match; the hard floor still wins
+  --min-confidence <n>                     raise the engine confidence a proposal needs before `run` would apply it (0..1); never below the panel (cotejo_umbral_confianza)
+  --max-amount <amount>                    lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win
   --rules-only                             a proposal outside the date window counts as not applicable
   -h, --help                               display help for command
 
@@ -5050,10 +5050,12 @@ Options:
   --account <ref>          bank account to sweep (name or id)
   --since <date>           transactions on or after this date (YYYY-MM-DD)
   --until <date>           transactions on or before this date (YYYY-MM-DD)
-  --min-confidence <n>     engine confidence a proposal needs to be applied
-                           (0..1)
-  --max-amount <amount>    ceiling for an automatic match; the hard floor still
-                           wins
+  --min-confidence <n>     raise the engine confidence a proposal needs to be
+                           applied (0..1); never below the panel
+                           (cotejo_umbral_confianza)
+  --max-amount <amount>    lower the ceiling for an automatic match; the panel
+                           (cotejo_monto_maximo_auto) and the hard floor still
+                           win
   --rules-only             refuse a proposal outside the date window
   --top <n>                maximum transactions to evaluate in this run
   --session <id>           reconciliation session these matches belong to
@@ -5225,8 +5227,8 @@ Options:
   --file <path>                                                 statement to import first; without it, the one already imported for the period is used
   --format <csv|camt053|mt940|ofx|qfx|mt942|camt054|bai2|xlsx>  format of the FILE given in --file (not of the output; use --json for that), as in `bank statement import`
   --profile <name>                                              CSV column profile to read --file with
-  --min-confidence <n>                                          engine confidence a proposal needs to be applied (0..1)
-  --max-amount <amount>                                         ceiling for an automatic match; the hard floor still wins
+  --min-confidence <n>                                          raise the engine confidence a proposal needs to be applied (0..1); never below the panel (cotejo_umbral_confianza)
+  --max-amount <amount>                                         lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win
   --stop-at <extracto|cotejo|sesion|partidas|estado>            stop after this step; it never goes past `estado`, and never reaches approve or post
   --resume                                                      continue the session already open for this period instead of refusing
   --dry-run                                                     walk the real path and roll it back
