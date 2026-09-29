@@ -778,15 +778,3 @@ export async function generarBalanza(
     artefacto,
   };
 }
-
-/** Suma de control de las cuatro columnas, para quien imprime la balanza. */
-export function totalesDeclarados(cuentas: CuentaDeBalanza[]): {
-  debe: string;
-  haber: string;
-} {
-  const cero = new Decimal(0);
-  return {
-    debe: cuentas.reduce((a, c) => a.plus(c.debe), cero).toFixed(2),
-    haber: cuentas.reduce((a, c) => a.plus(c.haber), cero).toFixed(2),
-  };
-}
