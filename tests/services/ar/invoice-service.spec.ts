@@ -8,6 +8,14 @@ vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
   withTransaction: vi.fn(async (fn: (c: unknown) => Promise<unknown>) => fn(client)),
 }));
+// "Today" comes from zona_horaria through its own resolver (#242), which the
+// zone tests cover; here it is a fixed day so the query sequences stay aligned.
+vi.mock('../../../src/services/policy/today.js', () => ({
+  todayFor: vi.fn(async () => '2026-10-31'),
+  todayForEntity: vi.fn(async () => '2026-10-31'),
+  todayForCustomer: vi.fn(async () => '2026-10-31'),
+}));
+
 vi.mock('../../../src/services/accounting/ar-ap-posting.js', () => ({ postInvoiceEntry: vi.fn() }));
 vi.mock('../../../src/services/accounting/posting.js', () => ({ voidJournalEntryInTx: vi.fn() }));
 vi.mock('../../../src/utils/sequence.js', async (importActual) => ({
