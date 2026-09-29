@@ -7,7 +7,7 @@ import { registrarAuditoria } from '../audit/audit-log.js';
 // corrija. (El ciclo con period-close → ledger-checks → este módulo se
 // resuelve en tiempo de llamada, no de carga: nadie usa el otro módulo
 // mientras se evalúa el suyo.)
-import { carryForwardBalances } from './period-close.js';
+import { carryForwardBalances, closeFiscalYearIfSealed, reopenFiscalYearOf } from './period-close.js';
 import {
   NotFoundError,
   ValidationError,
@@ -267,6 +267,8 @@ export async function reopenClosedPeriod(
        WHERE id = $1 AND entity_id = $2 RETURNING *`,
       [periodId, entityId]
     );
+    // A closed year with an open period in it would be a lie (#99).
+    const yearReopened = await reopenFiscalYearOf(client, entityId, periodId);
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
@@ -275,7 +277,7 @@ export async function reopenClosedPeriod(
       entityType: 'fiscal_period',
       entityId: periodId,
       oldValues: { status: previousStatus },
-      newValues: { status: 'open' },
+      newValues: { status: 'open', ...(yearReopened !== null ? { fiscal_year_reopened: yearReopened } : {}) },
       reason,
     });
 
@@ -332,6 +334,8 @@ export async function restorePeriodStatus(
     // arrastre rehecho, o no vuelve a estar cerrado.
     const carry =
       status === 'hard_close' ? await carryForwardBalances(client, entityId, periodId) : null;
+    // The reopen took the year back to 'open'; sealing its period again closes it again.
+    const yearClosed = status === 'hard_close' ? await closeFiscalYearIfSealed(client, entityId, periodId) : null;
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
@@ -345,6 +349,7 @@ export async function restorePeriodStatus(
         carried_accounts: carry?.carried ?? 0,
         ...(carry ? { carried_into: carry.periods } : {}),
         ...(carry?.stopped_at_locked ? { carry_stopped_at_locked: carry.stopped_at_locked } : {}),
+        ...(yearClosed !== null ? { fiscal_year_closed: yearClosed } : {}),
       },
       reason,
     });

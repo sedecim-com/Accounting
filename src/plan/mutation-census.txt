@@ -79,6 +79,8 @@ mirror	memory	E0.1 credit-note-posts-at-issue	src/services/accounting/ar-ap-post
 mirror	memory	E0.1 invoice-gap-and-tax-profile	src/database/migrations/049_cobrar.sql	el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \b lo mata
 mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the defect of #102: the whitelist lacked a current SAT code, so `customer tax set --uso-cfdi D10` refused every school customer
 mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the same defect on c_RegimenFiscal: `--tax-regime 611` refused a current regime
+mirror	memory	E0.2 migration-apply-and-record-atomic	src/database/migrate.ts	npm run migrate deja de aplicar rls-policies.sql: las tablas nuevas quedan sin política y nada lo dice
+mirror	memory	E0.2 migration-apply-and-record-atomic	src/database/migrate.ts	el endurecimiento vuelve al try (el error de la era #88): un fallo a mitad se lo salta y deja tablas sin política
 mirror	memory	E0.2 migration-fails-loud-under-rls	src/database/migrate.ts	apagar el piso es exactamente la regresión que costó cuatro siembras silenciosas
 mirror	memory	E0.2 matview-migration-survives-rls-floor	src/database/migrations/071_las_vistas_que_perdian_la_archivada.sql	EL DEFECTO MEDIDO: sin el traje del refrescador, `CREATE MATERIALIZED VIEW ... AS SELECT ... FROM accounts` muere con 42501 contra el piso `row_security = off` y la actualización de TODO despacho instalado se detiene ahí — en instalación nueva no se nota, porque las políticas aún no existen cuando corre
 mirror	memory	E0.2 distributed-migration-repaired-by-new-file	src/database/migrations/072_la_huella_que_se_podia_forjar.sql	la trampa medida: recrear el disparador se lleva por delante el `ENABLE ALWAYS` de la 058, y el remedio dejaría el sello «garantia-sellada» colgado de un disparador que vuelve a poder apagarse con session_replication_role
@@ -438,6 +440,7 @@ mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	el paso real se inventa un veredicto limpio mientras el ensayo sigue preguntando de verdad: la versión anterior del criterio no distinguía las dos llamadas
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	el juez del checklist ignora canClose: la llamada sigue ahí, en su rama, y todo sale limpio
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	la llamada se conserva y su resultado se tira: una ancla de presencia la daba por buena
+mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	the conductor reports the seal without sealing: the month reads conducted and its balances are never carried into the next one (#99)
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	la reanudación vuelve a fiarse de lo anotado: el checklist de ayer autoriza el cierre de hoy con un borrador de IA pendiente dentro del mes
 mirror	memory	E4.1 closing-run-never-continues-another-run-in-silence	src/services/accounting/closing-conductor.ts	el conductor continúa en silencio la corrida que otro dejó a medias; la cortesía de la hoja sigue escrita y no alcanza a quien llama al conductor por otro camino
 mirror	memory	E4.1 closing-run-never-continues-another-run-in-silence	src/services/accounting/closing-conductor.ts	un motor postea antes de decidir si se puede continuar: la negativa llega con el mes ya tocado
@@ -696,6 +699,8 @@ anchor	src/plan/criteria/e0-1.ts	de: "sourceType: 'credit_note'",
 anchor	src/plan/criteria/e0-1.ts	de: 'ADD COLUMN tax_regime VARCHAR(3),',
 anchor	src/plan/criteria/e0-1.ts	de: " 'D10': 'Pagos por servicios educativos (colegiaturas)',\n",
 anchor	src/plan/criteria/e0-1.ts	de: " '611': 'Ingresos por Dividendos (socios y accionistas)',\n",
+anchor	src/plan/criteria/e0-2.ts	de: "hardeningPath: path.join(__dirname, 'rls-policies.sql'),",
+anchor	src/plan/criteria/e0-2.ts	de: MIGRATE_CATCH_FINALLY_HARDENING,
 anchor	src/plan/criteria/e0-2.ts	de: "await client.query('SET row_security = off');",
 anchor	src/plan/criteria/e0-2.ts	de: "EXECUTE 'SET LOCAL ROLE mnemosine_refresher';",
 anchor	src/plan/criteria/e0-2.ts	de: 'ALTER TABLE bank_transactions ENABLE ALWAYS TRIGGER bank_transactions_content_hash;',
@@ -1049,6 +1054,7 @@ anchor	src/plan/criteria/e4-1.ts	de: ' const r = await runMonthlyDepreciation(ct
 anchor	src/plan/criteria/e4-1.ts	de: ' return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
 anchor	src/plan/criteria/e4-1.ts	de: " status: r.canClose ? 'done' : 'blocked',",
 anchor	src/plan/criteria/e4-1.ts	de: ' return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
+anchor	src/plan/criteria/e4-1.ts	de: ' const sealed = await hardClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason);',
 anchor	src/plan/criteria/e4-1.ts	de: ' let outcome: ClosingStepOutcome;\n',
 anchor	src/plan/criteria/e4-1.ts	de: " if (opts.resume !== true) {\n throw new ClosingRunStateError(\n 'CLOSING_RUN_OPEN',",
 anchor	src/plan/criteria/e4-1.ts	de: ' const runId = await openRun(ctx, period.id, opts, token);',

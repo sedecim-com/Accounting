@@ -80,7 +80,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   'src/services/webhooks': 'Suscripciones y entrega de webhooks salientes.',
   'src/services/xml-ingestion': 'Lectura de CFDI, pre-registro, taxonomía y decisiones de posteo.',
   'src/types': 'Tipos compartidos.',
-  'src/utils': 'Utilidades: fechas de calendario, limpieza de comentarios, CSV, cifrado, secuencias, errores.',
+  'src/utils': 'Utilidades: fechas de calendario, limpieza de comentarios, CSV, cifrado, secuencias, errores, y `xml-reader.ts`, el analizador compartido de XML de terceros (acentos `&#233;`, `&#10;` como espacio, atributos como texto).',
 };
 
 function listModules(): string[] {

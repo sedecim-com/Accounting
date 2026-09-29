@@ -72,5 +72,8 @@ function main(args: string[]): number {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  // NOTE(#408): set the exit code and let Node exit on its own. On a pipe,
+  // stdout drains asynchronously, and `process.exit` right after the write
+  // cut `--stdout` at the 64 KiB pipe buffer.
+  process.exitCode = main(process.argv.slice(2));
 }
