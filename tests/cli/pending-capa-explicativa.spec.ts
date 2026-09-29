@@ -208,7 +208,7 @@ beforeEach(() => {
   mockPreview.mockResolvedValue([]);
   mockResolveEntity.mockResolvedValue(CTX);
   mockResolveReviewer.mockResolvedValue({ email: 'admin@demo.com' });
-  mockResolvePolicy.mockResolvedValue(undefined);
+  mockResolvePolicy.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -743,6 +743,12 @@ describe('el prompt interactivo de `pending define` explica antes de preguntar',
       'admin@demo.com',
       undefined
     );
+  });
+
+  it('prints what the answer did besides being filed (MNE-001-147: withholding roles repointed)', async () => {
+    mockResolvePolicy.mockResolvedValueOnce(['Acme: withholding roles repointed (isr_retenido_por_pagar: 2140 → 2141)']);
+    const text = flat(await correrDefine([], undefined, KEY, '1'));
+    expect(text).toContain('Acme: withholding roles repointed (isr_retenido_por_pagar: 2140 → 2141)');
   });
 });
 

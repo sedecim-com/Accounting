@@ -34,6 +34,12 @@ import {
   rolesValidos,
 } from '../services/accounting/account-roles-service.js';
 import { seedAccountRoles } from '../services/xml-ingestion/account-roles-seed.js';
+import {
+  applyWithholdingLayout,
+  censusWithholdingLayout,
+  describeWithholdingPlan,
+  hasWork,
+} from '../services/accounting/withholding-accounts.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import type { Palette } from './palette.js';
@@ -53,6 +59,7 @@ import {
   RETIRED_OPTION_PREFIX,
   exitCodeFor,
   checkExitCode,
+  ExitCode,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
 
@@ -188,6 +195,13 @@ Examples:
   mnemosine account role seed
   # Do it on a named entity instead of the active one.
   mnemosine account role seed --entity "Molinos del Bajio SA de CV"
+`,
+  roleSync: `
+Examples:
+  # What would move for the withholding layout the panel chose, without writing.
+  mnemosine account role sync --dry-run
+  # Create the missing accounts and repoint the roles, audited.
+  mnemosine account role sync --entity "Molinos del Bajio SA de CV"
 `,
   mapSet: `
 Examples:
@@ -644,6 +658,34 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
             : '') +
           '\n'
       );
+    })
+  );
+
+  // MNE-001-147 (#309): the explicit act `withholding_accounts_existing` =
+  // "warn" names. Posts nothing; a mapping set by hand is listed, not moved.
+  const roleSync = role
+    .command('sync')
+    .alias('sincronizar')
+    .description('Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones');
+  withContext(roleSync);
+  roleSync.option('--dry-run', 'show the plan, without writing');
+  declareRisk(roleSync, { risk: 'escritura', agent: false, writes: 'accounts, account_roles' });
+  roleSync.addHelpText('after', EJEMPLOS.roleSync);
+  roleSync.action((opts: CommonOpts & { dryRun?: boolean }) =>
+    run(async () => {
+      const ctx = await entityOf(opts);
+      const [plan] = await censusWithholdingLayout({ tenantId: ctx.tenantId, entityId: ctx.entityId });
+      if (!plan) throw usageError('This entity does not keep Mexican books: it has no withholding roles.');
+      const lines = describeWithholdingPlan(plan);
+      process.stdout.write(
+        `${deps.palette.bold(plan.entityName)} · withholding_accounts_layout = ${plan.layout}\n` +
+          (lines.length > 0 ? lines.map((l) => `  ${l}\n`).join('') : '  Nothing to change.\n')
+      );
+      if (plan.blocked) return ExitCode.BLOCKED;
+      if (opts.dryRun || !hasWork(plan)) return;
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      await applyWithholdingLayout(plan, reviewer.userId);
+      process.stdout.write(`${deps.palette.green('✔')} applied and audited; no entry was posted.\n`);
     })
   );
 

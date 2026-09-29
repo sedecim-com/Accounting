@@ -188,7 +188,7 @@ describe('the panel refuses an unknown zone at the keyboard', () => {
     expect(mockQuery).not.toHaveBeenCalled();
     await expect(
       resolvePolicy({ tenantId: 't1', entityId: 'e1' }, 'zona_horaria', 'America/Tijuana', 'u@test')
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual([]);
   });
 });
 

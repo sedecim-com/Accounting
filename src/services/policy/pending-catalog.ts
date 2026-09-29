@@ -2165,6 +2165,76 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 40,
   },
   {
+    // MNE-001-147 · #309: the owner's decision of 2026-09-29. The reader is
+    // withholding-accounts.ts, which the classifier, `account role sync`,
+    // doctor and the close checklist go through.
+    key: 'withholding_accounts_layout',
+    textKey: 'withholding_accounts_layout',
+    category: 'contable',
+    question: 'On which accounts does the ISR and VAT this entity withholds from its suppliers accumulate?',
+    impact:
+      'Decides where fees and lease withholdings are booked until the 17th pays them. Payroll ISR ' +
+      'stays on 2140 in every layout. One account per tax gives the two lines of the monthly ' +
+      'payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping ' +
+      'code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything ' +
+      'that is not a lease is booked as professional services. With one account per tax, 2141 holds ' +
+      'lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can ' +
+      'only be one of the two. One account needs the working paper to split ISR from VAT, and the ' +
+      'approval of a draft can only check their sum.',
+    options: [
+      { value: 'per_tax', label: 'One account per tax: 2141 ISR withheld, 2142 VAT withheld' },
+      { value: 'single', label: 'One account for both: 2143 ISR and VAT withheld' },
+      {
+        value: 'by_concept',
+        label: 'Three accounts: 2144 ISR on leases (216.03), 2145 ISR on professional services (216.04), 2142 VAT (216.10)',
+      },
+    ],
+    defaultValue: 'per_tax',
+    defaultRationale:
+      'The withholder pays the ISR (LISR 106, 116) and the VAT (LIVA 1-A, 5-D) it withheld with the ' +
+      'monthly return due on the 17th, as separate taxes, and the DIOT reports the VAT withheld per ' +
+      'supplier (LIVA 32-VIII): a balance per tax is what both read without any split. It is the ' +
+      'owner\'s default on #309 and what entities are seeded with.',
+    whyAsking:
+      'Some firms keep one withholdings account, others one per tax, others follow the SAT grouping code line by line.',
+    whatIDo:
+      'I point the two withholding roles at the accounts of the layout, create the ones missing, and book each withholding there.',
+    ifSkipped: 'I keep one account per tax: 2141 for ISR, 2142 for VAT.',
+    priority: 40,
+  },
+  {
+    // MNE-001-147 · #309. What happens to an entity whose withholding roles do
+    // not follow the layout above: the ones seeded before MNE-001-056 have
+    // both on 2140, with payroll ISR. Read by withholding-accounts.ts.
+    key: 'withholding_accounts_existing',
+    textKey: 'withholding_accounts_existing',
+    category: 'contable',
+    question: 'When an existing entity\'s withholding roles do not follow the layout, what do I do?',
+    impact:
+      'Governs entities seeded before the layout existed (both roles on 2140, with payroll ISR) or ' +
+      'whose layout changed. "warn" names them in doctor and in the close checklist, without ' +
+      'blocking, with the command that fixes them: `account role sync`, which has --dry-run. ' +
+      '"repoint" runs it when this key or the layout is set, and warns about what it could not move. ' +
+      '"keep" does neither. The command ' +
+      'creates the missing accounts and repoints the roles, audited; it posts nothing and leaves ' +
+      'past balances where they are. A mapping someone set by hand is never overwritten.',
+    options: [
+      { value: 'warn', label: 'Warn in doctor and in the close checklist, naming the command' },
+      { value: 'repoint', label: 'Repoint them, audited, when the layout is set' },
+      { value: 'keep', label: 'Leave them as they are, without warning' },
+    ],
+    defaultValue: 'warn',
+    defaultRationale:
+      'Repointing changes where next month\'s withholdings land, and the balance already on 2140 ' +
+      'stays there until someone reclassifies it with an entry. The books must let each operation be ' +
+      'traced to its account (CFF 28, RCFF 33): a change a person reviewed with --dry-run is one the ' +
+      'firm can explain to an auditor, a change nobody looked at is not.',
+    whyAsking: 'Moving the roles of a company that is already posting changes its books from the next entry on.',
+    whatIDo: 'I warn and name `account role sync`; with "repoint" I run it myself when the layout is set.',
+    ifSkipped: 'I warn, and change nothing.',
+    priority: 41,
+  },
+  {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
     // is already tomorrow, and a credit note without --date was persisted with
     // the next day's date, folio series and period. Which zone the books live

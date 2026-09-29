@@ -74,6 +74,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `scripts/language/lanes/plan.ts`
 - `src/ai/doctor-service.ts`
 - `src/ai/providers/config.ts`
+- `src/cli/account-command.ts`
 - `src/cli/bank-command.ts`
 - `src/cli/bill-command.ts`
 - `src/cli/closing-command.ts`

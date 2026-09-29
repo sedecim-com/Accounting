@@ -5757,6 +5757,70 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the CFDI posts as issued, with a warning in the close checklist."
+    },
+    {
+      "class": "policy-key",
+      "where": "withholding_accounts_layout",
+      "es": "withholding_accounts_layout",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-147): which accounts the ISR and VAT the entity withholds as payer accumulate on."
+    },
+    {
+      "class": "policy-key",
+      "where": "withholding_accounts_existing",
+      "es": "withholding_accounts_existing",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-147): what happens to an entity whose withholding roles do not follow withholding_accounts_layout."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_layout/per_tax",
+      "es": "per_tax",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: one account per tax withheld (2141 ISR, 2142 VAT)."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_layout/single",
+      "es": "single",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: one account for every withholding (2143)."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_layout/by_concept",
+      "es": "by_concept",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: three accounts by SAT grouping line (2144 216.03, 2145 216.04, 2142 216.10)."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_existing/warn",
+      "es": "warn",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: doctor and the close checklist warn and name `account role sync`."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_existing/repoint",
+      "es": "repoint",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: setting either key repoints the roles, audited and signed by whoever answered."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_accounts_existing/keep",
+      "es": "keep",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the entity keeps its roles and nothing warns."
     }
   ]
 }

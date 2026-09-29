@@ -1803,8 +1803,10 @@ export async function registrarFacturaDeBorradorAprobado(
     },
     { figure: 'transferred VAT', entry: net(vat, 'debit'), cfdi: sumTax(summary.traslados, '002') },
   ];
-  // NOTE: entities seeded before MNE-001-056 point both withholding roles at
-  // the same account (2140); then only their sum can be checked, and it is.
+  // NOTE: the 'single' withholding layout (MNE-001-147) and entities seeded
+  // before MNE-001-056 (2140) point both withholding roles at one account;
+  // then only their sum can be checked, and it is. Every qualifier counts, so
+  // the lease and fees ISR accounts of 'by_concept' are checked together.
   if ([...isrWithheld].some((id) => vatWithheld.has(id))) {
     figures.push({
       figure: 'withholdings (ISR + VAT, same account)',

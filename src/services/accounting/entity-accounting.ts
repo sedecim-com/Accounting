@@ -3,6 +3,7 @@ import { withTransaction } from '../../database/connection.js';
 import { ensureBaseChart } from './chart-seed.js';
 import { seedAccountRoles, type SeedResult } from '../xml-ingestion/account-roles-seed.js';
 import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
+import { applyWithholdingLayout, censusWithholdingLayout, hasWork } from './withholding-accounts.js';
 import { getPolicy } from '../policy/policy-service.js';
 import {
   seedPayrollAccountMapping,
@@ -128,7 +129,20 @@ export async function ensureEntityAccounting(
     // treinta y un roles apuntan a códigos del catálogo base y ar-ap-posting
     // los exige en toda factura, así que quitárselos a una entidad extranjera
     // la dejaría sin postear.
+    const { rows: rolesBefore } = await client.query<{ n: string }>(
+      'SELECT COUNT(*)::text AS n FROM account_roles WHERE entity_id = $1',
+      [entityId]
+    );
     const roles = await seedAccountRoles(entityId, tenantId, createdBy, { client, esMexicana });
+
+    // MNE-001-147 (#309): an entity seeded right now is born with the
+    // withholding layout the panel chose. Only then: with no roles before this
+    // pass nothing can be a manual choice, while re-seeding an entity already
+    // posting is `withholding_accounts_existing`'s call, not this one's.
+    if (esMexicana && Number(rolesBefore[0]?.n ?? '0') === 0) {
+      const [plan] = await censusWithholdingLayout({ entityId }, client);
+      if (plan && hasWork(plan) && !plan.blocked) await applyWithholdingLayout(plan, createdBy, client);
+    }
 
     // El mapeo de nómina se siembra en el mismo acto y por la misma razón: la
     // tabla tenía lector y ningún escritor, así que la primera corrida de

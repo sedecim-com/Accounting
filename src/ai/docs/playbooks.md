@@ -91,6 +91,7 @@ downloaded CFDIs. Never promise a download; today CFDIs reach the system through
 external system · `ingest` CFDI batch · `review` approve drafts · `questions`
 answer you · `outbox` external writes · `close` month end · `pending` to-do board ·
 `account create` one more account · `account role seed` map unmapped roles ·
+`account role sync` withholding roles to the panel's layout (doctor names it) ·
 `year create` another fiscal year · `sat cred add|status|audit|revoke` e.firma ·
 `doctor` system health. The exact surface (every flag, every alias) is the
 `cli-reference` doc — read it before quoting a flag you are unsure of.
