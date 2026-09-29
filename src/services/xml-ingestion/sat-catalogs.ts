@@ -14,9 +14,12 @@
 // the system never performed. These are just the codes: data,
 // with nothing behind them that can lie.
 //
-// NOT a validation whitelist. The SAT publishes these catalogs
-// and revises them; a code missing here is a code we have not
-// copied yet, not a code the SAT rejects.
+// REGIMEN_FISCAL and USO_CFDI ARE a validation whitelist:
+// `customer tax set` refuses a code they do not carry (customer-
+// service.ts), so each must hold the SAT's whole current catalog —
+// a missing code rejects a legitimate customer (#102). The plan
+// criterion `invoice-gap-and-tax-profile` pins the full list. The
+// other tables here are read-only labels and may lag the SAT.
 // ============================================================
 
 export const SAT_CATALOGS = {
@@ -28,9 +31,12 @@ export const SAT_CATALOGS = {
     '606': 'Arrendamiento',
     '607': 'Régimen de Enajenación o Adquisición de Bienes',
     '608': 'Demás ingresos',
+    '609': 'Consolidación',
     '610': 'Residentes en el Extranjero sin Establecimiento Permanente',
+    '611': 'Ingresos por Dividendos (socios y accionistas)',
     '612': 'Personas Físicas con Actividades Empresariales y Profesionales',
     '614': 'Ingresos por intereses',
+    '615': 'Régimen de los ingresos por obtención de premios',
     '616': 'Sin obligaciones fiscales',
     '620': 'Sociedades Cooperativas de Producción',
     '621': 'Incorporación Fiscal',
@@ -39,6 +45,9 @@ export const SAT_CATALOGS = {
     '624': 'Coordinados',
     '625': 'Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas',
     '626': 'Régimen Simplificado de Confianza',
+    '628': 'Hidrocarburos',
+    '629': 'De los Regímenes Fiscales Preferentes y de las Empresas Multinacionales',
+    '630': 'Enajenación de acciones en bolsa de valores',
   },
 
   // CFDI use (SAT: Uso CFDI)
@@ -50,14 +59,24 @@ export const SAT_CATALOGS = {
     'I02': 'Mobiliario y equipo de oficina',
     'I03': 'Equipo de transporte',
     'I04': 'Equipo de computo y accesorios',
+    'I05': 'Dados, troqueles, moldes, matrices y herramental',
+    'I06': 'Comunicaciones telefónicas',
+    'I07': 'Comunicaciones satelitales',
     'I08': 'Otra maquinaria y equipo',
     'D01': 'Honorarios médicos, dentales y hospitalarios',
     'D02': 'Gastos médicos por incapacidad',
     'D03': 'Gastos funerales',
     'D04': 'Donativos',
+    'D05': 'Intereses reales efectivamente pagados por créditos hipotecarios (casa habitación)',
+    'D06': 'Aportaciones voluntarias al SAR',
+    'D07': 'Primas por seguros de gastos médicos',
+    'D08': 'Gastos de transportación escolar obligatoria',
+    'D09': 'Depósitos en cuentas para el ahorro, primas que tengan como base planes de pensiones',
+    'D10': 'Pagos por servicios educativos (colegiaturas)',
     'P01': 'Por definir',
     'S01': 'Sin efectos fiscales',
     'CP01': 'Pagos',
+    'CN01': 'Nómina',
   },
 
   // Payment method (SAT: Método de Pago)

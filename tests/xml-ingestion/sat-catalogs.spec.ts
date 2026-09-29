@@ -29,3 +29,23 @@ describe('the tax regime catalog', () => {
     expect(tagged).toEqual([]);
   });
 });
+
+// #102 (MNE-001-033): `customer tax set` validates against these two tables,
+// so a current SAT code missing here is a legitimate customer refused.
+describe('the catalogs the tax profile validates against', () => {
+  const USES = SAT_CATALOGS.USO_CFDI as Record<string, string>;
+
+  it.each(['I05', 'I06', 'I07', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'CN01'])('c_UsoCFDI carries %s', (code) => {
+    expect(USES[code]).toBeTruthy();
+  });
+
+  it.each(['609', '611', '615', '628', '629', '630'])('c_RegimenFiscal carries %s', (code) => {
+    expect(REGIMES[code]).toBeTruthy();
+  });
+
+  it('names D10, CN01 and 611 as the SAT does', () => {
+    expect(USES.D10).toBe('Pagos por servicios educativos (colegiaturas)');
+    expect(USES.CN01).toBe('Nómina');
+    expect(REGIMES['611']).toBe('Ingresos por Dividendos (socios y accionistas)');
+  });
+});
