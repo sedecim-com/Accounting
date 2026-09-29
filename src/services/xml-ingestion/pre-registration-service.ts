@@ -1180,8 +1180,8 @@ export class PreRegistrationService {
    * THE BILL AND ITS ENTRY ARE ONE ACT (#498).
    *
    * The INSERTs of `bills` and `bill_lines` used to autocommit before the
-   * classifier ran, so a CFDI held with CFDI_REQUIERE_DECISION -- or an entry
-   * that failed for any other reason -- kept a `posted` bill with its
+   * classifier ran, so a CFDI held for a decision -- or an entry that
+   * failed for any other reason -- kept a `posted` bill with its
    * `amount_due` and no entry: the AP subledger carried a payable the ledger
    * never booked, and every re-run added another. Now the bill, its lines, the
    * entry and the link share one transaction, as in the approval of an AI
