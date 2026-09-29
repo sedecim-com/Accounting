@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 214 of 332 subcommands
+  spelling is `-T` at the root and `-t` on the 215 of 333 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -1095,6 +1095,7 @@ Commands:
   create|crear [options] <bill>           Record a payment made against a bill and recognize the IVA it was holding
   apply|aplicar [options] <payment>       Apply an existing payment to specific bills: partial, with discount, or short-paid
   unapply|desaplicar [options] <payment>  Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account
+  reverse|reversar [options] <payment>    Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again
   help [command]                          display help for command
 ```
 
@@ -1220,6 +1221,39 @@ Examples:
   mnemosine payment unapply VPMT-2026-00020 --bill BILL-2026-00007 --reason "Duplicate SPEI transfer"
   # Date it inside the month still being closed, and look first.
   mnemosine payment unapply VPMT-2026-00020 --bill BILL-2026-00007 --reason "Duplicate SPEI transfer" --date 2026-07-31 --dry-run
+```
+
+### `mnemosine payment reverse` (alias: reversar)
+
+```
+Usage: mnemosine payment reverse|reversar [options] <payment>
+
+Reverse a payment that came back: mirrors every entry it posted, dated; its
+bills are owed again
+
+Arguments:
+  payment                  payment number or id
+
+Options:
+  --reason <text>          why: it lands in the audit trail
+  --date <date>            date of the reversal, for its mirrors and the closed
+                           rows (YYYY-MM-DD); defaults to today
+  --json                   JSON output
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+
+Examples:
+  # The duplicated transfer came back: look first, then undo the payment on the day it returned.
+  mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31 --dry-run
+  mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31
 ```
 
 ## `mnemosine account` (alias: cuenta)

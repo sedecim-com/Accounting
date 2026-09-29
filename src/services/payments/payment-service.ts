@@ -13,7 +13,7 @@ import {
   postVendorUnapplicationEntry,
   type AplicacionPosterior,
 } from '../accounting/ar-ap-posting.js';
-import { voidJournalEntryInTx } from '../accounting/posting.js';
+import { voidJournalEntryInTx, reverseWithinTransaction } from '../accounting/posting.js';
 import { earlyPaymentDiscount } from '../ap/bill-service.js';
 import {
   desgloseCambiarioDelPago,
@@ -1908,6 +1908,56 @@ export async function applyVendorPayment(
   return ejecutarEvento(correr, opts);
 }
 
+/**
+ * An undo cannot be dated before the payment's last posted event: the ledger
+ * would undo it before it happened.
+ */
+async function assertAfterLastEvent(
+  client: pg.PoolClient,
+  entityId: string,
+  vp: PagoProveedorVivo,
+  date: string,
+  what: string
+): Promise<void> {
+  const last = await client.query<{ d: string | null }>(
+    `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
+      WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
+        AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication')`,
+    [entityId, vp.id]
+  );
+  const since = last.rows[0]?.d ?? toCalendarDate(vp.payment_date);
+  if (date < since) {
+    throw new ValidationError(
+      `${vp.payment_number} was last posted on ${since}: ${what} dated ${date} would undo it before it happened.`,
+      'date'
+    );
+  }
+}
+
+/**
+ * What the bill's live applications explain. Anything else that stopped being
+ * owed was written off by a short pay, and no row says how much of it which
+ * payment carried, its account or its IVA: an undo would have to guess.
+ */
+async function assertNotClosedShort(
+  client: pg.PoolClient,
+  bill: { id: string; bill_number: string; total_amount: string; amount_due: string },
+  what: string
+): Promise<void> {
+  const explained = await client.query<{ s: string }>(
+    `SELECT COALESCE(SUM(amount_applied + COALESCE(discount_amount, 0)), 0)::text AS s
+       FROM payment_applications WHERE bill_id = $1 AND unapplied_at IS NULL`,
+    [bill.id]
+  );
+  const writtenOff = new Decimal(bill.total_amount).minus(explained.rows[0].s).minus(bill.amount_due);
+  if (writtenOff.abs().greaterThanOrEqualTo('0.01')) {
+    throw new ValidationError(
+      `${bill.bill_number} was closed short (${writtenOff.toFixed(2)} written off): the write-off, its ` +
+        `account and its IVA are stored nowhere, so ${what} cannot give them back exactly.`
+    );
+  }
+}
+
 export interface VendorUnapplyResult {
   paymentId: string;
   paymentNumber: string;
@@ -1961,19 +2011,7 @@ export async function unapplyVendorPayment(
           'needs the rate of each leg, which its applications do not store.'
       );
     }
-    const last = await client.query<{ d: string | null }>(
-      `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
-        WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
-          AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication')`,
-      [entityId, paymentId]
-    );
-    const since = last.rows[0]?.d ?? toCalendarDate(vp.payment_date);
-    if (date < since) {
-      throw new ValidationError(
-        `${vp.payment_number} was last posted on ${since}: an unapply dated ${date} would undo it before it happened.`,
-        'date'
-      );
-    }
+    await assertAfterLastEvent(client, entityId, vp, date, 'an unapply');
 
     const b = await client.query<{
       id: string; bill_number: string; amount_due: string; total_amount: string; currency_code: string;
@@ -2001,21 +2039,7 @@ export async function unapplyVendorPayment(
       );
     }
 
-    // What the bill's live applications explain. Anything else that stopped
-    // being owed was written off by a short pay, and no row says how much of
-    // it this payment carried.
-    const explained = await client.query<{ s: string }>(
-      `SELECT COALESCE(SUM(amount_applied + COALESCE(discount_amount, 0)), 0)::text AS s
-         FROM payment_applications WHERE bill_id = $1 AND unapplied_at IS NULL`,
-      [args.billId]
-    );
-    const writtenOff = new Decimal(bill.total_amount).minus(explained.rows[0].s).minus(bill.amount_due);
-    if (writtenOff.abs().greaterThanOrEqualTo('0.01')) {
-      throw new ValidationError(
-        `${bill.bill_number} was closed short (${writtenOff.toFixed(2)} written off): the write-off, its ` +
-          'account and its IVA are stored nowhere, so an unapply cannot give them back exactly.'
-      );
-    }
+    await assertNotClosedShort(client, bill, 'an unapply');
     if (live.rows.some((r) => r.iva_reclass_amount === null) && (await entityUsesCashBasisIva(client, entityId))) {
       throw new ValidationError(
         `The application of ${vp.payment_number} on ${bill.bill_number} predates migration 105 and did ` +
@@ -2091,6 +2115,159 @@ export async function unapplyVendorPayment(
       ivaReparked: iva.toFixed(2),
       date,
       remainingOnAccount: remaining.toFixed(2),
+    };
+    if (opts.dryRun) throw new EnsayoEvento(result);
+    return result;
+  };
+
+  return ejecutarEvento(run, opts);
+}
+
+export interface VendorReverseResult {
+  paymentId: string;
+  paymentNumber: string;
+  date: string;
+  /** Each entry of the payment and the mirror that undoes it. */
+  reversals: { entryNumber: string; of: string }[];
+  attestations: { entityId: string; entryId: string }[];
+  /** The bills owed again, by what this payment still had applied to them. */
+  documents: DocumentoAplicado[];
+}
+
+/**
+ * Reverse a vendor payment (#98 · MNE-001-128): the transfer came back, so
+ * the payment itself is undone, not only its applications (that is
+ * `unapplyVendorPayment`, where the cash stays on account).
+ *
+ * Every posted entry of the payment (the payment, and each later application
+ * and unapplication) gets its NIF B-1 mirror dated `date`: the mirror is
+ * exact by construction, IVA and exchange legs included, so nothing is
+ * re-derived. The bills reopen by what the LIVE applications carried
+ * (amount plus discount); those rows are closed on the same date, never
+ * deleted, and the payment turns 'reversed' (118) with that date.
+ *
+ * `date` (default today) cannot be in the future nor before the payment's
+ * last posted event. A bill closed short is refused, as `payment unapply`
+ * refuses it: the mirror would give the write-off back to the ledger while no
+ * row says how much of it to give back to the bill.
+ */
+export async function reverseVendorPayment(
+  entityId: string,
+  paymentId: string,
+  args: { reason: string; date?: string },
+  userId: string,
+  opts: OpcionesPago = {}
+): Promise<VendorReverseResult> {
+  const reason = args.reason.trim();
+  if (!reason) throw new ValidationError('Say why the payment is reversed: the reason goes to the audit trail.');
+  const today = toCalendarDate(new Date());
+  const date = args.date === undefined ? today : toCalendarDate(args.date);
+  if (date > today) throw new ValidationError(`A reversal cannot be dated in the future (${date}).`, 'date');
+
+  const run = async (client: pg.PoolClient): Promise<VendorReverseResult> => {
+    const vp = await pagoProveedorParaEscribir(client, entityId, paymentId);
+    await assertAfterLastEvent(client, entityId, vp, date, 'a reversal');
+
+    const live = await client.query<{
+      id: string; bill_id: string; amount_applied: string; discount_amount: string;
+    }>(
+      `SELECT id, bill_id, amount_applied::text, COALESCE(discount_amount, 0)::text AS discount_amount
+         FROM payment_applications
+        WHERE payment_id = $1 AND unapplied_at IS NULL
+        ORDER BY bill_id
+        FOR UPDATE`,
+      [paymentId]
+    );
+    const byBill = new Map<string, { amount: Decimal; discount: Decimal }>();
+    for (const r of live.rows) {
+      const acc = byBill.get(r.bill_id) ?? { amount: new Decimal(0), discount: new Decimal(0) };
+      byBill.set(r.bill_id, { amount: acc.amount.plus(r.amount_applied), discount: acc.discount.plus(r.discount_amount) });
+    }
+
+    const documents: DocumentoAplicado[] = [];
+    for (const [billId, { amount, discount }] of byBill) {
+      const b = await client.query<{
+        id: string; bill_number: string; amount_due: string; total_amount: string; currency_code: string;
+      }>(
+        `SELECT id, bill_number, amount_due::text, total_amount::text, currency_code
+           FROM bills WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+        [billId, entityId]
+      );
+      const bill = b.rows[0];
+      await assertNotClosedShort(client, bill, 'a reversal');
+      const reopened = amount.plus(discount);
+      const reopen = await client.query(
+        `UPDATE bills SET
+           amount_paid = amount_paid - $1,
+           amount_due  = amount_due + $2,
+           status = CASE WHEN amount_due + $2 >= total_amount THEN 'approved' ELSE 'partially_paid' END
+         WHERE id = $3 AND entity_id = $4 AND status IN ('paid', 'partially_paid')`,
+        [amount.toFixed(4), reopened.toFixed(4), billId, entityId]
+      );
+      if (reopen.rowCount !== 1) {
+        throw new AccountingError('REVERSE_RACE', `${bill.bill_number} changed while ${vp.payment_number} was being reversed; nothing was written.`);
+      }
+      const newDue = new Decimal(bill.amount_due).plus(reopened);
+      documents.push({
+        id: bill.id, numero: bill.bill_number,
+        saldoAnterior: new Decimal(bill.amount_due).toFixed(2),
+        saldoNuevo: newDue.toFixed(2),
+        estado: newDue.greaterThanOrEqualTo(bill.total_amount) ? 'approved' : 'partially_paid',
+        moneda: bill.currency_code,
+      });
+    }
+
+    const closed = await client.query(
+      `UPDATE payment_applications
+          SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3
+        WHERE id = ANY($4::uuid[]) AND payment_id = $5 AND unapplied_at IS NULL`,
+      [date, userId, `Reversed: ${reason}`, live.rows.map((r) => r.id), paymentId]
+    );
+    const marked = await client.query(
+      `UPDATE vendor_payments SET status = 'reversed', reversed_at = $1::date, updated_at = NOW()
+        WHERE id = $2 AND entity_id = $3 AND status = $4`,
+      [date, paymentId, entityId, ESTADO]
+    );
+    if (closed.rowCount !== live.rows.length || marked.rowCount !== 1) {
+      throw new AccountingError('REVERSE_RACE', `${vp.payment_number} changed while it was being reversed; nothing was written.`);
+    }
+
+    // Every posted event of the payment not yet mirrored, oldest first.
+    // FOR UPDATE because reverseWithinTransaction expects the caller to hold it.
+    const entries = await client.query<JournalEntry>(
+      `SELECT * FROM journal_entries
+        WHERE entity_id = $1 AND source_id = $2 AND status = 'posted' AND reversed_by_entry_id IS NULL
+          AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication')
+        ORDER BY created_at
+        FOR UPDATE`,
+      [entityId, paymentId]
+    );
+    const reversals: VendorReverseResult['reversals'] = [];
+    const attestations: VendorReverseResult['attestations'] = [];
+    for (const je of entries.rows) {
+      const mirror = await reverseWithinTransaction(
+        client, je, userId, `Reversal of ${je.entry_number}: ${reason}`, date
+      );
+      reversals.push({ entryNumber: mirror.entry_number, of: je.entry_number });
+      attestations.push({ entityId, entryId: mirror.id });
+    }
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      userId,
+      action: 'update',
+      entityType: 'vendor_payments',
+      entityId: paymentId,
+      oldValues: { status: ESTADO },
+      newValues: {
+        evento: 'reverse', status: 'reversed', date,
+        entries_reversed: reversals.length, bills_reopened: documents.map((d) => d.numero),
+      },
+      reason,
+    });
+
+    const result: VendorReverseResult = {
+      paymentId, paymentNumber: vp.payment_number, date, reversals, attestations, documents,
     };
     if (opts.dryRun) throw new EnsayoEvento(result);
     return result;
