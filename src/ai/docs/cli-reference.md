@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 225 of 349 subcommands
+  spelling is `-T` at the root and `-t` on the 226 of 350 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -88,7 +88,7 @@ Commands:
   fx|cambio                              Exchange rates: the origin every foreign-currency amount converts from
   prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
   payroll|nomina                         Payroll accounting: the benefit liability that is born on the day worked
-  pay-run|corrida                        Payroll runs of a pay period: create, calculate gross to net, approve
+  pay-run|corrida                        Payroll runs of a pay period: create, calculate gross to net, approve, post the entry
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
@@ -7085,7 +7085,8 @@ Examples:
 ```
 Usage: mnemosine pay-run|corrida [options] [command]
 
-Payroll runs of a pay period: create, calculate gross to net, approve
+Payroll runs of a pay period: create, calculate gross to net, approve, post the
+entry
 
 Options:
   -h, --help                         display help for command
@@ -7098,6 +7099,9 @@ Commands:
   approve|aprobar [options] <id>     Approve a calculated run, sealing its
                                      totals and writing the employer liability;
                                      irreversible
+  post|contabilizar [options] <id>   Build the payroll entry of an approved run
+                                     and leave it as a draft for `mnemosine
+                                     review`; --post posts it directly
   help [command]                     display help for command
 ```
 
@@ -7187,6 +7191,41 @@ Examples:
   mnemosine pay-run approve 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --dry-run
   # The approval, with a key: a retry returns the recorded result.
   mnemosine pay-run approve 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --yes --idempotency-key corrida-2026-07-1
+```
+
+### `mnemosine pay-run post` (alias: contabilizar)
+
+```
+Usage: mnemosine pay-run post|contabilizar [options] <id>
+
+Build the payroll entry of an approved run and leave it as a draft for
+`mnemosine review`; --post posts it directly
+
+Arguments:
+  id                                       approved pay run whose entry is built
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --post                                   post the entry to the ledger now instead of leaving a draft for review
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  -h, --help                               display help for command
+
+Examples:
+  # ALWAYS this one first: the entry the run would book, and whether it balances.
+  mnemosine pay-run post 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --dry-run
+  # The entry as a draft; a person approves it in `mnemosine review`.
+  mnemosine pay-run post 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d
+  # The escape: post it directly, with a key so a retry does not post twice.
+  mnemosine pay-run post 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --post --yes --idempotency-key poliza-2026-07-1
 ```
 
 ## `mnemosine e-accounting` (alias: contabilidad-electronica)

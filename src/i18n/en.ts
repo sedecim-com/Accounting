@@ -1007,4 +1007,14 @@ export const EN = {
     'The key "{key}" recorded entries that were reversed afterwards ({entries}). Returning that ' +
     'result would say {period} is accrued when it is not. Run it again with a new key (it is ' +
     'another run, not a retry) or without --idempotency-key.',
+
+  // --- pay-run post · corrida contabilizar (MNE-001-069) ------------------
+  'payrun.post.confirm':
+    'You are about to POST the entry of run {id} to the ledger (debits {debits} = credits {credits}) ' +
+    'without going through review. A posted entry is only undone by a reversal. Continue?',
+  'payrun.post.aborted': 'Nothing changed: the entry was not posted.',
+  'payrun.post.dry_run': 'Dry run: the entry of run {id} balances (debits {debits} = credits {credits}); nothing was written.',
+  'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
+  'payrun.post.posted': 'Entry of run {id} posted as {number}.',
+  'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
 } as const;
