@@ -702,16 +702,20 @@ export async function recordCustomerPayment(
     // does not convert yet (the realised difference is MNE-001-082), and
     // letting it through would credit USD 1 000 to cxc as MXN 1 000 against a
     // receivable booked at 17 500. It refuses, naming why, until it converts.
+    // NOTE: `booksCurrency`, not `functionalCurrency`: the T23 criterion
+    // (E1.2 an-advance-cannot-be-booked-in-another-currency) anchors on the advance guard's exact
+    // `const functionalCurrency = …` line below, and a twin here would move
+    // its anchor and its mutant onto this guard.
     if (documentos.length > 0) {
-      const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);
+      const booksCurrency = await functionalCurrencyOf(client, entrada.entityId);
       const receiptCurrency = currencyOf(documentos);
-      if (receiptCurrency !== functionalCurrency) {
+      if (receiptCurrency !== booksCurrency) {
         throw new AccountingError(
           'FX_AR_RECEIPT_NOT_WIRED',
           `El cobro aplica a facturas en ${receiptCurrency} y esta entidad lleva sus libros en ` +
-            `${functionalCurrency}. La factura ya se asentó convertida, pero el cobro todavía no ` +
+            `${booksCurrency}. La factura ya se asentó convertida, pero el cobro todavía no ` +
             'convierte ni reconoce la diferencia cambiaria realizada: registrarlo hoy abonaría ' +
-            `${receiptCurrency} a la cuenta por cobrar como si fueran ${functionalCurrency}. ` +
+            `${receiptCurrency} a la cuenta por cobrar como si fueran ${booksCurrency}. ` +
             'No lo registro hasta que el cobro tenga el mismo motor que el pago a proveedor.'
         );
       }
