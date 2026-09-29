@@ -330,8 +330,8 @@ export async function restorePeriodStatus(
 
     // Mismo cliente que el UPDATE: o el periodo vuelve a estar cerrado CON su
     // arrastre rehecho, o no vuelve a estar cerrado.
-    const arrastradas =
-      status === 'hard_close' ? await carryForwardBalances(client, entityId, periodId) : 0;
+    const carry =
+      status === 'hard_close' ? await carryForwardBalances(client, entityId, periodId) : null;
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
@@ -340,7 +340,12 @@ export async function restorePeriodStatus(
       entityType: 'fiscal_period',
       entityId: periodId,
       oldValues: { status: 'open' },
-      newValues: { status, carried_accounts: arrastradas },
+      newValues: {
+        status,
+        carried_accounts: carry?.carried ?? 0,
+        ...(carry ? { carried_into: carry.periods } : {}),
+        ...(carry?.stopped_at_locked ? { carry_stopped_at_locked: carry.stopped_at_locked } : {}),
+      },
       reason,
     });
     return r.rows[0];
