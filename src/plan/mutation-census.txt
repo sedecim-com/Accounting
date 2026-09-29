@@ -77,6 +77,8 @@ mirror	memory	E0.1 posting-and-close-lock-period	src/services/accounting/posting
 mirror	memory	E0.1 single-maker-checker-gate	src/services/accounting/posting.ts	el lector deja de comparar contra el literal del panel: la política existiría sin morder
 mirror	memory	E0.1 credit-note-posts-at-issue	src/services/accounting/ar-ap-posting.ts	la nota pierde su source_type: el asiento quedaría sin documento
 mirror	memory	E0.1 invoice-gap-and-tax-profile	src/database/migrations/049_cobrar.sql	el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \b lo mata
+mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the defect of #102: the whitelist lacked a current SAT code, so `customer tax set --uso-cfdi D10` refused every school customer
+mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the same defect on c_RegimenFiscal: `--tax-regime 611` refused a current regime
 mirror	memory	E0.2 migration-fails-loud-under-rls	src/database/migrate.ts	apagar el piso es exactamente la regresión que costó cuatro siembras silenciosas
 mirror	memory	E0.2 matview-migration-survives-rls-floor	src/database/migrations/071_las_vistas_que_perdian_la_archivada.sql	EL DEFECTO MEDIDO: sin el traje del refrescador, `CREATE MATERIALIZED VIEW ... AS SELECT ... FROM accounts` muere con 42501 contra el piso `row_security = off` y la actualización de TODO despacho instalado se detiene ahí — en instalación nueva no se nota, porque las políticas aún no existen cuando corre
 mirror	memory	E0.2 distributed-migration-repaired-by-new-file	src/database/migrations/072_la_huella_que_se_podia_forjar.sql	la trampa medida: recrear el disparador se lleva por delante el `ENABLE ALWAYS` de la 058, y el remedio dejaría el sello «garantia-sellada» colgado de un disparador que vuelve a poder apagarse con session_replication_role
@@ -656,6 +658,8 @@ anchor	src/plan/criteria/e0-1.ts	de: 'bloquearPeriodoParaPostear(client',
 anchor	src/plan/criteria/e0-1.ts	de: "politica.value === 'exigir'",
 anchor	src/plan/criteria/e0-1.ts	de: "sourceType: 'credit_note'",
 anchor	src/plan/criteria/e0-1.ts	de: 'ADD COLUMN tax_regime VARCHAR(3),',
+anchor	src/plan/criteria/e0-1.ts	de: " 'D10': 'Pagos por servicios educativos (colegiaturas)',\n",
+anchor	src/plan/criteria/e0-1.ts	de: " '611': 'Ingresos por Dividendos (socios y accionistas)',\n",
 anchor	src/plan/criteria/e0-2.ts	de: "await client.query('SET row_security = off');",
 anchor	src/plan/criteria/e0-2.ts	de: "EXECUTE 'SET LOCAL ROLE mnemosine_refresher';",
 anchor	src/plan/criteria/e0-2.ts	de: 'ALTER TABLE bank_transactions ENABLE ALWAYS TRIGGER bank_transactions_content_hash;',
