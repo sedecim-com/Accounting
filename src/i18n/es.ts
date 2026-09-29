@@ -602,8 +602,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.reconciliation.approve.confirm':
     'Vas a FIRMAR la sesión {session} con la instantánea {hash}… ' +
     '({items, plural, one {# partida} other {# partidas}}, ' +
-    '{adjustments, plural, one {# ajuste} other {# ajustes}}, variación {variance}). La firma no ' +
-    'se retira: volver a aprobarla se rechaza. ¿Continuar?',
+    '{adjustments, plural, one {# ajuste} other {# ajustes}}, variación {variance}). Volver a ' +
+    'aprobarla se rechaza; retirar la firma pide `bank reconciliation reopen` y un motivo. ' +
+    '¿Continuar?',
   'bank.reconciliation.approve.already_signed': 'sesión {session} ya firmada',
   'bank.reconciliation.approve.summary': '· {status} · firmada por {by} el {on}',
   'bank.reconciliation.approve.not_posted_yet':
@@ -611,6 +612,18 @@ export const ES: Record<keyof typeof EN, string> = {
     'ajustes que esta firma acaba de congelar.',
   'bank.reconciliation.approve.dry_run':
     'Ensayo: se firmó de verdad y se deshizo. El hash es el que quedaría.',
+
+  'bank.reconciliation.reopen.title': 'LO QUE SE VA A REABRIR',
+  'bank.reconciliation.reopen.transition': 'sesión {session} · {from} → {to} · approved → in_progress',
+  'bank.reconciliation.reopen.withdrawn':
+    'firma que se retira: {by} el {on} (la bitácora la conserva con su instantánea)',
+  'bank.reconciliation.reopen.confirm':
+    'Vas a REABRIR la sesión {session} y retirar su firma {hash}… ¿Continuar?',
+  'bank.reconciliation.reopen.already_reopened': 'sesión {session} ya reabierta',
+  'bank.reconciliation.reopen.summary': '· {status} · firma retirada',
+  'bank.reconciliation.reopen.next':
+    'Corrige lo que estaba mal y vuelve a correr `bank reconciliation close` y `approve` sobre el mismo rango.',
+  'bank.reconciliation.reopen.dry_run': 'Ensayo: se reabrió de verdad y se deshizo.',
 
   // --- bank reconciliation post · generate --------------------------------
   'bank.reconciliation.post.already_posted': 'La sesión ya está contabilizada',
