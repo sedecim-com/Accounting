@@ -6407,7 +6407,7 @@ Commands:
   preview|previsualizar [options] [period]  Read-only twin of closing start: says whether the period can enter close and what is missing
   check|verificar [options]                 Run the close verification catalog, or only the named checks; bare --check lists the names
   explain|explicar [options] <code>         Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it
-  run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, verify the checklist and soft-close, in that order
+  run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order
   pack|paquete                              The dossier of a close: generate it, and verify that its figures still reproduce
   help [command]                            display help for command
 ```
@@ -6516,8 +6516,8 @@ Examples:
 ```
 Usage: mnemosine closing run|ejecutar [options] [period]
 
-Conduct the close: accrue, amortize, depreciate, verify the checklist and
-soft-close, in that order
+Conduct the close: accrue, amortize, depreciate, verify the checklist,
+soft-close and hard-close, in that order
 
 Arguments:
   period                                   open period name or id (default: the oldest open one)
@@ -6531,7 +6531,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, verify-checklist, soft-close
+  --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, verify-checklist, soft-close, hard-close
   --resume                                 continue the open run of this period; every step runs again, posting only what is missing
   --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
@@ -6546,6 +6546,8 @@ Examples:
   mnemosine closing run "July 2026" --entity "Acme SA de CV" --yes
   # Do the month but leave the period open: --stop-at stops BEFORE the step.
   mnemosine closing run --stop-at soft-close --yes
+  # Soft-close it and leave the irreversible seal to a person.
+  mnemosine closing run --stop-at hard-close --yes
   # Continue a run somebody left halted. Without --resume it refuses, on
   # purpose: continuing another person's run in silence is how "I ran it"
   # stops being a claim anybody can stand behind. Every step runs again; the
