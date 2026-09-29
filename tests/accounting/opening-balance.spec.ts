@@ -12,6 +12,9 @@ vi.mock('../../src/services/accounting/posting.js', () => ({
   createJournalEntry: vi.fn(),
   attestEntryAsync: vi.fn(),
 }));
+vi.mock('../../src/services/policy/policy-service.js', () => ({
+  getPolicy: vi.fn(),
+}));
 
 import {
   planOpeningBalance,
@@ -29,12 +32,17 @@ import { query, withTransaction } from '../../src/database/connection.js';
 import { registrarAuditoria } from '../../src/services/audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync } from '../../src/services/accounting/posting.js';
 import { ValidationError } from '../../src/utils/errors.js';
+import { getPolicy } from '../../src/services/policy/policy-service.js';
 
 const mockQuery = query as unknown as Mock;
 const mockTx = withTransaction as unknown as Mock;
 const mockAudit = registrarAuditoria as unknown as Mock;
 const mockCrear = createJournalEntry as unknown as Mock;
 const mockAtestar = attestEntryAsync as unknown as Mock;
+const mockPolicy = getPolicy as unknown as Mock;
+/** What `apertura_modo_de_carga` answers in the test at hand. */
+const loadModeIs = (value: string) =>
+  mockPolicy.mockResolvedValue({ key: 'apertura_modo_de_carga', value, defined: true });
 
 // ============================================================
 // O1 · LA BALANZA DE APERTURA
@@ -613,7 +621,7 @@ interface Escenario {
   ejercicios?: { id: string; year_number: number; start_date: string }[];
   todosLosEjercicios?: { year_number: number; start_date: string }[];
   cuentas?: OpeningAccountRow[];
-  yaCargada?: { entry_number: string }[];
+  yaCargada?: { entry_number: string; status?: string }[];
 }
 
 function conBase(e: Escenario = {}): void {
@@ -637,7 +645,9 @@ function conBase(e: Escenario = {}): void {
           ],
       };
     }
-    if (sql.includes('FROM journal_entries')) return { rows: e.yaCargada ?? [] };
+    if (sql.includes('FROM journal_entries')) {
+      return { rows: (e.yaCargada ?? []).map((r) => ({ status: 'posted', ...r })) };
+    }
     throw new Error(`consulta no prevista: ${sql}`);
   });
 }
@@ -654,6 +664,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockTx.mockImplementation(async (fn: (c: unknown) => Promise<unknown>) => fn({}));
   mockCrear.mockResolvedValue({ id: 'je-1', entry_number: 'JE-2026-0001' });
+  loadModeIs('contabilizar');
   conBase();
 });
 
@@ -913,6 +924,71 @@ describe('renderOpeningBalanceReport', () => {
   it('en ensayo lo dice, en vez de dejar creer que escribió', async () => {
     const r = await importOpeningBalance(CTX, { ...OPTS, dryRun: true });
     expect(renderOpeningBalanceReport(r)).toContain('NADA ESCRITO: es un ensayo');
+  });
+});
+
+// ------------------------------------------------------------
+// 8 · apertura_modo_de_carga (MNE-001-099 · #220)
+// ------------------------------------------------------------
+
+describe('apertura_modo_de_carga · posting stays the default, draft is the opt-in', () => {
+  it('reads the key for THIS entity, not only for the tenant', async () => {
+    await importOpeningBalance(CTX, { ...OPTS, dryRun: true });
+    expect(mockPolicy).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', entityId: 'ent-1' },
+      'apertura_modo_de_carga'
+    );
+  });
+
+  it('contabilizar posts, and the report says so before anything is written', async () => {
+    const preview = await importOpeningBalance(CTX, { ...OPTS, dryRun: true });
+    expect(preview.loadMode).toBe('post');
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.loadMode).toBe('post');
+    expect(mockCrear.mock.calls[0][6]).toMatchObject({ autoPost: true });
+    expect(mockAtestar).toHaveBeenCalledTimes(1);
+  });
+
+  it('borrador leaves a draft: no autoPost, no attestation, and the report names entry post', async () => {
+    loadModeIs('borrador');
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.loadMode).toBe('draft');
+    expect(r.escrito).toBe(true);
+    expect(r.asiento).toEqual({ id: 'je-1', entry_number: 'JE-2026-0001' });
+    expect(mockCrear.mock.calls[0][6]).toMatchObject({ sourceType: 'opening_balance', autoPost: false });
+    expect(mockAtestar).not.toHaveBeenCalled();
+    const auditRow = mockAudit.mock.calls[0][1] as { newValues: Record<string, unknown> };
+    expect(auditRow.newValues.load_mode).toBe('borrador');
+    const text = renderOpeningBalanceReport(r);
+    expect(text).toContain('BORRADOR: asiento JE-2026-0001');
+    expect(text).toContain('mnemosine entry post JE-2026-0001');
+    expect(text).not.toContain('POSTEADO');
+  });
+
+  it('a dry run under borrador says the load will leave a draft', async () => {
+    loadModeIs('borrador');
+    const r = await importOpeningBalance(CTX, { ...OPTS, dryRun: true });
+    expect(renderOpeningBalanceReport(r)).toContain('dejará un BORRADOR');
+    loadModeIs('contabilizar');
+    const p = await importOpeningBalance(CTX, { ...OPTS, dryRun: true });
+    expect(renderOpeningBalanceReport(p)).not.toContain('BORRADOR');
+  });
+
+  it('a value outside the catalog posts, the side the owner chose as the default', async () => {
+    loadModeIs('algo-raro');
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.loadMode).toBe('post');
+    expect(mockCrear.mock.calls[0][6]).toMatchObject({ autoPost: true });
+  });
+
+  it('an opening draft already standing blocks a second load and says how to finish it', async () => {
+    conBase({ yaCargada: [{ entry_number: 'JE-2026-0001', status: 'draft' }] });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(false);
+    const h = r.findings.find((f) => f.regla === 'APE-YA-CARGADA');
+    expect(h?.mensaje).toContain('en borrador');
+    expect(h?.mensaje).toContain('entry post');
+    expect(mockCrear).not.toHaveBeenCalled();
   });
 });
 
