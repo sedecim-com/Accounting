@@ -6,9 +6,10 @@ import { query, withTransaction } from '../../database/connection.js';
 import { requireByIdInScope, type Scope } from '../../database/scope.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
-import { FLOOR_MAX_AUTO_POST, floorMaxAutoAmount } from '../../ai/floor.js';
+import { floorMaxAutoAmount } from '../../ai/floor.js';
 import { MATCHED_ENTITY_TYPES } from '../../database/enums.js';
-import { descriptionSimilarity, findBestMatch } from './matching.js';
+import { getPolicy } from '../policy/policy-service.js';
+import { descriptionSimilarity, findBestMatch, techoDeMontoAuto } from './matching.js';
 import type { BankTransaction } from '../../types/index.js';
 
 // ============================================================
@@ -113,9 +114,6 @@ export type MotivoOmision = (typeof MOTIVOS_OMISION)[number];
  * nuevo para la misma pregunta.
  */
 const MATCH_WINDOW_DAYS = 3;
-
-/** Confianza mínima por omisión de `run`, la que el motor ya usaba al cruzar. */
-const CONFIANZA_POR_OMISION = 0.85;
 
 /**
  * Cuántos movimientos se proponen como máximo de una vez. Existe porque el
@@ -790,6 +788,89 @@ async function sesionEscribible(
 }
 
 // ============================================================
+// THE TWO ENGINE GATES, FROM THE PANEL (MNE-001-043 · #128)
+// ============================================================
+
+/**
+ * The confidence threshold and the amount ceiling that `bank match
+ * preview|run|apply` enforce, already resolved.
+ *
+ * They used to be a hard-coded 0.85 and the bare floor, while the panel's
+ * `cotejo_umbral_confianza` and `cotejo_monto_maximo_auto` were read only by
+ * the REST `auto-match` route: a firm that answered "strict" in `pending`
+ * still had the terminal pairing 0.90 candidates on its own.
+ */
+export interface MatchGates {
+  minConfidence: number;
+  maxAmount: number;
+}
+
+/** A panel value as a number; blank is unreadable, not zero (`Number('  ')` is 0). */
+function panelNumber(raw: string): number {
+  const trimmed = raw.trim();
+  return trimmed === '' ? Number.NaN : Number(trimmed);
+}
+
+/**
+ * The panel's answers combined with the run's flags. Pure, so the asymmetry
+ * is testable without a database.
+ *
+ * The same asymmetry as the ingest thresholds (`src/ai/ingest-thresholds.ts`,
+ * A7): a flag may TIGHTEN a gate for one run, never loosen what the firm
+ * answered. The amount ceiling goes through `techoDeMontoAuto`, the reader the
+ * REST route already uses, and then `Math.min` with the flag: the floor of
+ * `src/ai/floor.ts` stays under both (invariant 2).
+ *
+ * An unreadable panel value fails CLOSED, as it does in the REST route: an
+ * infinite threshold or a zero ceiling leaves every line for a person.
+ */
+export function combineMatchGates(
+  panel: { threshold: string; ceiling: string },
+  flags: { minConfianza?: number; maxMonto?: string }
+): MatchGates {
+  const threshold = panelNumber(panel.threshold);
+  const panelConfidence = Number.isFinite(threshold) ? threshold : Number.POSITIVE_INFINITY;
+  const minConfidence =
+    flags.minConfianza !== undefined && flags.minConfianza > panelConfidence
+      ? flags.minConfianza
+      : panelConfidence;
+
+  const panelCeiling = techoDeMontoAuto(panelNumber(panel.ceiling));
+  const maxAmount =
+    flags.maxMonto === undefined
+      ? panelCeiling
+      : Math.min(panelCeiling, floorMaxAutoAmount(new Decimal(flags.maxMonto).toNumber()));
+
+  return { minConfidence, maxAmount };
+}
+
+/**
+ * The gates for one entity, read once per call and not once per line.
+ * The policy context is the ENTITY's, as in the REST route: an entity answer
+ * wins over the tenant's.
+ */
+function matchGatesReader(
+  scope: Scope,
+  flags: { minConfianza?: number; maxMonto?: string }
+): (entityId: string) => Promise<MatchGates> {
+  const cache = new Map<string, Promise<MatchGates>>();
+  return (entityId) => {
+    let gates = cache.get(entityId);
+    if (!gates) {
+      const ctx = { tenantId: scope.tenantId, entityId };
+      gates = Promise.all([
+        getPolicy(ctx, 'cotejo_umbral_confianza'),
+        getPolicy(ctx, 'cotejo_monto_maximo_auto'),
+      ]).then(([threshold, ceiling]) =>
+        combineMatchGates({ threshold: threshold.value, ceiling: ceiling.value }, flags)
+      );
+      cache.set(entityId, gates);
+    }
+    return gates;
+  };
+}
+
+// ============================================================
 // PREVISUALIZAR · fila 1224
 // ============================================================
 
@@ -855,10 +936,16 @@ export async function previsualizarCotejo(
   opts: OpcionesPrevisualizacion
 ): Promise<MovimientoPrevisto[]> {
   const movimientos = await movimientosParaProponer(scope, opts);
+  const gatesFor = matchGatesReader(scope, opts);
   const previstos: MovimientoPrevisto[] = [];
 
   for (const { entityId, tx } of movimientos) {
-    previstos.push(await preverMovimiento(scope, entityId, tx, opts));
+    previstos.push(
+      await preverMovimiento(scope, entityId, tx, {
+        gates: await gatesFor(entityId),
+        soloReglas: opts.soloReglas,
+      })
+    );
   }
   return previstos;
 }
@@ -926,7 +1013,7 @@ async function preverMovimiento(
   scope: Scope,
   entityId: string,
   tx: FilaMovimiento & BankTransaction,
-  opts: { minConfianza?: number; maxMonto?: string; soloReglas?: boolean }
+  opts: { gates: MatchGates; soloReglas?: boolean }
 ): Promise<MovimientoPrevisto> {
   const fecha = new Date(tx.transaction_date);
   const base: MovimientoPrevisto = {
@@ -999,17 +1086,15 @@ function compuertaDeAplicacion(
   confianza: number,
   autoAplicable: boolean,
   periodo: PeriodoDelMovimiento | null,
-  opts: { minConfianza?: number; maxMonto?: string; soloReglas?: boolean }
+  opts: { gates: MatchGates; soloReglas?: boolean }
 ): MotivoOmision | null {
-  if (confianza < (opts.minConfianza ?? CONFIANZA_POR_OMISION)) return 'confianza-baja';
+  if (!(confianza >= opts.gates.minConfidence)) return 'confianza-baja';
 
-  // EL PISO DE MONTO. `floorMaxAutoAmount` combina el tope configurado con el
-  // del código por Math.min: una configuración no puede subirlo. El tope es
+  // EL PISO DE MONTO. `combineMatchGates` ya combinó el panel, la bandera y
+  // el piso por Math.min: ninguna configuración puede subirlo. El tope es
   // una constante de política y el importe es dinero, así que la comparación
   // ocurre en Decimal y no al revés.
-  const tope = new Decimal(floorMaxAutoAmount(
-    opts.maxMonto !== undefined ? new Decimal(opts.maxMonto).toNumber() : FLOOR_MAX_AUTO_POST
-  ));
+  const tope = new Decimal(opts.gates.maxAmount);
   if (new Decimal(senales.importeBanco).abs().greaterThan(tope)) return 'monto-sobre-piso';
 
   if (!periodoAdmite(periodo, true)) return 'periodo-cerrado';
@@ -1162,6 +1247,7 @@ export async function aplicarCotejos(
   }
 
   const previstos: MovimientoPrevisto[] = [];
+  const gatesFor = matchGatesReader(scope, opts);
   let entityId: string | null = null;
   let cuentaId: string | null = null;
 
@@ -1178,7 +1264,10 @@ export async function aplicarCotejos(
       );
     }
     previstos.push(
-      await preverMovimiento(scope, mov.entityId, mov.tx, { ...opts, soloReglas: false })
+      await preverMovimiento(scope, mov.entityId, mov.tx, {
+        gates: await gatesFor(mov.entityId),
+        soloReglas: false,
+      })
     );
   }
 

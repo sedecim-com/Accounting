@@ -734,11 +734,14 @@ export const EN = {
     'Dry run: it really was signed, and then rolled back. The hash is the one that would remain.',
 
   'bank.reconciliation.reopen.title': 'WHAT IS ABOUT TO BE REOPENED',
-  'bank.reconciliation.reopen.transition': 'session {session} · {from} → {to} · approved → in_progress',
+  'bank.reconciliation.reopen.transition': 'session {session} · {from} → {to} · {previous} → in_progress',
+  'bank.reconciliation.reopen.reversal':
+    'entry {entry} reversed by {reversal} (never deleted); its adjustment is a pending draft again',
   'bank.reconciliation.reopen.withdrawn':
     'signature withdrawn: {by} on {on} (the audit trail keeps it with its snapshot)',
   'bank.reconciliation.reopen.confirm':
-    'You are about to REOPEN session {session} and withdraw its signature {hash}… ' +
+    'You are about to REOPEN session {session} and withdraw its signature {hash}…' +
+    '{reversals, plural, =0 {} one { It reverses # posted entry.} other { It reverses # posted entries.}} ' +
     'Continue?',
   'bank.reconciliation.reopen.already_reopened': 'session {session} already reopened',
   'bank.reconciliation.reopen.summary': '· {status} · signature withdrawn',
@@ -808,15 +811,16 @@ export const EN = {
   'bank.fee.post.totals': 'totals: charge {charge} · expense {expense} · VAT {vat}',
   'bank.fee.post.confirm':
     'You are about to POST {count, plural, one {# fee} other {# fees}} from {from} to {to} on ' +
-    'account {account}, for {total} (VAT {vat} to pending-creditable). The ledger is immutable: ' +
-    'this is only corrected by reversal. Continue?',
+    'account {account}, for {total} (VAT {vat}; {released} moves to creditable). The ledger is ' +
+    'immutable: this is only corrected by reversal. Continue?',
   'bank.fee.post.fees': '{count, plural, one {# fee} other {# fees}}',
   'bank.fee.post.summary':
     '· {posted, plural, one {# posted} other {# posted}} · ' +
     '{skipped, plural, one {# skipped} other {# skipped}} · charge {charge} · VAT {vat}',
-  'bank.fee.post.vat_pending_note':
-    'The VAT stays pending-creditable: it is credited with `bank fee apply` when the bank’s CFDI ' +
-    'arrives, not here.',
+  'bank.fee.post.vat_release_ref': 'fee VAT to creditable · entry {entry}',
+  'bank.fee.post.vat_released_note':
+    'The fees’ VAT ({vat}) moved from pending-creditable to creditable in the month of the ' +
+    'charge. Keep the bank’s CFDI: without it the credit does not stand.',
   'bank.interest.post.title': 'INTEREST',
   'bank.interest.post.withholding': 'withholding {rate}',
   'bank.interest.post.nothing_to_post': 'no credit to post',
@@ -977,4 +981,21 @@ export const EN = {
   'report.net_income': 'Net income',
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
+  // --- pay-run · corrida (MNE-001-068) -----------------------------------
+  'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
+  'payrun.file_duplicate_employee':
+    'Employee {employee} appears twice in {path}: a run has one paycheck per employee. Nothing was calculated.',
+  'payrun.create.period_required':
+    'Missing --period: a run belongs to one pay period of the entity, and it is not guessed from the clock.',
+  'payrun.create.next': 'Next: `mnemosine pay-run calculate {id} --file <inputs.json>`.',
+  'payrun.calculate.file_required':
+    'Missing --file: the employee inputs of the period (earnings and deductions) come from a JSON file.',
+  'payrun.calculate.next': 'Next: `mnemosine pay-run approve {id} --dry-run` to see what approving writes.',
+  'payrun.approve.confirm':
+    'You are about to APPROVE run {id} ({employees, plural, one {# employee} other {# employees}}, ' +
+    'net pay {net}) and write its employer liability. Approval is not undone. Continue?',
+  'payrun.approve.aborted': 'Nothing changed: the run was not approved.',
+  'payrun.approve.done': 'Run {id} approved · {status}',
+  'payrun.approve.repeated': 'Run {id} was already approved under this key: the recorded result is shown · {status}',
+  'payrun.approve.dry_run': 'Dry run: run {id} was approved and rolled back; it is still {status}.',
 } as const;

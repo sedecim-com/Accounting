@@ -614,11 +614,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'Ensayo: se firmó de verdad y se deshizo. El hash es el que quedaría.',
 
   'bank.reconciliation.reopen.title': 'LO QUE SE VA A REABRIR',
-  'bank.reconciliation.reopen.transition': 'sesión {session} · {from} → {to} · approved → in_progress',
+  'bank.reconciliation.reopen.transition': 'sesión {session} · {from} → {to} · {previous} → in_progress',
+  'bank.reconciliation.reopen.reversal':
+    'asiento {entry} revertido por {reversal} (nunca borrado); su ajuste vuelve a ser un borrador pendiente',
   'bank.reconciliation.reopen.withdrawn':
     'firma que se retira: {by} el {on} (la bitácora la conserva con su instantánea)',
   'bank.reconciliation.reopen.confirm':
-    'Vas a REABRIR la sesión {session} y retirar su firma {hash}… ¿Continuar?',
+    'Vas a REABRIR la sesión {session} y retirar su firma {hash}…' +
+    '{reversals, plural, =0 {} one { Revierte # asiento contabilizado.} other { Revierte # asientos contabilizados.}} ' +
+    '¿Continuar?',
   'bank.reconciliation.reopen.already_reopened': 'sesión {session} ya reabierta',
   'bank.reconciliation.reopen.summary': '· {status} · firma retirada',
   'bank.reconciliation.reopen.next':
@@ -686,15 +690,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.fee.post.totals': 'totales: cargo {charge} · gasto {expense} · IVA {vat}',
   'bank.fee.post.confirm':
     'Vas a CONTABILIZAR {count, plural, one {# comisión} other {# comisiones}} del {from} al {to} ' +
-    'en la cuenta {account}, por {total} (IVA {vat} a pendiente de acreditar). El mayor es ' +
-    'inmutable: esto sólo se corrige por reversa. ¿Continuar?',
+    'en la cuenta {account}, por {total} (IVA {vat}; pasan a IVA acreditable {released}). El ' +
+    'mayor es inmutable: esto sólo se corrige por reversa. ¿Continuar?',
   'bank.fee.post.fees': '{count, plural, one {# comisión} other {# comisiones}}',
   'bank.fee.post.summary':
     '· {posted, plural, one {# contabilizada} other {# contabilizadas}} · ' +
     '{skipped, plural, one {# omitida} other {# omitidas}} · cargo {charge} · IVA {vat}',
-  'bank.fee.post.vat_pending_note':
-    'El IVA queda en pendiente de acreditar: se acredita con `bank fee apply` cuando llegue el ' +
-    'CFDI del banco, no aquí.',
+  'bank.fee.post.vat_release_ref': 'IVA de la comisión a acreditable · póliza {entry}',
+  'bank.fee.post.vat_released_note':
+    'El IVA de las comisiones ({vat}) pasó de pendiente de acreditar a IVA acreditable en el mes ' +
+    'del cargo. Conserva el CFDI del banco: sin él no procede el acreditamiento.',
   'bank.interest.post.title': 'INTERESES',
   'bank.interest.post.withholding': 'retención {rate}',
   'bank.interest.post.nothing_to_post': 'ningún abono que contabilizar',
@@ -844,4 +849,21 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.net_income': 'Utilidad neta',
   'report.balance_check': 'Activo {assets} = Pasivo + Capital {total}',
   'report.income_summary': 'Ingresos {revenue}   Gastos {expenses}   Utilidad neta {net}',
+  // --- pay-run · corrida (MNE-001-068) -----------------------------------
+  'payrun.file_invalid': 'El archivo de insumos {path} no se puede usar: {detail}. No se calculó nada.',
+  'payrun.file_duplicate_employee':
+    'El empleado {employee} aparece dos veces en {path}: una corrida lleva un recibo por empleado. No se calculó nada.',
+  'payrun.create.period_required':
+    'Falta --period: una corrida es de un periodo de pago de la entidad, y no se adivina del reloj.',
+  'payrun.create.next': 'Sigue: `mnemosine pay-run calculate {id} --file <insumos.json>`.',
+  'payrun.calculate.file_required':
+    'Falta --file: los insumos del periodo (percepciones y deducciones) vienen de un archivo JSON.',
+  'payrun.calculate.next': 'Sigue: `mnemosine pay-run approve {id} --dry-run` para ver lo que escribe aprobar.',
+  'payrun.approve.confirm':
+    'Vas a APROBAR la corrida {id} ({employees, plural, one {# empleado} other {# empleados}}, ' +
+    'neto {net}) y a escribir su pasivo patronal. La aprobación no se deshace. ¿Continuar?',
+  'payrun.approve.aborted': 'Sin cambios: la corrida no se aprobó.',
+  'payrun.approve.done': 'Corrida {id} aprobada · {status}',
+  'payrun.approve.repeated': 'La corrida {id} ya se aprobó con esta llave: se muestra el resultado grabado · {status}',
+  'payrun.approve.dry_run': 'Ensayo: la corrida {id} se aprobó y se deshizo; sigue en {status}.',
 };

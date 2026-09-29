@@ -4268,8 +4268,8 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/accounting/ar-ap-posting.ts:136",
-      "es": "FX_AR_NOT_WIRED",
+      "where": "src/services/payments/payment-service.ts:710",
+      "es": "FX_AR_RECEIPT_NOT_WIRED",
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Ya es el término inglés; FX y AR son acrónimos internacionales, no vocabulario nuestro."
@@ -4864,6 +4864,38 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Ya es el término inglés. Declarado y nunca lanzado."
+    },
+    {
+      "class": "error-code",
+      "where": "src/api/rest/routes/ai-webhooks.ts:109; src/api/rest/middleware/error-handler.ts:17",
+      "es": "PAYLOAD_TOO_LARGE",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already the English term. Webhook refusal code, and the code errorHandler gives body-parser's entity.too.large on every JSON route (413, #315)."
+    },
+    {
+      "class": "error-code",
+      "where": "src/api/rest/routes/ai-webhooks.ts:110; src/api/rest/middleware/error-handler.ts:19",
+      "es": "MALFORMED_BODY",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already the English term. Webhook refusal code, and the code errorHandler gives any other 4xx body-parser refusal (400, #315)."
+    },
+    {
+      "class": "error-code",
+      "where": "src/api/rest/routes/ai-webhooks.ts:129; src/api/rest/middleware/error-handler.ts:18",
+      "es": "UNSUPPORTED_MEDIA_TYPE",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already the English term. Webhook refusal code for a non-JSON Content-Type, and the code errorHandler gives a body-parser 415 such as an unsupported charset (#315)."
+    },
+    {
+      "class": "error-code",
+      "where": "src/api/rest/routes/ai-webhooks.ts:136; src/api/rest/middleware/error-handler.ts:16",
+      "es": "INVALID_JSON",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already the English term. Webhook refusal code, and the code errorHandler gives body-parser's entity.parse.failed on every JSON route (400, #315)."
     },
     {
       "class": "openapi-extension",

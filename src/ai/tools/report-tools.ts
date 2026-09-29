@@ -16,6 +16,7 @@ import {
   queryLedgerRows,
 } from '../../services/reporting/report-service.js';
 import { avisoDeCierreEnRango } from '../../services/reporting/criterio-cierre.js';
+import { todayFor } from '../../services/policy/today.js';
 
 // ============================================================
 // REPORT TOOLS (read-only)
@@ -347,7 +348,7 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
     }),
     run: async (input) => {
       observe?.('get_aged_receivables', input);
-      const asOf = input.as_of_date ?? new Date().toISOString().split('T')[0];
+      const asOf = input.as_of_date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
       const all = await queryAgedReceivableRows(ctx.entityId, { asOfDate: asOf, order: 'overdue' });
       const invoices = all.map((r) => ({
         customer_name: r.customer_name,
@@ -380,7 +381,7 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
     }),
     run: async (input) => {
       observe?.('get_aged_payables', input);
-      const asOf = input.as_of_date ?? new Date().toISOString().split('T')[0];
+      const asOf = input.as_of_date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
       const all = await queryAgedPayableRows(ctx.entityId, { asOfDate: asOf, order: 'overdue' });
       const bills = all.map((r) => ({
         vendor_name: r.vendor_name,
