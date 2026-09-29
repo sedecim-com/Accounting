@@ -820,7 +820,8 @@ function imprimirAplicacion(
           ? ''
           : p.dim(
               '  Esa cuenta es el DEFECTO declarado, nadie la ha decidido todavía:\n' +
-                '  `mnemosine pending show pago_corto_residual` para verla y resolverla.\n'
+                '  `mnemosine pending --verbose` para verla y `mnemosine pending define pago_corto_residual`\n' +
+                '  para decidirla.\n'
             ))
     );
     if (result.ivaNoAcreditable !== '0.00') {

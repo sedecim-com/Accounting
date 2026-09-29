@@ -205,7 +205,7 @@ describe('los arreglos que multiplican viajes a la base están acotados', () => 
     // El rechazo no deja al operador sin salida: nombra el camino que sí
     // lotea la escritura.
     expect((await postearCon(rutaImport, importacion(MAX_MOVIMIENTOS_POR_IMPORTACION + 1))).texto)
-      .toContain('bank import');
+      .toContain('bank statement import');
   });
 
   it(`el extracto bancario acepta ${MAX_MOVIMIENTOS_POR_IMPORTACION}`, async () => {
