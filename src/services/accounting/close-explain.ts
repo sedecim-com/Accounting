@@ -6,7 +6,9 @@ import {
   CLOSE_CHECK_ITEMS,
   type CloseCheckCode,
   type SubledgerCode,
+  getPeriodCloseStatus,
   readSubledgerSide,
+  staleOpenings,
 } from './period-close.js';
 import { MAPPING_SCHEMES } from './account-service.js';
 
@@ -54,7 +56,9 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'bank-lines-unexplained': 'mnemosine bank reconciliation run <account> --period <YYYY-MM>',
   'invoices-reviewed': 'mnemosine invoice issue <invoice_number>',
   'depreciation-posted': 'mnemosine depreciation run --period <YYYY-MM>',
-  'trial-balance': 'mnemosine ledger check --check balance --period <YYYY-MM>',
+  'trial-balance':
+    'mnemosine close --period <period> --hard  (re-seals the earlier month whose correction the carry did not reach; ' +
+    'a cache that does not foot is named by mnemosine ledger check --check balance)',
   'ledger-integrity': 'mnemosine ledger check --period <YYYY-MM>',
   'rep-parked': 'mnemosine rep reconcile',
   'rep-missing': 'mnemosine rep missing list',
@@ -257,10 +261,9 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
       [entityId, periodId, limit]
     ),
 
-  // La balanza es un AGREGADO: su renglón ofensor es la diferencia misma.
-  // El detalle cuenta por cuenta es de `ledger check --check balance`, que
-  // ya lista renglones señalables — el remedio apunta ahí.
-  'trial-balance': async (entityId, periodId) => {
+  // The footing is an AGGREGATE: its offending row is the difference itself.
+  // The beginnings the ledger does not give are one row per account (#99).
+  'trial-balance': async (entityId, periodId, limit) => {
     const r = await query<{ d: string; c: string; diff: string }>(
       `SELECT COALESCE(SUM(COALESCE(debit_total, 0)), 0)::text AS d,
               COALESCE(SUM(COALESCE(credit_total, 0)), 0)::text AS c,
@@ -270,13 +273,12 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
       [entityId, periodId]
     );
     const fila = r.rows[0];
-    const descuadrada = Number(fila.diff) > 0.01;
-    return descuadrada
-      ? {
-          total: 1,
-          renglones: [{ debit_total: fila.d, credit_total: fila.c, difference: fila.diff }],
-        }
-      : { total: 0, renglones: [] };
+    const rows: RenglonOfensor[] =
+      Number(fila.diff) > 0.01 ? [{ debit_total: fila.d, credit_total: fila.c, difference: fila.diff }] : [];
+    for (const s of await staleOpenings(entityId, periodId)) {
+      rows.push({ account: s.code, carried_opening: s.carried, ledger_opening: s.ledger, difference: s.difference });
+    }
+    return { total: rows.length, renglones: rows.slice(0, limit) };
   },
 
   // Espejo de la casilla 5b: los hallazgos BLOQUEANTES de runLedgerChecks,
@@ -420,12 +422,30 @@ export async function explainCloseCheck(
   if (dueno.rows.length === 0) {
     throw new NotFoundError('Fiscal period', periodId);
   }
-  const { total, renglones } = await RUNNERS[codigo](entityId, periodId, limit);
+  const found = await RUNNERS[codigo](entityId, periodId, limit);
   return {
     codigo,
     item: CLOSE_CHECK_ITEMS[codigo],
     remedio: REMEDIO_DE[codigo],
-    total,
-    renglones,
+    ...(found.total > 0 ? found : await findingOfTheBox(entityId, periodId, codigo)),
   };
+}
+
+/**
+ * ✘ WITH NO ROW TO LIST (#99). A box can fail on an EMPTY universe —no bank
+ * account, no fixed asset, no account with movement, no control account—
+ * and then no detector here has a row to return, while the checklist says ✘.
+ * This surface printed «nothing to explain» over it. So when the detector is
+ * empty the box itself is asked, and a ✘ comes back as one row with its own
+ * words: explain can no longer contradict the checklist, for any box.
+ */
+async function findingOfTheBox(
+  entityId: string,
+  periodId: string,
+  code: CloseCheckCode
+): Promise<{ total: number; renglones: RenglonOfensor[] }> {
+  const box = (await getPeriodCloseStatus(periodId, entityId)).checklist.find((c) => c.codigo === code);
+  return box && !box.is_complete
+    ? { total: 1, renglones: [{ finding: box.details ?? box.item }] }
+    : { total: 0, renglones: [] };
 }

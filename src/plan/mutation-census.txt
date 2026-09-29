@@ -416,6 +416,7 @@ mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	el paso real se inventa un veredicto limpio mientras el ensayo sigue preguntando de verdad: la versión anterior del criterio no distinguía las dos llamadas
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	el juez del checklist ignora canClose: la llamada sigue ahí, en su rama, y todo sale limpio
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	la llamada se conserva y su resultado se tira: una ancla de presencia la daba por buena
+mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	the conductor reports the seal without sealing: the month reads conducted and its balances are never carried into the next one (#99)
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	la reanudación vuelve a fiarse de lo anotado: el checklist de ayer autoriza el cierre de hoy con un borrador de IA pendiente dentro del mes
 mirror	memory	E4.1 closing-run-never-continues-another-run-in-silence	src/services/accounting/closing-conductor.ts	el conductor continúa en silencio la corrida que otro dejó a medias; la cortesía de la hoja sigue escrita y no alcanza a quien llama al conductor por otro camino
 mirror	memory	E4.1 closing-run-never-continues-another-run-in-silence	src/services/accounting/closing-conductor.ts	un motor postea antes de decidir si se puede continuar: la negativa llega con el mes ya tocado
@@ -995,6 +996,7 @@ anchor	src/plan/criteria/e4-1.ts	de: ' const r = await runMonthlyDepreciation(ct
 anchor	src/plan/criteria/e4-1.ts	de: ' return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
 anchor	src/plan/criteria/e4-1.ts	de: " status: r.canClose ? 'done' : 'blocked',",
 anchor	src/plan/criteria/e4-1.ts	de: ' return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
+anchor	src/plan/criteria/e4-1.ts	de: ' const sealed = await hardClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason);',
 anchor	src/plan/criteria/e4-1.ts	de: ' let outcome: ClosingStepOutcome;\n',
 anchor	src/plan/criteria/e4-1.ts	de: " if (opts.resume !== true) {\n throw new ClosingRunStateError(\n 'CLOSING_RUN_OPEN',",
 anchor	src/plan/criteria/e4-1.ts	de: ' const runId = await openRun(ctx, period.id, opts, token);',

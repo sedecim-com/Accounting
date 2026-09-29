@@ -882,13 +882,15 @@ export const E4_1: Criterio[] = [
       // checklist va antes del cierre suave porque es el acto que su veredicto
       // autoriza. (Una versión anterior de este comentario decía que el
       // checklist BLOQUEABA sin la depreciación; no es así: esa casilla es una
-      // advertencia.)
+      // advertencia.) The hard close comes last (#99): it is the only act that
+      // carries the balances forward, and it seals what the soft close left.
       const expected = [
         'accrue-benefits',
         'amortize-prepaids',
         'depreciate-assets',
         'verify-checklist',
         'soft-close',
+        'hard-close',
       ];
       if (steps.join(',') !== expected.join(',')) {
         return falla(
@@ -920,6 +922,7 @@ export const E4_1: Criterio[] = [
         'await runMonthlyDepreciation(ctx.entityId, period.id, opts.userId)',
         'await getCloseReadiness(ctx, period)',
         'await softClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason)',
+        'await hardClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason)',
       ];
       const missing = engines.filter((m) => !realStep.includes(m));
       if (missing.length > 0) {
@@ -968,7 +971,7 @@ export const E4_1: Criterio[] = [
       }
 
       return ok(
-        `los cinco pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
+        `los seis pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
           'todos corridos en cada intento, y sin calcular ninguna cifra de los libros'
       );
     },
@@ -1011,6 +1014,16 @@ export const E4_1: Criterio[] = [
         de: '      return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
         a: '      await getCloseReadiness(ctx, period);\n      return checklistOutcome(step, ordinal, { canClose: true, checklist: [], warnings: [], blockingIssues: [] } as never);',
         porque: 'la llamada se conserva y su resultado se tira: una ancla de presencia la daba por buena',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      const sealed = await hardClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason);',
+        a:
+          '      const sealed = { carry_forward: { carried: 0, periods: [] as string[], stopped_at_locked: null }, ' +
+          'fiscal_year_closed: null };',
+        porque:
+          'the conductor reports the seal without sealing: the month reads conducted and its balances are ' +
+          'never carried into the next one (#99)',
       },
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
