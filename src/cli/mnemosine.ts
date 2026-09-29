@@ -115,6 +115,7 @@ import { registerJobsCommand } from './jobs-command.js';
 import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
 import { registerEntityCommand } from './entity-command.js';
+import { registerTenantCommand } from './tenant-command.js';
 import { registerAccountCommand } from './account-command.js';
 import { registerEntryCommand } from './entry-command.js';
 import { registerPeriodCommand, registerYearCommand } from './period-command.js';
@@ -135,6 +136,7 @@ import { registerClosingCommand } from './closing-command.js';
 import { registerFxCommand } from './fx-command.js';
 import { registerPrepaidCommand } from './prepaid-command.js';
 import { registerPayrollCommand } from './payroll-command.js';
+import { registerPayRunCommand } from './pay-run-command.js';
 import { registerAnexo24MigrationCommands } from './anexo24-migration-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
@@ -3461,6 +3463,7 @@ registerPromptSizeCommand(program, { palette: c, shutdown, reportError });
 registerCompactCommand(program, { palette: c, shutdown, reportError });
 registerApprovalsCommand(program, { palette: c, shutdown, reportError });
 registerEntityCommand(program, { palette: c, shutdown, reportError });
+registerTenantCommand(program, { palette: c, shutdown, reportError });
 registerPaymentCommands(program, { palette: c, shutdown, reportError });
 registerAccountCommand(program, { palette: c, shutdown, reportError });
 registerAnexo24MigrationCommands(program, { palette: c, shutdown, reportError });
@@ -3488,6 +3491,9 @@ registerPrepaidCommand(program, { palette: c, shutdown, reportError });
 // familia es `payroll`·`nomina` y su hoja `accrue`·`devengar` por dictamen del
 // registro de comandos (§39: `provision` es de fiscal-us), no por gusto.
 registerPayrollCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-068: the run of a pay period (create, calculate, approve) over the
+// same services the REST routes call.
+registerPayRunCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
 // F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y

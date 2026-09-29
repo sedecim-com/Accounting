@@ -3244,10 +3244,13 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     )
     .option(
       '--min-confidence <n>',
-      'engine confidence a proposal needs before `run` would apply it (0..1)',
+      'raise the engine confidence a proposal needs before `run` would apply it (0..1); never below the panel (cotejo_umbral_confianza)',
       confianzaCero1('--min-confidence')
     )
-    .option('--max-amount <amount>', 'ceiling for an automatic match; the hard floor still wins')
+    .option(
+      '--max-amount <amount>',
+      'lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win'
+    )
     .option('--rules-only', 'a proposal outside the date window counts as not applicable');
   // LA MITAD DE LECTURA. Es ✓ mientras `run` es ✗ y las dos hacen la misma
   // pregunta: por eso son dos hojas y no una con bandera (regla R11).
@@ -3399,10 +3402,13 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .option('--until <date>', 'transactions on or before this date (YYYY-MM-DD)')
     .option(
       '--min-confidence <n>',
-      'engine confidence a proposal needs to be applied (0..1)',
+      'raise the engine confidence a proposal needs to be applied (0..1); never below the panel (cotejo_umbral_confianza)',
       confianzaCero1('--min-confidence')
     )
-    .option('--max-amount <amount>', 'ceiling for an automatic match; the hard floor still wins')
+    .option(
+      '--max-amount <amount>',
+      'lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win'
+    )
     .option('--rules-only', 'refuse a proposal outside the date window')
     .option('--top <n>', 'maximum transactions to evaluate in this run', enteroPositivo('--top'))
     .option('--session <id>', 'reconciliation session these matches belong to')
@@ -4038,10 +4044,13 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .option('--profile <name>', 'CSV column profile to read --file with')
     .option(
       '--min-confidence <n>',
-      'engine confidence a proposal needs to be applied (0..1)',
+      'raise the engine confidence a proposal needs to be applied (0..1); never below the panel (cotejo_umbral_confianza)',
       confianzaCero1('--min-confidence')
     )
-    .option('--max-amount <amount>', 'ceiling for an automatic match; the hard floor still wins')
+    .option(
+      '--max-amount <amount>',
+      'lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win'
+    )
     .option(
       `--stop-at <${PASOS_DE_CORRIDA.join('|')}>`,
       'stop after this step; it never goes past `estado`, and never reaches approve or post'

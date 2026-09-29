@@ -644,6 +644,19 @@ export class PreRegistrationService {
       ]
     );
 
+    // ING-2 (#319): the trace of which rule decided lives on the
+    // pre-registration (`rules_applied`); the rule itself counts how often it
+    // fired, which is what `bill rule list` shows the firm. NOTE: no rowCount
+    // check on purpose: a rule deleted meanwhile leaves nothing to count, and
+    // the trace on the pre-registration already stands.
+    if (matchedResults.length > 0) {
+      await query(
+        `UPDATE processing_rules SET times_matched = COALESCE(times_matched, 0) + 1, last_matched_at = NOW()
+          WHERE entity_id = $1 AND id = ANY($2::uuid[])`,
+        [preReg.entity_id, matchedResults.map((r) => r.ruleId)]
+      );
+    }
+
     const result = await query('SELECT * FROM pre_registrations WHERE id = $1', [preReg.id]);
     return result.rows[0];
   }

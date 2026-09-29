@@ -25,7 +25,7 @@ que promete un paso inexistente es peor que no tener manual—.
 - **[[Manual-Primer-cliente]]** — de la nada al primer asiento contabilizado.
 - **[[Manual-El-dia-a-dia]]** — recibir CFDI, revisar lo que propuso la IA, capturar, cobrar y pagar.
 - **[[Manual-Cobrar-y-pagar]]** — los ciclos de clientes y proveedores, con el REP donde toca.
-- **[[Manual-Bancos-y-conciliacion]]** — hasta dónde llega hoy la conciliación, y dónde se acaba.
+- **[[Manual-Bancos-y-conciliacion]]** — la conciliación bancaria del mes con la familia `bank`: alta de la chequera, estado de cuenta, cotejo, firma y póliza.
 - **[[Manual-El-cierre-de-mes]]** — la lista de verificación, el cierre suave y el duro.
 - **[[Manual-Trabajar-con-el-agente]]** — revisar, corregir, enseñar, y qué cuesta.
 - **[[Manual-Reportes-y-entregables]]** — lo que el despacho le entrega a su cliente.

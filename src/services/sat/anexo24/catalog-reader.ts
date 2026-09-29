@@ -1,5 +1,6 @@
-import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { XMLValidator, type XMLParser } from 'fast-xml-parser';
 import { ValidationError } from '../../../utils/errors.js';
+import { createXmlReader, normalizeAttributeValue } from '../../../utils/xml-reader.js';
 import { NS_CATALOGO, VERSION_CATALOGO } from './validador.js';
 
 // ============================================================
@@ -37,13 +38,12 @@ import { NS_CATALOGO, VERSION_CATALOGO } from './validador.js';
 //      analizador conforme a sustituir #x9, #xA y #xD por un ESPACIO al leer
 //      un atributo: el SAT, que sí normaliza, leyó un espacio. Si aquí
 //      guardáramos el salto, nuestro nombre de cuenta diferiría del que la
-//      autoridad tiene por presentado. Por eso `normalizarAtributo` está
+//      autoridad tiene por presentado. Por eso `normalizeAttributeValue` está
 //      escrito a mano: es la mitad de la norma que la librería no implementa.
 //
-// La misma pareja de defectos vive en los demás lectores de XML del árbol
-// (`catalogoDesdeXml` de balanza-service.ts, cfdi-parser.ts, camt053.ts):
-// ninguno pasa `htmlEntities`. Aquí se corrige donde hace daño —un catálogo
-// ajeno viene lleno de nombres acentuados— y se deja dicho para los demás.
+// NOTE: both answers now live in src/utils/xml-reader.ts, shared with
+// cfdi-parser.ts (#299); camt053.ts and `catalogoDesdeXml` still build their
+// own parser (#218).
 //
 // ── QUÉ FALLA Y QUÉ SE ANOTA ────────────────────────────────────────────
 //
@@ -119,7 +119,8 @@ export interface CatalogFileRead {
 }
 
 /**
- * El analizador, con las tres opciones que no son de estilo:
+ * El analizador —el lector compartido de src/utils/xml-reader.ts—, con las
+ * tres opciones que no son de estilo:
  *
  *  · `htmlEntities` — sin él los acentos escritos como `&#233;` entran
  *    literales a la base (medido arriba).
@@ -141,17 +142,7 @@ export interface CatalogFileRead {
  * nodo que se repite como parámetro porque es lo único que cambia.
  */
 export function anexo24Parser(nodoRepetido: string): XMLParser {
-  return new XMLParser({
-    ignoreAttributes: false,
-    attributeNamePrefix: '@_',
-    removeNSPrefix: true,
-    processEntities: true,
-    htmlEntities: true,
-    parseTagValue: false,
-    parseAttributeValue: false,
-    trimValues: false,
-    isArray: (nombre) => nombre === nodoRepetido,
-  });
+  return createXmlReader({ trimValues: false, repeated: [nodoRepetido] });
 }
 
 const ANALIZADOR = anexo24Parser('Ctas');
@@ -167,19 +158,6 @@ export function esObjeto(v: unknown): v is Record<string, unknown> {
  */
 export function scalarText(v: unknown, sifalta: string): string {
   return typeof v === 'string' || typeof v === 'number' ? String(v) : sifalta;
-}
-
-/**
- * La normalización de valores de atributo de XML 1.0 §3.3.3, que la librería
- * no hace: tabulador, salto de línea y retorno de carro valen un espacio.
- *
- * Devuelve además si cambió algo, porque el cambio se anota. Un nombre de
- * cuenta que llevaba un salto se guarda con espacio —que es lo que el SAT
- * leyó— y quien migra se entera de que su archivo traía uno.
- */
-export function normalizarAtributo(valor: string): { texto: string; normalizado: boolean } {
-  const texto = valor.replace(/[\t\n\r]/g, ' ');
-  return { texto, normalizado: texto !== valor };
 }
 
 /** Lo que hace falta para leer un atributo y anotar lo que le pasó. */
@@ -208,7 +186,9 @@ export function readAttribute(
   const crudo: unknown = nodo[`@_${nombre}`];
   if (typeof crudo !== 'string') return { valor: '', presente: false };
 
-  const { texto, normalizado } = normalizarAtributo(crudo);
+  // Un nombre de cuenta que llevaba un salto se guarda con espacio —que es lo
+  // que el SAT leyó— y quien migra se entera de que su archivo traía uno.
+  const { text: texto, normalized: normalizado } = normalizeAttributeValue(crudo);
   if (normalizado) {
     findings.push({
       regla: 'LEC-ATRIBUTO-NORMALIZADO',

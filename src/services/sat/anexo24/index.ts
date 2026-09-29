@@ -57,7 +57,6 @@ export {
 // este módulo escribe es la comprobación que cualquiera va a querer hacer.
 export {
   readCtaCatalogo,
-  normalizarAtributo,
   type CatalogFileRead,
   type CatalogFileRow,
   type CatalogFileHeader,

@@ -76,11 +76,12 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   'src/services/policy': 'Panel de decisiones del despacho: cada bifurcación de criterio contable, con su lector.',
   'src/services/reporting': 'Estados financieros, balanza y flujo de efectivo.',
   'src/services/sat': 'Obligaciones ante el SAT: Anexo 24, DIOT y estado de CFDI.',
+  'src/services/tenant': 'Inquilinos (despachos) de la instalación: alta y lista, fuera de RLS y fuera del alcance del agente.',
   'src/services/vault': 'Cifrado y bóveda de secretos (ruta con dueño reforzado).',
   'src/services/webhooks': 'Suscripciones y entrega de webhooks salientes.',
   'src/services/xml-ingestion': 'Lectura de CFDI, pre-registro, taxonomía y decisiones de posteo.',
   'src/types': 'Tipos compartidos.',
-  'src/utils': 'Utilidades: fechas de calendario, limpieza de comentarios, CSV, cifrado, secuencias, errores.',
+  'src/utils': 'Utilidades: fechas de calendario, limpieza de comentarios, CSV, cifrado, secuencias, errores, y `xml-reader.ts`, el analizador compartido de XML de terceros (acentos `&#233;`, `&#10;` como espacio, atributos como texto).',
 };
 
 function listModules(): string[] {

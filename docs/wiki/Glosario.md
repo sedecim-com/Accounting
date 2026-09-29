@@ -64,7 +64,7 @@ Cuando un término tiene consecuencias en el motor, el enlace lleva a donde se e
 
 **PUE** — *Pago en una sola exhibición*. Método de pago que declara que la operación se liquidó al emitirse el comprobante. El IVA se causa o se acredita en ese momento, y no hace falta REP.
 
-**REP** — *Recibo Electrónico de Pago*, o complemento de pago: un CFDI **tipo P** que documenta que un dinero se movió y contra qué facturas se aplicó. Es la pieza que libera el IVA aparcado de una operación PPD. Emitirlo cuando cobramos es obligación propia con plazo; recibirlo cuando pagamos es condición para acreditar.
+**REP** — *Recibo Electrónico de Pago*, o complemento de pago: un CFDI **tipo P** que documenta que un dinero se movió y contra qué facturas se aplicó. En mnemosine el IVA aparcado de una operación PPD lo libera el **pago** al registrarse; el REP es el comprobante que respalda ese traslado o acreditamiento. Emitirlo cuando cobramos es obligación propia con plazo; recibirlo cuando pagamos es lo que sostiene el acreditamiento ante una revisión.
 
 **RESICO** — *Régimen Simplificado de Confianza*. Régimen fiscal con tasas reducidas y obligaciones aligeradas para personas físicas y morales de ingresos acotados. Aparece en el catálogo de regímenes con la clave 626. La 625 no es RESICO: es el régimen de las actividades empresariales con ingresos a través de plataformas tecnológicas.
 
