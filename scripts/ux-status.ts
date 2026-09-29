@@ -176,6 +176,12 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  * 47 es documentar plomería, y eso es un lote con su propio alcance, no el
  * efecto secundario de que alguien toque la hoja de al lado.
  *
+ * 47 -> 41 (MNE-001-017, #321): `entity edit` was born as the seventh leaf of
+ * `entity`, and a family that documents one mutating leaf documents all of
+ * them, so the whole family got its examples instead of the line going up.
+ * `entity` is out of the list above; the other sixteen families stay as they
+ * were.
+ *
  * ── `nodos-fuera-del-idioma-canonico` = 7, SUBIDO A MANO ──────────────────
  *
  * Es el único de los seis que SUBE en este lote, y sube porque el árbol creció
@@ -228,7 +234,7 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  * día que alguien registre una hoja grave por fuera del núcleo.
  */
 export const LINEAS_BASE: Readonly<Record<Clave, number>> = Object.freeze({
-  'hojas-sin-ejemplo': 47,
+  'hojas-sin-ejemplo': 41,
   'hojas-sin-contrato-de-salida': 21,
   'hojas-sin-alias-castellano': 17,
   'nodos-fuera-del-idioma-canonico': 7,

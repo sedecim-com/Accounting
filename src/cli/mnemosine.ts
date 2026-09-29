@@ -135,11 +135,13 @@ import { registerClosingCommand } from './closing-command.js';
 import { registerFxCommand } from './fx-command.js';
 import { registerPrepaidCommand } from './prepaid-command.js';
 import { registerPayrollCommand } from './payroll-command.js';
+import { registerPayRunCommand } from './pay-run-command.js';
 import { registerAnexo24MigrationCommands } from './anexo24-migration-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerGarnishmentCommand } from './garnishment-command.js';
+import { registerEmployeeCommand } from './employee-command.js';
 import { registerCashFlowCommand } from './cashflow-command.js';
 import { registerAuditCommand } from './audit-command.js';
 import { registerWebhookSweepCommand } from './webhook-sweep-command.js';
@@ -3487,6 +3489,9 @@ registerPrepaidCommand(program, { palette: c, shutdown, reportError });
 // familia es `payroll`·`nomina` y su hoja `accrue`·`devengar` por dictamen del
 // registro de comandos (§39: `provision` es de fiscal-us), no por gusto.
 registerPayrollCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-068: the run of a pay period (create, calculate, approve) over the
+// same services the REST routes call.
+registerPayRunCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
 // F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y
@@ -3498,6 +3503,9 @@ registerPayrollIsnCommands(program, { palette: c, shutdown, reportError });
 // and no path could put a row in it, so filing a court order meant hand SQL
 // following a column comment that until migration 075 returned zero.
 registerGarnishmentCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-066 (#306): the payroll roll at the terminal, over the same
+// employee service as the API.
+registerEmployeeCommand(program, { palette: c, shutdown, reportError });
 registerCashFlowCommand(program, { palette: c, shutdown, reportError });
 registerAuditCommand(program, { palette: c, shutdown, reportError });
 // G4b · el barrido de entregas SALIENTES. Cuelga de `subscription`·`suscripcion`,
