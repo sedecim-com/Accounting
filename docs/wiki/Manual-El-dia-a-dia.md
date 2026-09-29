@@ -440,15 +440,15 @@ El estado de flujos de efectivo (NIF B-2) no está en la familia `report`: sale 
 Saldo inicial, cada movimiento y saldo final. Es la forma que pide el SAT:
 
 ```bash
-npm run mnemosine -- ledger auxiliary show --account 1120 --period August
+npm run mnemosine -- ledger auxiliary show --account 1120 --period 2026-08
 ```
 
-**El periodo va por nombre, no por fecha.** Aquí `--period 2026-08` no sirve —sale con 3 y `Fiscal period with id 2026-08 not found`—, aunque en los reportes de arriba sí sirva. Es una de las dos banderas `--period` que buscan por fragmento del nombre; la tabla de las tres familias está en [[Manual-El-cierre-de-mes]].
+**El periodo va como en todos lados:** `2026-08`, el uuid o un fragmento inequívoco del nombre, que se guarda en inglés (#327). La tabla de las familias de `--period` está en [[Manual-El-cierre-de-mes]].
 
 **Cuidado con el volumen:** este comando **no tiene límite por omisión**. Sobre la chequera de un cliente con cuatro mil movimientos vuelca cuatro mil renglones a la terminal. Ponle `-n`:
 
 ```bash
-npm run mnemosine -- ledger auxiliary show --account 1120 --period August -n 100
+npm run mnemosine -- ledger auxiliary show --account 1120 --period 2026-08 -n 100
 ```
 
 ### El saldo de una cuenta por periodo
@@ -493,10 +493,10 @@ En CSV los importes salen sin separador de miles y con punto decimal, que es lo 
 ### Qué le falta al mes para cerrar
 
 ```bash
-npm run mnemosine -- close --period August --check
+npm run mnemosine -- close --period 2026-08 --check
 ```
 
-**Fíjate en el `August`, no es un descuido.** `close --period` es una de las dos banderas de periodo que buscan por fragmento del nombre guardado —y los nombres se acuñan en inglés—, así que `--period 2026-08` no encuentra nada y el comando te enumera los disponibles. Las tres familias de `--period`, con lo que acepta cada una, están en [[Manual-El-cierre-de-mes]].
+`close --period` acepta `2026-08`, el uuid o un fragmento inequívoco del nombre guardado —que se acuña en inglés—, igual que `period show` (#327). Si no encuentra, te enumera los que se pueden cerrar. Las familias de `--period`, con lo que acepta cada una, están en [[Manual-El-cierre-de-mes]].
 
 Sólo revisa; nunca cierra. Recorre la lista de verificación del cierre —pólizas sin contabilizar, conciliaciones bancarias, facturas en borrador, depreciación, balanza cuadrada, REP, agrupador del SAT y el resto— y separa lo que bloquea de lo que sólo avisa; en varias partidas eso lo decide una política del panel. Cada partida, con su severidad y su remedio, está en [[Manual-El-cierre-de-mes]].
 
@@ -517,8 +517,8 @@ La primera corre las verificaciones de integridad del mayor. La segunda dice si 
 **Si vas a cerrar**, hazlo con la vista previa primero y con un motivo escrito:
 
 ```bash
-npm run mnemosine -- close --period August --dry-run
-npm run mnemosine -- close --period August --reason "cierre mensual agosto"
+npm run mnemosine -- close --period 2026-08 --dry-run
+npm run mnemosine -- close --period 2026-08 --reason "cierre mensual agosto"
 ```
 
 **Y aquí, más que en ningún otro sitio, cuida la respuesta.** La compuerta de `close` es laxa: cualquier respuesta que empiece con `s` —incluida `salir`— se toma como **sí**. Para cancelar escribe `n`. Un cierre suave se deshace con `period reopen <periodo> --reason "..."`; uno duro pide además `--force`, y uno bloqueado no se reabre nunca (ver [[Manual-El-cierre-de-mes]]).
@@ -594,7 +594,7 @@ npm run mnemosine -- ledger stale-draft list --days 7 --period 2026-08
 npm run mnemosine -- rep missing list --direction received
 npm run mnemosine -- rep reconcile
 npm run mnemosine -- ledger check --period 2026-08
-npm run mnemosine -- close --period August --check
+npm run mnemosine -- close --period 2026-08 --check
 ```
 
 **Para entregar**

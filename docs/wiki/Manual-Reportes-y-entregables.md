@@ -147,10 +147,10 @@ Con `--as-of` el significado es el mismo que en la balanza: todo lo posteado has
 ## El auxiliar de una cuenta
 
 ```bash
-mnemosine ledger auxiliary show --account 1120 --period August
+mnemosine ledger auxiliary show --account 1120 --period 2026-08
 ```
 
-Saldo inicial, cada movimiento, saldo final: **la forma XC que pide el SAT**. Las dos banderas son obligatorias, y el periodo aquí es **un fragmento del nombre guardado** —que se acuña en inglés—, no una fecha: `--period August` encuentra, `--period 2026-08` sale con 3 y `Fiscal period with id 2026-08 not found`. Es una de las dos banderas `--period` que se comportan así; la otra es la de `close`, y las tres familias están en [[Manual-El-cierre-de-mes]]. Ojo con el contraste de dos bloques más abajo: `account balance show --period` **sí** acepta `2026-08`.
+Saldo inicial, cada movimiento, saldo final: **la forma XC que pide el SAT**. Las dos banderas son obligatorias, y el periodo acepta `2026-08`, el uuid o un fragmento inequívoco del nombre guardado —que se acuña en inglés—, igual que `account balance show --period` y `close --period` (#327). Las familias de `--period` están en [[Manual-El-cierre-de-mes]].
 
 El encabezado trae la cuenta, el periodo, **el estatus del periodo** y el saldo inicial. Y aquí hay una advertencia que este comando da y que casi ningún sistema da: si el periodo anterior no tiene cierre duro, el saldo inicial se marca como *actividad, no acumulado*. Es la diferencia entre un auxiliar que se puede entregar y uno que hay que explicar.
 
@@ -318,7 +318,7 @@ mnemosine report aged-payable show \
 # 4. El soporte
 mnemosine entry export --period 2026-08 \
   --format csv -o entregables/2026-08/polizas.csv
-mnemosine ledger auxiliary show --account 1120 --period August --all \
+mnemosine ledger auxiliary show --account 1120 --period 2026-08 --all \
   --format csv -o entregables/2026-08/auxiliar-bancos.csv
 ```
 
