@@ -111,7 +111,7 @@ export function registerRepCommand(program: Command, deps: RepCommandDeps): void
         note(
           opts.direction === 'issued'
             ? `${rows.length} cobro(s) sin REP emitido: obligación fiscal propia con plazo del SAT.`
-            : `${rows.length} pago(s) sin REP del proveedor: su IVA sigue aparcado en 1135 (no acreditable).`
+            : `${rows.length} pago(s) sin REP del proveedor: su IVA ya pasó a 1130 al pagarse y falta el comprobante que respalda ese acreditamiento.`
         );
       }
       const desconocidos = rows.filter((r) => r.metodo === 'desconocido').length;

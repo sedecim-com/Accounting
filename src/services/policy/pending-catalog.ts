@@ -1429,25 +1429,26 @@ export const POLICY_CATALOG: PolicySpec[] = [
   // política cambia el comportamiento de alguien») y entrena al despacho a
   // ignorar el panel. Vuelve CON el flujo de descarga, como su primera clave.
   {
-    // F02 · REP-2: qué hace el CIERRE con un pago a proveedor sin REP. El
-    // IVA de ese pago sigue aparcado en 1135 y no es acreditable; cerrar el
-    // mes con eso pendiente es una decisión del despacho, no del sistema.
+    // F02 · REP-2: what the CLOSE does with a supplier payment on a PPD bill
+    // that has no REP. The payment already moved its IVA 1135 → 1130
+    // (MNE-001-125); the REP is the receipt that supports that credit, and
+    // closing the month without it is the firm's call, not the system's.
     key: 'rep_faltante_recibido',
     category: 'fiscal',
-    question: 'At close, a supplier payment still has no REP (its VAT is parked). Block the close or just warn?',
+    question: 'At close, a supplier payment on a PPD bill still has no REP (its VAT was credited on payment without the receipt that supports it). Block the close or just warn?',
     impact:
       'With "bloquear", the soft close refuses while any period payment lacks its REP; with "avisar" it ' +
-      'closes and the checklist records the parked VAT.',
+      'closes and the checklist records the unsupported credit.',
     options: [
-      { value: 'avisar', label: 'Warn: close proceeds, the parked VAT stays visible in the checklist' },
+      { value: 'avisar', label: 'Warn: close proceeds, the missing REP stays visible in the checklist' },
       { value: 'bloquear', label: 'Block: no close until every payment has its REP' },
     ],
     defaultValue: 'avisar',
     defaultRationale:
-      'A supplier who is late with their REP should not freeze your whole close; the parked VAT is ' +
+      'A supplier who is late with their REP should not freeze your whole close; the missing REP is ' +
       'visible either way and rep missing list names the culprits.',
     whyAsking:
-      'The REP is what makes PPD VAT creditable. Some firms refuse to close a month with parked VAT; others close and chase the supplier.',
+      'The REP is what supports crediting PPD VAT. Some firms refuse to close a month whose VAT credits still lack their REP; others close and chase the supplier.',
     whatIDo:
       'It decides whether getPeriodCloseStatus counts missing supplier REPs as a blocking issue or a warning.',
     ifSkipped: 'It warns: the close proceeds and the checklist shows the pending REPs.',

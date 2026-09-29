@@ -4,6 +4,7 @@ import { getPolicy } from '../policy/policy-service.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync, reverseWithinTransaction } from './posting.js';
 import { runLedgerChecks } from './ledger-checks.js';
+import { countPaymentsAwaitingRep } from './rep-expected.js';
 import { checkMappingCoverageDetallada } from './account-service.js';
 import { arReconcile } from '../ar/ar-controls.js';
 import { apReconcile } from '../ap/ap-controls.js';
@@ -779,8 +780,9 @@ export async function getPeriodCloseStatus(
 
   // 6. F02 · REP-2: el checklist del IVA aparcado. Dos conteos que el cierre
   // no miraba: los REP que llegaron y quedaron aparcados (needs_review), y
-  // los pagos del periodo sin REP — recibidos (el IVA sigue en 1135, no es
-  // acreditable) y emitidos (obligación fiscal PROPIA con plazo). Si cada
+  // los pagos del periodo sin REP — recibidos (the payment already moved
+  // the IVA to 1130; the REP is what supports that credit) y emitidos
+  // (obligación fiscal PROPIA con plazo). Si cada
   // uno bloquea o solo avisa lo deciden rep_faltante_recibido y
   // rep_faltante_emitido: SOLO el literal 'bloquear' bloquea (cerrado al
   // declarar); 'avisar' o un valor desconocido avisan — un valor raro del
@@ -814,20 +816,12 @@ export async function getPeriodCloseStatus(
   });
   if (aparcados > 0) warnings.push(`${aparcados} REP(s) aparcados en needs_review`);
 
-  const sinRep = await q<{ recibidos: string; emitidos: string }>(
-    `SELECT
-       (SELECT COUNT(*) FROM vendor_payments vp
-         WHERE vp.entity_id = $1 AND vp.cfdi_uuid IS NULL AND vp.status <> 'void'
-           AND vp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                   AND (SELECT end_date FROM fiscal_periods WHERE id = $2))::text AS recibidos,
-       (SELECT COUNT(*) FROM customer_payments cp
-         WHERE cp.entity_id = $1 AND cp.cfdi_uuid IS NULL AND cp.status <> 'void'
-           AND cp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                   AND (SELECT end_date FROM fiscal_periods WHERE id = $2))::text AS emitidos`,
-    [entityId, periodId]
-  );
-  const pagosSinRepRecibidos = parseInt(sinRep.rows[0].recibidos, 10);
-  const pagosSinRepEmitidos = parseInt(sinRep.rows[0].emitidos, 10);
+  // MNE-001-125 (#327): only payments that really await a REP — completed,
+  // applied to a document the ledger treats as PPD (a PUE never takes one),
+  // and for collections only on a stamped invoice. See rep-expected.ts.
+  const sinRep = await countPaymentsAwaitingRep(q, entityId, periodId);
+  const pagosSinRepRecibidos = sinRep.received;
+  const pagosSinRepEmitidos = sinRep.issued;
   // Las dos políticas se leen SIEMPRE (no sólo con conteo > 0): la casilla
   // publica su `severity` también cuando está completa, para que
   // `closing check` pueda decir con qué peso vigila cada verificación.
@@ -855,7 +849,8 @@ export async function getPeriodCloseStatus(
   });
   if (pagosSinRepRecibidos > 0) {
     (polRecibido.value === 'bloquear' ? blocking_issues : warnings).push(
-      `${pagosSinRepRecibidos} pago(s) a proveedor sin REP: el IVA sigue aparcado en 1135`
+      `${pagosSinRepRecibidos} pago(s) a proveedor sobre gastos PPD sin REP: el pago ya pasó su IVA ` +
+        `a 1130, y el REP es el comprobante que respalda ese acreditamiento`
     );
   }
   if (pagosSinRepEmitidos > 0) {
