@@ -5,7 +5,9 @@ import {
   listClosablePeriods, nextPeriodToClose, getCloseReadiness,
   type CloseReadiness,
 } from '../ai/close-service.js';
-import { softClosePeriod, hardClosePeriod } from '../services/accounting/period-close.js';
+import {
+  softClosePeriod, hardClosePeriod, type CarryForwardResult,
+} from '../services/accounting/period-close.js';
 import { resolveEntity, bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
@@ -40,6 +42,25 @@ export interface CloseCliDeps {
 }
 
 const MARK = { done: '✔', missing: '✘' } as const;
+
+/**
+ * What a hard close's carry-forward reached. A locked period stops it and is
+ * named, because every month from there on still opens at the old figure and
+ * only a correction in an open period can fix that (#99).
+ */
+export function renderCarryForward(r: CarryForwardResult, c: CloseCliDeps['palette']): string[] {
+  const lines: string[] = [];
+  if (r.periods.length > 0) {
+    lines.push(c.dim(`  Beginning balances carried into: ${r.periods.join(', ')}`));
+  }
+  if (r.stopped_at_locked) {
+    lines.push(
+      c.red(`  ✘ ${r.stopped_at_locked} is locked: its beginning balances were NOT rewritten.`),
+      c.dim('    It and the periods after it still open at the old figures; book the correction in an open period.')
+    );
+  }
+  return lines;
+}
 
 /** Pure render: testable without a database or a terminal. */
 export function renderReadiness(r: CloseReadiness, c: CloseCliDeps['palette']): string[] {
@@ -261,10 +282,16 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
             clave: opts.idempotencyKey,
             payloadHash: hashDeCarga(period.id, opts.hard ? 'hard' : 'soft'),
           },
-          async () => {
-            const closed = opts.hard
-              ? await hardClosePeriod(period.id, ctx.entityId, reviewer.userId, reason)
-              : await softClosePeriod(period.id, ctx.entityId, reviewer.userId, reason);
+          async (): Promise<{ period_name: string; status: string; carry_forward?: CarryForwardResult }> => {
+            if (opts.hard) {
+              const sealed = await hardClosePeriod(period.id, ctx.entityId, reviewer.userId, reason);
+              return {
+                period_name: period.period_name,
+                status: sealed.status,
+                carry_forward: sealed.carry_forward,
+              };
+            }
+            const closed = await softClosePeriod(period.id, ctx.entityId, reviewer.userId, reason);
             return { period_name: period.period_name, status: closed.status };
           }
         );
@@ -278,6 +305,9 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
         }
 
         console.log(`✔ ${acto.resultado.period_name} is now ${acto.resultado.status} (by ${reviewer.email})`);
+        if (acto.resultado.carry_forward) {
+          for (const line of renderCarryForward(acto.resultado.carry_forward, deps.palette)) console.log(line);
+        }
         if (!opts.hard) {
           console.log(deps.palette.dim('  Soft close is reversible. To seal it: mnemosine close --hard'));
         }
