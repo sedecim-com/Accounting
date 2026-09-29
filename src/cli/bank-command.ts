@@ -85,6 +85,8 @@ import {
   type ResultadoAprobacion,
   type ResultadoContabilizacion,
   type ResultadoCorridaGuiada,
+  type ReopenResult,
+  reopenSession,
 } from '../services/banking/reconciliation-service.js';
 import {
   conciliarCheque,
@@ -1819,6 +1821,17 @@ Examples:
   mnemosine bank reconciliation approve 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "Revisada contra el estado de cuenta de julio"
   # A signature is not withdrawn: read what would be frozen before freezing it.
   mnemosine bank reconciliation approve 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
+`,
+  reconReopen: `
+Examples:
+  # Take a signed session back to in_progress to correct a wrong item or match.
+  # The signature leaves the session but not the audit trail, which keeps its hash.
+  mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "El cargo del 20 era un error de libros"
+  # See which signature would be withdrawn, writing nothing.
+  mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
+  # A closed fiscal period wins: the refusal names the \`period reopen\` to run
+  # first, and --force as well when the month is hard-closed.
+  mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "Cotejo equivocado en julio" --yes
 `,
   reconPost: `
 Examples:
@@ -4966,7 +4979,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // porque escriba en el mayor —no lo hace— sino porque una firma no se retira:
   // volver a aprobar escribiría otro hash encima del primero y «¿esto es lo que
   // se aprobó?» dejaría de tener una sola respuesta. El servicio lo rechaza; la
-  // declaración lo dice.
+  // declaración lo dice. Retirarla es otro acto, `reopen` (MNE-001-044), que
+  // exige motivo y deja la firma vieja en la bitácora.
   const reconApprove = reconciliation
     .command('approve')
     .alias('aprobar')
@@ -5131,6 +5145,136 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         process.stderr.write(p.dim(`  ${t('bank.reconciliation.approve.not_posted_yet')}\n`));
         if (dryRun) {
           process.stderr.write(p.yellow(`  ${t('bank.reconciliation.approve.dry_run')}\n`));
+        }
+      })
+  );
+
+  // ---- bank reconciliation reopen ----------------------------------
+  //
+  // MNE-001-044 (#302). The way out of a trapped month: an approved session
+  // with a wrong item or match goes back to `in_progress`, and the same range
+  // is closed and signed again. Irreversible for the same reason as `approve`:
+  // the signature it withdraws cannot be put back, only given again. The
+  // kernel adds --dry-run, --yes and --idempotency-key, and --reason is
+  // required because `reopen` is an undo verb.
+  const reconReopen = reconciliation
+    .command('reopen')
+    .alias('reabrir')
+    .argument('<session>', 'approved session to reopen')
+    .description(
+      'Reopen an approved session to in_progress, withdrawing its signature (kept in the audit ' +
+        'trail); refused under a closed fiscal period and for posted sessions'
+    );
+  withContext(reconReopen);
+  reconReopen.option('--json', 'JSON output');
+  declareRisk(reconReopen, {
+    risk: 'irreversible',
+    llave: { scope: 'bank reconciliation reopen' },
+    agent: false,
+    writes:
+      'reconciliation_sessions (status approved → in_progress, signature and close columns ' +
+      'cleared in ONE guarded statement); audit_log action reopen with the withdrawn hash and ' +
+      'snapshot; NEVER journal_entries',
+  });
+  reconReopen.addHelpText('after', EJEMPLOS.reconReopen);
+  reconReopen.action(
+    (
+      session: string,
+      opts: CommonOpts & {
+        reason?: string; dryRun?: boolean; yes?: boolean; idempotencyKey?: string;
+      }
+    ) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun, reason } = gateMutation(
+          reconReopen,
+          opts as unknown as Record<string, unknown>
+        );
+        const scope = entityScope(ctx.tenantId, ctx.entityId);
+        const sessionId = uuidDeBandera('<session>', session);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const p = deps.palette;
+
+        const reopen = (rehearsal: boolean): Promise<ReopenResult> =>
+          reopenSession(
+            scope,
+            sessionId,
+            { reason: reason ?? '' },
+            { userId: reviewer.userId, dryRun: rehearsal }
+          );
+
+        const show = (r: ReopenResult): void => {
+          process.stdout.write(`\n  ${p.bold(t('bank.reconciliation.reopen.title'))}\n`);
+          process.stdout.write(
+            `    ${t('bank.reconciliation.reopen.transition', {
+              session: r.sessionId, from: r.from, to: r.to,
+            })}\n`
+          );
+          process.stdout.write(
+            `    ${t('bank.reconciliation.reopen.withdrawn', {
+              by: r.withdrawnSignature.approvedBy, on: r.withdrawnSignature.approvedAt,
+            })}\n`
+          );
+          process.stdout.write(`    hash ${r.withdrawnSignature.hash}\n`);
+        };
+
+        const { repetido: repeated, resultado: r } = await actoIrreversible({
+          opts,
+          dryRun,
+          comando: 'bank reconciliation reopen',
+          ensayar: () => reopen(true),
+          ejecutar: () =>
+            bajoLlave(
+              ctx,
+              {
+                scope: 'bank reconciliation reopen',
+                clave: opts.idempotencyKey,
+                payloadHash: hashDeCarga(sessionId, reason ?? ''),
+              },
+              () => reopen(false)
+            ),
+          mostrar: show,
+          pregunta: (preview) =>
+            t('bank.reconciliation.reopen.confirm', {
+              session: preview.sessionId,
+              hash: preview.withdrawnSignature.hash.slice(0, 12),
+            }),
+        });
+        if (repeated) {
+          avisarRepetido(
+            opts.idempotencyKey,
+            t('bank.reconciliation.reopen.already_reopened', { session: r.sessionId })
+          );
+        }
+
+        if (opts.json) {
+          render(
+            [
+              {
+                id: r.sessionId,
+                status: r.status,
+                previous_status: r.previousStatus,
+                period: `${r.from}..${r.to}`,
+                withdrawn_hash: r.withdrawnSignature.hash,
+                withdrawn_approved_by: r.withdrawnSignature.approvedBy,
+                withdrawn_approved_at: r.withdrawnSignature.approvedAt,
+                reason: r.reason,
+                dry_run: r.dryRun,
+              },
+            ],
+            { json: true, idField: 'id' }
+          );
+        } else {
+          if (opts.yes === true || dryRun) show(r);
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.sessionId)} ${p.dim(
+              t('bank.reconciliation.reopen.summary', { status: r.status }) + ` · ${r.reason}`
+            )}\n`
+          );
+        }
+        process.stderr.write(p.dim(`  ${t('bank.reconciliation.reopen.next')}\n`));
+        if (dryRun) {
+          process.stderr.write(p.yellow(`  ${t('bank.reconciliation.reopen.dry_run')}\n`));
         }
       })
   );
