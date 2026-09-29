@@ -251,7 +251,7 @@ router.post(
       ...req.body,
       tenant_id: req.tenantId!,
       created_by: req.user!.user_id,
-    });
+    }, entityScope(req.tenantId!, req.entityId!));
     res.status(201).json({ data: { id }, meta: meta(req) });
   })
 );

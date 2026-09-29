@@ -32,7 +32,7 @@ import { UsuariosSection, ROLES } from '../../../src/cli/init/s2-users.js';
 import { IaSection, categorizeProbeError } from '../../../src/cli/init/s3-ai.js';
 import { buildSections } from '../../../src/cli/init/index.js';
 import type { SectionContext } from '../../../src/cli/init/section.js';
-import { query, withTransaction, enterTenant } from '../../../src/database/connection.js';
+import { query, withTransaction, enterTenant, currentTenant } from '../../../src/database/connection.js';
 
 const mockQuery = query as unknown as Mock;
 const mockTx = withTransaction as unknown as Mock;
@@ -73,6 +73,7 @@ beforeEach(() => {
   mockQuery.mockReset();
   mockTx.mockReset();
   mockEnterTenant.mockReset();
+  (currentTenant as unknown as Mock).mockReset();
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'init-'));
   process.env.ENCRYPTION_KEY = 'a'.repeat(64);
   delete process.env.MNEMOSINE_TENANT;
@@ -299,6 +300,80 @@ describe('S2 · Users and roles', () => {
     expect(hash).not.toBe(secret);
     expect(hash).toMatch(/^\$2[aby]\$/); // bcrypt
     expect(JSON.stringify(insert![1])).not.toContain(secret);
+  });
+});
+
+describe('S2 · the tenant a new user joins', () => {
+  // `init --section users` used to take `SELECT id FROM tenants ORDER BY
+  // created_at LIMIT 1`: once `tenant create` made a second firm reachable, the
+  // first login of the new firm landed in the OLDEST one, with its role.
+  const TWO = [
+    { id: 't-old', name: 'Despacho Viejo' },
+    { id: 't-new', name: 'Despacho Norte' },
+  ];
+
+  function tenantsAre(rows: Array<{ id: string; name: string }>) {
+    mockQuery.mockImplementation((sql?: unknown, params?: unknown[]) => {
+      const q = typeof sql === 'string' ? sql : '';
+      if (q.includes('SELECT email, roles')) return Promise.resolve({ rows: [] });
+      if (q.includes('public.tenants') && q.includes('WHERE id')) {
+        return Promise.resolve({ rows: rows.filter((t) => t.id === params?.[0]) });
+      }
+      if (q.includes('public.tenants')) return Promise.resolve({ rows });
+      return Promise.resolve({ rows: [], rowCount: 1 });
+    });
+  }
+  const inserts = () =>
+    (mockQuery.mock.calls as Array<[string, unknown[]]>).filter((c) => c[0].includes('INSERT INTO users'));
+  const answers = { text: ['nueva@norte.mx', '1'], secrets: ['unPasswordLargoSeguro'] };
+
+  it('with two firms and none named it refuses, lists them and writes no user', async () => {
+    tenantsAre(TWO);
+    const ctx = makeCtx(answers);
+    await new UsuariosSection().configure(ctx);
+    expect(inserts()).toHaveLength(0);
+    const out = ctx.lines.join('\n');
+    expect(out).toMatch(/--tenant/);
+    expect(out).toContain('Despacho Norte → t-new');
+  });
+
+  it('with --tenant naming the second firm the user is written under it', async () => {
+    tenantsAre(TWO);
+    (currentTenant as unknown as Mock).mockReturnValue('t-new');
+    await new UsuariosSection().configure(makeCtx(answers));
+    expect(inserts()).toHaveLength(1);
+    expect(inserts()[0][1][0]).toBe('t-new');
+  });
+
+  it('lists only the users of the chosen firm', async () => {
+    tenantsAre(TWO);
+    (currentTenant as unknown as Mock).mockReturnValue('t-new');
+    await new UsuariosSection().configure(makeCtx(answers));
+    const listing = mockQuery.mock.calls.find((c) => String(c[0]).includes('SELECT email, roles'));
+    expect(String(listing![0])).toMatch(/tenant_id = \$1/);
+    expect(listing![1]).toEqual(['t-new']);
+  });
+
+  it('MNEMOSINE_TENANT counts as naming the firm', async () => {
+    tenantsAre(TWO);
+    process.env.MNEMOSINE_TENANT = 't-new';
+    await new UsuariosSection().configure(makeCtx(answers));
+    expect(inserts()[0][1][0]).toBe('t-new');
+  });
+
+  it('a named firm that does not exist is refused, not created', async () => {
+    tenantsAre(TWO);
+    (currentTenant as unknown as Mock).mockReturnValue('t-ghost');
+    const ctx = makeCtx(answers);
+    await new UsuariosSection().configure(ctx);
+    expect(inserts()).toHaveLength(0);
+    expect(ctx.lines.join('\n')).toMatch(/t-ghost.*does not exist/);
+  });
+
+  it('with a single firm and none named it uses that one', async () => {
+    tenantsAre([TWO[0]]);
+    await new UsuariosSection().configure(makeCtx(answers));
+    expect(inserts()[0][1][0]).toBe('t-old');
   });
 });
 

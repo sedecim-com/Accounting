@@ -5,7 +5,7 @@ import { getCloseReadiness, type ClosablePeriod } from '../../ai/close-service.j
 import { runMonthlyProvisions } from '../accruals/provisions-run.js';
 import { runMonthlyAmortization } from '../accruals/amortization-run.js';
 import { runMonthlyDepreciation } from '../assets/depreciation.js';
-import { softClosePeriod } from './period-close.js';
+import { hardClosePeriod, softClosePeriod } from './period-close.js';
 import { AccountingError, AppError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 
@@ -43,11 +43,14 @@ import { logger } from '../../utils/logger.js';
 // month; it is not what makes the close possible. The checklist goes before
 // the soft close because the soft close is the act the verdict authorizes.
 //
-// ── WHY IT STOPS AT THE SOFT CLOSE ──────────────────────────────────────
+// ── AND IT ENDS WITH THE HARD CLOSE (#99) ───────────────────────────────
 //
-// The soft close is reversible; the hard close is not, and it sweeps the
-// income statement. The conductor stays on the reversible side and leaves
-// `close --hard` to a person.
+// It used to stop at the soft close and leave `close --hard` to a person, and
+// the carry-forward lives only in the hard close: a month conducted to the end
+// never carried its balances into the next one. So the seal is the last step.
+// It is irreversible and, on the year's last period, posts the closing
+// entries; it re-reads the checklist under its own lock, and
+// `--stop-at hard-close` is the way to leave the seal to a person.
 //
 // ── EVERY ATTEMPT RUNS EVERY STEP ───────────────────────────────────────
 //
@@ -73,6 +76,7 @@ export const CLOSING_STEPS = [
   'depreciate-assets',
   'verify-checklist',
   'soft-close',
+  'hard-close',
 ] as const;
 
 export type ClosingStep = (typeof CLOSING_STEPS)[number];
@@ -134,7 +138,8 @@ export interface ConductOptions {
    * Stop BEFORE this step, as `docs/cli-command-registry.md` defines the flag
    * for every orchestrator in the system ("stop before a named gate").
    * `--stop-at soft-close` is therefore "do the whole month but leave the
-   * period open", which is the reason the flag exists.
+   * period open", which is the reason the flag exists, and `--stop-at
+   * hard-close` leaves it soft-closed, with the seal to a person.
    */
   stopAt?: ClosingStep;
   /** Report what is pending without writing anything. */
@@ -921,8 +926,24 @@ async function takeStep(
         // validator records a warning ("Only adjusting entries recommended"),
         // but `entry post` does not show it — only `entry check` does — so
         // this line promises neither a refusal nor a warning.
+        detail: 'period soft-closed: reversible, and still accepts adjusting postings until the seal',
+      };
+    }
+    case 'hard-close': {
+      // No status read of its own: a period that is not soft-closed by now
+      // (reopened, or sealed by hand meanwhile) is refused by the engine, and
+      // that refusal is the step's record.
+      const sealed = await hardClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason);
+      const carry = sealed.carry_forward;
+      return {
+        ...base,
+        status: 'done',
+        processed: 1,
+        amount: null,
         detail:
-          'period soft-closed: reversible, still accepts adjusting postings, and the hard close stays with `close --hard`',
+          `period hard-closed; balances carried into ${carry.periods.join(', ') || 'no period yet'}` +
+          (carry.stopped_at_locked ? `; ${carry.stopped_at_locked} is locked and was NOT rewritten` : '') +
+          (sealed.fiscal_year_closed !== null ? `; fiscal year ${sealed.fiscal_year_closed} closed` : ''),
       };
     }
   }
@@ -1163,6 +1184,19 @@ async function dryRun(
         amount: null,
         journalEntryIds: [],
         detail: periodState === 'open' ? 'would soft-close the period' : `period is already ${periodState}`,
+        priorAttempt: priorSteps.has(step),
+      });
+      continue;
+    }
+    if (step === 'hard-close') {
+      steps.push({
+        step,
+        ordinal,
+        status: 'pending',
+        processed: 0,
+        amount: null,
+        journalEntryIds: [],
+        detail: 'would hard-close the period: irreversible, it carries the balances forward',
         priorAttempt: priorSteps.has(step),
       });
       continue;

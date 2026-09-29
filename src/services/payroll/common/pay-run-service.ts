@@ -10,8 +10,8 @@ import {
 import { dispatchEvent } from '../../webhooks/webhook-service.js';
 import { payRunStateTransitions } from '../../../api/rest/middleware/metrics.js';
 import type { Scope } from '../../../database/scope.js';
-import { alcanceDeCorrida } from './alcance-nomina.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { alcanceDeCorrida, periodoEnEntidad } from './alcance-nomina.js';
+import { ConflictError, NotFoundError } from '../../../utils/errors.js';
 
 // ============================================================
 // PAY RUN ORCHESTRATOR
@@ -34,19 +34,30 @@ export interface PayRunInput {
   created_by: string;
 }
 
-export async function createPayRun(input: PayRunInput): Promise<string> {
+/**
+ * Creates a draft run over a pay period of the scope.
+ *
+ * The period is read INSIDE the scope (MNE-001-068): the REST route checked it
+ * before calling, but a second door (the terminal) that forgot the check would
+ * hang a run of this tenant on a sibling company's period. With the predicate
+ * here, every caller gets the same 404 for a foreign period and a missing one.
+ */
+export async function createPayRun(input: PayRunInput, scope: Scope): Promise<string> {
+  const entity = scope.kind === 'entity' ? ` AND ${periodoEnEntidad('pay_periods.id', 3)}` : '';
   const periodResult = await query<{ tax_year: number }>(
-    `SELECT tax_year FROM pay_periods WHERE id = $1`,
-    [input.pay_period_id]
+    `SELECT tax_year FROM pay_periods WHERE id = $1 AND tenant_id = $2${entity}`,
+    scope.kind === 'entity'
+      ? [input.pay_period_id, scope.tenantId, scope.entityId]
+      : [input.pay_period_id, scope.tenantId]
   );
-  if (periodResult.rows.length === 0) throw new Error('Pay period not found');
+  if (periodResult.rows.length === 0) throw new NotFoundError('Pay period', input.pay_period_id);
   const taxYear = periodResult.rows[0].tax_year;
 
   const id = uuidv4();
   await query(
     `INSERT INTO pay_runs (id, tenant_id, pay_period_id, run_type, status, tax_year_used, created_by)
      VALUES ($1, $2, $3, $4, 'draft', $5, $6)`,
-    [id, input.tenant_id, input.pay_period_id, input.run_type || 'regular', taxYear, input.created_by]
+    [id, scope.tenantId, input.pay_period_id, input.run_type || 'regular', taxYear, input.created_by]
   );
   return id;
 }
@@ -63,12 +74,29 @@ export async function calculatePayRun(
   // sólo miraba los libros de al lado: los reescribía. El alcance va aquí,
   // en la transición a `calculating`, porque todo lo que sigue cuelga de que
   // esta fila sea del alcance.
+  //
+  // And the gate carries its STATE (MNE-001-068). Without it an approved or
+  // paid run went back to `calculating`: its employer liability was already
+  // written, its paychecks already existed, and the first duplicate paycheck
+  // left the run stranded mid-calculation. Draft, calculated (the REST route
+  // adds employees to a calculated run) and a run stuck in `calculating` may
+  // be calculated; a sealed one may not.
   const alcance = alcanceDeCorrida(scope, 'pay_runs.pay_period_id', 2);
   const puerta = await query(
-    `UPDATE pay_runs SET status = 'calculating' WHERE id = $1 AND ${alcance.sql}`,
+    `UPDATE pay_runs SET status = 'calculating' WHERE id = $1 AND ${alcance.sql}
+        AND status IN ('draft', 'calculating', 'calculated')`,
     [payRunId, ...alcance.valores]
   );
-  if (puerta.rowCount === 0) throw new NotFoundError('Pay run', payRunId);
+  if (puerta.rowCount === 0) {
+    const current = await query<{ status: string }>(
+      `SELECT status FROM pay_runs WHERE id = $1 AND ${alcance.sql}`,
+      [payRunId, ...alcance.valores]
+    );
+    if (current.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
+    throw new ConflictError(
+      `Cannot calculate pay run in status ${current.rows[0].status}: only draft or calculated runs are calculated`
+    );
+  }
 
   let totalGross = new Decimal(0);
   let totalPreTax = new Decimal(0);
@@ -133,6 +161,35 @@ export async function calculatePayRun(
   payRunStateTransitions.inc({ from: 'draft', to: 'calculated', country: 'unknown' });
 }
 
+export interface PayRunSummary {
+  id: string;
+  pay_period_id: string;
+  run_type: string;
+  status: string;
+  tax_year_used: number;
+  employee_count: number;
+  total_gross: string;
+  total_employee_taxes: string;
+  total_employer_taxes: string;
+  total_net_pay: string;
+  total_employer_cost: string;
+}
+
+/** One run of the scope, or NotFoundError: a foreign run and a missing one answer alike. */
+export async function getPayRun(payRunId: string, scope: Scope): Promise<PayRunSummary> {
+  const runScope = alcanceDeCorrida(scope, 'pay_runs.pay_period_id', 2);
+  const r = await query<PayRunSummary>(
+    `SELECT id, pay_period_id, run_type, status, tax_year_used, employee_count,
+            total_gross::text AS total_gross, total_employee_taxes::text AS total_employee_taxes,
+            total_employer_taxes::text AS total_employer_taxes,
+            total_net_pay::text AS total_net_pay, total_employer_cost::text AS total_employer_cost
+       FROM pay_runs WHERE id = $1 AND ${runScope.sql}`,
+    [payRunId, ...runScope.valores]
+  );
+  if (r.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
+  return r.rows[0];
+}
+
 /**
  * APROBAR ES CERRAR, Y AL CERRAR SE APUNTA LO QUE EL PATRÓN DEBE.
  *
@@ -157,40 +214,50 @@ export async function calculatePayRun(
 export async function approvePayRun(
   payRunId: string,
   approvedBy: string,
-  scope: Scope
+  scope: Scope,
+  options: { dryRun?: boolean } = {}
 ): Promise<ResultadoAcumulacion> {
   let tenantId = '';
   let pasivo: ResultadoAcumulacion | undefined;
   const alcance = alcanceDeCorrida(scope, 'pay_runs.pay_period_id', 2);
-  await withTransaction(async (client) => {
-    // EL ALCANCE VA EN LA MISMA SENTENCIA QUE BLOQUEA (T9c · #96). La consulta
-    // no llevaba ni inquilino: un id adivinado aprobaba la corrida de otro
-    // despacho, y con ella el pasivo patronal y el permiso para postear y
-    // pagar. La entidad tampoco la acotaba nadie —`pay_runs` no tiene
-    // `entity_id`—, así que la sociedad hermana caía con sólo cambiar la
-    // cabecera, guarda de entidad montada incluida: la guarda valida la
-    // entidad DECLARADA, acotar la consulta es otra defensa, y hacen falta
-    // las dos.
-    //
-    // Comprobar aquí y actualizar después por `id` a secas es correcto
-    // porque el `FOR UPDATE` de esta misma línea tiene la fila tomada hasta
-    // el final de la transacción. Fuera de una transacción con bloqueo, el
-    // predicado tiene que ir en el UPDATE —ver `markPayRunPaid`.
-    const res = await client.query<{ status: string; tenant_id: string }>(
-      `SELECT status, tenant_id FROM pay_runs WHERE id = $1 AND ${alcance.sql} FOR UPDATE`,
-      [payRunId, ...alcance.valores]
-    );
-    if (res.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
-    if (res.rows[0].status !== 'calculated') {
-      throw new Error(`Cannot approve pay run in status ${res.rows[0].status}`);
-    }
-    tenantId = res.rows[0].tenant_id;
-    await client.query(
-      `UPDATE pay_runs SET status = 'approved', approved_by = $1, approved_at = NOW() WHERE id = $2`,
-      [approvedBy, payRunId]
-    );
-    pasivo = await acumularPasivoPatronal({ tenantId, payRunId }, client);
-  });
+  try {
+    await withTransaction(async (client) => {
+      // EL ALCANCE VA EN LA MISMA SENTENCIA QUE BLOQUEA (T9c · #96). La consulta
+      // no llevaba ni inquilino: un id adivinado aprobaba la corrida de otro
+      // despacho, y con ella el pasivo patronal y el permiso para postear y
+      // pagar. La entidad tampoco la acotaba nadie —`pay_runs` no tiene
+      // `entity_id`—, así que la sociedad hermana caía con sólo cambiar la
+      // cabecera, guarda de entidad montada incluida: la guarda valida la
+      // entidad DECLARADA, acotar la consulta es otra defensa, y hacen falta
+      // las dos.
+      //
+      // Comprobar aquí y actualizar después por `id` a secas es correcto
+      // porque el `FOR UPDATE` de esta misma línea tiene la fila tomada hasta
+      // el final de la transacción. Fuera de una transacción con bloqueo, el
+      // predicado tiene que ir en el UPDATE —ver `markPayRunPaid`.
+      const res = await client.query<{ status: string; tenant_id: string }>(
+        `SELECT status, tenant_id FROM pay_runs WHERE id = $1 AND ${alcance.sql} FOR UPDATE`,
+        [payRunId, ...alcance.valores]
+      );
+      if (res.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
+      if (res.rows[0].status !== 'calculated') {
+        throw new ConflictError(`Cannot approve pay run in status ${res.rows[0].status}`);
+      }
+      tenantId = res.rows[0].tenant_id;
+      await client.query(
+        `UPDATE pay_runs SET status = 'approved', approved_by = $1, approved_at = NOW() WHERE id = $2`,
+        [approvedBy, payRunId]
+      );
+      pasivo = await acumularPasivoPatronal({ tenantId, payRunId }, client);
+      // The rehearsal (MNE-001-068) is the real approval, rolled back: the
+      // liability rows and the blocking findings it shows are the ones the
+      // approval would write, not a second calculation of them.
+      if (options.dryRun === true) throw new ApprovalRehearsal();
+    });
+  } catch (err) {
+    if (!(err instanceof ApprovalRehearsal)) throw err;
+    return pasivo!;
+  }
   const resultado = pasivo!;
   await dispatchEvent(tenantId, 'payroll.run.approved', {
     pay_run_id: payRunId,
@@ -201,6 +268,9 @@ export async function approvePayRun(
   payRunStateTransitions.inc({ from: 'calculated', to: 'approved', country: 'unknown' });
   return resultado;
 }
+
+/** Thrown inside the approval transaction to roll a rehearsal back. */
+class ApprovalRehearsal extends Error {}
 
 export async function markPayRunPaid(payRunId: string, scope: Scope): Promise<void> {
   // `status = 'paid'` AFIRMA QUE EL DINERO SALIÓ, y lo afirmaba sobre
