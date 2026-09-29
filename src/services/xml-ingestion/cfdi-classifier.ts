@@ -76,7 +76,7 @@ async function loadRoleMap(entityId: string): Promise<Map<string, { code: string
     [entityId]
   );
   return new Map(r.rows.map((x) => [
-    x.qualifier === null ? x.role : qualifiedRole(x.role, x.qualifier),
+    x.qualifier == null ? x.role : qualifiedRole(x.role, x.qualifier),
     { code: x.code, name: x.name },
   ]));
 }
