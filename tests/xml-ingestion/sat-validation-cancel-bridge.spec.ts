@@ -11,7 +11,7 @@ import { query } from '../../src/database/connection.js';
 import { consultaCfdi, markInvoiceCfdiCancelled } from '../../src/services/sat/cfdi-status.js';
 import { SATValidationService } from '../../src/services/xml-ingestion/sat-validation.js';
 
-// MNE-001-076 (#313): the single-document path (`cfdi status <uuid>` and the
+// MNE-001-076 (#313): the single-document path (`cfdi status show <uuid> --refresh` and the
 // check after ingestion) writes `sat_estado` too, so it must carry the SAT's
 // «Cancelado» to the invoice through the same bridge as the sweep.
 
