@@ -73,7 +73,7 @@ describe('arrastre de saldos', () => {
     const arrastradas = await withTransaction((c) =>
       carryForwardBalances(c, f.entityId, f.periodos[4])
     );
-    expect(arrastradas).toBeGreaterThan(0);
+    expect(arrastradas.carried).toBeGreaterThan(0);
 
     const { rows } = await query<{ beginning_balance: string; ending_balance: string }>(
       `SELECT beginning_balance::text, ending_balance::text
