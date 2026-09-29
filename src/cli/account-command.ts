@@ -531,7 +531,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .description('Beginning, debits, credits and ending by period, with the period status');
   withOutput(withContext(balShow));
   balShow
-    .option('--period <name>', 'only the periods whose name matches')
+    .option('--period <expr>', 'only this period: 2026-07, its id, or part of its name')
     .option('--as-of <date>', 'only the period containing this date (YYYY-MM-DD)');
   declareRisk(balShow, { risk: 'lectura', agent: true });
   balShow.addHelpText('after', EJEMPLOS.balanceShow);
