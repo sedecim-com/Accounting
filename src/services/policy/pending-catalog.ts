@@ -1283,6 +1283,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 40,
   },
   {
+    // MNE-001-023 · #310: the reader is `importOpeningBalance`
+    // (opening-balance.ts), and `planOpeningBills` (ap/opening-bills.ts)
+    // applies it to each payable document that does not carry `ivaRate`.
+    key: 'opening_payable_iva',
+    textKey: 'opening_payable_iva',
+    category: 'fiscal',
+    question:
+      'When a migrated vendor invoice does not say the IVA rate inside its open balance, what does the opening load do?',
+    impact:
+      'A migrated vendor invoice becomes a bill. With its IVA rate, the bill carries the base and the ' +
+      'IVA pending to credit, so paying it moves that IVA to creditable and the DIOT of that month ' +
+      'declares it by rate. Without the rate, "require_rate" stops the load and names the documents; ' +
+      '"assume_zero_rate" loads them at 0 %: paying them credits no IVA and the DIOT declares them as ' +
+      '0 % acts. The IVA of the documents must also be in the pending-IVA account of the opening.',
+    options: [
+      { value: 'require_rate', label: 'Stop the load until each vendor document says its IVA rate' },
+      { value: 'assume_zero_rate', label: 'Load them at 0 % and warn: no IVA is credited when they are paid' },
+    ],
+    defaultValue: 'require_rate',
+    defaultRationale:
+      'Under cash-basis IVA the tax of an unpaid purchase becomes creditable when it is paid (LIVA ' +
+      'art. 1-B and art. 5 fr. III), and the DIOT reports what was paid by rate (LIVA art. 32 fr. VIII). ' +
+      'Assuming 0 % loses the credit and declares acts at a rate they did not have; asking for the ' +
+      'rate costs one column in the file.',
+    whyAsking:
+      'The old system gives me what is still owed to each vendor, not always how much of it is IVA. I either wait until you tell me, or I load it as having no IVA.',
+    whatIDo:
+      'By default I stop the load and list the vendor documents without a rate. With "assume_zero_rate" I load them at 0 % and tell you which ones.',
+    ifSkipped: 'I stop the load until each vendor document says its IVA rate.',
+    priority: 41,
+  },
+  {
     key: 'informes_asientos_de_cierre',
     textKey: 'closing_entries_in_reports',
     category: 'contable',

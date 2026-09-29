@@ -2346,6 +2346,14 @@
     },
     {
       "class": "policy-key",
+      "where": "opening_payable_iva",
+      "es": "opening_payable_iva",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): `opening` is the tree's term for the opening balance (`opening_balance`, `opening-balance import`), `payable` is the AP side, `iva` is the tax's name in both languages. Read by `importOpeningBalance` and applied by `planOpeningBills` (ap/opening-bills.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "bank_statement_overlap",
       "es": "bank_statement_overlap",
       "en": null,
@@ -2900,6 +2908,22 @@
       "es": "contabilizar",
       "en": "post",
       "why": "`post` es el verbo del árbol para llevar un asiento al mayor (`postJournalEntry`, `autoPost`, `entry post`), y el informe ya lo nombra así (`loadMode: 'post'`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_payable_iva/require_rate",
+      "es": "require_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) reads; the load stops until each vendor document says its IVA rate."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_payable_iva/assume_zero_rate",
+      "es": "assume_zero_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
     },
     {
       "class": "policy-value",

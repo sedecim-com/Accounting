@@ -1630,7 +1630,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --period <name>                          only the periods whose name matches
+  --period <expr>                          only this period: 2026-07, its id, or part of its name
   --as-of <date>                           only the period containing this date (YYYY-MM-DD)
   -h, --help                               display help for command
 
@@ -6487,7 +6487,7 @@ Read-only twin of closing start: says whether the period can enter close and
 what is missing
 
 Arguments:
-  period                                   open period name or id (default: the oldest open one)
+  period                                   open period: 2026-07, its id, or part of its name (default: the oldest open one)
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -6506,9 +6506,9 @@ Examples:
   mnemosine closing preview
   # A named month. Blocking items come from the engine AND from the AI queues:
   # a draft dated inside the period stops the close like a red checkbox does.
-  mnemosine closing preview "July 2026"
+  mnemosine closing preview 2026-07
   # Warnings block too, for a scripted gate: exit 4 where it would have been 0.
-  mnemosine closing preview "July 2026" --strict
+  mnemosine closing preview 2026-07 --strict
 ```
 
 ### `mnemosine closing check` (alias: verificar)
@@ -6530,7 +6530,7 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --strict                                 treat warnings as blocking (exit 4)
   --check [codes]                          comma-separated check codes; with no value, prints the available ones
-  --period <name>                          period to check (default: the oldest open one)
+  --period <expr>                          period to check: 2026-07, its id, or part of its name (default: the oldest open one)
   -h, --help                               display help for command
 
 Examples:
@@ -6540,7 +6540,7 @@ Examples:
   mnemosine closing check --check
   # Two checks only, on a named month. Filtered, the verdict is about WHAT WAS
   # ASKED and nothing else; unfiltered it also weighs the AI blockers.
-  mnemosine closing check --period "July 2026" --check trial-balance,ledger-integrity
+  mnemosine closing check --period 2026-07 --check trial-balance,ledger-integrity
 ```
 
 ### `mnemosine closing explain` (alias: explicar)
@@ -6564,14 +6564,14 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   -n, --limit <n>                          maximum offending rows to print
-  --period <name>                          period to explain (default: the oldest open one)
+  --period <expr>                          period to explain: 2026-07, its id, or part of its name (default: the oldest open one)
   -h, --help                               display help for command
 
 Examples:
   # The rows keeping one check red, and the exact command that clears them.
   mnemosine closing explain entries-posted
   # Bank lines nobody explained, on a named month, ten rows at most.
-  mnemosine closing explain bank-lines-unexplained --period "July 2026" -n 10
+  mnemosine closing explain bank-lines-unexplained --period 2026-07 -n 10
   # The offenders as CSV, which is the annex an auditor asks for. The real total
   # travels with the rows, so the --limit cut never passes in silence.
   mnemosine closing explain depreciation-posted --format csv -o cierre-julio-depreciacion.csv
@@ -6586,7 +6586,7 @@ Conduct the close: accrue, amortize, depreciate, verify the checklist,
 soft-close and hard-close, in that order
 
 Arguments:
-  period                                   open period name or id (default: the oldest open one)
+  period                                   open period: 2026-07, its id, or part of its name (default: the oldest open one)
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -6609,7 +6609,7 @@ Examples:
   # really evaluates the checklist -- the one step that can be asked for free.
   mnemosine closing run --dry-run
   # Conduct the whole month. Three of its steps post to the ledger.
-  mnemosine closing run "July 2026" --entity "Acme SA de CV" --yes
+  mnemosine closing run 2026-07 --entity "Acme SA de CV" --yes
   # Do the month but leave the period open: --stop-at stops BEFORE the step.
   mnemosine closing run --stop-at soft-close --yes
   # Soft-close it and leave the irreversible seal to a person.
@@ -8774,14 +8774,14 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --check <names>                          checks to run, comma-separated (available: balance, audit-trail, continuity; empty lists them)
   --account <code>                         scope the balance check to one account
-  --period <name>                          scope the balance check to one fiscal period
+  --period <expr>                          scope the balance check to one fiscal period: 2026-07, its id, or part of its name
   -h, --help                               display help for command
 
 Examples:
   # The blocking checks; exit 4 if anything is found.
   mnemosine ledger check
   # One named check, scoped to a single account and period.
-  mnemosine ledger check --check balance --account 1120 --period "July 2026"
+  mnemosine ledger check --check balance --account 1120 --period 2026-07
   # Every check, with warnings blocking too.
   mnemosine ledger check --check balance,audit-trail,continuity --strict
 ```
@@ -8823,14 +8823,14 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --days <n>                               minimum age in days (default: "30")
-  --period <name>                          only drafts dated into this fiscal period
+  --period <expr>                          only drafts dated into this fiscal period: 2026-07, its id, or part of its name
   -h, --help                               display help for command
 
 Examples:
   # Drafts sitting unposted for more than 30 days.
   mnemosine ledger stale-draft list
   # Older than a week and dated into one period, as CSV.
-  mnemosine ledger stale-draft list --days 7 --period "July 2026" --format csv
+  mnemosine ledger stale-draft list --days 7 --period 2026-07 --format csv
 ```
 
 ### `mnemosine ledger auxiliary` (alias: auxiliar)
@@ -8870,14 +8870,14 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --account <code>                         account code
-  --period <name>                          fiscal period name (or unambiguous fragment)
+  --period <expr>                          fiscal period: 2026-07, its id, or an unambiguous part of its name
   -h, --help                               display help for command
 
 Examples:
   # One account, one period: beginning balance, every movement, ending balance.
-  mnemosine ledger auxiliary show --account 1120 --period "July 2026"
+  mnemosine ledger auxiliary show --account 1120 --period 2026-07
   # The payables account in the same shape, as CSV for the auditor.
-  mnemosine ledger auxiliary show --account 2110 --period "July 2026" --format csv
+  mnemosine ledger auxiliary show --account 2110 --period 2026-07 --format csv
 ```
 
 ### `mnemosine ledger balance` (alias: saldo)
@@ -8914,7 +8914,7 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --account <code>                         account code or id
   --as-of <date>                           only the period containing this date (YYYY-MM-DD)
-  --period <name>                          only the periods whose name matches
+  --period <expr>                          only this period: 2026-07, its id, or part of its name
   --dim <name>                             per-dimension breakdown (not available: the dimension family does not exist yet)
   -h, --help                               display help for command
 
@@ -9571,7 +9571,8 @@ Options:
   -e, --entity <idOrName>  Legal entity
   -t, --tenant <id>        Tenant
   -u, --user <email>       Who performs the close
-  --period <name>          Period to close (default: the oldest open one)
+  --period <expr>          Period to close: 2026-08, its id, or an unambiguous
+                           part of its name (default: the oldest open one)
   -l, --list               List closable periods and exit
   --check                  Only check readiness, never close
   --hard                   Hard close (irreversible) instead of soft close
@@ -9590,10 +9591,14 @@ Examples:
   mnemosine close --check
   # The periods that can be closed right now, and nothing else.
   mnemosine close --list
-  # Soft-close one month, by the name the calendar gave it.
-  mnemosine close --period "July 2026" --reason "Cierre mensual de julio"
-  # Hard close posts the closing entries and carries balances forward: see it first.
-  mnemosine close --period "December 2026" --hard --reason "Cierre anual 2026" --dry-run
+  # Soft-close one month.
+  mnemosine close --period 2026-07 --reason "Cierre mensual de julio"
+  # Hard-close a month. It is irreversible: see it first.
+  mnemosine close --period 2026-11 --hard --reason "Cierre definitivo de noviembre" --dry-run
+  # The annual close is the hard close of the year-end adjustments period (13):
+  # it posts the closing entries. 2026-12 is refused because December shares
+  # it, so name period 13 by its full name or its id.
+  mnemosine close --period "Year-end adjustments 2026" --hard --reason "Cierre anual 2026" --dry-run
 ```
 
 ## `mnemosine web`

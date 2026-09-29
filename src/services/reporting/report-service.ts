@@ -15,6 +15,7 @@ import {
   predicadoDeCuentaEnBalanza,
 } from './criterio-archivadas.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
 
 // ============================================================
 // REPORTING — domain service
@@ -1713,18 +1714,15 @@ export async function getAuxiliaryView(
   );
   if (cuenta.rows.length === 0) throw new NotFoundError('Account', accountCode);
 
+  // The house resolver (#327): uuid, YYYY-MM, or an unambiguous part of the
+  // name, refusing an ambiguous one. The dates are re-read as text because
+  // the driver turns a DATE column into a local-zone Date.
+  const { id: periodId } = await resolvePeriod(entityId, periodName);
   const periodos = await query<{ id: string; period_name: string; status: string; start_date: string; end_date: string }>(
     `SELECT id, period_name, status, start_date::text AS start_date, end_date::text AS end_date
-       FROM fiscal_periods WHERE entity_id = $1 AND period_name ILIKE $2
-      ORDER BY start_date`,
-    [entityId, `%${periodName}%`]
+       FROM fiscal_periods WHERE entity_id = $1 AND id = $2`,
+    [entityId, periodId]
   );
-  if (periodos.rows.length === 0) throw new NotFoundError('Fiscal period', periodName);
-  if (periodos.rows.length > 1) {
-    throw new ValidationError(
-      `"${periodName}" casa ${periodos.rows.length} periodos (${periodos.rows.map((p) => p.period_name).join(', ')}): precisa el nombre.`
-    );
-  }
   const periodo = periodos.rows[0];
 
   const saldo = await query<{ beginning: string; ending: string; d: string; c: string }>(

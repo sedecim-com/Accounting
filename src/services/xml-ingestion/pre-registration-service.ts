@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import pg from 'pg';
-import { query, getClient } from '../../database/connection.js';
-import { createJournalEntry } from '../accounting/posting.js';
+import { query, getClient, withTransaction } from '../../database/connection.js';
+import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
 import { planearAsiento, planContabilizable, type PlanDeAsiento } from './cfdi-posting-plan.js';
 import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
 import {
@@ -1176,80 +1176,119 @@ export class PreRegistrationService {
     return { journalEntry: asiento, paymentId: conPago?.paymentId };
   }
 
+  /**
+   * THE BILL AND ITS ENTRY ARE ONE ACT (#498).
+   *
+   * The INSERTs of `bills` and `bill_lines` used to autocommit before the
+   * classifier ran, so a CFDI held for a decision -- or an entry that
+   * failed for any other reason -- kept a `posted` bill with its
+   * `amount_due` and no entry: the AP subledger carried a payable the ledger
+   * never booked, and every re-run added another. Now the bill, its lines, the
+   * entry and the link share one transaction, as in the approval of an AI
+   * draft (#318), and a hold rolls all of it back. So does a vendor the caller
+   * authorized in this same run: the next run asks for that yes again.
+   *
+   * NOTE: the classifier's reads and its two writes -- the trail in
+   * `cfdi_classifications` and the pre-registration's `validation_warnings` --
+   * stay on the pool on purpose. They commit even when the hold rolls the bill
+   * back: they are what the reviewer and the reprocess read.
+   */
   private async createBillFromPreReg(
     preReg: Record<string, unknown>,
     userId: string,
     opciones: OpcionesDeProceso = {}
   ): Promise<{ bill: Record<string, unknown>; journalEntry: Record<string, unknown> }> {
     const lines = preReg.lines as LineWithSuggestion[];
-    const { billId, billNumber } = await insertarFacturaDePreRegistro(
-      POOL,
-      preReg,
-      userId,
-      opciones,
-      {
-        subtotal: preReg.subtotal,
-        taxAmount: preReg.tax_amount,
-        totalAmount: preReg.total_amount,
-        amountDue: preReg.total_amount,
-        amountPaid: 0,
-        status: 'posted',
-      },
-      () =>
-        lines.map((line) => {
-          const accountId =
-            line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
-          if (!accountId) {
-            throw new ValidationError(`Line ${line.line_number}: no account assigned`);
-          }
-          // Only the IVA transfer is `tax_amount`: taking the first transfer
-          // wrote an IEPS that came ahead of it as if it were VAT (#284).
-          const { tax, ...vat } = vatColumnsOf(line.impuestos?.traslados);
-          return {
-            line_number: line.line_number,
-            account_id: accountId,
-            description: line.descripcion,
-            quantity: line.cantidad,
-            unit_price: line.valor_unitario,
-            line_amount: line.importe,
-            tax_amount: tax,
-            total_amount: new Decimal(line.importe).plus(tax).toFixed(4),
-            ...vat,
-          };
-        })
-    );
+    const entityId = preReg.entity_id as string;
 
-    // ── El asiento lo gobierna el clasificador fiscal.
-    // Antes se armaba aquí a mano y TODO el IVA iba a la 1130 «IVA
-    // Acreditable», sin mirar el método de pago. Bajo PPD el IVA no es
-    // acreditable hasta que se paga la factura y llega el REP: cada
-    // factura a crédito adelantaba un acreditamiento inexistente.
-    const plan = await this.lineasDelAsiento(preReg, lines, billNumber);
-    const jeLines = plan.lineas;
-    // F02 · cfdi_periodo_cerrado='periodo_actual': la PÓLIZA va al periodo
-    // abierto (fecha contable = hoy); la factura conserva su fecha fiscal.
-    const fechaContable = plan.fechaContableHoy
-      ? new Date()
-      : new Date(preReg.document_date as string);
+    const result = await withTransaction(async (client) => {
+      const { billId, billNumber } = await insertarFacturaDePreRegistro(
+        client,
+        preReg,
+        userId,
+        opciones,
+        {
+          subtotal: preReg.subtotal,
+          taxAmount: preReg.tax_amount,
+          totalAmount: preReg.total_amount,
+          amountDue: preReg.total_amount,
+          amountPaid: 0,
+          status: 'posted',
+        },
+        () =>
+          lines.map((line) => {
+            const accountId =
+              line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
+            if (!accountId) {
+              throw new ValidationError(`Line ${line.line_number}: no account assigned`);
+            }
+            // Only the IVA transfer is `tax_amount`: taking the first transfer
+            // wrote an IEPS that came ahead of it as if it were VAT (#284).
+            const { tax, ...vat } = vatColumnsOf(line.impuestos?.traslados);
+            return {
+              line_number: line.line_number,
+              account_id: accountId,
+              description: line.descripcion,
+              quantity: line.cantidad,
+              unit_price: line.valor_unitario,
+              line_amount: line.importe,
+              tax_amount: tax,
+              total_amount: new Decimal(line.importe).plus(tax).toFixed(4),
+              ...vat,
+            };
+          })
+      );
 
-    const journalEntry = await createJournalEntry(
-      preReg.entity_id as string,
-      fechaContable,
-      JournalEntryType.AUTO_INVOICE,
-      `Bill ${billNumber} - ${preReg.external_reference}`,
-      jeLines,
-      userId,
-      { sourceType: 'bill', sourceId: billId, autoPost: true }
-    );
+      // ── El asiento lo gobierna el clasificador fiscal.
+      // Antes se armaba aquí a mano y TODO el IVA iba a la 1130 «IVA
+      // Acreditable», sin mirar el método de pago. Bajo PPD el IVA no es
+      // acreditable hasta que se paga la factura y llega el REP: cada
+      // factura a crédito adelantaba un acreditamiento inexistente.
+      const plan = await this.lineasDelAsiento(preReg, lines, billNumber);
+      const jeLines = plan.lineas;
+      // F02 · cfdi_periodo_cerrado='periodo_actual': la PÓLIZA va al periodo
+      // abierto (fecha contable = hoy); la factura conserva su fecha fiscal.
+      const fechaContable = plan.fechaContableHoy
+        ? new Date()
+        : new Date(preReg.document_date as string);
 
-    // Link JE to bill
-    await query(`UPDATE bills SET journal_entry_id = $1 WHERE id = $2`, [journalEntry.id, billId]);
+      const journalEntry = await createJournalEntry(
+        entityId,
+        fechaContable,
+        JournalEntryType.AUTO_INVOICE,
+        `Bill ${billNumber} - ${preReg.external_reference}`,
+        jeLines,
+        userId,
+        { sourceType: 'bill', sourceId: billId, autoPost: true, client }
+      );
 
-    const billResult = await query('SELECT * FROM bills WHERE id = $1', [billId]);
+      const linked = await client.query<Record<string, unknown>>(
+        `UPDATE bills SET journal_entry_id = $1, updated_at = NOW()
+          WHERE id = $2 AND entity_id = $3 AND journal_entry_id IS NULL
+          RETURNING *`,
+        [journalEntry.id, billId, entityId]
+      );
+      if (linked.rowCount !== 1) {
+        throw new AccountingError(
+          'BILL_LINK_FAILED',
+          `Bill ${billNumber} changed while its entry was being posted; everything was rolled back.`
+        );
+      }
+      const tenant = await client.query<{ tenant_id: string }>(
+        `SELECT tenant_id FROM legal_entities WHERE id = $1`,
+        [entityId]
+      );
+
+      return { bill: linked.rows[0], journalEntry, tenantId: tenant.rows[0].tenant_id };
+    });
+
+    // The caller owns the transaction, so it owns the attestation too: the
+    // orchestrator reads the entry back, and only after the commit is it there.
+    attestEntryAsync(result.tenantId, entityId, result.journalEntry.id);
 
     return {
-      bill: billResult.rows[0],
-      journalEntry: journalEntry as unknown as Record<string, unknown>,
+      bill: result.bill,
+      journalEntry: result.journalEntry as unknown as Record<string, unknown>,
     };
   }
 
@@ -1344,8 +1383,9 @@ export class PreRegistrationService {
 }
 
 /**
- * A query runner: the approval's transaction client, or the pool for the
- * inbox path, which has never been transactional (#318 leaves that as is).
+ * A query runner: the transaction client of whichever act writes the bill,
+ * the approval of a draft (#318) or `createBillFromPreReg` (#498). Both
+ * consumers pass one, so a bill never outlives the entry that failed after it.
  */
 interface Queryable {
   query<T extends pg.QueryResultRow = Record<string, unknown>>(
@@ -1353,8 +1393,6 @@ interface Queryable {
     params?: unknown[]
   ): Promise<pg.QueryResult<T>>;
 }
-
-const POOL: Queryable = { query };
 
 /** One `bill_lines` row, already decided by the caller. */
 export interface BillLineRow {

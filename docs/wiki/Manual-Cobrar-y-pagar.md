@@ -40,7 +40,7 @@ mnemosine period list
 
 `year create` crea el ejercicio y sus doce periodos. El mes en curso y los ya vencidos nacen `open`; los futuros nacen `future` y se abren a propósito con `mnemosine period open 2026-09`.
 
-Un detalle que ahorra un rato de desconcierto: los periodos se **acuñan con nombre en inglés** —`August 2026`, no `agosto 2026`— porque el nombre se guarda, no se traduce al mostrarlo ([`fiscal-calendar-service.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/fiscal-calendar-service.ts), línea 505). `period show 2026-08` sí acepta la forma `YYYY-MM`; `close --period` no (ver [[Manual-El-cierre-de-mes]]).
+Un detalle que ahorra un rato de desconcierto: los periodos se **acuñan con nombre en inglés** —`August 2026`, no `agosto 2026`— porque el nombre se guarda, no se traduce al mostrarlo ([`fiscal-calendar-service.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/fiscal-calendar-service.ts), línea 505). `period show 2026-08` y `close --period 2026-08` aceptan la forma `YYYY-MM` (ver [[Manual-El-cierre-de-mes]]).
 
 **3. Que los roles semánticos apunten a alguna cuenta.** El posteo automático no conoce códigos de cuenta: conoce *roles* (`cxc`, `cxp`, `banco`, `ingreso`, `gasto`, `iva_acreditable`, `iva_pendiente_acreditar`, `iva_trasladado`, `iva_trasladado_no_cobrado`). Esa indirección es la que permite que el mismo motor sirva para el catálogo del despacho y para el catálogo propio de un cliente importado.
 

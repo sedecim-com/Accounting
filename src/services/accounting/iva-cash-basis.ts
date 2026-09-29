@@ -570,12 +570,22 @@ export async function ivaStillParked(
     ? ['invoice', 'customer_payment', 'iva_reclass']
     : ['bill', 'vendor_payment', 'iva_reclass'];
 
+  // MNE-001-023: a bill migrated with the opening parked its IVA inside the
+  // opening entry, which carries the pending-IVA balance as ONE line for all
+  // documents; `bills.tax_amount` is its share. Only while that opening stands.
+  const fromOpening =
+    side === 'received'
+      ? ` + COALESCE((SELECT SUM(b.tax_amount) FROM bills b
+                        JOIN journal_entries jo ON jo.id = b.journal_entry_id AND jo.entity_id = b.entity_id
+                       WHERE b.id = $3 AND b.entity_id = $1 AND jo.source_type = 'opening_balance'
+                         AND jo.status = 'posted' AND jo.reversed_by_entry_id IS NULL), 0)`
+      : '';
   const { rows } = await client.query<{ parked: string }>(
-    `SELECT COALESCE(SUM(
+    `SELECT (COALESCE(SUM(
               CASE WHEN a.normal_balance = 'debit'
                    THEN COALESCE(jel.debit_amount,0) - COALESCE(jel.credit_amount,0)
                    ELSE COALESCE(jel.credit_amount,0) - COALESCE(jel.debit_amount,0)
-              END), 0)::text AS parked
+              END), 0)${fromOpening})::text AS parked
        FROM journal_entry_lines jel
        JOIN journal_entries je ON je.id = jel.journal_entry_id
        JOIN accounts a ON a.id = jel.account_id

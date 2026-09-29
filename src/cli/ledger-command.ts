@@ -75,7 +75,7 @@ Examples:
   # The blocking checks; exit 4 if anything is found.
   mnemosine ledger check
   # One named check, scoped to a single account and period.
-  mnemosine ledger check --check balance --account 1120 --period "July 2026"
+  mnemosine ledger check --check balance --account 1120 --period 2026-07
   # Every check, with warnings blocking too.
   mnemosine ledger check --check balance,audit-trail,continuity --strict
 `,
@@ -84,14 +84,14 @@ Examples:
   # Drafts sitting unposted for more than 30 days.
   mnemosine ledger stale-draft list
   # Older than a week and dated into one period, as CSV.
-  mnemosine ledger stale-draft list --days 7 --period "July 2026" --format csv
+  mnemosine ledger stale-draft list --days 7 --period 2026-07 --format csv
 `,
   auxiliaryShow: `
 Examples:
   # One account, one period: beginning balance, every movement, ending balance.
-  mnemosine ledger auxiliary show --account 1120 --period "July 2026"
+  mnemosine ledger auxiliary show --account 1120 --period 2026-07
   # The payables account in the same shape, as CSV for the auditor.
-  mnemosine ledger auxiliary show --account 2110 --period "July 2026" --format csv
+  mnemosine ledger auxiliary show --account 2110 --period 2026-07 --format csv
 `,
   balanceShow: `
 Examples:
@@ -138,7 +138,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   check
     .option('--check <names>', `checks to run, comma-separated (available: ${LEDGER_CHECK_NAMES.join(', ')}; empty lists them)`)
     .option('--account <code>', 'scope the balance check to one account')
-    .option('--period <name>', 'scope the balance check to one fiscal period');
+    .option('--period <expr>', 'scope the balance check to one fiscal period: 2026-07, its id, or part of its name');
   declareRisk(check, { risk: 'lectura', agent: true });
   check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts & { check?: string; account?: string; period?: string; strict?: boolean }) =>
@@ -177,7 +177,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   withOutput(withSelection(withContext(staleList)));
   staleList
     .option('--days <n>', 'minimum age in days', '30')
-    .option('--period <name>', 'only drafts dated into this fiscal period');
+    .option('--period <expr>', 'only drafts dated into this fiscal period: 2026-07, its id, or part of its name');
   declareRisk(staleList, { risk: 'lectura', agent: true });
   staleList.addHelpText('after', EJEMPLOS.staleDraftList);
   staleList.action((opts: CommonOpts & { days: string; period?: string }) =>
@@ -205,7 +205,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   withOutput(withSelection(withContext(auxShow)));
   auxShow
     .requiredOption('--account <code>', 'account code')
-    .requiredOption('--period <name>', 'fiscal period name (or unambiguous fragment)');
+    .requiredOption('--period <expr>', 'fiscal period: 2026-07, its id, or an unambiguous part of its name');
   declareRisk(auxShow, { risk: 'lectura', agent: true });
   auxShow.addHelpText('after', EJEMPLOS.auxiliaryShow);
   auxShow.action((opts: CommonOpts & { account: string; period: string }) =>
@@ -252,7 +252,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   balShow
     .requiredOption('--account <code>', 'account code or id')
     .option('--as-of <date>', 'only the period containing this date (YYYY-MM-DD)')
-    .option('--period <name>', 'only the periods whose name matches')
+    .option('--period <expr>', 'only this period: 2026-07, its id, or part of its name')
     .option('--dim <name>', 'per-dimension breakdown (not available: the dimension family does not exist yet)');
   declareRisk(balShow, { risk: 'lectura', agent: true });
   balShow.addHelpText('after', EJEMPLOS.balanceShow);

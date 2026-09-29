@@ -107,8 +107,18 @@ export async function listFiscalPeriods(
  * unambiguous part of the period name ("august", "August 2026"). Refuses an
  * ambiguous match instead of picking the first, which is how `close -p` can
  * silently close a different month than the one that was meant.
+ *
+ * `YYYY-MM` names the regular month by default. December also starts the
+ * year-end adjustments period (period 13, which starts on YYYY-12-31), so a
+ * caller that must not guess — the close leaves, where hard-closing period 12
+ * instead of 13 skips the annual closing entries — passes
+ * `refuseSharedMonth` and gets the same refusal an ambiguous name gets.
  */
-export async function resolvePeriod(entityId: string, ref: string): Promise<FiscalPeriodRow> {
+export async function resolvePeriod(
+  entityId: string,
+  ref: string,
+  opts: { refuseSharedMonth?: boolean } = {}
+): Promise<FiscalPeriodRow> {
   const trimmed = ref.trim();
 
   if (UUID_RE.test(trimmed)) {
@@ -134,6 +144,13 @@ export async function resolvePeriod(entityId: string, ref: string): Promise<Fisc
       [entityId, Number(yearMonth[1]), Number(yearMonth[2])]
     );
     if (byDate.rows.length === 0) throw new NotFoundError('Fiscal period', trimmed);
+    if (opts.refuseSharedMonth && byDate.rows.length > 1) {
+      throw new ValidationError(
+        `"${trimmed}" matches ${byDate.rows.length} periods: ` +
+          `${byDate.rows.map((p) => `${p.period_name} (${p.id})`).join(', ')}. ` +
+          'Name one of them by its full name or its id.'
+      );
+    }
     return byDate.rows[0];
   }
 
