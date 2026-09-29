@@ -171,6 +171,7 @@
     "short-payment-clears-parked-iva",
     "payment-applied-without-moving-cash",
     "exchange-rate-refuses-to-pick-a-source",
+    "fee-and-lease-withholdings-come-from-the-law",
     "cfdi-declared-zero-is-not-an-absence",
     "efirma-consent-states-actual-uses",
     "sat-cancellation-reaches-invoice",

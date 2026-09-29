@@ -2128,6 +2128,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // withholding-accounts.ts, which the classifier, `account role sync`,
     // doctor and the close checklist go through.
     key: 'withholding_accounts_layout',
+    textKey: 'withholding_accounts_layout',
     category: 'contable',
     question: 'On which accounts does the ISR and VAT this entity withholds from its suppliers accumulate?',
     impact:
@@ -2165,6 +2166,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // not follow the layout above: the ones seeded before MNE-001-056 have
     // both on 2140, with payroll ISR. Read by withholding-accounts.ts.
     key: 'withholding_accounts_existing',
+    textKey: 'withholding_accounts_existing',
     category: 'contable',
     question: 'When an existing entity\'s withholding roles do not follow the layout, what do I do?',
     impact:
