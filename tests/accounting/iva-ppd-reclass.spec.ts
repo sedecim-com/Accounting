@@ -9,7 +9,7 @@ vi.mock('../../src/database/connection.js', () => ({
   currentTenant: vi.fn(),
 }));
 
-import { censarIvaPpd } from '../../src/services/accounting/iva-ppd-reclass.js';
+import { censarIvaPpd, unpaidShareOfIva } from '../../src/services/accounting/iva-ppd-reclass.js';
 import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
 import { query } from '../../src/database/connection.js';
 
@@ -87,5 +87,19 @@ describe('censarIvaPpd — la frontera de jurisdicción, dentro de la consulta',
     expect(params[0]).toBe(TENANT);
     expect(params[1]).toBeNull();
     expect(params[2]).toBe('iva_reclass');
+  });
+});
+
+// #95 (MNE-001-041): the unpaid share was rounded to cents and then posted at
+// four decimals, stranding up to 0.005 of IVA per document in 1130.
+describe('unpaidShareOfIva', () => {
+  it('rounds once, at the four decimals the entry is posted at', () => {
+    // 160 x 333.33 / 1160 = 45.97655...: cents would post 45.9800, 0.0034 too much.
+    expect(unpaidShareOfIva('160.0000', '333.33', '1160.00').toFixed(4)).toBe('45.9766');
+  });
+
+  it('moves the whole IVA of an unpaid document and none of a paid one', () => {
+    expect(unpaidShareOfIva('160.0000', '1160.00', '1160.00').toFixed(4)).toBe('160.0000');
+    expect(unpaidShareOfIva('160.0000', '0', '1160.00').toFixed(4)).toBe('0.0000');
   });
 });
