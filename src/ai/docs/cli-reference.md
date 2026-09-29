@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 215 of 333 subcommands
+  spelling is `-T` at the root and `-t` on the 218 of 337 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -87,6 +87,7 @@ Commands:
   fx|cambio                              Exchange rates: the origin every foreign-currency amount converts from
   prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
   payroll|nomina                         Payroll accounting: the benefit liability that is born on the day worked
+  pay-run|corrida                        Payroll runs of a pay period: create, calculate gross to net, approve
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
@@ -6826,6 +6827,115 @@ Examples:
   # The real run, with a key: a retry after a dropped connection returns the
   # recorded result instead of accruing the month twice.
   mnemosine payroll accrue --period 2026-03 --yes --idempotency-key devengo-2026-03
+```
+
+## `mnemosine pay-run` (alias: corrida)
+
+```
+Usage: mnemosine pay-run|corrida [options] [command]
+
+Payroll runs of a pay period: create, calculate gross to net, approve
+
+Options:
+  -h, --help                         display help for command
+
+Commands:
+  create|crear [options]             Create a draft run over a pay period; the
+                                     tax year is fixed from the period
+  calculate|calcular [options] <id>  Calculate gross to net for each employee in
+                                     the inputs file and total the run
+  approve|aprobar [options] <id>     Approve a calculated run, sealing its
+                                     totals and writing the employer liability;
+                                     irreversible
+  help [command]                     display help for command
+```
+
+### `mnemosine pay-run create` (alias: crear)
+
+```
+Usage: mnemosine pay-run create|crear [options]
+
+Create a draft run over a pay period; the tax year is fixed from the period
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <id>                            pay period of the active entity (its id)
+  --type <type>                            run type: regular | bonus | correction | final | off_cycle (default: "regular")
+  -h, --help                               display help for command
+
+Examples:
+  # A regular run over a pay period of the active entity.
+  mnemosine pay-run create --period 3f0c2a1e-5b7d-4c89-a1e2-6d4f8b9c0a17
+  # A year-end bonus run over the same period.
+  mnemosine pay-run create --period 3f0c2a1e-5b7d-4c89-a1e2-6d4f8b9c0a17 --type bonus --json
+```
+
+### `mnemosine pay-run calculate` (alias: calcular)
+
+```
+Usage: mnemosine pay-run calculate|calcular [options] <id>
+
+Calculate gross to net for each employee in the inputs file and total the run
+
+Arguments:
+  id                                       pay run to calculate
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --file <path>                            JSON with the employee inputs: an array, or {"employee_inputs": [...]}
+  -h, --help                               display help for command
+
+Examples:
+  # Gross to net for every employee in the file: [{"employee_id": "…",
+  # "earnings": [{"earning_type": "salary", "amount": 7500}]}, …]
+  mnemosine pay-run calculate 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --file quincena-2026-07-1.json
+```
+
+### `mnemosine pay-run approve` (alias: aprobar)
+
+```
+Usage: mnemosine pay-run approve|aprobar [options] <id>
+
+Approve a calculated run, sealing its totals and writing the employer liability;
+irreversible
+
+Arguments:
+  id                                       calculated pay run to approve
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  -h, --help                               display help for command
+
+Examples:
+  # ALWAYS this one first: the real approval, rolled back. It shows the employer
+  # liability the approval would write and any blocking finding.
+  mnemosine pay-run approve 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --dry-run
+  # The approval, with a key: a retry returns the recorded result.
+  mnemosine pay-run approve 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --yes --idempotency-key corrida-2026-07-1
 ```
 
 ## `mnemosine e-accounting` (alias: contabilidad-electronica)
