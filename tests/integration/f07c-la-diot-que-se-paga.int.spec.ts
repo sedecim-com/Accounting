@@ -8,7 +8,8 @@ import {
   fechaEnPeriodo,
   type Fixture,
 } from './helpers/tenant-fixture.js';
-import { drainAttestations } from '../../src/services/accounting/posting.js';
+import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
+import { JournalEntryType } from '../../src/types/index.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
 import { recordVendorPayment } from '../../src/services/payments/payment-service.js';
 import { seedPolicies, resolvePolicy, reopenPolicy } from '../../src/services/policy/policy-service.js';
@@ -451,6 +452,60 @@ describe('diot_tipo_operacion_por_omision decide, y se nota contra la base', () 
     expect(bloqueada.renglones).toHaveLength(0);
     await reopenPolicy({ tenantId: f.tenantId }, 'diot_tipo_operacion_por_omision');
   }, 60_000);
+});
+
+describe('the 2025 operation-type catalogue (MNE-001-055 review)', () => {
+  it('a foreign supplier on the default policy is declared as 07 and the batch file comes out', async () => {
+    const month = 1;
+    const foreign = await sembrarProveedor(f.entityId, f.userId, 'Cloud Services Inc', {
+      rfc: null, tipoTercero: '05', tipoOperacion: null,
+      idFiscalExtranjero: 'US-99-1234567', paisResidencia: 'USA', nacionalidad: 'Estadounidense',
+    });
+    // Migration 138: the 2024 CHECK (03/06/85) refused 02 here.
+    const goods = await sembrarProveedor(f.entityId, f.userId, 'Bienes del Norte SA', {
+      rfc: 'BIE010101AA1', tipoTercero: '04', tipoOperacion: '02',
+    });
+    for (const v of [foreign, goods]) {
+      const bill = await sembrarGasto(f, v, month, 'PPD', [
+        { importe: '1000.0000', iva: '160.0000', tasa: '16.00' },
+      ]);
+      await pagar(f, v, bill.billId, '1160.0000', month);
+    }
+
+    const diot = await construirDiot({ tenantId: f.tenantId, entityId: f.entityId, anio: 2026, mes: month });
+    expect(esEntregable(diot)).toBe(true);
+    const party = diot.renglones.find((r) => r.tercero.vendorId === foreign)?.tercero;
+    expect(party).toMatchObject({ tipoTercero: '05', tipoOperacion: '07' });
+    expect(party?.procedencia.tipoOperacion).toBe('politica');
+
+    const lines = SERIALIZADOR_SAT.serializar(diot).split('\r\n');
+    expect(lines.map((l) => l.split('|').slice(0, 2).join('|')).sort()).toEqual(['04|02', '05|07']);
+  }, 60_000);
+});
+
+describe('diot_creditable_iva_proportion against the ledger', () => {
+  it('its default blocks when the fiscal year has exempt revenue, and is always named when unanswered', async () => {
+    const sister = await crearEntidadHermana(f, 'Hermana con exentos');
+    await query(`UPDATE accounts SET codigo_agrupador_sat = '401.07' WHERE id = $1`, [sister.cuentas['4100']]);
+    await createJournalEntry(
+      sister.entityId, '2026-01-15', JournalEntryType.STANDARD, 'Exempt sale',
+      [
+        { account_id: sister.cuentas['1110'], debit_amount: '500.0000', credit_amount: null, description: 'bank' },
+        { account_id: sister.cuentas['4100'], debit_amount: null, credit_amount: '500.0000', description: 'exempt sale' },
+      ],
+      sister.userId,
+      { autoPost: true }
+    );
+
+    const withExempt = await construirDiot({ tenantId: sister.tenantId, entityId: sister.entityId, anio: 2026, mes: 2 });
+    const codes = withExempt.hallazgos.map((h) => `${h.severidad}:${h.codigo}`);
+    expect(codes).toContain('bloqueante:DIOT-EXEMPT-REVENUE-WITHOUT-PROPORTION');
+    expect(codes).toContain('aviso:DIOT-PROPORTION-BY-DEFAULT');
+
+    const allTaxed = await construirDiot({ tenantId: f.tenantId, entityId: f.entityId, anio: 2026, mes: 1 });
+    expect(allTaxed.hallazgos.map((h) => h.codigo)).not.toContain('DIOT-EXEMPT-REVENUE-WITHOUT-PROPORTION');
+    expect(allTaxed.hallazgos.map((h) => h.codigo)).toContain('DIOT-PROPORTION-BY-DEFAULT');
+  }, 120_000);
 });
 
 describe('la frontera de entidad', () => {

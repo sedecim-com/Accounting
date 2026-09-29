@@ -13,6 +13,7 @@ import {
 import { desgloseCero, type Desglose } from '../../../src/services/sat/diot/desglose.js';
 import type { DiotConstruida, RenglonDiot } from '../../../src/services/sat/diot/modelo.js';
 import type { TerceroDiot } from '../../../src/services/sat/diot/tercero.js';
+import { proportionFindings } from '../../../src/services/sat/diot/diot-service.js';
 
 // ============================================================
 // MNE-001-055 · #307 · The SAT batch file against a hand-built example
@@ -89,7 +90,7 @@ const diot = (): DiotConstruida => ({
     ),
   ],
   totales: { desglose: desgloseCero(), ivaRetenido: '10.6700', ivaAcreditablePagado: '560.1600', terceros: 3, documentos: 0 },
-  politicas: [{ clave: 'diot_iva_acreditable_proporcion', valor: 'solo_gravadas', definida: false }],
+  politicas: [{ clave: 'diot_creditable_iva_proportion', valor: 'taxed_only', definida: false }],
   hallazgos: [],
 });
 
@@ -154,14 +155,22 @@ describe('the SAT batch file (2025 layout)', () => {
 
   it('refuses when the entity applies the LIVA art. 5-V proportion', () => {
     const d = diot();
-    d.politicas = [{ clave: 'diot_iva_acreditable_proporcion', valor: 'aplica_proporcion', definida: true }];
+    d.politicas = [{ clave: 'diot_creditable_iva_proportion', valor: 'block', definida: true }];
     expect(refusal(d)).toContain('art. 5 frac. V');
   });
 
-  it('refuses an amount wider than 14 digits or negative', () => {
+  it('refuses an amount wider than 14 digits', () => {
+    const d = diot();
+    d.renglones[0].desglose.tasa0.base = '123456789012345.0000';
+    expect(refusal(d)).toContain('14 posiciones');
+  });
+
+  it('refuses a negative net naming the returns fields, not the field width', () => {
     const d = diot();
     d.renglones[0].desglose.tasa0.base = '-5.0000';
-    expect(refusal(d)).toContain('14 posiciones');
+    const msg = refusal(d);
+    expect(msg).toContain('devoluciones, descuentos y bonificaciones');
+    expect(msg).not.toContain('14 posiciones');
   });
 
   it('answers the seven layout questions, each from the cited SAT source', () => {
@@ -169,5 +178,72 @@ describe('the SAT batch file (2025 layout)', () => {
     expect(SAT_SOURCE.url).toMatch(/^https:\/\/www\.sat\.gob\.mx\//);
     expect(SAT_SOURCE.consulted).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     for (const a of LAYOUT_ANSWERS) expect(a.section).toMatch(/§\d/);
+  });
+
+  it('writes one record per key: every global supplier and two records with one RFC add up before rounding', () => {
+    const d = diot();
+    const global2 = row(
+      { vendorId: 'v4', nombre: 'Mostrador', tipoTercero: '15', tipoOperacion: '85', rfc: 'XAXX010101000', procedencia: origin },
+      (b) => {
+        b.tasa16 = { base: '0.5000', iva: '0.0800' };
+      }
+    );
+    const sameRfc = row(
+      { vendorId: 'v5', nombre: 'Papelería del Centro (sucursal)', tipoTercero: '04', tipoOperacion: '85', rfc: 'ABC010101AA1', procedencia: origin },
+      (b) => {
+        b.tasa16 = { base: '0.4000', iva: '0.0600' };
+      },
+      '0.4000'
+    );
+    d.renglones.push(global2, sameRfc);
+    const lines = SERIALIZADOR_SAT.serializar(d).split('\r\n');
+    expect(lines).toHaveLength(3);
+    const national = lines[0].split('|');
+    // 1000.50 + 0.40 = 1000.90 → 1001 (each part rounded alone would give 1000)
+    expect([national[11], national[21], national[47]]).toEqual(['1001', '160', '11']);
+    // 500.51 + 0.50 = 501.01 → 501; IVA 80.08 + 0.08 = 80.16 → 80
+    expect(lines[2].split('|').slice(0, 3)).toEqual(['15', '87', 'XAXX010101000']);
+    expect(lines[2].split('|')[11]).toBe('501');
+  });
+
+  it('refuses 0 % acts of a foreign supplier instead of writing them in the domestic 0 % field', () => {
+    const d = diot();
+    d.renglones[1].desglose.tasa0 = { base: '300.0000', iva: '0.0000' };
+    expect(refusal(d)).toContain('proveedor extranjero');
+  });
+
+  it('leaves the IVA box empty when the value rounds to zero (§3.3: only when the value is above zero)', () => {
+    const d = diot();
+    d.renglones = [d.renglones[0]];
+    d.renglones[0].desglose.tasa16 = { base: '0.4000', iva: '0.0000' };
+    const fields = SERIALIZADOR_SAT.serializar(d).split('|');
+    expect([fields[11], fields[21]]).toEqual(['0', '']);
+  });
+
+  it('refuses an IVA with no value of acts instead of dropping it', () => {
+    const d = diot();
+    d.renglones[0].desglose.tasa16 = { base: '0.0000', iva: '16.0000' };
+    expect(refusal(d)).toContain('sin un valor de los actos');
+  });
+
+  it('refuses a country that is not a three-letter key of the §5 catalogue', () => {
+    const d = diot();
+    d.renglones[1].tercero.paisResidencia = 'US';
+    expect(refusal(d)).toContain('"US"');
+  });
+});
+
+describe('diot_creditable_iva_proportion findings', () => {
+  it('blocks the default when the ledger has exempt revenue, whether answered or not', () => {
+    for (const defined of [true, false]) {
+      const codes = proportionFindings({ value: 'taxed_only', defined }, '500.0000').map((h) => h.codigo);
+      expect(codes).toContain('DIOT-EXEMPT-REVENUE-WITHOUT-PROPORTION');
+    }
+  });
+
+  it('names the default when it was not answered, and says nothing once answered', () => {
+    expect(proportionFindings({ value: 'taxed_only', defined: false }, '0').map((h) => h.severidad)).toEqual(['aviso']);
+    expect(proportionFindings({ value: 'taxed_only', defined: true }, '0')).toEqual([]);
+    expect(proportionFindings({ value: 'block', defined: true }, '500')).toEqual([]);
   });
 });

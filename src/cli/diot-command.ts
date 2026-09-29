@@ -54,12 +54,12 @@ import {
 //
 // ── LO PRIMERO QUE HAY QUE SABER DE ESTE ARCHIVO ──
 //
-// NADA DE LO QUE SALE DE AQUÍ ESTÁ PRESENTADO. La DIOT se captura o se sube
-// en el portal del SAT, por una persona, con su e.firma o su contraseña. Este
-// binario no toca el portal. `diot export --layout sat` writes the batch file
-// the portal accepts (layout grounded in sat-batch.ts) and stops there: the
-// upload is a person's act. Así que las tres hojas gritan lo mismo que las del
-// Anexo 24, con las palabras que les tocan.
+// NOTHING THAT LEAVES THIS FILE IS FILED. A person captures or uploads the
+// DIOT in the SAT portal, with their e.firma or password; this binary never
+// reaches the portal. `diot export --layout sat` writes the batch file the
+// portal accepts (layout grounded in sat-batch.ts) and stops there: the upload
+// is a person's act. So the three sheets say the same as the Anexo 24 ones,
+// in the words that fit them.
 //
 // ── CUATRO DECISIONES QUE NO SON DE ESTILO ──
 //
@@ -246,10 +246,16 @@ export const CODIGOS_POR_CHECK = Object.freeze({
     'DIOT-EXTRANJERO-INCOMPLETO',
     'DIOT-TERCERO-AJENO',
   ]),
-  /** 03 servicios, 06 arrendamiento, 85 otros: la columna que nadie captura. */
+  /** The 2025 catalogue (02, 03, 06, 07, 08, 85): the column nobody captures. */
   'tipo-de-operacion': Object.freeze([
     'DIOT-TIPO-OPERACION-SIN-DECLARAR',
     'DIOT-TIPO-OPERACION-POR-OMISION',
+    'DIOT-OPERATION-TYPE-NOT-ALLOWED',
+  ]),
+  /** Which creditable-IVA box the IVA paid goes to (LIVA art. 5 frac. V). */
+  'creditable-iva-proportion': Object.freeze([
+    'DIOT-EXEMPT-REVENUE-WITHOUT-PROPORTION',
+    'DIOT-PROPORTION-BY-DEFAULT',
   ]),
   /** Una política del panel con un valor que su propio catálogo no admite. */
   'politica-en-catalogo': Object.freeze(['DIOT-POLITICA-FUERA-DE-CATALOGO']),
@@ -271,9 +277,12 @@ export const DESCRIPCION_DEL_CHECK: Readonly<Record<DiotCheckName, string>> = Ob
     'los actos exentos declaran su base, que es lo que la DIOT informa aunque no haya impuesto',
   'tercero-identificado':
     'cada tercero llega con RFC usable, o con identificación fiscal, país y nacionalidad si es extranjero',
-  'tipo-de-operacion': 'cada tercero trae tipo de operación capturado (03, 06 u 85), no supuesto',
+  'tipo-de-operacion':
+    'cada tercero trae un tipo de operación capturado que el catálogo 2025 admite para su tipo de tercero, no supuesto',
+  'creditable-iva-proportion':
+    'all IVA is declared as tied exclusively to taxed activities only if the ledger has no exempt revenue in the fiscal year',
   'politica-en-catalogo':
-    'las tres políticas de la DIOT valen algo que su propio catálogo admite',
+    'las políticas de la DIOT valen algo que su propio catálogo admite',
 });
 
 /** El check al que pertenece un código, o undefined si nadie lo clasificó. */

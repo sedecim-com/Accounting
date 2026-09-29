@@ -851,7 +851,7 @@
       "es": "tipo_operacion",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Catálogo de la DIOT: 03 servicios profesionales, 06 arrendamiento, 85 otros (CHECK en 066:49, COMMENT en 066:57). Es un campo del formato, no una clasificación nuestra; `operation_type` no aparece en ningún documento de la autoridad."
+      "why": "Catálogo de la DIOT: 03 servicios profesionales, 06 arrendamiento, 85 otros (CHECK en 066:49, COMMENT en 066:57); ampliado al catálogo 2025 (02, 03, 06, 07, 08, 85) por la 138. Es un campo del formato, no una clasificación nuestra; `operation_type` no aparece en ningún documento de la autoridad."
     },
     {
       "class": "column",
@@ -3085,7 +3085,23 @@
       "es": "85",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Es el código 85 «Otros» del catálogo de Tipo de Operación de la DIOT, no un número nuestro. `src/services/sat/diot/tercero.ts:29` lo declara como `export type TipoOperacion = '03' | '06' | '85'` (y :32 lo repite en `TIPOS_OPERACION`), y `serializador.ts:113 y sat-batch.ts` escribe `t.tipoOperacion` TAL CUAL en el archivo que se sube al SAT. Traducirlo o renumerarlo produce un archivo que la autoridad rechaza."
+      "why": "Es el código 85 «Otros» del catálogo de Tipo de Operación de la DIOT, no un número nuestro. `src/services/sat/diot/tercero.ts` lo declara en `export type TipoOperacion` (catálogo 2025: 02, 03, 06, 07, 08, 85; y lo repite en `TIPOS_OPERACION`), y `serializador.ts:113 y sat-batch.ts` escribe `t.tipoOperacion` TAL CUAL en el archivo que se sube al SAT. Traducirlo o renumerarlo produce un archivo que la autoridad rechaza."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_tipo_operacion_por_omision/02",
+      "es": "02",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "Code 02 «Enajenación de bienes» of the 2025 DIOT operation-type catalogue (SAT instructivo de carga masiva, Enero 2025, §3.1). Same path as 03 and 85: `TipoOperacion` in tercero.ts and written verbatim by sat-batch.ts. Renaming it produces a file the SAT rejects."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_tipo_operacion_por_omision/06",
+      "es": "06",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "Code 06 «Uso o goce temporal de bienes» of the 2025 DIOT operation-type catalogue (§3.1). Same path as 03 and 85: `TipoOperacion` in tercero.ts and written verbatim by sat-batch.ts."
     },
     {
       "class": "policy-value",

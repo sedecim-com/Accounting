@@ -200,14 +200,14 @@ export const SERIALIZADOR_SAT: SerializadorDiot = {
       );
     }
     const proportion =
-      diot.politicas.find((p) => p.clave === 'diot_iva_acreditable_proporcion')?.valor ??
-      'solo_gravadas';
+      diot.politicas.find((p) => p.clave === 'diot_creditable_iva_proportion')?.valor ??
+      'taxed_only';
     const { file, refusals } = serializeSatBatch(diot, { proportion });
     if (refusals.length > 0) {
       throw new DiotNoEntregable(
         `La DIOT de ${periodo} no cabe en el layout del SAT tal cual:\n` +
           refusals.map((r) => `  · ${r.message}`).join('\n'),
-        { vendors: refusals.map((r) => r.vendorId).filter((v) => v !== '') }
+        { vendors: refusals.flatMap((r) => r.vendorIds) }
       );
     }
     return file;

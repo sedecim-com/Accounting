@@ -39,9 +39,12 @@ import type {
 //     bloquea la declaración o viaja como tercero global (15).
 //   · diot_iva_exento_y_base          → si un renglón exento sin base
 //     bloquea, se deriva del subtotal o se omite.
-//   · diot_iva_acreditable_proporcion → whether the SAT batch file may declare
-//     all IVA paid as tied exclusively to taxed activities (read here, applied
-//     in sat-batch.ts).
+//   · diot_default_operation_type_foreign → the same, for a foreign supplier
+//     (05), whose catalogue (§3.1: 02, 03, 07) excludes the national 85.
+//   · diot_creditable_iva_proportion → whether the SAT batch file may declare
+//     all IVA paid as tied exclusively to taxed activities (applied in
+//     sat-batch.ts). Its default is refused here when the ledger shows exempt
+//     revenue in the fiscal year (proportionFindings).
 //
 // ARMAR NO SE NIEGA; ENTREGAR SÍ. `construirDiot` termina siempre y devuelve
 // todos los hallazgos, porque las dos políticas que se niegan prometen
@@ -49,6 +52,73 @@ import type {
 // vuelta por proveedor. El que se planta es el serializador, que mira
 // `bloquean()`.
 // ============================================================
+
+/** SAT código agrupador for exempt sales: 401.07 and its cash and credit children. */
+export const EXEMPT_REVENUE_GROUPING_CODES: readonly string[] = ['401.07', '401.08', '401.09'];
+
+/**
+ * What `diot_creditable_iva_proportion` says about this DIOT.
+ *
+ * `taxed_only` declares every peso of IVA as tied exclusively to taxed
+ * activities. That is only true for an entity with no exempt activity, so
+ * exempt revenue in the fiscal year (up to the DIOT month) blocks it, whether
+ * the value was answered or not. Left unanswered, it travels as a notice on
+ * every DIOT, so the default is never applied in silence.
+ */
+export function proportionFindings(
+  policy: { value: string; defined: boolean },
+  exemptRevenue: string
+): Hallazgo[] {
+  if (policy.value !== 'taxed_only') return [];
+  const findings: Hallazgo[] = [];
+  if (new Decimal(exemptRevenue).greaterThan(0)) {
+    findings.push({
+      codigo: 'DIOT-EXEMPT-REVENUE-WITHOUT-PROPORTION',
+      severidad: 'bloqueante',
+      politica: 'diot_creditable_iva_proportion',
+      mensaje:
+        `El mayor registra ${exemptRevenue} de ingresos exentos en el ejercicio (cuentas con ` +
+        `agrupador ${EXEMPT_REVENUE_GROUPING_CODES.join(', ')}), y la política ` +
+        `diot_creditable_iva_proportion declara todo el IVA como de actividades exclusivamente ` +
+        `gravadas. Con actividades exentas el IVA acreditable sigue la proporción del art. 5 ` +
+        `frac. V LIVA: contesta la política con "block" y reparte el IVA en el portal.`,
+    });
+  }
+  if (!policy.defined) {
+    findings.push({
+      codigo: 'DIOT-PROPORTION-BY-DEFAULT',
+      severidad: 'aviso',
+      politica: 'diot_creditable_iva_proportion',
+      mensaje:
+        `Todo el IVA acreditable se declara como de actividades exclusivamente gravadas porque ` +
+        `la política diot_creditable_iva_proportion no está contestada. Confírmala si la entidad ` +
+        `no tiene actividades exentas.`,
+    });
+  }
+  return findings;
+}
+
+/** Exempt revenue (credit − debit) posted from January 1 to the end of the DIOT month. */
+async function exemptRevenueOfYear(
+  client: pg.PoolClient,
+  entityId: string,
+  year: number,
+  until: string
+): Promise<string> {
+  const { rows } = await client.query<{ total: string }>(
+    `SELECT COALESCE(SUM(COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)), 0)::text AS total
+       FROM journal_entry_lines jel
+       JOIN journal_entries je
+         ON je.id = jel.journal_entry_id
+        AND je.status = 'posted'
+        AND je.entity_id = $1
+        AND je.entry_date BETWEEN $2::date AND $3::date
+       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
+      WHERE a.codigo_agrupador_sat = ANY($4::text[])`,
+    [entityId, `${String(year)}-01-01`, until, [...EXEMPT_REVENUE_GROUPING_CODES]]
+  );
+  return rows[0]?.total ?? '0';
+}
 
 export interface OpcionesDiot {
   tenantId: string;
@@ -172,14 +242,16 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
     const pTipoOperacion = await getPolicy(ctx, 'diot_tipo_operacion_por_omision', client);
     const pSinRfc = await getPolicy(ctx, 'diot_tercero_sin_rfc', client);
     const pBaseExenta = await getPolicy(ctx, 'diot_iva_exento_y_base', client);
-    // Read here, applied by the SAT batch serializer (sat-batch.ts): it decides
-    // which IVA-acreditable box of the 2025 layout carries the IVA paid.
-    const pProportion = await getPolicy(ctx, 'diot_iva_acreditable_proporcion', client);
+    const pForeignOperation = await getPolicy(ctx, 'diot_default_operation_type_foreign', client);
+    // Applied by the SAT batch serializer (sat-batch.ts): it decides which
+    // creditable-IVA box of the 2025 layout carries the IVA paid.
+    const pProportion = await getPolicy(ctx, 'diot_creditable_iva_proportion', client);
 
     const politicas: PoliticaAplicada[] = [
       pTipoOperacion,
       pSinRfc,
       pBaseExenta,
+      pForeignOperation,
       pProportion,
     ].map((p) => ({
       clave: p.key,
@@ -187,7 +259,10 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
       definida: p.defined,
     }));
 
-    const hallazgos: Hallazgo[] = [];
+    const hallazgos: Hallazgo[] = proportionFindings(
+      pProportion,
+      await exemptRevenueOfYear(client, entityId, anio, rangoDelMes(anio, mes).hasta)
+    );
 
     // Un valor fuera del catálogo de la política se detiene aquí: es más
     // barato que descubrirlo repartido por veinte mensajes de proveedor.
@@ -208,6 +283,7 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
     const politicasTercero: PoliticasDelTercero = {
       tipoOperacionPorOmision: pTipoOperacion.value,
       terceroSinRfc: pSinRfc.value,
+      foreignOperationDefault: pForeignOperation.value,
     };
 
     // ── EL HECHO ────────────────────────────────────────────────────────

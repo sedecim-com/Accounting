@@ -202,7 +202,8 @@ describe('diot generate · lo que imprime la terminal es lo que movió el mayor'
       'diot_tipo_operacion_por_omision',
       'diot_tercero_sin_rfc',
       'diot_iva_exento_y_base',
-      'diot_iva_acreditable_proporcion',
+      'diot_default_operation_type_foreign',
+      'diot_creditable_iva_proportion',
     ]) {
       expect(fila[`criterio_${clave}`], clave).toBeTruthy();
     }
@@ -210,13 +211,13 @@ describe('diot generate · lo que imprime la terminal es lo que movió el mayor'
 
   it('diot export --layout sat writes the batch .txt from the real ledger, exits 0 and files nothing', async () => {
     // Runs while May is still clean: the vendor without RFC is seeded later.
-    const destino = path.join(tmpRaiz, 'diot-sat-202605.txt');
-    const r = await correr(['diot', 'export', ...PERIODO, '--layout', 'sat', '-o', destino]);
+    const target = path.join(tmpRaiz, 'diot-sat-202605.txt');
+    const r = await correr(['diot', 'export', ...PERIODO, '--layout', 'sat', '-o', target]);
     expect(r.exitCode, r.err).toBe(ExitCode.OK);
-    const campos = fs.readFileSync(destino, 'utf8').split('|');
-    expect(campos).toHaveLength(54);
-    expect(campos.slice(0, 3)).toEqual(['04', '03', 'SDG010101AA1']);
-    expect([campos[11], campos[21], campos[53]]).toEqual(['1000', '160', '01']);
+    const fields = fs.readFileSync(target, 'utf8').split('|');
+    expect(fields).toHaveLength(54);
+    expect(fields.slice(0, 3)).toEqual(['04', '03', 'SDG010101AA1']);
+    expect([fields[11], fields[21], fields[53]]).toEqual(['1000', '160', '01']);
     expect(r.err).toContain(TITULAR_NO_PRESENTADA);
   });
 
@@ -239,7 +240,10 @@ describe('diot check · las verificaciones contra el libro real', () => {
     const r = await correr(['diot', 'check', ...PERIODO]);
     expect(r.exitCode, `${r.out}${r.err}`).toBe(ExitCode.OK);
     expect(r.out).toContain('DIOT-PUE-SIN-PAGO');
-    expect(r.out).toMatch(/0 bloqueante\(s\), 1 aviso\(s\)/);
+    // The second notice: diot_creditable_iva_proportion is unanswered, so its
+    // default is named on every DIOT instead of applied in silence.
+    expect(r.out).toContain('DIOT-PROPORTION-BY-DEFAULT');
+    expect(r.out).toMatch(/0 bloqueante\(s\), 2 aviso\(s\)/);
 
     // El contrato §4: un aviso sólo tumba la tubería si se pide.
     const estricto = await correr(['diot', 'check', ...PERIODO, '--strict']);
