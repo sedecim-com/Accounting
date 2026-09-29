@@ -199,6 +199,32 @@ export function planOpeningInvoices(
   return { drafts, findings };
 }
 
+/**
+ * Under `apertura_modo_de_carga = borrador` the opening is a draft, so no
+ * invoice is written: it would be collectable before its balance is posted.
+ * The load says so instead of leaving the gap silent.
+ */
+export function skippedUnderDraftMode(plan: Pick<OpeningPlan, 'lines' | 'control'>): OpeningInvoicesPlan {
+  const docs = receivableDocuments(plan);
+  if (docs.length === 0) return { drafts: [], findings: [] };
+  return {
+    drafts: [],
+    findings: [
+      {
+        regla: 'APE-CXC-BORRADOR',
+        severidad: 'aviso',
+        numCta: docs[0].code,
+        mensaje:
+          `La apertura queda en BORRADOR (apertura_modo_de_carga = borrador), así que sus ${docs.length} ` +
+          `documento(s) de clientes NO entran como facturas: una factura colgada de un asiento sin ` +
+          `postear se podría cobrar antes de que su saldo esté en el mayor. Al postearla, 'ar reconcile' ` +
+          `acusará ese saldo como diferencia. Para traer las facturas, carga la apertura con ` +
+          `apertura_modo_de_carga = contabilizar.`,
+      },
+    ],
+  };
+}
+
 /** Reads what the pure plan needs. Queries nothing when there is no AR document. */
 export async function prepareOpeningInvoices(
   entityId: string,

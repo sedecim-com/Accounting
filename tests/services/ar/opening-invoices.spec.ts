@@ -5,6 +5,7 @@ vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
 import {
   planOpeningInvoices,
   prepareOpeningInvoices,
+  skippedUnderDraftMode,
   writeOpeningInvoices,
   type OpeningInvoiceDraft,
   type OpeningInvoicesContext,
@@ -130,6 +131,21 @@ describe('planOpeningInvoices', () => {
     const r = planOpeningInvoices(plan([doc({ documento: 'A-1' })]), { ...CTX, existing: [stale] });
     expect(r.findings).toEqual([]);
     expect(r.drafts[0].replacesId).toBe('inv-1');
+  });
+});
+
+describe('skippedUnderDraftMode', () => {
+  it('writes nothing under borrador and says how many receivable documents stay out', () => {
+    const r = skippedUnderDraftMode(plan([doc({ documento: 'A-1' }), doc({ documento: 'A-2' })]));
+    expect(r.drafts).toEqual([]);
+    expect(r.findings).toEqual([
+      expect.objectContaining({ regla: 'APE-CXC-BORRADOR', severidad: 'aviso', numCta: '105-001' }),
+    ]);
+    expect(r.findings[0].mensaje).toContain('2 documento(s)');
+  });
+
+  it('with no receivable document there is nothing to say', () => {
+    expect(skippedUnderDraftMode(plan([]))).toEqual({ drafts: [], findings: [] });
   });
 });
 
