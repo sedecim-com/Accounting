@@ -743,6 +743,19 @@ export async function updateDraftEntry(
         `${entry.entry_number} está en ${entry.status}: solo un borrador se edita.`
       );
     }
+    // MNE-001-099 · #220: an opening left as a draft (`apertura_modo_de_carga
+    // = borrador`) is the source trial balance, not a hand-written entry. Its
+    // lines are what the penny check compares, and moving its date frees the
+    // 081/087 index slot so a second load would double every balance. Checked
+    // here, under the row lock, because this is the only door that edits a
+    // draft (`entry edit`, open to the agent). Text fields stay editable.
+    if (entry.source_type === 'opening_balance' && (patch.lines !== undefined || patch.date !== undefined)) {
+      throw new AccountingError(
+        'OPENING_DRAFT_LOCKED',
+        `${entry.entry_number} es la apertura cargada de la balanza: sus renglones y su fecha no se ` +
+          `editan. Aplícala con \`entry post\`, o anúlala con \`entry void\` y vuelve a cargar la balanza.`
+      );
+    }
 
     const sets: string[] = [];
     const params: unknown[] = [];
