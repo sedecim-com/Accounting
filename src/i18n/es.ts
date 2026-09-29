@@ -673,15 +673,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.fee.post.totals': 'totales: cargo {charge} · gasto {expense} · IVA {vat}',
   'bank.fee.post.confirm':
     'Vas a CONTABILIZAR {count, plural, one {# comisión} other {# comisiones}} del {from} al {to} ' +
-    'en la cuenta {account}, por {total} (IVA {vat} a pendiente de acreditar). El mayor es ' +
-    'inmutable: esto sólo se corrige por reversa. ¿Continuar?',
+    'en la cuenta {account}, por {total} (IVA {vat}; pasan a IVA acreditable {released}). El ' +
+    'mayor es inmutable: esto sólo se corrige por reversa. ¿Continuar?',
   'bank.fee.post.fees': '{count, plural, one {# comisión} other {# comisiones}}',
   'bank.fee.post.summary':
     '· {posted, plural, one {# contabilizada} other {# contabilizadas}} · ' +
     '{skipped, plural, one {# omitida} other {# omitidas}} · cargo {charge} · IVA {vat}',
-  'bank.fee.post.vat_pending_note':
-    'El IVA queda en pendiente de acreditar: se acredita con `bank fee apply` cuando llegue el ' +
-    'CFDI del banco, no aquí.',
+  'bank.fee.post.vat_release_ref': 'IVA de la comisión a acreditable · póliza {entry}',
+  'bank.fee.post.vat_released_note':
+    'El IVA de las comisiones ({vat}) pasó de pendiente de acreditar a IVA acreditable en el mes ' +
+    'del cargo. Conserva el CFDI del banco: sin él no procede el acreditamiento.',
   'bank.interest.post.title': 'INTERESES',
   'bank.interest.post.withholding': 'retención {rate}',
   'bank.interest.post.nothing_to_post': 'ningún abono que contabilizar',
