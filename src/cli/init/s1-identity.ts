@@ -210,7 +210,7 @@ export class IdentidadSection implements SetupSection {
     const year = new Date().getFullYear();
     const result = await ensureFiscalYear(entityId, year);
     if (result.created) {
-      ctx.print(`  ✔ Fiscal year ${year} created with 12 monthly periods`);
+      ctx.print(`  ✔ Fiscal year ${year} created with 12 monthly periods and the year-end adjustment period (13)`);
     } else if (result.periods === 0) {
       // The year row exists but carries no periods, so nothing can be posted.
       // ensureFiscalYear will not fill it in (the INSERT would collide on

@@ -1179,11 +1179,17 @@ export async function carryForwardBalances(
   entityId: string,
   closedPeriodId: string
 ): Promise<number> {
+  // The next period in the books' order, (start_date, period_number), and not
+  // the first one starting after this one ends: December ends on December 31,
+  // the day the year-end adjustment period (13) starts, and "after the end"
+  // jumped straight to January, leaving period 13 without its beginnings and
+  // letting its own close overwrite January's with its activity alone (#304).
   const next = await client.query<{ id: string }>(
-    `SELECT id FROM fiscal_periods
-     WHERE entity_id = $1
-       AND start_date > (SELECT end_date FROM fiscal_periods WHERE id = $2)
-     ORDER BY start_date ASC LIMIT 1`,
+    `SELECT fp.id FROM fiscal_periods fp
+       JOIN fiscal_periods closed ON closed.id = $2
+     WHERE fp.entity_id = $1
+       AND (fp.start_date, fp.period_number) > (closed.start_date, closed.period_number)
+     ORDER BY fp.start_date ASC, fp.period_number ASC LIMIT 1`,
     [entityId, closedPeriodId]
   );
   if (next.rows.length === 0) return 0; // next year not created yet — nothing to seed
@@ -1549,7 +1555,8 @@ async function generateClosingEntries(
           previo,
           userId,
           `Reversal of ${previo.entry_number}: ${motivo}`,
-          periodEndDate
+          periodEndDate,
+          periodId
         );
         resultado.reversas.push(espejo.id);
       }
@@ -1603,6 +1610,10 @@ async function generateClosingEntries(
   // the period being closed — new Date() (the old code) landed them in the
   // CURRENT open period, so the closed year's P&L never zeroed out in its
   // own period. Same client: atomic with the hard close.
+  //
+  // And booked INTO the period being closed, not wherever the date points:
+  // period 13 shares December 31 with December, and while December still
+  // accepts postings the date alone would put the close there (#304).
   if (closingLines.length > 0) {
     const entry = await createJournalEntry(
       entityId,
@@ -1611,7 +1622,7 @@ async function generateClosingEntries(
       'Year-end closing entries',
       closingLines,
       userId,
-      { autoPost: true, client, sourceType: ORIGEN_CIERRE, sourceId: periodId }
+      { autoPost: true, client, sourceType: ORIGEN_CIERRE, sourceId: periodId, fiscalPeriodId: periodId }
     );
     resultado.ids.push(entry.id);
   }
@@ -1641,7 +1652,7 @@ async function generateClosingEntries(
       `Close Income Summary to ${nombreDestino}`,
       barridoResumen.lineas,
       userId,
-      { autoPost: true, client, sourceType: ORIGEN_CIERRE, sourceId: periodId }
+      { autoPost: true, client, sourceType: ORIGEN_CIERRE, sourceId: periodId, fiscalPeriodId: periodId }
     );
     resultado.ids.push(entry.id);
   }
