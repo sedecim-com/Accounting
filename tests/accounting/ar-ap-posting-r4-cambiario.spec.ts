@@ -9,7 +9,12 @@ vi.mock('../../src/services/accounting/posting.js', () => ({
 
 import Decimal from 'decimal.js';
 import type pg from 'pg';
-import { postBillEntry, postInvoiceEntry, postVendorPaymentEntry } from '../../src/services/accounting/ar-ap-posting.js';
+import {
+  postBillEntry,
+  postCustomerPaymentEntry,
+  postInvoiceEntry,
+  postVendorPaymentEntry,
+} from '../../src/services/accounting/ar-ap-posting.js';
 import type { Bill, BillLine, Invoice, InvoiceLine } from '../../src/types/index.js';
 import type { ContextoCambiario } from '../../src/services/accounting/moneda-origen.js';
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
@@ -233,6 +238,77 @@ describe('postVendorPaymentEntry · la mitad realizada de NIF B-15', () => {
     expect(de('acct:perdida_cambiaria')).toBeUndefined();
     expect(de('acct:utilidad_cambiaria')).toBeUndefined();
     cuadre();
+  });
+});
+
+describe('postCustomerPaymentEntry · MNE-001-082: the realised difference of a collection', () => {
+  // The receivable was born at 17.50 (the rate MNE-001-081 wrote back to the
+  // invoice); the cash arrives at the rate of the collection day.
+  const receipt = (rate: string): ContextoCambiario =>
+    contexto({
+      tasaPago: rate,
+      aplicaciones: [
+        { billId: 'inv-1', numero: 'INV-1', aplicado: '1000.00', descuento: '0', tasaHistorica: '17.5000000000' },
+      ],
+    });
+
+  it('USD 1 000 born at 17.50 and collected at 18.00 credits 500 of realised gain to utilidad_cambiaria', async () => {
+    await postCustomerPaymentEntry(fakeClient(), pago(), USER, receipt('18.0000000000'));
+
+    const bank = de('acct:banco-gl');
+    expect(bank?.debit_amount).toBe('18000.0000');
+    expect(bank?.foreign_debit).toBe('1000.0000');
+    expect(bank?.exchange_rate).toBe('18.0000000000');
+    expect(bank?.currency_code).toBe('USD');
+
+    const cxc = de('acct:cxc');
+    expect(cxc?.credit_amount).toBe('17500.0000');
+    expect(cxc?.foreign_credit).toBe('1000.0000');
+    expect(cxc?.exchange_rate).toBe('17.5000000000');
+
+    const gain = de('acct:utilidad_cambiaria');
+    expect(gain?.credit_amount).toBe('500.0000');
+    expect(gain?.debit_amount).toBeNull();
+    // A realised result exists only in the functional currency.
+    expect(gain?.currency_code).toBeUndefined();
+    expect(de('acct:perdida_cambiaria')).toBeUndefined();
+    cuadre();
+
+    const opts = mockCreate.mock.calls[0][6] as { sourceType: string };
+    expect(opts.sourceType).toBe('customer_payment');
+    expect(mockCreate.mock.calls[0][3]).toMatch(/realized FX gain 500\.0000 MXN/);
+  });
+
+  it('collected at 17.20 the same receivable debits 300 of realised loss to perdida_cambiaria', async () => {
+    await postCustomerPaymentEntry(fakeClient(), pago(), USER, receipt('17.2000000000'));
+
+    const loss = de('acct:perdida_cambiaria');
+    expect(loss?.debit_amount).toBe('300.0000');
+    expect(loss?.credit_amount).toBeNull();
+    expect(de('acct:utilidad_cambiaria')).toBeUndefined();
+    expect(de('acct:banco-gl')?.debit_amount).toBe('17200.0000');
+    cuadre();
+  });
+
+  it('collected at its own rate it realises nothing and asks for no FX role', async () => {
+    await postCustomerPaymentEntry(fakeClient(), pago(), USER, receipt('17.5000000000'));
+
+    expect(de('acct:banco-gl')?.debit_amount).toBe('17500.0000');
+    expect(de('acct:banco-gl')?.foreign_debit).toBe('1000.0000');
+    expect(de('acct:perdida_cambiaria')).toBeUndefined();
+    expect(de('acct:utilidad_cambiaria')).toBeUndefined();
+    const asked = sqlLog.filter((q) => q.sql.includes('FROM account_roles')).flatMap((q) => q.params[1] as string[]);
+    expect(asked).not.toContain('utilidad_cambiaria');
+    expect(asked).not.toContain('perdida_cambiaria');
+    expect(mockCreate.mock.calls[0][3]).toBe('Customer payment PMT-USD-1');
+    cuadre();
+  });
+
+  it('refuses a foreign-currency receipt with cash left on account instead of posting an unbalanced entry', async () => {
+    await expect(
+      postCustomerPaymentEntry(fakeClient(), pago({ payment_amount: '1200.0000' }), USER, receipt('18.0000000000'))
+    ).rejects.toThrow(/a cuenta del cliente/);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });
 

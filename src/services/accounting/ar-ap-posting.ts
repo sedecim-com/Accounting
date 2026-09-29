@@ -21,6 +21,7 @@ import {
   convertirAFuncional,
   desgloseCambiarioDelPago,
   functionalCurrencyOf,
+  receiptFxBreakdown,
   resolverTipoCambio,
   type ContextoCambiario,
   type TipoCambioResuelto as FxRate,
@@ -577,18 +578,76 @@ async function ivaReclassLines(
  * DR iva_trasladado_no_cobrado · CR iva_trasladado for the collected share.
  * The IVA on a PPD sale is caused when the money arrives, and this is where
  * it arrives.
+ *
+ * With `fx` (MNE-001-082, the collection is in another currency than the
+ * functional one): each receivable is extinguished at the rate its invoice
+ * was born with, the cash comes in at today's rate, and the gap is the
+ * REALISED exchange difference, credited to utilidad_cambiaria or debited
+ * to perdida_cambiaria (NIF B-15). The PPD IVA is released at the invoice's
+ * rate too, because that is the rate it was parked at.
  */
 export async function postCustomerPaymentEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
-  userId: string
+  userId: string,
+  fx?: ContextoCambiario
 ): Promise<JournalEntry | null> {
   if (payment.journal_entry_id) return null;
   if (!new Decimal(payment.payment_amount).greaterThan(0)) return null;
 
   const bankId = await bankGlAccount(client, payment.entity_id, payment.bank_account_id);
-  const iva = await ivaReclassLines(client, 'issued', payment);
+  const iva = await ivaReclassLines(
+    client,
+    'issued',
+    payment,
+    fx
+      ? {
+          moneda: fx.moneda,
+          tasasPorDocumento: new Map(fx.aplicaciones.map((a) => [a.billId, a.tasaHistorica])),
+        }
+      : undefined
+  );
+  const { jeLines, memo } = fx
+    ? await foreignReceiptLines(client, payment, fx, bankId, iva)
+    : await functionalReceiptLines(client, payment, bankId, iva);
 
+  const entry = await createJournalEntry(
+    payment.entity_id,
+    // The payment's own day, unparsed (#211): `new Date('YYYY-MM-DD')` was UTC
+    // midnight, and west of Greenwich the entry landed a day before its payment.
+    payment.payment_date,
+    JournalEntryType.AUTO_PAYMENT,
+    (iva.documents.length
+      ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}`
+      : `Customer payment ${payment.payment_number}`) + memo,
+    jeLines,
+    userId,
+    { autoPost: true, client, sourceType: 'customer_payment', sourceId: payment.id, reference: payment.payment_number }
+  );
+
+  // El IVA que ESTA aplicación liberó se guarda en su fila: desaplicarla
+  // re-aparca ese importe exacto, sin re-derivar bajo otro contexto.
+  for (const item of iva.items) {
+    await client.query(
+      `UPDATE payment_allocations SET iva_reclass_amount = $1
+        WHERE payment_id = $2 AND invoice_id = $3 AND unapplied_at IS NULL`,
+      [item.amount, payment.id, item.documentId]
+    );
+  }
+
+  await client.query('UPDATE customer_payments SET journal_entry_id = $1 WHERE id = $2', [entry.id, payment.id]);
+  return entry;
+}
+
+type ReclassLines = Awaited<ReturnType<typeof ivaReclassLines>>;
+
+/** A collection in the functional currency: DR bank · CR cxc and, for any remainder, anticipo_clientes. */
+async function functionalReceiptLines(
+  client: pg.PoolClient,
+  payment: PaymentRow,
+  bankId: string,
+  iva: ReclassLines
+): Promise<{ jeLines: JeLine[]; memo: string }> {
   // El CR se reparte entre lo APLICADO (cxc) y lo que queda A CUENTA
   // (anticipo_clientes). Con aplicación exacta —el caso de siempre— el
   // remanente es cero y el asiento es idéntico al histórico. Acreditar el
@@ -624,33 +683,83 @@ export async function postCustomerPaymentEntry(
     });
   }
   jeLines.push(...iva.lines);
+  return { jeLines, memo: '' };
+}
 
-  const entry = await createJournalEntry(
-    payment.entity_id,
-    // The payment's own day, unparsed (#211): `new Date('YYYY-MM-DD')` was UTC
-    // midnight, and west of Greenwich the entry landed a day before its payment.
-    payment.payment_date,
-    JournalEntryType.AUTO_PAYMENT,
-    iva.documents.length
-      ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}`
-      : `Customer payment ${payment.payment_number}`,
-    jeLines,
-    userId,
-    { autoPost: true, client, sourceType: 'customer_payment', sourceId: payment.id, reference: payment.payment_number }
-  );
-
-  // El IVA que ESTA aplicación liberó se guarda en su fila: desaplicarla
-  // re-aparca ese importe exacto, sin re-derivar bajo otro contexto.
-  for (const item of iva.items) {
-    await client.query(
-      `UPDATE payment_allocations SET iva_reclass_amount = $1
-        WHERE payment_id = $2 AND invoice_id = $3 AND unapplied_at IS NULL`,
-      [item.amount, payment.id, item.documentId]
+/**
+ * A collection in another currency: DR bank at the collection rate, CR cxc
+ * per invoice at its own rate, and the realised difference that separates
+ * them. Cash left on account is refused upstream (FX_AR_ON_ACCOUNT_NOT_WIRED)
+ * and again here, because the later events that would move it do not convert.
+ */
+async function foreignReceiptLines(
+  client: pg.PoolClient,
+  payment: PaymentRow,
+  fx: ContextoCambiario,
+  bankId: string,
+  iva: ReclassLines
+): Promise<{ jeLines: JeLine[]; memo: string }> {
+  const breakdown = receiptFxBreakdown(payment.payment_amount, fx);
+  if (new Decimal(breakdown.anticipoExtranjero).greaterThan(0)) {
+    throw new AccountingError(
+      'FX_AR_ON_ACCOUNT_NOT_WIRED',
+      `${payment.payment_number} deja ${breakdown.anticipoExtranjero} ${fx.moneda} a cuenta del cliente: ` +
+        'un saldo a cuenta en otra moneda todavía no se aplica ni se desaplica convertido.'
     );
   }
+  const dif = breakdown.diferencia;
+  const roles = await roleAccounts(client, payment.entity_id, [
+    'cxc',
+    ...(dif.tipo === 'utilidad' ? ['utilidad_cambiaria'] : []),
+    ...(dif.tipo === 'perdida' ? ['perdida_cambiaria'] : []),
+  ]);
 
-  await client.query('UPDATE customer_payments SET journal_entry_id = $1 WHERE id = $2', [entry.id, payment.id]);
-  return entry;
+  const jeLines: JeLine[] = [
+    {
+      account_id: bankId,
+      debit_amount: breakdown.bancoFuncional,
+      credit_amount: null,
+      description: `Payment received ${payment.payment_number}`,
+      currency_code: fx.moneda,
+      foreign_debit: new Decimal(payment.payment_amount).toFixed(4),
+      exchange_rate: fx.tasaPago,
+    },
+  ];
+  // Per invoice, not aggregated: each was born with its own rate.
+  for (const receivable of breakdown.pasivos) {
+    jeLines.push({
+      account_id: requireRole(roles, 'cxc'),
+      debit_amount: null,
+      credit_amount: receivable.montoFuncional,
+      description: `AR settlement ${payment.payment_number} - Invoice ${receivable.numero}`,
+      currency_code: fx.moneda,
+      foreign_credit: receivable.extranjero,
+      exchange_rate: receivable.tasa,
+    });
+  }
+  // The realised difference carries no FX columns: in the document's
+  // currency it nets to zero, the same dollars were owed and collected.
+  if (dif.tipo === 'utilidad') {
+    jeLines.push({
+      account_id: requireRole(roles, 'utilidad_cambiaria'),
+      debit_amount: null,
+      credit_amount: dif.montoFuncional,
+      description: `Realized FX gain ${payment.payment_number} (${fx.moneda} @ ${fx.tasaPago})`,
+    });
+  } else if (dif.tipo === 'perdida') {
+    jeLines.push({
+      account_id: requireRole(roles, 'perdida_cambiaria'),
+      debit_amount: dif.montoFuncional,
+      credit_amount: null,
+      description: `Realized FX loss ${payment.payment_number} (${fx.moneda} @ ${fx.tasaPago})`,
+    });
+  }
+  jeLines.push(...iva.lines);
+  const memo =
+    dif.tipo === 'ninguna'
+      ? ''
+      : ` · realized FX ${dif.tipo === 'utilidad' ? 'gain' : 'loss'} ${dif.montoFuncional} ${fx.monedaFuncional}`;
+  return { jeLines, memo };
 }
 
 export interface AplicacionPosterior {

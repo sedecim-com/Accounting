@@ -185,6 +185,29 @@ export function desgloseCambiarioDelPago(
   };
 }
 
+/**
+ * The same breakdown seen from the collecting side (MNE-001-082). The
+ * arithmetic is identical — each receivable is extinguished at the rate it
+ * was born with, the cash comes in at today's rate — but the cash is now a
+ * DEBIT and the document a CREDIT, so the sign of the gap flips: more
+ * functional currency in than the receivable was worth is a GAIN, not a loss.
+ * `aplicaciones[].billId` carries the invoice id here. There is no discount
+ * on this side (a discount granted to a customer is a credit note), so
+ * `descuentos` is always empty.
+ */
+export function receiptFxBreakdown(cash: string, ctx: ContextoCambiario): DesgloseCambiario {
+  const breakdown = desgloseCambiarioDelPago(cash, ctx);
+  const flipped: Record<DiferenciaCambiaria['tipo'], DiferenciaCambiaria['tipo']> = {
+    perdida: 'utilidad',
+    utilidad: 'perdida',
+    ninguna: 'ninguna',
+  };
+  return {
+    ...breakdown,
+    diferencia: { ...breakdown.diferencia, tipo: flipped[breakdown.diferencia.tipo] },
+  };
+}
+
 /** La moneda en la que la entidad lleva sus libros. */
 export async function functionalCurrencyOf(
   client: pg.PoolClient,
