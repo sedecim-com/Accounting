@@ -198,6 +198,11 @@ async function balanceInvarianteDeclarado(
  *    encadenamiento produciría un hallazgo por cada cuenta de resultados con
  *    movimiento, que es ruido, no un descuadre.
  *
+ * "Next" follows the books' order, (start_date, period_number), the same one
+ * the carry-forward follows: December links to period 13, which starts on
+ * December 31, and period 13 to January (#304, #99). Jumping from December
+ * straight to January flagged every period-13 adjustment as a broken chain.
+ *
  * El siguiente periodo puede no tener renglón (el arrastre no siembra los
  * finales en cero): ausencia se lee como inicial 0, que es lo que el auxiliar
  * también muestra.
@@ -234,8 +239,9 @@ async function balanceEncadenamiento(
        JOIN LATERAL (
          SELECT x.id, x.period_name
            FROM fiscal_periods x
-          WHERE x.entity_id = fp.entity_id AND x.start_date > fp.end_date
-          ORDER BY x.start_date ASC, x.id ASC
+          WHERE x.entity_id = fp.entity_id
+            AND (x.start_date, x.period_number) > (fp.start_date, fp.period_number)
+          ORDER BY x.start_date ASC, x.period_number ASC
           LIMIT 1
        ) sig ON true
        LEFT JOIN account_balances sab
