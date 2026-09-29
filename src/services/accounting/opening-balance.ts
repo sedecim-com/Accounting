@@ -24,6 +24,7 @@ import {
   writeOpeningInvoices,
 } from '../ar/opening-invoices.js';
 import {
+  openingPayableIvaPolicy,
   payablesSkippedUnderDraftMode,
   prepareOpeningBills,
   writeOpeningBills,
@@ -165,6 +166,12 @@ export interface OpeningDocument {
   currency?: string;
   /** Counterparty RFC: finds the existing customer or vendor before one is created. */
   rfc?: string;
+  /**
+   * Payables only (MNE-001-023): the IVA rate inside the open balance, as the
+   * CFDI's TasaOCuota ('0.16', '0.08', '0') or 'exento'. Without it the panel
+   * key `opening_payable_iva` decides (`opening-bills.ts`).
+   */
+  ivaRate?: string;
 }
 
 /** Una cuenta de la entidad tal como está HOY. El plan se calcula contra esto. */
@@ -962,6 +969,13 @@ export interface ImportOpeningBalanceOptions {
  */
 export const OPENING_LOAD_MODE_POLICY_KEY = 'apertura_modo_de_carga';
 
+/**
+ * The panel key for a payable document of `--subledger` that does not say
+ * its IVA rate (MNE-001-023); `openingPayableIvaPolicy` (ap/opening-bills.ts)
+ * reads its answer.
+ */
+export const OPENING_PAYABLE_IVA_POLICY_KEY = 'opening_payable_iva';
+
 /** `post` unless the key says exactly `borrador`: an unknown value falls to the default. */
 export type OpeningLoadMode = 'post' | 'draft';
 
@@ -1085,7 +1099,16 @@ export async function importOpeningBalance(
       : skippedUnderDraftMode(plan);
   // MNE-001-023: the mirror for the payable documents, under the same rule.
   const apBillPlan =
-    loadMode === 'post' ? await prepareOpeningBills(opts.entityId, plan) : payablesSkippedUnderDraftMode(plan);
+    loadMode === 'post'
+      ? await prepareOpeningBills(
+          opts.entityId,
+          plan,
+          openingPayableIvaPolicy(
+            (await getPolicy({ tenantId: ctx.tenantId, entityId: opts.entityId }, OPENING_PAYABLE_IVA_POLICY_KEY))
+              .value
+          )
+        )
+      : payablesSkippedUnderDraftMode(plan);
   const subledgerFindings = [...arInvoicePlan.findings, ...apBillPlan.findings];
   const findings: OpeningFinding[] = [...plan.findings, ...subledgerFindings];
   let puedeCargarse = plan.puedeCargarse && subledgerFindings.every((x) => x.severidad !== 'bloquea');
@@ -1198,7 +1221,7 @@ export async function importOpeningBalance(
       reason: opts.reason ?? null,
     });
     await writeOpeningInvoices(client, opts.entityId, opts.userId, entry.id, arInvoicePlan.drafts);
-    await writeOpeningBills(client, opts.entityId, opts.userId, entry.id, apBillPlan.drafts);
+    await writeOpeningBills(client, opts.entityId, opts.userId, entry.id, apBillPlan);
 
     return entry;
     });

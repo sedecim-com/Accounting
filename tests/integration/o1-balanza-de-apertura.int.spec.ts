@@ -27,6 +27,7 @@ import {
 } from '../../src/services/accounting/opening-balance-check.js';
 import { readBalanzaComprobacion } from '../../src/services/sat/anexo24/balance-reader.js';
 import { generarBalanza } from '../../src/services/sat/anexo24/balanza-service.js';
+import { construirDiot } from '../../src/services/sat/diot/diot-service.js';
 
 // ============================================================
 // O1 · LA BALANZA DE APERTURA, MEDIDA CONTRA POSTGRES
@@ -108,26 +109,27 @@ const CATALOGO: CuentaDelCliente[] = [
   { num: '401', desc: 'Ventas', padre: '400', agrup: '401', nivel: 2, natur: 'A', saldo: '0.00' },
 ];
 
-const XML_CATALOGO =
+const catalogXml = (chart: CuentaDelCliente[]): string =>
   `<?xml version="1.0" encoding="UTF-8"?>` +
   `<catalogocuentas:Catalogo xmlns:catalogocuentas="${NS_CAT}" Version="1.3" RFC="${RFC}" Mes="12" Anio="2025">` +
-  CATALOGO.map(
+  chart.map(
     (c) =>
       `<catalogocuentas:Ctas CodAgrup="${c.agrup}" NumCta="${c.num}" Desc="${c.desc}"` +
       `${c.padre === undefined ? '' : ` SubCtaDe="${c.padre}"`} Nivel="${c.nivel}" Natur="${c.natur}"/>`
   ).join('') +
   `</catalogocuentas:Catalogo>`;
+const XML_CATALOGO = catalogXml(CATALOGO);
 
 /**
  * La balanza del sistema viejo al 31 de diciembre. SaldoIni = SaldoFin y sin
  * movimiento: lo que la apertura consume es el SaldoFin, y así el recálculo
  * del lector cuadra sin inventar un ejercicio entero de asientos.
  */
-function balanzaDeOrigen(saldos: Record<string, string> = {}): string {
+function balanzaDeOrigen(saldos: Record<string, string> = {}, chart: CuentaDelCliente[] = CATALOGO): string {
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<BCE:Balanza xmlns:BCE="${NS_BAL}" Version="1.3" RFC="${RFC}" Mes="12" Anio="2025" TipoEnvio="N">` +
-    CATALOGO.map((c) => {
+    chart.map((c) => {
       const s = saldos[c.num] ?? c.saldo;
       return `<BCE:Ctas NumCta="${c.num}" SaldoIni="${s}" Debe="0.00" Haber="0.00" SaldoFin="${s}"/>`;
     }).join('') +
@@ -138,8 +140,8 @@ function balanzaDeOrigen(saldos: Record<string, string> = {}): string {
 const AUXILIAR: OpeningDocument[] = [
   { cuenta: '105-001', documento: 'A-123', contraparte: 'Aceros del Norte SA', fecha: '2025-11-02', vencimiento: '2025-12-02', importe: '4000.00' },
   { cuenta: '105-001', documento: 'A-456', contraparte: 'Bravo Servicios SC', fecha: '2025-11-20', vencimiento: '2026-01-19', importe: '8000.00' },
-  { cuenta: '201-001', documento: 'F-77', contraparte: 'Papelera del Centro', fecha: '2025-12-01', vencimiento: '2026-01-15', importe: '9000.00' },
-  { cuenta: '201-001', documento: 'F-88', contraparte: 'Tornillos Industriales', fecha: '2025-12-10', vencimiento: '2026-01-24', importe: '5000.00' },
+  { cuenta: '201-001', documento: 'F-77', contraparte: 'Papelera del Centro', fecha: '2025-12-01', vencimiento: '2026-01-15', importe: '9000.00', ivaRate: '0' },
+  { cuenta: '201-001', documento: 'F-88', contraparte: 'Tornillos Industriales', fecha: '2025-12-10', vencimiento: '2026-01-24', importe: '5000.00', ivaRate: '0' },
 ];
 
 const ctxDe = (fx: Fixture) => ({ tenantId: fx.tenantId, entityId: fx.entityId });
@@ -839,9 +841,13 @@ describe('MNE-001-022: open receivables come in as invoices with the opening', (
 // ============================================================
 
 describe('MNE-001-023: open payables come in as bills with the opening', () => {
-  async function migrated(name: string, roles: Record<string, string> = { cxc: '105-001', cxp: '201-001', banco: '102-001' }) {
+  async function migrated(
+    name: string,
+    roles: Record<string, string> = { cxc: '105-001', cxp: '201-001', banco: '102-001' },
+    chart: CuentaDelCliente[] = CATALOGO
+  ) {
     const own = await crearEntidadHermana(f, name);
-    await importSatChart(ctxDe(own), { entityId: own.entityId, xml: XML_CATALOGO, userId: own.userId });
+    await importSatChart(ctxDe(own), { entityId: own.entityId, xml: catalogXml(chart), userId: own.userId });
     const ids = Object.fromEntries(
       (
         await query<{ code: string; id: string }>(`SELECT code, id FROM accounts WHERE entity_id = $1`, [own.entityId])
@@ -854,8 +860,10 @@ describe('MNE-001-023: open payables come in as bills with the opening', () => {
   }
   const count = async (table: string, entityId: string) =>
     (await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM ${table} WHERE entity_id = $1`, [entityId])).rows[0].n;
-  const load = (own: Fixture, documentos: OpeningDocument[] = AUXILIAR) =>
-    importOpeningBalance(ctxDe(own), { entityId: own.entityId, xml: balanzaDeOrigen(), userId: own.userId, documentos });
+  const load = (own: Fixture, documentos: OpeningDocument[] = AUXILIAR, chart: CuentaDelCliente[] = CATALOGO) =>
+    importOpeningBalance(ctxDe(own), {
+      entityId: own.entityId, xml: balanzaDeOrigen({}, chart), userId: own.userId, documentos,
+    });
 
   it('the load writes one approved bill per vendor document, and ap reconcile ties at 0 with nothing to explain', async () => {
     const { own } = await migrated('MNE-001-023 tie');
@@ -900,11 +908,12 @@ describe('MNE-001-023: open payables come in as bills with the opening', () => {
     }
   });
 
-  it('a cxp role that points at another account stops the load: payments would debit the wrong one', async () => {
-    const { own } = await migrated('MNE-001-023 role elsewhere', { cxc: '105-001', cxp: '213' });
+  it('a cxp role that points at another account leaves the documents as opening lines, and says so', async () => {
+    // The seeded `cxp` role still points at the seeded chart, not at 201-001.
+    const { own } = await migrated('MNE-001-023 role elsewhere', { cxc: '105-001' });
     const r = await load(own);
-    expect(r.escrito).toBe(false);
-    expect(r.findings.find((x) => x.regla === 'APE-CXP-OTRA-CUENTA')?.numCta).toBe('201-001');
+    expect(r.escrito).toBe(true);
+    expect(r.findings.find((x) => x.regla === 'APE-CXP-FUERA-DEL-ROL')?.numCta).toBe('201-001');
     expect(await count('bills', own.entityId)).toBe('0');
   });
 
@@ -959,5 +968,137 @@ describe('MNE-001-023: open payables come in as bills with the opening', () => {
     const again = await prepareOpeningBills(own.entityId, r);
     expect(again.drafts).toEqual([]);
     expect(again.findings.map((x) => x.regla)).toEqual(['APE-CXP-FOLIO-TOMADO', 'APE-CXP-FOLIO-TOMADO']);
+  });
+
+  // ── Review fixes: the same books with the IVA still pending on the open
+  // payables (119-001) and a second payable account, 205-001 Acreedores
+  // diversos, next to 201-001 Proveedores. 233 241.38 = 19 000 + 214 241.38.
+  const WIDE_CHART: CuentaDelCliente[] = [
+    ...CATALOGO.map((c) => {
+      const balance = { '100': '233241.38', '200': '19000.00', '300': '214241.38', '304': '114241.38' }[c.num];
+      return balance === undefined ? c : { ...c, saldo: balance };
+    }),
+    { num: '119', desc: 'IVA pendiente de acreditar', padre: '100', agrup: '119', nivel: 2, natur: 'D', saldo: '1241.38' },
+    { num: '119-001', desc: 'IVA pendiente de pago', padre: '119', agrup: '119.01', nivel: 3, natur: 'D', saldo: '1241.38' },
+    { num: '205', desc: 'Acreedores diversos', padre: '200', agrup: '205', nivel: 2, natur: 'A', saldo: '2000.00' },
+    { num: '205-001', desc: 'Acreedores diversos', padre: '205', agrup: '205.06', nivel: 3, natur: 'A', saldo: '2000.00' },
+  ];
+  const CREDITOR_DOC: OpeningDocument = {
+    cuenta: '205-001', documento: 'AD-1', contraparte: 'Socio Uno', fecha: '2025-12-15', vencimiento: '2026-02-15', importe: '2000.00',
+  };
+  /** F-77 carries 16 % IVA: 9 000 = 7 758.62 + 1 241.38, parked on 119-001. */
+  const WIDE_SUBLEDGER: OpeningDocument[] = [
+    ...AUXILIAR.map((d) => (d.documento === 'F-77' ? { ...d, ivaRate: '0.16', rfc: 'PCE010101AAA' } : d)),
+    CREDITOR_DOC,
+  ];
+  const WIDE_ROLES = { cxc: '105-001', cxp: '201-001', banco: '102-001', iva_pendiente_acreditar: '119-001' };
+
+  it('a second payable account (205 next to 201) loads: its documents stay opening lines, and ap reconcile ties', async () => {
+    const { own } = await migrated('MNE-001-023 two payable accounts', WIDE_ROLES, WIDE_CHART);
+    const r = await load(own, WIDE_SUBLEDGER, WIDE_CHART);
+    expect(r.findings.filter((x) => x.severidad === 'bloquea')).toEqual([]);
+    expect(r.escrito).toBe(true);
+    expect(r.findings.find((x) => x.regla === 'APE-CXP-FUERA-DEL-ROL')?.numCta).toBe('205-001');
+    expect(r.apBills).toBe(2);
+    const lines = await query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM journal_entry_lines jel JOIN accounts a ON a.id = jel.account_id
+        WHERE jel.journal_entry_id = $1 AND a.code = '205-001'`,
+      [r.asiento?.id]
+    );
+    expect(lines.rows[0].n).toBe('1');
+    const ap = await apReconcile(own.entityId);
+    expect([ap.mayor, ap.subdiario, ap.diferencia]).toEqual(['14000.00', '14000.00', '0.00']);
+  });
+
+  it('paying a migrated bill releases its pending IVA, and the DIOT of that month declares it by rate without blocking', async () => {
+    const { own, ids } = await migrated('MNE-001-023 diot', WIDE_ROLES, WIDE_CHART);
+    const r = await load(own, WIDE_SUBLEDGER, WIDE_CHART);
+    expect(r.escrito).toBe(true);
+    const bill = (
+      await query<{ id: string; vendor_id: string; subtotal: string; tax_amount: string; lines: string }>(
+        `SELECT b.id, b.vendor_id, b.subtotal::text AS subtotal, b.tax_amount::text AS tax_amount,
+                (SELECT string_agg(bl.tax_rate::text || '/' || bl.valor_actos::text, ',') FROM bill_lines bl WHERE bl.bill_id = b.id) AS lines
+           FROM bills b WHERE b.entity_id = $1 AND b.vendor_invoice_number = 'F-77'`,
+        [own.entityId]
+      )
+    ).rows[0];
+    expect(bill).toMatchObject({ subtotal: '7758.6200', tax_amount: '1241.3800', lines: '16.00/7758.6200' });
+
+    await recordVendorPayment(
+      {
+        entityId: own.entityId,
+        counterpartyId: bill.vendor_id,
+        paymentAmount: '9000.00',
+        paymentDate: '2026-01-15',
+        paymentMethod: 'spei',
+        applications: [{ documentId: bill.id, amountApplied: '9000.00' }],
+      },
+      own.userId
+    );
+    // 119-001 gave up exactly the IVA the opening parked for F-77.
+    const pending = await query<{ balance: string }>(
+      `SELECT COALESCE(SUM(COALESCE(jel.debit_amount,0) - COALESCE(jel.credit_amount,0)), 0)::numeric(19,2)::text AS balance
+         FROM journal_entry_lines jel JOIN journal_entries je ON je.id = jel.journal_entry_id
+        WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2`,
+      [own.entityId, ids['119-001']]
+    );
+    expect(pending.rows[0].balance).toBe('0.00');
+
+    const diot = await construirDiot({ tenantId: own.tenantId, entityId: own.entityId, anio: 2026, mes: 1 });
+    expect(diot.hallazgos.filter((h) => h.documentId === bill.id && h.severidad === 'bloqueante')).toEqual([]);
+    expect(diot.hallazgos.map((h) => h.codigo)).not.toContain('DIOT-SIN-RENGLONES');
+    const row = diot.renglones.find((x) => x.documentos.some((d) => d.billId === bill.id));
+    expect(row?.desglose.tasa16).toEqual({ base: '7758.6200', iva: '1241.3800' });
+    expect((await apReconcile(own.entityId)).diferencia).toBe('0.00');
+  });
+
+  it('two foreign vendors under the generic RFC XEXX010101000 are two vendors, each with its own bill', async () => {
+    const { own } = await migrated('MNE-001-023 generic rfc');
+    // Before the fix both bills hung from the first vendor found by that RFC.
+    const foreign = AUXILIAR.map((d) => {
+      if (d.documento === 'F-77') return { ...d, contraparte: 'Acme Inc', rfc: 'XEXX010101000' };
+      if (d.documento === 'F-88') return { ...d, contraparte: 'Globex GmbH', rfc: 'XEXX010101000' };
+      return d;
+    });
+    const r = await load(own, foreign);
+    expect(r.findings.filter((x) => x.severidad === 'bloquea')).toEqual([]);
+    expect(r.escrito).toBe(true);
+    const bills = await query<{ company_name: string; tax_id: string; amount_due: string }>(
+      `SELECT v.company_name, v.tax_id, b.amount_due::text AS amount_due
+         FROM bills b JOIN vendors v ON v.id = b.vendor_id AND v.entity_id = b.entity_id
+        WHERE b.entity_id = $1 ORDER BY v.company_name`,
+      [own.entityId]
+    );
+    expect(bills.rows).toEqual([
+      { company_name: 'Acme Inc', tax_id: 'XEXX010101000', amount_due: '9000.0000' },
+      { company_name: 'Globex GmbH', tax_id: 'XEXX010101000', amount_due: '5000.0000' },
+    ]);
+  });
+
+  it('a reload with a corrected vendor name voids the old bill of the reversed opening: one F-88, and ap reconcile at 0', async () => {
+    const { own } = await migrated('MNE-001-023 reload renamed');
+    const first = await load(own);
+    expect(first.escrito).toBe(true);
+    await voidJournalEntry(first.asiento?.id ?? '', own.userId, 'wrong vendor name');
+    const renamed = AUXILIAR.map((d) =>
+      d.documento === 'F-88' ? { ...d, contraparte: 'Tornillos Industriales SA de CV' } : d
+    );
+    const second = await load(own, renamed);
+    expect(second.escrito).toBe(true);
+    expect(second.findings.find((x) => x.regla === 'APE-CXP-ANULA-HUERFANAS')?.mensaje).toContain('F-88 de Tornillos Industriales');
+
+    const bills = await query<{ vendor_invoice_number: string; status: string; company_name: string; je: string }>(
+      `SELECT b.vendor_invoice_number, b.status, v.company_name, b.journal_entry_id::text AS je
+         FROM bills b JOIN vendors v ON v.id = b.vendor_id AND v.entity_id = b.entity_id
+        WHERE b.entity_id = $1 ORDER BY b.vendor_invoice_number, b.status`,
+      [own.entityId]
+    );
+    expect(bills.rows).toEqual([
+      { vendor_invoice_number: 'F-77', status: 'approved', company_name: 'Papelera del Centro', je: second.asiento?.id },
+      { vendor_invoice_number: 'F-88', status: 'approved', company_name: 'Tornillos Industriales SA de CV', je: second.asiento?.id },
+      { vendor_invoice_number: 'F-88', status: 'void', company_name: 'Tornillos Industriales', je: first.asiento?.id },
+    ]);
+    const ap = await apReconcile(own.entityId);
+    expect([ap.mayor, ap.subdiario, ap.diferencia]).toEqual(['14000.00', '14000.00', '0.00']);
   });
 });

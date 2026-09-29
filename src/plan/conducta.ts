@@ -435,8 +435,8 @@ const CATALOGO_DE_APERTURA: readonly CuentaDeApertura[] = [
 const AUXILIAR_DE_APERTURA = [
   { cuenta: '105-001', documento: 'A-123', contraparte: 'Aceros del Norte SA', fecha: '2025-11-02', vencimiento: '2025-12-02', importe: '4000.00' },
   { cuenta: '105-001', documento: 'A-456', contraparte: 'Bravo Servicios SC', fecha: '2025-11-20', vencimiento: '2026-01-19', importe: '8000.00' },
-  { cuenta: '201-001', documento: 'F-77', contraparte: 'Papelera del Centro', fecha: '2025-12-01', vencimiento: '2026-01-15', importe: '9000.00' },
-  { cuenta: '201-001', documento: 'F-88', contraparte: 'Tornillos Industriales', fecha: '2025-12-10', vencimiento: '2026-01-24', importe: '5000.00' },
+  { cuenta: '201-001', documento: 'F-77', contraparte: 'Papelera del Centro', fecha: '2025-12-01', vencimiento: '2026-01-15', importe: '9000.00', ivaRate: '0' },
+  { cuenta: '201-001', documento: 'F-88', contraparte: 'Tornillos Industriales', fecha: '2025-12-10', vencimiento: '2026-01-24', importe: '5000.00', ivaRate: '0' },
 ] as const;
 
 const RFC_DEL_ESCENARIO = 'XAXX010101000';
@@ -1452,7 +1452,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
     mutantes: [
       {
         archivo: 'src/services/accounting/opening-balance.ts',
-        de: '    await writeOpeningBills(client, opts.entityId, opts.userId, entry.id, apBillPlan.drafts);\n',
+        de: '    await writeOpeningBills(client, opts.entityId, opts.userId, entry.id, apBillPlan);\n',
         a: '',
         porque:
           'the gap of #310 as it was: the opening carries the 14 000 of vendors line by line and no ' +
@@ -1460,8 +1460,8 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       },
       {
         archivo: 'src/services/ap/opening-bills.ts',
-        de: "'approved', $11, NOW()",
-        a: "'draft', $11, NOW()",
+        de: "'approved', $13, NOW()",
+        a: "'draft', $13, NOW()",
         porque:
           'the bill is born outside the open statuses: the subledger leaves it out and a payment ' +
           'refuses it, while its liability is already in the ledger',
@@ -1484,15 +1484,15 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
     correr: async (app) => {
       const reason = 'plan · conducta O1c';
       /** A fresh tenant with the migrated chart and its control roles pointed. */
-      const migrate = async (nombre: string) => {
-        const inq = await crearInquilino(app, nombre);
-        app.conexion.enterTenant(inq.tenantId);
-        const ctx = { tenantId: inq.tenantId, entityId: inq.entityId };
+      const migrate = async (name: string) => {
+        const tenant = await crearInquilino(app, name);
+        app.conexion.enterTenant(tenant.tenantId);
+        const ctx = { tenantId: tenant.tenantId, entityId: tenant.entityId };
         const chart = await app.catalogoSat.importSatChart(ctx, {
-          entityId: inq.entityId, xml: xmlDelCatalogo(), userId: inq.userId, reason,
+          entityId: tenant.entityId, xml: xmlDelCatalogo(), userId: tenant.userId, reason,
         });
-        const roles = chart.escrito ? await pointControlRoles(app, inq.entityId) : 'the migrated chart did not load';
-        return { inq, ctx, roles };
+        const roles = chart.escrito ? await pointControlRoles(app, tenant.entityId) : 'the migrated chart did not load';
+        return { tenant, ctx, roles };
       };
       const countRows = async (sql: string, entityId: string) =>
         (await app.conexion.query<{ n: string }>(sql, [entityId])).rows[0]?.n;
@@ -1501,14 +1501,14 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       const a = await migrate('O1c · CxP abierta');
       if (a.roles !== null) return falla(a.roles);
       const load = await app.apertura.importOpeningBalance(a.ctx, {
-        entityId: a.inq.entityId, xml: xmlDeLaBalanza(), userId: a.inq.userId,
+        entityId: a.tenant.entityId, xml: xmlDeLaBalanza(), userId: a.tenant.userId,
         documentos: AUXILIAR_DE_APERTURA, reason,
       });
       if (!load.escrito) {
         return falla(`the opening did not load: ${load.findings.map((h) => `[${h.regla}] ${h.mensaje}`).slice(0, 3).join('; ')}`);
       }
       await app.posting.drainAttestations(3000);
-      const afterLoad = await app.payables.apReconcile(a.inq.entityId);
+      const afterLoad = await app.payables.apReconcile(a.tenant.entityId);
       if (afterLoad.mayor !== '14000.00' || afterLoad.diferencia !== '0.00' || afterLoad.partidas.length > 0) {
         return falla(
           `after the load ap reconcile reads ledger ${afterLoad.mayor}, subledger ${afterLoad.subdiario}, difference ` +
@@ -1521,20 +1521,20 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       const { rows: bills } = await app.conexion.query<{ id: string; vendor_id: string }>(
         `SELECT id, vendor_id FROM bills
           WHERE entity_id = $1 AND vendor_invoice_number = 'F-77' AND journal_entry_id = $2`,
-        [a.inq.entityId, load.asiento?.id]
+        [a.tenant.entityId, load.asiento?.id]
       );
       const f77 = bills[0];
       if (f77 === undefined) return falla('F-77 is not a bill hanging from the opening entry');
       const payment = await app.payments.recordVendorPayment(
         {
-          entityId: a.inq.entityId, counterpartyId: f77.vendor_id, paymentAmount: '9000.00',
+          entityId: a.tenant.entityId, counterpartyId: f77.vendor_id, paymentAmount: '9000.00',
           paymentDate: '2026-01-15', paymentMethod: 'spei',
           applications: [{ documentId: f77.id, amountApplied: '9000.00' }],
         },
-        a.inq.userId
+        a.tenant.userId
       );
       const settled = payment.documentos[0];
-      const afterPayment = await app.payables.apReconcile(a.inq.entityId);
+      const afterPayment = await app.payables.apReconcile(a.tenant.entityId);
       if (settled?.estado !== 'paid' || afterPayment.mayor !== '5000.00' || afterPayment.diferencia !== '0.00') {
         return falla(
           `paying F-77 in full left it "${settled?.estado}", the ledger at ${afterPayment.mayor} and a ` +
@@ -1546,7 +1546,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       const b = await migrate('O1c · CxP que no cuadra');
       if (b.roles !== null) return falla(b.roles);
       const short = await app.apertura.importOpeningBalance(b.ctx, {
-        entityId: b.inq.entityId, xml: xmlDeLaBalanza(), userId: b.inq.userId, reason,
+        entityId: b.tenant.entityId, xml: xmlDeLaBalanza(), userId: b.tenant.userId, reason,
         documentos: AUXILIAR_DE_APERTURA.map((d) => (d.documento === 'F-88' ? { ...d, importe: '4000.00' } : d)),
       });
       const stop = short.findings.find((h) => h.regla === 'APE-DETALLE-NO-CUADRA' && h.numCta === '201-001');
@@ -1557,8 +1557,8 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         );
       }
       const written = [
-        await countRows('SELECT COUNT(*)::text AS n FROM journal_entries WHERE entity_id = $1', b.inq.entityId),
-        await countRows('SELECT COUNT(*)::text AS n FROM bills WHERE entity_id = $1', b.inq.entityId),
+        await countRows('SELECT COUNT(*)::text AS n FROM journal_entries WHERE entity_id = $1', b.tenant.entityId),
+        await countRows('SELECT COUNT(*)::text AS n FROM bills WHERE entity_id = $1', b.tenant.entityId),
       ];
       if (written.some((n) => n !== '0')) {
         return falla(`the stopped load still wrote ${written[0]} entrie(s) and ${written[1]} bill(s): no adjustment may be posted`);

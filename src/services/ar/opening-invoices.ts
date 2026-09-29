@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { query } from '../../database/connection.js';
 import { ConflictError } from '../../utils/errors.js';
 import { generateEntryNumber } from '../../utils/sequence.js';
+import { RFC_GENERICO_EXTRANJERO, RFC_GENERICO_NACIONAL } from '../sat/diot/rfc.js';
 import type {
   OpeningDocument,
   OpeningFinding,
@@ -89,11 +90,23 @@ export interface OpeningInvoicesPlan {
 export function controlDocuments(
   plan: Pick<OpeningPlan, 'lines' | 'control'>,
   kind: SubledgerKind
-): { code: string; doc: OpeningDocument }[] {
+): { code: string; accountId: string; doc: OpeningDocument }[] {
   const codes = new Set(plan.control.filter((c) => c.kind === kind).map((c) => c.code));
   return plan.lines.flatMap((l) =>
-    l.documento !== undefined && codes.has(l.code) ? [{ code: l.code, doc: l.documento }] : []
+    l.documento !== undefined && codes.has(l.code)
+      ? [{ code: l.code, accountId: l.accountId, doc: l.documento }]
+      : []
   );
+}
+
+/**
+ * The RFC that IDENTIFIES a counterparty, or null. The generic RFCs
+ * (XAXX010101000, XEXX010101000) are shared by every anonymous or foreign
+ * counterparty, so they identify nobody: those are matched by exact name, and
+ * the generic RFC is still stored on the customer or vendor for the SAT.
+ */
+export function identityRfc(rfc: string | null): string | null {
+  return rfc === null || rfc === RFC_GENERICO_NACIONAL || rfc === RFC_GENERICO_EXTRANJERO ? null : rfc;
 }
 
 const receivableDocuments = (plan: Pick<OpeningPlan, 'lines' | 'control'>) => controlDocuments(plan, 'cxc');
@@ -273,7 +286,8 @@ export async function prepareOpeningInvoices(
 
 /**
  * Writes the drafts inside the opening's transaction. The customer is found
- * by RFC, else by exact name, and created only when neither exists.
+ * by RFC, else by exact name (always by name for a generic RFC, see
+ * `identityRfc`), and created only when neither exists.
  */
 export async function writeOpeningInvoices(
   client: pg.PoolClient,
@@ -284,14 +298,15 @@ export async function writeOpeningInvoices(
 ): Promise<number> {
   const customers = new Map<string, string>();
   for (const d of drafts) {
-    const key = d.customerRfc ?? `name:${d.customerName.toLowerCase()}`;
+    const identity = identityRfc(d.customerRfc);
+    const key = identity ?? `name:${d.customerName.toLowerCase()}`;
     let customerId = customers.get(key);
     if (customerId === undefined) {
       const found = await client.query<{ id: string }>(
-        d.customerRfc !== null
+        identity !== null
           ? `SELECT id FROM customers WHERE entity_id = $1 AND UPPER(tax_id) = $2 ORDER BY created_at LIMIT 1`
           : `SELECT id FROM customers WHERE entity_id = $1 AND LOWER(company_name) = LOWER($2) ORDER BY created_at LIMIT 1`,
-        [entityId, d.customerRfc ?? d.customerName]
+        [entityId, identity ?? d.customerName]
       );
       customerId = found.rows[0]?.id;
       if (customerId === undefined) {

@@ -18,6 +18,7 @@ vi.mock('../../src/services/ar/opening-invoices.js', () => ({
   writeOpeningInvoices: vi.fn(),
 }));
 vi.mock('../../src/services/ap/opening-bills.js', () => ({
+  openingPayableIvaPolicy: (value: string) => (value === 'assume_zero_rate' ? value : 'require_rate'),
   prepareOpeningBills: vi.fn(),
   payablesSkippedUnderDraftMode: vi.fn(),
   writeOpeningBills: vi.fn(),
@@ -1213,15 +1214,29 @@ describe('importOpeningBalance · the AP bills of the opening (MNE-001-023)', ()
   it('writes them in the SAME transaction as the opening entry and the invoices, and counts them', async () => {
     const tx = { tx: true };
     mockTx.mockImplementation(async (fn: (c: unknown) => Promise<unknown>) => fn(tx));
-    mockPrepareBills.mockResolvedValue({ drafts: DRAFTS, findings: [] });
+    const bills = { drafts: DRAFTS, findings: [], voids: ['stale-1'] };
+    mockPrepareBills.mockResolvedValue(bills);
     const r = await importOpeningBalance(CTX, OPTS);
     expect(r.escrito).toBe(true);
     expect(r.apBills).toBe(3);
-    expect(mockPrepareBills).toHaveBeenCalledWith('ent-1', expect.objectContaining({ lines: r.lines }));
-    expect(mockWriteBills).toHaveBeenCalledWith(tx, 'ent-1', 'user-1', 'je-1', DRAFTS);
+    expect(mockPrepareBills).toHaveBeenCalledWith('ent-1', expect.objectContaining({ lines: r.lines }), 'require_rate');
+    // The drafts AND the stale bills of a reversed opening to void, in the same transaction.
+    expect(mockWriteBills).toHaveBeenCalledWith(tx, 'ent-1', 'user-1', 'je-1', bills);
     const auditEntry = mockAudit.mock.calls[0][1] as { newValues: Record<string, unknown> };
     expect(auditEntry.newValues.ap_bills).toBe(3);
     expect(renderOpeningBalanceReport(r)).toContain('3 factura(s) de proveedores entran al auxiliar de CxP');
+  });
+
+  it('reads opening_payable_iva for THIS entity and hands its answer to the bills plan', async () => {
+    mockPolicy.mockImplementation(async (_scope: unknown, key: string) => ({
+      key,
+      value: key === 'opening_payable_iva' ? 'assume_zero_rate' : 'contabilizar',
+      defined: true,
+    }));
+    mockPrepareBills.mockResolvedValue({ drafts: [], findings: [], voids: [] });
+    await importOpeningBalance(CTX, OPTS);
+    expect(mockPolicy).toHaveBeenCalledWith({ tenantId: CTX.tenantId, entityId: 'ent-1' }, 'opening_payable_iva');
+    expect(mockPrepareBills).toHaveBeenCalledWith('ent-1', expect.anything(), 'assume_zero_rate');
   });
 
   it('a blocking finding of the bills stops the whole load: no entry, no invoice, no bill', async () => {
