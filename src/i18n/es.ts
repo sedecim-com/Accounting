@@ -838,6 +838,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.tenant.create.argument.name': 'nombre del despacho',
   'help.tenant.create.option.subdomain': 'identificador único del despacho (si se omite, se deriva del nombre)',
   'help.tenant.create.option.json': 'salida en JSON',
+  'help.account.role.sync.description': 'Apunta los roles de retención a las cuentas que elige withholding_accounts_layout y crea las que falten',
+  'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
   'help.bill.rule.description':
     'Reglas de procesamiento del despacho: con qué se clasifica un CFDI recibido sin que intervenga el modelo',
   'help.bill.rule.create.description':
