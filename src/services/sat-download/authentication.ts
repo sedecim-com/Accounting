@@ -97,7 +97,6 @@ async function mayServeCached(ctx: SatAuthContext, cached: CachedToken): Promise
 
 /** Third-party text bound for an error message: no control characters, bounded. */
 function sanitizeFault(fault: string): string {
-  // eslint-disable-next-line no-control-regex
   return fault.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, 200);
 }
 

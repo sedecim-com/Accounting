@@ -278,7 +278,6 @@ describe('authenticateWithSat — the token lives in memory only while valid', (
     const hostile = async () => new Response(faultResponse('bad\u001b[2J\nOK forged line\u009b'), { status: 500 });
     const err = await authenticateWithSat(CTX, { fetchImpl: hostile }).catch((e: unknown) => e);
     expect((err as Error).message).toBe('The SAT refused the authentication (HTTP 500); SAT said: "bad [2J OK forged line "');
-    // eslint-disable-next-line no-control-regex
     expect(String(logRows().at(-1)?.at(-1))).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
   });
 });
