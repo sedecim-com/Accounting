@@ -3126,4 +3126,62 @@ export const E1_2: Criterio[] = [
         : falla('no test RUNS the withholding against the law and a migrated database');
     },
   },
+  {
+    paquete: 'E1.2',
+    id: 'fees-without-withholding-follow-the-panel',
+    enunciado:
+      "An individual's fees CFDI (regime 612) declaring no ISR withheld is held for a substitute, withheld by law or recorded with a close warning, as fees_without_withholding says; a purchase of goods is never taken for fees (#309, MNE-001-148)",
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: "return UNWITHHELD_FEES_POLICIES.find((p) => p === value) ?? 'request_substitute_cfdi';",
+        a: "return UNWITHHELD_FEES_POLICIES.find((p) => p === value) ?? 'record_as_issued';",
+        porque: 'an unanswered or unknown policy posts the fees with no withholding instead of holding them',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: '.every((k) => PROFESSIONAL_SERVICE_PREFIXES',
+        a: '.some((k) => PROFESSIONAL_SERVICE_PREFIXES',
+        porque: 'a CFDI that sells a good next to a service is held as professional fees',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'unwithheldFees: unwithheldFees.value,',
+        a: '',
+        porque: 'the firm answers the panel and ingestion keeps holding every fee: the answer never reaches the classifier',
+      },
+      {
+        archivo: 'src/services/accounting/period-close.ts',
+        de: "AND cc.facts->>'feesWithoutWithholding' = 'record_as_issued'",
+        a: "AND cc.facts->>'feesWithoutWithholding' = 'recorded'",
+        porque: 'the fees recorded as issued never reach the close checklist: the LISR 27-V warning is promised and not shown',
+      },
+    ],
+    evaluar: () => {
+      const law = codigoDe('src/services/xml-ingestion/withholding-law.ts');
+      if (!/find\(\(p\) => p === value\) \?\? 'request_substitute_cfdi';/.test(law)) {
+        return falla('an unknown or missing answer no longer holds the fees: they would post with no withholding');
+      }
+      if (!/\.every\(\(k\) => PROFESSIONAL_SERVICE_PREFIXES\.some/.test(law)) {
+        return falla('a CFDI with a concept that is not a professional service can be taken for fees');
+      }
+      const classifier = codigoDe('src/services/xml-ingestion/cfdi-classifier.ts');
+      if (!/if \(feesPolicy === 'request_substitute_cfdi'\) \{\s*return /.test(classifier) ||
+          !/facts\.feesWithoutWithholding = feesPolicy/.test(classifier)) {
+        return falla('the classifier no longer holds the fees for a substitute, or no longer marks them for the close');
+      }
+      const preReg = codigoDe('src/services/xml-ingestion/pre-registration-service.ts');
+      if (!/getPolicy\(ctx, 'fees_without_withholding'\)/.test(preReg) ||
+          !/unwithheldFees: unwithheldFees\.value,/.test(preReg)) {
+        return falla('ingestion does not pass the fees_without_withholding answer to the classifier');
+      }
+      if (!/cc\.facts->>'feesWithoutWithholding' = 'record_as_issued'/.test(codigoDe('src/services/accounting/period-close.ts'))) {
+        return falla('the close checklist does not look for the fees recorded as issued');
+      }
+      return existe('tests/integration/mne-001-148-fees-without-withholding.int.spec.ts') &&
+        existe('tests/xml-ingestion/fees-without-withholding.spec.ts')
+        ? ok('612 fees with no ISR withheld follow the panel, and goods are not taken for fees')
+        : falla('no test RUNS the three answers of fees_without_withholding');
+    },
+  },
 ];

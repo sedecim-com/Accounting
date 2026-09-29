@@ -301,6 +301,46 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 30,
   },
   {
+    // MNE-001-148 (#309) · Fees that should carry a withholding and do not.
+    // Reader: pre-registration-service.ts, passed to the classifier; the
+    // case and the options live in withholding-law.ts, and the close checklist
+    // lists what was recorded as issued (period-close.ts).
+    key: 'fees_without_withholding',
+    category: 'fiscal',
+    question:
+      'An individual (regime 612) bills your company for professional services and the CFDI declares no ISR withheld. What happens?',
+    impact:
+      'Governs received CFDIs from an individual under regime 612 whose concepts are all professional services ' +
+      '(legal, consulting, accounting, engineering, software development, medical): a purchase of goods, or a ' +
+      'CFDI with any concept that is not one of those services, is never taken for fees. "request_substitute_cfdi" ' +
+      'holds the CFDI in the inbox, writes nothing to the ledger and says to ask the vendor for a substitute CFDI ' +
+      'with the withholding. "withhold_by_law" computes 10 % of ISR and two thirds of the VAT from legal_parameters ' +
+      'and holds that entry for review. "record_as_issued" posts the CFDI as it comes, with no withholding, and ' +
+      'the close checklist lists it under fees-without-withholding.',
+    options: [
+      { value: 'request_substitute_cfdi', label: 'Hold it and ask the vendor for a substitute CFDI with the withholding' },
+      { value: 'withhold_by_law', label: "Compute the law's withholding and hold the entry for review" },
+      { value: 'record_as_issued', label: 'Record it as issued, with a warning in the close checklist' },
+    ],
+    defaultValue: 'request_substitute_cfdi',
+    defaultRationale:
+      'A legal entity that pays fees without withholding is jointly liable for the tax (CFF 26-I) and the ' +
+      'expense may not be deductible (LISR 27-V). The CFDI belongs to a third party: the clean remedy is a ' +
+      'substitute from the vendor, and nothing is booked on a figure that will change.',
+    whyAsking:
+      'When your company pays an individual for professional services it has to withhold part of the ISR and ' +
+      'the VAT. If the invoice does not show the withholding, either the vendor made a mistake or the payment ' +
+      'will be made in full. Whether to wait for a corrected invoice, withhold anyway or book it as it came is ' +
+      'a call for your firm.',
+    whatIDo:
+      'By default I hold the invoice and tell you to ask the vendor for a substitute. With "withhold_by_law" I ' +
+      'propose the entry with the withholding the law requires and leave it for you to review. With ' +
+      '"record_as_issued" I post it as it came and list it in the close checklist.',
+    ifSkipped:
+      'I hold those invoices until a substitute CFDI with the withholding arrives: nothing reaches your books.',
+    priority: 31,
+  },
+  {
     key: 'lleva_inventarios',
     category: 'contable',
     question: 'Does the company keep perpetual inventories?',

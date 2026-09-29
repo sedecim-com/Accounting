@@ -83,6 +83,11 @@ export interface PolicyThresholds {
    * defaults to.
    */
   prepaidThreshold?: number;
+  /**
+   * The `fees_without_withholding` answer (MNE-001-148). Left out, or a value
+   * the panel does not know, the CFDI is held for a substitute (withholding-law.ts).
+   */
+  unwithheldFees?: string;
 }
 
 export const DEFAULT_THRESHOLDS: PolicyThresholds = {

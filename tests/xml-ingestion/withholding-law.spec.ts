@@ -87,13 +87,16 @@ describe('withholdings on fees and leases, by law', () => {
     expect(withheld(c)).toEqual([['2141', 800], ['2142', 853.33]]);
   });
 
-  it('a 612 invoice declaring no ISR withholding is a sale of goods, not fees', async () => {
+  it('a 612 sale of goods declaring no ISR withholding is not fees: nothing withheld, and it posts', async () => {
+    // MNE-001-148: the same CFDI for legal services is held (fees-without-withholding.spec.ts).
     const calls: string[] = [];
     const goods = FEES.replace(/<cfdi:Retenciones>[\s\S]*?<\/cfdi:Retenciones>/g, '')
       .replace(' TotalImpuestosRetenidos="2066.67"', '')
-      .replace('Total="9533.33"', 'Total="11600.00"');
+      .replace('Total="9533.33"', 'Total="11600.00"')
+      .replace('ClaveProdServ="80121600"', 'ClaveProdServ="44121600"');
     const c = await classify(goods, readerOf(LAW, calls));
     expect(calls).toEqual([]);
     expect(withheld(c)).toEqual([]);
+    expect(c.verdict, c.reason).toBe('ready');
   });
 });
