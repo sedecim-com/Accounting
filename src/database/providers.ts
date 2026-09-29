@@ -48,7 +48,8 @@ export const DB_PROVIDERS: Record<string, DbProviderPreset> = {
       'El rol por defecto (neon_superuser) tiene BYPASSRLS: si la app conecta con él, ' +
         'las políticas quedan inertes. Crea mnemosine_app aparte y confírmalo con `mnemosine doctor`.',
       'El endpoint agrupado (-pooler) usa PgBouncer en modo transacción — compatible con ' +
-        'esta app, que no depende de estado de sesión.',
+        'esta app, que no depende de estado de sesión. MIGRATION_DATABASE_URL no: npm run migrate ' +
+        'toma un advisory lock de sesión, así que las migraciones van por el endpoint directo.',
       'El branching sirve para probar una migración y verificar la cobertura de RLS antes de aplicarla.',
     ],
     docs: 'https://neon.com/docs/manage/roles',

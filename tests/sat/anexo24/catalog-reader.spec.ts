@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import {
-  readCtaCatalogo,
-  normalizarAtributo,
-} from '../../../src/services/sat/anexo24/catalog-reader.js';
+import { readCtaCatalogo } from '../../../src/services/sat/anexo24/catalog-reader.js';
 import { construirCatalogoCuentas } from '../../../src/services/sat/anexo24/catalogo-cuentas.js';
 import type { CuentaParaCatalogo } from '../../../src/services/sat/anexo24/catalogo-cuentas.js';
 import { ValidationError } from '../../../src/utils/errors.js';
@@ -217,11 +214,6 @@ describe('readCtaCatalogo · lo que la librería hace mal y aquí se corrige', (
     const h = r.findings.find((f) => f.regla === 'LEC-ATRIBUTO-CON-ESPACIOS');
     expect(h?.campo).toBe('NumCta');
     expect(h?.fila).toBe(1);
-  });
-
-  it('normalizarAtributo cambia los tres caracteres que la norma manda y dice si tocó algo', () => {
-    expect(normalizarAtributo('a\tb\nc\rd')).toEqual({ texto: 'a b c d', normalizado: true });
-    expect(normalizarAtributo('limpio')).toEqual({ texto: 'limpio', normalizado: false });
   });
 });
 

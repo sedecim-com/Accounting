@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: eb1d5f159d5e195792388e295dc41e190226bc88
+> Gemela en español de [`language.md`](language.md) · source_sha: 2baa1c655a8397fc6a3f86e1af6bdf6585affc3b
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -95,25 +95,25 @@ manual act and its trace is the diff.
 
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10546 (baseline 10578) | 0 |
-| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5772 (baseline 5774) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10525 (baseline 10578) | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5768 (baseline 5774) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
 | `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
-| `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 466 | 0 |
-| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 121 | 0 |
+| `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 465 (baseline 466) | 0 |
+| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 119 (baseline 121) | 0 |
 | `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 37 (baseline 38) | 0 |
 | `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 26 | 0 |
 | `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
 | `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
-| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 341 | 0 |
+| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 339 (baseline 341) | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
-| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 1246 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28739 | 0 |
+| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 1276 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28647 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 
@@ -130,8 +130,6 @@ Regla propia de ESLint, **en línea** en `eslint.config.mjs` (sin paquete), nive
 ### 3.5 La ayuda del CLI, por clave
 
 Commander 15 ofrece `configureHelp`, `helpOption`, `helpCommand` y `configureOutput`. La descripción de cada comando se declara en inglés en la fuente y se renderiza por **clave** (`help.<familia>.<hoja>.description`), nunca buscando la prosa inglesa como clave: editar una descripción no puede dejar huérfana una traducción en silencio. El orden de arranque manda: las descripciones se fijan antes de `parseAsync` (`mnemosine.ts:818-826`), así que el locale se resuelve **antes** de registrar las familias, leyendo `--locale` a mano de `process.argv`. `CliError` gana `{key, params}` y `reportError` renderiza; los 305 mensajes de servicios que hoy llegan crudos por `reportError` pasan por el mismo camino cuando `AppError` gane `key` (I9).
-
-**La ayuda nueva nace con clave (#314).** Un comando, opción o argumento posicional nuevo se declara con `describeCommand`, `optionByKey` o `argumentByKey` (`src/cli/kernel/help.ts`), con su clave `help.<familia>.…` en `src/i18n/en.ts` y `es.ts`; la prosa pasada a `.description()`, `.option()` o `.argument()` no. El carril `help-descriptions-without-key` cuenta lo que sigue en prosa, **por familia** (la unidad del desglose es el comando de primer nivel, no un archivo), y sólo baja: una descripción en prosa más en una familia existente, o cualquiera en una familia nueva, hace fallar `language:status --check`.
 
 ### 3.6 Lo persistido: clave y parámetros
 

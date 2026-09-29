@@ -41,8 +41,12 @@ const RAIZ = path.resolve(__dirname, '..', '..');
 /** El contenido original de cada archivo que algún espejo toca, leído UNA vez. */
 const originales = new Map<string, string>();
 for (const p of PRUEBAS_DE_CONDUCTA) {
-  for (const m of p.mutantes) {
-    const abs = path.join(RAIZ, m.archivo);
+  const touched = [
+    ...p.mutantes.map((m) => m.archivo),
+    ...(p.legitimateRefactors ?? []).flatMap((r) => r.edits.map((e) => e.file)),
+  ];
+  for (const file of touched) {
+    const abs = path.join(RAIZ, file);
     if (!originales.has(abs)) originales.set(abs, fs.readFileSync(abs, 'utf-8'));
   }
 }
@@ -80,6 +84,10 @@ function correrEscenario(): Veredicto {
 
 const casos = PRUEBAS_DE_CONDUCTA.flatMap((p) =>
   p.mutantes.map((m) => ({ etiqueta: `${p.id} · ${m.archivo}: ${m.porque}`, id: p.id, mutante: m }))
+);
+
+const refactors = PRUEBAS_DE_CONDUCTA.flatMap((p) =>
+  (p.legitimateRefactors ?? []).map((refactor) => ({ etiqueta: `${p.id} · ${refactor.why}`, id: p.id, refactor }))
 );
 
 describe('los espejos del criterio que EJECUTA', () => {
@@ -121,6 +129,35 @@ describe('los espejos del criterio que EJECUTA', () => {
         ).toBe('falla');
       } finally {
         fs.writeFileSync(abs, original, 'utf-8');
+      }
+    },
+    240_000
+  );
+
+  // The other half of a mirror (#215): a refactor that keeps the defence must
+  // keep the criterion green. A criterion that goes red on the repair it asks
+  // for gets replaced, not obeyed — which is how the old E2.1 regex ended.
+  it.each(refactors)(
+    'a legitimate refactor keeps it green — $etiqueta',
+    ({ id, refactor }: (typeof refactors)[number]) => {
+      try {
+        for (const edit of refactor.edits) {
+          const abs = path.join(RAIZ, edit.file);
+          const current = fs.readFileSync(abs, 'utf-8');
+          const edited = current.replace(edit.from, edit.to);
+          expect(edited, `the refactor did not change ${edit.file}`).not.toBe(current);
+          fs.writeFileSync(abs, edited, 'utf-8');
+        }
+
+        const v = correrEscenario();
+        expect(v.motivo, `el escenario no pudo montarse: ${v.motivo ?? ''}`).toBeUndefined();
+        const r = v.resultados?.[id];
+        expect(
+          r?.estado,
+          `«${id}» went red on a legitimate refactor (${refactor.why}): ${r?.detalle ?? 'nothing'}`
+        ).toBe('ok');
+      } finally {
+        restaurarTodo();
       }
     },
     240_000

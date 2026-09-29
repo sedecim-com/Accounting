@@ -9,16 +9,21 @@
  * first time a dependency moves, and nobody notices until a task starts before
  * the one it needs. Here the sprint falls out of what lives in the data:
  *
- * - the wave is a STAGE (docs/MVP.md §3, the owner's decision of 2026-09-28):
- *   no task of wave N+1 enters a sprint until every open task of waves ≤ N has
- *   an earlier one, so each wave closes in its own release
- *   (`schedule.stages`) instead of bleeding into the next;
- * - inside a wave: dependencies (a task starts the sprint AFTER everything it
- *   depends on), priority (Must before Should before Could), the critical path
- *   (among equals, the task with the longest chain of open work waiting on it
+ * - dependencies: a task starts in the earliest sprint AFTER everything it
+ *   depends on, with room in its lane. There is one queue for all the open
+ *   work, whatever its wave: the owner decided on 2026-09-29 to run in
+ *   parallel as much as possible, which replaced the rule of 2026-09-28 that
+ *   no wave N+1 task entered a sprint until every open task of waves ≤ N had
+ *   an earlier one (docs/MVP.md §3);
+ * - the wave is a RELEASE label (`schedule.stages`): release N ships when
+ *   every task of waves ≤ N is done, in the last sprint holding one of them.
+ *   It still orders the queue first, so when a lane is full an earlier
+ *   release wins; then priority (Must before Should before Could), the
+ *   critical path (the task with the longest chain of open work waiting on it
  *   goes first) and file order for the remaining ties;
- * - capacity, per sprint and per lane (lanes are split by the files they
- *   touch, docs/MVP.md §3).
+ * - capacity per lane (lanes are split by the files they touch, so two PRs of
+ *   different lanes do not collide, docs/MVP.md §3) and, only if the schedule
+ *   declares `capacity_per_sprint`, per sprint.
  *
  * Sprints are numbered as the owner calls them: done work counts as delivered
  * in the sprint before `schedule.first_open_sprint`, and open work starts at
@@ -76,7 +81,8 @@ export interface Backlog {
     /** The date the first open sprint starts. */
     start: string;
     sprint_days: number;
-    capacity_per_sprint: number;
+    /** Optional: absent means no cap per sprint, only per lane (the owner's decision of 2026-09-29). */
+    capacity_per_sprint?: number;
     capacity_per_lane: number;
     /** The number of the first sprint with open work; done work counts as the one before. Default 1. */
     first_open_sprint?: number;
@@ -107,7 +113,9 @@ export function validate(backlog: Backlog, requirements: Set<string>, prdNumber:
   if (!date || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== start) {
     errors.push(`schedule.start: «${String(start)}» is not a date (YYYY-MM-DD)`);
   }
-  for (const [field, value] of Object.entries({ sprint_days, capacity_per_sprint, capacity_per_lane })) {
+  // capacity_per_sprint may be absent (no cap), but a declared one must be usable.
+  const capacities = { sprint_days, capacity_per_lane, ...(capacity_per_sprint === undefined ? {} : { capacity_per_sprint }) };
+  for (const [field, value] of Object.entries(capacities)) {
     if (!Number.isInteger(value) || value < 1) {
       errors.push(`schedule.${field}: «${String(value)}» must be a positive integer`);
     }
@@ -164,8 +172,9 @@ export function validate(backlog: Backlog, requirements: Set<string>, prdNumber:
       if (t.status === 'done' && target.status === 'open') {
         errors.push(`${t.id}: marked done but depends on ${dep}, still open`);
       }
-      // Waves are stages: a later one starts after an earlier one is scheduled,
-      // so waiting on a later wave could never be met. Decisions have no wave.
+      // Waves are releases: release N ships when waves ≤ N are done, so a task
+      // that waits on a later wave would hold its release hostage to a later
+      // one. Decisions have no wave.
       if (!isDecision(t) && !isDecision(target) && (target.wave ?? 0) > (t.wave ?? 0)) {
         errors.push(`${t.id}: wave ${t.wave} cannot depend on ${dep}, of the later wave ${target.wave}`);
       }
@@ -209,9 +218,10 @@ function findCycle(tasks: Task[]): string[] | null {
 /**
  * Suggested sprint per task: `first_open_sprint - 1` for done work (delivered),
  * `first_open_sprint` for open decisions, and for everything else the earliest
- * sprint after all its dependencies that still has room in the sprint and in
- * the task's lane — scheduled wave by wave, each wave starting in the sprint
- * after the previous wave's last one. Assumes a validated backlog.
+ * sprint after all its dependencies that still has room in the task's lane
+ * (and in the sprint, when `capacity_per_sprint` is declared). One queue for
+ * every wave: the wave only orders who goes first under contention. Assumes a
+ * validated backlog.
  */
 export function schedule(backlog: Backlog): Map<string, number> {
   const first = backlog.schedule.first_open_sprint ?? 1;
@@ -226,35 +236,30 @@ export function schedule(backlog: Backlog): Map<string, number> {
     else pending.push(t);
   }
 
-  const { capacity_per_sprint: perSprint, capacity_per_lane: perLane } = backlog.schedule;
-  const waves = [...new Set(pending.map((t) => t.wave ?? 9))].sort((a, b) => a - b);
-  let waveStart = first;
-  for (const wave of waves) {
-    let queue = pending.filter((t) => (t.wave ?? 9) === wave);
-    let lastUsed = waveStart;
-    for (let s = waveStart; queue.length > 0; s++) {
-      if (s > waveStart + 500) throw new Error('scheduling did not converge: check the capacities');
-      const ready = queue
-        .filter((t) => t.depends_on.every((d) => (sprint.get(d) ?? Infinity) < s))
-        .sort(
-          (a, b) =>
-            PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
-            chain.get(b.id)! - chain.get(a.id)! ||
-            order.get(a.id)! - order.get(b.id)!,
-        );
-      const laneLoad = new Map<string, number>();
-      let taken = 0;
-      for (const t of ready) {
-        if (taken >= perSprint) break;
-        if ((laneLoad.get(t.lane) ?? 0) >= perLane) continue;
-        sprint.set(t.id, s);
-        laneLoad.set(t.lane, (laneLoad.get(t.lane) ?? 0) + 1);
-        taken++;
-        lastUsed = s;
-      }
-      queue = queue.filter((t) => !sprint.has(t.id));
+  const perSprint = backlog.schedule.capacity_per_sprint ?? Infinity;
+  const perLane = backlog.schedule.capacity_per_lane;
+  let queue = pending;
+  for (let s = first; queue.length > 0; s++) {
+    if (s > first + 500) throw new Error('scheduling did not converge: check the capacities');
+    const ready = queue
+      .filter((t) => t.depends_on.every((d) => (sprint.get(d) ?? Infinity) < s))
+      .sort(
+        (a, b) =>
+          (a.wave ?? 9) - (b.wave ?? 9) ||
+          PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] ||
+          chain.get(b.id)! - chain.get(a.id)! ||
+          order.get(a.id)! - order.get(b.id)!,
+      );
+    const laneLoad = new Map<string, number>();
+    let taken = 0;
+    for (const t of ready) {
+      if (taken >= perSprint) break;
+      if ((laneLoad.get(t.lane) ?? 0) >= perLane) continue;
+      sprint.set(t.id, s);
+      laneLoad.set(t.lane, (laneLoad.get(t.lane) ?? 0) + 1);
+      taken++;
     }
-    waveStart = lastUsed + 1;
+    queue = queue.filter((t) => !sprint.has(t.id));
   }
   return sprint;
 }
@@ -300,9 +305,27 @@ const issueLink = (n: number): string => `[#${n}](https://github.com/sedecim-com
 const cell = (s: string): string => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
 const range = (from: number, to: number): string => (from === to ? `S${from}` : `S${from}–S${to}`);
 
+/**
+ * The sprint each wave's release ships in: the last sprint holding an open
+ * task of that wave or an earlier one, since release N needs every task of
+ * waves ≤ N done. `first_open_sprint - 1` when all of it is already delivered.
+ */
+export function releaseSprints(backlog: Backlog, sprints: Map<string, number>): Map<number, number> {
+  const delivered = (backlog.schedule.first_open_sprint ?? 1) - 1;
+  const work = backlog.tasks.filter((t) => !isDecision(t));
+  const waves = [...new Set(work.map((t) => t.wave ?? 9))].sort((a, b) => a - b);
+  const open = work.filter((t) => t.status === 'open');
+  return new Map(
+    waves.map((w) => [
+      w,
+      Math.max(delivered, ...open.filter((t) => (t.wave ?? 9) <= w).map((t) => sprints.get(t.id)!)),
+    ]),
+  );
+}
+
 /** The Markdown view of the backlog. Deterministic: same data, same bytes. */
 export function render(backlog: Backlog, sprints: Map<string, number>): string {
-  const { start, sprint_days: days } = backlog.schedule;
+  const { start, sprint_days: days, capacity_per_sprint: perSprint, capacity_per_lane: perLane } = backlog.schedule;
   const first = backlog.schedule.first_open_sprint ?? 1;
   const delivered = first - 1;
   const stages = backlog.schedule.stages ?? {};
@@ -310,6 +333,8 @@ export function render(backlog: Backlog, sprints: Map<string, number>): string {
   const ends = (n: number): string => sprintEnd(start, days, n, first);
   const stageName = (w: number): string => stages[String(w)]?.name ?? `Ola ${w}`;
   const stageRelease = (w: number): string => stages[String(w)]?.release ?? '—';
+  /** «R1» out of «R1 · MVP α: …», to mark a task's release in a table without repeating its name. */
+  const releaseCode = (w: number): string => stageRelease(w).split(' · ')[0];
 
   const open = backlog.tasks.filter((t) => t.status === 'open');
   const work = open.filter((t) => !isDecision(t));
@@ -324,33 +349,52 @@ export function render(backlog: Backlog, sprints: Map<string, number>): string {
   const byId = new Map(backlog.tasks.map((t) => [t.id, t]));
   const waves = [...new Set(backlog.tasks.filter((t) => !isDecision(t)).map((t) => t.wave ?? 9))].sort((a, b) => a - b);
   const sprintsOf = (w: number): number[] => work.filter((t) => (t.wave ?? 9) === w).map((t) => sprints.get(t.id)!);
-  const waveOfSprint = (s: number): number | undefined => work.find((t) => sprints.get(t.id) === s)?.wave;
+  const release = releaseSprints(backlog, sprints);
+  const shipsIn = (s: number): number[] => waves.filter((w) => release.get(w) === s);
+  const ships = (w: number): string =>
+    release.get(w) === delivered ? `S${delivered} (entregada)` : `S${release.get(w)!}, el ${ends(release.get(w)!)}`;
+  const cap =
+    perSprint === undefined
+      ? `con un tope de ${perLane} tareas por carril y ninguno por sprint`
+      : `con un tope de ${perLane} tareas por carril y ${perSprint} por sprint`;
 
   const lines: string[] = [
     '# Backlog — PRD-001, el MVP',
     '',
     '<!-- GENERADO por `npx tsx scripts/backlog.ts` desde docs/backlog/PRD-001.json. No se edita a mano: se edita el JSON y se regenera; `--check` falla si esta vista quedó vieja. -->',
     '',
-    `Cada requisito de [PRD-001](../prd/PRD-001-mvp.md) se traduce en tareas atómicas: un solo resultado verificable, un solo repo, D1–D3 y menos de ${MAX_TASK_LINES} líneas por PR. El **sprint es sugerido y calculado**, y el plan va **por etapas**: cada ola de docs/MVP.md §3 es una etapa que cierra en una entrega, y una etapa empieza en el sprint siguiente al último de la anterior. Dentro de cada etapa, una tarea entra en el sprint siguiente al de todo lo que necesita, Must antes que Should y Could, con un tope de ${backlog.schedule.capacity_per_sprint} tareas por sprint y ${backlog.schedule.capacity_per_lane} por carril. Lo hecho cuenta como entregado en S${delivered}; el trabajo abierto empieza en S${first}, el ${start}, con sprints de ${days} días.`,
+    `Cada requisito de [PRD-001](../prd/PRD-001-mvp.md) se traduce en tareas atómicas: un solo resultado verificable, un solo repo, D1–D3 y menos de ${MAX_TASK_LINES} líneas por PR. El **sprint es sugerido y calculado**, y el plan corre **en paralelo todo lo que puede**: una tarea entra en el primer sprint después del de todo lo que necesita, ${cap}, sea de la ola que sea. Lo decidió el dueño el 2026-09-29, y reemplaza la regla del 2026-09-28 de no abrir una ola hasta tener en el calendario toda la anterior. **Cada ola de docs/MVP.md §3 marca una entrega**: la entrega N sale cuando está hecho todo lo de las olas ≤ N. Si un carril se llena, entra primero la ola más temprana; después, Must antes que Should y Could. Lo hecho cuenta como entregado en S${delivered}; el trabajo abierto empieza en S${first}, el ${start}, con sprints de ${days} días.`,
     '',
     `**Resumen:** ${work.length} tareas abiertas y ${decisions.length} ${decisions.length === 1 ? 'decisión' : 'decisiones'} del dueño; ${done.length} ${done.length === 1 ? 'ya hecha' : 'ya hechas'}, entregadas en S${delivered}. Con la capacidad declarada, **lo Must termina en ${mvp}** y la última tarea cae en S${last}, que termina el ${ends(last)}. **Antes de fiarse de esa fecha:** la capacidad es un tope inicial; se recalibra con la velocidad medida al cerrar S${first}.`,
     '',
     '## Por etapa',
     '',
-    '| Etapa | Sprints | Fechas | Abiertas | Must | Hechas | Cierra en |',
+    'Las tareas de una etapa no ocupan un tramo de sprints propio: caen donde caben, junto a las de otras olas. Su entrega sale al cerrar el último sprint con una tarea abierta de esa ola o de una anterior.',
+    '',
+    '| Ola · etapa | Abiertas | Must | Hechas | Sus tareas caen en | Entrega | Sale en |',
     '|---|---|---|---|---|---|---|',
   ];
   for (const w of waves) {
     const inW = work.filter((t) => (t.wave ?? 9) === w);
     const doneW = done.filter((t) => !isDecision(t) && (t.wave ?? 9) === w).length;
     const ss = sprintsOf(w);
-    const [when, dates] =
+    const when =
       ss.length === 0
-        ? [`S${delivered} (entregada)`, '—']
-        : [range(Math.min(...ss), Math.max(...ss)), `${begins(Math.min(...ss))} → ${ends(Math.max(...ss))}`];
+        ? `S${delivered} (entregada)`
+        : `${range(Math.min(...ss), Math.max(...ss))}, ${begins(Math.min(...ss))} → ${ends(Math.max(...ss))}`;
     const must = inW.filter((t) => t.priority === 'Must').length;
     lines.push(
-      `| ${w} · ${cell(stageName(w))} | ${when} | ${dates} | ${inW.length} | ${must} | ${doneW} | ${cell(stageRelease(w))} |`,
+      `| ${w} · ${cell(stageName(w))} | ${inW.length} | ${must} | ${doneW} | ${when} | ${cell(stageRelease(w))} | ${ships(w)} |`,
+    );
+  }
+
+  lines.push('', '## Entregas', '');
+  for (const w of waves) {
+    const pending = work.filter((t) => (t.wave ?? 9) <= w).length;
+    lines.push(
+      release.get(w) === delivered
+        ? `- **${cell(stageRelease(w))}** ya salió: lo de las olas ≤ ${w} quedó entregado en S${delivered}.`
+        : `- **${cell(stageRelease(w))}** sale al cerrar S${release.get(w)!}, el ${ends(release.get(w)!)}: espera ${pending} ${pending === 1 ? 'tarea abierta' : 'tareas abiertas'} de las olas ≤ ${w}.`,
     );
   }
 
@@ -358,16 +402,16 @@ export function render(backlog: Backlog, sprints: Map<string, number>): string {
     '',
     '## Por sprint',
     '',
-    '| Sprint | Etapa | Empieza | Tareas | Must | Should | Could |',
-    '|---|---|---|---|---|---|---|',
-    `| S${delivered} | entregado | antes del ${start} | ${done.length} | — | — | — |`,
+    '| Sprint | Olas | Empieza | Tareas | Must | Should | Could | Al cerrar sale |',
+    '|---|---|---|---|---|---|---|---|',
+    `| S${delivered} | entregado | antes del ${start} | ${done.length} | — | — | — | ${shipsIn(delivered).map(releaseCode).join(', ') || '—'} |`,
   );
   for (let s = first; s <= last; s++) {
     const inS = work.filter((t) => sprints.get(t.id) === s);
     const count = (p: Priority): number => inS.filter((t) => t.priority === p).length;
-    const w = waveOfSprint(s);
+    const ws = [...new Set(inS.map((t) => t.wave ?? 9))].sort((a, b) => a - b);
     lines.push(
-      `| S${s} | ${w ?? '—'} | ${begins(s)} | ${inS.length} | ${count('Must')} | ${count('Should')} | ${count('Could')} |`,
+      `| S${s} | ${ws.join(', ') || '—'} | ${begins(s)} | ${inS.length} | ${count('Must')} | ${count('Should')} | ${count('Could')} | ${shipsIn(s).map(releaseCode).join(', ') || '—'} |`,
     );
   }
 
@@ -385,33 +429,33 @@ export function render(backlog: Backlog, sprints: Map<string, number>): string {
     lines.push(`| ${d.id} | ${cell(d.title)} | ${issueLink(d.issue)} | ${blocks.join(', ') || '—'} |`);
   }
 
-  for (const w of waves) {
-    const ss = sprintsOf(w);
-    if (ss.length === 0) continue;
-    const [from, to] = [Math.min(...ss), Math.max(...ss)];
+  lines.push(
+    '',
+    '## Sprint por sprint',
+    '',
+    'Cada tarea lleva su ola y la entrega a la que pertenece, en la columna «Ola → entrega».',
+  );
+  for (let s = first; s <= last; s++) {
+    const inS = work.filter((t) => sprints.get(t.id) === s);
+    if (inS.length === 0) continue;
+    const shipping = shipsIn(s).map((w) => `**${cell(stageRelease(w))}**`);
     lines.push(
       '',
-      `## Etapa ${w} · ${stageName(w)} → ${stageRelease(w)}`,
+      `### S${s} · desde el ${begins(s)}`,
       '',
-      `${range(from, to)}, del ${begins(from)} al ${ends(to)}: ${ss.length} ${ss.length === 1 ? 'tarea' : 'tareas'}.${w === waves[waves.length - 1] ? '' : ` La etapa siguiente empieza en S${to + 1}.`}`,
+      `Del ${begins(s)} al ${ends(s)}: ${inS.length} ${inS.length === 1 ? 'tarea' : 'tareas'}.${shipping.length ? ` Al cerrar sale ${shipping.join(' y ')}.` : ''}`,
+      '',
+      '| ID | Tarea | Issue | Req. | Ola → entrega | Prioridad | D · A | Carril | Depende de | Líneas |',
+      '|---|---|---|---|---|---|---|---|---|---|',
     );
-    for (let s = from; s <= to; s++) {
-      const inS = work.filter((t) => sprints.get(t.id) === s);
+    for (const t of inS) {
+      const deps = t.depends_on.filter((d) => byId.get(d)?.status === 'open');
+      const depText = deps.length > 6 ? `${deps.length} tareas (ver el JSON)` : deps.join(', ') || '—';
+      const size = `${t.size}${t.mechanical ? ' (mecánicas)' : ''}`;
+      const w = t.wave ?? 9;
       lines.push(
-        '',
-        `### S${s} · desde el ${begins(s)}`,
-        '',
-        '| ID | Tarea | Issue | Req. | Prioridad | D · A | Carril | Depende de | Líneas |',
-        '|---|---|---|---|---|---|---|---|---|',
+        `| ${t.id} | ${cell(t.title)} | ${issueLink(t.issue)} | ${t.requirement} | ${w} → ${cell(releaseCode(w))} | ${t.priority} | ${t.difficulty} · ${t.autonomy} | ${t.lane} | ${depText} | ${size} |`,
       );
-      for (const t of inS) {
-        const deps = t.depends_on.filter((d) => byId.get(d)?.status === 'open');
-        const depText = deps.length > 6 ? `${deps.length} tareas (ver el JSON)` : deps.join(', ') || '—';
-        const size = `${t.size}${t.mechanical ? ' (mecánicas)' : ''}`;
-        lines.push(
-          `| ${t.id} | ${cell(t.title)} | ${issueLink(t.issue)} | ${t.requirement} | ${t.priority} | ${t.difficulty} · ${t.autonomy} | ${t.lane} | ${depText} | ${size} |`,
-        );
-      }
     }
   }
 
@@ -419,7 +463,7 @@ export function render(backlog: Backlog, sprints: Map<string, number>): string {
     '',
     `## S${delivered} · lo entregado`,
     '',
-    '| ID | Tarea | Issue | Etapa |',
+    '| ID | Tarea | Issue | Ola |',
     '|---|---|---|---|',
     ...done.map(
       (t) => `| ${t.id} | ${cell(t.title)} | ${issueLink(t.issue)} | ${isDecision(t) ? 'decisión' : String(t.wave)} |`,

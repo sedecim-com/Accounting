@@ -579,3 +579,43 @@ describe('los errores de uso, dichos en el idioma del que los comete', () => {
     ).rejects.toThrow(/exige NumOrden/);
   });
 });
+
+describe('a bank code off the XSD c_Banco (#404 review)', () => {
+  it('is a blocking finding that names the entry, and the XML is still returned', async () => {
+    // '003' has the three digits the bank-account check asks for and is not
+    // on the c_Banco the official XSD declares. It must not kill the month.
+    const g = await gastoAprobado(f.entityId, f.userId, '50.00', '8.00');
+    const payment = await recordVendorPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: '58.00',
+        paymentDate: fechaEnPeriodo(MES),
+        paymentMethod: 'spei',
+        bankAccountId: bancoId,
+        cuentaDestino: '003180009876543210',
+        bancoDestinoSat: '003',
+        applications: [{ documentId: g.billId, amountApplied: '58.00' }],
+      },
+      f.userId
+    );
+    const entry = payment.journalEntry?.entry_number;
+    expect(entry, 'the payment must have posted').toBeTruthy();
+
+    const r = await generarPolizas(f.entityId, {
+      periodo: `2026-0${MES}`,
+      solicitud: SOLICITUD,
+      generadoPor: f.userId,
+    });
+
+    const offList = r.hallazgos.filter(
+      (h) => h.check === 'banco-en-catalogo' && h.referencia === entry
+    );
+    expect(offList).toHaveLength(1);
+    expect(offList[0].severity).toBe('blocking');
+    expect(offList[0].detalle).toContain('PLZ:Transferencia/@BancoDestNal = «003»');
+    expect(offList[0].detalle).toContain('c_Banco');
+    expect(r.puedeEntregarse).toBe(false);
+    expect(r.artefacto).toBeNull();
+    expect(r.xml).toContain('BancoDestNal="003"');
+  });
+});

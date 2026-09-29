@@ -862,4 +862,44 @@ export const ES: Record<keyof typeof EN, string> = {
   'report.net_income': 'Utilidad neta',
   'report.balance_check': 'Activo {assets} = Pasivo + Capital {total}',
   'report.income_summary': 'Ingresos {revenue}   Gastos {expenses}   Utilidad neta {net}',
+  // --- pay-run · corrida (MNE-001-068) -----------------------------------
+  'payrun.file_invalid': 'El archivo de insumos {path} no se puede usar: {detail}. No se calculó nada.',
+  'payrun.file_duplicate_employee':
+    'El empleado {employee} aparece dos veces en {path}: una corrida lleva un recibo por empleado. No se calculó nada.',
+  'payrun.create.period_required':
+    'Falta --period: una corrida es de un periodo de pago de la entidad, y no se adivina del reloj.',
+  'payrun.create.next': 'Sigue: `mnemosine pay-run calculate {id} --file <insumos.json>`.',
+  'payrun.calculate.file_required':
+    'Falta --file: los insumos del periodo (percepciones y deducciones) vienen de un archivo JSON.',
+  'payrun.calculate.next': 'Sigue: `mnemosine pay-run approve {id} --dry-run` para ver lo que escribe aprobar.',
+  'payrun.approve.confirm':
+    'Vas a APROBAR la corrida {id} ({employees, plural, one {# empleado} other {# empleados}}, ' +
+    'neto {net}) y a escribir su pasivo patronal. La aprobación no se deshace. ¿Continuar?',
+  'payrun.approve.aborted': 'Sin cambios: la corrida no se aprobó.',
+  'payrun.approve.done': 'Corrida {id} aprobada · {status}',
+  'payrun.approve.repeated': 'La corrida {id} ya se aprobó con esta llave: se muestra el resultado grabado · {status}',
+  'payrun.approve.dry_run': 'Ensayo: la corrida {id} se aprobó y se deshizo; sigue en {status}.',
+
+  'prepaid.run.key_replayed':
+    'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió a devengar.',
+  'prepaid.run.key_reversed':
+    'La llave "{key}" grabó asientos que después se reversaron ({entries}). Devolver ese resultado ' +
+    'diría que {period} está devengado cuando no lo está. Vuelve a correr con una llave nueva ' +
+    '(es otra corrida, no un reintento) o sin --idempotency-key.',
+  'prepaid.run.key_partial':
+    'La llave "{key}" grabó una corrida de {period} que falló en {failed} anticipo(s), y {pending} ' +
+    'anticipo(s) siguen sin devengar en {period}. Devolver ese resultado repetiría la falla sin ' +
+    'volver a intentarlo. Vuelve a correr con una llave nueva (es otra corrida, no un reintento) o ' +
+    'sin --idempotency-key; ahí se imprimen los errores.',
+  'prepaid.run.key_busy':
+    'Otra corrida con la llave "{key}" sigue trabajando. Espera a que termine y reintenta con la ' +
+    'misma llave: el reintento devuelve su resultado grabado.',
+  'payrun.post.confirm':
+    'Vas a CONTABILIZAR la póliza de la corrida {id} (cargos {debits} = abonos {credits}) ' +
+    'sin pasar por la revisión. Una póliza contabilizada sólo se deshace con una reversa. ¿Continuar?',
+  'payrun.post.aborted': 'Sin cambios: la póliza no se contabilizó.',
+  'payrun.post.dry_run': 'Ensayo: la póliza de la corrida {id} cuadra (cargos {debits} = abonos {credits}); no se escribió nada.',
+  'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
+  'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
+  'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
 };

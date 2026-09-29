@@ -129,11 +129,26 @@ describe('rep_faltante_recibido gobierna el cierre', () => {
     const vendor = await query<{ id: string }>(
       `SELECT id FROM vendors WHERE entity_id = $1 LIMIT 1`, [f.entityId]
     );
+    // MNE-001-125: only a payment APPLIED to a PPD bill awaits a REP (an
+    // unapplied one is an advance), so the payment settles one; with no
+    // method stated the bill is PPD, the conservative received default.
+    const billId = uuidv4();
+    const payId = uuidv4();
+    await query(
+      `INSERT INTO bills (id, entity_id, bill_number, vendor_id, subtotal, tax_amount,
+        total_amount, amount_due, currency_code, bill_date, due_date, status, created_by)
+       VALUES ($1, $2, 'BILL-2026-90001', $3, 1000, 160, 1160, 1160, 'MXN', '2026-08-10', '2026-09-10', 'approved', $4)`,
+      [billId, f.entityId, vendor.rows[0].id, f.userId]
+    );
     await query(
       `INSERT INTO vendor_payments (id, entity_id, vendor_id, payment_number,
         payment_date, payment_amount, currency_code, exchange_rate, payment_method, status, created_by)
        VALUES ($1, $2, $3, 'VPMT-2026-90001', '2026-08-20', '1160.00', 'MXN', 1, 'spei', 'completed', $4)`,
-      [uuidv4(), f.entityId, vendor.rows[0].id, f.userId]
+      [payId, f.entityId, vendor.rows[0].id, f.userId]
+    );
+    await query(
+      `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied) VALUES ($1, $2, $3, 1160)`,
+      [uuidv4(), payId, billId]
     );
 
     await resolvePolicy(ctx, 'rep_faltante_recibido', 'bloquear', 'victor@test');

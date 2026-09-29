@@ -17,6 +17,7 @@ import {
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
 import { logger } from '../../src/utils/logger.js';
 import type { Invoice, InvoiceLine, Bill, BillLine } from '../../src/types/index.js';
+import type { ContextoCambiario } from '../../src/services/accounting/moneda-origen.js';
 
 const mockCreate = createJournalEntry as unknown as Mock;
 const mockWarn = logger.warn as unknown as Mock;
@@ -47,16 +48,20 @@ interface FakeState {
   rolesFaltantes?: string[];
   /** gl_account_id que devuelve bank_accounts para la cuenta vinculada. */
   bankGl?: string | null;
+  /** rowCount of the guarded UPDATEs of a collection (1 by default). */
+  updateRows?: number;
 }
 
 let state: FakeState;
 let sqlLog: string[];
 
 function fakeClient(): pg.PoolClient {
-  const query = async (text: string, params?: unknown[]): Promise<{ rows: unknown[] }> => {
+  const query = async (text: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount?: number }> => {
     const sql = String(text).replace(/\s+/g, ' ');
     sqlLog.push(sql);
 
+    // The collection's two guarded UPDATEs (invariant 3) find their one row.
+    if (/^UPDATE (customer_payments|payment_allocations)/.test(sql.trim())) return { rows: [], rowCount: state.updateRows ?? 1 };
     if (sql.includes('FROM legal_entities')) {
       return { rows: [{ incorporation_country: state.country, accounting_standard: state.standard }] };
     }
@@ -367,6 +372,17 @@ describe('customer payment applied to a PPD invoice', () => {
     expect(lineFor('acct:iva_trasladado_no_cobrado')!.debit_amount).toBe('114.0234');
   });
 
+  it('fails loudly when no live allocation is there to record the IVA it released (invariant 3)', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.applied = [appliedInvoice()];
+    state.updateRows = 0;
+
+    await expect(postCustomerPaymentEntry(fakeClient(), payment(), USER)).rejects.toThrow(/no live allocation/);
+    const update = sqlLog.find((q) => q.startsWith('UPDATE payment_allocations'));
+    expect(update).toMatch(/cp\.entity_id = \$4/);
+    expect(update).toMatch(/iva_reclass_amount IS NULL/);
+  });
+
   it('moves nothing for a PUE invoice: its IVA was already due', async () => {
     state.cfdiMetodo = { 'UUID-PPD': 'PUE' };
     state.applied = [appliedInvoice()];
@@ -541,5 +557,86 @@ describe('idempotencia y monto cero', () => {
     await expect(postCustomerPaymentEntry(fakeClient(), payment({ payment_amount: '0.0000' }), USER)).resolves.toBeNull();
     await expect(postVendorPaymentEntry(fakeClient(), payment({ payment_amount: '0.0000' }), USER)).resolves.toBeNull();
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// FOREIGN CURRENCY: THE IVA IS CAUSED AT THE PAYMENT DAY'S RATE
+//
+// Review of #500. The parked IVA leaves 2125/1135 at the document's rate,
+// the one it was parked at; the IVA that becomes due (2120/1130) is the tax
+// figure, which LIVA arts. 1-B, 5-III and 11 cause when the money moves and
+// art. 20 CFF converts at that day's rate. The gap is realised difference.
+// ============================================================
+
+describe('a foreign-currency payment converts the caused IVA at the payment rate', () => {
+  const fxOf = (documentId: string, applied: string): ContextoCambiario => ({
+    moneda: 'USD',
+    monedaFuncional: 'MXN',
+    tasaPago: '18.0000000000',
+    fuenteTasa: 'dof',
+    aplicaciones: [
+      { billId: documentId, numero: documentId, aplicado: applied, descuento: '0', tasaHistorica: '17.5000000000' },
+    ],
+  });
+  const withOrigin = (accountId: string) =>
+    lines().find((l) => l.account_id === accountId) as
+      | { debit_amount: string | null; credit_amount: string | null; foreign_debit?: string; foreign_credit?: string; exchange_rate?: string }
+      | undefined;
+
+  it('collecting 580 of a PPD invoice at 18.00 moves 1 400 out of 2125 and 1 440 into 2120', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.applied = [appliedInvoice({ applied_now: '580.0000', applied_total: '580.0000' })];
+    state.parked = { 'inv-1': '2800.0000' }; // 160 USD parked at 17.50
+
+    const entry = await postCustomerPaymentEntry(
+      fakeClient(),
+      payment({ payment_amount: '580.0000' }),
+      USER,
+      fxOf('inv-1', '580.00')
+    );
+
+    expect(withOrigin('acct:iva_trasladado_no_cobrado')).toMatchObject({
+      debit_amount: '1400.0000', foreign_debit: '80.0000', exchange_rate: '17.5000000000',
+    });
+    expect(withOrigin('acct:iva_trasladado')).toMatchObject({
+      credit_amount: '1440.0000', foreign_credit: '80.0000', exchange_rate: '18.0000000000',
+    });
+    // 10 440 in, 10 150 of receivable out, and 40 more IVA owed than parked.
+    expect(lineFor('acct:utilidad_cambiaria')!.credit_amount).toBe('250.0000');
+    expect(entry?.realisedFx).toEqual({ tipo: 'utilidad', montoFuncional: '250.0000' });
+  });
+
+  it('when the parked cap trims the release, the due side mirrors it instead of inventing a tax figure', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.applied = [appliedInvoice({ applied_now: '580.0000', applied_total: '580.0000' })];
+    state.parked = { 'inv-1': '1000.0000' };
+
+    await postCustomerPaymentEntry(fakeClient(), payment({ payment_amount: '580.0000' }), USER, fxOf('inv-1', '580.00'));
+
+    expect(lineFor('acct:iva_trasladado_no_cobrado')!.debit_amount).toBe('1000.0000');
+    expect(withOrigin('acct:iva_trasladado')).toMatchObject({ credit_amount: '1000.0000' });
+    expect(withOrigin('acct:iva_trasladado')?.foreign_credit).toBeUndefined();
+  });
+
+  it('paying 580 of a PPD bill at 18.00 releases 1 400 from 1135 and makes 1 440 creditable', async () => {
+    state.cfdiMetodo = { 'bill-1': 'PPD' };
+    state.applied = [appliedBill({ tax_amount: '80.0000', total_amount: '580.0000' })];
+    state.parked = { 'bill-1': '1400.0000' };
+
+    const entry = await postVendorPaymentEntry(
+      fakeClient(),
+      payment({ payment_amount: '580.0000' }),
+      USER,
+      fxOf('bill-1', '580.00')
+    );
+
+    expect(withOrigin('acct:iva_pendiente_acreditar')).toMatchObject({ credit_amount: '1400.0000' });
+    expect(withOrigin('acct:iva_acreditable')).toMatchObject({
+      debit_amount: '1440.0000', foreign_debit: '80.0000', exchange_rate: '18.0000000000',
+    });
+    // 580 × 0.50 = 290 of loss on the cash, less the 40 of extra creditable IVA.
+    expect(lineFor('acct:perdida_cambiaria')!.debit_amount).toBe('250.0000');
+    expect(entry?.realisedFx).toEqual({ tipo: 'perdida', montoFuncional: '250.0000' });
   });
 });

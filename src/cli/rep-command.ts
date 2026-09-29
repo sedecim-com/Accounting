@@ -88,7 +88,7 @@ export function registerRepCommand(program: Command, deps: RepCommandDeps): void
   const missingList = missing
     .command('list')
     .alias('listar')
-    .description('received: paid PPD bills without the supplier REP (VAT parked); issued: our collections without a REP');
+    .description('received: paid PPD bills without the supplier REP (the REP supports the VAT credit); issued: our collections without a REP');
   withOutput(withSelection(withContext(missingList)));
   missingList
     .option('--direction <d>', 'received (default) or issued', 'received')
@@ -111,13 +111,14 @@ export function registerRepCommand(program: Command, deps: RepCommandDeps): void
         note(
           opts.direction === 'issued'
             ? `${rows.length} cobro(s) sin REP emitido: obligación fiscal propia con plazo del SAT.`
-            : `${rows.length} pago(s) sin REP del proveedor: su IVA sigue aparcado en 1135 (no acreditable).`
+            : `${rows.length} pago(s) sin REP del proveedor: falta el comprobante que respalda el acreditamiento del IVA de ese pago.`
         );
       }
       const desconocidos = rows.filter((r) => r.metodo === 'desconocido').length;
       if (desconocidos > 0) {
         note(
-          `${desconocidos} con método de pago desconocido (el CFDI no está en el espejo): se listan con la duda dicha — un PUE no exige REP.`
+          `${desconocidos} con método de pago desconocido (el CFDI no está en el espejo): el mayor los trató como ` +
+            `${opts.direction === 'issued' ? 'PUE' : 'PPD'}; se listan con la duda dicha — un PUE no exige REP.`
         );
       }
     })

@@ -851,7 +851,7 @@
       "es": "tipo_operacion",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Catálogo de la DIOT: 03 servicios profesionales, 06 arrendamiento, 85 otros (CHECK en 066:49, COMMENT en 066:57). Es un campo del formato, no una clasificación nuestra; `operation_type` no aparece en ningún documento de la autoridad."
+      "why": "Catálogo de la DIOT: 03 servicios profesionales, 06 arrendamiento, 85 otros (CHECK en 066:49, COMMENT en 066:57); ampliado al catálogo 2025 (02, 03, 06, 07, 08, 85) por la 138. Es un campo del formato, no una clasificación nuestra; `operation_type` no aparece en ningún documento de la autoridad."
     },
     {
       "class": "column",
@@ -2346,10 +2346,33 @@
     },
     {
       "class": "policy-key",
+      "where": "opening_payable_iva",
+      "es": "opening_payable_iva",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): `opening` is the tree's term for the opening balance (`opening_balance`, `opening-balance import`), `payable` is the AP side, `iva` is the tax's name in both languages. Read by `importOpeningBalance` and applied by `planOpeningBills` (ap/opening-bills.ts)."
+    },
+    {
+      "class": "policy-key",
+      "where": "bank_statement_overlap",
+      "es": "bank_statement_overlap",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: every word already is, and it is the name bank-statement-service.ts:65 and :971 use (`OVERLAP_POLICY_KEY`). Renaming it would move `policy_decisions.key` in real firms without changing a letter of language."
+    },
+    {
+      "class": "policy-key",
       "where": "base_depreciacion",
       "es": "base_depreciacion",
       "en": "depreciation_basis",
       "why": "«Basis» es la palabra del contador estadounidense para «qué depreciación rige» (book basis vs tax basis) y encaja con los valores `book`/`tax` que el CHECK de `depreciation_schedules.schedule_type` admite desde 003_banking_assets_inventory.sql:209-210. El literal de la clave lo lee `libroQueRige` (asset-lookup.ts:148) y `asset-service.ts:554`: si el renombrado no toca los dos sitios a la vez, el activo se da de alta con el método contable creyendo que corre el fiscal."
+    },
+    {
+      "class": "policy-key",
+      "where": "catalogo_coherencia_padre_hijo",
+      "es": "catalogo_coherencia_padre_hijo",
+      "en": "chart_parent_child_coherence",
+      "why": "«Catálogo» here is the chart of accounts, not the SAT catalog of `grouping_code_outside_catalog`: `chart`, as in `non_mexican_entity_chart`. Read through `COHERENCE_POLICY_KEY` (parent-child-coherence.ts:95 and :130)."
     },
     {
       "class": "policy-key",
@@ -2423,6 +2446,13 @@
     },
     {
       "class": "policy-key",
+      "where": "devengo_vacaciones",
+      "es": "devengo_vacaciones",
+      "en": "vacation_accrual_timing",
+      "why": "«Devengo» is accrual, as in `employer_contribution_accrual`; `vacation` is the word this registry fixed with `prima_vacacional_pct` → `vacation_premium_pct`. The question is WHEN the liability is recognised, so `timing`. Read by provisions-run.ts:208."
+    },
+    {
+      "class": "policy-key",
       "where": "dias_aguinaldo",
       "es": "dias_aguinaldo",
       "en": "aguinaldo_days_per_year",
@@ -2447,7 +2477,7 @@
       "where": "diot_tipo_operacion_por_omision",
       "es": "diot_tipo_operacion_por_omision",
       "en": "diot_default_operation_type",
-      "why": "DIOT se queda (acrónimo oficial de la declaración). «Tipo de operación» es el campo del formulario y el árbol ya lo llama «operation type» en su prosa inglesa (pending-catalog.ts:597 y :599, diot-command.ts:670, system-prompt.ts:60); «por omisión» es `default`, la palabra que el propio `PolicySpec.defaultValue` usa. El valor que esta clave guarda lo consume `tercero.ts:68` y acaba escrito tal cual en el archivo que se sube al SAT (serializador.ts:147)."
+      "why": "DIOT se queda (acrónimo oficial de la declaración). «Tipo de operación» es el campo del formulario y el árbol ya lo llama «operation type» en su prosa inglesa (pending-catalog.ts:597 y :599, diot-command.ts:670, system-prompt.ts:60); «por omisión» es `default`, la palabra que el propio `PolicySpec.defaultValue` usa. El valor que esta clave guarda lo consume `tercero.ts:68` y acaba escrito tal cual en el archivo que se sube al SAT (serializador.ts:113 y sat-batch.ts)."
     },
     {
       "class": "policy-key",
@@ -2493,6 +2523,13 @@
     },
     {
       "class": "policy-key",
+      "where": "flujo_efectivo_sin_clasificar",
+      "es": "flujo_efectivo_sin_clasificar",
+      "en": "cash_flow_unclassified",
+      "why": "`cash_flow` as in the three sibling keys (`cash_flow_method`, `cash_flow_mismatch`, `cash_flow_cash_accounts`). Read by cash-flow-service.ts:193."
+    },
+    {
+      "class": "policy-key",
       "where": "fuente_tipo_cambio",
       "es": "fuente_tipo_cambio",
       "en": "exchange_rate_source",
@@ -2504,6 +2541,13 @@
       "es": "informes_asientos_de_cierre",
       "en": "closing_entries_in_reports",
       "why": "Se invierte el orden respecto del español porque `reports_closing_entries` se leería como «el informe reporta los asientos de cierre», que es lo contrario de lo que la clave decide (si CUENTAN como actividad, pending-catalog.ts:850-851). `journal_entries` es la tabla (001_core_schema.sql), así que «asiento» es `entry`."
+    },
+    {
+      "class": "policy-key",
+      "where": "informes_cuentas_archivadas",
+      "es": "informes_cuentas_archivadas",
+      "en": "archived_accounts_in_reports",
+      "why": "Same shape as `informes_asientos_de_cierre` → `closing_entries_in_reports`: the subject first, then `in_reports`. Read by criterio-archivadas.ts:96."
     },
     {
       "class": "policy-key",
@@ -2585,10 +2629,24 @@
     },
     {
       "class": "policy-key",
+      "where": "provision_base_salarial",
+      "es": "provision_base_salarial",
+      "en": "benefit_accrual_wage_base",
+      "why": "The key is a POLICY about the monthly benefit provision, and this registry already names accrual policies with `accrual` (`provision_cuotas_patronales` → `employer_contribution_accrual`); the accounts it posts keep `provision`, as the entry for account 2202 explains. `wage_base` is what the question asks: which daily wage the provision starts from. Read by provisions-run.ts:200."
+    },
+    {
+      "class": "policy-key",
       "where": "provision_cuotas_patronales",
       "es": "provision_cuotas_patronales",
       "en": "employer_contribution_accrual",
       "why": "«Cuotas patronales» son las aportaciones del patrón al IMSS y al INFONAVIT: `employer contribution`, y `employer` es la palabra que la tabla `employer_tax_liabilities` (008_payroll.sql:329) ya usa. «Provisión» en el sentido de devengar es `accrual` (20 apariciones en `src --include='*.ts'`), no `provision`, que en inglés es una estimación de importe incierto y aquí la cuota se calcula exacta."
+    },
+    {
+      "class": "policy-key",
+      "where": "provision_ptu_mensual",
+      "es": "provision_ptu_mensual",
+      "en": "monthly_ptu_accrual",
+      "why": "PTU stays: it is the official acronym of the profit sharing of LFT art. 117 and has no English equivalent a Mexican accountant would recognise. `accrual` for the policy, as in `employer_contribution_accrual`. Read by provisions-run.ts:215."
     },
     {
       "class": "policy-key",
@@ -2662,6 +2720,13 @@
     },
     {
       "class": "policy-key",
+      "where": "subsidio_al_empleo_redondeo",
+      "es": "subsidio_al_empleo_redondeo",
+      "en": "employment_subsidy_rounding",
+      "why": "The tree already writes it in English: the constant `EMPLOYMENT_SUBSIDY_ROUNDING_POLICY` (employment-subsidy.ts:38) and the engine field `employment_subsidy_rounding` the pay slip passes. `employment_subsidy` is the name this registry fixed with `subsidio_al_empleo_entregado_registro` → `employment_subsidy_paid_treatment`."
+    },
+    {
+      "class": "policy-key",
       "where": "tratamiento_ieps",
       "es": "tratamiento_ieps",
       "en": "ieps_treatment",
@@ -2680,6 +2745,29 @@
       "es": "umbral_capitalizacion_mxn",
       "en": "capitalization_threshold_mxn",
       "why": "«Capitalization threshold» es el término exacto de la política de activo fijo en inglés; `mxn` es ISO 4217 y no se traduce. `threshold` es la palabra de esta casa para «umbral»: 172 apariciones con el método del lote (`grep -o threshold src --include='*.ts'`) — la cifra 177 que traía esta entrada no reproduce con ningún alcance. El lector es `getPolicyNumber(ctx, 'umbral_capitalizacion_mxn')` en pre-registration-service.ts:764; la constante de respaldo `CAPITALIZATION_THRESHOLD_MXN` (cfdi-decisions.ts:54) sólo rige sin contexto de inquilino."
+    },
+    {
+      "class": "policy-key",
+      "where": "zona_horaria",
+      "es": "zona_horaria",
+      "en": "time_zone",
+      "why": "Literal. The key is exported as `TIME_ZONE_POLICY_KEY` (pending-catalog.ts) because two readers use it: `todayFor` (today.ts) and `resolvePolicy`, which refuses a zone the runtime does not know (policy-service.ts:542). Renaming it means renaming that constant only."
+    },
+    {
+      "class": "policy-key",
+      "where": "diot_default_operation_type_foreign",
+      "es": "diot_default_operation_type_foreign",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-055): the foreign-supplier twin of `diot_tipo_operacion_por_omision`, whose English name this registry already decided as `diot_default_operation_type`; `_foreign` names the supplier kind the DIOT separates (tipo de tercero 05)."
+    },
+    {
+      "class": "policy-key",
+      "where": "diot_creditable_iva_proportion",
+      "es": "diot_creditable_iva_proportion",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-055): whether the entity credits IVA through the LIVA art. 5 frac. V proportion, which decides the box of the DIOT batch file the IVA paid goes into. IVA stays as the name of the tax the file reports."
     },
     {
       "class": "policy-value",
@@ -2823,6 +2911,46 @@
     },
     {
       "class": "policy-value",
+      "where": "opening_payable_iva/require_rate",
+      "es": "require_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) reads; the load stops until each vendor document says its IVA rate."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_payable_iva/assume_zero_rate",
+      "es": "assume_zero_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
+    },
+    {
+      "class": "policy-value",
+      "where": "bank_statement_overlap/block",
+      "es": "block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English and the literal bank-statement-service.ts compares; it is also the English this registry gives to `bloquear` everywhere else."
+    },
+    {
+      "class": "policy-value",
+      "where": "bank_statement_overlap/mark",
+      "es": "mark",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English and the literal bank-statement-service.ts compares: import the file and mark each repeated line (label)."
+    },
+    {
+      "class": "policy-value",
+      "where": "bank_statement_overlap/warn",
+      "es": "warn",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English and the literal bank-statement-service.ts compares; it is also the English this registry gives to `avisar` everywhere else."
+    },
+    {
+      "class": "policy-value",
       "where": "base_depreciacion/tasa_lisr",
       "es": "tasa_lisr",
       "en": "lisr_rate",
@@ -2834,6 +2962,27 @@
       "es": "vida_util_nif",
       "en": "nif_useful_life",
       "why": "Cambia desde `book`. Es UN literal persistido en `policy_decisions.resolved_value` (016:29) que el motor compara contra `BASES_DE_DEPRECIACION`, así que su inglés tiene que ser el del as-const. Y `book` no puede serlo: ya es valor del CHECK de `depreciation_schedules.schedule_type` (003:209-210), que es precisamente LA CONSECUENCIA que esta respuesta produce (`TIPO_DE_CALENDARIO`, depreciation-math.ts:64-67; `libroQueRige`, asset-lookup.ts:150). Llamar igual a la pregunta y a su consecuencia funde los dos extremos de un mapeo deliberado y deja sin sentido el aviso que asset-lookup.ts:120-131 documenta (el operador que teclea `--book tax` con el panel en `vida_util_nif` se entera ahí). Que depreciation-command.ts documente la equivalencia es razón para conservar el mapeo, no para colapsarlo."
+    },
+    {
+      "class": "policy-value",
+      "where": "catalogo_coherencia_padre_hijo/advertir_misma_seccion",
+      "es": "advertir_misma_seccion",
+      "en": "warn_same_section",
+      "why": "`advertir` means the same as `avisar`, which this registry renders as `warn` eight times; keeping the same verb keeps the three values of the key parallel. parent-child-coherence.ts compares it literally."
+    },
+    {
+      "class": "policy-value",
+      "where": "catalogo_coherencia_padre_hijo/exigir_misma_seccion",
+      "es": "exigir_misma_seccion",
+      "en": "enforce_same_section",
+      "why": "`exigir` → `enforce` is already fixed by `segregacion_de_funciones/exigir`; `section` is the section of the statements the question names. parent-child-coherence.ts compares it literally."
+    },
+    {
+      "class": "policy-value",
+      "where": "catalogo_coherencia_padre_hijo/sin_regla",
+      "es": "sin_regla",
+      "en": "no_rule",
+      "why": "Literal: no rule, the chart is the firm's business (label). parent-child-coherence.ts compares it literally."
     },
     {
       "class": "policy-value",
@@ -3014,6 +3163,20 @@
     },
     {
       "class": "policy-value",
+      "where": "devengo_vacaciones/aniversario",
+      "es": "aniversario",
+      "en": "anniversary",
+      "why": "Direct cognate: the whole liability on the anniversary, when the right vests (label). provisions-run.ts:208-213 compares it literally."
+    },
+    {
+      "class": "policy-value",
+      "where": "devengo_vacaciones/proporcional",
+      "es": "proporcional",
+      "en": "proportional",
+      "why": "Direct cognate: month by month in proportion to time served (label). provisions-run.ts:208-213 compares it literally."
+    },
+    {
+      "class": "policy-value",
       "where": "dias_aguinaldo/15",
       "es": "15",
       "en": null,
@@ -3077,7 +3240,7 @@
       "es": "03",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Es el código 03 «Prestación de servicios profesionales» del mismo catálogo de la DIOT, con el mismo camino: `TipoOperacion` en tercero.ts:29 y salida literal en serializador.ts:147. Cambiarlo no lo caza ninguna prueba y se descubre cuando el SAT rechaza la declaración del mes."
+      "why": "Es el código 03 «Prestación de servicios profesionales» del mismo catálogo de la DIOT, con el mismo camino: `TipoOperacion` en tercero.ts:29 y salida literal en serializador.ts:113 y sat-batch.ts. Cambiarlo no lo caza ninguna prueba y se descubre cuando el SAT rechaza la declaración del mes."
     },
     {
       "class": "policy-value",
@@ -3085,7 +3248,23 @@
       "es": "85",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Es el código 85 «Otros» del catálogo de Tipo de Operación de la DIOT, no un número nuestro. `src/services/sat/diot/tercero.ts:29` lo declara como `export type TipoOperacion = '03' | '06' | '85'` (y :32 lo repite en `TIPOS_OPERACION`), y `serializador.ts:147` escribe `t.tipoOperacion` TAL CUAL en el archivo que se sube al SAT. Traducirlo o renumerarlo produce un archivo que la autoridad rechaza."
+      "why": "Es el código 85 «Otros» del catálogo de Tipo de Operación de la DIOT, no un número nuestro. `src/services/sat/diot/tercero.ts` lo declara en `export type TipoOperacion` (catálogo 2025: 02, 03, 06, 07, 08, 85; y lo repite en `TIPOS_OPERACION`), y `serializador.ts:113 y sat-batch.ts` escribe `t.tipoOperacion` TAL CUAL en el archivo que se sube al SAT. Traducirlo o renumerarlo produce un archivo que la autoridad rechaza."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_tipo_operacion_por_omision/02",
+      "es": "02",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "Code 02 «Enajenación de bienes» of the 2025 DIOT operation-type catalogue (SAT instructivo de carga masiva, Enero 2025, §3.1). Same path as 03 and 85: `TipoOperacion` in tercero.ts and written verbatim by sat-batch.ts. Renaming it produces a file the SAT rejects."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_tipo_operacion_por_omision/06",
+      "es": "06",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "Code 06 «Uso o goce temporal de bienes» of the 2025 DIOT operation-type catalogue (§3.1). Same path as 03 and 85: `TipoOperacion` in tercero.ts and written verbatim by sat-batch.ts."
     },
     {
       "class": "policy-value",
@@ -3211,6 +3390,20 @@
     },
     {
       "class": "policy-value",
+      "where": "flujo_efectivo_sin_clasificar/avisar",
+      "es": "avisar",
+      "en": "warn",
+      "why": "The same `warn` as the other eight keys that store `avisar`. cash-flow-service.ts compares it literally."
+    },
+    {
+      "class": "policy-value",
+      "where": "flujo_efectivo_sin_clasificar/bloquear",
+      "es": "bloquear",
+      "en": "block",
+      "why": "The same `block` as the other ten keys that store `bloquear`; cash-flow-service.ts:1002 names it when it refuses."
+    },
+    {
+      "class": "policy-value",
       "where": "fuente_tipo_cambio/dof",
       "es": "dof",
       "en": null,
@@ -3253,6 +3446,20 @@
       "es": "incluir_siempre_y_advertir",
       "en": "always_include_and_warn",
       "why": "El `advertir` final recibe `warn`, el mismo inglés que el valor suelto `avisar`: son el mismo acto (poner una advertencia) y darles inglés distinto haría que la clase no se pueda renombrar por valor. El label lo confirma: «Every report counts them and warns the range contains a close» (pending-catalog.ts:863)."
+    },
+    {
+      "class": "policy-value",
+      "where": "informes_cuentas_archivadas/mantener_en_la_balanza",
+      "es": "mantener_en_la_balanza",
+      "en": "keep_in_trial_balance",
+      "why": "`trial_balance` is the term the tree already uses for «balanza» (`mv_trial_balance`); `keep` is the opposite of `drop` in the sibling value. criterio-archivadas.ts compares it literally."
+    },
+    {
+      "class": "policy-value",
+      "where": "informes_cuentas_archivadas/retirar_cuando_no_tiene_nada",
+      "es": "retirar_cuando_no_tiene_nada",
+      "en": "drop_when_empty",
+      "why": "Drop an archived account from the trial balance when it has nothing to show (label). `empty` says «no balance and no movement» in one word. criterio-archivadas.ts compares it literally."
     },
     {
       "class": "policy-value",
@@ -3455,6 +3662,21 @@
     },
     {
       "class": "policy-value",
+      "where": "provision_base_salarial/integrado",
+      "es": "integrado",
+      "en": "integrated",
+      "why": "«Salario diario integrado» (SDI, LFT art. 84) is the integrated daily wage; the label spells it that way. SDI stays as the official acronym in prose, the stored value only needs the adjective. provisions-run.ts:200-205 compares it literally."
+    },
+    {
+      "class": "policy-value",
+      "where": "provision_base_salarial/nominal",
+      "es": "nominal",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Spelled the same in both languages, and the label already says «Nominal daily wage». Renaming it would move the stored `policy_decisions.value` without changing a letter of language. provisions-run.ts:200-205 compares the value literally and refuses one it does not know."
+    },
+    {
+      "class": "policy-value",
       "where": "provision_cuotas_patronales/mensual_al_cierre",
       "es": "mensual_al_cierre",
       "en": "monthly_at_close",
@@ -3466,6 +3688,21 @@
       "es": "por_corrida",
       "en": "per_pay_run",
       "why": "`pay_run` es el nombre de la tabla (`pay_runs`, creada en 008_payroll.sql:155; 29 apariciones en `src --include='*.ts'` — la cifra 98 que traía esta entrada no reproduce con ningún alcance, ni siquiera contando el árbol entero por el mismo método). «Corrida» es la corrida de nómina y el inglés ya estaba en el esquema. Regla 3."
+    },
+    {
+      "class": "policy-value",
+      "where": "provision_ptu_mensual/no",
+      "es": "no",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English, and its pair `si` becomes `yes`, so the two answers read as one language after I23. provisions-run.ts:215 compares the value literally; the default is this one."
+    },
+    {
+      "class": "policy-value",
+      "where": "provision_ptu_mensual/si",
+      "es": "si",
+      "en": "yes",
+      "why": "The pair of `no`; `yes` rather than `true` because the column is TEXT and the other stored answers of the panel are words, not booleans. provisions-run.ts:215 compares it literally."
     },
     {
       "class": "policy-value",
@@ -3518,6 +3755,13 @@
     },
     {
       "class": "policy-value",
+      "where": "rep_faltante_recibido/no_vigilar",
+      "es": "no_vigilar",
+      "en": "do_not_watch",
+      "why": "MNE-001-125: the third option, the close does not watch the supplier REP. `do_not_` and not `dont_`, as in `rep_moneda_extranjera/no_casar`: a persisted value must not carry a contraction."
+    },
+    {
+      "class": "policy-value",
       "where": "rep_moneda_extranjera/no_casar",
       "es": "no_casar",
       "en": "do_not_match",
@@ -3525,10 +3769,11 @@
     },
     {
       "class": "policy-value",
-      "where": "rep_moneda_extranjera/tc_documento",
-      "es": "tc_documento",
-      "en": "document_rate",
-      "why": "`tc` es la abreviatura de «tipo de cambio»: en inglés es `rate`, y la tabla ya se llama `exchange_rates` (001_core_schema.sql:374). Se antepone `document` porque es el tipo del documento original, no el del pago: sin ese calificador el valor no diría cuál de los dos tipos de cambio rige, que es lo único que la opción decide."
+      "where": "rep_moneda_extranjera/payment_day_rate",
+      "es": "payment_day_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English: it replaced `tc_documento` (MNE-001-082), whose promise of matching at the document's rate with no difference the payment engine no longer keeps. It names the rate that governs, the payment day's from `fuente_tipo_cambio`, which is the only thing the option decides."
     },
     {
       "class": "policy-value",
@@ -3651,6 +3896,20 @@
     },
     {
       "class": "policy-value",
+      "where": "subsidio_al_empleo_redondeo/diario_al_centavo",
+      "es": "diario_al_centavo",
+      "en": "daily_to_cent",
+      "why": "Round the daily amount to the cent first, then multiply (label). Parallel to `product_to_cent`. employment-subsidy.ts:111-116 compares it literally."
+    },
+    {
+      "class": "policy-value",
+      "where": "subsidio_al_empleo_redondeo/producto_al_centavo",
+      "es": "producto_al_centavo",
+      "en": "product_to_cent",
+      "why": "Round once, the product (monthly × days / 30.4) to the cent (label). Short on purpose, parallel to `daily_to_cent`: the two values differ in WHAT is rounded, and that word is the one kept. employment-subsidy.ts:111-116 compares it literally."
+    },
+    {
+      "class": "policy-value",
       "where": "tratamiento_ieps/acreditable",
       "es": "acreditable",
       "en": "creditable",
@@ -3710,6 +3969,86 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Es un número, no vocabulario: es el umbral en pesos que `getPolicyNumber` convierte con `Number()` (pre-registration-service.ts:764). Traducirlo no significa nada y cambiar la cadena cambiaría el dato, no el idioma."
+    },
+    {
+      "class": "policy-value",
+      "where": "zona_horaria/America/Cancun",
+      "es": "America/Cancun",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "An IANA time-zone identifier, not vocabulary: it is the same string in every language and it is what `Intl` reads. `assertTimeZone` (policy-service.ts:542) refuses a zone the runtime does not know, so a translated spelling would be rejected."
+    },
+    {
+      "class": "policy-value",
+      "where": "zona_horaria/America/Hermosillo",
+      "es": "America/Hermosillo",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "An IANA time-zone identifier, not vocabulary: it is the same string in every language and it is what `Intl` reads. `assertTimeZone` (policy-service.ts:542) refuses a zone the runtime does not know, so a translated spelling would be rejected."
+    },
+    {
+      "class": "policy-value",
+      "where": "zona_horaria/America/Mexico_City",
+      "es": "America/Mexico_City",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "An IANA time-zone identifier, not vocabulary: it is the same string in every language and it is what `Intl` reads. `assertTimeZone` (policy-service.ts:542) refuses a zone the runtime does not know, so a translated spelling would be rejected."
+    },
+    {
+      "class": "policy-value",
+      "where": "zona_horaria/America/Tijuana",
+      "es": "America/Tijuana",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "An IANA time-zone identifier, not vocabulary: it is the same string in every language and it is what `Intl` reads. `assertTimeZone` (policy-service.ts:542) refuses a zone the runtime does not know, so a translated spelling would be rejected."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/07",
+      "es": "07",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "DIOT 2025 operation-type code 07 «Importación de bienes o servicios» of the SAT batch-file catalog; written as is into the file (sat-batch.ts). Renumbering it makes the SAT reject the upload."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/03",
+      "es": "03",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "DIOT operation-type code 03 «Prestación de servicios profesionales»; the same authority catalog as `diot_tipo_operacion_por_omision/03`, written as is into the SAT batch file."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/02",
+      "es": "02",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "DIOT 2025 operation-type code 02 «Enajenación de bienes»; an authority catalog code written as is into the SAT batch file (sat-batch.ts)."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/block",
+      "es": "block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English, and the English this registry gives to `bloquear` elsewhere (see `bank_statement_overlap/block`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_creditable_iva_proportion/taxed_only",
+      "es": "taxed_only",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: all IVA paid goes to the exclusively-taxed-activities box of the DIOT batch file, which is what the ledger already credits."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_creditable_iva_proportion/block",
+      "es": "block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English, and the English this registry gives to `bloquear` elsewhere (see `bank_statement_overlap/block`)."
     },
     {
       "class": "migration-name",
@@ -4041,8 +4380,8 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/payments/payment-service.ts:710",
-      "es": "FX_AR_RECEIPT_NOT_WIRED",
+      "where": "src/services/payments/payment-service.ts:735",
+      "es": "FX_AR_ON_ACCOUNT_NOT_WIRED",
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Ya es el término inglés; FX y AR son acrónimos internacionales, no vocabulario nuestro."
@@ -4447,14 +4786,14 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/sat/diot/serializador.ts:47 (clase DiotNoEntregable, declarada en :45, 422)",
+      "where": "src/services/sat/diot/serializador.ts:29 (clase DiotNoEntregable, declarada en :27, 422)",
       "es": "DIOT_NO_ENTREGABLE",
       "en": "DIOT_NOT_FILEABLE",
       "why": "DIOT se queda: es el nombre de la declaración informativa del SAT. «entregar una declaración» en inglés fiscal es `file`, no `deliver` ni `submit`: `DIOT_NOT_FILEABLE` dice que los hallazgos bloqueantes impiden presentarla. Contrato publicado: salto de versión y `details.legacy_code` una versión (D5)."
     },
     {
       "class": "error-code",
-      "where": "src/services/sat/diot/serializador.ts:54 (clase DiotFormatoNoFundamentado, declarada en :52, 501)",
+      "where": "src/services/sat/diot/serializador.ts:36 (clase DiotFormatoNoFundamentado, declarada en :34, 501)",
       "es": "DIOT_FORMATO_NO_FUNDAMENTADO",
       "en": "DIOT_FORMAT_UNSUBSTANTIATED",
       "why": "«fundamentado» aquí es el sentido fiscal mexicano —tener fundamento documentado— y no «formateado»: el 501 dice que el layout del archivo de lote no está sustentado en este repositorio y que no se inventa. `UNSUBSTANTIATED` conserva ese sentido; `NOT_DOCUMENTED` se leería como «falta documentación interna», que es otra cosa. Conservo el sustantivo del propio código (`FORMATO` → `FORMAT`) aunque el mensaje diga «LAYOUT»; ver dudas. Contrato publicado: salto de versión y `details.legacy_code` una versión (D5)."
@@ -4637,6 +4976,38 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Ya es el término inglés. Declarado y nunca lanzado."
+    },
+    {
+      "class": "error-code",
+      "where": "src/api/rest/routes/ai-webhooks.ts:109; src/api/rest/middleware/error-handler.ts:17",
+      "es": "PAYLOAD_TOO_LARGE",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already the English term. Webhook refusal code, and the code errorHandler gives body-parser's entity.too.large on every JSON route (413, #315)."
+    },
+    {
+      "class": "error-code",
+      "where": "src/api/rest/routes/ai-webhooks.ts:110; src/api/rest/middleware/error-handler.ts:19",
+      "es": "MALFORMED_BODY",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already the English term. Webhook refusal code, and the code errorHandler gives any other 4xx body-parser refusal (400, #315)."
+    },
+    {
+      "class": "error-code",
+      "where": "src/api/rest/routes/ai-webhooks.ts:129; src/api/rest/middleware/error-handler.ts:18",
+      "es": "UNSUPPORTED_MEDIA_TYPE",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already the English term. Webhook refusal code for a non-JSON Content-Type, and the code errorHandler gives a body-parser 415 such as an unsupported charset (#315)."
+    },
+    {
+      "class": "error-code",
+      "where": "src/api/rest/routes/ai-webhooks.ts:136; src/api/rest/middleware/error-handler.ts:16",
+      "es": "INVALID_JSON",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already the English term. Webhook refusal code, and the code errorHandler gives body-parser's entity.parse.failed on every JSON route (400, #315)."
     },
     {
       "class": "openapi-extension",

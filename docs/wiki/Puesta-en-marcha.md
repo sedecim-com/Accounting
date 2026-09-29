@@ -174,7 +174,16 @@ Qué hace [`src/database/migrate.ts`](https://github.com/sedecim-com/Accounting/
 5. En el `finally` —siempre, incluso si una migración falló a mitad— reaplica [`src/database/rls-policies.sql`](https://github.com/sedecim-com/Accounting/blob/main/src/database/rls-policies.sql). Este paso estaba dentro del `try` y un fallo se lo saltaba: las migraciones que sí se habían aplicado quedaban con sus tablas creadas y sin política. Ésa es la fuga silenciosa que el bloque existe para impedir.
 6. Sale con código 1 si algo falló, aunque el endurecimiento haya corrido.
 
-Hoy son 52 migraciones con cabeza `047` y 99 tablas; para no fiarte de este párrafo, pregúntalo: `npm run mnemosine -- doctor` reporta cuántas hay aplicadas. La numeración, los rangos y los duplicados están en [[Base-de-datos-y-migraciones]].
+Esta página no dice cuántas migraciones ni cuántas tablas hay: la cifra caduca con la siguiente migración. Se pregunta al árbol y a la base:
+
+```bash
+ls src/database/migrations/*.sql | wc -l          # migraciones en el árbol
+npm run mnemosine -- doctor                        # la partida «Migrations» dice cuántas están aplicadas y cuáles faltan
+psql "$MIGRATION_DATABASE_URL" -Atc \
+  "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+```
+
+La numeración, los rangos y los duplicados están en [[Base-de-datos-y-migraciones]].
 
 ---
 

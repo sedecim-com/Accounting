@@ -132,22 +132,22 @@ export async function ligarPagoREP(opts: {
     );
   if (hayMonedaExtranjera) {
     const pol = await getPolicy(ctx, 'rep_moneda_extranjera');
-    if (pol.value !== 'tc_documento') {
-      // Cualquier valor que no sea el explícito de casar se trata como no
-      // casar: el vocabulario está cerrado al declarar y abierto al escribir,
-      // así que un valor desconocido no puede acabar moviendo dinero.
+    if (pol.value !== 'payment_day_rate') {
+      // Any value other than the explicit one is treated as do-not-match:
+      // the vocabulary is closed when declared and open when written, so an
+      // unknown value (including the retired `tc_documento`) cannot move money.
       return {
         accion: 'revision',
         motivo:
           `El pago viene en ${monedaP} y la moneda funcional es ${opts.monedaFuncional}. ` +
-          'La diferencia cambiaria no se calcula todavía —nada postea a las cuentas de ' +
-          'utilidad o pérdida cambiaria— así que el comprobante queda para revisión en ' +
-          'vez de casarse con un tipo de cambio inventado.',
+          'La política rep_moneda_extranjera pide no registrar solos los comprobantes en otra ' +
+          'moneda (su diferencia cambiaria la realizaría el motor de pagos), así que queda para revisión.',
         avisos,
       };
     }
     avisos.push(
-      `Pago en ${monedaP} casado al tipo de cambio del documento: no se reconoce diferencia cambiaria.`
+      `Pago en ${monedaP}: se registra por el motor de pagos, que realiza la diferencia cambiaria ` +
+        'al tipo de cambio del día del pago (fuente_tipo_cambio), no al TipoCambioP del comprobante.'
     );
   }
 

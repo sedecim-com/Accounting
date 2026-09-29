@@ -79,6 +79,8 @@ mirror	memory	E0.1 credit-note-posts-at-issue	src/services/accounting/ar-ap-post
 mirror	memory	E0.1 invoice-gap-and-tax-profile	src/database/migrations/049_cobrar.sql	el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \b lo mata
 mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the defect of #102: the whitelist lacked a current SAT code, so `customer tax set --uso-cfdi D10` refused every school customer
 mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the same defect on c_RegimenFiscal: `--tax-regime 611` refused a current regime
+mirror	memory	E0.2 migration-apply-and-record-atomic	src/database/migrate.ts	npm run migrate deja de aplicar rls-policies.sql: las tablas nuevas quedan sin política y nada lo dice
+mirror	memory	E0.2 migration-apply-and-record-atomic	src/database/migrate.ts	el endurecimiento vuelve al try (el error de la era #88): un fallo a mitad se lo salta y deja tablas sin política
 mirror	memory	E0.2 migration-fails-loud-under-rls	src/database/migrate.ts	apagar el piso es exactamente la regresión que costó cuatro siembras silenciosas
 mirror	memory	E0.2 matview-migration-survives-rls-floor	src/database/migrations/071_las_vistas_que_perdian_la_archivada.sql	EL DEFECTO MEDIDO: sin el traje del refrescador, `CREATE MATERIALIZED VIEW ... AS SELECT ... FROM accounts` muere con 42501 contra el piso `row_security = off` y la actualización de TODO despacho instalado se detiene ahí — en instalación nueva no se nota, porque las políticas aún no existen cuando corre
 mirror	memory	E0.2 distributed-migration-repaired-by-new-file	src/database/migrations/072_la_huella_que_se_podia_forjar.sql	la trampa medida: recrear el disparador se lleva por delante el `ENABLE ALWAYS` de la 058, y el remedio dejaría el sello «garantia-sellada» colgado de un disparador que vuelve a poder apagarse con session_replication_role
@@ -210,6 +212,8 @@ mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-r
 mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/ap/bill-service.ts	a manual bill stores a NULL rate again, and the DIOT falls back to measuring what its author declared
 mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-registration-service.ts	the first transfer is taken as the VAT again: an IEPS transfer ahead of the IVA one lands in bill_lines.tax_amount
 mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-registration-service.ts	the approval from the entry takes the debit as the value of the acts again: an exempt CFDI without Base is declared instead of raising DIOT-BASE-EXENTA-DESCONOCIDA
+mirror	memory	E1.2 diot-sat-layout-cited	src/services/sat/diot/sat-batch.ts	the layout loses its official source: the batch file is again a shape nobody can trace to the SAT, the invented-layout mistake this repository already deleted once
+mirror	memory	E1.2 diot-sat-layout-cited	src/services/sat/diot/sat-batch.ts	the citation no longer says when the SAT document was read: nobody can tell whether a later layout replaced it
 mirror	memory	E1.2 sat-grouping-code-single-column	src/services/accounting/account-service.ts	devuelve el agrupador fiscal a la columna de presentación contable: el código NIF y el del SAT vuelven a pisarse, y el catálogo del Anexo 24 se construye sobre la casilla equivocada
 mirror	memory	E1.2 sat-grouping-code-single-column	src/api/rest/routes/reports.ts	la API vuelve a tirar la procedencia del saldo inicial, si es firme y los descuadres: el consumidor recibe una balanza que parece correcta sobre cuentas que no cuadran
 mirror	memory	E1.2 prepaid-schedule-backed-by-ledger	src/services/accruals/prepaid-service.ts	un renglón dejaría de exigir respaldo en el mayor: la ficha afirmaría gasto devengado que una reversa ya deshizo, y el saldo revertido se ofrecería otra vez como libre
@@ -254,6 +258,8 @@ mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/cli/pending-command
 mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/ai/tools/policy-tools.ts	el-agente-ve-otro-panel: la herramienta del agente entregaría la pregunta sembrada mientras `pending` enseña la del catálogo, y los dos contestarían sobre textos distintos
 mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/services/policy/policy-service.ts	lectura-fuera-de-la-costura: getPolicy leería la copia de la fila por su cuenta y la costura dejaría de ser el único sitio que decide de dónde sale el texto
 mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/ai/memory-service.ts	vocabulario-del-dia-de-siembra: el mismo precedente seria contradicción para un inquilino sembrado después de que `ingest_auto_post` ganara `shadow`, y silencio para uno sembrado antes
+mirror	memory	E1.3 policy-text-key-matches-vocabulary-registry	src/services/policy/pending-catalog.ts	text-key-born-spanish: the panel texts of the time zone would be keyed by the persisted Spanish name, and I23 would have to rename them too
+mirror	memory	E1.3 policy-text-key-matches-vocabulary-registry	src/language/vocabulary-registry.json	unregistered-option-value: a persisted option value has no English name decided, so I23 would rename it without a map
 mirror	memory	E1.3 policy-panel-reaches-deciding-turn	src/ai/ingest-service.ts	la-herramienta-que-nadie-pide: la pieza correcta a una llamada de función de donde hace falta — el panel existe, la herramienta existe, y el turno que clasifica el CFDI decide sin mirarlo
 mirror	memory	E1.3 blank-policy-value-never-decides	src/services/policy/policy-service.ts	respuesta-en-blanco: la fila entra como «resolved» con el valor vacío y el sistema se la presenta al agente bajo el sello «tu despacho decidió esto» — y un piso más abajo Number(" ") es 0, así que el umbral de capitalización del motor queda en CERO
 mirror	memory	E1.4 monthly-depreciation-command-reachable	src/cli/mnemosine.ts	la familia entera vuelve a estar verificada y no entregada: 76 pruebas verdes sobre un programa que sólo construye el spec, y una puerta que nadie puede empujar
@@ -401,6 +407,11 @@ mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/xml-ingestion/s
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its entity scope: another entity carrying the same UUID is marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its state predicate: a draft or failed CFDI could be marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/ar/ar-controls.ts	the control reads a value the bridge never writes: it never fires
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the client reaches the vault itself: the key is decrypted outside withCredential, with no log row and no daily cap
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the signing runs through another path: the cap, the anomaly policy and the log are skipped
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a successful use of the e.firma leaves no row in the log
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a refusal from the SAT leaves no error row in the log
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/cli/mnemosine.ts	el escritor se queda de capacidad huérfana: el INSERT existe, typechecka y no lo alcanza ningún camino, que es exactamente el estado que este criterio existe para prohibir — y el criterio del literal seguiría verde
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	el llamador vuelve a afirmar un hecho DERIVADO: el disparador de la 077 sobrescribe `tenant_id` con el del empleado, así que la columna en la lista no cambia lo guardado y sí publica una propiedad que el escritor no decide
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	`is_active` es NULABLE y la 085 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar
@@ -438,6 +449,7 @@ mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	el paso real se inventa un veredicto limpio mientras el ensayo sigue preguntando de verdad: la versión anterior del criterio no distinguía las dos llamadas
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	el juez del checklist ignora canClose: la llamada sigue ahí, en su rama, y todo sale limpio
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	la llamada se conserva y su resultado se tira: una ancla de presencia la daba por buena
+mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	the conductor reports the seal without sealing: the month reads conducted and its balances are never carried into the next one (#99)
 mirror	memory	E4.1 closing-conductor-delegates-and-keeps-the-order	src/services/accounting/closing-conductor.ts	la reanudación vuelve a fiarse de lo anotado: el checklist de ayer autoriza el cierre de hoy con un borrador de IA pendiente dentro del mes
 mirror	memory	E4.1 closing-run-never-continues-another-run-in-silence	src/services/accounting/closing-conductor.ts	el conductor continúa en silencio la corrida que otro dejó a medias; la cortesía de la hoja sigue escrita y no alcanza a quien llama al conductor por otro camino
 mirror	memory	E4.1 closing-run-never-continues-another-run-in-silence	src/services/accounting/closing-conductor.ts	un motor postea antes de decidir si se puede continuar: la negativa llega con el mes ya tocado
@@ -600,6 +612,10 @@ mirror	disk	E0.1 opening-balance-matches-source	src/services/accounting/opening-
 mirror	disk	E0.1 opening-balance-matches-source	src/services/accounting/opening-balance.ts	cargo y abono intercambiados. El asiento sigue cuadrando —todo se invierte a la vez— y el mayor lo acepta: sólo la balanza publicada delata que el activo quedó de abono
 mirror	disk	E0.1 opening-balance-matches-source	src/services/accounting/sat-chart-import.ts	la naturaleza que el archivo declara, leída al revés. La capa 1 es la que le dice al mayor de qué signo es cada cuenta, y con ella invertida la balanza que publicamos sale con el signo cambiado en las diecisiete
 mirror	disk	E0.1 opening-balance-matches-source	src/services/reporting/report-service.ts	the roll-up stops adding the subaccounts: «100 Activo» goes back to its own zero while the source file declares 232 000 for it (#323)
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/accounting/opening-balance.ts	the gap of #310 as it was: the opening carries the 14 000 of vendors line by line and no bill stands behind them, so ap reconcile reports the whole balance as a difference
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/ap/opening-bills.ts	the bill is born outside the open statuses: the subledger leaves it out and a payment refuses it, while its liability is already in the ledger
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/ap/ap-controls.ts	the opening is listed again as a manual entry on the control account: ap reconcile ties at 0 and still prints a manual entry and a residue of 14 000
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/accounting/opening-balance.ts	the stop names a short payable subledger as «sobran -1000.00»: a surplus of a negative amount
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	accessible_entities has no foreign key, so a token id from another tenant becomes a row wherever RLS is inert
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	the token set is dropped and every sibling in the holding appears (the TEN leak)
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	each row would count its siblings' drafts
@@ -611,6 +627,14 @@ mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/po
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	a query-string selector would be silently accepted, the first step toward letting it choose the set
 mirror	disk	E1.2 received-ppd-cfdi-becomes-bill-and-rep-releases-vat	src/ai/draft-service.ts	the approval would post the entry and never create the vendor bill, the defect #318 measured
 mirror	disk	E1.2 received-ppd-cfdi-becomes-bill-and-rep-releases-vat	src/services/xml-ingestion/pre-registration-service.ts	an approved entry whose VAT is not the CFDI VAT would become the bill and reach the ledger
+mirror	disk	E2.1 tenant-context-mounted-globally	src/index.ts	mount removed: the import stays, which is exactly what the old regex could not tell apart
+mirror	disk	E2.1 tenant-context-mounted-globally	src/index.ts	mount narrowed to /v1/accounts: that route stays scoped and the other sixteen routers query with no tenant
+mirror	disk	E2.1 tenant-context-mounted-globally	src/api/rest/middleware/tenant-context.ts	the middleware still rejects a token without tenant but no longer opens the context: every query travels unscoped
+mirror	disk	E2.1 tenant-context-mounted-globally	src/api/rest/middleware/tenant-context.ts	fail-open: a token that names no tenant goes on to the routers instead of being refused
+mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/index.ts	the guard exists and startup no longer calls it
+mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/database/rls-guard.ts	back to a log line in production: isolation hangs on someone reading it
+mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/database/rls-guard.ts	no explicit break-glass: the only way left to start in an emergency is to comment the guard out
+mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/index.ts	start() logs the refusal and never exits: the process lingers with an open pool and no server
 anchor	src/plan/criteria/e0-0.ts	de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
 anchor	src/plan/criteria/e0-0.ts	de: 'Los comentarios y la documentación **nacen en inglés**',
 anchor	src/plan/criteria/e0-0.ts	de: 'Lo que identifica no se traduce nunca',
@@ -688,6 +712,8 @@ anchor	src/plan/criteria/e0-1.ts	de: "sourceType: 'credit_note'",
 anchor	src/plan/criteria/e0-1.ts	de: 'ADD COLUMN tax_regime VARCHAR(3),',
 anchor	src/plan/criteria/e0-1.ts	de: " 'D10': 'Pagos por servicios educativos (colegiaturas)',\n",
 anchor	src/plan/criteria/e0-1.ts	de: " '611': 'Ingresos por Dividendos (socios y accionistas)',\n",
+anchor	src/plan/criteria/e0-2.ts	de: "hardeningPath: path.join(__dirname, 'rls-policies.sql'),",
+anchor	src/plan/criteria/e0-2.ts	de: MIGRATE_CATCH_FINALLY_HARDENING,
 anchor	src/plan/criteria/e0-2.ts	de: "await client.query('SET row_security = off');",
 anchor	src/plan/criteria/e0-2.ts	de: "EXECUTE 'SET LOCAL ROLE mnemosine_refresher';",
 anchor	src/plan/criteria/e0-2.ts	de: 'ALTER TABLE bank_transactions ENABLE ALWAYS TRIGGER bank_transactions_content_hash;',
@@ -778,7 +804,7 @@ anchor	src/plan/criteria/e1-2.ts	de: ' reversalDate: reversal_date,',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n iva.documents.length',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n (iva.documents.length',
-anchor	src/plan/criteria/e1-2.ts	de: ' pr.pay_date,',
+anchor	src/plan/criteria/e1-2.ts	de: ' entry.entryDate,',
 anchor	src/plan/criteria/e1-2.ts	de: 'value.getDate()',
 anchor	src/plan/criteria/e1-2.ts	de: '.exec(String(value).trim());',
 anchor	src/plan/criteria/e1-2.ts	de: ' [entityId, entryDay, options?.fiscalPeriodId ?? null]',
@@ -819,6 +845,8 @@ anchor	src/plan/criteria/e1-2.ts	de: ' tax_rate, tipo_factor, valor_actos',
 anchor	src/plan/criteria/e1-2.ts	de: ' tax_rate, tipo_factor, valor_actos)',
 anchor	src/plan/criteria/e1-2.ts	de: " const vat = (transfers ?? []).filter((t) => satKey(t.impuesto) === '002');",
 anchor	src/plan/criteria/e1-2.ts	de: ' acts_value: bases[i],',
+anchor	src/plan/criteria/e1-2.ts	de: " url: 'https://www.sat.gob.mx/cs/Satellite?blobcol=urldata&blobkey=id&blobtable=MungoBlobs&blobwhere=1461176417476&ssbinary=true',",
+anchor	src/plan/criteria/e1-2.ts	de: " consulted: '2026-09-29',",
 anchor	src/plan/criteria/e1-2.ts	de: " 'sat-agrupador': 'codigo_agrupador_sat',",
 anchor	src/plan/criteria/e1-2.ts	de: ' ...(report.inicial ? { opening_balance: report.inicial } : {}),',
 anchor	src/plan/criteria/e1-2.ts	de: 'export const RENGLON_VIGENTE = `s.is_posted = true AND EXISTS (',
@@ -863,6 +891,8 @@ anchor	src/plan/criteria/e1-3.ts	de: " out.push(...field('impact', wording.impac
 anchor	src/plan/criteria/e1-3.ts	de: ' question: wording.question,',
 anchor	src/plan/criteria/e1-3.ts	de: ' question: policyWording(row).question,',
 anchor	src/plan/criteria/e1-3.ts	de: ' const valores = policyOptions(row.policy_key, seeded)',
+anchor	src/plan/criteria/e1-3.ts	de: " textKey: 'time_zone',",
+anchor	src/plan/criteria/e1-3.ts	de: '"es": "sin_regla",',
 anchor	src/plan/criteria/e1-3.ts	de: "2. READ YOUR FIRM'S POLICY PANEL with get_accounting_policies BEFORE deciding the treatment.",
 anchor	src/plan/criteria/e1-3.ts	de: " if (value.trim() === '') {",
 anchor	src/plan/criteria/e1-4.ts	de: 'registerDepreciationCommand(program, { palette: c, shutdown, reportError });',
@@ -1005,6 +1035,11 @@ anchor	src/plan/criteria/e3-2.ts	de: 'await markInvoiceCfdiCancelled(d.entity_id
 anchor	src/plan/criteria/e3-2.ts	de: 'WHERE entity_id = $1',
 anchor	src/plan/criteria/e3-2.ts	de: "AND cfdi_status = 'stamped'",
 anchor	src/plan/criteria/e3-2.ts	de: "cfdi_status = 'cancelled' AND amount_due > 0",
+anchor	src/plan/criteria/e3-2.ts	de: "import { withCredential } from '../fiscal-credentials/service.js';",
+anchor	src/plan/criteria/e3-2.ts	de: 'await withCredential(',
+anchor	src/plan/criteria/e3-2.ts	de: "purpose: 'sat_auth'",
+anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'success');",
+anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'error',",
 anchor	src/plan/criteria/e4-1.ts	de: 'registerGarnishmentCommand(program, { palette: c, shutdown, reportError });',
 anchor	src/plan/criteria/e4-1.ts	de: ' employee_id, garnishment_type, priority, amount_type, amount_value,',
 anchor	src/plan/criteria/e4-1.ts	de: ' case_number, issuing_authority, payee_name, start_date, is_active, metadata',
@@ -1041,6 +1076,7 @@ anchor	src/plan/criteria/e4-1.ts	de: ' const r = await runMonthlyDepreciation(ct
 anchor	src/plan/criteria/e4-1.ts	de: ' return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
 anchor	src/plan/criteria/e4-1.ts	de: " status: r.canClose ? 'done' : 'blocked',",
 anchor	src/plan/criteria/e4-1.ts	de: ' return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
+anchor	src/plan/criteria/e4-1.ts	de: ' const sealed = await hardClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason);',
 anchor	src/plan/criteria/e4-1.ts	de: ' let outcome: ClosingStepOutcome;\n',
 anchor	src/plan/criteria/e4-1.ts	de: " if (opts.resume !== true) {\n throw new ClosingRunStateError(\n 'CLOSING_RUN_OPEN',",
 anchor	src/plan/criteria/e4-1.ts	de: ' const runId = await openRun(ctx, period.id, opts, token);',

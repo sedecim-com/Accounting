@@ -46,6 +46,7 @@ export {
   globalsOf,
   FLAG_DICTIONARY,
   BANNED_FLAGS,
+  RETIRED_OPTION_PREFIX,
 } from './flags.js';
 
 export {

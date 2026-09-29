@@ -1051,8 +1051,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/payroll/common/gl-posting-service.ts',
-        de: '    pr.pay_date,',
-        a: '    new Date(pr.pay_date),',
+        de: '      entry.entryDate,',
+        a: '      new Date(entry.entryDate),',
         porque: 'a caller no conduct test exercises reparses its date again: the payroll entry is only as safe as whatever type that row happens to carry',
       },
       {
@@ -2157,6 +2157,44 @@ export const E1_2: Criterio[] = [
       return /\.filter\(\(t\) => satKey\(t\.impuesto\) === '002'\)/.test(inbox)
         ? ok('the three bill_lines writers store factor type, rate and value of the acts, and tax_amount is only the IVA transfer')
         : falla('the VAT of a concept is no longer filtered by Impuesto 002: an IEPS transfer can land in bill_lines.tax_amount');
+    },
+  },
+
+  // ---- MNE-001-055 · #307 · The DIOT batch file the SAT receives ----
+
+  {
+    paquete: 'E1.2',
+    id: 'diot-sat-layout-cited',
+    enunciado: 'The DIOT batch file follows a SAT layout cited by URL and consultation date',
+    mutantes: [
+      {
+        archivo: 'src/services/sat/diot/sat-batch.ts',
+        de: "  url: 'https://www.sat.gob.mx/cs/Satellite?blobcol=urldata&blobkey=id&blobtable=MungoBlobs&blobwhere=1461176417476&ssbinary=true',",
+        a: "  url: '',",
+        porque: 'the layout loses its official source: the batch file is again a shape nobody can trace to the SAT, the invented-layout mistake this repository already deleted once',
+      },
+      {
+        archivo: 'src/services/sat/diot/sat-batch.ts',
+        de: "  consulted: '2026-09-29',",
+        a: "  consulted: '',",
+        porque: 'the citation no longer says when the SAT document was read: nobody can tell whether a later layout replaced it',
+      },
+    ],
+    evaluar: () => {
+      const batch = codigoDe('src/services/sat/diot/sat-batch.ts');
+      if (!/url: 'https:\/\/www\.sat\.gob\.mx\/[^']+'/.test(batch)) {
+        return falla('the DIOT batch layout no longer cites an sat.gob.mx URL: its 54 fields are unsourced');
+      }
+      if (!/consulted: '\d{4}-\d{2}-\d{2}'/.test(batch)) {
+        return falla('the DIOT batch layout citation lost its consultation date');
+      }
+      const answers = (batch.match(/^ {4}section: '§/gm) ?? []).length;
+      if (answers !== 7) {
+        return falla(`the seven layout questions of #307 have ${answers} sourced answer(s), not 7`);
+      }
+      return /firstYear: \d{4}, fields: 54/.test(batch)
+        ? ok('the SAT batch file is written from a layout cited by URL and date, declared with the first fiscal year it governs')
+        : falla('the 54-field layout lost the fiscal year from which it governs: a 2024 period would be written in the 2025 shape');
     },
   },
 

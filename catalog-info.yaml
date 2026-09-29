@@ -45,6 +45,11 @@ provides:
     # keep_recent_tokens or max_memory_flushes (T2). A file zod 3 loaded with such a
     # value is refused, and every command that reads the config reports why.
   - file: sat-anexo24            # XML de catálogo, balanza y pólizas; DIOT, SUA, CFDI de nómina (los presenta el contribuyente, en el portal). El sellado con la e.firma bajo sellar_con_custodia entra al MVP (#442), sin construir todavía
+    # CONTRACT: `diot export --layout sat` writes the DIOT batch .txt the SAT portal
+    # uploads: 54 pipe-separated fields per third party, whole pesos, UTF-8, CRLF between
+    # records, per the SAT instructivo of January 2025 cited in
+    # src/services/sat/diot/sat-batch.ts (fiscal years 2025 onward; earlier periods are
+    # refused). It generates only; a person uploads it (#307).
 
 consumes: []                     # ningún contrato de otro repo de Sedecim hoy. Lo externo va en `external`
 
@@ -54,7 +59,14 @@ consumes: []                     # ningún contrato de otro repo de Sedecim hoy.
 external:                        # inferido
   - contalink                    # sistema contable externo: lectura (onboarding, diff de balanza) y escritura por la cola revisada ai_external_ops
   - sat-consulta-cfdi            # estado de CFDI ante el SAT
-  - sat-descarga-masiva          # servicio web del SAT autenticado con la e.firma; en el MVP desde el 2026-09-28 (#312), sin construir todavía (#439, #440, #441)
+  - sat-descarga-masiva          # servicio web del SAT autenticado con la e.firma; en el MVP desde el 2026-09-28 (#312). La autenticación existe (#439); solicitud, verificación y descarga no (#440, #441)
+    # CONTRACT: src/services/sat-download/ws-security.ts builds the Autentica request of the
+    # SAT Descarga Masiva service v1.5 (SOAPAction
+    # http://DescargaMasivaTerceros.gob.mx/IAutenticacion/Autentica, endpoint in config
+    # sat.descargaMasivaAuthUrl / SAT_DESCARGA_AUTH_URL): a WS-Security Timestamp signed with
+    # XML-DSig (exclusive c14n, SHA-1 digest, RSA-SHA1) and the e.firma certificate as an
+    # X509v3 BinarySecurityToken. The key is read only inside withCredential (purpose
+    # sat_auth); the token is held in memory for its validity and never stored (#439).
   - pac                          # timbrado; adaptadores sin contrato firmado, fuera del MVP
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
@@ -75,7 +87,7 @@ related_repos:                   # extensión propuesta; ver docs/platform/inven
   - repo: sedecim-com/acceso-organizations
     relation: mapeo-por-rfc                # organization ↔ entity (#371)
   - repo: sedecim-com/sat-services
-    relation: duplica                      # descarga masiva con e.firma; entra al MVP por la decisión del 2026-09-28 (#312). Construir aquí o consumir sat-services se decide en #439
+    relation: duplica                      # descarga masiva con e.firma; entra al MVP por la decisión del 2026-09-28 (#312). #439 la construye aquí: la llave sólo se descifra dentro de withCredential, sin salir a otro servicio
   - repo: sedecim-com/hash-stamper
     relation: productor-candidato          # constancia NOM-151 (#374)
   - repo: sedecim-com/catalogs
