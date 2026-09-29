@@ -469,6 +469,9 @@ export async function getFiscalYear(
   return { year: years.rows[0], periods };
 }
 
+/** The year-end adjustment period: the thirteenth, after the twelve months. */
+export const YEAR_END_PERIOD_NUMBER = 13;
+
 export interface EnsureFiscalYearResult {
   created: boolean;
   fiscalYearId: string;
@@ -485,9 +488,17 @@ export interface EnsureFiscalYearResult {
  * other year that test opens a random month, so it is now qualified by the
  * year. For the current year the result is identical to the wizard's.
  *
- * `is_calendar_year` is true and there are exactly twelve regular periods:
- * a 52-53 week or 4-4-5 calendar, and the 13th adjustment period, are
- * different shapes with their own rules and are not invented here.
+ * `is_calendar_year` is true and there are twelve regular periods: a 52-53
+ * week or 4-4-5 calendar is a different shape with its own rules and is not
+ * invented here.
+ *
+ * And a thirteenth, the year-end ADJUSTMENT period (#304). It is where the
+ * annual close posts its entries and what `e-accounting balance generate
+ * --closing` declares as month 13; without it that balance could not be
+ * generated for any entity. It spans only the last day of the year, so an
+ * entry dated December 31 still lands in December while December is open
+ * (every date lookup orders by period_number), and its status follows
+ * December's.
  */
 export async function ensureFiscalYear(
   entityId: string,
@@ -518,13 +529,14 @@ export async function ensureFiscalYear(
       [entityId, yearNumber, `${yearNumber}-01-01`, `${yearNumber}-12-31`]
     );
 
+    let status = 'future';
     for (let m = 1; m <= 12; m++) {
       const start = new Date(Date.UTC(yearNumber, m - 1, 1));
       const end = new Date(Date.UTC(yearNumber, m, 0));
       // Months already over, and the month we are living in, start open; the
       // rest start 'future' and are opened deliberately with `period open`.
       const isCurrentMonth = yearNumber === now.getFullYear() && m - 1 === now.getMonth();
-      const status = end < now || isCurrentMonth ? 'open' : 'future';
+      status = end < now || isCurrentMonth ? 'open' : 'future';
       await client.query(
         `INSERT INTO fiscal_periods (
            entity_id, fiscal_year_id, period_number, period_name,
@@ -539,10 +551,22 @@ export async function ensureFiscalYear(
         ]
       );
     }
+    // CONTRACT: period 13 of type 'adjustment' is what the Anexo 24 closing
+    // balance (balanza-service.ts, periodoDeCierre) reads as Mes 13.
+    await client.query(
+      `INSERT INTO fiscal_periods (
+         entity_id, fiscal_year_id, period_number, period_name,
+         start_date, end_date, period_type, status
+       ) VALUES ($1,$2,$3,$4,$5,$6,'adjustment',$7)`,
+      [
+        entityId, fy.rows[0].id, YEAR_END_PERIOD_NUMBER, `Year-end adjustments ${yearNumber}`,
+        `${yearNumber}-12-31`, `${yearNumber}-12-31`, status,
+      ]
+    );
     return fy.rows[0].id;
   });
 
-  return { created: true, fiscalYearId, yearNumber, periods: 12 };
+  return { created: true, fiscalYearId, yearNumber, periods: YEAR_END_PERIOD_NUMBER };
 }
 
 /**

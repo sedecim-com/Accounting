@@ -205,18 +205,32 @@ describe('ensureFiscalYear — the calendar, extracted from the wizard', () => {
     expect(client.query).not.toHaveBeenCalled();
   });
 
-  it('creates the year and twelve monthly periods', async () => {
+  it('creates the year, its twelve monthly periods and the year-end adjustment period', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     client.query.mockResolvedValue({ rows: [{ id: 'fy1' }] });
 
     const result = await ensureFiscalYear(ENTITY, 2026, new Date('2026-08-25T12:00:00Z'));
 
-    expect(result).toEqual({ created: true, fiscalYearId: 'fy1', yearNumber: 2026, periods: 12 });
+    expect(result).toEqual({ created: true, fiscalYearId: 'fy1', yearNumber: 2026, periods: 13 });
     expect(txSql(0)).toMatch(/INSERT INTO fiscal_years/);
     expect(txParams(0)).toEqual([ENTITY, 2026, '2026-01-01', '2026-12-31']);
-    expect(client.query).toHaveBeenCalledTimes(13);
+    expect(client.query).toHaveBeenCalledTimes(14);
     // Period 3 of 2026: March, named in English, with its real month end.
     expect(txParams(3).slice(2, 7)).toEqual([3, 'March 2026', '2026-03-01', '2026-03-31', 'open']);
+  });
+
+  it('period 13 is the adjustment period on the last day of the year, where the closing balance looks for it', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    client.query.mockResolvedValue({ rows: [{ id: 'fy1' }] });
+
+    await ensureFiscalYear(ENTITY, 2026, new Date('2026-08-25T12:00:00Z'));
+
+    // Without it, `e-accounting balance generate --closing` refuses for every
+    // entity: it reads period_number 13 of type 'adjustment' or 'closing'.
+    expect(txSql(13)).toMatch(/INSERT INTO fiscal_periods .*'adjustment'/);
+    expect(txParams(13)).toEqual([
+      ENTITY, 'fy1', 13, 'Year-end adjustments 2026', '2026-12-31', '2026-12-31', 'future',
+    ]);
   });
 
   it('opens the months already lived and leaves the rest future', async () => {
@@ -230,6 +244,7 @@ describe('ensureFiscalYear — the calendar, extracted from the wizard', () => {
       'open', 'open', 'open', 'open', 'open', 'open', 'open', // Jan–Jul: past
       'open', // August: the month we are in
       'future', 'future', 'future', 'future',
+      'future', // period 13 follows December
     ]);
   });
 
