@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 216 of 334 subcommands
+  spelling is `-T` at the root and `-t` on the 223 of 343 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -87,11 +87,13 @@ Commands:
   fx|cambio                              Exchange rates: the origin every foreign-currency amount converts from
   prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
   payroll|nomina                         Payroll accounting: the benefit liability that is born on the day worked
+  pay-run|corrida                        Payroll runs of a pay period: create, calculate gross to net, approve
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
   tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
   garnishment|embargo                    Court-ordered wage withholding: file an order, see the cascade, stop it
+  employee|empleado                      The payroll roll: register an employee, see one record, list the roll
   cashflow|flujo                         Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
   audit|auditoria                        Read the audit trail: who changed what, when, and from which value
   subscription|suscripcion               Outbound event subscriptions: who we notify, and what we could not deliver
@@ -958,6 +960,7 @@ Commands:
   show|ver [options] [idOrName]          Show one entity — with no argument, the one commands would use, and why
   use|usar [options] <idOrName>          Pin the entity that later commands operate on
   create|crear [options] <name>          Create a legal entity with its chart of accounts, roles and payroll mapping
+  edit|editar [options] <idOrName>       Set the tax regime or fiscal postal code of an entity, validated against the SAT catalog
   archive|archivar [options] <idOrName>  Archive an entity (never deletes: its ledger has to survive)
   unset|limpiar                          Clear the pinned entity; commands go back to requiring --entity
   help [command]                         display help for command
@@ -984,6 +987,10 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
+
+Examples:
+  # Every active company of the firm; the pinned one carries a *.
+  mnemosine entity list
 ```
 
 ### `mnemosine entity show` (alias: ver)
@@ -1006,6 +1013,12 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
+
+Examples:
+  # The entity commands would use right now, and why that one.
+  mnemosine entity show
+  # One company by RFC, with its tax regime and fiscal postal code.
+  mnemosine entity show GAL150623QK8 --json
 ```
 
 ### `mnemosine entity use` (alias: usar)
@@ -1024,6 +1037,10 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   -h, --help               display help for command
+
+Examples:
+  # Pin a company so later commands stop needing --entity.
+  mnemosine entity use GAL150623QK8
 ```
 
 ### `mnemosine entity create` (alias: crear)
@@ -1046,8 +1063,45 @@ Options:
   --currency <code>        functional currency (defaults to the country's)
   --chart <strategy>       auto | siempre | nunca — whether to seed the base
                            chart (default: "auto")
+  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>   fiscal address postal code (5 digits)
   --json                   JSON output
   -h, --help               display help for command
+
+Examples:
+  # A Mexican company with its c_RegimenFiscal and fiscal postal code.
+  mnemosine entity create "Grupo Alameda SA de CV" --tax-id GAL150623QK8 --tax-regime 601 --tax-postal-code 01000
+  # A US company: the EIN, and the functional currency follows the country.
+  mnemosine entity create "Alameda Holdings Inc" --tax-id 12-3456789 --country USA
+```
+
+### `mnemosine entity edit` (alias: editar)
+
+```
+Usage: mnemosine entity edit|editar [options] <idOrName>
+
+Set the tax regime or fiscal postal code of an entity, validated against the SAT
+catalog
+
+Arguments:
+  idOrName                 entity id, tax id, or a fragment of the name
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
+  --tax-postal-code <cp>   fiscal address postal code (5 digits)
+  --reason <text>          justification recorded in the audit trail
+  --json                   JSON output
+  -h, --help               display help for command
+
+Examples:
+  # Declare the regime of an entity created without it.
+  mnemosine entity edit GAL150623QK8 --tax-regime 626 --reason "Tax status certificate 2026"
+  # Correct the fiscal postal code only.
+  mnemosine entity edit GAL150623QK8 --tax-postal-code 64000
 ```
 
 ### `mnemosine entity archive` (alias: archivar)
@@ -1067,6 +1121,10 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
+
+Examples:
+  # Archive a company the firm no longer keeps; its ledger stays.
+  mnemosine entity archive GAL150623QK8 --reason "Engagement ended"
 ```
 
 ### `mnemosine entity unset` (alias: limpiar)
@@ -1078,6 +1136,10 @@ Clear the pinned entity; commands go back to requiring --entity
 
 Options:
   -h, --help  display help for command
+
+Examples:
+  # Go back to naming the company on every command.
+  mnemosine entity unset
 ```
 
 ## `mnemosine payment` (alias: pago)
@@ -4352,7 +4414,7 @@ Commands:
   reconciliation|conciliacion             The reconciliation session: the two-sided arithmetic that makes `balanced` mean something
   reconciling-item|partida-conciliatoria  Reconciling items as rows: what explains the difference, with age, owner, due date and escalation
   adjustment|ajuste                       The fees, VAT, interest and withholdings a reconciliation uncovers, created as DRAFTS
-  fee|comision                            Bank fees as an accounting act: the charge as an expense and its VAT parked until the bank issues the CFDI
+  fee|comision                            Bank fees as an accounting act: the charge as an expense and its VAT moved to creditable in the month of the charge
   interest|interes                        Interest earned on bank balances: income at its GROSS amount and the tax the bank withheld as a prepayment in the entity’s favour
   check|cheque                            Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law is when the payment counts
   help [command]                          display help for command
@@ -4957,8 +5019,8 @@ Options:
   --since <date>                           transactions on or after this date (YYYY-MM-DD)
   --until <date>                           transactions on or before this date (YYYY-MM-DD)
   --top <n>                                maximum TRANSACTIONS to preview (not candidates per transaction)
-  --min-confidence <n>                     engine confidence a proposal needs before `run` would apply it (0..1)
-  --max-amount <amount>                    ceiling for an automatic match; the hard floor still wins
+  --min-confidence <n>                     raise the engine confidence a proposal needs before `run` would apply it (0..1); never below the panel (cotejo_umbral_confianza)
+  --max-amount <amount>                    lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win
   --rules-only                             a proposal outside the date window counts as not applicable
   -h, --help                               display help for command
 
@@ -4988,10 +5050,12 @@ Options:
   --account <ref>          bank account to sweep (name or id)
   --since <date>           transactions on or after this date (YYYY-MM-DD)
   --until <date>           transactions on or before this date (YYYY-MM-DD)
-  --min-confidence <n>     engine confidence a proposal needs to be applied
-                           (0..1)
-  --max-amount <amount>    ceiling for an automatic match; the hard floor still
-                           wins
+  --min-confidence <n>     raise the engine confidence a proposal needs to be
+                           applied (0..1); never below the panel
+                           (cotejo_umbral_confianza)
+  --max-amount <amount>    lower the ceiling for an automatic match; the panel
+                           (cotejo_monto_maximo_auto) and the hard floor still
+                           win
   --rules-only             refuse a proposal outside the date window
   --top <n>                maximum transactions to evaluate in this run
   --session <id>           reconciliation session these matches belong to
@@ -5134,7 +5198,7 @@ Commands:
   status|estado [options] [session]      Recompute the variance LIVE and print the two-sided breakdown: bank balance, its items one by one, adjusted; books balance, its items, adjusted; and the difference
   close|cerrar [options] <session>       Recompute the whole arithmetic and move the session to `balanced` ONLY if the variance is exactly zero (or within the policy tolerance) and every item is classified and dated
   approve|aprobar [options] <session>    Sign the session, requiring that the approver is not the preparer, and freeze an immutable snapshot with a hash of its members and its balances
-  reopen|reabrir [options] <session>     Reopen an approved session to in_progress, withdrawing its signature (kept in the audit trail); refused under a closed fiscal period and for posted sessions
+  reopen|reabrir [options] <session>     Reopen an approved or posted session to in_progress, withdrawing its signature (kept in the audit trail) and reversing the entries a post booked; refused under a closed fiscal period
   post|contabilizar [options] <session>  Post the approved adjustment entries and seal the session’s book lines as reconciled, blocking their edit, their void and their date change
   generate|generar [options] <session>   Produce the two-sided bank reconciliation statement for the audit file: json for the whole document, md/csv/tsv for the line-by-line statement, plain text to print
   help [command]                         display help for command
@@ -5163,8 +5227,8 @@ Options:
   --file <path>                                                 statement to import first; without it, the one already imported for the period is used
   --format <csv|camt053|mt940|ofx|qfx|mt942|camt054|bai2|xlsx>  format of the FILE given in --file (not of the output; use --json for that), as in `bank statement import`
   --profile <name>                                              CSV column profile to read --file with
-  --min-confidence <n>                                          engine confidence a proposal needs to be applied (0..1)
-  --max-amount <amount>                                         ceiling for an automatic match; the hard floor still wins
+  --min-confidence <n>                                          raise the engine confidence a proposal needs to be applied (0..1); never below the panel (cotejo_umbral_confianza)
+  --max-amount <amount>                                         lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win
   --stop-at <extracto|cotejo|sesion|partidas|estado>            stop after this step; it never goes past `estado`, and never reaches approve or post
   --resume                                                      continue the session already open for this period instead of refusing
   --dry-run                                                     walk the real path and roll it back
@@ -5375,11 +5439,12 @@ Examples:
 ```
 Usage: mnemosine bank reconciliation reopen|reabrir [options] <session>
 
-Reopen an approved session to in_progress, withdrawing its signature (kept in
-the audit trail); refused under a closed fiscal period and for posted sessions
+Reopen an approved or posted session to in_progress, withdrawing its signature
+(kept in the audit trail) and reversing the entries a post booked; refused under
+a closed fiscal period
 
 Arguments:
-  session                  approved session to reopen
+  session                  approved or posted session to reopen
 
 Options:
   -e, --entity <idOrName>  legal entity to operate on (defaults to the active
@@ -5399,7 +5464,8 @@ Examples:
   # Take a signed session back to in_progress to correct a wrong item or match.
   # The signature leaves the session but not the audit trail, which keeps its hash.
   mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "El cargo del 20 era un error de libros"
-  # See which signature would be withdrawn, writing nothing.
+  # See which signature would be withdrawn, writing nothing. On a posted session
+  # it also names each adjustment entry it would reverse (never delete).
   mnemosine bank reconciliation reopen 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
   # A closed fiscal period wins: the refusal names the `period reopen` to run
   # first, and --force as well when the month is hard-closed.
@@ -5655,14 +5721,14 @@ Examples:
 ```
 Usage: mnemosine bank fee|comision [options] [command]
 
-Bank fees as an accounting act: the charge as an expense and its VAT parked
-until the bank issues the CFDI
+Bank fees as an accounting act: the charge as an expense and its VAT moved to
+creditable in the month of the charge
 
 Options:
   -h, --help                             display help for command
 
 Commands:
-  post|contabilizar [options] <account>  Post the period’s bank fees from the statement, one entry per charge, leaving their VAT in pending-creditable until the bank’s CFDI arrives
+  post|contabilizar [options] <account>  Post the period’s bank fees from the statement, one entry per charge, and move their VAT from pending-creditable to creditable
   help [command]                         display help for command
 ```
 
@@ -5671,8 +5737,8 @@ Commands:
 ```
 Usage: mnemosine bank fee post|contabilizar [options] <account>
 
-Post the period’s bank fees from the statement, one entry per charge, leaving
-their VAT in pending-creditable until the bank’s CFDI arrives
+Post the period’s bank fees from the statement, one entry per charge, and move
+their VAT from pending-creditable to creditable
 
 Arguments:
   account                  bank account whose fees to post (name or id)
@@ -5699,8 +5765,8 @@ Options:
   -h, --help               display help for command
 
 Examples:
-  # July's bank fees, one entry per charge, with their VAT parked as pending
-  # until the bank issues the CFDI. --iva-rate is the VAT the charge already
+  # July's bank fees, one entry per charge, and a second entry per charge that
+  # moves its VAT to creditable. --iva-rate is the VAT the charge already
   # carries INSIDE it, as a fraction, and it has no default: a rate written
   # into the code is a tax decision nobody takes and nobody sees.
   mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0.16
@@ -6336,7 +6402,7 @@ Print the offending rows of one check (ids, amounts, dates) and the exact
 command that fixes it
 
 Arguments:
-  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -6860,6 +6926,115 @@ Examples:
   # The real run, with a key: a retry after a dropped connection returns the
   # recorded result instead of accruing the month twice.
   mnemosine payroll accrue --period 2026-03 --yes --idempotency-key devengo-2026-03
+```
+
+## `mnemosine pay-run` (alias: corrida)
+
+```
+Usage: mnemosine pay-run|corrida [options] [command]
+
+Payroll runs of a pay period: create, calculate gross to net, approve
+
+Options:
+  -h, --help                         display help for command
+
+Commands:
+  create|crear [options]             Create a draft run over a pay period; the
+                                     tax year is fixed from the period
+  calculate|calcular [options] <id>  Calculate gross to net for each employee in
+                                     the inputs file and total the run
+  approve|aprobar [options] <id>     Approve a calculated run, sealing its
+                                     totals and writing the employer liability;
+                                     irreversible
+  help [command]                     display help for command
+```
+
+### `mnemosine pay-run create` (alias: crear)
+
+```
+Usage: mnemosine pay-run create|crear [options]
+
+Create a draft run over a pay period; the tax year is fixed from the period
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <id>                            pay period of the active entity (its id)
+  --type <type>                            run type: regular | bonus | correction | final | off_cycle (default: "regular")
+  -h, --help                               display help for command
+
+Examples:
+  # A regular run over a pay period of the active entity.
+  mnemosine pay-run create --period 3f0c2a1e-5b7d-4c89-a1e2-6d4f8b9c0a17
+  # A year-end bonus run over the same period.
+  mnemosine pay-run create --period 3f0c2a1e-5b7d-4c89-a1e2-6d4f8b9c0a17 --type bonus --json
+```
+
+### `mnemosine pay-run calculate` (alias: calcular)
+
+```
+Usage: mnemosine pay-run calculate|calcular [options] <id>
+
+Calculate gross to net for each employee in the inputs file and total the run
+
+Arguments:
+  id                                       pay run to calculate
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --file <path>                            JSON with the employee inputs: an array, or {"employee_inputs": [...]}
+  -h, --help                               display help for command
+
+Examples:
+  # Gross to net for every employee in the file: [{"employee_id": "…",
+  # "earnings": [{"earning_type": "salary", "amount": 7500}]}, …]
+  mnemosine pay-run calculate 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --file quincena-2026-07-1.json
+```
+
+### `mnemosine pay-run approve` (alias: aprobar)
+
+```
+Usage: mnemosine pay-run approve|aprobar [options] <id>
+
+Approve a calculated run, sealing its totals and writing the employer liability;
+irreversible
+
+Arguments:
+  id                                       calculated pay run to approve
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  -h, --help                               display help for command
+
+Examples:
+  # ALWAYS this one first: the real approval, rolled back. It shows the employer
+  # liability the approval would write and any blocking finding.
+  mnemosine pay-run approve 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --dry-run
+  # The approval, with a key: a retry returns the recorded result.
+  mnemosine pay-run approve 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --yes --idempotency-key corrida-2026-07-1
 ```
 
 ## `mnemosine e-accounting` (alias: contabilidad-electronica)
@@ -7472,6 +7647,125 @@ Examples:
   # end_date for the record: on its own it would stop nothing, because no
   # query in the system decides anything off that column.
   mnemosine garnishment archive 7c1f0c6e-8b44-4a51-9a0a-2f1d9d0a51b3 --as-of 2026-09-12 --reason "balance satisfied"
+```
+
+## `mnemosine employee` (alias: empleado)
+
+```
+Usage: mnemosine employee|empleado [options] [command]
+
+The payroll roll: register an employee, see one record, list the roll
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  create|crear [options]         Register one employee from a JSON file with
+                                 their tax identifiers
+  show|ver [options] <employee>  Show one employee record with tax identifiers
+                                 masked
+  list|listar [options]          List the employees of the entity, active by
+                                 default, with no tax identifiers
+  help [command]                 display help for command
+```
+
+### `mnemosine employee create` (alias: crear)
+
+```
+Usage: mnemosine employee create|crear [options]
+
+Register one employee from a JSON file with their tax identifiers
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --file <path>                            JSON object with the employee record (required)
+  --country <MX|US>                        the country whose payroll applies; overrides the file
+  --hire-date <date>                       hire date (YYYY-MM-DD); overrides the file
+  --pay-schedule <id>                      a pay schedule of this entity; overrides the file
+  --dry-run                                run the real writer and roll it back: nothing is saved
+  -h, --help                               display help for command
+
+Examples:
+  # The record lives in a file so RFC, CURP and NSS never reach shell history:
+  #   {"employee_number":"E-0042","first_name":"Ana","last_name":"Ruiz",
+  #    "rfc":"RUAA900101AB1","curp":"RUAA900101MDFZNN09","nss":"12345678901",
+  #    "sbc":450.25,"salary_type":"salary","annual_salary":180000}
+  mnemosine employee create --file ana.json --country MX --hire-date 2026-10-01
+  # Rehearse it: the real writer runs and is rolled back. Nothing is saved.
+  mnemosine employee create --file ana.json --country MX --hire-date 2026-10-01 --dry-run
+  # Join a pay schedule of this same entity (another entity's is refused).
+  mnemosine employee create --file ana.json --pay-schedule 0b7e2c9a-5d41-4f3e-8a6b-1c2d3e4f5a6b
+```
+
+### `mnemosine employee show` (alias: ver)
+
+```
+Usage: mnemosine employee show|ver [options] <employee>
+
+Show one employee record with tax identifiers masked
+
+Arguments:
+  employee                                 employee number or id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --redacted                               hide identifiers, e-mail and phone entirely, for a shared screen
+  -h, --help                               display help for command
+
+Examples:
+  # One record by the number on the payslip; RFC, CURP and NSS show only
+  # their last three characters.
+  mnemosine employee show E-0042
+  # For a shared screen: identifiers, e-mail and phone are hidden entirely.
+  mnemosine employee show E-0042 --redacted
+  # The same record as JSON, by id, for a script.
+  mnemosine employee show 3b2f6f0e-1c1d-4f5e-9a0b-7d6c5e4f3a21 --json
+```
+
+### `mnemosine employee list` (alias: listar)
+
+```
+Usage: mnemosine employee list|listar [options]
+
+List the employees of the entity, active by default, with no tax identifiers
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --country <MX|US>                        only employees of this country
+  -h, --help                               display help for command
+
+Examples:
+  # Active employees of the entity in use.
+  mnemosine employee list
+  # Everyone, terminated included, as JSON.
+  mnemosine employee list --all --json
+  # Only the Mexican roll, numbers only, to pipe into employee show.
+  mnemosine employee list --country MX -q
 ```
 
 ## `mnemosine cashflow` (alias: flujo)
