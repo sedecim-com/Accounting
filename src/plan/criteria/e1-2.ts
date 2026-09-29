@@ -1051,8 +1051,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/payroll/common/gl-posting-service.ts',
-        de: '    pr.pay_date,',
-        a: '    new Date(pr.pay_date),',
+        de: '      entry.entryDate,',
+        a: '      new Date(entry.entryDate),',
         porque: 'a caller no conduct test exercises reparses its date again: the payroll entry is only as safe as whatever type that row happens to carry',
       },
       {

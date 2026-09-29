@@ -127,8 +127,17 @@ describe('the risk each leaf declares', () => {
     expect(flags).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key']));
   });
 
+  it('post (MNE-001-069) is irreversible by its --post road, human only, and honors its key', () => {
+    const r = riskOf(leaf('post'))!;
+    expect(r).toMatchObject({ risk: 'irreversible', agentAllowed: false, llave: { scope: 'pay-run post' } });
+    const flags = leaf('post').options.map((o) => o.long);
+    expect(flags).toEqual(expect.arrayContaining(['--post', '--dry-run', '--yes', '--idempotency-key']));
+  });
+
   it('the Spanish aliases are the catalog ones', () => {
     expect(program.commands.find((c) => c.name() === 'pay-run')!.aliases()).toEqual(['corrida']);
-    expect(['create', 'calculate', 'approve'].map((n) => leaf(n).aliases()[0])).toEqual(['crear', 'calcular', 'aprobar']);
+    expect(['create', 'calculate', 'approve', 'post'].map((n) => leaf(n).aliases()[0])).toEqual([
+      'crear', 'calcular', 'aprobar', 'contabilizar',
+    ]);
   });
 });
