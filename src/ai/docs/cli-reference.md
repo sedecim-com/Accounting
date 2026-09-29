@@ -4412,7 +4412,7 @@ Commands:
   reconciliation|conciliacion             The reconciliation session: the two-sided arithmetic that makes `balanced` mean something
   reconciling-item|partida-conciliatoria  Reconciling items as rows: what explains the difference, with age, owner, due date and escalation
   adjustment|ajuste                       The fees, VAT, interest and withholdings a reconciliation uncovers, created as DRAFTS
-  fee|comision                            Bank fees as an accounting act: the charge as an expense and its VAT parked until the bank issues the CFDI
+  fee|comision                            Bank fees as an accounting act: the charge as an expense and its VAT moved to creditable in the month of the charge
   interest|interes                        Interest earned on bank balances: income at its GROSS amount and the tax the bank withheld as a prepayment in the entity’s favour
   check|cheque                            Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law is when the payment counts
   help [command]                          display help for command
@@ -5715,14 +5715,14 @@ Examples:
 ```
 Usage: mnemosine bank fee|comision [options] [command]
 
-Bank fees as an accounting act: the charge as an expense and its VAT parked
-until the bank issues the CFDI
+Bank fees as an accounting act: the charge as an expense and its VAT moved to
+creditable in the month of the charge
 
 Options:
   -h, --help                             display help for command
 
 Commands:
-  post|contabilizar [options] <account>  Post the period’s bank fees from the statement, one entry per charge, leaving their VAT in pending-creditable until the bank’s CFDI arrives
+  post|contabilizar [options] <account>  Post the period’s bank fees from the statement, one entry per charge, and move their VAT from pending-creditable to creditable
   help [command]                         display help for command
 ```
 
@@ -5731,8 +5731,8 @@ Commands:
 ```
 Usage: mnemosine bank fee post|contabilizar [options] <account>
 
-Post the period’s bank fees from the statement, one entry per charge, leaving
-their VAT in pending-creditable until the bank’s CFDI arrives
+Post the period’s bank fees from the statement, one entry per charge, and move
+their VAT from pending-creditable to creditable
 
 Arguments:
   account                  bank account whose fees to post (name or id)
@@ -5759,8 +5759,8 @@ Options:
   -h, --help               display help for command
 
 Examples:
-  # July's bank fees, one entry per charge, with their VAT parked as pending
-  # until the bank issues the CFDI. --iva-rate is the VAT the charge already
+  # July's bank fees, one entry per charge, and a second entry per charge that
+  # moves its VAT to creditable. --iva-rate is the VAT the charge already
   # carries INSIDE it, as a fraction, and it has no default: a rate written
   # into the code is a tax decision nobody takes and nobody sees.
   mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0.16
