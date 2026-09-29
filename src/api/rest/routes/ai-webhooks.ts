@@ -79,7 +79,7 @@ const NO_RETENIDO =
   'same document returns "duplicate" without processing it. Recover the document from the ' +
   'source system.';
 
-// Every refusal below is an AppError handed to the global errorHandler, so a
+// CONTRACT: every refusal below is an AppError handed to the global errorHandler, so a
 // webhook caller reads the same error envelope as the rest of the API
 // (`errors[0].code` + `message`, and `meta` with the request id) instead of a
 // bare `{error}` (#315). The status codes are unchanged; the `code` is the

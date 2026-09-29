@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, type Mock } 
 import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // ============================================================
 // GET /ready with the database down tells the caller nothing about the
@@ -91,6 +93,17 @@ describe('GET /ready', () => {
     });
   }
 
+  it("the driver's code (SQLSTATE or errno) is logged, for an alert rule to branch on", async () => {
+    mockQuery.mockRejectedValue(
+      Object.assign(new Error('password authentication failed for user "owner"'), { code: '28P01' })
+    );
+    const logged = vi.spyOn(logger, 'error').mockImplementation(() => logger);
+    const res = await fetch(`${baseUrl}/ready`);
+    expect(res.status).toBe(503);
+    expect(await res.text()).not.toContain('28P01');
+    expect(logged).toHaveBeenCalledWith('ready_db_error', expect.objectContaining({ code: '28P01' }));
+  });
+
   it('a non-Error rejection is also kept out of the body and logged as text', async () => {
     mockQuery.mockRejectedValue('socket hang up at db.internal:5432');
     const logged = vi.spyOn(logger, 'error').mockImplementation(() => logger);
@@ -101,5 +114,33 @@ describe('GET /ready', () => {
       'ready_db_error',
       expect.objectContaining({ error: 'socket hang up at db.internal:5432' })
     );
+  });
+});
+
+// ============================================================
+// src/index.ts serves THIS handler on /ready, and serves it before authenticate.
+//
+// Everything above exercises readyHandler alone. Booting src/index.ts needs a
+// database, so what pins the wiring is the source itself, read without its
+// comments (the way tests/api/middleware/locale.spec.ts pins its mount order):
+// if the old inline handler that leaked err.message came back, this goes red.
+// ============================================================
+
+const indexSource = readFileSync(join(__dirname, '..', '..', '..', 'src', 'index.ts'), 'utf-8')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+describe('src/index.ts mounts readyHandler on /ready', () => {
+  it('as the one and only /ready route, at the top level of bootstrap', () => {
+    expect(indexSource.match(/^ {2}app\.get\('\/ready', readyHandler\);$/gm) ?? []).toHaveLength(1);
+    expect(indexSource.match(/['"`]\/ready['"`]/g) ?? []).toHaveLength(1);
+  });
+
+  it('before authenticate', () => {
+    const ready = indexSource.indexOf("app.get('/ready', readyHandler);");
+    const auth = indexSource.indexOf('app.use(apiPrefix, authenticate);');
+    expect(ready).toBeGreaterThanOrEqual(0);
+    expect(auth).toBeGreaterThan(0);
+    expect(ready).toBeLessThan(auth);
   });
 });

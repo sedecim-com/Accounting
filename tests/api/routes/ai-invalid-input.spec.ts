@@ -171,3 +171,69 @@ describe('/v1/ai bodies: invalid input is a 422 in the envelope', () => {
     expect(answerQuestion).not.toHaveBeenCalled();
   });
 });
+
+// The JSON parser runs before any route. Its refusals are not AppErrors, so
+// the error handler used to render them as 500 INTERNAL_SERVER_ERROR.
+describe('/v1/ai bodies the JSON parser refuses: a 4xx in the envelope, not a 500', () => {
+  async function send(body: string, contentType = 'application/json'): Promise<{ status: number; json: Envelope }> {
+    const res = await fetch(`${baseUrl}/v1/ai/drafts/d-1/reject`, {
+      method: 'POST',
+      headers: { 'content-type': contentType },
+      body,
+    });
+    return { status: res.status, json: (await res.json()) as Envelope };
+  }
+
+  it('syntactically invalid JSON answers 400 INVALID_JSON', async () => {
+    const { status, json } = await send('{bad');
+    expect(status).toBe(400);
+    expect(json.errors).toHaveLength(1);
+    expect(json.errors?.[0].code).toBe('INVALID_JSON');
+    expect(json.meta?.version).toBe('v1');
+    expect(rejectDraft).not.toHaveBeenCalled();
+  });
+
+  it('a body over the parser limit answers 413 PAYLOAD_TOO_LARGE', async () => {
+    // express.json() defaults to a 100kb limit.
+    const { status, json } = await send(JSON.stringify({ reason: 'x'.repeat(200 * 1024) }));
+    expect(status).toBe(413);
+    expect(json.errors?.[0].code).toBe('PAYLOAD_TOO_LARGE');
+    expect(rejectDraft).not.toHaveBeenCalled();
+  });
+
+  it('an unsupported charset answers 415 UNSUPPORTED_MEDIA_TYPE', async () => {
+    const { status, json } = await send('{"reason":"x"}', 'application/json; charset=klingon');
+    expect(status).toBe(415);
+    expect(json.errors?.[0].code).toBe('UNSUPPORTED_MEDIA_TYPE');
+  });
+
+  it('any other parser refusal (a 4xx with a type) answers 400 MALFORMED_BODY', () => {
+    const refusal = Object.assign(new Error('request size did not match content length'), {
+      type: 'request.size.invalid',
+      status: 400,
+    });
+    const res = { status: vi.fn(), json: vi.fn(), locals: {}, setHeader: vi.fn(), vary: vi.fn() };
+    res.status.mockReturnValue(res);
+    errorHandler(
+      refusal,
+      { headers: { 'x-request-id': 'req-315' } } as unknown as express.Request,
+      res as unknown as express.Response,
+      vi.fn()
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect((res.json.mock.calls[0][0] as Envelope).errors?.[0].code).toBe('MALFORMED_BODY');
+  });
+
+  it('an error that merely carries a status and no parser type is still a 500', () => {
+    const res = { status: vi.fn(), json: vi.fn(), locals: {}, setHeader: vi.fn(), vary: vi.fn() };
+    res.status.mockReturnValue(res);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    errorHandler(
+      Object.assign(new Error('boom'), { status: 400 }),
+      { headers: {} } as unknown as express.Request,
+      res as unknown as express.Response,
+      vi.fn()
+    );
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
+});
