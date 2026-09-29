@@ -1013,12 +1013,15 @@ async function inquilinoDe(client: pg.PoolClient, entityId: string): Promise<str
   return tenantId;
 }
 
+/** A hard-closed period, with what its carry-forward reached. */
+export type HardClosedPeriod = FiscalPeriod & { carry_forward: CarryForwardResult };
+
 export async function hardClosePeriod(
   periodId: string,
   entityId: string,
   userId: string,
   reason?: string
-): Promise<FiscalPeriod> {
+): Promise<HardClosedPeriod> {
   // Closing entries are created with the transaction's client (atomic with
   // the hard close), so attestation must fire here, AFTER commit.
   const closingEntryIds: string[] = [];
@@ -1089,7 +1092,7 @@ export async function hardClosePeriod(
     // Carry balance-sheet endings into the next period's beginnings.
     // Runs AFTER closing entries so a year-end carry already reflects the
     // P&L swept into retained earnings.
-    await carryForwardBalances(client, entityId, periodId);
+    const carry = await carryForwardBalances(client, entityId, periodId);
 
     // Hard close
     await client.query(
@@ -1116,6 +1119,8 @@ export async function hardClosePeriod(
         // Sólo cuando hubo: un cierre normal no ensucia el rastro con ceros.
         ...(reversasDelCierre > 0 ? { closing_reversals: reversasDelCierre } : {}),
         ...(avisosDelCierre.length > 0 ? { resultados_sin_barrer: avisosDelCierre } : {}),
+        carried_into: carry.periods,
+        ...(carry.stopped_at_locked ? { carry_stopped_at_locked: carry.stopped_at_locked } : {}),
       },
       reason,
     });
@@ -1153,7 +1158,7 @@ export async function hardClosePeriod(
       [periodId]
     );
 
-    return result.rows[0];
+    return { ...result.rows[0], carry_forward: carry };
   });
 
   const tenantId = currentTenant();
@@ -1165,36 +1170,77 @@ export async function hardClosePeriod(
   return closed;
 }
 
+/** What a carry-forward did, for the close to record and show. */
+export interface CarryForwardResult {
+  /** account_balances rows written, over every period the cascade reached. */
+  carried: number;
+  /** Names of the periods whose beginnings were rewritten, in books order. */
+  periods: string[];
+  /** The locked period the cascade stopped at without writing, if any. */
+  stopped_at_locked: string | null;
+}
+
 /**
  * Seeds the NEXT period's account_balances with the closed period's ending
  * balances as beginning_balance — balance-sheet accounts only (P&L accounts
  * reset yearly through closing entries and hold per-period activity).
  * Invariant kept everywhere: ending = beginning + debit_total - credit_total,
  * in the ledger's sign convention (positive = debit nature).
- * Idempotent: recomputes from components on conflict. Returns the number of
- * accounts carried (0 when no next period exists yet).
+ * Idempotent: recomputes from components on conflict.
+ *
+ * IN CASCADE (#99). A period is re-closed after a correction, and the months
+ * after it may already be hard closed: each of those carried its own ending,
+ * built on the old beginning, into the month after it. Rewriting only the
+ * next period left July right and August, September and the rest wrong. So
+ * the carry goes on while the period it just rewrote is hard closed, and
+ * stops at the first one that is not: that one's close never carried
+ * anything, so there is nothing after it to redo.
+ *
+ * A 'locked' period is never written: its figures have already left the
+ * system. The cascade stops before it and says which one it was.
  */
 export async function carryForwardBalances(
   client: pg.PoolClient,
   entityId: string,
   closedPeriodId: string
-): Promise<number> {
-  // The next period in the books' order, (start_date, period_number), and not
-  // the first one starting after this one ends: December ends on December 31,
-  // the day the year-end adjustment period (13) starts, and "after the end"
-  // jumped straight to January, leaving period 13 without its beginnings and
-  // letting its own close overwrite January's with its activity alone (#304).
-  const next = await client.query<{ id: string }>(
-    `SELECT fp.id FROM fiscal_periods fp
-       JOIN fiscal_periods closed ON closed.id = $2
-     WHERE fp.entity_id = $1
-       AND (fp.start_date, fp.period_number) > (closed.start_date, closed.period_number)
-     ORDER BY fp.start_date ASC, fp.period_number ASC LIMIT 1`,
-    [entityId, closedPeriodId]
-  );
-  if (next.rows.length === 0) return 0; // next year not created yet — nothing to seed
+): Promise<CarryForwardResult> {
+  const result: CarryForwardResult = { carried: 0, periods: [], stopped_at_locked: null };
+  let fromId = closedPeriodId;
+  for (;;) {
+    // The next period in the books' order, (start_date, period_number), and
+    // not the first one starting after this one ends: December ends on
+    // December 31, the day the year-end adjustment period (13) starts, and
+    // "after the end" jumped straight to January, leaving period 13 without
+    // its beginnings and letting its own close overwrite January's with its
+    // activity alone (#304).
+    const next = await client.query<{ id: string; period_name: string; status: FiscalPeriodStatus }>(
+      `SELECT fp.id, fp.period_name, fp.status FROM fiscal_periods fp
+         JOIN fiscal_periods closed ON closed.id = $2
+       WHERE fp.entity_id = $1
+         AND (fp.start_date, fp.period_number) > (closed.start_date, closed.period_number)
+       ORDER BY fp.start_date ASC, fp.period_number ASC LIMIT 1`,
+      [entityId, fromId]
+    );
+    if (next.rows.length === 0) return result; // next year not created yet — nothing to seed
+    const target = next.rows[0];
+    if (target.status === FiscalPeriodStatus.LOCKED) {
+      result.stopped_at_locked = target.period_name;
+      return result;
+    }
+    result.carried += await carryInto(client, entityId, fromId, target.id);
+    result.periods.push(target.period_name);
+    if (target.status !== FiscalPeriodStatus.HARD_CLOSE) return result;
+    fromId = target.id;
+  }
+}
 
-  const nextPeriodId = next.rows[0].id;
+/** One link of the cascade: `fromId`'s endings become `toId`'s beginnings. */
+async function carryInto(
+  client: pg.PoolClient,
+  entityId: string,
+  fromId: string,
+  toId: string
+): Promise<number> {
   const result = await client.query(
     `INSERT INTO account_balances (
         account_id, fiscal_period_id, entity_id,
@@ -1223,7 +1269,7 @@ export async function carryForwardBalances(
        ending_balance = EXCLUDED.beginning_balance
                         + account_balances.debit_total - account_balances.credit_total,
        updated_at = NOW()`,
-    [entityId, closedPeriodId, nextPeriodId]
+    [entityId, fromId, toId]
   );
   return result.rowCount ?? 0;
 }
