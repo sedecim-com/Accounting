@@ -4,6 +4,7 @@ import { getPolicy } from '../policy/policy-service.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync, reverseWithinTransaction } from './posting.js';
 import { runLedgerChecks } from './ledger-checks.js';
+import { listPaymentsAwaitingRep, watchedAtClose } from './rep-expected.js';
 import { checkMappingCoverageDetallada } from './account-service.js';
 import { arReconcile } from '../ar/ar-controls.js';
 import { apReconcile } from '../ap/ap-controls.js';
@@ -907,14 +908,16 @@ export async function getPeriodCloseStatus(
     );
   }
 
-  // 6. F02 · REP-2: el checklist del IVA aparcado. Dos conteos que el cierre
-  // no miraba: los REP que llegaron y quedaron aparcados (needs_review), y
-  // los pagos del periodo sin REP — recibidos (el IVA sigue en 1135, no es
-  // acreditable) y emitidos (obligación fiscal PROPIA con plazo). Si cada
-  // uno bloquea o solo avisa lo deciden rep_faltante_recibido y
-  // rep_faltante_emitido: SOLO el literal 'bloquear' bloquea (cerrado al
-  // declarar); 'avisar' o un valor desconocido avisan — un valor raro del
-  // panel no puede congelar el cierre de un despacho.
+  // 6. F02 · REP-2: the REP checklist. Two counts the close did not look at:
+  // the REPs that arrived and were parked (needs_review), and the period's
+  // payments still without a REP — received (the payment already credited
+  // its IVA; the REP is the receipt that supports that credit) and issued
+  // (our OWN filing obligation, with a SAT deadline). Whether each one
+  // blocks or only warns is decided by rep_faltante_recibido and
+  // rep_faltante_emitido: ONLY the literal 'bloquear' blocks (closed when
+  // declared); 'avisar' or an unknown value warns — an odd panel value must
+  // not freeze a firm's close. rep_faltante_recibido='no_vigilar' takes the
+  // supplier side out of the close altogether.
   //
   // ACOTADO POR `document_date` DENTRO DEL PERIODO. Esta casilla tenía el
   // vicio de F05c en su forma pura: contaba pre_registrations SIN ningún
@@ -944,27 +947,21 @@ export async function getPeriodCloseStatus(
   });
   if (aparcados > 0) warnings.push(`${aparcados} REP(s) aparcados en needs_review`);
 
-  const sinRep = await q<{ recibidos: string; emitidos: string }>(
-    `SELECT
-       (SELECT COUNT(*) FROM vendor_payments vp
-         WHERE vp.entity_id = $1 AND vp.cfdi_uuid IS NULL AND vp.status <> 'void'
-           AND vp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                   AND (SELECT end_date FROM fiscal_periods WHERE id = $2))::text AS recibidos,
-       (SELECT COUNT(*) FROM customer_payments cp
-         WHERE cp.entity_id = $1 AND cp.cfdi_uuid IS NULL AND cp.status <> 'void'
-           AND cp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                   AND (SELECT end_date FROM fiscal_periods WHERE id = $2))::text AS emitidos`,
-    [entityId, periodId]
-  );
-  const pagosSinRepRecibidos = parseInt(sinRep.rows[0].recibidos, 10);
-  const pagosSinRepEmitidos = parseInt(sinRep.rows[0].emitidos, 10);
-  // Las dos políticas se leen SIEMPRE (no sólo con conteo > 0): la casilla
-  // publica su `severity` también cuando está completa, para que
-  // `closing check` pueda decir con qué peso vigila cada verificación.
-  const [polRecibido, polEmitido] = await Promise.all([
+  // MNE-001-125 (#327): only payments that really await a REP — completed,
+  // applied to a document the ledger treats as PPD (a PUE never takes one),
+  // and for collections only on a stamped invoice. See rep-expected.ts: the
+  // same list feeds `closing explain rep-missing` and `rep missing list`.
+  // The two policies are ALWAYS read (not only with a count > 0): the box
+  // publishes its `severity` even when complete, so `closing check` can say
+  // how strictly it watches each check.
+  const [repExpected, polRecibido, polEmitido] = await Promise.all([
+    listPaymentsAwaitingRep(q, entityId, { periodId }),
     getPolicy(ctxPanel, 'rep_faltante_recibido'),
     getPolicy(ctxPanel, 'rep_faltante_emitido'),
   ]);
+  const watched = watchedAtClose(repExpected, polRecibido.value);
+  const pagosSinRepRecibidos = watched.filter((p) => p.direction === 'received').length;
+  const pagosSinRepEmitidos = watched.filter((p) => p.direction === 'issued').length;
   // Con pendientes, la severidad es la del pendiente que HAY (un cobro sin
   // REP bajo 'avisar' no puede volverse bloqueante porque la otra política
   // sea estricta); completa, es la más grave de las dos configuradas.
@@ -980,17 +977,27 @@ export async function getPeriodCloseStatus(
     severity: repFaltanteBloquea ? 'blocking' : 'warning',
     details:
       pagosSinRepRecibidos + pagosSinRepEmitidos > 0
-        ? `${pagosSinRepRecibidos} pago(s) sin REP del proveedor, ${pagosSinRepEmitidos} cobro(s) sin REP emitido (rep missing list)`
+        ? `${pagosSinRepRecibidos} pago(s) sin REP del proveedor, ${pagosSinRepEmitidos} cobro(s) sin REP emitido (closing explain rep-missing)`
         : undefined,
   });
   if (pagosSinRepRecibidos > 0) {
     (polRecibido.value === 'bloquear' ? blocking_issues : warnings).push(
-      `${pagosSinRepRecibidos} pago(s) a proveedor sin REP: el IVA sigue aparcado en 1135`
+      `${pagosSinRepRecibidos} pago(s) a proveedor sobre gastos PPD sin REP: el REP es el comprobante ` +
+        `que respalda el acreditamiento del IVA de ese pago`
     );
   }
   if (pagosSinRepEmitidos > 0) {
     (polEmitido.value === 'bloquear' ? blocking_issues : warnings).push(
       `${pagosSinRepEmitidos} cobro(s) sin REP emitido: obligación fiscal propia con plazo`
+    );
+  }
+  // Collections of stamped invoices whose method is not in the mirror: the
+  // ledger assumed PUE, so they are not counted above, but the doubt is
+  // said out loud rather than hidden.
+  if (repExpected.unknownIssuedMethod.length > 0) {
+    warnings.push(
+      `${repExpected.unknownIssuedMethod.length} cobro(s) de facturas timbradas sin método de pago conocido: ` +
+        `el mayor las trató como PUE; si alguna fue PPD, su REP es obligación propia (rep missing list --direction issued)`
     );
   }
 

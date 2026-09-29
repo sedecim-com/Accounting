@@ -1,19 +1,23 @@
 import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { PreRegistrationService } from './pre-registration-service.js';
+import { listPaymentsAwaitingRep } from '../accounting/rep-expected.js';
 
 // ============================================================
 // F02 · REP-2 — lo que espera un REP, y el reproceso que no existía
 //
 // Dos poblaciones distintas que el cierre necesita ver juntas:
 //
-//   · PAGOS SIN REP — dinero que ya se movió sobre una factura PPD y
-//     cuyo comprobante de pago no ha llegado (recibido: el IVA sigue
-//     aparcado en 1135 y NO es acreditable) o no se ha emitido
-//     (emitido: obligación fiscal PROPIA, con plazo). El método de
-//     pago sale del ESPEJO; cuando el CFDI propio no está espejado el
-//     método es desconocido y se lista CON esa marca — listar de más
-//     con la duda dicha es mejor que esconder un REP exigible.
+//   · PAYMENTS WITHOUT A REP — money that already moved on a PPD
+//     document whose payment receipt has not arrived (received: the
+//     payment already credited its IVA, and the REP is the receipt that
+//     supports that credit) or has not been issued (issued: our OWN
+//     filing obligation, with a deadline). Since MNE-001-125 the list is
+//     the one in accounting/rep-expected.ts, the same the close counts:
+//     completed payments, live applications, the method the ledger
+//     used. A collection of a stamped invoice whose method is not in the
+//     mirror is listed too, marked 'desconocido' — the ledger treated it
+//     as PUE, but hiding a REP we may owe is worse than listing the doubt.
 //
 //   · REPs APARCADOS — comprobantes P que llegaron y quedaron en
 //     needs_review porque la ligadura pidió decisión humana. El propio
@@ -28,7 +32,7 @@ export interface PagoSinRep {
   payment_date: string;
   contraparte: string;
   amount: string;
-  /** 'PPD' | 'PUE' | 'desconocido' — del espejo; desconocido cuando el CFDI no está espejado. */
+  /** 'PPD' when a fact states it; 'desconocido' when the ledger's conservative default decided. */
   metodo: string;
   edad_dias: number;
 }
@@ -41,51 +45,23 @@ export async function listPagosSinRep(
     throw new ValidationError(`--direction ilegible "${opts.direction}": received o issued.`);
   }
   const limit = opts.limit ?? 200;
-
-  if (opts.direction === 'received') {
-    const r = await query<PagoSinRep>(
-      `SELECT vp.payment_number, vp.payment_date::text AS payment_date,
-              v.company_name AS contraparte, vp.payment_amount::text AS amount,
-              COALESCE(MAX(xd.metodo_pago), 'desconocido') AS metodo,
-              FLOOR(EXTRACT(EPOCH FROM (NOW() - vp.payment_date)) / 86400)::int AS edad_dias
-         FROM vendor_payments vp
-         JOIN vendors v ON v.id = vp.vendor_id
-         JOIN payment_applications pa ON pa.payment_id = vp.id
-         JOIN bills b ON b.id = pa.bill_id
-         LEFT JOIN xml_documents xd
-           ON xd.entity_id = vp.entity_id AND xd.cfdi_uuid = b.cfdi_uuid
-        WHERE vp.entity_id = $1 AND vp.cfdi_uuid IS NULL AND vp.status <> 'void'
-        GROUP BY vp.id, v.company_name
-       HAVING COALESCE(MAX(xd.metodo_pago), 'PPD') <> 'PUE'
-          AND vp.payment_amount >= $2
-        ORDER BY vp.payment_date
-        LIMIT $3`,
-      [entityId, opts.minAmount ?? 0, limit]
-    );
-    return r.rows;
-  }
-
-  const r = await query<PagoSinRep>(
-    `SELECT cp.payment_number, cp.payment_date::text AS payment_date,
-            c.company_name AS contraparte, cp.payment_amount::text AS amount,
-            COALESCE(MAX(xd.metodo_pago), 'desconocido') AS metodo,
-            FLOOR(EXTRACT(EPOCH FROM (NOW() - cp.payment_date)) / 86400)::int AS edad_dias
-       FROM customer_payments cp
-       JOIN customers c ON c.id = cp.customer_id
-       JOIN payment_allocations pal ON pal.payment_id = cp.id
-       JOIN invoices inv ON inv.id = pal.invoice_id
-       LEFT JOIN xml_documents xd
-         ON xd.entity_id = cp.entity_id AND xd.cfdi_uuid = inv.cfdi_uuid
-      WHERE cp.entity_id = $1 AND cp.cfdi_uuid IS NULL AND cp.status <> 'void'
-        AND inv.cfdi_uuid IS NOT NULL
-      GROUP BY cp.id, c.company_name
-     HAVING COALESCE(MAX(xd.metodo_pago), 'PPD') <> 'PUE'
-        AND cp.payment_amount >= $2
-      ORDER BY cp.payment_date
-      LIMIT $3`,
-    [entityId, opts.minAmount ?? 0, limit]
-  );
-  return r.rows;
+  const expected = await listPaymentsAwaitingRep(query, entityId);
+  const candidates =
+    opts.direction === 'received'
+      ? expected.awaiting.filter((p) => p.direction === 'received')
+      : [...expected.awaiting.filter((p) => p.direction === 'issued'), ...expected.unknownIssuedMethod];
+  return candidates
+    .filter((p) => Number(p.amount) >= (opts.minAmount ?? 0))
+    .sort((x, y) => x.payment_date.localeCompare(y.payment_date) || x.payment_number.localeCompare(y.payment_number))
+    .slice(0, limit)
+    .map((p) => ({
+      payment_number: p.payment_number,
+      payment_date: p.payment_date,
+      contraparte: p.counterparty,
+      amount: p.amount,
+      metodo: p.method,
+      edad_dias: p.age_days,
+    }));
 }
 
 export interface RepAparcado {

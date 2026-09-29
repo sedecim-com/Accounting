@@ -172,10 +172,10 @@ El checklist de faltantes va por dirección, porque son dos obligaciones distint
 mnemosine rep missing list --direction received
 ```
 
-- **`received`**: facturas PPD ya pagadas cuyo comprobante del proveedor no ha llegado. Mientras no llegue, el IVA sigue en la 1135 y **no es acreditable**.
+- **`received`**: facturas PPD ya pagadas cuyo comprobante del proveedor no ha llegado. El pago ya pasó su IVA a la 1130; el REP es lo que respalda ese acreditamiento.
 - **`issued`**: cobros nuestros sin REP emitido. Es obligación fiscal propia, con plazo.
 
-El método de pago sale del **espejo** de CFDI. Cuando el comprobante propio no está espejado, el método es desconocido y la fila se lista **con esa marca**: listar de más con la duda dicha es mejor que esconder un REP exigible.
+La regla es una sola, en `rep-expected.ts`, y la comparten la casilla del cierre, `closing explain rep-missing` y esta lista: pagos `completed`, con una aplicación viva a un documento que el mayor trata como PPD (el mismo `decideMetodoPago`: espejo, luego el token PUE/PPD de `terms` o `memo`, luego el valor conservador), y del lado emitido sólo facturas con `cfdi_status = stamped`. Un cobro de factura timbrada sin método conocido lo trató el mayor como PUE, así que la casilla no lo cuenta; aun así el cierre lo avisa y esta lista lo muestra **marcado `desconocido`**: listar la duda dicha es mejor que esconder un REP exigible.
 
 ### El espejo es por entidad
 

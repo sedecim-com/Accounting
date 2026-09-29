@@ -12,6 +12,8 @@ import {
 } from './period-close.js';
 import { MAPPING_SCHEMES } from './account-service.js';
 import { revisionDeAmortizacionAlCierre } from '../accruals/prepaid-service.js';
+import { getPolicy } from '../policy/policy-service.js';
+import { listPaymentsAwaitingRep, watchedAtClose } from './rep-expected.js';
 
 // ============================================================
 // F06b · `closing explain <codigo>` — LOS RENGLONES OFENSORES
@@ -328,32 +330,35 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
       [entityId, periodId, limit]
     ),
 
-  // Los dos lados en una sola lista, marcados por dirección: recibido = el
-  // pago al proveedor cuyo REP no llegó; emitido = el cobro cuyo REP debemos.
-  'rep-missing': (entityId, periodId, limit) =>
-    filas(
-      `SELECT pagos.*, COUNT(*) OVER()::text AS total_ofensores
-       FROM (
-         SELECT 'recibido' AS direction, vp.payment_number,
-                to_char(vp.payment_date, 'YYYY-MM-DD') AS payment_date,
-                vp.payment_amount::text AS payment_amount, vp.currency_code
-           FROM vendor_payments vp
-          WHERE vp.entity_id = $1 AND vp.cfdi_uuid IS NULL AND vp.status <> 'void'
-            AND vp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                    AND (SELECT end_date   FROM fiscal_periods WHERE id = $2)
-         UNION ALL
-         SELECT 'emitido' AS direction, cp.payment_number,
-                to_char(cp.payment_date, 'YYYY-MM-DD') AS payment_date,
-                cp.payment_amount::text AS payment_amount, cp.currency_code
-           FROM customer_payments cp
-          WHERE cp.entity_id = $1 AND cp.cfdi_uuid IS NULL AND cp.status <> 'void'
-            AND cp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
-                                    AND (SELECT end_date   FROM fiscal_periods WHERE id = $2)
-       ) pagos
-       ORDER BY pagos.payment_date, pagos.payment_number
-       LIMIT $3`,
-      [entityId, periodId, limit]
-    ),
+  // Mirror of the rep-missing box (MNE-001-125): the SAME list the box
+  // counts, from rep-expected.ts, after the same rep_faltante_recibido
+  // filter, so `total` always equals the box's received + issued. Both
+  // sides in one list, tagged by direction: recibido = the supplier payment
+  // whose REP has not arrived; emitido = the collection whose REP we owe.
+  'rep-missing': async (entityId, periodId, limit) => {
+    const owner = await query<{ tenant_id: string }>(
+      `SELECT tenant_id FROM legal_entities WHERE id = $1`,
+      [entityId]
+    );
+    const [expected, receivedPolicy] = await Promise.all([
+      listPaymentsAwaitingRep(query, entityId, { periodId }),
+      getPolicy({ tenantId: owner.rows[0].tenant_id, entityId }, 'rep_faltante_recibido'),
+    ]);
+    const watched = watchedAtClose(expected, receivedPolicy.value).sort(
+      (x, y) => x.payment_date.localeCompare(y.payment_date) || x.payment_number.localeCompare(y.payment_number)
+    );
+    return {
+      total: watched.length,
+      renglones: watched.slice(0, limit).map((p) => ({
+        direction: p.direction === 'received' ? 'recibido' : 'emitido',
+        payment_number: p.payment_number,
+        payment_date: p.payment_date,
+        payment_amount: p.amount,
+        currency_code: p.currency_code,
+        method: p.method,
+      })),
+    };
+  },
 
   // Espejo de la casilla 7 (F07a): las cuentas CON MOVIMIENTO POSTEADO hasta
   // el corte del periodo a las que les falta el agrupador del Anexo 24. Mismo

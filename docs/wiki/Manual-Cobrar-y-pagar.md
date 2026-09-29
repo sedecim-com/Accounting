@@ -335,7 +335,7 @@ Si el saldo ya bajó, el pago se registró y repetirlo lo duplicaría. La bander
 
 ### 6. El REP del proveedor
 
-Si la factura era PPD, su IVA sigue aparcado en la 1135 hasta que llegue el REP del proveedor. Cuando llegue, entra por la ingesta como cualquier otro CFDI:
+Si la factura era PPD, el pago que acabas de registrar ya pasó su IVA de la 1135 a la 1130. Lo que falta es el REP del proveedor, el comprobante que respalda ese acreditamiento. Cuando llegue, entra por la ingesta como cualquier otro CFDI:
 
 ```bash
 mnemosine ingest ./cfdis/rep-septiembre/*.xml

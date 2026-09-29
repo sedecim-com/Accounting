@@ -385,7 +385,7 @@ Registra el cobro y reconoce el IVA trasladado que estaba en la cuenta de no cob
 ```bash
 npm run mnemosine -- rep missing list --direction received
 ```
-Pagos PPD a proveedores cuyo REP no ha llegado. El IVA de esos pagos sigue aparcado sin acreditar.
+Pagos PPD a proveedores cuyo REP no ha llegado. El pago ya acreditó su IVA (pasó a la 1130); el REP es el comprobante que respalda ese acreditamiento.
 
 ```bash
 npm run mnemosine -- rep missing list --direction issued

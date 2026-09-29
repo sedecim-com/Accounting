@@ -9110,8 +9110,9 @@ Options:
   -h, --help             display help for command
 
 Commands:
-  list|listar [options]  received: paid PPD bills without the supplier REP (VAT
-                         parked); issued: our collections without a REP
+  list|listar [options]  received: paid PPD bills without the supplier REP (the
+                         REP supports the VAT credit); issued: our collections
+                         without a REP
   help [command]         display help for command
 ```
 
@@ -9120,8 +9121,8 @@ Commands:
 ```
 Usage: mnemosine rep missing list|listar [options]
 
-received: paid PPD bills without the supplier REP (VAT parked); issued: our
-collections without a REP
+received: paid PPD bills without the supplier REP (the REP supports the VAT
+credit); issued: our collections without a REP
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)

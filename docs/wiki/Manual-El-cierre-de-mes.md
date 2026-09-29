@@ -185,8 +185,23 @@ Es seguro repetirlo: los ya resueltos se saltan. Reintenta hasta cincuenta por c
 
 Ésta es la partida específicamente mexicana, y la que más fácil se olvida. Cuenta dos cosas distintas:
 
-- **Pagos a proveedor sin REP** del proveedor. Su IVA sigue aparcado en la 1135 y **no es acreditable** este mes.
+- **Pagos a proveedor sin REP** del proveedor. Al registrarse, el pago ya pasó el IVA de esa factura de la 1135 a la 1130: el acreditamiento está en libros. Lo que falta es el REP, el comprobante que lo respalda (LIVA art. 5 fr. III, CFF art. 29, RMF 2.7.1.35).
 - **Cobros sin REP emitido por nosotros**. Es una **obligación fiscal propia, con plazo del SAT**.
+
+**Qué pagos cuenta la casilla.** Sólo los del periodo que de verdad esperan un REP, leídos con la misma regla con la que el mayor decidió el método de pago:
+
+- el pago está `completed` (uno revertido o anulado no cuenta) y no tiene REP ligado;
+- está **aplicado** a un documento, con una aplicación viva (un pago sin aplicar es un anticipo, y una aplicación deshecha con `payment unapply` ya no liquida nada);
+- ese documento es **PPD** para el mayor. Un gasto sin método dicho es PPD (el valor conservador del lado recibido), así que cuenta;
+- del lado emitido, además, la factura está **timbrada** (`cfdi_status = stamped`): una sin timbrar, un timbrado simulado o un CFDI cancelado no tienen CFDI vivo al que relacionar un REP.
+
+**Qué no cuenta**: los documentos PUE, de los dos lados. Y un cobro de factura timbrada cuyo método de pago no está en el espejo ni en `--terms`: el mayor la trató como PUE y causó su IVA al emitirla, así que la casilla no afirma un REP que el mayor no cree deber. No se esconde: el cierre lo avisa aparte («sin método de pago conocido») y `rep missing list --direction issued` lo lista marcado `desconocido`. Las entidades que no llevan libros mexicanos no esperan REP.
+
+Para ver exactamente los pagos que la casilla contó:
+
+```bash
+mnemosine closing explain rep-missing --period "August 2026"
+```
 
 ```bash
 mnemosine rep missing list --direction received
@@ -196,7 +211,7 @@ mnemosine rep missing list --direction received
 mnemosine rep missing list --direction issued
 ```
 
-Los valores de esta bandera son ingleses (`received`, `issued`), a diferencia de los de `cfdi list --direction`, que son españoles.
+Los valores de esta bandera son ingleses (`received`, `issued`), a diferencia de los de `cfdi list --direction`, que son españoles. `rep missing list` no se limita al periodo: lista todo lo pendiente de la entidad, con la misma regla que la casilla.
 
 Si bloquea o sólo avisa lo decide el despacho, con dos claves del panel de criterios. Las dos vienen en `avisar` por omisión:
 
@@ -205,17 +220,17 @@ mnemosine pending -v
 ```
 
 ```bash
-mnemosine pending define rep_faltante_recibido bloquear -n "No cerramos con IVA aparcado"
+mnemosine pending define rep_faltante_recibido bloquear -n "No cerramos con IVA acreditado sin su REP"
 ```
 
 | Clave | Qué decide |
 |---|---|
-| `rep_faltante_recibido` | Si un REP de proveedor que no llegó bloquea el cierre |
+| `rep_faltante_recibido` | Si un REP de proveedor que no llegó bloquea el cierre, sólo avisa, o no se vigila en el cierre (`no_vigilar`) |
 | `rep_faltante_emitido` | Si un REP nuestro sin emitir bloquea el cierre |
 
 Sólo el literal `bloquear` bloquea. Cualquier otro valor avisa, incluido uno mal escrito: un valor raro del panel no puede congelarle el cierre a un despacho.
 
-El razonamiento del valor por omisión, escrito en el propio catálogo, es defendible: un proveedor que se retrasa con su REP no debería congelarte el mes entero, y el IVA aparcado se ve en la lista de todas formas. Del lado emitido el argumento es distinto —la obligación es tuya— y la recomendación del catálogo es cambiarlo a `bloquear` el día que el timbrado de REP exista dentro del sistema y la obligación se pueda cumplir desde aquí. Hoy no existe.
+El razonamiento del valor por omisión, escrito en el propio catálogo, es defendible: un proveedor que se retrasa con su REP no debería congelarte el mes entero, pero un acreditamiento sin su comprobante es una exposición ante una revisión, así que el cierre lo deja a la vista. Con `no_vigilar` el lado del proveedor sale del cierre y sólo `rep missing list` lo muestra. Del lado emitido el argumento es distinto —la obligación es tuya— y la recomendación del catálogo es cambiarlo a `bloquear` el día que el timbrado de REP exista dentro del sistema y la obligación se pueda cumplir desde aquí. Hoy no existe.
 
 ---
 
@@ -243,7 +258,7 @@ mnemosine rep missing list --direction received --min-amount 1000
 mnemosine rep missing list --direction issued
 ```
 
-**3. Comprobar el saldo de las dos cuentas de aparcado contra esa lista.**
+**3. Comprobar el saldo de las dos cuentas de aparcado.** Ojo: no se cuadran contra la lista de faltantes. Un pago ya registrado liberó su IVA aunque le falte el REP; lo que queda en la 1135 y la 2125 es el IVA de las facturas PPD **todavía sin pagar o sin cobrar**.
 
 ```bash
 mnemosine ledger balance show --account 1135 --as-of 2026-08-31
@@ -258,7 +273,7 @@ mnemosine ledger auxiliary show --account 1135 --period August \
   --format csv -o iva-pendiente-agosto.csv
 ```
 
-El saldo de la 1135 al cierre **es** el IVA que no vas a acreditar este mes. Si no coincide con lo que la lista de faltantes dice, hay algo mal capturado, y conviene encontrarlo antes de firmar la declaración, no después.
+El saldo de la 1135 al cierre **es** el IVA que no vas a acreditar este mes: el de los gastos PPD que aún no pagas. Si no coincide con el IVA de esas facturas pendientes de pago, hay algo mal capturado, y conviene encontrarlo antes de firmar la declaración, no después.
 
 Dos causas frecuentes de descuadre, las dos con remedio:
 
