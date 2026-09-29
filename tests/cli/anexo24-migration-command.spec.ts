@@ -128,6 +128,26 @@ describe('the gesture: --dry-run, then --yes', () => {
     expect(m.importOpeningBalance.mock.calls[1][1]).not.toHaveProperty('dryRun');
   });
 
+  it('under apertura_modo_de_carga = borrador the question says draft, not post (MNE-001-099)', async () => {
+    const confirm = vi.fn(async (_question: string) => false);
+    const program = new Command('mnemosine').exitOverride();
+    registerAnexo24MigrationCommands(program, {
+      palette: palette(process.stdout),
+      shutdown: () => undefined,
+      reportError: vi.fn(),
+      confirm,
+    });
+    m.importOpeningBalance.mockResolvedValue({ ...opening(false), loadMode: 'draft' });
+    await program.parseAsync(['opening-balance', 'import', FILE], { from: 'user' });
+    expect(confirm.mock.calls[0][0]).toMatch(/draft|borrador/i);
+    expect(confirm.mock.calls[0][0]).toMatch(/entry post/);
+
+    confirm.mockClear();
+    m.importOpeningBalance.mockResolvedValue({ ...opening(false), loadMode: 'post' });
+    await program.parseAsync(['opening-balance', 'import', FILE], { from: 'user' });
+    expect(confirm.mock.calls[0][0]).not.toMatch(/draft|borrador/i);
+  });
+
   it('chart import: --yes writes, an incomplete chart without --partial does not', async () => {
     const plan = { puedeImportarse: true, completa: true, aCrear: [], escrito: true };
     m.importSatChart.mockResolvedValue(plan);

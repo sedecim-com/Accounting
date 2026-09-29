@@ -796,6 +796,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'migration.opening.confirm':
     '¿Postear la apertura del ejercicio {year} al {date} (Debe {debit} · Haber {credit})? ' +
     'El mayor no admite deshacer.',
+  'migration.opening.confirm_draft':
+    '¿Dejar en BORRADOR la apertura del ejercicio {year} al {date} (Debe {debit} · Haber {credit})? ' +
+    'No entra al mayor hasta que la apliques con `entry post`.',
   'migration.check.as_of': 'Al {date} · {comparison}',
   // ==== I11 · report labels (issue #153) ============================
   //

@@ -922,6 +922,9 @@ export const EN = {
   'migration.opening.confirm':
     'Post the opening of fiscal year {year} on {date} (Debit {debit} · Credit {credit})? ' +
     'The ledger cannot be undone.',
+  'migration.opening.confirm_draft':
+    'Leave the opening of fiscal year {year} on {date} as a DRAFT (Debit {debit} · Credit {credit})? ' +
+    'It stays out of the ledger until you apply it with `entry post`.',
   'migration.check.as_of': 'As of {date} · {comparison}',
   // ==== I11 · report labels (issue #153) ============================
   //

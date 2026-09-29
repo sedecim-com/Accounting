@@ -1133,6 +1133,33 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 30,
   },
   {
+    // MNE-001-099 · #220: the owner's decision of 2026-09-26. The reader is
+    // `importOpeningBalance` (opening-balance.ts); the guard that keeps the
+    // draft's lines and date still is `updateDraftEntry`.
+    key: 'apertura_modo_de_carga',
+    category: 'contable',
+    question: 'When the Anexo 24 opening balance is loaded, is it posted or left as a draft?',
+    impact:
+      'Posting puts the opening in the ledger in the same act, after the --dry-run and --yes. ' +
+      'A draft keeps it out of the ledger until someone runs `entry post` on it, so a second person ' +
+      'can review it first; its lines and its date cannot be edited, because moving the date would ' +
+      'let a second load double every balance.',
+    options: [
+      { value: 'contabilizar', label: 'Post it: the opening is in the ledger once the load is confirmed' },
+      { value: 'borrador', label: 'Leave a draft: `entry post` applies it after a review' },
+    ],
+    defaultValue: 'contabilizar',
+    defaultRationale:
+      'The load already shows the whole report with --dry-run and asks before writing, and the ' +
+      'penny check compares it to the source afterwards. A draft adds a second step that only pays ' +
+      'off when someone else reviews the opening before it is applied.',
+    whyAsking:
+      'Some firms want a second person to look at the migrated opening before it reaches the ledger; others load it themselves.',
+    whatIDo: 'I post the opening when the load is confirmed, or leave a locked draft for `entry post`.',
+    ifSkipped: 'I post it.',
+    priority: 40,
+  },
+  {
     key: 'informes_asientos_de_cierre',
     category: 'contable',
     question:
