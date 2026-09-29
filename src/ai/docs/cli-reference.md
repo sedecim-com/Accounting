@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 223 of 343 subcommands
+  spelling is `-T` at the root and `-t` on the 225 of 346 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -2865,6 +2865,8 @@ Commands:
                                     payables)
   inbox|bandeja                     CFDI inbox: pre-registrations waiting to
                                     become vendor bills
+  rule|regla                        Firm processing rules: what codes an
+                                    incoming CFDI with no model involved
   help [command]                    display help for command
 ```
 
@@ -3185,6 +3187,88 @@ Examples:
   mnemosine bill inbox run --bulk --query "status=ready,mode=batch" --action approve --dry-run
   # Reject one, with the reason that lands in the audit trail.
   mnemosine bill inbox run 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 --action reject --reason "CFDI de otro contribuyente"
+```
+
+### `mnemosine bill rule` (alias: regla)
+
+```
+Usage: mnemosine bill rule|regla [options] [command]
+
+Firm processing rules: what codes an incoming CFDI with no model involved
+
+Options:
+  -h, --help              display help for command
+
+Commands:
+  create|crear [options]  Create a processing rule (conditions → actions) that
+                          the next ingest applies
+  list|listar [options]   List the processing rules in evaluation order, with
+                          how often each one fired
+  help [command]          display help for command
+```
+
+#### `mnemosine bill rule create` (alias: crear)
+
+```
+Usage: mnemosine bill rule create|crear [options]
+
+Create a processing rule (conditions → actions) that the next ingest applies
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --name <text>            rule name, shown in the trace of every CFDI it
+                           decides
+  --when <condition...>    repeatable, all must hold: "<field> <operator>
+                           <value>"
+  --then <action...>       repeatable: "<action>=<value>", e.g. set_account=6100
+  --type <type>            rule type: account_mapping, cost_center_mapping,
+                           vendor_matching, approval_routing, processing_mode,
+                           validation, transformation, rejection (default:
+                           "account_mapping")
+  --priority <n>           lower runs first; a later match overrides an earlier
+                           one (default: "100")
+  --description <text>     why the firm keeps this rule
+  --dry-run                validate and show the rule; write nothing
+  --json                   JSON output
+  -h, --help               display help for command
+
+Examples:
+  # Every CFDI from this vendor goes to 6100 and posts on ingest, with no model.
+  mnemosine bill rule create --name "Consultoria SIN" --when "emisor_rfc equals SIN060101AB1" --then set_account=6100 --then set_processing_mode=auto
+  # Code it, but hold it for an approval above 50 000.
+  mnemosine bill rule create --name "Consultoria alta" --when "emisor_rfc equals SIN060101AB1" --when "total_amount greater_than 50000" --then set_account=6100 --then require_approval=true
+```
+
+#### `mnemosine bill rule list` (alias: listar)
+
+```
+Usage: mnemosine bill rule list|listar [options]
+
+List the processing rules in evaluation order, with how often each one fired
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --type <type>                            only this rule type: account_mapping, cost_center_mapping, vendor_matching, approval_routing, processing_mode, validation, transformation, rejection
+  -h, --help                               display help for command
+
+Examples:
+  # The rules in the order the engine evaluates them, and how often each fired.
+  mnemosine bill rule list
+  mnemosine bill rule list --type account_mapping --json
 ```
 
 ## `mnemosine customer` (alias: cliente)
