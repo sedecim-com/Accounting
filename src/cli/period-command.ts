@@ -202,7 +202,7 @@ Examples:
 `,
   yearCreate: `
 Examples:
-  # Create a fiscal year and its twelve monthly periods.
+  # Create a fiscal year: twelve monthly periods and the year-end adjustment period (13).
   mnemosine year create 2027
   # See the calendar it would create, writing nothing.
   mnemosine year create 2027 --dry-run
@@ -645,7 +645,7 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
     .command('create')
     .alias('crear')
     .argument('<year>', 'four-digit year, e.g. 2027')
-    .description('Create a fiscal year and its twelve monthly periods');
+    .description('Create a fiscal year: its twelve monthly periods and the year-end adjustment period (13)');
   withContext(create);
   create
     .option('--dry-run', 'show the calendar that would be created; write nothing')
@@ -683,7 +683,7 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
         }
         process.stdout.write(
           `\n${deps.palette.bold(`Would create fiscal year ${yearNumber}`)} ` +
-            `${deps.palette.dim('with 12 monthly periods (calendar year); months already past and the current one open, the rest future')}\n\n`
+            `${deps.palette.dim('with 12 monthly periods (calendar year) and the year-end adjustment period (13); months already past and the current one open, the rest future')}\n\n`
         );
         return;
       }
@@ -697,7 +697,7 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
       }
       process.stdout.write(
         `${deps.palette.green('✔')} Fiscal year ${deps.palette.bold(String(result.yearNumber))} created ` +
-          `${deps.palette.dim(`with ${result.periods} monthly periods`)}\n` +
+          `${deps.palette.dim(`with 12 monthly periods and the year-end adjustment period (13)`)}\n` +
           deps.palette.dim('  Open a future month with: mnemosine period open <name>\n')
       );
     })

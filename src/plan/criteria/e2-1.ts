@@ -1038,6 +1038,100 @@ export const E2_1: Criterio[] = [
     },
   },
 
+  // ---- D1b · Period 13 and the year-end balance (#304 · MNE-001-046) ----
+
+  {
+    paquete: 'E2.1',
+    id: 'anexo24-closing-balance-has-its-period-13',
+    // The closing balance (month 13) reads a period_number 13 of type
+    // 'adjustment' or 'closing', and no entity had one, so it refused for all.
+    // Four things keep it generable and true, each read here:
+    //   · a new fiscal year is born with its adjustment period;
+    //   · the annual close books into the period being closed, not into
+    //     whichever period the date picks (December 31 is also December's);
+    //   · the balance's beginning and ending cuts order the entries of a day
+    //     two periods share by period, or the file double counts that day;
+    //   · closing December carries into period 13, not past it to January.
+    // The behaviour is proven against Postgres in
+    // tests/integration/year-end-period-13.int.spec.ts, and migration 104
+    // gives existing years their period 13 under RLS.
+    enunciado:
+      'Todo ejercicio tiene su periodo 13 y el cierre anual cae en él, así que la balanza de cierre (Mes 13) se puede generar y cuadra',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/fiscal-calendar-service.ts',
+        de: ") VALUES ($1,$2,$3,$4,$5,$6,'adjustment',$7)`,",
+        a: ") VALUES ($1,$2,$3,$4,$5,$6,'regular',$7)`,",
+        porque:
+          'the fiscal year goes back to regular periods only: no period is of adjustment type and ' +
+          '`balance generate --closing` refuses for every new entity, as it did for all of them',
+      },
+      {
+        archivo: 'src/services/accounting/period-close.ts',
+        de: 'sourceId: periodId, fiscalPeriodId: periodId }',
+        a: 'sourceId: periodId }',
+        porque:
+          'the closing entry is booked wherever its date points: with December still open that is ' +
+          'December, and month 13 is filed without the close',
+      },
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: '{ date: rango.hasta, inclusive: true, periodId: rango.fiscal_period_id },',
+        a: '{ date: rango.hasta, inclusive: true },',
+        porque:
+          'the ending cut goes back to the date alone: December generated after the annual close ' +
+          'counts the closing entries in SaldoFin and not in its movement, and it no longer balances',
+      },
+      {
+        archivo: 'src/services/accounting/period-close.ts',
+        de: 'AND (fp.start_date, fp.period_number) > (closed.start_date, closed.period_number)',
+        a: 'AND fp.start_date > closed.end_date',
+        porque:
+          'closing December carries its balances to January and period 13 opens empty; closing ' +
+          'period 13 then overwrites January with its activity alone',
+      },
+    ],
+    evaluar: () => {
+      const calendar = codigoDe('src/services/accounting/fiscal-calendar-service.ts');
+      const close = codigoDe('src/services/accounting/period-close.ts');
+      const report = codigoDe('src/services/reporting/report-service.ts');
+
+      if (
+        !/YEAR_END_PERIOD_NUMBER = 13;/.test(calendar) ||
+        !/\) VALUES \(\$1,\$2,\$3,\$4,\$5,\$6,'adjustment',\$7\)/.test(calendar)
+      ) {
+        return falla(
+          'ensureFiscalYear no longer creates the adjustment period 13: the closing balance refuses ' +
+            'for every entity, because there is no month 13 to read'
+        );
+      }
+      const closingEntries = [...close.matchAll(/sourceId: periodId[^}]*\}/g)].map((m) => m[0]);
+      if (closingEntries.length === 0 || closingEntries.some((o) => !o.includes('fiscalPeriodId: periodId'))) {
+        return falla(
+          'a closing entry is booked by its date and not into the period being closed: while ' +
+            'December accepts postings, the close lands in December and month 13 is filed without it'
+        );
+      }
+      if ((report.match(/periodId: rango\.fiscal_period_id/g) ?? []).length < 2) {
+        return falla(
+          "the balance's beginning or ending cut ignores the period: on December 31, the day December " +
+            'and period 13 share, the file counts entries twice and SaldoIni + Debe − Haber ≠ SaldoFin'
+        );
+      }
+      if (!/\(fp\.start_date, fp\.period_number\) > \(closed\.start_date, closed\.period_number\)/.test(close)) {
+        return falla(
+          'the carry-forward no longer follows the order of periods: closing December skips period 13'
+        );
+      }
+      return existe('tests/integration/year-end-period-13.int.spec.ts')
+        ? ok(
+            'every fiscal year is born with its period 13, the annual close books into it, and the ' +
+              'closing balance cuts and carries in the order of periods'
+          )
+        : falla('no integration test generates the closing balance after an annual close');
+    },
+  },
+
   // ---- G4b · El contrato que se pregunta, y la entrega que se reintenta ----
 
   {
