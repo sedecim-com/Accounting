@@ -4,6 +4,7 @@ import { boundedString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
+import { parseForClient } from '../../../utils/zod-client-errors.js';
 import { withTenant } from '../../../database/connection.js';
 import { resolveEntity } from '../../../ai/context.js';
 import {
@@ -67,13 +68,29 @@ const answerSchema = z.object({
   is_precedent: z.boolean().optional(),
 });
 const draftStatus = z.enum(['pending_review', 'approved', 'rejected']);
+
+/**
+ * Validates one query-string parameter. A bare `.parse()` threw a ZodError,
+ * which is not an AppError, so errorHandler answered 500 to a client typo
+ * (#315). This answers what `validateBody` answers for a bad body: 422
+ * VALIDATION_ERROR in the API error envelope, worded by the same
+ * zod-client-errors module, with the parameter named in `field`.
+ */
+function parseQuery<T>(schema: z.ZodType<T>, req: Request, name: string): T {
+  const parsed = parseForClient<T>(schema, req.query[name]);
+  if (!parsed.success) {
+    const details = parsed.issues.map((issue) => issue.message).join('; ');
+    throw new ValidationError(`Invalid query parameter: ${name}: ${details}`, name);
+  }
+  return parsed.data;
+}
 const questionStatus = z.enum(['pending', 'answered', 'dismissed']);
 
 // ─── Drafts ───
 
 router.get('/drafts', requirePermission('journal_entries:read'), requireEntityAccess,
   scoped(async (req, res, ctx) => {
-    const status = draftStatus.optional().parse(req.query.status);
+    const status = parseQuery(draftStatus.optional(), req, 'status');
     const drafts = await listDrafts(ctx, status, { limit: 100, newestFirst: true });
     res.json({ data: drafts, meta: meta(req) });
   })
@@ -115,7 +132,7 @@ router.post('/drafts/:id/reject', declararRiesgoRuta({ riesgo: 'escritura', agen
 
 router.get('/questions', requirePermission('journal_entries:read'), requireEntityAccess,
   scoped(async (req, res, ctx) => {
-    const status = questionStatus.optional().parse(req.query.status);
+    const status = parseQuery(questionStatus.optional(), req, 'status');
     const questions = await listQuestions(ctx, status);
     res.json({ data: questions, meta: meta(req) });
   })
@@ -138,7 +155,7 @@ router.post('/questions/:id/dismiss', declararRiesgoRuta({ riesgo: 'escritura', 
 
 router.get('/precedents', requirePermission('journal_entries:read'), requireEntityAccess,
   scoped(async (req, res, ctx) => {
-    const search = boundedString({ min: 1 }).parse(req.query.search);
+    const search = parseQuery(boundedString({ min: 1 }), req, 'search');
     const precedents = await searchPrecedents(ctx, search);
     res.json({ data: precedents, meta: meta(req) });
   })
