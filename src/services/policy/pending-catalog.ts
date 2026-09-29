@@ -931,6 +931,33 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 35,
   },
   {
+    key: 'diot_iva_acreditable_proporcion',
+    category: 'contable',
+    question: 'Does this entity credit its IVA through the LIVA art. 5 frac. V proportion?',
+    impact:
+      'The 2025 DIOT batch layout splits the creditable IVA of each supplier into two boxes: IVA ' +
+      'tied EXCLUSIVELY to taxed activities, and IVA to which a proportion was applied because the ' +
+      'entity also has exempt or non-taxed activities. The ledger credits every peso of IVA paid; ' +
+      'it does not compute that proportion.',
+    options: [
+      { value: 'solo_gravadas', label: 'No: every activity is taxed, so all IVA paid goes to the exclusively-taxed box' },
+      { value: 'aplica_proporcion', label: 'Yes: refuse the SAT batch file, since the proportion is not computed here' },
+    ],
+    defaultValue: 'solo_gravadas',
+    defaultRationale:
+      'LIVA art. 5 frac. V only requires the proportion when the taxpayer also performs exempt or ' +
+      'non-taxed activities; a firm whose activities are all taxed credits the IVA in full, and that ' +
+      'is exactly what the ledger already records in iva_acreditable. Declaring it in the ' +
+      'exclusively-taxed box keeps the file equal to the books and to the monthly VAT return. An ' +
+      'entity that does apply the proportion must say so, and then the file is refused rather than ' +
+      'declared with a factor nobody computed.',
+    whyAsking:
+      'Only you know whether the entity also has exempt activities, and that decides which box of the DIOT its creditable IVA belongs in.',
+    whatIDo: 'I declare all IVA paid as tied exclusively to taxed activities.',
+    ifSkipped: 'I declare it as exclusively taxed; answer "yes" if the entity applies the proportion.',
+    priority: 35,
+  },
+  {
     key: 'efirma_sellado_contabilidad_electronica',
     category: 'contable',
     question: 'Does the system seal the Anexo 24 files with your e.firma, or do you seal them yourself?',

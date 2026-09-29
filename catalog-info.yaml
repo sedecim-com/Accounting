@@ -45,6 +45,11 @@ provides:
     # keep_recent_tokens or max_memory_flushes (T2). A file zod 3 loaded with such a
     # value is refused, and every command that reads the config reports why.
   - file: sat-anexo24            # XML de catálogo, balanza y pólizas; DIOT, SUA, CFDI de nómina (los presenta el contribuyente, en el portal). El sellado con la e.firma bajo sellar_con_custodia entra al MVP (#442), sin construir todavía
+    # CONTRACT: `diot export --layout sat` writes the DIOT batch .txt the SAT portal
+    # uploads: 54 pipe-separated fields per third party, whole pesos, UTF-8, CRLF between
+    # records, per the SAT instructivo of January 2025 cited in
+    # src/services/sat/diot/sat-batch.ts (fiscal years 2025 onward; earlier periods are
+    # refused). It generates only; a person uploads it (#307).
 
 consumes: []                     # ningún contrato de otro repo de Sedecim hoy. Lo externo va en `external`
 

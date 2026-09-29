@@ -7100,8 +7100,7 @@ Commands:
                               the rate breakdown, the exempt base, the third
                               party and its operation type
   export|exportar [options]   Emit the DIOT file, byte-stable for diffing: the
-                              working paper today, the SAT batch layout when it
-                              is grounded
+                              working paper, or the SAT batch file to upload
   help [command]              display help for command
 ```
 
@@ -7127,9 +7126,8 @@ Options:
 
 This builds and checks the DIOT. It does NOT file it.
 The DIOT is captured or uploaded by a person in the SAT portal; this binary never
-reaches the portal and never loads an e.firma. The batch-file layout is not
-grounded in this repository, so `diot export --layout sat` refuses instead of
-inventing one — run it to see exactly what has to be confirmed.
+reaches the portal and never loads an e.firma. `diot export --layout sat` writes
+the batch file (SAT layout for fiscal years 2025 onward) for a person to upload.
 
 
 Examples:
@@ -7183,8 +7181,8 @@ Examples:
 ```
 Usage: mnemosine diot export|exportar [options]
 
-Emit the DIOT file, byte-stable for diffing: the working paper today, the SAT
-batch layout when it is grounded
+Emit the DIOT file, byte-stable for diffing: the working paper, or the SAT batch
+file to upload
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -7202,14 +7200,15 @@ Options:
 
 This builds and checks the DIOT. It does NOT file it.
 The DIOT is captured or uploaded by a person in the SAT portal; this binary never
-reaches the portal and never loads an e.firma. The batch-file layout is not
-grounded in this repository, so `diot export --layout sat` refuses instead of
-inventing one — run it to see exactly what has to be confirmed.
+reaches the portal and never loads an e.firma. `diot export --layout sat` writes
+the batch file (SAT layout for fiscal years 2025 onward) for a person to upload.
 
 
 Examples:
   # The working paper, to review before anything is filed.
   mnemosine diot export --period 2026-07 -o diot-2026-07.txt
+  # The batch file to upload in the SAT portal (it is not filed by this command).
+  mnemosine diot export --period 2026-07 --layout sat -o diot-sat-2026-07.txt
 ```
 
 ## `mnemosine isn`

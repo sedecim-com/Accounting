@@ -39,6 +39,9 @@ import type {
 //     bloquea la declaración o viaja como tercero global (15).
 //   · diot_iva_exento_y_base          → si un renglón exento sin base
 //     bloquea, se deriva del subtotal o se omite.
+//   · diot_iva_acreditable_proporcion → whether the SAT batch file may declare
+//     all IVA paid as tied exclusively to taxed activities (read here, applied
+//     in sat-batch.ts).
 //
 // ARMAR NO SE NIEGA; ENTREGAR SÍ. `construirDiot` termina siempre y devuelve
 // todos los hallazgos, porque las dos políticas que se niegan prometen
@@ -169,8 +172,16 @@ export async function construirDiot(opciones: OpcionesDiot): Promise<DiotConstru
     const pTipoOperacion = await getPolicy(ctx, 'diot_tipo_operacion_por_omision', client);
     const pSinRfc = await getPolicy(ctx, 'diot_tercero_sin_rfc', client);
     const pBaseExenta = await getPolicy(ctx, 'diot_iva_exento_y_base', client);
+    // Read here, applied by the SAT batch serializer (sat-batch.ts): it decides
+    // which IVA-acreditable box of the 2025 layout carries the IVA paid.
+    const pProportion = await getPolicy(ctx, 'diot_iva_acreditable_proporcion', client);
 
-    const politicas: PoliticaAplicada[] = [pTipoOperacion, pSinRfc, pBaseExenta].map((p) => ({
+    const politicas: PoliticaAplicada[] = [
+      pTipoOperacion,
+      pSinRfc,
+      pBaseExenta,
+      pProportion,
+    ].map((p) => ({
       clave: p.key,
       valor: p.value,
       definida: p.defined,

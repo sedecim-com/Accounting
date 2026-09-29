@@ -2447,7 +2447,7 @@
       "where": "diot_tipo_operacion_por_omision",
       "es": "diot_tipo_operacion_por_omision",
       "en": "diot_default_operation_type",
-      "why": "DIOT se queda (acrónimo oficial de la declaración). «Tipo de operación» es el campo del formulario y el árbol ya lo llama «operation type» en su prosa inglesa (pending-catalog.ts:597 y :599, diot-command.ts:670, system-prompt.ts:60); «por omisión» es `default`, la palabra que el propio `PolicySpec.defaultValue` usa. El valor que esta clave guarda lo consume `tercero.ts:68` y acaba escrito tal cual en el archivo que se sube al SAT (serializador.ts:147)."
+      "why": "DIOT se queda (acrónimo oficial de la declaración). «Tipo de operación» es el campo del formulario y el árbol ya lo llama «operation type» en su prosa inglesa (pending-catalog.ts:597 y :599, diot-command.ts:670, system-prompt.ts:60); «por omisión» es `default`, la palabra que el propio `PolicySpec.defaultValue` usa. El valor que esta clave guarda lo consume `tercero.ts:68` y acaba escrito tal cual en el archivo que se sube al SAT (serializador.ts:113 y sat-batch.ts)."
     },
     {
       "class": "policy-key",
@@ -3077,7 +3077,7 @@
       "es": "03",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Es el código 03 «Prestación de servicios profesionales» del mismo catálogo de la DIOT, con el mismo camino: `TipoOperacion` en tercero.ts:29 y salida literal en serializador.ts:147. Cambiarlo no lo caza ninguna prueba y se descubre cuando el SAT rechaza la declaración del mes."
+      "why": "Es el código 03 «Prestación de servicios profesionales» del mismo catálogo de la DIOT, con el mismo camino: `TipoOperacion` en tercero.ts:29 y salida literal en serializador.ts:113 y sat-batch.ts. Cambiarlo no lo caza ninguna prueba y se descubre cuando el SAT rechaza la declaración del mes."
     },
     {
       "class": "policy-value",
@@ -3085,7 +3085,7 @@
       "es": "85",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Es el código 85 «Otros» del catálogo de Tipo de Operación de la DIOT, no un número nuestro. `src/services/sat/diot/tercero.ts:29` lo declara como `export type TipoOperacion = '03' | '06' | '85'` (y :32 lo repite en `TIPOS_OPERACION`), y `serializador.ts:147` escribe `t.tipoOperacion` TAL CUAL en el archivo que se sube al SAT. Traducirlo o renumerarlo produce un archivo que la autoridad rechaza."
+      "why": "Es el código 85 «Otros» del catálogo de Tipo de Operación de la DIOT, no un número nuestro. `src/services/sat/diot/tercero.ts:29` lo declara como `export type TipoOperacion = '03' | '06' | '85'` (y :32 lo repite en `TIPOS_OPERACION`), y `serializador.ts:113 y sat-batch.ts` escribe `t.tipoOperacion` TAL CUAL en el archivo que se sube al SAT. Traducirlo o renumerarlo produce un archivo que la autoridad rechaza."
     },
     {
       "class": "policy-value",
@@ -4447,14 +4447,14 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/sat/diot/serializador.ts:47 (clase DiotNoEntregable, declarada en :45, 422)",
+      "where": "src/services/sat/diot/serializador.ts:29 (clase DiotNoEntregable, declarada en :27, 422)",
       "es": "DIOT_NO_ENTREGABLE",
       "en": "DIOT_NOT_FILEABLE",
       "why": "DIOT se queda: es el nombre de la declaración informativa del SAT. «entregar una declaración» en inglés fiscal es `file`, no `deliver` ni `submit`: `DIOT_NOT_FILEABLE` dice que los hallazgos bloqueantes impiden presentarla. Contrato publicado: salto de versión y `details.legacy_code` una versión (D5)."
     },
     {
       "class": "error-code",
-      "where": "src/services/sat/diot/serializador.ts:54 (clase DiotFormatoNoFundamentado, declarada en :52, 501)",
+      "where": "src/services/sat/diot/serializador.ts:36 (clase DiotFormatoNoFundamentado, declarada en :34, 501)",
       "es": "DIOT_FORMATO_NO_FUNDAMENTADO",
       "en": "DIOT_FORMAT_UNSUBSTANTIATED",
       "why": "«fundamentado» aquí es el sentido fiscal mexicano —tener fundamento documentado— y no «formateado»: el 501 dice que el layout del archivo de lote no está sustentado en este repositorio y que no se inventa. `UNSUBSTANTIATED` conserva ese sentido; `NOT_DOCUMENTED` se leería como «falta documentación interna», que es otra cosa. Conservo el sustantivo del propio código (`FORMATO` → `FORMAT`) aunque el mensaje diga «LAYOUT»; ver dudas. Contrato publicado: salto de versión y `details.legacy_code` una versión (D5)."

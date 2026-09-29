@@ -7,7 +7,6 @@ import {
   contarHallazgos,
   esEntregable,
   DiotFormatoNoFundamentado,
-  LO_QUE_FALTA_CONFIRMAR,
   PAPEL_DE_TRABAJO,
   SERIALIZADOR_SAT,
   type DiotConstruida,
@@ -57,10 +56,10 @@ import {
 //
 // NADA DE LO QUE SALE DE AQUÍ ESTÁ PRESENTADO. La DIOT se captura o se sube
 // en el portal del SAT, por una persona, con su e.firma o su contraseña. Este
-// binario no toca el portal, y la fila del catálogo que lo haría
-// (`diot export --layout sat`) SE NIEGA a inventar el layout del lote: ver
-// `LO_QUE_FALTA_CONFIRMAR` en el serializador. Así que las tres hojas gritan
-// lo mismo que las del Anexo 24, con las palabras que les tocan.
+// binario no toca el portal. `diot export --layout sat` writes the batch file
+// the portal accepts (layout grounded in sat-batch.ts) and stops there: the
+// upload is a person's act. Así que las tres hojas gritan lo mismo que las del
+// Anexo 24, con las palabras que les tocan.
 //
 // ── CUATRO DECISIONES QUE NO SON DE ESTILO ──
 //
@@ -81,7 +80,7 @@ import {
 // LAS DOS. `--format` es del núcleo y da forma al RECIBO (table|json|csv…).
 // `--layout` da forma al ARCHIVO que se exporta, y sólo tiene dos valores:
 // `working-paper`, la conciliación por tercero que se coteja contra el mayor
-// antes de capturar, y `sat`, el archivo de lote — que hoy se niega. Un solo
+// antes de capturar, y `sat`, el archivo de lote que se sube al portal. Un solo
 // flag para las dos cosas obligaría a que `--format json` significara una
 // cosa en `check` y otra en `export`.
 //
@@ -142,8 +141,8 @@ export const TITULAR_NO_PRESENTADA =
  * que ya terminó.
  *
  * No mandan a ningún comando de este binario, porque no hay ninguno que
- * presente: `diot export --layout sat` se niega mientras el layout del lote
- * no esté fundamentado, y `diot record` no existe.
+ * presente: `diot export --layout sat` only writes the batch file, and
+ * `diot record` no existe.
  */
 export const PASOS_PARA_PRESENTAR_DIOT: readonly string[] = Object.freeze([
   'Coteja el papel de trabajo contra el movimiento del mes de la cuenta de IVA acreditable: ' +
@@ -516,9 +515,8 @@ export function registerDiotCommand(program: Command, deps: DiotCommandDeps): vo
       'after',
       '\nThis builds and checks the DIOT. It does NOT file it.\n' +
         'The DIOT is captured or uploaded by a person in the SAT portal; this binary never\n' +
-        'reaches the portal and never loads an e.firma. The batch-file layout is not\n' +
-        "grounded in this repository, so `diot export --layout sat` refuses instead of\n" +
-        'inventing one — run it to see exactly what has to be confirmed.\n'
+        'reaches the portal and never loads an e.firma. `diot export --layout sat` writes\n' +
+        'the batch file (SAT layout for fiscal years 2025 onward) for a person to upload.\n'
     );
   };
 
@@ -595,6 +593,8 @@ Examples:
 Examples:
   # The working paper, to review before anything is filed.
   mnemosine diot export --period 2026-07 -o diot-2026-07.txt
+  # The batch file to upload in the SAT portal (it is not filed by this command).
+  mnemosine diot export --period 2026-07 --layout sat -o diot-sat-2026-07.txt
 `,
   };
 
@@ -770,7 +770,7 @@ Examples:
     .command('export')
     .alias('exportar')
     .description(
-      'Emit the DIOT file, byte-stable for diffing: the working paper today, the SAT batch layout when it is grounded'
+      'Emit the DIOT file, byte-stable for diffing: the working paper, or the SAT batch file to upload'
     );
   withContext(exportar);
   withOutput(exportar);
@@ -814,17 +814,15 @@ Examples:
         try {
           contenido = layout.serializar(d);
         } catch (e) {
-          // El layout del lote no está fundamentado y el serializador se
-          // niega. NO es un fallo: los datos están completos y lo que falta
-          // es que una persona confirme la forma contra el layout vigente.
-          // Por eso 11 (needs human) y no 1 — «el trabajo no falló, está
-          // esperando», que es literalmente el caso.
+          // A period before the first grounded layout (fiscal year 2024 and
+          // earlier). Not a failure of the data: a person captures it in the
+          // portal. Hence 11 (needs human) and not 1.
           if (e instanceof DiotFormatoNoFundamentado) {
             throw needsHuman(
               `${e.message}\n\nMientras tanto: \`mnemosine diot export --period ` +
                 `${String(anio)}-${String(mes).padStart(2, '0')} --layout working-paper\` ` +
                 `produce la conciliación por tercero para capturar en el portal.`,
-              { faltan: [...LO_QUE_FALTA_CONFIRMAR] }
+              e.details
             );
           }
           throw e;

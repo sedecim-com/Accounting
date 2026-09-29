@@ -18,7 +18,6 @@ import {
   esEntregable,
   PAPEL_DE_TRABAJO,
   SERIALIZADOR_SAT,
-  DiotFormatoNoFundamentado,
   RFC_GENERICO_NACIONAL,
 } from '../../src/services/sat/diot/index.js';
 
@@ -503,7 +502,7 @@ describe('la frontera de entidad', () => {
 });
 
 describe('la entrega', () => {
-  it('el papel de trabajo sale, y el archivo del SAT se niega con la lista de lo que falta', async () => {
+  it('the working paper and the SAT batch file both come out', async () => {
     const diot = await construirDiot({ tenantId: f.tenantId, entityId: f.entityId, anio: 2026, mes: 3 });
     expect(esEntregable(diot)).toBe(true);
 
@@ -512,7 +511,9 @@ describe('la entrega', () => {
     expect(papel).toContain('IDN010101AA1');
     expect(papel).toContain('IVA acreditable pagado en el mes: 80.0000');
 
-    expect(() => SERIALIZADOR_SAT.serializar(diot)).toThrow(DiotFormatoNoFundamentado);
+    const batch = SERIALIZADOR_SAT.serializar(diot);
+    expect(batch).toContain('IDN010101AA1');
+    for (const line of batch.split('\r\n')) expect(line.split('|')).toHaveLength(54);
   }, 60_000);
 
   it('el mes 13 de la balanza de cierre no existe aquí', async () => {
