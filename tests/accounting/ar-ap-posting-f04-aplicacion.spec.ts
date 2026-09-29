@@ -64,10 +64,12 @@ let state: EstadoFalso;
 let writes: Array<{ sql: string; params: unknown[] }>;
 
 function fakeClient(): pg.PoolClient {
-  const query = async (text: string, params?: unknown[]): Promise<{ rows: unknown[] }> => {
+  const query = async (text: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount?: number }> => {
     const sql = String(text).replace(/\s+/g, ' ');
     const p = params ?? [];
     if (/^UPDATE/.test(sql.trim())) writes.push({ sql, params: p });
+    // The collection's two guarded UPDATEs (invariant 3) find their one row.
+    if (/^UPDATE (customer_payments|payment_allocations)/.test(sql.trim())) return { rows: [], rowCount: 1 };
 
     if (sql.includes('FROM legal_entities')) {
       return { rows: [{ incorporation_country: state.country, accounting_standard: state.standard }] };

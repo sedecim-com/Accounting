@@ -269,6 +269,21 @@ describe('ivaStillParked — you cannot release what was never parked', () => {
     expect(c2.query.mock.calls[0][1]?.[1]).toBe('iva_trasladado_no_cobrado');
   });
 
+  it('a bill migrated with the opening counts its tax_amount as parked, only while that opening stands', async () => {
+    // MNE-001-023: the opening entry carries the pending IVA of every migrated
+    // bill as ONE line, so the bill's share is its own tax_amount.
+    const c = client('1241.3800');
+    await ivaStillParked(c as never, 'received', ENTITY, DOC);
+    const sql = String(c.query.mock.calls[0][0]).replace(/\s+/g, ' ');
+    expect(sql).toContain("SELECT SUM(b.tax_amount) FROM bills b");
+    expect(sql).toContain("WHERE b.id = $3 AND b.entity_id = $1 AND jo.source_type = 'opening_balance'");
+    expect(sql).toContain("jo.status = 'posted' AND jo.reversed_by_entry_id IS NULL");
+    // An issued document is never a bill.
+    const c2 = client('0');
+    await ivaStillParked(c2 as never, 'issued', ENTITY, DOC);
+    expect(String(c2.query.mock.calls[0][0])).not.toContain('FROM bills');
+  });
+
   it('scopes every leg to the entity', async () => {
     const c = client('0');
     await ivaStillParked(c as never, 'received', ENTITY, DOC);

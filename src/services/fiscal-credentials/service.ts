@@ -265,9 +265,14 @@ export async function withCredential<T>(
   // Cualquier otro valor —'bloquear', 'bloquear_fuera_horario' mientras la
   // ventana horaria no exista, o un valor desconocido— NIEGA: el lado
   // seguro de una credencial es el candado.
+  //
+  // The cap counts every use that got past these gates ('success' and
+  // 'error'): an 'error' row can still mean the key was decrypted and a
+  // signature left the process (the SAT refused it), so a caller that retries
+  // on failure must not decrypt without limit. Only 'denied' is left out.
   const used = await query<{ n: string }>(
     `SELECT count(*)::text n FROM fiscal_credential_access_log
-     WHERE credential_id = $1 AND outcome = 'success' AND accessed_at > NOW() - INTERVAL '24 hours'`,
+     WHERE credential_id = $1 AND outcome IN ('success', 'error') AND accessed_at > NOW() - INTERVAL '24 hours'`,
     [row.id]
   );
   const ctxPanel = { tenantId: row.tenant_id, entityId: row.entity_id };

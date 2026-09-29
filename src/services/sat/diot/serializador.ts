@@ -1,45 +1,27 @@
 import { AppError } from '../../../utils/errors.js';
 import { bloquean, contarHallazgos } from './hallazgos.js';
 import type { DiotConstruida, RenglonDiot } from './modelo.js';
+import { layoutForYear, SAT_BATCH_LAYOUTS, SAT_SOURCE, serializeSatBatch } from './sat-batch.js';
 
 // ============================================================
-// F07c · CÓMO SE ESCRIBE LA DIOT, Y POR QUÉ AQUÍ NO SE ESCRIBE ENTERA
+// F07c · CÓMO SE ESCRIBE LA DIOT
 //
-// La DIOT no es XML. Se presenta por lotes en un archivo de texto con los
-// campos separados por barras verticales, y ése es el único punto en el que
-// este módulo NO puede fundamentar lo que haría.
+// Two serializers behind one interface:
+//   · PAPEL_DE_TRABAJO  → the per-third-party reconciliation, readable and
+//                         checked against the ledger. Its first line says it
+//                         is NOT the declaration.
+//   · SERIALIZADOR_SAT  → the batch file the SAT receives (MNE-001-055,
+//                         #307). The layout lives in sat-batch.ts, grounded
+//                         in the SAT instructivo cited there with the date it
+//                         was consulted.
 //
-// LO QUE SÍ ESTÁ FUNDAMENTADO, y por eso se entrega: qué se declara. Que la
-// base son operaciones PAGADAS y no devengadas, que va desglosado por tasa,
-// que el tercero lleva tipo (04/05/15) y tipo de operación (03/06/85), que el
-// extranjero lleva identificación fiscal, país y nacionalidad, y que el IVA
-// retenido va aparte. Todo eso está escrito en las columnas que la migración
-// 063 creó, en las tres políticas del panel y en la lista de comprobación de
-// la casa, y todo eso lo produce `construirDiot` con importes verificados
-// contra el mayor.
-//
-// LO QUE NO: el orden exacto de los campos del registro, cuántos son, si el
-// importe va redondeado a pesos o con centavos, si hay registro de cabecera,
-// qué campo ocupa el IVA retenido y si las operaciones de la región
-// fronteriza y las de importación tienen campo propio. Eso es la FORMA, y la
-// fija la autoridad.
-//
-// ESTE REPOSITORIO YA TUVO UNA VERSIÓN INVENTADA Y LA BORRÓ. `generateDIOT`
-// (src/services/mexico/cfdi.ts, eliminado) emitía
-// `tipo|rfc|||nombre||||total|impuesto||||||||` — dieciséis barras y ningún
-// documento detrás—, y encima agregaba en base devengada. La nota de deuda
-// que acompañó su borrado dice literalmente que no debe exponerse un archivo
-// de declaración calculado así. Reponer el mismo layout con la aritmética
-// arreglada sería reponer el otro medio error: un formato inventado no falla
-// al generarse, falla al ser RECHAZADO, y para entonces el plazo corrió.
-//
-// De modo que hay dos serializadores y sólo uno escribe algo:
-//   · PAPEL_DE_TRABAJO  → la conciliación por tercero, legible y cotejable
-//                         contra el mayor. Dice de sí mismo que NO es la
-//                         declaración, en su primera línea.
-//   · SERIALIZADOR_SAT  → se niega, y enumera qué hay que confirmar. El día
-//                         que se confirme, se implementa aquí y nada más
-//                         cambia: los datos ya están.
+// THIS REPOSITORY ONCE SHIPPED AN INVENTED LAYOUT AND DELETED IT.
+// `generateDIOT` (src/services/mexico/cfdi.ts, removed) wrote
+// `tipo|rfc|||nombre||||total|impuesto||||||||` with no document behind it.
+// An invented format does not fail when generated; it fails when REJECTED,
+// after the deadline. That is why the SAT serializer still refuses a period
+// whose layout is not grounded (DiotFormatoNoFundamentado) and every third
+// party the grounded layout cannot express (DiotNoEntregable).
 // ============================================================
 
 export class DiotNoEntregable extends AppError {
@@ -55,22 +37,6 @@ export class DiotFormatoNoFundamentado extends AppError {
     this.name = 'DiotFormatoNoFundamentado';
   }
 }
-
-/**
- * Lo que hace falta saber para escribir el archivo que la autoridad recibe.
- * Es una lista, y no prosa, para que el día que se confirme se pueda tachar
- * punto por punto — y para que una prueba pueda comprobar que el serializador
- * sigue negándose mientras quede alguno.
- */
-export const LO_QUE_FALTA_CONFIRMAR: readonly string[] = Object.freeze([
-  'El orden y el número exacto de campos de cada registro, contra el layout vigente publicado por el SAT.',
-  'Si los importes se declaran redondeados a pesos sin decimales o con centavos, y con qué regla de redondeo.',
-  'Si el archivo lleva registro de cabecera (RFC del declarante, periodo, tipo de declaración) o empieza directo por el primer tercero.',
-  'Qué campo ocupa el IVA retenido y si se declara junto al tercero o en un registro aparte.',
-  'Si las operaciones de la región fronteriza (8 %) y las de importación tienen campo propio o comparten el del 16 %.',
-  'El terminador de registro y la codificación del archivo, y si el último campo lleva barra final.',
-  'Si un tercero con varias tasas ocupa un registro con todas las casillas o un registro por tasa.',
-]);
 
 export interface SerializadorDiot {
   nombre: string;
@@ -203,11 +169,12 @@ export const PAPEL_DE_TRABAJO: SerializadorDiot = {
 };
 
 /**
- * El archivo que la autoridad recibe. Se niega, con la lista de lo que falta.
+ * The file the authority receives. It generates; it never files — presenting
+ * the DIOT is a human act in the SAT portal.
  *
- * No es un `TODO`: es el resultado de haber buscado el layout y no poder
- * fundamentarlo. Devolver algo aquí sería devolver un archivo que se descubre
- * mal el día que lo rechazan.
+ * Refuses, in this order: blocking findings (exigirEntregable), a period with
+ * no grounded layout, and third parties the layout cannot express — all of
+ * them named at once.
  */
 export const SERIALIZADOR_SAT: SerializadorDiot = {
   nombre: 'archivo de lote de la DIOT (SAT)',
@@ -215,18 +182,34 @@ export const SERIALIZADOR_SAT: SerializadorDiot = {
   esArchivoDeclarable: true,
   serializar(diot: DiotConstruida): string {
     exigirEntregable(diot);
-    throw new DiotFormatoNoFundamentado(
-      `Los datos de la DIOT de ${String(diot.periodo.mes).padStart(2, '0')}/` +
-        `${diot.periodo.anio} están completos y verificados (${diot.totales.terceros} tercero(s), ` +
-        `${diot.totales.ivaAcreditablePagado} de IVA acreditable pagado), pero el LAYOUT del ` +
-        `archivo de lote no está fundamentado en este repositorio y no se inventa: un formato ` +
-        `inventado no falla al generarse, falla al ser rechazado por la autoridad, y para ` +
-        `entonces el plazo corrió.\n` +
-        `Falta confirmar contra el layout vigente:\n` +
-        LO_QUE_FALTA_CONFIRMAR.map((x) => `  · ${x}`).join('\n') +
-        `\nMientras tanto: PAPEL_DE_TRABAJO produce la conciliación por tercero para capturar ` +
-        `en el portal, y presentar la DIOT sigue siendo un acto humano.`,
-      { faltan: LO_QUE_FALTA_CONFIRMAR.length }
-    );
+    const periodo = `${String(diot.periodo.mes).padStart(2, '0')}/${diot.periodo.anio}`;
+    if (layoutForYear(diot.periodo.anio) === null) {
+      throw new DiotFormatoNoFundamentado(
+        `La DIOT de ${periodo} se presenta con el layout del ejercicio 2024 y anteriores, que ` +
+          `este repositorio no implementa: sólo está fundamentado el de 2025 en adelante ` +
+          `(${SAT_SOURCE.url}, consultado el ${SAT_SOURCE.consulted}). No se escribe con la ` +
+          `forma nueva un periodo que la autoridad valida con la vieja.`,
+        { primer_ejercicio: SAT_BATCH_LAYOUTS[SAT_BATCH_LAYOUTS.length - 1].firstYear }
+      );
+    }
+    if (diot.renglones.length === 0) {
+      throw new DiotNoEntregable(
+        `La DIOT de ${periodo} no tiene terceros que declarar: un archivo de lote vacío no es ` +
+          `una declaración, y no se escribe.`,
+        { terceros: 0 }
+      );
+    }
+    const proportion =
+      diot.politicas.find((p) => p.clave === 'diot_creditable_iva_proportion')?.valor ??
+      'taxed_only';
+    const { file, refusals } = serializeSatBatch(diot, { proportion });
+    if (refusals.length > 0) {
+      throw new DiotNoEntregable(
+        `La DIOT de ${periodo} no cabe en el layout del SAT tal cual:\n` +
+          refusals.map((r) => `  · ${r.message}`).join('\n'),
+        { vendors: refusals.flatMap((r) => r.vendorIds) }
+      );
+    }
+    return file;
   },
 };

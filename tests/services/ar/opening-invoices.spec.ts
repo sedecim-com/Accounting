@@ -187,6 +187,26 @@ describe('writeOpeningInvoices', () => {
   beforeEach(() => client.query.mockReset());
   const sqls = () => client.query.mock.calls.map((c) => String(c[0]).replace(/\s+/g, ' '));
 
+  it('a generic RFC identifies nobody: two public-at-large customers under XAXX010101000 are two customers, by name', async () => {
+    let created = 0;
+    client.query.mockImplementation(async (text: string) => {
+      if (/^SELECT id FROM customers/.test(text)) return { rows: [] };
+      if (/COUNT/.test(text)) return { rows: [{ n: '0' }] };
+      if (/INSERT INTO customers/.test(text)) return { rows: [{ id: `cust-${++created}` }] };
+      return { rows: [], rowCount: 1 };
+    });
+    await writeOpeningInvoices(client as never, 'ent-1', 'user-1', 'je-1', [
+      draft({ number: 'A-1', customerName: 'Mostrador Norte', customerRfc: 'XAXX010101000' }),
+      draft({ number: 'A-2', customerName: 'Mostrador Sur', customerRfc: 'XAXX010101000' }),
+    ]);
+    const lookups = client.query.mock.calls.filter((c) => /^SELECT id FROM customers/.test(String(c[0])));
+    expect(lookups.map((c) => c[1] as unknown)).toEqual([['ent-1', 'Mostrador Norte'], ['ent-1', 'Mostrador Sur']]);
+    expect(String(lookups[0][0])).toMatch(/LOWER\(company_name\)/);
+    const invoices = client.query.mock.calls.filter((c) => /INSERT INTO invoices/.test(String(c[0])));
+    expect(invoices.map((c) => (c[1] as unknown[])[0])).toEqual(['cust-1', 'cust-2']);
+    expect(sqls().filter((s) => s.startsWith('INSERT INTO customers'))).toHaveLength(2);
+  });
+
   it('creates the customer once, by RFC, and links each invoice to the opening entry', async () => {
     client.query.mockImplementation(async (text: string) => {
       if (/^SELECT id FROM customers/.test(text)) return { rows: [] };

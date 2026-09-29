@@ -38,7 +38,7 @@ import { riskOf } from './risk.js';
  *
  * Los tres campos son las tres partes de una HUELLA. `claveDeViolacion` (:306)
  * devuelve `` `${v.command}|${v.rule}|${v.detail…}` `` y `auditarContraLineaBase`
- * (:444) compara esa huella —con `base.has(k)`— contra `LINEA_BASE`, la lista
+ * (:441) compara esa huella —con `base.has(k)`— contra `LINEA_BASE`, la lista
  * congelada de más abajo. `rule` además se compara solo: `REGLAS_DE_LLAVE`
  * (:77) lo prueba con `.includes(v.rule)` en `esDeudaDeLlave` (:81).
  *
@@ -393,7 +393,7 @@ export interface ResultadoAuditoria {
 // que se corrió así, sobre el binario embarcado: 36 hojas aceptan
 // `--idempotency-key` y 17 la honran (eran 15: este tramo cableó `receipt
 // record` y `payment create`). Las 19 que NO, más `prepaid run` —que la honra
-// sin declararlo—, son las 20 de esta lista.
+// sin declararlo—, eran las 20 de esta lista.
 //
 // NO VAN A `LINEA_BASE`, y no por comodidad: esa lista tiene su propia foto
 // congelada en tests/cli/kernel/auditoria-programa.spec.ts que le prohíbe
@@ -408,11 +408,9 @@ export interface ResultadoAuditoria {
 // reapertura de sesión bancaria de T10, la reversa de pago a proveedor de
 // T11— produce una violación que NO está aquí, y la puerta se pone roja.
 //
-// La única que aparece por «llave sin declarar» y no por «sin honrar» es
-// `prepaid run`: SÍ honra la llave (src/cli/prepaid-command.ts la pasa a
-// `conLlave` bajo el ámbito 'prepaid run') pero su declaración todavía no lo
-// dice. Es territorio de otra sesión; convertirla es un renglón —
-// `llave: { scope: 'prepaid run' }`— y entonces sale de esta lista sola.
+// `prepaid run` was the only one listed for "llave sin declarar" rather than
+// "sin honrar". MNE-001-053 (#317) made it look the key up before working and
+// declared `llave: { scope: 'prepaid run' }`, so it left this list.
 // ============================================================
 // LA LISTA SÓLO ENCOGE, y ya encogió una vez: siete hojas salieron de aquí no
 // por cablearse sino por CLASIFICARSE BIEN. `review`, `ingest`, `outbox run`,
@@ -435,7 +433,6 @@ export const DEUDA_DE_LLAVES: readonly string[] = [
   'receipt reverse',
   'credit-note issue',
   'fx rate download',
-  'prepaid run',
   'backup restore',
   'cfdi status sync',
   'jobs run-due',

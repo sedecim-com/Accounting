@@ -892,26 +892,64 @@ export const POLICY_CATALOG: PolicySpec[] = [
     key: 'diot_tipo_operacion_por_omision',
     textKey: 'diot_default_operation_type',
     category: 'contable',
-    question: 'A supplier with no operation type declared: which one does the DIOT report?',
+    question: 'A national supplier with no operation type declared: which one does the DIOT report?',
     impact:
-      'The DIOT reports each supplier under an operation type — 03 professional services, 06 ' +
-      'property leasing, 85 other. It is per SUPPLIER, not per invoice, so a wrong default is ' +
-      'wrong for every month until someone corrects it.',
+      'The DIOT reports each supplier under an operation type. For a national supplier the 2025 ' +
+      'catalogue offers 02 transfer of goods, 03 professional services, 06 temporary use of goods, ' +
+      '08 import by virtual transfer and 85 other. It is per SUPPLIER, not per invoice, so a wrong ' +
+      'default is wrong for every month until someone corrects it. Foreign suppliers have their ' +
+      'own key, diot_default_operation_type_foreign.',
     options: [
-      { value: '85', label: 'Other (85) — the catch-all the catalogue provides' },
+      { value: '85', label: 'Other (85) — the residual key the catalogue provides' },
+      { value: '02', label: 'Transfer of goods (02)' },
       { value: '03', label: 'Professional services (03)' },
+      { value: '06', label: 'Temporary use or enjoyment of goods (06)' },
       { value: 'bloquear', label: 'None: refuse to build the DIOT until every supplier declares one' },
     ],
     defaultValue: '85',
     defaultRationale:
-      'The catalogue itself provides 85 as the residual category, so using it is not a guess: it is ' +
-      'the answer the form expects when the operation is neither professional services nor leasing. ' +
-      'Refusing would block a monthly filing over suppliers whose classification does not change the ' +
-      'tax, and 03 or 06 asserted by default would put a specific claim in your name.',
+      'SAT, Instructivo para el armado del archivo de carga masiva DIOT (Enero 2025), §3.1: 85 ' +
+      '"Otros" is the residual key for a national supplier whose operation is not one of the ' +
+      'specific ones (02 goods, 03 professional services, 06 use of goods, 08 virtual-transfer ' +
+      'import). The ledger does not know whether an undeclared supplier sold goods or services, so ' +
+      'asserting 02, 03 or 06 by default would put a specific claim in your name; 85 claims only ' +
+      'that no specific key was captured, and every supplier that takes it is listed so the ones ' +
+      'that matter can be refined. 08 is not offered as a default: it requires a customs pedimento ' +
+      'and cannot be a blanket answer. Refusing would block a monthly filing over a classification ' +
+      'that does not change the tax.',
     whyAsking:
-      'The form classifies each supplier by the kind of operation you have with them, and most of them are neither professional services nor leasing — but the two that are, you have to tell me.',
-    whatIDo: 'I report suppliers with no declared type under 85, and list them so you can refine the ones that matter.',
+      'The form classifies each supplier by the kind of operation you have with them; the ones with a specific key you have to tell me.',
+    whatIDo: 'I report national suppliers with no declared type under 85, and list them so you can refine the ones that matter.',
     ifSkipped: 'I use 85 and tell you which suppliers took it.',
+    priority: 35,
+  },
+  {
+    key: 'diot_default_operation_type_foreign',
+    textKey: 'diot_default_operation_type_foreign',
+    category: 'contable',
+    question: 'A foreign supplier with no operation type declared: which one does the DIOT report?',
+    impact:
+      'For a foreign supplier (third-party type 05) the 2025 DIOT catalogue accepts only 02 ' +
+      'transfer of goods, 03 professional services and 07 import of goods or services. 85 and 06 ' +
+      'are not accepted, so the national default cannot be reused for them.',
+    options: [
+      { value: '07', label: 'Import of goods or services (07)' },
+      { value: '03', label: 'Professional services (03)' },
+      { value: '02', label: 'Transfer of goods (02)' },
+      { value: 'block', label: 'None: refuse to build the DIOT until every foreign supplier declares one' },
+    ],
+    defaultValue: '07',
+    defaultRationale:
+      'SAT, Instructivo para el armado del archivo de carga masiva DIOT (Enero 2025), §3.1 limits a ' +
+      'foreign supplier to 02, 03 and 07. Under LIVA art. 24 (frac. I–V) bringing in goods, or acquiring ' +
+      'or using in Mexico intangibles or services supplied by a non-resident, is an IMPORT, so 07 is ' +
+      'the key that describes what the entity did in the usual case, and it matches the import ' +
+      'boxes where the file already puts that IVA. 02 and 03 remain available for a firm whose ' +
+      'foreign suppliers are better described that way; a supplier that differs declares its own key.',
+    whyAsking:
+      'Foreign suppliers cannot use the national "other" key, and the file is rejected if they carry it.',
+    whatIDo: 'I report foreign suppliers with no declared type under 07, and list them.',
+    ifSkipped: 'I use 07 and tell you which suppliers took it.',
     priority: 35,
   },
   {
@@ -968,6 +1006,36 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'Exempt purchases still count on the filing, and they are the ones whose amount the system used to throw away without telling anyone.',
     whatIDo: 'I stop and name the documents whose exempt base is unknown instead of guessing it.',
     ifSkipped: 'I require the base and name what is missing.',
+    priority: 35,
+  },
+  {
+    key: 'diot_creditable_iva_proportion',
+    textKey: 'diot_creditable_iva_proportion',
+    category: 'contable',
+    question: 'Does this entity credit its IVA through the LIVA art. 5 frac. V proportion?',
+    impact:
+      'The 2025 DIOT batch layout splits the creditable IVA of each supplier into two boxes: IVA ' +
+      'tied EXCLUSIVELY to taxed activities, and IVA to which a proportion was applied because the ' +
+      'entity also has exempt or non-taxed activities. The ledger credits every peso of IVA paid; ' +
+      'it does not compute that proportion yet.',
+    options: [
+      { value: 'taxed_only', label: 'No: every activity is taxed, so all IVA paid goes to the exclusively-taxed box' },
+      { value: 'block', label: 'Yes: refuse the SAT batch file until the proportional treatment exists (capture in the portal)' },
+    ],
+    defaultValue: 'taxed_only',
+    defaultRationale:
+      'LIVA art. 5 frac. V only requires the proportion when the taxpayer also performs exempt or ' +
+      'non-taxed activities; a firm whose activities are all taxed credits the IVA in full, and that ' +
+      'is exactly what the ledger already records in iva_acreditable. Declaring it in the ' +
+      'exclusively-taxed box (SAT DIOT instructivo, Enero 2025, §3.3) keeps the file equal to the ' +
+      'books and to the monthly VAT return. The DIOT refuses this default when the ledger shows ' +
+      'exempt revenue in the fiscal year (accounts mapped to agrupador 401.07–401.09), and an ' +
+      'entity that applies the proportion must answer "block": the proportional boxes are not ' +
+      'computed here yet, and a factor nobody computed is not declared.',
+    whyAsking:
+      'Only you know whether the entity also has exempt activities, and that decides which box of the DIOT its creditable IVA belongs in.',
+    whatIDo: 'I declare all IVA paid as tied exclusively to taxed activities, and stop if the ledger shows exempt revenue.',
+    ifSkipped: 'I declare it as exclusively taxed and remind you on every DIOT; answer "block" if the entity applies the proportion.',
     priority: 35,
   },
   {
@@ -1215,6 +1283,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 40,
   },
   {
+    // MNE-001-023 · #310: the reader is `importOpeningBalance`
+    // (opening-balance.ts), and `planOpeningBills` (ap/opening-bills.ts)
+    // applies it to each payable document that does not carry `ivaRate`.
+    key: 'opening_payable_iva',
+    textKey: 'opening_payable_iva',
+    category: 'fiscal',
+    question:
+      'When a migrated vendor invoice does not say the IVA rate inside its open balance, what does the opening load do?',
+    impact:
+      'A migrated vendor invoice becomes a bill. With its IVA rate, the bill carries the base and the ' +
+      'IVA pending to credit, so paying it moves that IVA to creditable and the DIOT of that month ' +
+      'declares it by rate. Without the rate, "require_rate" stops the load and names the documents; ' +
+      '"assume_zero_rate" loads them at 0 %: paying them credits no IVA and the DIOT declares them as ' +
+      '0 % acts. The IVA of the documents must also be in the pending-IVA account of the opening.',
+    options: [
+      { value: 'require_rate', label: 'Stop the load until each vendor document says its IVA rate' },
+      { value: 'assume_zero_rate', label: 'Load them at 0 % and warn: no IVA is credited when they are paid' },
+    ],
+    defaultValue: 'require_rate',
+    defaultRationale:
+      'Under cash-basis IVA the tax of an unpaid purchase becomes creditable when it is paid (LIVA ' +
+      'art. 1-B and art. 5 fr. III), and the DIOT reports what was paid by rate (LIVA art. 32 fr. VIII). ' +
+      'Assuming 0 % loses the credit and declares acts at a rate they did not have; asking for the ' +
+      'rate costs one column in the file.',
+    whyAsking:
+      'The old system gives me what is still owed to each vendor, not always how much of it is IVA. I either wait until you tell me, or I load it as having no IVA.',
+    whatIDo:
+      'By default I stop the load and list the vendor documents without a rate. With "assume_zero_rate" I load them at 0 % and tell you which ones.',
+    ifSkipped: 'I stop the load until each vendor document says its IVA rate.',
+    priority: 41,
+  },
+  {
     key: 'informes_asientos_de_cierre',
     textKey: 'closing_entries_in_reports',
     category: 'contable',
@@ -1361,25 +1461,32 @@ export const POLICY_CATALOG: PolicySpec[] = [
     key: 'rep_moneda_extranjera',
     textKey: 'rep_foreign_currency',
     category: 'contable',
-    question: 'A receipt in a currency other than the functional one: what do we do with the exchange difference?',
+    question: 'A receipt in a currency other than the functional one: register it, or leave it for review?',
     impact:
-      'Decides whether foreign-currency receipts are matched at all. Vendor payments now compute the ' +
-      'realised difference (R4), but the REP matcher still does not, so matching here would post an ' +
-      'invented figure.',
+      'Decides whether a foreign-currency REP creates its payment. When it does, it goes through the same ' +
+      'payment engine as a payment typed by hand (vendor payments since R4, collections since MNE-001-082): ' +
+      'each document is extinguished at the rate it was born with, the cash converts at the payment day\'s ' +
+      'rate from `fuente_tipo_cambio`, the IVA becomes due at that same rate, and the gap is posted to the ' +
+      'exchange gain/loss accounts. The REP\'s own TipoCambioP is not read; the firm\'s source is.',
     options: [
       { value: 'no_casar', label: 'Do not match: leave it for review with a multi-currency warning' },
-      { value: 'tc_documento', label: "Match at the document's rate and recognise no difference" },
+      {
+        value: 'payment_day_rate',
+        label: "Register it through the payment engine, realising the exchange difference at the payment day's rate",
+      },
     ],
     defaultValue: 'no_casar',
     defaultRationale:
-      'Since R4 the vendor-payment path DOES post realised differences to the exchange gain/loss ' +
-      'accounts, but the REP matcher does not share that engine yet. The problem is also double, ' +
-      'not single: NIF B-15 wants the fluctuation in the period it occurs, while for VAT the creditable ' +
-      'amount is the one actually paid converted at the DOF rate of the payment date — two different ' +
-      'rates the system does not yet tell apart. Stopping and saying so is honest.',
+      'NIF B-15 wants the realised difference in the period the payment settles the document, and for VAT ' +
+      'the amount caused or creditable is the one actually paid converted at the rate of the payment date ' +
+      '(LIVA arts. 1-B, 5-III and 11; art. 20 CFF). The payment engine now books both, so registering is ' +
+      'sound; the default still stops at review because a REP the firm did not type is created with no bank ' +
+      'account and a rate nobody looked at, and a person should see the first ones before they post. There ' +
+      'is no option that matches at the document\'s rate and recognises no difference: that would leave the ' +
+      'VAT at the wrong rate and hide a realised result B-15 requires.',
     whyAsking:
-      'A payment in dollars against an invoice in pesos creates an exchange difference that has to land somewhere. I cannot compute it correctly yet, so I would rather stop than invent it.',
-    whatIDo: 'I leave the receipt unmatched and tell you, instead of guessing a rate.',
+      'A payment in dollars settles documents booked at another rate: the difference is real money and lands in the exchange gain/loss accounts.',
+    whatIDo: 'I leave the receipt unmatched and tell you, or register it with its realised difference if you say so.',
     ifSkipped: 'I do not match foreign-currency receipts, and I say so each time.',
     priority: 55,
   },

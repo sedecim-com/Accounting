@@ -108,6 +108,25 @@ describe('resolvePeriod — one period, or a refusal', () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await expect(resolvePeriod(ENTITY, 'brumario')).rejects.toThrow(NotFoundError);
   });
+
+  const december = {
+    rows: [
+      { id: 'p12', period_name: 'December 2026' },
+      { id: 'p13', period_name: 'Year-end adjustments 2026' },
+    ],
+  };
+
+  it('YYYY-MM names the regular month when December and period 13 share it', async () => {
+    mockQuery.mockResolvedValueOnce(december);
+    expect((await resolvePeriod(ENTITY, '2026-12')).id).toBe('p12');
+  });
+
+  it('with refuseSharedMonth, a YYYY-MM two periods share is refused with both ids', async () => {
+    mockQuery.mockResolvedValueOnce(december);
+    const err = await resolvePeriod(ENTITY, '2026-12', { refuseSharedMonth: true }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ValidationError);
+    expect(String(err)).toMatch(/matches 2 periods: December 2026 \(p12\), Year-end adjustments 2026 \(p13\)/);
+  });
 });
 
 describe('getPeriodDetail', () => {

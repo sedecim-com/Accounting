@@ -851,7 +851,7 @@
       "es": "tipo_operacion",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Catálogo de la DIOT: 03 servicios profesionales, 06 arrendamiento, 85 otros (CHECK en 066:49, COMMENT en 066:57). Es un campo del formato, no una clasificación nuestra; `operation_type` no aparece en ningún documento de la autoridad."
+      "why": "Catálogo de la DIOT: 03 servicios profesionales, 06 arrendamiento, 85 otros (CHECK en 066:49, COMMENT en 066:57); ampliado al catálogo 2025 (02, 03, 06, 07, 08, 85) por la 138. Es un campo del formato, no una clasificación nuestra; `operation_type` no aparece en ningún documento de la autoridad."
     },
     {
       "class": "column",
@@ -2346,6 +2346,14 @@
     },
     {
       "class": "policy-key",
+      "where": "opening_payable_iva",
+      "es": "opening_payable_iva",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): `opening` is the tree's term for the opening balance (`opening_balance`, `opening-balance import`), `payable` is the AP side, `iva` is the tax's name in both languages. Read by `importOpeningBalance` and applied by `planOpeningBills` (ap/opening-bills.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "bank_statement_overlap",
       "es": "bank_statement_overlap",
       "en": null,
@@ -2469,7 +2477,7 @@
       "where": "diot_tipo_operacion_por_omision",
       "es": "diot_tipo_operacion_por_omision",
       "en": "diot_default_operation_type",
-      "why": "DIOT se queda (acrónimo oficial de la declaración). «Tipo de operación» es el campo del formulario y el árbol ya lo llama «operation type» en su prosa inglesa (pending-catalog.ts:597 y :599, diot-command.ts:670, system-prompt.ts:60); «por omisión» es `default`, la palabra que el propio `PolicySpec.defaultValue` usa. El valor que esta clave guarda lo consume `tercero.ts:68` y acaba escrito tal cual en el archivo que se sube al SAT (serializador.ts:147)."
+      "why": "DIOT se queda (acrónimo oficial de la declaración). «Tipo de operación» es el campo del formulario y el árbol ya lo llama «operation type» en su prosa inglesa (pending-catalog.ts:597 y :599, diot-command.ts:670, system-prompt.ts:60); «por omisión» es `default`, la palabra que el propio `PolicySpec.defaultValue` usa. El valor que esta clave guarda lo consume `tercero.ts:68` y acaba escrito tal cual en el archivo que se sube al SAT (serializador.ts:113 y sat-batch.ts)."
     },
     {
       "class": "policy-key",
@@ -2746,6 +2754,22 @@
       "why": "Literal. The key is exported as `TIME_ZONE_POLICY_KEY` (pending-catalog.ts) because two readers use it: `todayFor` (today.ts) and `resolvePolicy`, which refuses a zone the runtime does not know (policy-service.ts:542). Renaming it means renaming that constant only."
     },
     {
+      "class": "policy-key",
+      "where": "diot_default_operation_type_foreign",
+      "es": "diot_default_operation_type_foreign",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-055): the foreign-supplier twin of `diot_tipo_operacion_por_omision`, whose English name this registry already decided as `diot_default_operation_type`; `_foreign` names the supplier kind the DIOT separates (tipo de tercero 05)."
+    },
+    {
+      "class": "policy-key",
+      "where": "diot_creditable_iva_proportion",
+      "es": "diot_creditable_iva_proportion",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-055): whether the entity credits IVA through the LIVA art. 5 frac. V proportion, which decides the box of the DIOT batch file the IVA paid goes into. IVA stays as the name of the tax the file reports."
+    },
+    {
       "class": "policy-value",
       "where": "agrupador_alcance_de_la_compuerta/cuentas_con_movimientos",
       "es": "cuentas_con_movimientos",
@@ -2884,6 +2908,22 @@
       "es": "contabilizar",
       "en": "post",
       "why": "`post` es el verbo del árbol para llevar un asiento al mayor (`postJournalEntry`, `autoPost`, `entry post`), y el informe ya lo nombra así (`loadMode: 'post'`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_payable_iva/require_rate",
+      "es": "require_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) reads; the load stops until each vendor document says its IVA rate."
+    },
+    {
+      "class": "policy-value",
+      "where": "opening_payable_iva/assume_zero_rate",
+      "es": "assume_zero_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
     },
     {
       "class": "policy-value",
@@ -3200,7 +3240,7 @@
       "es": "03",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Es el código 03 «Prestación de servicios profesionales» del mismo catálogo de la DIOT, con el mismo camino: `TipoOperacion` en tercero.ts:29 y salida literal en serializador.ts:147. Cambiarlo no lo caza ninguna prueba y se descubre cuando el SAT rechaza la declaración del mes."
+      "why": "Es el código 03 «Prestación de servicios profesionales» del mismo catálogo de la DIOT, con el mismo camino: `TipoOperacion` en tercero.ts:29 y salida literal en serializador.ts:113 y sat-batch.ts. Cambiarlo no lo caza ninguna prueba y se descubre cuando el SAT rechaza la declaración del mes."
     },
     {
       "class": "policy-value",
@@ -3208,7 +3248,23 @@
       "es": "85",
       "en": null,
       "keptBecause": "authority-field",
-      "why": "Es el código 85 «Otros» del catálogo de Tipo de Operación de la DIOT, no un número nuestro. `src/services/sat/diot/tercero.ts:29` lo declara como `export type TipoOperacion = '03' | '06' | '85'` (y :32 lo repite en `TIPOS_OPERACION`), y `serializador.ts:147` escribe `t.tipoOperacion` TAL CUAL en el archivo que se sube al SAT. Traducirlo o renumerarlo produce un archivo que la autoridad rechaza."
+      "why": "Es el código 85 «Otros» del catálogo de Tipo de Operación de la DIOT, no un número nuestro. `src/services/sat/diot/tercero.ts` lo declara en `export type TipoOperacion` (catálogo 2025: 02, 03, 06, 07, 08, 85; y lo repite en `TIPOS_OPERACION`), y `serializador.ts:113 y sat-batch.ts` escribe `t.tipoOperacion` TAL CUAL en el archivo que se sube al SAT. Traducirlo o renumerarlo produce un archivo que la autoridad rechaza."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_tipo_operacion_por_omision/02",
+      "es": "02",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "Code 02 «Enajenación de bienes» of the 2025 DIOT operation-type catalogue (SAT instructivo de carga masiva, Enero 2025, §3.1). Same path as 03 and 85: `TipoOperacion` in tercero.ts and written verbatim by sat-batch.ts. Renaming it produces a file the SAT rejects."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_tipo_operacion_por_omision/06",
+      "es": "06",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "Code 06 «Uso o goce temporal de bienes» of the 2025 DIOT operation-type catalogue (§3.1). Same path as 03 and 85: `TipoOperacion` in tercero.ts and written verbatim by sat-batch.ts."
     },
     {
       "class": "policy-value",
@@ -3713,10 +3769,11 @@
     },
     {
       "class": "policy-value",
-      "where": "rep_moneda_extranjera/tc_documento",
-      "es": "tc_documento",
-      "en": "document_rate",
-      "why": "`tc` es la abreviatura de «tipo de cambio»: en inglés es `rate`, y la tabla ya se llama `exchange_rates` (001_core_schema.sql:374). Se antepone `document` porque es el tipo del documento original, no el del pago: sin ese calificador el valor no diría cuál de los dos tipos de cambio rige, que es lo único que la opción decide."
+      "where": "rep_moneda_extranjera/payment_day_rate",
+      "es": "payment_day_rate",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English: it replaced `tc_documento` (MNE-001-082), whose promise of matching at the document's rate with no difference the payment engine no longer keeps. It names the rate that governs, the payment day's from `fuente_tipo_cambio`, which is the only thing the option decides."
     },
     {
       "class": "policy-value",
@@ -3944,6 +4001,54 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "An IANA time-zone identifier, not vocabulary: it is the same string in every language and it is what `Intl` reads. `assertTimeZone` (policy-service.ts:542) refuses a zone the runtime does not know, so a translated spelling would be rejected."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/07",
+      "es": "07",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "DIOT 2025 operation-type code 07 «Importación de bienes o servicios» of the SAT batch-file catalog; written as is into the file (sat-batch.ts). Renumbering it makes the SAT reject the upload."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/03",
+      "es": "03",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "DIOT operation-type code 03 «Prestación de servicios profesionales»; the same authority catalog as `diot_tipo_operacion_por_omision/03`, written as is into the SAT batch file."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/02",
+      "es": "02",
+      "en": null,
+      "keptBecause": "authority-field",
+      "why": "DIOT 2025 operation-type code 02 «Enajenación de bienes»; an authority catalog code written as is into the SAT batch file (sat-batch.ts)."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_default_operation_type_foreign/block",
+      "es": "block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English, and the English this registry gives to `bloquear` elsewhere (see `bank_statement_overlap/block`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_creditable_iva_proportion/taxed_only",
+      "es": "taxed_only",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: all IVA paid goes to the exclusively-taxed-activities box of the DIOT batch file, which is what the ledger already credits."
+    },
+    {
+      "class": "policy-value",
+      "where": "diot_creditable_iva_proportion/block",
+      "es": "block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Already English, and the English this registry gives to `bloquear` elsewhere (see `bank_statement_overlap/block`)."
     },
     {
       "class": "migration-name",
@@ -4275,8 +4380,8 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/payments/payment-service.ts:710",
-      "es": "FX_AR_RECEIPT_NOT_WIRED",
+      "where": "src/services/payments/payment-service.ts:735",
+      "es": "FX_AR_ON_ACCOUNT_NOT_WIRED",
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Ya es el término inglés; FX y AR son acrónimos internacionales, no vocabulario nuestro."
@@ -4681,14 +4786,14 @@
     },
     {
       "class": "error-code",
-      "where": "src/services/sat/diot/serializador.ts:47 (clase DiotNoEntregable, declarada en :45, 422)",
+      "where": "src/services/sat/diot/serializador.ts:29 (clase DiotNoEntregable, declarada en :27, 422)",
       "es": "DIOT_NO_ENTREGABLE",
       "en": "DIOT_NOT_FILEABLE",
       "why": "DIOT se queda: es el nombre de la declaración informativa del SAT. «entregar una declaración» en inglés fiscal es `file`, no `deliver` ni `submit`: `DIOT_NOT_FILEABLE` dice que los hallazgos bloqueantes impiden presentarla. Contrato publicado: salto de versión y `details.legacy_code` una versión (D5)."
     },
     {
       "class": "error-code",
-      "where": "src/services/sat/diot/serializador.ts:54 (clase DiotFormatoNoFundamentado, declarada en :52, 501)",
+      "where": "src/services/sat/diot/serializador.ts:36 (clase DiotFormatoNoFundamentado, declarada en :34, 501)",
       "es": "DIOT_FORMATO_NO_FUNDAMENTADO",
       "en": "DIOT_FORMAT_UNSUBSTANTIATED",
       "why": "«fundamentado» aquí es el sentido fiscal mexicano —tener fundamento documentado— y no «formateado»: el 501 dice que el layout del archivo de lote no está sustentado en este repositorio y que no se inventa. `UNSUBSTANTIATED` conserva ese sentido; `NOT_DOCUMENTED` se leería como «falta documentación interna», que es otra cosa. Conservo el sustantivo del propio código (`FORMATO` → `FORMAT`) aunque el mensaje diga «LAYOUT»; ver dudas. Contrato publicado: salto de versión y `details.legacy_code` una versión (D5)."

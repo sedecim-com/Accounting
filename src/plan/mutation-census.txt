@@ -212,6 +212,8 @@ mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-r
 mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/ap/bill-service.ts	a manual bill stores a NULL rate again, and the DIOT falls back to measuring what its author declared
 mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-registration-service.ts	the first transfer is taken as the VAT again: an IEPS transfer ahead of the IVA one lands in bill_lines.tax_amount
 mirror	memory	E1.2 bill-lines-carry-vat-columns	src/services/xml-ingestion/pre-registration-service.ts	the approval from the entry takes the debit as the value of the acts again: an exempt CFDI without Base is declared instead of raising DIOT-BASE-EXENTA-DESCONOCIDA
+mirror	memory	E1.2 diot-sat-layout-cited	src/services/sat/diot/sat-batch.ts	the layout loses its official source: the batch file is again a shape nobody can trace to the SAT, the invented-layout mistake this repository already deleted once
+mirror	memory	E1.2 diot-sat-layout-cited	src/services/sat/diot/sat-batch.ts	the citation no longer says when the SAT document was read: nobody can tell whether a later layout replaced it
 mirror	memory	E1.2 sat-grouping-code-single-column	src/services/accounting/account-service.ts	devuelve el agrupador fiscal a la columna de presentación contable: el código NIF y el del SAT vuelven a pisarse, y el catálogo del Anexo 24 se construye sobre la casilla equivocada
 mirror	memory	E1.2 sat-grouping-code-single-column	src/api/rest/routes/reports.ts	la API vuelve a tirar la procedencia del saldo inicial, si es firme y los descuadres: el consumidor recibe una balanza que parece correcta sobre cuentas que no cuadran
 mirror	memory	E1.2 prepaid-schedule-backed-by-ledger	src/services/accruals/prepaid-service.ts	un renglón dejaría de exigir respaldo en el mayor: la ficha afirmaría gasto devengado que una reversa ya deshizo, y el saldo revertido se ofrecería otra vez como libre
@@ -405,6 +407,11 @@ mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/xml-ingestion/s
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its entity scope: another entity carrying the same UUID is marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its state predicate: a draft or failed CFDI could be marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/ar/ar-controls.ts	the control reads a value the bridge never writes: it never fires
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the client reaches the vault itself: the key is decrypted outside withCredential, with no log row and no daily cap
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the signing runs through another path: the cap, the anomaly policy and the log are skipped
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a successful use of the e.firma leaves no row in the log
+mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a refusal from the SAT leaves no error row in the log
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/cli/mnemosine.ts	el escritor se queda de capacidad huérfana: el INSERT existe, typechecka y no lo alcanza ningún camino, que es exactamente el estado que este criterio existe para prohibir — y el criterio del literal seguiría verde
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	el llamador vuelve a afirmar un hecho DERIVADO: el disparador de la 077 sobrescribe `tenant_id` con el del empleado, así que la columna en la lista no cambia lo guardado y sí publica una propiedad que el escritor no decide
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	`is_active` es NULABLE y la 085 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar
@@ -605,6 +612,10 @@ mirror	disk	E0.1 opening-balance-matches-source	src/services/accounting/opening-
 mirror	disk	E0.1 opening-balance-matches-source	src/services/accounting/opening-balance.ts	cargo y abono intercambiados. El asiento sigue cuadrando —todo se invierte a la vez— y el mayor lo acepta: sólo la balanza publicada delata que el activo quedó de abono
 mirror	disk	E0.1 opening-balance-matches-source	src/services/accounting/sat-chart-import.ts	la naturaleza que el archivo declara, leída al revés. La capa 1 es la que le dice al mayor de qué signo es cada cuenta, y con ella invertida la balanza que publicamos sale con el signo cambiado en las diecisiete
 mirror	disk	E0.1 opening-balance-matches-source	src/services/reporting/report-service.ts	the roll-up stops adding the subaccounts: «100 Activo» goes back to its own zero while the source file declares 232 000 for it (#323)
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/accounting/opening-balance.ts	the gap of #310 as it was: the opening carries the 14 000 of vendors line by line and no bill stands behind them, so ap reconcile reports the whole balance as a difference
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/ap/opening-bills.ts	the bill is born outside the open statuses: the subledger leaves it out and a payment refuses it, while its liability is already in the ledger
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/ap/ap-controls.ts	the opening is listed again as a manual entry on the control account: ap reconcile ties at 0 and still prints a manual entry and a residue of 14 000
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/accounting/opening-balance.ts	the stop names a short payable subledger as «sobran -1000.00»: a surplus of a negative amount
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	accessible_entities has no foreign key, so a token id from another tenant becomes a row wherever RLS is inert
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	the token set is dropped and every sibling in the holding appears (the TEN leak)
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	each row would count its siblings' drafts
@@ -793,7 +804,7 @@ anchor	src/plan/criteria/e1-2.ts	de: ' reversalDate: reversal_date,',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n iva.documents.length',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n (iva.documents.length',
-anchor	src/plan/criteria/e1-2.ts	de: ' pr.pay_date,',
+anchor	src/plan/criteria/e1-2.ts	de: ' entry.entryDate,',
 anchor	src/plan/criteria/e1-2.ts	de: 'value.getDate()',
 anchor	src/plan/criteria/e1-2.ts	de: '.exec(String(value).trim());',
 anchor	src/plan/criteria/e1-2.ts	de: ' [entityId, entryDay, options?.fiscalPeriodId ?? null]',
@@ -834,6 +845,8 @@ anchor	src/plan/criteria/e1-2.ts	de: ' tax_rate, tipo_factor, valor_actos',
 anchor	src/plan/criteria/e1-2.ts	de: ' tax_rate, tipo_factor, valor_actos)',
 anchor	src/plan/criteria/e1-2.ts	de: " const vat = (transfers ?? []).filter((t) => satKey(t.impuesto) === '002');",
 anchor	src/plan/criteria/e1-2.ts	de: ' acts_value: bases[i],',
+anchor	src/plan/criteria/e1-2.ts	de: " url: 'https://www.sat.gob.mx/cs/Satellite?blobcol=urldata&blobkey=id&blobtable=MungoBlobs&blobwhere=1461176417476&ssbinary=true',",
+anchor	src/plan/criteria/e1-2.ts	de: " consulted: '2026-09-29',",
 anchor	src/plan/criteria/e1-2.ts	de: " 'sat-agrupador': 'codigo_agrupador_sat',",
 anchor	src/plan/criteria/e1-2.ts	de: ' ...(report.inicial ? { opening_balance: report.inicial } : {}),',
 anchor	src/plan/criteria/e1-2.ts	de: 'export const RENGLON_VIGENTE = `s.is_posted = true AND EXISTS (',
@@ -1022,6 +1035,11 @@ anchor	src/plan/criteria/e3-2.ts	de: 'await markInvoiceCfdiCancelled(d.entity_id
 anchor	src/plan/criteria/e3-2.ts	de: 'WHERE entity_id = $1',
 anchor	src/plan/criteria/e3-2.ts	de: "AND cfdi_status = 'stamped'",
 anchor	src/plan/criteria/e3-2.ts	de: "cfdi_status = 'cancelled' AND amount_due > 0",
+anchor	src/plan/criteria/e3-2.ts	de: "import { withCredential } from '../fiscal-credentials/service.js';",
+anchor	src/plan/criteria/e3-2.ts	de: 'await withCredential(',
+anchor	src/plan/criteria/e3-2.ts	de: "purpose: 'sat_auth'",
+anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'success');",
+anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'error',",
 anchor	src/plan/criteria/e4-1.ts	de: 'registerGarnishmentCommand(program, { palette: c, shutdown, reportError });',
 anchor	src/plan/criteria/e4-1.ts	de: ' employee_id, garnishment_type, priority, amount_type, amount_value,',
 anchor	src/plan/criteria/e4-1.ts	de: ' case_number, issuing_authority, payee_name, start_date, is_active, metadata',
