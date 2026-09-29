@@ -563,7 +563,8 @@ describe('ataque: la comisión y el interés', () => {
     const codigo = async (id: string): Promise<string> =>
       (await query<{ code: string }>(`SELECT code FROM accounts WHERE id = $1`, [id])).rows[0].code;
     expect(importeEn(lineas, await codigo(A.roles.comision_bancaria))?.debit).toBe('300.0000');
-    // EL IVA A 1135 Y NO A 1130: sin CFDI del banco no hay acreditamiento.
+    // The fee entry parks the VAT in 1135; its move to 1130 is a separate
+    // `bank_fee_vat_release` entry (#95), proven in mne-001-041-fee-vat-release.
     expect(importeEn(lineas, await codigo(A.roles.iva_pendiente_acreditar))?.debit).toBe('48.0000');
     expect(importeEn(lineas, await codigo(A.roles.iva_acreditable))).toBeUndefined();
     expect(importeEn(lineas, await codigo(glA))?.credit).toBe('348.0000');
