@@ -19,6 +19,7 @@ import {
 import { hallazgosQueBloquean } from '../services/payroll/common/employer-liability-service.js';
 import type { ResultadoAcumulacion } from '../services/payroll/common/employer-liability-service.js';
 import { ConflictError } from '../utils/errors.js';
+import { parseForClient } from '../utils/zod-client-errors.js';
 import { t } from '../i18n/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
@@ -96,10 +97,7 @@ const employeeInputSchema = z
     hours_worked: z.number().finite().optional(),
   })
   .strict();
-const inputsSchema = z.union([
-  z.array(employeeInputSchema).min(1),
-  z.object({ employee_inputs: z.array(employeeInputSchema).min(1) }).passthrough(),
-]);
+const inputsSchema = z.array(employeeInputSchema).min(1);
 
 /**
  * The inputs of a calculation, read from the text of a file.
@@ -117,13 +115,21 @@ export function parseEmployeeInputs(text: string, path: string): EmployeePayInpu
   } catch (err) {
     throw usageError({ key: 'payrun.file_invalid', params: { path, detail: (err as Error).message } });
   }
-  const parsed = inputsSchema.safeParse(raw);
+  // The REST body's envelope is unwrapped before validating, so one schema
+  // checks the list whatever the shape and the reported field is prefixed
+  // with the envelope only when the file carried it.
+  const wrapped = typeof raw === 'object' && raw !== null && !Array.isArray(raw) && 'employee_inputs' in raw;
+  const list: unknown = wrapped ? (raw as { employee_inputs: unknown }).employee_inputs : raw;
+  // The zod issue becomes prose only through the adapter (#367), like every
+  // other surface that shows one to a person.
+  const parsed = parseForClient(inputsSchema, list);
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const detail = `${issue.path.join('.') || '(root)'}: ${issue.message}`;
+    const issue = parsed.issues[0];
+    const field = [wrapped ? 'employee_inputs' : '', issue.path].filter(Boolean).join('.');
+    const detail = `${field || '(root)'}: ${issue.message}`;
     throw usageError({ key: 'payrun.file_invalid', params: { path, detail } });
   }
-  const inputs = (Array.isArray(parsed.data) ? parsed.data : parsed.data.employee_inputs) as EmployeePayInput[];
+  const inputs = parsed.data as EmployeePayInput[];
   const seen = new Set<string>();
   for (const i of inputs) {
     if (seen.has(i.employee_id)) {

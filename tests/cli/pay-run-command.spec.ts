@@ -60,6 +60,16 @@ describe('parseEmployeeInputs', () => {
     expect(JSON.stringify(err)).toContain('quincena.json');
   });
 
+  it.each([
+    ['a bare array', (l: unknown) => [l], '0.employee_id: Invalid uuid'],
+    ['the REST body shape', (l: unknown) => ({ employee_inputs: [l] }), 'employee_inputs.0.employee_id: Invalid uuid'],
+  ])('names the wrong field in %s, in the adapter wording (#367)', (_shape, wrap, detail) => {
+    const bad = { employee_id: 'E-1', earnings: [{ earning_type: 'salary', amount: 1 }] };
+    const err = refused(() => parseEmployeeInputs(JSON.stringify(wrap(bad)), 'q.json'));
+    expect(err.exitCode).toBe(ExitCode.USAGE);
+    expect(JSON.stringify(err)).toContain(detail);
+  });
+
   it('refuses an employee listed twice, which would fail halfway through the run', () => {
     const err = refused(() => parseEmployeeInputs(JSON.stringify([line(EMP_A), line(EMP_A)]), 'q.json'));
     expect(err.exitCode).toBe(ExitCode.USAGE);
