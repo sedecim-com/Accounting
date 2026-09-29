@@ -132,7 +132,7 @@
     "src/services/banking/reconciliation-service.ts": "6105104e64e04397d46835ec79a8eb57e73819cf",
     "src/services/banking/reconciling-items.ts": "7d552b4396a1518c3cd3ec98f4922e222d80c57b",
     "src/services/banking/reconciliation-adjustments.ts": "5c5f5ea6db5b2c7fa57d3773fde688dcca2c86f7",
-    "src/cli/bank-command.ts": "539a03742c253039b00deb72413f3903a51eb16a",
+    "src/cli/bank-command.ts": "56ba0580dcbb90698bb1cba0bb34804f1a4482d5",
     "src/services/webhooks/webhook-service.ts": "1207441f2f2f4fe020ef37789269afb23f3261bc",
     "src/services/integrations/index.ts": "dbc0e6ce18781390ac18dfab30d2f70576156225",
     "src/database/rls-policies.sql": "83d22e4779e2430a9ccc33bc4451507714af18a5",

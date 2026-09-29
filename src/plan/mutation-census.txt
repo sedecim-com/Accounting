@@ -174,6 +174,11 @@ mirror	memory	E1.2 published-figures-are-the-firms-own	src/services/blockchain/o
 mirror	memory	E1.2 published-figures-are-the-firms-own	tests/integration/x0-published-figures-match-the-income-statement.int.spec.ts	la reproducción deja de sembrar un asiento de cierre: el caso que publicaba −8 000 desaparece y la prueba queda verde sobre el defecto
 mirror	memory	E1.2 treasury-entry-date-local-midnight	src/services/banking/treasury-posting.ts	vuelve la medianoche UTC: en México el asiento se fecha el día ANTERIOR, y el día 1 de mes eso lo manda al mes anterior con su IVA a otra declaración, cuadrando igual de bien
 mirror	memory	E1.2 treasury-posting-matches-its-movement	src/services/banking/treasury-posting.ts	el cargo contabilizado vuelve a levantar DOS partidas conciliatorias que se anulan entre sí: la sesión informa que cuadra y la comisión se puede contabilizar otra vez
+mirror	memory	E1.2 bank-fee-vat-leaves-1135	src/services/banking/treasury-posting.ts	the fee is posted and its VAT stays parked in 1135 again: the return understates the creditable VAT every month there is a bank fee
+mirror	memory	E1.2 bank-fee-vat-leaves-1135	src/services/banking/treasury-posting.ts	the ledger read forgets what earlier releases took out: running the month again moves the same VAT a second time and 1135 goes negative
+mirror	memory	E1.2 bank-fee-vat-leaves-1135	src/i18n/es.ts	the notice sends the accountant to `bank fee apply` again, a command that does not exist
+mirror	memory	E1.2 iva-ppd-reclass-posts-at-scale-4	src/services/accounting/iva-ppd-reclass.ts	the unpaid share is rounded to cents and posted at four decimals: up to 0.005 per document stays in 1130 that was never creditable
+mirror	memory	E1.2 iva-ppd-reclass-posts-at-scale-4	src/services/accounting/iva-ppd-reclass.ts	the reclass computes its own share again, inline and at cents, beside the one that is tested
 mirror	memory	E1.2 reconciling-item-datable-and-correctable	src/cli/bank-command.ts	sin la hoja que fecha una partida, `close` exige una fecha que nadie puede escribir y la primera sesión con una partida queda bloqueada para siempre
 mirror	memory	E1.2 reconciliation-session-covers-period	src/services/accounting/period-close.ts	la sesión de septiembre volvería a tildar la casilla de agosto: la casilla diría «conciliado» sobre un mes que nadie miró
 mirror	memory	E1.2 text-similarity-never-auto-applies	src/services/banking/matching.ts	la compuerta deja de mirar el veto de la regla: un desempate decidido por la descripción vuelve a aplicarse en firme y a sellar la partida de libros
@@ -775,6 +780,11 @@ anchor	src/plan/criteria/e1-2.ts	de: 'if (roundTo.lessThanOrEqualTo(0)) {',
 anchor	src/plan/criteria/e1-2.ts	de: "JournalEntryType.CLOSING",
 anchor	src/plan/criteria/e1-2.ts	de: " return new Date(`${iso}T00:00:00`);",
 anchor	src/plan/criteria/e1-2.ts	de: ' await cotejarMovimientoConSuLinea(client, {',
+anchor	src/plan/criteria/e1-2.ts	de: ' await release(mov);\n',
+anchor	src/plan/criteria/e1-2.ts	de: '[entityId, [ORIGEN_COMISION, FEE_VAT_RELEASE_SOURCE], mov.id, pending]',
+anchor	src/plan/criteria/e1-2.ts	de: "'El IVA de las comisiones ({vat}) pasó de pendiente de acreditar a IVA acreditable en el mes ' +",
+anchor	src/plan/criteria/e1-2.ts	de: 'dividedBy(total)).toDecimalPlaces(4);',
+anchor	src/plan/criteria/e1-2.ts	de: 'const aReclasificar = unpaidShareOfIva(h.importe, h.saldo_documento, h.total_documento);',
 anchor	src/plan/criteria/e1-2.ts	de: " .command('assign')",
 anchor	src/plan/criteria/e1-2.ts	de: ' AND rs.start_date <= (SELECT start_date FROM fiscal_periods WHERE id = $2)',
 anchor	src/plan/criteria/e1-2.ts	de: ' if (!result.auto_applicable) return false;',
