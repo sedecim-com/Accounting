@@ -940,8 +940,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/posting.ts',
-        de: '      [entityId, entryDay]',
-        a: '      [entityId, entryDate]',
+        de: '      [entityId, entryDay, options?.fiscalPeriodId ?? null]',
+        a: '      [entityId, entryDate, options?.fiscalPeriodId ?? null]',
         porque: 'the period is chosen from the raw argument and the INSERT from the normalised day: the two can disagree, and the entry lands in a period that is not its date',
       },
       {
@@ -975,7 +975,7 @@ export const E1_2: Criterio[] = [
       // INSERT — measured by the key each one receives, not by presence.
       const s = codigoDe(sink);
       const normalisedAt = s.indexOf('const entryDay = toCalendarDate(entryDate);');
-      const periodAt = s.indexOf('[entityId, entryDay]');
+      const periodAt = s.indexOf('[entityId, entryDay, options?.fiscalPeriodId ?? null]');
       const sequenceAt = s.indexOf("nextEntityNumber(client, entityId, 'journal_entry', 'JE', entryDay)");
       const insertAt = s.indexOf('options?.reference || null, entryDay, description, createdBy,');
       if (normalisedAt < 0) {

@@ -212,6 +212,13 @@ export async function createJournalEntry(
      * when autoPost is set (attestation must see committed data).
      */
     client?: pg.PoolClient;
+    /**
+     * Book into THIS period, which must still contain the date and accept
+     * postings. Needed where two periods share a date: December 31 belongs to
+     * December and to the year-end adjustment period (13), and the date alone
+     * picks December. The annual close names period 13 (#304).
+     */
+    fiscalPeriodId?: string;
   }
 ): Promise<JournalEntry> {
   // Holder object: TS cannot track assignments made inside the closure, so a
@@ -233,8 +240,9 @@ export async function createJournalEntry(
        WHERE entity_id = $1
        AND start_date <= $2::date AND end_date >= $2::date
        AND status NOT IN ('hard_close', 'locked')
+       AND ($3::uuid IS NULL OR id = $3::uuid)
        ORDER BY period_number ASC LIMIT 1`,
-      [entityId, entryDay]
+      [entityId, entryDay, options?.fiscalPeriodId ?? null]
     );
 
     if (periodResult.rows.length === 0) {
@@ -663,7 +671,9 @@ export async function reverseWithinTransaction(
   entry: JournalEntry,
   userId: string,
   description: string,
-  reversalDate: Date | string
+  reversalDate: Date | string,
+  /** The period the mirror is booked into; see createJournalEntry's option. */
+  fiscalPeriodId?: string
 ): Promise<JournalEntry> {
   if (entry.status !== JournalEntryStatus.POSTED) {
     throw new AccountingError(
@@ -714,6 +724,7 @@ export async function reverseWithinTransaction(
       reference: entry.entry_number,
       isReversal: true,
       reversesEntryId: entry.id,
+      ...(fiscalPeriodId ? { fiscalPeriodId } : {}),
     }
   );
 
