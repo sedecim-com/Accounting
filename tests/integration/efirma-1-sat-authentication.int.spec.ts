@@ -123,4 +123,20 @@ describe('EFIRMA-1 · authentication signed with the vault e.firma', () => {
     expect(sim.requests).toHaveLength(0);
     expect((await logRows()).at(-1)).toMatchObject({ purpose: 'sat_auth', outcome: 'denied', denied_reason: 'rate_limit' });
   });
+
+  it('SAT refusals count toward the cap: two refusals at two uses left, and the third call never leaves', async () => {
+    // Each refusal decrypted the key and sent a signature, so it spends the cap.
+    const counted = (await logRows()).filter((r) => r.outcome === 'success' || r.outcome === 'error').length;
+    await query(`UPDATE fiscal_credentials SET max_daily_access = $1 WHERE id = $2 AND tenant_id = $3`, [
+      counted + 2, credentialId, f.tenantId,
+    ]);
+    sim.failing = true;
+    await expect(authenticate()).rejects.toBeInstanceOf(SatAuthenticationError);
+    await expect(authenticate()).rejects.toBeInstanceOf(SatAuthenticationError);
+    expect(sim.requests).toHaveLength(2);
+
+    await expect(authenticate()).rejects.toBeInstanceOf(CredentialAccessDenied);
+    expect(sim.requests).toHaveLength(2);
+    expect((await logRows()).at(-1)).toMatchObject({ purpose: 'sat_auth', outcome: 'denied', denied_reason: 'rate_limit' });
+  });
 });
