@@ -8,7 +8,7 @@ import {
   type DecisionPoint, type PolicyThresholds,
 } from './cfdi-decisions.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
-import { settleWithholding, withholdingByLaw, type LegalParameterReader } from './withholding-law.js';
+import { settleWithholding, withholdingByLaw, withholdingCaseOf, type LegalParameterReader } from './withholding-law.js';
 
 // ============================================================
 // CFDI CLASSIFIER
@@ -64,15 +64,21 @@ export interface Classification {
 
 const parser = new CFDIParser();
 
-/** Role → account map for the entity (account_roles table). */
+/** Key of a qualified mapping in the role map: `isr_retenido_por_pagar:lease`. */
+export const qualifiedRole = (role: string, qualifier: string): string => `${role}:${qualifier}`;
+
+/** Role → account map for the entity (account_roles table), qualified variants included. */
 async function loadRoleMap(entityId: string): Promise<Map<string, { code: string; name: string }>> {
-  const r = await query<{ role: string; code: string; name: string }>(
-    `SELECT ar.role, a.code, a.name
+  const r = await query<{ role: string; qualifier: string | null; code: string; name: string }>(
+    `SELECT ar.role, ar.qualifier, a.code, a.name
      FROM account_roles ar JOIN accounts a ON a.id = ar.account_id
-     WHERE ar.entity_id = $1 AND ar.qualifier IS NULL`,
+     WHERE ar.entity_id = $1`,
     [entityId]
   );
-  return new Map(r.rows.map((x) => [x.role, { code: x.code, name: x.name }]));
+  return new Map(r.rows.map((x) => [
+    x.qualifier === null ? x.role : qualifiedRole(x.role, x.qualifier),
+    { code: x.code, name: x.name },
+  ]));
 }
 
 export interface ClassifyOptions {
@@ -206,7 +212,11 @@ export async function classifyParsed(
     const amount = t.amount(facts);
     if (t.omitIfZero && Math.abs(amount) < 0.005) continue;
     const role = (t.role === 'gasto' && roleOverride ? roleOverride : t.role);
-    const acct = roleMap.get(role);
+    // MNE-001-147: ISR withheld on a lease has its own mapping when the
+    // withholding layout splits it (withholding-accounts.ts); otherwise the
+    // default one.
+    const withheldOn = role === 'isr_retenido_por_pagar' ? withholdingCaseOf(facts) : null;
+    const acct = (withheldOn && roleMap.get(qualifiedRole(role, withheldOn))) || roleMap.get(role);
     if (!acct) missingRoles.push(role);
     lines.push({
       role,

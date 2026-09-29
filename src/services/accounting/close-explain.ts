@@ -9,6 +9,7 @@ import {
   readSubledgerSide,
 } from './period-close.js';
 import { MAPPING_SCHEMES } from './account-service.js';
+import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 
 // ============================================================
 // F06b · `closing explain <codigo>` — LOS RENGLONES OFENSORES
@@ -61,6 +62,7 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'sat-agrupador-missing': 'mnemosine account map set <code> --scheme sat-agrupador --value <c_CodAgrup>',
   'ar-subledger-delta': 'mnemosine ar reconcile  (lists the manual entries on the control account)',
   'ap-subledger-delta': 'mnemosine ap reconcile --explain  (splits the delta into named items)',
+  'withholding-accounts-layout': 'mnemosine account role sync --dry-run  (then without --dry-run to apply it)',
 };
 
 export interface OpcionesDeExplicacion {
@@ -380,6 +382,12 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
 
   'ar-subledger-delta': (entityId) => subledgerRows(entityId, 'ar-subledger-delta'),
   'ap-subledger-delta': (entityId) => subledgerRows(entityId, 'ap-subledger-delta'),
+  // Mirror of check 9 (MNE-001-147): one row per change the plan would make.
+  'withholding-accounts-layout': async (entityId) => {
+    const [plan] = await censusWithholdingLayout({ entityId });
+    const rows = plan && needsSync(plan) ? describeWithholdingPlan(plan).map((change) => ({ change })) : [];
+    return { total: rows.length, renglones: rows };
+  },
 };
 
 /** ¿Es un código del registro? (para validar entrada de CLI sin lanzar). */

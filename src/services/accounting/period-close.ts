@@ -7,6 +7,7 @@ import { runLedgerChecks } from './ledger-checks.js';
 import { checkMappingCoverageDetallada } from './account-service.js';
 import { arReconcile } from '../ar/ar-controls.js';
 import { apReconcile } from '../ap/ap-controls.js';
+import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { FiscalPeriodStatus } from '../../types/index.js';
@@ -57,6 +58,7 @@ export const CLOSE_CHECK_CODES = [
   'sat-agrupador-missing',
   'ar-subledger-delta',
   'ap-subledger-delta',
+  'withholding-accounts-layout',
 ] as const;
 export type CloseCheckCode = (typeof CLOSE_CHECK_CODES)[number];
 
@@ -80,6 +82,7 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'sat-agrupador-missing': 'Accounts with movement have their SAT grouping code',
   'ar-subledger-delta': 'Receivables subledger agrees with its control account',
   'ap-subledger-delta': 'Payables subledger agrees with its control account',
+  'withholding-accounts-layout': 'Withholding roles follow the withholding accounts layout',
 };
 
 export type CloseCheckSeverity = 'blocking' | 'warning';
@@ -866,6 +869,23 @@ export async function getPeriodCloseStatus(
       (check.severity === 'blocking' ? blocking_issues : warnings).push(`${check.item}: ${check.details}`);
     }
   }
+
+  // 9. MNE-001-147 (#309) · THE WITHHOLDING ROLES FOLLOW THE PANEL'S LAYOUT.
+  // A warning and never a block, by the owner's decision: the month posts
+  // fine either way, only not on the accounts the firm chose. Through the
+  // pool, like checks 7 and 8.
+  const [withholding] = await censusWithholdingLayout({ tenantId: ctxPanel.tenantId, entityId });
+  const withholdingOff = withholding !== undefined && needsSync(withholding);
+  checklist.push({
+    codigo: 'withholding-accounts-layout',
+    item: CLOSE_CHECK_ITEMS['withholding-accounts-layout'],
+    is_complete: !withholdingOff,
+    severity: 'warning',
+    details: withholdingOff
+      ? `${describeWithholdingPlan(withholding).join('; ')} (account role sync --dry-run shows the plan)`
+      : undefined,
+  });
+  if (withholdingOff) warnings.push(`${CLOSE_CHECK_ITEMS['withholding-accounts-layout']}: account role sync`);
 
   return {
     can_close: blocking_issues.length === 0,

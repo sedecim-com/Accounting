@@ -11,7 +11,7 @@ import type { AccountRole } from './cfdi-taxonomy.js';
 // mapped to something close enough.
 // ============================================================
 
-interface AccountSpec {
+export interface AccountSpec {
   code: string;
   name: string;
   account_type:

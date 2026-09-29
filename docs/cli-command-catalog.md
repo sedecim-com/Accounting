@@ -49,20 +49,20 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **246 comandos** repartidos en **69 familias** de primer nivel. De las **1637** filas del catálogo, **231** (14.1 %) ya se pueden invocar.
+El binario ejecuta hoy **247 comandos** repartidos en **69 familias** de primer nivel. De las **1638** filas del catálogo, **232** (14.2 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **280** filas lo declaran completo, **389** a medias y **968** inexistente.
+Del motor que cada comando necesita, **281** filas lo declaran completo, **389** a medias y **968** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **201** ya se teclean.
 
-**El objetivo comprometible son 1394 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1395 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1637 filas son **1615 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1638 filas son **1616 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
 | `bank` | 123 | 34 |
-| `account` | 20 | 15 |
+| `account` | 21 | 16 |
 | `entry` | 35 | 13 |
 | `customer` | 26 | 9 |
 | `invoice` | 19 | 9 |
@@ -411,6 +411,7 @@ Los sustantivos de esta sección son los doce que `REGISTRY.md` §2.2 le adjudic
 | `mnemosine account role list` · `cuenta rol listar` | Lista los roles contables (cxc, cxp, iva_trasladado, iva_pendiente_acreditar…) y a qué cuenta apunta cada uno | `--role`, `--qualifier`, `--json` | ✅ tabla `account_roles` con `UNIQUE(entity_id, role, qualifier)` (015_account_roles.sql:9) y `ROLE_MAP` completo (src/services/xml-ingestion/account-roles-seed.ts:143) | lectura | ✓ | 1 |
 | `mnemosine account role set <role> <code>` · `cuenta rol fijar` | Reapunta un rol contable a otra cuenta, o crea una variante por `qualifier` | `--qualifier`, `--note`, `--dry-run` | ✅ **hecha en F01**: account-roles-service.setAccountRole (upsert por las dos ramas de la 018). Antes 🟡: la tabla y la semilla existen (015_account_roles.sql:9) pero no hay CRUD, ruta ni comando | escritura | ✗ | 1 |
 | `mnemosine account role seed` · `cuenta rol sembrar` | Crea las cuentas que la taxonomía CFDI exige y mapea los roles que falten; sin esto fallan el alta de factura y la aprobación de gasto | `--dry-run`, `--json` | ✅ `seedAccountRoles` (src/services/xml-ingestion/account-roles-seed.ts:194) es idempotente y tiene pruebas (tests/xml-ingestion/account-roles-seed.spec.ts), y **ya tiene invocador en producción**: `ensureEntityAccounting` (src/services/accounting/entity-accounting.ts:67) lo corre desde `mnemosine init` (src/cli/init/s1-identity.ts:171), desde el alta de entidad (src/services/entity/entity-service.ts:234) y desde el backfill (src/services/accounting/account-roles-backfill.ts:108), así que `postInvoiceEntry`/`postBillEntry` ya no mueren por roles ausentes | escritura | ✗ | 1 |
+| `mnemosine account role sync` · `cuenta rol sincronizar` | Apunta los roles de retención (`isr_retenido_por_pagar`, `iva_retenido_por_pagar`) a las cuentas que elige la clave `withholding_accounts_layout` —una por impuesto (2141/2142), una sola (2143) o tres por concepto con su agrupador (2144 216.03, 2145 216.04, 2142 216.10)— y crea las que falten. Es el comando que nombran `doctor` y la casilla `withholding-accounts-layout` del cierre bajo `withholding_accounts_existing = warn`. No postea ni mueve el saldo ya acumulado en 2140; un mapeo fijado a mano (`account role set`) se lista y no se toca | `--dry-run` | ✅ **hecha en MNE-001-147** (#309): src/services/accounting/withholding-accounts.ts (`censusWithholdingLayout` no escribe; `applyWithholdingLayout`, una transacción por entidad, auditada) | escritura | ✗ | 2 |
 | `mnemosine account dormant list` · `cuenta sin-movimiento listar` | Lista cuentas hoja sin movimiento en los últimos N periodos, para la limpieza de fin de ejercicio; es la vista `--status dormant` con ventana de inactividad | `--periods <n>`, `--include-zero`, `--json` | 🟡 los datos están en `account_balances` (001_core_schema.sql:481); falta la consulta. `--periods <n>` y no `--since`: en el repo `--since/--until` son fechas | lectura | ✓ | 2 |
 
 #### Catálogo de cuentas — plantillas, importación y mapeos estatutarios

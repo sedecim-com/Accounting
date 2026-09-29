@@ -46,7 +46,7 @@ describe('la escritura: una política no se contesta en blanco', () => {
   it('un valor de verdad sí pasa: la guarda no cierra la puerta buena', async () => {
     await expect(
       resolvePolicy(CTX, 'umbral_capitalizacion_mxn', '5000', 'victor@test')
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual([]);
     expect(mockQuery).toHaveBeenCalled();
   });
 });
