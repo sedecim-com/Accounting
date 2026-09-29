@@ -1,5 +1,10 @@
 import { ValidationError } from '../../../utils/errors.js';
 import { serializar, type Atributo, type NodoXml } from './xml.js';
+import {
+  officialEnumeration,
+  OFFICIAL_ENUMERATIONS_XSD,
+  type OfficialEnumeration,
+} from './official-enumerations.js';
 
 // ============================================================
 // F07d · EL XML DE LAS PÓLIZAS DEL PERIODO — Polizas 1.3
@@ -40,8 +45,14 @@ import { serializar, type Atributo, type NodoXml } from './xml.js';
 //     tranche's brief used.
 //   · The XSD found two defects on its first run, both fixed in #397: request
 //     numbers were not checked against its patterns, and the pre-CFDI voucher
-//     had no RFC. Enum values (c_Banco, c_Moneda, c_MetPagos) are still passed
-//     through unchecked: #404.
+//     had no RFC.
+//   · The closed lists (c_Banco, c_Moneda, c_MetPagos) and the pattern of
+//     `CFD_CBB_Serie` are checked against the vendored
+//     CatalogosParaEsqContE.xsd (official-enumerations.ts), never copied here
+//     (#404). `offListValuesOf*` finds them; the invariants report each one as
+//     a blocking finding that names its entry, and the XML is still built so
+//     it can be looked at. The builder refuses them only as a last resort,
+//     when no one ran those checks, and then it names every entry at once.
 //   · `Sello`, `noCertificado` y `Certificado` EXISTEN en el esquema y este
 //     módulo NO los emite ni tiene por dónde: no hay una sola rama que cargue
 //     una llave privada, y no debe haberla. La e.firma es el contribuyente
@@ -362,6 +373,140 @@ function exigirFecha(donde: string, atributo: string, valor: string): string {
   return valor;
 }
 
+/** `CFD_CBB_Serie` in PolizasPeriodo and AuxiliarFolios 1.3: pattern [A-Z]+, length 1 to 10. */
+const CFD_CBB_SERIES_RE = /^[A-Z]{1,10}$/;
+
+/**
+ * A value the official XSD will refuse: off one of its closed lists, or off
+ * the pattern of `CFD_CBB_Serie`. `rule` names the list or the pattern.
+ */
+export interface OffListValue {
+  /** The element, with its prefix: `PLZ:Transferencia`. */
+  node: string;
+  attribute: string;
+  value: string;
+  rule: OfficialEnumeration | typeof CFD_CBB_SERIES_RULE;
+}
+
+const CFD_CBB_SERIES_RULE = 'CFD_CBB_Serie [A-Z]{1,10}';
+
+function offList(
+  node: string,
+  attribute: string,
+  type: OfficialEnumeration,
+  value: string | undefined
+): OffListValue[] {
+  return value !== undefined && !officialEnumeration(type).has(value)
+    ? [{ node, attribute, value, rule: type }]
+    : [];
+}
+
+/**
+ * The values of one voucher node the XSD refuses. The invariants turn them
+ * into findings that name the journal entry (`code-in-official-list`); the
+ * builders assert them only as a last resort (`assertOnOfficialLists`).
+ */
+export function offListValuesOfVoucher(
+  prefix: string,
+  names: Parameters<typeof nodoDeComprobante>[1],
+  c: Comprobante
+): OffListValue[] {
+  switch (c.clase) {
+    case 'nacional':
+      return offList(`${prefix}:${names.nacional}`, 'Moneda', 'c_Moneda', c.moneda);
+    case 'nacional_otro': {
+      const node = `${prefix}:${names.nacionalOtro}`;
+      const series: OffListValue[] =
+        c.serie !== undefined && !CFD_CBB_SERIES_RE.test(c.serie)
+          ? [{ node, attribute: 'CFD_CBB_Serie', value: c.serie, rule: CFD_CBB_SERIES_RULE }]
+          : [];
+      return [...series, ...offList(node, 'Moneda', 'c_Moneda', c.moneda)];
+    }
+    case 'extranjero':
+      return offList(`${prefix}:${names.extranjero}`, 'Moneda', 'c_Moneda', c.moneda);
+  }
+}
+
+/** The values of one payment node the XSD refuses, bank codes included. */
+export function offListValuesOfPayment(p: NodoDePago): OffListValue[] {
+  switch (p.clase) {
+    case 'cheque': {
+      const node = `${PREFIJO_POLIZAS}:Cheque`;
+      return [
+        ...offList(node, 'BanEmisNal', 'c_Banco', p.banEmisNal),
+        ...offList(node, 'Moneda', 'c_Moneda', p.moneda),
+      ];
+    }
+    case 'transferencia': {
+      const node = `${PREFIJO_POLIZAS}:Transferencia`;
+      return [
+        ...offList(node, 'BancoOriNal', 'c_Banco', p.bancoOriNal),
+        ...offList(node, 'BancoDestNal', 'c_Banco', p.bancoDestNal),
+        ...offList(node, 'Moneda', 'c_Moneda', p.moneda),
+      ];
+    }
+    case 'otro': {
+      const node = `${PREFIJO_POLIZAS}:OtrMetodoPago`;
+      return [
+        ...offList(node, 'MetPagoPol', 'c_MetPagos', p.metPagoPol),
+        ...offList(node, 'Moneda', 'c_Moneda', p.moneda),
+      ];
+    }
+  }
+}
+
+/** How a finding or an error names one off-list value. */
+export function describeOffListValue(v: OffListValue): string {
+  const source =
+    v.rule === CFD_CBB_SERIES_RULE
+      ? `el patrón ${v.rule} del esquema (de 1 a 10 letras mayúsculas sin acento)`
+      : `la enumeración ${v.rule} de ${OFFICIAL_ENUMERATIONS_XSD}`;
+  return `${v.node}/@${v.attribute} = «${v.value}» no está en ${source}`;
+}
+
+/**
+ * LAST-RESORT ASSERTION. The invariants report every off-list value as a
+ * blocking finding that names its journal entry, and the journal service then
+ * builds with `allowOffList` so the accountant can still look at the file.
+ * Reaching this throw means a caller skipped those checks and was about to
+ * hand over a file the SAT rejects; even then it names every entry at once.
+ */
+export function assertOnOfficialLists(
+  offending: ReadonlyArray<{ numUnIdenPol: string; value: OffListValue }>
+): void {
+  if (offending.length === 0) return;
+  throw new ValidationError(
+    `Valores que el esquema del SAT rechaza, y con ellos el archivo entero: ` +
+      offending.map((o) => `póliza ${o.numUnIdenPol}: ${describeOffListValue(o.value)}`).join('; ') +
+      '.'
+  );
+}
+
+/** Every off-list value of the journal, with the entry that carries it. */
+export function offListValuesOfJournal(
+  entries: readonly Poliza[]
+): Array<{ numUnIdenPol: string; value: OffListValue }> {
+  return entries.flatMap((p) =>
+    p.transacciones.flatMap((t) =>
+      [
+        ...(t.comprobantes ?? []).flatMap((c) =>
+          offListValuesOfVoucher(PREFIJO_POLIZAS, COMPROBANTES_DE_POLIZA, c)
+        ),
+        ...(t.pagos ?? []).flatMap(offListValuesOfPayment),
+      ].map((value) => ({ numUnIdenPol: p.numUnIdenPol, value }))
+    )
+  );
+}
+
+/** Options of the journal builder. */
+export interface JournalBuildOptions {
+  /**
+   * true = emit off-list values as they are. Only for a caller that already
+   * reported them as blocking findings, so the file is shown and not delivered.
+   */
+  allowOffList?: boolean;
+}
+
 // ── LOS ÁRBOLES ─────────────────────────────────────────────────────────
 
 /**
@@ -598,8 +743,9 @@ function validar(d: DatosDePolizas): void {
 }
 
 /** El árbol, separado de la serialización para poder inspeccionarlo. */
-export function nodoDePolizas(d: DatosDePolizas): NodoXml {
+export function nodoDePolizas(d: DatosDePolizas, opts: JournalBuildOptions = {}): NodoXml {
   validar(d);
+  if (opts.allowOffList !== true) assertOnOfficialLists(offListValuesOfJournal(d.polizas));
   return {
     nombre: `${PREFIJO_POLIZAS}:Polizas`,
     atributos: [
@@ -623,8 +769,8 @@ export function nodoDePolizas(d: DatosDePolizas): NodoXml {
 }
 
 /** El XML. Sin fecha de generación ni nada que cambie entre dos corridas. */
-export function construirPolizasXml(d: DatosDePolizas): string {
-  return serializar(nodoDePolizas(d));
+export function construirPolizasXml(d: DatosDePolizas, opts: JournalBuildOptions = {}): string {
+  return serializar(nodoDePolizas(d, opts));
 }
 
 /**
