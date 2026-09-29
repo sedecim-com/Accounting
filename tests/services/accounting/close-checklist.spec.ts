@@ -6,6 +6,8 @@ import {
   severidadDelAgrupadorFaltante,
   casillaDelAgrupador,
   subledgerDeltaCheck,
+  severityOfMissingAccrual,
+  prepaidAmortizedCheck,
 } from '../../../src/services/accounting/period-close.js';
 import {
   REMEDIO_DE,
@@ -266,5 +268,51 @@ describe('subledgerDeltaCheck (MNE-001-035, #98)', () => {
       expect(esCodigoDeCierre(code)).toBe(true);
       expect(REMEDIO_DE[code]).toMatch(/^mnemosine a[rp] reconcile/);
     }
+  });
+});
+
+describe('severityOfMissingAccrual (MNE-001-129, #128)', () => {
+  it("only the literal 'bloquear' blocks", () => {
+    expect(severityOfMissingAccrual('bloquear')).toBe('blocking');
+  });
+
+  it("the panel default 'avisar', and any odd value, warn: an odd value cannot freeze a close", () => {
+    expect(severityOfMissingAccrual('avisar')).toBe('warning');
+    expect(severityOfMissingAccrual('')).toBe('warning');
+    expect(severityOfMissingAccrual('BLOQUEAR')).toBe('warning');
+  });
+});
+
+describe('prepaidAmortizedCheck (MNE-001-129, #128)', () => {
+  const pending = [{ id: 'p1', description: 'Fleet insurance', remaining_amount: '12000.0000' }];
+  const review = (reaction: string, rows: typeof pending) => ({
+    periodo: 'Enero 2026',
+    reaccion: reaction,
+    reaccionDefinida: true,
+    pendientes: rows,
+    bloquea: reaction === 'bloquear' && rows.length > 0,
+    mensaje: rows.length > 0 ? 'x' : null,
+  });
+
+  it('a schedule not run under the default is a red box that only warns, and names the command', () => {
+    const c = prepaidAmortizedCheck(review('avisar', pending));
+    expect(c).toMatchObject({ codigo: 'prepaid-amortized', is_complete: false, severity: 'warning' });
+    expect(c.item).toBe(CLOSE_CHECK_ITEMS['prepaid-amortized']);
+    expect(c.details).toBe('1 prepaid schedule(s) not amortized in Enero 2026 (prepaid run)');
+  });
+
+  it("answered 'bloquear', the same box stops the close", () => {
+    expect(prepaidAmortizedCheck(review('bloquear', pending)).severity).toBe('blocking');
+  });
+
+  it('with nothing pending the box is green and still says with what weight it watches', () => {
+    const c = prepaidAmortizedCheck(review('bloquear', []));
+    expect(c).toMatchObject({ is_complete: true, severity: 'blocking' });
+    expect(c.details).toBeUndefined();
+  });
+
+  it('the code is in the registry and its remedy is the prepaid run', () => {
+    expect(esCodigoDeCierre('prepaid-amortized')).toBe(true);
+    expect(REMEDIO_DE['prepaid-amortized']).toMatch(/^mnemosine prepaid run --period/);
   });
 });
