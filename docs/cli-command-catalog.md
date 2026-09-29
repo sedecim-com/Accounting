@@ -49,9 +49,9 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **244 comandos** repartidos en **69 familias** de primer nivel. De las **1636** filas del catálogo, **229** (14.0 %) ya se pueden invocar.
+El binario ejecuta hoy **245 comandos** repartidos en **69 familias** de primer nivel. De las **1636** filas del catálogo, **230** (14.1 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **279** filas lo declaran completo, **388** a medias y **969** inexistente.
+Del motor que cada comando necesita, **279** filas lo declaran completo, **389** a medias y **968** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **201** ya se teclean.
 
@@ -69,16 +69,16 @@ Contadas por COMANDO, las 1636 filas son **1614 rutas únicas**: **17 rutas** es
 | `bill` | 41 | 8 |
 | `report` | 32 | 8 |
 | `cfdi` | 46 | 7 |
+| `entity` | 11 | 7 |
 | `closing` | 36 | 6 |
 | `period` | 15 | 6 |
 | `receipt` | 11 | 6 |
-| `entity` | 11 | 6 |
 | `close` | 9 | 6 |
 | `vendor` | 23 | 5 |
 | `batch` | 7 | 5 |
 | `credit-note` | 7 | 5 |
 
-**1 de 613** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
+**1 de 611** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
 _Que una cita resuelva no prueba que siga apuntando a lo mismo: sólo que el archivo existe y tiene esa línea. El juicio ✅/🟡/❌ de cada fila es humano y se revisa a mano._
 
@@ -2761,11 +2761,11 @@ Todo lo que no es contabilidad: a qué entidad y a qué despacho apuntas, cómo 
 | Comando | Qué hace | Flags clave | Backend | Riesgo | IA | Fase |
 |---|---|---|---|---|---|---|
 | `mnemosine entity list` · `entidad listar` | (hoy `entities`) Lista las entidades legales activas del tenant con RFC/EIN, país y moneda | `-a/--all` (incluye archivadas), `--json`, `-q`, `--group <name>`, `-n/--limit` — hoy no acepta ninguno | ✅ src/ai/context.ts:73 (`listEntities`) · src/cli/mnemosine.ts:473 | lectura [0] | ✓ | 1 |
-| `mnemosine entity show [idOrName]` · `entidad ver` | Ficha completa de una entidad: identidad fiscal, norma contable, moneda funcional, ejercicio abierto y etapa del ciclo de vida | `--json`, `--fields` | 🟡 el comando ya existe y renderiza (src/cli/entity-command.ts:112): identidad fiscal, país, moneda funcional, norma contable y la regla que eligió la entidad. `resolveEntity` está hoy en src/ai/context.ts:106. Sigue faltando el ejercicio abierto y la etapa del ciclo de vida (src/ai/tools/status-tools.ts:94, todavía solo herramienta del agente) + src/ai/tools/status-tools.ts:94 (etapa, hoy solo herramienta del agente) | lectura [0] | ✓ | 1 |
+| `mnemosine entity show [idOrName]` · `entidad ver` | Ficha completa de una entidad: identidad fiscal, norma contable, moneda funcional, ejercicio abierto y etapa del ciclo de vida | `--json`, `--fields` | 🟡 el comando ya existe y renderiza (src/cli/entity-command.ts): identidad fiscal con régimen y CP fiscal (MNE-001-017), país, moneda funcional, norma contable y la regla que eligió la entidad. `resolveEntity` está hoy en src/ai/context.ts:106. Sigue faltando el ejercicio abierto y la etapa del ciclo de vida (src/ai/tools/status-tools.ts:94, todavía solo herramienta del agente) + src/ai/tools/status-tools.ts:94 (etapa, hoy solo herramienta del agente) | lectura [0] | ✓ | 1 |
 | `mnemosine entity status [idOrName]` · `entidad estado` | Diagnóstico de arranque de la entidad: qué falta para poder registrar (catálogo, roles de cuenta, periodos, saldos iniciales) y el comando exacto que lo resuelve | `--json` | ✅ src/ai/tools/status-tools.ts:94 (`getEntityStatus`, sin comando) | lectura [0] | ✓ | 1 |
 | `mnemosine entity explain` · `entidad explicar` | (antes `entity current`, verbo fuera de §1) Deriva **qué entidad está activa y qué regla la eligió**: flag > `MNEMOSINE_ENTITY` > config de proyecto > config de usuario > única activa, nombrando el archivo o la variable que ganó | `--json`, `-q` | ❌ (depende del resolvedor de precedencia que falta para `entity use`) | lectura [0] | ✓ | 1 |
-| `mnemosine entity create` · `entidad crear` | Da de alta una entidad legal completa: tenant si no hay, organización, entidad, ejercicio y sus 12 periodos mensuales | `--name`, `--rfc`, `--country MX\|USA`, `--currency`, `--group`, `--file` (acepta `@ruta`), `--dry-run`, `--no-input` | ✅ extraído: `createEntity` (src/services/entity/entity-service.ts:184) resuelve o crea el tenant (`resolveTenantForCreation` :117), normaliza RFC/EIN por país (`normalizeTaxId` :97), rechaza duplicado por (tenant, tax_id) y crea organización y entidad en una transacción; el asistente `init` ya solo lo consume (s1-identity.ts:5, :142). El comando existe en src/cli/entity-command.ts:177 | escritura [1] | ✗ | 1 |
-| `mnemosine entity edit <idOrName>` · `entidad editar` | Corrige nombre, RFC/EIN, organización padre o norma contable de una entidad ya creada. **Rechaza `--currency` y `--standard` si la entidad tiene asientos contabilizados** (eso es peldaño 4 y exige reversión, no edición) | `--name`, `--rfc`, `--group`, `--standard`, `--currency`, `--reason`, `--dry-run` | ❌ no existe ningún `UPDATE legal_entities` en todo el repositorio (grep verificado) | escritura [1] | ✗ | 2 |
+| `mnemosine entity create` · `entidad crear` | Da de alta una entidad legal completa: tenant si no hay, organización, entidad, ejercicio y sus 12 periodos mensuales | `--name`, `--rfc`, `--country MX\|USA`, `--currency`, `--tax-regime`, `--tax-postal-code`, `--group`, `--file` (acepta `@ruta`), `--dry-run`, `--no-input` | ✅ extraído: `createEntity` (src/services/entity/entity-service.ts:184) resuelve o crea el tenant (`resolveTenantForCreation` :117), normaliza RFC/EIN por país (`normalizeTaxId` :97), rechaza duplicado por (tenant, tax_id) y crea organización y entidad en una transacción; el asistente `init` ya solo lo consume (s1-identity.ts:5, :142). El comando existe en src/cli/entity-command.ts. Desde MNE-001-017 (#321, migración 120) guarda el régimen (`c_RegimenFiscal`) y el CP fiscal validados contra `sat-catalogs.ts`; una entidad mexicana sin régimen se crea y avisa | escritura [1] | ✗ | 1 |
+| `mnemosine entity edit <idOrName>` · `entidad editar` | Corrige nombre, RFC/EIN, organización padre o norma contable de una entidad ya creada. **Rechaza `--currency` y `--standard` si la entidad tiene asientos contabilizados** (eso es peldaño 4 y exige reversión, no edición) | `--name`, `--rfc`, `--group`, `--standard`, `--currency`, `--tax-regime`, `--tax-postal-code`, `--reason`, `--dry-run` | 🟡 **nace en MNE-001-017 (#321) sólo con el perfil fiscal**: `--tax-regime` y `--tax-postal-code`, validados contra `sat-catalogs.ts` igual que en el alta, con `UPDATE` guardado por inquilino y `is_active` y rastro en `audit_log` (`updateEntityTaxProfile`, src/services/entity/entity-service.ts). Nombre, RFC, grupo, norma y moneda siguen sin escritor | escritura [1] | ✗ | 2 |
 | `mnemosine entity archive <idOrName>` · `entidad archivar` | Marca la entidad inactiva: sale de listas y del contexto sin borrar un solo asiento. Si es la entidad activa, limpia el contexto y lo dice | `--reason`, `-y/--yes`, `--dry-run` | ✅ `archiveEntity` (src/services/entity/entity-service.ts:258) la escribe a `false` y falla si la entidad ya estaba archivada; el comando existe (src/cli/entity-command.ts:267) y además limpia el puntero de entidad activa cuando archiva la que estaba fijada | escritura [1] | ✗ | 2 |
 | `mnemosine entity restore <idOrName>` · `entidad restaurar` | Reactiva una entidad archivada | `-y/--yes`, `--dry-run` | 🟡 mismo `is_active`, sin escritor | escritura [1] | ✗ | 2 |
 | `mnemosine entity use <idOrName>` · `entidad usar` | Fija la entidad activa para las siguientes invocaciones (contexto persistente estilo `kubectl config use-context`) | `--global`, `--project`, `--no-input` | ✅ el comando existe (src/cli/entity-command.ts:150) y esquiva el bloqueo: la entidad activa **no** vive en el config estricto sino en un puntero propio, `~/.mnemosine/state.json`, con su verbo de limpieza `entity unset` (:292). Lo que no existe todavía es la distinción `--global` / `--project` | escritura [1] | ✗ | 1 |
