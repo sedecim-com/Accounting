@@ -4,11 +4,11 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { config } from './config/index.js';
-import { query, closeDatabase, initDatabase } from './database/connection.js';
+import { closeDatabase, initDatabase } from './database/connection.js';
 import { verificarRolSujetoARls } from './database/rls-guard.js';
 import { drainAttestations } from './services/accounting/posting.js';
 import { authenticate } from './api/rest/middleware/auth.js';
-import { asyncHandler } from './api/rest/middleware/async-handler.js';
+import { readyHandler } from './api/rest/readiness.js';
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
 import { tenantContext } from './api/rest/middleware/tenant-context.js';
 import { errorHandler } from './api/rest/middleware/error-handler.js';
@@ -139,19 +139,7 @@ export async function bootstrap(): Promise<Express> {
   app.get('/live', (_req, res) => {
     res.json({ status: 'alive', timestamp: new Date().toISOString() });
   });
-  app.get('/ready', asyncHandler(async (_req, res) => {
-    try {
-      await query('SELECT 1');
-      res.json({ status: 'ready', db: 'ok', timestamp: new Date().toISOString() });
-    } catch (err) {
-      res.status(503).json({
-        status: 'not_ready',
-        db: 'error',
-        error: err instanceof Error ? err.message : String(err),
-        timestamp: new Date().toISOString(),
-      });
-    }
-  }));
+  app.get('/ready', readyHandler);
   app.get('/health', (_req, res) => {
     res.json({ status: 'healthy', version: '1.0.0', timestamp: new Date().toISOString() });
   });

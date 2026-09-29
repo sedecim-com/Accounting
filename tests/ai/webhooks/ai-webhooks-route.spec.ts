@@ -18,6 +18,7 @@ vi.mock('../../../src/database/connection.js', () => ({
 const tenantsEntered: string[] = [];
 
 import { createAiWebhooksRouter } from '../../../src/api/rest/routes/ai-webhooks.js';
+import { errorHandler } from '../../../src/api/rest/middleware/error-handler.js';
 import { query } from '../../../src/database/connection.js';
 import type { WebhookTokenRow } from '../../../src/ai/webhooks/intake.js';
 
@@ -45,6 +46,8 @@ const runReaderTurn = vi.fn().mockResolvedValue(undefined);
 beforeAll(async () => {
   const app = express();
   app.use('/v1/ai/webhooks', createAiWebhooksRouter({ runReaderTurn }));
+  // As in src/index.ts: the router's refusals are rendered by the global handler.
+  app.use(errorHandler);
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', resolve);
   });
@@ -107,8 +110,23 @@ interface WebhookResponseBody {
   deliveryId?: string;
   /** Sólo en 'received': el aviso de que no se guardó ni se procesará nada. */
   warning?: string;
-  error?: string;
+  errors?: Array<{ code: string; message: string }>;
   meta?: { request_id?: string; timestamp?: string; version?: string };
+}
+
+/**
+ * A refusal speaks the API error envelope (#315): one error with a stable code
+ * and a message, plus meta, and no bare `{error}` outside it.
+ */
+async function expectEnvelope(res: Response, status: number, code: string): Promise<WebhookResponseBody> {
+  expect(res.status).toBe(status);
+  const body = (await res.json()) as WebhookResponseBody & { error?: unknown };
+  expect(body.error).toBeUndefined();
+  expect(body.errors).toHaveLength(1);
+  expect(body.errors?.[0].code).toBe(code);
+  expect(typeof body.errors?.[0].message).toBe('string');
+  expect(body.meta?.version).toBe('v1');
+  return body;
 }
 
 /** fetch's `.json()` is `unknown`; the router's JSON shape is known right here. */
@@ -121,7 +139,7 @@ const AUTH = { authorization: `Bearer ${RAW_TOKEN}` };
 describe('POST /v1/ai/webhooks/:tokenName', () => {
   it('401 without an Authorization header', async () => {
     const res = await post('/v1/ai/webhooks/bank-bbva', '{}');
-    expect(res.status).toBe(401);
+    await expectEnvelope(res, 401, 'UNAUTHORIZED');
     expect(runReaderTurn).not.toHaveBeenCalled();
   });
 
@@ -136,13 +154,13 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
     const res = await post('/v1/ai/webhooks/bank-bbva', '{}', {
       authorization: 'Bearer wrong-secret',
     });
-    expect(res.status).toBe(401);
-    const wrong = await res.json();
+    const wrong = await expectEnvelope(res, 401, 'UNAUTHORIZED');
 
     primeQueries({ tokenRows: [] });
     const res2 = await post('/v1/ai/webhooks/definitely-unknown', '{}', AUTH);
-    expect(res2.status).toBe(401);
-    expect(await res2.json()).toEqual(wrong);
+    const unknown = await expectEnvelope(res2, 401, 'UNAUTHORIZED');
+    // Only meta.timestamp may differ between the two answers.
+    expect(unknown.errors).toEqual(wrong.errors);
     expect(runReaderTurn).not.toHaveBeenCalled();
   });
 
@@ -218,14 +236,14 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
       ...AUTH,
       'content-type': 'text/plain',
     });
-    expect(res.status).toBe(415);
+    await expectEnvelope(res, 415, 'UNSUPPORTED_MEDIA_TYPE');
     expect(runReaderTurn).not.toHaveBeenCalled();
   });
 
   it('400 for malformed JSON', async () => {
     primeQueries({ tokenRows: [TOKEN] });
     const res = await post('/v1/ai/webhooks/bank-bbva', '{not json', AUTH);
-    expect(res.status).toBe(400);
+    await expectEnvelope(res, 400, 'INVALID_JSON');
     expect(runReaderTurn).not.toHaveBeenCalled();
   });
 
@@ -233,8 +251,15 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
     primeQueries({ tokenRows: [TOKEN] });
     const huge = JSON.stringify({ blob: 'x'.repeat(1_100_000) });
     const res = await post('/v1/ai/webhooks/bank-bbva', huge, AUTH);
-    expect(res.status).toBe(413);
+    await expectEnvelope(res, 413, 'PAYLOAD_TOO_LARGE');
     expect(runReaderTurn).not.toHaveBeenCalled();
+  });
+
+  it('400 in the envelope when the raw parser refuses the body for another reason', async () => {
+    // An unknown Content-Encoding is refused by express.raw before the handler runs.
+    const res = await post('/v1/ai/webhooks/bank-bbva', '{}', { ...AUTH, 'content-encoding': 'bogus' });
+    await expectEnvelope(res, 400, 'MALFORMED_BODY');
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 
   // ─── App-level integration: body parser exclusion (#15) ───

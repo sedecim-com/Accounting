@@ -155,7 +155,7 @@
     "src/ai/onboarding-service.ts": "7bd405ae60700ebab6bac3062002acd1cf9b4b58",
     "src/services/reporting/cash-flow-service.ts": "aee2e4df2da2c25bf017c40b6fcce2ae5dd25914",
     "src/services/reporting/cash-flow-reconcile.ts": "40808f7735cef1afde3ea5be5d0eec43bf02140c",
-    "src/index.ts": "f0224f3a52590d53bade7b5f9f1cbdaac16c4b7c",
+    "src/index.ts": "071c8b6b0188fc0512e9a9e3a0411d98e65c4429",
     "src/ai/tools/report-tools.ts": "6ac2848ac3532c4214388758c8f9ae8b354b1274",
     "src/ai/tools/question-tools.ts": "b8992141a7297cdd8ca366ed72472fde2b584da0",
     "src/ai/memory-service.ts": "e6cda54c251a7946b45174d6f6c4c9d8153fcf40"
