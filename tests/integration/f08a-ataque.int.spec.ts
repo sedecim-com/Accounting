@@ -351,7 +351,7 @@ describe('C · la corrida con subsidio entregado se puede postear al mayor', () 
       net = net.plus(r.net_pay);
     }
     await query(
-      `UPDATE pay_runs SET status = 'calculated', total_gross = $1,
+      `UPDATE pay_runs SET status = 'approved', total_gross = $1,
          total_pre_tax_deductions = 0, total_post_tax_deductions = 0,
          total_employee_taxes = $2, total_employer_taxes = $3, total_net_pay = $4,
          total_employer_cost = $5, employee_count = $6, calculated_at = NOW()
