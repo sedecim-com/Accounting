@@ -17,6 +17,12 @@ aplica sólo lo que siga pendiente. El candado es por base, así que dos bases
 del mismo clúster no se esperan. No tiene tiempo límite propio: lo acota el
 paso de despliegue. Lo fija `tests/integration/migrate-advisory-lock.int.spec.ts` (#373).
 
+Por eso `MIGRATION_DATABASE_URL` debe ser una conexión directa (de sesión),
+nunca un pooler en modo transacción (el `-pooler` de Neon, el puerto 6543 de
+Supabase): ahí el candado se toma en un backend y se suelta en otro, queda
+tomado y la corrida siguiente espera sin decir por qué. Si al final
+`pg_advisory_unlock` devuelve falso, la corrida sale en rojo con ese aviso.
+
 ## Duplicados históricos
 
 Estos cuatro números quedaron duplicados antes de que existiera la guarda y **ya

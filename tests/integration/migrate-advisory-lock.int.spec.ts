@@ -149,4 +149,16 @@ describe('npm run migrate under an advisory lock', () => {
     expect(rows[0].ok).toBe(true);
     await other.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [MIGRATION_LOCK_NAME]);
   });
+
+  it('a run whose session no longer holds the lock at the end is red', async () => {
+    // Through a transaction-mode pooler the lock is taken on one backend and
+    // the unlock runs on another, where pg_advisory_unlock returns false and
+    // only warns. The migration below drops the lock itself, which is the same
+    // state seen from the runner: the unlock finds nothing to release.
+    const dir = migrationsDir('not-held', {
+      '001_drop_lock.sql': `SELECT pg_advisory_unlock(hashtextextended('${MIGRATION_LOCK_NAME}', 0));`,
+    });
+    const runner = await connect();
+    expect(await applyMigrations(runner, { migrationsDir: dir, hardeningPath: null })).toBe(false);
+  });
 });

@@ -21,6 +21,54 @@ import {
   sinProsa,
 } from './shared.js';
 
+/**
+ * Mirrors for `migration-apply-and-record-atomic`: the stretch of migrate.ts
+ * from the catch to the end of the hardening, and the same stretch with the
+ * hardening moved back inside the try, ahead of the catch.
+ */
+const MIGRATE_CATCH_FINALLY_AND_HARDENING = `  } catch (error) {
+    console.error('Migration failed:', error);
+    fallo = true;
+  } finally {
+    // El endurecimiento corre SIEMPRE — su comentario decía «ALWAYS» y vivía
+    // dentro del try, así que un fallo a mitad de la corrida se lo saltaba:
+    // las migraciones que SÍ se aplicaron antes del fallo quedaban con sus
+    // tablas creadas y sin política, que es la fuga silenciosa que este
+    // bloque existe para impedir. En el finally cubre lo aplicado pase lo
+    // que pase, y el proceso sale en rojo igualmente.
+    const rlsPath = options.hardeningPath;
+    if (rlsPath && fs.existsSync(rlsPath)) {
+      console.log('  Applying isolation policies...');
+      try {
+        await client.query(fs.readFileSync(rlsPath, 'utf-8'));
+      } catch (rlsError) {
+        console.error('Hardening failed:', rlsError);
+        fallo = true;
+      }
+    }
+`;
+const MIGRATE_HARDENING_INSIDE_TRY = `    const rlsPath = options.hardeningPath;
+    if (rlsPath && fs.existsSync(rlsPath)) {
+      console.log('  Applying isolation policies...');
+      try {
+        await client.query(fs.readFileSync(rlsPath, 'utf-8'));
+      } catch (rlsError) {
+        console.error('Hardening failed:', rlsError);
+        fallo = true;
+      }
+    }
+  } catch (error) {
+    console.error('Migration failed:', error);
+    fallo = true;
+  } finally {
+    // El endurecimiento corre SIEMPRE — su comentario decía «ALWAYS» y vivía
+    // dentro del try, así que un fallo a mitad de la corrida se lo saltaba:
+    // las migraciones que SÍ se aplicaron antes del fallo quedaban con sus
+    // tablas creadas y sin política, que es la fuga silenciosa que este
+    // bloque existe para impedir. En el finally cubre lo aplicado pase lo
+    // que pase, y el proceso sale en rojo igualmente.
+`;
+
 // ============================================================
 // THE E0.2 CRITERIA
 //
@@ -85,6 +133,20 @@ export const E0_2: Criterio[] = [
     paquete: 'E0.2',
     id: 'migration-apply-and-record-atomic',
     enunciado: 'Ejecutar una migración y registrarla son un solo acto',
+    mutantes: [
+      {
+        archivo: 'src/database/migrate.ts',
+        de: "hardeningPath: path.join(__dirname, 'rls-policies.sql'),",
+        a: 'hardeningPath: null,',
+        porque: 'npm run migrate deja de aplicar rls-policies.sql: las tablas nuevas quedan sin política y nada lo dice',
+      },
+      {
+        archivo: 'src/database/migrate.ts',
+        de: MIGRATE_CATCH_FINALLY_AND_HARDENING,
+        a: MIGRATE_HARDENING_INSIDE_TRY,
+        porque: 'el endurecimiento vuelve al try (el error de la era #88): un fallo a mitad se lo salta y deja tablas sin política',
+      },
+    ],
     evaluar: () => {
       // migrate.ts corría el .sql y lo anotaba en public.migrations en DOS
       // transacciones implícitas: un fallo entre ambas dejaba la migración
@@ -100,11 +162,27 @@ export const E0_2: Criterio[] = [
       // Y el endurecimiento de RLS corre aunque una migración falle: vivía
       // dentro del try y un fallo a mitad dejaba las tablas ya creadas sin
       // política — la fuga silenciosa que el propio bloque dice impedir.
-      const finallyIdx = s.indexOf('finally');
-      const rlsIdx = s.indexOf('rls-policies.sql');
-      return finallyIdx >= 0 && rlsIdx > finallyIdx
-        ? ok('transaccional, y el endurecimiento corre pase lo que pase')
-        : falla('rls-policies.sql no corre en el finally: un fallo a mitad deja tablas sin política');
+      // Looked for INSIDE applyMigrations (#373 split it from runMigrations):
+      // the hardening comes after its `} finally {` and before the lock is
+      // released, and runMigrations really passes rls-policies.sql. Searching
+      // the whole file for the file name proves nothing any more: it only
+      // appears in runMigrations, below every finally.
+      const applyStart = s.indexOf('export async function applyMigrations');
+      const runStart = s.indexOf('async function runMigrations');
+      if (applyStart < 0 || runStart < applyStart) {
+        return falla('migrate.ts ya no separa applyMigrations de runMigrations: no hay dónde buscar el finally');
+      }
+      const applyBody = s.slice(applyStart, runStart);
+      const finallyAt = applyBody.indexOf('} finally {');
+      const hardeningAt = applyBody.indexOf('options.hardeningPath');
+      const unlockAt = applyBody.indexOf('pg_advisory_unlock');
+      if (finallyAt < 0 || hardeningAt < finallyAt || (unlockAt >= 0 && unlockAt < hardeningAt)) {
+        return falla('el endurecimiento no corre en el finally de applyMigrations antes de soltar el candado: un fallo a mitad deja tablas sin política');
+      }
+      if (!s.slice(runStart).includes("hardeningPath: path.join(__dirname, 'rls-policies.sql')")) {
+        return falla('runMigrations no le pasa rls-policies.sql a applyMigrations: npm run migrate no endurece nada');
+      }
+      return ok('transaccional, y el endurecimiento corre pase lo que pase');
     },
   },
   {

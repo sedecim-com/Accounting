@@ -206,8 +206,20 @@ export async function applyMigrations(
     }
     // After the hardening, which also must not interleave with another run.
     // If the connection is gone the server already dropped the lock with it.
+    // A false here means this session never held it: the lock was taken on
+    // another backend, which is what a transaction-mode pooler does, and it
+    // stays held there, so every later run would wait on it. That is a red run.
     try {
-      await client.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [MIGRATION_LOCK_NAME]);
+      const unlocked = await client.query<{ released: boolean }>(
+        'SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS released',
+        [MIGRATION_LOCK_NAME]
+      );
+      if (!unlocked.rows[0].released) {
+        console.error(
+          'Migration lock was not held by this session (is MIGRATION_DATABASE_URL a transaction-mode pooler?)'
+        );
+        fallo = true;
+      }
     } catch (unlockError) {
       console.error('Releasing the migration lock failed:', unlockError);
       fallo = true;
