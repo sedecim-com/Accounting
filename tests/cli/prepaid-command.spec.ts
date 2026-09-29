@@ -171,19 +171,15 @@ describe('safety declarations', () => {
     }
   });
 
-  it('acepta la llave, y hoy R11 la acusa porque no declara qué hace con ella', () => {
+  it('declares the key scope it honours, and is no longer key debt (MNE-001-053)', () => {
     // LA VERSIÓN ANTERIOR NO PODÍA FALLAR: comprobaba banderas que
     // `declareRisk` acaba de INYECTAR (risk.ts), o sea su propio efecto
-    // secundario. Lo que sí puede fallar es qué hace la hoja con la llave.
+    // secundario. Lo que sí puede fallar es qué hace la hoja con la llave: the
+    // handler looks it up before working and hands it to `conLlave` under
+    // this same scope, which llave-honrada.spec.ts crosses against the source.
     expect(longs('prepaid run')).toEqual(expect.arrayContaining(['--dry-run', '--yes']));
-    // `prepaid run` SÍ honra la llave —su manejador la entrega a `conLlave`
-    // bajo el ámbito 'prepaid run'— pero su declaración todavía no lo dice,
-    // así que R11 la acusa como «llave sin declarar» y está nombrada en
-    // DEUDA_DE_LLAVES. Convertirla es un renglón:
-    // `llave: { scope: 'prepaid run' }` junto a su `declareRisk`, y entonces
-    // esta prueba pide el ámbito en vez de la deuda.
-    expect(ambitoDeLlave(find('prepaid run'))).toBeUndefined();
-    expect(DEUDA_DE_LLAVES).toContain('prepaid run');
+    expect(ambitoDeLlave(find('prepaid run'))).toBe('prepaid run');
+    expect(DEUDA_DE_LLAVES).not.toContain('prepaid run');
   });
 
   it('gives the read-only leaves none of them: nothing suggests they write', () => {

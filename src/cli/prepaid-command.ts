@@ -7,7 +7,9 @@ import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
 import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
-import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
+import { query } from '../database/connection.js';
+import { t } from '../i18n/index.js';
+import { conLlave, mirarLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { indiceDeCalendario, primerDiaDelMes } from '../services/assets/depreciation-math.js';
 import {
   CONVENCIONES_AMORTIZACION,
@@ -24,6 +26,7 @@ import {
   medianocheLocal,
   registrarPagoAnticipado,
   revisionDeAmortizacionAlCierre,
+  RENGLON_VIGENTE,
   type CriteriosDeAnticipo,
   type PrepaidExpenseRow,
 } from '../services/accruals/prepaid-service.js';
@@ -508,6 +511,48 @@ Examples:
 `,
 };
 
+/** What `conLlave` records for a `prepaid run`. */
+interface RecordedRun extends Record<string, unknown> {
+  processed: number;
+  total: string;
+  skipped: number;
+  errors: string[];
+  /** The entries this run posted. Absent in results recorded before MNE-001-053. */
+  journalEntryIds?: string[];
+}
+
+/**
+ * The entries this run posted: the standing schedule rows of the period for
+ * the prepaids that had none before it. Scoped by entity inside the SQL.
+ */
+async function entriesOfRun(entityId: string, periodId: string, prepaidIds: string[]): Promise<string[]> {
+  if (prepaidIds.length === 0) return [];
+  const r = await query<{ journal_entry_id: string }>(
+    `SELECT s.journal_entry_id FROM prepaid_amortization_schedules s
+      WHERE s.entity_id = $1 AND s.fiscal_period_id = $2 AND s.prepaid_expense_id = ANY($3::uuid[])
+        AND ${RENGLON_VIGENTE}
+      ORDER BY s.journal_entry_id`,
+    [entityId, periodId, prepaidIds]
+  );
+  return r.rows.map((row) => row.journal_entry_id);
+}
+
+/**
+ * Of the recorded entries, those that no longer stand: not posted, or
+ * reversed. Same predicate as `RENGLON_VIGENTE`, scoped by entity.
+ */
+async function reversedEntries(entityId: string, ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const r = await query<{ id: string }>(
+    `SELECT je.id FROM journal_entries je
+      WHERE je.entity_id = $1 AND je.id = ANY($2::uuid[])
+        AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL`,
+    [entityId, ids]
+  );
+  const standing = new Set(r.rows.map((row) => row.id));
+  return ids.filter((id) => !standing.has(id));
+}
+
 export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDeps): void {
   const prepaid = program
     .command('prepaid')
@@ -966,6 +1011,9 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
     writes:
       'journal_entries + journal_entry_lines (un asiento de ajuste por anticipo), ' +
       'prepaid_amortization_schedules, prepaid_expenses',
+    // The key is honoured and declared so R11 can cross the scope against the
+    // call to the store (tests/cli/kernel/llave-honrada.spec.ts).
+    llave: { scope: 'prepaid run' },
   });
   ejecutar.addHelpText('after', EJEMPLOS.run);
   ejecutar.action((
@@ -1010,6 +1058,52 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
             `este mes · total ${total.toFixed(4)}\n`
         )
       );
+
+      // THE KEY IS LOOKED UP BEFORE ANY WORK (MNE-001-053, same fix as #180 in
+      // `payroll accrue`). `conLlave` wraps the act, so it was only consulted
+      // when the handler reached it — and a retry never did: the month is
+      // already accrued, `entran.length` is 0 and the leaf left through the
+      // "nothing to accrue" door below, which is exactly the one case in which
+      // someone retries.
+      //
+      // THE PAYLOAD IS THE ORDER, NOT ITS RESULT. It used to hash
+      // `entran.length` and the previewed total, which are what the ledger
+      // looks like now, not what the operator asked for: they collapse on the
+      // retry, and after a reversal they hashed equal again and replayed a
+      // result that no longer holds. The order is "accrue this period of this
+      // entity"; the same key on another period is still reuse (exit 6).
+      const keyAct = {
+        scope: 'prepaid run',
+        clave: opts.idempotencyKey,
+        payloadHash: hashDeCarga(ctx.entityId, corrida.id),
+      };
+      const recorded = await mirarLlave<RecordedRun>({ tenantId: ctx.tenantId }, keyAct);
+      if (recorded !== undefined) {
+        // A recorded result whose entries were reversed no longer describes
+        // the ledger: replaying "accrued" would hide a month that is not. The
+        // engine lets a reversed month run again, so the answer is a new key.
+        const reversed = await reversedEntries(ctx.entityId, recorded.journalEntryIds ?? []);
+        if (reversed.length > 0) {
+          throw usageError({
+            key: 'prepaid.run.key_reversed',
+            params: { key: opts.idempotencyKey ?? '', entries: reversed.join(', '), period: corrida.nombre },
+          });
+        }
+        err.write(deps.palette.dim(`${t('prepaid.run.key_replayed')}\n`));
+        render(
+          [
+            {
+              periodo: corrida.nombre,
+              devengados: recorded.processed,
+              omitidos: recorded.skipped,
+              total: recorded.total,
+              asientos: (recorded.journalEntryIds ?? []).join(', ') || '—',
+            },
+          ],
+          { ...opts, idField: 'periodo', numeric: ['total'] }
+        );
+        return recorded.errors.length > 0 ? ExitCode.VALIDATION : ExitCode.OK;
+      }
 
       if (entran.length === 0) {
         render(filasPrevistas(previsiones), { ...opts, idField: 'id' });
@@ -1076,36 +1170,30 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
         }
       }
 
-      // `--idempotency-key`, HONRADA Y NO ANUNCIADA. La misma llave con la
-      // misma carga devuelve el resultado GRABADO sin volver a correr. La carga
-      // incluye el total previsto: reintentar la misma orden sobre otros
-      // importes no es un reintento, es otra corrida.
-      const { repetido, resultado } = await conLlave<{
-        processed: number;
-        total: string;
-        skipped: number;
-        errors: string[];
-      }>(
+      // `--idempotency-key`, honoured: `conLlave` still arbitrates the race of
+      // two processes with the same new key through its unique constraint.
+      const { repetido, resultado } = await conLlave<RecordedRun>(
         { tenantId: ctx.tenantId, entityId: ctx.entityId },
-        {
-          scope: 'prepaid run',
-          clave: opts.idempotencyKey,
-          payloadHash: hashDeCarga(ctx.entityId, corrida.id, entran.length, total.toFixed(4)),
-        },
-        // El resultado se copia a un objeto llano porque `conLlave` lo guarda
-        // como JSON y su firma lo exige indexable; `ResultadoDeCorrida` es una
-        // interfaz y no lleva índice implícito.
-        async () => ({ ...(await runMonthlyAmortization(ctx.entityId, corrida.id, reviewer.userId)) })
+        keyAct,
+        async () => {
+          const r = await runMonthlyAmortization(ctx.entityId, corrida.id, reviewer.userId);
+          // Copied into a plain object because `conLlave` stores it as JSON and
+          // its signature wants it indexable. The entry ids are what lets a
+          // replay tell whether the recorded result still stands; they are
+          // only looked up when there is a key to record them under.
+          return {
+            processed: r.processed,
+            total: r.total,
+            skipped: r.skipped,
+            errors: r.errors,
+            journalEntryIds: opts.idempotencyKey
+              ? await entriesOfRun(ctx.entityId, corrida.id, entran.map((e) => e.id))
+              : [],
+          };
+        }
       );
 
-      if (repetido) {
-        err.write(
-          deps.palette.dim(
-            'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió ' +
-              'a devengar.\n'
-          )
-        );
-      }
+      if (repetido) err.write(deps.palette.dim(`${t('prepaid.run.key_replayed')}\n`));
 
       // LA COMPARACIÓN CONTRA LO QUE DE VERDAD PASÓ. La previa y el motor
       // comparten las funciones puras pero no el bucle, y ésta es la red que

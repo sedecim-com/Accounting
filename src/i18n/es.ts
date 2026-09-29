@@ -866,4 +866,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.approve.done': 'Corrida {id} aprobada · {status}',
   'payrun.approve.repeated': 'La corrida {id} ya se aprobó con esta llave: se muestra el resultado grabado · {status}',
   'payrun.approve.dry_run': 'Ensayo: la corrida {id} se aprobó y se deshizo; sigue en {status}.',
+
+  'prepaid.run.key_replayed':
+    'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió a devengar.',
+  'prepaid.run.key_reversed':
+    'La llave "{key}" grabó asientos que después se reversaron ({entries}). Devolver ese resultado ' +
+    'diría que {period} está devengado cuando no lo está. Vuelve a correr con una llave nueva ' +
+    '(es otra corrida, no un reintento) o sin --idempotency-key.',
 };

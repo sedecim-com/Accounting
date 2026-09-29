@@ -998,4 +998,13 @@ export const EN = {
   'payrun.approve.done': 'Run {id} approved · {status}',
   'payrun.approve.repeated': 'Run {id} was already approved under this key: the recorded result is shown · {status}',
   'payrun.approve.dry_run': 'Dry run: run {id} was approved and rolled back; it is still {status}.',
+
+  // --- `prepaid run` and its idempotency key (MNE-001-053, #317) ---------
+  'prepaid.run.key_replayed':
+    'Idempotency key already consumed: the recorded result is shown and nothing was accrued again.',
+  /** `{entries}` are the ids the keyed run posted and someone reversed since. */
+  'prepaid.run.key_reversed':
+    'The key "{key}" recorded entries that were reversed afterwards ({entries}). Returning that ' +
+    'result would say {period} is accrued when it is not. Run it again with a new key (it is ' +
+    'another run, not a retry) or without --idempotency-key.',
 } as const;
