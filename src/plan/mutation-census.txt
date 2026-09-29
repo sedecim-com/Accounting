@@ -100,6 +100,9 @@ mirror	memory	E0.3 reconciliation-approval-sealed-snapshot	src/database/migratio
 mirror	memory	E0.3 reconciliation-balanced-requires-arithmetic	src/database/migrations/054_la_sesion_que_cuadra.sql	vuelve a caber el defecto histórico: un UPDATE poniendo balanced sin haber calculado nada, que el cierre de periodo lee como prueba de que la cuenta se verificó
 mirror	memory	E0.3 reconciliation-balanced-requires-arithmetic	src/services/banking/reconciliation-service.ts	el único escritor legítimo deja de dejar constancia: la base rechazaría el cierre y `close` quedaría roto, que es mejor que cerrar en falso pero sigue siendo un fallo
 mirror	memory	E0.3 reconciliation-adjustment-never-posts	src/services/banking/reconciliation-adjustments.ts	basta un camino al mayor dentro del creador de ajustes para que su promesa de «nunca contabiliza por su cuenta» sea falsa
+mirror	memory	E0.3 reconciliation-reopen-reverses-posted-entries	src/services/banking/reconciliation-service.ts	the reopen UPDATE loses its state predicate: a concurrent reopen or post lands on a row that already moved, and a posted session could be reopened twice, reversing its entries twice (#302)
+mirror	memory	E0.3 reconciliation-reopen-reverses-posted-entries	src/services/banking/reconciliation-service.ts	the state guard is gone: an in_progress or balanced session is "reopened", and a signature it never had is withdrawn in the audit trail (#302)
+mirror	memory	E0.3 reconciliation-reopen-reverses-posted-entries	src/services/banking/reconciliation-service.ts	a posted entry is corrected by deleting it: the ledger forgets what was booked, which NIF B-1 and the 041 trigger forbid (#302)
 mirror	memory	E0.3 reconciled-mark-atomic-unapply-closes	src/database/migrations/052_el_cotejo.sql	una partida puede quedar marcada como conciliada sin decir cuándo ni por quién: el sello deja de ser rastreable y nadie puede deshacerlo
 mirror	memory	E0.3 reconciled-mark-atomic-unapply-closes	src/services/banking/match-service.ts	la clausura pierde su fecha y el cotejo deshecho sigue contando como vivo en todo índice que filtre por unapplied_at IS NULL
 mirror	memory	E0.3 guard-triggers-enable-always-watched	src/database/migrations/058_el_sello_de_las_garantias.sql	deja una garantía del mayor en disparador ordinario: una línea de SET session_replication_role la apagaría con las demás y la inmutabilidad de la línea posteada se evapora sin dejar rastro
@@ -700,6 +703,9 @@ anchor	src/plan/criteria/e0-3.ts	de: "CHECK (status NOT IN ('approved', 'posted'
 anchor	src/plan/criteria/e0-3.ts	de: ' OR arithmetic_computed_at IS NOT NULL',
 anchor	src/plan/criteria/e0-3.ts	de: ' arithmetic_computed_at = NOW(),',
 anchor	src/plan/criteria/e0-3.ts	de: ' await query(',
+anchor	src/plan/criteria/e0-3.ts	de: ' WHERE id = $1 AND entity_id = $2 AND status = $3`,',
+anchor	src/plan/criteria/e0-3.ts	de: ' if (!REOPENABLE_STATES.has(session.status)) {',
+anchor	src/plan/criteria/e0-3.ts	de: ' reversal = await reverseWithinTransaction(',
 anchor	src/plan/criteria/e0-3.ts	de: ' (is_reconciled = true AND reconciled_at IS NOT NULL AND reconciliation_id IS NOT NULL)',
 anchor	src/plan/criteria/e0-3.ts	de: ' SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2',
 anchor	src/plan/criteria/e0-3.ts	de: 'ALTER TABLE journal_entry_lines ENABLE ALWAYS TRIGGER journal_entry_lines_posteada_inmutable;',
