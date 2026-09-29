@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { changePolicyHint } from '../policy/policy-hint.js';
 import { ValidationError } from '../../utils/errors.js';
 import type { FixedAsset } from '../../types/index.js';
 import { DepreciationMethod, JournalEntryType } from '../../types/index.js';
@@ -181,14 +182,14 @@ export async function criteriosDeLaCorrida(tenantId: string, entityId: string): 
     throw new ValidationError(
       `La política \`base_depreciacion\` vale "${base.value}", que no es ninguna de las dos ` +
         `bases posibles (${BASES_DE_DEPRECIACION.join(', ')}). Corrígela con ` +
-        '`mnemosine pending resolve base_depreciacion` antes de correr la depreciación.'
+        `${changePolicyHint('base_depreciacion')} antes de correr la depreciación.`
     );
   }
   if (!esConvencion(convencion.value)) {
     throw new ValidationError(
       `La política \`convencion_primer_mes\` vale "${convencion.value}", que no es ninguna de ` +
         `las dos convenciones posibles (${CONVENCIONES_PRIMER_MES.join(', ')}). Corrígela con ` +
-        '`mnemosine pending resolve convencion_primer_mes` antes de correr la depreciación.'
+        `${changePolicyHint('convencion_primer_mes')} antes de correr la depreciación.`
     );
   }
 

@@ -59,7 +59,7 @@ const movement = (extra: Record<string, unknown> = {}) => ({
   description: 'd',
   ...extra,
 });
-const CAP_EXIT = 'Parte el extracto, o cárgalo con `mnemosine bank import`, que inserta por lotes.';
+const CAP_EXIT = 'Parte el extracto, o cárgalo con `mnemosine bank statement import`, que inserta por lotes.';
 const INVALID = 'Invalid request body: ';
 
 describe('G1 · every REST body probe answers exactly what zod 3 answered', () => {

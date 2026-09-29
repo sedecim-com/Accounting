@@ -49,9 +49,9 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **245 comandos** repartidos en **69 familias** de primer nivel. De las **1637** filas del catálogo, **230** (14.1 %) ya se pueden invocar.
+El binario ejecuta hoy **246 comandos** repartidos en **69 familias** de primer nivel. De las **1637** filas del catálogo, **231** (14.1 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **280** filas lo declaran completo, **388** a medias y **969** inexistente.
+Del motor que cada comando necesita, **280** filas lo declaran completo, **389** a medias y **968** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **201** ya se teclean.
 
@@ -61,7 +61,7 @@ Contadas por COMANDO, las 1637 filas son **1615 rutas únicas**: **17 rutas** es
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
-| `bank` | 123 | 33 |
+| `bank` | 123 | 34 |
 | `account` | 20 | 15 |
 | `entry` | 35 | 13 |
 | `customer` | 26 | 9 |
@@ -1254,7 +1254,7 @@ La tesorería es la columna vertebral fiscal del sistema: en México el IVA se c
 | `mnemosine bank reconciliation close <session>` · `banco conciliacion cerrar` | Recalcula la aritmética completa y cierra la sesión moviéndola a `balanced` sólo si la variación es exactamente cero y toda partida está clasificada y fechada | `--dry-run`, `--json` | ❌ el endpoint que marcaba `balanced` sin aritmética se retiró: `POST /reconciliations/:id/complete` (src/api/rest/routes/bank-reconciliation.ts:303) lanza `NotImplementedError` — la aritmética de variación que este comando exige no existe | escritura | ✗ | 1 |
 | `mnemosine bank reconciliation approve <session>` · `banco conciliacion aprobar` | Firma la sesión exigiendo que el aprobador no sea el preparador y congela un snapshot inmutable con hash de miembros y de saldos | `-u/--user`, `--reason`, `--dry-run`, `-y/--yes`, `--idempotency-key` | ✅ **hecha en F05d**: `aprobarSesion` congela la instantánea —miembros y saldos tal como estaban— y la sella con un sha256 de serialización DETERMINISTA, que es lo que permite contestar «¿esto es lo que se aprobó?» con un sí o un no. El aprobador≠preparador lo gobierna la política YA EXISTENTE `segregacion_de_funciones`, ensanchada para cubrir este acto: es la misma pregunta del despacho que el posteo manual, y dos claves para una decisión divergen. La firma reevalúa el cuadre con la tolerancia CON LA QUE SE CERRÓ (055) y no con la de hoy: relitigarla hacía que la instantánea contradijera al cierre que firmaba | irreversible | ✗ | 1 |
 | `mnemosine bank reconciliation post <session>` · `banco conciliacion contabilizar` | Contabiliza los asientos de ajuste aprobados y sella como conciliadas las líneas de libros de la sesión, bloqueando su edición, su cancelación y su cambio de fecha | `--dry-run`, `-y/--yes`, `--idempotency-key` | ✅ **hecha en F05d**: `contabilizarSesion` postea los borradores de ajuste en UNA transacción, rellena su `journal_entry_id` —la columna que prueba que el ajuste dejó de ser una promesa— y sella las líneas con las tres columnas juntas. Idempotente: contabilizar dos veces no postea dos veces | irreversible | ✗ | 1 |
-| `mnemosine bank reconciliation reopen <session>` · `banco conciliacion reabrir` | Reabre una sesión cuadrada o aprobada bajo permiso propio, libera los sellos y registra el delta contra el snapshot original | `--reason`, `--dry-run`, `-y/--yes`, `--idempotency-key` | ❌ | irreversible | ✗ | 2 |
+| `mnemosine bank reconciliation reopen <session>` · `banco conciliacion reabrir` | Reabre una sesión cuadrada o aprobada bajo permiso propio, libera los sellos y registra el delta contra el snapshot original | `--reason`, `--dry-run`, `-y/--yes`, `--idempotency-key`, `--json` | 🟡 **hecha en MNE-001-044 (#302) para sesiones `approved`**: `reopenSession` la devuelve a `in_progress` con un UPDATE guardado (estado y entidad en el `WHERE`, `rowCount` comprobado) que limpia la firma y el cierre en una sola sentencia, y la bitácora (`reopen`) conserva el hash y la instantánea retirados. Se niega si un periodo fiscal que cubre la sesión está cerrado, nombrando `period reopen`. Falta: `posted` con asiento de reversa (MNE-001-130), y una sesión `balanced` sin firmar no se reabre | irreversible | ✗ | 2 |
 | `mnemosine bank reconciliation cancel <session>` · `banco conciliacion cancelar` | Retira una sesión en curso conservando los movimientos importados y eliminando sólo los cotejos creados dentro de ella | `--reason`, `--dry-run`, `-y/--yes`, `--idempotency-key` | ❌ | irreversible | ✗ | 2 |
 | `mnemosine bank reconciliation check` · `banco conciliacion verificar` | Recalcula las sesiones históricas contra los datos actuales y **sale 4** reportando la deriva de saldo inicial, atribuyendo qué cambió, quién y cuándo | `--check <name,…>`, `-a/--all`, `--as-of`, `--account`, `--strict`, `--json` | ❌ | lectura | ✓ | 2 |
 | `mnemosine bank reconciliation generate <session>` · `banco conciliacion generar` | Genera el estado de conciliación bancaria de dos lados listo para el expediente de auditoría | `--format <pdf\|xlsx\|json>`, `-o/--output` | ❌ | lectura | ✓ | 1 |

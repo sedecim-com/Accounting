@@ -983,7 +983,7 @@ export async function checkReopenedPeriods(): Promise<CheckResult> {
       `${r.rows.length} period(s) reopened and never closed again — the first is ` +
       `${primero.period_name} of ${primero.entity}. A period left open accepts postings that ` +
       `would unbalance a close already filed.`,
-    fix: 'mnemosine period close <period> --entity <entity>',
+    fix: 'mnemosine close --period <period> --entity <entity>',
   };
 }
 
