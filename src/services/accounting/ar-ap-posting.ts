@@ -21,8 +21,11 @@ import {
   convertirAFuncional,
   desgloseCambiarioDelPago,
   functionalCurrencyOf,
+  resolverTipoCambio,
   type ContextoCambiario,
+  type TipoCambioResuelto as FxRate,
 } from './moneda-origen.js';
+import { tenantDe } from '../audit/audit-log.js';
 
 // ============================================================
 // AR/AP → GL POSTING
@@ -35,9 +38,11 @@ import {
 //
 // Accounts resolve through account_roles (seeded per entity):
 // cxc, cxp, banco and the IVA roles. A per-line account on the
-// document always wins over the generic role. Amounts post as
-// stored on the document (functional currency); multicurrency
-// nuances still belong to the CFDI ingestion path.
+// document always wins over the generic role. A document in the
+// functional currency posts its amounts as stored; one in another
+// currency converts at birth (NIF B-15) and keeps its original
+// amount in the FX columns — a bill at its own rate, an invoice at
+// the rate of the firm's `fuente_tipo_cambio` source.
 //
 // IVA IS ON A CASH BASIS FOR MEXICAN ENTITIES. Which IVA role a
 // document's tax lands in is decided by the CFDI MetodoPago and
@@ -121,64 +126,119 @@ export async function postInvoiceEntry(
 
   const roles = await roleAccounts(client, invoice.entity_id, ['cxc', ivaRole, 'ingreso']);
 
-  // ── R4 · la guarda espejo del lado AR ─────────────────────────────────
+  // ── R4 · B-15 on the AR side: A FOREIGN-CURRENCY INVOICE CONVERTS AT BIRTH ──
   //
-  // El cableado FX de cobros es fase 2, pero la REGLA de R4 no espera:
-  // ninguna línea pierde su origen en silencio. Antes, una factura de
-  // USD 1000 se posteaba como MXN 1000 sin guarda ni columnas — el pecado
-  // original vivo en el lado que factura. Hasta que el cobro convierta como
-  // ya convierte el gasto, la factura en moneda extranjera SE NIEGA a
-  // postearse: un ingreso subvaluado 18× con veredicto limpio es peor que
-  // un posteo detenido que dice por qué.
-  const funcionalAr = await functionalCurrencyOf(client, invoice.entity_id);
-  if (invoice.currency_code && invoice.currency_code !== funcionalAr) {
-    throw new AccountingError(
-      'FX_AR_NOT_WIRED',
-      `${invoice.invoice_number} está en ${invoice.currency_code} y los libros en ${funcionalAr}. ` +
-        `El posteo de ingresos aún no convierte moneda extranjera (es fase 2 de R4): postearla hoy ` +
-        `asentaría ${invoice.currency_code} como si fueran ${funcionalAr}, sin rastro del importe ` +
-        `original. El gasto ya convierte; el ingreso se detiene hasta tener el mismo motor.`
+  // Until MNE-001-081 this refused with FX_AR_NOT_WIRED, because posting USD
+  // 1 000 as MXN 1 000 was the only alternative. Now it converts like the
+  // bill does, with one difference the plan fixes (#305): the rate is not
+  // whatever sits in invoices.exchange_rate (`invoice create` never writes
+  // that column, so it is almost always the 1.0 default) but the one the
+  // firm's `fuente_tipo_cambio` source published for the invoice date, read
+  // inside this transaction and failing closed when it is missing. The rate
+  // used is written back to the invoice: it is the historical rate the
+  // collection will measure its realised difference against.
+  const functional = await functionalCurrencyOf(client, invoice.entity_id);
+  let rate: FxRate | null = null;
+  if (invoice.currency_code && invoice.currency_code !== functional) {
+    rate = await resolverTipoCambio(
+      client,
+      { tenantId: await tenantDe(client, invoice.entity_id), entityId: invoice.entity_id },
+      { de: invoice.currency_code, a: functional, fecha: invoice.invoice_date }
     );
+    // A rate already on the invoice that is not the capture default and
+    // disagrees with the firm's source is two answers to one question: which
+    // one the revenue is worth is not this function's call.
+    const stored = new Decimal(invoice.exchange_rate || '0');
+    if (stored.greaterThan(0) && !stored.equals(1) && !stored.equals(rate.tasa)) {
+      throw new AccountingError(
+        'FX_RATE_CONFLICT',
+        `${invoice.invoice_number} trae tipo de cambio ${invoice.exchange_rate} y la fuente ` +
+          `'${rate.fuente}' de la política fuente_tipo_cambio publicó ${rate.tasa} para ${rate.fecha}. ` +
+          `No elijo uno en silencio: corrige el tipo de la factura o la política antes de emitirla.`
+      );
+    }
   }
+  const fx = rate;
+  const toFunctional = (amount: string): string =>
+    fx ? convertirAFuncional(amount, fx.tasa) : amount;
+  const fxCredit = (
+    amount: string
+  ): Pick<JeLine, 'currency_code' | 'foreign_credit' | 'exchange_rate'> =>
+    fx ? { currency_code: invoice.currency_code, foreign_credit: amount, exchange_rate: fx.tasa } : {};
 
-  const jeLines: JeLine[] = [
-    {
-      account_id: requireRole(roles, 'cxc'),
-      debit_amount: invoice.total_amount,
-      credit_amount: null,
-      description: `Invoice ${invoice.invoice_number}`,
-    },
-    ...lines.map((line) => ({
-      account_id: line.revenue_account_id || requireRole(roles, 'ingreso'),
-      debit_amount: null,
-      credit_amount: line.line_amount,
-      description: line.description || `Invoice ${invoice.invoice_number} - line ${line.line_number}`,
-      cost_center_id: line.cost_center_id || undefined,
-      project_id: line.project_id || undefined,
-    })),
-  ];
+  const credits: JeLine[] = lines.map((line) => ({
+    account_id: line.revenue_account_id || requireRole(roles, 'ingreso'),
+    debit_amount: null,
+    credit_amount: toFunctional(line.line_amount),
+    description: line.description || `Invoice ${invoice.invoice_number} - line ${line.line_number}`,
+    cost_center_id: line.cost_center_id || undefined,
+    project_id: line.project_id || undefined,
+    ...fxCredit(line.line_amount),
+  }));
   if (new Decimal(invoice.tax_amount || '0').greaterThan(0)) {
-    jeLines.push({
+    credits.push({
       account_id: requireRole(roles, ivaRole),
       debit_amount: null,
-      credit_amount: invoice.tax_amount,
+      credit_amount: toFunctional(invoice.tax_amount),
       description: metodo
         ? `IVA ${describeMetodo(metodo)} - Invoice ${invoice.invoice_number} · ${ivaTreatmentNote('issued', metodo)}`
         : `Tax - Invoice ${invoice.invoice_number}`,
+      ...fxCredit(invoice.tax_amount),
     });
   }
+
+  // The cxc debit mirrors postBillEntry's cxp credit: in foreign currency it
+  // is the SUM of the credits already rounded, so the entry balances against
+  // what was posted, and it carries its origin only when total × rate agrees
+  // with that sum (otherwise verificarOrigenFx would reject the whole entry).
+  const receivableDebit = fx
+    ? credits.reduce((s, l) => s.plus(l.credit_amount ?? '0'), new Decimal(0)).toFixed(4)
+    : invoice.total_amount;
+  const fxReceivable =
+    fx && new Decimal(receivableDebit).equals(convertirAFuncional(invoice.total_amount, fx.tasa))
+      ? { currency_code: invoice.currency_code, foreign_debit: invoice.total_amount, exchange_rate: fx.tasa }
+      : {};
+  const jeLines: JeLine[] = [
+    {
+      account_id: requireRole(roles, 'cxc'),
+      debit_amount: receivableDebit,
+      credit_amount: null,
+      description: `Invoice ${invoice.invoice_number}`,
+      ...fxReceivable,
+    },
+    ...credits,
+  ];
 
   const entry = await createJournalEntry(
     invoice.entity_id,
     invoice.invoice_date,
     JournalEntryType.AUTO_INVOICE,
-    withAssumptionNote(`Invoice ${invoice.invoice_number}`, metodo),
+    withAssumptionNote(
+      fx
+        ? `Invoice ${invoice.invoice_number} · ${invoice.currency_code} ${invoice.total_amount} @ ${fx.tasa} (${fx.fuente} ${fx.fecha})`
+        : `Invoice ${invoice.invoice_number}`,
+      metodo
+    ),
     jeLines,
     userId,
     { autoPost: true, client, sourceType: 'invoice', sourceId: invoice.id, reference: invoice.invoice_number }
   );
 
-  await client.query('UPDATE invoices SET journal_entry_id = $1 WHERE id = $2', [entry.id, invoice.id]);
+  if (fx) {
+    const linked = await client.query(
+      `UPDATE invoices SET journal_entry_id = $1, exchange_rate = $2
+        WHERE id = $3 AND entity_id = $4 AND journal_entry_id IS NULL`,
+      [entry.id, fx.tasa, invoice.id, invoice.entity_id]
+    );
+    if (linked.rowCount !== 1) {
+      throw new AccountingError(
+        'INVOICE_ALREADY_POSTED',
+        `${invoice.invoice_number} ya tiene póliza o no es de esta entidad: no se enlaza otra.`
+      );
+    }
+  } else {
+    await client.query('UPDATE invoices SET journal_entry_id = $1 WHERE id = $2', [entry.id, invoice.id]);
+  }
   return entry;
 }
 
