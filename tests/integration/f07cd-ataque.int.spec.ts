@@ -512,10 +512,10 @@ describe('el desglose por tasa: el 0 % y lo exento no comparten casilla', () => 
 // 4 · CONTRA LA DIOT · EL IVA RETENIDO Y DÓNDE ACABA
 // ============================================================
 
-describe('el IVA retenido: la DIOT lo separa y el mayor no', () => {
+describe('VAT withheld: the DIOT separates it, and so does the ledger', () => {
   const MES = 4;
 
-  it('la retención sale del CFDI, se prorratea, y NO se puede cotejar contra el mayor', async () => {
+  it('the withholding comes from the CFDI, is prorated, and has an account of its own in the ledger', async () => {
     const uuid = uuidv4();
     const v = await sembrarProveedor(f.entityId, f.userId, 'Honorarios Retenidos SC', {
       rfc: 'HRE010101AA1', tipoTercero: '04', tipoOperacion: '03',
@@ -536,10 +536,10 @@ describe('el IVA retenido: la DIOT lo separa y el mayor no', () => {
     // suma de retenciones.
     expect(r!.ivaRetenido).toBe('53.3350');
 
-    // AHORA EL AMARRE QUE NO EXISTE. Las dos retenciones comparten cuenta:
-    // `account-roles-seed.ts:261-262` mapea `isr_retenido_por_pagar` Y
-    // `iva_retenido_por_pagar` a la MISMA 2140 (y `isr_nomina_por_pagar`
-    // también, :273). En el mayor son el mismo saldo.
+    // The ledger side of the tie: until MNE-001-056 both withholding roles and
+    // payroll ISR shared 2140, one balance for three figures. Each withheld
+    // tax now has its own account, so the DIOT's VAT withheld has a balance
+    // to be checked against.
     const cuentas = await query<{ role: string; code: string }>(
       `SELECT ar.role, a.code FROM account_roles ar JOIN accounts a ON a.id = ar.account_id
         WHERE ar.entity_id = $1 AND ar.qualifier IS NULL
@@ -547,14 +547,11 @@ describe('el IVA retenido: la DIOT lo separa y el mayor no', () => {
         ORDER BY ar.role`,
       [f.entityId]
     );
-    const codigos = new Set(cuentas.rows.map((x) => x.code));
-    expect(cuentas.rows.length).toBeGreaterThanOrEqual(2);
-    expect(
-      codigos.size,
-      'HALLAZGO: las retenciones de IVA e ISR comparten cuenta, así que la cifra ' +
-        'de IVA retenido de la DIOT no tiene contra qué cotejarse en el mayor'
-    ).toBe(1);
-    expect([...codigos][0]).toBe('2140');
+    expect(cuentas.rows).toEqual([
+      { role: 'isr_nomina_por_pagar', code: '2140' },
+      { role: 'isr_retenido_por_pagar', code: '2141' },
+      { role: 'iva_retenido_por_pagar', code: '2142' },
+    ]);
   }, 60_000);
 });
 

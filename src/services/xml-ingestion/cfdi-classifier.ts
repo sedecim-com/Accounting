@@ -7,6 +7,8 @@ import {
   decisionsFor, getDecision, DEFAULT_THRESHOLDS,
   type DecisionPoint, type PolicyThresholds,
 } from './cfdi-decisions.js';
+import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
+import { settleWithholding, withholdingByLaw, type LegalParameterReader } from './withholding-law.js';
 
 // ============================================================
 // CFDI CLASSIFIER
@@ -87,6 +89,8 @@ export interface ClassifyOptions {
   roleMap?: Map<string, { code: string; name: string }>;
   /** Policy-resolved thresholds; without them the defaults are used. */
   thresholds?: PolicyThresholds;
+  /** Where the withholding rates are read; Postgres' `legal_parameters` by default. */
+  readLegalParameter?: LegalParameterReader;
 }
 
 export async function classifyXml(xml: string, opts: ClassifyOptions): Promise<Classification> {
@@ -133,6 +137,18 @@ export async function classifyParsed(
       reason: matched.notes,
       lines: [], decisions: [], missingRoles: [], linkage: [], warnings,
     };
+  }
+
+  // ── Withholdings the entity owes by law (MNE-001-056): the rates come from
+  // `legal_parameters`, and a missing rate fails closed instead of booking none.
+  const law = await withholdingByLaw(
+    facts,
+    opts.readLegalParameter ?? ((key, onDate) => legalParameterAt('MX', key, onDate))
+  );
+  if (law) {
+    const settled = settleWithholding(facts, law);
+    facts.withholdingDue = settled.due;
+    if (settled.mismatch) warnings.push(settled.mismatch);
   }
 
   // ── Decisions applicable given the facts + those from external context

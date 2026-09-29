@@ -1800,8 +1800,8 @@ export async function registrarFacturaDeBorradorAprobado(
     },
     { figure: 'transferred VAT', entry: net(vat, 'debit'), cfdi: sumTax(summary.traslados, '002') },
   ];
-  // NOTE: the seeded chart points both withholding roles at the same account
-  // (2140); then only their sum can be checked, and it is.
+  // NOTE: entities seeded before MNE-001-056 point both withholding roles at
+  // the same account (2140); then only their sum can be checked, and it is.
   if ([...isrWithheld].some((id) => vatWithheld.has(id))) {
     figures.push({
       figure: 'withholdings (ISR + VAT, same account)',

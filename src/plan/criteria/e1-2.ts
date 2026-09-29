@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import {
   codigoDe,
+  consumidoresDe,
   type Criterio,
   crudoDe,
   dondeAparece,
@@ -3330,6 +3331,59 @@ export const E1_2: Criterio[] = [
         : falla(
             'no hay prueba del cero declarado: es lo único que separa «el emisor declaró 0.00» de «no declaró nada»'
           );
+    },
+  },
+  {
+    paquete: 'E1.2',
+    id: 'fee-and-lease-withholdings-come-from-the-law',
+    enunciado:
+      "A legal entity withholds 10 % ISR and two thirds of the VAT from an individual's fees or lease, with the rates of legal_parameters, each on a role account of its own (#309, MNE-001-056)",
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-taxonomy.ts',
+        de: 'isrRetDue: (f: CfdiFacts) => f.withholdingDue?.isr ?? f.isrRetenido,',
+        a: 'isrRetDue: (f: CfdiFacts) => f.isrRetenido,',
+        porque: "THE DEFECT OF #309: the ISR withheld is whatever the CFDI declares, and a lease declaring none is booked with none",
+      },
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: "  iva_retenido_por_pagar: '2142',",
+        a: "  iva_retenido_por_pagar: '2140',",
+        porque: 'the VAT withheld is pooled again with the ISR and payroll ISR: no balance says how much VAT is paid on the 17th',
+      },
+      {
+        archivo: 'src/database/migrations/129_withholdings_on_fees_and_leases_come_from_the_law.sql',
+        de: "'income_tax.withholding.lease_rate', '2014-01-01', '0.1000', 'rate',",
+        a: "'income_tax.withholding.lease_rate', '2014-01-01', '0.0100', 'rate',",
+        porque: 'the lease is withheld 1 % instead of the 10 % of LISR 116: ISR under-withheld on every rent',
+      },
+    ],
+    evaluar: () => {
+      const taxonomy = codigoDe('src/services/xml-ingestion/cfdi-taxonomy.ts');
+      if (!/isrRetDue: \(f: CfdiFacts\) => f\.withholdingDue\?\.isr \?\? /.test(taxonomy) ||
+          !/ivaRetDue: \(f: CfdiFacts\) => f\.withholdingDue\?\.iva \?\? /.test(taxonomy)) {
+        return falla('the withholding lines no longer book what the law says: the CFDI rules them again (#309)');
+      }
+      if (!consumidoresDe('withholdingByLaw', 'withholding-law.ts').some((f) => f.endsWith('cfdi-classifier.ts'))) {
+        return falla('the classifier no longer computes the withholding by law: the rates are seeded and never read');
+      }
+      const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
+      if (!/ {2}isr_retenido_por_pagar: '2141',/.test(seed) || !/ {2}iva_retenido_por_pagar: '2142',/.test(seed)) {
+        return falla('the withholding roles share an account again: no balance is the sum withheld of each tax');
+      }
+      const mig = 'src/database/migrations/129_withholdings_on_fees_and_leases_come_from_the_law.sql';
+      const law = existe(mig) ? crudoDe(mig) : '';
+      for (const row of [
+        /'income_tax\.withholding\.professional_fees_rate', '2014-01-01', '0\.1000', 'rate',/,
+        /'income_tax\.withholding\.lease_rate', '2014-01-01', '0\.1000', 'rate',/,
+        /'vat\.withholding\.individual_thirds', '2006-12-05', '2\.0000', 'thirds',/,
+      ]) {
+        if (!row.test(law)) return falla(`migration 129 no longer seeds ${row.source} as the law says`);
+      }
+      return existe('tests/integration/mne-001-056-withholdings-fees-and-leases.int.spec.ts') &&
+        existe('tests/xml-ingestion/withholding-law.spec.ts')
+        ? ok('fees and leases are withheld 10 % ISR and 2/3 of the VAT from legal_parameters, on 2141 and 2142')
+        : falla('no test RUNS the withholding against the law and a migrated database');
     },
   },
 ];
