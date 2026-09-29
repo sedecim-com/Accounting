@@ -206,9 +206,7 @@ Un manual que promete un paso que no existe es peor que no tener manual. Ésta e
 | Programar pagos | No existe, y el sistema lo dice: no habla con ningún banco | `payment create` registra dinero que **ya salió**, no lo manda |
 | Estados financieros en PDF o Excel | No existe | `--format csv -o archivo.csv` y darles formato en Excel |
 
-Una ausencia merece un aviso especial, porque no falla: pasa callada.
-
-**El cierre duro de fin de ejercicio puede saltarse los asientos de cierre.** Si el catálogo de la entidad no tiene las cuentas 3900 y 3200 marcadas como cuentas de sistema —cosa que pasa cuando el catálogo se importó de otro sistema en vez de sembrarse—, `close --hard` de diciembre reporta éxito sin generar el traspaso de resultados a capital. Antes de cerrar un ejercicio, verifica que esas dos cuentas existan.
+**El cierre duro de fin de ejercicio necesita sus cuentas puente.** Si el catálogo de la entidad no tiene las cuentas 3900 y 3200 marcadas como cuentas de sistema —cosa que pasa cuando el catálogo se importó de otro sistema en vez de sembrarse—, `close --hard` de diciembre no puede barrer el resultado. Por omisión se detiene, revierte el cierre y nombra las cuentas de resultados que quedaron con saldo; qué tan estricto es lo fija la política `severidad_resultado_sin_barrer` del panel. Verifica esas dos cuentas antes de cerrar el ejercicio y te ahorras el rechazo.
 
 ---
 

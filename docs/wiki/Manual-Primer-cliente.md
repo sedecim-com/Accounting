@@ -182,13 +182,13 @@ Los tipos válidos son `asset`, `liability`, `equity`, `revenue`, `expense`, `co
 
 **Qué hacer si sale distinto.** Si `account create` se queja de la cuenta padre, créala primero o quita `--parent`. Si `account role set` te dice que el rol no existe, corre `account role list` para ver la lista exacta: los nombres de rol están en español (`banco`, `cxc`, `cxp`) y no admiten sinónimos.
 
-**Antes de seguir**, verifica que existan las cuentas **3900** (resultado del ejercicio, cuenta puente del cierre) y **3200** (resultado de ejercicios anteriores) marcadas como cuentas de sistema. Si el catálogo se sembró con `--chart auto` ya están. Si lo importaste de otro sistema, puede que no, y en diciembre el cierre duro va a reportar éxito **sin generar los asientos de cierre**, en silencio. Es la falla más cara de esta página y se previene ahora, no en diciembre.
+**Antes de seguir**, verifica que existan las cuentas **3900** (resultado del ejercicio, cuenta puente del cierre) y **3200** (resultado de ejercicios anteriores) marcadas como cuentas de sistema. Si el catálogo se sembró con `--chart auto` ya están. Si lo importaste de otro sistema, puede que no, y en diciembre el cierre duro no va a poder barrer el resultado: por omisión se detiene y lo revierte, nombrando las cuentas que quedaron con saldo (la política `severidad_resultado_sin_barrer` fija qué tan estricto es). Se previene ahora, no en diciembre.
 
 ---
 
 ## Paso 5 · El agrupador del SAT (Anexo 24)
 
-**Qué quieres lograr.** Asociar cada cuenta del catálogo con su código agrupador del SAT. Es el trabajo más pesado del alta de un cliente mexicano, y hay que hacerlo aunque hoy mnemosine todavía no genere el XML de contabilidad electrónica: el mapeo es el que después alimenta esa generación y el que te permite exportar el catálogo a un generador externo.
+**Qué quieres lograr.** Asociar cada cuenta del catálogo con su código agrupador del SAT. Es el trabajo más pesado del alta de un cliente mexicano, y el mapeo es el que después alimenta el XML del catálogo y de la balanza que arma `e-accounting` (ver [[Manual-El-cierre-de-mes]]).
 
 El formato del archivo es un CSV de dos columnas —código de cuenta y valor del agrupador—, una cuenta por línea, con coma o punto y coma como separador:
 
@@ -236,7 +236,7 @@ npm run mnemosine -- account map set 5110 --scheme sat-agrupador --value 601.01
 
 **Qué quieres lograr.** Meter en el mayor los saldos con los que el cliente llega, a la fecha de corte.
 
-Hay tres caminos. Léelos antes de elegir.
+Hay cuatro caminos. Léelos antes de elegir.
 
 ### Camino A · Importar del sistema anterior (sólo Contalink)
 
@@ -252,7 +252,7 @@ Si el plan se ve bien, quita `--dry-run`. `--balance-account` es la cuenta donde
 
 **El saldo inicial llega como borrador**, no contabilizado: hay que aprobarlo con `mnemosine review` (ver [[Manual-El-dia-a-dia]]). Si quieres que se contabilice de inmediato, añade `--post`.
 
-**Límite importante:** el único adaptador que existe es `contalink`. **No hay adaptador de CONTPAQi ni de Aspel**, que son de donde viene la mayoría de los clientes de un despacho mexicano. Si el cliente viene de ahí, usa el camino B. Y si escribes un proveedor que no existe, el error que vas a recibir puede ser un error de base de datos, no un «ese proveedor no existe»: la validación del nombre ocurre después de conectar.
+**Límite importante:** el único adaptador de `onboard` es `contalink`; no lo hay de CONTPAQi ni de Aspel, que son de donde viene la mayoría de los clientes de un despacho mexicano. Si el cliente viene de ahí, usa el camino D: esos sistemas exportan el catálogo y la balanza en los XML del Anexo 24, y eso es lo que lee `opening-balance import`. Y si escribes un proveedor que no existe, el error que vas a recibir puede ser un error de base de datos, no un «ese proveedor no existe»: la validación del nombre ocurre después de conectar.
 
 ### Camino B · Capturar los saldos como una póliza (el camino que siempre funciona)
 
@@ -297,7 +297,26 @@ npm run mnemosine -- batch post <batch_id>
 
 `batch post` se niega con un lote que no pasó `batch check`; `--partial` aplica los renglones válidos y deja los demás escenificados. Si el archivo venía mal, `batch reverse <batch_id> --reason "..."` refleja todas sus pólizas como una unidad. Los layouts de CONTPAQi, Aspel, IIF y pólizas del SAT están anunciados en la ayuda pero todavía sin lector: los formatos que sí lee son `csv` y `ndjson`.
 
-**Recomendación:** para el alta de un cliente, el camino B sigue siendo el más corto. El C es para cuando el histórico tiene que vivir aquí.
+### Camino D · Desde los XML del Anexo 24 del sistema anterior (CONTPAQi, Aspel y cualquier otro)
+
+Todo sistema contable mexicano exporta el catálogo (`CatalogoCuentas`) y la balanza (`BalanzaComprobacion`) que se le presentan al SAT. Con esos dos archivos, primero el catálogo, con los códigos y la jerarquía del despacho:
+
+```bash
+npm run mnemosine -- chart import ./migracion/catalogo.xml --dry-run
+npm run mnemosine -- chart import ./migracion/catalogo.xml --yes
+```
+
+Y después la balanza del cierre anterior, que se contabiliza como la póliza de apertura el primer día del ejercicio. **Es irreversible**, así que siempre en seco primero; `--subledger` trae los documentos abiertos de clientes y proveedores, para que CxC y CxP nazcan documento a documento:
+
+```bash
+npm run mnemosine -- opening-balance import ./migracion/balanza-2025-12.xml --subledger ./migracion/documentos-abiertos.json --dry-run
+npm run mnemosine -- opening-balance import ./migracion/balanza-2025-12.xml --subledger ./migracion/documentos-abiertos.json --yes
+npm run mnemosine -- opening-balance check ./migracion/balanza-2025-12.xml
+```
+
+`opening-balance check` coteja la balanza de origen contra el mayor al día de la apertura, cuenta por cuenta, y sale con 4 si algo no cuadra al peso. Si el día siguiente al corte de la balanza no es el primer día de un ejercicio dado de alta (Paso 3), la carga se niega y te dice qué archivo hace falta.
+
+**Recomendación:** si el cliente viene de CONTPAQi o Aspel, el camino D; si no, el B sigue siendo el más corto. El C es para cuando el histórico tiene que vivir aquí.
 
 ---
 

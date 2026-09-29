@@ -78,7 +78,7 @@ mnemosine bank match run --account "BBVA Operativa MXN" \
   --since 2026-08-01 --until 2026-08-31 --min-confidence 0.9 --dry-run
 ```
 
-`preview` enseña, señal por señal, qué propondría el motor y no aplica nada; `run` aplica sólo lo que pasa todas las compuertas. Una propuesta decidida sólo por parecido de descripción **nunca** se aplica sola, por alto que puntúe. Escribe las mismas compuertas en los dos, o la vista previa deja de predecir lo que hará la escritura.
+`preview` enseña, señal por señal, qué propondría el motor y no aplica nada; `run` aplica sólo lo que pasa todas las compuertas. Una propuesta decidida sólo por parecido de descripción **nunca** se aplica sola, por alto que puntúe.
 
 **Una transferencia que liquida varias facturas** se coteja a mano como un grupo, y el grupo se rechaza si el lado del banco, el de los libros y los ajustes no suman lo mismo:
 
@@ -120,6 +120,8 @@ mnemosine bank fee post "BBVA Operativa MXN" --period 2026-08 --iva-rate 0.16 --
 mnemosine bank interest post "BBVA Operativa MXN" --period 2026-08 --rate 0.0125 --dry-run
 ```
 
+Los ajustes de la sesión también aparecen en `mnemosine review`, junto con los demás borradores. Aprobar uno ahí está bien: lo contabiliza antes, y `bank reconciliation post` lo adopta en vez de duplicarlo. Rechazar uno ahí, en cambio, hace que `post` se niegue, porque la sesión se firmó contándolo: revisa la sesión —se reabre con `bank reconciliation reopen`— antes de volver a firmarla.
+
 En `adjustment create` el importe lleva **signo** según su efecto en la cuenta: un cargo es negativo. En `fee post`, `--iva-rate` es el IVA que la comisión ya trae dentro y **no tiene valor por omisión**: 0 es una respuesta legítima, y hay que teclearla. En `interest post`, `--rate` es la tasa de **retención** del ISR, no la del interés: el interés se registra bruto y la retención como pago a favor de la entidad.
 
 ---
@@ -148,7 +150,9 @@ Una sesión firmada se regresa a `in_progress` con `bank reconciliation reopen <
 
 ## Qué ve el cierre de mes
 
-La partida `Bank reconciliations complete` del cierre cuenta las cuentas bancarias activas sin una sesión `balanced`, `approved` o `posted` que cubra el periodo. Como `balanced` ahora se gana con aritmética, la palomita significa lo que dice. Y con **cero** cuentas dadas de alta ya no sale en verde: dice «0 cuentas bancarias registradas: no se pudo comprobar». Ver [[Manual-El-cierre-de-mes]].
+La partida `Bank reconciliations complete` del cierre cuenta las cuentas bancarias activas sin una sesión `balanced`, `approved` o `posted` que cubra el periodo. Como `balanced` ahora se gana con aritmética, la palomita significa lo que dice. Y con **cero** cuentas dadas de alta ya no sale en verde: dice «0 cuentas bancarias registradas: no se pudo comprobar».
+
+La partida `Reconciliation variance frozen at zero` mira el dato que ese estado afirma: la variación congelada de la sesión. Una sesión `balanced` sin aritmética guardada **bloquea** el cierre; una variación congelada distinta de cero, que la política de tolerancia admitió, sólo avisa. Junto a ellas salen las partidas conciliatorias vencidas y las líneas del estado de cuenta sin explicar. Ver [[Manual-El-cierre-de-mes]].
 
 El lado del mayor, para la hoja de trabajo, sigue saliendo del auxiliar:
 

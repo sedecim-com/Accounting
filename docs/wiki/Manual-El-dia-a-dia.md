@@ -498,12 +498,12 @@ npm run mnemosine -- close --period August --check
 
 **Fíjate en el `August`, no es un descuido.** `close --period` es una de las dos banderas de periodo que buscan por fragmento del nombre guardado —y los nombres se acuñan en inglés—, así que `--period 2026-08` no encuentra nada y el comando te enumera los disponibles. Las tres familias de `--period`, con lo que acepta cada una, están en [[Manual-El-cierre-de-mes]].
 
-Sólo revisa; nunca cierra. Evalúa siete partidas: pólizas en borrador o pendientes de aprobación (bloquea), conciliaciones bancarias (avisa), facturas de cliente en borrador (avisa), depreciación del periodo (avisa), balanza cuadrada (bloquea), REP apartados para revisión (avisa), y pagos y cobros sin REP (bloquea o avisa según lo que hayas definido en el panel).
+Sólo revisa; nunca cierra. Recorre la lista de verificación del cierre —pólizas sin contabilizar, conciliaciones bancarias, facturas en borrador, depreciación, balanza cuadrada, REP, agrupador del SAT y el resto— y separa lo que bloquea de lo que sólo avisa; en varias partidas eso lo decide una política del panel. Cada partida, con su severidad y su remedio, está en [[Manual-El-cierre-de-mes]].
 
 **Dos partidas dicen «no se pudo comprobar» cuando no hay nada que contar**, en vez de salir en verde:
 
 - **Conciliaciones bancarias.** Sin cuentas dadas de alta con `bank account create`, no hay nada que revisar. Con cuentas, la partida pide una sesión cerrada con `bank reconciliation close` que cubra el mes.
-- **Depreciación.** Sin activos registrados con `asset create`, igual. Con activos, pide la corrida del mes contabilizada con `depreciation post`.
+- **Depreciación.** Sin activos registrados con `asset create` y sin saldo en las cuentas de activo fijo, igual. Si esas cuentas **sí** traen saldo y el registro está vacío, ya no es «no se pudo comprobar»: es un hallazgo que te pide registrarlos. Con activos, pide la corrida del mes contabilizada con `depreciation post`, y la severidad la fija la política `depreciacion_faltante_al_cierre`.
 
 Y antes de cerrar, dos comprobaciones que sí valen:
 
@@ -605,7 +605,19 @@ npm run mnemosine -- report balance-sheet show --as-of 2026-08-31 --format csv -
 npm run mnemosine -- report income-statement show --period 2026-08 --format csv -o resultados.csv
 ```
 
-Y lo que sigue haciéndose fuera de mnemosine, sin excepción: bajar los CFDI del portal del SAT, timbrar, cancelar, emitir los REP, conciliar el banco y generar la contabilidad electrónica y la DIOT.
+Y lo que sigue haciéndose fuera de mnemosine, sin excepción:
+
+- bajar los CFDI del portal del SAT: la descarga masiva no está construida;
+- timbrar, cancelar ante el SAT y emitir los REP, en el portal del PAC;
+- sellar con la e.firma y presentar ante el SAT los XML del Anexo 24 y la DIOT.
+
+La conciliación del banco, en cambio, se hace aquí con `bank reconciliation` ([[Manual-Bancos-y-conciliacion]]), y los archivos del SAT se generan aquí con `e-accounting` y `diot` ([[Manual-El-cierre-de-mes]]): lo único que queda de tu lado es sellarlos y presentarlos.
+
+```bash
+npm run mnemosine -- bank reconciliation run "BBVA Operativa MXN" --period 2026-08 --dry-run
+npm run mnemosine -- e-accounting balance generate --period 2026-08 --dry-run
+npm run mnemosine -- diot generate --period 2026-08
+```
 
 ---
 

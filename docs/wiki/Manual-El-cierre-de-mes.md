@@ -57,7 +57,7 @@ mnemosine period list
 
 ---
 
-## La lista de verificación: siete compuertas
+## La lista de verificación
 
 ```bash
 mnemosine close --period August --check
@@ -67,7 +67,7 @@ mnemosine close --period August --check
 
 La lista se evalúa **dentro de la misma transacción del cierre**, con el candado de la fila del periodo cruzado contra el que toma todo posteo. Antes se evaluaba fuera, y un posteo en vuelo podía confirmar entre la foto y el cierre: el periodo cerraba con una lista que no lo contaba. Es un detalle de implementación, pero es la razón por la que la lista que ves al cerrar es la lista que se guarda.
 
-Siete partidas, en el orden en que salen ([`period-close.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/period-close.ts), líneas 36-183):
+Abajo van las partidas que todo mes encuentra, en el orden en que salen ([`period-close.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/period-close.ts)). La lista que arma el código tiene más —que el periodo anterior esté cerrado, la variación congelada de la conciliación, las partidas conciliatorias vencidas, las líneas del banco sin explicar, la amortización de pagos anticipados, la integridad del mayor, el agrupador del SAT y los auxiliares de CxC y CxP contra su cuenta de control—, y cada una sale en `close --check` con su nombre, su severidad y su remedio:
 
 ### 1. `All journal entries posted` — **BLOQUEA**
 
@@ -123,7 +123,7 @@ mnemosine invoice list -s draft --period 2026-08
 mnemosine invoice issue F-2026-0091
 ```
 
-### 4. `Depreciation calculated and posted` — avisa
+### 4. `Depreciation calculated and posted` — **bloquea o avisa, según el panel**
 
 Activos fijos activos sin depreciación contabilizada del periodo.
 
@@ -297,21 +297,21 @@ mnemosine close --period August --hard --reason "Cierre definitivo de agosto"
 
 Es un segundo acto deliberado, y exige que el periodo ya esté en `soft_close`. Hace tres cosas:
 
-1. **Si es el último periodo del ejercicio**, genera los asientos de cierre: barre ingresos y gastos contra la 3900 «Resumen de Ingresos y Gastos» y traspasa el resultado a la 3200 «Resultado de Ejercicios Anteriores».
+1. **Si es el último periodo del ejercicio**, genera los asientos de cierre: barre ingresos y gastos contra la 3900 «Resumen de Ingresos y Gastos» y traspasa el resultado a la cuenta que fija la política `destino_del_resultado_del_ejercicio`.
 2. **Arrastra los saldos de balance** al periodo siguiente, después de los asientos de cierre para que el arrastre de fin de año ya refleje el resultado traspasado.
 3. Sella el periodo y deja su rastro en la bitácora, en la misma transacción.
 
 Dos advertencias sobre el cierre anual:
 
-**El resultado va a la 3200, no a la 3300.** La cuenta se resuelve por **código** y tiene que estar marcada como cuenta de sistema. Se eligió 3200 y no 3100 a propósito: la 3100 es Capital Social, y barrer ahí el resultado del ejercicio distorsiona el capital y contraviene NIF C-11, que sólo mueve el capital social por actos corporativos formales. Difiere de la práctica de dejar el resultado del ejercicio en una 3300 durante el año siguiente; si tu despacho lo hace así, el traspaso a 3300 es una póliza manual.
+**A dónde va el resultado lo decide el panel.** Por omisión, a la 3300 «Resultado del Ejercicio», y una reclasificación posterior, cuando la asamblea lo aprueba, lo lleva a la 3200 «Resultado de Ejercicios Anteriores»; la otra opción de `destino_del_resultado_del_ejercicio` lo manda directo a la 3200. Si la política pide 3300 y el catálogo no la tiene, se usa la 3200 y el cierre lo dice. La cuenta se resuelve por **código** y tiene que estar marcada como cuenta de sistema. Nunca a la 3100: es Capital Social, y NIF C-11 sólo lo mueve por actos corporativos formales.
 
-**Si faltan la 3900 o la 3200, los asientos de cierre se saltan en silencio.** El código devuelve una lista vacía y el cierre reporta éxito ([`period-close.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/period-close.ts), líneas 437-441). Con el catálogo sembrado por el sistema las dos existen y están marcadas; con un catálogo importado del sistema anterior, puede que no. **Compruébalo antes de cerrar diciembre en duro:**
+**Si faltan la 3900 o la 3200, el barrido no se puede hacer, y el cierre lo dice.** Sin cuentas puente no se emite ningún asiento de cierre, y entonces se comprueba si alguna cuenta de resultados conserva saldo. Si la hay, por omisión el cierre duro se revierte entero, el periodo sigue abierto y el error nombra cada cuenta con su saldo; la política `severidad_resultado_sin_barrer` puede bajarlo a un aviso. Con el catálogo sembrado por el sistema las dos existen y están marcadas; con un catálogo importado del sistema anterior, puede que no. **Compruébalo antes de cerrar diciembre en duro:**
 
 ```bash
 mnemosine account list --type equity
 ```
 
-Si no están, o no están marcadas como cuentas de sistema, el cierre de diciembre va a terminar bien sin haber traspasado nada, y el balance de enero va a arrastrar ingresos y gastos del año anterior.
+Si no están, o no están marcadas como cuentas de sistema, dales de alta o márcalas antes de cerrar: el cierre duro de diciembre se va a detener hasta que el resultado se pueda barrer. Si el panel lo dejó en aviso, el cierre termina y el balance de enero arrastra ingresos y gastos del año anterior.
 
 ---
 
@@ -334,12 +334,21 @@ mnemosine period reopen "July 2026" --reason "Llegó un CFDI de CFE con fecha de
 |---|---|
 | `open` | No aplica |
 | `soft_close` | Sí, con `period reopen --reason` |
-| `hard_close` | Sí, con `--force` además de `--reason`: conserva sus asientos de cierre y su arrastre de saldos |
+| `hard_close` | Sí, con `--force` además de `--reason`. Después de corregir hay que volver a cerrarlo en suave y en duro, como te lo imprime el propio comando |
 | `locked` | **Nunca**, ni con `--force`. Su información ya salió del sistema |
 
 ```bash
 mnemosine period reopen "December 2026" --force --reason "Ajuste pedido por el auditor externo"
 ```
+
+**Después de reabrir un periodo en duro, no basta con el cierre suave.** El arrastre de saldos que hizo el cierre duro sigue con las cifras de antes: si el periodo se queda en `soft_close`, todos los meses siguientes abren con el saldo viejo, y la comprobación de la cadena no lo ve porque sólo lee cierres duros. Corrige, y luego:
+
+```bash
+mnemosine close --period "December 2026"
+mnemosine close --period "December 2026" --hard
+```
+
+Y regenera todo lo que salió de ese periodo antes de reabrirlo: estados financieros, balanza, XML del Anexo 24 y DIOT.
 
 **Cuando el periodo está `locked`.** La corrección que pertenece a ese mes no se puede registrar en él. Se registra en el periodo abierto más próximo, con una descripción que diga a qué mes corresponde, y se anota en el papel de trabajo:
 
