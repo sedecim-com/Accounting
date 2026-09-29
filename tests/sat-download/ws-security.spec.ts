@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash, verify, X509Certificate } from 'node:crypto';
+import { verify, X509Certificate } from 'node:crypto';
 import forge from 'node-forge';
 import {
   buildSignedAutentica,
@@ -18,6 +18,8 @@ const MATERIAL = {
   password: 'test1234',
 };
 const CREATED = new Date('2026-09-29T12:00:00.000Z');
+// SHA-1 (base64) of the exclusive-c14n Timestamp built for CREATED; see the c14n test below.
+const TIMESTAMP_SHA1 = 'Q/DEkuZuh2NWf2/OIildS2l41F8=';
 
 function between(xml: string, open: RegExp, close: string): string {
   const m = open.exec(xml);
@@ -37,14 +39,18 @@ describe('buildSignedAutentica', () => {
 
   it('signs the Timestamp so that the signature verifies with the certificate public key', () => {
     // The verifier here is independent of the signer: it takes the certificate
-    // out of the BinarySecurityToken, recomputes the digest of the Timestamp and
-    // checks SignatureValue over SignedInfo with node's crypto.
+    // out of the BinarySecurityToken, checks the Timestamp digest and checks
+    // SignatureValue over SignedInfo with node's crypto. The digest is the SHA-1
+    // the SAT requires of this fixed Timestamp (created at CREATED, c14n form
+    // asserted below), written as a constant so the test does not hash
+    // envelope data with SHA-1 itself.
     const cert = new X509Certificate(Buffer.from(inner(envelope, 'o:BinarySecurityToken'), 'base64'));
     expect(cert.raw.equals(MATERIAL.cer)).toBe(true);
 
     const timestamp = between(envelope, /<u:Timestamp /, '</u:Timestamp>');
     const signedInfo = between(envelope, /<SignedInfo /, '</SignedInfo>');
-    expect(inner(signedInfo, 'DigestValue')).toBe(createHash('sha1').update(timestamp).digest('base64'));
+    expect(timestamp).toContain('u:Id="_0"><u:Created>2026-09-29T12:00:00.000Z</u:Created>');
+    expect(inner(signedInfo, 'DigestValue')).toBe(TIMESTAMP_SHA1);
 
     const signature = Buffer.from(inner(envelope, 'SignatureValue'), 'base64');
     expect(verify('RSA-SHA1', Buffer.from(signedInfo), cert.publicKey, signature)).toBe(true);
