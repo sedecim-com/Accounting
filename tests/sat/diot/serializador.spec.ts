@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   exigirEntregable,
-  DiotFormatoNoFundamentado,
   DiotNoEntregable,
-  LO_QUE_FALTA_CONFIRMAR,
   PAPEL_DE_TRABAJO,
   SERIALIZADOR_SAT,
 } from '../../../src/services/sat/diot/serializador.js';
@@ -144,24 +142,10 @@ describe('exigirEntregable', () => {
 });
 
 describe('el archivo del SAT', () => {
-  it('SE NIEGA aunque la declaración esté impecable, y dice qué falta confirmar', () => {
+  it('writes the batch file once the declaration is clean (layout covered in sat-batch.spec.ts)', () => {
     const d = base();
     expect(() => exigirEntregable(d)).not.toThrow();
-    try {
-      SERIALIZADOR_SAT.serializar(d);
-      expect.unreachable('el layout no está fundamentado: no debe producir nada');
-    } catch (e) {
-      expect(e).toBeInstanceOf(DiotFormatoNoFundamentado);
-      const msg = (e as Error).message;
-      // Dice que los DATOS sí están, que es la mitad que sí se entrega.
-      expect(msg).toContain('160.0000');
-      for (const falta of LO_QUE_FALTA_CONFIRMAR) expect(msg).toContain(falta);
-    }
-  });
-
-  it('la lista de lo que falta no está vacía mientras el layout no se confirme', () => {
-    expect(LO_QUE_FALTA_CONFIRMAR.length).toBeGreaterThan(0);
-    expect(LO_QUE_FALTA_CONFIRMAR.join(' ')).toContain('orden y el número exacto de campos');
+    expect(SERIALIZADOR_SAT.serializar(d).split('|')).toHaveLength(54);
   });
 
   it('mira los bloqueantes ANTES que el formato', () => {

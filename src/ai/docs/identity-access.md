@@ -138,6 +138,14 @@ audit | revoke` (consent is recorded per user, with its version; `audit` shows
 every use). Only the e.firma is supported: a CSD (digital seal) is rejected
 upfront, and there is no CIEC path at all.
 
+What the consent text (version `2026-09-1`) tells the taxpayer: the e.firma
+authenticates with the SAT to download issued and received CFDI and their
+metadata, and seals the Anexo 24 files only when the firm sets
+`efirma_sellado_contabilidad_electronica = sellar_con_custodia`; submitting the
+files and filing any return stays manual in the SAT portal. A consent given
+under an earlier version keeps that version on its row. Do not describe the
+e.firma as doing more than this.
+
 Never ask the human to paste keys or passwords into chat — point them to
 `sat cred add`, which takes certificate and key as FILES (`--cer`, `--key`, in
 DER) and asks for the key password with a hidden prompt.
@@ -150,4 +158,5 @@ agent may never invoke `sat cred add` or `sat cred revoke` — they are declared
 Use is capped twice: by the credential's own `max_daily_access` and by the
 policy panel's `efirma_max_accesos_diarios`, whichever is stricter, and at the
 cap `efirma_accion_anomalia` decides — only the literal `alertar` lets an
-access through; any other value denies.
+access through; any other value denies. Every use that reached the key counts
+toward the cap, including one the SAT refused; a denied attempt does not.

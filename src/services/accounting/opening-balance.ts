@@ -18,6 +18,17 @@ import {
 import { naturDe, saldoDelMayor } from '../sat/anexo24/balanza-invariantes.js';
 import { compareToSource, shapesFromRows, type BalanceComparison } from './opening-balance-check.js';
 import { queryAccountAncestry, rollUpTrialBalanceRows } from '../reporting/report-service.js';
+import {
+  prepareOpeningInvoices,
+  skippedUnderDraftMode,
+  writeOpeningInvoices,
+} from '../ar/opening-invoices.js';
+import {
+  openingPayableIvaPolicy,
+  payablesSkippedUnderDraftMode,
+  prepareOpeningBills,
+  writeOpeningBills,
+} from '../ap/opening-bills.js';
 
 // ============================================================
 // O1 · LA BALANZA DE APERTURA — LA SEGUNDA CAPA DEL ONBOARDING
@@ -147,6 +158,20 @@ export interface OpeningDocument {
   importe: string;
   /** UUID del CFDI que lo respalda, cuando lo hay. */
   uuid?: string;
+  /**
+   * ISO 4217 currency of the open balance. Omitted means the functional one;
+   * any other is refused for a receivable or a payable (MNE-001-022/023,
+   * `opening-invoices.ts` and `opening-bills.ts`).
+   */
+  currency?: string;
+  /** Counterparty RFC: finds the existing customer or vendor before one is created. */
+  rfc?: string;
+  /**
+   * Payables only (MNE-001-023): the IVA rate inside the open balance, as the
+   * CFDI's TasaOCuota ('0.16', '0.08', '0') or 'exento'. Without it the panel
+   * key `opening_payable_iva` decides (`opening-bills.ts`).
+   */
+  ivaRate?: string;
 }
 
 /** Una cuenta de la entidad tal como está HOY. El plan se calcula contra esto. */
@@ -781,7 +806,10 @@ export function planOpeningBalance(
 
       if (!cubierto) {
         bloqueado = true;
-        const diferencia = suma.minus(residuo);
+        // MNE-001-023: the difference in the account's own nature, and said
+        // with its direction. «sobran -1000.00» on a short payable read as a
+        // surplus of a negative amount; the stop names what is missing.
+        const diferencia = saldoDelMayor(suma.minus(residuo).toString(), natur);
         findings.push(
           finding(
             'APE-DETALLE-NO-CUADRA',
@@ -789,8 +817,8 @@ export function planOpeningBalance(
             f.numCta,
             `Los ${docs.length} documento(s) de "${f.numCta}" suman ` +
               `${saldoDelMayor(suma.toString(), natur).toFixed(2)} y la balanza declara ` +
-              `${saldoDelMayor(residuo.toString(), natur).toFixed(2)} para esa cuenta: sobran ` +
-              `${saldoDelMayor(diferencia.toString(), natur).toFixed(2)}. El auxiliar y la balanza del ` +
+              `${saldoDelMayor(residuo.toString(), natur).toFixed(2)} para esa cuenta: ` +
+              `${diferencia.isNegative() ? 'faltan' : 'sobran'} ${diferencia.abs().toFixed(2)}. El auxiliar y la balanza del ` +
               `mismo corte tienen que decir lo mismo AL PESO; que no lo digan es un descuadre del ` +
               `origen, y cargarlo lo traería aquí convertido en un misterio.`
           )
@@ -941,6 +969,13 @@ export interface ImportOpeningBalanceOptions {
  */
 export const OPENING_LOAD_MODE_POLICY_KEY = 'apertura_modo_de_carga';
 
+/**
+ * The panel key for a payable document of `--subledger` that does not say
+ * its IVA rate (MNE-001-023); `openingPayableIvaPolicy` (ap/opening-bills.ts)
+ * reads its answer.
+ */
+export const OPENING_PAYABLE_IVA_POLICY_KEY = 'opening_payable_iva';
+
 /** `post` unless the key says exactly `borrador`: an unknown value falls to the default. */
 export type OpeningLoadMode = 'post' | 'draft';
 
@@ -959,6 +994,10 @@ export interface OpeningBalanceReport extends OpeningPlan {
   /** The entry written (posted, or a draft under `loadMode: 'draft'`), or `null`. */
   asiento: { id: string; entry_number: string } | null;
   escrito: boolean;
+  /** Customer invoices this load creates (or created) in the AR subledger. */
+  arInvoices: number;
+  /** Vendor bills this load creates (or created) in the AP subledger (MNE-001-023). */
+  apBills: number;
 }
 
 /**
@@ -1044,8 +1083,35 @@ export async function importOpeningBalance(
       LIMIT 1`,
     [opts.entityId, ejercicio.startDate]
   );
-  const findings: OpeningFinding[] = [...plan.findings];
-  let puedeCargarse = plan.puedeCargarse;
+  const loadMode: OpeningLoadMode =
+    (await getPolicy({ tenantId: ctx.tenantId, entityId: opts.entityId }, OPENING_LOAD_MODE_POLICY_KEY))
+      .value === 'borrador'
+      ? 'draft'
+      : 'post';
+
+  // MNE-001-022: the receivable documents also become invoices, so that
+  // `ar reconcile` sees the subledger behind the control balance. Only with a
+  // POSTED opening: an invoice hanging from a draft entry would be collectable
+  // before its balance is in the ledger.
+  const arInvoicePlan =
+    loadMode === 'post'
+      ? await prepareOpeningInvoices(opts.entityId, plan)
+      : skippedUnderDraftMode(plan);
+  // MNE-001-023: the mirror for the payable documents, under the same rule.
+  const apBillPlan =
+    loadMode === 'post'
+      ? await prepareOpeningBills(
+          opts.entityId,
+          plan,
+          openingPayableIvaPolicy(
+            (await getPolicy({ tenantId: ctx.tenantId, entityId: opts.entityId }, OPENING_PAYABLE_IVA_POLICY_KEY))
+              .value
+          )
+        )
+      : payablesSkippedUnderDraftMode(plan);
+  const subledgerFindings = [...arInvoicePlan.findings, ...apBillPlan.findings];
+  const findings: OpeningFinding[] = [...plan.findings, ...subledgerFindings];
+  let puedeCargarse = plan.puedeCargarse && subledgerFindings.every((x) => x.severidad !== 'bloquea');
   const anterior = yaCargada.rows[0];
   if (anterior !== undefined) {
     puedeCargarse = false;
@@ -1069,12 +1135,6 @@ export async function importOpeningBalance(
     );
   }
 
-  const loadMode: OpeningLoadMode =
-    (await getPolicy({ tenantId: ctx.tenantId, entityId: opts.entityId }, OPENING_LOAD_MODE_POLICY_KEY))
-      .value === 'borrador'
-      ? 'draft'
-      : 'post';
-
   const base: OpeningBalanceReport = {
     ...plan,
     findings,
@@ -1088,6 +1148,8 @@ export async function importOpeningBalance(
     loadMode,
     asiento: null,
     escrito: false,
+    arInvoices: arInvoicePlan.drafts.length,
+    apBills: apBillPlan.drafts.length,
   };
 
   if (!puedeCargarse || opts.dryRun === true) return base;
@@ -1150,12 +1212,16 @@ export async function importOpeningBalance(
         rfc,
         cuentas: plan.lines.length,
         documentos_de_auxiliar: plan.lines.filter((l) => l.documento !== undefined).length,
+        ar_invoices: arInvoicePlan.drafts.length,
+        ap_bills: apBillPlan.drafts.length,
         total_debe: plan.totalDebe,
         total_haber: plan.totalHaber,
         load_mode: loadMode === 'draft' ? 'borrador' : 'contabilizar',
       },
       reason: opts.reason ?? null,
     });
+    await writeOpeningInvoices(client, opts.entityId, opts.userId, entry.id, arInvoicePlan.drafts);
+    await writeOpeningBills(client, opts.entityId, opts.userId, entry.id, apBillPlan);
 
     return entry;
     });
@@ -1383,6 +1449,12 @@ export function renderOpeningBalanceReport(r: OpeningBalanceReport): string {
   const conDocumento = r.lines.filter((x) => x.documento !== undefined).length;
   if (conDocumento > 0) {
     l.push(`  ${conDocumento} renglón(es) vienen del auxiliar, documento a documento.`);
+  }
+  if (r.arInvoices > 0) {
+    l.push(`  ${r.arInvoices} factura(s) de clientes entran al auxiliar de CxC, ligadas a la apertura.`);
+  }
+  if (r.apBills > 0) {
+    l.push(`  ${r.apBills} factura(s) de proveedores entran al auxiliar de CxP, ligadas a la apertura.`);
   }
   if (r.control.length > 0) {
     l.push('  Cuentas de control:');

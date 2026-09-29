@@ -20,11 +20,13 @@ Lo que un despacho le entrega a su cliente cada mes: la balanza, los estados fin
 | Antigüedad de cuentas por pagar | `report aged-payable show` | Sí |
 | Pólizas con sus renglones, planas | `entry export` | Sí |
 | Espejo de CFDI y el XML original | `cfdi list` · `cfdi show --format xml` | Sí |
-| Estado de flujos de efectivo (NIF B-2) | — | **No** |
+| Estado de flujos de efectivo (NIF B-2) | `cashflow generate` · `cashflow reconcile` | Sí |
+| Catálogo y balanza del Anexo 24 en XML | `e-accounting catalog generate` · `e-accounting balance generate` | Sí, sin sellar |
+| DIOT | `diot generate` · `diot check` · `diot export` | Sí, papel de trabajo |
+| Expediente sellado del cierre | `closing pack generate` · `closing pack verify` | Sí (JSON) |
 | Variaciones en el capital contable (NIF B-4) | — | **No** |
 | Comparativo contra el periodo anterior | — | **No** |
-| XML de contabilidad electrónica (Anexo 24) | — | **No** |
-| DIOT | — | **No** |
+| Pólizas y auxiliares del Anexo 24 en XML | — | **No** |
 | PDF o XLSX | — | **No** (CSV a Excel) |
 
 Los formatos de salida de todos los que sí salen son los mismos seis: `table`, `json`, `ndjson`, `csv`, `tsv`, `md`.
@@ -145,10 +147,10 @@ Con `--as-of` el significado es el mismo que en la balanza: todo lo posteado has
 ## El auxiliar de una cuenta
 
 ```bash
-mnemosine ledger auxiliary show --account 1120 --period August
+mnemosine ledger auxiliary show --account 1120 --period 2026-08
 ```
 
-Saldo inicial, cada movimiento, saldo final: **la forma XC que pide el SAT**. Las dos banderas son obligatorias, y el periodo aquí es **un fragmento del nombre guardado** —que se acuña en inglés—, no una fecha: `--period August` encuentra, `--period 2026-08` sale con 3 y `Fiscal period with id 2026-08 not found`. Es una de las dos banderas `--period` que se comportan así; la otra es la de `close`, y las tres familias están en [[Manual-El-cierre-de-mes]]. Ojo con el contraste de dos bloques más abajo: `account balance show --period` **sí** acepta `2026-08`.
+Saldo inicial, cada movimiento, saldo final: **la forma XC que pide el SAT**. Las dos banderas son obligatorias, y el periodo acepta `2026-08`, el uuid o un fragmento inequívoco del nombre guardado —que se acuña en inglés—, igual que `account balance show --period` y `close --period` (#327). Las familias de `--period` están en [[Manual-El-cierre-de-mes]].
 
 El encabezado trae la cuenta, el periodo, **el estatus del periodo** y el saldo inicial. Y aquí hay una advertencia que este comando da y que casi ningún sistema da: si el periodo anterior no tiene cierre duro, el saldo inicial se marca como *actividad, no acumulado*. Es la diferencia entre un auxiliar que se puede entregar y uno que hay que explicar.
 
@@ -226,10 +228,10 @@ Aquí es donde hay que ser más preciso, porque es donde más fácil se promete 
 mnemosine account map import ./agrupador.csv --scheme sat-agrupador --dry-run
 mnemosine account map import ./agrupador.csv --scheme sat-agrupador
 mnemosine account map list --scheme sat-agrupador
-mnemosine account map check --scheme sat-agrupador --level 3 --strict
+mnemosine account map check --scheme sat-agrupador --strict
 ```
 
-El archivo es `code,valor`, una cuenta por renglón, con coma o punto y coma. `map check` es la **compuerta de cobertura**: dice qué cuentas de nivel alto siguen sin mapear, y con `--strict` sale con código 4 si falta alguna.
+El archivo es `code,valor`, una cuenta por renglón, con coma o punto y coma. `map check` es la **compuerta de cobertura**: dice qué cuentas siguen sin mapear dentro del alcance que fija la política `agrupador_alcance_de_la_compuerta` —por omisión, las que se movieron en el periodo—, y con `--strict` sale con código 4 si falta alguna. `--level` ya no existe como recorte: el comando lo rechaza con código 2.
 
 **El espejo de CFDI:**
 
@@ -259,17 +261,37 @@ mnemosine rep reconcile
 mnemosine vendor list --no-tax-id
 ```
 
+**La contabilidad electrónica (Anexo 24)** —catálogo y balanza—. El XML sale **sin sello**: sellarlo con la e.firma y enviarlo por el Buzón Tributario son actos tuyos, fuera del sistema, que nunca pide una e.firma.
+
+```bash
+mnemosine e-accounting catalog generate --period 2026-08 --dry-run
+mnemosine e-accounting catalog generate --period 2026-08 -o catalogo-2026-08.xml --yes
+mnemosine e-accounting balance check --period 2026-08
+mnemosine e-accounting balance generate --period 2026-08 --dry-run
+```
+
+La balanza complementaria es `--type C --modified <fecha>`, y la de cierre del ejercicio, `--period 2026 --closing` (mes 13, no diciembre otra vez).
+
+**La DIOT**, armada desde lo efectivamente pagado, por tercero y por tasa:
+
+```bash
+mnemosine diot generate --period 2026-08
+mnemosine diot check --period 2026-08 --strict
+mnemosine diot export --period 2026-08 -o diot-2026-08.txt
+```
+
+`diot export` saca el papel de trabajo por tercero. El formato de carga masiva del SAT no está fundamentado en el repositorio, así que `--layout sat` se niega en vez de inventarlo; la DIOT la captura o la sube una persona en el portal.
+
 ### Lo que no hay
 
-- **No se genera el XML de contabilidad electrónica.** Ni catálogo de cuentas, ni balanza, ni pólizas, ni auxiliares. Las piezas de preparación existen —el agrupador, su compuerta de cobertura, y el auxiliar ya en la forma XC— pero el generador no. El archivo se arma hoy exportando a CSV y produciéndolo fuera.
-- **No se genera la DIOT.** Existe la lista de proveedores que la bloquearían; no la declaración.
+- **Las pólizas y los auxiliares del Anexo 24 en XML.** El auxiliar ya sale en la forma XC, en CSV; el XML se arma fuera.
 - **No hay descarga masiva de CFDI del SAT.** La familia `sat` administra credenciales (`cred add`, `status`, `audit`, `revoke`) y nada más, aunque su descripción diga otra cosa. Los comprobantes se bajan del portal a mano y se ingieren con `mnemosine ingest`. Consecuencia directa, dicha sin rodeos: **desde aquí no se puede afirmar completitud de los CFDI recibidos.** Ver [[Fiscal-mexicano]] y [[Hoja-de-ruta]].
 
 ---
 
 ## El paquete del mes
 
-No existe un comando que arme el paquete completo. Existe la secuencia, y se deja escrita para copiarla:
+No existe un comando que arme los CSV del paquete. Existe la secuencia, y se deja escrita para copiarla. Lo que sí existe es el **expediente sellado** del cierre, `closing pack generate`: un JSON con las cifras del periodo que un tercero vuelve a correr contra los libros con `closing pack verify`; acompaña al paquete, no lo sustituye.
 
 ```bash
 mnemosine entity use ACO850101AB1
@@ -296,7 +318,7 @@ mnemosine report aged-payable show \
 # 4. El soporte
 mnemosine entry export --period 2026-08 \
   --format csv -o entregables/2026-08/polizas.csv
-mnemosine ledger auxiliary show --account 1120 --period August --all \
+mnemosine ledger auxiliary show --account 1120 --period 2026-08 --all \
   --format csv -o entregables/2026-08/auxiliar-bancos.csv
 ```
 
@@ -316,12 +338,11 @@ Devuelve un identificador por renglón, listo para un bucle. No hay todavía una
 
 Dicho aquí para que nadie lo prometa:
 
-- **Estado de flujos de efectivo (NIF B-2)** y **estado de variaciones en el capital contable (NIF B-4)**. La familia de reportes cubre cinco de los siete estados que un despacho entrega.
+- **Estado de variaciones en el capital contable (NIF B-4).** El flujo de efectivo (NIF B-2) sí sale, con `cashflow generate`.
 - **Comparativos.** Cada reporte es de un corte. Agosto contra julio son dos corridas y la comparación se hace fuera.
 - **PDF y XLSX.** El camino es CSV más plantilla.
-- **XML del Anexo 24 y DIOT.**
-- **Un comando que arme el paquete.** Por ahora es la secuencia de arriba.
-- **Ejemplos en la ayuda.** Ningún comando trae ejemplos en su `--help`; esta página y el resto del manual son, por ahora, el sustituto.
+- **Pólizas y auxiliares del Anexo 24 en XML**, y el formato de carga masiva de la DIOT.
+- **Un comando que arme los CSV del paquete.** Por ahora es la secuencia de arriba.
 
 El estado real de cada hueco no se lee de aquí: se pregunta al código con `npm run plan:status`, y la evidencia de cada uno está en [[Auditorias]].
 

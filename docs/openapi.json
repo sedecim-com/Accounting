@@ -2701,6 +2701,19 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EntidadActiva"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending_review",
+                "approved",
+                "rejected"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2709,6 +2722,9 @@
           },
           "403": {
             "$ref": "#/components/responses/SinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidQuery"
           },
           "500": {
             "$ref": "#/components/responses/ErrorInterno"
@@ -2881,6 +2897,15 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EntidadActiva"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         ],
         "responses": {
@@ -2889,6 +2914,9 @@
           },
           "403": {
             "$ref": "#/components/responses/SinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidQuery"
           },
           "500": {
             "$ref": "#/components/responses/ErrorInterno"
@@ -2914,6 +2942,19 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EntidadActiva"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "answered",
+                "dismissed"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2922,6 +2963,9 @@
           },
           "403": {
             "$ref": "#/components/responses/SinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidQuery"
           },
           "500": {
             "$ref": "#/components/responses/ErrorInterno"
@@ -11217,6 +11261,21 @@
       },
       "CuerpoInvalido": {
         "description": "The request body failed the schema in requestBody (VALIDATION_ERROR). Note the status is 422, not 400.",
+        "headers": {
+          "Content-Language": {
+            "$ref": "#/components/headers/ContentLanguage"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "InvalidQuery": {
+        "description": "A query parameter failed its schema in parameters (VALIDATION_ERROR, with `field` naming the parameter). Note the status is 422, not 400.",
         "headers": {
           "Content-Language": {
             "$ref": "#/components/headers/ContentLanguage"

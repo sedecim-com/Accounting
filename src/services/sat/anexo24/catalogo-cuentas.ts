@@ -3,6 +3,7 @@ import { ValidationError } from '../../../utils/errors.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import type { PolicyContext } from '../../policy/policy-service.js';
 import { serializar, type NodoXml } from './xml.js';
+import { officialEnumeration } from './official-enumerations.js';
 import {
   validarCatalogo,
   bloquean,
@@ -342,7 +343,13 @@ export function construirCatalogoCuentas(entrada: EntradaCatalogo): CatalogoCons
       });
     }
 
-    if (c.estado_agrupador === 'fuera_de_catalogo') {
+    // A code off the XSD's own c_CodAgrup is CAT-CODAGRUP-ENUM's (validador.ts),
+    // which blocks whatever is seeded. Weighing it against the seeded list as
+    // well would report the same account twice, or warn that a code the XSD
+    // already refused went out unchecked (#404).
+    const groupingCode = c.codigo_agrupador_sat ?? '';
+    const offOfficialList = groupingCode !== '' && !officialEnumeration('c_CodAgrup').has(groupingCode);
+    if (!offOfficialList && c.estado_agrupador === 'fuera_de_catalogo') {
       hallazgos.push({
         regla: 'CAT-AGRUPADOR-FUERA-DE-CATALOGO',
         severidad: 'bloquea',
@@ -353,7 +360,7 @@ export function construirCatalogoCuentas(entrada: EntradaCatalogo): CatalogoCons
           `autoridad no reconoce es un rechazo seguro.`,
         numCta: c.code,
       });
-    } else if (c.estado_agrupador === 'sin_catalogo') {
+    } else if (!offOfficialList && c.estado_agrupador === 'sin_catalogo') {
       // Mismo criterio que `validarCodigoAgrupador` de F07a: sin catálogo
       // sembrado no se rechaza, se avisa nombrando la causa REAL. Rechazar
       // contra un catálogo ausente es inventarse una respuesta.
@@ -362,8 +369,10 @@ export function construirCatalogoCuentas(entrada: EntradaCatalogo): CatalogoCons
         severidad: 'aviso',
         procedencia: 'coherencia_interna',
         mensaje:
-          `El agrupador "${c.codigo_agrupador_sat ?? ''}" de "${c.code}" se emite SIN VALIDAR: no hay ` +
-          `c_CodAgrup sembrado que cubra este periodo. Siembra el catálogo del ejercicio para que esta comprobación sirva.`,
+          `El agrupador "${groupingCode}" de "${c.code}" está en la enumeración c_CodAgrup del XSD ` +
+          `oficial, pero no se comprobó contra el c_CodAgrup vigente para el ejercicio: no hay ` +
+          `catálogo sembrado que cubra este periodo. Siembra el del ejercicio para que esta ` +
+          `comprobación sirva.`,
         numCta: c.code,
       });
     }
@@ -521,16 +530,14 @@ export async function generarCatalogoCuentas(
         `El 13 es de la balanza de cierre, no de éste.`
     );
   }
-  // El mismo rango que el CHECK de la 062. Se comprueba AQUÍ y no sólo allí
-  // porque un año imposible saldría del validador como un simple aviso y luego
-  // reventaría al archivar con una violación de restricción en crudo. Un error
-  // de uso se dice en el idioma del que lo cometió, no en el del motor.
-  // The official XSD confirms the range: CatalogoCuentas_1_3.xsd declares
-  // Anio from 2015 to 2099 (#397). Aligning the validator's warning is #404.
+  // The range CatalogoCuentas_1_3.xsd declares for Anio, and the CHECK of
+  // migration 062. The validator's CAT-ANIO-RANGO blocks outside it too
+  // (#404); this gate runs first so a usage error is refused with a message
+  // before any query, not as a raw constraint violation.
   if (!Number.isInteger(opts.anio) || opts.anio < 2015 || opts.anio > 2099) {
     throw new ValidationError(
       `Ejercicio ${String(opts.anio)} fuera de rango: la contabilidad electrónica arranca en 2015 y ` +
-        `este sistema archiva hasta 2099.`
+        `el esquema del SAT admite hasta 2099.`
     );
   }
 

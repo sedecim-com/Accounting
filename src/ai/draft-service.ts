@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type pg from 'pg';
 import Decimal from 'decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../database/connection.js';
@@ -7,6 +8,7 @@ import { JournalEntryType } from '../types/index.js';
 import { matchApproval, type MatchApprovalOpts } from './approval-policy.js';
 import { registrarFacturaDeBorradorAprobado } from '../services/xml-ingestion/pre-registration-service.js';
 import { registerInvoiceFromApprovedDraft } from '../services/xml-ingestion/issued-invoice-approval.js';
+import { linkPayRunEntry, payRunOfDraft } from '../services/payroll/common/pay-run-entry-link.js';
 import {
   sujetoAutenticado,
   decidirSujeto,
@@ -416,8 +418,14 @@ export interface CreateDraftInput {
 }
 
 export async function createDraft(
-  ctx: AgentContext,
-  input: CreateDraftInput
+  ctx: Pick<AgentContext, 'tenantId' | 'entityId'>,
+  input: CreateDraftInput,
+  /**
+   * The caller's transaction, when the draft must be born under a lock the
+   * caller holds (a pay run's entry, MNE-001-069): the INSERT then commits or
+   * rolls back with the caller's own checks.
+   */
+  client?: pg.PoolClient
 ): Promise<{ id: string; totalDebits: string; totalCredits: string }> {
   const validation = await validateDraftPayload(ctx.entityId, input.payload);
   if (validation.errors.length > 0) {
@@ -428,7 +436,7 @@ export async function createDraft(
   // The link, when there is one, must point at a pre-registration of THIS
   // entity: the row is inserted only if it does, so a stale or foreign id
   // can never produce a draft bound to another entity's CFDI.
-  const inserted = await query(
+  const inserted = await (client ? client.query.bind(client) : query)(
     `INSERT INTO ai_drafts (
       id, tenant_id, entity_id, draft_type, status, payload,
       ai_confidence, ai_reasoning, ai_model, user_request, pre_registration_id
@@ -798,22 +806,36 @@ async function approveDraftInternal(
         })
       : null;
 
+    // MNE-001-069: a pay run's draft (the payroll engine's, read from the
+    // STORED payload so a correction cannot redirect it) posts as the run's
+    // entry, exactly as `pay-run post --post` would: typed PAYROLL, sourced
+    // `pay_run`, and linked from the run in this same transaction.
+    const payRunId = payRunOfDraft(draft);
+
     const entry = await createJournalEntry(
       ctx.entityId,
       new Date(`${approvedPayload.entry_date}T00:00:00`),
-      JournalEntryType.STANDARD,
+      payRunId ? JournalEntryType.PAYROLL : JournalEntryType.STANDARD,
       approvedPayload.description,
       lines,
       reviewer.userId,
       {
-        sourceType: invoice ? 'invoice' : bill ? 'bill' : 'ai_draft',
-        sourceId: invoice ? invoice.invoiceId : bill ? bill.billId : draftId,
+        sourceType: invoice ? 'invoice' : bill ? 'bill' : payRunId ? 'pay_run' : 'ai_draft',
+        sourceId: invoice ? invoice.invoiceId : bill ? bill.billId : payRunId ?? draftId,
         reference: approvedPayload.reference,
         autoPost: true,
         client, // same transaction as the draft update below
       }
     );
     await (invoice ?? bill)?.close(entry.id);
+    if (payRunId) {
+      await linkPayRunEntry(client, {
+        payRunId,
+        tenantId: ctx.tenantId,
+        entityId: ctx.entityId,
+        journalEntryId: entry.id,
+      });
+    }
 
     const updated = await client.query(
       `UPDATE ai_drafts

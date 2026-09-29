@@ -10,10 +10,12 @@ import {
   drainAttestations,
 } from '../../src/services/accounting/posting.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
-import { postInvoiceEntry } from '../../src/services/accounting/ar-ap-posting.js';
-import { withTransaction } from '../../src/database/connection.js';
-import type { Invoice, InvoiceLine } from '../../src/types/index.js';
-import { recordVendorPayment } from '../../src/services/payments/payment-service.js';
+import { issueInvoice } from '../../src/services/ar/invoice-service.js';
+import {
+  recordCustomerPayment,
+  recordVendorPayment,
+  unapplyCustomerPayment,
+} from '../../src/services/payments/payment-service.js';
 import { exigirPar, fijarTipo } from '../../src/services/fx/rate-service.js';
 import { JournalEntryType } from '../../src/types/index.js';
 import { ConflictError } from '../../src/utils/errors.js';
@@ -320,11 +322,22 @@ describe('el bill en USD posteado conserva su origen', () => {
   });
 });
 
-describe('el lado AR no miente mientras no convierte', () => {
-  // El cableado FX de cobros es fase 2; la REGLA de R4 no espera. Antes de
-  // la guarda, esta misma factura posteaba USD 1000 como MXN 1000 con
-  // veredicto limpio — el pecado original vivo en el lado que factura.
-  it('una factura USD se NIEGA a postearse nombrando lo que falta, en vez de asentar dólares como pesos', async () => {
+describe('MNE-001-081 · a USD invoice posts, converted at the rate of the fuente_tipo_cambio source', () => {
+  // Until this task the same invoice refused with FX_AR_NOT_WIRED: the only
+  // alternative was posting USD 1 000 as MXN 1 000. Now it converts at birth,
+  // like the bill, at the rate the firm's source (DOF by default) published
+  // for the invoice date, and every line keeps its dollars.
+  const INVOICE_DAY = '2026-08-20';
+  beforeAll(async () => {
+    await fijarTipo({
+      par: exigirPar('USD/MXN'), fecha: INVOICE_DAY, tasa: '17.5000', fuente: 'dof', creadoPor: f.userId,
+    });
+  });
+
+  async function usdInvoice(
+    exchangeRate = '1.0000000000',
+    day = INVOICE_DAY
+  ): Promise<{ invId: string; custId: string }> {
     const custId = uuidv4();
     const invId = uuidv4();
     const marca = uuidv4().slice(0, 8);
@@ -336,8 +349,8 @@ describe('el lado AR no miente mientras no convierte', () => {
     await query(
       `INSERT INTO invoices (id, entity_id, invoice_number, customer_id, subtotal, tax_amount,
         total_amount, amount_due, currency_code, exchange_rate, invoice_date, due_date, status, created_by)
-       VALUES ($1,$2,$3,$4,1000,160,1160,1160,'USD','17.5000000000',$5,$5,'sent',$6)`,
-      [invId, f.entityId, `INV-USD-${marca}`, custId, fechaEnPeriodo(), f.userId]
+       VALUES ($1,$2,$3,$4,1000,160,1160,1160,'USD',$5,$6,$6,'draft',$7)`,
+      [invId, f.entityId, `INV-USD-${marca}`, custId, exchangeRate, day, f.userId]
     );
     await query(
       `INSERT INTO invoice_lines (id, invoice_id, line_number, description, quantity, unit_price,
@@ -345,18 +358,218 @@ describe('el lado AR no miente mientras no convierte', () => {
        VALUES ($1,$2,1,'Servicio exportado',1,1000,$3,160,1000,1160)`,
       [uuidv4(), invId, f.cuentas['4100']]
     );
-    await expect(
-      withTransaction(async (client) => {
-        const inv = (await client.query<Invoice>('SELECT * FROM invoices WHERE id = $1', [invId])).rows[0];
-        const lineas = (await client.query<InvoiceLine>('SELECT * FROM invoice_lines WHERE invoice_id = $1', [invId])).rows;
-        return postInvoiceEntry(client, inv, lineas, f.userId);
-      })
-    ).rejects.toThrow(/fase 2 de R4|sin rastro del importe/);
-    // Y el rechazo no dejó medio asiento: la factura sigue sin journal_entry_id.
+    return { invId, custId };
+  }
+
+  it('with no DOF rate for the invoice date, issuing fails closed and leaves no half entry', async () => {
+    const { invId } = await usdInvoice('1.0000000000', '2026-08-21');
+    await expect(issueInvoice(invId, f.userId, { entityId: f.entityId })).rejects.toThrow(
+      /No hay tipo de cambio USD→MXN de la fuente 'dof' para 2026-08-21/
+    );
+    const inv = await query<{ journal_entry_id: string | null; status: string }>(
+      'SELECT journal_entry_id, status FROM invoices WHERE id = $1', [invId]
+    );
+    expect(inv.rows[0].journal_entry_id).toBeNull();
+    expect(inv.rows[0].status).toBe('draft');
+  });
+
+  it('USD 1 000 at 17.50 posts 17 500 of revenue, keeps the dollars, and writes the rate back to the invoice', async () => {
+    const { invId } = await usdInvoice();
+    const issued = await issueInvoice(invId, f.userId, { entityId: f.entityId });
+    const entryId = issued.entry?.id as string;
+    expect(entryId, 'issuing the USD invoice must post an entry').toBeTruthy();
+
+    const lines = await lineasDe(entryId);
+    const revenue = lines.find((l) => l.account_id === f.cuentas['4100']);
+    expect(revenue?.credit_amount).toBe('17500.0000');
+    expect(revenue?.currency_code).toBe('USD');
+    expect(revenue?.foreign_credit).toBe('1000.0000');
+    expect(new Decimal(revenue?.exchange_rate as string).equals('17.5')).toBe(true);
+
+    const cxc = lines.find((l) => l.account_id === f.roles.cxc);
+    expect(cxc?.debit_amount).toBe('20300.0000');
+    expect(cxc?.foreign_debit).toBe('1160.0000');
+    await cuadra(entryId);
+    await origenVerificado(entryId);
+
+    const inv = await query<{ exchange_rate: string; journal_entry_id: string }>(
+      'SELECT exchange_rate::text, journal_entry_id FROM invoices WHERE id = $1', [invId]
+    );
+    expect(new Decimal(inv.rows[0].exchange_rate).equals('17.5')).toBe(true);
+    expect(inv.rows[0].journal_entry_id).toBe(entryId);
+  });
+
+  it('a captured rate that disagrees with the DOF is refused instead of being silently replaced', async () => {
+    const { invId } = await usdInvoice('17.2000000000');
+    await expect(issueInvoice(invId, f.userId, { entityId: f.entityId })).rejects.toThrow(/No elijo uno en silencio/);
     const inv = await query<{ journal_entry_id: string | null }>(
       'SELECT journal_entry_id FROM invoices WHERE id = $1', [invId]
     );
     expect(inv.rows[0].journal_entry_id).toBeNull();
+  });
+});
+
+describe('MNE-001-082 · collecting a USD invoice recognises the realised exchange difference', () => {
+  // The receivable was born at 17.50 (the rate MNE-001-081 wrote back to the
+  // invoice). The collection converts the cash at the rate of ITS day, from the
+  // same `fuente_tipo_cambio` source, and the gap is realised (NIF B-15).
+  const INVOICE_DAY = '2026-08-20';
+  const COLLECTION_DAY = '2026-08-27';
+  beforeAll(async () => {
+    // The MNE-001-081 block above already published the invoice day's rate.
+    await fijarTipo({
+      par: exigirPar('USD/MXN'), fecha: COLLECTION_DAY, tasa: '18.0000', fuente: 'dof', creadoPor: f.userId,
+    });
+  });
+
+  /** An issued USD invoice: an export of services with no IVA unless `tax` says otherwise. */
+  async function issuedUsdInvoice(
+    opts: { tax?: string; terms?: string; exchangeRate?: string; status?: 'draft' | 'sent' } = {}
+  ): Promise<{ invId: string; custId: string }> {
+    const tax = opts.tax ?? '0';
+    const total = new Decimal(1000).plus(tax).toFixed(2);
+    const custId = uuidv4();
+    const invId = uuidv4();
+    const tag = uuidv4().slice(0, 8);
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, tax_id, tax_id_type, currency_code, created_by)
+       VALUES ($1,$2,$3,'Cliente USD','XEXX010101000','rfc','USD',$4)`,
+      [custId, f.entityId, `CR-${tag}`, f.userId]
+    );
+    await query(
+      `INSERT INTO invoices (id, entity_id, invoice_number, customer_id, subtotal, tax_amount,
+        total_amount, amount_due, currency_code, exchange_rate, invoice_date, due_date, status, terms, created_by)
+       VALUES ($1,$2,$3,$4,1000,$5,$6,$6,'USD',$7,$8,$8,$9,$10,$11)`,
+      [invId, f.entityId, `INV-RX-${tag}`, custId, tax, total, opts.exchangeRate ?? '1.0000000000',
+       INVOICE_DAY, opts.status ?? 'draft', opts.terms ?? null, f.userId]
+    );
+    await query(
+      `INSERT INTO invoice_lines (id, invoice_id, line_number, description, quantity, unit_price,
+        revenue_account_id, tax_amount, line_amount, total_amount)
+       VALUES ($1,$2,1,'Servicio exportado',1,1000,$3,$4,1000,$5)`,
+      [uuidv4(), invId, f.cuentas['4100'], tax, total]
+    );
+    if ((opts.status ?? 'draft') === 'draft') {
+      await issueInvoice(invId, f.userId, { entityId: f.entityId });
+    }
+    return { invId, custId };
+  }
+
+  const collect = (invId: string, custId: string, amount: string) =>
+    recordCustomerPayment(
+      {
+        entityId: f.entityId,
+        counterpartyId: custId,
+        paymentAmount: amount,
+        currencyCode: 'USD',
+        paymentDate: new Date(`${COLLECTION_DAY}T12:00:00Z`),
+        paymentMethod: 'spei',
+        applications: [{ documentId: invId, amountApplied: amount }],
+      },
+      f.userId
+    );
+
+  it('USD 1 000 invoiced at 17.50 and collected at 18.00 realises 500 of gain in 4320', async () => {
+    const { invId, custId } = await issuedUsdInvoice();
+    const r = await collect(invId, custId, '1000.00');
+    const entryId = r.journalEntry?.id as string;
+    expect(entryId, 'the USD collection must post an entry').toBeTruthy();
+    await cuadra(entryId);
+    await origenVerificado(entryId);
+
+    const lines = await lineasDe(entryId);
+    const gain = lines.filter((l) => l.account_id === f.cuentas['4320']);
+    expect(gain).toHaveLength(1);
+    expect(gain[0].credit_amount).toBe('500.0000');
+    expect(gain[0].currency_code).toBeNull();
+    expect(f.roles.utilidad_cambiaria).toBe(f.cuentas['4320']);
+
+    const bank = lines.find((l) => l.account_id === f.roles.banco);
+    expect(bank?.debit_amount).toBe('18000.0000');
+    expect(bank?.foreign_debit).toBe('1000.0000');
+    const receivable = lines.find((l) => l.account_id === f.roles.cxc);
+    expect(receivable?.credit_amount).toBe('17500.0000');
+    expect(receivable?.foreign_credit).toBe('1000.0000');
+
+    expect(r.diferenciaCambiaria?.tipo).toBe('utilidad');
+    expect(r.diferenciaCambiaria?.montoFuncional).toBe('500.0000');
+    expect(r.diferenciaCambiaria?.fuente).toBe('dof');
+
+    // The invoice's receivable is extinguished in pesos too: issue + collection net to zero.
+    const net = await query<{ s: string }>(
+      `SELECT COALESCE(SUM(COALESCE(debit_amount,0) - COALESCE(credit_amount,0)),0)::text AS s
+         FROM journal_entry_lines
+        WHERE account_id = $1
+          AND journal_entry_id IN ((SELECT journal_entry_id FROM invoices WHERE id = $2), $3::uuid)`,
+      [f.roles.cxc, invId, entryId]
+    );
+    expect(new Decimal(net.rows[0].s).isZero()).toBe(true);
+
+    const stored = await query<{ exchange_rate: string; status: string }>(
+      `SELECT cp.exchange_rate::text AS exchange_rate, i.status
+         FROM customer_payments cp, invoices i
+        WHERE cp.id = $1 AND i.id = $2`,
+      [r.paymentId, invId]
+    );
+    expect(new Decimal(stored.rows[0].exchange_rate).equals('18')).toBe(true);
+    expect(stored.rows[0].status).toBe('paid');
+  });
+
+  it('a partial collection of a PPD invoice releases 2125 at the parked rate and causes 2120 at the collection rate', async () => {
+    const { invId, custId } = await issuedUsdInvoice({ tax: '160', terms: 'PPD' });
+    const r = await collect(invId, custId, '580.00');
+    const entryId = r.journalEntry?.id as string;
+    await cuadra(entryId);
+    await origenVerificado(entryId);
+    const lines = await lineasDe(entryId);
+    expect(lines.find((l) => l.account_id === f.roles.cxc)?.credit_amount).toBe('10150.0000'); // 580 × 17.50
+    // 80 USD of IVA (half of 160) leaves 2125 at 17.50, the rate it was parked at: 1 400.
+    const released = lines.find((l) => l.account_id === f.roles.iva_trasladado_no_cobrado);
+    expect(released?.debit_amount).toBe('1400.0000');
+    expect(released?.foreign_debit).toBe('80.0000');
+    // And it is caused at the collection day's rate (LIVA 1-B/11, art. 20 CFF):
+    // 80 × 18.00 = 1 440, the figure the SAT is owed and the REP reports.
+    const caused = lines.find((l) => l.account_id === f.roles.iva_trasladado);
+    expect(caused?.credit_amount).toBe('1440.0000');
+    expect(caused?.foreign_credit).toBe('80.0000');
+    expect(caused?.exchange_rate).toBe('18.0000000000');
+    // 580 × 0.50 = 290 on the receivable, less the 40 more IVA owed than was parked.
+    expect(lines.find((l) => l.account_id === f.cuentas['4320'])?.credit_amount).toBe('250.0000');
+    expect(r.diferenciaCambiaria?.montoFuncional).toBe('250.0000');
+  });
+
+  it('cash left on account in dollars is refused, because applying or unapplying it later does not convert', async () => {
+    const { invId, custId } = await issuedUsdInvoice();
+    await expect(
+      recordCustomerPayment(
+        {
+          entityId: f.entityId,
+          counterpartyId: custId,
+          paymentAmount: '1200.00',
+          currencyCode: 'USD',
+          paymentDate: new Date(`${COLLECTION_DAY}T12:00:00Z`),
+          paymentMethod: 'spei',
+          onAccount: true,
+          applications: [{ documentId: invId, amountApplied: '1000.00' }],
+        },
+        f.userId
+      )
+    ).rejects.toThrow(/a cuenta del cliente/);
+    const inv = await query<{ amount_due: string }>('SELECT amount_due::text FROM invoices WHERE id = $1', [invId]);
+    expect(new Decimal(inv.rows[0].amount_due).equals('1000')).toBe(true);
+  });
+
+  it('unapplying a USD collection is refused instead of moving dollars between AR and advances as pesos', async () => {
+    const { invId, custId } = await issuedUsdInvoice();
+    const r = await collect(invId, custId, '1000.00');
+    await expect(
+      unapplyCustomerPayment(f.entityId, r.paymentId, { invoiceId: invId, reason: 'wrong invoice' }, f.userId)
+    ).rejects.toThrow(/USD/);
+  });
+
+  it('a USD invoice carrying the 1.0 capture default was never converted, so its collection is refused', async () => {
+    const { invId, custId } = await issuedUsdInvoice({ status: 'sent' });
+    await expect(collect(invId, custId, '1000.00')).rejects.toThrow(/default de captura|sin convertir/);
   });
 });
 
@@ -385,7 +598,9 @@ describe('la diferencia cambiaria realizada', () => {
     const lineas = await lineasDe(r.journalEntry!.id);
     const perdida = lineas.filter((l) => l.account_id === f.cuentas['6320']);
     expect(perdida).toHaveLength(1);
-    expect(new Decimal(perdida[0].debit_amount as string).equals('580.0000')).toBe(true);
+    // 1160 × 0.50 = 580 on the cash, less 160 × 0.50 = 80 of IVA that becomes
+    // creditable at 17.50 while it was parked at 17.00 (LIVA 5-III, art. 20 CFF).
+    expect(new Decimal(perdida[0].debit_amount as string).equals('500.0000')).toBe(true);
     // Y a la 6320 de verdad, no a la 6300 de gastos financieros ni a la 4300.
     expect(f.roles.perdida_cambiaria).toBe(f.cuentas['6320']);
     expect(lineas.some((l) => l.account_id === f.cuentas['6300'])).toBe(false);
@@ -396,7 +611,7 @@ describe('la diferencia cambiaria realizada', () => {
     expect(new Decimal(cxp!.debit_amount as string).equals('19720.0000')).toBe(true); // 1160 × 17.00
 
     expect(r.diferenciaCambiaria?.tipo).toBe('perdida');
-    expect(r.diferenciaCambiaria?.montoFuncional).toBe('580.0000');
+    expect(r.diferenciaCambiaria?.montoFuncional).toBe('500.0000');
   });
 
   it('UTILIDAD: registrado a 17.00, pagado a 16.40 — 696 a la 4320, no fundida en la 4300', async () => {
@@ -417,7 +632,9 @@ describe('la diferencia cambiaria realizada', () => {
     const lineas = await lineasDe(r.journalEntry!.id);
     const utilidad = lineas.filter((l) => l.account_id === f.cuentas['4320']);
     expect(utilidad).toHaveLength(1);
-    expect(new Decimal(utilidad[0].credit_amount as string).equals('696.0000')).toBe(true);
+    // 1160 × 0.60 = 696 on the cash, less 160 × 0.60 = 96 of IVA that becomes
+    // creditable at 16.40 while it was parked at 17.00.
+    expect(new Decimal(utilidad[0].credit_amount as string).equals('600.0000')).toBe(true);
     // B-15 exige IDENTIFICAR la fluctuación: la 4300 (otros ingresos) queda fuera.
     expect(lineas.some((l) => l.account_id === f.cuentas['4300'])).toBe(false);
     expect(r.diferenciaCambiaria?.tipo).toBe('utilidad');
@@ -441,12 +658,17 @@ describe('la diferencia cambiaria realizada', () => {
     const lineas = await lineasDe(r.journalEntry!.id);
     const cxp = lineas.find((l) => l.account_id === f.roles.cxp);
     expect(new Decimal(cxp!.debit_amount as string).equals('9860.0000')).toBe(true); // 580 × 17.00
+    // The parked IVA leaves 1135 at the bill's rate (80 USD × 17.00), and the
+    // creditable IVA is the one actually paid at the payment day's rate
+    // (LIVA art. 5-III, art. 20 CFF): 80 × 17.50 = 1 400.
+    const liberado = lineas.find((l) => l.account_id === f.roles.iva_pendiente_acreditar);
+    expect(new Decimal(liberado!.credit_amount as string).equals('1360.0000')).toBe(true);
+    const creditable = lineas.find((l) => l.account_id === f.roles.iva_acreditable);
+    expect(new Decimal(creditable!.debit_amount as string).equals('1400.0000')).toBe(true);
+    expect(new Decimal(creditable!.foreign_debit as string).equals('80.0000')).toBe(true);
+    // 580 × 0.50 = 290 of loss on the cash, less the 40 of extra creditable IVA.
     const perdida = lineas.find((l) => l.account_id === f.cuentas['6320']);
-    expect(new Decimal(perdida!.debit_amount as string).equals('290.0000')).toBe(true); // 580 × 0.50
-    // El IVA liberado es el pro-rata A LA TASA HISTÓRICA: 80 USD × 17.00.
-    const liberado = lineas.find((l) => l.debit_amount !== null && /IVA/.test(l.description));
-    expect(new Decimal(liberado!.debit_amount as string).equals('1360.0000')).toBe(true);
-    expect(new Decimal(liberado!.foreign_debit as string).equals('80.0000')).toBe(true);
+    expect(new Decimal(perdida!.debit_amount as string).equals('250.0000')).toBe(true);
 
     const bd = await query<{ amount_due: string; status: string }>(
       `SELECT amount_due::text, status FROM bills WHERE id = $1`, [g.billId]
@@ -499,13 +721,17 @@ describe('la diferencia cambiaria realizada', () => {
     const p2 = await pagar(); // antes del arreglo: reventaba aquí
     await cuadra(p2.journalEntry!.id);
     await origenVerificado(p2.journalEntry!.id);
-    const iva2 = (await lineasDe(p2.journalEntry!.id)).find(
-      (l) => l.debit_amount !== null && /IVA/.test(l.description)
-    );
+    const lines2 = await lineasDe(p2.journalEntry!.id);
+    const iva2 = lines2.find((l) => l.account_id === f.roles.iva_pendiente_acreditar);
     // Segundo pago: el telescopio dice 0.4923 − 0.2462 = 0.2461, y como
     // ningún origen honesto reproduce esa cifra, la línea va sin columnas FX.
-    expect(new Decimal(iva2!.debit_amount as string).equals('0.2461')).toBe(true);
+    expect(new Decimal(iva2!.credit_amount as string).equals('0.2461')).toBe(true);
     expect(iva2!.currency_code).toBeNull();
+    // The creditable side is this payment's own tax figure, 0.0135 × 18.2345,
+    // with its origin; the ten-thousandth between them is realised difference.
+    const creditable2 = lines2.find((l) => l.account_id === f.roles.iva_acreditable);
+    expect(new Decimal(creditable2!.debit_amount as string).equals('0.2462')).toBe(true);
+    expect(creditable2!.currency_code).toBe('USD');
 
     // Y el aparcado del documento queda EXACTAMENTE en cero: 0.2462 + 0.2461
     // = 0.4923 — ni un diezmilésimo varado en la 1135, ni la 1135 en negativo

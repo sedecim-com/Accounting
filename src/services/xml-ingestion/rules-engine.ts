@@ -21,6 +21,29 @@ export type ConditionOperator =
   | 'is_not_null'
   | 'regex';
 
+export const CONDITION_OPERATORS: readonly ConditionOperator[] = [
+  'equals', 'not_equals', 'contains', 'not_contains', 'starts_with', 'ends_with',
+  'greater_than', 'greater_than_or_equal', 'less_than', 'less_than_or_equal',
+  'in', 'not_in', 'is_null', 'is_not_null', 'regex',
+];
+
+/**
+ * The fields a condition can read, with their type: the keys of
+ * `buildContext` below. A condition on any other name never matches, so a
+ * rule written against it would sit there doing nothing. `document_date` and
+ * `tags` are left out: a Date and an array, which no operator compares as the
+ * person writing the rule expects.
+ */
+export const RULE_FIELDS: Readonly<Record<string, 'text' | 'number' | 'boolean'>> = {
+  document_type: 'text', vendor_id: 'text', currency_code: 'text',
+  subtotal: 'number', tax_amount: 'number', total_amount: 'number',
+  emisor_rfc: 'text', emisor_nombre: 'text', receptor_rfc: 'text', cfdi_uuid: 'text',
+  forma_pago: 'text', metodo_pago: 'text',
+  total_iva_16: 'number', total_iva_8: 'number', total_isr_retenido: 'number',
+  first_clave_prod_serv: 'text', first_descripcion: 'text',
+  has_retention: 'boolean', is_high_value: 'boolean', line_count: 'number',
+};
+
 export interface RuleCondition {
   field: string;
   operator: ConditionOperator;

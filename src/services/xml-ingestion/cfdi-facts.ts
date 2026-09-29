@@ -130,10 +130,11 @@ function num(v: unknown): number {
 }
 
 /**
- * Normalizes a SAT key to its fixed width. The parser runs with
- * parseAttributeValue: true, so "002" arrives as the number 2 and "01"
- * as 1: comparing against '002' directly ALWAYS fails. That bug makes
- * the per-item tax breakdown silently return zeros.
+ * Normalizes a SAT key to its fixed width. Since #299 the parser keeps keys
+ * as the text of the file ("002"); the width is still enforced because a key
+ * that reached here as the number 2 —the parser ran with parseAttributeValue
+ * until then— would compare unequal to '002' and empty the per-item tax
+ * breakdown in silence.
  */
 function clave(v: unknown, width: number): string {
   if (v === undefined || v === null || v === '') return '';
@@ -329,10 +330,9 @@ export function extractPagosCompletos(cfdi: CFDIParsed): PagoREP[] {
     }
     out.push({
       fechaPago: (p['@_FechaPago'] ?? p.FechaPago) as string | undefined,
-      // `parseAttributeValue` convierte "03" en el número 3, y los códigos
-      // del SAT llevan el cero: `clave` los devuelve a su forma del catálogo.
-      // Comparar contra '03' sin esto falla en silencio, que es como se
-      // descubrió — con una prueba de este mismo archivo.
+      // NOTE: SAT codes carry their leading zero; `clave` enforces the
+      // catalog width, so a code that arrives as the number 3 still compares
+      // equal to '03' (the parser produced numbers until #299).
       formaDePagoP: clave(p['@_FormaDePagoP'] ?? p.FormaDePagoP, 2) || undefined,
       monedaP: (p['@_MonedaP'] ?? p.MonedaP) as string | undefined,
       tipoCambioP: num(p['@_TipoCambioP'] ?? p.TipoCambioP) || undefined,

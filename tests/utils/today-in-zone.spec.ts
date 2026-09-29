@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
-vi.mock('../../src/database/connection.js', () => ({ query: vi.fn() }));
+vi.mock('../../src/database/connection.js', () => ({ query: vi.fn(), currentTenant: vi.fn() }));
 vi.mock('../../src/ai/shadow-verdicts.js', () => ({ concordanciaSombra: vi.fn() }));
 
 import { calendarDateIn, assertTimeZone } from '../../src/utils/calendar-date.js';
-import { todayFor } from '../../src/services/policy/today.js';
+import { todayFor, todayForEntity, todayForCustomer } from '../../src/services/policy/today.js';
 import { resolvePolicy } from '../../src/services/policy/policy-service.js';
 import { getPolicySpec } from '../../src/services/policy/pending-catalog.js';
 import { getTaxParameters } from '../../src/services/payroll/tax-engine/tax-tables.js';
-import { query } from '../../src/database/connection.js';
+import { query, currentTenant } from '../../src/database/connection.js';
 import { ValidationError } from '../../src/utils/errors.js';
 
 // ============================================================
@@ -122,6 +122,60 @@ describe('todayFor: the one resolver reads zona_horaria', () => {
   it('with no entity in hand it answers with the panel\'s declared default', async () => {
     await expect(todayFor(null, { now: EVENING_IN_MEXICO_CITY })).resolves.toBe('2026-10-31');
     expect(mockQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('the readers that hold only an entity or a customer (MNE-001-111)', () => {
+  const noAnswer = { rows: [], rowCount: 0 };
+  const mockTenant = currentTenant as unknown as Mock;
+
+  beforeEach(() => {
+    mockTenant.mockReset();
+  });
+
+  it("todayForEntity asks the panel with the request's tenant when there is one", async () => {
+    mockTenant.mockReturnValue('t-ctx');
+    mockQuery.mockResolvedValueOnce(noAnswer);
+    await expect(todayForEntity('e1', { now: EVENING_IN_MEXICO_CITY })).resolves.toBe('2026-10-31');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect((mockQuery.mock.calls[0] as [string, unknown[]])[1]).toEqual(['t-ctx', 'zona_horaria', 'e1', null]);
+  });
+
+  it('todayForEntity finds the tenant from the entity when the request has none', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ tenant_id: 't-row' }], rowCount: 1 })
+      .mockResolvedValueOnce({
+        rows: [{
+          key: 'zona_horaria', status: 'resolved', resolved_value: 'Asia/Tokyo',
+          question: '', impact: '', options: [], default_rationale: null,
+          resolution_notes: null, entity_id: 'e1', jurisdiction: null,
+        }],
+        rowCount: 1,
+      });
+    await expect(todayForEntity('e1', { now: MORNING_IN_TOKYO })).resolves.toBe('2026-11-01');
+    expect((mockQuery.mock.calls[0] as [string, unknown[]])[0]).toMatch(/FROM legal_entities WHERE id = \$1/);
+    expect((mockQuery.mock.calls[1] as [string, unknown[]])[1]).toEqual(['t-row', 'zona_horaria', 'e1', null]);
+  });
+
+  it('an entity nobody has gets the panel default, never the UTC day', async () => {
+    mockQuery.mockResolvedValueOnce(noAnswer);
+    await expect(todayForEntity('ghost', { now: EVENING_IN_MEXICO_CITY })).resolves.toBe('2026-10-31');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("todayForCustomer reads the zone of the customer's entity", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ entity_id: 'e1', tenant_id: 't1' }], rowCount: 1 })
+      .mockResolvedValueOnce(noAnswer);
+    await expect(todayForCustomer('c1', { now: EVENING_IN_MEXICO_CITY })).resolves.toBe('2026-10-31');
+    expect((mockQuery.mock.calls[0] as [string, unknown[]])[1]).toEqual(['c1']);
+    expect((mockQuery.mock.calls[1] as [string, unknown[]])[1]).toEqual(['t1', 'zona_horaria', 'e1', null]);
+  });
+
+  it('a customer nobody has gets the panel default too', async () => {
+    mockQuery.mockResolvedValueOnce(noAnswer);
+    await expect(todayForCustomer('ghost', { now: EVENING_IN_MEXICO_CITY })).resolves.toBe('2026-10-31');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
   });
 });
 

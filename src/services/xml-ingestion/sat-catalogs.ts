@@ -16,8 +16,10 @@
 //
 // REGIMEN_FISCAL and USO_CFDI ARE a validation whitelist:
 // `customer tax set` refuses a code they do not carry (customer-
-// service.ts), so each must hold the SAT's whole current catalog —
-// a missing code rejects a legitimate customer (#102). The plan
+// service.ts), and so do `entity create`/`entity edit` for the
+// entity's own regime (entity-service.ts, #321), so each must hold
+// the SAT's whole current catalog — a missing code rejects a
+// legitimate customer (#102). The plan
 // criterion `invoice-gap-and-tax-profile` pins the full list. The
 // other tables here are read-only labels and may lag the SAT.
 // ============================================================

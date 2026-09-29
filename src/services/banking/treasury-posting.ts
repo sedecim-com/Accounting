@@ -22,20 +22,22 @@ import { rangoDelPeriodo } from './reconciliation-service.js';
 //
 // LAS TRES DECISIONES CONTABLES QUE ESTE ARCHIVO EXISTE PARA NO EQUIVOCAR:
 //
-// 1. EL IVA DE LA COMISIÓN VA A 1135, NO A 1130. El cargo está en el extracto y
-//    el dinero ya salió, pero el CFDI del banco no ha llegado, y sin
-//    comprobante fiscal no hay acreditamiento (LIVA art. 5, frac. II): quien
-//    acredita contra un cargo del estado de cuenta acredita contra un documento
-//    que el SAT no reconoce. Se libera cuando el CFDI se ingiere, por el camino
-//    que ya existe.
+// 1. THE FEE'S VAT IS PARKED IN 1135 AND RELEASED TO 1130 IN THE SAME ACT
+//    (#95, MNE-001-041). Under cash-basis VAT (LIVA art. 1-B) the charge IS the
+//    payment, so the VAT is creditable in the month of the charge; what LIVA
+//    art. 5 frac. II adds is that the bank's CFDI must back it, and keeping it
+//    is the accountant's job, not a reason to strand the tax. The earlier design
+//    parked it until "the CFDI is ingested", and no path ever reached a
+//    `bank_fee` entry: every 48.00 stayed in 1135 for good and the monthly
+//    return understated the creditable VAT.
 //
-//    ESTO CONTRADICE EN APARIENCIA a `ROL_DE_AJUSTE['iva-comision']` de F05c,
-//    que manda el IVA de un ajuste manual a `iva_acreditable`, y la diferencia
-//    es real y vale nombrarla: allí el operador CAPTURA el importe porque está
-//    mirando un comprobante, aquí el importe se deduce de un cargo del extracto
-//    y nadie ha visto papel ninguno. El eje no es PUE/PPD —el flujo de efectivo
-//    del art. 1-B—, que en una comisión se cumple en el instante del cargo: el
-//    eje es el REQUISITO DE COMPROBANTE, y por eso el destino es distinto.
+//    The fee entry still parks the VAT in 1135 and a SECOND entry, with its own
+//    `source_type`, moves exactly what the ledger says is parked for that
+//    movement to 1130. Reading the amount back from the ledger, instead of
+//    recomputing it, is what leaves 1135 at 0 with no intermediate rounding, and
+//    it also frees the VAT of fees posted before this change when their month is
+//    run again. `ROL_DE_AJUSTE['iva-comision']` of F05c sends a captured fee VAT
+//    straight to `iva_acreditable`: both paths end in the same account.
 //
 // 2. LA RETENCIÓN DE ISR SOBRE INTERESES NO ES GASTO. Es un pago provisional a
 //    favor (1145). Tratarla como gasto la pierde —nadie la acredita en la
@@ -76,17 +78,20 @@ export const ORIGEN_COMISION = 'bank_fee';
 export const ORIGEN_INTERES = 'bank_interest';
 /** Reclasificación de IVA por cobro de cheque. `source_id` = el pago a proveedor. */
 export const ORIGEN_COBRO_DE_CHEQUE = 'bank_check_clearing';
+/** A bank fee's VAT moved from 1135 to 1130. `source_id` = the movement, like the fee entry. */
+export const FEE_VAT_RELEASE_SOURCE = 'bank_fee_vat_release';
 
 /**
- * Los tres, juntos y exportados, porque quien escriba un informe que separe
+ * Todos, juntos y exportados, porque quien escriba un informe que separe
  * asientos de subdiario de pólizas manuales los va a necesitar enteros. Una
- * lista que hay que reconstruir leyendo tres constantes sueltas es una lista
+ * lista que hay que reconstruir leyendo constantes sueltas es una lista
  * que alguien va a reconstruir incompleta.
  */
 export const ORIGENES_DE_TESORERIA = [
   ORIGEN_COMISION,
   ORIGEN_INTERES,
   ORIGEN_COBRO_DE_CHEQUE,
+  FEE_VAT_RELEASE_SOURCE,
 ] as const;
 
 /**
@@ -712,9 +717,20 @@ export interface ComisionContabilizada {
   total: string;
   /** Lo que fue a 6310. */
   base: string;
-  /** Lo que quedó aparcado en 1135. */
+  /** The VAT the fee entry parked in 1135; `releases` moves it to 1130. */
   iva: string;
   /** null en un ensayo: el asiento se creó y se deshizo. */
+  entryId: string | null;
+  entryNumber: string | null;
+}
+
+/** A fee's VAT moved from 1135 to 1130, by an entry of its own. */
+export interface FeeVatRelease {
+  transactionId: string;
+  date: string;
+  /** Exactly what the ledger had parked in 1135 for this movement. */
+  iva: string;
+  /** null in a dry run. */
   entryId: string | null;
   entryNumber: string | null;
 }
@@ -748,7 +764,13 @@ export interface ResultadoDeComisiones {
   contabilizadas: ComisionContabilizada[];
   /** Lo que NO se contabilizó, con el porqué de cada una. Nunca en silencio. */
   omitidas: MovimientoOmitido[];
-  totales: { total: string; base: string; iva: string };
+  /**
+   * The VAT moved to 1130: one per fee posted now, and one per fee posted
+   * earlier whose VAT was still parked. Empty when the entity does not keep
+   * cash-basis VAT, whose 1135 is not creditable VAT to begin with.
+   */
+  releases: FeeVatRelease[];
+  totales: { total: string; base: string; iva: string; ivaReleased: string };
   ensayo: boolean;
 }
 
@@ -769,6 +791,80 @@ export interface OpcionesDeComisiones {
 }
 
 /**
+ * Moves to 1130 what the ledger still has parked in 1135 for one fee movement.
+ *
+ * The amount is READ, not recomputed: the 1135 lines of the movement's posted
+ * `bank_fee` entries minus what its earlier releases already took out, summed
+ * in SQL at the column's four decimals. Recomputing it from the rate would be a
+ * second place where the fee's VAT is calculated, and any rounding between the
+ * two would leave a residue in 1135 that nothing ever clears.
+ *
+ * Only `posted` entries count: a reversed fee has nothing left to release.
+ */
+async function releaseFeeVat(
+  client: pg.PoolClient,
+  entityId: string,
+  mov: { id: string; date: string; label: string },
+  userId: string
+): Promise<FeeVatRelease | null> {
+  const roles = await roleAccounts(client, entityId, ['iva_acreditable', 'iva_pendiente_acreditar'] as const);
+  const pending = roles.get('iva_pendiente_acreditar');
+  if (!pending) return null;
+  const parked = await client.query<{ parked: string }>(
+    `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS parked
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+      WHERE je.entity_id = $1
+        AND je.source_type = ANY($2::text[])
+        AND je.source_id = $3
+        AND je.status = 'posted'
+        AND l.account_id = $4`,
+    [entityId, [ORIGEN_COMISION, FEE_VAT_RELEASE_SOURCE], mov.id, pending]
+  );
+  const iva = new Decimal(parked.rows[0]?.parked ?? '0');
+  if (iva.lessThanOrEqualTo(0)) return null;
+  const amount = iva.toFixed(ESCALA);
+
+  // Both are ASSETS: 1130 fills with a debit and 1135 empties with a credit,
+  // the same direction as the cheque clearing below.
+  const entry = await createJournalEntry(
+    entityId,
+    fechaDelAsiento(mov.date),
+    JournalEntryType.AUTO_RECONCILIATION,
+    `Bank fee ${mov.date} - VAT reclassified 1135 to 1130 - ${mov.label}`,
+    [
+      {
+        account_id: requireRole(roles, 'iva_acreditable'),
+        debit_amount: amount,
+        credit_amount: null,
+        description: `VAT on bank fee now creditable - charged ${mov.date} (LIVA art. 1-B); keep the bank's CFDI (art. 5 frac. II) - ${mov.label}`,
+      },
+      {
+        account_id: pending,
+        debit_amount: null,
+        credit_amount: amount,
+        description: `VAT on bank fee released from 1135 - ${mov.label}`,
+      },
+    ],
+    userId,
+    {
+      autoPost: true,
+      client,
+      sourceType: FEE_VAT_RELEASE_SOURCE,
+      sourceId: mov.id,
+      reference: mov.date,
+    }
+  );
+  return {
+    transactionId: mov.id,
+    date: mov.date,
+    iva: amount,
+    entryId: entry.id,
+    entryNumber: entry.entry_number,
+  };
+}
+
+/**
  * Contabiliza las comisiones bancarias del periodo, una por cargo.
  *
  * DE DÓNDE SALEN LOS CARGOS. Del extracto: `bank_transactions` con
@@ -782,6 +878,11 @@ export interface OpcionesDeComisiones {
  * cosas que un asiento resumen no puede dar: la idempotencia por
  * (source_type, source_id) —reejecutar el mes no duplica nada— y la reversa
  * quirúrgica del cargo que salió mal, sin tocar los otros once.
+ *
+ * THE VAT LEAVES 1135 IN THE SAME ACT (#95): every fee of the period, posted
+ * now or before, gets its parked VAT moved to 1130 by `releaseFeeVat`, so after
+ * a run 1135 holds nothing for these movements. A fee skipped for any reason
+ * other than 'ya-contabilizada' has no entry, hence nothing parked.
  */
 export async function contabilizarComisiones(
   entityId: string,
@@ -824,6 +925,18 @@ export async function contabilizarComisiones(
     let sumaTotal = new Decimal(0);
     let sumaBase = new Decimal(0);
     let sumaIva = new Decimal(0);
+    const releases: FeeVatRelease[] = [];
+    // An entity that does not keep cash-basis VAT does not credit IVA: what its
+    // fee entry parked is not creditable VAT, and moving it to 1130 would say so.
+    const cashBasis = await entityUsesCashBasisIva(client, entityId);
+    const release = async (mov: FilaMovimiento): Promise<void> => {
+      if (!cashBasis) return;
+      const label = mov.descripcion?.trim() || mov.contraparte?.trim() || 'Bank fee';
+      const r = await releaseFeeVat(client, entityId, { id: mov.id, date: mov.fecha, label }, opts.userId);
+      if (!r) return;
+      if (r.entryId) atestar(tenantId, entityId, r.entryId);
+      releases.push(r);
+    };
 
     for (const mov of movs.rows) {
       const firmado = dec(mov.importe, `el movimiento ${mov.id}`);
@@ -855,6 +968,9 @@ export async function contabilizarComisiones(
           motivo: 'ya-contabilizada',
           detalle: `ya la contabilizó la póliza ${previo.entry_number}`,
         });
+        // A fee posted before #95 still has its VAT parked: running its month
+        // again releases it, in the month of the charge, if that month is open.
+        if (!periodoCerrado(await periodoDeLaFecha(client, entityId, mov.fecha))) await release(mov);
         continue;
       }
 
@@ -905,10 +1021,9 @@ export async function contabilizarComisiones(
           account_id: requireRole(roles, 'iva_pendiente_acreditar'),
           debit_amount: desglose.iva,
           credit_amount: null,
-          // La frase va EN EL ASIENTO y no sólo en este archivo: quien lea el
-          // mayor dentro de un año tiene que poder saber por qué este IVA está
-          // en 1135 y no en 1130 sin abrir el código.
-          description: `VAT on bank fee parked in 1135 - no CFDI from the bank yet - ${etiqueta}`,
+          // The phrase goes IN THE ENTRY: whoever reads the ledger a year from
+          // now has to know where this 1135 went without opening the code.
+          description: `VAT on bank fee parked in 1135 - released to 1130 by its ${FEE_VAT_RELEASE_SOURCE} entry - ${etiqueta}`,
         });
       }
       lineas.push({
@@ -981,6 +1096,7 @@ export async function contabilizarComisiones(
       sumaTotal = sumaTotal.plus(desglose.total);
       sumaBase = sumaBase.plus(desglose.base);
       sumaIva = sumaIva.plus(desglose.iva);
+      await release(mov);
     }
 
     const resultado: ResultadoDeComisiones = {
@@ -988,10 +1104,12 @@ export async function contabilizarComisiones(
       periodo: { desde, hasta },
       contabilizadas,
       omitidas,
+      releases,
       totales: {
         total: sumaTotal.toFixed(ESCALA),
         base: sumaBase.toFixed(ESCALA),
         iva: sumaIva.toFixed(ESCALA),
+        ivaReleased: releases.reduce((s, r) => s.plus(r.iva), new Decimal(0)).toFixed(ESCALA),
       },
       ensayo: opts.dryRun === true,
     };
@@ -1001,6 +1119,7 @@ export async function contabilizarComisiones(
       throw new EnsayoDeTesoreria({
         ...resultado,
         contabilizadas: contabilizadas.map((c) => ({ ...c, entryId: null, entryNumber: null })),
+        releases: releases.map((r) => ({ ...r, entryId: null, entryNumber: null })),
       });
     }
     return resultado;
