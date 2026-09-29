@@ -6,6 +6,7 @@ import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE } from './untrusted.js';
 import { resolveLanguage } from './providers/config.js';
 import { buildMemoryDigest } from './memory-service.js';
 import type { AgentContext } from './context.js';
+import { todayFor } from '../services/policy/today.js';
 
 // ============================================================
 // SYSTEM PROMPT
@@ -189,6 +190,8 @@ export async function buildSystemBlocks(
 ): Promise<Anthropic.Beta.BetaTextBlockParam[]> {
   const coa = await fetchChartOfAccounts(ctx.entityId);
   const memoryDigest = await buildMemoryDigest(ctx);
+  // The agent's "today" is the entity's day in zona_horaria, not the UTC day (#242).
+  const today = await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId });
 
   const stable: Anthropic.Beta.BetaTextBlockParam = {
     type: 'text',
@@ -205,7 +208,7 @@ export async function buildSystemBlocks(
     text:
       `Active entity: ${ctx.entityName} (${ctx.taxId}) — country ${ctx.country}, ` +
       `functional currency ${ctx.currency}, accounting standard ${ctx.accountingStandard}.\n` +
-      `Today's date: ${new Date().toISOString().split('T')[0]}.`,
+      `Today's date: ${today}.`,
   };
 
   return [stable, volatile];

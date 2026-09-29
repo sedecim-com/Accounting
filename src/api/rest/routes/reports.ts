@@ -20,6 +20,7 @@ import { toCsv, csvAttachment } from '../../../utils/csv.js';
 import { localizedSection } from '../../../i18n/report-labels.js';
 import type { Language } from '../../../i18n/index.js';
 import { responseLanguage, responseLocale } from '../middleware/locale.js';
+import { todayForEntity } from '../../../services/policy/today.js';
 
 // ============================================================
 // /v1/reports/*
@@ -262,7 +263,7 @@ const publishedBill = (r: AgedPayableRow) => ({
 router.get('/aged-receivables', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, as_of_date } = req.query;
   const entityId = entity_id as string || req.entityId;
-  const asOf = as_of_date as string || new Date().toISOString().split('T')[0];
+  const asOf = as_of_date as string || (await todayForEntity(entityId as string));
 
   // Unlike its siblings this endpoint has never validated entity_id; the cast
   // keeps that behaviour rather than turning a silent empty result into a 422.
@@ -278,7 +279,7 @@ router.get('/aged-receivables', requirePermission('reports:read'), requireEntity
 router.get('/aged-payables', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, as_of_date } = req.query;
   const entityId = entity_id as string || req.entityId;
-  const asOf = as_of_date as string || new Date().toISOString().split('T')[0];
+  const asOf = as_of_date as string || (await todayForEntity(entityId as string));
 
   const report = await getAgedPayables(entityId as string, { asOfDate: asOf, order: 'party' });
 
