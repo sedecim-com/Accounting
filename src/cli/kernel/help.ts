@@ -228,6 +228,8 @@ export interface OptionByKeyOptions {
   readonly params?: MessageParams;
   readonly parser?: (value: string, previous: unknown) => unknown;
   readonly defaultValue?: unknown;
+  /** What `cmd.requiredOption(…)` did: Commander refuses the command without it. */
+  readonly mandatory?: boolean;
 }
 
 /**
@@ -248,6 +250,7 @@ export function optionByKey(
   describeOption(option, key, options.params ?? {});
   if (options.parser) option.argParser<unknown>(options.parser);
   if (options.defaultValue !== undefined) option.default(options.defaultValue);
+  if (options.mandatory) option.makeOptionMandatory();
   return cmd.addOption(option);
 }
 

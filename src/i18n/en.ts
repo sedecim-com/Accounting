@@ -964,6 +964,50 @@ export const EN = {
   'help.period.reopen.description':
     'Reopen a closed period so a correction can land in the month it belongs to',
   'help.period.reopen.argument.name': 'period name, YYYY-MM, or id',
+  // ==== MNE-001-093 · help by key, the families merged from main (issue #314) ====
+  //
+  // Same format as `period`: help.<cmd>[.<sub>…].description, .option.<flag>
+  // and .argument.<name>, in snake_case (`pay-run` → `pay_run`). A literal
+  // brace cannot live in a message (it is a placeholder), so the one example
+  // object of `pay-run calculate --file` travels as the parameter {shape}.
+  'help.tenant.description': 'Create and list the firms (tenants) of this installation',
+  'help.tenant.list.description': 'List the tenants of this installation, archived ones included',
+  'help.tenant.create.description': 'Create a tenant for a new firm, with its system account',
+  'help.tenant.create.argument.name': 'name of the firm',
+  'help.tenant.create.option.subdomain': 'unique handle of the firm (derived from the name when omitted)',
+  'help.tenant.create.option.json': 'JSON output',
+  'help.bill.rule.description': 'Firm processing rules: what codes an incoming CFDI with no model involved',
+  'help.bill.rule.create.description':
+    'Create a processing rule (conditions → actions) that the next ingest applies',
+  'help.bill.rule.create.option.name': 'rule name, shown in the trace of every CFDI it decides',
+  'help.bill.rule.create.option.when': 'repeatable, all must hold: "<field> <operator> <value>"',
+  'help.bill.rule.create.option.then': 'repeatable: "<action>=<value>", e.g. set_account=6100',
+  'help.bill.rule.create.option.type': 'rule type: {types}',
+  'help.bill.rule.create.option.priority': 'lower runs first; a later match overrides an earlier one',
+  'help.bill.rule.create.option.description': 'why the firm keeps this rule',
+  'help.bill.rule.create.option.dry_run': 'validate and show the rule; write nothing',
+  'help.bill.rule.create.option.json': 'JSON output',
+  'help.bill.rule.list.description':
+    'List the processing rules in evaluation order, with how often each one fired',
+  'help.bill.rule.list.option.type': 'only this rule type: {types}',
+  'help.pay_run.description':
+    'Payroll runs of a pay period: create, calculate gross to net, approve, post the entry',
+  'help.pay_run.create.description':
+    'Create a draft run over a pay period; the tax year is fixed from the period',
+  'help.pay_run.create.option.period': 'pay period of the active entity (its id)',
+  'help.pay_run.create.option.type': 'run type: {types}',
+  'help.pay_run.calculate.description':
+    'Calculate gross to net for each employee in the inputs file and total the run',
+  'help.pay_run.calculate.argument.id': 'pay run to calculate',
+  'help.pay_run.calculate.option.file': 'JSON with the employee inputs: an array, or {shape}',
+  'help.pay_run.approve.description':
+    'Approve a calculated run, sealing its totals and writing the employer liability; irreversible',
+  'help.pay_run.approve.argument.id': 'calculated pay run to approve',
+  'help.pay_run.post.description':
+    'Build the payroll entry of an approved run and leave it as a draft for `mnemosine review`; ' +
+    '--post posts it directly',
+  'help.pay_run.post.argument.id': 'approved pay run whose entry is built',
+  'help.pay_run.post.option.post': 'post the entry to the ledger now instead of leaving a draft for review',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
