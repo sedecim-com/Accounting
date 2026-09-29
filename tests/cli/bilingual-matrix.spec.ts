@@ -95,6 +95,8 @@ const TOP_LEVEL: Record<string, string> = {
   // F01: el mayor como sustantivo de primera clase.
   ledger: 'mayor',
   entity: 'entidad',
+  // MNE-001-085: the firm, created and listed without SQL.
+  tenant: 'despacho',
   account: 'cuenta',
   entry: 'poliza',
   period: 'periodo',
@@ -222,6 +224,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   memory: { teach: 'enseña', correct: 'corrige', retire: 'retira', restore: 'restaura' },
   pending: { define: 'definir', dismiss: 'descartar', reopen: 'reabrir' },
   entity: { list: 'listar', show: 'ver', use: 'usar', create: 'crear', archive: 'archivar', unset: 'limpiar' },
+  tenant: { list: 'listar', create: 'crear' },
   // F01: deactivate se retiró a archive (R9; los nombres viejos quedan como
   // alias) y la familia ganó set/balance/role/map.
   account: {
@@ -374,7 +377,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'garnishment', 'web'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'garnishment', 'web', 'tenant'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

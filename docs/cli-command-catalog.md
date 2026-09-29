@@ -49,9 +49,9 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **247 comandos** repartidos en **69 familias** de primer nivel. De las **1637** filas del catálogo, **232** (14.2 %) ya se pueden invocar.
+El binario ejecuta hoy **249 comandos** repartidos en **70 familias** de primer nivel. De las **1637** filas del catálogo, **234** (14.3 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **280** filas lo declaran completo, **390** a medias y **967** inexistente.
+Del motor que cada comando necesita, **282** filas lo declaran completo, **388** a medias y **967** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **201** ya se teclean.
 
@@ -78,7 +78,7 @@ Contadas por COMANDO, las 1637 filas son **1615 rutas únicas**: **17 rutas** es
 | `batch` | 7 | 5 |
 | `credit-note` | 7 | 5 |
 
-**1 de 611** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
+**1 de 608** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
 _Que una cita resuelva no prueba que siga apuntando a lo mismo: sólo que el archivo existe y tiene esa línea. El juicio ✅/🟡/❌ de cada fila es humano y se revisa a mano._
 
@@ -2772,9 +2772,9 @@ Todo lo que no es contabilidad: a qué entidad y a qué despacho apuntas, cómo 
 | `mnemosine entity use <idOrName>` · `entidad usar` | Fija la entidad activa para las siguientes invocaciones (contexto persistente estilo `kubectl config use-context`) | `--global`, `--project`, `--no-input` | ✅ el comando existe (src/cli/entity-command.ts:150) y esquiva el bloqueo: la entidad activa **no** vive en el config estricto sino en un puntero propio, `~/.mnemosine/state.json`, con su verbo de limpieza `entity unset` (:292). Lo que no existe todavía es la distinción `--global` / `--project` | escritura [1] | ✗ | 1 |
 | `mnemosine entity unset` · `entidad soltar` | Suelta la entidad fijada; las siguientes invocaciones vuelven a exigirla explícitamente | — | ✅ el comando existe (src/cli/entity-command.ts). Fila creada en S0.1 — `entity use` tenía fila y su inversa no, así que el catálogo describía una pinza que sólo cierra | lectura | ✓ | 1 |
 | `mnemosine entity clone <idOrName>` · `entidad clonar` | Copia catálogo, políticas y estructura de una entidad a un sandbox **estructuralmente** incapaz de timbrar, declarar, disparar webhooks salientes o enviar correo | `--neutralize` (obligatorio), `--with-data`, `--dry-run`, `-y/--yes` | ❌ no existe copia de entidad ni mecanismo de neutralización | escritura [1] | ✗ | 3 |
-| `mnemosine tenant list` · `despacho listar` | Lista los tenants visibles y marca el activo | `--json`, `-q` | 🟡 tabla `public.tenants` (001_core_schema.sql:15); hoy se lee en src/services/entity/entity-service.ts:132 (`SELECT id, name FROM public.tenants ORDER BY created_at ASC`) y en src/cli/init/s2-users.ts:87 | lectura [0] | ✓ | 2 |
+| `mnemosine tenant list` · `despacho listar` | Lista los tenants de la instalación, archivados incluidos, y marca el de la sesión | `--json`, `-q`, `-s/--status active\|archived`, `-n/--limit`, `--offset`, `-a/--all` | ✅ MNE-001-085 (#326): `listTenants` (src/services/tenant/tenant-service.ts) y la hoja en src/cli/tenant-command.ts. **IA ✗ y no ✓**: `public.tenants` está fuera de RLS, así que la lista ve TODOS los despachos de la instalación, y el agente trabaja dentro de uno | lectura [0] | ✗ | 2 |
 | `mnemosine tenant show` · `despacho ver` | Datos del despacho activo: plan, entidades, usuarios y prueba real de aislamiento RLS | `--json` | 🟡 tabla + src/ai/doctor-service.ts:174 (`checkTenantIsolation`) | lectura [0] | ✓ | 2 |
-| `mnemosine tenant create <name>` · `despacho crear` | Crea un tenant nuevo para un despacho | `--plan`, `--subdomain`, `--dry-run` | 🟡 src/cli/init/s1-identity.ts:124 (INSERT dentro del asistente, solo si no hay ninguno) | escritura [1] | ✗ | 2 |
+| `mnemosine tenant create <name>` · `despacho crear` | Crea un tenant nuevo para un despacho, con su cuenta de sistema y su renglón de auditoría | `--subdomain`, `--json` | ✅ MNE-001-085 (#326): `createTenant` (src/services/tenant/tenant-service.ts); la migración 145 quita el UNIQUE de `schema_name`, que impedía escribir el valor cierto (`public`) dos veces. `--plan` no se publica: es grafía prohibida en src/cli/kernel/flags.ts y nada lee `tenants.plan`; `--dry-run` queda pendiente | escritura [1] | ✗ | 2 |
 | `mnemosine tenant use <id>` · `despacho usar` | Fija el tenant activo y lo pin-ea en `.env` para que RLS aplique desde la primera consulta | `--global`, `--project` | 🟡 src/ai/context.ts:68 (`bootstrapTenant`) + src/cli/init/s0-infra.ts:18 (`upsertEnvVar`) | escritura [1] | ✗ | 1 |
 | `mnemosine group create <name>` · `grupo crear` | Crea una organización: el nodo de **estructura corporativa** (holding u operativa, con padre opcional) del que cuelgan las entidades legales | `--type holding\|operating` (obligatorio), `--parent <group>`, `--dry-run` | 🟡 tabla `organizations` (001_core_schema.sql:66) con `type CHECK IN ('holding','operating')` y `parent_id`; hoy la escriben solo src/cli/init/s1-identity.ts:132 y src/database/seed.ts:32, sin CRUD | escritura [1] | ✗ | 2 |
 | `mnemosine group list` · `grupo listar` | Lista las organizaciones, su tipo, su padre y cuántas entidades cuelga cada una | `--json`, `-q` | 🟡 igual | lectura [0] | ✓ | 2 |
