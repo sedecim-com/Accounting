@@ -79,6 +79,7 @@
     "numbering-series-from-document-date",
     "openapi-census-and-delivery-retry",
     "opening-balance-matches-source",
+    "opening-payables-tie-and-stop",
     "orphan-export-baseline-only-shrinks",
     "outbound-webhook-delivery-hardening",
     "output-flag-writes-complete-output",

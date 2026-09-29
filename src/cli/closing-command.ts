@@ -3,7 +3,8 @@ import * as readline from 'node:readline/promises';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { stdin } from 'node:process';
 import type { Command } from 'commander';
-import { resolveEntity, bootstrapTenant, type AgentContext } from '../ai/context.js';
+import { bootstrapTenant, type AgentContext } from '../ai/context.js';
+import { resolveClosablePeriod } from './kernel/closable-period.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import {
   listClosablePeriods,
@@ -343,16 +344,9 @@ async function periodoOMasViejo(ctx: AgentContext, nombre?: string): Promise<Clo
     if (!siguiente) throw notFound('No open periods: nothing to preview or check.');
     return siguiente;
   }
-  const buscado = nombre.toLowerCase();
-  const elegido = periodos.find(
-    (p) => p.id === nombre || p.period_name.toLowerCase().includes(buscado)
-  );
-  if (!elegido) {
-    throw notFound(
-      `No open period matches "${nombre}". Available: ${periodos.map((p) => p.period_name).join(', ')}.`
-    );
-  }
-  return elegido;
+  // The same resolver as `close --period`, so both answer about the same
+  // month for the same text (#327).
+  return resolveClosablePeriod(ctx, nombre, periodos);
 }
 
 /**
@@ -371,20 +365,11 @@ async function periodToConduct(ctx: AgentContext, name?: string): Promise<Closab
     if (!chosen) throw notFound('No open periods: nothing to conduct.');
     return chosen;
   }
-  // EL MISMO RESOLVEDOR QUE `closing pack generate` y `period show`: id,
-  // AAAA-MM o nombre, y un nombre ambiguo se NIEGA en vez de tomar la primera
-  // coincidencia. La hoja irreversible no puede resolver con más holgura que
-  // la de lectura: «July» casaba primero con el julio ya cerrado y la negativa
-  // hablaba de otro mes.
-  const resolved = await resolvePeriod(ctx.entityId, name);
-  const chosen = candidates.find((p) => p.id === resolved.id);
-  if (!chosen || chosen.status !== 'open') {
-    throw blockedByState(
-      `${resolved.period_name} is already ${resolved.status}: there is nothing left to conduct. ` +
-        `Seal it with \`mnemosine closing pack generate "${resolved.period_name}"\`.`
-    );
-  }
-  return chosen;
+  // The same resolver as `close` and `closing preview`: id, YYYY-MM or name,
+  // and ambiguity is REFUSED instead of taking the first match. The leaf that
+  // posts cannot resolve more loosely than the one that reads: «July» used to
+  // hit the July already closed and the refusal spoke of another month.
+  return resolveClosablePeriod(ctx, name, candidates, { openOnly: true });
 }
 
 /**
@@ -422,11 +407,10 @@ function cabeceraDePeriodo(r: CloseReadiness, c: Palette): string {
 // ============================================================
 // EJEMPLOS · invocaciones copiables, con datos mexicanos
 //
-// El periodo se nombra por el NOMBRE que el calendario acuñó ("July 2026") o
-// por su id, y `periodoOMasViejo` casa por subcadena del nombre: sin argumento
-// se contesta sobre el más viejo abierto, que es el mismo criterio de la hoja
-// `close` — dos superficies que contestaran sobre meses distintos no
-// previsualizarían nada.
+// The period is named as everywhere else: YYYY-MM, its id, or an unambiguous
+// part of its name (#327). With no argument the answer is about the oldest
+// open one, the same rule as `close`: two surfaces answering about different
+// months would preview nothing.
 //
 // Los códigos de `explain` son los estables de `CLOSE_CHECK_CODES`, y por eso
 // `check --check` sin valor los imprime sin tocar la base: preguntar qué se
@@ -441,9 +425,9 @@ Examples:
   mnemosine closing preview
   # A named month. Blocking items come from the engine AND from the AI queues:
   # a draft dated inside the period stops the close like a red checkbox does.
-  mnemosine closing preview "July 2026"
+  mnemosine closing preview 2026-07
   # Warnings block too, for a scripted gate: exit 4 where it would have been 0.
-  mnemosine closing preview "July 2026" --strict
+  mnemosine closing preview 2026-07 --strict
 `,
   check: `
 Examples:
@@ -453,14 +437,14 @@ Examples:
   mnemosine closing check --check
   # Two checks only, on a named month. Filtered, the verdict is about WHAT WAS
   # ASKED and nothing else; unfiltered it also weighs the AI blockers.
-  mnemosine closing check --period "July 2026" --check trial-balance,ledger-integrity
+  mnemosine closing check --period 2026-07 --check trial-balance,ledger-integrity
 `,
   explain: `
 Examples:
   # The rows keeping one check red, and the exact command that clears them.
   mnemosine closing explain entries-posted
   # Bank lines nobody explained, on a named month, ten rows at most.
-  mnemosine closing explain bank-lines-unexplained --period "July 2026" -n 10
+  mnemosine closing explain bank-lines-unexplained --period 2026-07 -n 10
   # The offenders as CSV, which is the annex an auditor asks for. The real total
   # travels with the rows, so the --limit cut never passes in silence.
   mnemosine closing explain depreciation-posted --format csv -o cierre-julio-depreciacion.csv
@@ -471,7 +455,7 @@ Examples:
   # really evaluates the checklist -- the one step that can be asked for free.
   mnemosine closing run --dry-run
   # Conduct the whole month. Three of its steps post to the ledger.
-  mnemosine closing run "July 2026" --entity "Acme SA de CV" --yes
+  mnemosine closing run 2026-07 --entity "Acme SA de CV" --yes
   # Do the month but leave the period open: --stop-at stops BEFORE the step.
   mnemosine closing run --stop-at soft-close --yes
   # Soft-close it and leave the irreversible seal to a person.
@@ -538,18 +522,16 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     // Tenant PRIMERO, como en toda la familia: bajo RLS una conexión sin
     // app.current_tenant ve cero filas en legal_entities.
     bootstrapTenant(opts.tenant);
-    return resolveEntity(opts.entity);
+    // `close` and `closing` answer about the SAME entity: -e, then
+    // MNEMOSINE_ENTITY, then the `entity use` pin (#327).
+    return (await resolveActiveEntity({ entity: opts.entity }, { home: deps.home })).ctx;
   };
 
   // ---- closing preview ---------------------------------------------
   const preview = closing
     .command('preview')
     .alias('previsualizar')
-    // NO dice «YYYY-MM»: `periodoOMasViejo` casa por id o por subcadena del
-    // nombre acuñado, y sólo sobre periodos ABIERTOS. `period show 2026-07` sí
-    // resuelve porque va por `resolvePeriod`; éste no. Prometer las tres formas
-    // mandaba al usuario a un «no encontrado» sobre un periodo que existe.
-    .argument('[period]', 'open period name or id (default: the oldest open one)')
+    .argument('[period]', 'open period: 2026-07, its id, or part of its name (default: the oldest open one)')
     .description('Read-only twin of closing start: says whether the period can enter close and what is missing');
   withStrict(withOutput(withContext(preview)));
   declareRisk(preview, { risk: 'lectura', agent: true });
@@ -607,7 +589,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   withStrict(withOutput(withContext(check)));
   check
     .option('--check [codes]', 'comma-separated check codes; with no value, prints the available ones')
-    .option('--period <name>', 'period to check (default: the oldest open one)');
+    .option('--period <expr>', 'period to check: 2026-07, its id, or part of its name (default: the oldest open one)');
   declareRisk(check, { risk: 'lectura', agent: true });
   check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts & { check?: string | boolean; period?: string }) =>
@@ -709,7 +691,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     // grafía y la forma corta (`-n`), no el grupo (el precedente de
     // `ap reconcile --as-of`).
     .option('-n, --limit <n>', 'maximum offending rows to print', (v: string) => Number(v))
-    .option('--period <name>', 'period to explain (default: the oldest open one)');
+    .option('--period <expr>', 'period to explain: 2026-07, its id, or part of its name (default: the oldest open one)');
   declareRisk(explain, { risk: 'lectura', agent: true });
   explain.addHelpText('after', EJEMPLOS.explain);
   explain.action(
@@ -768,7 +750,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   const runLeaf = closing
     .command('run')
     .alias('ejecutar')
-    .argument('[period]', 'open period name or id (default: the oldest open one)')
+    .argument('[period]', 'open period: 2026-07, its id, or part of its name (default: the oldest open one)')
     .description(
       'Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order'
     );

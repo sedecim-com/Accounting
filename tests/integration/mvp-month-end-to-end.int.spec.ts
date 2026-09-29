@@ -262,7 +262,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     }, STEP_TIMEOUT_MS);
 
     it('conducts the close of December, posts its depreciation, and seals a balanced dossier', () => {
-      const run = ok(['closing', 'run', '2025-12', '-y']).out;
+      // December shares its start month with period 13 ("Year-end adjustments 2025"),
+      // so the close leaves refuse 2025-12 and the month is named (MNE-001-087).
+      const run = ok(['closing', 'run', 'December 2025', '-y']).out;
       expect(run).toMatch(/December 2025\s+completed/);
       expect(run).toContain('1 asset(s) depreciated');
       // `closing run` ends with the seal (#99, MNE-001-049): the carry-forward

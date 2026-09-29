@@ -120,4 +120,5 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `tests/integration/f07a-ataque.int.spec.ts`
 - `tests/integration/f07cd-ataque.int.spec.ts`
 - `tests/integration/g1b-ataque.int.spec.ts`
+- `tests/integration/o1-balanza-de-apertura.int.spec.ts`
 - `tests/services/reporting/report-service.spec.ts`

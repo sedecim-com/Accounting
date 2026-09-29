@@ -998,4 +998,33 @@ export const EN = {
   'payrun.approve.done': 'Run {id} approved · {status}',
   'payrun.approve.repeated': 'Run {id} was already approved under this key: the recorded result is shown · {status}',
   'payrun.approve.dry_run': 'Dry run: run {id} was approved and rolled back; it is still {status}.',
+
+  // --- `prepaid run` and its idempotency key (MNE-001-053, #317) ---------
+  'prepaid.run.key_replayed':
+    'Idempotency key already consumed: the recorded result is shown and nothing was accrued again.',
+  /** `{entries}` are the ids the keyed run posted and someone reversed since. */
+  'prepaid.run.key_reversed':
+    'The key "{key}" recorded entries that were reversed afterwards ({entries}). Returning that ' +
+    'result would say {period} is accrued when it is not. Run it again with a new key (it is ' +
+    'another run, not a retry) or without --idempotency-key.',
+  /** A keyed run that failed for some prepaids is not replayed while the month still misses any. */
+  'prepaid.run.key_partial':
+    'The key "{key}" recorded a run of {period} that failed for {failed} prepaid(s), and {pending} ' +
+    'prepaid(s) are still not accrued in {period}. Replaying it would repeat that failure without ' +
+    'trying again. Run it again with a new key (it is another run, not a retry) or without ' +
+    '--idempotency-key; the errors are printed then.',
+  /** `lock_timeout` ran out while another run with the same key was still working. */
+  'prepaid.run.key_busy':
+    'Another run with the key "{key}" is still working. Wait for it to finish and retry with the ' +
+    'same key: the retry returns its recorded result.',
+
+  // --- pay-run post · corrida contabilizar (MNE-001-069) ------------------
+  'payrun.post.confirm':
+    'You are about to POST the entry of run {id} to the ledger (debits {debits} = credits {credits}) ' +
+    'without going through review. A posted entry is only undone by a reversal. Continue?',
+  'payrun.post.aborted': 'Nothing changed: the entry was not posted.',
+  'payrun.post.dry_run': 'Dry run: the entry of run {id} balances (debits {debits} = credits {credits}); nothing was written.',
+  'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
+  'payrun.post.posted': 'Entry of run {id} posted as {number}.',
+  'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
 } as const;

@@ -612,6 +612,10 @@ mirror	disk	E0.1 opening-balance-matches-source	src/services/accounting/opening-
 mirror	disk	E0.1 opening-balance-matches-source	src/services/accounting/opening-balance.ts	cargo y abono intercambiados. El asiento sigue cuadrando —todo se invierte a la vez— y el mayor lo acepta: sólo la balanza publicada delata que el activo quedó de abono
 mirror	disk	E0.1 opening-balance-matches-source	src/services/accounting/sat-chart-import.ts	la naturaleza que el archivo declara, leída al revés. La capa 1 es la que le dice al mayor de qué signo es cada cuenta, y con ella invertida la balanza que publicamos sale con el signo cambiado en las diecisiete
 mirror	disk	E0.1 opening-balance-matches-source	src/services/reporting/report-service.ts	the roll-up stops adding the subaccounts: «100 Activo» goes back to its own zero while the source file declares 232 000 for it (#323)
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/accounting/opening-balance.ts	the gap of #310 as it was: the opening carries the 14 000 of vendors line by line and no bill stands behind them, so ap reconcile reports the whole balance as a difference
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/ap/opening-bills.ts	the bill is born outside the open statuses: the subledger leaves it out and a payment refuses it, while its liability is already in the ledger
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/ap/ap-controls.ts	the opening is listed again as a manual entry on the control account: ap reconcile ties at 0 and still prints a manual entry and a residue of 14 000
+mirror	disk	E0.1 opening-payables-tie-and-stop	src/services/accounting/opening-balance.ts	the stop names a short payable subledger as «sobran -1000.00»: a surplus of a negative amount
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	accessible_entities has no foreign key, so a token id from another tenant becomes a row wherever RLS is inert
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	the token set is dropped and every sibling in the holding appears (the TEN leak)
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	each row would count its siblings' drafts
@@ -800,7 +804,7 @@ anchor	src/plan/criteria/e1-2.ts	de: ' reversalDate: reversal_date,',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n iva.documents.length',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n (iva.documents.length',
-anchor	src/plan/criteria/e1-2.ts	de: ' pr.pay_date,',
+anchor	src/plan/criteria/e1-2.ts	de: ' entry.entryDate,',
 anchor	src/plan/criteria/e1-2.ts	de: 'value.getDate()',
 anchor	src/plan/criteria/e1-2.ts	de: '.exec(String(value).trim());',
 anchor	src/plan/criteria/e1-2.ts	de: ' [entityId, entryDay, options?.fiscalPeriodId ?? null]',

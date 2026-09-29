@@ -251,7 +251,8 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
     agent: false,
     writes:
       'journal_entries + journal_entry_lines (ONE opening entry, posted; ' +
-      'a locked draft when the panel key for the opening load mode says so)',
+      'a locked draft when the panel key for the opening load mode says so); with --subledger ' +
+      'and a posted opening, also invoices + customers and bills + vendors for its open documents',
     llave: {
       innecesaria:
         'the ledger refuses a second live opening for the same entity and date ' +
