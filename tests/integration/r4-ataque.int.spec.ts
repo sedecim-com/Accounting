@@ -10,10 +10,8 @@ import {
   drainAttestations,
 } from '../../src/services/accounting/posting.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
-import { postInvoiceEntry } from '../../src/services/accounting/ar-ap-posting.js';
-import { withTransaction } from '../../src/database/connection.js';
-import type { Invoice, InvoiceLine } from '../../src/types/index.js';
-import { recordVendorPayment } from '../../src/services/payments/payment-service.js';
+import { issueInvoice } from '../../src/services/ar/invoice-service.js';
+import { recordCustomerPayment, recordVendorPayment } from '../../src/services/payments/payment-service.js';
 import { exigirPar, fijarTipo } from '../../src/services/fx/rate-service.js';
 import { JournalEntryType } from '../../src/types/index.js';
 import { ConflictError } from '../../src/utils/errors.js';
@@ -320,11 +318,22 @@ describe('el bill en USD posteado conserva su origen', () => {
   });
 });
 
-describe('el lado AR no miente mientras no convierte', () => {
-  // El cableado FX de cobros es fase 2; la REGLA de R4 no espera. Antes de
-  // la guarda, esta misma factura posteaba USD 1000 como MXN 1000 con
-  // veredicto limpio — el pecado original vivo en el lado que factura.
-  it('una factura USD se NIEGA a postearse nombrando lo que falta, en vez de asentar dólares como pesos', async () => {
+describe('MNE-001-081 · a USD invoice posts, converted at the rate of the fuente_tipo_cambio source', () => {
+  // Until this task the same invoice refused with FX_AR_NOT_WIRED: the only
+  // alternative was posting USD 1 000 as MXN 1 000. Now it converts at birth,
+  // like the bill, at the rate the firm's source (DOF by default) published
+  // for the invoice date, and every line keeps its dollars.
+  const INVOICE_DAY = '2026-08-20';
+  beforeAll(async () => {
+    await fijarTipo({
+      par: exigirPar('USD/MXN'), fecha: INVOICE_DAY, tasa: '17.5000', fuente: 'dof', creadoPor: f.userId,
+    });
+  });
+
+  async function usdInvoice(
+    exchangeRate = '1.0000000000',
+    day = INVOICE_DAY
+  ): Promise<{ invId: string; custId: string }> {
     const custId = uuidv4();
     const invId = uuidv4();
     const marca = uuidv4().slice(0, 8);
@@ -336,8 +345,8 @@ describe('el lado AR no miente mientras no convierte', () => {
     await query(
       `INSERT INTO invoices (id, entity_id, invoice_number, customer_id, subtotal, tax_amount,
         total_amount, amount_due, currency_code, exchange_rate, invoice_date, due_date, status, created_by)
-       VALUES ($1,$2,$3,$4,1000,160,1160,1160,'USD','17.5000000000',$5,$5,'sent',$6)`,
-      [invId, f.entityId, `INV-USD-${marca}`, custId, fechaEnPeriodo(), f.userId]
+       VALUES ($1,$2,$3,$4,1000,160,1160,1160,'USD',$5,$6,$6,'draft',$7)`,
+      [invId, f.entityId, `INV-USD-${marca}`, custId, exchangeRate, day, f.userId]
     );
     await query(
       `INSERT INTO invoice_lines (id, invoice_id, line_number, description, quantity, unit_price,
@@ -345,18 +354,75 @@ describe('el lado AR no miente mientras no convierte', () => {
        VALUES ($1,$2,1,'Servicio exportado',1,1000,$3,160,1000,1160)`,
       [uuidv4(), invId, f.cuentas['4100']]
     );
-    await expect(
-      withTransaction(async (client) => {
-        const inv = (await client.query<Invoice>('SELECT * FROM invoices WHERE id = $1', [invId])).rows[0];
-        const lineas = (await client.query<InvoiceLine>('SELECT * FROM invoice_lines WHERE invoice_id = $1', [invId])).rows;
-        return postInvoiceEntry(client, inv, lineas, f.userId);
-      })
-    ).rejects.toThrow(/fase 2 de R4|sin rastro del importe/);
-    // Y el rechazo no dejó medio asiento: la factura sigue sin journal_entry_id.
+    return { invId, custId };
+  }
+
+  it('with no DOF rate for the invoice date, issuing fails closed and leaves no half entry', async () => {
+    const { invId } = await usdInvoice('1.0000000000', '2026-08-21');
+    await expect(issueInvoice(invId, f.userId, { entityId: f.entityId })).rejects.toThrow(
+      /No hay tipo de cambio USD→MXN de la fuente 'dof' para 2026-08-21/
+    );
+    const inv = await query<{ journal_entry_id: string | null; status: string }>(
+      'SELECT journal_entry_id, status FROM invoices WHERE id = $1', [invId]
+    );
+    expect(inv.rows[0].journal_entry_id).toBeNull();
+    expect(inv.rows[0].status).toBe('draft');
+  });
+
+  it('USD 1 000 at 17.50 posts 17 500 of revenue, keeps the dollars, and writes the rate back to the invoice', async () => {
+    const { invId } = await usdInvoice();
+    const issued = await issueInvoice(invId, f.userId, { entityId: f.entityId });
+    const entryId = issued.entry?.id as string;
+    expect(entryId, 'issuing the USD invoice must post an entry').toBeTruthy();
+
+    const lines = await lineasDe(entryId);
+    const revenue = lines.find((l) => l.account_id === f.cuentas['4100']);
+    expect(revenue?.credit_amount).toBe('17500.0000');
+    expect(revenue?.currency_code).toBe('USD');
+    expect(revenue?.foreign_credit).toBe('1000.0000');
+    expect(new Decimal(revenue?.exchange_rate as string).equals('17.5')).toBe(true);
+
+    const cxc = lines.find((l) => l.account_id === f.roles.cxc);
+    expect(cxc?.debit_amount).toBe('20300.0000');
+    expect(cxc?.foreign_debit).toBe('1160.0000');
+    await cuadra(entryId);
+    await origenVerificado(entryId);
+
+    const inv = await query<{ exchange_rate: string; journal_entry_id: string }>(
+      'SELECT exchange_rate::text, journal_entry_id FROM invoices WHERE id = $1', [invId]
+    );
+    expect(new Decimal(inv.rows[0].exchange_rate).equals('17.5')).toBe(true);
+    expect(inv.rows[0].journal_entry_id).toBe(entryId);
+  });
+
+  it('a captured rate that disagrees with the DOF is refused instead of being silently replaced', async () => {
+    const { invId } = await usdInvoice('17.2000000000');
+    await expect(issueInvoice(invId, f.userId, { entityId: f.entityId })).rejects.toThrow(/No elijo uno en silencio/);
     const inv = await query<{ journal_entry_id: string | null }>(
       'SELECT journal_entry_id FROM invoices WHERE id = $1', [invId]
     );
     expect(inv.rows[0].journal_entry_id).toBeNull();
+  });
+
+  it('its collection refuses until it converts (MNE-001-082), instead of crediting dollars to cxc as pesos', async () => {
+    const { invId, custId } = await usdInvoice();
+    await issueInvoice(invId, f.userId, { entityId: f.entityId });
+    await expect(
+      recordCustomerPayment(
+        {
+          entityId: f.entityId,
+          counterpartyId: custId,
+          paymentAmount: '1160.00',
+          currencyCode: 'USD',
+          paymentDate: fechaEnPeriodo(8, 25),
+          paymentMethod: 'spei',
+          applications: [{ documentId: invId, amountApplied: '1160.00' }],
+        },
+        f.userId
+      )
+    ).rejects.toThrow(/todavía no convierte/);
+    const inv = await query<{ amount_due: string }>('SELECT amount_due::text FROM invoices WHERE id = $1', [invId]);
+    expect(new Decimal(inv.rows[0].amount_due).equals('1160')).toBe(true);
   });
 });
 

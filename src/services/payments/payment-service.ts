@@ -697,6 +697,30 @@ export async function recordCustomerPayment(
       });
     }
 
+    // MNE-001-081 opened the door this closes: a foreign-currency invoice now
+    // posts, converted, so it can reach a collectable status. Its collection
+    // does not convert yet (the realised difference is MNE-001-082), and
+    // letting it through would credit USD 1 000 to cxc as MXN 1 000 against a
+    // receivable booked at 17 500. It refuses, naming why, until it converts.
+    // NOTE: `booksCurrency`, not `functionalCurrency`: the T23 criterion
+    // (E1.2 an-advance-cannot-be-booked-in-another-currency) anchors on the advance guard's exact
+    // `const functionalCurrency = …` line below, and a twin here would move
+    // its anchor and its mutant onto this guard.
+    if (documentos.length > 0) {
+      const booksCurrency = await functionalCurrencyOf(client, entrada.entityId);
+      const receiptCurrency = currencyOf(documentos);
+      if (receiptCurrency !== booksCurrency) {
+        throw new AccountingError(
+          'FX_AR_RECEIPT_NOT_WIRED',
+          `El cobro aplica a facturas en ${receiptCurrency} y esta entidad lleva sus libros en ` +
+            `${booksCurrency}. La factura ya se asentó convertida, pero el cobro todavía no ` +
+            'convierte ni reconoce la diferencia cambiaria realizada: registrarlo hoy abonaría ' +
+            `${receiptCurrency} a la cuenta por cobrar como si fueran ${booksCurrency}. ` +
+            'No lo registro hasta que el cobro tenga el mismo motor que el pago a proveedor.'
+        );
+      }
+    }
+
     const customerId = entrada.counterpartyId
       ?? (await client.query<{ customer_id: string }>(
         `SELECT customer_id FROM invoices WHERE id = $1`, [entrada.applications[0].documentId]
@@ -725,10 +749,10 @@ export async function recordCustomerPayment(
       // SE REHÚSA, NO SE CONVIERTE, y es deliberado: convertir exige elegir una
       // tasa y una FUENTE, y esa es una decisión del despacho
       // (`fuente_tipo_cambio`), no un valor por omisión que esta función pueda
-      // inventarse. Es además lo que el manual ya promete para cuentas por
-      // cobrar — «a foreign-currency invoice REFUSES to post (phase 2) rather
-      // than record dollars as pesos»—; el anticipo era la puerta por la que
-      // esa promesa no se cumplía.
+      // inventarse. It is the same promise the receivables manual makes for
+      // the collection of a foreign-currency invoice (FX_AR_RECEIPT_NOT_WIRED,
+      // above): nothing records dollars as pesos, and the advance was the
+      // door through which that promise was not kept.
       const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);
       if (advanceCurrency !== functionalCurrency) {
         throw new ValidationError(
