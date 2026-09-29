@@ -84,8 +84,11 @@ describe('at 20:00 on Oct 31 in Mexico City, an invoice due on the 31st is due t
 
   it('the agent\'s get_aged_receivables: the same day', async () => {
     atEveningInMexicoCity();
-    const tool = buildReportTools(ctx).find((t) => t.name === 'get_aged_receivables')!;
-    const out = (await tool.run({})) as string;
+    // The tool list is a union of input types; this one takes an optional date only.
+    const tool = buildReportTools(ctx).find((t) => t.name === 'get_aged_receivables') as unknown as {
+      run: (input: { as_of_date?: string }) => Promise<string>;
+    };
+    const out = await tool.run({});
     expect(out).toContain('"as_of_date":"2026-10-31"');
     expect(out).toContain('"days_overdue":0');
   });
