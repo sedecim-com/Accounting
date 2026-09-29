@@ -819,6 +819,7 @@ describe('el prompt de sistema nombra el panel', () => {
       ],
     });
     mockQuery.mockResolvedValueOnce({ rows: [] }); // digest de memoria
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // zona_horaria: no answer, the default zone
     const [estable, volatil] = await buildSystemBlocks(CTX);
 
     expect(estable.text).toContain('get_accounting_policies');

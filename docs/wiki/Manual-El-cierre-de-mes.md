@@ -137,9 +137,11 @@ El sistema es honesto sobre esto en el punto de decisión: cuando la IA pregunta
 
 ### 5. `Trial balance balanced` — **BLOQUEA**
 
-Suma cargos menos abonos sobre los saldos del periodo y exige que la diferencia no pase de un centavo.
+Hace dos preguntas. La primera suma cargos menos abonos sobre los saldos del periodo y exige que la diferencia no pase de un centavo; como cada póliza cuadra antes de postearse, sólo falla si alguien escribió esa tabla por fuera del sistema.
 
-Si descuadra, el primer sospechoso no es el mayor sino las vistas de reporte, que se refrescan por separado:
+La segunda es la que muerde: que el **saldo inicial** de cada cuenta de balance sea el que da el mayor, es decir, la suma de todo lo posteado en los periodos anteriores. Se pregunta cuando el periodo anterior está cerrado en duro, que es cuando el arrastre ya puso una cifra. Si reabriste un mes, lo corregiste y lo volviste a cerrar sólo en suave, el arrastre no llegó a los meses siguientes y éstos abren con la cifra vieja: la casilla sale ✘ con la cuenta, lo arrastrado y lo que dice el mayor, y `mnemosine closing explain trial-balance` las lista todas. El remedio es sellar el mes corregido, `mnemosine close --period "<mes>" --hard`: su arrastre baja en cascada.
+
+Si la suma descuadra, el primer sospechoso no es el mayor sino las vistas de reporte, que se refrescan por separado:
 
 ```bash
 mnemosine report view show

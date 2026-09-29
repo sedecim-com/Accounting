@@ -734,11 +734,14 @@ export const EN = {
     'Dry run: it really was signed, and then rolled back. The hash is the one that would remain.',
 
   'bank.reconciliation.reopen.title': 'WHAT IS ABOUT TO BE REOPENED',
-  'bank.reconciliation.reopen.transition': 'session {session} · {from} → {to} · approved → in_progress',
+  'bank.reconciliation.reopen.transition': 'session {session} · {from} → {to} · {previous} → in_progress',
+  'bank.reconciliation.reopen.reversal':
+    'entry {entry} reversed by {reversal} (never deleted); its adjustment is a pending draft again',
   'bank.reconciliation.reopen.withdrawn':
     'signature withdrawn: {by} on {on} (the audit trail keeps it with its snapshot)',
   'bank.reconciliation.reopen.confirm':
-    'You are about to REOPEN session {session} and withdraw its signature {hash}… ' +
+    'You are about to REOPEN session {session} and withdraw its signature {hash}…' +
+    '{reversals, plural, =0 {} one { It reverses # posted entry.} other { It reverses # posted entries.}} ' +
     'Continue?',
   'bank.reconciliation.reopen.already_reopened': 'session {session} already reopened',
   'bank.reconciliation.reopen.summary': '· {status} · signature withdrawn',
@@ -978,4 +981,21 @@ export const EN = {
   'report.net_income': 'Net income',
   'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
   'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
+  // --- pay-run · corrida (MNE-001-068) -----------------------------------
+  'payrun.file_invalid': 'The inputs file {path} cannot be used: {detail}. Nothing was calculated.',
+  'payrun.file_duplicate_employee':
+    'Employee {employee} appears twice in {path}: a run has one paycheck per employee. Nothing was calculated.',
+  'payrun.create.period_required':
+    'Missing --period: a run belongs to one pay period of the entity, and it is not guessed from the clock.',
+  'payrun.create.next': 'Next: `mnemosine pay-run calculate {id} --file <inputs.json>`.',
+  'payrun.calculate.file_required':
+    'Missing --file: the employee inputs of the period (earnings and deductions) come from a JSON file.',
+  'payrun.calculate.next': 'Next: `mnemosine pay-run approve {id} --dry-run` to see what approving writes.',
+  'payrun.approve.confirm':
+    'You are about to APPROVE run {id} ({employees, plural, one {# employee} other {# employees}}, ' +
+    'net pay {net}) and write its employer liability. Approval is not undone. Continue?',
+  'payrun.approve.aborted': 'Nothing changed: the run was not approved.',
+  'payrun.approve.done': 'Run {id} approved · {status}',
+  'payrun.approve.repeated': 'Run {id} was already approved under this key: the recorded result is shown · {status}',
+  'payrun.approve.dry_run': 'Dry run: run {id} was approved and rolled back; it is still {status}.',
 } as const;

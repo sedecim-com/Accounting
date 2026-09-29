@@ -1,6 +1,7 @@
-import { XMLParser } from 'fast-xml-parser';
+import type { XMLParser } from 'fast-xml-parser';
 import crypto from 'crypto';
 import Decimal from 'decimal.js';
+import { createXmlReader, normalizeAttributes } from '../../utils/xml-reader.js';
 
 // ============================================================
 // INTERFACES
@@ -40,6 +41,8 @@ export interface CFDIParsed {
   formaPago?: string;
   metodoPago?: string;
   tipoDeComprobante: string;
+  /** The issuer's postal code: text, because 01000 is not 1000 (#299). */
+  lugarExpedicion?: string;
   moneda: string;
   tipoCambio?: number;
   subTotal: number;
@@ -89,10 +92,10 @@ export interface CFDIParsed {
 }
 
 /**
- * Declared, even when zero. With `parseAttributeValue: true` the SAT's
- * `TasaOCuota="0.000000"` and `Importe="0.00"` arrive as the number 0:
- * testing them for truth erases the fact that they were declared at all,
- * and with it the only thing that tells a real 0 % rate from an exemption.
+ * Declared, even when zero. The SAT's `TasaOCuota="0.000000"` and
+ * `Importe="0.00"` are amounts worth 0: testing them, or the number they
+ * become, for truth erases the fact that they were declared at all, and with
+ * it the only thing that tells a real 0 % rate from an exemption.
  */
 const isDeclared = (v: unknown): boolean => v !== undefined && v !== null && v !== '';
 
@@ -107,28 +110,22 @@ export class CFDIParser {
   private parser: XMLParser;
 
   constructor() {
-    this.parser = new XMLParser({
-      ignoreAttributes: false,
-      attributeNamePrefix: '@_',
-      removeNSPrefix: true,
-      parseAttributeValue: true,
-      trimValues: true,
-    });
+    // Every attribute arrives as the text of the file (keys keep their leading
+    // zeros, #299) and each amount is converted below by the line that knows
+    // it is one. Accents written as `&#233;` are decoded and a `&#10;` is read
+    // as the space the SAT read (#218): see src/utils/xml-reader.ts.
+    this.parser = createXmlReader({ trimValues: true });
   }
 
   parse(xmlString: string): CFDIParsed {
-    const parsed = this.parser.parse(xmlString);
+    const parsed = normalizeAttributes(this.parser.parse(xmlString));
     const comprobante = parsed.Comprobante;
 
     if (!comprobante) {
       throw new Error('Invalid CFDI: No Comprobante element found');
     }
 
-    // Normalize version (fast-xml-parser may parse "4.0" as number 4)
-    const versionRaw = comprobante['@_Version'];
-    const version = typeof versionRaw === 'number'
-      ? (Number.isInteger(versionRaw) ? `${versionRaw}.0` : String(versionRaw))
-      : String(versionRaw);
+    const version = String(comprobante['@_Version']);
     if (version !== '4.0' && version !== '3.3') {
       throw new Error(`Unsupported CFDI version: ${version}`);
     }
@@ -136,11 +133,12 @@ export class CFDIParser {
     const cfdi: CFDIParsed = {
       version,
       serie: comprobante['@_Serie'],
-      folio: comprobante['@_Folio']?.toString(),
+      folio: comprobante['@_Folio'],
       fecha: new Date(comprobante['@_Fecha']),
       formaPago: comprobante['@_FormaPago'],
       metodoPago: comprobante['@_MetodoPago'],
       tipoDeComprobante: comprobante['@_TipoDeComprobante'],
+      lugarExpedicion: comprobante['@_LugarExpedicion'],
       moneda: comprobante['@_Moneda'] || 'MXN',
       tipoCambio: comprobante['@_TipoCambio']
         ? parseFloat(comprobante['@_TipoCambio'])
@@ -196,8 +194,7 @@ export class CFDIParser {
     const relNode = node.CfdiRelacionado;
     const rels = Array.isArray(relNode) ? relNode : relNode ? [relNode] : [];
     return {
-      // parseAttributeValue turns "07" into the number 7: normalize to 2 digits.
-      tipoRelacion: String(node['@_TipoRelacion'] ?? '').padStart(2, '0'),
+      tipoRelacion: String(node['@_TipoRelacion'] ?? ''),
       uuids: (rels as Array<Record<string, unknown>>)
         .map((r) => String(r['@_UUID'] ?? ''))
         .filter(Boolean),
@@ -377,8 +374,9 @@ export class CFDIParser {
     let isrRetenido = new Decimal(0);
     let ivaRetenido = new Decimal(0);
 
-    // SAT keys arrive as numbers because of parseAttributeValue ("002" -> 2):
-    // normalize the width before comparing, or the breakdown comes out all zeros.
+    // NOTE: SAT keys arrive as text ("002") since #299; the width is still
+    // normalized because a CFDIParsed can be built by hand, and a key written
+    // as 2 would otherwise empty the breakdown in silence.
     const clave = (v: unknown) => String(v ?? '').padStart(3, '0');
 
     for (const concepto of cfdi.conceptos) {

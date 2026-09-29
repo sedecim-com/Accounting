@@ -6,6 +6,7 @@ import { NotFoundError, ValidationError, ConflictError } from '../../utils/error
 import { generateEntryNumber } from '../../utils/sequence.js';
 import type { Customer } from '../../types/index.js';
 import { SAT_CATALOGS } from '../xml-ingestion/sat-catalogs.js';
+import { todayForCustomer, todayForEntity } from '../policy/today.js';
 
 // ============================================================
 // CUSTOMERS (AR master data) — domain service
@@ -113,10 +114,6 @@ export interface CustomerListPage {
   rows: Array<Customer & Partial<CustomerBalance>>;
   /** Total matching rows before limit/offset, so truncation is never silent. */
   total: number;
-}
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 /**
@@ -261,7 +258,7 @@ export async function listCustomers(
   if (needsBalance) {
     const reconstruct = filters.asOf !== undefined;
     const asOfParam = `$${i++}`;
-    params.push(filters.asOf ?? today());
+    params.push(filters.asOf ?? (await todayForEntity(entityId)));
     const statusParam = `$${i++}`;
     params.push(statusesFor(reconstruct));
     join = ` ${balanceLateral('c.id', asOfParam, statusParam, reconstruct)}`;
@@ -333,7 +330,7 @@ export async function getCustomerBalance(
     `SELECT bal.open_balance, bal.overdue_balance, bal.open_documents, bal.oldest_due_date
      FROM (SELECT $1::uuid AS id) c
      ${balanceLateral('c.id', '$2', '$3', reconstruct)}`,
-    [customerId, asOf ?? today(), statusesFor(reconstruct)]
+    [customerId, asOf ?? (await todayForCustomer(customerId)), statusesFor(reconstruct)]
   );
   return result.rows[0];
 }
@@ -353,7 +350,7 @@ export async function listCustomerOpenInvoices(
      CROSS JOIN LATERAL (SELECT ${amount} AS amount) d
      WHERE i.customer_id = $1 AND d.amount > 0 AND ${where}
      ORDER BY i.due_date ASC`,
-    [customerId, asOf ?? today(), statusesFor(reconstruct)]
+    [customerId, asOf ?? (await todayForCustomer(customerId)), statusesFor(reconstruct)]
   );
   return result.rows;
 }

@@ -59,6 +59,7 @@ vi.mock('../../src/ai/context.js', () => ({
 // cada asiento para poder afirmar que NO se creó ninguno cuando no debía.
 const motor = vi.hoisted(() => ({
   asientos: [] as Array<{ description: string; lines: unknown[]; sourceType?: string }>,
+  reversas: [] as string[],
 }));
 
 vi.mock('../../src/services/accounting/posting.js', () => ({
@@ -78,6 +79,12 @@ vi.mock('../../src/services/accounting/posting.js', () => ({
     });
   },
   attestEntryAsync: () => undefined,
+  // MNE-001-130: reopening a posted session reverses through the engine's own
+  // core. The double records the mirror so a test can see it was asked for.
+  reverseWithinTransaction: (_client: unknown, entry: { id: string }) => {
+    motor.reversas.push(entry.id);
+    return Promise.resolve({ id: 'JE-REV', entry_number: 'P-0010' });
+  },
 }));
 
 vi.mock('../../src/ai/draft-service.js', () => ({
@@ -2808,7 +2815,7 @@ function signedSession(over: Record<string, unknown> = {}) {
 }
 
 describe('bank reconciliation reopen · MNE-001-044', () => {
-  const reopenWrites = (r: { sql: Array<{ text: string }> }) =>
+  const reopenWrites = (r: { sql: Array<{ text: string; params: unknown[] }> }) =>
     r.sql.filter((q) => /SET status = 'in_progress'/.test(q.text));
 
   it('is irreversible, human only, and carries the kernel flags plus --reason', () => {
@@ -2840,7 +2847,8 @@ describe('bank reconciliation reopen · MNE-001-044', () => {
     const writes = reopenWrites(r);
     expect(writes).toHaveLength(1);
     const text = writes[0].text.replace(/\s+/g, ' ');
-    expect(text).toMatch(/WHERE id = \$1 AND entity_id = \$2 AND status = 'approved'/);
+    expect(text).toMatch(/WHERE id = \$1 AND entity_id = \$2 AND status = \$3/);
+    expect(writes[0].params).toEqual([SES, expect.any(String), 'approved']);
     expect(text).toMatch(/approval_hash = NULL/);
     expect(text).toMatch(/closed_at = NULL/);
     const audit = r.sql.find((q) => /INSERT INTO audit_log/.test(q.text));
@@ -2848,18 +2856,80 @@ describe('bank reconciliation reopen · MNE-001-044', () => {
     expect(r.out).toMatch(/signature withdrawn/);
   });
 
-  it('refuses a posted session and names the slice that will reverse it', async () => {
+  it('a posted session: reverses its entry, reissues the draft, guards on posted', async () => {
+    motor.reversas.length = 0;
+    const base = mundoDeFirma({
+      sesion: signedSession({
+        status: 'posted', posted_at: '2026-09-02 12:00:00+00', posted_by: 'U2',
+      }),
+    });
     const r = await run(
-      ['bank', 'reconciliation', 'reopen', SES, '-y', '--reason', 'wrong item'],
-      mundoDeFirma({
-        sesion: signedSession({
-          status: 'posted', posted_at: '2026-09-02 12:00:00+00', posted_by: 'U2',
-        }),
-      })
+      ['bank', 'reconciliation', 'reopen', SES, '-y', '--reason', 'wrong fee', '--json'],
+      (text: string, params: unknown[]) => {
+        if (/ra\.journal_entry_id IS NOT NULL/.test(text)) {
+          return filas([{ id: AJU, journal_entry_id: 'JE-OLD', draft_id: DRAFT }]);
+        }
+        if (/entry_day FROM journal_entries/.test(text)) {
+          return filas([
+            { id: 'JE-OLD', entry_number: 'P-0009', entry_day: '2026-08-31', reversed_by_entry_id: null },
+          ]);
+        }
+        if (/INSERT INTO ai_drafts/.test(text) || /UPDATE reconciliation_adjustments/.test(text)) {
+          return { rows: [], rowCount: 1 };
+        }
+        return base(text, params);
+      }
     );
-    expect(r.exitCode).toBe(6);
-    expect((r.errs[0] as Error).message).toMatch(/MNE-001-130/);
-    expect(reopenWrites(r)).toEqual([]);
+    expect(r.errs).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    expect(motor.reversas, 'reversed, never deleted').toEqual(['JE-OLD']);
+    expect(r.sql.some((q) => /DELETE FROM journal_entries/.test(q.text))).toBe(false);
+
+    const writes = reopenWrites(r);
+    expect(writes).toHaveLength(1);
+    const text = writes[0].text.replace(/\s+/g, ' ');
+    expect(text).toMatch(/WHERE id = \$1 AND entity_id = \$2 AND status = \$3/);
+    expect(text).toMatch(/posted_at = NULL/);
+    expect(writes[0].params).toEqual([SES, expect.any(String), 'posted']);
+
+    const adjustment = r.sql.find((q) => /UPDATE reconciliation_adjustments/.test(q.text));
+    expect(adjustment?.text.replace(/\s+/g, ' ')).toMatch(/journal_entry_id = NULL/);
+    const row = (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows[0];
+    expect(row.previous_status).toBe('posted');
+    const [reversal] = row.reversals as Array<Record<string, unknown>>;
+    expect(reversal).toMatchObject({ adjustment: AJU, entry: 'P-0009', reversal: 'P-0010' });
+    expect(typeof reversal.new_draft).toBe('string');
+  });
+
+  it('a posted session shows the entry it would reverse before asking', async () => {
+    let question = '';
+    const base = mundoDeFirma({
+      sesion: signedSession({
+        status: 'posted', posted_at: '2026-09-02 12:00:00+00', posted_by: 'U2',
+      }),
+    });
+    const r = await run(
+      ['bank', 'reconciliation', 'reopen', SES, '--reason', 'wrong fee'],
+      (text: string, params: unknown[]) => {
+        if (/ra\.journal_entry_id IS NOT NULL/.test(text)) {
+          return filas([{ id: AJU, journal_entry_id: 'JE-OLD', draft_id: null }]);
+        }
+        if (/entry_day FROM journal_entries/.test(text)) {
+          return filas([
+            { id: 'JE-OLD', entry_number: 'P-0009', entry_day: '2026-08-31', reversed_by_entry_id: 'JE-X' },
+          ]);
+        }
+        if (/SELECT id, entry_number FROM journal_entries/.test(text)) {
+          return filas([{ id: 'JE-X', entry_number: 'P-0008' }]);
+        }
+        if (/UPDATE reconciliation_adjustments/.test(text)) return { rows: [], rowCount: 1 };
+        return base(text, params);
+      },
+      { confirm: (q: string) => { question = q; return Promise.resolve(false); } }
+    );
+    expect(question).toMatch(/reverses 1 posted entry/);
+    expect(r.out).toMatch(/posted → in_progress/);
+    expect(r.out).toMatch(/entry P-0009 reversed by P-0008/);
   });
 
   it('refuses under a closed fiscal period and names `period reopen`', async () => {

@@ -265,8 +265,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       const run = ok(['closing', 'run', '2025-12', '-y']).out;
       expect(run).toMatch(/December 2025\s+completed/);
       expect(run).toContain('1 asset(s) depreciated');
+      // `closing run` ends with the seal (#99, MNE-001-049): the carry-forward
+      // into period 13 lives only in the hard close.
+      expect(run).toContain('period hard-closed; balances carried into');
       const periods = rowsOf<{ period_name: string; status: string }>(ok(['period', 'list', '--json']));
-      expect(periods.find((p) => p.period_name === 'December 2025')?.status).toBe('soft_close');
+      expect(periods.find((p) => p.period_name === 'December 2025')?.status).toBe('hard_close');
 
       const pack = ok(['closing', 'pack', 'generate', 'December 2025', '--json']);
       const [sealed] = rowsOf<{ debit: string; credit: string; balanced: boolean }>(pack);
