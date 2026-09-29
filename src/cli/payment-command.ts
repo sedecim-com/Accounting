@@ -11,7 +11,9 @@ import {
   recordVendorPayment,
   applyVendorPayment,
   unapplyVendorPayment,
+  reverseVendorPayment,
   type VendorUnapplyResult,
+  type VendorReverseResult,
   type EntradaPago,
   type ResultadoPago,
   type ResultadoAplicacionProveedor,
@@ -142,6 +144,12 @@ Examples:
   mnemosine payment unapply VPMT-2026-00020 --bill BILL-2026-00007 --reason "Duplicate SPEI transfer"
   # Date it inside the month still being closed, and look first.
   mnemosine payment unapply VPMT-2026-00020 --bill BILL-2026-00007 --reason "Duplicate SPEI transfer" --date 2026-07-31 --dry-run
+`,
+  reverse: `
+Examples:
+  # The duplicated transfer came back: look first, then undo the payment on the day it returned.
+  mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31 --dry-run
+  mnemosine payment reverse VPMT-2026-00020 --reason "Duplicate SPEI transfer returned" --date 2026-07-31
 `,
 } as const;
 
@@ -526,6 +534,90 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
             p.dim(`${result.document.saldoAnterior} → ${result.document.saldoNuevo} · on account ${result.remainingOnAccount}` +
               (dryRun ? '' : ` · entry ${result.journalEntry.entry_number}`)) + '\n'
         );
+      }
+      if (dryRun) process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+    })
+  );
+
+  // ---- payment reverse ----------------------------------------------
+  //
+  // The transfer came back (#98 · MNE-001-128): the payment itself is undone,
+  // not only its applications. Every entry it posted gets a dated mirror, the
+  // bills it settled are owed again and the payment turns 'reversed'.
+  const reverse = payment
+    .command('reverse')
+    .alias('reversar')
+    .argument('<payment>', 'payment number or id')
+    .description('Reverse a payment that came back: mirrors every entry it posted, dated; its bills are owed again');
+  reverse
+    .requiredOption('--reason <text>', 'why: it lands in the audit trail')
+    .option('--date <date>', 'date of the reversal, for its mirrors and the closed rows (YYYY-MM-DD); defaults to today')
+    .option('--json', 'JSON output');
+  withContext(reverse);
+  declareRisk(reverse, {
+    risk: 'irreversible',
+    llave: { scope: 'payment reverse' },
+    agent: false,
+    writes: 'vendor_payments.status, payment_applications (closure), bills.amount_due, reversing journal_entries',
+  });
+  reverse.addHelpText('after', EJEMPLOS.reverse);
+  reverse.action((ref: string, opts: CommonOpts & { reason: string; date?: string }) =>
+    run(async () => {
+      const { dryRun } = gateMutation(reverse, opts as unknown as Record<string, unknown>);
+      const p = deps.palette;
+      const ctx = await writeEntityOf(opts);
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const vp = await resolveVendorPayment(ctx.entityId, ref);
+      const args = { reason: opts.reason, date: opts.date };
+      // Looked at BEFORE the preview, as in `payment unapply`: once reversed
+      // the payment admits no event, so a retry would die in the preview.
+      const key = {
+        scope: 'payment reverse',
+        clave: dryRun ? undefined : opts.idempotencyKey,
+        payloadHash: hashDeCarga(vp.id, cargaDelOperador(opts as unknown as Record<string, unknown>)),
+      };
+      const recorded = await mirarLlave<{ result: VendorReverseResult }>({ tenantId: ctx.tenantId }, key);
+
+      let result: VendorReverseResult;
+      if (recorded) {
+        result = recorded.result;
+        process.stderr.write(p.yellow(`↩ Idempotency hit: key "${opts.idempotencyKey ?? ''}" already reversed this; nothing was written again.\n`));
+      } else {
+        const preview = await reverseVendorPayment(ctx.entityId, vp.id, args, reviewer.userId, { dryRun: true });
+        if (!dryRun) {
+          await confirmOrAbort(
+            opts,
+            `Reverse ${vp.payment_number} on ${preview.date}? ${preview.reversals.length} ledger entry(ies) get a mirror and ` +
+              `${preview.documents.length} bill(s) are owed again.`
+          );
+        }
+        const act = dryRun
+          ? { repetido: false, resultado: { result: preview } }
+          : await conLlave({ tenantId: ctx.tenantId, entityId: ctx.entityId }, key, async () => ({
+              result: await reverseVendorPayment(ctx.entityId, vp.id, args, reviewer.userId),
+            }));
+        result = act.resultado.result;
+        if (!dryRun && !act.repetido) {
+          for (const a of result.attestations) attestEntryAsync(ctx.tenantId, a.entityId, a.entryId);
+        }
+      }
+
+      if (opts.json) {
+        render([{
+          payment_number: result.paymentNumber, date: result.date,
+          entries_reversed: result.reversals.map((r) => r.of).join(', '),
+          reversing_entries: dryRun ? null : result.reversals.map((r) => r.entryNumber).join(', '),
+          bills_reopened: result.documents.map((d) => d.numero).join(', '), dry_run: dryRun,
+        }], { json: true });
+      } else {
+        process.stdout.write(
+          (dryRun ? p.bold(`Would reverse ${result.paymentNumber}`) : `${p.green('✔')} ${p.bold(result.paymentNumber)} reversed`) +
+            p.dim(` on ${result.date} · ` +
+              result.reversals.map((r) => (dryRun ? r.of : `${r.of}→${r.entryNumber}`)).join(', ')) + '\n'
+        );
+        for (const d of result.documents) {
+          process.stdout.write(p.dim(`  ${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado})\n`));
+        }
       }
       if (dryRun) process.stderr.write(p.dim('Dry run: nothing was written.\n'));
     })
