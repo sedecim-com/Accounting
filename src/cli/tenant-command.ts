@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import { inquilinoDeLaSesion } from '../ai/context.js';
 import { createTenant, listTenants } from '../services/tenant/tenant-service.js';
 import type { Palette } from './palette.js';
-import { declareRisk, render, withOutput, withSelection, exitCodeFor, globalsOf } from './kernel/index.js';
+import { declareRisk, render, withOutput, withSelection, exitCodeFor, globalsOf, usageError } from './kernel/index.js';
 
 // ============================================================
 // mnemosine tenant  (#326 · MNE-001-085)
@@ -30,6 +30,9 @@ Examples:
   mnemosine tenant create "Despacho Alameda" --subdomain alameda-norte --json
 `,
 };
+
+/** The lifecycle states of a tenant (tenants.is_active). */
+const TENANT_STATES = ['active', 'archived'] as const;
 
 export interface TenantCommandDeps {
   palette: Palette;
@@ -77,8 +80,16 @@ export function registerTenantCommand(program: Command, deps: TenantCommandDeps)
   list.action((_opts: ListOpts, command: Command) =>
     run(async () => {
       const opts = globalsOf<ListOpts>(command);
-      const active = inquilinoDeLaSesion().tenantId;
+      const inSession = inquilinoDeLaSesion().tenantId;
       const wanted = opts.status?.map((s) => s.toLowerCase());
+      // An unknown state would filter everything out and exit 0 with an empty
+      // list, indistinguishable from "this installation has no such firm".
+      const unknown = wanted?.filter((s) => !(TENANT_STATES as readonly string[]).includes(s)) ?? [];
+      if (unknown.length > 0) {
+        throw usageError(
+          `--status ${unknown.join(', ')}: a tenant is either ${TENANT_STATES.join(' or ')}.`
+        );
+      }
       const all = (await listTenants())
         .map((t) => ({
           id: t.id,
@@ -86,7 +97,8 @@ export function registerTenantCommand(program: Command, deps: TenantCommandDeps)
           subdomain: t.subdomain,
           plan: t.plan,
           status: t.is_active ? 'active' : 'archived',
-          active: t.id === active ? '*' : '',
+          // Not `active`: next to the lifecycle `status` it read as a contradiction.
+          current: t.id === inSession ? '*' : '',
         }))
         .filter((t) => !wanted || wanted.includes(t.status));
       const offset = opts.offset ?? 0;

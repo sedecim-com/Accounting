@@ -24,7 +24,11 @@ import { ensureSystemUser } from '../entity/entity-service.js';
  */
 export const TENANT_PLAN = 'professional';
 
-const SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/;
+/** A DNS label: at most 63 characters (RFC 1035), inner hyphens only. */
+const SUBDOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** tenants.name is VARCHAR(255), which counts characters, not UTF-16 units. */
+const NAME_MAX = 255;
 
 export interface TenantRow {
   id: string;
@@ -69,12 +73,15 @@ export function tenantSlug(name: string): string {
 export function normalizeTenantInput(input: CreateTenantInput): { name: string; subdomain: string } {
   const name = input.name.trim();
   if (!name) throw new ValidationError('The firm needs a name.');
+  if ([...name].length > NAME_MAX) {
+    throw new ValidationError(`The firm's name has ${[...name].length} characters; the most it can hold is ${NAME_MAX}.`);
+  }
 
   const subdomain = input.subdomain !== undefined ? input.subdomain.trim().toLowerCase() : tenantSlug(name);
   if (!SUBDOMAIN_PATTERN.test(subdomain)) {
     throw new ValidationError(
       input.subdomain !== undefined
-        ? `"${input.subdomain}" is not a valid subdomain: lowercase letters, digits and inner hyphens, up to 100.`
+        ? `"${input.subdomain}" is not a valid subdomain: lowercase letters, digits and inner hyphens, up to 63.`
         : `"${name}" yields no usable subdomain; name one with --subdomain.`
     );
   }
@@ -93,22 +100,28 @@ export async function createTenant(input: CreateTenantInput): Promise<CreateTena
   const plan = TENANT_PLAN;
 
   return withTransaction(async (client) => {
-    const taken = await client.query<{ id: string; name: string }>(
-      'SELECT id, name FROM public.tenants WHERE subdomain = $1',
-      [subdomain]
+    // The UNIQUE on subdomain decides, not a SELECT before the INSERT: two
+    // concurrent creates of the same firm would both pass the SELECT, and the
+    // loser would surface a raw 23505 instead of this conflict.
+    const created = await client.query<{ id: string }>(
+      `INSERT INTO public.tenants (name, subdomain, schema_name, plan)
+       VALUES ($1, $2, 'public', $3)
+       ON CONFLICT (subdomain) DO NOTHING
+       RETURNING id`,
+      [name, subdomain, plan]
     );
-    if (taken.rows.length > 0) {
+    if (created.rows.length === 0) {
+      const taken = await client.query<{ id: string; name: string }>(
+        'SELECT id, name FROM public.tenants WHERE subdomain = $1',
+        [subdomain]
+      );
+      const owner = taken.rows[0];
       throw new ConflictError(
-        `Subdomain "${subdomain}" already belongs to "${taken.rows[0].name}" (${taken.rows[0].id}). ` +
+        `Subdomain "${subdomain}" already belongs to ` +
+          (owner ? `"${owner.name}" (${owner.id}). ` : 'another tenant. ') +
           'If that is this firm, it already exists; otherwise name another with --subdomain.'
       );
     }
-
-    const created = await client.query<{ id: string }>(
-      `INSERT INTO public.tenants (name, subdomain, schema_name, plan)
-       VALUES ($1, $2, 'public', $3) RETURNING id`,
-      [name, subdomain, plan]
-    );
     const tenantId = created.rows[0].id;
 
     // The audit row belongs to the new tenant, so under a NOBYPASSRLS role the

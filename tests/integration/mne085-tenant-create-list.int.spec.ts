@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as crypto from 'node:crypto';
 import { Command } from 'commander';
-import { query, closeDatabase } from '../../src/database/connection.js';
+import { query, closeDatabase, getClient } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { createTenant, listTenants } from '../../src/services/tenant/tenant-service.js';
@@ -82,6 +82,33 @@ describe('createTenant and listTenants', () => {
       [name]
     );
     expect(count.rows[0].n).toBe('1');
+  });
+
+  it('a create racing an uncommitted twin gets the named conflict, not a raw 23505', async () => {
+    // Deterministic race: another session holds the same subdomain in an open
+    // transaction, so a SELECT before the INSERT sees nothing and only the
+    // UNIQUE can decide once that session commits.
+    const name = `Race Firm ${suffix}`;
+    const other = await getClient();
+    try {
+      await other.query('BEGIN');
+      await other.query(
+        `INSERT INTO public.tenants (name, subdomain, schema_name, plan)
+         VALUES ($1, $2, 'public', 'professional')`,
+        [`${name} (other session)`, `race-firm-${suffix}`]
+      );
+      const racing = createTenant({ name }).then(
+        () => null,
+        (e: unknown) => e
+      );
+      await new Promise((r) => setTimeout(r, 300));
+      await other.query('COMMIT');
+      const error = await racing;
+      expect(error).toBeInstanceOf(ConflictError);
+      expect(String((error as Error).message)).toContain(`${name} (other session)`);
+    } finally {
+      other.release();
+    }
   });
 
   it('the new firm can receive its first company with entity create --tenant', async () => {

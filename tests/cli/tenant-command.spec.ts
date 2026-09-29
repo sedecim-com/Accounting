@@ -105,9 +105,9 @@ describe('tenant list', () => {
     const body = JSON.parse(r.out) as { total: number; rows: Array<Record<string, string>> };
     expect(body.total).toBe(3);
     expect(body.rows).toEqual([
-      { id: 't-1', name: 'Primero', subdomain: 'primero', plan: 'professional', status: 'active', active: '' },
-      { id: 't-2', name: 'Segundo', subdomain: 'segundo', plan: 'professional', status: 'archived', active: '' },
-      { id: 't-3', name: 'Tercero', subdomain: 'tercero', plan: 'free', status: 'active', active: '*' },
+      { id: 't-1', name: 'Primero', subdomain: 'primero', plan: 'professional', status: 'active', current: '' },
+      { id: 't-2', name: 'Segundo', subdomain: 'segundo', plan: 'professional', status: 'archived', current: '' },
+      { id: 't-3', name: 'Tercero', subdomain: 'tercero', plan: 'free', status: 'active', current: '*' },
     ]);
   });
 
@@ -116,6 +116,13 @@ describe('tenant list', () => {
     const body = JSON.parse(r.out) as { total: number; rows: Array<{ id: string }> };
     expect(body.total).toBe(2);
     expect(body.rows.map((t) => t.id)).toEqual(['t-3']);
+  });
+
+  it.each(['activo', 'closed'])('refuses --status %s as a usage error instead of an empty list', async (state) => {
+    const r = await cli(['tenant', 'list', '--json', '-s', state]);
+    expect(r.exitCode).toBe(2);
+    expect(r.out).toBe('');
+    expect(String((r.errors[0] as Error).message)).toContain('active or archived');
   });
 
   it('reports a failure with its exit code instead of printing an empty list', async () => {

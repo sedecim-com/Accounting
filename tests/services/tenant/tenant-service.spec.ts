@@ -67,6 +67,17 @@ describe('normalizeTenantInput', () => {
     expect(() => normalizeTenantInput({ name: 'X', subdomain: 'norte_2' })).toThrow(/not a valid subdomain/);
   });
 
+  it('refuses a name longer than tenants.name holds, as a validation error', () => {
+    expect(() => normalizeTenantInput({ name: 'n'.repeat(256), subdomain: 'norte' })).toThrow(ValidationError);
+    expect(() => normalizeTenantInput({ name: 'n'.repeat(256), subdomain: 'norte' })).toThrow(/255/);
+    expect(normalizeTenantInput({ name: 'ñ'.repeat(255), subdomain: 'norte' }).name).toHaveLength(255);
+  });
+
+  it('caps a subdomain at 63 characters, the most a DNS label carries', () => {
+    expect(normalizeTenantInput({ name: 'X', subdomain: 'a'.repeat(63) }).subdomain).toHaveLength(63);
+    expect(() => normalizeTenantInput({ name: 'X', subdomain: 'a'.repeat(64) })).toThrow(/up to 63/);
+  });
+
   it('asks for --subdomain when the name yields none', () => {
     expect(() => normalizeTenantInput({ name: '¿¡!?' })).toThrow(/--subdomain/);
   });
@@ -75,7 +86,6 @@ describe('normalizeTenantInput', () => {
 describe('createTenant', () => {
   it('inserts with schema public, sets the new tenant for the audit row, and attributes to its system account', async () => {
     answer({
-      'SELECT id, name FROM public.tenants': [],
       'INSERT INTO public.tenants': [{ id: 't-new' }],
       'SELECT id FROM public.users': [],
       'INSERT INTO public.users': [{ id: 'u-system' }],
@@ -97,12 +107,21 @@ describe('createTenant', () => {
     expect(calls[auditIdx][1]).toEqual(expect.arrayContaining(['u-system', 't-new', 'create', 'tenants']));
   });
 
-  it('refuses a taken subdomain naming its owner, and writes nothing', async () => {
-    answer({ 'SELECT id, name FROM public.tenants': [{ id: 't-old', name: 'Norte Viejo' }] });
+  it('refuses a taken subdomain naming its owner, and writes nothing else', async () => {
+    // Also what a concurrent create of the same firm sees: the UNIQUE decides,
+    // ON CONFLICT turns it into no row instead of a raw 23505.
+    answer({
+      'INSERT INTO public.tenants': [],
+      'SELECT id, name FROM public.tenants': [{ id: 't-old', name: 'Norte Viejo' }],
+    });
     await expect(createTenant({ name: 'Norte Contadores' })).rejects.toThrow(ConflictError);
     await expect(createTenant({ name: 'Norte Contadores' })).rejects.toThrow(/Norte Viejo.*t-old/);
-    const writes = (client.query.mock.calls as Array<[string]>).filter(([sql]) => /INSERT/.test(sql));
-    expect(writes).toEqual([]);
+    const calls = client.query.mock.calls as Array<[string]>;
+    expect(calls.find(([sql]) => sql.includes('INSERT INTO public.tenants'))?.[0]).toMatch(
+      /ON CONFLICT \(subdomain\) DO NOTHING/
+    );
+    const otherWrites = calls.filter(([sql]) => /INSERT/.test(sql) && !sql.includes('public.tenants'));
+    expect(otherWrites).toEqual([]);
   });
 });
 
