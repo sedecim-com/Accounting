@@ -480,7 +480,22 @@ export interface AccumulatedBalanceRow {
  */
 export async function queryAccumulatedBalances(
   entityId: string,
-  corte: { date?: string; inclusive: boolean },
+  corte: {
+    date?: string;
+    inclusive: boolean;
+    /**
+     * The fiscal period the cut belongs to. Two periods can share a day —
+     * December 31 is December's last and the year-end adjustment period's
+     * only one (#304)— and on that day the date cannot say which entries come
+     * first. With the period, the order of the books decides on the year's
+     * last day: the shared-day
+     * entries of an EARLIER period join the beginning balance, and those of a
+     * LATER one stay out of the ending balance. Only shared days: an entry
+     * dated outside its own period is still read by its date, so the
+     * mismatch it causes is still reported.
+     */
+    periodId?: string;
+  },
   filters: { ignoreClosingPolicy?: boolean } = {}
 ): Promise<AccumulatedBalanceRow[]> {
   const params: unknown[] = [entityId];
@@ -488,6 +503,12 @@ export async function queryAccumulatedBalances(
   if (corte.date !== undefined) {
     params.push(corte.date);
     dateFilter = `AND je.entry_date ${corte.inclusive ? '<=' : '<'} $2`;
+    if (corte.periodId !== undefined) {
+      params.push(corte.periodId);
+      dateFilter = corte.inclusive
+        ? `${dateFilter} AND NOT ${sharedDayOfAnotherPeriod('>')}`
+        : `AND (je.entry_date < $2 OR ${sharedDayOfAnotherPeriod('<')})`;
+    }
   }
   const criterio = filters.ignoreClosingPolicy
     ? null
@@ -516,6 +537,27 @@ export async function queryAccumulatedBalances(
     params
   );
   return result.rows;
+}
+
+/**
+ * The entry is dated on the fiscal year's LAST day, which its own period
+ * shares with the period of the cut ($3), and its period comes before ('<')
+ * or after ('>') that one in the same fiscal year.
+ *
+ * Only that day: it is the one two periods share by design (December and the
+ * adjustment period 13). Any other overlap is a calendar anomaly, and there
+ * the date and the period keep disagreeing so the balance reports it.
+ */
+function sharedDayOfAnotherPeriod(order: '<' | '>'): string {
+  return `EXISTS (SELECT 1 FROM fiscal_periods own
+                    JOIN fiscal_periods cut ON cut.id = $3
+                    JOIN fiscal_years fy ON fy.id = cut.fiscal_year_id
+                   WHERE own.id = je.fiscal_period_id
+                     AND je.entry_date = fy.end_date
+                     AND own.fiscal_year_id = cut.fiscal_year_id
+                     AND own.period_number ${order} cut.period_number
+                     AND je.entry_date BETWEEN own.start_date AND own.end_date
+                     AND je.entry_date BETWEEN cut.start_date AND cut.end_date)`;
 }
 
 /** Índice cuenta → acumulado, con Decimal ya construido. */
@@ -721,12 +763,20 @@ async function conSaldoInicial(
   } else {
     origen = 'mayor';
     iniciales = indiceDeSaldos(
-      await queryAccumulatedBalances(entityId, { date: rango.desde, inclusive: false }, opts)
+      await queryAccumulatedBalances(
+        entityId,
+        { date: rango.desde, inclusive: false, periodId: rango.fiscal_period_id },
+        opts
+      )
     );
   }
 
   const finales = indiceDeSaldos(
-    await queryAccumulatedBalances(entityId, { date: rango.hasta, inclusive: true }, opts)
+    await queryAccumulatedBalances(
+      entityId,
+      { date: rango.hasta, inclusive: true, periodId: rango.fiscal_period_id },
+      opts
+    )
   );
 
   const cero = new Decimal(0);

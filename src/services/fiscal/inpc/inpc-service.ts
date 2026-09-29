@@ -59,6 +59,16 @@ import {
 export const FUENTES_INPC = ['dof', 'inegi', 'manual'] as const;
 export type FuenteInpc = (typeof FUENTES_INPC)[number];
 
+/**
+ * The doctor's remedy for a missing series. It used to be an invocation of
+ * `inpc import`, a command the catalog plans and the binary never had, so the
+ * fix told the accountant to run something that answers «unknown command»
+ * (#300). Until the command exists the remedy says so instead.
+ */
+const INPC_IMPORT_MISSING =
+  'Cargar la serie del INEGI/DOF: `mnemosine inpc import`, que todavía no existe, es el comando ' +
+  'catalogado para eso; hoy la serie no tiene camino de carga en el binario.';
+
 export function exigirFuenteInpc(fuente: string): FuenteInpc {
   if (!(FUENTES_INPC as readonly string[]).includes(fuente)) {
     throw new ValidationError(
@@ -147,7 +157,8 @@ export async function resolverIndice(
           ? `Ese mes sí está cargado en ${cargadas.map((b) => `"${b}"`).join(', ')}. `
           : '') +
         'No uso el del mes anterior: arrastrarlo daría un factor de 1.0000 indistinguible de uno ' +
-        'legítimo. Cárgalo con mnemosine inpc import --file <archivo>.',
+        'legítimo. Falta cargarlo, y el binario todavía no tiene cómo: ' +
+        '`mnemosine inpc import`, que todavía no existe, es el comando catalogado para eso.',
       { periodo: formatearPeriodo(periodo), base, basesCargadas: cargadas }
     );
   }
@@ -387,7 +398,7 @@ export async function verificarSerie(opts: OpcionesVerificacion): Promise<{
       detail: `No hay ningún INPC cargado${base ? ` en base "${base}"` : ''} hasta ` +
         `${formatearPeriodo(opts.hasta)}. Sin serie no hay factor de actualización, y sin factor ` +
         'no hay deducción de inversiones del art. 31 ni ajuste anual por inflación.',
-      fix: 'mnemosine inpc import --file <archivo> --source dof',
+      fix: INPC_IMPORT_MISSING,
     });
     return { checks, peor: 'fail' };
   }
@@ -423,7 +434,7 @@ export async function verificarSerie(opts: OpcionesVerificacion): Promise<{
         `${formatearPeriodo(opts.hasta)}: ${muestra.join(', ')}` +
         `${faltantes.length > muestra.length ? ', …' : ''}. Cualquier factor que los cruce ` +
         'se rechaza, no se estima.',
-      fix: 'mnemosine inpc import --file <archivo> --source dof',
+      fix: INPC_IMPORT_MISSING,
     });
   }
 
@@ -448,7 +459,7 @@ export async function verificarSerie(opts: OpcionesVerificacion): Promise<{
             detail: `${ambiguos.length} mes(es) están cargados en más de una base ` +
               `(${ambiguos.slice(0, MUESTRA_DE_HUECOS).join(', ')}). No es un error —el INEGI ` +
               'republica la serie al rebasar— pero resolverlos exige decir --base.',
-            fix: 'mnemosine inpc factor calculate <acq-month> <period> --base "<base>"',
+            fix: 'Declara la base (`base` en las opciones del factor): `mnemosine inpc factor calculate`, que todavía no existe, la pedirá como --base.',
           }
     );
   }

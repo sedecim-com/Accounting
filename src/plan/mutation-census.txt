@@ -77,6 +77,8 @@ mirror	memory	E0.1 posting-and-close-lock-period	src/services/accounting/posting
 mirror	memory	E0.1 single-maker-checker-gate	src/services/accounting/posting.ts	el lector deja de comparar contra el literal del panel: la política existiría sin morder
 mirror	memory	E0.1 credit-note-posts-at-issue	src/services/accounting/ar-ap-posting.ts	la nota pierde su source_type: el asiento quedaría sin documento
 mirror	memory	E0.1 invoice-gap-and-tax-profile	src/database/migrations/049_cobrar.sql	el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \b lo mata
+mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the defect of #102: the whitelist lacked a current SAT code, so `customer tax set --uso-cfdi D10` refused every school customer
+mirror	memory	E0.1 invoice-gap-and-tax-profile	src/services/xml-ingestion/sat-catalogs.ts	the same defect on c_RegimenFiscal: `--tax-regime 611` refused a current regime
 mirror	memory	E0.2 migration-fails-loud-under-rls	src/database/migrate.ts	apagar el piso es exactamente la regresión que costó cuatro siembras silenciosas
 mirror	memory	E0.2 matview-migration-survives-rls-floor	src/database/migrations/071_las_vistas_que_perdian_la_archivada.sql	EL DEFECTO MEDIDO: sin el traje del refrescador, `CREATE MATERIALIZED VIEW ... AS SELECT ... FROM accounts` muere con 42501 contra el piso `row_security = off` y la actualización de TODO despacho instalado se detiene ahí — en instalación nueva no se nota, porque las políticas aún no existen cuando corre
 mirror	memory	E0.2 distributed-migration-repaired-by-new-file	src/database/migrations/072_la_huella_que_se_podia_forjar.sql	la trampa medida: recrear el disparador se lleva por delante el `ENABLE ALWAYS` de la 058, y el remedio dejaría el sello «garantia-sellada» colgado de un disparador que vuelve a poder apagarse con session_replication_role
@@ -270,6 +272,10 @@ mirror	memory	E2.1 write-route-hands-entity-to-its-resolver	tests/integration/te
 mirror	memory	E2.1 child-policy-predicate-hangs-on-parent	src/database/rls-policies.sql	el `USING (true OR …)` que el issue nombra: la política de las hijas admite cualquier fila y el EXISTS que las ata a un padre visible queda de adorno
 mirror	memory	E2.1 anexo24-balance-scope-and-nature	src/services/sat/anexo24/balanza-service.ts	la balanza del Anexo 24 vuelve a resolver el contribuyente sin acotar por inquilino: se publica el plan de cuentas de otro despacho y se archiva un artefacto fiscal con su tenant_id
 mirror	memory	E2.1 anexo24-balance-scope-and-nature	src/services/sat/anexo24/balanza-invariantes.ts	el recálculo deja de mirar la naturaleza de la cuenta: una acreedora se verifica con la aritmética de una deudora y el archivo entregado cuadra donde el SAT dirá que no cuadra
+mirror	memory	E2.1 anexo24-closing-balance-has-its-period-13	src/services/accounting/fiscal-calendar-service.ts	the fiscal year goes back to regular periods only: no period is of adjustment type and `balance generate --closing` refuses for every new entity, as it did for all of them
+mirror	memory	E2.1 anexo24-closing-balance-has-its-period-13	src/services/accounting/period-close.ts	the closing entry is booked wherever its date points: with December still open that is December, and month 13 is filed without the close
+mirror	memory	E2.1 anexo24-closing-balance-has-its-period-13	src/services/reporting/report-service.ts	the ending cut goes back to the date alone: December generated after the annual close counts the closing entries in SaldoFin and not in its movement, and it no longer balances
+mirror	memory	E2.1 anexo24-closing-balance-has-its-period-13	src/services/accounting/period-close.ts	closing December carries its balances to January and period 13 opens empty; closing period 13 then overwrites January with its activity alone
 mirror	memory	E2.1 openapi-census-and-delivery-retry	src/api/rest/openapi.ts	la especificación deja de derivar de la pila real y pasa a describir un vacío: publicaría lo que alguien recordó y no lo que la app sirve, que es el defecto que este proyecto lleva un mes cazando
 mirror	memory	E2.1 openapi-census-and-delivery-retry	src/services/webhooks/barrido-entregas.ts	el barrido reclama justo las entregas que NO toca reintentar todavía y deja las vencidas donde estaban: la cola vuelve a no vaciarse nunca y la caída de treinta segundos vuelve a perder el evento para siempre
 mirror	memory	E2.1 mutating-route-risk-declaration	src/api/rest/risk.ts	una declaración escrita DETRÁS del manejador vuelve a contar como declaración: el manejador ya respondió cuando al marcador le tocaría correr, así que la ruta se queda sin llave de idempotencia y sin el renglón de auditoría, y el censo la cuenta como cerrada — medido, el acto irreversible se ejecuta DOS veces con la misma llave
@@ -503,6 +509,10 @@ mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/services/pay
 mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/services/payroll/mx/isr-exemption.ts	the split is still computed and stored, but against no room: the exempt part is always 0.00 and the aguinaldo is taxed whole with columns that look like an exemption was applied
 mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/services/payroll/mx/isr-exemption.ts	the cap stops being per calendar year: aguinaldos of earlier years consume this year's 30 UMA, and a worker in their second December gets no exemption at all
 mirror	memory	E4.1 aguinaldo-isr-base-subtracts-the-exempt-part	src/database/migrations/094_the_aguinaldo_is_exempt_up_to_thirty_uma.sql	the cap is seeded as 30 PESOS: every aguinaldo is exempt by 30.00 instead of 30 UMA, a figure that looks like an exemption and is off by a factor of the UMA
+mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/services/payroll/mx/isr-exemption.ts	THE DEFECT OF #297 FOR THE PREMIUM: the vacation premium loses its cap and is taxed whole again, while the aguinaldo keeps its exemption and hides it
+mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/services/payroll/mx/isr-exemption.ts	the two caps are pooled: an aguinaldo paid earlier in the year consumes the room of the vacation premium, which the law gives "por cada uno de los conceptos"
+mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/database/migrations/106_the_vacation_premium_is_exempt_up_to_fifteen_uma.sql	the premium is given the 30 UMA of the aguinaldo: twice the exemption the law allows, and ISR under-withheld
+mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/services/payroll/mx/isr-exemption.ts	THE LITERAL OF #297: the payroll CFDI declares every perception with no exempt part, and contradicts the ISR withheld on it
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre
@@ -551,6 +561,10 @@ mirror	memory	E5.1 contract-exit-codes-have-producers	src/cli/kernel/exit.ts	el-
 mirror	memory	E5.1 cli-leaf-preserves-exit-code	src/cli/memory-command.ts	código-aplastado: una hoja que ninguna fila conductual visita, con un texto que ningún grep de «shutdown(1)» esperaba encontrar de vuelta — 39 de 179 hojas vivían así y el contrato de trece códigos era papel
 mirror	memory	E5.1 eval-harness-measures-shipped-surface	scripts/eval-clasificador.ts	clasificador-más-ancho: buildTools sin lista devuelve las 25 herramientas mientras la ingesta embarca 11, así que el arnés juzgaría a un agente que nadie corre — y la cabecera del propio arnés lo prohíbe por escrito
 mirror	memory	E5.1 batch-cfdi-scoped-and-recorded	src/cli/init/s5-import.ts	la-clase-a-medias: se reparó la hoja de `ingest` y quedó vivo el segundo camino — el alta clasifica una carpeta entera con las 25 herramientas, brazo externo incluido, y sin dejar una sola fila de corrida
+mirror	memory	E5.1 messages-cite-live-commands	src/services/policy/policy-hint.ts	el-verbo-muerto: `pending` nunca tuvo el verbo `resolve` y catorce mensajes mandaban ahí al contador en plena semana de cierre (#300)
+mirror	memory	E5.1 messages-cite-live-commands	src/cli/webhook-sweep-command.ts	el-verbo-muerto bajo un menú vivo: `subscription delivery` existe y `list` no; el grep por familia no lo ve (#300)
+mirror	memory	E5.1 messages-cite-live-commands	src/services/banking/reconciliation-adjustments.ts	el-verbo-muerto tras una hoja: `review` es interactivo y no declara argumentos, así que `reject` sólo puede ser un verbo que no tiene (#300)
+mirror	memory	E5.1 messages-cite-live-commands	src/services/fiscal/inpc/inpc-service.ts	la-familia-muerta: una invocación de una familia que el binario no tiene, sin la frase que la declara ausente (#300)
 mirror	disk	E0.1 child-tenant-is-derived-not-declared	src/database/migrations/077_la_hija_que_pregunta_por_su_madre.sql	la hija deja de heredar el inquilino de su padre: nace sin él, y una fila sin inquilino queda invisible para su propio dueño en cuanto la política lo mire
 mirror	disk	E0.1 trial-balance-sign-convention	src/services/reporting/report-service.ts	la resta invertida: el mismo número con el signo cambiado. Una prueba que recompone la resta sobre un mock no lo ve; la balanza de un ejercicio real, sí
 mirror	disk	E0.1 closed-year-nets-exactly-zero	src/services/accounting/period-close.ts	el neto del ejercicio con el signo del gasto invertido. Es el mutante SILENCIOSO: ingresos y gastos igual quedan en cero, el asiento cuadra, y lo que cambia es la utilidad publicada y el residuo que queda en la 3900 — que verificarQueElEjercicioBarrio no mira porque sólo revisa revenue/expense
@@ -648,6 +662,8 @@ anchor	src/plan/criteria/e0-1.ts	de: 'bloquearPeriodoParaPostear(client',
 anchor	src/plan/criteria/e0-1.ts	de: "politica.value === 'exigir'",
 anchor	src/plan/criteria/e0-1.ts	de: "sourceType: 'credit_note'",
 anchor	src/plan/criteria/e0-1.ts	de: 'ADD COLUMN tax_regime VARCHAR(3),',
+anchor	src/plan/criteria/e0-1.ts	de: " 'D10': 'Pagos por servicios educativos (colegiaturas)',\n",
+anchor	src/plan/criteria/e0-1.ts	de: " '611': 'Ingresos por Dividendos (socios y accionistas)',\n",
 anchor	src/plan/criteria/e0-2.ts	de: "await client.query('SET row_security = off');",
 anchor	src/plan/criteria/e0-2.ts	de: "EXECUTE 'SET LOCAL ROLE mnemosine_refresher';",
 anchor	src/plan/criteria/e0-2.ts	de: 'ALTER TABLE bank_transactions ENABLE ALWAYS TRIGGER bank_transactions_content_hash;',
@@ -732,7 +748,7 @@ anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.
 anchor	src/plan/criteria/e1-2.ts	de: ' pr.pay_date,',
 anchor	src/plan/criteria/e1-2.ts	de: 'value.getDate()',
 anchor	src/plan/criteria/e1-2.ts	de: '.exec(String(value).trim());',
-anchor	src/plan/criteria/e1-2.ts	de: ' [entityId, entryDay]',
+anchor	src/plan/criteria/e1-2.ts	de: ' [entityId, entryDay, options?.fiscalPeriodId ?? null]',
 anchor	src/plan/criteria/e1-2.ts	de: "const offset = new Date('2026-03-01T12:00:00Z').getTimezoneOffset();",
 anchor	src/plan/criteria/e1-2.ts	de: "const natural = CREDIT_NATURAL_TYPES.has(row.account_type) ? debitPositive.negated() : debitPositive;",
 anchor	src/plan/criteria/e1-2.ts	de: "if (closingPolicy.enEstadoDeResultados) includeClosingIn.push('revenue', 'expense');",
@@ -841,6 +857,10 @@ anchor	src/plan/criteria/e2-1.ts	de: 'expect(r.status, JSON.stringify(r.body)).t
 anchor	src/plan/criteria/e2-1.ts	de: " || '(EXISTS (SELECT 1 FROM public.%I p WHERE p.id = %I.%I))',",
 anchor	src/plan/criteria/e2-1.ts	de: ' WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,',
 anchor	src/plan/criteria/e2-1.ts	de: 'export function recalculoDelSat(i: ImportesDeclarados, natur: Natur): Decimal {',
+anchor	src/plan/criteria/e2-1.ts	de: ") VALUES ($1,$2,$3,$4,$5,$6,'adjustment',$7)`,",
+anchor	src/plan/criteria/e2-1.ts	de: 'sourceId: periodId, fiscalPeriodId: periodId }',
+anchor	src/plan/criteria/e2-1.ts	de: '{ date: rango.hasta, inclusive: true, periodId: rango.fiscal_period_id },',
+anchor	src/plan/criteria/e2-1.ts	de: 'AND (fp.start_date, fp.period_number) > (closed.start_date, closed.period_number)',
 anchor	src/plan/criteria/e2-1.ts	de: "import { censarRutas, VERBOS_QUE_MUTAN, alcanceDeIdempotencia, type RutaCensada } from './risk.js';",
 anchor	src/plan/criteria/e2-1.ts	de: ' AND d.next_retry_at <= NOW()',
 anchor	src/plan/criteria/e2-1.ts	de: ' if (resumen.malColocadas.length > 0) {',
@@ -1068,6 +1088,10 @@ anchor	src/plan/criteria/e4-1.ts	de: 'const taxableIsr = sum(isrParts.map((p) =>
 anchor	src/plan/criteria/e4-1.ts	de: 'const p = splitAgainstCap(e.amount, room);',
 anchor	src/plan/criteria/e4-1.ts	de: 'AND pp.pay_date >= make_date($3, 1, 1)',
 anchor	src/plan/criteria/e4-1.ts	de: "'income_tax.exempt_cap.aguinaldo_uma', '2016-01-28', '30.0000', 'UMA',",
+anchor	src/plan/criteria/e4-1.ts	de: ' prima_vacacional: VACATION_PREMIUM_EXEMPT_CAP_KEY,',
+anchor	src/plan/criteria/e4-1.ts	de: 'AND pe.earning_type = $6',
+anchor	src/plan/criteria/e4-1.ts	de: "'income_tax.exempt_cap.vacation_premium_uma', '2016-01-28', '15.0000', 'UMA',",
+anchor	src/plan/criteria/e4-1.ts	de: 'return { exempt: new Decimal(row.isr_exempt_amount), taxable: new Decimal(row.isr_taxable_amount) };',
 anchor	src/plan/criteria/e4-2.ts	de: 'await getBalanceSheet(ctx.entityId',
 anchor	src/plan/criteria/e4-2.ts	de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
 anchor	src/plan/criteria/e4-2.ts	de: 'ending_balance: aEscala(',
@@ -1116,4 +1140,8 @@ anchor	src/plan/criteria/e5-1.ts	de: ' if (codes.includes(ExitCode.EXTERNAL_FAIL
 anchor	src/plan/criteria/e5-1.ts	de: ' await deps.shutdown(exitCodeFor(err));',
 anchor	src/plan/criteria/e5-1.ts	de: ' herramientas: SUPERFICIE_INGESTA,',
 anchor	src/plan/criteria/e5-1.ts	de: ' herramientas: SUPERFICIE_INGESTA,',
+anchor	src/plan/criteria/e5-1.ts	de: 'y luego \\`mnemosine pending define ${key}\\`',
+anchor	src/plan/criteria/e5-1.ts	de: "'`POST /v1/webhooks/deliveries/<deliveryId>/retry`.'",
+anchor	src/plan/criteria/e5-1.ts	de: 'Recházalo en \\`mnemosine review\\`',
+anchor	src/plan/criteria/e5-1.ts	de: "'Cargar la serie del INEGI/DOF: `mnemosine inpc import`, que todavía no existe, es el comando '",
 anchor	src/plan/criteria/shared.ts	de: string;

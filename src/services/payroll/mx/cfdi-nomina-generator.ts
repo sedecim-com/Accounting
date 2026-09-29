@@ -1,9 +1,11 @@
+import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { daysBetween } from '../../../utils/calendar-date.js';
 import type { Scope } from '../../../database/scope.js';
 import { NotFoundError } from '../../../utils/errors.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
 import { estadoParaPersistir } from '../../integrations/mexico/pac/simulacion.js';
+import { storedIsrParts } from './isr-exemption.js';
 
 // ============================================================
 // CFDI 4.0 PAYROLL — voucher type N (Comprobante Tipo N) + Nomina 1.2 complement
@@ -97,8 +99,18 @@ export async function generateAndStampCfdiNomina(
   const r = result.rows[0];
 
   // Load earnings and deductions
-  const earnings = await query<{ cfdi_clave_sat: string | null; amount: string; description: string | null; earning_type: string }>(
-    `SELECT cfdi_clave_sat, amount, description, earning_type FROM paycheck_earnings WHERE paycheck_id = $1`,
+  const earnings = await query<{
+    cfdi_clave_sat: string | null;
+    amount: string;
+    description: string | null;
+    earning_type: string;
+    is_taxable_isr: boolean;
+    isr_exempt_amount: string | null;
+    isr_taxable_amount: string | null;
+  }>(
+    `SELECT cfdi_clave_sat, amount, description, earning_type,
+            is_taxable_isr, isr_exempt_amount, isr_taxable_amount
+       FROM paycheck_earnings WHERE paycheck_id = $1`,
     [paycheckId]
   );
   const deductions = await query<{ cfdi_clave_sat: string | null; amount: string; description: string | null; deduction_type: string }>(
@@ -142,7 +154,14 @@ export async function generateAndStampCfdiNomina(
   // le timbra al SAT.
   const days = daysBetween(r.period_start, r.period_end) + 1;
 
-  const percepcionesXml = earnings.rows.map((e) => `    <nomina12:Percepcion TipoPercepcion="${e.cfdi_clave_sat || '001'}" Clave="${e.earning_type}" Concepto="${escapeXml(e.description || e.earning_type)}" ImporteGravado="${parseFloat(e.amount).toFixed(2)}" ImporteExento="0.00"/>`).join('\n');
+  // THE EXEMPT PART IS THE ONE THE ISR WAS COMPUTED WITH (#297, MNE-001-063).
+  // It was a literal zero, so an aguinaldo the engine exempted was declared to
+  // the SAT as taxed whole. `storedIsrParts` reads back what the row stored.
+  const isrParts = earnings.rows.map(storedIsrParts);
+  const totalTaxable = Decimal.sum(0, ...isrParts.map((p) => p.taxable));
+  const totalExempt = Decimal.sum(0, ...isrParts.map((p) => p.exempt));
+
+  const percepcionesXml = earnings.rows.map((e, i) => `    <nomina12:Percepcion TipoPercepcion="${e.cfdi_clave_sat || '001'}" Clave="${e.earning_type}" Concepto="${escapeXml(e.description || e.earning_type)}" ImporteGravado="${isrParts[i].taxable.toFixed(2)}" ImporteExento="${isrParts[i].exempt.toFixed(2)}"/>`).join('\n');
   const deduccionesXml = deductions.rows.map((d) => `    <nomina12:Deduccion TipoDeduccion="${d.cfdi_clave_sat || '004'}" Clave="${d.deduction_type}" Concepto="${escapeXml(d.description || d.deduction_type)}" Importe="${parseFloat(d.amount).toFixed(2)}"/>`).join('\n');
 
   // Build minimal CFDI 4.0 payroll (Nomina) XML
@@ -171,7 +190,7 @@ export async function generateAndStampCfdiNomina(
         TipoRegimen="${r.tipo_regimen_sat || '02'}" NumEmpleado="${r.emp_number}"
         Puesto="${escapeXml(r.puesto || 'Empleado')}" RiesgoPuesto="${r.riesgo_puesto || '01'}"
         PeriodicidadPago="04" ClaveEntFed="MEX"/>
-      <nomina12:Percepciones TotalGravado="${totalPercepciones.toFixed(2)}" TotalExento="0.00" TotalSueldos="${totalPercepciones.toFixed(2)}">
+      <nomina12:Percepciones TotalGravado="${totalTaxable.toFixed(2)}" TotalExento="${totalExempt.toFixed(2)}" TotalSueldos="${totalPercepciones.toFixed(2)}">
 ${percepcionesXml}
       </nomina12:Percepciones>
       <nomina12:Deducciones TotalOtrasDeducciones="${totalOtrasDeducciones.toFixed(2)}" TotalImpuestosRetenidos="${totalImpRetenidos.toFixed(2)}">

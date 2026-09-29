@@ -368,6 +368,27 @@ describe('queryAccumulatedBalances — la suma del mayor para TODAS las cuentas'
     expect(sql(1)).toMatch(/AND je\.entry_date <= \$2/);
   });
 
+  it('with a period, a shared day is ordered by period: earlier ones join the beginning, later ones leave the end', async () => {
+    // December 31 is December's and period 13's (#304). By date alone the
+    // closing balance missed December's last day in SaldoIni, and December
+    // generated after the close counted the close in SaldoFin.
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(ENTITY, { date: '2026-12-31', inclusive: false, periodId: 'p13' });
+    expect(sql(0)).toMatch(/AND \(je\.entry_date < \$2 OR EXISTS \(SELECT 1 FROM fiscal_periods own JOIN fiscal_periods cut ON cut\.id = \$3/);
+    expect(sql(0)).toMatch(/own\.period_number < cut\.period_number/);
+    expect(params(0)).toEqual([ENTITY, '2026-12-31', 'p13']);
+
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(ENTITY, { date: '2026-12-31', inclusive: true, periodId: 'p12' });
+    expect(sql(1)).toMatch(/AND je\.entry_date <= \$2 AND NOT EXISTS/);
+    expect(sql(1)).toMatch(/own\.period_number > cut\.period_number/);
+    // Only on the year's last day, and only when both periods contain it: an
+    // adjustment period overlapping a mid-year month, or an entry dated
+    // outside its own period, is still read by its date and still reported.
+    expect(sql(1)).toMatch(/JOIN fiscal_years fy ON fy\.id = cut\.fiscal_year_id WHERE own\.id = je\.fiscal_period_id AND je\.entry_date = fy\.end_date/);
+    expect(sql(1)).toMatch(/je\.entry_date BETWEEN own\.start_date AND own\.end_date AND je\.entry_date BETWEEN cut\.start_date AND cut\.end_date/);
+  });
+
   it('sin corte suma la historia posteada entera', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await queryAccumulatedBalances(ENTITY, { inclusive: true });
@@ -565,8 +586,10 @@ describe('getTrialBalance — el saldo inicial que el Anexo 24 exige', () => {
     // Un id de periodo de OTRA entidad no puede fechar esta balanza.
     expect(sql(1)).toMatch(/FROM fiscal_periods WHERE id = \$1 AND entity_id = \$2/);
     expect(params(1)).toEqual(['fp-3', ENTITY]);
-    expect(params(3)).toEqual([ENTITY, '2026-03-01']); // inicial: antes del día 1
-    expect(params(4)).toEqual([ENTITY, '2026-03-31']); // final: hasta el último
+    // Both cuts carry the period: on a day two periods share, the order of
+    // the books decides which side of the cut an entry falls (#304).
+    expect(params(3)).toEqual([ENTITY, '2026-03-01', 'fp-3']); // inicial: antes del día 1
+    expect(params(4)).toEqual([ENTITY, '2026-03-31', 'fp-3']); // final: hasta el último
     expect(report.inicial!.desde).toBe('2026-03-01');
   });
 

@@ -1570,4 +1570,135 @@ export const E5_1: Criterio[] = [
         : falla('la 058 perdió el estado o el cierre de la corrida: una fila abierta para siempre es indistinguible de una corrida vacía');
     },
   },
+  {
+    paquete: 'E5.1',
+    id: 'messages-cite-live-commands',
+    enunciado:
+      'Ningún mensaje de src/ manda al contador a un `mnemosine <familia> <verbo>` que el binario no tiene',
+    mutantes: [
+      {
+        archivo: 'src/services/policy/policy-hint.ts',
+        de: 'y luego \\`mnemosine pending define ${key}\\`',
+        // Split so the acceptance grep of #300 over src/ stays empty.
+        a: 'y luego \\`mnemosine pending ' + 'resolve ${key}\\`',
+        porque:
+          'el-verbo-muerto: `pending` nunca tuvo el verbo `resolve` y catorce mensajes mandaban ahí al contador en plena semana de cierre (#300)',
+      },
+      {
+        archivo: 'src/cli/webhook-sweep-command.ts',
+        de: "'`POST /v1/webhooks/deliveries/<deliveryId>/retry`.'",
+        a: "'`mnemosine subscription delivery " + "list <subscriptionId>`.'",
+        porque:
+          'el-verbo-muerto bajo un menú vivo: `subscription delivery` existe y `list` no; el grep por familia no lo ve (#300)',
+      },
+      {
+        archivo: 'src/services/banking/reconciliation-adjustments.ts',
+        de: 'Recházalo en \\`mnemosine review\\`',
+        a: 'Recházalo con \\`mnemosine review ' + 'reject\\`',
+        porque:
+          'el-verbo-muerto tras una hoja: `review` es interactivo y no declara argumentos, así que `reject` sólo puede ser un verbo que no tiene (#300)',
+      },
+      {
+        archivo: 'src/services/fiscal/inpc/inpc-service.ts',
+        de: "'Cargar la serie del INEGI/DOF: `mnemosine inpc import`, que todavía no existe, es el comando '",
+        a: "'Cargar la serie del INEGI/DOF: `mnemosine inpc import --file <archivo>` es el comando '",
+        porque:
+          'la-familia-muerta: una invocación de una familia que el binario no tiene, sin la frase que la declara ausente (#300)',
+      },
+    ],
+    evaluar: async () => {
+      const { program } = await import('../../cli/mnemosine.js');
+      const dead: string[] = [];
+      let live = 0;
+      for (const abs of fuentes('src')) {
+        const found = commandCitations(abs, leer(abs), program);
+        live += found.live;
+        for (const cite of found.dead) dead.push(`${path.relative(rutaDe(), abs)}: ${cite}`);
+      }
+      // On an empty tree «no dead citation» is silence, not conformity: it
+      // must have resolved real citations against the binary to say green.
+      if (live === 0) return falla('no encontré ninguna cita viva de `mnemosine` en src/: no hubo nada que comprobar');
+      return dead.length === 0
+        ? ok('cada `mnemosine <familia> <verbo>` citado en una cadena de src/ existe en el binario')
+        : falla(
+            `${dead.length} mensaje(s) mandan a un comando que no existe — p. ej. ${dead.slice(0, 3).join(' · ')}`
+          );
+    },
+  },
 ];
+
+// ============================================================
+// DEAD VERBS IN MESSAGES (#300)
+//
+// A message that ends in «run `mnemosine X Y`» is the system telling the
+// accountant what to do; if `X Y` is not in the binary, the one instruction
+// they got is false. The census is the live commander tree (names AND
+// aliases, since a Spanish alias is a legal invocation), the same one
+// `scripts/catalogo-estado.ts` counts with `comandosVivos`; it is walked here
+// because src/ cannot import scripts/.
+//
+// Only STRING LITERALS are read (comments may cite history), through the
+// seam so a mirror can reintroduce a dead verb. `mnemosine` is also a
+// word in prose («mnemosine does not transmit…»), so a first token that is
+// no family counts only when the text is shaped like a command: inside
+// backticks, opening the literal (a doctor `fix:`), or followed by a flag or
+// a `<placeholder>`. A citation that says of itself «que (todavía) no existe»
+// is a declared gap, not an instruction, and is left alone.
+// ============================================================
+
+export interface CliNode {
+  name(): string;
+  aliases(): string[];
+  commands: readonly CliNode[];
+  registeredArguments: readonly unknown[];
+}
+
+const CITATION = /\bmnemosine((?: [a-z][a-z0-9_-]*)+)/g;
+const DECLARED_ABSENT = /^`?,? (?:que (?:todavía )?no existe|which does not exist)/;
+
+/**
+ * The `mnemosine …` citations in one file's string literals: how many the
+ * binary answers, and the ones it does not.
+ */
+export function commandCitations(
+  file: string,
+  source: string,
+  root: CliNode
+): { live: number; dead: string[] } {
+  const out: string[] = [];
+  let live = 0;
+  const check = (text: string): void => {
+    for (const m of text.matchAll(CITATION)) {
+      const tokens = m[1].trim().split(' ');
+      let node = root;
+      let depth = 0;
+      for (; depth < tokens.length; depth++) {
+        const child = node.commands.find((c) => c.name() === tokens[depth] || c.aliases().includes(tokens[depth]));
+        if (!child) break;
+        node = child;
+      }
+      const before = text.slice(0, m.index);
+      const after = text.slice(m.index + m[0].length);
+      if (DECLARED_ABSENT.test(after)) continue;
+      const commandShaped = before.endsWith('`') || /^ (?:--|<)/.test(after);
+      const unknownFamily = depth === 0 && commandShaped;
+      // Past the last command there are only arguments, and a menu has none:
+      // the extra word is a verb it lacks. A leaf that declares no argument
+      // is judged the same way only when the text is command-shaped, since
+      // «mnemosine status for …» in prose is a sentence, not an invocation.
+      const extra = depth > 0 && depth < tokens.length;
+      const deadVerb =
+        extra && (node.commands.length > 0 || (commandShaped && node.registeredArguments.length === 0));
+      if (unknownFamily || deadVerb) out.push(`mnemosine ${tokens.slice(0, depth + 1).join(' ')}`);
+      else if (depth > 0) live++;
+    }
+  };
+  const visit = (n: ts.Node): void => {
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateLiteralToken(n)) {
+      check(n.text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(ts.createSourceFile(file, source, ts.ScriptTarget.Latest, false));
+  return { live, dead: out };
+}

@@ -53,7 +53,7 @@ import { z } from 'zod';
  * tope por debajo rechazaría el mes de una cuenta operativa movida. 5 000
  * y no más: es donde el peor caso —diez mil viajes -- sigue siendo un
  * incidente de segundos y no de minutos. Un extracto mayor se carga por
- * `mnemosine bank import`, que sí lotea.
+ * `mnemosine bank statement import`, que sí lotea.
  */
 export const MAX_MOVIMIENTOS_POR_IMPORTACION = 5_000;
 

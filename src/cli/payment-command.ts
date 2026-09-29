@@ -10,6 +10,8 @@ import { resolveBill } from '../services/ap/bill-service.js';
 import {
   recordVendorPayment,
   applyVendorPayment,
+  unapplyVendorPayment,
+  type VendorUnapplyResult,
   type EntradaPago,
   type ResultadoPago,
   type ResultadoAplicacionProveedor,
@@ -133,6 +135,13 @@ Examples:
   mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 9000.00 --mode partial
   # Close a bill short: what is unpaid stops being owed, so it needs a written reason.
   mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 15900.00 --mode residual --short-pay-reason "Nota de credito que el proveedor nunca emitio"
+`,
+  unapply: `
+Examples:
+  # A duplicated transfer landed on the wrong bill: undo it today, the bill is owed again.
+  mnemosine payment unapply VPMT-2026-00020 --bill BILL-2026-00007 --reason "Duplicate SPEI transfer"
+  # Date it inside the month still being closed, and look first.
+  mnemosine payment unapply VPMT-2026-00020 --bill BILL-2026-00007 --reason "Duplicate SPEI transfer" --date 2026-07-31 --dry-run
 `,
 } as const;
 
@@ -435,6 +444,92 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     })
   );
 
+  // ---- payment unapply ----------------------------------------------
+  //
+  // The way back from `apply` (#98): a duplicated transfer applied to a bill
+  // left it 'paid' for ever. Unapplying is a NEW dated event, never a DELETE:
+  // the bill is owed again and the cash goes back on account.
+  const unapply = payment
+    .command('unapply')
+    .alias('desaplicar')
+    .argument('<payment>', 'payment number or id')
+    .description('Unapply a payment from a bill as a NEW dated event: the bill is owed again, the cash goes back on account');
+  unapply
+    .requiredOption('--bill <ref>', 'the bill to unapply from')
+    .requiredOption('--reason <text>', 'why: it lands in the audit trail')
+    .option('--date <date>', 'date of the unapply, for the closed row and its entry (YYYY-MM-DD); defaults to today')
+    .option('--json', 'JSON output');
+  withContext(unapply);
+  declareRisk(unapply, {
+    risk: 'irreversible',
+    llave: { scope: 'payment unapply' },
+    agent: false,
+    writes: 'payment_applications (closure), bills.amount_due, journal_entries',
+  });
+  unapply.addHelpText('after', EJEMPLOS.unapply);
+  unapply.action((ref: string, opts: CommonOpts & { bill: string; reason: string; date?: string }) =>
+    run(async () => {
+      const { dryRun } = gateMutation(unapply, opts as unknown as Record<string, unknown>);
+      const p = deps.palette;
+      const ctx = await writeEntityOf(opts);
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const vp = await resolveVendorPayment(ctx.entityId, ref);
+      const bill = await resolveBill(ctx.entityId, opts.bill);
+      const args = { billId: bill.id, reason: opts.reason, date: opts.date };
+      // The key is looked at BEFORE the preview: after the first unapply there
+      // is no live application left, so a retry would die in the preview and
+      // never reach the recorded result.
+      const key = {
+        scope: 'payment unapply',
+        clave: dryRun ? undefined : opts.idempotencyKey,
+        payloadHash: hashDeCarga(vp.id, cargaDelOperador(opts as unknown as Record<string, unknown>)),
+      };
+      const recorded = await mirarLlave<{ result: VendorUnapplyResult }>({ tenantId: ctx.tenantId }, key);
+
+      let result: VendorUnapplyResult;
+      if (recorded) {
+        result = recorded.result;
+      } else {
+        const preview = await unapplyVendorPayment(ctx.entityId, vp.id, args, reviewer.userId, { dryRun: true });
+        if (!dryRun) {
+          await confirmOrAbort(
+            opts,
+            `Unapply ${preview.unapplied} of ${vp.payment_number} from ${preview.document.numero} on ${preview.date} ` +
+              `(${preview.document.saldoAnterior} → ${preview.document.saldoNuevo})? The cash goes back on account.`
+          );
+        }
+        const act = dryRun
+          ? { repetido: false, resultado: { result: preview } }
+          : await conLlave({ tenantId: ctx.tenantId, entityId: ctx.entityId }, key, async () => ({
+              result: await unapplyVendorPayment(ctx.entityId, vp.id, args, reviewer.userId),
+            }));
+        result = act.resultado.result;
+        if (!dryRun && !act.repetido) {
+          attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
+        }
+      }
+      if (recorded) {
+        process.stderr.write(p.yellow(`↩ Idempotency hit: key "${opts.idempotencyKey ?? ''}" already unapplied this; nothing was written again.\n`));
+      }
+
+      if (opts.json) {
+        render([{
+          payment_number: result.paymentNumber, bill: result.document.numero, date: result.date,
+          unapplied: result.unapplied, discount_returned: result.discountReturned,
+          iva_reparked: result.ivaReparked, on_account_after: result.remainingOnAccount,
+          journal_entry: dryRun ? null : result.journalEntry.entry_number, dry_run: dryRun,
+        }], { json: true });
+      } else {
+        process.stdout.write(
+          (dryRun ? p.bold(`Would unapply ${result.paymentNumber}`) : `${p.green('✔')} ${p.bold(result.paymentNumber)} unapplied`) +
+            ` from ${p.bold(result.document.numero)} ` +
+            p.dim(`${result.document.saldoAnterior} → ${result.document.saldoNuevo} · on account ${result.remainingOnAccount}` +
+              (dryRun ? '' : ` · entry ${result.journalEntry.entry_number}`)) + '\n'
+        );
+      }
+      if (dryRun) process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+    })
+  );
 }
 
 // El dia LOCAL del despacho, no el de Greenwich: de noche ya era "manana" en UTC.
@@ -725,7 +820,8 @@ function imprimirAplicacion(
           ? ''
           : p.dim(
               '  Esa cuenta es el DEFECTO declarado, nadie la ha decidido todavía:\n' +
-                '  `mnemosine pending show pago_corto_residual` para verla y resolverla.\n'
+                '  `mnemosine pending --verbose` para verla y `mnemosine pending define pago_corto_residual`\n' +
+                '  para decidirla.\n'
             ))
     );
     if (result.ivaNoAcreditable !== '0.00') {

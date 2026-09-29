@@ -33,6 +33,7 @@ import {
   type TipoDePartida,
 } from './reconciliation-math.js';
 import {
+  baselineFloorSql,
   clasificarPartidas,
   listarPartidas,
   paraAritmetica,
@@ -44,6 +45,7 @@ import {
   type AjusteDeSesion,
   type TipoDeAjuste,
 } from './reconciliation-adjustments.js';
+import { changePolicyHint } from '../policy/policy-hint.js';
 
 // ============================================================
 // LA SESIÓN QUE CUADRA (F05c · 053)
@@ -221,6 +223,13 @@ function diaSiguiente(fecha: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** The day before an ISO date, in UTC: the default baseline date of a period. */
+function dayBefore(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function rangoDe(opts: { periodo?: string; desde?: string; hasta?: string }): {
   desde: string;
   hasta: string;
@@ -392,6 +401,14 @@ export interface OpcionesApertura {
   /** El extracto concreto, cuando el periodo tiene más de uno y no son contiguos. */
   statementId?: string;
   notas?: string;
+  /**
+   * `--baseline` (#324 · MNE-001-038): only on the account's FIRST session.
+   * On `date` (by default the day before the period) bank and books agreed on
+   * `balance`, and everything up to that date is already reconciled. Both are
+   * declared, never inferred: a balance read from the books would make the
+   * check against the books vacuous.
+   */
+  baseline?: { balance: string; date?: string };
 }
 
 export interface SesionAbierta {
@@ -407,6 +424,7 @@ export interface SesionAbierta {
   saldoFinalDeclaradoPorElBanco: string;
   extractos: number;
   sesionAnterior: { id: string; hasta: string; saldoFinal: string } | null;
+  baseline: { date: string; balance: string } | null;
   avisos: string[];
   ensayo: boolean;
 }
@@ -565,12 +583,21 @@ export async function abrirSesion(
           `mes verificado.`
       );
     }
-    if (!previa) {
+    if (!previa && !opts.baseline) {
       avisos.push(
         'Es la primera sesión de esta cuenta: no hay cierre anterior contra el que aseverar la ' +
           'continuidad del saldo inicial. El saldo sale del extracto, y sólo de él.'
       );
     }
+
+    const baseline = opts.baseline
+      ? await checkBaseline(client, entityId, cuenta, opts.baseline, {
+          periodStart: desde,
+          openingBalance: saldoInicial,
+          previousSession: previa?.id ?? null,
+          warnings: avisos,
+        })
+      : null;
 
     const sesionId = uuidv4();
     await client.query(
@@ -580,9 +607,13 @@ export async function abrirSesion(
       // puerta que no pase por `cerrarSesion`.
       `INSERT INTO reconciliation_sessions (
          id, bank_account_id, entity_id, start_date, end_date,
-         beginning_balance, ending_balance_per_bank, statement_id, status, notes
-       ) VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, 'in_progress', $9)`,
-      [sesionId, cuenta.id, entityId, desde, hasta, saldoInicial, saldoFinal, ultimo.id, opts.notas ?? null]
+         beginning_balance, ending_balance_per_bank, statement_id, status, notes,
+         baseline_date, baseline_balance
+       ) VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, 'in_progress', $9, $10::date, $11)`,
+      [
+        sesionId, cuenta.id, entityId, desde, hasta, saldoInicial, saldoFinal, ultimo.id,
+        opts.notas ?? null, baseline?.date ?? null, baseline?.balance ?? null,
+      ]
     );
 
     await registrarAuditoria(client, {
@@ -599,6 +630,8 @@ export async function abrirSesion(
         ending_balance_per_bank: saldoFinal,
         statement_id: ultimo.id,
         sesion_anterior: previa?.id ?? null,
+        baseline_date: baseline?.date ?? null,
+        baseline_balance: baseline?.balance ?? null,
       },
       reason: opts.notas ?? null,
     });
@@ -625,12 +658,74 @@ export async function abrirSesion(
             saldoFinal: monto(new Decimal(previa.ending_balance_per_bank)),
           }
         : null,
+      baseline,
       avisos,
       ensayo: ctx.dryRun === true,
     };
     if (ctx.dryRun) throw new EnsayoSesion(resultado);
     return resultado;
   });
+}
+
+/**
+ * The baseline of a first session, checked against the books.
+ *
+ * Refused when the account already has an earlier session (its close is the
+ * baseline, and a second one would hide what that session left open), when
+ * the date is not before the period, when the books cannot be observed, and
+ * when the posted book balance at the date is not the declared one — saying
+ * by how much, because that difference is exactly the history the baseline
+ * would otherwise hide.
+ *
+ * The bank side is only observable when the date is the day before the
+ * period (the statement's opening balance). A mismatch there is a WARNING,
+ * not a refusal: a migrated opening can legitimately carry transit at the
+ * cutover, and the live variance will show it.
+ */
+async function checkBaseline(
+  client: pg.PoolClient,
+  entityId: string,
+  account: { id: string; account_name: string; gl_de_la_entidad: string | null },
+  declared: { balance: string; date?: string },
+  at: { periodStart: string; openingBalance: string; previousSession: string | null; warnings: string[] }
+): Promise<{ date: string; balance: string }> {
+  if (at.previousSession !== null) {
+    throw new ConflictError(
+      `La cuenta ${account.account_name} ya tiene la sesión ${at.previousSession} antes de este periodo: ` +
+        `la línea base se declara sólo la primera sesión de una cuenta. Las siguientes parten ` +
+        `del cierre de la anterior.`
+    );
+  }
+  const balance = dec(declared.balance, '--baseline');
+  const date = declared.date === undefined ? dayBefore(at.periodStart) : assertFecha(declared.date, '--baseline-date');
+  if (date >= at.periodStart) {
+    throw new ValidationError(
+      `La línea base (${date}) tiene que ser antes del periodo, que empieza el ${at.periodStart}: ` +
+        `afirma lo que ya estaba conciliado cuando el periodo empezó.`
+    );
+  }
+  const books = await saldoDeLibros(client, entityId, account, date);
+  if (books === null) {
+    throw new ValidationError(
+      `La cuenta de mayor de ${account.account_name} no pertenece al catálogo de esta entidad: ` +
+        `no hay libros contra los que aseverar la línea base. Corrige el mapeo con \`bank account set\`.`
+    );
+  }
+  if (!balance.equals(new Decimal(books))) {
+    throw new ValidationError(
+      `La línea base afirma ${monto(balance)} al ${date} y los libros dicen ${books}: difieren en ` +
+        `${monto(new Decimal(books).minus(balance))} (libros − línea base). No se abre: con esa línea base la historia que no cuadra ` +
+        `quedaría escondida en vez de explicada.`
+    );
+  }
+  if (date === dayBefore(at.periodStart) && !balance.equals(new Decimal(at.openingBalance))) {
+    at.warnings.push(
+      `El extracto abre con ${at.openingBalance} y la línea base es ${monto(balance)}: difieren en ` +
+        `${monto(new Decimal(at.openingBalance).minus(balance))}. Esa diferencia quedará en la ` +
+        `variación hasta que se explique.`
+    );
+  }
+  return { date, balance: monto(balance) };
 }
 
 // ============================================================
@@ -786,6 +881,9 @@ async function movimientosSinExplicar(
                  JOIN bank_accounts ba ON ba.id = bt.bank_account_id
                 WHERE bt.bank_account_id = $1 AND ba.entity_id = $2
                   AND bt.transaction_date <= $3::date
+                  -- Before the account's baseline was reconciled before any
+                  -- session: the same floor clasificarPartidas applies.
+                  AND bt.transaction_date > ${baselineFloorSql('ba.id', '$2')}
                   -- «SIN COTEJO VIVO» SE LE PREGUNTA A LAS FILAS DE COTEJO, NO
                   -- A is_matched. La bandera es una caché que mantiene
                   -- match-service; el hecho son las filas con
@@ -903,7 +1001,7 @@ export async function criteriosDeCierre(
         `La política \`conciliacion_tolerancia\` de este despacho está en "${tol.value}": la ` +
           `conciliación cierra con variación EXACTAMENTE cero y \`--tolerance\` no la afloja. ` +
           `Si el criterio tiene que cambiar, cámbialo donde vive: ` +
-          `\`mnemosine pending resolve conciliacion_tolerancia\`.`
+          `${changePolicyHint('conciliacion_tolerancia')}.`
       );
     }
     const t = dec(toleranciaPedida, '--tolerance');
@@ -1723,8 +1821,11 @@ export interface ResultadoCorridaGuiada {
  * `bank reconciliation run <account>`: el pase guiado del mes.
  *
  * ORQUESTA, NO REIMPLEMENTA. Cada paso es un servicio que ya existe y que ya
- * tiene sus propias guardas: `importarEstadoDeCuenta` (F05a) deduplica por hash
- * de documento y de línea y corre las siete pruebas; `correrCotejo` (F05b)
+ * tiene sus propias guardas: `importarEstadoDeCuenta` (F05a) rejects the same
+ * file by its sha256, skips a line whose native bank id is already in the
+ * account and names it, applies `bank_statement_overlap` to lines already in
+ * another statement (T25, #138) — the line fingerprint is NOT a dedupe key —
+ * and runs the seven checks; `correrCotejo` (F05b)
  * comprueba Σbanco = Σlibros + Σajustes antes de escribir y respeta el piso de
  * confianza; `abrirSesion` asevera la continuidad. Reescribir cualquiera de
  * los tres aquí habría duplicado sus invariantes en un sitio donde envejecen.
@@ -1784,7 +1885,9 @@ export async function correrConciliacion(
         hecho: true,
         detalle:
           `Importado ${importacion.archivo}: ${importacion.importadas} línea(s) nuevas, ` +
-          `${importacion.duplicadas} ya estaban. Cierre declarado ${importacion.saldoFinal}.`,
+          `${importacion.duplicadas} no entraron por id nativo repetido, ` +
+          `${importacion.overlaps.length} traslapadas con otro estado (${importacion.overlapPolicy}). ` +
+          `Cierre declarado ${importacion.saldoFinal}.`,
       });
     } else {
       const existentes = await extractosDelPeriodo(null, entityId, cuenta.id, desde, hasta);
@@ -2341,7 +2444,7 @@ export async function aprobarSesion(
           `La sesión ${sesionId} la cerró ${ctx.userId}, que es quien intenta aprobarla, y la ` +
             `política de segregación de funciones de este despacho está en "exigir": quien hace ` +
             `la conciliación no la firma. Que la apruebe otro usuario, o cambia el criterio ` +
-            `donde vive, con \`mnemosine pending resolve segregacion_de_funciones\`.`,
+            `donde vive, con ${changePolicyHint('segregacion_de_funciones')}.`,
           { rule: 'maker_checker', politica: 'segregacion_de_funciones', sesion: sesionId }
         );
       }

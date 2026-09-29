@@ -160,11 +160,13 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'life you set per asset (NIF C-6). With "tasa_lisr" it follows the tax rate stored on each ' +
       'asset, at most the maximum of its class (arts. 34-35 LISR), which is what most Mexican SMEs ' +
       'book so that the accounting and the deduction do not diverge. Only ONE schedule is computed ' +
-      'and posted: the other basis is not kept in parallel (that is #112). An asset that already ' +
-      'posted rows keeps its basis: changing this answer does not switch it.',
+      'and posted: the other basis is not kept in parallel (that is #112). An asset without a stored ' +
+      'tax rate (registered before the rates existed) keeps running on its useful life under either ' +
+      'answer. An asset that already posted rows never switches basis: if you change this answer, ' +
+      'the run refuses that asset with the reason instead of depreciating it on the other basis.',
     options: [
       { value: 'vida_util_nif', label: 'Book: the useful life you assigned to the asset (NIF C-6)' },
-      { value: 'tasa_lisr', label: 'Tax: the maximum LISR rate for its class, so books and deduction agree' },
+      { value: 'tasa_lisr', label: 'Tax: the LISR rate stored on the asset, at most its class maximum, so books and deduction agree' },
     ],
     defaultValue: 'vida_util_nif',
     defaultRationale:
@@ -610,8 +612,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
     question: 'Above what amount is a multi-period expense deferred to prepayments instead of expensed at once?',
     impact:
       'Below the threshold the whole amount hits the month it was paid; above it, a schedule is created ' +
-      'and the expense spreads. Today the CFDI classifier offers the deferral on ANY amount whose ' +
-      'description matches a pattern, with no floor at all.',
+      'and the expense spreads. `prepaid create` reads your answer and stops below it unless you pass ' +
+      '--force with a reason. At ingestion, the CFDI classifier compares against your answer too: it ' +
+      'only offers the deferral on amounts at or above it (5,000 MXN until you answer).',
     options: [
       { value: '0', label: 'No threshold: defer every multi-period expense' },
       { value: '5000', label: '5,000 MXN' },
@@ -623,7 +626,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'in bookkeeping than the precision it buys, and clutters the schedule with rows nobody will ' +
       'check. Five thousand is the order of magnitude where the split starts paying for itself.',
     whyAsking: 'Not every yearly subscription is worth spreading over twelve months; you decide where the line is.',
-    whatIDo: 'I defer multi-period expenses of 5,000 MXN or more and expense the rest as they come.',
+    whatIDo: 'I offer to defer multi-period expenses at or above your threshold (5,000 MXN by default) and expense the rest as they come.',
     ifSkipped: 'I use 5,000 MXN.',
     priority: 40,
   },
@@ -710,8 +713,11 @@ export const POLICY_CATALOG: PolicySpec[] = [
     category: 'contable',
     question: 'How many days of aguinaldo does the firm grant per year of service?',
     impact:
-      'Drives both the settlement calculation and the monthly provision. The engine currently hardcodes ' +
-      'a value and never reads it from anywhere.',
+      'Read by two calculations. The settlement (finiquito-calculator.ts) prorates these days per year ' +
+      'over the days worked in the year of termination. The monthly benefit provision ' +
+      '(provisions-run.ts, `payroll accrue` and the close) accrues aguinaldo on them every month. ' +
+      'Both check the value against the legal minimum in force on their date (LFT art. 87) and refuse ' +
+      'to compute below it.',
     options: [
       { value: '15', label: '15 days — the legal minimum (LFT art. 87)' },
       { value: '20', label: '20 days' },
@@ -728,7 +734,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'without knowing the contract. Anything above it is a benefit the employer granted and must be ' +
       'declared, never guessed.',
     whyAsking: 'The law sets a minimum of fifteen days; many firms pay more, and I cannot know which yours is.',
-    whatIDo: 'I compute aguinaldo on fifteen days per year, accrued in proportion to time served.',
+    whatIDo: 'I compute aguinaldo on the days you set per year, in proportion to time served.',
     ifSkipped: 'I use the legal minimum of fifteen days.',
     priority: 40,
   },
@@ -1532,6 +1538,43 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped:
       'I carry it in the open as a reconciling item, which is the option that keeps it visible.',
     priority: 37,
+  },
+  {
+    // T25 (#138) · The overlapping statement. The file hash stops the same
+    // file twice; it cannot see a quarterly that contains the monthly, whose
+    // bytes differ. The line fingerprint can, but it is not a key (#88): two
+    // identical fees on one day are two fees. What to do when a line of the
+    // new file is already in another statement is the firm's call, not ours.
+    // Reader: `bank-statement-service.ts`, inside the import transaction.
+    key: 'bank_statement_overlap',
+    category: 'contable',
+    question: 'When a new bank statement repeats movements already imported from another one, what happens?',
+    impact:
+      'Governs `bank statement import`. It compares each line of the new file, by its content ' +
+      'fingerprint and counting repeats, against the lines of the OTHER statements of the same ' +
+      'account. "block" refuses the whole file and names every repeated line and the statement it ' +
+      'is already in; "mark" imports the file and records on each repeated line which statement it ' +
+      'overlaps, visible in `bank statement show --lines`; "warn" imports the file and only names the ' +
+      'repeated lines in the import output. With "mark" and "warn" the repeated movements ARE in the ' +
+      'books twice until someone removes one. Two identical lines inside the same file are never ' +
+      'touched by this: the bank charged twice.',
+    options: [
+      { value: 'block', label: 'Refuse the file and name the lines that are already imported' },
+      { value: 'mark', label: 'Import it and mark each repeated line with the statement it overlaps' },
+      { value: 'warn', label: 'Import it and only warn which lines were already imported' },
+    ],
+    defaultValue: 'block',
+    defaultRationale:
+      'The only option where nothing enters the books twice without a person deciding it. A ' +
+      'quarterly over a monthly is caught before it doubles January; the cost is that the operator ' +
+      'has to cut the file or change this answer.',
+    whyAsking:
+      'Banks reissue statements and send quarterly files that contain the monthly ones. The same file twice I already refuse; two different files that share movements I cannot tell apart from two real movements without you deciding how careful to be.',
+    whatIDo:
+      'By default I refuse a statement that repeats movements of another one and tell you which lines and where they already are. If you choose "mark" I import it and leave a mark on each repeated line; with "warn" I import it and only tell you.',
+    ifSkipped:
+      'I refuse the overlapping statement, which is the option that never counts a movement twice.',
+    priority: 38,
   },
   {
     // F05b · El cotejo automático. `confidence >= 0.85` estaba escrito a mano

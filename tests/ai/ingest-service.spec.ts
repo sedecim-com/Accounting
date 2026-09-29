@@ -670,16 +670,17 @@ describe('A7 · la sombra mide el modo que se va a encender', () => {
 });
 
 describe('ING-3 · #320 — the direction of the CFDI', () => {
-  it('an issued CFDI never reaches the model: no expense draft, blocked with the reason', async () => {
-    const { report, session, approve } = run({
-      plan: [{ confidence: 0.99 }],
+  it('an issued CFDI reaches the model as a sale: AR entry, customer named, no vendor (MNE-001-028)', async () => {
+    const { report, session } = run({
+      plan: [{ confidence: 0.8 }],
       uploads: [{ ...makeUpload(), direction: 'issued' }],
     });
-    const r = (await report).results[0];
-    expect(r.status).toBe('blocked');
-    expect(r.detail).toMatch(/Issued by this entity: a sale, not an expense/);
-    expect(session.runTurn).not.toHaveBeenCalled();
-    expect(approve).not.toHaveBeenCalled();
+    expect((await report).results[0].status).toBe('draft');
+    const prompt = String(vi.mocked(session.runTurn).mock.calls[0][0]);
+    expect(prompt).toMatch(/- Direction: issued \(the entity is the issuer: this is its SALE/);
+    expect(prompt).toMatch(/- Receiver \(the customer\): /);
+    expect(prompt).toMatch(/credit "IVA Trasladado No Cobrado" \(2125\)/);
+    expect(prompt).not.toMatch(/Vendor NOT registered|IVA Pendiente de Acreditar/);
   });
 
   it('the prompt states the direction instead of assuming a received CFDI', () => {

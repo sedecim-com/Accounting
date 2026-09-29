@@ -10,6 +10,7 @@ import {
   postReceiptApplicationEntry,
   postReceiptUnapplicationEntry,
   postVendorApplicationEntry,
+  postVendorUnapplicationEntry,
   type AplicacionPosterior,
 } from '../accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../accounting/posting.js';
@@ -22,11 +23,12 @@ import {
   type ContextoCambiario,
   type DiferenciaCambiaria,
 } from '../accounting/moneda-origen.js';
-import { ivaToReclassify } from '../accounting/iva-cash-basis.js';
+import { ivaToReclassify, entityUsesCashBasisIva } from '../accounting/iva-cash-basis.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { changePolicyHint } from '../policy/policy-hint.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -1606,13 +1608,10 @@ async function pagoProveedorParaEscribir(
 }
 
 /**
- * Lo que queda del pago sin repartir.
- *
- * NO filtra por `unapplied_at IS NULL` porque esa columna no existe todavía:
- * `payment unapply` es de la fase 2 y la 050 explica por qué no adelantó la
- * columna. El día que exista, este filtro y el de postVendorPaymentEntry
- * tienen que añadirse JUNTOS — si sólo uno de los dos cuenta las aplicaciones
- * clausuradas, el remanente y el asiento dejarán de hablar del mismo pago.
+ * What is left of the payment to apply. Live applications only (105): an
+ * unapplied row gave its cash back on account. The same filter lives in
+ * postVendorPaymentEntry, or the remainder and the entry would stop talking
+ * about the same payment.
  */
 async function remanenteDeVendorPago(
   client: pg.PoolClient,
@@ -1621,7 +1620,7 @@ async function remanenteDeVendorPago(
 ): Promise<Decimal> {
   const r = await client.query<{ aplicado: string }>(
     `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
-       FROM payment_applications WHERE payment_id = $1`,
+       FROM payment_applications WHERE payment_id = $1 AND unapplied_at IS NULL`,
     [paymentId]
   );
   return new Decimal(paymentAmount).minus(r.rows[0]?.aplicado ?? '0');
@@ -1701,7 +1700,7 @@ export async function applyVendorPayment(
       throw new ValidationError(
         'La política `pago_corto_residual` de este despacho está en "prohibir": ningún gasto ' +
           'se cierra pagando de menos. Pide al proveedor la nota de crédito y aplícala, o ' +
-          'cambia la política con `mnemosine pending resolve pago_corto_residual`.'
+          `cambia la política con ${changePolicyHint('pago_corto_residual')}.`
       );
     }
     const cuentaCondonacion =
@@ -1799,7 +1798,7 @@ export async function applyVendorPayment(
       // acumulado del IVA, para que las parciales no deriven.
       const prev = await client.query<{ aplicado: string }>(
         `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
-           FROM payment_applications WHERE bill_id = $1`,
+           FROM payment_applications WHERE bill_id = $1 AND unapplied_at IS NULL`,
         [app.documentId]
       );
 
@@ -1857,14 +1856,12 @@ export async function applyVendorPayment(
       userId,
       cuentaCondonacion ?? undefined
     );
+    // 0 included (105): NULL is left to rows written before anyone stored it.
     for (const fila of filas) {
-      const iva = ivaPorGasto.get(fila.billId);
-      if (iva) {
-        await client.query(
-          `UPDATE payment_applications SET iva_reclass_amount = $1 WHERE id = $2`,
-          [iva, fila.allocId]
-        );
-      }
+      await client.query(
+        `UPDATE payment_applications SET iva_reclass_amount = $1 WHERE id = $2`,
+        [ivaPorGasto.get(fila.billId) ?? '0', fila.allocId]
+      );
     }
 
     await registrarAuditoria(client, {
@@ -1910,4 +1907,195 @@ export async function applyVendorPayment(
   };
 
   return ejecutarEvento(correr, opts);
+}
+
+export interface VendorUnapplyResult {
+  paymentId: string;
+  paymentNumber: string;
+  journalEntry: JournalEntry;
+  attestation: { entityId: string; entryId: string };
+  document: DocumentoAplicado;
+  unapplied: string;
+  discountReturned: string;
+  ivaReparked: string;
+  date: string;
+  remainingOnAccount: string;
+}
+
+/**
+ * Unapply a vendor payment from one bill, as a NEW dated event (#98 ·
+ * MNE-001-037): the live applications are CLOSED (never deleted), the bill is
+ * owed again, the cash goes back on account and the discount and IVA they
+ * took are given back from what their rows stored.
+ *
+ * `date` (default today) dates both the closure and the entry, so a balance
+ * read "as of" that day sees the two sides move together. It cannot precede
+ * the payment's last posted event: the ledger would undo an application
+ * before it happened.
+ *
+ * It refuses what it cannot undo exactly, rather than guess:
+ *   - a bill closed short (`--mode residual`): the written-off balance, its
+ *     account and its IVA are stored in no row, so nothing can give them back;
+ *   - a payment in another currency: the rows are in document currency and
+ *     the rates of each leg are not on them;
+ *   - a pre-105 row of a cash-basis entity: it never recorded the IVA it
+ *     released.
+ */
+export async function unapplyVendorPayment(
+  entityId: string,
+  paymentId: string,
+  args: { billId: string; reason: string; date?: string },
+  userId: string,
+  opts: OpcionesPago = {}
+): Promise<VendorUnapplyResult> {
+  const reason = args.reason.trim();
+  if (!reason) throw new ValidationError('Say why the application is undone: the reason goes to the audit trail.');
+  const today = toCalendarDate(new Date());
+  const date = args.date === undefined ? today : toCalendarDate(args.date);
+  if (date > today) throw new ValidationError(`An unapply cannot be dated in the future (${date}).`, 'date');
+
+  const run = async (client: pg.PoolClient): Promise<VendorUnapplyResult> => {
+    const vp = await pagoProveedorParaEscribir(client, entityId, paymentId);
+    if (vp.currency_code !== (await functionalCurrencyOf(client, entityId))) {
+      throw new ValidationError(
+        `${vp.payment_number} is in ${vp.currency_code}: unapplying a foreign-currency payment ` +
+          'needs the rate of each leg, which its applications do not store.'
+      );
+    }
+    const last = await client.query<{ d: string | null }>(
+      `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
+        WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
+          AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication')`,
+      [entityId, paymentId]
+    );
+    const since = last.rows[0]?.d ?? toCalendarDate(vp.payment_date);
+    if (date < since) {
+      throw new ValidationError(
+        `${vp.payment_number} was last posted on ${since}: an unapply dated ${date} would undo it before it happened.`,
+        'date'
+      );
+    }
+
+    const b = await client.query<{
+      id: string; bill_number: string; amount_due: string; total_amount: string; currency_code: string;
+    }>(
+      `SELECT id, bill_number, amount_due::text, total_amount::text, currency_code
+         FROM bills WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+      [args.billId, entityId]
+    );
+    if (b.rows.length === 0) throw new NotFoundError('Bill', args.billId);
+    const bill = b.rows[0];
+
+    const live = await client.query<{
+      id: string; amount_applied: string; discount_amount: string; iva_reclass_amount: string | null;
+    }>(
+      `SELECT id, amount_applied::text, COALESCE(discount_amount, 0)::text AS discount_amount,
+              iva_reclass_amount::text
+         FROM payment_applications
+        WHERE payment_id = $1 AND bill_id = $2 AND unapplied_at IS NULL
+        FOR UPDATE`,
+      [paymentId, args.billId]
+    );
+    if (live.rows.length === 0) {
+      throw new ValidationError(
+        `${vp.payment_number} has no live application on ${bill.bill_number}: there is nothing to unapply.`
+      );
+    }
+
+    // What the bill's live applications explain. Anything else that stopped
+    // being owed was written off by a short pay, and no row says how much of
+    // it this payment carried.
+    const explained = await client.query<{ s: string }>(
+      `SELECT COALESCE(SUM(amount_applied + COALESCE(discount_amount, 0)), 0)::text AS s
+         FROM payment_applications WHERE bill_id = $1 AND unapplied_at IS NULL`,
+      [args.billId]
+    );
+    const writtenOff = new Decimal(bill.total_amount).minus(explained.rows[0].s).minus(bill.amount_due);
+    if (writtenOff.abs().greaterThanOrEqualTo('0.01')) {
+      throw new ValidationError(
+        `${bill.bill_number} was closed short (${writtenOff.toFixed(2)} written off): the write-off, its ` +
+          'account and its IVA are stored nowhere, so an unapply cannot give them back exactly.'
+      );
+    }
+    if (live.rows.some((r) => r.iva_reclass_amount === null) && (await entityUsesCashBasisIva(client, entityId))) {
+      throw new ValidationError(
+        `The application of ${vp.payment_number} on ${bill.bill_number} predates migration 105 and did ` +
+          'not record the IVA it released: re-parking it would be a guess.'
+      );
+    }
+
+    const amount = live.rows.reduce((s, r) => s.plus(r.amount_applied), new Decimal(0));
+    const discount = live.rows.reduce((s, r) => s.plus(r.discount_amount), new Decimal(0));
+    const iva = live.rows.reduce((s, r) => s.plus(r.iva_reclass_amount ?? '0'), new Decimal(0));
+    const ids = live.rows.map((r) => r.id);
+    const reopened = amount.plus(discount);
+
+    const closed = await client.query(
+      `UPDATE payment_applications
+          SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3
+        WHERE id = ANY($4::uuid[]) AND payment_id = $5 AND unapplied_at IS NULL`,
+      [date, userId, reason, ids, paymentId]
+    );
+    const reopen = await client.query(
+      `UPDATE bills SET
+         amount_paid = amount_paid - $1,
+         amount_due  = amount_due + $2,
+         status = CASE WHEN amount_due + $2 >= total_amount THEN 'approved' ELSE 'partially_paid' END
+       WHERE id = $3 AND entity_id = $4 AND status IN ('paid', 'partially_paid')`,
+      [amount.toFixed(4), reopened.toFixed(4), args.billId, entityId]
+    );
+    if (closed.rowCount !== ids.length || reopen.rowCount !== 1) {
+      throw new AccountingError(
+        'UNAPPLY_RACE',
+        `${vp.payment_number} on ${bill.bill_number} changed while it was being unapplied; nothing was written.`
+      );
+    }
+
+    const entry = await postVendorUnapplicationEntry(
+      client,
+      {
+        id: vp.id, entity_id: entityId, payment_number: vp.payment_number,
+        payment_amount: vp.payment_amount, payment_date: vp.payment_date,
+        bank_account_id: vp.bank_account_id, journal_entry_id: null,
+      },
+      { billNumber: bill.bill_number, amount: amount.toFixed(4), discount: discount.toFixed(4), iva: iva.toFixed(4), date },
+      userId
+    );
+    const remaining = await remanenteDeVendorPago(client, paymentId, vp.payment_amount);
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      userId,
+      action: 'update',
+      entityType: 'vendor_payments',
+      entityId: paymentId,
+      newValues: {
+        evento: 'unapply', bill: bill.bill_number, date,
+        unapplied: amount.toFixed(2), discount: discount.toFixed(2), journal_entry_id: entry.id,
+      },
+      reason,
+    });
+
+    const newDue = new Decimal(bill.amount_due).plus(reopened);
+    const result: VendorUnapplyResult = {
+      paymentId, paymentNumber: vp.payment_number, journalEntry: entry,
+      attestation: { entityId, entryId: entry.id },
+      document: {
+        id: bill.id, numero: bill.bill_number,
+        saldoAnterior: new Decimal(bill.amount_due).toFixed(2),
+        saldoNuevo: newDue.toFixed(2),
+        estado: newDue.greaterThanOrEqualTo(bill.total_amount) ? 'approved' : 'partially_paid',
+        moneda: bill.currency_code,
+      },
+      unapplied: amount.toFixed(2),
+      discountReturned: discount.toFixed(2),
+      ivaReparked: iva.toFixed(2),
+      date,
+      remainingOnAccount: remaining.toFixed(2),
+    };
+    if (opts.dryRun) throw new EnsayoEvento(result);
+    return result;
+  };
+
+  return ejecutarEvento(run, opts);
 }

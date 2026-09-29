@@ -321,6 +321,9 @@ export const EN = {
   /** `src/cli/mnemosine.ts` renderDraft: a draft linked to a received CFDI (#318). The issuer name comes from the XML. */
   'review.draft.bill_to_be_born':
     'Approving creates the vendor bill of CFDI {uuid} · issuer {issuer} ({rfc}) · method {method} · total {total}',
+  /** `src/cli/mnemosine.ts` renderDraft: a draft linked to a CFDI the entity issued (#320). The customer name comes from the XML. */
+  'review.draft.invoice_to_be_born':
+    'Approving creates the customer invoice of issued CFDI {uuid} · customer {customer} ({rfc}) · method {method} · total {total}',
   /** `src/cli/mnemosine.ts` review: `proveedor_desconocido_al_aprobar = preguntar` (#318). The name comes from the XML. */
   'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})? [y/N] ',
   /** `src/cli/mnemosine.ts` review: the reviewer answered no to registering the vendor. */
@@ -636,6 +639,9 @@ export const EN = {
   'bank.reconciliation.open.summary':
     'opening balance {opening} · bank close {closingBank} {currency} · statement {statement}',
   'bank.reconciliation.open.continues': 'continues {session}',
+  'bank.reconciliation.open.baseline': 'starts from the baseline {balance} as of {date}',
+  'bank.reconciliation.open.baseline_date_without_baseline':
+    '--baseline-date is the date of --baseline, and there is no --baseline. Pass the reconciled balance with --baseline, or drop --baseline-date.',
   'bank.reconciliation.open.no_arithmetic_yet':
     'The session is born with no arithmetic (`arithmetic_computed_at` NULL): `bank reconciliation ' +
     'status` computes it live and `close` signs it. None of this touches the ledger.',

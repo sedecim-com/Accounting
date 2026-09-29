@@ -228,6 +228,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'aprobar, o rechazar — un rechazo puede sembrar el criterio para la próxima vez',
   'review.draft.bill_to_be_born':
     'Aprobar crea la factura del proveedor del CFDI {uuid} · emisor {issuer} ({rfc}) · método {method} · total {total}',
+  'review.draft.invoice_to_be_born':
+    'Aprobar crea la factura al cliente del CFDI emitido {uuid} · cliente {customer} ({rfc}) · método {method} · total {total}',
   'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N] ',
   'review.vendor.not_registered':
     'No se dio de alta al proveedor: no se contabilizó nada y el borrador sigue pendiente.',
@@ -519,6 +521,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.reconciliation.open.summary':
     'saldo inicial {opening} · cierre de banco {closingBank} {currency} · extracto {statement}',
   'bank.reconciliation.open.continues': 'continúa {session}',
+  'bank.reconciliation.open.baseline': 'parte de la línea base {balance} al {date}',
+  'bank.reconciliation.open.baseline_date_without_baseline':
+    '--baseline-date es la fecha de --baseline, y no hay --baseline. Pasa el saldo conciliado con --baseline, o quita --baseline-date.',
   'bank.reconciliation.open.no_arithmetic_yet':
     'La sesión nace sin aritmética (`arithmetic_computed_at` NULL): `bank reconciliation status` ' +
     'la calcula viva y `close` la firma. Nada de esto toca el mayor.',
