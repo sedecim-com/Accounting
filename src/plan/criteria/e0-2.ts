@@ -22,52 +22,21 @@ import {
 } from './shared.js';
 
 /**
- * Mirrors for `migration-apply-and-record-atomic`: the stretch of migrate.ts
- * from the catch to the end of the hardening, and the same stretch with the
- * hardening moved back inside the try, ahead of the catch.
+ * Mirror for `migration-apply-and-record-atomic`: the hardening call moved
+ * from the finally of applyMigrations back inside its try, ahead of the catch.
  */
-const MIGRATE_CATCH_FINALLY_AND_HARDENING = `  } catch (error) {
-    console.error('Migration failed:', error);
-    fallo = true;
-  } finally {
-    // El endurecimiento corre SIEMPRE — su comentario decía «ALWAYS» y vivía
-    // dentro del try, así que un fallo a mitad de la corrida se lo saltaba:
-    // las migraciones que SÍ se aplicaron antes del fallo quedaban con sus
-    // tablas creadas y sin política, que es la fuga silenciosa que este
-    // bloque existe para impedir. En el finally cubre lo aplicado pase lo
-    // que pase, y el proceso sale en rojo igualmente.
-    const rlsPath = options.hardeningPath;
-    if (rlsPath && fs.existsSync(rlsPath)) {
-      console.log('  Applying isolation policies...');
-      try {
-        await client.query(fs.readFileSync(rlsPath, 'utf-8'));
-      } catch (rlsError) {
-        console.error('Hardening failed:', rlsError);
-        fallo = true;
-      }
-    }
-`;
-const MIGRATE_HARDENING_INSIDE_TRY = `    const rlsPath = options.hardeningPath;
-    if (rlsPath && fs.existsSync(rlsPath)) {
-      console.log('  Applying isolation policies...');
-      try {
-        await client.query(fs.readFileSync(rlsPath, 'utf-8'));
-      } catch (rlsError) {
-        console.error('Hardening failed:', rlsError);
-        fallo = true;
-      }
-    }
-  } catch (error) {
-    console.error('Migration failed:', error);
-    fallo = true;
-  } finally {
-    // El endurecimiento corre SIEMPRE — su comentario decía «ALWAYS» y vivía
-    // dentro del try, así que un fallo a mitad de la corrida se lo saltaba:
-    // las migraciones que SÍ se aplicaron antes del fallo quedaban con sus
-    // tablas creadas y sin política, que es la fuga silenciosa que este
-    // bloque existe para impedir. En el finally cubre lo aplicado pase lo
-    // que pase, y el proceso sale en rojo igualmente.
-`;
+const MIGRATE_CATCH_FINALLY_HARDENING =
+  '  } catch (error) {\n' +
+  "    console.error('Migration failed:', error);\n" +
+  '    fallo = true;\n' +
+  '  } finally {\n' +
+  '    if (!(await applyHardening(client, options.hardeningPath))) fallo = true;\n';
+const MIGRATE_HARDENING_INSIDE_TRY =
+  '    if (!(await applyHardening(client, options.hardeningPath))) fallo = true;\n' +
+  '  } catch (error) {\n' +
+  "    console.error('Migration failed:', error);\n" +
+  '    fallo = true;\n' +
+  '  } finally {\n';
 
 // ============================================================
 // THE E0.2 CRITERIA
@@ -142,7 +111,7 @@ export const E0_2: Criterio[] = [
       },
       {
         archivo: 'src/database/migrate.ts',
-        de: MIGRATE_CATCH_FINALLY_AND_HARDENING,
+        de: MIGRATE_CATCH_FINALLY_HARDENING,
         a: MIGRATE_HARDENING_INSIDE_TRY,
         porque: 'el endurecimiento vuelve al try (el error de la era #88): un fallo a mitad se lo salta y deja tablas sin política',
       },

@@ -83,6 +83,29 @@ export interface MigrationRunOptions {
 }
 
 /**
+ * Re-applies the hardening script; false when it failed. Called from the
+ * finally of applyMigrations, never from inside its try.
+ *
+ * El endurecimiento corre SIEMPRE — su comentario decía «ALWAYS» y vivía
+ * dentro del try, así que un fallo a mitad de la corrida se lo saltaba:
+ * las migraciones que SÍ se aplicaron antes del fallo quedaban con sus
+ * tablas creadas y sin política, que es la fuga silenciosa que este
+ * bloque existe para impedir. En el finally cubre lo aplicado pase lo
+ * que pase, y el proceso sale en rojo igualmente.
+ */
+async function applyHardening(client: pg.ClientBase, rlsPath: string | null): Promise<boolean> {
+  if (!rlsPath || !fs.existsSync(rlsPath)) return true;
+  console.log('  Applying isolation policies...');
+  try {
+    await client.query(fs.readFileSync(rlsPath, 'utf-8'));
+    return true;
+  } catch (rlsError) {
+    console.error('Hardening failed:', rlsError);
+    return false;
+  }
+}
+
+/**
  * Applies the pending migrations on `client` and returns true when every
  * step succeeded. It never exits the process: runMigrations below owns that.
  */
@@ -188,22 +211,7 @@ export async function applyMigrations(
     console.error('Migration failed:', error);
     fallo = true;
   } finally {
-    // El endurecimiento corre SIEMPRE — su comentario decía «ALWAYS» y vivía
-    // dentro del try, así que un fallo a mitad de la corrida se lo saltaba:
-    // las migraciones que SÍ se aplicaron antes del fallo quedaban con sus
-    // tablas creadas y sin política, que es la fuga silenciosa que este
-    // bloque existe para impedir. En el finally cubre lo aplicado pase lo
-    // que pase, y el proceso sale en rojo igualmente.
-    const rlsPath = options.hardeningPath;
-    if (rlsPath && fs.existsSync(rlsPath)) {
-      console.log('  Applying isolation policies...');
-      try {
-        await client.query(fs.readFileSync(rlsPath, 'utf-8'));
-      } catch (rlsError) {
-        console.error('Hardening failed:', rlsError);
-        fallo = true;
-      }
-    }
+    if (!(await applyHardening(client, options.hardeningPath))) fallo = true;
     // After the hardening, which also must not interleave with another run.
     // If the connection is gone the server already dropped the lock with it.
     // A false here means this session never held it: the lock was taken on
