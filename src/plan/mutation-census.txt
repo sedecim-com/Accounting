@@ -590,6 +590,8 @@ mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/po
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	a period that starts tomorrow would be shown as the current one
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	a header written by the client would widen the portfolio
 mirror	disk	E2.1 portfolio-rows-are-token-entities-within-tenant	src/services/portfolio/portfolio-service.ts	a query-string selector would be silently accepted, the first step toward letting it choose the set
+mirror	disk	E1.2 received-ppd-cfdi-becomes-bill-and-rep-releases-vat	src/ai/draft-service.ts	the approval would post the entry and never create the vendor bill, the defect #318 measured
+mirror	disk	E1.2 received-ppd-cfdi-becomes-bill-and-rep-releases-vat	src/services/xml-ingestion/pre-registration-service.ts	an approved entry whose VAT is not the CFDI VAT would become the bill and reach the ledger
 anchor	src/plan/criteria/e0-0.ts	de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
 anchor	src/plan/criteria/e0-0.ts	de: 'Los comentarios y la documentación **nacen en inglés**',
 anchor	src/plan/criteria/e0-0.ts	de: 'Lo que identifica no se traduce nunca',

@@ -6362,7 +6362,7 @@ Print the offending rows of one check (ids, amounts, dates) and the exact
 command that fixes it
 
 Arguments:
-  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
