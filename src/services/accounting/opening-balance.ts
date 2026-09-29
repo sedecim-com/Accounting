@@ -18,6 +18,11 @@ import {
 import { naturDe, saldoDelMayor } from '../sat/anexo24/balanza-invariantes.js';
 import { compareToSource, shapesFromRows, type BalanceComparison } from './opening-balance-check.js';
 import { queryAccountAncestry, rollUpTrialBalanceRows } from '../reporting/report-service.js';
+import {
+  prepareOpeningInvoices,
+  skippedUnderDraftMode,
+  writeOpeningInvoices,
+} from '../ar/opening-invoices.js';
 
 // ============================================================
 // O1 · LA BALANZA DE APERTURA — LA SEGUNDA CAPA DEL ONBOARDING
@@ -147,6 +152,13 @@ export interface OpeningDocument {
   importe: string;
   /** UUID del CFDI que lo respalda, cuando lo hay. */
   uuid?: string;
+  /**
+   * ISO 4217 currency of the open balance. Omitted means the functional one;
+   * any other is refused for a receivable (MNE-001-022, `opening-invoices.ts`).
+   */
+  currency?: string;
+  /** Counterparty RFC: finds the existing customer before one is created. */
+  rfc?: string;
 }
 
 /** Una cuenta de la entidad tal como está HOY. El plan se calcula contra esto. */
@@ -959,6 +971,8 @@ export interface OpeningBalanceReport extends OpeningPlan {
   /** The entry written (posted, or a draft under `loadMode: 'draft'`), or `null`. */
   asiento: { id: string; entry_number: string } | null;
   escrito: boolean;
+  /** Customer invoices this load creates (or created) in the AR subledger. */
+  arInvoices: number;
 }
 
 /**
@@ -1044,8 +1058,22 @@ export async function importOpeningBalance(
       LIMIT 1`,
     [opts.entityId, ejercicio.startDate]
   );
-  const findings: OpeningFinding[] = [...plan.findings];
-  let puedeCargarse = plan.puedeCargarse;
+  const loadMode: OpeningLoadMode =
+    (await getPolicy({ tenantId: ctx.tenantId, entityId: opts.entityId }, OPENING_LOAD_MODE_POLICY_KEY))
+      .value === 'borrador'
+      ? 'draft'
+      : 'post';
+
+  // MNE-001-022: the receivable documents also become invoices, so that
+  // `ar reconcile` sees the subledger behind the control balance. Only with a
+  // POSTED opening: an invoice hanging from a draft entry would be collectable
+  // before its balance is in the ledger.
+  const arInvoicePlan =
+    loadMode === 'post'
+      ? await prepareOpeningInvoices(opts.entityId, plan)
+      : skippedUnderDraftMode(plan);
+  const findings: OpeningFinding[] = [...plan.findings, ...arInvoicePlan.findings];
+  let puedeCargarse = plan.puedeCargarse && arInvoicePlan.findings.every((x) => x.severidad !== 'bloquea');
   const anterior = yaCargada.rows[0];
   if (anterior !== undefined) {
     puedeCargarse = false;
@@ -1069,12 +1097,6 @@ export async function importOpeningBalance(
     );
   }
 
-  const loadMode: OpeningLoadMode =
-    (await getPolicy({ tenantId: ctx.tenantId, entityId: opts.entityId }, OPENING_LOAD_MODE_POLICY_KEY))
-      .value === 'borrador'
-      ? 'draft'
-      : 'post';
-
   const base: OpeningBalanceReport = {
     ...plan,
     findings,
@@ -1088,6 +1110,7 @@ export async function importOpeningBalance(
     loadMode,
     asiento: null,
     escrito: false,
+    arInvoices: arInvoicePlan.drafts.length,
   };
 
   if (!puedeCargarse || opts.dryRun === true) return base;
@@ -1150,12 +1173,14 @@ export async function importOpeningBalance(
         rfc,
         cuentas: plan.lines.length,
         documentos_de_auxiliar: plan.lines.filter((l) => l.documento !== undefined).length,
+        ar_invoices: arInvoicePlan.drafts.length,
         total_debe: plan.totalDebe,
         total_haber: plan.totalHaber,
         load_mode: loadMode === 'draft' ? 'borrador' : 'contabilizar',
       },
       reason: opts.reason ?? null,
     });
+    await writeOpeningInvoices(client, opts.entityId, opts.userId, entry.id, arInvoicePlan.drafts);
 
     return entry;
     });
@@ -1383,6 +1408,9 @@ export function renderOpeningBalanceReport(r: OpeningBalanceReport): string {
   const conDocumento = r.lines.filter((x) => x.documento !== undefined).length;
   if (conDocumento > 0) {
     l.push(`  ${conDocumento} renglón(es) vienen del auxiliar, documento a documento.`);
+  }
+  if (r.arInvoices > 0) {
+    l.push(`  ${r.arInvoices} factura(s) de clientes entran al auxiliar de CxC, ligadas a la apertura.`);
   }
   if (r.control.length > 0) {
     l.push('  Cuentas de control:');

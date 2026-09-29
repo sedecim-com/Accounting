@@ -3,6 +3,8 @@ import * as crypto from 'node:crypto';
 import { withTransaction, query } from '../../database/connection.js';
 import { ensureEntityAccounting, type ResultadoContabilidad } from '../accounting/entity-accounting.js';
 import { ValidationError, ConflictError, NotFoundError } from '../../utils/errors.js';
+import { SAT_CATALOGS } from '../xml-ingestion/sat-catalogs.js';
+import { registrarAuditoria } from '../audit/audit-log.js';
 
 // ============================================================
 // ENTITY CREATION — the root of the dependency graph
@@ -91,6 +93,10 @@ export interface CreateEntityInput {
   createdBy?: string;
   /** Passed through to the chart/roles/payroll seeding. */
   estrategia?: 'auto' | 'siempre' | 'nunca';
+  /** c_RegimenFiscal code. Optional: a Mexican entity without it only warns. */
+  taxRegime?: string;
+  /** Postal code of the fiscal address (5 digits). */
+  taxPostalCode?: string;
 }
 
 export interface CreateEntityResult {
@@ -106,6 +112,122 @@ export interface CreateEntityResult {
   /** True when attribution fell back to the tenant's system account. */
   attributedToSystem: boolean;
   accounting: ResultadoContabilidad;
+  taxRegime: string | null;
+  taxPostalCode: string | null;
+  /** What the entity was created without and will be asked for later. */
+  warnings: string[];
+}
+
+// ============================================================
+// THE ENTITY'S FISCAL PROFILE (#321 · MNE-001-017)
+//
+// Regime and fiscal postal code, with the shape migration 049 gave customers
+// and the same validation `customer tax set` applies: the catalog in
+// sat-catalogs.ts, checked here before writing, never by a CHECK in the table.
+// ============================================================
+
+export interface EntityTaxProfilePatch {
+  taxRegime?: string;
+  taxPostalCode?: string;
+}
+
+export interface EntityTaxProfile {
+  tax_regime: string | null;
+  tax_regime_name: string | null;
+  tax_postal_code: string | null;
+}
+
+const REGIMES = SAT_CATALOGS.REGIMEN_FISCAL as Record<string, string>;
+
+/** The columns to write, validated. An omitted field is left out, not cleared. */
+export function validateEntityTaxProfile(
+  patch: EntityTaxProfilePatch
+): { tax_regime?: string; tax_postal_code?: string } {
+  const out: { tax_regime?: string; tax_postal_code?: string } = {};
+  if (patch.taxRegime !== undefined) {
+    const regime = patch.taxRegime.trim();
+    if (!REGIMES[regime]) {
+      throw new ValidationError(
+        `The tax regime '${patch.taxRegime}' is not in c_RegimenFiscal: use a catalog code (601, 612, 626…).`
+      );
+    }
+    out.tax_regime = regime;
+  }
+  if (patch.taxPostalCode !== undefined) {
+    const cp = patch.taxPostalCode.trim();
+    if (!/^\d{5}$/.test(cp)) {
+      throw new ValidationError(`The postal code '${patch.taxPostalCode}' is not 5 digits.`);
+    }
+    out.tax_postal_code = cp;
+  }
+  return out;
+}
+
+function profileOf(row: { tax_regime: string | null; tax_postal_code: string | null }): EntityTaxProfile {
+  return {
+    tax_regime: row.tax_regime,
+    tax_regime_name: row.tax_regime ? (REGIMES[row.tax_regime] ?? null) : null,
+    tax_postal_code: row.tax_postal_code,
+  };
+}
+
+/** Reads the fiscal profile, scoped to the tenant: outside it is a 404. */
+export async function getEntityTaxProfile(entityId: string, tenantId: string): Promise<EntityTaxProfile> {
+  const r = await query<{ tax_regime: string | null; tax_postal_code: string | null }>(
+    'SELECT tax_regime, tax_postal_code FROM legal_entities WHERE id = $1 AND tenant_id = $2',
+    [entityId, tenantId]
+  );
+  if (r.rows.length === 0) throw new NotFoundError('Legal entity', entityId);
+  return profileOf(r.rows[0]);
+}
+
+/**
+ * Sets regime and/or postal code of an active entity, validated before the
+ * transaction opens, with the tenant in the UPDATE and the change audited.
+ */
+export async function updateEntityTaxProfile(
+  entityId: string,
+  tenantId: string,
+  patch: EntityTaxProfilePatch,
+  audit: { userId: string; tenantId: string; reason?: string }
+): Promise<EntityTaxProfile> {
+  const changes = validateEntityTaxProfile(patch);
+  const columns = Object.keys(changes) as Array<keyof typeof changes>;
+  if (columns.length === 0) {
+    throw new ValidationError('Nothing to set: pass --tax-regime or --tax-postal-code.');
+  }
+
+  return withTransaction(async (client) => {
+    const before = await client.query<{ tax_regime: string | null; tax_postal_code: string | null }>(
+      `SELECT tax_regime, tax_postal_code FROM legal_entities
+        WHERE id = $1 AND tenant_id = $2 AND is_active = true FOR UPDATE`,
+      [entityId, tenantId]
+    );
+    if (before.rows.length === 0) throw new NotFoundError('Active legal entity', entityId);
+
+    const sets = columns.map((c, i) => `${c} = $${i + 3}`).join(', ');
+    const updated = await client.query(
+      `UPDATE legal_entities SET ${sets}, updated_at = NOW()
+        WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
+      [entityId, tenantId, ...columns.map((c) => changes[c])]
+    );
+    if (updated.rowCount !== 1) {
+      throw new ConflictError(`Legal entity ${entityId} changed while its fiscal profile was being set.`);
+    }
+
+    await registrarAuditoria(client, {
+      tenantId: audit.tenantId,
+      userId: audit.userId,
+      action: 'update',
+      entityType: 'legal_entities',
+      entityId,
+      oldValues: { ...before.rows[0] },
+      newValues: changes,
+      reason: audit.reason,
+    });
+
+    return profileOf({ ...before.rows[0], ...changes });
+  });
 }
 
 export function normalizeTaxId(taxId: string, country: Country): string {
@@ -210,6 +332,20 @@ export async function createEntity(
   }
   const taxId = normalizeTaxId(input.taxId, input.country);
   const currency = input.currency ?? profile.currency;
+  const fiscal = validateEntityTaxProfile(input);
+  const taxRegime = fiscal.tax_regime ?? null;
+  const taxPostalCode = fiscal.tax_postal_code ?? null;
+
+  // NOTE: a Mexican entity without a regime is created anyway. Every entity
+  // that exists today lacks it, and refusing the new ones would not fix those.
+  const warnings: string[] = [];
+  if (input.country === 'MX' && (!taxRegime || !taxPostalCode)) {
+    const missing = [!taxRegime && 'tax regime', !taxPostalCode && 'fiscal postal code'].filter(Boolean);
+    warnings.push(
+      `Created without ${missing.join(' and ')}: withholdings, provisional ISR and the payroll CFDI ` +
+        `read them. Set them with: mnemosine entity edit ${taxId} --tax-regime <code> --tax-postal-code <cp>`
+    );
+  }
 
   const run = async (client: pg.PoolClient): Promise<CreateEntityResult> => {
     const { tenantId } = await resolveTenantForCreation(client, input.tenantId, name);
@@ -236,11 +372,13 @@ export async function createEntity(
     const entity = await client.query<{ id: string }>(
       `INSERT INTO legal_entities (
          organization_id, tenant_id, name, entity_type, tax_id, tax_id_type,
-         incorporation_country, functional_currency, accounting_standard
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+         incorporation_country, functional_currency, accounting_standard,
+         tax_regime, tax_postal_code
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
       [
         org.rows[0].id, tenantId, name, profile.entityType, taxId,
         profile.taxIdType, profile.iso2, currency, profile.standard,
+        taxRegime, taxPostalCode,
       ]
     );
     const entityId = entity.rows[0].id;
@@ -262,6 +400,9 @@ export async function createEntity(
       createdBy,
       attributedToSystem,
       accounting,
+      taxRegime,
+      taxPostalCode,
+      warnings,
     };
   };
 
