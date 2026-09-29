@@ -114,7 +114,7 @@ const TRIAL_BALANCE_CSV_ANEXO24 = [
 
 // GET /v1/reports/trial-balance
 router.get('/trial-balance', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
-  const { entity_id, fiscal_period_id, as_of_date, account_level = '5', format = 'json' } = req.query;
+  const { entity_id, fiscal_period_id, as_of_date, account_level, format = 'json' } = req.query;
 
   // Rechazado, no servido en silencio como JSON. Contestar ?format=xlsx con un
   // cuerpo JSON es exactamente como ?format=csv pasó ignorado tanto tiempo.
@@ -125,8 +125,23 @@ router.get('/trial-balance', requirePermission('reports:read'), requireEntityAcc
 
   if (!entityId) throw new ValidationError('entity_id is required');
 
+  // CONTRACT: no `account_level` means every level, as the CLI without
+  // `--level`. It used to default to '5' and trim silently (#100). A level,
+  // when given, is a roll-up cut (report-service `maxLevel`), never a filter.
+  let maxLevel: number | undefined;
+  if (account_level !== undefined) {
+    const raw = typeof account_level === 'string' ? account_level : JSON.stringify(account_level);
+    maxLevel = typeof account_level === 'string' ? Number(account_level) : NaN;
+    if (!Number.isInteger(maxLevel) || maxLevel < 1) {
+      throw new ValidationError(
+        `account_level must be a whole number of at least 1, got '${raw}'`,
+        'account_level'
+      );
+    }
+  }
+
   const report = await getTrialBalance(entityId, {
-    maxLevel: parseInt(account_level as string, 10),
+    ...(maxLevel !== undefined ? { maxLevel } : {}),
     fiscalPeriodId: fiscal_period_id as string | undefined,
     asOfDate: as_of_date as string | undefined,
   });

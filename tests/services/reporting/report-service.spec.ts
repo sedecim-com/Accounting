@@ -241,14 +241,6 @@ describe('queryTrialBalanceRows', () => {
     expect(params(0)).toEqual([ENTITY, 'fp-1']);
   });
 
-  it('numbers the level filter before the period filter, as the REST route always has', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [] });
-    await queryTrialBalanceRows(ENTITY, { maxLevel: 5, asOfDate: '2026-06-30' });
-    expect(sql(0)).toMatch(/AND a\.account_level <= \$2/);
-    expect(sql(0)).toMatch(/AND je\.entry_date <= \$3\)/);
-    expect(params(0)).toEqual([ENTITY, 5, '2026-06-30']);
-  });
-
   it('omits the level filter entirely when no level was asked for', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await queryTrialBalanceRows(ENTITY, {});
@@ -1282,6 +1274,17 @@ describe('getTrialBalance({ rollUp }) — #323: a ledger account carries its sub
     expect(String(tbCall?.[0])).not.toMatch(/account_level\s*<=/);
     expect(report.totals.total_debits).toBe('100.0000');
     expect(report.totals.total_credits).toBe('30.0000');
+  });
+
+  it('a level cut alone rolls up too: --level never drops the deeper levels\' money (#100)', async () => {
+    mockQuery.mockImplementation(async (q: string) => answer(q));
+    const report = await getTrialBalance(ENTITY, { maxLevel: 2 });
+    expect(report.rows.map((r) => [r.account_code, r.debit_total, r.credit_total])).toEqual([
+      ['1100', '100.0000', '30.0000'],
+      ['1110', '100.0000', '30.0000'],
+    ]);
+    expect(mockQuery.mock.calls.some((c) => /account_level\s*<=/.test(String(c[0])))).toBe(false);
+    expect(report.totals.total_debits).toBe('100.0000');
   });
 
   it('without rollUp nothing is summed and the ancestry is never read', async () => {

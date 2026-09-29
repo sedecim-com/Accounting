@@ -306,7 +306,34 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(lineOf(cf, (r) => r.line === 'residue')).toBe('0.00');
     }, STEP_TIMEOUT_MS);
 
-    it.todo('the trial balance by --level rolls its subaccounts up into their parent — MNE-001-050');
+    it('the trial balance by --level rolls its subaccounts up into their parent — MNE-001-050', () => {
+      type TbRow = { account_code: string; debit_total: string; credit_total: string; ending_balance: string };
+      const detail = rowsOf<TbRow>(ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--json']));
+      const leveled = ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--level', '3', '--json']);
+      expect(leveled.err).not.toContain('OUT OF BALANCE');
+      const tb = rowsOf<TbRow>(leveled);
+      const cash = tb.find((r) => r.account_code === '1110');
+
+      // By hand: every cash movement of the month sits in the subtree of 1110,
+      // whichever of its accounts it landed on (MNE-001-039). Debits: the
+      // 100,000 opening and the 5,800 receipt; credits: the 36,000 computers
+      // and the 5,800 payment.
+      expect(money(cash?.debit_total)).toBe('105800.00');
+      expect(money(cash?.credit_total)).toBe('41800.00');
+      expect(money(cash?.ending_balance)).toBe(ENDING['1111']);
+
+      // And against the detail balanza: 1110 is itself plus 1111, 1112 and
+      // 1115, its children in the seeded chart (issue #100: 1110 = 1111 + 1112).
+      for (const col of ['debit_total', 'credit_total', 'ending_balance'] as const) {
+        const subtree = detail
+          .filter((r) => ['1110', '1111', '1112', '1115'].includes(r.account_code))
+          .reduce((s, r) => s.plus(r[col]), new Decimal(0));
+        expect(money(cash?.[col]), `1110 ${col}`).toBe(subtree.toFixed(2));
+      }
+      // 1000 → 1100 → 1110 → 1111: the leaves are level 4, so the cut hides
+      // them and their money is printed once, inside 1110.
+      expect(tb.some((r) => ['1111', '1112', '1115'].includes(r.account_code))).toBe(false);
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('8 · monthly obligations', () => {
