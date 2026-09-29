@@ -323,6 +323,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // case and the options live in withholding-law.ts, and the close checklist
     // lists what was recorded as issued (period-close.ts).
     key: 'fees_without_withholding',
+    textKey: 'fees_without_withholding',
     category: 'fiscal',
     question:
       'An individual (regime 612) bills your company for professional services and the CFDI declares no ISR withheld. What happens?',
