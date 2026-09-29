@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 2,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 1234
+    "help-descriptions-without-key": 1246
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1473,6 +1473,7 @@
       "doctor": 2,
       "drafts": 2,
       "e-accounting": 20,
+      "employee": 12,
       "entity": 24,
       "entry": 50,
       "fx": 26,

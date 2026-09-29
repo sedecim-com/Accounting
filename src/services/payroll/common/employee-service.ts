@@ -1,8 +1,14 @@
 import { v4 as uuidv4 } from 'uuid';
+import type pg from 'pg';
 import { query, withTransaction } from '../../../database/connection.js';
 import { encrypt } from '../../../utils/encryption.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
-import { condicionDeAlcance, requireByIdInScope, type Scope } from '../../../database/scope.js';
+import {
+  condicionDeAlcance,
+  entityScope,
+  requireByIdInScope,
+  type Scope,
+} from '../../../database/scope.js';
 
 // ============================================================
 // EMPLOYEE SERVICE
@@ -53,19 +59,47 @@ export interface EmployeeInput {
   created_by: string;
 }
 
-export async function createEmployee(input: EmployeeInput): Promise<string> {
+/**
+ * Registers one employee and seeds the initial compensation history row.
+ *
+ * Both inserts run in ONE transaction: they used to be two autocommitted
+ * statements, so a failure on the second left an employee with no salary
+ * history. Passing `opts.client` runs them on the caller's transaction, which
+ * is how `employee create --dry-run` rehearses the real path and rolls it back.
+ *
+ * NOTE: a pay schedule is looked up inside the employee's own entity. The FK
+ * only proves the schedule exists somewhere, so a sister company's schedule
+ * was accepted and the employee then joined the other entity's pay periods.
+ * Out of scope answers 404, like every other scoped read.
+ */
+export async function createEmployee(
+  input: EmployeeInput,
+  opts: { client?: pg.PoolClient } = {}
+): Promise<string> {
   if (input.country_code === 'MX' && !input.rfc) {
     throw new ValidationError('RFC is required for MX employees');
   }
   if (input.country_code === 'US' && !input.ssn) {
     throw new ValidationError('SSN is required for US employees');
   }
+  return opts.client
+    ? insertEmployee(opts.client, input)
+    : withTransaction((client) => insertEmployee(client, input));
+}
+
+async function insertEmployee(client: pg.PoolClient, input: EmployeeInput): Promise<string> {
+  if (input.pay_schedule_id) {
+    await requireByIdInScope('pay_schedules', input.pay_schedule_id, entityScope(input.tenant_id, input.entity_id), {
+      client,
+      columns: 'id',
+    });
+  }
 
   const id = uuidv4();
   const ssnEncrypted = input.ssn ? encrypt(input.ssn) : null;
   const bankEncrypted = input.bank_account ? encrypt(JSON.stringify(input.bank_account)) : null;
 
-  await query(
+  await client.query(
     `INSERT INTO employees (
       id, tenant_id, entity_id, employee_number,
       first_name, last_name, second_last_name, email, phone,
@@ -100,7 +134,7 @@ export async function createEmployee(input: EmployeeInput): Promise<string> {
   );
 
   // Initial compensation history
-  await query(
+  await client.query(
     `INSERT INTO employee_compensation_history (employee_id, effective_date, salary_type, annual_salary, hourly_rate, reason, changed_by)
      VALUES ($1, $2, $3, $4, $5, 'initial', $6)`,
     [id, input.hire_date, input.salary_type || 'salary', input.annual_salary || null, input.hourly_rate || null, input.created_by]
@@ -124,11 +158,13 @@ export async function createEmployee(input: EmployeeInput): Promise<string> {
 export async function getEmployee(id: string, scope: Scope): Promise<Record<string, unknown>> {
   // `employees` lleva `entity_id` propio, así que el ayudante de la casa
   // deduce la columna del esquema y mete el filtro en la misma sentencia.
+  // NOTE: a reference that is not a UUID is the employee number printed on
+  // the payslip, which is what `employee show` is given at the terminal.
   return await requireByIdInScope(
     'employees',
     id,
     scope,
-    { columns: `id, tenant_id, entity_id, employee_number,
+    { idColumn: UUID_RE.test(id) ? 'id' : 'employee_number', columns: `id, tenant_id, entity_id, employee_number,
             first_name, last_name, second_last_name, email, phone,
             hire_date, termination_date, status, country_code,
             rfc, curp, nss, sbc, tipo_regimen_sat, riesgo_puesto,
@@ -139,9 +175,11 @@ export async function getEmployee(id: string, scope: Scope): Promise<Record<stri
   );
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function listEmployees(
   tenantId: string,
-  options: { entity_id?: string; status?: string; country?: string } = {}
+  options: { entity_id?: string; status?: string; country?: string; limit?: number; offset?: number } = {}
 ): Promise<Record<string, unknown>[]> {
   const params: unknown[] = [tenantId];
   let where = 'WHERE tenant_id = $1';
@@ -154,8 +192,9 @@ export async function listEmployees(
             status, country_code, salary_type, annual_salary, hourly_rate,
             currency_code, pay_schedule_id, work_state
      FROM employees ${where}
-     ORDER BY last_name, first_name`,
-    params
+     ORDER BY last_name, first_name, employee_number
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, options.limit ?? null, options.offset ?? 0]
   );
   return result.rows;
 }

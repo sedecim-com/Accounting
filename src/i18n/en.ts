@@ -737,11 +737,14 @@ export const EN = {
     'Dry run: it really was signed, and then rolled back. The hash is the one that would remain.',
 
   'bank.reconciliation.reopen.title': 'WHAT IS ABOUT TO BE REOPENED',
-  'bank.reconciliation.reopen.transition': 'session {session} · {from} → {to} · approved → in_progress',
+  'bank.reconciliation.reopen.transition': 'session {session} · {from} → {to} · {previous} → in_progress',
+  'bank.reconciliation.reopen.reversal':
+    'entry {entry} reversed by {reversal} (never deleted); its adjustment is a pending draft again',
   'bank.reconciliation.reopen.withdrawn':
     'signature withdrawn: {by} on {on} (the audit trail keeps it with its snapshot)',
   'bank.reconciliation.reopen.confirm':
-    'You are about to REOPEN session {session} and withdraw its signature {hash}… ' +
+    'You are about to REOPEN session {session} and withdraw its signature {hash}…' +
+    '{reversals, plural, =0 {} one { It reverses # posted entry.} other { It reverses # posted entries.}} ' +
     'Continue?',
   'bank.reconciliation.reopen.already_reopened': 'session {session} already reopened',
   'bank.reconciliation.reopen.summary': '· {status} · signature withdrawn',
@@ -811,15 +814,16 @@ export const EN = {
   'bank.fee.post.totals': 'totals: charge {charge} · expense {expense} · VAT {vat}',
   'bank.fee.post.confirm':
     'You are about to POST {count, plural, one {# fee} other {# fees}} from {from} to {to} on ' +
-    'account {account}, for {total} (VAT {vat} to pending-creditable). The ledger is immutable: ' +
-    'this is only corrected by reversal. Continue?',
+    'account {account}, for {total} (VAT {vat}; {released} moves to creditable). The ledger is ' +
+    'immutable: this is only corrected by reversal. Continue?',
   'bank.fee.post.fees': '{count, plural, one {# fee} other {# fees}}',
   'bank.fee.post.summary':
     '· {posted, plural, one {# posted} other {# posted}} · ' +
     '{skipped, plural, one {# skipped} other {# skipped}} · charge {charge} · VAT {vat}',
-  'bank.fee.post.vat_pending_note':
-    'The VAT stays pending-creditable: it is credited with `bank fee apply` when the bank’s CFDI ' +
-    'arrives, not here.',
+  'bank.fee.post.vat_release_ref': 'fee VAT to creditable · entry {entry}',
+  'bank.fee.post.vat_released_note':
+    'The fees’ VAT ({vat}) moved from pending-creditable to creditable in the month of the ' +
+    'charge. Keep the bank’s CFDI: without it the credit does not stand.',
   'bank.interest.post.title': 'INTEREST',
   'bank.interest.post.withholding': 'withholding {rate}',
   'bank.interest.post.nothing_to_post': 'no credit to post',
