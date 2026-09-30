@@ -252,7 +252,10 @@ describe('MNE-001-083 · closing fx revalue', () => {
   });
 
   it('an entity whose functional currency is not MXN is refused (#124)', async () => {
-    await query(`UPDATE legal_entities SET functional_currency = 'USD' WHERE id = $1`, [f.entityId]);
+    // EUR, not USD: its USD balances are then foreign to it (MNE-001-112 reads
+    // against the entity's own functional currency, and a line tagged with it
+    // is not a foreign balance).
+    await query(`UPDATE legal_entities SET functional_currency = 'EUR' WHERE id = $1`, [f.entityId]);
     try {
       await expect(revalueForeignBalances(ctx(), f.periodos[9], f.userId, { dryRun: true })).rejects.toMatchObject({
         code: 'FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED',
