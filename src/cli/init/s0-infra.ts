@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { checkDatabase, checkMigrations, checkEncryptionKey } from '../../ai/doctor-service.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import { query, enterTenant, currentTenant } from '../../database/connection.js';
+import { findEnvFile, userEnvPath } from '../../config/env-file.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -43,8 +44,15 @@ export function readEnvVar(envPath: string, key: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+/** The `.env` in use (./.env, else ~/.mnemosine/.env); ./.env when none exists yet. */
+export function activeEnvPath(cwd: string, home?: string): string {
+  return findEnvFile(cwd, home) ?? path.join(cwd, '.env');
+}
+
 export interface InfraDeps {
   cwd?: string;
+  /** Home directory for ~/.mnemosine/.env; default os.homedir(). Injectable in tests. */
+  home?: string;
   /** Injectable in tests so real migrations do not run. */
   runMigrations?: () => void;
   randomKey?: () => string;
@@ -60,8 +68,31 @@ export class InfraSection implements SetupSection {
   private get cwd(): string {
     return this.deps.cwd ?? process.cwd();
   }
+  private chosenEnvPath?: string;
   private get envPath(): string {
-    return path.join(this.cwd, '.env');
+    return this.chosenEnvPath ?? activeEnvPath(this.cwd, this.deps.home);
+  }
+
+  /**
+   * Decides, out loud, where a NEW .env goes. The .env holds the encryption key
+   * and the database URL, so creating it in whatever directory the command
+   * happened to run from, unannounced, scatters secrets. An existing .env is
+   * never second-guessed. Without a terminal there is nobody to ask: a
+   * repository checkout (it ships .env.example) keeps ./.env, anything else
+   * uses the per-user directory.
+   */
+  private async chooseNewEnvPath(ctx: SectionContext): Promise<string> {
+    const local = path.join(this.cwd, '.env');
+    const userFile = userEnvPath(this.deps.home);
+    const inCheckout = fs.existsSync(path.join(this.cwd, '.env.example'));
+    const interactive = ctx.rl !== null;
+    const useLocal = interactive
+      ? await ctx.confirm(`  No .env found. Create it here (${local})? No = ${userFile}`, true)
+      : inCheckout;
+    const target = useLocal ? local : userFile;
+    ctx.print(`  .env location: ${target}${interactive ? '' : ' (no terminal: chosen without asking)'}`);
+    if (!useLocal) fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    return target;
   }
 
   async status(): Promise<SectionStatus> {
@@ -137,15 +168,16 @@ export class InfraSection implements SetupSection {
 
   async configure(ctx: SectionContext): Promise<void> {
     // 1. .env from the example if it does not exist
-    if (!fs.existsSync(this.envPath)) {
+    if (!findEnvFile(this.cwd, this.deps.home)) {
+      this.chosenEnvPath = await this.chooseNewEnvPath(ctx);
       const example = path.join(this.cwd, '.env.example');
       if (fs.existsSync(example)) {
         fs.copyFileSync(example, this.envPath);
         fs.chmodSync(this.envPath, 0o600);
-        ctx.print('  Created .env from .env.example');
+        ctx.print(`  Created ${this.envPath} from .env.example`);
       } else {
         fs.writeFileSync(this.envPath, '', { mode: 0o600 });
-        ctx.print('  Created an empty .env');
+        ctx.print(`  Created an empty ${this.envPath}`);
       }
     }
 

@@ -1,11 +1,10 @@
-import path from 'node:path';
 import { query, enterTenant, currentTenant } from '../../database/connection.js';
 import { checkEntities } from '../../ai/doctor-service.js';
 import { ensureEntityAccounting } from '../../services/accounting/entity-accounting.js';
 import { createEntity as createEntityService } from '../../services/entity/entity-service.js';
 import { ensureFiscalYear } from '../../services/accounting/fiscal-calendar-service.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
-import { upsertEnvVar } from './s0-infra.js';
+import { activeEnvPath, upsertEnvVar } from './s0-infra.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -31,6 +30,8 @@ const FISCAL_YEAR: CheckIdentity = { id: 'open-fiscal-periods', name: 'Fiscal ye
 
 export interface IdentidadDeps {
   cwd?: string;
+  /** Home directory for ~/.mnemosine/.env; default os.homedir(). */
+  home?: string;
 }
 
 export class IdentidadSection implements SetupSection {
@@ -125,11 +126,11 @@ export class IdentidadSection implements SetupSection {
 
   /** Pins the tenant in .env and in the process: RLS scopes from startup. */
   private persistTenant(tenantId: string, ctx: SectionContext): void {
-    const envPath = path.join(this.deps.cwd ?? process.cwd(), '.env');
+    const envPath = activeEnvPath(this.deps.cwd ?? process.cwd(), this.deps.home);
     upsertEnvVar(envPath, 'MNEMOSINE_TENANT', tenantId);
     process.env.MNEMOSINE_TENANT = tenantId;
     enterTenant(tenantId);
-    ctx.print(`  ✔ Tenant pinned in .env (RLS isolation active)`);
+    ctx.print(`  ✔ Tenant pinned in ${envPath} (RLS isolation active)`);
   }
 
   /**

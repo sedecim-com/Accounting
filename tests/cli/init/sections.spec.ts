@@ -77,6 +77,8 @@ beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'init-'));
   process.env.ENCRYPTION_KEY = 'a'.repeat(64);
   delete process.env.MNEMOSINE_TENANT;
+  // Hermetic: a section that falls back to ~/.mnemosine/.env must never touch the real home.
+  process.env.HOME = tmp;
 });
 afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -112,7 +114,8 @@ describe('S0 · Infrastructure', () => {
   it('generates a dedicated ENCRYPTION_KEY when the example one is in use', async () => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     mockQuery.mockResolvedValue({ rows: [{ v: 'PostgreSQL 15' }] });
-    const s = new InfraSection({ cwd: tmp, randomKey: () => 'b'.repeat(64) });
+    fs.writeFileSync(path.join(tmp, '.env'), '');
+    const s = new InfraSection({ cwd: tmp, home: tmp, randomKey: () => 'b'.repeat(64) });
     await s.configure(makeCtx());
     expect(readEnvVar(path.join(tmp, '.env'), 'ENCRYPTION_KEY')).toBe('b'.repeat(64));
     expect(process.env.ENCRYPTION_KEY).toBe('b'.repeat(64));
@@ -120,7 +123,8 @@ describe('S0 · Infrastructure', () => {
 
   it('does NOT regenerate the key if it is already a dedicated one', async () => {
     mockQuery.mockResolvedValue({ rows: [{ v: 'PostgreSQL 15' }] });
-    const s = new InfraSection({ cwd: tmp, randomKey: () => 'NUEVA' });
+    fs.writeFileSync(path.join(tmp, '.env'), '');
+    const s = new InfraSection({ cwd: tmp, home: tmp, randomKey: () => 'NUEVA' });
     await s.configure(makeCtx());
     expect(readEnvVar(path.join(tmp, '.env'), 'ENCRYPTION_KEY')).not.toBe('NUEVA');
   });
@@ -128,7 +132,8 @@ describe('S0 · Infrastructure', () => {
   it('without a database it does not try to migrate (it stops before)', async () => {
     mockQuery.mockRejectedValue(new Error('ECONNREFUSED'));
     const runMigrations = vi.fn();
-    const s = new InfraSection({ cwd: tmp, runMigrations });
+    fs.writeFileSync(path.join(tmp, '.env'), '');
+    const s = new InfraSection({ cwd: tmp, home: tmp, runMigrations });
     const ctx = makeCtx({ text: [null] });
     await s.configure(ctx);
     expect(runMigrations).not.toHaveBeenCalled();
@@ -149,6 +154,61 @@ describe('S0 · Infrastructure', () => {
     const s = new InfraSection({ cwd: tmp, runMigrations });
     await s.configure(makeCtx({ confirms: [true] }));
     expect(runMigrations).toHaveBeenCalledOnce();
+  });
+
+  describe('where a new .env goes', () => {
+    const envOf = (dir: string) => path.join(dir, '.mnemosine', '.env');
+    const cwdOnly = () => fs.readdirSync(tmp).filter((f) => f === '.env');
+    const interactive = (confirms: boolean[]) => ({ ...makeCtx({ confirms }), rl: {} as never });
+
+    beforeEach(() => {
+      process.env.ENCRYPTION_KEY = '0'.repeat(64);
+      mockQuery.mockResolvedValue({ rows: [{ v: 'PostgreSQL 15' }] });
+    });
+
+    it('without a terminal and outside a checkout it uses ~/.mnemosine/ and says so', async () => {
+      const cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+      const ctx = makeCtx();
+      await new InfraSection({ cwd, home: tmp, randomKey: () => 'c'.repeat(64) }).configure(ctx);
+      expect(readEnvVar(envOf(tmp), 'ENCRYPTION_KEY')).toBe('c'.repeat(64));
+      expect(fs.existsSync(path.join(cwd, '.env'))).toBe(false);
+      expect(ctx.lines.join('\n')).toContain(envOf(tmp));
+      expect(fs.statSync(envOf(tmp)).mode & 0o777).toBe(0o600);
+    });
+
+    it('without a terminal inside a checkout (.env.example) keeps ./.env, announced', async () => {
+      const cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+      fs.writeFileSync(path.join(cwd, '.env.example'), 'ENCRYPTION_KEY=' + '0'.repeat(64) + '\n');
+      const ctx = makeCtx();
+      await new InfraSection({ cwd, home: tmp, randomKey: () => 'c'.repeat(64) }).configure(ctx);
+      expect(readEnvVar(path.join(cwd, '.env'), 'ENCRYPTION_KEY')).toBe('c'.repeat(64));
+      expect(ctx.lines.join('\n')).toContain(path.join(cwd, '.env'));
+    });
+
+    it('with a terminal it asks, and answering no sends the file to ~/.mnemosine/', async () => {
+      const cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+      await new InfraSection({ cwd, home: tmp, randomKey: () => 'c'.repeat(64) }).configure(interactive([false]));
+      expect(fs.existsSync(envOf(tmp))).toBe(true);
+      expect(fs.existsSync(path.join(cwd, '.env'))).toBe(false);
+    });
+
+    it('with a terminal answering yes writes ./.env', async () => {
+      const cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+      await new InfraSection({ cwd, home: tmp, randomKey: () => 'c'.repeat(64) }).configure(interactive([true]));
+      expect(fs.existsSync(path.join(cwd, '.env'))).toBe(true);
+      expect(fs.existsSync(envOf(tmp))).toBe(false);
+    });
+
+    it('an existing ~/.mnemosine/.env is reused without asking or creating another', async () => {
+      const cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+      fs.mkdirSync(path.dirname(envOf(tmp)), { recursive: true });
+      fs.writeFileSync(envOf(tmp), '');
+      const ctx = makeCtx();
+      await new InfraSection({ cwd, home: tmp, randomKey: () => 'c'.repeat(64) }).configure(ctx);
+      expect(readEnvVar(envOf(tmp), 'ENCRYPTION_KEY')).toBe('c'.repeat(64));
+      expect(fs.existsSync(path.join(cwd, '.env'))).toBe(false);
+      expect(cwdOnly()).toEqual([]);
+    });
   });
 
   it('status reflects the worst check', async () => {
