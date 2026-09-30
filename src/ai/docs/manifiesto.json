@@ -108,7 +108,7 @@
   },
   "hashes": {
     "src/services/accounting/posting.ts": "4ec9db45ea0b481871c25544371062bf771fea67",
-    "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
+    "src/services/accounting/validation.ts": "e4208d85f2037fdca382e25db68be452c03fac18",
     "src/services/accounting/fiscal-calendar-service.ts": "d088bc89f3f66fb4d7abac0743d214c2c8125fa7",
     "src/cli/entry-command.ts": "d56c3d61ddb1d8cf2b0d912ca919b8fde1cf3c6c",
     "src/services/accounting/iva-cash-basis.ts": "8443932a50eb977fd62b05b6de7d0213f9835638",

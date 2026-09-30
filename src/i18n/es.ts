@@ -339,7 +339,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.prepaid_amortization_convention.impact':
     'Fija cada mes del calendario. Una póliza de seguro del 20 de marzo al 19 de marzo se devenga en 12 meses con una convención y en 13 con la otra, y el último mes del ejercicio cambia.',
   'policy.prepaid_amortization_convention.rationale':
-    'Es lo que de verdad dice el postulado de devengación de la NIF A-2 —el gasto pertenece al periodo que consumió el servicio— y es la única convención que mantiene el calendario atado a las fechas del contrato y no al calendario. Los despachos que prefieren meses completos por sencillez pueden decirlo aquí, pero el valor por omisión debe ser el correcto y no el fácil.',
+    'Es lo que de verdad dice el postulado de devengación contable (NIF A-1, cap. 20) —el gasto pertenece al periodo que consumió el servicio— y es la única convención que mantiene el calendario atado a las fechas del contrato y no al calendario. Los despachos que prefieren meses completos por sencillez pueden decirlo aquí, pero el valor por omisión debe ser el correcto y no el fácil.',
   'policy.prepaid_amortization_convention.why':
     'Tu seguro empieza el día 20, no el 1. Por días se reparte en trece meses de calendario y por meses completos en doce, así que la elección cambia qué mes carga el gasto y qué muestra el último mes del año.',
   'policy.prepaid_amortization_convention.what':
