@@ -1219,6 +1219,56 @@ export const EN = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'The daily amount first: monthly / 30.4 to the cent, then × the days of the period',
 
+  'policy.filing_rounding_to_pesos.question':
+    'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
+  'policy.filing_rounding_to_pesos.impact':
+    'It can move the IVA payable by a peso or two: adjusting every line and adding whole pesos is not the same as adding cents and adjusting the result.',
+  'policy.filing_rounding_to_pesos.rationale':
+    'CFF art. 20 adjusts the amounts of a return to whole pesos (cents 1 to 50 go down, 51 to 99 go up), after rounding the ledger\'s four decimals to the cent. Adjusting each line before it is added keeps every captured figure a whole peso, as the law asks of each amount. Unverified assumption: that the current Declaraciones y Pagos IVA form captures each line in pesos; if it captures only bases and computes the tax itself, neither option models it.',
+  'policy.filing_rounding_to_pesos.why':
+    'CFF art. 20 says the amounts of a return are adjusted to whole pesos, but not at which step of the calculation. Firms do it both ways, and the IVA payable they declare can differ by a peso or two.',
+  'policy.filing_rounding_to_pesos.what':
+    'The workpaper always shows two columns, the cents traceable to the ledger and the pesos to capture, and derives the IVA payable or in favor the way you choose here.',
+  'policy.filing_rounding_to_pesos.if_skipped':
+    'I adjust every line to pesos before adding them.',
+  'policy.filing_rounding_to_pesos.option.cada_renglon':
+    'Every line: each captured figure is adjusted to pesos and the arithmetic continues in whole pesos',
+  'policy.filing_rounding_to_pesos.option.solo_el_pago':
+    'Only the payment: the arithmetic runs in cents and only the result is adjusted to pesos',
+  'policy.overtime_isr_exemption.question':
+    'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
+  'policy.overtime_isr_exemption.impact':
+    'It moves the ISR withheld on every paycheck with overtime, and the exempt part the payroll CFDI declares. "exempt_by_law" exempts 50 % of the double-paid hours within the LFT weekly limit, up to 5 daily UMA of the payment date per week of the period; triple-paid hours go as an earning of their own and are taxed whole. "taxed_in_full" taxes all overtime.',
+  'policy.overtime_isr_exemption.rationale':
+    'LISR art. 93 fr. I exempts 50 % of overtime pay within the labour-law limit (LFT art. 66, dated by the reform of DOF 01-05-2026), up to 5 times the minimum wage (the UMA since DOF 27-01-2016) per week of service. Withholding on the exempt half over-withholds the worker every period. Taxing it whole is for a firm that cannot evidence the overtime was worked, where the SAT would reject the exemption.',
+  'policy.overtime_isr_exemption.why':
+    'The law exempts part of the overtime, but only overtime that was really worked and recorded. A firm with time records applies the exemption; one without them may prefer to withhold on all of it.',
+  'policy.overtime_isr_exemption.what':
+    'With "exempt_by_law" I split each overtime line into its exempt and taxable part and compute the ISR on the taxable one. Every overtime line must carry its `hours`: a line without them, or hours that, added to the other lines and runs of the same period, pass the LFT weekly limit, stop the run before any paycheck is written. With "taxed_in_full" the whole line is taxed and no hours are needed.',
+  'policy.overtime_isr_exemption.if_skipped':
+    'I apply the exemption of the law.',
+  'policy.overtime_isr_exemption.option.exempt_by_law':
+    'Exempt it as LISR art. 93 fr. I says: half, up to 5 UMA a week',
+  'policy.overtime_isr_exemption.option.taxed_in_full':
+    'Tax all overtime, with no exemption',
+
+  'policy.overtime_exempt_weeks.question':
+    'How many weeks of service does a pay period count for the overtime cap of LISR art. 93 fr. I (5 UMA per week)?',
+  'policy.overtime_exempt_weeks.impact':
+    'It moves the exempt overtime of every period that is not a whole number of weeks, and the LFT hours limit of that period: a quincena gets 5 × 15/7 UMA (1 256.89 from February 2026) with "calendar_days_over_seven", and 5 × 2 UMA (1 173.10) with "whole_weeks_of_period". A weekly payroll gets 5 UMA either way.',
+  'policy.overtime_exempt_weeks.rationale':
+    'Fraction I caps the exemption "por cada semana de servicios" and neither the LISR, its regulation nor the RMF says how a period that is not a whole number of weeks counts them. Days / 7 scales the weekly cap to the days of the period, the way the ISR tariff of each period is scaled to its days (Anexo 8 RMF: weekly, ten-day, fifteen-day and monthly tariffs). Whole weeks is the stricter reading of the words, and never exempts a part of a week: it withholds more. Please confirm this default.',
+  'policy.overtime_exempt_weeks.why':
+    'The law caps overtime per week, but most payrolls pay by quincena or month, and there are two honest ways to count the weeks in them.',
+  'policy.overtime_exempt_weeks.what':
+    'I multiply the 5 UMA cap and the LFT weekly hours by the weeks this answer gives: the period\'s days / 7, or the whole weeks in it.',
+  'policy.overtime_exempt_weeks.if_skipped':
+    'I count the period\'s days / 7.',
+  'policy.overtime_exempt_weeks.option.calendar_days_over_seven':
+    'The period\'s calendar days / 7: a quincena is 15/7 weeks',
+  'policy.overtime_exempt_weeks.option.whole_weeks_of_period':
+    'Only the whole weeks in the period: a quincena is 2 weeks, a month 4',
+
   'policy.isn_taxing_state.question':
     'For the state payroll tax (ISN), which state does a worker belong to: the one where the work is performed, or the one of the firm\'s tax domicile?',
   'policy.isn_taxing_state.impact':
@@ -2325,6 +2375,21 @@ export const EN = {
     '--post posts it directly',
   'help.pay_run.post.argument.id': 'approved pay run whose entry is built',
   'help.pay_run.post.option.post': 'post the entry to the ledger now instead of leaving a draft for review',
+  'help.payslip.description': 'Paychecks of a pay run: list them, show one with its lines',
+  'help.payslip.list.description': 'List the paychecks of a run with gross, net and stamp status; no tax identifiers',
+  'help.payslip.list.option.run': 'pay run whose paychecks are listed (required)',
+  'help.payslip.show.description':
+    'Show one paycheck: totals from gross to net and every earning, deduction and tax line',
+  'help.payslip.show.argument.id': 'paycheck id (from `payslip list --run`)',
+  'help.payslip.show.option.redacted': 'hide RFC, CURP and NSS entirely, for a shared screen',
+  'help.imss.description': 'IMSS obligations of the employer: the monthly SUA file',
+  'help.imss.sua.description': 'The SUA import file of a month',
+  'help.imss.sua.export.description':
+    'Build the SUA import file of a month from the approved paychecks, checked against the employer liability',
+  'help.imss.sua.export.option.period': 'month to export (YYYY-MM); the SUA is monthly',
+  'help.imss.sua.export.option.output': 'write the SUA file to this path (without it, the file goes to stdout)',
+  'help.imss.sua.export.option.yes': 'overwrite the file named by -o if it already exists',
+  'help.imss.sua.export.option.dry_run': 'build and check the file without writing it or recording the filing',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -2408,4 +2473,19 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+
+  // --- payslip · recibo and imss sua export (MNE-001-070) -----------------
+  'payslip.run_required': 'Missing --run: name the pay run whose paychecks you want (`pay-run create` printed its id).',
+  'imss.sua.period_invalid': '--period "{period}": use the month as YYYY-MM, for example 2026-07.',
+  'imss.sua.exists': '{path} already exists and is not overwritten without asking: use another path, or --yes.',
+  'imss.sua.tty':
+    'The SUA file carries the NSS, RFC and CURP of the whole roll and is not printed to a terminal: name a file with -o, or redirect stdout.',
+  'imss.sua.mismatch': 'The SUA file does not match the employer liability already recorded, so it is not delivered: {findings}',
+  'imss.sua.finding.no_liability':
+    'the file declares {file} of {concept} and no employer liability is recorded for the month to check it against: the figure comes from one road only',
+  'imss.sua.finding.mismatch': '{concept}: the file declares {file} and the recorded liability says {ledger}',
+  'imss.sua.dry_run': 'Dry run: the SUA file of {count} employee(s) was built and checked; no file was written and nothing was recorded.',
+  'payslip.status_invalid': '--status {status}: use one of {states}.',
+  'imss.sua.not_filed':
+    'SUA file of {count} employee(s) built and recorded as a draft filing. Nothing was sent: load it into the SUA and pay.',
 } as const;

@@ -1191,6 +1191,56 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'Primero el importe diario: mensual / 30.4 al centavo, luego × los días del periodo',
 
+  'policy.filing_rounding_to_pesos.question':
+    'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
+  'policy.filing_rounding_to_pesos.impact':
+    'Puede mover el IVA a pagar uno o dos pesos: ajustar cada renglón y sumar pesos no es lo mismo que sumar centavos y ajustar el resultado.',
+  'policy.filing_rounding_to_pesos.rationale':
+    'El art. 20 del CFF ajusta a pesos las cantidades de una declaración (de 1 a 50 centavos a la unidad anterior, de 51 a 99 a la siguiente), después de redondear al centavo los cuatro decimales del mayor. Ajustar cada renglón antes de sumarlo deja en pesos cada cifra capturada, como la ley pide de cada cantidad. Premisa sin verificar: que el formulario vigente de IVA en Declaraciones y Pagos capture cada renglón en pesos; si captura sólo las bases y calcula él el impuesto, ninguna de las dos opciones lo modela.',
+  'policy.filing_rounding_to_pesos.why':
+    'El art. 20 del CFF dice que las cantidades de una declaración se ajustan a pesos, pero no en qué paso del cálculo. Los despachos lo hacen de las dos maneras, y el IVA a pagar que declaran puede diferir uno o dos pesos.',
+  'policy.filing_rounding_to_pesos.what':
+    'El papel de trabajo muestra siempre dos columnas, los centavos rastreables al mayor y los pesos a capturar, y obtiene el IVA a pagar o a favor como elijas aquí.',
+  'policy.filing_rounding_to_pesos.if_skipped':
+    'Ajusto cada renglón a pesos antes de sumarlo.',
+  'policy.filing_rounding_to_pesos.option.cada_renglon':
+    'Cada renglón: cada cifra capturada se ajusta a pesos y el cálculo sigue en pesos enteros',
+  'policy.filing_rounding_to_pesos.option.solo_el_pago':
+    'Sólo el pago: el cálculo corre en centavos y sólo el resultado se ajusta a pesos',
+  'policy.overtime_isr_exemption.question':
+    '¿Aplicas a las horas extra que pagas la exención de ISR del art. 93 fr. I de la LISR?',
+  'policy.overtime_isr_exemption.impact':
+    'Mueve el ISR retenido en cada recibo con horas extra, y la parte exenta que declara el CFDI de nómina. "exempt_by_law" exenta el 50 % de las horas dobles dentro del límite semanal de la LFT, hasta 5 UMA diarias de la fecha de pago por cada semana del periodo; las horas triples van como una percepción aparte y gravan completas. "taxed_in_full" grava todas las horas extra.',
+  'policy.overtime_isr_exemption.rationale':
+    'El art. 93 fr. I de la LISR exenta el 50 % del tiempo extraordinario dentro del límite de la ley laboral (art. 66 de la LFT, fechado por la reforma del DOF 01-05-2026), hasta 5 veces el salario mínimo (la UMA desde el DOF 27-01-2016) por cada semana de servicios. Retener sobre la mitad exenta le retiene de más al trabajador cada periodo. Gravarlas completas es para un despacho que no puede acreditar que las horas se trabajaron, donde el SAT rechazaría la exención.',
+  'policy.overtime_isr_exemption.why':
+    'La ley exenta una parte de las horas extra, pero sólo de las que de verdad se trabajaron y se registraron. Un despacho con control de asistencia aplica la exención; uno sin él puede preferir retener sobre todas.',
+  'policy.overtime_isr_exemption.what':
+    'Con "exempt_by_law" separo cada renglón de horas extra en su parte exenta y su parte gravada y calculo el ISR sobre la gravada. Cada renglón de horas extra debe traer sus `hours`: un renglón sin ellas, o unas horas que, sumadas a los demás renglones y corridas del mismo periodo, pasan el límite semanal de la LFT, detienen la corrida antes de escribir ningún recibo. Con "taxed_in_full" el renglón entero grava y no hacen falta las horas.',
+  'policy.overtime_isr_exemption.if_skipped':
+    'Aplico la exención de la ley.',
+  'policy.overtime_isr_exemption.option.exempt_by_law':
+    'Exentarlas como dice el art. 93 fr. I de la LISR: la mitad, hasta 5 UMA por semana',
+  'policy.overtime_isr_exemption.option.taxed_in_full':
+    'Gravar todas las horas extra, sin exención',
+
+  'policy.overtime_exempt_weeks.question':
+    '¿Cuántas semanas de servicios cuenta un periodo de pago para el tope de horas extra del art. 93 fr. I de la LISR (5 UMA por semana)?',
+  'policy.overtime_exempt_weeks.impact':
+    'Mueve la parte exenta de las horas extra de cada periodo que no es un número entero de semanas, y el límite de horas de la LFT de ese periodo: una quincena recibe 5 × 15/7 UMA (1 256.89 desde febrero de 2026) con "calendar_days_over_seven", y 5 × 2 UMA (1 173.10) con "whole_weeks_of_period". Una nómina semanal recibe 5 UMA en ambos casos.',
+  'policy.overtime_exempt_weeks.rationale':
+    'La fracción I topa la exención "por cada semana de servicios" y ni la LISR, ni su reglamento, ni la RMF dicen cómo las cuenta un periodo que no es un número entero de semanas. Días / 7 escala el tope semanal a los días del periodo, como la tarifa del ISR de cada periodo se escala a sus días (Anexo 8 de la RMF: tarifas semanal, decenal, quincenal y mensual). Semanas completas es la lectura más estricta del texto y nunca exenta una fracción de semana: retiene más. Confirma este valor por omisión.',
+  'policy.overtime_exempt_weeks.why':
+    'La ley topa las horas extra por semana, pero la mayoría de las nóminas pagan por quincena o por mes, y hay dos formas honestas de contar las semanas que contienen.',
+  'policy.overtime_exempt_weeks.what':
+    'Multiplico el tope de 5 UMA y las horas semanales de la LFT por las semanas que da esta respuesta: los días del periodo / 7, o las semanas completas que contiene.',
+  'policy.overtime_exempt_weeks.if_skipped':
+    'Cuento los días del periodo / 7.',
+  'policy.overtime_exempt_weeks.option.calendar_days_over_seven':
+    'Los días de calendario del periodo / 7: una quincena son 15/7 semanas',
+  'policy.overtime_exempt_weeks.option.whole_weeks_of_period':
+    'Sólo las semanas completas del periodo: una quincena son 2 semanas, un mes 4',
+
   'policy.isn_taxing_state.question':
     'Para el impuesto sobre nómina (ISN), ¿a qué estado pertenece un trabajador: al estado donde se presta el trabajo, o al del domicilio fiscal del despacho?',
   'policy.isn_taxing_state.impact':
@@ -2179,6 +2229,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.pay_run.post.argument.id': 'corrida aprobada cuya póliza se arma',
   'help.pay_run.post.option.post':
     'contabiliza la póliza en el mayor de inmediato, en lugar de dejarla en borrador para revisión',
+  'help.payslip.description': 'Recibos de una corrida: listarlos y ver uno con sus renglones',
+  'help.payslip.list.description':
+    'Lista los recibos de una corrida con bruto, neto y estatus de timbre; sin identificadores fiscales',
+  'help.payslip.list.option.run': 'corrida cuyos recibos se listan (obligatoria)',
+  'help.payslip.show.description':
+    'Muestra un recibo: los totales de bruto a neto y cada percepción, deducción e impuesto',
+  'help.payslip.show.argument.id': 'id del recibo (de `payslip list --run`)',
+  'help.payslip.show.option.redacted': 'oculta por completo RFC, CURP y NSS, para una pantalla compartida',
+  'help.imss.description': 'Obligaciones del patrón ante el IMSS: el archivo mensual del SUA',
+  'help.imss.sua.description': 'El archivo de importación al SUA de un mes',
+  'help.imss.sua.export.description':
+    'Arma el archivo de importación al SUA de un mes con los recibos aprobados, cotejado contra el pasivo patronal',
+  'help.imss.sua.export.option.period': 'mes por exportar (AAAA-MM); el SUA es mensual',
+  'help.imss.sua.export.option.output': 'escribe el archivo del SUA en esta ruta (sin ella, el archivo sale por stdout)',
+  'help.imss.sua.export.option.yes': 'sobrescribe el archivo de -o si ya existe',
+  'help.imss.sua.export.option.dry_run': 'arma y coteja el archivo sin escribirlo ni registrar la declaración',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
@@ -2250,4 +2316,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+  'payslip.run_required': 'Falta --run: nombra la corrida cuyos recibos quieres (`pay-run create` imprimió su id).',
+  'imss.sua.period_invalid': '--period "{period}": usa el mes como AAAA-MM, por ejemplo 2026-07.',
+  'imss.sua.exists': '{path} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes.',
+  'imss.sua.tty':
+    'El archivo del SUA lleva el NSS, RFC y CURP de toda la plantilla y no se imprime en una terminal: nombra un archivo con -o, o redirige stdout.',
+  'imss.sua.mismatch': 'El archivo del SUA no cuadra con el pasivo patronal ya apuntado, así que no se entrega: {findings}',
+  'imss.sua.finding.no_liability':
+    'el archivo declara {file} de {concept} y no hay pasivo patronal apuntado en el mes contra el que cotejarlo: la cifra sale de un solo camino',
+  'imss.sua.finding.mismatch': '{concept}: el archivo declara {file} y el pasivo apuntado dice {ledger}',
+  'imss.sua.dry_run': 'Simulación: el archivo del SUA de {count} empleado(s) se armó y se cotejó; no se escribió archivo ni se registró nada.',
+  'payslip.status_invalid': '--status {status}: usa uno de {states}.',
+  'imss.sua.not_filed':
+    'Archivo del SUA de {count} empleado(s) armado y registrado como declaración en borrador. No se envió nada: cárgalo en el SUA y paga.',
 };
