@@ -457,6 +457,16 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // envío anterior está siendo sustituido. Una fecha equivocada aquí no
   // devuelve una lista mal filtrada: liga la complementaria al envío que no es.
   '--modified': null,
+  // MNE-001-054 · the three header fields of the Anexo 24 files delivered ON
+  // REQUEST (vouchers, voucher-folio and account auxiliaries): TipoSolicitud,
+  // NumOrden and NumTramite. They are data written into the file, not filters,
+  // and none has a default: saying a file answers an audit when it answers a
+  // refund is a false statement to the authority. `--validate-uuids` is the
+  // spelling the catalog row has named since before the leaf existed.
+  '--request-type': null,
+  '--order-number': null,
+  '--procedure-number': null,
+  '--validate-uuids': null,
   // F07c · `diot export --layout working-paper|sat`. La forma del ARCHIVO QUE
   // SE ENTREGA, que NO es `--format`.
   //
