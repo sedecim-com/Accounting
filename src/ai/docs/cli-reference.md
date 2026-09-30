@@ -6752,8 +6752,8 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
   --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
   -h, --help                               display help for command
 
