@@ -559,6 +559,9 @@ mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/service
 mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/database/migrations/164_overtime_is_exempt_by_art_93_fraction_one.sql	the whole overtime becomes exempt: the law gives half to workers above the minimum wage, and ISR is under-withheld
 mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/policy/pending-catalog.ts	the default stops being the law: a firm that never answers the panel over-withholds every paycheck with overtime
 mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	a line paying hours beyond the LFT limit is exempted by half, triple pay included, and ISR is under-withheld
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	the hours stop adding up across the lines of a paycheck: two lines of 9 h in one week are both half-exempted
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	an off-cycle run of the same period gets a fresh cap for the same weeks of service, and ISR is under-withheld
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	an overtime line with no hours is half-exempted with no check against the LFT limit: the check fails open
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre
@@ -1195,10 +1198,13 @@ anchor	src/plan/criteria/e4-1.ts	de: 'AND pe.earning_type = $6',
 anchor	src/plan/criteria/e4-1.ts	de: "'income_tax.exempt_cap.vacation_premium_uma', '2016-01-28', '15.0000', 'UMA',",
 anchor	src/plan/criteria/e4-1.ts	de: 'return { exempt: new Decimal(row.isr_exempt_amount), taxable: new Decimal(row.isr_taxable_amount) };',
 anchor	src/plan/criteria/e4-1.ts	de: "} else if (mx && e.earning_type === 'overtime') {",
-anchor	src/plan/criteria/e4-1.ts	de: 'room: new Decimal(cap.value).times(String(uma)).times(weeks).toDecimalPlaces(2),',
+anchor	src/plan/criteria/e4-1.ts	de: 'room: new Decimal(cap.value).times(String(uma)).times(weeks).toDecimalPlaces(2).minus(used.exempt),',
 anchor	src/plan/criteria/e4-1.ts	de: "'income_tax.exempt_share.overtime', '2014-01-01', '0.5000', 'rate',",
 anchor	src/plan/criteria/e4-1.ts	de: "defaultValue: 'exempt_by_law',",
-anchor	src/plan/criteria/e4-1.ts	de: 'e.hours !== undefined && law.maxHours.lessThan(e.hours)',
+anchor	src/plan/criteria/e4-1.ts	de: 'if (law.hoursLeft.isNegative()) {',
+anchor	src/plan/criteria/e4-1.ts	de: 'law.hoursLeft = law.hoursLeft.minus(hours);',
+anchor	src/plan/criteria/e4-1.ts	de: 'toDecimalPlaces(2).minus(used.exempt),',
+anchor	src/plan/criteria/e4-1.ts	de: "if (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0) {",
 anchor	src/plan/criteria/e4-2.ts	de: 'await getBalanceSheet(ctx.entityId',
 anchor	src/plan/criteria/e4-2.ts	de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
 anchor	src/plan/criteria/e4-2.ts	de: 'ending_balance: aEscala(',

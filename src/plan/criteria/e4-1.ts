@@ -2877,8 +2877,8 @@ export const E4_1: Criterio[] = [
       },
       {
         archivo: 'src/services/payroll/mx/isr-exemption.ts',
-        de: 'room: new Decimal(cap.value).times(String(uma)).times(weeks).toDecimalPlaces(2),',
-        a: 'room: new Decimal(cap.value).times(String(uma)).toDecimalPlaces(2),',
+        de: 'room: new Decimal(cap.value).times(String(uma)).times(weeks).toDecimalPlaces(2).minus(used.exempt),',
+        a: 'room: new Decimal(cap.value).times(String(uma)).toDecimalPlaces(2).minus(used.exempt),',
         porque: 'the 5 UMA stop being per week of service: a 15-day period gets the cap of one week and is over-withheld',
       },
       {
@@ -2895,9 +2895,27 @@ export const E4_1: Criterio[] = [
       },
       {
         archivo: 'src/services/payroll/mx/isr-exemption.ts',
-        de: 'e.hours !== undefined && law.maxHours.lessThan(e.hours)',
-        a: 'e.hours !== undefined && false',
+        de: 'if (law.hoursLeft.isNegative()) {',
+        a: 'if (false) {',
         porque: 'a line paying hours beyond the LFT limit is exempted by half, triple pay included, and ISR is under-withheld',
+      },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: 'law.hoursLeft = law.hoursLeft.minus(hours);',
+        a: 'law.hoursLeft = law.maxHours.minus(hours);',
+        porque: 'the hours stop adding up across the lines of a paycheck: two lines of 9 h in one week are both half-exempted',
+      },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: 'toDecimalPlaces(2).minus(used.exempt),',
+        a: 'toDecimalPlaces(2),',
+        porque: 'an off-cycle run of the same period gets a fresh cap for the same weeks of service, and ISR is under-withheld',
+      },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: "if (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0) {",
+        a: 'if (false) {',
+        porque: 'an overtime line with no hours is half-exempted with no check against the LFT limit: the check fails open',
       },
     ],
     evaluar: () => {
@@ -2909,12 +2927,21 @@ export const E4_1: Criterio[] = [
       if (!/\} else if \(mx && e\.earning_type === 'overtime'\) \{/.test(src)) {
         return falla('overtime has no branch of its own: it is taxed whole again (MNE-001-110)');
       }
-      if (!/room: new Decimal\(cap\.value\)\.times\(String\(uma\)\)\.times\(weeks\)\.toDecimalPlaces\(2\),/.test(src)) {
+      if (!/room: new Decimal\(cap\.value\)\.times\(String\(uma\)\)\.times\(weeks\)\.toDecimalPlaces\(2\)/.test(src)) {
         return falla('the overtime cap is not 5 UMA per week of the period');
       }
-      if (!/e\.hours !== undefined && law\.maxHours\.lessThan\(e\.hours\)/.test(src) ||
+      if (!/if \(law\.hoursLeft\.isNegative\(\)\) \{/.test(src) ||
           !/legalParameterAt\('MX', OVERTIME_WEEKLY_HOURS_KEY, mx\.payDate\)/.test(src)) {
         return falla('overtime beyond the dated LFT weekly limit is no longer refused');
+      }
+      if (!/law\.hoursLeft = law\.hoursLeft\.minus\(hours\);/.test(src)) {
+        return falla('the overtime hours of a paycheck no longer add up against the LFT limit');
+      }
+      if (!/if \(typeof hours !== 'number' \|\| !Number\.isFinite\(hours\) \|\| hours < 0\) \{/.test(src)) {
+        return falla('an overtime line without its hours is exempted with nothing checked');
+      }
+      if (!/toDecimalPlaces\(2\)\.minus\(used\.exempt\),/.test(src) || !/hoursLeft: maxHours\.minus\(used\.hours\),/.test(src)) {
+        return falla('other runs of the same pay period no longer use up the overtime cap and hours');
       }
       if (!/getPolicy\(\{ tenantId: mx\.tenantId, entityId: mx\.entityId \}, OVERTIME_POLICY_KEY\)/.test(src)) {
         return falla('the overtime_isr_exemption key has no reader: the panel decides nothing');

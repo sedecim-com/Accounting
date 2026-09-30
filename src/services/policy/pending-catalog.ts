@@ -2019,9 +2019,34 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'time records applies the exemption; one without them may prefer to withhold on all of it.',
     whatIDo:
       'With "exempt_by_law" I split each overtime line into its exempt and taxable part and compute the ISR on the ' +
-      'taxable one; a line that pays more hours than the LFT weekly limit stops the paycheck. With "taxed_in_full" ' +
-      'the whole line is taxed.',
+      'taxable one. Every overtime line must carry its `hours`: a line without them, or hours that, added to the ' +
+      'other lines and runs of the same period, pass the LFT weekly limit, stop the run before any paycheck is ' +
+      'written. With "taxed_in_full" the whole line is taxed and no hours are needed.',
     ifSkipped: 'I apply the exemption of the law.',
+    priority: 42,
+  },
+  // #297 · MNE-001-110 review. "Por cada semana de servicios" has two honest
+  // readings for a period that is not a whole number of weeks (invariant 6).
+  // Reader: `weeksOfService` in payroll/mx/isr-exemption.ts.
+  {
+    key: 'overtime_exempt_weeks',
+    textKey: 'overtime_exempt_weeks',
+    category: 'fiscal',
+    question: 'How many weeks of service does a pay period count for the overtime cap of LISR art. 93 fr. I (5 UMA per week)?',
+    impact:
+      'It moves the exempt overtime of every period that is not a whole number of weeks, and the LFT hours limit of that period: a quincena gets 5 × 15/7 UMA (1 256.89 from February 2026) with "calendar_days_over_seven", and 5 × 2 UMA (1 173.10) with "whole_weeks_of_period". A weekly payroll gets 5 UMA either way.',
+    options: [
+      { value: 'calendar_days_over_seven', label: 'The period\'s calendar days / 7: a quincena is 15/7 weeks' },
+      { value: 'whole_weeks_of_period', label: 'Only the whole weeks in the period: a quincena is 2 weeks, a month 4' },
+    ],
+    defaultValue: 'calendar_days_over_seven',
+    defaultRationale:
+      'Fraction I caps the exemption "por cada semana de servicios" and neither the LISR, its regulation nor the RMF says how a period that is not a whole number of weeks counts them. Days / 7 scales the weekly cap to the days of the period, the way the ISR tariff of each period is scaled to its days (Anexo 8 RMF: weekly, ten-day, fifteen-day and monthly tariffs). Whole weeks is the stricter reading of the words, and never exempts a part of a week: it withholds more. Please confirm this default.',
+    whyAsking:
+      'The law caps overtime per week, but most payrolls pay by quincena or month, and there are two honest ways to count the weeks in them.',
+    whatIDo:
+      'I multiply the 5 UMA cap and the LFT weekly hours by the weeks this answer gives: the period\'s days / 7, or the whole weeks in it.',
+    ifSkipped: 'I count the period\'s days / 7.',
     priority: 42,
   },
   {

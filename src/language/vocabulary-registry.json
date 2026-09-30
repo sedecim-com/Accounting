@@ -5845,6 +5845,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: all overtime is taxed, with no exemption."
+    },
+    {
+      "class": "policy-key",
+      "where": "overtime_exempt_weeks",
+      "es": "overtime_exempt_weeks",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-110): how a pay period counts the weeks of service of the LISR art. 93 fr. I overtime cap."
+    },
+    {
+      "class": "policy-value",
+      "where": "overtime_exempt_weeks/calendar_days_over_seven",
+      "es": "calendar_days_over_seven",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the period's calendar days / 7."
+    },
+    {
+      "class": "policy-value",
+      "where": "overtime_exempt_weeks/whole_weeks_of_period",
+      "es": "whole_weeks_of_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: only the whole weeks in the period."
     }
   ]
 }

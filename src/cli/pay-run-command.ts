@@ -87,8 +87,15 @@ interface CommonOpts {
   output?: string;
 }
 
+// `hours` is checked here like `amount`: an overtime line's hours are held
+// against the LFT limit (LISR art. 93 fr. I), and a `null` there used to reach
+// the Decimal arithmetic as a crash instead of a usage error.
 const earningSchema = z
-  .object({ earning_type: z.string().min(1), amount: z.number().finite() })
+  .object({
+    earning_type: z.string().min(1),
+    amount: z.number().finite(),
+    hours: z.number().finite().nonnegative().optional(),
+  })
   .passthrough();
 const deductionSchema = z
   .object({ deduction_type: z.string().min(1), is_pre_tax: z.boolean(), amount: z.number().finite() })
