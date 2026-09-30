@@ -141,7 +141,7 @@
     "src/services/integrations/index.ts": "dbc0e6ce18781390ac18dfab30d2f70576156225",
     "src/database/rls-policies.sql": "9d482ead1f8f0cda34aaae4684a724e9cdd04971",
     "src/services/fiscal-credentials/service.ts": "73621e7b394ab66de58dde768933998aff7506c1",
-    "src/services/reporting/report-service.ts": "aaa43a7cdf1d35f8fff3a3c311b77f9e2bcbde97",
+    "src/services/reporting/report-service.ts": "732ad8a697d443e95f07949a03fb43d401907913",
     "src/services/ar/invoice-service.ts": "61ac600186d7a3a5023f2e5a1889b55bb5521f07",
     "src/services/ar/customer-service.ts": "48789714b21f1cb384a82662eadf8415ac185e65",
     "src/services/ar/credit-note-service.ts": "02175b4cb65c6c9cc05eff4965c877eb3581dae1",
