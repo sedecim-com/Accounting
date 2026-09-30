@@ -353,3 +353,58 @@ describe('el cobro aterriza en la cuenta contable de SU banco', () => {
     expect(lineFor('acct:banco')!.debit_amount).toBe('1160.0000');
   });
 });
+
+// ============================================================
+// MNE-001-113 · THE CUSTOMER'S WITHHOLDING
+// ============================================================
+
+describe('the customer withholding closes the receivable on its own role accounts', () => {
+  it('application: DR the two withholding roles, CR cxc for cash plus withholding, VAT caused on all of it', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.parked = { 'inv-1': '160.0000' };
+    const { ivaPorFactura: released } = await postReceiptApplicationEntry(
+      fakeClient(),
+      payment(),
+      [aplicacion({ amount: '953.3333', withholdingIsr: '100.0000', withholdingIva: '106.6667' })],
+      USER
+    );
+
+    expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('953.3333');
+    expect(lineFor('acct:isr_retenido_a_favor')!.debit_amount).toBe('100.0000');
+    expect(lineFor('acct:iva_retenido_a_favor')!.debit_amount).toBe('106.6667');
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('1160.0000');
+    // The whole invoice is settled, so the whole parked VAT is caused.
+    expect(released.get('inv-1')).toBe('160.0000');
+  });
+
+  it('only the tax that was withheld gets a line', async () => {
+    await postReceiptApplicationEntry(
+      fakeClient(),
+      payment(),
+      [aplicacion({ cfdiUuid: null, withholdingIsr: '0', withholdingIva: '50.0000' })],
+      USER
+    );
+
+    expect(lineFor('acct:isr_retenido_a_favor')).toBeUndefined();
+    expect(lineFor('acct:iva_retenido_a_favor')!.debit_amount).toBe('50.0000');
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('630.0000');
+  });
+
+  it('unapplication: DR cxc for cash plus withholding, CR anticipo and the two withholding roles', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(),
+      payment(),
+      {
+        invoiceNumber: 'INV-001', amount: '953.3333', ivaReclass: '0', ivaEstimado: '0',
+        withholdingIsr: '100.0000', withholdingIva: '106.6667',
+      },
+      USER
+    );
+
+    expect(lineFor('acct:cxc')!.debit_amount).toBe('1160.0000');
+    expect(lineFor('acct:anticipo_clientes')!.credit_amount).toBe('953.3333');
+    expect(lineFor('acct:isr_retenido_a_favor')!.credit_amount).toBe('100.0000');
+    expect(lineFor('acct:iva_retenido_a_favor')!.credit_amount).toBe('106.6667');
+    expect(lineFor('acct:iva_retenido_a_favor')!.description).toMatch(/unapply/);
+  });
+});

@@ -94,7 +94,7 @@ export type TipoSolicitud = 'AF' | 'FC' | 'DE' | 'CO';
 export const TIPOS_DE_SOLICITUD: readonly TipoSolicitud[] = ['AF', 'FC', 'DE', 'CO'];
 
 /** Los dos que van con número de ORDEN; los otros dos, con número de TRÁMITE. */
-const CON_NUM_ORDEN: readonly TipoSolicitud[] = ['AF', 'FC'];
+export const CON_NUM_ORDEN: readonly TipoSolicitud[] = ['AF', 'FC'];
 
 export interface Solicitud {
   tipo: TipoSolicitud;

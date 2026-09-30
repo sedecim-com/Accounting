@@ -33,6 +33,7 @@ El contador del despacho, que opera el CLI, y el dueño o auditor del despacho, 
 | RF-11 | Completitud de CFDI | Must | Dado el censo del SAT del periodo (el ZIP o los metadatos que baja el despacho), cuando se concilia, entonces el despacho sabe el estado de cada CFDI del censo: falta traerlo, falta contabilizarlo o cuadra. Además, con la e.firma de la bóveda, el sistema descarga del SAT los XML y los metadatos del periodo y detecta las cancelaciones; esos paquetes alimentan el mismo censo (decisión del dueño del 2026-09-28, #312; #439, #440, #441). |
 | RF-12 | La superficie en español | Should | Dado un contador en `es-MX`, cuando lee el panel de políticas o la ayuda del CLI, entonces la lee en su idioma y por clave. |
 | RF-13 | Puesta en marcha sin fricción | Should | Dado un despacho nuevo, cuando se da de alta con sus usuarios sin TTY y sigue los manuales, entonces opera el mes sin ayuda del equipo. |
+| RF-14 | Lo que sigue al MVP | Could | Dada una issue abierta cuyo trabajo queda fuera del MVP, cuando se planea, entonces tiene tareas atómicas en la ola 4 del backlog, ligadas a su issue, y ninguna retrasa v1.0: el calendario resuelve primero las olas anteriores (revisión de las 105 issues, 2026-09-30). |
 
 ## 5. Requisitos no funcionales
 

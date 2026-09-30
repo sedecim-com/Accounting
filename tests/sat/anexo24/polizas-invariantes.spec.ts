@@ -84,12 +84,24 @@ describe('la póliza que mueve dinero y no dice por dónde', () => {
     expect(hs[0].detalle).toContain('VPMT-3');
   });
 
-  it('BLOQUEA, y el porqué está escrito en la cabecera del módulo', () => {
-    // No hay política en el panel para esto y este tramo no la añade: el
-    // defecto elegido es bloquear, porque las pólizas se entregan a
-    // requerimiento con el plazo corriendo y el rechazo lo gasta entero.
-    const hs = polizaConDineroSinRastro([{ numUnIdenPol: 'JE-1', motivo: 'x' }]);
+  it('BLOQUEA by default: the default of anexo24_voucher_money_without_trace is block', () => {
+    const hs = polizaConDineroSinRastro([{ numUnIdenPol: 'JE-1', motivo: 'x', withoutRegisteredPayment: true }]);
     expect(hs[0].severity).toBe('blocking');
+    expect(hs[0].detalle).toContain('anexo24_voucher_money_without_trace');
+  });
+
+  it('"warn" only warns for money with NO registered payment; a payment that lacks data still blocks', () => {
+    const hs = polizaConDineroSinRastro(
+      [
+        { numUnIdenPol: 'JE-FEE', motivo: 'source_type bank_reconciliation', withoutRegisteredPayment: true },
+        { numUnIdenPol: 'JE-PAY', motivo: 'el pago VPMT-3 no tiene cuenta destino capturada' },
+      ],
+      'warn'
+    );
+    expect(hs.map((h) => [h.referencia, h.severity])).toEqual([
+      ['JE-FEE', 'warning'],
+      ['JE-PAY', 'blocking'],
+    ]);
   });
 
   it('sin nada que denunciar, no denuncia', () => {
