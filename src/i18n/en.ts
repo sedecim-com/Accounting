@@ -1219,6 +1219,23 @@ export const EN = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'The daily amount first: monthly / 30.4 to the cent, then × the days of the period',
 
+  'policy.overtime_isr_exemption.question':
+    'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
+  'policy.overtime_isr_exemption.impact':
+    'It moves the ISR withheld on every paycheck with overtime, and the exempt part the payroll CFDI declares. "exempt_by_law" exempts 50 % of the double-paid hours within the LFT weekly limit, up to 5 daily UMA of the payment date per week of the period; triple-paid hours go as an earning of their own and are taxed whole. "taxed_in_full" taxes all overtime.',
+  'policy.overtime_isr_exemption.rationale':
+    'LISR art. 93 fr. I exempts 50 % of overtime pay within the labour-law limit (LFT art. 66, dated by the reform of DOF 01-05-2026), up to 5 times the minimum wage (the UMA since DOF 27-01-2016) per week of service. Withholding on the exempt half over-withholds the worker every period. Taxing it whole is for a firm that cannot evidence the overtime was worked, where the SAT would reject the exemption.',
+  'policy.overtime_isr_exemption.why':
+    'The law exempts part of the overtime, but only overtime that was really worked and recorded. A firm with time records applies the exemption; one without them may prefer to withhold on all of it.',
+  'policy.overtime_isr_exemption.what':
+    'With "exempt_by_law" I split each overtime line into its exempt and taxable part and compute the ISR on the taxable one; a line that pays more hours than the LFT weekly limit stops the paycheck. With "taxed_in_full" the whole line is taxed.',
+  'policy.overtime_isr_exemption.if_skipped':
+    'I apply the exemption of the law.',
+  'policy.overtime_isr_exemption.option.exempt_by_law':
+    'Exempt it as LISR art. 93 fr. I says: half, up to 5 UMA a week',
+  'policy.overtime_isr_exemption.option.taxed_in_full':
+    'Tax all overtime, with no exemption',
+
   'policy.isn_taxing_state.question':
     'For the state payroll tax (ISN), which state does a worker belong to: the one where the work is performed, or the one of the firm\'s tax domicile?',
   'policy.isn_taxing_state.impact':

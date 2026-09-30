@@ -1191,6 +1191,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'Primero el importe diario: mensual / 30.4 al centavo, luego × los días del periodo',
 
+  'policy.overtime_isr_exemption.question':
+    '¿Aplicas a las horas extra que pagas la exención de ISR del art. 93 fr. I de la LISR?',
+  'policy.overtime_isr_exemption.impact':
+    'Mueve el ISR retenido en cada recibo con horas extra, y la parte exenta que declara el CFDI de nómina. "exempt_by_law" exenta el 50 % de las horas dobles dentro del límite semanal de la LFT, hasta 5 UMA diarias de la fecha de pago por cada semana del periodo; las horas triples van como una percepción aparte y gravan completas. "taxed_in_full" grava todas las horas extra.',
+  'policy.overtime_isr_exemption.rationale':
+    'El art. 93 fr. I de la LISR exenta el 50 % del tiempo extraordinario dentro del límite de la ley laboral (art. 66 de la LFT, fechado por la reforma del DOF 01-05-2026), hasta 5 veces el salario mínimo (la UMA desde el DOF 27-01-2016) por cada semana de servicios. Retener sobre la mitad exenta le retiene de más al trabajador cada periodo. Gravarlas completas es para un despacho que no puede acreditar que las horas se trabajaron, donde el SAT rechazaría la exención.',
+  'policy.overtime_isr_exemption.why':
+    'La ley exenta una parte de las horas extra, pero sólo de las que de verdad se trabajaron y se registraron. Un despacho con control de asistencia aplica la exención; uno sin él puede preferir retener sobre todas.',
+  'policy.overtime_isr_exemption.what':
+    'Con "exempt_by_law" separo cada renglón de horas extra en su parte exenta y su parte gravada y calculo el ISR sobre la gravada; un renglón que paga más horas que el límite semanal de la LFT detiene el recibo. Con "taxed_in_full" el renglón entero grava.',
+  'policy.overtime_isr_exemption.if_skipped':
+    'Aplico la exención de la ley.',
+  'policy.overtime_isr_exemption.option.exempt_by_law':
+    'Exentarlas como dice el art. 93 fr. I de la LISR: la mitad, hasta 5 UMA por semana',
+  'policy.overtime_isr_exemption.option.taxed_in_full':
+    'Gravar todas las horas extra, sin exención',
+
   'policy.isn_taxing_state.question':
     'Para el impuesto sobre nómina (ISN), ¿a qué estado pertenece un trabajador: al estado donde se presta el trabajo, o al del domicilio fiscal del despacho?',
   'policy.isn_taxing_state.impact':
