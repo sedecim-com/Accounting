@@ -7,6 +7,7 @@ import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { attestEntryAsync } from '../services/accounting/posting.js';
 import { resolveBill } from '../services/ap/bill-service.js';
+import { resolverCuentaBancaria } from '../services/banking/bank-statement-service.js';
 import {
   recordVendorPayment,
   applyVendorPayment,
@@ -206,7 +207,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       .requiredOption('--amount <amount>', 'amount, in the document currency')
       .option('--date <date>', 'value date (YYYY-MM-DD); defaults to today')
       .option('--method <method>', 'cash, check, ach, wire, spei, credit_card or other', 'spei')
-      .option('--bank <account>', "bank account id; without it the entity's `banco` role is used")
+      .option('--bank <account>', "bank account name or id; without it the entity's `banco` role is used")
       .option('--json', 'JSON output');
 
   // EL RASTRO DE PAGO (F07d). Cuatro banderas que no cambian ni un asiento y
@@ -277,12 +278,17 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       }
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      // By name or id, scoped to the entity in the SQL (#327): a raw name used to
+      // reach the INSERT and surface Postgres' uuid syntax error. The name is
+      // echoed because a fragment may match an account the operator did not mean.
+      const bank = opts.bank ? await resolverCuentaBancaria(ctx.entityId, opts.bank) : null;
+      if (bank) process.stderr.write(deps.palette.dim(`Bank account: ${bank.account_name}\n`));
       const entrada: EntradaPago = {
         entityId: ctx.entityId,
         paymentAmount: opts.amount,
         paymentDate: opts.date ?? hoy(),
         paymentMethod: opts.method,
-        bankAccountId: opts.bank ?? null,
+        bankAccountId: bank?.id ?? null,
         memo: opts.memo ?? null,
         checkNumber: opts.checkNumber ?? null,
         cuentaDestino: opts.toAccount ?? null,
@@ -316,7 +322,9 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         moneda: target.currency_code,
         pregunta: (d) =>
           `Record ${opts.amount} ${target.currency_code} paid on ${target.bill_number} ` +
-          `(${d.saldoAnterior} → ${d.saldoNuevo}) in ${ctx.entityName}? This posts to the ledger.`,
+          `(${d.saldoAnterior} → ${d.saldoNuevo})` +
+          (bank ? ` from ${bank.account_name}` : '') +
+          ` in ${ctx.entityName}? This posts to the ledger.`,
         confirmOrAbort,
       });
     })

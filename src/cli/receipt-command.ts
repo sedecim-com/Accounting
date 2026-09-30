@@ -6,6 +6,7 @@ import { resolveReviewer } from '../ai/draft-service.js';
 import { attestEntryAsync } from '../services/accounting/posting.js';
 import { resolveInvoice } from '../services/ar/invoice-service.js';
 import { resolveCustomer } from '../services/ar/customer-service.js';
+import { resolverCuentaBancaria } from '../services/banking/bank-statement-service.js';
 import {
   recordCustomerPayment,
   applyCustomerPayment,
@@ -258,7 +259,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .requiredOption('--amount <amount>', 'amount, in the document currency')
     .option('--date <date>', 'value date (YYYY-MM-DD); defaults to today')
     .option('--method <method>', 'cash, check, ach, wire, spei, credit_card or other', 'spei')
-    .option('--bank <account>', "bank account id; without it the entity's `banco` role is used")
+    .option('--bank <account>', "bank account name or id; without it the entity's `banco` role is used")
     .option('--reference <text>', 'bank reference or transfer number')
     .option('--on-account', 'let the amount exceed the invoice due; the excess stays on account (anticipo)')
     .option('--json', 'JSON output');
@@ -362,13 +363,18 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         const aplicar = opts.onAccount ? Decimal.min(monto, saldo) : monto;
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        // By name or id, scoped to the entity in the SQL (#327): a raw name used to
+        // reach the INSERT and surface Postgres' uuid syntax error. The name is
+        // echoed because a fragment may match an account the operator did not mean.
+        const bank = opts.bank ? await resolverCuentaBancaria(ctx.entityId, opts.bank) : null;
+        if (bank) process.stderr.write(p.dim(`Bank account: ${bank.account_name}\n`));
         const entrada: EntradaPago = {
           entityId: ctx.entityId,
           counterpartyId: target.customer_id,
           paymentAmount: opts.amount,
           paymentDate: fechaDelCobro,
           paymentMethod: opts.method,
-          bankAccountId: opts.bank ?? null,
+          bankAccountId: bank?.id ?? null,
           referenceNumber: opts.reference ?? null,
           applications: aplicar.greaterThan(0)
             ? [{ documentId: target.id, amountApplied: aplicar.toFixed(2) }]
@@ -391,6 +397,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           `Record ${opts.amount} ${target.currency_code} collected on ${target.invoice_number}` +
             (doc ? ` (${doc.saldoAnterior} → ${doc.saldoNuevo})` : '') +
             (remanente.greaterThan(0) ? ` with ${remanente.toFixed(2)} left on account` : '') +
+            (bank ? ` into ${bank.account_name}` : '') +
             ` in ${ctx.entityName}? This posts to the ledger.`
         );
 
