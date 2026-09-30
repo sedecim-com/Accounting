@@ -12,6 +12,12 @@ vi.mock('../../../src/services/integrations/accounting/registry.js', () => ({
 vi.mock('../../../src/ai/approval-policy.js', () => ({
   matchApproval: vi.fn(),
 }));
+// Spied, not replaced: the real query runs against the mocked connection, and
+// the spy proves the diff reads the trial balance's own query (T14 · #101).
+vi.mock('../../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/services/reporting/report-service.js')>();
+  return { ...real, queryTrialBalanceRows: vi.fn(real.queryTrialBalanceRows) };
+});
 
 import {
   diffTrialBalance,
@@ -31,6 +37,7 @@ import {
 import { ExternalCredentialError } from '../../../src/services/integrations/accounting/entity-credentials.js';
 import { matchApproval } from '../../../src/ai/approval-policy.js';
 import type { AgentContext } from '../../../src/ai/context.js';
+import { queryTrialBalanceRows } from '../../../src/services/reporting/report-service.js';
 
 const mockQuery = query as unknown as Mock;
 const mockGetAdapter = getExternalAdapter as unknown as Mock;
@@ -60,12 +67,16 @@ describe('diffTrialBalance', () => {
         { account_code: '8888', account_name: 'Remote zeroed', period_debits: 0, period_credits: 0, ending_balance: 0 },
       ]),
     });
+    const tb = (account_code: string, account_name: string, ending_balance: string) => ({
+      account_id: `id-${account_code}`, account_code, account_name, account_type: 'asset',
+      debit_total: '0', credit_total: '0', ending_balance,
+    });
     mockQuery.mockResolvedValueOnce({
       rows: [
-        { code: '1110', name: 'Bancos', balance: '1000.50' },   // equal (within tolerance)
-        { code: '6100', name: 'Gastos', balance: '600.00' },    // differs +100
-        { code: '7777', name: 'Local only', balance: '42.00' }, // not on the remote side
-        { code: '5555', name: 'Local zeroed', balance: '0.00' }, // ignored
+        tb('1110', 'Bancos', '1000.50'),    // equal (within tolerance)
+        tb('6100', 'Gastos', '600.00'),     // differs +100
+        tb('7777', 'Local only', '42.00'),  // not on the remote side
+        tb('5555', 'Local zeroed', '0.00'), // ignored
       ],
     });
 
@@ -81,6 +92,23 @@ describe('diffTrialBalance', () => {
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toMatch(/je\.status = 'posted'/);
     expect(params).toEqual([CTX.entityId, '2026-08-31']);
+  });
+
+  it('reads the local side through the trial balance query, raw, at the cutoff', async () => {
+    // One layer (T14 · #101): the diff is a comparison against another
+    // ledger, so it asks for the RAW balance — every posted entry up to the
+    // cutoff, closing entries and archived accounts included — and never
+    // reads the report panel.
+    mockGetAdapter.mockReturnValueOnce({ getTrialBalance: vi.fn(async () => []) });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    await diffTrialBalance(CTX, 'contalink', '2026-08-01', '2026-08-31');
+
+    expect(queryTrialBalanceRows).toHaveBeenCalledWith(CTX.entityId, {
+      asOfDate: '2026-08-31',
+      ignoreClosingPolicy: true,
+    });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
   });
 });
 
