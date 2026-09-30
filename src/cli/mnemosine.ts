@@ -87,6 +87,7 @@ import {
   describeCommand,
   describeLastOption,
   optionByKey,
+  argumentByKey,
   type ExitCodeValue,
 } from './kernel/index.js';
 import { esAfirmativa, esNegativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
@@ -102,6 +103,8 @@ import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
 import { palette } from './palette.js';
+import { parseKind, refuseIngestionFlags, runCensus, type IngestKind } from './ingest-census.js';
+import { entityScope } from '../database/scope.js';
 import { beginWarningScope } from '../utils/logger.js';
 import { detectSetupState, type SetupState } from './first-run.js';
 import { renderBanner, type BannerInfo } from './banner.js';
@@ -144,6 +147,8 @@ import { registerDiotCommand } from './diot-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerGarnishmentCommand } from './garnishment-command.js';
 import { registerEmployeeCommand } from './employee-command.js';
+import { registerPayslipCommand } from './payslip-command.js';
+import { registerImssCommand } from './imss-command.js';
 import { registerCashFlowCommand } from './cashflow-command.js';
 import { registerAuditCommand } from './audit-command.js';
 import { registerWebhookSweepCommand } from './webhook-sweep-command.js';
@@ -185,6 +190,7 @@ import {
   type ExternalOpRow,
 } from '../ai/external-service.js';
 import { diffTrialBalance } from '../ai/external-service.js';
+import { ExternalCredentialError } from '../services/integrations/accounting/entity-credentials.js';
 import { planOnboarding, executeOnboarding } from '../ai/onboarding-service.js';
 import type { AskUserFn } from '../ai/tools/index.js';
 import type { SessionCallbacks } from '../ai/providers/types.js';
@@ -816,6 +822,10 @@ Examples:
   mnemosine ingest ./cfdi/julio/*.xml --auto-post --min-confidence 0.95 --max-amount 20000
   # Reprocess the CFDI whose processing failed (model down, no key) instead of «duplicate».
   mnemosine ingest ./cfdi/julio/*.xml --retry
+  # Load the SAT census of the month from the portal's metadata file.
+  mnemosine ingest ./sat/julio-recibidos.txt --kind metadata
+  # Load the census from a SAT package of XML, and ingest each CFDI in it.
+  mnemosine ingest ./sat/julio-emitidos.zip --kind zip
 `,
   lang: `
 Examples:
@@ -2125,7 +2135,6 @@ const ingest = describeCommand(
   program.command('ingest').alias('ingesta'),
   'help.ingest.description'
 )
-  .argument('<files...>', 'Paths to CFDI XML files')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
   .option('-m, --model <model>', 'Override the profile model')
@@ -2136,6 +2145,9 @@ const ingest = describeCommand(
   .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat)
   .option('--retry', 'Reprocess CFDI already registered whose processing failed, instead of reporting them as duplicates')
   .addHelpText('after', EJEMPLOS.ingest);
+// MNE-001-096 (#312): the SAT census enters through the same leaf.
+argumentByKey(ingest, '<files...>', 'help.ingest.argument.files');
+optionByKey(ingest, '--kind <kind>', 'help.ingest.option.kind', { defaultValue: 'xml', parser: parseKind });
 // Irreversible por su camino más grave (el auto-posteo), declarado junto a su
 // registro (S0.6). El plan de cierre proponía partirlo por bandera, pero S0.3
 // lo dejó atrás: el auto-posteo no lo decide una bandera sino el panel del
@@ -2147,14 +2159,18 @@ declareRisk(ingest, {
   risk: 'irreversible',
   llave: { innecesaria: 'cada CFDI deduplica por su propio UUID y hash' },
   agent: false,
-  writes: 'xml_documents, pre_registrations, bills; y con auto-posteo, asientos POSTEADOS',
+  writes:
+    'xml_documents, pre_registrations, bills; y con auto-posteo, asientos POSTEADOS; ' +
+    'con --kind zip|metadata, sat_cfdi_census y sat_census_loads',
 });
 ingest.action(async (files: string[], opts: {
     entity?: string; provider?: string; model?: string; user?: string;
     autoPost?: boolean; minConfidence?: number; maxAmount?: number;
-    yes?: boolean; idempotencyKey?: string; retry?: boolean;
+    yes?: boolean; idempotencyKey?: string; retry?: boolean; kind: IngestKind;
   }) => {
     try {
+      const kind = opts.kind;
+      refuseIngestionFlags(kind, opts);
       const ctx = await resolveEntity(opts.entity);
       // El panel entra en la precedencia (bandera > archivo > política >
       // omisión): antes las dos claves de auto-posteo del panel no las leía
@@ -2185,6 +2201,22 @@ ingest.action(async (files: string[], opts: {
         );
       }
       const { dryRun } = gateMutation(ingest, opts);
+      let censusInvalid = 0;
+      let censusReviewer: Awaited<ReturnType<typeof resolveReviewer>> | undefined;
+      if (kind !== 'xml') {
+        // MNE-001-096: the census is loaded first; a ZIP's XML then goes on
+        // through the regular ingestion below, as if passed one by one.
+        if (!dryRun) censusReviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const census = await runCensus({
+          kind, files, scope: entityScope(ctx.tenantId, ctx.entityId), entityRfc: ctx.taxId, dryRun,
+          loadedBy: censusReviewer?.userId ?? null,
+        });
+        if (kind === 'metadata' || census.xmlFiles.length === 0) {
+          await shutdown(census.reading.invalid.length > 0 ? 1 : 0);
+        }
+        files = census.xmlFiles;
+        censusInvalid = census.reading.invalid.length;
+      }
 
       if (dryRun) {
         // La capa determinista, sin escribir NADA y sin llamar a nadie: ni
@@ -2209,14 +2241,14 @@ ingest.action(async (files: string[], opts: {
             'classification and the journal-entry plan are decided on the real run.)'
         ));
         const broken = preview.filter((r) => r.verdict === 'invalid' || r.verdict === 'error').length;
-        await shutdown(broken > 0 ? 1 : 0);
+        await shutdown(broken + censusInvalid > 0 ? 1 : 0);
       }
       if (opts.idempotencyKey) {
         stderr.write(
           '  --idempotency-key does not apply to the batch: each CFDI deduplicates on its own UUID/hash.\n'
         );
       }
-      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const reviewer = censusReviewer ?? await resolveReviewer(ctx.tenantId, opts.user);
 
       // No interactive channel: the AI's questions land in `mnemosine questions`.
       const capture: DraftCapture = { drafts: [] };
@@ -2394,7 +2426,7 @@ ingest.action(async (files: string[], opts: {
         console.error(c.yellow(`⚠ ${aviso}`));
       }
 
-      await shutdown(cnt.error + cnt.invalid > 0 ? 1 : 0);
+      await shutdown(cnt.error + cnt.invalid + censusInvalid > 0 ? 1 : 0);
     } catch (err) {
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
@@ -2799,7 +2831,12 @@ async function correrOutboxImpl(
         } catch (err) {
           veredictos.push(exitCodeFor(err));
           reportError(err);
-          console.log(c.dim('The operation is left as-is (check outbox list --status failed); continuing.'));
+          console.log(c.dim(
+            err instanceof ExternalCredentialError
+              ? 'Nothing was sent; the operation is back in pending. Register the entity\'s key ' +
+                  '(mnemosine init --section import), then run it again; continuing.'
+              : 'The operation is left as-is (check outbox list --status failed); continuing.'
+          ));
         }
       }
       console.log(c.dim(`\nDone: ${executed} executed, ${veredictos.length} failed.`));
@@ -3509,6 +3546,10 @@ registerGarnishmentCommand(program, { palette: c, shutdown, reportError });
 // MNE-001-066 (#306): the payroll roll at the terminal, over the same
 // employee service as the API.
 registerEmployeeCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-070 (#306): the paycheck and the month's SUA file, over the same
+// services as GET /paychecks/:id and POST /sua.
+registerPayslipCommand(program, { palette: c, shutdown, reportError });
+registerImssCommand(program, { palette: c, shutdown, reportError });
 registerCashFlowCommand(program, { palette: c, shutdown, reportError });
 registerAuditCommand(program, { palette: c, shutdown, reportError });
 // G4b · el barrido de entregas SALIENTES. Cuelga de `subscription`·`suscripcion`,

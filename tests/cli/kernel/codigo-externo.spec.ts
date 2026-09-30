@@ -104,6 +104,11 @@ describe('la composición: el veredicto de un lote que siguió adelante', () => 
       .toBe(ExitCode.EXTERNAL_FAILED);
   });
 
+  it('all blocked before any call (no key for the entity, #357) → 5, not the generic 1', () => {
+    expect(batchExitCode([ExitCode.BLOCKED, ExitCode.BLOCKED])).toBe(ExitCode.BLOCKED);
+    expect(batchExitCode([ExitCode.BLOCKED, ExitCode.FAILURE])).toBe(ExitCode.FAILURE);
+  });
+
   it('un fallo que no es externo no se disfraza de externo: sale 1', () => {
     expect(batchExitCode([ExitCode.FAILURE])).toBe(ExitCode.FAILURE);
     expect(batchExitCode([ExitCode.EXTERNAL_REJECTED, ExitCode.NOT_FOUND])).toBe(ExitCode.FAILURE);

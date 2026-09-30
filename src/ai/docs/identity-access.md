@@ -54,8 +54,9 @@ entity is resolved, its tenant becomes the context automatically.
 - `mnemosine_app` — what `DATABASE_URL` should use: SELECT/INSERT/UPDATE/DELETE
   only, no DDL, no ownership, NOBYPASSRLS. All CLI/API traffic. With one
   exception, on the APPEND-ONLY tables — `audit_log`,
-  `fiscal_credential_access_log` and `closing_packs` (the sealed close
-  dossier) —, where UPDATE, DELETE and TRUNCATE are revoked and a trigger
+  `fiscal_credential_access_log`, `closing_packs` (the sealed close
+  dossier) and `income_tax_annual_inputs` (the annual-return figures of the
+  provisional ISR) —, where UPDATE, DELETE and TRUNCATE are revoked and a trigger
   refuses them anyway, reaching the schema owner too. A correction there is a
   new row, never a rewrite. The two layers live in different places: the
   trigger is created by the table's migration and nothing re-creates it if
