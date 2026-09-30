@@ -81,7 +81,7 @@ describe('la opción de gasto anticipado dice lo que de verdad ocurre', () => {
 
   it('el fundamento nombra el comando, no sólo la norma', () => {
     // Es la diferencia entre respaldar un acto y respaldar una intención.
-    expect(d.basis).toMatch(/NIF A-2/);
+    expect(d.basis).toMatch(/NIF A-1, chapter 20/);
     expect(d.basis).toMatch(/prepaid create/);
     expect(d.basis).toMatch(/prepaid run/);
     expect(d.basis).toMatch(/umbral_anticipado_mxn/);

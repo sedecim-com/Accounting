@@ -105,7 +105,7 @@ export async function planOnboarding(
     );
   }
 
-  const adapter = getExternalAdapter(provider);
+  const adapter = await getExternalAdapter(ctx, provider);
   const remote = await adapter.getTrialBalance(startDate, cutoffDate);
 
   const local = await query<{ code: string }>(

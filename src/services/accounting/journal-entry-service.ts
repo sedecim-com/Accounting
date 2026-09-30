@@ -33,7 +33,7 @@ import { JournalEntryType, JournalEntryStatus } from '../../types/index.js';
 // Rules the database can otherwise only express as raw constraint
 // failures are named here instead:
 //   - fewer than two lines dies on the posting CHECK much later, so a
-//     draft that can never balance is refused at the door (NIF A-2);
+//     draft that can never balance is refused at the door (NIF A-1, cap. 20);
 //   - a line with both or neither of debit/credit violates the
 //     journal_entry_lines CHECK: refused with the line number;
 //   - a non-positive amount violates the two amount CHECKs.
@@ -301,7 +301,7 @@ export function validateDraftShape(input: DraftEntryInput): void {
   if (!Array.isArray(input.lines) || input.lines.length < 2) {
     throw new ValidationError(
       'A journal entry needs at least two lines: one debit and one credit ' +
-        '[NIF A-2, dualidad económica].'
+        '[NIF A-1, cap. 20, dualidad económica].'
     );
   }
   if (input.type && !(MANUAL_ENTRY_TYPES as readonly string[]).includes(input.type)) {
