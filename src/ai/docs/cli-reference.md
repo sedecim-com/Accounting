@@ -9676,9 +9676,10 @@ Usage: mnemosine close|cierre [options]
 Month-end close: checks what is missing and closes the period
 
 Options:
-  -e, --entity <idOrName>  Legal entity
-  -t, --tenant <id>        Tenant
-  -u, --user <email>       Who performs the close
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
   --period <expr>          Period to close: 2026-08, its id, or an unambiguous
                            part of its name (default: the oldest open one)
   -l, --list               List closable periods and exit
