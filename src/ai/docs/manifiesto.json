@@ -86,9 +86,7 @@
       "src/services/integrations/accounting/contalink-adapter.ts"
     ]
   },
-  "sin_revisar": [
-    "payroll.md"
-  ],
+  "sin_revisar": [],
   "_exentos": "Manuales sin fuente en src/ cuyo hash signifique algo, con su razón. Hasta T2 esta lista vivía en la prosa de MANIFIESTO.md, que ningún programa lee: un .md nuevo no declarado quedaba invisible para siempre. `--check` compara el directorio, DOC_TOPICS y estas dos listas.",
   "exentos": {
     "cli-reference.md": "se GENERA del binario (scripts/generate-cli-reference.ts) y ya tiene una prueba más fuerte que un hash: tests/docs/generador-de-referencia.spec.ts compara contra el `program` real",
@@ -158,6 +156,9 @@
     "src/index.ts": "071c8b6b0188fc0512e9a9e3a0411d98e65c4429",
     "src/ai/tools/report-tools.ts": "6ac2848ac3532c4214388758c8f9ae8b354b1274",
     "src/ai/tools/question-tools.ts": "b8992141a7297cdd8ca366ed72472fde2b584da0",
-    "src/ai/memory-service.ts": "e6cda54c251a7946b45174d6f6c4c9d8153fcf40"
+    "src/ai/memory-service.ts": "e6cda54c251a7946b45174d6f6c4c9d8153fcf40",
+    "src/services/payroll/common/pay-run-service.ts": "5d24221fe6abdd623454bce81d09314b82c1331b",
+    "src/services/payroll/common/paycheck-service.ts": "5c6c2d02872246f304f180910b5c56b9792296de",
+    "src/services/payroll/mx/cfdi-nomina-generator.ts": "3222a7a34b3dd587414e65756b3afc1f64182d48"
   }
 }
