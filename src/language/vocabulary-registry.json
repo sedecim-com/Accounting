@@ -5813,6 +5813,38 @@
     },
     {
       "class": "policy-key",
+      "where": "withholding_mismatch",
+      "es": "withholding_mismatch",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-057): what happens to a received CFDI whose declared withholding differs from the one the law requires of the payer."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_mismatch/request_substitute_cfdi",
+      "es": "request_substitute_cfdi",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI is held, nothing is written, and the vendor is asked for a substitute CFDI."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_mismatch/withhold_by_law",
+      "es": "withhold_by_law",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the law's withholding is proposed and the entry is held for review."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_mismatch/record_as_issued",
+      "es": "record_as_issued",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI posts with its declared withholding, and the close checklist lists it."
+    },
+    {
+      "class": "policy-key",
       "where": "withholding_accounts_layout",
       "es": "withholding_accounts_layout",
       "en": null,
@@ -5826,6 +5858,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-147): what happens to an entity whose withholding roles do not follow withholding_accounts_layout."
+    },
+    {
+      "class": "policy-key",
+      "where": "anexo24_voucher_money_without_trace",
+      "es": "anexo24_voucher_money_without_trace",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-054): what the Anexo 24 vouchers do with money moved by no registered payment. «Anexo 24» stays as the RMF annex identifier."
+    },
+    {
+      "class": "policy-value",
+      "where": "anexo24_voucher_money_without_trace/block",
+      "es": "block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: refuse the vouchers file and name each voucher."
+    },
+    {
+      "class": "policy-value",
+      "where": "anexo24_voucher_money_without_trace/warn",
+      "es": "warn",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: deliver without the payment node and name each voucher."
     },
     {
       "class": "policy-value",
@@ -5850,6 +5906,54 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: three accounts by SAT grouping line (2144 216.03, 2145 216.04, 2142 216.10)."
+    },
+    {
+      "class": "policy-key",
+      "where": "closing_exchange_rate_source",
+      "es": "closing_exchange_rate_source",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-083): the source whose rate for the period's last calendar day revalues foreign balances at the close. The owner's decision on #305 called it fuente_tipo_cambio_cierre; new keys are born English."
+    },
+    {
+      "class": "policy-value",
+      "where": "closing_exchange_rate_source/operations_source",
+      "es": "operations_source",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the same source fuente_tipo_cambio chooses for the operations (the decision's la_de_operaciones)."
+    },
+    {
+      "class": "policy-value",
+      "where": "closing_exchange_rate_source/dof",
+      "es": "dof",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Proper name of the Diario Oficial publication, the same value fuente_tipo_cambio already has."
+    },
+    {
+      "class": "policy-value",
+      "where": "closing_exchange_rate_source/fix_banxico",
+      "es": "fix_banxico",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "The same value fuente_tipo_cambio already has for the Banxico FIX."
+    },
+    {
+      "class": "policy-key",
+      "where": "fx_revaluation_reversal",
+      "es": "fx_revaluation_reversal",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-083): whether the closing revaluation is reversed on day 1 of the next period. The owner's decision on #305 called it revaluacion_cambiaria_reversion; new keys are born English."
+    },
+    {
+      "class": "policy-value",
+      "where": "fx_revaluation_reversal/reverse_on_day_one",
+      "es": "reverse_on_day_one",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the decision's revertir_al_inicio, the mirror on day 1 of the next period. no_reversal (sin_reversion) is not offered until payments read the book rate."
     },
     {
       "class": "policy-value",

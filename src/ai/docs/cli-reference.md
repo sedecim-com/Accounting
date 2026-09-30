@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 230 of 357 subcommands
+  spelling is `-T` at the root and `-t` on the 238 of 369 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -65,6 +65,7 @@ Commands:
   approvals|aprobaciones                 Graduated approval policies for staged writes (once / session / always)
   entity|entidad                         Select and inspect the legal entity commands operate on
   tenant|despacho                        Create and list the firms (tenants) of this installation
+  user|usuario                           Create, list and archive the logins of a firm, without a terminal
   payment|pago                           Vendor payments: record cash that already left the bank and settle the bill it pays
   account|cuenta                         Chart of accounts: inspect, create and retire accounts
   chart|catalogo                         Chart of accounts: bring a firm catalog in
@@ -1241,6 +1242,97 @@ Examples:
   mnemosine tenant create "Despacho Alameda" --subdomain alameda-norte --json
 ```
 
+## `mnemosine user` (alias: usuario)
+
+```
+Usage: mnemosine user|usuario [options] [command]
+
+Create, list and archive the logins of a firm, without a terminal
+
+Options:
+  -h, --help                          display help for command
+
+Commands:
+  list|listar [options]               List the users of the firm, archived ones
+                                      included
+  create|crear [options]              Create a user with one role of the
+                                      catalog; the password comes from stdin,
+                                      the environment or a hidden prompt
+  archive|archivar [options] <email>  Archive a user: it can no longer sign in,
+                                      and nothing it did is erased
+  help [command]                      display help for command
+```
+
+### `mnemosine user list` (alias: listar)
+
+```
+Usage: mnemosine user list|listar [options]
+
+List the users of the firm, archived ones included
+
+Options:
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  mnemosine user list
+  mnemosine user list --status archived --json
+```
+
+### `mnemosine user create` (alias: crear)
+
+```
+Usage: mnemosine user create|crear [options]
+
+Create a user with one role of the catalog; the password comes from stdin, the
+environment or a hidden prompt
+
+Options:
+  -t, --tenant <id>  tenant (firm) whose data to scope to
+  --email <address>  email address the user signs in with
+  --role <name>      role of src/auth/roles.ts (owner, admin, controller,
+                     contador, revisor, auditor, viewer) or its alias
+  --password-stdin   read the password from stdin (never pass it as an argument)
+  --json             JSON output
+  -y, --yes          skip the confirmation prompt
+  -h, --help         display help for command
+
+Examples:
+  # From a script, the password piped on stdin: printf '%s' "$PASSWORD" | …
+  mnemosine user create --email ana@example.com --role contador --password-stdin
+  # Or with MNEMOSINE_USER_PASSWORD set in the environment.
+  mnemosine user create --email ana@example.com --role viewer
+```
+
+### `mnemosine user archive` (alias: archivar, disable, desactivar)
+
+```
+Usage: mnemosine user archive|archivar [options] <email>
+
+Archive a user: it can no longer sign in, and nothing it did is erased
+
+Arguments:
+  email              email of the user to archive
+
+Options:
+  -t, --tenant <id>  tenant (firm) whose data to scope to
+  -y, --yes          skip the confirmation prompt
+  --reason <text>    justification recorded in the audit trail (required)
+  -h, --help         display help for command
+
+Examples:
+  mnemosine user archive ana@example.com --reason "left the firm"
+```
+
 ## `mnemosine payment` (alias: pago)
 
 ```
@@ -2209,9 +2301,8 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
-  --line <spec...>         a line as
-                           <account>:<debit|credit>:<amount>[:description];
-                           repeat for each line
+  --line <spec...>         a line: "account=6120;debit=45000.00;description=…";
+                           repeat for each line. See the key list below
   --file <path>            JSON document with date, type, description and lines
   --date <date>            entry date (YYYY-MM-DD); defaults to today
   --type <type>            entry type: standard, adjusting, correction (default:
@@ -2224,14 +2315,24 @@ Options:
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
+Keys accepted in --line (key=value pairs separated by ";"; "_" and "-" are the same):
+  account       chart account CODE the line is posted to (required)
+  debit         amount charged to the account; cargo= is the same key
+  credit        amount credited to the account; abono= is the same key
+  description   the line's own text
+Shortcut, still accepted: <account>:<side>:<amount>[:description], where <side> takes the names of the two amount keys above.
+
+
 Examples:
   # Accrue July office rent: 45,000.00 charged to 6120, owed on 2110.
-  # Each --line is <account>:<debit|credit>:<amount> — <account> is the CODE
+  # Each --line is key=value pairs separated by ";" — account= is the CODE
   # from the chart of accounts, and the amount carries no thousands separator.
-  mnemosine entry create --date 2026-07-31 --type adjusting --description "Renta de oficina julio 2026" --line "6120:debit:45000.00" --line "2110:credit:45000.00"
-  # Reclassify a misposted expense. A fourth field is the line's own text.
-  mnemosine entry create --type correction --description "Reclasificacion de energia electrica" --line "6130:debit:8700.50:CFE julio" --line "6100:credit:8700.50:Sale de gastos de administracion"
+  mnemosine entry create --date 2026-07-31 --type adjusting --description "Renta de oficina julio 2026" --line "account=6120;debit=45000.00" --line "account=2110;credit=45000.00"
+  # Reclassify a misposted expense; cargo=/abono= are the same keys as debit=/credit=.
+  mnemosine entry create --type correction --description "Reclasificacion de energia electrica" --line "account=6130;cargo=8700.50;description=CFE julio" --line "account=6100;abono=8700.50;description=Sale de gastos de administracion"
   # See exactly what would be drafted, writing nothing.
+  mnemosine entry create --description "Honorarios cobrados en efectivo" --line "account=1110;debit=12000.00" --line "account=4200;credit=12000.00" --dry-run
+  # Shortcut, still accepted: <account>:<debit|credit>:<amount>[:description].
   mnemosine entry create --description "Honorarios cobrados en efectivo" --line "1110:debit:12000.00" --line "4200:credit:12000.00" --dry-run
 ```
 
@@ -2366,7 +2467,8 @@ Options:
   --note <text>            new note
   --date <date>            new entry date (YYYY-MM-DD)
   --line <spec...>         replace ALL lines:
-                           <account>:<debit|credit>:<amount>[:description]
+                           "account=6120;debit=45000.00;description=…" (key list
+                           in entry create --help)
   --file <path>            JSON document whose date/description/reference/lines
                            replace the draft
   -y, --yes                skip the confirmation prompt
@@ -2376,7 +2478,7 @@ Examples:
   # Correct the description and the external reference of a draft.
   mnemosine entry edit JE-2026-00042 --description "Renta de oficina julio 2026" --reference "Contrato ARR-2024-11"
   # Replace ALL the lines: what you pass IS the entry, not an addition to it.
-  mnemosine entry edit JE-2026-00042 --line "6120:debit:46500.00" --line "2110:credit:46500.00"
+  mnemosine entry edit JE-2026-00042 --line "account=6120;debit=46500.00" --line "account=2110;credit=46500.00"
 ```
 
 ### `mnemosine entry export` (alias: exportar)
@@ -3107,7 +3209,7 @@ Options:
   --due-date <date>               due date (YYYY-MM-DD); defaults to the
                                   vendor's terms
   --line <spec...>                one line, repeatable:
-                                  "account=5100,qty=1,price=1000,tax-amount=160".
+                                  "account=5100;qty=1;price=1000;tax-amount=160".
                                   See the key list below
   --currency <code>               3-letter ISO code; defaults to the vendor's
                                   currency
@@ -3120,25 +3222,25 @@ Options:
   -y, --yes                       skip the confirmation prompt
   -h, --help                      display help for command
 
-Keys accepted in --line (key=value, comma-separated):
-  account      chart account code the line is coded to (required)
-  qty          quantity; defaults to 1
-  quantity     same as qty
-  price        unit price before tax (required)
-  unit-price   same as price
-  tax-amount   IVA of the line as an AMOUNT in the bill currency — NOT a rate
-  tax          same as tax-amount: an AMOUNT, never a rate (invoice's tax= IS a rate)
-  description  free text for the line
-  cost-center  cost center id
-  project      project id
+Keys accepted in --line (key=value pairs separated by ";"; "_" and "-" are the same):
+  account       chart account code the line is coded to (required)
+  qty           quantity; defaults to 1
+  quantity      same as qty
+  price         unit price before tax (required)
+  unit-price    same as price
+  tax-amount    IVA of the line as an AMOUNT in the bill currency — NOT a rate
+  tax           deprecated (warns; retired in 2.0.0): same as tax-amount, an AMOUNT
+  description   free text for the line
+  cost-center   cost center id
+  project       project id
 
 
 Examples:
   # One line, coded to administrative expense, with 2,000.00 of IVA.
-  # Inside --line the pairs are separated by COMMAS (invoice uses ";", entry ":").
-  mnemosine bill create "Papeleria del Centro" --vendor-invoice-number A-4471 --bill-date 2026-07-08 --line "account=6100,qty=1,price=12500.00,tax-amount=2000.00,description=Papeleria de oficina"
+  # Inside --line the pairs are separated by ";", as in invoice and entry.
+  mnemosine bill create "Papeleria del Centro" --vendor-invoice-number A-4471 --bill-date 2026-07-08 --line "account=6100;qty=1;price=12500.00;tax-amount=2000.00;description=Papeleria de oficina"
   # Two lines, one of them capital equipment; the due date comes from the vendor terms.
-  mnemosine bill create --vendor "Papeleria del Centro" --description "Compras de julio" --line "account=6100,price=8600.00,tax-amount=1376.00" --line "account=1220,qty=2,price=15900.00,tax-amount=5088.00"
+  mnemosine bill create --vendor "Papeleria del Centro" --description "Compras de julio" --line "account=6100;price=8600.00;tax-amount=1376.00" --line "account=1220;qty=2;price=15900.00;tax-amount=5088.00"
 ```
 
 ### `mnemosine bill line` (alias: linea)
@@ -3859,9 +3961,9 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --customer <ref>         customer number, name or id
   --line <spec...>         a line:
-                           "account=4100;qty=2;price=1500;tax=16;description=…".
-                           Here tax= is a RATE in % (16 means 16%), not an
-                           amount — unlike bill, where it is the amount
+                           "account=4100;qty=2;price=1500;tax-rate=16;description=…".
+                           tax-rate= is a RATE in % (16 means 16%), not an
+                           amount. See the key list below
   --from-file <path>       JSON array of lines instead of repeated --line
   --date <date>            invoice date (YYYY-MM-DD); defaults to today
   --due-date <date>        due date; defaults to the customer's payment terms
@@ -3873,12 +3975,26 @@ Options:
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
+Keys accepted in --line (key=value pairs separated by ";"; "_" and "-" are the same):
+  account       revenue account code (required)
+  qty           quantity; defaults to 1
+  quantity      same as qty
+  price         unit price before tax (required)
+  unit-price    same as price
+  tax-rate      IVA RATE in percent: 16 means 16% — NOT an amount
+  tax           deprecated (warns; retired in 2.0.0): same as tax-rate
+  tax-code      tax code of the line
+  description   the line's text; defaults to the account name
+  cost-center   cost center id
+  project       project id
+
+
 Examples:
   # One service line at 16% IVA. Inside --line the pairs are separated by
-  # SEMICOLONS, and tax= is a RATE in percent — 16 means 16%, not 16 pesos.
-  mnemosine invoice create --customer "Grupo Alameda" --date 2026-07-15 --line "account=4200;qty=1;price=85000.00;tax=16;description=Servicios contables julio"
+  # SEMICOLONS, and tax-rate= is a RATE in percent — 16 means 16%, not 16 pesos.
+  mnemosine invoice create --customer "Grupo Alameda" --date 2026-07-15 --line "account=4200;qty=1;price=85000.00;tax-rate=16;description=Servicios contables julio"
   # Goods and services on one document, against the customer's purchase order.
-  mnemosine invoice create --customer "Grupo Alameda" --po-number OC-2026-118 --line "account=4100;qty=10;price=1250.00;tax=16" --line "account=4200;qty=1;price=32000.00;tax=16"
+  mnemosine invoice create --customer "Grupo Alameda" --po-number OC-2026-118 --line "account=4100;qty=10;price=1250.00;tax-rate=16" --line "account=4200;qty=1;price=32000.00;tax-rate=16"
 ```
 
 ### `mnemosine invoice issue` (alias: emitir)
@@ -3960,8 +4076,8 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --line <spec...>         REPLACE all lines:
-                           "account=4100;qty=2;price=1500;tax=16;…"
-                           (repeatable). Here tax= is a RATE in %, not an amount
+                           "account=4100;qty=2;price=1500;tax-rate=16;…"
+                           (repeatable). Key list in invoice create --help
   --from-file <path>       JSON array of lines instead of repeated --line
   --date <date>            new invoice date (YYYY-MM-DD)
   --due-date <date>        new due date
@@ -3975,7 +4091,7 @@ Examples:
   # Move the due date of a DRAFT and correct its memo.
   mnemosine invoice edit INV-2026-00043 --due-date 2026-08-30 --memo "Vence a 45 dias por convenio"
   # Replace ALL the lines of the draft: what you pass IS the invoice.
-  mnemosine invoice edit INV-2026-00043 --line "account=4200;qty=1;price=92000.00;tax=16"
+  mnemosine invoice edit INV-2026-00043 --line "account=4200;qty=1;price=92000.00;tax-rate=16"
 ```
 
 ### `mnemosine invoice delete` (alias: eliminar)
@@ -4245,6 +4361,10 @@ Options:
   --amount <amount>        amount for a single --invoice without an inline
                            amount
   --json                   JSON output
+  --withholding <spec...>  what the customer withheld, which settles the invoice
+                           with the cash: "isr:1000" or "iva:1066.67"
+                           (repeatable); with several invoices,
+                           "INV-2026-00042:isr:1000"
   -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
@@ -4257,6 +4377,8 @@ Examples:
   mnemosine receipt apply PMT-2026-00042 --invoice "INV-2026-00042:2500.00" --invoice "INV-2026-00051:1800.00"
   # A single invoice, with the amount as its own flag.
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042 --amount 2500.00
+  # The customer paid 9533.33 on fees of 10000 + VAT: it withheld 10 % ISR and 2/3 of the VAT.
+  mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:9533.33 --withholding isr:1000 --withholding iva:1066.67
 ```
 
 ### `mnemosine receipt unapply` (alias: desaplicar)
@@ -6578,6 +6700,7 @@ Commands:
   check|verificar [options]                 Run the close verification catalog, or only the named checks; bare --check lists the names
   explain|explicar [options] <code>         Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it
   run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order
+  fx|cambio                                 Foreign currency at the close
   pack|paquete                              The dossier of a close: generate it, and verify that its figures still reproduce
   help [command]                            display help for command
 ```
@@ -6723,6 +6846,58 @@ Examples:
   # stops being a claim anybody can stand behind. Every step runs again; the
   # engines post only what is still missing.
   mnemosine closing run --resume --yes
+```
+
+### `mnemosine closing fx` (alias: cambio)
+
+```
+Usage: mnemosine closing fx|cambio [options] [command]
+
+Foreign currency at the close
+
+Options:
+  -h, --help                           display help for command
+
+Commands:
+  revalue|revaluar [options] <period>  Revalue the foreign-currency receivables,
+                                       payables and banks at the closing rate,
+                                       and reverse it on day 1 of the next
+                                       period. It belongs after the soft close;
+                                       a later run posts only what moved since
+  help [command]                       display help for command
+```
+
+#### `mnemosine closing fx revalue` (alias: revaluar)
+
+```
+Usage: mnemosine closing fx revalue|revaluar [options] <period>
+
+Revalue the foreign-currency receivables, payables and banks at the closing
+rate, and reverse it on day 1 of the next period. It belongs after the soft
+close; a later run posts only what moved since
+
+Arguments:
+  period                                   period to revalue: 2026-08, its id, or part of its name
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
+  -h, --help                               display help for command
+
+Examples:
+  # What August's revaluation would post, at the rate of August 31st, writing nothing.
+  mnemosine closing fx revalue 2026-08 --dry-run
+  # Post it: one adjusting entry on August 31st and its mirror on September 1st.
+  mnemosine closing fx revalue 2026-08 --yes
 ```
 
 ### `mnemosine closing pack` (alias: paquete)
@@ -7345,13 +7520,17 @@ Usage: mnemosine e-accounting|contabilidad-electronica [options] [command]
 Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
 
 Options:
-  -h, --help        display help for command
+  -h, --help          display help for command
 
 Commands:
-  catalog|catalogo  The chart of accounts as the SAT wants it: CtaCatalogo 1.3
-  balance|balanza   The trial balance the SAT expects: BCE 1.3, normal, amended
-                    or year-end
-  help [command]    display help for command
+  catalog|catalogo    The chart of accounts as the SAT wants it: CtaCatalogo 1.3
+  balance|balanza     The trial balance the SAT expects: BCE 1.3, normal,
+                      amended or year-end
+  voucher|poliza      The period vouchers the SAT asks for on request:
+                      PolizasPeriodo 1.3
+  subledger|auxiliar  The auxiliaries the SAT asks for on request: voucher
+                      folios or accounts
+  help [command]      display help for command
 ```
 
 ### `mnemosine e-accounting catalog` (alias: catalogo)
@@ -7368,6 +7547,9 @@ Commands:
   generate|generar [options]  Build and archive the CtaCatalogo 1.3 XML (NumCta,
                               Desc, SubCtaDe, Nivel, Natur, CodAgrup) with its
                               hash
+  seal|sellar [options]       Seal the archived CtaCatalogo of a month with the
+                              entity e.firma (only under sellar_con_custodia);
+                              files nothing
   help [command]              display help for command
 ```
 
@@ -7394,9 +7576,10 @@ Options:
   -h, --help                               display help for command
 
 This builds the file. It does NOT seal it and does NOT file it.
-The XML comes out with no Sello, noCertificado or Certificado: sealing with the
-e.firma and transmitting through the Buzón Tributario are your acts, outside this
-system. This binary never asks for an e.firma and never loads a private key.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
 
 
 Examples:
@@ -7405,6 +7588,33 @@ Examples:
   mnemosine e-accounting catalog generate --period 2026-07 --dry-run
   # The real run, with a copy of the XML next to the archived one.
   mnemosine e-accounting catalog generate --period 2026-07 -o catalogo-2026-07.xml --yes
+```
+
+#### `mnemosine e-accounting catalog seal` (alias: sellar)
+
+```
+Usage: mnemosine e-accounting catalog seal|sellar [options]
+
+Seal the archived CtaCatalogo of a month with the entity e.firma (only under
+sellar_con_custodia); files nothing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          month of the archived catalog: YYYY-MM
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      also write the sealed XML to this path
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+Examples:
+  # Seal the catalog you generated and reviewed for July, and keep a copy of it.
+  # Only under efirma_sellado_contabilidad_electronica = sellar_con_custodia.
+  mnemosine e-accounting catalog seal --period 2026-07 -o catalogo-2026-07-sellado.xml
 ```
 
 ### `mnemosine e-accounting balance` (alias: balanza)
@@ -7423,6 +7633,9 @@ Commands:
   check|verificar [options]   Run the invariants the SAT re-runs: SaldoIni +
                               Debe − Haber = SaldoFin honouring Natur, and every
                               account in the catalog
+  seal|sellar [options]       Seal the archived trial balance of a period with
+                              the entity e.firma (only under
+                              sellar_con_custodia); files nothing
   help [command]              display help for command
 ```
 
@@ -7452,9 +7665,10 @@ Options:
   -h, --help                               display help for command
 
 This builds the file. It does NOT seal it and does NOT file it.
-The XML comes out with no Sello, noCertificado or Certificado: sealing with the
-e.firma and transmitting through the Buzón Tributario are your acts, outside this
-system. This binary never asks for an e.firma and never loads a private key.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
 
 
 Examples:
@@ -7488,6 +7702,8 @@ Options:
   --period <expr>                          period to check: 2026-02, its name, or the fiscal period id
   --closing                                check the year-end balance (month 13) instead of a month
   --check [names]                          comma-separated check names; with no value, prints the available ones
+  --type <N|C>                             envelope type to check: N normal, C amended (needs --modified) (default: "N")
+  --modified <date>                        FechaModBal of the amended balance; required with --type C
   -h, --help                               display help for command
 
 Examples:
@@ -7495,6 +7711,157 @@ Examples:
   mnemosine e-accounting balance check --period 2026-07
   # The year-end balance, with warnings made blocking so cron stops on them (exit 4).
   mnemosine e-accounting balance check --period 2026 --closing --strict
+```
+
+#### `mnemosine e-accounting balance seal` (alias: sellar)
+
+```
+Usage: mnemosine e-accounting balance seal|sellar [options]
+
+Seal the archived trial balance of a period with the entity e.firma (only under
+sellar_con_custodia); files nothing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          month of the archived file: YYYY-MM (the fiscal year with --closing)
+  --type <N|C>                             envelope type of the archived balance: N normal, C amended
+  --closing                                the year-end balance, archived as month 13
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      also write the sealed XML to this path
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+Examples:
+  # Seal the archived July balance. Nothing is filed: upload it in the SAT portal.
+  mnemosine e-accounting balance seal --period 2026-07
+  # The year-end balance (month 13) of fiscal year 2026.
+  mnemosine e-accounting balance seal --period 2026 --closing
+```
+
+### `mnemosine e-accounting voucher` (alias: poliza)
+
+```
+Usage: mnemosine e-accounting voucher|poliza [options] [command]
+
+The period vouchers the SAT asks for on request: PolizasPeriodo 1.3
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build and archive the period vouchers XML with the
+                              evidence node of each line (CompNal, Cheque,
+                              Transferencia, OtrMetodoPago) and its hash
+  help [command]              display help for command
+```
+
+#### `mnemosine e-accounting voucher generate` (alias: generar)
+
+```
+Usage: mnemosine e-accounting voucher generate|generar [options]
+
+Build and archive the period vouchers XML with the evidence node of each line
+(CompNal, Cheque, Transferencia, OtrMetodoPago) and its hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the XML to this path (the artifact store keeps its own copy)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id; with --closing, the fiscal year (2026)
+  --closing                                the vouchers of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)
+  --request-type <AF|FC|DE|CO>             the request the file answers (TipoSolicitud): AF audit, FC compulsory check, DE refund, CO offset; no default
+  --order-number <number>                  audit order number (NumOrden), required with AF and FC: ABC1234567/26
+  --procedure-number <number>              filing number (NumTramite), required with DE and CO: DE202600000009
+  --validate-uuids                         also check the shape of every CFDI UUID the vouchers declare
+  --dry-run                                build it and show the verdict; archive nothing and write no file
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
+  -h, --help                               display help for command
+
+This builds the file. It does NOT seal it and does NOT file it.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
+
+
+Examples:
+  # See the verdict first: which vouchers lack a payment trace, nothing archived.
+  mnemosine e-accounting voucher generate --period 2026-07 --request-type AF --order-number ABC1234567/26 --dry-run
+  # A refund request: DE and CO carry the procedure number, not an order number.
+  mnemosine e-accounting voucher generate --period 2026-07 --request-type DE --procedure-number DE202600000009 -o polizas-2026-07.xml --yes
+  # Month 13: with --closing, --period names the fiscal year.
+  mnemosine e-accounting voucher generate --closing --period 2026 --request-type AF --order-number ABC1234567/26 --dry-run
+```
+
+### `mnemosine e-accounting subledger` (alias: auxiliar)
+
+```
+Usage: mnemosine e-accounting subledger|auxiliar [options] [command]
+
+The auxiliaries the SAT asks for on request: voucher folios or accounts
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build and archive the voucher-folio auxiliary
+                              (AuxiliarFolios 1.3) or the account and
+                              sub-account auxiliary (AuxiliarCtas 1.3) with its
+                              hash
+  help [command]              display help for command
+```
+
+#### `mnemosine e-accounting subledger generate` (alias: generar)
+
+```
+Usage: mnemosine e-accounting subledger generate|generar [options]
+
+Build and archive the voucher-folio auxiliary (AuxiliarFolios 1.3) or the
+account and sub-account auxiliary (AuxiliarCtas 1.3) with its hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the XML to this path (the artifact store keeps its own copy)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id; with --closing, the fiscal year (2026)
+  --closing                                the auxiliary of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)
+  --request-type <AF|FC|DE|CO>             the request the file answers (TipoSolicitud): AF audit, FC compulsory check, DE refund, CO offset; no default
+  --order-number <number>                  audit order number (NumOrden), required with AF and FC: ABC1234567/26
+  --procedure-number <number>              filing number (NumTramite), required with DE and CO: DE202600000009
+  --kind <folios|accounts>                 which auxiliary: folios (voucher folios) or accounts (account and sub-account); no default
+  --dry-run                                build it and show the verdict; archive nothing and write no file
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
+  -h, --help                               display help for command
+
+This builds the file. It does NOT seal it and does NOT file it.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
+
+
+Examples:
+  # The voucher-folio auxiliary for an audit order, shown before it is archived.
+  mnemosine e-accounting subledger generate --period 2026-07 --kind folios --request-type AF --order-number ABC1234567/26 --dry-run
+  # The account and sub-account auxiliary for an offset request, written to disk.
+  mnemosine e-accounting subledger generate --period 2026-07 --kind accounts --request-type CO --procedure-number CO202600000011 -o auxiliar-2026-07.xml --yes
+  # Month 13: with --closing, --period names the fiscal year.
+  mnemosine e-accounting subledger generate --closing --period 2026 --kind accounts --request-type AF --order-number ABC1234567/26 --dry-run
 ```
 
 ## `mnemosine diot`

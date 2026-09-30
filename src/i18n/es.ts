@@ -30,6 +30,19 @@ import type { EN } from './en.js';
 export const ES: Record<keyof typeof EN, string> = {
   // ==== error.* — mensajes de los errores de la API y los servicios (I9) ====
   'error.PERIOD_ALREADY_OPEN': '{period} ya está abierto.',
+
+  'error.FX_REVALUATION_PERIOD_NOT_OPEN':
+    '{period} es {type} y está en {status}: la revaluación corresponde a un mes regular abierto o con cierre suave, antes de su sello.',
+  'error.FX_REVALUATION_NEXT_PERIOD_NOT_OPEN':
+    'La revaluación de {period} se revierte el primer día del periodo siguiente, y ese periodo {status, select, missing {no existe} other {está en {status}}}. Ábrelo (en diciembre, abre antes el ejercicio siguiente) y vuelve a correrla: no se posteó nada.',
+  'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
+    'La revaluación de cierre está hecha para entidades que llevan sus libros en pesos mexicanos (NIF B-15), y ésta los lleva en {currency}. Otras monedas funcionales, y ASC 830, son el issue 124: no se posteó nada.',
+  'error.FX_REVALUATION_PLAN_CHANGED':
+    'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
+  'error.FX_REVALUATION_MARKER_MISMATCH':
+    'El registro de la revaluación de {period} no coincide con el mayor: el mayor tiene {ledger} pólizas de revaluación para él y el registro {marker}, o sus importes difieren. Volver a correrla podría postear la revaluación dos veces, así que no se posteó nada; hay que revisar el registro.',
+  'error.FX_RATE_MISSING':
+    'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ==== fin de error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152); see en.ts ====
@@ -172,6 +185,25 @@ export const ES: Record<keyof typeof EN, string> = {
     'Calcular la retención de ley y dejar la póliza en revisión',
   'policy.fees_without_withholding.option.record_as_issued':
     'Registrarlo como se emitió, con un aviso en la lista de verificación del cierre',
+
+  'policy.withholding_mismatch.question':
+    "¿Qué pasa cuando un CFDI recibido declara una retención (ISR o IVA) distinta de la que la ley le exige a tu empresa como retenedora?",
+  'policy.withholding_mismatch.impact':
+    "Gobierna los CFDI recibidos sobre los que una persona moral retiene por ley (honorarios o arrendamiento de una persona física, fletes, una persona física del RESICO) y cuya retención declarada difiere de la de ley más allá del redondeo; los honorarios del régimen 612 que no declaran ISR retenido siguen fees_without_withholding. «request_substitute_cfdi» deja el CFDI en espera en la bandeja, no escribe nada en el mayor y dice que se le pida al proveedor un CFDI sustituto. «withhold_by_law» propone la póliza con la retención de ley y la deja en revisión. «record_as_issued» contabiliza el CFDI con la retención que declara, y la lista de verificación del cierre lo muestra en honorarios sin retención.",
+  'policy.withholding_mismatch.rationale':
+    "Quien paga es responsable solidario del impuesto que debió retener (CFF 26-I) y el gasto sólo es deducible si la retención se hizo y se enteró (LISR 27-V). El CFDI es de un tercero: el remedio limpio es un sustituto del proveedor, y no se registra nada sobre una cifra que va a cambiar.",
+  'policy.withholding_mismatch.why':
+    "Cuando tu empresa retiene por ley, la factura tiene que mostrar la misma retención que exige la ley. Si muestra otra, o el proveedor se equivocó o el caso no es el que describe la ley. Esperar una factura corregida, aplicar de todos modos la retención de ley o registrarla como vino es decisión de tu despacho.",
+  'policy.withholding_mismatch.what':
+    "Por omisión dejo la factura en espera y te digo que le pidas un sustituto al proveedor. Con «withhold_by_law» propongo la póliza con la retención de ley y la dejo para que la revises. Con «record_as_issued» la contabilizo como vino y la listo en la lista de verificación del cierre.",
+  'policy.withholding_mismatch.if_skipped':
+    "Dejo esas facturas en espera y te pregunto por cada una: nada llega a tus libros hasta que llegue un sustituto o contestes.",
+  'policy.withholding_mismatch.option.request_substitute_cfdi':
+    "Dejarlo en espera y pedirle al proveedor un CFDI sustituto",
+  'policy.withholding_mismatch.option.withhold_by_law':
+    "Registrar la retención de ley y dejar la póliza en revisión",
+  'policy.withholding_mismatch.option.record_as_issued':
+    "Registrarlo como se declaró, con un aviso en la lista de verificación del cierre",
 
   'policy.inventory_method.question':
     '¿La empresa lleva inventarios perpetuos?',
@@ -661,6 +693,22 @@ export const ES: Record<keyof typeof EN, string> = {
     'Negarse a generar hasta que cada cuenta lleve su código agrupador',
   'policy.anexo24_account_without_grouping_code.option.omitir_y_avisar':
     'Dejarlas fuera del archivo y listarlas',
+  'policy.anexo24_voucher_money_without_trace.question':
+    'Una póliza mueve dinero del banco sin un pago registrado detrás (una comisión, intereses, una nómina, un traspaso entre cuentas propias): ¿qué hacen las pólizas del Anexo 24?',
+  'policy.anexo24_voucher_money_without_trace.impact':
+    'Decide si `e-accounting voucher generate` entrega un mes con esos asientos. «block» rechaza el archivo (código 4) y nombra cada póliza hasta que se capture un pago con su rastro. «warn» lo entrega sin nodo de pago y nombra cada póliza. Ninguna toca el mayor. Declarar un nodo OtrMetodoPago no se ofrece: el XSD exige su Benef y su RFC, y sin un pago registrado el mayor no tiene ninguno de los dos, así que se inventarían.',
+  'policy.anexo24_voucher_money_without_trace.rationale':
+    'En PolizasPeriodo 1.3 (Anexo 24 de la RMF) los nodos Cheque, Transferencia y OtrMetodoPago son opcionales y cada uno «se convierte en requerido» cuando hay una salida o entrada de recursos por ese método; Transferencia también es requerido en toda transacción entre cuentas propias del contribuyente (la documentación del XSD de cada nodo). Sin un pago registrado el sistema no sabe cuál de esos casos es el asiento, y un archivo al que le falta un nodo requerido es contabilidad incompleta (CFF 28-IV). Por eso, por omisión, se rechaza y se nombra la póliza. Un despacho cuyos asientos sin rastro son cargos del banco que ningún instrumento movió puede contestar «warn».',
+  'policy.anexo24_voucher_money_without_trace.why':
+    'Las comisiones e intereses del banco mueven dinero que ningún cheque ni transferencia tuya movió. Si tu despacho presenta esas pólizas sin nodo de pago o captura antes un pago, es criterio tuyo.',
+  'policy.anexo24_voucher_money_without_trace.what':
+    'Aplico tu respuesta a cada póliza que mueve dinero del banco sin un pago registrado, y siempre nombro cada una.',
+  'policy.anexo24_voucher_money_without_trace.if_skipped':
+    'Rechazo el archivo y nombro cada póliza.',
+  'policy.anexo24_voucher_money_without_trace.option.block':
+    'Rechazar el archivo hasta que cada una tenga un pago registrado con su rastro',
+  'policy.anexo24_voucher_money_without_trace.option.warn':
+    'Entregar el archivo sin nodo de pago y listar las pólizas',
 
   'policy.chart_parent_child_coherence.question':
     '¿Una subcuenta puede estar en una sección de los estados distinta de la de su cuenta padre?',
@@ -915,6 +963,40 @@ export const ES: Record<keyof typeof EN, string> = {
     'FIX de Banxico (el tipo de referencia, publicado como banco_mexico)',
   'policy.exchange_rate_source.option.manual':
     'Tipos que fijo a mano con `fx rate set`',
+
+  'policy.closing_exchange_rate_source.question':
+    'Al cierre, ¿con qué tipo publicado se revalúan los saldos vivos en moneda extranjera?',
+  'policy.closing_exchange_rate_source.impact':
+    'closing fx revalue revalúa las cuentas por cobrar, por pagar y los bancos en moneda extranjera al tipo de esta fuente para el último día natural del periodo, ese día exacto. Si la fuente no publicó tipo para ese día, la corrida se detiene y lo dice: nunca toma el día hábil anterior ni otra fuente.',
+  'policy.closing_exchange_rate_source.rationale':
+    'La NIF B-15 revalúa las partidas monetarias al tipo de cierre, y la diferencia realizada de un pago posterior se mide con la fuente de las operaciones: cerrar con la misma fuente deja en la misma escala las mitades no realizada y realizada de una misma diferencia. Para un despacho mexicano esa fuente es por omisión el DOF, el tipo al que el art. 20 CFF da efectos y con el que se mide la ganancia o pérdida cambiaria del art. 8 LISR.',
+  'policy.closing_exchange_rate_source.why':
+    'El DOF y el FIX del mismo día son números distintos, y la revaluación postea la brecha entre el tipo en libros y éste.',
+  'policy.closing_exchange_rate_source.what':
+    'Revalúo al tipo de la fuente elegida para el último día del periodo, y me detengo si falta.',
+  'policy.closing_exchange_rate_source.if_skipped':
+    'Uso la misma fuente que las operaciones: el DOF, salvo que la hayas cambiado.',
+  'policy.closing_exchange_rate_source.option.operations_source':
+    'La misma fuente que las operaciones (fuente_tipo_cambio; el DOF salvo que se cambie)',
+  'policy.closing_exchange_rate_source.option.dof':
+    'DOF (Diario Oficial; el tipo fiscal del art. 20 CFF), usen lo que usen las operaciones',
+  'policy.closing_exchange_rate_source.option.fix_banxico':
+    'FIX de Banxico (publicado como banco_mexico)',
+
+  'policy.fx_revaluation_reversal.question':
+    '¿La revaluación de cierre de los saldos en moneda extranjera se revierte el día 1 del periodo siguiente?',
+  'policy.fx_revaluation_reversal.impact':
+    'closing fx revalue postea la diferencia cambiaria no realizada el último día del periodo y su espejo el día 1 del siguiente, que tiene que existir y estar abierto. El saldo vuelve a su tipo histórico, contra el que se mide la diferencia realizada de un pago o cobro posterior.',
+  'policy.fx_revaluation_reversal.rationale':
+    'La NIF B-15 revalúa las partidas monetarias al tipo de cierre para el balance. Los pagos y cobros miden la diferencia realizada contra el tipo histórico del documento (ar-ap-posting.ts), así que la revaluación se revierte el día 1: si no, la misma diferencia se reconocería dos veces, no realizada al cierre y otra vez al pagarse. Conservar la revaluación (sin reversión) no se ofrece hasta que los pagos lean el tipo en libros.',
+  'policy.fx_revaluation_reversal.why':
+    'Revertir o conservar la revaluación son legítimos bajo la NIF B-15; cuál es el correcto depende de cómo miden los pagos la diferencia realizada.',
+  'policy.fx_revaluation_reversal.what':
+    'Posteo el espejo de la revaluación el día 1 del periodo siguiente.',
+  'policy.fx_revaluation_reversal.if_skipped':
+    'La revierto el día 1 del periodo siguiente.',
+  'policy.fx_revaluation_reversal.option.reverse_on_day_one':
+    'Revertirla el día 1 del periodo siguiente',
 
   'policy.rep_foreign_currency.question':
     'Un complemento en una moneda distinta de la funcional: ¿registrarlo o dejarlo en revisión?',
@@ -1348,7 +1430,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.withholding_accounts_layout.question':
     '¿En qué cuentas se acumulan el ISR y el IVA que esta entidad les retiene a sus proveedores?',
   'policy.withholding_accounts_layout.impact':
-    'Decide dónde se registran las retenciones de honorarios y arrendamiento hasta que el día 17 se pagan. El ISR de nómina se queda en 2140 en cualquier esquema. Una cuenta por impuesto da los dos renglones del pago mensual y de la DIOT sin partir un saldo. Tres cuentas siguen el código agrupador del SAT (216.03 arrendamiento, 216.04 servicios profesionales, 216.10 IVA); el ISR retenido sobre algo que no sea arrendamiento se registra como servicios profesionales. Con una cuenta por impuesto, 2141 junta el ISR de arrendamiento y de honorarios, así que su código agrupador en la balanza del Anexo 24 (CFF 28-IV) sólo puede ser uno de los dos. Una sola cuenta necesita el papel de trabajo para separar el ISR del IVA, y la aprobación de un borrador sólo puede revisar su suma.',
+    'Decide dónde se registran las retenciones de honorarios y arrendamiento hasta que el día 17 se pagan. El ISR de nómina se queda en 2140 en cualquier esquema. Una cuenta por impuesto da los dos renglones del pago mensual y de la DIOT sin partir un saldo. Tres cuentas siguen el código agrupador del SAT (216.03 arrendamiento, 216.04 servicios profesionales, 216.10 IVA); el ISR retenido sobre algo que no sea arrendamiento, incluido el 1.25 % del RESICO (LISR 113-J) sobre bienes, servicios o fletes, se registra como servicios profesionales; el arrendamiento de inmuebles de un RESICO se registra como arrendamiento. Con una cuenta por impuesto, 2141 junta el ISR de arrendamiento y de honorarios, así que su código agrupador en la balanza del Anexo 24 (CFF 28-IV) sólo puede ser uno de los dos. Una sola cuenta necesita el papel de trabajo para separar el ISR del IVA, y la aprobación de un borrador sólo puede revisar su suma.',
   'policy.withholding_accounts_layout.rationale':
     'El retenedor paga el ISR (LISR 106, 116) y el IVA (LIVA 1-A, 5-D) que retuvo con la declaración mensual que vence el día 17, como impuestos separados, y la DIOT reporta el IVA retenido por proveedor (LIVA 32-VIII): un saldo por impuesto es lo que leen las dos sin partir nada. Es con lo que se siembran las entidades.',
   'policy.withholding_accounts_layout.why':
@@ -1672,6 +1754,21 @@ export const ES: Record<keyof typeof EN, string> = {
 
   // ==== I7 · EL PILOTO: `src/cli/bank-command.ts` (issue #149) =====
   // --- Los analizadores de bandera: uso (2), no validación (4) ---------
+  'receipt.withholding.unreadable':
+    'No entiendo la retención "{spec}": escribe "isr:1000" o "iva:1066.67", y con varias facturas antepón el folio ("INV-2026-00042:isr:1000").',
+  'receipt.withholding.which_invoice':
+    'Con varias facturas, la retención "{spec}" tiene que decir de cuál es ("INV-2026-00042:{spec}").',
+  'receipt.withholding.not_applied':
+    'La retención "{spec}" nombra {invoice}, que no está entre las --invoice de esta aplicación.',
+  'receipt.withholding.negative': 'Una retención no puede ser negativa ({amount}).',
+  'receipt.withholding.cash_required':
+    'El efectivo aplicado a {invoice} debe ser mayor que cero (llegó {amount}): una retención viaja con una aplicación de efectivo, nunca se aplica sola.',
+  'receipt.withholding.exceeds_due':
+    '{invoice} debe {due} y se intentan aplicar {settled} ({cash} cobrado + {withheld} retenido).',
+  'receipt.withholding.vat_cap': '{invoice} traslada {cap} de IVA: el cliente no puede retener más que eso.',
+  'receipt.withholding.isr_cap': '{invoice} tiene un subtotal de {cap}: el ISR retenido no puede pasar de ahí.',
+  'receipt.withholding.booked_at_issuance':
+    '{invoice} ya registró la retención del cliente ({amount}) al emitirse: su cuenta por cobrar es el neto que paga el cliente. Aplica sólo el efectivo; --withholding es para facturas cuya cuenta por cobrar se registró en bruto.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
@@ -2237,8 +2334,40 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.tenant.create.argument.name': 'nombre del despacho',
   'help.tenant.create.option.subdomain': 'identificador único del despacho (si se omite, se deriva del nombre)',
   'help.tenant.create.option.json': 'salida en JSON',
+  'help.user.description': 'Da de alta, lista y archiva los usuarios de un despacho, sin terminal',
+  'help.user.list.description': 'Lista los usuarios del despacho, incluidos los archivados',
+  'help.user.create.description': 'Da de alta un usuario con un rol del catálogo; la contraseña llega por stdin, por el entorno o por una pregunta oculta',
+  'help.user.create.option.email': 'correo con el que el usuario entra',
+  'help.user.create.option.role': 'rol de src/auth/roles.ts (owner, admin, controller, contador, revisor, auditor, viewer) o su alias',
+  'help.user.create.option.password_stdin': 'lee la contraseña de stdin (nunca como argumento)',
+  'help.user.create.option.json': 'salida en JSON',
+  'help.user.archive.description': 'Archiva un usuario: ya no puede entrar, y nada de lo que hizo se borra',
+  'help.user.archive.argument.email': 'correo del usuario que se archiva',
+  'cli.rls_bypass.notice': 'Aviso: el rol «{role}» ignora row level security ({reason}); en esta sesión el aislamiento entre despachos depende sólo del código. Conecta como mnemosine_app (scripts/provision-roles.sql).',
   'help.account.role.sync.description': 'Apunta los roles de retención a las cuentas que elige withholding_accounts_layout y crea las que falten',
   'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
+  'help.receipt.apply.option.withholding':
+    'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
+  'help.closing.fx.description': 'La moneda extranjera en el cierre',
+  'help.closing.fx.revalue.description':
+    'Revalúa las cuentas por cobrar, por pagar y los bancos en moneda extranjera al tipo de cierre, y lo revierte el día 1 del periodo siguiente. Va después del cierre suave; una corrida posterior postea sólo lo que se movió desde entonces',
+  'help.closing.fx.revalue.argument.period': 'periodo a revaluar: 2026-08, su id o parte de su nombre',
+
+  'closing.fx.revalue.already_run':
+    '{period} ya se revaluó (corrida {sequence}) y nada se ha movido desde entonces; no se posteó nada otra vez.',
+  'closing.fx.revalue.summary':
+    '{period} a {rates} · utilidad {gain} · pérdida {loss} · se revierte el {reversalDate}',
+  'closing.fx.revalue.no_foreign_balance': 'sin saldos en moneda extranjera',
+  'closing.fx.revalue.supplement':
+    'Corrida complementaria {sequence}: la diferencia es sólo lo que se movió desde las corridas anteriores de este periodo.',
+  'closing.fx.revalue.dry_run': 'Marcha seca: el mayor no se tocó.',
+  'closing.fx.revalue.nothing': 'Nada que revaluar: el mayor no se tocó.',
+  'closing.fx.revalue.confirm':
+    '¿Posteo la revaluación de {period} (utilidad {gain}, pérdida {loss}) y su espejo el {reversalDate}? El mayor no admite deshacer.',
+  'closing.fx.revalue.aborted': 'No se posteó nada.',
+  'closing.fx.revalue.aborted_no_tty':
+    'No se posteó nada: no hay terminal donde confirmar. Añade -y, o --dry-run para verlo antes.',
+  'closing.fx.revalue.posted': '✔ {entry} el {closingDate}, revertida por {reversal} el {reversalDate}.',
   'help.bill.rule.description':
     'Reglas de procesamiento del despacho: con qué se clasifica un CFDI recibido sin que intervenga el modelo',
   'help.bill.rule.create.description':
@@ -2484,6 +2613,68 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+
+  // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
+  'help.e_accounting.voucher.description': 'Las pólizas del periodo que el SAT pide a requerimiento: PolizasPeriodo 1.3',
+  'help.e_accounting.voucher.generate.description':
+    'Genera y archiva el XML de pólizas del periodo con el nodo de evidencia de cada renglón (CompNal, Cheque, Transferencia, OtrMetodoPago) y su hash',
+  'help.e_accounting.voucher.option.closing':
+    'las pólizas del mes 13, donde caen los ajustes de cierre del ejercicio; con él, --period nombra el ejercicio (2026)',
+  'help.e_accounting.voucher.option.validate_uuids': 'comprueba además la forma de cada UUID de CFDI que declaran las pólizas',
+  'help.e_accounting.subledger.description': 'Los auxiliares que el SAT pide a requerimiento: de folios o de cuentas',
+  'help.e_accounting.subledger.generate.description':
+    'Genera y archiva el auxiliar de folios (AuxiliarFolios 1.3) o el de cuenta y subcuenta (AuxiliarCtas 1.3) con su hash',
+  'help.e_accounting.subledger.option.closing':
+    'el auxiliar del mes 13, donde caen los ajustes de cierre del ejercicio; con él, --period nombra el ejercicio (2026)',
+  'help.e_accounting.subledger.option.kind': 'qué auxiliar: folios (de folios) o accounts (de cuenta y subcuenta); sin valor por omisión',
+  'help.e_accounting.request.option.period':
+    'periodo a declarar: 2026-02, su nombre o el id del periodo fiscal; con --closing, el ejercicio (2026)',
+  'help.e_accounting.request.option.request_type':
+    'el requerimiento al que responde el archivo (TipoSolicitud): AF acto de fiscalización, FC fiscalización compulsa, DE devolución, CO compensación; sin valor por omisión',
+  'help.e_accounting.request.option.order_number': 'número de orden (NumOrden), obligatorio con AF y FC: ABC1234567/26',
+  'help.e_accounting.request.option.procedure_number': 'número de trámite (NumTramite), obligatorio con DE y CO: DE202600000009',
+  'help.e_accounting.request.option.dry_run': 'lo construye y muestra el veredicto; no archiva nada ni escribe archivo',
+  'help.e_accounting.request.option.output': 'escribe el XML en esta ruta (el almacén de artefactos guarda su propia copia)',
+  'help.e_accounting.request.option.yes': 'no pregunta antes de sobrescribir cuando -o nombra un archivo que ya existe',
+  'e_accounting.request.type_missing':
+    'Indica a qué requerimiento responde el archivo con --request-type ({types}). Las pólizas y los auxiliares se entregan a requerimiento, nunca de oficio, y el archivo dice a cuál responde: no hay valor por omisión.',
+  'e_accounting.period.missing':
+    'Indica el mes: --period YYYY-MM (o su nombre o id), o --closing para el mes 13 del ejercicio.',
+  'e_accounting.subledger.kind_missing':
+    'Indica qué auxiliar con --kind: folios (de folios) o accounts (de cuenta y subcuenta). No hay valor por omisión: entregar el equivocado es no contestar el requerimiento.',
+  'e_accounting.subledger.kind_unknown': '--kind «{value}» no existe: usa folios o accounts.',
+  'e_accounting.target.dry_run': '(ensayo: no se escribió nada)',
+  'e_accounting.target.not_written': '(no se escribió: el archivo está bloqueado)',
+  'e_accounting.request.type_unknown':
+    'TipoSolicitud «{value}» no existe. El Anexo 24 admite {types}: AF acto de fiscalización, FC fiscalización compulsa, DE devolución, CO compensación. No hay valor por omisión.',
+  'e_accounting.request.order_missing':
+    'TipoSolicitud {type} exige --order-number (NumOrden): el número de la orden de la revisión que pidió este archivo.',
+  'e_accounting.request.order_not_filing':
+    'TipoSolicitud {type} lleva --order-number, no --procedure-number: los dos dirían que el archivo responde a la vez a una revisión y a una devolución o compensación.',
+  'e_accounting.request.filing_missing':
+    'TipoSolicitud {type} exige --procedure-number (NumTramite): el número del trámite de devolución o compensación al que este archivo da soporte.',
+  'e_accounting.request.filing_not_order': 'TipoSolicitud {type} lleva --procedure-number, no --order-number.',
+  'e_accounting.request.order_shape':
+    'NumOrden «{value}» no tiene el formato del SAT: tres letras, siete dígitos, una diagonal y dos dígitos (ABC1234567/26). Con otro valor el esquema rechaza el archivo entero.',
+  'e_accounting.request.filing_shape':
+    'NumTramite «{value}» no tiene el formato del SAT: dos letras y doce dígitos (DE202600000009). Con otro valor el esquema rechaza el archivo entero.',
+  'e_accounting.target.store': '(almacén de artefactos)',
+  'e_accounting.target.label': 'destino {target}',
+  'e_accounting.sealing.declared':
+    'El despacho tiene declarado «{policy}» en efirma_sellado_contabilidad_electronica, y este comando no sella: el archivo sale sin Sello, noCertificado ni Certificado.',
+  'e_accounting.dry_run.done': '--dry-run: no se archivó nada y no se escribió ningún archivo.',
+  'e_accounting.archive.already_there':
+    'Estos mismos bytes ya estaban archivados: no se creó una versión nueva. El generador es determinista.',
+  'e_accounting.voucher.title': 'Pólizas {month}/{year}',
+  'e_accounting.voucher.summary':
+    '{vouchers, plural, one {# póliza} other {# pólizas}}, {traced} con rastro de pago · cargos {debit} · abonos {credit}',
+  'e_accounting.voucher.blocked':
+    'No se generó ningún archivo entregable: {blocking, plural, one {# hallazgo bloqueante} other {# hallazgos bloqueantes}} arriba, cada uno con su número de póliza. Corrígelos y vuelve a generar.',
+  'e_accounting.subledger.title_folios': 'Auxiliar de folios {month}/{year}',
+  'e_accounting.subledger.title_accounts': 'Auxiliar de cuentas {month}/{year}',
+  'e_accounting.subledger.summary':
+    '{vouchers, plural, one {# póliza} other {# pólizas}} · {lines, plural, one {# renglón} other {# renglones}}',
+
   'payslip.run_required': 'Falta --run: nombra la corrida cuyos recibos quieres (`pay-run create` imprimió su id).',
   'imss.sua.period_invalid': '--period "{period}": usa el mes como AAAA-MM, por ejemplo 2026-07.',
   'imss.sua.exists': '{path} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes.',
@@ -2497,4 +2688,36 @@ export const ES: Record<keyof typeof EN, string> = {
   'payslip.status_invalid': '--status {status}: usa uno de {states}.',
   'imss.sua.not_filed':
     'Archivo del SUA de {count} empleado(s) armado y registrado como declaración en borrador. No se envió nada: cárgalo en el SUA y paga.',
+  // --- e-accounting catalog|balance seal · sellar (EFIRMA-4, #442) --------
+  'anexo24.seal.refused_by_policy':
+    'No se sella: la política {policy} está en "{value}" y el sistema sólo sella con la e.firma ' +
+    'bajo "{optIn}". No se descifró nada y la bitácora de accesos no tiene fila por esto.',
+  'anexo24.seal.done':
+    'Sellado con la e.firma (certificado {certificate}): Sello, noCertificado y Certificado puestos, ' +
+    'y el archivo valida contra el XSD del SAT.',
+  'anexo24.seal.nothing_filed':
+    'NO SE PRESENTÓ NADA ANTE EL SAT. El SAT no tiene servicio web para recibir este archivo: ' +
+    'cárgalo tú en el portal del SAT (Contabilidad electrónica) y guarda el acuse de recepción.',
+  'help.e_accounting.catalog.seal.description':
+    'Sella con la e.firma de la entidad el CtaCatalogo archivado de un mes (sólo con sellar_con_custodia); no presenta nada',
+  'help.e_accounting.balance.seal.description':
+    'Sella con la e.firma de la entidad la balanza archivada de un periodo (sólo con sellar_con_custodia); no presenta nada',
+  'help.e_accounting.seal.option.period': 'mes del archivo archivado: YYYY-MM (el ejercicio con --closing)',
+  'help.e_accounting.catalog.seal.option.period': 'mes del catálogo archivado: YYYY-MM',
+  'help.e_accounting.balance.check.option.type': 'tipo de envío a verificar: N normal, C complementaria (pide --modified)',
+  'help.e_accounting.balance.check.option.modified': 'FechaModBal de la balanza complementaria; obligatoria con --type C',
+  'anexo24.seal.not_archived':
+    'No hay {document} archivado sin sellar de {period}: genéralo primero, revísalo y después séllalo.',
+  'anexo24.seal.rfc_mismatch':
+    'La e.firma es de {certificateRfc} y el documento declara {documentRfc}: no se sella.',
+  'anexo24.seal.not_sat_serial':
+    'El número de serie {serial} no es un número de certificado del SAT (20 dígitos): no puede ir en noCertificado.',
+  'anexo24.seal.separator_in_attribute':
+    'No se sella: {element} (cuenta {account}) tiene "|" en {attribute} ("{value}"). El Anexo 24 prohíbe "|" en ' +
+    'cualquier atributo porque separa los campos de la cadena original. Corrige el valor y vuelve a generar.',
+  'anexo24.seal.source_invalid':
+    'No se sella: el archivo archivado no valida contra el XSD del SAT ({errors}). No se descifró nada.',
+  'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
+  'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
+  'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',
 };

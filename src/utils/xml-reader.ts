@@ -57,6 +57,27 @@ export function createXmlReader(options: XmlReaderOptions): XMLParser {
 }
 
 /**
+ * The parser for a reader that walks a third-party document the way an XSLT
+ * does, as the cadena original of the Anexo 24 needs: document order kept
+ * (`preserveOrder`), qualified names kept (the stylesheet matches them), and
+ * attributes without a prefix. It decodes numeric character references like
+ * the reader above, so that `&#237;` reaches the cadena as the letter it names.
+ */
+export function createOrderedXmlReader(): XMLParser {
+  return new XMLParser({
+    preserveOrder: true,
+    ignoreAttributes: false,
+    attributeNamePrefix: '',
+    processEntities: true,
+    htmlEntities: true,
+    parseTagValue: false,
+    parseAttributeValue: false,
+    trimValues: false,
+    ignoreDeclaration: true,
+  });
+}
+
+/**
  * XML 1.0 §3.3.3 attribute-value normalization: tab, line feed and carriage
  * return are worth one space. Says whether anything changed, because a reader
  * that reports what it did to the file needs to know.

@@ -47,6 +47,25 @@ export const EN = {
   /** `AccountingError('PERIOD_ALREADY_OPEN')`: opening a period that is already open, or reopening one — the dry run of `period reopen` included. */
   'error.PERIOD_ALREADY_OPEN': '{period} is already open.',
 
+  /** `AccountingError('FX_REVALUATION_PERIOD_NOT_OPEN')`: `closing fx revalue` on a period that is not a regular open or soft-closed month (MNE-001-083). */
+  'error.FX_REVALUATION_PERIOD_NOT_OPEN':
+    '{period} is {type} and {status}: the revaluation belongs to a regular month that is open or soft-closed, before its seal.',
+  /** `AccountingError('FX_REVALUATION_NEXT_PERIOD_NOT_OPEN')`: the day-1 mirror has no open period to land in. */
+  'error.FX_REVALUATION_NEXT_PERIOD_NOT_OPEN':
+    'The revaluation of {period} is reversed on the first day of the next period, and that period {status, select, missing {does not exist} other {is {status}}}. Open it (in December, open the next fiscal year first) and run it again: nothing was posted.',
+  /** `AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED')`: an entity whose functional currency is not MXN (#124). */
+  'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
+    'The closing revaluation is built for entities that keep their books in Mexican pesos (NIF B-15), and this one keeps them in {currency}. Other functional currencies, and ASC 830, are issue 124: nothing was posted.',
+  /** `AccountingError('FX_REVALUATION_PLAN_CHANGED')`: the live run recomputed a different gain or loss than the plan the user confirmed. */
+  'error.FX_REVALUATION_PLAN_CHANGED':
+    'The revaluation of {period} changed between the plan you confirmed (gain {expectedGain}, loss {expectedLoss}) and the post (gain {gain}, loss {loss}): something was posted or a rate changed in between. Nothing was posted; run it again to see the new plan.',
+  /** `AccountingError('FX_REVALUATION_MARKER_MISMATCH')`: fx_revaluation_runs no longer agrees with the ledger's fx_revaluation entries of the period. */
+  'error.FX_REVALUATION_MARKER_MISMATCH':
+    'The revaluation record of {period} does not agree with the ledger: the ledger holds {ledger} revaluation entries for it and the record {marker}, or their amounts differ. Running it again could post the revaluation twice, so nothing was posted; the record needs to be reviewed.',
+  /** `AccountingError('FX_RATE_MISSING')` when the source was chosen by a panel key other than fuente_tipo_cambio (the closing revaluation). */
+  'error.FX_RATE_MISSING':
+    'There is no {from}→{to} rate from the source {source} for {date}. Enter it with: mnemosine fx rate set {from}/{to} {date} RATE --source {source}, or download it with: mnemosine fx rate download. No other source or date is taken silently: the source was chosen on the policy panel, and it is a criterion of the firm.',
+
   // ==== end of error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152, MNE-001-090) ====
@@ -200,6 +219,25 @@ export const EN = {
     'Compute the law\'s withholding and hold the entry for review',
   'policy.fees_without_withholding.option.record_as_issued':
     'Record it as issued, with a warning in the close checklist',
+
+  'policy.withholding_mismatch.question':
+    "A received CFDI declares a withholding (ISR or VAT) other than the one the law requires of your company as payer. What happens?",
+  'policy.withholding_mismatch.impact':
+    "Governs received CFDIs on which a legal entity withholds by law (an individual's fees or lease, land freight, an individual in RESICO) and whose declared withholding differs from the law's beyond rounding; professional fees under regime 612 that declare no ISR withheld follow fees_without_withholding instead. \"request_substitute_cfdi\" holds the CFDI in the inbox, writes nothing to the ledger and says to ask the vendor for a substitute CFDI. \"withhold_by_law\" proposes the entry with the law's withholding and holds it for review. \"record_as_issued\" posts the CFDI with its declared withholding, and the close checklist lists it under fees-without-withholding.",
+  'policy.withholding_mismatch.rationale':
+    "The payer is jointly liable for the tax it should have withheld (CFF 26-I) and the expense is deductible only if the withholding was made and paid (LISR 27-V). The CFDI belongs to a third party: the clean remedy is a substitute from the vendor, and nothing is booked on a figure that will change.",
+  'policy.withholding_mismatch.why':
+    "When your company withholds by law, the invoice has to show the same withholding the law requires. If it shows another, either the vendor made a mistake or the case is not the one the law describes. Whether to wait for a corrected invoice, withhold the law's amount anyway or book it as it came is a call for your firm.",
+  'policy.withholding_mismatch.what':
+    "By default I hold the invoice and tell you to ask the vendor for a substitute. With \"withhold_by_law\" I propose the entry with the law's withholding and leave it for you to review. With \"record_as_issued\" I post it as it came and list it in the close checklist.",
+  'policy.withholding_mismatch.if_skipped':
+    "I hold those invoices and ask you about each one: nothing reaches your books until a substitute arrives or you answer.",
+  'policy.withholding_mismatch.option.request_substitute_cfdi':
+    "Hold it and ask the vendor for a substitute CFDI",
+  'policy.withholding_mismatch.option.withhold_by_law':
+    "Book the law's withholding and hold the entry for review",
+  'policy.withholding_mismatch.option.record_as_issued':
+    "Record it as declared, with a warning in the close checklist",
 
   'policy.inventory_method.question':
     'Does the company keep perpetual inventories?',
@@ -689,6 +727,22 @@ export const EN = {
     'Refuse to generate until every account carries its grouping code',
   'policy.anexo24_account_without_grouping_code.option.omitir_y_avisar':
     'Leave them out of the file and list them',
+  'policy.anexo24_voucher_money_without_trace.question':
+    'A voucher moves bank money with no registered payment behind it (a bank fee, interest, a pay run, a transfer between own accounts): what do the Anexo 24 vouchers do?',
+  'policy.anexo24_voucher_money_without_trace.impact':
+    'Decides whether `e-accounting voucher generate` delivers a month with such entries. "block" refuses the file (exit 4) and names each voucher until a payment with its trace is captured. "warn" delivers it without the payment node and names each voucher. Neither changes the ledger. Declaring an OtrMetodoPago node instead is not offered: the XSD requires its Benef and RFC, and with no payment record the ledger has neither, so they would be invented.',
+  'policy.anexo24_voucher_money_without_trace.rationale':
+    'In PolizasPeriodo 1.3 (Anexo 24 RMF) the Cheque, Transferencia and OtrMetodoPago nodes are optional, and each "becomes required" when resources go out or come in by that method; Transferencia is also required for every transaction between the taxpayer\'s own accounts (the XSD documentation of each node). With no payment record the system cannot tell which of those cases an entry is, and a file that lacks a required node is incomplete books (CFF 28-IV). So the default refuses and names the voucher. A firm whose untraced entries are bank charges no instrument moved can answer "warn".',
+  'policy.anexo24_voucher_money_without_trace.why':
+    'Bank fees and interest move money that no cheque or transfer of yours moved. Whether your firm files those vouchers without a payment node or captures a payment first is your criterion.',
+  'policy.anexo24_voucher_money_without_trace.what':
+    'I apply your answer to every voucher that moves bank money with no registered payment, and I always name each one.',
+  'policy.anexo24_voucher_money_without_trace.if_skipped':
+    'I refuse the file and name each voucher.',
+  'policy.anexo24_voucher_money_without_trace.option.block':
+    'Refuse the file until each one has a registered payment with its trace',
+  'policy.anexo24_voucher_money_without_trace.option.warn':
+    'Deliver the file without the payment node and list the vouchers',
 
   'policy.chart_parent_child_coherence.question':
     'May a subaccount sit in a different section of the statements than its parent?',
@@ -943,6 +997,40 @@ export const EN = {
     'Banxico FIX (the reference rate, published as banco_mexico)',
   'policy.exchange_rate_source.option.manual':
     'Rates I set by hand with `fx rate set`',
+
+  'policy.closing_exchange_rate_source.question':
+    'At the close, which published rate revalues the open foreign-currency balances?',
+  'policy.closing_exchange_rate_source.impact':
+    "closing fx revalue revalues the foreign-currency receivables, payables and bank balances at the rate of this source for the period's last calendar day, exactly that day. If the source published no rate for it, the run stops and says so: it never takes the previous business day or another source.",
+  'policy.closing_exchange_rate_source.rationale':
+    'NIF B-15 revalues monetary items at the closing rate, and the realised difference of a later payment is measured with the source of the operations: closing with the same source keeps the unrealised and the realised halves of one difference on the same scale. For a Mexican firm that source is the DOF by default, the rate art. 20 CFF gives legal effect and the one the exchange gain or loss of LISR art. 8 is measured with.',
+  'policy.closing_exchange_rate_source.why':
+    'DOF and FIX for the same day are different numbers, and the revaluation posts the gap between the book rate and this one.',
+  'policy.closing_exchange_rate_source.what':
+    "I revalue at the chosen source's rate for the period's last day, and stop if it is missing.",
+  'policy.closing_exchange_rate_source.if_skipped':
+    'I use the same source as the operations: the DOF unless you changed it.',
+  'policy.closing_exchange_rate_source.option.operations_source':
+    'The same source as the operations (fuente_tipo_cambio; DOF unless changed)',
+  'policy.closing_exchange_rate_source.option.dof':
+    'DOF (Diario Oficial; the tax rate under art. 20 CFF), whatever the operations use',
+  'policy.closing_exchange_rate_source.option.fix_banxico':
+    'Banxico FIX (published as banco_mexico)',
+
+  'policy.fx_revaluation_reversal.question':
+    'Is the closing revaluation of foreign balances reversed on day 1 of the next period?',
+  'policy.fx_revaluation_reversal.impact':
+    'closing fx revalue posts the unrealised exchange difference on the last day of the period and its mirror on day 1 of the next one, which must exist and be open. The balance goes back to its historical rate, the one the realised difference of a later payment or collection is measured against.',
+  'policy.fx_revaluation_reversal.rationale':
+    'NIF B-15 revalues monetary items at the closing rate for the balance sheet. Payments and collections measure the realised difference against the document’s historical rate (ar-ap-posting.ts), so the revaluation must be reversed on day 1: otherwise the same difference would be recognised twice, once unrealised at the close and again when paid. Keeping the revaluation (no reversal) is not offered until payments read the book rate instead.',
+  'policy.fx_revaluation_reversal.why':
+    'Reversing or keeping the revaluation are both legitimate under NIF B-15; which one is right depends on how payments measure the realised difference.',
+  'policy.fx_revaluation_reversal.what':
+    'I post the mirror of the revaluation on day 1 of the next period.',
+  'policy.fx_revaluation_reversal.if_skipped':
+    'I reverse it on day 1 of the next period.',
+  'policy.fx_revaluation_reversal.option.reverse_on_day_one':
+    'Reverse it on day 1 of the next period',
 
   'policy.rep_foreign_currency.question':
     'A receipt in a currency other than the functional one: register it, or leave it for review?',
@@ -1376,7 +1464,7 @@ export const EN = {
   'policy.withholding_accounts_layout.question':
     'On which accounts does the ISR and VAT this entity withholds from its suppliers accumulate?',
   'policy.withholding_accounts_layout.impact':
-    'Decides where fees and lease withholdings are booked until the 17th pays them. Payroll ISR stays on 2140 in every layout. One account per tax gives the two lines of the monthly payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything that is not a lease is booked as professional services. With one account per tax, 2141 holds lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can only be one of the two. One account needs the working paper to split ISR from VAT, and the approval of a draft can only check their sum.',
+    'Decides where fees and lease withholdings are booked until the 17th pays them. Payroll ISR stays on 2140 in every layout. One account per tax gives the two lines of the monthly payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything that is not a lease, the 1.25 % of RESICO (LISR 113-J) on goods, services or freight included, is booked as professional services; a RESICO real-estate lease is booked as a lease. With one account per tax, 2141 holds lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can only be one of the two. One account needs the working paper to split ISR from VAT, and the approval of a draft can only check their sum.',
   'policy.withholding_accounts_layout.rationale':
     'The withholder pays the ISR (LISR 106, 116) and the VAT (LIVA 1-A, 5-D) it withheld with the monthly return due on the 17th, as separate taxes, and the DIOT reports the VAT withheld per supplier (LIVA 32-VIII): a balance per tax is what both read without any split. It is what entities are seeded with.',
   'policy.withholding_accounts_layout.why':
@@ -1787,6 +1875,21 @@ export const EN = {
   // manda conservar; y los bloques de `EJEMPLOS`, congelados por
   // `src/ai/docs/cli-reference.md`.
   // --- Los analizadores de bandera: uso (2), no validación (4) ---------
+  'receipt.withholding.unreadable':
+    'Cannot read the withholding "{spec}": write "isr:1000" or "iva:1066.67", and with several invoices put the invoice first ("INV-2026-00042:isr:1000").',
+  'receipt.withholding.which_invoice':
+    'With several invoices, the withholding "{spec}" has to say which one it belongs to ("INV-2026-00042:{spec}").',
+  'receipt.withholding.not_applied':
+    'The withholding "{spec}" names {invoice}, which is not one of the --invoice of this application.',
+  'receipt.withholding.negative': 'A withholding cannot be negative ({amount}).',
+  'receipt.withholding.cash_required':
+    'The cash applied to {invoice} must be greater than zero (got {amount}): a withholding rides on a cash application, it is never applied alone.',
+  'receipt.withholding.exceeds_due':
+    '{invoice} owes {due} and {settled} would be applied ({cash} collected + {withheld} withheld).',
+  'receipt.withholding.vat_cap': '{invoice} transfers {cap} of VAT: the customer cannot withhold more than that.',
+  'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
+  'receipt.withholding.booked_at_issuance':
+    '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
@@ -2386,8 +2489,40 @@ export const EN = {
   'help.tenant.create.argument.name': 'name of the firm',
   'help.tenant.create.option.subdomain': 'unique handle of the firm (derived from the name when omitted)',
   'help.tenant.create.option.json': 'JSON output',
+  'help.user.description': 'Create, list and archive the logins of a firm, without a terminal',
+  'help.user.list.description': 'List the users of the firm, archived ones included',
+  'help.user.create.description': 'Create a user with one role of the catalog; the password comes from stdin, the environment or a hidden prompt',
+  'help.user.create.option.email': 'email address the user signs in with',
+  'help.user.create.option.role': 'role of src/auth/roles.ts (owner, admin, controller, contador, revisor, auditor, viewer) or its alias',
+  'help.user.create.option.password_stdin': 'read the password from stdin (never pass it as an argument)',
+  'help.user.create.option.json': 'JSON output',
+  'help.user.archive.description': 'Archive a user: it can no longer sign in, and nothing it did is erased',
+  'help.user.archive.argument.email': 'email of the user to archive',
+  'cli.rls_bypass.notice': 'Warning: role "{role}" bypasses row level security ({reason}); isolation between firms depends on the code alone in this session. Connect as mnemosine_app (scripts/provision-roles.sql).',
   'help.account.role.sync.description': 'Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones',
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
+  'help.receipt.apply.option.withholding':
+    'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
+  'help.closing.fx.description': 'Foreign currency at the close',
+  'help.closing.fx.revalue.description':
+    'Revalue the foreign-currency receivables, payables and banks at the closing rate, and reverse it on day 1 of the next period. It belongs after the soft close; a later run posts only what moved since',
+  'help.closing.fx.revalue.argument.period': 'period to revalue: 2026-08, its id, or part of its name',
+
+  'closing.fx.revalue.already_run':
+    '{period} was already revalued (run {sequence}) and nothing has moved since; nothing was posted again.',
+  'closing.fx.revalue.summary':
+    '{period} at {rates} · gain {gain} · loss {loss} · reversed on {reversalDate}',
+  'closing.fx.revalue.no_foreign_balance': 'no foreign balance',
+  'closing.fx.revalue.supplement':
+    'Supplementary run {sequence}: the difference is only what moved since the earlier runs of this period.',
+  'closing.fx.revalue.dry_run': 'Dry run: the ledger was not touched.',
+  'closing.fx.revalue.nothing': 'Nothing to revalue: the ledger was not touched.',
+  'closing.fx.revalue.confirm':
+    'Post the revaluation of {period} (gain {gain}, loss {loss}) and its mirror on {reversalDate}? The ledger does not admit undo.',
+  'closing.fx.revalue.aborted': 'Nothing was posted.',
+  'closing.fx.revalue.aborted_no_tty':
+    'Nothing was posted: there is no terminal to confirm on. Add -y, or --dry-run to look first.',
+  'closing.fx.revalue.posted': '✔ {entry} on {closingDate}, reversed by {reversal} on {reversalDate}.',
   'help.bill.rule.description': 'Firm processing rules: what codes an incoming CFDI with no model involved',
   'help.bill.rule.create.description':
     'Create a processing rule (conditions → actions) that the next ingest applies',
@@ -2638,6 +2773,67 @@ export const EN = {
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
 
+  // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
+  'help.e_accounting.voucher.description': 'The period vouchers the SAT asks for on request: PolizasPeriodo 1.3',
+  'help.e_accounting.voucher.generate.description':
+    'Build and archive the period vouchers XML with the evidence node of each line (CompNal, Cheque, Transferencia, OtrMetodoPago) and its hash',
+  'help.e_accounting.voucher.option.closing':
+    'the vouchers of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)',
+  'help.e_accounting.voucher.option.validate_uuids': 'also check the shape of every CFDI UUID the vouchers declare',
+  'help.e_accounting.subledger.description': 'The auxiliaries the SAT asks for on request: voucher folios or accounts',
+  'help.e_accounting.subledger.generate.description':
+    'Build and archive the voucher-folio auxiliary (AuxiliarFolios 1.3) or the account and sub-account auxiliary (AuxiliarCtas 1.3) with its hash',
+  'help.e_accounting.subledger.option.closing':
+    'the auxiliary of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)',
+  'help.e_accounting.subledger.option.kind': 'which auxiliary: folios (voucher folios) or accounts (account and sub-account); no default',
+  'help.e_accounting.request.option.period':
+    'period to declare: 2026-02, its name, or the fiscal period id; with --closing, the fiscal year (2026)',
+  'help.e_accounting.request.option.request_type':
+    'the request the file answers (TipoSolicitud): AF audit, FC compulsory check, DE refund, CO offset; no default',
+  'help.e_accounting.request.option.order_number': 'audit order number (NumOrden), required with AF and FC: ABC1234567/26',
+  'help.e_accounting.request.option.procedure_number': 'filing number (NumTramite), required with DE and CO: DE202600000009',
+  'help.e_accounting.request.option.dry_run': 'build it and show the verdict; archive nothing and write no file',
+  'help.e_accounting.request.option.output': 'write the XML to this path (the artifact store keeps its own copy)',
+  'help.e_accounting.request.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'e_accounting.request.type_missing':
+    'Say which request the file answers with --request-type ({types}). Vouchers and auxiliaries are delivered on request, never on your own, and the file states which request it answers: there is no default.',
+  'e_accounting.period.missing':
+    'Say which month: --period YYYY-MM (or its name or id), or --closing for month 13 of the fiscal year.',
+  'e_accounting.subledger.kind_missing':
+    'Say which auxiliary with --kind: folios (voucher folios) or accounts (account and sub-account). There is no default: delivering the wrong one does not answer the request.',
+  'e_accounting.subledger.kind_unknown': '--kind "{value}" does not exist: use folios or accounts.',
+  'e_accounting.target.dry_run': '(dry run: nothing was written)',
+  'e_accounting.target.not_written': '(not written: the file is blocked)',
+  'e_accounting.request.type_unknown':
+    'TipoSolicitud "{value}" does not exist. The Anexo 24 accepts {types}: AF audit, FC compulsory check, DE refund, CO offset. There is no default.',
+  'e_accounting.request.order_missing':
+    'TipoSolicitud {type} needs --order-number (NumOrden): the number of the audit order that asked for this file.',
+  'e_accounting.request.order_not_filing':
+    'TipoSolicitud {type} takes --order-number, not --procedure-number: both would say the file answers an audit and a refund or offset at once.',
+  'e_accounting.request.filing_missing':
+    'TipoSolicitud {type} needs --procedure-number (NumTramite): the number of the refund or offset filing this file supports.',
+  'e_accounting.request.filing_not_order': 'TipoSolicitud {type} takes --procedure-number, not --order-number.',
+  'e_accounting.request.order_shape':
+    'NumOrden "{value}" does not have the SAT format: three letters, seven digits, a slash and two digits (ABC1234567/26). Any other value makes the schema reject the whole file.',
+  'e_accounting.request.filing_shape':
+    'NumTramite "{value}" does not have the SAT format: two letters and twelve digits (DE202600000009). Any other value makes the schema reject the whole file.',
+  'e_accounting.target.store': '(artifact store)',
+  'e_accounting.target.label': 'target {target}',
+  'e_accounting.sealing.declared':
+    'The firm declared "{policy}" in efirma_sellado_contabilidad_electronica, and this command does not seal: the file comes out without Sello, noCertificado or Certificado.',
+  'e_accounting.dry_run.done': '--dry-run: nothing was archived and no file was written.',
+  'e_accounting.archive.already_there':
+    'These same bytes were already archived: no new version was created. The generator is deterministic.',
+  'e_accounting.voucher.title': 'Vouchers {month}/{year}',
+  'e_accounting.voucher.summary':
+    '{vouchers, plural, one {# voucher} other {# vouchers}}, {traced} with payment trace · debit {debit} · credit {credit}',
+  'e_accounting.voucher.blocked':
+    'No deliverable file was produced: {blocking, plural, one {# blocking finding} other {# blocking findings}} above, each with its voucher number. Fix them and generate again.',
+  'e_accounting.subledger.title_folios': 'Voucher-folio auxiliary {month}/{year}',
+  'e_accounting.subledger.title_accounts': 'Account auxiliary {month}/{year}',
+  'e_accounting.subledger.summary':
+    '{vouchers, plural, one {# voucher} other {# vouchers}} · {lines, plural, one {# line} other {# lines}}',
+
   // --- payslip · recibo and imss sua export (MNE-001-070) -----------------
   'payslip.run_required': 'Missing --run: name the pay run whose paychecks you want (`pay-run create` printed its id).',
   'imss.sua.period_invalid': '--period "{period}": use the month as YYYY-MM, for example 2026-07.',
@@ -2652,4 +2848,36 @@ export const EN = {
   'payslip.status_invalid': '--status {status}: use one of {states}.',
   'imss.sua.not_filed':
     'SUA file of {count} employee(s) built and recorded as a draft filing. Nothing was sent: load it into the SUA and pay.',
+  // --- e-accounting catalog|balance seal · sellar (EFIRMA-4, #442) --------
+  'anexo24.seal.refused_by_policy':
+    'Sealing is refused: the policy {policy} is "{value}", and the system seals with the e.firma only ' +
+    'under "{optIn}". Nothing was decrypted and the access log has no row for this.',
+  'anexo24.seal.done':
+    'Sealed with the e.firma (certificate {certificate}): Sello, noCertificado and Certificado are set, ' +
+    'and the file validates against the SAT XSD.',
+  'anexo24.seal.nothing_filed':
+    'NOTHING WAS FILED WITH THE SAT. The SAT has no web service to receive this file: upload it ' +
+    'yourself in the SAT portal (Contabilidad electrónica) and keep the acknowledgement of receipt.',
+  'help.e_accounting.catalog.seal.description':
+    'Seal the archived CtaCatalogo of a month with the entity e.firma (only under sellar_con_custodia); files nothing',
+  'help.e_accounting.balance.seal.description':
+    'Seal the archived trial balance of a period with the entity e.firma (only under sellar_con_custodia); files nothing',
+  'help.e_accounting.seal.option.period': 'month of the archived file: YYYY-MM (the fiscal year with --closing)',
+  'help.e_accounting.catalog.seal.option.period': 'month of the archived catalog: YYYY-MM',
+  'help.e_accounting.balance.check.option.type': 'envelope type to check: N normal, C amended (needs --modified)',
+  'help.e_accounting.balance.check.option.modified': 'FechaModBal of the amended balance; required with --type C',
+  'anexo24.seal.not_archived':
+    'There is no archived, unsealed {document} for {period}: generate it first, review it, then seal it.',
+  'anexo24.seal.rfc_mismatch':
+    'The e.firma belongs to {certificateRfc} and the document declares {documentRfc}: it is not sealed.',
+  'anexo24.seal.not_sat_serial':
+    'The certificate serial {serial} is not a SAT certificate number (20 digits): it cannot go in noCertificado.',
+  'anexo24.seal.separator_in_attribute':
+    'It is not sealed: {element} (account {account}) has "|" in {attribute} ("{value}"). The Anexo 24 forbids "|" in ' +
+    'any attribute because it separates the fields of the cadena original. Fix the value and generate again.',
+  'anexo24.seal.source_invalid':
+    'It is not sealed: the archived file does not validate against the SAT XSD ({errors}). Nothing was decrypted.',
+  'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
+  'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
+  'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',
 } as const;
