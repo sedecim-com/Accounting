@@ -1,3 +1,4 @@
+import type pg from 'pg';
 import { query, currentTenant } from '../../database/connection.js';
 import { getPolicy } from '../policy/policy-service.js';
 
@@ -89,11 +90,12 @@ export interface CorteDelInforme {
  * hay y de `legal_entities` cuando no.
  */
 export async function criterioDeCuentasArchivadas(
-  entityId: string
+  entityId: string,
+  client?: pg.PoolClient
 ): Promise<CriterioDeArchivadas> {
-  const tenantId = currentTenant() ?? (await inquilinoDe(entityId));
+  const tenantId = currentTenant() ?? (await inquilinoDe(entityId, client));
   const valor = tenantId
-    ? (await getPolicy({ tenantId, entityId }, 'informes_cuentas_archivadas')).value
+    ? (await getPolicy({ tenantId, entityId }, 'informes_cuentas_archivadas', client)).value
     : CRITERIO_ARCHIVADAS_POR_OMISION;
 
   // El defecto y cualquier valor que el panel no reconozca caen del lado que
@@ -102,8 +104,11 @@ export async function criterioDeCuentasArchivadas(
   return { valor, retirarSinCifras: valor !== 'mantener_en_la_balanza' };
 }
 
-async function inquilinoDe(entityId: string): Promise<string | undefined> {
-  const r = await query<{ tenant_id: string }>(
+async function inquilinoDe(entityId: string, client?: pg.PoolClient): Promise<string | undefined> {
+  type Row = { tenant_id: string };
+  const run = (text: string, values: unknown[]) =>
+    client ? client.query<Row>(text, values) : query<Row>(text, values);
+  const r = await run(
     'SELECT tenant_id FROM legal_entities WHERE id = $1',
     [entityId]
   );
