@@ -130,8 +130,15 @@ export function localizedSection<T extends LabelledSection>(section: T, language
  * The section table is the FALLBACK, and it has exactly one customer:
  * `result_of_the_period`, which travels among equity's subsections while being
  * named like a section and has no `fs_category` of its own.
+ *
+ * Exported because the CLI table must name a subsection exactly as the API
+ * does: asking only the category table printed the bare key
+ * `result_of_the_period` in the balance sheet (MNE-001-126 · #327). The
+ * language stays a required argument: the caller says which one it means.
  */
 function subsectionLabel(key: string, language: Language): string {
   const asCategory = reportCategoryLabel(key, language);
   return asCategory === key ? reportSectionLabel(key, language) : asCategory;
 }
+
+export { subsectionLabel as reportSubsectionLabel };

@@ -198,4 +198,47 @@ describe('leerCamt053', () => {
     expect(extracto.avisos.join(' ')).toMatch(/no declara periodo/);
     expect(extracto.avisos.join(' ')).toMatch(/no trae saldo de apertura/);
   });
+
+  // Every accent below is a NUMERIC reference: `&amp;` is decoded even without
+  // the shared reader, so a test written with it passes against the defect (#218).
+  describe('third-party text reaches the statement as the bank wrote it (#218)', () => {
+    const entry = (details: string): string =>
+      documento(`<Stmt>
+        <Id>S</Id>
+        <Ntry>
+          <Amt Ccy="MXN">10.00</Amt><CdtDbtInd>CRDT</CdtDbtInd>
+          <BookgDt><Dt>2026-03-04</Dt></BookgDt>
+          ${details}
+        </Ntry>
+      </Stmt>`);
+
+    it('decodes the accents of the counterparty name', () => {
+      const xml = entry(
+        '<NtryDtls><TxDtls><RltdPties><Dbtr><Nm>Cr&#233;dito y Compa&#241;&#237;a</Nm></Dbtr></RltdPties></TxDtls></NtryDtls>'
+      );
+      expect(leerCamt053(xml).lineas[0].descripcion).toBe('Crédito y Compañía');
+    });
+
+    it('decodes the accents of the free text and of the remittance information', () => {
+      expect(leerCamt053(entry('<AddtlNtryInf>DEP&#211;SITO</AddtlNtryInf>')).lineas[0].descripcion).toBe(
+        'DEPÓSITO'
+      );
+      const xml = entry(
+        '<NtryDtls><TxDtls><RmtInf><Ustrd>Colegiatura Mar&#237;a</Ustrd></RmtInf></TxDtls></NtryDtls>'
+      );
+      expect(leerCamt053(xml).lineas[0].descripcion).toBe('Colegiatura María');
+    });
+
+    it('reads `&#10;` in an attribute as a space (XML 1.0 §3.3.3)', () => {
+      const xml = entry('<AddtlNtryInf>UNO</AddtlNtryInf>').replace('Ccy="MXN"', 'Ccy="M&#10;XN"');
+      expect(leerCamt053(xml).lineas[0].crudo).toMatchObject({ Amt: { '@_Ccy': 'M XN' } });
+    });
+
+    it('keeps `&#10;` in element text as the line feed it is, never as the literal reference', () => {
+      // NOTE: §3.3.3 normalizes ATTRIBUTES only; in element content a
+      // character reference to #xA is a line feed, and the bank wrote it.
+      const xml = entry('<AddtlNtryInf>PAGO&#10;RENTA</AddtlNtryInf>');
+      expect(leerCamt053(xml).lineas[0].descripcion).toBe('PAGO\nRENTA');
+    });
+  });
 });

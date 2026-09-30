@@ -8,9 +8,10 @@ Este documento describe el flujo real, no uno aspiracional. Si algo aquí no coi
 plan (issues + criterios ejecutables)
   → un ejecutor toma UNA issue
   → implementa contra src/plan/criteria/<paquete>.ts (si cierra o reabre un paquete)
-  → PR contra main, CI en verde, 1 aprobación
+  → PR contra develop, CI en verde, 1 aprobación
   → review por otro vendor (ver docs/ROUTING.md)
-  → merge
+  → merge a develop
+  → release se corta de develop y se fusiona a main con un tag (ADR-0008)
   → docs/HISTORY.md se actualiza si el PR cierra un sprint/hito
 ```
 
@@ -31,6 +32,8 @@ Si la issue proviene de un tramo ya redactado en la secuencia del plan (Vía A o
 ## 2. Un ejecutor implementa UNA issue
 
 Un PR = una issue = un tema. Un PR que arregla tres cosas no se puede revisar ni revertir (`CONTRIBUTING.md`). Rama con nombre propio, nunca `patch-1`.
+
+**Ramas** ([ADR-0008](adr/0008-develop-release-branches.md)): la rama de trabajo nace de `develop` y su PR va contra `develop`. `release` se corta de `develop` y se fusiona a `main` con un tag; `main` no recibe PRs de trabajo. En la transición, los PRs que ya estaban abiertos contra `main` terminan ahí; después `develop` se sincroniza desde `main` con una fusión, y todo lo nuevo va contra `develop`.
 
 Si el cambio cierra un paquete del tablero (`src/plan/criteria/<paquete>.ts`), el criterio (o el nuevo criterio que lo prueba) se añade a `--exigir` en `.github/workflows/ci.yml` **en el mismo commit**. Si lo reabre, se quita ahí mismo y se dice por qué en el cuerpo del PR — la reapertura viaja en el diff, a la vista, nunca en un comentario aparte.
 

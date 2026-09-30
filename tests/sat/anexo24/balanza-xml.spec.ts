@@ -200,6 +200,18 @@ describe('catalogoDesdeXml', () => {
     ).toThrow(/no declara ningún NumCta/);
   });
 
+  // Numeric references, never `&amp;`: the library decodes `&amp;` even without
+  // the shared reader, so a test written with it passes against the defect (#218).
+  it('decodes numeric character references in NumCta', () => {
+    const xml = catalogo('catalogocuentas:').replace('NumCta="1120"', 'NumCta="&#49;120"');
+    expect(catalogoDesdeXml(xml).cuentas).toEqual(['1120', '4100']);
+  });
+
+  it('reads `&#10;` inside NumCta as the space the SAT read (XML 1.0 §3.3.3)', () => {
+    const xml = catalogo('catalogocuentas:').replace('NumCta="1120"', 'NumCta="11&#10;20"');
+    expect(catalogoDesdeXml(xml).cuentas).toEqual(['11 20', '4100']);
+  });
+
   it('un archivo que no es XML bien formado se niega', () => {
     expect(() => catalogoDesdeXml('<Catalogo><Ctas NumCta="1"></Catalogo>')).toThrow(
       ValidationError
