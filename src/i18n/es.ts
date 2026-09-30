@@ -1486,6 +1486,120 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.time_zone.option.america_hermosillo':
     'Sonora (UTC−7 todo el año)',
   // ==== end of policy.* ===============================================
+  // ==== pending.* and policy_preview.* — the `pending` screen by key (I10 · #152, MNE-001-091) ====
+  'pending.board.empty':
+    'Nada pendiente. Estás al corriente.',
+  'pending.board.work':
+    '{count, plural, one {# cosa por resolver} other {# cosas por resolver}}',
+  'pending.board.warnings_only':
+    'sólo avisos',
+  'pending.board.draft':
+    '{count, plural, one {# borrador espera} other {# borradores esperan}} tu aprobación',
+  'pending.board.question':
+    '{count, plural, one {# pregunta sin responder} other {# preguntas sin responder}} de la IA',
+  'pending.board.outbox':
+    '{count, plural, one {# escritura en cola} other {# escrituras en cola}} hacia {providers}',
+  'pending.board.credential_expired':
+    'tu {label} YA VENCIÓ: renuévala en el SAT',
+  'pending.board.credential_expires':
+    'tu {label} vence en {days, plural, one {# día} other {# días}}',
+  'pending.board.period_close':
+    '{count, plural, one {# periodo terminado sigue} other {# periodos terminados siguen}} sin cerrar',
+  'pending.board.period_example':
+    '{period} (terminó el {date})',
+  'pending.policies.none':
+    'No hay definiciones pendientes.',
+  'pending.policies.operating_with':
+    ' — operando con: {value}',
+  'pending.policies.no_default':
+    ' — sin valor por omisión',
+  'pending.policies.heading':
+    'Por definir ({count})',
+  'pending.policies.heading_note':
+    ' — mientras tanto se opera con los valores por omisión',
+  'pending.policies.define_hint':
+    '→  mnemosine pending define <clave> <valor>',
+  'pending.policies.label.impact':
+    'impacto',
+  'pending.policies.label.why':
+    'por qué lo pregunto',
+  'pending.policies.label.what':
+    'qué hago con tu respuesta',
+  'pending.policies.label.if_skipped':
+    'si lo omites',
+  'pending.policies.label.in_your_data':
+    'en tus datos:',
+  'pending.policies.label.why_default':
+    'por qué ese valor por omisión',
+  'pending.policies.already_defined':
+    'Ya definidas',
+  'pending.policies.dismissed_value':
+    '(descartada)',
+  'pending.define.not_found':
+    'No hay una decisión pendiente con la clave "{key}". Consulta las abiertas con: mnemosine pending',
+  'pending.define.input_hint':
+    '(número, valor libre, o vacío para cancelar)',
+  'pending.define.cancelled':
+    'Cancelado; sigue pendiente.',
+  'pending.define.ambiguous':
+    '"{typed}" es a la vez la opción {typed} ({byPosition}) y el valor {byValue}. Escribe p para la opción {typed}, v para el valor {byValue}, o déjalo vacío para cancelar.',
+  'pending.define.done':
+    '✔ {key} = {value}',
+  'pending.define.remaining':
+    '{count, plural, one {# definición sigue pendiente} other {# definiciones siguen pendientes}}.',
+  'pending.dismiss.done':
+    '✘ {key} descartada.',
+  'pending.reopen.done':
+    '↻ {key} vuelve a estar pendiente.',
+  'policy_preview.threshold.intro':
+    'De {count, plural, one {tu # factura recibida} other {tus # facturas recibidas}}:',
+  'policy_preview.threshold.line':
+    '  · con {threshold} → te preguntaría {asked, plural, one {# vez} other {# veces}} ({pct} %)',
+  'policy_preview.auto_post.intro':
+    'De {total, plural, one {el # borrador} other {los # borradores}} que he propuesto hasta ahora:',
+  'policy_preview.auto_post.counts':
+    '  · aprobaste {approved} y rechazaste {rejected}',
+  'policy_preview.auto_post.rejected':
+    '  · una tasa de rechazo mayor que cero es motivo para mantenerlo apagado hasta que se asiente',
+  'policy_preview.auto_post.track_record':
+    '  · aún sin rechazos: un historial que respalda encenderlo',
+  'policy_preview.auto_post.too_few':
+    '  · todavía son muy pocos para saber cuántas veces acertaría',
+  'policy_preview.auto_post.shadow_some':
+    '  · sombra: {verdicts, plural, one {# veredicto} other {# veredictos}} en {days, plural, one {# día} other {# días}}, {decided} decididos por una persona, acuerdo {agreement} (encender "on" exige al menos {minDays} días, {minDecided} decididos y {minAgreement} de acuerdo)',
+  'policy_preview.auto_post.shadow_none':
+    '  · aún sin historial de sombra: responde "shadow" primero; "on" exige esa evidencia',
+  'policy_preview.amounts.intro':
+    'Tus facturas recibidas, por importe:',
+  'policy_preview.amounts.half':
+    '  · la mitad está por debajo de {amount}',
+  'policy_preview.amounts.nine_of_ten':
+    '  · 9 de cada 10 están por debajo de {amount}',
+  'policy_preview.amounts.largest':
+    '  · la mayor fue de {amount}',
+  'policy_preview.amounts.cap':
+    '  · un tope de {cap} cubriría el {pct} % de ellas',
+  'policy_preview.inventory.some':
+    'Veo {count, plural, one {# movimiento contabilizado} other {# movimientos contabilizados}} en cuentas de inventario: parece que los llevas.',
+  'policy_preview.inventory.none':
+    'Aún no veo movimientos en cuentas de inventario.',
+  'policy_preview.restaurants.none':
+    'Aún no hay facturas de restaurantes en tu historial.',
+  'policy_preview.restaurants.intro':
+    '{count, plural, one {# factura de restaurante} other {# facturas de restaurantes}} por {total}:',
+  'policy_preview.restaurants.deductible':
+    '  · deducible ({rate} %): {amount}',
+  'policy_preview.restaurants.non_deductible':
+    '  · no deducible: {amount}',
+  'policy_preview.efirma.none':
+    'Aún no hay accesos a la e.firma registrados.',
+  'policy_preview.efirma.summary':
+    '{count, plural, one {# acceso cuenta} other {# accesos cuentan}} para el tope en {days, plural, one {# día} other {# días}} (~{perDay} por día).',
+  'policy_preview.closed_period.some':
+    '{count, plural, one {# factura de tu historial cae} other {# facturas de tu historial caen}} en periodos ya cerrados.',
+  'policy_preview.closed_period.none':
+    'Hasta ahora no hay facturas de periodos cerrados.',
+  // ==== end of pending.* and policy_preview.* ====================================
 
   // --- El kernel: confirmación y salida --------------------------------
   confirm_answer_not_understood:

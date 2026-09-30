@@ -8,6 +8,7 @@ import {
   type PolicyRow,
 } from '../../services/policy/policy-service.js';
 import { previewFor } from '../../services/policy/policy-preview.js';
+import { specWording } from '../../services/policy/policy-text-key.js';
 import { getPolicySpec } from '../../services/policy/pending-catalog.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
@@ -151,8 +152,9 @@ export class PoliciesSection implements SetupSection {
     const spec = getPolicySpec(row.key);
     const wording = policyWording(row);
     const question = wording.question;
-    const why = spec?.whyAsking ?? wording.impact;
-    const what = spec?.whatIDo;
+    const extra = spec ? specWording(spec) : undefined;
+    const why = extra?.whyAsking ?? wording.impact;
+    const what = extra?.whatIDo;
     // The same list is printed below and indexed by the typed number.
     const options = wording.options;
 
@@ -185,7 +187,7 @@ export class PoliciesSection implements SetupSection {
     const answer = raw.trim();
 
     if (answer === '') {
-      if (spec?.ifSkipped) ctx.print(`     Left open: ${spec.ifSkipped}`);
+      if (extra?.ifSkipped) ctx.print(`     Left open: ${extra.ifSkipped}`);
       return 'skipped';
     }
     if (answer.toLowerCase() === 'q') return 'quit';

@@ -1,3 +1,6 @@
+import { getLanguage, t, type Language, type TranslationKey } from '../../i18n/index.js';
+import type { PolicyOption, PolicySpec } from './pending-catalog.js';
+
 // ============================================================
 // THE I18N KEYS OF THE POLICY PANEL (#152, owner decision 2026-09-26)
 //
@@ -61,4 +64,41 @@ export function optionSegmentCollisions(values: readonly string[]): string[] {
   return [...bySegment.entries()]
     .filter(([, vs]) => vs.length > 1)
     .map(([segment, vs]) => `${vs.join(' / ')} → ${segment}`);
+}
+
+/** The wording of one catalog policy in one language, read by key. */
+export interface SpecWording {
+  question: string;
+  impact: string;
+  defaultRationale: string;
+  whyAsking?: string;
+  whatIDo?: string;
+  ifSkipped?: string;
+  options: PolicyOption[];
+}
+
+/**
+ * The text of a catalog policy in `language` (default: the active one).
+ *
+ * The spec's own prose stays as the English source the `en` catalog was
+ * extracted from. Every reader that PAINTS a policy goes through here, so the
+ * accountant reads the panel in their language while `policy_decisions`
+ * (state, not wording) is never touched. An optional field the spec does not
+ * carry stays absent instead of becoming a blank line.
+ */
+export function specWording(spec: PolicySpec, language: Language = getLanguage()): SpecWording {
+  const text = (field: PolicyTextField): string =>
+    t(policyTextKey(spec.textKey, field) as TranslationKey, {}, language);
+  return {
+    question: text('question'),
+    impact: text('impact'),
+    defaultRationale: text('rationale'),
+    whyAsking: spec.whyAsking === undefined ? undefined : text('why'),
+    whatIDo: spec.whatIDo === undefined ? undefined : text('what'),
+    ifSkipped: spec.ifSkipped === undefined ? undefined : text('if_skipped'),
+    options: spec.options.map((o) => ({
+      value: o.value,
+      label: t(policyOptionKey(spec.textKey, o.value) as TranslationKey, {}, language),
+    })),
+  };
 }

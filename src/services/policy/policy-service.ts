@@ -14,6 +14,8 @@ import { assertTimeZone } from '../../utils/calendar-date.js';
 import type { JurisdictionCode } from '../jurisdiction/jurisdiction.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
 import Decimal from 'decimal.js';
+import type { Language } from '../../i18n/index.js';
+import { specWording } from './policy-text-key.js';
 
 // ============================================================
 // POLICY SERVICE
@@ -210,16 +212,18 @@ export interface PolicyWording {
 /** The seeded text columns of a row: all the wording a row can offer. */
 export type SeededWording = Pick<PolicyRow, 'key' | 'question' | 'impact' | 'options' | 'default_rationale'>;
 
-export function policyWording(row: SeededWording): PolicyWording {
+export function policyWording(row: SeededWording, language?: Language): PolicyWording {
   const spec = getPolicySpec(row.key);
   if (spec === undefined) return seedSnapshotWording(row);
+  // By key, in the reader's language (default: the active one). The options
+  // are a fresh list, so a caller that reorders or trims it must not reach
+  // into the catalog.
+  const wording = specWording(spec, language);
   return {
-    question: spec.question,
-    impact: spec.impact,
-    // Copied, not shared: a caller that reorders or trims its list must not
-    // reach into the catalog.
-    options: spec.options.map(({ value, label }) => ({ value, label })),
-    defaultRationale: spec.defaultRationale,
+    question: wording.question,
+    impact: wording.impact,
+    options: wording.options,
+    defaultRationale: wording.defaultRationale,
     source: 'catalog',
   };
 }
@@ -360,8 +364,8 @@ export async function getPolicy(
   validarDominio(spec, fallback);
   return {
     key, value: fallback, defined: false,
-    question: row ? policyWording(row).question : (spec?.question ?? key),
-    rationale: row ? policyWording(row).defaultRationale : (spec?.defaultRationale ?? null),
+    question: row ? policyWording(row).question : (spec ? specWording(spec).question : key),
+    rationale: row ? policyWording(row).defaultRationale : (spec ? specWording(spec).defaultRationale : null),
     // Sin fila, contestó el catálogo, y el catálogo todavía no sabe de
     // jurisdicciones: `PolicySpec.jurisdicciones` es de J0.3. Universal, que
     // es lo que de verdad es.

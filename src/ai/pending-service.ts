@@ -1,5 +1,6 @@
 import { query } from '../database/connection.js';
 import type { AgentContext } from './context.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // PENDING WORK BOARD
@@ -29,11 +30,6 @@ export interface PendingBoard {
 }
 
 const EXAMPLE_LIMIT = 3;
-
-/** Pluralize without awkward strings: "1 draft" / "3 drafts". */
-function plural(n: number, singular: string, plural_: string): string {
-  return `${n} ${n === 1 ? singular : plural_}`;
-}
 
 export async function getPendingBoard(ctx: AgentContext): Promise<PendingBoard> {
   // One query per source, in parallel: the board must be instantaneous.
@@ -65,7 +61,7 @@ async function pendingDrafts(ctx: AgentContext): Promise<PendingItem | null> {
   return {
     kind: 'draft',
     count: r.rows.length,
-    summary: `${plural(r.rows.length, 'draft awaits', 'drafts await')} your approval`,
+    summary: t('pending.board.draft', { count: r.rows.length }),
     command: 'mnemosine review',
     examples: r.rows.slice(0, EXAMPLE_LIMIT).map((d) => `${d.total} · ${d.description}`),
   };
@@ -82,7 +78,7 @@ async function pendingQuestions(ctx: AgentContext): Promise<PendingItem | null> 
   return {
     kind: 'question',
     count: r.rows.length,
-    summary: `${plural(r.rows.length, 'unanswered question', 'unanswered questions')} from the AI`,
+    summary: t('pending.board.question', { count: r.rows.length }),
     command: 'mnemosine questions',
     examples: r.rows.slice(0, EXAMPLE_LIMIT).map((q) => q.question),
   };
@@ -100,7 +96,7 @@ async function pendingExternalOps(ctx: AgentContext): Promise<PendingItem | null
   return {
     kind: 'external_op',
     count: r.rows.length,
-    summary: `${plural(r.rows.length, 'queued write', 'queued writes')} to ${providers}`,
+    summary: t('pending.board.outbox', { count: r.rows.length, providers }),
     command: 'mnemosine outbox',
     examples: r.rows.slice(0, EXAMPLE_LIMIT).map((o) => `${o.provider}: ${o.operation}`),
   };
@@ -126,8 +122,8 @@ async function expiringCredentials(ctx: AgentContext): Promise<PendingItem | nul
     warning: true,
     summary:
       days <= 0
-        ? `your ${label} has ALREADY EXPIRED — renew it at the SAT`
-        : `your ${label} expires in ${plural(days, 'day', 'days')}`,
+        ? t('pending.board.credential_expired', { label })
+        : t('pending.board.credential_expires', { label, days }),
     command: 'mnemosine sat cred status',
   };
 }
@@ -148,8 +144,10 @@ async function openPeriodsPastEnd(ctx: AgentContext): Promise<PendingItem | null
   return {
     kind: 'period_close',
     count: r.rows.length,
-    summary: `${plural(r.rows.length, 'ended period remains', 'ended periods remain')} unclosed`,
+    summary: t('pending.board.period_close', { count: r.rows.length }),
     command: 'mnemosine close',
-    examples: r.rows.slice(0, EXAMPLE_LIMIT).map((p) => `${p.period_name} (ended ${p.end_date})`),
+    examples: r.rows.slice(0, EXAMPLE_LIMIT).map((p) =>
+      t('pending.board.period_example', { period: p.period_name, date: p.end_date })
+    ),
   };
 }

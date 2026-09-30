@@ -1,3 +1,4 @@
+import { t } from '../i18n/index.js';
 import type { PolicyOption } from '../services/policy/pending-catalog.js';
 
 // ============================================================
@@ -62,10 +63,7 @@ export function interpretPolicyAnswer(answer: string, options: readonly PolicyOp
 
 /** The follow-up question for an ambiguous answer. */
 export function ambiguityQuestion(a: AmbiguousPolicyAnswer): string {
-  return (
-    `"${a.typed}" is both option ${a.typed} (${a.byPosition}) and the value ${a.byValue}. ` +
-    `Type p for option ${a.typed}, v for the value ${a.byValue}, or leave it empty to cancel.`
-  );
+  return t('pending.define.ambiguous', { typed: a.typed, byPosition: a.byPosition, byValue: a.byValue });
 }
 
 /**

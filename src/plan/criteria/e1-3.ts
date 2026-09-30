@@ -302,14 +302,15 @@ export const E1_3: Criterio[] = [
     evaluar: () => {
       const cli = codigoDe('src/cli/pending-command.ts');
       // The wording comes from the CATALOG through `policyWording` (I10 ·
-      // #152); the explanatory fields below still come from the spec. That
-      // the row's copy is never read is judged by
+      // #152); the explanatory fields below come from the same catalog by
+      // key, through `specWording`, in the active language. That the row's
+      // copy is never read is judged by
       // `policy-wording-comes-from-the-catalog`, next to this criterion.
       if (!/policyWording\(/.test(cli) || !/getPolicySpec\(/.test(cli)) {
         return falla('pending dejó de leer el catálogo: imprimiría el texto congelado al sembrar, que caduca sin avisar');
       }
       for (const campo of ['whyAsking', 'whatIDo', 'ifSkipped']) {
-        if (!new RegExp(`spec\\??\\.${campo}`).test(cli)) {
+        if (!new RegExp(`wording\\??\\.${campo}`).test(cli) || !/specWording\(/.test(cli)) {
           return falla(
             `pending dejó de imprimir ${campo}: la capa explicativa volvería a existir sólo en el alta, el único momento en que no tiene datos que enseñar`
           );
@@ -356,8 +357,8 @@ export const E1_3: Criterio[] = [
     mutantes: [
       {
         archivo: 'src/cli/pending-command.ts',
-        de: "      out.push(...field('impact', wording.impact, c));",
-        a: "      out.push(...field('impact', p.impact, c));",
+        de: "      out.push(...field(t('pending.policies.label.impact'), wording.impact, c));",
+        a: "      out.push(...field(t('pending.policies.label.impact'), p.impact, c));",
         porque:
           'texto-del-dia-de-siembra: `pending -v` volvería a pintar el impacto copiado al sembrar, que para un inquilino antiguo es el catálogo de aquel día y no el de hoy',
       },
