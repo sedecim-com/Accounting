@@ -49,14 +49,14 @@ Commands:
   drafts|borradores [options]            Lists the journal entry drafts created by the AI
   review|revisar [options]               Reviews pending drafts: approve (creates and posts the journal entry), correct then approve, or reject — a rejection can seed the criterion for next time
   ingest|ingesta [options] <files...>    Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)
-  lang|idioma [language]                 Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)
+  lang|idioma [options] [language]       Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)
   onboard|alta [options]                 Imports a client's accounting from an external system (chart of accounts + opening balances)
   outbox|envio [options]                 Operations queued for external accounting systems: list, review and execute
   question|duda [options]                The agent's pending questions: list, answer (saved as a precedent) or dismiss
   sat                                    SAT services (e.firma credentials; the CFDI bulk download is not built yet)
   pending|pendientes [options]           What you need to do: work to resolve and policy decisions to define
   login|entrar [options]                 Signs in with your identity provider (OIDC)
-  logout|salir                           Deletes the stored credential
+  logout|salir [options]                 Deletes the stored credential
   whoami|quien                           Shows the active credential and its validity
   doctor [options]                       Diagnoses system health: DB, migrations, provider, credentials, isolation
   memory|memoria [options]               Firm precedents: what the AI learned and you control
@@ -160,6 +160,7 @@ Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -p, --provider <name>    Model provider (see: mnemosine providers)
   -m, --model <model>      Override the profile model
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -187,6 +188,7 @@ Options:
                            sessions)
   --no-banner              Suppress the startup banner (also:
                            MNEMOSINE_NO_BANNER=1)
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -248,9 +250,9 @@ Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -u, --user <email>       Reviewer email (default: first active user of the
                            tenant)
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  not needed: this command already deduplicates on the
                            state it writes; accepted and ignored
   -h, --help               display help for command
@@ -289,9 +291,9 @@ Options:
   --max-amount <n>         Maximum auto-postable amount
   --retry                  Reprocess CFDI already registered whose processing
                            failed, instead of reporting them as duplicates
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  not needed: this command already deduplicates on the
                            state it writes; accepted and ignored
   -h, --help               display help for command
@@ -321,6 +323,7 @@ Arguments:
   language    'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting
 
 Options:
+  -y, --yes   skip the confirmation prompt
   -h, --help  display help for command
 
 Examples:
@@ -434,9 +437,9 @@ Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -u, --user <email>       Who executes (default: sole active user of the
                            tenant)
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  not needed: this command already deduplicates on the
                            state it writes; accepted and ignored
   --live                   perform the real external effect (default is the
@@ -514,6 +517,7 @@ Arguments:
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -u, --user <email>       Who answers (default: sole active user of the tenant)
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -576,9 +580,9 @@ Options:
   -u, --user <email>       Who grants the consent
   --no-unattended          Forbid use without an operator present
   --max-diario <n>         Access limit per 24 h
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  not needed: this command already deduplicates on the
                            state it writes; accepted and ignored
   --live                   perform the real external effect (default is the
@@ -621,9 +625,9 @@ Revokes the credential and deletes the material from the vault (irreversible)
 Options:
   -e, --entity <idOrName>  Legal entity
   -u, --user <email>       Who revokes
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  not needed: this command already deduplicates on the
                            state it writes; accepted and ignored
   --reason <text>          justification recorded in the audit trail (required)
@@ -664,6 +668,7 @@ Options:
   -e, --entity <idOrName>  Legal entity
   -u, --user <email>       Who defines it
   -n, --note <text>        Note or rationale
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -678,6 +683,7 @@ Options:
   -e, --entity <idOrName>  Legal entity
   -u, --user <email>       Who dismisses it
   -n, --note <text>        Why it does not apply
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -690,6 +696,7 @@ Reopens an already resolved definition (the policy changed)
 
 Options:
   -e, --entity <idOrName>  Legal entity
+  -y, --yes                skip the confirmation prompt
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
@@ -703,6 +710,7 @@ Signs in with your identity provider (OIDC)
 
 Options:
   --device    Use the device-code flow (SSH, server without a browser)
+  -y, --yes   skip the confirmation prompt
   -h, --help  display help for command
 
 Examples:
@@ -720,6 +728,7 @@ Usage: mnemosine logout|salir [options]
 Deletes the stored credential
 
 Options:
+  -y, --yes   skip the confirmation prompt
   -h, --help  display help for command
 
 Examples:
@@ -774,7 +783,7 @@ Commands:
   teach|enseña [options] <rule> <criterion>  Seeds a firm criterion without waiting for the AI to ask
   correct|corrige [options] <id> <answer>    Changes the answer of a precedent (the previous one stays in the history)
   retire|retira [options] <id>               The AI stops using this precedent (not deleted: the history remains)
-  restore|restaura <id>                      Reactivates a retired precedent
+  restore|restaura [options] <id>            Reactivates a retired precedent
 ```
 
 ### `mnemosine memory teach` (alias: enseña, ensena)
@@ -791,6 +800,7 @@ Arguments:
 Options:
   -u, --user <email>  Who teaches it
   --topic <slug>      Topic for grouping precedents
+  -y, --yes           skip the confirmation prompt
   -h, --help          display help for command
 ```
 
@@ -807,6 +817,7 @@ Arguments:
 
 Options:
   -u, --user <email>  Who corrects
+  -y, --yes           skip the confirmation prompt
   -h, --help          display help for command
 ```
 
@@ -823,6 +834,7 @@ Arguments:
 Options:
   -u, --user <email>  Who retires it
   --reason <text>     Why it no longer applies (kept in the precedent history)
+  -y, --yes           skip the confirmation prompt
   -h, --help          display help for command
 ```
 
@@ -837,6 +849,7 @@ Arguments:
   id          Precedent id
 
 Options:
+  -y, --yes   skip the confirmation prompt
   -h, --help  display help for command
 ```
 
@@ -929,6 +942,7 @@ Options:
   --session <id>           Granting session id (required for --mode session)
   -u, --user <email>       Granting user (required when the tenant has several
                            active users)
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -942,6 +956,7 @@ Revoke an active approval policy
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -t, --tenant <id>        Tenant
+  -y, --yes                skip the confirmation prompt
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
@@ -963,7 +978,7 @@ Commands:
   create|crear [options] <name>          Create a legal entity with its chart of accounts, roles and payroll mapping
   edit|editar [options] <idOrName>       Set the tax regime or fiscal postal code of an entity, validated against the SAT catalog
   archive|archivar [options] <idOrName>  Archive an entity (never deletes: its ledger has to survive)
-  unset|limpiar                          Clear the pinned entity; commands go back to requiring --entity
+  unset|limpiar [options]                Clear the pinned entity; commands go back to requiring --entity
   help [command]                         display help for command
 ```
 
@@ -1037,6 +1052,7 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1067,6 +1083,7 @@ Options:
   --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
   --tax-postal-code <cp>   fiscal address postal code (5 digits)
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1096,6 +1113,7 @@ Options:
   --tax-postal-code <cp>   fiscal address postal code (5 digits)
   --reason <text>          justification recorded in the audit trail
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1120,6 +1138,7 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 
@@ -1136,6 +1155,7 @@ Usage: mnemosine entity unset|limpiar [options]
 Clear the pinned entity; commands go back to requiring --entity
 
 Options:
+  -y, --yes   skip the confirmation prompt
   -h, --help  display help for command
 
 Examples:
@@ -1199,6 +1219,7 @@ Options:
   --subdomain <handle>  unique handle of the firm (derived from the name when
                         omitted)
   --json                JSON output
+  -y, --yes             skip the confirmation prompt
   -h, --help            display help for command
 
 Examples:
@@ -1242,8 +1263,8 @@ Options:
   --date <date>             value date (YYYY-MM-DD); defaults to today
   --method <method>         cash, check, ach, wire, spei, credit_card or other
                             (default: "spei")
-  --bank <account>          bank account id; without it the entity's `banco`
-                            role is used
+  --bank <account>          bank account name or id; without it the entity's
+                            `banco` role is used
   --json                    JSON output
   --check-number <number>   cheque number; only valid with --method check
   --to-account <number>     account that received the money (CtaDest of the SAT
@@ -1257,9 +1278,9 @@ Options:
                             one)
   -t, --tenant <id>         tenant (firm) whose data to scope to
   -u, --user <email>        acting user, for attribution and permissions
+  -y, --yes                 skip the confirmation prompt
   --dry-run                 compute and show the full effect; write nothing and
                             call nothing external
-  -y, --yes                 skip the confirmation prompt
   --idempotency-key <key>   client dedupe key, stored on success: a retry with
                             the same key and payload returns the recorded result
   -h, --help                display help for command
@@ -1300,9 +1321,9 @@ Options:
                              one)
   -t, --tenant <id>          tenant (firm) whose data to scope to
   -u, --user <email>         acting user, for attribution and permissions
+  -y, --yes                  skip the confirmation prompt
   --dry-run                  compute and show the full effect; write nothing and
                              call nothing external
-  -y, --yes                  skip the confirmation prompt
   --idempotency-key <key>    NOT honored by this command yet: a retry writes
                              again instead of returning the recorded result
   -h, --help                 display help for command
@@ -1337,9 +1358,9 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -1371,9 +1392,9 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -1501,6 +1522,7 @@ Options:
   --description <text>     description
   --header                 a grouping node: it accepts no manual entries
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1529,6 +1551,7 @@ Options:
   --description <text>     new description
   --subtype <name>         new subtype
   --fs-category <name>     new financial-statement caption
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1557,6 +1580,7 @@ Options:
   --force                  override a blocking validation (closed period, lock
                            date, duplicate); requires --reason
   --dry-run                run the checks and report, without writing
+  -y, --yes                skip the confirmation prompt
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 
@@ -1586,6 +1610,7 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --dry-run                validate and report, without writing
   --reason <text>          why these flags change; recorded in the audit trail
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1718,6 +1743,7 @@ Options:
   --qualifier <q>          per-context variant (NULL = the default mapping)
   --note <text>            why this role points here
   --dry-run                validate and report, without writing
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1740,6 +1766,7 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1764,6 +1791,7 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --dry-run                show the plan, without writing
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1814,6 +1842,7 @@ Options:
   --year <y>               fiscal year whose SAT catalog validates the code
                            (default: today's)
   --dry-run                validate and report, without writing
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1874,6 +1903,7 @@ Options:
   --dry-run                parse and resolve everything, write nothing
   --idempotency-key <key>  replay-safe key: the same key with the same file
                            returns the first result
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -1930,6 +1960,7 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --reason <text>          why the account comes back into service; recorded in
                            the audit trail
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -2022,8 +2053,8 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
   --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
   -h, --help                               display help for command
 
@@ -2178,6 +2209,7 @@ Options:
   --dry-run                validate and show the entry that would be drafted;
                            write nothing
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -2325,6 +2357,7 @@ Options:
                            <account>:<debit|credit>:<amount>[:description]
   --file <path>            JSON document whose date/description/reference/lines
                            replace the draft
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -2386,6 +2419,7 @@ Options:
   --dry-run                parse and report, stage nothing
   --idempotency-key <key>  replay-safe key: the same key with the same file
                            returns the first batch
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -2411,9 +2445,9 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -2444,9 +2478,9 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --date <date>            date of the mirror entry (YYYY-MM-DD); defaults to
                            today
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
@@ -2474,9 +2508,9 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
@@ -2587,6 +2621,7 @@ Options:
   --reason <text>          why it is being opened; recorded in the audit trail
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -2613,9 +2648,9 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --force                  override a blocking validation (closed period, lock
                            date, duplicate); requires --reason
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
@@ -2729,6 +2764,7 @@ Options:
   --dry-run                show the calendar that would be created; write
                            nothing
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -2852,6 +2888,7 @@ Options:
   --default-account <code>  default expense account, by code
   --1099                    flag the vendor for a US information return
   --json                    JSON output
+  -y, --yes                 skip the confirmation prompt
   -h, --help                display help for command
 
 Examples:
@@ -2882,6 +2919,7 @@ Options:
   --phone <number>         new phone
   --notes <text>           replace the notes
   --reason <text>          why the change was made; recorded in the audit trail
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -2926,6 +2964,7 @@ Options:
   --terms <text>           "Net 30", "2/10 Net 30", "Due on receipt"
   --currency <code>        3-letter ISO code
   --reason <text>          why the change was made; recorded in the audit trail
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3066,6 +3105,7 @@ Options:
   --from-file <path>              read the bill as JSON instead: { lines: [...],
                                   ... }
   --json                          JSON output
+  -y, --yes                       skip the confirmation prompt
   -h, --help                      display help for command
 
 Keys accepted in --line (key=value, comma-separated):
@@ -3125,6 +3165,7 @@ Options:
   --cost-center <id>       cost center id
   --project <id>           project id
   --description <text>     line description
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3150,9 +3191,9 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  not needed: this command already deduplicates on the
                            state it writes; accepted and ignored
   -h, --help               display help for command
@@ -3236,6 +3277,7 @@ Options:
                            default for every line with none
   --account <code>         expense account, by code or id
   --cost-center <id>       cost center id of the --line
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3326,6 +3368,7 @@ Options:
   --description <text>     why the firm keeps this rule
   --dry-run                validate and show the rule; write nothing
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3482,6 +3525,7 @@ Options:
   --terms <text>           payment terms, e.g. "Net 30"
   --currency <code>        billing currency (3 letters)
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3514,6 +3558,7 @@ Options:
   --terms <text>           new payment terms
   --notes <text>           free notes stored on the customer
   --reason <text>          justification recorded in the audit trail
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3540,6 +3585,7 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --force                  override a blocking validation (closed period, lock
                            date, duplicate); requires --reason
+  -y, --yes                skip the confirmation prompt
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 
@@ -3566,6 +3612,7 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --reason <text>          justification recorded in the audit trail
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3645,6 +3692,7 @@ Options:
   --uso-cfdi <code>        default c_UsoCFDI: G01, G03, P01…
   --reason <text>          justification recorded in the audit trail
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3810,6 +3858,7 @@ Options:
   --memo <text>            memo
   --po-number <text>       the customer purchase order this bills against
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3837,9 +3886,9 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   -h, --help               display help for command
@@ -3867,9 +3916,9 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   --reason <text>          justification recorded in the audit trail (required)
@@ -3907,6 +3956,7 @@ Options:
   --memo <text>            new memo
   --po-number <text>       new purchase order reference
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -3933,9 +3983,9 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   --reason <text>          justification recorded in the audit trail (required)
@@ -4070,8 +4120,8 @@ Options:
   --date <date>            value date (YYYY-MM-DD); defaults to today
   --method <method>        cash, check, ach, wire, spei, credit_card or other
                            (default: "spei")
-  --bank <account>         bank account id; without it the entity's `banco` role
-                           is used
+  --bank <account>         bank account name or id; without it the entity's
+                           `banco` role is used
   --reference <text>       bank reference or transfer number
   --on-account             let the amount exceed the invoice due; the excess
                            stays on account (anticipo)
@@ -4080,9 +4130,9 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -4183,9 +4233,9 @@ Options:
   --amount <amount>        amount for a single --invoice without an inline
                            amount
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   -h, --help               display help for command
@@ -4217,9 +4267,9 @@ Options:
   --reason <text>          why: it lands in the audit trail and the ledger
                            description
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   -h, --help               display help for command
@@ -4250,9 +4300,9 @@ Options:
   --fee <amount>           bank fee charged for the return (not yet supported:
                            needs a fee role account)
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   --reason <text>          justification recorded in the audit trail (required)
@@ -4316,6 +4366,7 @@ Options:
                            zona_horaria policy zone
   --memo <text>            memo
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -4406,9 +4457,9 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   -h, --help               display help for command
@@ -4441,6 +4492,7 @@ Options:
                            amount
   --dry-run                run the real path and roll back
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -4654,6 +4706,7 @@ Options:
   --iban <code>                                            IBAN
   --dry-run                                                run every validation and the insert, then roll it back
   --json                                                   JSON output
+  -y, --yes                                                skip the confirmation prompt
   -h, --help                                               display help for command
 
 Examples:
@@ -4809,6 +4862,7 @@ Options:
                            by --force
   --dry-run                apply the remap and roll it back
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -4867,6 +4921,7 @@ Options:
   --closing-balance <amount>                                    closing balance you assert, for a format that carries none (a CSV); refused if the file says otherwise
   --dry-run                                                     parse, run the seven checks and roll the write back
   --json                                                        JSON output
+  -y, --yes                                                     skip the confirmation prompt
   -h, --help                                                    display help for command
 
 Examples:
@@ -5090,6 +5145,7 @@ Options:
   --reason <text>                                justification recorded in the audit trail
   --dry-run                                      run every check and write nothing
   --json                                         JSON output
+  -y, --yes                                      skip the confirmation prompt
   -h, --help                                     display help for command
 
 Examples:
@@ -5238,6 +5294,7 @@ Options:
   --session <id>           reconciliation session these matches belong to
   --dry-run                do the whole thing and roll it back
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -5313,6 +5370,7 @@ Options:
   --session <id>                 reconciliation session this group belongs to
   --dry-run                      do the whole thing and roll it back
   --json                         JSON output
+  -y, --yes                      skip the confirmation prompt
   -h, --help                     display help for command
 
 Examples:
@@ -5410,6 +5468,7 @@ Options:
   --resume                                                      continue the session already open for this period instead of refusing
   --dry-run                                                     walk the real path and roll it back
   --json                                                        JSON output
+  -y, --yes                                                     skip the confirmation prompt
   -h, --help                                                    display help for command
 
 Examples:
@@ -5455,6 +5514,7 @@ Options:
                               day before the period
   --dry-run                   do the whole thing and roll it back
   --json                      JSON output
+  -y, --yes                   skip the confirmation prompt
   -h, --help                  display help for command
 
 Examples:
@@ -5596,9 +5656,9 @@ Options:
   --reason <text>          why it is being signed; stored on the session and in
                            the audit trail
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -5629,9 +5689,9 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
@@ -5667,9 +5727,9 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --note <text>            free annotation stored with the record
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -5794,6 +5854,7 @@ Options:
   --escalation <level>     escalation state: ninguno, avisado, vencido
   --note <text>            note stored with the item
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -5827,6 +5888,7 @@ Options:
   --amount <amount>        its new contribution to the reconciliation; required
                            when the type changes side
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
 Examples:
@@ -5878,6 +5940,7 @@ Options:
   --gl-account <code>                                        counterparty GL account; required for the types whose accounting role is not seeded yet (comision, interes)
   --item <id>                                                the reconciling item this adjustment explains
   --json                                                     JSON output
+  -y, --yes                                                  skip the confirmation prompt
   -h, --help                                                 display help for command
 
 Examples:
@@ -5934,9 +5997,9 @@ Options:
                            for human eyes; it is a confidence gate, not a
                            validation
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -5991,9 +6054,9 @@ Options:
                            is NOT the interest rate: the interest is what the
                            statement says
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -6049,9 +6112,9 @@ Options:
                            CONTRASTED against the movement, never imposed — the
                            bank dates the clearing
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -6129,6 +6192,7 @@ Options:
   --serial <text>                          serial number, so the register can find the physical thing
   --location <text>                        where it is
   --dry-run                                run the real path and undo it: shows the asset that would be created
+  -y, --yes                                skip the confirmation prompt
   -h, --help                               display help for command
 
 Examples:
@@ -6179,6 +6243,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
   -h, --help                               display help for command
 
 Examples:
@@ -6260,8 +6325,8 @@ Options:
   --period <expr>                          period to post: 2026-08, or any unambiguous part of its name
   --book <book|tax>                        the depreciation book you believe you are posting; checked against the panel
   --file <path>                            the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved
-  --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
   --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
   -h, --help                               display help for command
 
@@ -6428,9 +6493,9 @@ Options:
   --partial                apply the valid rows and leave the invalid ones in
                            staging (accepts an unchecked batch)
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
@@ -6466,9 +6531,9 @@ Options:
   --as-of <date>           date for every mirror entry (YYYY-MM-DD); defaults to
                            today
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
@@ -6627,8 +6692,8 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, verify-checklist, soft-close, hard-close
   --resume                                 continue the open run of this period; every step runs again, posting only what is missing
-  --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
   --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
   -h, --help                               display help for command
 
@@ -6737,6 +6802,7 @@ Options:
   -o, --output <path>                      write the dossier to this path (closing_packs keeps its own copy)
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
   -h, --help                               display help for command
 
 Examples:
@@ -6900,6 +6966,7 @@ Options:
   --rate-type <spot|average|budget|historical>                     rate type (default: "spot")
   --until <date>                                                   last date the rate remains effective (YYYY-MM-DD)
   --dry-run                                                        show what would be recorded without writing
+  -y, --yes                                                        skip the confirmation prompt
   -h, --help                                                       display help for command
 
 Examples:
@@ -6931,9 +6998,9 @@ Options:
   --as-of <date>                      single date to download (YYYY-MM-DD)
   --since <date>                      inclusive lower bound (YYYY-MM-DD)
   --until <date>                      inclusive upper bound (YYYY-MM-DD)
+  -y, --yes                           skip the confirmation prompt
   --dry-run                           compute and show the full effect; write
                                       nothing and call nothing external
-  -y, --yes                           skip the confirmation prompt
   --idempotency-key <key>             NOT honored by this command yet: a retry
                                       writes again instead of returning the
                                       recorded result
@@ -7009,6 +7076,7 @@ Options:
   --expense-account <idOrCode>               account the accrual will charge each month (defaults to the `gasto` role)
   --reason <text>                            why the threshold is being overridden; required with --force
   --dry-run                                  show the schedule that would be registered; write nothing
+  -y, --yes                                  skip the confirmation prompt
   -h, --help                                 display help for command
 
 Examples:
@@ -7094,8 +7162,8 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --period <expr>                          period to accrue: 2026-08, or any unambiguous part of its name
-  --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
   --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
   -h, --help                               display help for command
 
@@ -7143,8 +7211,8 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --period <expr>                          period to accrue: 2026-03, or any unambiguous part of its name
-  --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
   --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
   -h, --help                               display help for command
 
@@ -7201,6 +7269,7 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --period <id>                            pay period of the active entity (its id)
   --type <type>                            run type: regular | bonus | correction | final | off_cycle (default: "regular")
+  -y, --yes                                skip the confirmation prompt
   -h, --help                               display help for command
 
 Examples:
@@ -7230,6 +7299,7 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --file <path>                            JSON with the employee inputs: an array, or {"employee_inputs": [...]}
+  -y, --yes                                skip the confirmation prompt
   -h, --help                               display help for command
 
 Examples:
@@ -7258,8 +7328,8 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
   --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
   -h, --help                               display help for command
 
@@ -7292,8 +7362,8 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --post                                   post the entry to the ledger now instead of leaving a draft for review
-  --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
   --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
   -h, --help                               display help for command
 
@@ -7831,6 +7901,7 @@ Options:
   --supports-second-family <yes|no>                                                                            does this worker support another family? decides a 50 % or 60 % CCPA cap — no default
   --arrears-12wk <yes|no>                                                                                      are arrears more than twelve weeks old? adds five points to the cap — no default
   --dry-run                                                                                                    run the real path and undo it: shows the order and the cascade it would join
+  -y, --yes                                                                                                    skip the confirmation prompt
   -h, --help                                                                                                   display help for command
 
 Examples:
@@ -7904,6 +7975,7 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --as-of <date>                           the date the order ceased (YYYY-MM-DD), recorded in end_date alongside the halt
+  -y, --yes                                skip the confirmation prompt
   --reason <text>                          justification recorded in the audit trail (required)
   -h, --help                               display help for command
 
@@ -7958,6 +8030,7 @@ Options:
   --hire-date <date>                       hire date (YYYY-MM-DD); overrides the file
   --pay-schedule <id>                      a pay schedule of this entity; overrides the file
   --dry-run                                run the real writer and roll it back: nothing is saved
+  -y, --yes                                skip the confirmation prompt
   -h, --help                               display help for command
 
 Examples:
@@ -8253,9 +8326,9 @@ Options:
   -n, --limit <n>          Max deliveries per tenant in this pass (default:
                            "100")
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  not needed: this command already deduplicates on the
                            state it writes; accepted and ignored
   --live                   perform the real external effect (default is the
@@ -8402,9 +8475,9 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --target <database>      name of the NEW database to create and restore into
   --json                   JSON output
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   -h, --help               display help for command
@@ -8801,6 +8874,7 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --view <name...>                         which views to rebuild (default: all of mv_trial_balance, mv_account_balance_summary)
   --no-concurrently                        rebuild with an exclusive lock; needed only for a never-populated view
+  -y, --yes                                skip the confirmation prompt
   -h, --help                               display help for command
 
 Examples:
@@ -9152,9 +9226,9 @@ Options:
   -n, --limit <n>          maximum CFDIs to consult in this run (default: "100")
   --stale-hours <h>        a consultation older than this is stale (default:
                            "24")
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   --live                   perform the real external effect (default is the
@@ -9272,6 +9346,7 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   -n, --limit <n>          maximum parked REPs to retry (default: "50")
   --dry-run                list what would be retried, retry nothing
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -9399,6 +9474,7 @@ Options:
                            02:00)
   --max-failures <n>       Auto-disable after N consecutive failures (default 3)
   --user <email>           Who creates the job (audit)
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -9415,6 +9491,7 @@ Arguments:
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -t, --tenant <id>        Tenant
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -9431,6 +9508,7 @@ Arguments:
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -t, --tenant <id>        Tenant
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -9445,9 +9523,9 @@ Tick entry point: claim and run every due job (call this from cron/launchd;
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -t, --tenant <id>        Tenant
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  NOT honored by this command yet: a retry writes again
                            instead of returning the recorded result
   --live                   perform the real external effect (default is the
@@ -9518,6 +9596,7 @@ Options:
   --override-drift         Approve even if the skill file drifted from the draft
                            diff base (recorded in the audit trail)
   --json                   List pending drafts as JSON (no interactive review)
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -9570,6 +9649,7 @@ Options:
   -t, --tenant <id>        Tenant
   --source <kind>          Source kind: bank_notification, sat_mailbox, generic
                            (default: "generic")
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -9597,6 +9677,7 @@ Disable a webhook token (deliveries with it start failing with 401)
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -t, --tenant <id>        Tenant
+  -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 ```
 
@@ -9657,9 +9738,9 @@ Options:
   --reason <text>          why this close happens now; recorded in the audit
                            trail
   --json                   JSON output for scripts
+  -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
-  -y, --yes                skip the confirmation prompt
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
