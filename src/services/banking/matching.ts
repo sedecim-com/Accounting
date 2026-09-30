@@ -408,27 +408,37 @@ async function getCandidates(
   // la lista de estados que esta consulta busca a propósito.
   //
   // Se proyecta el SALDO, que es lo que el banco puede venir a cubrir.
-  const invoices = await query<Matchable>(
+  //
+  // LA DIRECCIÓN DEL MOVIMIENTO DECIDE DE QUÉ LADO SE BUSCA (MNE-001-284). El
+  // importe del banco va firmado —positivo entra, negativo sale— y el rango de
+  // abajo compara en valor absoluto, así que un cargo de −1160 casaba contra
+  // una factura por cobrar de 1160 del mismo día y se autoaplicaba. Un abono
+  // sólo puede ser un cobro (CxC) y un cargo sólo un pago (CxP): el otro lado
+  // ni se consulta. Importe cero no es ninguna de las dos direcciones.
+  const isDeposit = new Decimal(tx.amount).isPositive() && !new Decimal(tx.amount).isZero();
+  const isCharge = new Decimal(tx.amount).isNegative();
+
+  const invoices = isDeposit ? await query<Matchable>(
     `SELECT id, 'invoice' as type, amount_due as amount, invoice_date as date,
             COALESCE(description, invoice_number) as description
      FROM invoices
      WHERE entity_id = $1 AND status IN ('sent', 'partially_paid', 'overdue')
        AND ABS(amount_due) BETWEEN $2 AND $3`,
     [entityId, amountLow, amountHigh]
-  );
+  ) : { rows: [] as Matchable[] };
   candidates.push(...invoices.rows);
 
   // Mismo defecto y mismo arreglo del lado del gasto: 'partially_paid' también
   // está en la lista de estados, y un pago parcial a proveedor es tan común
   // como un cobro parcial de cliente.
-  const bills = await query<Matchable>(
+  const bills = isCharge ? await query<Matchable>(
     `SELECT id, 'bill' as type, amount_due as amount, bill_date as date,
             COALESCE(description, bill_number) as description
      FROM bills
      WHERE entity_id = $1 AND status IN ('approved', 'posted', 'partially_paid')
        AND ABS(amount_due) BETWEEN $2 AND $3`,
     [entityId, amountLow, amountHigh]
-  );
+  ) : { rows: [] as Matchable[] };
   candidates.push(...bills.rows);
 
   // LA PARTIDA DE LIBROS ES LA DE LA CUENTA DE MAYOR DEL BANCO, Y NINGUNA OTRA.

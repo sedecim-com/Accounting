@@ -386,10 +386,42 @@ describe('getCandidates · la factura pagada a medias', () => {
       expect(sqlFacturas).toContain('amount_due as amount');
       expect(sqlFacturas).not.toContain('total_amount as amount');
 
-      const sqlGastos = mockQuery.mock.calls.map((c) => c[0] as string).find((s) => s.includes('FROM bills'))!;
-      expect(sqlGastos).toContain('amount_due as amount');
-      expect(sqlGastos).not.toContain('total_amount as amount');
     });
+  });
+
+  it('proyecta el SALDO del gasto para un cargo', async () => {
+    mockQuery.mockResolvedValue(filas([]));
+    await findBestMatch('cta-1', movimientoCompleto({ amount: '-500.0000' }), ALCANCE);
+    const sqlGastos = mockQuery.mock.calls.map((c) => c[0] as string).find((s) => s.includes('FROM bills'))!;
+    expect(sqlGastos).toContain('amount_due as amount');
+    expect(sqlGastos).not.toContain('total_amount as amount');
+  });
+});
+
+describe('getCandidates · the direction of the movement picks the ledger side (MNE-001-284)', () => {
+  const tables = (): string[] =>
+    mockQuery.mock.calls
+      .map((c) => c[0] as string)
+      .flatMap((s) => (s.includes('FROM invoices') ? ['invoices'] : s.includes('FROM bills') ? ['bills'] : []));
+
+  beforeEach(() => {
+    mockFindByIdInScope.mockResolvedValue({ entity_id: 'ent-1', gl_account_id: 'gl-1' });
+    mockQuery.mockResolvedValue(filas([]));
+  });
+
+  it('a deposit only reads receivables', async () => {
+    await findBestMatch('cta-1', movimientoCompleto({ amount: '1160.0000' }), ALCANCE);
+    expect(tables()).toEqual(['invoices']);
+  });
+
+  it('a charge only reads payables', async () => {
+    await findBestMatch('cta-1', movimientoCompleto({ amount: '-1160.0000' }), ALCANCE);
+    expect(tables()).toEqual(['bills']);
+  });
+
+  it('a zero movement reads neither', async () => {
+    await findBestMatch('cta-1', movimientoCompleto({ amount: '0.0000' }), ALCANCE);
+    expect(tables()).toEqual([]);
   });
 });
 
