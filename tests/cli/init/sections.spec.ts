@@ -287,9 +287,9 @@ describe('S1 · Identity', () => {
       }
       return Promise.resolve({ rows: [{ n: '12' }] }); // already has periods
     });
-    const s = new IdentidadSection({ cwd: tmp });
+    const s = new IdentidadSection({ cwd: tmp, home: tmp });
     await s.configure(makeCtx({ confirms: [false] })); // do not add another
-    expect(readEnvVar(path.join(tmp, '.env'), 'MNEMOSINE_TENANT')).toBe('tenant-xyz');
+    expect(readEnvVar(path.join(tmp, '.mnemosine', '.env'), 'MNEMOSINE_TENANT')).toBe('tenant-xyz');
     expect(process.env.MNEMOSINE_TENANT).toBe('tenant-xyz');
   });
 
@@ -522,13 +522,84 @@ describe('S3 · AI provider', () => {
     });
     delete process.env.MI_KEY;
     const probe = vi.fn().mockResolvedValue({ chat: true, tools: true, detail: 'ok' });
-    await new IaSection({ cwd: tmp, probe, listOllamaModels: async () => [] }).configure(
+    await new IaSection({ cwd: tmp, home: tmp, probe, listOllamaModels: async () => [] }).configure(
       makeCtx({ flags: { provider: 'conkey' }, secrets: ['sk-secreta-123'] })
     );
 
-    expect(readEnvVar(path.join(tmp, '.env'), 'MI_KEY')).toBe('sk-secreta-123');
+    expect(readEnvVar(path.join(tmp, '.mnemosine', '.env'), 'MI_KEY')).toBe('sk-secreta-123');
+    expect(fs.existsSync(path.join(tmp, '.env'))).toBe(false);
     const config = fs.readFileSync(path.join(tmp, 'mnemosine.config.json'), 'utf-8');
     expect(config).not.toContain('sk-secreta-123');
+  });
+});
+
+describe('--section with no .env writes to the announced location', () => {
+  const userEnv = () => path.join(tmp, '.mnemosine', '.env');
+  let cwd: string;
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+  });
+
+  it('--section ia: the API key goes to ~/.mnemosine/.env and the location is announced', async () => {
+    fs.writeFileSync(path.join(cwd, 'mnemosine.config.json'), JSON.stringify({
+      default_provider: 'conkey',
+      providers: { conkey: { type: 'openai-compatible', model: 'm', base_url: 'https://x/v1', api_key_env: 'MI_KEY' } },
+    }));
+    delete process.env.MI_KEY;
+    const probe = vi.fn().mockResolvedValue({ chat: true, tools: true, detail: 'ok' });
+    const ctx = makeCtx({ flags: { provider: 'conkey' }, secrets: ['sk-x'] });
+    await new IaSection({ cwd, home: tmp, probe, listOllamaModels: async () => [] }).configure(ctx);
+    expect(readEnvVar(userEnv(), 'MI_KEY')).toBe('sk-x');
+    expect(fs.existsSync(path.join(cwd, '.env'))).toBe(false);
+    const out = ctx.lines.join('\n');
+    expect(out).toContain(`.env location: ${userEnv()}`);
+    expect(out.indexOf('.env location')).toBeLessThan(out.indexOf('Saved MI_KEY'));
+  });
+
+  it('--section identity --yes: the tenant pin goes to ~/.mnemosine/.env, not ./.env', async () => {
+    mockQuery.mockImplementation((sql?: unknown) => {
+      const q = typeof sql === 'string' ? sql : '';
+      if (q.includes('SELECT id, name, tax_id, tenant_id')) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [{ n: '12' }] });
+    });
+    const ctx = makeCtx({ flags: { entity: 'Nueva SA', country: 'MX', rfc: 'XAXX010101000' } });
+    await new IdentidadSection({ cwd, home: tmp }).configure(ctx);
+    expect(readEnvVar(userEnv(), 'MNEMOSINE_TENANT')).toBe('tenant-nuevo');
+    expect(fs.existsSync(path.join(cwd, '.env'))).toBe(false);
+    expect(ctx.lines.join('\n')).toContain(`.env location: ${userEnv()}`);
+  });
+
+  it('pressing Enter (the default) outside a checkout chooses the user directory', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ v: 'PostgreSQL 15' }] });
+    process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    const ctx = { ...makeCtx(), rl: {} as never }; // no queued answer: confirm returns its default
+    await new InfraSection({ cwd, home: tmp, randomKey: () => 'c'.repeat(64) }).configure(ctx);
+    expect(fs.existsSync(userEnv())).toBe(true);
+    expect(fs.existsSync(path.join(cwd, '.env'))).toBe(false);
+  });
+
+  it('pressing Enter inside a checkout keeps ./.env', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ v: 'PostgreSQL 15' }] });
+    process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    fs.writeFileSync(path.join(cwd, '.env.example'), '');
+    const ctx = { ...makeCtx(), rl: {} as never };
+    await new InfraSection({ cwd, home: tmp, randomKey: () => 'c'.repeat(64) }).configure(ctx);
+    expect(fs.existsSync(path.join(cwd, '.env'))).toBe(true);
+    expect(fs.existsSync(userEnv())).toBe(false);
+  });
+
+  it('tightens a pre-existing 0644 .env and ~/.mnemosine to 0600/0700, and warns', async () => {
+    fs.mkdirSync(path.dirname(userEnv()), { mode: 0o755 });
+    fs.writeFileSync(userEnv(), '', { mode: 0o644 });
+    fs.chmodSync(userEnv(), 0o644);
+    fs.chmodSync(path.dirname(userEnv()), 0o755);
+    mockQuery.mockResolvedValue({ rows: [{ v: 'PostgreSQL 15' }] });
+    process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    const ctx = makeCtx();
+    await new InfraSection({ cwd, home: tmp, randomKey: () => 'c'.repeat(64) }).configure(ctx);
+    expect(fs.statSync(userEnv()).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(path.dirname(userEnv())).mode & 0o777).toBe(0o700);
+    expect(ctx.lines.join('\n')).toMatch(/was mode 644; tightened to 600/);
   });
 });
 
@@ -611,7 +682,7 @@ describe('S0 · RLS context', () => {
 
   it('without a tenant there is nothing to verify yet: passes with a note, never enters', async () => {
     mockDb(async () => ({ rows: [] }));
-    const checks = await new InfraSection({ cwd: tmp }).verify();
+    const checks = await new InfraSection({ cwd: tmp, home: tmp }).verify();
     const rls = checks.find((c) => c.name === 'RLS context');
     expect(rls?.level).toBe('ok');
     expect(rls?.detail).toMatch(/no tenant pinned/);
