@@ -152,7 +152,10 @@ export function validate(backlog: Backlog, requirements: Set<string>, prdNumber:
         errors.push(`${t.id}: difficulty ${t.difficulty ?? '(none)'} — only D1–D3 are atomic; split a D4 first`);
       }
       if (!/^A[1-3]$/.test(t.autonomy ?? '')) errors.push(`${t.id}: autonomy must be A1–A3`);
-      if (![0, 1, 2, 3].includes(t.wave ?? -1)) errors.push(`${t.id}: wave must be 0–3 (docs/MVP.md §3)`);
+      // Waves 0–3 are the MVP releases of docs/MVP.md §3; a later wave holds what comes
+      // after the MVP. Any wave is valid as long as it is a whole number: the check above
+      // already demands a stage (name and release) for every wave that has tasks.
+      if (!Number.isInteger(t.wave) || t.wave! < 0) errors.push(`${t.id}: wave must be a whole number (docs/MVP.md §3)`);
       if (typeof t.size !== 'number') errors.push(`${t.id}: size (estimated lines) is missing`);
       else if (t.size > MAX_TASK_LINES && !t.mechanical) {
         errors.push(`${t.id}: ${t.size} lines is over ${MAX_TASK_LINES} — split it, or mark it mechanical`);

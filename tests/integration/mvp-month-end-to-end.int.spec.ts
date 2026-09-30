@@ -204,14 +204,14 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     it('issues an invoice, collects half, captures and pays a bill, and issues a credit note', () => {
       ok(['customer', 'create', '--name', 'Cliente Sintetico SA de CV', '--tax-id', CUSTOMER_RFC, '--terms', 'Net 30']);
       ok(['invoice', 'create', '--customer', 'Cliente Sintetico', '--date', '2025-12-05',
-        '--line', 'account=4100;qty=1;price=10000.00;tax=16;description=Mercancia']);
+        '--line', 'account=4100;qty=1;price=10000.00;tax-rate=16;description=Mercancia']);
       ok(['invoice', 'issue', 'INV-2025-00001', '--yes']);
       expect(ok(['receipt', 'record', 'INV-2025-00001', '--amount', '5800.00', '--date', '2025-12-15', '--yes']).out)
         .toContain('11600.00 → 5800.00 (partially_paid)');
 
       ok(['vendor', 'create', 'Proveedor Sintetico SA de CV', '--tax-id', VENDOR_RFC, '--terms', 'Net 30']);
       ok(['bill', 'create', 'Proveedor Sintetico', '--vendor-invoice-number', 'F-100', '--bill-date', '2025-12-08',
-        '--line', 'account=6100,price=5000.00,tax-amount=800.00,description=Papeleria']);
+        '--line', 'account=6100;price=5000.00;tax-amount=800.00;description=Papeleria']);
       ok(['bill', 'approve', 'BILL-2025-00001', '--yes']);
       expect(ok(['payment', 'create', 'BILL-2025-00001', '--amount', '5800.00', '--date', '2025-12-20', '--yes']).out)
         .toContain('5800.00 → 0.00 (paid)');

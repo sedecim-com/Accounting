@@ -344,8 +344,12 @@ describe('documents a person or an agent hands us', () => {
     });
   });
 
-  it('rejects a side that is neither debit nor credit', () => {
-    expect(() => parseLineFlag('1110:cargo:100')).toThrow(/debit.*credit/);
+  it('reads cargo/abono as debit/credit, and rejects any other side', () => {
+    // #327: cargo/abono are permanent synonyms; a single letter is not ("c"
+    // is credit in English and cargo in Spanish).
+    expect(parseLineFlag('1110:cargo:100')).toMatchObject({ debit: '100', credit: undefined });
+    expect(parseLineFlag('1110:ABONO:100')).toMatchObject({ debit: undefined, credit: '100' });
+    expect(() => parseLineFlag('1110:c:100')).toThrow(/debit.*credit/);
   });
 
   it('rejects a line flag that is missing a field', () => {
@@ -370,6 +374,29 @@ describe('documents a person or an agent hands us', () => {
       { account: '6100', debit: '500', credit: undefined, description: undefined },
       { account: '2110', debit: undefined, credit: '500', description: undefined },
     ]);
+  });
+
+  it('reads cargo/abono as the keys of a document line, as in --line (#327)', () => {
+    const doc = parseEntryDocument(
+      JSON.stringify({
+        date: '2026-02-01',
+        lines: [
+          { account: '6120', cargo: '100' },
+          { account: '2110', abono: 100 },
+        ],
+      })
+    );
+    expect(doc.lines).toEqual([
+      { account: '6120', debit: '100', credit: undefined, description: undefined },
+      { account: '2110', debit: undefined, credit: '100', description: undefined },
+    ]);
+  });
+
+  it('refuses a document line that gives one side under two keys', () => {
+    const line = (l: Record<string, unknown>) =>
+      parseEntryDocument(JSON.stringify({ date: '2026-02-01', lines: [l] }));
+    expect(() => line({ account: '6120', debit: '100', cargo: '200' })).toThrow(/"debit" and "cargo"/);
+    expect(() => line({ account: '2110', credit_amount: 5, abono: 5 })).toThrow(/"credit_amount" and "abono"/);
   });
 
   it('refuses a document without a date or without lines', () => {

@@ -186,7 +186,8 @@ const SONDAS: Sonda[] = [
                 (COALESCE(pa.s,0) + COALESCE(cna.s,0))::text AS aplicado,
                 COUNT(*) OVER()::int AS total
            FROM invoices i
-           LEFT JOIN LATERAL (SELECT SUM(amount_applied) AS s FROM payment_allocations
+           LEFT JOIN LATERAL (SELECT SUM(amount_applied + withholding_isr_amount + withholding_iva_amount) AS s
+                                FROM payment_allocations
                                WHERE invoice_id = i.id AND unapplied_at IS NULL) pa ON true
            LEFT JOIN LATERAL (SELECT SUM(amount_applied) AS s FROM credit_note_applications
                                WHERE invoice_id = i.id) cna ON true

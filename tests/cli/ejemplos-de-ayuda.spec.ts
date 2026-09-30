@@ -6,6 +6,8 @@ import { catalogoBasePara } from '../../src/services/accounting/chart-seed.js';
 import { cuentasRequeridasPara } from '../../src/services/xml-ingestion/account-roles-seed.js';
 import { parseLineSpec, resolveLineTaxAmount } from '../../src/cli/bill-command.js';
 import { parseInvoiceLine } from '../../src/cli/invoice-command.js';
+import { parseEntryLine } from '../../src/cli/entry-command.js';
+import { isKeyValueLine, parseKeyValueLine, SIDE_ALIASES } from '../../src/cli/kernel/line-spec.js';
 
 // ============================================================
 // LOS EJEMPLOS DE LA AYUDA TIENEN QUE PODER TECLEARSE
@@ -751,14 +753,14 @@ describe('los ejemplos pasan por el commander de verdad', () => {
 
 // ── Los valores DENTRO de --line ────────────────────────────────────
 //
-// Para commander `--line` es una cadena y con eso se da por satisfecho: la
-// gramática vive dentro. Y no hay una, hay TRES —bill separa por COMAS, invoice
-// por PUNTO Y COMA, entry es posicional con DOS PUNTOS—, que es exactamente la
-// brecha H3 y la razón por la que un ejemplo mal escrito aquí no lo caza nadie.
+// To commander `--line` is a string and that satisfies it: the grammar lives
+// inside. Since #327 there is ONE (key=value pairs separated by ";" in bill,
+// invoice and entry, plus entry's positional shortcut), but a mistyped example
+// here is still caught by nobody else.
 //
-// Así que el valor de cada ejemplo se pasa por el parser que su comando usa DE
-// VERDAD (`parseLineSpec`, `parseInvoiceLine`), no por una copia de la gramática
-// escrita en esta prueba, que se quedaría atrás en cuanto el comando cambie.
+// So each example's value goes through the parser its command REALLY uses
+// (`parseLineSpec`, `parseInvoiceLine`, `parseEntryLine`), not through a copy
+// of the grammar written in this test.
 
 describe('lo que va dentro de --line también se puede teclear', () => {
   it('las claves de --line son las que la propia hoja documenta aceptar', () => {
@@ -778,7 +780,12 @@ describe('lo que va dentro de --line también se puede teclear', () => {
       ).toContain('account');
       for (const ejemplo of hoja.ejemplos) {
         for (const valor of valoresDeLinea(invocacion(tokenizar(ejemplo)))) {
-          for (const clave of Object.keys(parseLineSpec(valor))) {
+          // Entry's positional shortcut has no keys: its own test checks it.
+          if (!isKeyValueLine(valor)) continue;
+          // Grammar-free on purpose: each sheet's key block is the oracle here,
+          // and cargo/abono are the documented names of debit/credit.
+          for (const written of Object.keys(parseKeyValueLine(valor, { allowLegacyComma: true }).fields)) {
+            const clave = SIDE_ALIASES[written] ?? written;
             if (!claves.has(clave)) {
               rotas.push(
                 `${hoja.ruta}: "${clave}" no está entre las claves que --line acepta ` +
@@ -849,11 +856,11 @@ describe('lo que va dentro de --line también se puede teclear', () => {
   });
 
   it('cada --line de entry tiene la forma que entry documenta, y la póliza cuadra', () => {
-    // entry no tiene claves: su gramática es `<cuenta>:<debit|credit>:<importe>`
-    // con descripción opcional al final, y la publica en la descripción de la
-    // bandera. Un ejemplo descuadrado es tan intecleable como uno con una
-    // bandera inventada: el comando lo rechaza al validar la partida doble.
-    const FORMA = /^(\d{3,6}):(debit|credit):(\d+(?:\.\d+)?)(?::(.*))?$/;
+    // Entry's own parser decides the form (`account=…;debit=…` or the
+    // `<account>:<debit|credit>:<amount>` shortcut). An unbalanced example is
+    // as untypeable as one with an invented flag: the command rejects it when
+    // it checks double entry.
+    const AMOUNT_RE = /^\d+(?:\.\d+)?$/;
     const rotas: string[] = [];
     let miradas = 0;
     for (const hoja of CON_EJEMPLOS) {
@@ -865,17 +872,22 @@ describe('lo que va dentro de --line también se puede teclear', () => {
         let haber = 0;
         for (const valor of valores) {
           miradas += 1;
-          const m = FORMA.exec(valor);
-          if (!m) {
-            rotas.push(
-              `${hoja.ruta}: "${valor}" no tiene la forma <cuenta>:<debit|credit>:<importe>[:texto] — ${ejemplo}`
-            );
+          let parsedLine: ReturnType<typeof parseEntryLine>;
+          try {
+            parsedLine = parseEntryLine(valor);
+          } catch (err) {
+            rotas.push(`${hoja.ruta}: ${(err as Error).message} — ${ejemplo}`);
+            continue;
+          }
+          const amount = parsedLine.debit ?? parsedLine.credit ?? '';
+          if (!/^\d{3,6}$/.test(parsedLine.account) || !AMOUNT_RE.test(amount)) {
+            rotas.push(`${hoja.ruta}: "${valor}" no lleva un código de cuenta y un importe sin millares — ${ejemplo}`);
             continue;
           }
           // En centavos: sumar pesos en coma flotante es la manera de que un
           // ejemplo descuadrado por un centavo pase por cuadrado.
-          const centavos = Math.round(Number(m[3]) * 100);
-          if (m[2] === 'debit') debe += centavos;
+          const centavos = Math.round(Number(amount) * 100);
+          if (parsedLine.debit !== undefined) debe += centavos;
           else haber += centavos;
         }
         if (debe !== haber) {
