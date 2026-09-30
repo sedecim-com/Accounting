@@ -46,7 +46,7 @@ provides:
     # (T1), and an integer beyond 2^53 - 1 as compaction.threshold_tokens,
     # keep_recent_tokens or max_memory_flushes (T2). A file zod 3 loaded with such a
     # value is refused, and every command that reads the config reports why.
-  - file: sat-anexo24            # XML de catálogo, balanza y pólizas; DIOT, SUA, CFDI de nómina (los presenta el contribuyente, en el portal).
+  - file: sat-anexo24            # XML de catálogo, balanza, pólizas y auxiliares (a requerimiento, MNE-001-054); DIOT, SUA, CFDI de nómina (los presenta el contribuyente, en el portal).
     # CONTRACT: under efirma_sellado_contabilidad_electronica = sellar_con_custodia,
     # `e-accounting catalog seal` and `balance seal` hand over the archived CtaCatalogo and
     # BCE sealed with the entity e.firma: cadena original by the SAT's vendored XSLT,
@@ -72,7 +72,7 @@ external:
     # entity's current RFC at every use. Nothing reads back from Contalink which company the
     # key opens. There is no process-wide CONTALINK_API_KEY.
   - sat-consulta-cfdi            # estado de CFDI ante el SAT
-  - sat-descarga-masiva          # servicio web del SAT autenticado con la e.firma; en el MVP desde el 2026-09-28 (#312). La autenticación existe (#439); solicitud, verificación y descarga no (#440, #441)
+  - sat-descarga-masiva          # servicio web del SAT autenticado con la e.firma; en el MVP desde el 2026-09-28 (#312). La autenticación (#439) y el motor de solicitud, verificación y descarga (#440 1/2) existen; los comandos y la ingesta de paquetes no (#440 2/2, #441)
     # CONTRACT: src/services/sat-download/ws-security.ts builds the Autentica request of the
     # SAT Descarga Masiva service v1.5 (SOAPAction
     # http://DescargaMasivaTerceros.gob.mx/IAutenticacion/Autentica, endpoint in config
@@ -80,6 +80,12 @@ external:
     # XML-DSig (exclusive c14n, SHA-1 digest, RSA-SHA1) and the e.firma certificate as an
     # X509v3 BinarySecurityToken. The key is read only inside withCredential (purpose
     # sat_auth); the token is held in memory for its validity and never stored (#439).
+    # CONTRACT: src/services/sat-download/descarga-masiva.ts sends SolicitaDescargaEmitidos /
+    # SolicitaDescargaRecibidos, VerificaSolicitudDescarga and Descargar (v1.5; endpoints in
+    # config sat.descargaMasiva{Solicita,Verifica,Descarga}Url), each body with an enveloped
+    # XML-DSig by the e.firma (purpose sat_auth) and the token as WRAP access_token. The SAT
+    # codes and their sources live in sat-codes.ts; the lifetime limit on identical XML
+    # requests (5002) is refused before the call by sat_download_quota (migration 167, #440).
   - pac                          # timbrado; adaptadores sin contrato firmado, fuera del MVP
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo

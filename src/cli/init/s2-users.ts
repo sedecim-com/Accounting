@@ -18,8 +18,20 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 import { ROLES, type RoleName } from '../../auth/roles.js';
 export { ROLES, type RoleName };
 
-const MIN_PASSWORD = 12;
-const BCRYPT_ROUNDS = 12;
+// One rule for both doors: the wizard and `mnemosine user create` (#326).
+import { MIN_PASSWORD, BCRYPT_ROUNDS, validatePassword } from '../../services/user/user-service.js';
+import { ValidationError } from '../../utils/errors.js';
+
+/** Why the service would refuse this password, or null when it would take it. */
+function passwordRefusal(password: string): string | null {
+  try {
+    validatePassword(password);
+    return null;
+  } catch (err) {
+    if (err instanceof ValidationError) return err.message;
+    throw err;
+  }
+}
 
 /**
  * One check, three verdicts, one identity. What it measures is not "users" —
@@ -111,8 +123,10 @@ export class UsuariosSection implements SetupSection {
 
     // The password is asked with hidden echo and is NEVER printed or logged.
     const password = await ctx.askSecret(`  Password (minimum ${MIN_PASSWORD} characters): `);
-    if (!password || password.length < MIN_PASSWORD) {
-      ctx.print(`  Password too short (minimum ${MIN_PASSWORD}); section incomplete.`);
+    const refused = passwordRefusal(password ?? '');
+    if (password === null || refused !== null) {
+      ctx.print(`  ${refused ?? ''} Section incomplete.`);
+      ctx.print('  Without a terminal: mnemosine user create --email <address> --role <name> --password-stdin');
       return;
     }
 

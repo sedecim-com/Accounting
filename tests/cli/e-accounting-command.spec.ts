@@ -353,7 +353,12 @@ describe('registro de la familia e-accounting', () => {
     expect(familia?.aliases()).toContain('contabilidad-electronica');
     expect(grupo('catalog')?.aliases()).toContain('catalogo');
     expect(grupo('balance')?.aliases()).toContain('balanza');
-    expect((familia?.commands ?? []).map((c) => c.name()).sort()).toEqual(['balance', 'catalog']);
+    expect((familia?.commands ?? []).map((c) => c.name()).sort()).toEqual([
+      'balance',
+      'catalog',
+      'subledger',
+      'voucher',
+    ]);
   });
 
   it('the phase-1 rows, with their Spanish aliases (seal since EFIRMA-4, #442)', () => {
@@ -379,13 +384,11 @@ describe('registro de la familia e-accounting', () => {
     expect(hoja('catalog', 'seal')?.options.some((o) => o.long === '--closing')).toBe(false);
   });
 
-  it('lo que NO entra en este tramo sigue sin existir: file, diff, match, apply, voucher', () => {
+  it('lo que NO entra en este tramo sigue sin existir: file, diff, match, apply', () => {
     const todas = (familia?.commands ?? []).flatMap((g) => g.commands.map((h) => h.name()));
     for (const ausente of ['file', 'diff', 'match', 'apply']) {
       expect(todas, `${ausente} firma o transmite: no es de F07b`).not.toContain(ausente);
     }
-    expect((familia?.commands ?? []).map((c) => c.name())).not.toContain('voucher');
-    expect((familia?.commands ?? []).map((c) => c.name())).not.toContain('subledger');
   });
 
   it('las dos generate son ESCRITURA + IA ✓ con draftOnly; check es lectura + IA ✓', () => {

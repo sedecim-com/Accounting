@@ -105,6 +105,10 @@ export interface App {
   /** E2.1 · the /v1 mount table, so every prefix is asked and none is copied by hand. */
   mounts: typeof import('../api/rest/montajes.js');
   settings: typeof import('../config/index.js');
+  /** E3.2 · the e.firma vault, the credential that signs, and the Descarga Masiva engine. */
+  vault: typeof import('../services/vault/index.js');
+  fiscalCredentials: typeof import('../services/fiscal-credentials/service.js');
+  satDownload: typeof import('../services/sat-download/descarga-masiva.js');
 }
 
 /**
@@ -2347,6 +2351,186 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
           'and starts (and stops cleanly) only with the explicit break-glass'
       );
     },
+  },  // ----------------------------------------------------------
+  // E3.2 · THE FIRM CAN BRING FROM THE SAT THE CFDI THAT NEVER REACHED IT (#440)
+  //
+  // Was a source grep: six literals in descarga-masiva.ts and two DDL strings
+  // in migration 167, green with nothing run (the AUD-6 class this criterion
+  // was reset for). Now the real engine runs, with a stored e.firma, against
+  // a SAT answered in-process (invariant 7):
+  //
+  //   · two identical issued XML requests go out, and the third is refused
+  //     from the database with nothing sent;
+  //   · a received XML request goes out as SolicitaDescargaRecibidos asking
+  //     for Vigente, since the SAT refuses (5012) the XML of cancelled
+  //     received CFDI and an unset status is sent as 'Todos';
+  //   · a verification that answers 5004 reads as a period with nothing in
+  //     it (no_data, 0 CFDI), not as a failed download;
+  //   · every call the SAT received left a sat_auth row in the access log.
+  //
+  // The in-process SAT does not check the signature: the integration suite
+  // (efirma-2-bulk-download.int.spec.ts) does, against the local simulator.
+  // ----------------------------------------------------------
+  {
+    id: 'sat-bulk-cfdi-download',
+    paquete: 'E3.2',
+    enunciado: 'El despacho puede traer del SAT los CFDI que no le llegaron',
+    mutantes: [
+      {
+        archivo: 'src/services/sat-download/descarga-masiva.ts',
+        de: "received: 'SolicitaDescargaRecibidos',",
+        a: "received: 'SolicitaDescargaEmitidos',",
+        porque: 'a received request goes out as SolicitaDescargaEmitidos: the firm never gets what it received',
+      },
+      {
+        archivo: 'src/services/sat-download/descarga-masiva.ts',
+        de: "const VERIFY_OPERATION = 'VerificaSolicitudDescarga';",
+        a: "const VERIFY_OPERATION = 'Verify';",
+        porque: 'the request is never verified with the SAT: no request ever reaches its packages',
+      },
+      {
+        archivo: 'src/services/sat-download/descarga-masiva.ts',
+        de: "if (input.requestType === 'CFDI') await reserveXmlRequest(client, ctx, key);",
+        a: '',
+        porque: 'the lifetime limit on identical XML requests is left to the SAT: the third request burns the period for good',
+      },
+      {
+        archivo: 'src/services/sat-download/sat-codes.ts',
+        de: "requestType === 'CFDI' ? 'Vigente' : 'Todos'",
+        a: "requestType === 'CFDI' ? 'Todos' : 'Todos'",
+        porque: 'received XML asks for Todos, cancelled included: the SAT answers 5012 and nothing received ever arrives',
+      },
+      {
+        archivo: 'src/services/sat-download/sat-codes.ts',
+        de: "'5004': { key: 'sat_download.no_data', outcome: 'empty'",
+        a: "'5004': { key: 'sat_download.no_data', outcome: 'error'",
+        porque: 'a period with no CFDI reads as a failed download',
+      },
+      {
+        archivo: 'src/database/migrations/167_the_sat_counts_identical_xml_requests.sql',
+        de: 'CHECK (requests_made BETWEEN 0 AND 2)',
+        a: 'CHECK (requests_made >= 0)',
+        porque: 'the counter no longer stops the third identical XML request',
+      },
+    ],
+    correr: async (app) => {
+      const { query } = app.conexion;
+      const rfc = 'AAA010101AAA';
+      const tenant = await crearInquilino(app, 'E3.2 · Descarga Masiva');
+      await query('UPDATE legal_entities SET tax_id = $1 WHERE id = $2 AND tenant_id = $3', [rfc, tenant.entityId, tenant.tenantId]);
+      await app.policies.seedPolicies({ tenantId: tenant.tenantId, entityId: tenant.entityId });
+      const blobs = new Map<string, Buffer>();
+      app.vault.setVaultForTesting({
+        backend: 'plan',
+        put: async (_c: unknown, blob: Buffer) => {
+          blobs.set('plan://efirma', Buffer.from(blob));
+          return { backend: 'plan', ref: 'plan://efirma' };
+        },
+        get: async (_c: unknown, ref: { ref: string }) => Buffer.from(blobs.get(ref.ref) ?? Buffer.alloc(0)),
+        destroy: async () => undefined,
+        healthCheck: async () => ({ ok: true }),
+      } as unknown as import('../services/vault/index.js').SecretVault);
+      const certs = path.join(RAIZ, 'tests', 'fixtures', 'certs');
+      await app.fiscalCredentials.storeCredential({
+        tenantId: tenant.tenantId,
+        entityId: tenant.entityId,
+        material: {
+          cer: fs.readFileSync(path.join(certs, 'fiel.cer')),
+          key: fs.readFileSync(path.join(certs, 'fiel.key')),
+          password: 'test1234',
+        },
+        consentBy: 'plan@example.test',
+      });
+
+      // The SAT, in-process: a token, a request id, and 5004 on verification.
+      const DES = 'http://DescargaMasivaTerceros.sat.gob.mx';
+      const TOKEN = 'plan-token';
+      const sent: Array<{ action: string; body: string }> = [];
+      const envelope = (inner: string): string =>
+        `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>${inner}</s:Body></s:Envelope>`;
+      const fetchImpl = async (_url: string, init: RequestInit): Promise<Response> => {
+        const headers = init.headers as Record<string, string>;
+        const action = headers.SOAPAction ?? '';
+        const body = typeof init.body === 'string' ? init.body : '';
+        sent.push({ action, body });
+        const op = action.slice(action.lastIndexOf('/') + 1);
+        if (op === 'Autentica') {
+          return new Response(envelope(
+            `<AutenticaResponse xmlns="http://DescargaMasivaTerceros.gob.mx"><AutenticaResult>${TOKEN}</AutenticaResult></AutenticaResponse>`
+          ));
+        }
+        if (headers.Authorization !== `WRAP access_token="${TOKEN}"`) return new Response(envelope('<s:Fault/>'), { status: 500 });
+        if (op.startsWith('SolicitaDescarga')) {
+          const request = /<des:solicitud [^>]*>/.exec(body)?.[0] ?? '';
+          const cancelledReceivedXml = op === 'SolicitaDescargaRecibidos' && request.includes('TipoSolicitud="CFDI"') &&
+            !request.includes('EstadoComprobante="Vigente"');
+          const answer = cancelledReceivedXml ? 'CodEstatus="5012"' : `CodEstatus="5000" IdSolicitud="${crypto.randomUUID()}"`;
+          return new Response(envelope(`<${op}Response xmlns="${DES}"><${op}Result ${answer} Mensaje="plan"/></${op}Response>`));
+        }
+        if (op === 'VerificaSolicitudDescarga') {
+          return new Response(envelope(
+            `<${op}Response xmlns="${DES}"><${op}Result CodEstatus="5000" EstadoSolicitud="3" ` +
+              `CodigoEstadoSolicitud="5004" NumeroCFDIs="0" Mensaje="plan"/></${op}Response>`
+          ));
+        }
+        return new Response(envelope('<s:Fault/>'), { status: 500 });
+      };
+      const deps = { fetchImpl, url: 'http://sat.invalid/Autenticacion', requestUrl: 'http://sat.invalid/Solicita', verifyUrl: 'http://sat.invalid/Verifica' };
+      const ctx = { tenantId: tenant.tenantId, entityId: tenant.entityId, actor: 'plan@example.test', unattended: false };
+      const period = { start: '2026-01-01T00:00:00', end: '2026-01-31T23:59:59' };
+
+      try {
+        // 1. Two identical issued XML requests go out; the third never leaves.
+        const issued = { ...period, direction: 'issued' as const, requestType: 'CFDI' as const };
+        const first = await app.satDownload.requestDownload(ctx, issued, deps);
+        await app.satDownload.requestDownload(ctx, issued, deps);
+        const before = sent.length;
+        let third: unknown = null;
+        try {
+          third = await app.satDownload.requestDownload(ctx, issued, deps);
+        } catch (e) {
+          third = e;
+        }
+        if ((third as { key?: string })?.key !== 'sat_download.lifetime_requests_exhausted' || sent.length !== before) {
+          return falla(
+            `la tercera solicitud XML idéntica ${sent.length !== before ? 'salió al SAT' : 'no se rehusó por el tope'}: ` +
+              'el SAT permite dos de por vida y la tercera quema el periodo'
+          );
+        }
+
+        // 2. Received XML goes out as Recibidos, asking for Vigente.
+        const received = await app.satDownload.requestDownload(ctx, { ...period, direction: 'received', requestType: 'CFDI' }, deps);
+        const last = sent.at(-1);
+        if (!last?.action.endsWith('/SolicitaDescargaRecibidos') || !last.body.includes(`RfcReceptor="${rfc}"`)) {
+          return falla(`la solicitud de recibidos salió como ${last?.action ?? 'nada'}: el despacho nunca trae lo que recibió`);
+        }
+        if (received.status !== 'accepted') {
+          return falla(`la solicitud de XML recibidos quedó ${received.status} (${received.satCode ?? '?'}): sin EstadoComprobante=Vigente el SAT la rehúsa`);
+        }
+
+        // 3. 5004 on verification is a period with nothing in it.
+        const verified = await app.satDownload.verifyDownload(ctx, first.id, deps);
+        if (verified.status !== 'no_data' || verified.cfdiCount !== 0 || verified.errorKey !== null) {
+          return falla(`un 5004 al verificar quedó ${verified.status} (${verified.errorKey ?? 'sin error'}): un mes sin CFDI se lee como descarga fallida`);
+        }
+
+        // 4. Every call the SAT received went through withCredential.
+        const logged = await query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM fiscal_credential_access_log
+            WHERE tenant_id = $1 AND entity_id = $2 AND purpose = 'sat_auth' AND outcome = 'success'`,
+          [tenant.tenantId, tenant.entityId]
+        );
+        if (Number(logged.rows[0]?.n) !== sent.length) {
+          return falla(`el SAT recibió ${sent.length} llamadas y la bitácora de la e.firma tiene ${logged.rows[0]?.n ?? 0}: alguna firmó fuera de withCredential`);
+        }
+        return ok(
+          'dos solicitudes XML idénticas salieron y la tercera se rehusó desde la base sin llamar; los recibidos salieron por ' +
+            `SolicitaDescargaRecibidos con Vigente y se aceptaron; 5004 quedó como periodo vacío; ${sent.length} llamadas, ${sent.length} accesos en bitácora`
+        );
+      } finally {
+        app.vault.setVaultForTesting(null);
+      }
+    },
   },
 ];
 
@@ -2654,6 +2838,9 @@ async function main(salida: string): Promise<void> {
     server: await import('../index.js'),
     mounts: await import('../api/rest/montajes.js'),
     settings: await import('../config/index.js'),
+    vault: await import('../services/vault/index.js'),
+    fiscalCredentials: await import('../services/fiscal-credentials/service.js'),
+    satDownload: await import('../services/sat-download/descarga-masiva.js'),
   };
 
   const { config } = await import('../config/index.js');

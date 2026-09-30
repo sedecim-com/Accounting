@@ -2771,6 +2771,70 @@ export const E1_2: Criterio[] = [
         : falla('registerFxCommand no está en el binario: R4 quedó verificada y no entregada');
     },
   },
+  {
+    paquete: 'E1.2',
+    id: 'foreign-balances-revalued-at-close',
+    enunciado:
+      'A USD invoice posts, and closing fx revalue revalues the foreign receivables, payables and banks at the rate of the last calendar day in an adjusting entry of its own source, reversed on day 1 of the open next period, once (#305, MNE-001-083)',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: '  const fx = rate;',
+        a: "  if (rate) throw new AccountingError('FX_AR_NOT_WIRED', 'income waits for the engine'); const fx = rate;",
+        porque: 'THE DEFECT OF #305: a USD invoice refuses to post, and the month of a firm that bills one service in dollars cannot be kept',
+      },
+      {
+        archivo: 'src/services/accounting/fx-revaluation.ts',
+        de: 'sourceType: FX_REVALUATION_SOURCE,',
+        a: "sourceType: 'closing',",
+        porque: 'the revaluation posts as a closing entry: the year-end close and the conductor would take it for their own',
+      },
+      {
+        archivo: 'src/services/accounting/fx-revaluation.ts',
+        de: 'AND start_date = $2::date + 1`,',
+        a: 'AND start_date > $2::date`,',
+        porque: 'the mirror lands on whatever later period comes first, not on day 1 of the next one',
+      },
+      {
+        archivo: 'src/services/accounting/fx-revaluation.ts',
+        de: 'revalue(b.foreign, b.book, rate, b.posted);',
+        a: 'revalue(b.foreign, b.book, rate);',
+        porque: 'the marker is written and never subtracted: a second run posts the whole revaluation again',
+      },
+    ],
+    evaluar: () => {
+      if (/FX_AR_NOT_WIRED/.test(codigoDe('src/services/accounting/ar-ap-posting.ts'))) {
+        return falla('a foreign-currency invoice refuses to post again (FX_AR_NOT_WIRED): the income side of R4 is gone');
+      }
+      const rev = 'src/services/accounting/fx-revaluation.ts';
+      if (!existe(rev)) return falla('there is no closing revaluation engine');
+      const code = codigoDe(rev);
+      if (!/export const FX_REVALUATION_SOURCE = 'fx_revaluation';/.test(code) ||
+          !/JournalEntryType\.ADJUSTING,/.test(code) || !/sourceType: FX_REVALUATION_SOURCE,/.test(code)) {
+        return falla('the revaluation is no longer an adjusting entry with its own source_type');
+      }
+      if (!/reverseWithinTransaction\(/.test(code) || !/AND start_date = \$2::date \+ 1`,/.test(code) ||
+          !/next\.status !== 'open'/.test(code)) {
+        return falla('the revaluation is no longer reversed on day 1 of an open next period');
+      }
+      if (!/revalue\(b\.foreign, b\.book, rate, b\.posted\);/.test(code) || !/INSERT INTO fx_revaluation_runs/.test(code)) {
+        return falla('the revaluation has no idempotency marker: a resumed run posts it twice');
+      }
+      if (!/getPolicy\(ctx, 'fx_revaluation_reversal', client\)/.test(code)) {
+        return falla('whether the revaluation is reversed is no longer read from fx_revaluation_reversal');
+      }
+      if (!/getPolicy\(ctx, 'closing_exchange_rate_source', client\)/.test(code)) {
+        return falla('the closing rate no longer follows closing_exchange_rate_source');
+      }
+      if (!/registerClosingFx\(closing, /.test(codigoDe('src/cli/closing-command.ts'))) {
+        return falla('closing fx revalue is not in the binary: the engine is verified and not delivered');
+      }
+      return existe('tests/integration/mne-001-083-fx-closing-revaluation.int.spec.ts') &&
+        existe('tests/services/accounting/fx-revaluation.spec.ts')
+        ? ok('USD invoices post, and the close revalues foreign balances once, adjusting, reversed on day 1')
+        : falla('no test RUNS the revaluation against a migrated database');
+    },
+  },
 
   // ---- F06a · El activo y su corrida ----
 
@@ -3443,8 +3507,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/period-close.ts',
-        de: "AND cc.facts->>'feesWithoutWithholding' = 'record_as_issued'",
-        a: "AND cc.facts->>'feesWithoutWithholding' = 'recorded'",
+        de: "AND 'record_as_issued' IN (cc.facts->>'feesWithoutWithholding', cc.facts->>'withholdingMismatch')",
+        a: "AND 'recorded' IN (cc.facts->>'feesWithoutWithholding', cc.facts->>'withholdingMismatch')",
         porque: 'the fees recorded as issued never reach the close checklist: the LISR 27-V warning is promised and not shown',
       },
     ],
@@ -3466,13 +3530,90 @@ export const E1_2: Criterio[] = [
           !/unwithheldFees: unwithheldFees\.value,/.test(preReg)) {
         return falla('ingestion does not pass the fees_without_withholding answer to the classifier');
       }
-      if (!/cc\.facts->>'feesWithoutWithholding' = 'record_as_issued'/.test(codigoDe('src/services/accounting/period-close.ts'))) {
+      if (!/'record_as_issued' IN \(cc\.facts->>'feesWithoutWithholding', cc\.facts->>'withholdingMismatch'\)/
+        .test(codigoDe('src/services/accounting/period-close.ts'))) {
         return falla('the close checklist does not look for the fees recorded as issued');
       }
       return existe('tests/integration/mne-001-148-fees-without-withholding.int.spec.ts') &&
         existe('tests/xml-ingestion/fees-without-withholding.spec.ts')
         ? ok('612 fees with no ISR withheld follow the panel, and goods are not taken for fees')
         : falla('no test RUNS the three answers of fees_without_withholding');
+    },
+  },
+  {
+    paquete: 'E1.2',
+    id: 'freight-and-resico-withholdings-come-from-the-law',
+    enunciado:
+      "A legal entity withholds 4 % VAT on land freight and 1.25 % ISR from a RESICO individual, with the rates of legal_parameters, and a CFDI whose declared withholding differs from the law's is held with a question to the accountant (#309, MNE-001-057)",
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: "if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return isBorderRateFreight(f) ? null : 'freight';",
+        a: '',
+        porque: 'freight is booked with whatever VAT the carrier declares, and one declaring none is booked with none',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: "if (f.issuerRegime === RESICO_REGIME) return 'resico';",
+        a: '',
+        porque: 'a RESICO individual is paid with no 1.25 % ISR withheld unless the CFDI happens to declare it',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-classifier.ts',
+        de: 'mismatchQuestion = withholdingMismatchQuestion(facts, settled.mismatch);',
+        a: '',
+        porque: 'a discrepancy only shows up as an entry that does not balance: nobody is asked about the CFDI',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'if (withholdingMismatch.defined) answers.withholding_mismatch = withholdingMismatch.value;',
+        a: '',
+        porque: 'the firm answers withholding_mismatch and every discrepancy stays held: the answer never reaches the question',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: 'const taxed = Decimal.max(0, base.minus(f.ivaTasaCero).minus(f.importeExento));',
+        a: 'const taxed = base;',
+        porque: 'zero-rated freight legs enter the base: more VAT is withheld than the carrier charged on them',
+      },
+      {
+        archivo: 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql',
+        de: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0125', 'rate',",
+        a: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0100', 'rate',",
+        porque: 'RESICO is withheld 1 % instead of the 1.25 % of LISR 113-J',
+      },
+    ],
+    evaluar: () => {
+      const law = codigoDe('src/services/xml-ingestion/withholding-law.ts');
+      if (!/if \(allConceptsIn\(f, \[LAND_FREIGHT_PREFIX\]\)\) return isBorderRateFreight\(f\) \? null : 'freight';/.test(law)) {
+        return falla('land freight is no longer told from the CFDI: its 4 % VAT is not withheld by law');
+      }
+      if (!/if \(f\.issuerRegime === RESICO_REGIME\) return 'resico';/.test(law)) {
+        return falla('a RESICO issuer is no longer told from the CFDI: its 1.25 % ISR is not withheld by law');
+      }
+      const classifier = codigoDe('src/services/xml-ingestion/cfdi-classifier.ts');
+      if (!/heldForReview = settled\.mismatch;/.test(classifier) ||
+          !/mismatchQuestion = withholdingMismatchQuestion\(facts, settled\.mismatch\);/.test(classifier)) {
+        return falla('a withholding discrepancy is no longer the reason of the hold and a question to the accountant');
+      }
+      if (!/answers\.withholding_mismatch = withholdingMismatch\.value;/.test(codigoDe('src/services/xml-ingestion/pre-registration-service.ts'))) {
+        return falla('ingestion does not pass the withholding_mismatch answer to the classifier');
+      }
+      if (!/const taxed = Decimal\.max\(0, base\.minus\(/.test(law)) {
+        return falla('the freight VAT withholding is no longer computed only on the concepts that carry VAT');
+      }
+      const mig = 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql';
+      const rows = existe(mig) ? crudoDe(mig) : '';
+      for (const row of [
+        /'vat\.withholding\.freight_rate', '2006-12-05', '0\.0400', 'rate',/,
+        /'income_tax\.withholding\.resico_rate', '2022-01-01', '0\.0125', 'rate',/,
+      ]) {
+        if (!row.test(rows)) return falla(`migration 175 no longer seeds ${row.source} as the law says`);
+      }
+      return existe('tests/integration/mne-001-057-withholdings-freight-resico.int.spec.ts') &&
+        existe('tests/xml-ingestion/withholding-freight-resico.spec.ts')
+        ? ok('freight 4 % VAT and RESICO 1.25 % ISR come from legal_parameters, and a discrepancy is asked')
+        : falla('no test RUNS freight, RESICO and the discrepancy against the law and a migrated database');
     },
   },
 ];

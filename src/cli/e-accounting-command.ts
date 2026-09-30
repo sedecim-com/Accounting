@@ -48,6 +48,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
+import { registerRequestFileLeaves, type RequestFileEngine } from './e-accounting-request-command.js';
 
 // ============================================================
 // mnemosine e-accounting · contabilidad-electronica — EL XML QUE SE ENTREGA
@@ -63,10 +64,13 @@ import { changePolicyHint } from '../services/policy/policy-hint.js';
 // LO QUE NO ESTÁ AQUÍ: a transmission to the SAT. The SAT has no public web
 // service to receive these files; the upload is a person's act in the SAT
 // portal, and no leaf of this family pretends otherwise. Also missing: `catalog
-// match|apply|diff`; `voucher generate` (a las pólizas les falta sustrato: el
-// número de cheque no lo escribe nadie y la cuenta destino no existe en el
-// esquema); `subledger generate`. Un comando que existe y no hace lo que su
-// fila promete es peor que su ausencia.
+// match|apply|diff`. Un comando que existe y no hace lo que su fila promete es
+// peor que su ausencia.
+//
+// MNE-001-054 (#328): `voucher generate` and `subledger generate`, the files
+// the SAT asks for on request, live in e-accounting-request-command.ts and
+// reuse this file's helpers (the `-o` rule, the overwrite prompt, the receipt
+// and the unsealed notice), passed in below.
 //
 // ── LA REGLA DE LA CASA SOBRE LA e.firma GOBIERNA ESTE ARCHIVO ──
 //
@@ -123,6 +127,8 @@ export interface EAccountingCommandDeps {
   home?: string;
   /** Costura de prueba: responde la confirmación de sobrescritura de `-o`. */
   confirm?: (question: string) => Promise<boolean>;
+  /** Test seam: the voucher and auxiliary engine (MNE-001-054). */
+  requestFileEngine?: RequestFileEngine;
 }
 
 interface CommonOpts {
@@ -1061,4 +1067,18 @@ Examples:
   };
   sealLeaf(catalogo, 'catalogo');
   sealLeaf(balanza, 'balanza');
+
+  registerRequestFileLeaves(familia, {
+    palette: deps.palette,
+    run,
+    scopeForWrite: entidadDeEscritura,
+    writeXml: escribirXml,
+    emitReceipt: emitirRecibo,
+    readable: (opts) => legible(opts, true),
+    unsealedNotice: bloqueSinSello,
+    findingLines: renderHallazgos,
+    stepsToFile: PASOS_PARA_PRESENTAR,
+    helpNotice: avisoDeAyuda,
+    ...(deps.requestFileEngine !== undefined ? { engine: deps.requestFileEngine } : {}),
+  });
 }

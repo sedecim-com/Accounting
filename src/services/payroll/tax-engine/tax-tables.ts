@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import type { PayFrequency, FilingStatus, TaxInput } from './tax-engine.interface.js';
 import { daysBetween, toCalendarDate } from '../../../utils/calendar-date.js';
@@ -222,6 +223,55 @@ export function contributionMonths(
     if (last === end) return stretches;
     first = toCalendarDate(new Date(y, m, 1));
   }
+}
+
+export interface MonthShare {
+  /** First and last contribution day of the stretch, 'YYYY-MM-DD'. */
+  start: string;
+  end: string;
+  days: number;
+  /** The stretch's part of the amount, to the cent. */
+  amount: Decimal;
+}
+
+/**
+ * One payslip amount, split across the calendar months its period spans by
+ * the contribution days of each month (#231, owner decision MNE-001-131).
+ *
+ * The law fixes this, so it is not a panel key: IMSS contributions are caused
+ * by elapsed months (LSS art. 39) and INFONAVIT rides on the same contribution
+ * days, so a week from February 25th to March 3rd is four days of February and
+ * three of March. The SUA file and the employer liability BOTH attribute
+ * through this one function: two readers with two rules is how that week ended
+ * up declared in no month while the books carried it in March.
+ *
+ * Each stretch but the last is rounded half-up to the cent and the last takes
+ * the remainder, so the shares always add back to the payslip exactly. A
+ * period inside one month is a single stretch carrying the whole amount.
+ */
+export function splitByContributionMonth(
+  periodStart: string,
+  periodEnd: string,
+  amount: Decimal.Value
+): MonthShare[] {
+  const stretches = contributionMonths(
+    { tax_year: 0, period_start: periodStart, period_end: periodEnd },
+    0
+  );
+  const total = new Decimal(amount);
+  const totalDays = stretches.reduce((sum, s) => sum + s.days, 0);
+  let assigned = new Decimal(0);
+  return stretches.map((s, i) => {
+    const share =
+      i === stretches.length - 1
+        ? total.minus(assigned)
+        : total.times(s.days).dividedBy(totalDays).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    assigned = assigned.plus(share);
+    const start = s.date as string;
+    const [y, m, d] = start.split('-').map(Number);
+    const end = new Date(Date.UTC(y, m - 1, d + s.days - 1)).toISOString().slice(0, 10);
+    return { start, end, days: s.days, amount: share };
+  });
 }
 
 /**

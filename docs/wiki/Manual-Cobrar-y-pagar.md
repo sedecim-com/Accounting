@@ -60,17 +60,17 @@ mnemosine account role set banco 1111
 
 ---
 
-## Aviso de sintaxis: `--line` no se escribe igual en los tres lugares
+## Aviso de sintaxis: `--line` y el IVA
 
-Esto es la fuente de error más cara de toda la página, así que va antes que nada. Los tres comandos que reciben renglones usan **tres separadores distintos**, y `tax` significa **dos cosas opuestas**:
+Los tres comandos que reciben renglones usan **una sola forma**: `clave=valor` separados por punto y coma `;` (#327). `cargo`/`abono` valen lo mismo que `debit`/`credit`, y `tax_rate` lo mismo que `tax-rate`. Lo que cambia es la clave del IVA, y por eso tiene nombre propio en cada comando:
 
-| Comando | Separador | `tax` es |
+| Comando | Clave del IVA | Es |
 |---|---|---|
-| `invoice create` | punto y coma `;` | una **tasa** en por ciento (`tax=16` → 16 %) |
-| `bill create` | coma `,` | un **monto** en pesos (`tax=160` → $160.00) |
-| `entry create` | dos puntos `:` | no existe: el IVA es un renglón más |
+| `invoice create` | `tax-rate=16` | una **tasa** en por ciento (16 %) |
+| `bill create` | `tax-amount=160` | un **monto** en pesos ($160.00) |
+| `entry create` | no existe | el IVA es un renglón más |
 
-No es un capricho de esta guía: en la factura de cliente el importe se calcula como `renglón × tasa / 100` ([`invoice-service.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/ar/invoice-service.ts), líneas 316-317), y en la factura de proveedor el valor entra tal cual a `tax_amount` ([`bill-command.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/cli/bill-command.ts), línea 414). La ayuda de `bill create` ni siquiera menciona `tax` entre sus claves, aunque la acepta.
+Lo que ya se escribía sigue valiendo hasta la versión 2.0.0, con un aviso: la coma de `bill` y el `tax=` a secas (tasa en `invoice`, monto en `bill`). `invoice` rechaza las claves que no conoce, nombrando la lista.
 
 Escribir `tax=16` en una factura de proveedor de $1,000 registra **16 pesos** de IVA acreditable en vez de 160. La factura cuadra a 1,016, el pago de 1,160 no casa, y el faltante aparece hasta la declaración. Cuando dudes, corre el comando con `--dry-run` y lee el total antes de aprobar.
 
@@ -107,10 +107,10 @@ mnemosine customer show "Comercializadora del Norte"
 mnemosine invoice create \
   --customer "Comercializadora del Norte" \
   --date 2026-08-31 --terms "Net 30" \
-  --line "account=4100;qty=1;price=10000;tax=16;description=Servicios de agosto"
+  --line "account=4100;qty=1;price=10000;tax-rate=16;description=Servicios de agosto"
 ```
 
-Punto y coma entre las claves. `tax=16` es la tasa. Si omites `--due-date`, se deriva de los términos del cliente; si los términos no son de una forma que el sistema sepa leer, exige la fecha explícita en vez de inventarla.
+Punto y coma entre las claves. `tax-rate=16` es la tasa. Si omites `--due-date`, se deriva de los términos del cliente; si los términos no son de una forma que el sistema sepa leer, exige la fecha explícita en vez de inventarla.
 
 Lo que sale es un **borrador local**: no toca el mayor y no es un CFDI. El folio se toma del contador de la entidad; los contadores vigentes se ven con:
 
@@ -279,10 +279,10 @@ mnemosine bill create "Papelería del Centro" \
   --vendor-invoice-number A-1234 \
   --bill-date 2026-08-10 \
   --terms "Net 30 PPD" \
-  --line "account=5100,qty=1,price=1000,tax=160,description=Papelería de agosto"
+  --line "account=5100;qty=1;price=1000;tax-amount=160;description=Papelería de agosto"
 ```
 
-Coma como separador, y `tax=160` es el **monto** del IVA, no la tasa. Las claves que acepta el renglón son `account`, `qty`, `quantity`, `price`, `unit-price`, `tax`, `description`, `cost-center` y `project`; cualquier otra la rechaza nombrando la lista completa.
+Punto y coma como separador, y `tax-amount=160` es el **monto** del IVA, no la tasa. Las claves que acepta el renglón son `account`, `qty`, `quantity`, `price`, `unit-price`, `tax-amount`, `tax` (en desuso), `description`, `cost-center` y `project`; cualquier otra la rechaza nombrando la lista completa.
 
 El `PPD` dentro de `--terms` es, otra vez, la única forma de declarar el método de pago en una captura manual. Aquí importa más que del lado del cliente, porque el valor conservador del lado **recibido** es **PPD**: si la factura era PUE y no lo dijiste, su IVA se aparca en la 1135 y no se acredita ese mes. Se corrige solo cuando registres el pago, pero un mes tarde.
 
