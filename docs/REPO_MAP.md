@@ -45,7 +45,7 @@ Qué es cada cosa y por qué: [`docs/SCOPE.md`](SCOPE.md), [`AGENTS.md`](../AGEN
 | `src/services/blockchain/` | Publicación de cifras públicas y su sello (superficie apagada por omisión). |
 | `src/services/cache/` | Limitador de tasa, con Redis opcional. |
 | `src/services/entity/` | Entidades (sociedades) del inquilino. |
-| `src/services/fiscal/` | Periodo fiscal, factores e INPC. |
+| `src/services/fiscal/` | Periodo fiscal, factores e INPC, y el IVA definitivo del mes por tasa (papel de trabajo). |
 | `src/services/fiscal-credentials/` | Custodia de e.firma y CSD y su consentimiento (ruta con dueño reforzado). |
 | `src/services/fx/` | Tipos de cambio y conversión. |
 | `src/services/idempotency/` | Almacén de llaves de idempotencia. |
@@ -57,6 +57,7 @@ Qué es cada cosa y por qué: [`docs/SCOPE.md`](SCOPE.md), [`AGENTS.md`](../AGEN
 | `src/services/portfolio/` | Cartera del despacho: una fila por entidad del token dentro de su inquilino (`GET /v1/portfolio`). |
 | `src/services/reporting/` | Estados financieros, balanza y flujo de efectivo. |
 | `src/services/sat/` | Obligaciones ante el SAT: Anexo 24, DIOT y estado de CFDI. |
+| `src/services/sat-census/` | The SAT census: the `~` metadata file and ZIP packages of CFDI read into sat_cfdi_census (MNE-001-096). |
 | `src/services/sat-download/` | SAT Descarga Masiva client: the Autentica request signed with the vault e.firma through withCredential (EFIRMA-1). |
 | `src/services/tenant/` | Inquilinos (despachos) de la instalación: alta y lista, fuera de RLS y fuera del alcance del agente. |
 | `src/services/vault/` | Cifrado y bóveda de secretos (ruta con dueño reforzado). |

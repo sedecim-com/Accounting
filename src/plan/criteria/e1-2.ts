@@ -3452,6 +3452,37 @@ export const E1_2: Criterio[] = [
   },
   {
     paquete: 'E1.2',
+    id: 'provisional-income-tax-inputs-come-from-the-return-and-the-law',
+    enunciado:
+      'The provisional ISR of a legal entity reads the 30 % rate from legal_parameters by date of entry, and its coefficient from the return filed or due by the payment (#308, MNE-001-115)',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/166_the_provisional_income_tax_knows_its_inputs.sql',
+        de: "('MX', 'income_tax.corporate_rate', '2014-01-01', '0.3000', 'rate',",
+        a: "('MX', 'income_tax.corporate_rate', '2014-01-01', '0.0300', 'rate',",
+        porque: 'the corporate rate is seeded at 3 % instead of the 30 % of LISR art. 9: every provisional payment is a tenth of the law',
+      },
+    ],
+    evaluar: () => {
+      const mig = 'src/database/migrations/166_the_provisional_income_tax_knows_its_inputs.sql';
+      const law = existe(mig) ? crudoDe(mig) : '';
+      if (!/\('MX', 'income_tax\.corporate_rate', '2014-01-01', '0\.3000', 'rate',/.test(law)) {
+        return falla('migration 166 no longer seeds income_tax.corporate_rate at 0.3000 from 2014-01-01 (LISR art. 9)');
+      }
+      const inputs = codigoDe('src/services/fiscal/provisional-income-tax-inputs.ts');
+      if (!/legalParameterAt\('MX', CORPORATE_INCOME_TAX_RATE_KEY, onDate/.test(inputs)) {
+        return falla('the corporate rate is no longer read from legal_parameters on the date of the payment');
+      }
+      if (!/make_date\(source_fiscal_year \+ 1, 3, 31\) <= \$6::date/.test(inputs)) {
+        return falla('the coefficient is no longer chosen by the return filed or due by the payment (LISR art. 14 fr. I)');
+      }
+      return existe('tests/integration/mne-001-115-provisional-income-tax-inputs.int.spec.ts')
+        ? ok('the corporate rate is law with a date of entry, and each payment reads the return the law says')
+        : falla('no test RUNS the inputs of the provisional ISR against a migrated database');
+    },
+  },
+  {
+    paquete: 'E1.2',
     id: 'fees-without-withholding-follow-the-panel',
     enunciado:
       "An individual's fees CFDI (regime 612) declaring no ISR withheld is held for a substitute, withheld by law or recorded with a close warning, as fees_without_withholding says; a purchase of goods is never taken for fees (#309, MNE-001-148)",
