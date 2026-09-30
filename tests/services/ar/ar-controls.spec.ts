@@ -1,15 +1,33 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
+// Spied, not replaced: the real report-layer queries run against the mocked
+// connection, and the spies prove the reconciliation reads them (T14 · #101).
+vi.mock('../../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/services/reporting/report-service.js')>();
+  return {
+    ...real,
+    queryAccountBalance: vi.fn(real.queryAccountBalance),
+    queryEntryMovementsOnAccount: vi.fn(real.queryEntryMovementsOnAccount),
+  };
+});
 
 import { arReconcile, runArChecks } from '../../../src/services/ar/ar-controls.js';
 import { query } from '../../../src/database/connection.js';
+import {
+  queryAccountBalance,
+  queryEntryMovementsOnAccount,
+} from '../../../src/services/reporting/report-service.js';
 
 const mockQuery = query as unknown as Mock;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const sql = (call: number) => String(mockQuery.mock.calls[call][0]).replace(/\s+/g, ' ');
 
-beforeEach(() => mockQuery.mockReset());
+beforeEach(() => {
+  mockQuery.mockReset();
+  vi.mocked(queryAccountBalance).mockClear();
+  vi.mocked(queryEntryMovementsOnAccount).mockClear();
+});
 
 // The database-backed proof lives in tests/integration/ar-probes-honest.int.spec.ts;
 // these pin the same two contracts where no Postgres is available.
@@ -42,7 +60,7 @@ describe('arReconcile manual entries', () => {
   it('excludes reversals whose original entry the AR engine posted', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', code: '1120', name: 'Clientes' }] })
-      .mockResolvedValueOnce({ rows: [{ saldo: '0' }] })
+      .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', balance: '0' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ net: '0' }] })
@@ -58,7 +76,64 @@ describe('arReconcile manual entries', () => {
       ENTITY,
       'acc-1',
       ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication', 'fx_revaluation'],
+      50,
     ]);
+  });
+});
+
+describe('arReconcile reads the report layer', () => {
+  it('takes the control balance and the manual entries from report-service, figures unchanged', async () => {
+    // One layer (T14 · #101): a private copy of the ledger sum is how one
+    // surface got fixed while the other kept publishing the old figure.
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', code: '1120', name: 'Clientes' }] })
+      .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', balance: '1500.0000' }] })
+      .mockResolvedValueOnce({ rows: [{ currency: 'MXN', functional: true, foreign: '1300.0000', book: '1300.0000' }] })
+      .mockResolvedValueOnce({ rows: [{ currency: 'MXN', functional: true, foreign: '100.0000', book: '100.0000' }] })
+      .mockResolvedValueOnce({ rows: [{ net: '0' }] })
+      .mockResolvedValueOnce({
+        rows: [
+          { journal_entry_id: 'je-9', entry_number: 'JE-9', entry_date: new Date('2026-08-20'),
+            description: 'Manual adjustment', amount: '300.0000' },
+        ],
+      });
+
+    const r = await arReconcile(ENTITY);
+
+    expect(queryAccountBalance).toHaveBeenCalledWith(ENTITY, 'acc-1');
+    expect(queryEntryMovementsOnAccount).toHaveBeenCalledWith(ENTITY, 'acc-1', {
+      excludeSourceTypes: ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication', 'fx_revaluation'],
+      order: 'newest',
+      limit: 50,
+    });
+    expect(r).toMatchObject({
+      control_balance: '1500.00',
+      open_invoices: '1300.00',
+      unapplied_credit_notes: '100.00',
+      subledger_net: '1200.00',
+      delta: '300.00',
+      balanced: false,
+      manual_entries: [
+        { entry_number: 'JE-9', entry_date: new Date('2026-08-20'), description: 'Manual adjustment', amount: '300.00' },
+      ],
+    });
+    // The newest 50, entity- and account-scoped inside the SQL.
+    expect(sql(5)).toMatch(/WHERE je\.entity_id = \$1 AND je\.status = 'posted' AND jel\.account_id = \$2/);
+    expect(sql(5)).toMatch(/ORDER BY je\.entry_date DESC, je\.entry_number DESC LIMIT \$4/);
+  });
+
+  it('reads an account without posted lines as a zero control balance', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', code: '1120', name: 'Clientes' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ net: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const r = await arReconcile(ENTITY);
+
+    expect(r).toMatchObject({ control_balance: '0.00', delta: '0.00', balanced: true, manual_entries: [] });
   });
 });
 
@@ -66,7 +141,7 @@ describe('arReconcile in a foreign currency (MNE-001-112)', () => {
   it('adds each currency at book value and the live revaluation to the subledger', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', code: '1120', name: 'Clientes' }] })
-      .mockResolvedValueOnce({ rows: [{ saldo: '20400' }] })
+      .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', balance: '20400' }] })
       .mockResolvedValueOnce({
         rows: [
           { currency: 'MXN', functional: true, foreign: '2200', book: '2200' },
@@ -88,15 +163,13 @@ describe('arReconcile in a foreign currency (MNE-001-112)', () => {
       foreign_open: [{ currency: 'USD', foreign: '1000.00', book: '17500.00' }],
     });
   });
-});
 
-describe('arReconcile credit notes in a foreign currency (MNE-001-112 review)', () => {
-  it('weighs an unapplied USD note at its invoice rate, not at face', async () => {
-    // USD 1 000 invoice at 17.50 (17 500) and a USD 100 note on it, issued
-    // and posted converted (a legacy correct entry): control 15 750.
+  it('weighs an unapplied USD credit note at its invoice rate, not at face', async () => {
+    // USD 1 000 invoice at 17.50 (17 500) and a USD 100 note on it, posted
+    // converted: control 15 750.
     mockQuery
       .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', code: '1120', name: 'Clientes' }] })
-      .mockResolvedValueOnce({ rows: [{ saldo: '15750' }] })
+      .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', balance: '15750' }] })
       .mockResolvedValueOnce({ rows: [{ currency: 'USD', functional: false, foreign: '1000', book: '17500' }] })
       .mockResolvedValueOnce({ rows: [{ currency: 'USD', functional: false, foreign: '100', book: '1750' }] })
       .mockResolvedValueOnce({ rows: [{ net: '0' }] })

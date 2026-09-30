@@ -72,6 +72,8 @@ import {
   resolvePeriodRange,
   queryTrialBalanceRows,
   queryAccumulatedBalances,
+  queryAccountBalance,
+  queryEntryMovementsOnAccount,
   totalTrialBalance,
   getTrialBalance,
   queryAccountAncestry,
@@ -436,6 +438,93 @@ describe('queryAccumulatedBalances — la suma del mayor para TODAS las cuentas'
     await queryAccumulatedBalances(ENTITY, { inclusive: true }, { ignoreClosingPolicy: true });
     expect(criterioDeCierreEnInformes).not.toHaveBeenCalled();
     expect(sql(0)).not.toMatch(/entry_type/);
+  });
+});
+
+describe('queryAccountBalance — one account, raw, on the caller connection', () => {
+  beforeEach(() => vi.mocked(criterioDeCierreEnInformes).mockClear());
+
+  it('narrows the accumulated query to the account and never reads the panel', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', balance: '1500.0000' }] });
+    const balance = await queryAccountBalance(ENTITY, 'acc-1');
+    expect(balance.toFixed(4)).toBe('1500.0000');
+    expect(sql(0)).toMatch(/WHERE a\.entity_id = \$1 AND a\.id = \$2 GROUP BY jel\.account_id/);
+    expect(sql(0)).not.toMatch(/entry_date|entry_type/);
+    expect(params(0)).toEqual([ENTITY, 'acc-1']);
+    expect(criterioDeCierreEnInformes).not.toHaveBeenCalled();
+  });
+
+  it('reads an account without lines as zero', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect((await queryAccountBalance(ENTITY, 'acc-1')).toFixed(4)).toBe('0.0000');
+  });
+
+  it('runs on the given transaction client instead of the pool', async () => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', balance: '7.5000' }] });
+    const balance = await queryAccountBalance(ENTITY, 'acc-1', { query: clientQuery } as never);
+    expect(balance.toFixed(4)).toBe('7.5000');
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('bounds the entity on the entry side too, not only on the account', async () => {
+    // Review of #522: a line whose account belongs to the entity but whose
+    // entry belongs to another must not count — the same bound the per-entry
+    // list applies, so a balance and the list that explains it agree.
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccountBalance(ENTITY, 'acc-1');
+    expect(sql(0)).toMatch(/ON je\.id = jel\.journal_entry_id AND je\.entity_id = \$1 AND je\.status = 'posted'/);
+    expect(sql(0)).toMatch(/WHERE a\.entity_id = \$1/);
+  });
+
+  it('refuses a transaction client when the panel would be read outside it', async () => {
+    const clientQuery = vi.fn();
+    await expect(
+      queryAccumulatedBalances(ENTITY, { inclusive: true }, { client: { query: clientQuery } as never })
+    ).rejects.toThrow(/ignoreClosingPolicy/);
+    expect(clientQuery).not.toHaveBeenCalled();
+    expect(criterioDeCierreEnInformes).not.toHaveBeenCalled();
+  });
+
+  it('keeps the account filter after the date and period parameters', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(
+      ENTITY,
+      { date: '2026-12-31', inclusive: true, periodId: 'p12' },
+      { ignoreClosingPolicy: true, accountId: 'acc-1' }
+    );
+    expect(sql(0)).toMatch(/AND a\.id = \$4/);
+    expect(params(0)).toEqual([ENTITY, '2026-12-31', 'p12', 'acc-1']);
+  });
+});
+
+describe('queryEntryMovementsOnAccount — one account, entry by entry', () => {
+  it('without filters: posted entries of the account, scoped in the SQL, oldest first', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsOnAccount(ENTITY, 'acc-1');
+    expect(sql(0)).toMatch(/JOIN accounts a ON a\.id = jel\.account_id AND a\.entity_id = \$1 WHERE je\.entity_id = \$1 AND je\.status = 'posted' AND jel\.account_id = \$2 GROUP BY/);
+    expect(sql(0)).toMatch(/SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\)::text AS amount/);
+    expect(sql(0)).not.toMatch(/HAVING|LIMIT|reverses_entry_id/);
+    expect(sql(0)).toMatch(/ORDER BY je\.entry_date ASC, je\.entry_number ASC/);
+    expect(params(0)).toEqual([ENTITY, 'acc-1']);
+  });
+
+  it('excluding source types also excludes the reversals of those entries', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsOnAccount(ENTITY, 'acc-1', { excludeSourceTypes: ['invoice'], order: 'newest', limit: 50 });
+    expect(sql(0)).toMatch(/AND \(je\.source_type IS NULL OR NOT \(je\.source_type = ANY\(\$3::text\[\]\)\)\)/);
+    expect(sql(0)).toMatch(/WHERE orig\.id = je\.reverses_entry_id AND orig\.entity_id = je\.entity_id AND orig\.source_type = ANY\(\$3::text\[\]\)/);
+    expect(sql(0)).toMatch(/ORDER BY je\.entry_date DESC, je\.entry_number DESC LIMIT \$4/);
+    expect(params(0)).toEqual([ENTITY, 'acc-1', ['invoice'], 50]);
+  });
+
+  it('excludes entries by id and keeps only net debits', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ journal_entry_id: 'je-1', amount: '10.0000' }] });
+    const rows = await queryEntryMovementsOnAccount(ENTITY, 'acc-1', { excludeEntryIds: ['je-0'], netDebitsOnly: true });
+    expect(rows).toEqual([{ journal_entry_id: 'je-1', amount: '10.0000' }]);
+    expect(sql(0)).toMatch(/AND NOT \(je\.id = ANY\(\$3::uuid\[\]\)\)/);
+    expect(sql(0)).toMatch(/HAVING SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\) > 0/);
+    expect(params(0)).toEqual([ENTITY, 'acc-1', ['je-0']]);
   });
 });
 

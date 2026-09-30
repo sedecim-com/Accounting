@@ -188,6 +188,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.fees_without_withholding.option.record_as_issued':
     'Registrarlo como se emitió, con un aviso en la lista de verificación del cierre',
 
+  'policy.withholding_mismatch.question':
+    "¿Qué pasa cuando un CFDI recibido declara una retención (ISR o IVA) distinta de la que la ley le exige a tu empresa como retenedora?",
+  'policy.withholding_mismatch.impact':
+    "Gobierna los CFDI recibidos sobre los que una persona moral retiene por ley (honorarios o arrendamiento de una persona física, fletes, una persona física del RESICO) y cuya retención declarada difiere de la de ley más allá del redondeo; los honorarios del régimen 612 que no declaran ISR retenido siguen fees_without_withholding. «request_substitute_cfdi» deja el CFDI en espera en la bandeja, no escribe nada en el mayor y dice que se le pida al proveedor un CFDI sustituto. «withhold_by_law» propone la póliza con la retención de ley y la deja en revisión. «record_as_issued» contabiliza el CFDI con la retención que declara, y la lista de verificación del cierre lo muestra en honorarios sin retención.",
+  'policy.withholding_mismatch.rationale':
+    "Quien paga es responsable solidario del impuesto que debió retener (CFF 26-I) y el gasto sólo es deducible si la retención se hizo y se enteró (LISR 27-V). El CFDI es de un tercero: el remedio limpio es un sustituto del proveedor, y no se registra nada sobre una cifra que va a cambiar.",
+  'policy.withholding_mismatch.why':
+    "Cuando tu empresa retiene por ley, la factura tiene que mostrar la misma retención que exige la ley. Si muestra otra, o el proveedor se equivocó o el caso no es el que describe la ley. Esperar una factura corregida, aplicar de todos modos la retención de ley o registrarla como vino es decisión de tu despacho.",
+  'policy.withholding_mismatch.what':
+    "Por omisión dejo la factura en espera y te digo que le pidas un sustituto al proveedor. Con «withhold_by_law» propongo la póliza con la retención de ley y la dejo para que la revises. Con «record_as_issued» la contabilizo como vino y la listo en la lista de verificación del cierre.",
+  'policy.withholding_mismatch.if_skipped':
+    "Dejo esas facturas en espera y te pregunto por cada una: nada llega a tus libros hasta que llegue un sustituto o contestes.",
+  'policy.withholding_mismatch.option.request_substitute_cfdi':
+    "Dejarlo en espera y pedirle al proveedor un CFDI sustituto",
+  'policy.withholding_mismatch.option.withhold_by_law':
+    "Registrar la retención de ley y dejar la póliza en revisión",
+  'policy.withholding_mismatch.option.record_as_issued':
+    "Registrarlo como se declaró, con un aviso en la lista de verificación del cierre",
+
   'policy.inventory_method.question':
     '¿La empresa lleva inventarios perpetuos?',
   'policy.inventory_method.impact':
@@ -1413,7 +1432,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.withholding_accounts_layout.question':
     '¿En qué cuentas se acumulan el ISR y el IVA que esta entidad les retiene a sus proveedores?',
   'policy.withholding_accounts_layout.impact':
-    'Decide dónde se registran las retenciones de honorarios y arrendamiento hasta que el día 17 se pagan. El ISR de nómina se queda en 2140 en cualquier esquema. Una cuenta por impuesto da los dos renglones del pago mensual y de la DIOT sin partir un saldo. Tres cuentas siguen el código agrupador del SAT (216.03 arrendamiento, 216.04 servicios profesionales, 216.10 IVA); el ISR retenido sobre algo que no sea arrendamiento se registra como servicios profesionales. Con una cuenta por impuesto, 2141 junta el ISR de arrendamiento y de honorarios, así que su código agrupador en la balanza del Anexo 24 (CFF 28-IV) sólo puede ser uno de los dos. Una sola cuenta necesita el papel de trabajo para separar el ISR del IVA, y la aprobación de un borrador sólo puede revisar su suma.',
+    'Decide dónde se registran las retenciones de honorarios y arrendamiento hasta que el día 17 se pagan. El ISR de nómina se queda en 2140 en cualquier esquema. Una cuenta por impuesto da los dos renglones del pago mensual y de la DIOT sin partir un saldo. Tres cuentas siguen el código agrupador del SAT (216.03 arrendamiento, 216.04 servicios profesionales, 216.10 IVA); el ISR retenido sobre algo que no sea arrendamiento, incluido el 1.25 % del RESICO (LISR 113-J) sobre bienes, servicios o fletes, se registra como servicios profesionales; el arrendamiento de inmuebles de un RESICO se registra como arrendamiento. Con una cuenta por impuesto, 2141 junta el ISR de arrendamiento y de honorarios, así que su código agrupador en la balanza del Anexo 24 (CFF 28-IV) sólo puede ser uno de los dos. Una sola cuenta necesita el papel de trabajo para separar el ISR del IVA, y la aprobación de un borrador sólo puede revisar su suma.',
   'policy.withholding_accounts_layout.rationale':
     'El retenedor paga el ISR (LISR 106, 116) y el IVA (LIVA 1-A, 5-D) que retuvo con la declaración mensual que vence el día 17, como impuestos separados, y la DIOT reporta el IVA retenido por proveedor (LIVA 32-VIII): un saldo por impuesto es lo que leen las dos sin partir nada. Es con lo que se siembran las entidades.',
   'policy.withholding_accounts_layout.why':

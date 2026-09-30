@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { AccountingError } from '../../utils/errors.js';
+import { queryAccountBalance, queryEntryMovementsOnAccount } from '../reporting/report-service.js';
 import {
   FX_REVALUATION_SOURCE,
   bookAmountDueSql,
@@ -53,7 +54,7 @@ export interface ArReconcileResult {
   subledger_net: string;
   delta: string;
   balanced: boolean;
-  manual_entries: { entry_number: string; entry_date: Date; description: string; amount: string }[];
+  manual_entries: { entry_number: string; entry_date: Date; description: string | null; amount: string }[];
 }
 
 export async function arReconcile(entityId: string): Promise<ArReconcileResult> {
@@ -72,13 +73,9 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
   }
   const cuenta = rol.rows[0];
 
-  const control = await query<{ saldo: string }>(
-    `SELECT COALESCE(SUM(COALESCE(jel.debit_amount,0) - COALESCE(jel.credit_amount,0)), 0)::text AS saldo
-       FROM journal_entry_lines jel
-       JOIN journal_entries je ON je.id = jel.journal_entry_id
-      WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2`,
-    [entityId, cuenta.account_id]
-  );
+  // The control balance comes from the report layer (T14 · #101): the same
+  // ledger sum the trial balance publishes, not a private copy of it.
+  const controlBal = await queryAccountBalance(entityId, cuenta.account_id);
 
   // MNE-001-112: in the functional currency, per currency. A foreign invoice
   // weighs its book value, amount_due at the rate it was posted at.
@@ -120,7 +117,6 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
 
   const revaluation = await revaluationOnAccount(entityId, cuenta.account_id);
 
-  const controlBal = new Decimal(control.rows[0].saldo);
   const auxiliar = abiertas.rows.reduce((sum, row) => sum.plus(row.book), new Decimal(0));
   const porAplicar = notas.rows.reduce((sum, row) => sum.plus(row.book), new Decimal(0));
   const neto = auxiliar.minus(porAplicar).plus(revaluation);
@@ -130,31 +126,17 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
   // clásica del descuadre. Los tipos de documento del propio motor quedan
   // fuera; todo lo demás —capturas manuales, ajustes, cierres— se lista.
   // NOTE: an engine reversal is born with a NULL `source_type` (the reversal
-  // path does not carry the origin over), so without the NOT EXISTS every
-  // clean void of an invoice or receipt was reported as a manual entry on
-  // the control account — and, under LIMIT 50, could push the real manual
-  // entries out of the list. Same filter as `ap-controls.ts`; the reversal of
-  // a manual entry still lists, because its original was manual too.
-  const manuales = await query<{
-    entry_number: string; entry_date: Date; description: string; amount: string;
-  }>(
-    `SELECT je.entry_number, je.entry_date, je.description,
-            SUM(COALESCE(jel.debit_amount,0) - COALESCE(jel.credit_amount,0))::text AS amount
-       FROM journal_entry_lines jel
-       JOIN journal_entries je ON je.id = jel.journal_entry_id
-      WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2
-        AND (je.source_type IS NULL OR NOT (je.source_type = ANY($3::text[])))
-        AND NOT EXISTS (
-              SELECT 1
-                FROM journal_entries orig
-               WHERE orig.id = je.reverses_entry_id
-                 AND orig.entity_id = je.entity_id
-                 AND orig.source_type = ANY($3::text[]))
-      GROUP BY je.id, je.entry_number, je.entry_date, je.description
-      ORDER BY je.entry_date DESC
-      LIMIT 50`,
-    [entityId, cuenta.account_id, [...NOT_MANUAL_SOURCE_TYPES]]
-  );
+  // path does not carry the origin over), so without excluding reversals of
+  // engine entries every clean void of an invoice or receipt was reported as
+  // a manual entry on the control account — and, under LIMIT 50, could push
+  // the real manual entries out of the list. `excludeSourceTypes` does both;
+  // the reversal of a manual entry still lists, because its original was
+  // manual too.
+  const manuales = await queryEntryMovementsOnAccount(entityId, cuenta.account_id, {
+    excludeSourceTypes: NOT_MANUAL_SOURCE_TYPES,
+    order: 'newest',
+    limit: 50,
+  });
 
   return {
     control_account: { code: cuenta.code, name: cuenta.name },
@@ -179,7 +161,7 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
     subledger_net: neto.toFixed(2),
     delta: delta.toFixed(2),
     balanced: delta.abs().lessThan('0.01'),
-    manual_entries: manuales.rows.map((m) => ({
+    manual_entries: manuales.map((m) => ({
       entry_number: m.entry_number,
       entry_date: m.entry_date,
       description: m.description,
