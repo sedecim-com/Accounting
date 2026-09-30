@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
 import { XSD_ROOT } from './official-xsd.js';
+import { createOrderedXmlReader } from '../../../utils/xml-reader.js';
 
 // ============================================================
 // EFIRMA-4 (#442) · THE CADENA ORIGINAL, BY THE SAT'S OWN STYLESHEET
@@ -60,13 +61,13 @@ const PARSER_OPTIONS = {
 
 const stylesheetParser = new XMLParser(PARSER_OPTIONS);
 
-// The DOCUMENT parser decodes numeric character references, as the XSLT does:
-// fast-xml-parser 5.11.1 leaves `&#237;` literal without `htmlEntities: true`
-// (measured and written down in src/utils/xml-reader.ts). A line break that
-// arrives as `&#10;` becomes a real one here, where an XML parser would keep
-// it too (a character reference escapes attribute normalization); every value
-// in the cadena goes through normalize-space, which collapses both the same.
-const documentParser = new XMLParser({ ...PARSER_OPTIONS, processEntities: true, htmlEntities: true });
+// The DOCUMENT parser decodes numeric character references, as the XSLT does.
+// It is built in src/utils/xml-reader.ts, the one place that sets how a
+// third-party file's entities are read. A line break that arrives as `&#10;`
+// becomes a real one here, where an XML parser would keep it too (a character
+// reference escapes attribute normalization); every value in the cadena goes
+// through normalize-space, which collapses both the same.
+const documentParser = createOrderedXmlReader();
 
 function toTree(raw: unknown): XmlNode[] {
   return (raw as Record<string, unknown>[]).map((item) => {
