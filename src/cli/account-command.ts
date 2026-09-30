@@ -60,6 +60,8 @@ import {
   exitCodeFor,
   checkExitCode,
   ExitCode,
+  describeCommand,
+  optionByKey,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
 
@@ -663,12 +665,12 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
 
   // MNE-001-147 (#309): the explicit act `withholding_accounts_existing` =
   // "warn" names. Posts nothing; a mapping set by hand is listed, not moved.
-  const roleSync = role
-    .command('sync')
-    .alias('sincronizar')
-    .description('Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones');
+  const roleSync = describeCommand(
+    role.command('sync').alias('sincronizar'),
+    'help.account.role.sync.description'
+  );
   withContext(roleSync);
-  roleSync.option('--dry-run', 'show the plan, without writing');
+  optionByKey(roleSync, '--dry-run', 'help.account.role.sync.option.dry_run');
   declareRisk(roleSync, { risk: 'escritura', agent: false, writes: 'accounts, account_roles' });
   roleSync.addHelpText('after', EJEMPLOS.roleSync);
   roleSync.action((opts: CommonOpts & { dryRun?: boolean }) =>

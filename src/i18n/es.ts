@@ -818,6 +818,63 @@ export const ES: Record<keyof typeof EN, string> = {
     '¿Dejar en BORRADOR la apertura del ejercicio {year} al {date} (Debe {debit} · Haber {credit})? ' +
     'No entra al mayor hasta que la apliques con `entry post`.',
   'migration.check.as_of': 'Al {date} · {comparison}',
+  // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
+  'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',
+  'help.period.list.description': 'Lista todos los periodos con su estado, sus fechas y la marca de vencido',
+  'help.period.list.option.year': 'sólo los periodos de este ejercicio fiscal',
+  'help.period.show.description':
+    'Muestra un periodo: su estado, quién lo cerró, la lista de verificación con que se cerró y sus pólizas',
+  'help.period.show.argument.name': 'nombre del periodo, AAAA-MM o id',
+  'help.period.open.description': 'Abre un periodo futuro para poder capturar operaciones en él',
+  'help.period.open.argument.name': 'nombre del periodo, AAAA-MM o id',
+  'help.period.open.option.reason': 'por qué se abre; queda en el rastro de auditoría',
+  'help.period.reopen.description':
+    'Reabre un periodo cerrado para que una corrección se registre en el mes al que pertenece',
+  'help.period.reopen.argument.name': 'nombre del periodo, AAAA-MM o id',
+  // ==== MNE-001-093 · help by key, the families merged from main (issue #314) ====
+  'help.tenant.description': 'Crea y lista los despachos (inquilinos) de esta instalación',
+  'help.tenant.list.description': 'Lista los despachos de esta instalación, incluidos los archivados',
+  'help.tenant.create.description': 'Crea el inquilino de un despacho nuevo, con su usuario de sistema',
+  'help.tenant.create.argument.name': 'nombre del despacho',
+  'help.tenant.create.option.subdomain': 'identificador único del despacho (si se omite, se deriva del nombre)',
+  'help.tenant.create.option.json': 'salida en JSON',
+  'help.account.role.sync.description': 'Apunta los roles de retención a las cuentas que elige withholding_accounts_layout y crea las que falten',
+  'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
+  'help.bill.rule.description':
+    'Reglas de procesamiento del despacho: con qué se clasifica un CFDI recibido sin que intervenga el modelo',
+  'help.bill.rule.create.description':
+    'Crea una regla de procesamiento (condiciones → acciones) que aplicará la próxima ingesta',
+  'help.bill.rule.create.option.name': 'nombre de la regla; aparece en el rastro de cada CFDI que decide',
+  'help.bill.rule.create.option.when': 'repetible; deben cumplirse todas: "<campo> <operador> <valor>"',
+  'help.bill.rule.create.option.then': 'repetible: "<acción>=<valor>", p. ej. set_account=6100',
+  'help.bill.rule.create.option.type': 'tipo de regla: {types}',
+  'help.bill.rule.create.option.priority':
+    'la de menor número se evalúa primero; una coincidencia posterior prevalece sobre una anterior',
+  'help.bill.rule.create.option.description': 'por qué el despacho conserva esta regla',
+  'help.bill.rule.create.option.dry_run': 'valida y muestra la regla; no escribe nada',
+  'help.bill.rule.create.option.json': 'salida en JSON',
+  'help.bill.rule.list.description':
+    'Lista las reglas de procesamiento en orden de evaluación, con cuántas veces se aplicó cada una',
+  'help.bill.rule.list.option.type': 'sólo este tipo de regla: {types}',
+  'help.pay_run.description':
+    'Corridas de nómina de un periodo de pago: crear, calcular de bruto a neto, aprobar y contabilizar la póliza',
+  'help.pay_run.create.description':
+    'Crea una corrida en borrador sobre un periodo de pago; el ejercicio fiscal se toma del periodo',
+  'help.pay_run.create.option.period': 'periodo de pago de la entidad activa (su id)',
+  'help.pay_run.create.option.type': 'tipo de corrida: {types}',
+  'help.pay_run.calculate.description':
+    'Calcula de bruto a neto a cada empleado del archivo de insumos y totaliza la corrida',
+  'help.pay_run.calculate.argument.id': 'corrida de nómina por calcular',
+  'help.pay_run.calculate.option.file': 'JSON con los insumos de los empleados: un arreglo, o {shape}',
+  'help.pay_run.approve.description':
+    'Aprueba una corrida calculada: sella sus totales y registra el pasivo patronal; es irreversible',
+  'help.pay_run.approve.argument.id': 'corrida calculada por aprobar',
+  'help.pay_run.post.description':
+    'Arma la póliza de nómina de una corrida aprobada y la deja en borrador para `mnemosine review`; ' +
+    'con --post la contabiliza de inmediato',
+  'help.pay_run.post.argument.id': 'corrida aprobada cuya póliza se arma',
+  'help.pay_run.post.option.post':
+    'contabiliza la póliza en el mayor de inmediato, en lugar de dejarla en borrador para revisión',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT

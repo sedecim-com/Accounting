@@ -2,7 +2,18 @@ import type { Command } from 'commander';
 import { inquilinoDeLaSesion } from '../ai/context.js';
 import { createTenant, listTenants } from '../services/tenant/tenant-service.js';
 import type { Palette } from './palette.js';
-import { declareRisk, render, withOutput, withSelection, exitCodeFor, globalsOf, usageError } from './kernel/index.js';
+import {
+  declareRisk,
+  render,
+  withOutput,
+  withSelection,
+  exitCodeFor,
+  globalsOf,
+  usageError,
+  describeCommand,
+  optionByKey,
+  argumentByKey,
+} from './kernel/index.js';
 
 // ============================================================
 // mnemosine tenant  (#326 · MNE-001-085)
@@ -53,10 +64,9 @@ interface ListOpts {
 }
 
 export function registerTenantCommand(program: Command, deps: TenantCommandDeps): void {
-  const tenant = program
-    .command('tenant')
-    .alias('despacho')
-    .description('Create and list the firms (tenants) of this installation');
+  // The help of this family is rendered by key (#314):
+  // help.tenant.<leaf>.{description,option.<flag>,argument.<name>}.
+  const tenant = describeCommand(program.command('tenant').alias('despacho'), 'help.tenant.description');
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -69,10 +79,7 @@ export function registerTenantCommand(program: Command, deps: TenantCommandDeps)
   };
 
   // ---- tenant list -------------------------------------------------
-  const list = tenant
-    .command('list')
-    .alias('listar')
-    .description('List the tenants of this installation, archived ones included');
+  const list = describeCommand(tenant.command('list').alias('listar'), 'help.tenant.list.description');
   withOutput(withSelection(list));
   // Reads, but across every firm: not the agent's, which works inside one.
   declareRisk(list, { risk: 'lectura', agent: false });
@@ -109,13 +116,12 @@ export function registerTenantCommand(program: Command, deps: TenantCommandDeps)
   );
 
   // ---- tenant create -----------------------------------------------
-  const create = tenant
-    .command('create')
-    .alias('crear')
-    .argument('<name>', 'name of the firm')
-    .description('Create a tenant for a new firm, with its system account')
-    .option('--subdomain <handle>', 'unique handle of the firm (derived from the name when omitted)')
-    .option('--json', 'JSON output');
+  const create = describeCommand(
+    argumentByKey(tenant.command('create').alias('crear'), '<name>', 'help.tenant.create.argument.name'),
+    'help.tenant.create.description'
+  );
+  optionByKey(create, '--subdomain <handle>', 'help.tenant.create.option.subdomain');
+  optionByKey(create, '--json', 'help.tenant.create.option.json');
   // Bringing a firm into existence is an operator's decision, never the agent's.
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'tenants, users (system account), audit_log' });
   create.addHelpText('after', EXAMPLES.create);
