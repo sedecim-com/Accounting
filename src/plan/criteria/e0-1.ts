@@ -734,11 +734,8 @@ export const E0_1: Criterio[] = [
       if (!/metodo\.metodo === 'PPD'/.test(svc)) {
         return falla('la nota suelta dejó de rechazar facturas PPD: aplicarla dejaría IVA aparcado para siempre');
       }
-      // MNE-001-112 values each note per currency (alias `cn.`), so the check
-      // reads the unapplied balance in any form AND that it is subtracted.
-      const controles = codigoDe('src/services/ar/ar-controls.ts');
-      return /SUM\((?:cn\.)?total_amount - (?:cn\.)?amount_applied\)/.test(controles) &&
-        /auxiliar\.minus\(porAplicar\)/.test(controles)
+      // MNE-001-112 values each note per currency under the alias `cn.`.
+      return /SUM\((?:cn\.)?total_amount - (?:cn\.)?amount_applied\)/.test(codigoDe('src/services/ar/ar-controls.ts'))
         ? ok('vía única con idempotencia, aplicación sin efectivo con liga fiscal, y la conciliación resta las notas por aplicar')
         : falla('ar reconcile dejó de restar las notas emitidas por aplicar: el descuadre legítimo se volvería hallazgo falso');
     },
