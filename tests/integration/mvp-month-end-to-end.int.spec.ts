@@ -285,11 +285,13 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
   describe('7 · financial statements, to the cent', () => {
     it('trial balance, income statement, balance sheet and cash flow match the hand figures', () => {
-      const tb = rowsOf<{ account_code: string; ending_balance: string; debit_total: string; credit_total: string }>(
+      // A period's trial balance has a beginning, so its ending balance is
+      // `final_balance`; `net_change` is the month's movement (MNE-001-126).
+      const tb = rowsOf<{ account_code: string; final_balance: string; debit_total: string; credit_total: string }>(
         ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--exclude-zero', '--json'])
       );
       for (const [code, expected] of Object.entries(ENDING)) {
-        expect(money(tb.find((r) => r.account_code === code)?.ending_balance), `ending balance of ${code}`).toBe(expected);
+        expect(money(tb.find((r) => r.account_code === code)?.final_balance), `ending balance of ${code}`).toBe(expected);
       }
       const debits = tb.reduce((s, r) => s.plus(r.debit_total), new Decimal(0));
       const credits = tb.reduce((s, r) => s.plus(r.credit_total), new Decimal(0));
@@ -312,7 +314,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     }, STEP_TIMEOUT_MS);
 
     it('the trial balance by --level rolls its subaccounts up into their parent — MNE-001-050', () => {
-      type TbRow = { account_code: string; debit_total: string; credit_total: string; ending_balance: string };
+      type TbRow = { account_code: string; debit_total: string; credit_total: string; net_change: string; final_balance: string };
       const detail = rowsOf<TbRow>(ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--json']));
       const leveled = ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--level', '3', '--json']);
       expect(leveled.err).not.toContain('OUT OF BALANCE');
@@ -325,11 +327,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // and the 5,800 payment.
       expect(money(cash?.debit_total)).toBe('105800.00');
       expect(money(cash?.credit_total)).toBe('41800.00');
-      expect(money(cash?.ending_balance)).toBe(ENDING['1111']);
+      expect(money(cash?.final_balance)).toBe(ENDING['1111']);
 
       // And against the detail balanza: 1110 is itself plus 1111, 1112 and
       // 1115, its children in the seeded chart (issue #100: 1110 = 1111 + 1112).
-      for (const col of ['debit_total', 'credit_total', 'ending_balance'] as const) {
+      for (const col of ['debit_total', 'credit_total', 'net_change', 'final_balance'] as const) {
         const subtree = detail
           .filter((r) => ['1110', '1111', '1112', '1115'].includes(r.account_code))
           .reduce((s, r) => s.plus(r[col]), new Decimal(0));

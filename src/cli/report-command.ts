@@ -18,8 +18,8 @@ import {
   REPORTING_VIEWS,
 } from '../services/reporting/materialized-view-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
-import { t } from '../i18n/index.js';
-import { reportCategoryLabel, reportSectionLabel } from '../i18n/report-labels.js';
+import { getLanguage, t } from '../i18n/index.js';
+import { reportSectionLabel, reportSubsectionLabel } from '../i18n/report-labels.js';
 
 // ============================================================
 // A REPORT LABEL IS COMPOSED WHEN PRINTED, NOT WHEN THE ROW IS BUILT
@@ -37,12 +37,12 @@ import { reportCategoryLabel, reportSectionLabel } from '../i18n/report-labels.j
 const keyOf = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 const sectionOf = (value: string): string => (value === '' ? '' : reportSectionLabel(value));
-const categoryOf = (value: string): string => (value === '' ? '' : reportCategoryLabel(value));
+const categoryOf = (value: string): string => (value === '' ? '' : reportSubsectionLabel(value, getLanguage()));
 
 /** The balance sheet's `name`: account names pass through, subtotals get composed. */
 function balanceSheetName(value: string, row: Row): string {
   if (row.line === 'subtotal') {
-    return t('report.total_of', { name: reportCategoryLabel(keyOf(row.category)) });
+    return t('report.total_of', { name: reportSubsectionLabel(keyOf(row.category), getLanguage()) });
   }
   if (row.line === 'total') {
     return row.section === ''
@@ -369,9 +369,15 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       // declarar. En la acumulada y en la historia completa las columnas no
       // salen, en vez de salir en cero: un cero ahí se lee como arrastre.
       //
-      // `ending_balance` se queda donde estaba y significando lo que siempre
-      // significó —para un rango es el movimiento NETO, no un saldo final—,
-      // así que la balanza de siempre no cambia de forma para quien la leía.
+      // NOTE: with a beginning balance, the service's `ending_balance` is the
+      // range's NET MOVEMENT (debits minus credits), printed next to the real
+      // ending balance, `final_balance`. A column named ending_balance holding
+      // 200 beside one holding 1 200 is a label that lies, so here it is
+      // published as `net_change` (MNE-001-126 · #327). It is renamed rather
+      // than refilled with the final balance: a script that read the old key
+      // now fails loudly instead of silently summing balances as movements.
+      // Without a beginning (cumulative or full history) the movement since
+      // the start IS the ending balance, and the key stays as it always was.
       const rows: Row[] = tb.rows.map((r) => ({
         account_code: r.account_code,
         account_name: r.account_name,
@@ -379,8 +385,9 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         ...(tb.inicial ? { beginning_balance: money(r.beginning_balance) } : {}),
         debit_total: money(r.debit_total),
         credit_total: money(r.credit_total),
-        ending_balance: money(r.ending_balance),
-        ...(tb.inicial ? { final_balance: money(r.final_balance) } : {}),
+        ...(tb.inicial
+          ? { net_change: money(r.ending_balance), final_balance: money(r.final_balance) }
+          : { ending_balance: money(r.ending_balance) }),
       }));
 
       header(ctx, 'Trial balance', scope);
