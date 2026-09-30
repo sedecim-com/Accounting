@@ -183,7 +183,7 @@ describe('the other closed lists of the XSD', () => {
           { clase: 'nacional_otro', serie: 'ABCDEFGHIJK', numFolio: '1', rfc: 'AAA010101AAA', montoTotal: '1.00' },
         ],
         pagos: [
-          { clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', monto: '1.00', moneda: 'BYN' },
+          { clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '1.00', moneda: 'BYN' },
           // Bank codes are banco-en-catalogo's, not this check's.
           { clase: 'cheque', num: '1', banEmisNal: '003', ctaOri: '1', fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '1.00' },
         ],
@@ -205,7 +205,7 @@ describe('the other closed lists of the XSD', () => {
       codeInOfficialList([
         withNodes({
           comprobantes: [{ clase: 'nacional_otro', serie: 'ABCDEFGHIJ', numFolio: '1', rfc: 'AAA010101AAA', montoTotal: '1.00', moneda: 'USD' }],
-          pagos: [{ clase: 'otro', metPagoPol: '99', fecha: '2026-02-10', monto: '1.00', moneda: 'MXN' }],
+          pagos: [{ clase: 'otro', metPagoPol: '99', fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '1.00', moneda: 'MXN' }],
         }),
       ])
     ).toEqual([]);
@@ -213,7 +213,7 @@ describe('the other closed lists of the XSD', () => {
 
   it('runs by default in the orchestrator', () => {
     const hs = correrVerificaciones({
-      polizas: [withNodes({ pagos: [{ clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', monto: '1.00' }] })],
+      polizas: [withNodes({ pagos: [{ clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '1.00' }] })],
       sinRastro: [],
       sinComprobante: [],
       bancos: CON_CATALOGO,
