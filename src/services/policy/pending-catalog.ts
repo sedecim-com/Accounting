@@ -403,6 +403,40 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I ask you each time, which is the safest default but the most interruptive.',
     priority: 40,
   },
+  {
+    // MNE-001-096 (#312): the census keeps every type the SAT lists; this key
+    // decides which of them count toward completeness. Read by
+    // `completenessTypes` (src/services/sat-census/census.ts), which the census
+    // load prints and MNE-001-119 reconciles with.
+    key: 'census_cfdi_types',
+    textKey: 'census_cfdi_types',
+    category: 'contable',
+    question: 'Which CFDI types in the SAT census count toward completeness at close?',
+    impact:
+      'The SAT census lists every CFDI issued and received: income (I), credit notes (E), payment ' +
+      'receipts (P), payroll (N) and transfers (T). Every type is kept; this decides which of them the ' +
+      'completeness check reports as missing when they are not posted. Adding N checks the payroll the ' +
+      'entity stamped against the payroll it posted.',
+    options: [
+      { value: 'invoices_and_payments', label: 'Income, credit notes and payment receipts (I, E, P)' },
+      { value: 'plus_payroll', label: 'Also payroll (I, E, P, N)' },
+      { value: 'all_types', label: 'Every type, transfers included (I, E, P, N, T)' },
+    ],
+    defaultValue: 'invoices_and_payments',
+    defaultRationale:
+      'Owner decision of 2026-09-26 on issue 312: payroll and transfers do not show as missing by default. ' +
+      'I, E and P are the CFDI that support the entries of revenue, purchases and their collection or ' +
+      'payment (CFF art. 29 and 29-A; LISR art. 27 fr. III; LIVA art. 5 fr. II). A payroll CFDI (N, ' +
+      'LISR art. 99 fr. III) supports an expense the payroll module posts as a whole, not one entry per ' +
+      'receipt, and a transfer CFDI (T) records goods in transit with no consideration, so neither maps ' +
+      'to a posted document one by one. A firm that also reconciles its stamped payroll chooses N.',
+    whyAsking:
+      'The SAT lists payroll receipts and transfer documents too. Some firms check those against the books, others do not.',
+    whatIDo:
+      'I count the CFDI of the types you choose when I tell you what is missing from the books; the rest stay in the census.',
+    ifSkipped: 'I count income, credit notes and payment receipts, and leave payroll and transfers out.',
+    priority: 40,
+  },
 
   // ── Received CFDI → vendor bill, when a person approves the AI draft (#318) ──
   //
@@ -639,7 +673,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ],
     defaultValue: 'proporcional_dias',
     defaultRationale:
-      'It is what the NIF A-2 accrual postulate actually says — the expense belongs to the period that ' +
+      'It is what the accrual postulate (NIF A-1, chapter 20) actually says — the expense belongs to the period that ' +
       'consumed the service — and it is the only convention that keeps the schedule tied to the ' +
       'contract dates rather than to the calendar. Firms that prefer whole months for simplicity can ' +
       'say so here, but the default should be the one that is right rather than the one that is easy.',
@@ -1989,6 +2023,43 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'Every Mexican pay run computes the monthly subsidy to the cent and derives the period from that rounded monthly amount, in the way you choose here. The payslip note names the rounding used.',
     ifSkipped:
       'I round once, on the period amount. From February to December the two options give the same figures.',
+    priority: 42,
+  },
+  // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
+  // `readFilingRounding` (fiscal/iva-workpaper.ts). The adjustment itself is
+  // not an option: CFF art. 20 fixes it (1–50 cents down, 51–99 up).
+  {
+    key: 'declaracion_redondeo_a_pesos',
+    textKey: 'filing_rounding_to_pesos',
+    category: 'fiscal',
+    question:
+      'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
+    impact:
+      'It can move the IVA payable by a peso or two: adjusting every line and adding whole pesos is not the same as adding cents and adjusting the result.',
+    options: [
+      {
+        value: 'cada_renglon',
+        label: 'Every line: each captured figure is adjusted to pesos and the arithmetic continues in whole pesos',
+      },
+      {
+        value: 'solo_el_pago',
+        label: 'Only the payment: the arithmetic runs in cents and only the result is adjusted to pesos',
+      },
+    ],
+    defaultValue: 'cada_renglon',
+    defaultRationale:
+      'CFF art. 20 adjusts the amounts of a return to whole pesos (cents 1 to 50 go down, 51 to 99 go up), after ' +
+      'rounding the ledger\'s four decimals to the cent. Adjusting each line before it is added keeps every captured ' +
+      'figure a whole peso, as the law asks of each amount. Unverified assumption: that the current Declaraciones y ' +
+      'Pagos IVA form captures each line in pesos; if it captures only bases and computes the tax itself, neither ' +
+      'option models it.',
+    whyAsking:
+      'CFF art. 20 says the amounts of a return are adjusted to whole pesos, but not at which step of the calculation. ' +
+      'Firms do it both ways, and the IVA payable they declare can differ by a peso or two.',
+    whatIDo:
+      'The workpaper always shows two columns, the cents traceable to the ledger and the pesos to capture, and derives the IVA payable or in favor the way you choose here.',
+    ifSkipped:
+      'I adjust every line to pesos before adding them.',
     priority: 42,
   },
   // #297 · MNE-001-110. Decided by the owner in MNE-001-109: the exemption of

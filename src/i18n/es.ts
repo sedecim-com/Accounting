@@ -339,7 +339,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.prepaid_amortization_convention.impact':
     'Fija cada mes del calendario. Una póliza de seguro del 20 de marzo al 19 de marzo se devenga en 12 meses con una convención y en 13 con la otra, y el último mes del ejercicio cambia.',
   'policy.prepaid_amortization_convention.rationale':
-    'Es lo que de verdad dice el postulado de devengación de la NIF A-2 —el gasto pertenece al periodo que consumió el servicio— y es la única convención que mantiene el calendario atado a las fechas del contrato y no al calendario. Los despachos que prefieren meses completos por sencillez pueden decirlo aquí, pero el valor por omisión debe ser el correcto y no el fácil.',
+    'Es lo que de verdad dice el postulado de devengación contable (NIF A-1, cap. 20) —el gasto pertenece al periodo que consumió el servicio— y es la única convención que mantiene el calendario atado a las fechas del contrato y no al calendario. Los despachos que prefieren meses completos por sencillez pueden decirlo aquí, pero el valor por omisión debe ser el correcto y no el fácil.',
   'policy.prepaid_amortization_convention.why':
     'Tu seguro empieza el día 20, no el 1. Por días se reparte en trece meses de calendario y por meses completos en doce, así que la elección cambia qué mes carga el gasto y qué muestra el último mes del año.',
   'policy.prepaid_amortization_convention.what':
@@ -787,6 +787,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.opening_balance_load_mode.option.borrador':
     'Dejar un borrador: `entry post` lo aplica después de una revisión',
 
+  'policy.census_cfdi_types.question':
+    '¿Qué tipos de CFDI del censo del SAT cuentan para la completitud al cierre?',
+  'policy.census_cfdi_types.impact':
+    'El censo del SAT lista todos los CFDI emitidos y recibidos: ingreso (I), egreso (E), pago (P), nómina (N) y traslado (T). Se guardan todos los tipos; esto decide cuáles reporta como faltantes la revisión de completitud cuando no están contabilizados. Añadir N compara la nómina que la entidad timbró con la que contabilizó.',
+  'policy.census_cfdi_types.rationale':
+    'Decisión del dueño del 2026-09-26 en la issue 312: la nómina y los traslados no salen como faltantes por omisión. I, E y P son los CFDI que soportan los asientos de ingresos, compras y su cobro o pago (CFF art. 29 y 29-A; LISR art. 27 fr. III; LIVA art. 5 fr. II). Un CFDI de nómina (N, LISR art. 99 fr. III) soporta un gasto que el módulo de nómina contabiliza en conjunto, no un asiento por recibo, y un CFDI de traslado (T) ampara mercancía en tránsito sin contraprestación, así que ninguno corresponde uno a uno con un documento contabilizado. Un despacho que también concilia su nómina timbrada elige N.',
+  'policy.census_cfdi_types.why':
+    'El SAT también lista recibos de nómina y documentos de traslado. Hay despachos que los cotejan con los libros y otros que no.',
+  'policy.census_cfdi_types.what':
+    'Cuento los CFDI de los tipos que elijas cuando te digo qué falta en los libros; los demás se quedan en el censo.',
+  'policy.census_cfdi_types.if_skipped':
+    'Cuento ingresos, egresos y pagos, y dejo fuera la nómina y los traslados.',
+  'policy.census_cfdi_types.option.invoices_and_payments':
+    'Ingreso, egreso y pago (I, E, P)',
+  'policy.census_cfdi_types.option.plus_payroll':
+    'También nómina (I, E, P, N)',
+  'policy.census_cfdi_types.option.all_types':
+    'Todos los tipos, traslados incluidos (I, E, P, N, T)',
+
   'policy.opening_payable_iva.question':
     'Cuando una factura de proveedor migrada no dice la tasa de IVA dentro de su saldo pendiente, ¿qué hace la carga de apertura?',
   'policy.opening_payable_iva.impact':
@@ -1191,6 +1210,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'Primero el importe diario: mensual / 30.4 al centavo, luego × los días del periodo',
 
+  'policy.filing_rounding_to_pesos.question':
+    'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
+  'policy.filing_rounding_to_pesos.impact':
+    'Puede mover el IVA a pagar uno o dos pesos: ajustar cada renglón y sumar pesos no es lo mismo que sumar centavos y ajustar el resultado.',
+  'policy.filing_rounding_to_pesos.rationale':
+    'El art. 20 del CFF ajusta a pesos las cantidades de una declaración (de 1 a 50 centavos a la unidad anterior, de 51 a 99 a la siguiente), después de redondear al centavo los cuatro decimales del mayor. Ajustar cada renglón antes de sumarlo deja en pesos cada cifra capturada, como la ley pide de cada cantidad. Premisa sin verificar: que el formulario vigente de IVA en Declaraciones y Pagos capture cada renglón en pesos; si captura sólo las bases y calcula él el impuesto, ninguna de las dos opciones lo modela.',
+  'policy.filing_rounding_to_pesos.why':
+    'El art. 20 del CFF dice que las cantidades de una declaración se ajustan a pesos, pero no en qué paso del cálculo. Los despachos lo hacen de las dos maneras, y el IVA a pagar que declaran puede diferir uno o dos pesos.',
+  'policy.filing_rounding_to_pesos.what':
+    'El papel de trabajo muestra siempre dos columnas, los centavos rastreables al mayor y los pesos a capturar, y obtiene el IVA a pagar o a favor como elijas aquí.',
+  'policy.filing_rounding_to_pesos.if_skipped':
+    'Ajusto cada renglón a pesos antes de sumarlo.',
+  'policy.filing_rounding_to_pesos.option.cada_renglon':
+    'Cada renglón: cada cifra capturada se ajusta a pesos y el cálculo sigue en pesos enteros',
+  'policy.filing_rounding_to_pesos.option.solo_el_pago':
+    'Sólo el pago: el cálculo corre en centavos y sólo el resultado se ajusta a pesos',
   'policy.overtime_isr_exemption.question':
     '¿Aplicas a las horas extra que pagas la exención de ISR del art. 93 fr. I de la LISR?',
   'policy.overtime_isr_exemption.impact':
@@ -1571,6 +1606,32 @@ export const ES: Record<keyof typeof EN, string> = {
   'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N] ',
   'review.vendor.not_registered':
     'No se dio de alta al proveedor: no se contabilizó nada y el borrador sigue pendiente.',
+  'help.ingest.argument.files':
+    'Rutas a los XML de CFDI; con --kind zip o metadata, los ZIP o archivos de metadatos descargados del SAT',
+  'help.ingest.option.kind':
+    'Qué son los archivos: xml (CFDI uno por uno), zip (paquete del SAT con XML: carga el censo e ingiere ' +
+    'cada XML) o metadata (archivo de metadatos del SAT separado por `~`, suelto o en ZIP: sólo carga el censo)',
+  // MNE-001-096 (#312): `src/cli/ingest-census.ts`, el censo del SAT que carga `ingest --kind zip|metadata`.
+  'ingest.census.bad_kind': 'se esperaba uno de {valid}',
+  'ingest.census.flag_not_for_metadata':
+    '{flags}: no aplica a --kind metadata, que sólo carga el censo y no ingiere nada',
+  'ingest.census.no_rfc': 'La entidad no tiene RFC: el censo no puede distinguir emitidos de recibidos.',
+  'ingest.census.not_zip': '{file} no es un archivo ZIP.',
+  'ingest.census.bad_zip': '{file}: no se puede leer el ZIP ({detail}).',
+  'ingest.census.not_metadata': '{file}: no es un archivo de metadatos del SAT (falta(n) la(s) columna(s) {columns}).',
+  'ingest.census.invalid.field_count': '{found} campos, el encabezado tiene {expected}',
+  'ingest.census.invalid.status': 'Estatus «{value}» no es ni 1 ni 0',
+  'ingest.census.invalid.field': '{field} inválido',
+  'ingest.census.invalid.xml': 'no es un CFDI legible ({detail})',
+  'ingest.census.title': 'Censo del SAT ({kind})',
+  'ingest.census.summary': '{total} CFDI ({issued} emitidos, {received} recibidos)',
+  'ingest.census.by_month': 'por mes: {months}',
+  'ingest.census.completeness':
+    '{counted} cuentan para la completitud según {key} ({types}); {others} de otros tipos quedan en el censo',
+  'ingest.census.counts': '{foreign} no son de esta entidad · {invalid} inválidos',
+  'ingest.census.more_invalid': '… y {count} más',
+  'ingest.census.loaded': 'Censo cargado de {file}: {inserted} nuevos, {refreshed} ya conocidos.',
+  'ingest.census.dry_run': '(dry-run: el censo se leyó, no se cargó.)',
   'help.ingest.description':
     'Ingesta por lote de CFDI (XML): reglas → clasificación por IA → borradores (o alta ' +
     'automática según los umbrales)',
@@ -2223,6 +2284,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.pay_run.post.argument.id': 'corrida aprobada cuya póliza se arma',
   'help.pay_run.post.option.post':
     'contabiliza la póliza en el mayor de inmediato, en lugar de dejarla en borrador para revisión',
+  'help.payslip.description': 'Recibos de una corrida: listarlos y ver uno con sus renglones',
+  'help.payslip.list.description':
+    'Lista los recibos de una corrida con bruto, neto y estatus de timbre; sin identificadores fiscales',
+  'help.payslip.list.option.run': 'corrida cuyos recibos se listan (obligatoria)',
+  'help.payslip.show.description':
+    'Muestra un recibo: los totales de bruto a neto y cada percepción, deducción e impuesto',
+  'help.payslip.show.argument.id': 'id del recibo (de `payslip list --run`)',
+  'help.payslip.show.option.redacted': 'oculta por completo RFC, CURP y NSS, para una pantalla compartida',
+  'help.imss.description': 'Obligaciones del patrón ante el IMSS: el archivo mensual del SUA',
+  'help.imss.sua.description': 'El archivo de importación al SUA de un mes',
+  'help.imss.sua.export.description':
+    'Arma el archivo de importación al SUA de un mes con los recibos aprobados, cotejado contra el pasivo patronal',
+  'help.imss.sua.export.option.period': 'mes por exportar (AAAA-MM); el SUA es mensual',
+  'help.imss.sua.export.option.output': 'escribe el archivo del SUA en esta ruta (sin ella, el archivo sale por stdout)',
+  'help.imss.sua.export.option.yes': 'sobrescribe el archivo de -o si ya existe',
+  'help.imss.sua.export.option.dry_run': 'arma y coteja el archivo sin escribirlo ni registrar la declaración',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
@@ -2294,4 +2371,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+  'payslip.run_required': 'Falta --run: nombra la corrida cuyos recibos quieres (`pay-run create` imprimió su id).',
+  'imss.sua.period_invalid': '--period "{period}": usa el mes como AAAA-MM, por ejemplo 2026-07.',
+  'imss.sua.exists': '{path} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes.',
+  'imss.sua.tty':
+    'El archivo del SUA lleva el NSS, RFC y CURP de toda la plantilla y no se imprime en una terminal: nombra un archivo con -o, o redirige stdout.',
+  'imss.sua.mismatch': 'El archivo del SUA no cuadra con el pasivo patronal ya apuntado, así que no se entrega: {findings}',
+  'imss.sua.finding.no_liability':
+    'el archivo declara {file} de {concept} y no hay pasivo patronal apuntado en el mes contra el que cotejarlo: la cifra sale de un solo camino',
+  'imss.sua.finding.mismatch': '{concept}: el archivo declara {file} y el pasivo apuntado dice {ledger}',
+  'imss.sua.dry_run': 'Simulación: el archivo del SUA de {count} empleado(s) se armó y se cotejó; no se escribió archivo ni se registró nada.',
+  'payslip.status_invalid': '--status {status}: usa uno de {states}.',
+  'imss.sua.not_filed':
+    'Archivo del SUA de {count} empleado(s) armado y registrado como declaración en borrador. No se envió nada: cárgalo en el SUA y paga.',
 };

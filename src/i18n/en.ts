@@ -367,7 +367,7 @@ export const EN = {
   'policy.prepaid_amortization_convention.impact':
     'Sets every month of the schedule. An insurance policy running 20 March to 19 March accrues over 12 months by one convention and 13 by the other, and the last month of the fiscal year differs.',
   'policy.prepaid_amortization_convention.rationale':
-    'It is what the NIF A-2 accrual postulate actually says — the expense belongs to the period that consumed the service — and it is the only convention that keeps the schedule tied to the contract dates rather than to the calendar. Firms that prefer whole months for simplicity can say so here, but the default should be the one that is right rather than the one that is easy.',
+    'It is what the accrual postulate (NIF A-1, chapter 20) actually says — the expense belongs to the period that consumed the service — and it is the only convention that keeps the schedule tied to the contract dates rather than to the calendar. Firms that prefer whole months for simplicity can say so here, but the default should be the one that is right rather than the one that is easy.',
   'policy.prepaid_amortization_convention.why':
     'Your insurance starts on the 20th, not on the 1st. By days it spreads over thirteen calendar months and by whole months over twelve, so the choice changes which month carries the expense and what the last month of the year shows.',
   'policy.prepaid_amortization_convention.what':
@@ -815,6 +815,25 @@ export const EN = {
   'policy.opening_balance_load_mode.option.borrador':
     'Leave a draft: `entry post` applies it after a review',
 
+  'policy.census_cfdi_types.question':
+    'Which CFDI types in the SAT census count toward completeness at close?',
+  'policy.census_cfdi_types.impact':
+    'The SAT census lists every CFDI issued and received: income (I), credit notes (E), payment receipts (P), payroll (N) and transfers (T). Every type is kept; this decides which of them the completeness check reports as missing when they are not posted. Adding N checks the payroll the entity stamped against the payroll it posted.',
+  'policy.census_cfdi_types.rationale':
+    'Owner decision of 2026-09-26 on issue 312: payroll and transfers do not show as missing by default. I, E and P are the CFDI that support the entries of revenue, purchases and their collection or payment (CFF art. 29 and 29-A; LISR art. 27 fr. III; LIVA art. 5 fr. II). A payroll CFDI (N, LISR art. 99 fr. III) supports an expense the payroll module posts as a whole, not one entry per receipt, and a transfer CFDI (T) records goods in transit with no consideration, so neither maps to a posted document one by one. A firm that also reconciles its stamped payroll chooses N.',
+  'policy.census_cfdi_types.why':
+    'The SAT lists payroll receipts and transfer documents too. Some firms check those against the books, others do not.',
+  'policy.census_cfdi_types.what':
+    'I count the CFDI of the types you choose when I tell you what is missing from the books; the rest stay in the census.',
+  'policy.census_cfdi_types.if_skipped':
+    'I count income, credit notes and payment receipts, and leave payroll and transfers out.',
+  'policy.census_cfdi_types.option.invoices_and_payments':
+    'Income, credit notes and payment receipts (I, E, P)',
+  'policy.census_cfdi_types.option.plus_payroll':
+    'Also payroll (I, E, P, N)',
+  'policy.census_cfdi_types.option.all_types':
+    'Every type, transfers included (I, E, P, N, T)',
+
   'policy.opening_payable_iva.question':
     'When a migrated vendor invoice does not say the IVA rate inside its open balance, what does the opening load do?',
   'policy.opening_payable_iva.impact':
@@ -1219,6 +1238,22 @@ export const EN = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'The daily amount first: monthly / 30.4 to the cent, then × the days of the period',
 
+  'policy.filing_rounding_to_pesos.question':
+    'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
+  'policy.filing_rounding_to_pesos.impact':
+    'It can move the IVA payable by a peso or two: adjusting every line and adding whole pesos is not the same as adding cents and adjusting the result.',
+  'policy.filing_rounding_to_pesos.rationale':
+    'CFF art. 20 adjusts the amounts of a return to whole pesos (cents 1 to 50 go down, 51 to 99 go up), after rounding the ledger\'s four decimals to the cent. Adjusting each line before it is added keeps every captured figure a whole peso, as the law asks of each amount. Unverified assumption: that the current Declaraciones y Pagos IVA form captures each line in pesos; if it captures only bases and computes the tax itself, neither option models it.',
+  'policy.filing_rounding_to_pesos.why':
+    'CFF art. 20 says the amounts of a return are adjusted to whole pesos, but not at which step of the calculation. Firms do it both ways, and the IVA payable they declare can differ by a peso or two.',
+  'policy.filing_rounding_to_pesos.what':
+    'The workpaper always shows two columns, the cents traceable to the ledger and the pesos to capture, and derives the IVA payable or in favor the way you choose here.',
+  'policy.filing_rounding_to_pesos.if_skipped':
+    'I adjust every line to pesos before adding them.',
+  'policy.filing_rounding_to_pesos.option.cada_renglon':
+    'Every line: each captured figure is adjusted to pesos and the arithmetic continues in whole pesos',
+  'policy.filing_rounding_to_pesos.option.solo_el_pago':
+    'Only the payment: the arithmetic runs in cents and only the result is adjusted to pesos',
   'policy.overtime_isr_exemption.question':
     'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
   'policy.overtime_isr_exemption.impact':
@@ -1680,6 +1715,32 @@ export const EN = {
   'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})? [y/N] ',
   /** `src/cli/mnemosine.ts` review: the reviewer answered no to registering the vendor. */
   'review.vendor.not_registered': 'The vendor was not registered: nothing was posted and the draft stays pending.',
+  'help.ingest.argument.files':
+    'Paths to CFDI XML files; with --kind zip or metadata, the ZIP or metadata files downloaded from the SAT',
+  'help.ingest.option.kind':
+    'What the files are: xml (CFDI one by one), zip (a SAT package of CFDI XML: loads the census and ingests ' +
+    'each XML) or metadata (the SAT `~` metadata file, bare or zipped: loads the census only)',
+  // MNE-001-096 (#312): `src/cli/ingest-census.ts`, the SAT census loaded by `ingest --kind zip|metadata`.
+  'ingest.census.bad_kind': 'expected one of {valid}',
+  'ingest.census.flag_not_for_metadata':
+    '{flags}: does not apply to --kind metadata, which loads the census only and ingests nothing',
+  'ingest.census.no_rfc': 'The entity has no RFC: the census cannot tell issued from received.',
+  'ingest.census.not_zip': '{file} is not a ZIP file.',
+  'ingest.census.bad_zip': '{file}: the ZIP cannot be read ({detail}).',
+  'ingest.census.not_metadata': '{file}: not a SAT metadata file (missing column(s) {columns}).',
+  'ingest.census.invalid.field_count': '{found} fields, the header has {expected}',
+  'ingest.census.invalid.status': 'Estatus «{value}» is neither 1 nor 0',
+  'ingest.census.invalid.field': 'invalid {field}',
+  'ingest.census.invalid.xml': 'not a readable CFDI ({detail})',
+  'ingest.census.title': 'SAT census ({kind})',
+  'ingest.census.summary': '{total} CFDI ({issued} issued, {received} received)',
+  'ingest.census.by_month': 'by month: {months}',
+  'ingest.census.completeness':
+    '{counted} count toward completeness under {key} ({types}); {others} of other types are kept in the census',
+  'ingest.census.counts': "{foreign} not this entity's · {invalid} invalid",
+  'ingest.census.more_invalid': '… and {count} more',
+  'ingest.census.loaded': 'Census loaded from {file}: {inserted} new, {refreshed} already known.',
+  'ingest.census.dry_run': '(dry-run: the census was read, not loaded.)',
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
@@ -2369,6 +2430,21 @@ export const EN = {
     '--post posts it directly',
   'help.pay_run.post.argument.id': 'approved pay run whose entry is built',
   'help.pay_run.post.option.post': 'post the entry to the ledger now instead of leaving a draft for review',
+  'help.payslip.description': 'Paychecks of a pay run: list them, show one with its lines',
+  'help.payslip.list.description': 'List the paychecks of a run with gross, net and stamp status; no tax identifiers',
+  'help.payslip.list.option.run': 'pay run whose paychecks are listed (required)',
+  'help.payslip.show.description':
+    'Show one paycheck: totals from gross to net and every earning, deduction and tax line',
+  'help.payslip.show.argument.id': 'paycheck id (from `payslip list --run`)',
+  'help.payslip.show.option.redacted': 'hide RFC, CURP and NSS entirely, for a shared screen',
+  'help.imss.description': 'IMSS obligations of the employer: the monthly SUA file',
+  'help.imss.sua.description': 'The SUA import file of a month',
+  'help.imss.sua.export.description':
+    'Build the SUA import file of a month from the approved paychecks, checked against the employer liability',
+  'help.imss.sua.export.option.period': 'month to export (YYYY-MM); the SUA is monthly',
+  'help.imss.sua.export.option.output': 'write the SUA file to this path (without it, the file goes to stdout)',
+  'help.imss.sua.export.option.yes': 'overwrite the file named by -o if it already exists',
+  'help.imss.sua.export.option.dry_run': 'build and check the file without writing it or recording the filing',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -2452,4 +2528,19 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+
+  // --- payslip · recibo and imss sua export (MNE-001-070) -----------------
+  'payslip.run_required': 'Missing --run: name the pay run whose paychecks you want (`pay-run create` printed its id).',
+  'imss.sua.period_invalid': '--period "{period}": use the month as YYYY-MM, for example 2026-07.',
+  'imss.sua.exists': '{path} already exists and is not overwritten without asking: use another path, or --yes.',
+  'imss.sua.tty':
+    'The SUA file carries the NSS, RFC and CURP of the whole roll and is not printed to a terminal: name a file with -o, or redirect stdout.',
+  'imss.sua.mismatch': 'The SUA file does not match the employer liability already recorded, so it is not delivered: {findings}',
+  'imss.sua.finding.no_liability':
+    'the file declares {file} of {concept} and no employer liability is recorded for the month to check it against: the figure comes from one road only',
+  'imss.sua.finding.mismatch': '{concept}: the file declares {file} and the recorded liability says {ledger}',
+  'imss.sua.dry_run': 'Dry run: the SUA file of {count} employee(s) was built and checked; no file was written and nothing was recorded.',
+  'payslip.status_invalid': '--status {status}: use one of {states}.',
+  'imss.sua.not_filed':
+    'SUA file of {count} employee(s) built and recorded as a draft filing. Nothing was sent: load it into the SUA and pay.',
 } as const;
