@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 230 of 357 subcommands
+  spelling is `-T` at the root and `-t` on the 232 of 361 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -7369,13 +7369,17 @@ Usage: mnemosine e-accounting|contabilidad-electronica [options] [command]
 Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
 
 Options:
-  -h, --help        display help for command
+  -h, --help          display help for command
 
 Commands:
-  catalog|catalogo  The chart of accounts as the SAT wants it: CtaCatalogo 1.3
-  balance|balanza   The trial balance the SAT expects: BCE 1.3, normal, amended
-                    or year-end
-  help [command]    display help for command
+  catalog|catalogo    The chart of accounts as the SAT wants it: CtaCatalogo 1.3
+  balance|balanza     The trial balance the SAT expects: BCE 1.3, normal,
+                      amended or year-end
+  voucher|poliza      The period vouchers the SAT asks for on request:
+                      PolizasPeriodo 1.3
+  subledger|auxiliar  The auxiliaries the SAT asks for on request: voucher
+                      folios or accounts
+  help [command]      display help for command
 ```
 
 ### `mnemosine e-accounting catalog` (alias: catalogo)
@@ -7519,6 +7523,125 @@ Examples:
   mnemosine e-accounting balance check --period 2026-07
   # The year-end balance, with warnings made blocking so cron stops on them (exit 4).
   mnemosine e-accounting balance check --period 2026 --closing --strict
+```
+
+### `mnemosine e-accounting voucher` (alias: poliza)
+
+```
+Usage: mnemosine e-accounting voucher|poliza [options] [command]
+
+The period vouchers the SAT asks for on request: PolizasPeriodo 1.3
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build and archive the period vouchers XML with the
+                              evidence node of each line (CompNal, Cheque,
+                              Transferencia, OtrMetodoPago) and its hash
+  help [command]              display help for command
+```
+
+#### `mnemosine e-accounting voucher generate` (alias: generar)
+
+```
+Usage: mnemosine e-accounting voucher generate|generar [options]
+
+Build and archive the period vouchers XML with the evidence node of each line
+(CompNal, Cheque, Transferencia, OtrMetodoPago) and its hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the XML to this path (the artifact store keeps its own copy)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id; with --closing, the fiscal year (2026)
+  --closing                                the vouchers of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)
+  --request-type <AF|FC|DE|CO>             the request the file answers (TipoSolicitud): AF audit, FC compulsory check, DE refund, CO offset; no default
+  --order-number <number>                  audit order number (NumOrden), required with AF and FC: ABC1234567/26
+  --procedure-number <number>              filing number (NumTramite), required with DE and CO: DE202600000009
+  --validate-uuids                         also check the shape of every CFDI UUID the vouchers declare
+  --dry-run                                build it and show the verdict; archive nothing and write no file
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
+  -h, --help                               display help for command
+
+This builds the file. It does NOT seal it and does NOT file it.
+The XML comes out with no Sello, noCertificado or Certificado: sealing with the
+e.firma and transmitting through the Buzón Tributario are your acts, outside this
+system. This binary never asks for an e.firma and never loads a private key.
+
+
+Examples:
+  # See the verdict first: which vouchers lack a payment trace, nothing archived.
+  mnemosine e-accounting voucher generate --period 2026-07 --request-type AF --order-number ABC1234567/26 --dry-run
+  # A refund request: DE and CO carry the procedure number, not an order number.
+  mnemosine e-accounting voucher generate --period 2026-07 --request-type DE --procedure-number DE202600000009 -o polizas-2026-07.xml --yes
+  # Month 13: with --closing, --period names the fiscal year.
+  mnemosine e-accounting voucher generate --closing --period 2026 --request-type AF --order-number ABC1234567/26 --dry-run
+```
+
+### `mnemosine e-accounting subledger` (alias: auxiliar)
+
+```
+Usage: mnemosine e-accounting subledger|auxiliar [options] [command]
+
+The auxiliaries the SAT asks for on request: voucher folios or accounts
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build and archive the voucher-folio auxiliary
+                              (AuxiliarFolios 1.3) or the account and
+                              sub-account auxiliary (AuxiliarCtas 1.3) with its
+                              hash
+  help [command]              display help for command
+```
+
+#### `mnemosine e-accounting subledger generate` (alias: generar)
+
+```
+Usage: mnemosine e-accounting subledger generate|generar [options]
+
+Build and archive the voucher-folio auxiliary (AuxiliarFolios 1.3) or the
+account and sub-account auxiliary (AuxiliarCtas 1.3) with its hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the XML to this path (the artifact store keeps its own copy)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id; with --closing, the fiscal year (2026)
+  --closing                                the auxiliary of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)
+  --request-type <AF|FC|DE|CO>             the request the file answers (TipoSolicitud): AF audit, FC compulsory check, DE refund, CO offset; no default
+  --order-number <number>                  audit order number (NumOrden), required with AF and FC: ABC1234567/26
+  --procedure-number <number>              filing number (NumTramite), required with DE and CO: DE202600000009
+  --kind <folios|accounts>                 which auxiliary: folios (voucher folios) or accounts (account and sub-account); no default
+  --dry-run                                build it and show the verdict; archive nothing and write no file
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
+  -h, --help                               display help for command
+
+This builds the file. It does NOT seal it and does NOT file it.
+The XML comes out with no Sello, noCertificado or Certificado: sealing with the
+e.firma and transmitting through the Buzón Tributario are your acts, outside this
+system. This binary never asks for an e.firma and never loads a private key.
+
+
+Examples:
+  # The voucher-folio auxiliary for an audit order, shown before it is archived.
+  mnemosine e-accounting subledger generate --period 2026-07 --kind folios --request-type AF --order-number ABC1234567/26 --dry-run
+  # The account and sub-account auxiliary for an offset request, written to disk.
+  mnemosine e-accounting subledger generate --period 2026-07 --kind accounts --request-type CO --procedure-number CO202600000011 -o auxiliar-2026-07.xml --yes
+  # Month 13: with --closing, --period names the fiscal year.
+  mnemosine e-accounting subledger generate --closing --period 2026 --kind accounts --request-type AF --order-number ABC1234567/26 --dry-run
 ```
 
 ## `mnemosine diot`
