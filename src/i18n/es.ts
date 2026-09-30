@@ -1693,6 +1693,43 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ingest.option.kind':
     'Qué son los archivos: xml (CFDI uno por uno), zip (paquete del SAT con XML: carga el censo e ingiere ' +
     'cada XML) o metadata (archivo de metadatos del SAT separado por `~`, suelto o en ZIP: sólo carga el censo)',
+  // MNE-001-143 (#440): `src/cli/sat-download-commands.ts`, la descarga masiva de CFDI del SAT.
+  'help.sat.download.description': 'Descarga masiva de CFDI del SAT (e.firma)',
+  'help.sat.download.option.entity': 'Entidad legal',
+  'help.sat.download.option.user': 'Quién actúa (por omisión: el único usuario activo)',
+  'help.sat.download.option.json': 'Salida legible por máquina',
+  'help.sat.download.option.format': 'Formato de salida: table o json',
+  'help.sat.download.argument.id': 'Solicitud de descarga: su id local o el id que le dio el SAT',
+  'help.sat.download.create.description':
+    'Pide al SAT los CFDI de un periodo (se niega antes de llamar si el tope de por vida de XML está agotado)',
+  'help.sat.download.create.option.since': 'Primer día, AAAA-MM-DD',
+  'help.sat.download.create.option.until': 'Último día, AAAA-MM-DD',
+  'help.sat.download.create.option.direction': 'issued (emitidos) o received (recibidos)',
+  'help.sat.download.create.option.kind':
+    'metadata o xml (xml gasta una de las 2 solicitudes de por vida del periodo)',
+  'help.sat.download.check.description':
+    'Pregunta al SAT el estado de una solicitud y lo guarda junto con los ids de sus paquetes (el 5004 es éxito con cero filas)',
+  'help.sat.download.check.option.wait': 'Seguir preguntando hasta que la solicitud deje de estar abierta',
+  'help.sat.download.check.option.timeout': 'Dejar de esperar tras estos segundos',
+  'help.sat.download.check.option.strict': 'Salir con error salvo que la solicitud haya terminado con paquetes',
+  'help.sat.download.status.description':
+    'Último estado conocido de una solicitud, leído del espejo local (no llama al SAT)',
+  'help.sat.download.list.description': 'Las solicitudes de descarga de la entidad con su estado, número de CFDI y paquetes',
+  'help.sat.download.list.option.status': 'Sólo este estado',
+  'help.sat.download.list.option.since': 'Sólo solicitudes cuyo periodo termina en este día o después, AAAA-MM-DD',
+  'help.sat.download.list.option.limit': 'Cuántas mostrar',
+  'help.sat.package.description': 'Paquetes de una solicitud de descarga terminada',
+  'help.sat.package.download.description':
+    'Baja los paquetes de una solicitud terminada, archiva cada ZIP por bytes y con --import los carga',
+  'help.sat.package.download.option.output': 'Escribe además cada ZIP en este directorio',
+  'help.sat.package.download.option.package': 'Sólo este paquete de la solicitud',
+  'help.sat.package.download.option.import':
+    'Carga el censo y pasa los XML por la ingesta de siempre (import_source sat_download)',
+  'help.sat.quota.description': 'El tope de por vida del SAT para solicitudes de XML idénticas',
+  'help.sat.quota.show.description':
+    'Qué periodos tienen agotadas sus 2 solicitudes de XML de por vida y a cuáles les quedan (lee el contador local)',
+  'help.sat.quota.show.option.since': 'Periodos que terminan en este día o después, AAAA-MM-DD',
+  'help.sat.quota.show.option.until': 'Periodos que empiezan en este día o antes, AAAA-MM-DD',
   // MNE-001-096 (#312): `src/cli/ingest-census.ts`, el censo del SAT que carga `ingest --kind zip|metadata`.
   'ingest.census.bad_kind': 'se esperaba uno de {valid}',
   'ingest.census.flag_not_for_metadata':

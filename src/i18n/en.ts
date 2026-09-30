@@ -1808,6 +1808,43 @@ export const EN = {
   'help.ingest.option.kind':
     'What the files are: xml (CFDI one by one), zip (a SAT package of CFDI XML: loads the census and ingests ' +
     'each XML) or metadata (the SAT `~` metadata file, bare or zipped: loads the census only)',
+  // MNE-001-143 (#440): `src/cli/sat-download-commands.ts`, the bulk download of CFDI from the SAT.
+  'help.sat.download.description': 'Bulk download of CFDI from the SAT (e.firma)',
+  'help.sat.download.option.entity': 'Legal entity',
+  'help.sat.download.option.user': 'Who acts (default: the sole active user)',
+  'help.sat.download.option.json': 'Machine-readable output',
+  'help.sat.download.option.format': 'Output format: table or json',
+  'help.sat.download.argument.id': 'Download request: its local id or the id the SAT gave it',
+  'help.sat.download.create.description':
+    "Asks the SAT for a period's CFDI (refuses before calling when the lifetime XML limit is spent)",
+  'help.sat.download.create.option.since': 'First day, YYYY-MM-DD',
+  'help.sat.download.create.option.until': 'Last day, YYYY-MM-DD',
+  'help.sat.download.create.option.direction': 'issued or received',
+  'help.sat.download.create.option.kind':
+    'metadata or xml (xml spends one of the 2 lifetime requests of the period)',
+  'help.sat.download.check.description':
+    'Asks the SAT for the state of a request and records it and its package ids (5004 is success with zero rows)',
+  'help.sat.download.check.option.wait': 'Keep asking until the request is no longer open',
+  'help.sat.download.check.option.timeout': 'Give up waiting after this many seconds',
+  'help.sat.download.check.option.strict': 'Exit non-zero unless the request finished with packages',
+  'help.sat.download.status.description':
+    'Last known state of a request, read from the local mirror (does not call the SAT)',
+  'help.sat.download.list.description': "The entity's download requests with their state, CFDI count and packages",
+  'help.sat.download.list.option.status': 'Only this state',
+  'help.sat.download.list.option.since': 'Only requests whose period ends on or after this day, YYYY-MM-DD',
+  'help.sat.download.list.option.limit': 'How many to show',
+  'help.sat.package.description': 'Packages of a finished download request',
+  'help.sat.package.download.description':
+    'Downloads the packages of a finished request, archives each ZIP by bytes, and with --import loads them',
+  'help.sat.package.download.option.output': 'Also write each ZIP into this directory',
+  'help.sat.package.download.option.package': 'Only this package of the request',
+  'help.sat.package.download.option.import':
+    'Load the census and run the XML through the regular ingestion (import_source sat_download)',
+  'help.sat.quota.description': "The SAT's lifetime limit on identical XML requests",
+  'help.sat.quota.show.description':
+    'Which periods have their 2 lifetime XML requests spent and which have some left (reads the local counter)',
+  'help.sat.quota.show.option.since': 'Periods ending on or after this day, YYYY-MM-DD',
+  'help.sat.quota.show.option.until': 'Periods starting on or before this day, YYYY-MM-DD',
   // MNE-001-096 (#312): `src/cli/ingest-census.ts`, the SAT census loaded by `ingest --kind zip|metadata`.
   'ingest.census.bad_kind': 'expected one of {valid}',
   'ingest.census.flag_not_for_metadata':

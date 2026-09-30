@@ -15,6 +15,7 @@ import {
 } from '../services/fiscal-credentials/service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import { exitCodeFor, notFound, ExitCode } from './kernel/index.js';
+import { registerSatDownloadCommands } from './sat-download-commands.js';
 
 // ============================================================
 // `mnemosine sat cred …` COMMANDS
@@ -63,12 +64,9 @@ async function askHidden(prompt: string): Promise<string> {
 
 export function registerSatCommands(program: Command, deps: SatCommandDeps): void {
   const { color: c, colorErr: ce, shutdown, reportError, ask } = deps;
-  // La descripción decía «credentials and CFDI download» y la descarga masiva
-  // no existe (es E3.2 del tablero): sobre esa promesa se entregaban e.firmas
-  // que hoy no sirven para bajar nada. La ayuda dice lo que hay.
   const sat = program
     .command('sat')
-    .description('SAT services (e.firma credentials; the CFDI bulk download is not built yet)');
+    .description('SAT services (e.firma credentials and the CFDI bulk download)');
   const cred = sat.command('cred').description('Fiscal credentials (e.firma)');
 
   const add = cred
@@ -93,6 +91,13 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
     agent: false,
     writes: 'fiscal_credentials + el material en la bóveda; valida el certificado localmente antes',
   });
+  add.addHelpText('after', `
+Examples:
+  # Validate a certificate and key pair locally; nothing is stored and no password is asked.
+  mnemosine sat cred add --cer fiel.cer --key fiel.key --dry-run
+  # Store it in the vault (asks for the key password and the typed consent).
+  mnemosine sat cred add --cer fiel.cer --key fiel.key --live
+`);
   add.action(async (opts: {
       cer: string; key: string; entity?: string; user?: string;
       unattended: boolean; maxDiario?: number;
@@ -295,6 +300,13 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
     agent: false,
     writes: 'fiscal_credentials + destrucción criptográfica del material en la bóveda',
   });
+  revoke.addHelpText('after', `
+Examples:
+  # See which credential would be destroyed; nothing is revoked.
+  mnemosine sat cred revoke --dry-run
+  # Revoke it, with the reason recorded in the audit trail.
+  mnemosine sat cred revoke --reason "certificate replaced" --yes
+`);
   revoke.action(async (opts: {
       entity?: string; user?: string;
       dryRun?: boolean; yes?: boolean; reason?: string; idempotencyKey?: string;
@@ -351,4 +363,6 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
         await shutdown(exitCodeFor(err));
       }
     });
+
+  registerSatDownloadCommands(sat, deps);
 }
