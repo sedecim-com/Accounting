@@ -81,6 +81,7 @@ export {
   installHelpChrome,
   describeCommand,
   describeLastOption,
+  describeOption,
   optionByKey,
   describeArgument,
   argumentByKey,
