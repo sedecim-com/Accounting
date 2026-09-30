@@ -103,6 +103,27 @@ export function estadoDeBanco(clave: string | undefined, cat: CatalogoDeBancos):
   return cat.claves.has(c) ? 'valido' : 'fuera_de_catalogo';
 }
 
+/**
+ * The answers to `anexo24_voucher_money_without_trace`
+ * (src/services/policy/pending-catalog.ts), which explains them and why
+ * declaring an OtrMetodoPago node is not one of them.
+ */
+export const UNTRACED_MONEY_TREATMENTS = ['block', 'warn'] as const;
+export type UntracedMoneyTreatment = (typeof UNTRACED_MONEY_TREATMENTS)[number];
+
+/** A voucher that moves money and carries no payment node, and why. */
+export interface UntracedMoney {
+  numUnIdenPol: string;
+  motivo: string;
+  /**
+   * true when no registered payment stands behind the entry (a bank fee from
+   * reconciliation, a pay run, a transfer between own accounts): the case the
+   * policy governs. false or absent: a payment exists and lacks data, which
+   * always blocks, because the fix is to complete that payment.
+   */
+  withoutRegisteredPayment?: boolean;
+}
+
 /** Lo que una verificación necesita saber y no puede deducir del árbol. */
 export interface ContextoDePolizas {
   polizas: readonly Poliza[];
@@ -112,7 +133,13 @@ export interface ContextoDePolizas {
    * con el motivo por el que no se pudo. Lo calcula el servicio, que es quien
    * sabe qué cuenta es un banco; aquí sólo se convierte en hallazgo.
    */
-  sinRastro: readonly { numUnIdenPol: string; motivo: string }[];
+  sinRastro: readonly UntracedMoney[];
+  /**
+   * The firm's answer to `anexo24_voucher_money_without_trace`: what a voucher
+   * that moves money with NO registered payment behind it gets. Absent means
+   * the key's default, `block`.
+   */
+  untracedMoney?: UntracedMoneyTreatment;
   bancos: CatalogoDeBancos;
   /** `--validate-uuids`: comprobar la forma de los UUID de los CFDI. */
   validarUuids: boolean;
@@ -189,19 +216,34 @@ export function polizaCuadra(polizas: readonly Poliza[]): HallazgoPoliza[] {
  * rastro sin inventárselo.
  */
 export function polizaConDineroSinRastro(
-  sinRastro: ContextoDePolizas['sinRastro']
+  sinRastro: ContextoDePolizas['sinRastro'],
+  untracedMoney: UntracedMoneyTreatment = 'block'
 ): HallazgoPoliza[] {
-  return sinRastro.map((s) =>
-    hallazgo(
+  return sinRastro.map((s) => {
+    if (s.withoutRegisteredPayment === true && untracedMoney !== 'block') {
+      return hallazgo(
+        'poliza-con-dinero-sin-rastro',
+        'warning',
+        s.numUnIdenPol,
+        `Mueve dinero y sale SIN nodo de pago: ${s.motivo}. El despacho contestó \`warn\` en ` +
+          `anexo24_voucher_money_without_trace. El XSD pide Transferencia en todo traspaso entre ` +
+          `cuentas propias; si ésta lo es, captúralo como pago y vuelve a generar.`
+      );
+    }
+    return hallazgo(
       'poliza-con-dinero-sin-rastro',
       'blocking',
       s.numUnIdenPol,
       `Mueve dinero y no lleva el nodo de pago que el Anexo 24 exige: ${s.motivo}. Sin ese nodo la ` +
         `autoridad no puede seguir el movimiento hasta el banco, que es exactamente para lo que ` +
         `pidió las pólizas. Captúralo en el pago (\`payment create --check-number/--to-account/--to-bank\`) ` +
-        `y vuelve a generar.`
-    )
-  );
+        `y vuelve a generar.` +
+        (s.withoutRegisteredPayment === true
+          ? ` Si ningún instrumento de pago lo movió (una comisión que el banco cargó), el ` +
+            `tratamiento es de la política anexo24_voucher_money_without_trace.`
+          : '')
+    );
+  });
 }
 
 /**
@@ -453,7 +495,7 @@ export function correrVerificaciones(
   const hs: HallazgoPoliza[] = [];
   if (checks.includes('poliza-cuadra')) hs.push(...polizaCuadra(ctx.polizas));
   if (checks.includes('poliza-con-dinero-sin-rastro')) {
-    hs.push(...polizaConDineroSinRastro(ctx.sinRastro));
+    hs.push(...polizaConDineroSinRastro(ctx.sinRastro, ctx.untracedMoney));
   }
   if (checks.includes('banco-en-catalogo')) hs.push(...bancoEnCatalogo(ctx.polizas, ctx.bancos));
   if (checks.includes('code-in-official-list')) hs.push(...codeInOfficialList(ctx.polizas));

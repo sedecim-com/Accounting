@@ -708,6 +708,22 @@ export const EN = {
     'Refuse to generate until every account carries its grouping code',
   'policy.anexo24_account_without_grouping_code.option.omitir_y_avisar':
     'Leave them out of the file and list them',
+  'policy.anexo24_voucher_money_without_trace.question':
+    'A voucher moves bank money with no registered payment behind it (a bank fee, interest, a pay run, a transfer between own accounts): what do the Anexo 24 vouchers do?',
+  'policy.anexo24_voucher_money_without_trace.impact':
+    'Decides whether `e-accounting voucher generate` delivers a month with such entries. "block" refuses the file (exit 4) and names each voucher until a payment with its trace is captured. "warn" delivers it without the payment node and names each voucher. Neither changes the ledger. Declaring an OtrMetodoPago node instead is not offered: the XSD requires its Benef and RFC, and with no payment record the ledger has neither, so they would be invented.',
+  'policy.anexo24_voucher_money_without_trace.rationale':
+    'In PolizasPeriodo 1.3 (Anexo 24 RMF) the Cheque, Transferencia and OtrMetodoPago nodes are optional, and each "becomes required" when resources go out or come in by that method; Transferencia is also required for every transaction between the taxpayer\'s own accounts (the XSD documentation of each node). With no payment record the system cannot tell which of those cases an entry is, and a file that lacks a required node is incomplete books (CFF 28-IV). So the default refuses and names the voucher. A firm whose untraced entries are bank charges no instrument moved can answer "warn".',
+  'policy.anexo24_voucher_money_without_trace.why':
+    'Bank fees and interest move money that no cheque or transfer of yours moved. Whether your firm files those vouchers without a payment node or captures a payment first is your criterion.',
+  'policy.anexo24_voucher_money_without_trace.what':
+    'I apply your answer to every voucher that moves bank money with no registered payment, and I always name each one.',
+  'policy.anexo24_voucher_money_without_trace.if_skipped':
+    'I refuse the file and name each voucher.',
+  'policy.anexo24_voucher_money_without_trace.option.block':
+    'Refuse the file until each one has a registered payment with its trace',
+  'policy.anexo24_voucher_money_without_trace.option.warn':
+    'Deliver the file without the payment node and list the vouchers',
 
   'policy.chart_parent_child_coherence.question':
     'May a subaccount sit in a different section of the statements than its parent?',
@@ -1840,6 +1856,21 @@ export const EN = {
   // manda conservar; y los bloques de `EJEMPLOS`, congelados por
   // `src/ai/docs/cli-reference.md`.
   // --- Los analizadores de bandera: uso (2), no validación (4) ---------
+  'receipt.withholding.unreadable':
+    'Cannot read the withholding "{spec}": write "isr:1000" or "iva:1066.67", and with several invoices put the invoice first ("INV-2026-00042:isr:1000").',
+  'receipt.withholding.which_invoice':
+    'With several invoices, the withholding "{spec}" has to say which one it belongs to ("INV-2026-00042:{spec}").',
+  'receipt.withholding.not_applied':
+    'The withholding "{spec}" names {invoice}, which is not one of the --invoice of this application.',
+  'receipt.withholding.negative': 'A withholding cannot be negative ({amount}).',
+  'receipt.withholding.cash_required':
+    'The cash applied to {invoice} must be greater than zero (got {amount}): a withholding rides on a cash application, it is never applied alone.',
+  'receipt.withholding.exceeds_due':
+    '{invoice} owes {due} and {settled} would be applied ({cash} collected + {withheld} withheld).',
+  'receipt.withholding.vat_cap': '{invoice} transfers {cap} of VAT: the customer cannot withhold more than that.',
+  'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
+  'receipt.withholding.booked_at_issuance':
+    '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
@@ -2441,6 +2472,8 @@ export const EN = {
   'help.tenant.create.option.json': 'JSON output',
   'help.account.role.sync.description': 'Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones',
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
+  'help.receipt.apply.option.withholding':
+    'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
   'help.closing.fx.description': 'Foreign currency at the close',
   'help.closing.fx.revalue.description':
     'Revalue the foreign-currency receivables, payables and banks at the closing rate, and reverse it on day 1 of the next period. It belongs after the soft close; a later run posts only what moved since',
@@ -2591,6 +2624,67 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+
+  // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
+  'help.e_accounting.voucher.description': 'The period vouchers the SAT asks for on request: PolizasPeriodo 1.3',
+  'help.e_accounting.voucher.generate.description':
+    'Build and archive the period vouchers XML with the evidence node of each line (CompNal, Cheque, Transferencia, OtrMetodoPago) and its hash',
+  'help.e_accounting.voucher.option.closing':
+    'the vouchers of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)',
+  'help.e_accounting.voucher.option.validate_uuids': 'also check the shape of every CFDI UUID the vouchers declare',
+  'help.e_accounting.subledger.description': 'The auxiliaries the SAT asks for on request: voucher folios or accounts',
+  'help.e_accounting.subledger.generate.description':
+    'Build and archive the voucher-folio auxiliary (AuxiliarFolios 1.3) or the account and sub-account auxiliary (AuxiliarCtas 1.3) with its hash',
+  'help.e_accounting.subledger.option.closing':
+    'the auxiliary of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)',
+  'help.e_accounting.subledger.option.kind': 'which auxiliary: folios (voucher folios) or accounts (account and sub-account); no default',
+  'help.e_accounting.request.option.period':
+    'period to declare: 2026-02, its name, or the fiscal period id; with --closing, the fiscal year (2026)',
+  'help.e_accounting.request.option.request_type':
+    'the request the file answers (TipoSolicitud): AF audit, FC compulsory check, DE refund, CO offset; no default',
+  'help.e_accounting.request.option.order_number': 'audit order number (NumOrden), required with AF and FC: ABC1234567/26',
+  'help.e_accounting.request.option.procedure_number': 'filing number (NumTramite), required with DE and CO: DE202600000009',
+  'help.e_accounting.request.option.dry_run': 'build it and show the verdict; archive nothing and write no file',
+  'help.e_accounting.request.option.output': 'write the XML to this path (the artifact store keeps its own copy)',
+  'help.e_accounting.request.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'e_accounting.request.type_missing':
+    'Say which request the file answers with --request-type ({types}). Vouchers and auxiliaries are delivered on request, never on your own, and the file states which request it answers: there is no default.',
+  'e_accounting.period.missing':
+    'Say which month: --period YYYY-MM (or its name or id), or --closing for month 13 of the fiscal year.',
+  'e_accounting.subledger.kind_missing':
+    'Say which auxiliary with --kind: folios (voucher folios) or accounts (account and sub-account). There is no default: delivering the wrong one does not answer the request.',
+  'e_accounting.subledger.kind_unknown': '--kind "{value}" does not exist: use folios or accounts.',
+  'e_accounting.target.dry_run': '(dry run: nothing was written)',
+  'e_accounting.target.not_written': '(not written: the file is blocked)',
+  'e_accounting.request.type_unknown':
+    'TipoSolicitud "{value}" does not exist. The Anexo 24 accepts {types}: AF audit, FC compulsory check, DE refund, CO offset. There is no default.',
+  'e_accounting.request.order_missing':
+    'TipoSolicitud {type} needs --order-number (NumOrden): the number of the audit order that asked for this file.',
+  'e_accounting.request.order_not_filing':
+    'TipoSolicitud {type} takes --order-number, not --procedure-number: both would say the file answers an audit and a refund or offset at once.',
+  'e_accounting.request.filing_missing':
+    'TipoSolicitud {type} needs --procedure-number (NumTramite): the number of the refund or offset filing this file supports.',
+  'e_accounting.request.filing_not_order': 'TipoSolicitud {type} takes --procedure-number, not --order-number.',
+  'e_accounting.request.order_shape':
+    'NumOrden "{value}" does not have the SAT format: three letters, seven digits, a slash and two digits (ABC1234567/26). Any other value makes the schema reject the whole file.',
+  'e_accounting.request.filing_shape':
+    'NumTramite "{value}" does not have the SAT format: two letters and twelve digits (DE202600000009). Any other value makes the schema reject the whole file.',
+  'e_accounting.target.store': '(artifact store)',
+  'e_accounting.target.label': 'target {target}',
+  'e_accounting.sealing.declared':
+    'The firm declared "{policy}" in efirma_sellado_contabilidad_electronica, and this command does not seal: the file comes out without Sello, noCertificado or Certificado.',
+  'e_accounting.dry_run.done': '--dry-run: nothing was archived and no file was written.',
+  'e_accounting.archive.already_there':
+    'These same bytes were already archived: no new version was created. The generator is deterministic.',
+  'e_accounting.voucher.title': 'Vouchers {month}/{year}',
+  'e_accounting.voucher.summary':
+    '{vouchers, plural, one {# voucher} other {# vouchers}}, {traced} with payment trace · debit {debit} · credit {credit}',
+  'e_accounting.voucher.blocked':
+    'No deliverable file was produced: {blocking, plural, one {# blocking finding} other {# blocking findings}} above, each with its voucher number. Fix them and generate again.',
+  'e_accounting.subledger.title_folios': 'Voucher-folio auxiliary {month}/{year}',
+  'e_accounting.subledger.title_accounts': 'Account auxiliary {month}/{year}',
+  'e_accounting.subledger.summary':
+    '{vouchers, plural, one {# voucher} other {# vouchers}} · {lines, plural, one {# line} other {# lines}}',
 
   // --- payslip · recibo and imss sua export (MNE-001-070) -----------------
   'payslip.run_required': 'Missing --run: name the pay run whose paychecks you want (`pay-run create` printed its id).',

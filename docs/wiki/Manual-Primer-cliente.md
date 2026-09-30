@@ -262,17 +262,17 @@ Es una póliza normal, con tantos renglones como cuentas con saldo tenga el clie
 <cuenta>:<debit|credit>:<importe>[:descripción]
 ```
 
-Ojo con dos cosas: el separador es **dos puntos**, y el lado se escribe en inglés, `debit` o `credit`. **`cargo` y `abono` no se aceptan**, aunque sean las palabras del oficio.
+Cada renglón es `clave=valor` separado por **punto y coma**, como en `invoice` y `bill`. El lado se escribe `cargo=`/`abono=` o `debit=`/`credit=`: son la misma clave. El atajo posicional `1100:debit:250000.00:texto` se sigue aceptando.
 
 ```bash
 npm run mnemosine -- entry create \
   --date 2025-12-31 \
   --type standard \
   --description "Saldos iniciales al 31/12/2025" \
-  --line "1100:debit:250000.00:Caja y bancos" \
-  --line "1200:debit:480000.00:Clientes" \
-  --line "2100:credit:310000.00:Proveedores" \
-  --line "3200:credit:420000.00:Resultado de ejercicios anteriores"
+  --line "account=1100;cargo=250000.00;description=Caja y bancos" \
+  --line "account=1200;cargo=480000.00;description=Clientes" \
+  --line "account=2100;abono=310000.00;description=Proveedores" \
+  --line "account=3200;abono=420000.00;description=Resultado de ejercicios anteriores"
 ```
 
 Si son muchos renglones, `entry create` también acepta `--file <ruta>` con un documento JSON que lleva fecha, tipo, descripción y renglones.
