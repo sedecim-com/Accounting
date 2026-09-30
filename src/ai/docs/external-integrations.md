@@ -2,8 +2,15 @@
 
 ## What it is
 API connection to other accounting systems to ACQUIRE their data and keep
-supervised synchrony. Available: **contalink** (requires `CONTALINK_API_KEY`
-in .env; the human requests it in Contalink → API Configuration).
+supervised synchrony. Available: **contalink**. The key belongs to ONE entity
+and to its RFC (ADR-0004: one writer per Contalink company): each entity reads
+and writes only with the key registered for it, which lives in the vault. With
+no key, or with a key registered for another RFC, every read, queue and
+execution for that entity is refused before any call to Contalink. The
+human registers the key with `mnemosine init --section import` (option 1);
+the RFC is their attestation of the company it opens, re-checked against
+the entity's current RFC at every use. An approved op refused for a missing
+key goes back to pending with the reason, ready to approve again.
 
 ## Safety rule
 Direct READS with your tools; WRITES to the external system ALWAYS
@@ -16,8 +23,11 @@ When you report the result of `mnemosine outbox run --live`, its exit code says
 what to do next and you should say it too: **8** = the remote service failed or
 was unreachable — transient, running it again is reasonable; **9** = the remote
 service REFUSED (bad credentials, a rejected payload, its own `status: 0`) —
-retrying unchanged will refuse again, so something has to change first. Any
-other non-zero is a local failure, not the provider's.
+retrying unchanged will refuse again, so something has to change first. **5**
+= blocked before any call: this entity has no usable key (none, or one for
+another RFC); the op is back in pending with the reason, and the human must
+register the key before approving it again. Any other non-zero is a local
+failure, not the provider's.
 
 ## Your tools
 - external_pull {provider, resource}: trial_balance (start/end), account_balance

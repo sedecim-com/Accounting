@@ -121,7 +121,7 @@ describe('el arranque a mitad de mes', () => {
     expect(porDias).toHaveLength(porMeses.length + 1);
   });
 
-  it('por días, la convención por defecto es la proporcional (NIF A-2)', () => {
+  it('por días, la convención por defecto es la proporcional (NIF A-1, cap. 20)', () => {
     const conDefecto = calcularAmortizacion(alta);
     const explicita = calcularAmortizacion({ ...alta, convencion: 'proporcional_dias' });
     expect(conDefecto).toEqual(explicita);

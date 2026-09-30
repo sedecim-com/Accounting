@@ -80,7 +80,7 @@ export interface AmortizationInput {
   inicio: Date;
   /** Último día CUBIERTO por el anticipo, a medianoche local. Inclusive. */
   fin: Date;
-  /** Por omisión, por días: es lo que dice el postulado de devengo (NIF A-2). */
+  /** Por omisión, por días: es lo que dice el postulado de devengo (NIF A-1, cap. 20). */
   convencion?: ConvencionAmortizacion;
 }
 
