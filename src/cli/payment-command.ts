@@ -278,14 +278,17 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       }
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      // By name or id, scoped to the entity in the SQL (#327): a raw name used to
+      // reach the INSERT and surface Postgres' uuid syntax error. The name is
+      // echoed because a fragment may match an account the operator did not mean.
+      const bank = opts.bank ? await resolverCuentaBancaria(ctx.entityId, opts.bank) : null;
+      if (bank) process.stderr.write(deps.palette.dim(`Bank account: ${bank.account_name}\n`));
       const entrada: EntradaPago = {
         entityId: ctx.entityId,
         paymentAmount: opts.amount,
         paymentDate: opts.date ?? hoy(),
         paymentMethod: opts.method,
-        // By name or id, scoped to the entity in the SQL (#327): a raw name used to
-        // reach the INSERT and surface Postgres' uuid syntax error.
-        bankAccountId: opts.bank ? (await resolverCuentaBancaria(ctx.entityId, opts.bank)).id : null,
+        bankAccountId: bank?.id ?? null,
         memo: opts.memo ?? null,
         checkNumber: opts.checkNumber ?? null,
         cuentaDestino: opts.toAccount ?? null,
@@ -319,7 +322,9 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         moneda: target.currency_code,
         pregunta: (d) =>
           `Record ${opts.amount} ${target.currency_code} paid on ${target.bill_number} ` +
-          `(${d.saldoAnterior} → ${d.saldoNuevo}) in ${ctx.entityName}? This posts to the ledger.`,
+          `(${d.saldoAnterior} → ${d.saldoNuevo})` +
+          (bank ? ` from ${bank.account_name}` : '') +
+          ` in ${ctx.entityName}? This posts to the ledger.`,
         confirmOrAbort,
       });
     })

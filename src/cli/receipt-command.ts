@@ -363,15 +363,18 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         const aplicar = opts.onAccount ? Decimal.min(monto, saldo) : monto;
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        // By name or id, scoped to the entity in the SQL (#327): a raw name used to
+        // reach the INSERT and surface Postgres' uuid syntax error. The name is
+        // echoed because a fragment may match an account the operator did not mean.
+        const bank = opts.bank ? await resolverCuentaBancaria(ctx.entityId, opts.bank) : null;
+        if (bank) process.stderr.write(p.dim(`Bank account: ${bank.account_name}\n`));
         const entrada: EntradaPago = {
           entityId: ctx.entityId,
           counterpartyId: target.customer_id,
           paymentAmount: opts.amount,
           paymentDate: fechaDelCobro,
           paymentMethod: opts.method,
-          // By name or id, scoped to the entity in the SQL (#327): a raw name used to
-          // reach the INSERT and surface Postgres' uuid syntax error.
-          bankAccountId: opts.bank ? (await resolverCuentaBancaria(ctx.entityId, opts.bank)).id : null,
+          bankAccountId: bank?.id ?? null,
           referenceNumber: opts.reference ?? null,
           applications: aplicar.greaterThan(0)
             ? [{ documentId: target.id, amountApplied: aplicar.toFixed(2) }]
@@ -394,6 +397,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           `Record ${opts.amount} ${target.currency_code} collected on ${target.invoice_number}` +
             (doc ? ` (${doc.saldoAnterior} → ${doc.saldoNuevo})` : '') +
             (remanente.greaterThan(0) ? ` with ${remanente.toFixed(2)} left on account` : '') +
+            (bank ? ` into ${bank.account_name}` : '') +
             ` in ${ctx.entityName}? This posts to the ledger.`
         );
 

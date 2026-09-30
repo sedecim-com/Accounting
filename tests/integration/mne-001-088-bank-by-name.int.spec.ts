@@ -11,6 +11,7 @@ import { createBill, approveBill } from '../../src/services/ap/bill-service.js';
 import { registerReceiptCommand } from '../../src/cli/receipt-command.js';
 import { registerPaymentCommands } from '../../src/cli/payment-command.js';
 import { exitCodeFor } from '../../src/cli/kernel/index.js';
+import { recordVendorPayment, recordCustomerPayment } from '../../src/services/payments/payment-service.js';
 
 // ============================================================
 // MNE-001-088 (#327) · `--bank` ACCEPTS THE ACCOUNT NAME.
@@ -31,6 +32,7 @@ let customerId: string;
 let vendorId: string;
 let bankId: string;
 let foreignBankId: string;
+let exactBankId: string;
 
 const plain = {
   dim: (s: string) => s, bold: (s: string) => s, cyan: (s: string) => s,
@@ -66,12 +68,28 @@ async function run(argv: string[]): Promise<{ exitCode?: number; err: string }> 
   return { exitCode, err: err.join('') };
 }
 
-async function bankAccount(fixture: Fixture, name: string): Promise<string> {
+async function bankAccount(
+  fixture: Fixture, name: string, currency = 'MXN', active = true
+): Promise<string> {
+  // Each bank account owns its GL account (uq_bank_accounts_gl): the first one
+  // takes the `banco` role's, the rest get a subaccount of their own.
+  const taken = await query<{ n: string }>(
+    'SELECT count(*)::text AS n FROM bank_accounts WHERE entity_id = $1', [fixture.entityId]
+  );
+  let gl = fixture.roles.banco;
+  if (taken.rows[0].n !== '0') {
+    gl = uuidv4();
+    await query(
+      `INSERT INTO accounts (id, code, name, account_type, fs_category, entity_id, normal_balance, created_by)
+       VALUES ($1, $2, $3, 'asset', 'current_assets', $4, 'debit', $5)`,
+      [gl, `11${taken.rows[0].n.padStart(2, '0')}9`, `Banco ${name}`, fixture.entityId, fixture.userId]
+    );
+  }
   const id = uuidv4();
   await query(
     `INSERT INTO bank_accounts (id, entity_id, account_name, bank_name, gl_account_id, currency_code, is_active)
-     VALUES ($1, $2, $3, 'BBVA', $4, 'MXN', true)`,
-    [id, fixture.entityId, name, fixture.roles.banco]
+     VALUES ($1, $2, $3, 'BBVA', $4, $5, $6)`,
+    [id, fixture.entityId, name, gl, currency, active]
   );
   return id;
 }
@@ -115,6 +133,16 @@ const billPayments = async (docNumber: string) =>
     [docNumber, f.entityId]
   )).rows;
 
+const invoicePayments = async (docNumber: string) =>
+  (await query<{ bank_account_id: string | null }>(
+    `SELECT cp.bank_account_id
+       FROM customer_payments cp
+       JOIN payment_allocations pa ON pa.payment_id = cp.id
+       JOIN invoices i ON i.id = pa.invoice_id
+      WHERE i.invoice_number = $1 AND cp.entity_id = $2`,
+    [docNumber, f.entityId]
+  )).rows;
+
 beforeAll(async () => {
   f = await crearInquilino('MNE-001-088 · --bank by name');
   other = await crearInquilino('MNE-001-088 · another tenant');
@@ -130,6 +158,11 @@ beforeAll(async () => {
   vendorId = vendor.id as string;
   bankId = await bankAccount(f, 'BBVA Operativa');
   foreignBankId = await bankAccount(other, 'BBVA Ajena');
+  // The common Mexican setup: one bank, a peso and a dollar account, where the
+  // first account's full name is a substring of the second's.
+  exactBankId = await bankAccount(f, 'BBVA');
+  await bankAccount(f, 'BBVA USD', 'USD');
+  await bankAccount(f, 'Santander Cerrada', 'MXN', false);
 }, 60_000);
 
 afterAll(async () => {
@@ -144,6 +177,37 @@ describe('payment create --bank', () => {
     expect(r.exitCode, r.err).toBe(0);
     expect(r.err).not.toContain('invalid input syntax');
     expect(await billPayments(docNumber)).toEqual([{ bank_account_id: bankId }]);
+  });
+
+  it("an exact name wins over another account's name that contains it", async () => {
+    const docNumber = await approvedBill();
+    const r = await run(['payment', 'create', docNumber, '--amount', '1000', '--bank', 'BBVA']);
+    expect(r.exitCode, r.err).toBe(0);
+    expect(await billPayments(docNumber)).toEqual([{ bank_account_id: exactBankId }]);
+  });
+
+  it('a fragment that resolves names the account it chose', async () => {
+    const docNumber = await approvedBill();
+    const r = await run(['payment', 'create', docNumber, '--amount', '1000', '--bank', 'Operativa']);
+    expect(r.exitCode, r.err).toBe(0);
+    expect(r.err).toContain('Bank account: BBVA Operativa');
+    expect(await billPayments(docNumber)).toEqual([{ bank_account_id: bankId }]);
+  });
+
+  it('LIKE wildcards in the name are literal, not patterns', async () => {
+    const docNumber = await approvedBill();
+    const r = await run(['payment', 'create', docNumber, '--amount', '1000', '--bank', 'BBVA_Operativa']);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.err).toContain('BBVA_Operativa');
+    expect(await billPayments(docNumber)).toEqual([]);
+  });
+
+  it('an inactive account takes no new payment', async () => {
+    const docNumber = await approvedBill();
+    const r = await run(['payment', 'create', docNumber, '--amount', '1000', '--bank', 'Santander']);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.err).toContain('inactiva');
+    expect(await billPayments(docNumber)).toEqual([]);
   });
 
   it('an unknown name is a not-found, not a Postgres error, and writes nothing', async () => {
@@ -168,22 +232,67 @@ describe('receipt record --bank', () => {
     const docNumber = await issuedInvoice();
     const r = await run(['receipt', 'record', docNumber, '--amount', '1000', '--bank', 'BBVA Operativa']);
     expect(r.exitCode, r.err).toBe(0);
-    const payments = await query<{ bank_account_id: string | null }>(
-      `SELECT cp.bank_account_id
-         FROM customer_payments cp
-         JOIN payment_allocations pa ON pa.payment_id = cp.id
-         JOIN invoices i ON i.id = pa.invoice_id
-        WHERE i.invoice_number = $1 AND cp.entity_id = $2`,
-      [docNumber, f.entityId]
-    );
-    expect(payments.rows).toEqual([{ bank_account_id: bankId }]);
+    expect(r.err).toContain('Bank account: BBVA Operativa');
+    expect(await invoicePayments(docNumber)).toEqual([{ bank_account_id: bankId }]);
   });
 
-  it('an unknown name is a not-found, not a Postgres error', async () => {
+  it('an unknown name is a not-found, not a Postgres error, and writes nothing', async () => {
     const docNumber = await issuedInvoice();
     const r = await run(['receipt', 'record', docNumber, '--amount', '1000', '--bank', 'Banco Inexistente']);
     expect(r.exitCode).not.toBe(0);
     expect(r.err).not.toContain('invalid input syntax');
     expect(r.err).toContain('Banco Inexistente');
+    expect(await invoicePayments(docNumber)).toEqual([]);
+  });
+
+  it("another entity's account id does not resolve, and writes nothing", async () => {
+    const docNumber = await issuedInvoice();
+    const r = await run(['receipt', 'record', docNumber, '--amount', '1000', '--bank', foreignBankId]);
+    expect(r.exitCode).not.toBe(0);
+    expect(await invoicePayments(docNumber)).toEqual([]);
+  });
+
+  it("an exact name wins over another account's name that contains it", async () => {
+    const docNumber = await issuedInvoice();
+    const r = await run(['receipt', 'record', docNumber, '--amount', '1000', '--bank', 'BBVA']);
+    expect(r.exitCode, r.err).toBe(0);
+    expect(await invoicePayments(docNumber)).toEqual([{ bank_account_id: exactBankId }]);
+  });
+
+  it('an inactive account takes no new receipt', async () => {
+    const docNumber = await issuedInvoice();
+    const r = await run(['receipt', 'record', docNumber, '--amount', '1000', '--bank', 'Santander']);
+    expect(r.exitCode).not.toBe(0);
+    expect(await invoicePayments(docNumber)).toEqual([]);
+  });
+});
+
+// The CLI is one caller; REST hands `bank_account_id` straight to the service.
+// The scope has to fail closed there too, before anything is written.
+describe('the payment services refuse a bank account of another entity', () => {
+  it('recordVendorPayment', async () => {
+    const docNumber = await approvedBill();
+    const bill = await query<{ id: string }>(
+      'SELECT id FROM bills WHERE bill_number = $1 AND entity_id = $2', [docNumber, f.entityId]
+    );
+    await expect(recordVendorPayment({
+      entityId: f.entityId, paymentAmount: '1000.00', paymentDate: '2026-07-20',
+      paymentMethod: 'spei', bankAccountId: foreignBankId,
+      applications: [{ documentId: bill.rows[0].id, amountApplied: '1000.00' }],
+    }, f.userId)).rejects.toThrow(/Bank Account/);
+    expect(await billPayments(docNumber)).toEqual([]);
+  });
+
+  it('recordCustomerPayment', async () => {
+    const docNumber = await issuedInvoice();
+    const inv = await query<{ id: string }>(
+      'SELECT id FROM invoices WHERE invoice_number = $1 AND entity_id = $2', [docNumber, f.entityId]
+    );
+    await expect(recordCustomerPayment({
+      entityId: f.entityId, paymentAmount: '1000.00', paymentDate: '2026-07-20',
+      paymentMethod: 'spei', bankAccountId: foreignBankId,
+      applications: [{ documentId: inv.rows[0].id, amountApplied: '1000.00' }],
+    }, f.userId)).rejects.toThrow(/Bank Account/);
+    expect(await invoicePayments(docNumber)).toEqual([]);
   });
 });
