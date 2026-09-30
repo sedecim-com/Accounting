@@ -5,6 +5,8 @@ import { crearInquilino, crearEntidadHermana, type Fixture } from './helpers/ten
 import { setVaultForTesting, type SecretContext, type SecretVault } from '../../src/services/vault/index.js';
 import {
   storeExternalCredential,
+  hasExternalCredential,
+  withExternalCredential,
   ExternalCredentialError,
 } from '../../src/services/integrations/accounting/entity-credentials.js';
 import { executeExternalOp, queueExternalOp } from '../../src/ai/external-service.js';
@@ -75,7 +77,9 @@ beforeAll(async () => {
       if (ref.ref !== vaultName(ctx)) throw new Error('vault context mismatch');
       return Buffer.from(vaultBlobs.get(ref.ref)!);
     },
-    destroy: async () => undefined,
+    destroy: async (_ctx: SecretContext, ref: { ref: string }) => {
+      vaultBlobs.delete(ref.ref);
+    },
     healthCheck: async () => ({ healthy: true }),
   } as SecretVault);
   vi.stubGlobal('fetch', async (url: string, init: { headers: Record<string, string> }) => {
@@ -96,13 +100,15 @@ afterAll(async () => {
 });
 
 describe('MNE-001-121 · the Contalink key is bound to its entity and its RFC', () => {
-  it('without a key, the approved op fails BEFORE any call to Contalink and says what is missing', async () => {
+  it('without a key, the approved op is refused BEFORE any call to Contalink, says what is missing, and stays pending', async () => {
     const id = await insertPendingOp(a);
     await expect(executeExternalOp(ctxOf(a, RFC_A), id, 'reviewer@test')).rejects.toThrow(/no contalink key registered/);
     expect(calls).toEqual([]);
     const row = await opRow(id);
-    expect(row.status).toBe('failed');
-    expect(row.error).toMatch(/no contalink key registered/);
+    // A configuration gap does not spend the approval: once the key is
+    // registered the same op can be approved again, no re-queue needed.
+    expect(row.status).toBe('pending');
+    expect(row.error).toMatch(/Refused before calling contalink: .*no contalink key registered/);
   });
 
   it('refuses to register a key declared for another RFC, before it reaches the vault', async () => {
@@ -157,9 +163,54 @@ describe('MNE-001-121 · the Contalink key is bound to its entity and its RFC', 
       await expect(executeExternalOp(ctxOf(a, 'XAXX010101000'), id, 'reviewer@test'))
         .rejects.toThrow(new RegExp(`registered for RFC ${RFC_A}.*entity's RFC is XAXX010101000`));
       expect(calls).toEqual([]);
-      expect((await opRow(id)).status).toBe('failed');
+      expect((await opRow(id)).status).toBe('pending');
+      // The metadata check agrees: a key left behind by the RFC change is not usable.
+      expect(await hasExternalCredential(a, 'contalink')).toBe(false);
     } finally {
       await query('UPDATE legal_entities SET tax_id = $1 WHERE id = $2 AND tenant_id = $3', [RFC_A, a.entityId, a.tenantId]);
     }
+  });
+
+  it('a replacement revokes the old row, keeps it as history and destroys only ITS secret', async () => {
+    const before = vaultBlobs.size;
+    const first = await query<{ id: string }>(
+      `SELECT id FROM external_system_credentials WHERE entity_id = $1 AND tenant_id = $2 AND status = 'active'`,
+      [b.entityId, b.tenantId]
+    );
+    await storeExternalCredential({
+      tenantId: b.tenantId, entityId: b.entityId, provider: 'contalink',
+      rfc: RFC_B, apiKey: Buffer.from('test-key-company-b-rotated'), registeredBy: 'owner@test',
+    });
+    const rows = await query<{ id: string; status: string; vault_ref: string }>(
+      `SELECT id, status, vault_ref FROM external_system_credentials
+       WHERE entity_id = $1 AND tenant_id = $2 ORDER BY created_at`,
+      [b.entityId, b.tenantId]
+    );
+    expect(rows.rows.map((r) => r.status)).toEqual(['revoked', 'active']);
+    expect(rows.rows[0].id).toBe(first.rows[0].id);
+    // Each registration has its own secret; the revoked one is gone, the new one is there.
+    expect(rows.rows[0].vault_ref).not.toBe(rows.rows[1].vault_ref);
+    expect(vaultBlobs.has(rows.rows[0].vault_ref)).toBe(false);
+    expect(vaultBlobs.get(rows.rows[1].vault_ref)?.toString()).toBe('test-key-company-b-rotated');
+    expect(vaultBlobs.size).toBe(before);
+    // Entity A's secret is untouched.
+    expect(await withExternalCredential(a, 'contalink', (k) => k)).toBe(KEY_A);
+  });
+
+  it('an entity of ANOTHER tenant is not reachable under this tenant\'s ref', async () => {
+    const other = await crearInquilino('MNE-001-121 other tenant');
+    await query('UPDATE legal_entities SET tax_id = $1 WHERE id = $2 AND tenant_id = $3', [RFC_A, other.entityId, other.tenantId]);
+    await storeExternalCredential({
+      tenantId: other.tenantId, entityId: other.entityId, provider: 'contalink',
+      rfc: RFC_A, apiKey: Buffer.from('test-key-other-tenant'), registeredBy: 'owner@test',
+    });
+    const foreign = { tenantId: a.tenantId, entityId: other.entityId };
+    expect(await hasExternalCredential(foreign, 'contalink')).toBe(false);
+    await expect(withExternalCredential(foreign, 'contalink', (k) => k)).rejects.toThrow(ExternalCredentialError);
+    // Nor can tenant A register a key for the other tenant's entity.
+    await expect(storeExternalCredential({
+      ...foreign, provider: 'contalink', rfc: RFC_A, apiKey: Buffer.from('x'), registeredBy: 'owner@test',
+    })).rejects.toThrow(/does not exist in this tenant/);
+    expect(await withExternalCredential(other, 'contalink', (k) => k)).toBe('test-key-other-tenant');
   });
 });

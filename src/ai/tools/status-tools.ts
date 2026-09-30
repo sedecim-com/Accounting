@@ -119,8 +119,10 @@ export async function getEntityStatus(ctx: AgentContext): Promise<EntityStatus> 
        (SELECT count(*)::text FROM vendors WHERE entity_id = $1 AND is_active) AS vendors,
        (SELECT count(*)::text FROM fiscal_credentials
          WHERE entity_id = $1 AND status = 'active') AS creds,
-       (SELECT count(*)::text FROM external_system_credentials
-         WHERE entity_id = $1 AND status = 'active') AS external_creds`,
+       (SELECT count(*)::text FROM external_system_credentials c
+         JOIN legal_entities le ON le.id = c.entity_id AND le.tenant_id = c.tenant_id
+         WHERE c.entity_id = $1 AND c.status = 'active' AND le.tax_id_type = 'rfc'
+           AND upper(trim(c.rfc)) = upper(trim(le.tax_id))) AS external_creds`,
     [ctx.entityId]
   );
   const row = r.rows[0];
@@ -159,7 +161,8 @@ export async function getEntityStatus(ctx: AgentContext): Promise<EntityStatus> 
     customers: n('customers'),
     vendors: n('vendors'),
     fiscal_credentials_active: n('creds'),
-    // The entity's own key (#357), not a process-wide one.
+    // The entity's own key (#357) for its CURRENT RFC: a key left behind by
+    // an RFC change is refused at every use, so it does not count here.
     external_accounting_configured: n('external_creds') > 0,
   };
 }

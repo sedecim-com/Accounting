@@ -21,7 +21,11 @@ import {
   type SessionCallbacks,
 } from '../../ai/providers/index.js';
 import { resolveIngestThresholds } from '../../ai/providers/config.js';
-import { hasExternalCredential } from '../../services/integrations/accounting/entity-credentials.js';
+import {
+  hasExternalCredential,
+  storeExternalCredential,
+} from '../../services/integrations/accounting/entity-credentials.js';
+import { zeroize } from '../../services/vault/index.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
@@ -37,8 +41,9 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 //      pipeline, auto-post OFF: everything lands as drafts.
 //   3. Start fresh — the default. Never surprise-import.
 // Everything lands as reviewable drafts; nothing posts without a
-// human. No secrets are prompted here: the Contalink key belongs to
-// the entity and lives in the vault (#357), never in the config.
+// human. The one secret asked here is the entity's own Contalink key
+// (hidden echo, straight to the vault, #357); it never touches the
+// config, the database or the output.
 // ============================================================
 
 /** First-run cap so an accidental point at a huge folder stays reviewable. */
@@ -89,8 +94,10 @@ export interface ImportSectionDeps {
     ctx: AgentContext,
     callbacks: SessionCallbacks
   ) => Promise<LlmSession>;
-  /** Whether the entity has its own key for the provider (injectable for tests). */
+  /** Whether the entity has a usable key of its own for the provider (injectable for tests). */
   hasCredential?: (entity: AgentContext, provider: string) => Promise<boolean>;
+  /** Registers the entity's key in the vault (injectable for tests). */
+  storeCredential?: typeof storeExternalCredential;
   /** Lists *.xml files in a folder, absolute paths (injectable for tests). */
   listXmlFiles?: (dir: string) => string[];
 }
@@ -153,6 +160,7 @@ export class ImportSection implements SetupSection {
       resolveProfile: deps.resolveProfile ?? resolveProfile,
       createSession: deps.createSession ?? defaultCreateSession,
       hasCredential: deps.hasCredential ?? hasExternalCredential,
+      storeCredential: deps.storeCredential ?? storeExternalCredential,
       listXmlFiles: deps.listXmlFiles ?? defaultListXmlFiles,
     };
   }
@@ -235,14 +243,7 @@ export class ImportSection implements SetupSection {
       (await ctx.askText('  External system (contalink): ', 'contalink')) ?? 'contalink';
 
     if (!(await this.deps.hasCredential(entity, provider))) {
-      // The key is the entity's own (ADR-0004): no process-wide key reads
-      // another company's catalog. Say what is missing and where to resume.
-      ctx.print('');
-      ctx.print(`  ${entity.entityName} has no ${provider} key registered yet.`);
-      ctx.print('  Each entity reads and writes only with the key of its own company (same RFC).');
-      ctx.print('  Once the key is registered, re-run: mnemosine init --section import');
-      ctx.print('  Section left incomplete for now.');
-      return;
+      if (!(await this.registerKey(ctx, entity, provider))) return;
     }
 
     const cutoff = await ctx.askText('  Cutoff date, balances as of YYYY-MM-DD: ');
@@ -308,6 +309,57 @@ export class ImportSection implements SetupSection {
       ctx.print(`  Import failed: ${err instanceof Error ? err.message : String(err)}`);
       ctx.print('  Retry with full control: mnemosine onboard --help');
     }
+  }
+
+  /**
+   * The entity has no usable key: ask for it here (hidden echo) and register
+   * it for the entity's own RFC. The RFC is the registrant's attestation of
+   * which Contalink company the key opens (ADR-0004: one writer per RFC), so
+   * it is named before asking and confirmed after. True when a key is now
+   * registered; false leaves the section incomplete with the way back.
+   */
+  private async registerKey(
+    ctx: SectionContext,
+    entity: AgentContext,
+    provider: string
+  ): Promise<boolean> {
+    const resume = () => {
+      ctx.print('  Section left incomplete. Re-run to register it: mnemosine init --section import');
+      return false;
+    };
+    ctx.print('');
+    ctx.print(`  ${entity.entityName} has no usable ${provider} key yet.`);
+    ctx.print('  Each entity reads and writes only with the key of its own company (same RFC).');
+    ctx.print(`  In ${provider}: open the company with RFC ${entity.taxId} → API Configuration.`);
+    const typed = await ctx.askSecret(`  ${provider} API key for RFC ${entity.taxId} (Enter to skip): `);
+    if (!typed?.trim()) return resume();
+    const apiKey = Buffer.from(typed.trim(), 'utf8');
+    try {
+      const attested = await ctx.confirm(
+        `  This key opens the ${provider} company with RFC ${entity.taxId}, and no other?`,
+        false
+      );
+      if (!attested) {
+        ctx.print('  Not registered: a key for another company would write into its books.');
+        return resume();
+      }
+      const reviewer = await this.deps.resolveReviewer(entity.tenantId, ctx.flags.user);
+      await this.deps.storeCredential({
+        tenantId: entity.tenantId,
+        entityId: entity.entityId,
+        provider,
+        rfc: entity.taxId,
+        apiKey,
+        registeredBy: reviewer.email,
+      });
+    } catch (err) {
+      ctx.print(`  Could not register the key: ${err instanceof Error ? err.message : String(err)}`);
+      return resume();
+    } finally {
+      zeroize(apiKey);
+    }
+    ctx.print(`  ✔ ${provider} key registered for RFC ${entity.taxId} (kept in the vault).`);
+    return true;
   }
 
   /** [2] Folder of CFDIs through the existing ingest pipeline, auto-post OFF. */

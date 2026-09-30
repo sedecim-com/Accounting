@@ -5,7 +5,11 @@ import { query } from '../database/connection.js';
 import { ExternalRejectedError, ExternalServiceError } from '../utils/errors.js';
 import { FLOOR_MAX_OP_AGE_DAYS, isOpStale } from './floor.js';
 import { matchApproval, type MatchApprovalOpts } from './approval-policy.js';
-import { getExternalAdapter } from '../services/integrations/accounting/registry.js';
+import {
+  assertExternalAdapterUsable,
+  getExternalAdapter,
+} from '../services/integrations/accounting/registry.js';
+import { ExternalCredentialError } from '../services/integrations/accounting/entity-credentials.js';
 import type {
   ExternalTrialBalanceRow,
   ManualPolicyInput,
@@ -175,9 +179,11 @@ export async function queueExternalOp(
     userRequest?: string;
   }
 ): Promise<string> {
-  // Validate that the provider exists and that THIS entity has its key
-  // BEFORE queueing, so the AI receives the configuration error immediately.
-  await getExternalAdapter(ctx, input.provider);
+  // Validate that the provider exists and that THIS entity has a usable key
+  // (active, for its current RFC) BEFORE queueing, so the AI receives the
+  // configuration error immediately. Metadata only: the key itself is read
+  // from the vault when the approved op executes, not now.
+  await assertExternalAdapterUsable(ctx, input.provider);
 
   const id = uuidv4();
   await query(
@@ -326,8 +332,8 @@ export async function executeExternalOp(
   let result: Record<string, unknown>;
   try {
     // The key is resolved for the op's own entity at execution time: a
-    // missing or foreign-RFC key fails here, before any call to the
-    // external system, and the op is marked failed with the reason.
+    // missing or foreign-RFC key is refused here, before any call to the
+    // external system (see the ExternalCredentialError branch below).
     const adapter = await getExternalAdapter(ctx, op.provider);
     const p = op.payload;
     switch (op.operation) {
@@ -352,6 +358,19 @@ export async function executeExternalOp(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof ExternalCredentialError) {
+      // Pre-flight configuration refusal: nothing reached the external
+      // system, so the op is not 'failed'. Our claim returns to 'pending'
+      // (guarded, like the drift path) with the reason, and once a human
+      // registers the entity's key the same op can be approved again
+      // without being re-queued. The 423 survives so a cron sees BLOCKED.
+      await query(
+        `UPDATE ai_external_ops SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, error = $1
+         WHERE id = $2 AND entity_id = $3 AND status = 'executing'`,
+        [`Refused before calling ${op.provider}: ${message}`, opId, ctx.entityId]
+      );
+      throw err;
+    }
     // Guarded failure transition: only OUR 'executing' claim may become
     // 'failed'. If the guard misses, the row was concurrently recovered
     // (mnemosine outbox) — the recovered status is left untouched; we
@@ -384,7 +403,7 @@ export async function executeExternalOp(
   // reconciles manually (the external write DID land).
   const done = await query(
     `UPDATE ai_external_ops
-     SET status = 'executed', result = $1::jsonb, approved_content_hash = $2
+     SET status = 'executed', result = $1::jsonb, approved_content_hash = $2, error = NULL
      WHERE id = $3 AND entity_id = $4 AND status = 'executing'`,
     [JSON.stringify(result), contentHash, opId, ctx.entityId]
   );

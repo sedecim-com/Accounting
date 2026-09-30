@@ -141,7 +141,11 @@ describe('getEntityStatus — payload for guidance', () => {
     mockCounts({ external_creds: '0' });
     expect((await getEntityStatus(CTX)).external_accounting_configured).toBe(false);
     const [sql] = mockQuery.mock.calls[0];
-    expect(String(sql)).toMatch(/FROM external_system_credentials\s+WHERE entity_id = \$1 AND status = 'active'/);
+    expect(String(sql)).toMatch(/FROM external_system_credentials c\s+JOIN legal_entities le ON le.id = c.entity_id AND le.tenant_id = c.tenant_id/);
+    expect(String(sql)).toMatch(/c.entity_id = \$1 AND c.status = 'active'/);
+    // A key registered for an RFC the entity no longer has is refused at
+    // every use, so it must not read as "configured" either.
+    expect(String(sql)).toMatch(/upper\(trim\(c.rfc\)\) = upper\(trim\(le.tax_id\)\)/);
   });
 
   it('single round-trip, scoped to the entity', async () => {

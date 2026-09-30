@@ -6,7 +6,11 @@ supervised synchrony. Available: **contalink**. The key belongs to ONE entity
 and to its RFC (ADR-0004: one writer per Contalink company): each entity reads
 and writes only with the key registered for it, which lives in the vault. With
 no key, or with a key registered for another RFC, every read, queue and
-execution for that entity is refused before any call to Contalink.
+execution for that entity is refused before any call to Contalink. The
+human registers the key with `mnemosine init --section import` (option 1);
+the RFC is their attestation of the company it opens, re-checked against
+the entity's current RFC at every use. An approved op refused for a missing
+key goes back to pending with the reason, ready to approve again.
 
 ## Safety rule
 Direct READS with your tools; WRITES to the external system ALWAYS

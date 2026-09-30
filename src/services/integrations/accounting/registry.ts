@@ -1,5 +1,9 @@
 import { ContalinkAdapter } from './contalink-adapter.js';
-import { withExternalCredential, type EntityRef } from './entity-credentials.js';
+import {
+  assertExternalCredentialUsable,
+  withExternalCredential,
+  type EntityRef,
+} from './entity-credentials.js';
 import type { IExternalAccountingAdapter } from './accounting-adapter.interface.js';
 
 // ============================================================
@@ -19,15 +23,29 @@ export function listExternalSystems(): string[] {
   return Object.keys(FACTORIES);
 }
 
-export async function getExternalAdapter(
-  entity: EntityRef,
-  name: string
-): Promise<IExternalAccountingAdapter> {
+function factoryFor(name: string): (apiKey: string) => IExternalAccountingAdapter {
   const factory = FACTORIES[name];
   if (!factory) {
     throw new Error(
       `Unknown external accounting system: "${name}". Available: ${listExternalSystems().join(', ')}`
     );
   }
-  return withExternalCredential(entity, name, factory);
+  return factory;
+}
+
+/**
+ * The adapter could be built for this entity: the system exists and the
+ * entity holds an active key for its own RFC. Reads metadata only, never
+ * the vault — for callers that validate now and call out later.
+ */
+export async function assertExternalAdapterUsable(entity: EntityRef, name: string): Promise<void> {
+  factoryFor(name);
+  await assertExternalCredentialUsable(entity, name);
+}
+
+export async function getExternalAdapter(
+  entity: EntityRef,
+  name: string
+): Promise<IExternalAccountingAdapter> {
+  return withExternalCredential(entity, name, factoryFor(name));
 }
