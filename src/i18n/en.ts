@@ -1326,19 +1326,19 @@ export const EN = {
   'policy.iva_creditable_proration.question':
     'When the entity collects exempt or non-taxed acts next to taxed ones, which proportion credits the IVA it paid: the month\'s, or the prior year\'s?',
   'policy.iva_creditable_proration.impact':
-    'It moves the creditable IVA of every month with mixed activities, and so the IVA payable. "monthly" divides the taxed acts collected in the month by all the acts collected in it; "annual" uses that proportion over the prior calendar year.',
+    'It moves the creditable IVA of every month with mixed activities, and so the IVA payable. "monthly" divides the taxed acts collected in the month by all the acts collected in it; "annual" uses that proportion over the prior calendar year. Either way the proportion multiplies all the IVA paid in the month.',
   'policy.iva_creditable_proration.rationale':
-    'LIVA art. 5 fr. V inc. d credits the IVA of goods and services used for both taxed and exempt acts in the proportion the taxed acts bear to all the acts of the month: it is the rule of the law, and it follows the entity\'s activity as it changes. Art. 5-B lets the taxpayer use the prior calendar year\'s proportion instead, but binds it to that option for sixty months, so it is an election to make on purpose, not a default.',
+    'LIVA art. 5 fr. V inc. c (inc. d num. 3 for investments) credits the IVA of what serves both taxed and exempt acts in the proportion the taxed acts bear to all the acts of the month: it is the rule of the law, and it follows the entity\'s activity as it changes. Art. 5-B, as in force since its last reform (DOF 12-11-2021), lets the taxpayer instead apply the prior calendar year\'s proportion, and binds it to that option for sixty months, so it is an election to make on purpose, not a default. The ledger does not say which expense serves only taxed acts (inc. a, credited whole) or only exempt ones (inc. b, not creditable), so the month\'s proportion is applied to all the IVA paid: that overstates the credit for an exempt-only expense and understates it for a taxed-only one, and the workpaper warns every time. Unverified assumption: the proportion is used as an exact quotient; if the Declaraciones y Pagos form captures it to a fixed number of decimals, the credit can differ by cents.',
   'policy.iva_creditable_proration.why':
-    'The law gives both proportions and the choice is the taxpayer\'s. The annual one smooths the months, and once chosen it must be kept for five years.',
+    'The law gives both proportions and the choice is the taxpayer\'s. The annual one smooths the months, and once chosen it must be kept for sixty months.',
   'policy.iva_creditable_proration.what':
-    'The monthly IVA workpaper credits the IVA paid in the month times the proportion you choose here, shows the proportion and its acts, and subtracts only the credited share. With "annual", a prior year without any collected act stops the workpaper instead of guessing a proportion.',
+    'The monthly IVA workpaper credits all the IVA paid in the month times the proportion you choose here, shows the proportion and its acts, and subtracts only the credited share. With "annual", a prior year without any collected act, or one the ledger does not hold from January, stops the workpaper instead of guessing a proportion. I do not enforce the sixty-month lock of art. 5-B: changing this answer is on you.',
   'policy.iva_creditable_proration.if_skipped':
     'I use the month\'s proportion.',
   'policy.iva_creditable_proration.option.monthly':
-    'The month\'s proportion (LIVA art. 5 fr. V inc. d)',
+    'The month\'s proportion, over all the IVA paid (LIVA art. 5 fr. V inc. c)',
   'policy.iva_creditable_proration.option.annual':
-    'The prior calendar year\'s proportion (LIVA art. 5-B)',
+    'The prior calendar year\'s proportion, over all the IVA paid (LIVA art. 5-B)',
   'policy.overtime_isr_exemption.question':
     'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
   'policy.overtime_isr_exemption.impact':

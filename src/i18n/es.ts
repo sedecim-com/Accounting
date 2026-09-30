@@ -1292,19 +1292,19 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.iva_creditable_proration.question':
     'Cuando la entidad cobra actos exentos o no objeto junto a gravados, ¿qué proporción acredita el IVA que pagó: la del mes o la del año anterior?',
   'policy.iva_creditable_proration.impact':
-    'Mueve el IVA acreditable de cada mes con actividades mixtas, y con él el IVA a pagar. "monthly" divide los actos gravados cobrados en el mes entre todos los actos cobrados en él; "annual" usa esa proporción sobre el año de calendario anterior.',
+    'Mueve el IVA acreditable de cada mes con actividades mixtas, y con él el IVA a pagar. "monthly" divide los actos gravados cobrados en el mes entre todos los actos cobrados en él; "annual" usa esa proporción sobre el año de calendario anterior. En los dos casos la proporción multiplica todo el IVA pagado del mes.',
   'policy.iva_creditable_proration.rationale':
-    'El art. 5 fr. V inc. d de la LIVA acredita el IVA de bienes y servicios que sirven a actos gravados y exentos en la proporción que los actos gravados representan en el total de actos del mes: es la regla de la ley, y sigue a la actividad de la entidad conforme cambia. El art. 5-B permite usar en su lugar la proporción del año de calendario anterior, pero obliga a mantener la opción sesenta meses, así que es una elección que se toma a propósito, no un valor por omisión.',
+    'El art. 5 fr. V inc. c de la LIVA (inc. d num. 3 para inversiones) acredita el IVA de lo que sirve a actos gravados y exentos en la proporción que los actos gravados representan en el total de actos del mes: es la regla de la ley, y sigue a la actividad de la entidad conforme cambia. El art. 5-B, vigente desde su última reforma (DOF 12-11-2021), permite aplicar en su lugar la proporción del año de calendario anterior y obliga a mantener la opción sesenta meses, así que es una elección que se toma a propósito, no un valor por omisión. El mayor no dice qué gasto sirve sólo a actos gravados (inc. a, acreditable completo) o sólo a exentos (inc. b, no acreditable), así que la proporción del mes se aplica a todo el IVA pagado: sobrestima el acreditable de un gasto sólo de exentos y subestima el de uno sólo de gravados, y el papel de trabajo lo avisa siempre. Premisa sin verificar: la proporción se usa como cociente exacto; si el formulario de Declaraciones y Pagos la captura con un número fijo de decimales, el acreditable puede diferir en centavos.',
   'policy.iva_creditable_proration.why':
-    'La ley da las dos proporciones y la elección es del contribuyente. La anual suaviza los meses, y una vez elegida se mantiene cinco años.',
+    'La ley da las dos proporciones y la elección es del contribuyente. La anual suaviza los meses, y una vez elegida se mantiene sesenta meses.',
   'policy.iva_creditable_proration.what':
-    'El papel de trabajo mensual del IVA acredita el IVA pagado en el mes por la proporción que elijas aquí, muestra la proporción y sus actos, y resta sólo la parte acreditable. Con "annual", un año anterior sin ningún acto cobrado detiene el papel de trabajo en vez de suponer una proporción.',
+    'El papel de trabajo mensual del IVA acredita todo el IVA pagado en el mes por la proporción que elijas aquí, muestra la proporción y sus actos, y resta sólo la parte acreditable. Con "annual", un año anterior sin ningún acto cobrado, o uno que el mayor no tiene desde enero, detiene el papel de trabajo en vez de suponer una proporción. No hago cumplir el candado de sesenta meses del art. 5-B: cambiar esta respuesta queda bajo tu responsabilidad.',
   'policy.iva_creditable_proration.if_skipped':
     'Uso la proporción del mes.',
   'policy.iva_creditable_proration.option.monthly':
-    'La proporción del mes (art. 5 fr. V inc. d LIVA)',
+    'La proporción del mes, sobre todo el IVA pagado (art. 5 fr. V inc. c LIVA)',
   'policy.iva_creditable_proration.option.annual':
-    'La proporción del año de calendario anterior (art. 5-B LIVA)',
+    'La proporción del año de calendario anterior, sobre todo el IVA pagado (art. 5-B LIVA)',
   'policy.overtime_isr_exemption.question':
     '¿Aplicas a las horas extra que pagas la exención de ISR del art. 93 fr. I de la LISR?',
   'policy.overtime_isr_exemption.impact':

@@ -65,11 +65,19 @@ import {
 //
 // MIXED ACTIVITIES (MNE-001-385): when the reference period collected exempt
 // or "no objeto" acts next to taxed ones, the IVA paid is credited only in the
-// proportion the taxed acts bear to all of them (LIVA art. 5 fr. V). The panel's
-// `iva_creditable_proration` picks the period: the month itself (inc. d, the
-// default) or the prior calendar year (art. 5-B). The acts are the charged
-// side's bases, read by the same `chargedOfMonth`, so the proportion and the
-// IVA charged never disagree about what was collected.
+// proportion the taxed acts bear to all of them. The panel's
+// `iva_creditable_proration` picks the period: the month itself (LIVA art. 5
+// fr. V inc. c, and inc. d num. 3 for investments; the default) or the prior
+// calendar year (art. 5-B, text in force since its last reform, DOF
+// 12-11-2021, re-read 2026-09-30). Either way the proportion multiplies ALL
+// the IVA paid: the ledger does not say which expense serves only taxed acts
+// (inc. a, credited whole) or only exempt ones (inc. b, not creditable), so
+// the month's option overstates the credit for an exempt-only expense and
+// understates it for a taxed-only one; the warning says so. The acts are the
+// charged side's bases, read by the same `chargedOfMonth`, so the proportion
+// and the IVA charged never disagree about what was collected. The prior year
+// must be in the ledger whole: a ledger that starts after January of that year
+// blocks instead of passing a few months off as the year's proportion.
 //
 // Nothing is filed: this computes a workpaper a person reviews and declares.
 // ============================================================
@@ -162,18 +170,49 @@ export interface IvaWorkpaperFigures {
 
 export interface Proration {
   method: CreditableProration;
-  /** The month (inc. d) or the prior calendar year (art. 5-B) whose acts give the proportion. */
+  /** The month (art. 5 fr. V inc. c) or the prior calendar year (art. 5-B) whose acts give the proportion. */
   reference: RangoDelMes;
   /** Bases collected at 16 %, 8 %, 0 % and any other rate. Four decimals. */
   taxedActs: string;
   /** Taxed acts plus the exempt and no objeto bases collected. Four decimals. */
   totalActs: string;
-  /** taxedActs / totalActs, shown to six decimals; the arithmetic uses the exact quotient. */
+  /**
+   * taxedActs / totalActs, shown to six decimals; the arithmetic uses the exact
+   * quotient. How many decimals the Declaraciones y Pagos form captures is an
+   * unverified premise, like the rounding's (see the key's rationale).
+   */
   factor: string;
   /** IVA acreditable paid in the month, every rate. Four decimals. */
   paid: string;
   /** paid × taxedActs / totalActs: what is credited. Four decimals. */
   creditable: string;
+}
+
+/** Appended to the code of a finding raised by the reference year, not the month. */
+export const REFERENCE_SUFFIX = '@REFERENCE';
+
+/**
+ * Findings of the prior year's documents, read for the art. 5-B proportion.
+ * They keep their severity (a document without its split leaves the proportion
+ * unknown) under a code of their own, so a consumer keyed on `codigo` tells
+ * the reference year from the month being settled.
+ */
+export function referenceFindings(findings: readonly Hallazgo[], referenceYear: number): Hallazgo[] {
+  return findings.map((h) => ({
+    ...h,
+    codigo: `${h.codigo}${REFERENCE_SUFFIX}`,
+    mensaje: `Proporción del año ${referenceYear}: ${h.mensaje}`,
+  }));
+}
+
+/**
+ * Whether the ledger covers the whole reference year: its first posted entry
+ * (the opening balance, when one was loaded) falls in January of that year or
+ * earlier. The proportion is built from months, so a ledger that begins on
+ * January 15 still has the year; one that begins in November has two months.
+ */
+export function coversReferenceYear(ledgerStart: string | null, referenceYear: number): boolean {
+  return ledgerStart !== null && ledgerStart <= `${referenceYear}-01-31`;
 }
 
 /** The value of the acts collected: taxed at any rate, and exempt or no objeto. */
@@ -546,6 +585,11 @@ async function roleMovements(
 export interface IvaWorkpaper {
   period: { year: number; month: number } & RangoDelMes;
   rounding: { key: string; value: FilingRounding; defined: boolean };
+  /**
+   * The proration method in force and whether the panel was answered. Always
+   * present, unlike `figures.proration`, which is null when nothing was prorated.
+   */
+  proration: { key: string; value: CreditableProration; defined: boolean };
   figures: IvaWorkpaperFigures;
   /**
    * Null while a blocking finding stands: some figure is missing, and a
@@ -651,13 +695,13 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     // and a net movement would read as zero once it is posted.
     tieOut(findings, 'IVA-WP-WITHHELD-VS-LEDGER', 'IVA retenido que las ventas del mes registraron al emitirse', 'iva_retenido_a_favor (cargos)', charged.withheldPostedAtIssuance, ledger.iva_retenido_a_favor.debit);
 
+    const prorationPolicy = await getPolicy(ctx, CREDITABLE_PRORATION_POLICY, client);
     const method = await readCreditableProration(ctx, client);
     const reference = method === 'monthly' ? range : { desde: `${year - 1}-01-01`, hasta: `${year - 1}-12-31` };
     const referenceSales = method === 'monthly' ? charged : await chargedOfMonth(client, entityId, reference);
     const acts = actsOf(referenceSales.breakdown, referenceSales.notSubject);
     if (method === 'annual') {
-      // A document of the prior year without its split leaves the proportion unknown.
-      findings.push(...referenceSales.findings.map((h) => ({ ...h, mensaje: `Proporción del año ${year - 1}: ${h.mensaje}` })));
+      findings.push(...referenceFindings(referenceSales.findings, year - 1));
       if (acts.taxed.plus(acts.notTaxed).isZero()) {
         findings.push({
           codigo: 'IVA-WP-PRORATION-NO-REFERENCE',
@@ -666,8 +710,30 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
           mensaje:
             `La política ${CREDITABLE_PRORATION_POLICY} pide la proporción del año ${year - 1} (art. 5-B LIVA) ` +
             `y ese año no cobró ningún acto: no hay proporción con la cual acreditar. Elige la del mes ` +
-            `(art. 5 fr. V inc. d) o captura los cobros de ese año antes de declarar.`,
+            `(art. 5 fr. V inc. c) o captura los cobros de ese año antes de declarar.`,
         });
+      } else {
+        const { rows } = await client.query<{ first: string | null }>(
+          `SELECT to_char(MIN(entry_date), 'YYYY-MM-DD') AS first FROM journal_entries
+            WHERE entity_id = $1 AND status = 'posted'`,
+          [entityId]
+        );
+        const ledgerStart = rows[0]?.first ?? null;
+        if (!coversReferenceYear(ledgerStart, year - 1)) {
+          // Checked whether or not the partial year has exempt acts: with none,
+          // `prorate` returns null and the IVA would be credited whole in silence.
+          findings.push({
+            codigo: 'IVA-WP-PRORATION-PARTIAL-REFERENCE',
+            severidad: 'bloqueante',
+            politica: CREDITABLE_PRORATION_POLICY,
+            mensaje:
+              `La política ${CREDITABLE_PRORATION_POLICY} pide la proporción del año ${year - 1} (art. 5-B LIVA) ` +
+              `y el mayor sólo tiene ese año del ${ledgerStart ?? '(sin pólizas)'} al ${year - 1}-12-31: unos meses ` +
+              `no son la proporción del año. Captura los cobros que faltan, o elige la del mes (art. 5 fr. V ` +
+              `inc. c). Si la entidad inició actividades ese año, el art. 5-B párrafo segundo pide la proporción ` +
+              `desde el mes de inicio hasta el mes que se calcula, que este papel de trabajo no calcula todavía.`,
+          });
+        }
       }
     }
     const proration = prorate(method, reference, acts, ivaDelDesglose(creditable));
@@ -681,9 +747,16 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
           `(${proration.taxedActs} de actos gravados de ${proration.totalActs}, del ${reference.desde} ` +
           `al ${reference.hasta}): ${proration.creditable}. Se aplica a todo el IVA pagado porque el ` +
           `mayor no distingue los gastos exclusivos de actos gravados (acreditables completos, art. 5 ` +
-          `fr. V inc. a) ni de exentos (no acreditables, inc. b), ni quita los valores que excluye el ` +
-          `art. 5-C. Revísalo antes de declarar; la parte no acreditable sigue en iva_acreditable.`,
+          `fr. V inc. a) ni de exentos (no acreditables, inc. b): el acreditable queda sobrestimado por ` +
+          `un gasto sólo de actos exentos y subestimado por uno sólo de gravados. Tampoco quita los ` +
+          `valores que excluye el art. 5-C. Revísalo antes de declarar; la parte no acreditable sigue ` +
+          `en iva_acreditable.`,
       });
+      // NOTE: two follow-ups proposed in PR #537 (open points 6 and 7), with no
+      // issue yet: a close entry that moves the non-creditable share out of
+      // iva_acreditable, and the DIOT's `diot_creditable_iva_proportion` reading
+      // this proportion (today it offers only taxed_only/block, and refuses
+      // taxed_only when the ledger shows exempt revenue).
     }
 
     const figures: IvaWorkpaperFigures = {
@@ -700,6 +773,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     return {
       period: { year, month, ...range },
       rounding: { key: FILING_ROUNDING_POLICY, value: rounding, defined: roundingPolicy.defined },
+      proration: { key: CREDITABLE_PRORATION_POLICY, value: method, defined: prorationPolicy.defined },
       figures,
       settlement: blockedBy.length > 0 ? null : settleIva(figures, rounding),
       blockedBy,

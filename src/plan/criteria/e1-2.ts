@@ -3588,7 +3588,7 @@ export const E1_2: Criterio[] = [
       const catalog = codigoDe('src/services/policy/pending-catalog.ts');
       const spec = /key: 'iva_creditable_proration',[\s\S]*?priority:/.exec(catalog)?.[0] ?? '';
       if (!/defaultValue: 'monthly',/.test(spec)) {
-        return falla('iva_creditable_proration no longer defaults to the month proportion (LIVA art. 5 fr. V inc. d)');
+        return falla('iva_creditable_proration no longer defaults to the month proportion (LIVA art. 5 fr. V inc. c)');
       }
       return existe('tests/integration/mne-001-385-iva-proration.int.spec.ts')
         ? ok('the IVA paid is credited by the month or prior-year proportion, and only that share is subtracted')

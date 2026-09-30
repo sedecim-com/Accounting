@@ -7,11 +7,14 @@ import { getPolicy } from '../../../src/services/policy/policy-service.js';
 import {
   CREDITABLE_PRORATION_POLICY,
   FILING_ROUNDING_POLICY,
+  REFERENCE_SUFFIX,
   actsOf,
+  coversReferenceYear,
   priorBalanceOf,
   prorate,
   readCreditableProration,
   readFilingRounding,
+  referenceFindings,
   saleFromCfdi,
   roundToWhole,
   settleIva,
@@ -242,12 +245,40 @@ describe('the proration of LIVA art. 5 fr. V (MNE-001-385)', () => {
     expect(s.resultWhole).toBe('118');
   });
 
-  it('the panel key: the month by default citing inc. d, the prior year as the art. 5-B option', () => {
+  it('the panel key: the month by default citing inc. c, the prior year as the art. 5-B option', () => {
     const spec = POLICY_CATALOG.find((p) => p.key === CREDITABLE_PRORATION_POLICY)!;
     expect(spec.options.map((o) => o.value)).toEqual(['monthly', 'annual']);
     expect(spec.defaultValue).toBe('monthly');
-    expect(spec.defaultRationale).toMatch(/LIVA art\. 5 fr\. V inc\. d/);
-    expect(spec.defaultRationale).toMatch(/Art\. 5-B/);
+    // Inc. c is the month's proportion for goods and services; inc. d is investments.
+    expect(spec.defaultRationale).toMatch(/LIVA art\. 5 fr\. V inc\. c/);
+    expect(spec.options[0].label).toMatch(/inc\. c\)$/);
+    expect(spec.defaultRationale).toMatch(/Art\. 5-B, as in force since its last reform \(DOF 12-11-2021\)/);
+    // Both options multiply all the IVA paid, and each label says so.
+    for (const o of spec.options) expect(o.label).toMatch(/over all the IVA paid/);
+    expect(spec.defaultRationale).toMatch(/overstates the credit for an exempt-only expense/);
+    expect(spec.defaultRationale).toMatch(/Unverified assumption: the proportion is used as an exact quotient/);
+    expect(spec.whatIDo).toMatch(/I do not enforce the sixty-month lock/);
+  });
+
+  it('prior-year findings keep their severity under a code of their own', () => {
+    const found = referenceFindings(
+      [{ codigo: 'DIOT-EXENTO-CON-IVA', severidad: 'bloqueante', mensaje: 'x', documentNumber: 'INV-1' }],
+      2026
+    );
+    expect(REFERENCE_SUFFIX).toBe('@REFERENCE');
+    expect(found).toEqual([{
+      codigo: 'DIOT-EXENTO-CON-IVA@REFERENCE', severidad: 'bloqueante',
+      mensaje: 'Proporción del año 2026: x', documentNumber: 'INV-1',
+    }]);
+  });
+
+  it('the reference year is covered only when the ledger starts by its January', () => {
+    expect(coversReferenceYear('2025-07-01', 2026)).toBe(true);
+    expect(coversReferenceYear('2026-01-01', 2026)).toBe(true);
+    expect(coversReferenceYear('2026-01-31', 2026)).toBe(true);
+    expect(coversReferenceYear('2026-02-01', 2026)).toBe(false);
+    expect(coversReferenceYear('2026-11-10', 2026)).toBe(false);
+    expect(coversReferenceYear(null, 2026)).toBe(false);
   });
 
   it('reads a known value and refuses an unknown one', async () => {
