@@ -2797,9 +2797,9 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/fx-revaluation.ts',
-        de: 'if (marker.rows[0]) {',
-        a: 'if (marker.rows[0] && false) {',
-        porque: 'the marker is written and never read: a second run posts the revaluation again',
+        de: 'revalue(b.foreign, b.book, rate, b.posted);',
+        a: 'revalue(b.foreign, b.book, rate);',
+        porque: 'the marker is written and never subtracted: a second run posts the whole revaluation again',
       },
     ],
     evaluar: () => {
@@ -2817,8 +2817,11 @@ export const E1_2: Criterio[] = [
           !/next\.status !== 'open'/.test(code)) {
         return falla('the revaluation is no longer reversed on day 1 of an open next period');
       }
-      if (!/if \(marker\.rows\[0\]\) \{/.test(code) || !/INSERT INTO fx_revaluation_runs/.test(code)) {
+      if (!/revalue\(b\.foreign, b\.book, rate, b\.posted\);/.test(code) || !/INSERT INTO fx_revaluation_runs/.test(code)) {
         return falla('the revaluation has no idempotency marker: a resumed run posts it twice');
+      }
+      if (!/getPolicy\(ctx, 'fx_revaluation_reversal', client\)/.test(code)) {
+        return falla('whether the revaluation is reversed is no longer read from fx_revaluation_reversal');
       }
       if (!/getPolicy\(ctx, 'closing_exchange_rate_source', client\)/.test(code)) {
         return falla('the closing rate no longer follows closing_exchange_rate_source');

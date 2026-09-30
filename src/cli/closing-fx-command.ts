@@ -5,6 +5,7 @@ import { resolveReviewer } from '../ai/draft-service.js';
 import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
 import { revalueForeignBalances, type RevaluationRun } from '../services/accounting/fx-revaluation.js';
 import type { Palette } from './palette.js';
+import { t } from '../i18n/index.js';
 import {
   abortedByUser,
   argumentByKey,
@@ -28,7 +29,13 @@ import {
 // entry and its day-1 mirror to the ledger of migration 041. --dry-run
 // computes everything the post needs (the rate, the next open period) and
 // writes nothing. The idempotency key is unnecessary: the run's own marker
-// (fx_revaluation_runs) refuses a second revaluation of the same period.
+// (fx_revaluation_runs) subtracts what earlier runs of the period posted, so
+// running it again posts only what moved since, or nothing.
+//
+// STDOUT carries one document: the plan on a dry run, the posted lines (with
+// the entry and its mirror) on a live one. The plan a live run asks about goes
+// to stderr, and the gain and loss confirmed travel into the post, which
+// refuses (FX_REVALUATION_PLAN_CHANGED) if its recomputation differs.
 // ============================================================
 
 interface Opts {
@@ -60,8 +67,36 @@ export function revaluationRows(run: RevaluationRun): Row[] {
     book_balance: l.bookBalance,
     rate: l.rate,
     revalued_balance: l.revaluedBalance,
+    already_posted: l.alreadyPosted,
     difference: l.difference,
   }));
+}
+
+/** The posted lines, each carrying the entry and the mirror that hold it. */
+export function postedRows(run: RevaluationRun): Row[] {
+  return revaluationRows(run)
+    .filter((r) => Number(r.difference) !== 0)
+    .map((r) => ({
+      ...r,
+      sequence: run.sequence,
+      entry_number: run.entry?.number ?? null,
+      entry_id: run.entry?.id ?? null,
+      reversal_number: run.reversal?.number ?? null,
+      reversal_id: run.reversal?.id ?? null,
+    }));
+}
+
+function summary(run: RevaluationRun): string {
+  const rates =
+    run.rates.map((r) => `${r.currency} ${r.tasa} (${r.fuente} ${r.fecha})`).join(', ') ||
+    t('closing.fx.revalue.no_foreign_balance');
+  return t('closing.fx.revalue.summary', {
+    period: run.periodName,
+    rates,
+    gain: run.gain,
+    loss: run.loss,
+    reversalDate: run.reversalDate ?? '',
+  });
 }
 
 export function registerClosingFx(
@@ -81,7 +116,7 @@ export function registerClosingFx(
     writes: 'journal_entries + journal_entry_lines (the adjusting entry and its day-1 mirror), fx_revaluation_runs',
     llave: {
       innecesaria:
-        'fx_revaluation_runs holds one row per period: running it again reports the revaluation already posted',
+        'fx_revaluation_runs subtracts what earlier runs of the period posted: running it again posts only what moved since, or nothing',
     },
   });
   revalue.addHelpText('after', EXAMPLES);
@@ -95,47 +130,64 @@ export function registerClosingFx(
       const scope = { tenantId: ctx.tenantId, entityId: ctx.entityId };
       const c = deps.palette;
       const err = process.stderr;
+      const table = { idField: 'account', numeric: ['difference'] };
 
       // The plan first, always: a posted entry cannot be looked at before.
       const plan = await revalueForeignBalances(scope, period.id, userId, { dryRun: true });
       if (plan.alreadyRun) {
-        err.write(c.dim(`${plan.periodName} was already revalued; nothing was posted again.\n`));
+        err.write(
+          c.dim(`${t('closing.fx.revalue.already_run', { period: plan.periodName, sequence: plan.alreadyRun.sequence })}\n`)
+        );
         return ExitCode.OK;
       }
-      render(revaluationRows(plan), { ...opts, idField: 'account', numeric: ['difference'] });
-      err.write(
-        c.dim(
-          `${plan.periodName} at ${plan.rates.map((r) => `${r.currency} ${r.tasa} (${r.fuente} ${r.fecha})`).join(', ') || 'no foreign balance'}` +
-            ` · gain ${plan.gain} · loss ${plan.loss} · reversed on ${plan.reversalDate}\n`
-        )
-      );
-      if (dryRun) {
-        err.write(c.dim('Dry run: the ledger was not touched.\n'));
-        return ExitCode.OK;
-      }
-      if (plan.gain === '0.0000' && plan.loss === '0.0000') {
-        err.write(c.dim('Nothing to revalue: the ledger was not touched.\n'));
+      const nothing = plan.gain === '0.0000' && plan.loss === '0.0000';
+      if (dryRun || nothing) {
+        render(revaluationRows(plan), { ...opts, ...table });
+        err.write(c.dim(`${summary(plan)}\n`));
+        if (plan.sequence !== null && plan.sequence > 1) {
+          err.write(c.dim(`${t('closing.fx.revalue.supplement', { sequence: plan.sequence })}\n`));
+        }
+        err.write(c.dim(`${t(dryRun ? 'closing.fx.revalue.dry_run' : 'closing.fx.revalue.nothing')}\n`));
         return ExitCode.OK;
       }
       if (opts.yes !== true) {
+        // The plan the question is about, on stderr: stdout keeps one document.
+        render(revaluationRows(plan), { ...table, stdout: err });
+        err.write(c.dim(`${summary(plan)}\n`));
+        if (plan.sequence !== null && plan.sequence > 1) {
+          err.write(c.dim(`${t('closing.fx.revalue.supplement', { sequence: plan.sequence })}\n`));
+        }
         const yes = await ask(
-          `Post the revaluation of ${plan.periodName} (gain ${plan.gain}, loss ${plan.loss}) and its mirror on ` +
-            `${plan.reversalDate}? The ledger does not admit undo.`
+          t('closing.fx.revalue.confirm', {
+            period: plan.periodName,
+            gain: plan.gain,
+            loss: plan.loss,
+            reversalDate: plan.reversalDate ?? '',
+          })
         );
         if (!yes) {
-          throw abortedByUser(
-            stdin.isTTY
-              ? 'Nothing was posted.'
-              : 'Nothing was posted: there is no terminal to confirm on. Add -y, or --dry-run to look first.'
-          );
+          throw abortedByUser({
+            key: stdin.isTTY ? 'closing.fx.revalue.aborted' : 'closing.fx.revalue.aborted_no_tty',
+          });
         }
       }
-      const done = await revalueForeignBalances(scope, period.id, userId);
+      const done = await revalueForeignBalances(scope, period.id, userId, {
+        expect: { gain: plan.gain, loss: plan.loss },
+      });
+      if (!done.entry) {
+        // Another run posted the same revaluation between the plan and now.
+        err.write(c.dim(`${t('closing.fx.revalue.already_run', { period: done.periodName, sequence: done.alreadyRun?.sequence ?? 1 })}\n`));
+        return ExitCode.OK;
+      }
+      render(postedRows(done), { ...opts, ...table });
       err.write(
         c.green(
-          done.entry
-            ? `✔ ${done.entry.number} on ${done.closingDate}, reversed by ${done.reversal?.number} on ${done.reversalDate}.\n`
-            : `${done.periodName} was already revalued; nothing was posted again.\n`
+          `${t('closing.fx.revalue.posted', {
+            entry: done.entry.number,
+            closingDate: done.closingDate,
+            reversal: done.reversal?.number ?? '',
+            reversalDate: done.reversalDate ?? '',
+          })}\n`
         )
       );
       return ExitCode.OK;

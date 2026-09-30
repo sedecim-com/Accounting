@@ -150,12 +150,116 @@ describe('MNE-001-083 · closing fx revalue', () => {
     expect(rev.rows[0]).toEqual({ d: '2026-09-01', fiscal_period_id: f.periodos[9], status: 'posted' });
   });
 
+  it('the mirror lands on day 1 of the NEXT period even with later ones open, and is found by the marker and reverses_entry_id', async () => {
+    const open = await query<{ status: string }>('SELECT status FROM fiscal_periods WHERE id = ANY($1) ORDER BY period_number', [
+      [f.periodos[9], f.periodos[10]],
+    ]);
+    expect(open.rows.map((r) => r.status)).toEqual(['open', 'open']);
+    const marker = await query<{ journal_entry_id: string; reversal_entry_id: string; sequence: number }>(
+      'SELECT journal_entry_id, reversal_entry_id, sequence FROM fx_revaluation_runs WHERE entity_id = $1',
+      [f.entityId]
+    );
+    expect(marker.rows).toHaveLength(1);
+    expect(marker.rows[0].sequence).toBe(1);
+    const mirror = await query<{ reverses_entry_id: string; fiscal_period_id: string; d: string; source_type: string | null }>(
+      `SELECT reverses_entry_id, fiscal_period_id, to_char(entry_date, 'YYYY-MM-DD') AS d, source_type
+         FROM journal_entries WHERE id = $1`,
+      [marker.rows[0].reversal_entry_id]
+    );
+    expect(mirror.rows[0]).toEqual({
+      reverses_entry_id: marker.rows[0].journal_entry_id,
+      fiscal_period_id: f.periodos[9],
+      d: '2026-09-01',
+      source_type: null,
+    });
+  });
+
+  it('a deleted or rewritten marker is refused against the ledger instead of posting the revaluation again', async () => {
+    const row = (await query<Record<string, unknown>>('SELECT * FROM fx_revaluation_runs WHERE entity_id = $1', [f.entityId]))
+      .rows[0];
+    const before = await entriesOf();
+    try {
+      await query('DELETE FROM fx_revaluation_runs WHERE id = $1', [row.id]);
+      await expect(revalueForeignBalances(ctx(), f.periodos[8], f.userId)).rejects.toMatchObject({
+        code: 'FX_REVALUATION_MARKER_MISMATCH',
+      });
+      await query(
+        `INSERT INTO fx_revaluation_runs (id, entity_id, fiscal_period_id, journal_entry_id, reversal_entry_id, sequence,
+           rate_date, rates, lines, created_by, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '[]'::jsonb, $9, $10)`,
+        [row.id, row.entity_id, row.fiscal_period_id, row.journal_entry_id, row.reversal_entry_id, row.sequence,
+          row.rate_date, JSON.stringify(row.rates), row.created_by, row.created_at]
+      );
+      await expect(revalueForeignBalances(ctx(), f.periodos[8], f.userId)).rejects.toMatchObject({
+        code: 'FX_REVALUATION_MARKER_MISMATCH',
+      });
+      expect(await entriesOf()).toBe(before);
+    } finally {
+      await query('UPDATE fx_revaluation_runs SET lines = $2::jsonb WHERE id = $1', [row.id, JSON.stringify(row.lines)]);
+    }
+  });
+
   it('running it again posts nothing: the marker says the period was revalued', async () => {
     const before = await entriesOf();
     const again = await revalueForeignBalances(ctx(), f.periodos[8], f.userId);
     expect(again.alreadyRun).not.toBeNull();
     expect(again.entry).toBeNull();
     expect(await entriesOf()).toBe(before);
+  });
+
+  it('a USD posting dated inside the period after the run is revalued by a supplement, also once the month is soft-closed', async () => {
+    await query(`UPDATE fiscal_periods SET status = 'soft_close', soft_close_date = NOW() WHERE id = $1`, [f.periodos[8]]);
+    await createJournalEntry(
+      f.entityId, '2026-08-25', JournalEntryType.ADJUSTING, 'Late USD deposit',
+      [
+        { account_id: f.roles.banco, debit_amount: '17500.0000', credit_amount: null, description: 'USD 1 000',
+          currency_code: 'USD', foreign_debit: '1000.0000', exchange_rate: '17.5000000000' },
+        { account_id: f.cuentas['4100'], debit_amount: null, credit_amount: '17500.0000', description: 'late deposit' },
+      ],
+      f.userId, { autoPost: true }
+    );
+    const plan = await revalueForeignBalances(ctx(), f.periodos[8], f.userId, { dryRun: true });
+    expect(plan.alreadyRun).toBeNull();
+    expect(plan.sequence).toBe(2);
+    const bank = plan.lines.find((l) => l.accountId === f.roles.banco);
+    // 1 200 × 18.20 = 21 840, book 21 000, and 140 already posted: 700 left.
+    expect(bank).toMatchObject({ alreadyPosted: '140.0000', difference: '700.0000' });
+    expect(plan.lines.find((l) => l.accountId === f.roles.cxc)?.difference).toBe('0.0000');
+    expect([plan.gain, plan.loss]).toEqual(['700.0000', '0.0000']);
+
+    const run = await revalueForeignBalances(ctx(), f.periodos[8], f.userId, { expect: { gain: plan.gain, loss: plan.loss } });
+    expect(run.sequence).toBe(2);
+    const lines = await linesOf(run.entry?.id as string);
+    expect(lines).toHaveLength(2);
+    expect(lines.find((l) => l.account_id === f.roles.banco)?.debit).toBe('700.0000');
+    expect(lines.find((l) => l.account_id === f.roles.utilidad_cambiaria)?.credit).toBe('700.0000');
+    const rev = await query<{ d: string }>(`SELECT to_char(entry_date, 'YYYY-MM-DD') AS d FROM journal_entries WHERE id = $1`, [
+      run.reversal?.id,
+    ]);
+    expect(rev.rows[0].d).toBe('2026-09-01');
+
+    const before = await entriesOf();
+    const again = await revalueForeignBalances(ctx(), f.periodos[8], f.userId);
+    expect(again.alreadyRun).toMatchObject({ sequence: 2 });
+    expect(await entriesOf()).toBe(before);
+  });
+
+  it('a hard-closed period is refused: the revaluation belongs before the seal', async () => {
+    await query(`UPDATE fiscal_periods SET status = 'hard_close' WHERE id = $1`, [f.periodos[7]]);
+    await expect(revalueForeignBalances(ctx(), f.periodos[7], f.userId, { dryRun: true })).rejects.toMatchObject({
+      code: 'FX_REVALUATION_PERIOD_NOT_OPEN',
+    });
+  });
+
+  it('an entity whose functional currency is not MXN is refused (#124)', async () => {
+    await query(`UPDATE legal_entities SET functional_currency = 'USD' WHERE id = $1`, [f.entityId]);
+    try {
+      await expect(revalueForeignBalances(ctx(), f.periodos[9], f.userId, { dryRun: true })).rejects.toMatchObject({
+        code: 'FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED',
+      });
+    } finally {
+      await query(`UPDATE legal_entities SET functional_currency = 'MXN' WHERE id = $1`, [f.entityId]);
+    }
   });
 
   it('with no rate of the source for the last calendar day it fails and posts nothing', async () => {
@@ -175,6 +279,21 @@ describe('MNE-001-083 · closing fx revalue', () => {
     expect(Number(run.rates[0].tasa)).toBe(18);
     // Back at the historical 17.50 after the August mirror: 1 000 × 0.50.
     expect(run.lines.find((l) => l.accountId === f.roles.cxc)?.difference).toBe('500.0000');
+  });
+
+  it('a live run whose recomputation differs from the confirmed plan posts nothing', async () => {
+    const before = await entriesOf();
+    await expect(
+      revalueForeignBalances(ctx(), f.periodos[9], f.userId, { expect: { gain: '1.0000', loss: '0.0000' } })
+    ).rejects.toMatchObject({ code: 'FX_REVALUATION_PLAN_CHANGED' });
+    expect(await entriesOf()).toBe(before);
+  });
+
+  it('a source the panel chose that published nothing names the panel, by key', async () => {
+    await expect(revalueForeignBalances(ctx(), f.periodos[10], f.userId, { dryRun: true })).rejects.toMatchObject({
+      code: 'FX_RATE_MISSING',
+      messageKey: { key: 'error.FX_RATE_MISSING', params: { source: 'banco_mexico', date: '2026-10-31' } },
+    });
   });
 
   it('without an open next period the revaluation is refused instead of leaving its mirror for later', async () => {

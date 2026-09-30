@@ -10,8 +10,10 @@ import { AccountingError } from '../../utils/errors.js';
 // importe en moneda del documento a la moneda funcional con el tipo del
 // documento, y medir la diferencia cambiaria que se REALIZA cuando el pago
 // ocurre a otro tipo que el del registro. La fase NO realizada —revaluar
-// saldos vivos al cierre— vive en fx-revaluation.ts (MNE-001-083) y sólo
-// toma de aquí la conversión y el lector del tipo.
+// saldos vivos al cierre— es fase 2 y no vive aquí.
+//
+// MNE-001-083: the unrealised half now lives in fx-revaluation.ts, which takes
+// only the conversion and the rate reader from this module.
 //
 // Todo es aritmética pura sobre strings con Decimal, sin tocar la base,
 // por la misma razón que reconciliation-math.ts: el caso incómodo (el
@@ -260,15 +262,15 @@ export async function resolverTipoCambio(
   }
 ): Promise<TipoCambioResuelto> {
   const politica = args.source
-    ? { value: `source ${args.source}` }
+    ? null
     : await getPolicy({ tenantId: ctx.tenantId, entityId: ctx.entityId }, 'fuente_tipo_cambio', client);
-  const fuente = args.source ?? FUENTE_POR_POLITICA[politica.value];
+  const fuente = args.source ?? FUENTE_POR_POLITICA[politica?.value ?? ''];
   if (!fuente) {
     // Cerrado al declarar: un valor de política que este lector no conoce
     // no se adivina — se acusa, igual que una fuente sin tipo.
     throw new AccountingError(
       'FX_POLITICA_DESCONOCIDA',
-      `La política fuente_tipo_cambio vale "${politica.value}" y este lector solo entiende ` +
+      `La política fuente_tipo_cambio vale "${politica?.value}" y este lector solo entiende ` +
         `${Object.keys(FUENTE_POR_POLITICA).join(', ')}. Corrige la política en mnemosine pending.`
     );
   }
@@ -307,12 +309,20 @@ export async function resolverTipoCambio(
     return { tasa: inverso.rows[0].inverse_rate, fuente, fecha };
   }
 
+  if (args.source) {
+    // A source another panel key chose: its message is keyed, and it names
+    // the panel, not fuente_tipo_cambio, which did not decide it.
+    throw new AccountingError('FX_RATE_MISSING', {
+      key: 'error.FX_RATE_MISSING',
+      params: { from: args.de, to: args.a, source: fuente, date: fecha },
+    });
+  }
   throw new AccountingError(
     'FX_RATE_MISSING',
     `No hay tipo de cambio ${args.de}→${args.a} de la fuente '${fuente}' para ${fecha}. ` +
       `Captúralo con: mnemosine fx rate set ${args.de}/${args.a} ${fecha} <tasa> --source ${fuente} ` +
       `— o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en ` +
-      `silencio: ${args.source ? 'la fuente que eligió el panel' : `la política fuente_tipo_cambio (${politica.value})`} es un criterio fiscal del ` +
+      `silencio: la política fuente_tipo_cambio (${politica?.value}) es un criterio fiscal del ` +
       `despacho, no una preferencia de esta función.`
   );
 }

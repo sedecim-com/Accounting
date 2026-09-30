@@ -232,7 +232,7 @@ mirror	memory	E1.2 foreign-currency-origin-preserved	src/cli/mnemosine.ts	quinta
 mirror	memory	E1.2 foreign-balances-revalued-at-close	src/services/accounting/ar-ap-posting.ts	THE DEFECT OF #305: a USD invoice refuses to post, and the month of a firm that bills one service in dollars cannot be kept
 mirror	memory	E1.2 foreign-balances-revalued-at-close	src/services/accounting/fx-revaluation.ts	the revaluation posts as a closing entry: the year-end close and the conductor would take it for their own
 mirror	memory	E1.2 foreign-balances-revalued-at-close	src/services/accounting/fx-revaluation.ts	the mirror lands on whatever later period comes first, not on day 1 of the next one
-mirror	memory	E1.2 foreign-balances-revalued-at-close	src/services/accounting/fx-revaluation.ts	the marker is written and never read: a second run posts the revaluation again
+mirror	memory	E1.2 foreign-balances-revalued-at-close	src/services/accounting/fx-revaluation.ts	the marker is written and never subtracted: a second run posts the whole revaluation again
 mirror	memory	E1.2 depreciation-month-posted-once	src/services/assets/depreciation.ts	el freno vuelve a acotarse por libro: correr marzo, contestar el panel con la otra base y correr marzo otra vez postea un SEGUNDO asiento — 20.000 en el mayor para un mes que vale 10.000, y con la 041 eso son reversas, no ediciones
 mirror	memory	E1.2 depreciation-final-row-absorbs-rounding	src/services/assets/depreciation-math.ts	el último renglón deja de absorber la diferencia de redondeo: 100.000 a 36 meses vuelve a acumular 100.000,0008 y el activo nunca llega a cero exacto
 mirror	memory	E1.2 depreciation-final-row-absorbs-rounding	src/cli/mnemosine.ts	el alta se queda verificada y no entregada: sin ficha no hay activo, y sin activo toda la aritmética de este criterio es letra muerta
@@ -877,7 +877,7 @@ anchor	src/plan/criteria/e1-2.ts	de: 'registerFxCommand(program, { palette: c, s
 anchor	src/plan/criteria/e1-2.ts	de: ' const fx = rate;',
 anchor	src/plan/criteria/e1-2.ts	de: 'sourceType: FX_REVALUATION_SOURCE,',
 anchor	src/plan/criteria/e1-2.ts	de: 'AND start_date = $2::date + 1`,',
-anchor	src/plan/criteria/e1-2.ts	de: 'if (marker.rows[0]) {',
+anchor	src/plan/criteria/e1-2.ts	de: 'revalue(b.foreign, b.book, rate, b.posted);',
 anchor	src/plan/criteria/e1-2.ts	de: " AND (ds.is_posted = true OR ds.schedule_type = $3)",
 anchor	src/plan/criteria/e1-2.ts	de: ' const restante = base.minus(acumulado);',
 anchor	src/plan/criteria/e1-2.ts	de: 'registerAssetCommand(program, { palette: c, shutdown, reportError });',

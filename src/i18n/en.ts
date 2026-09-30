@@ -47,6 +47,25 @@ export const EN = {
   /** `AccountingError('PERIOD_ALREADY_OPEN')`: opening a period that is already open, or reopening one — the dry run of `period reopen` included. */
   'error.PERIOD_ALREADY_OPEN': '{period} is already open.',
 
+  /** `AccountingError('FX_REVALUATION_PERIOD_NOT_OPEN')`: `closing fx revalue` on a period that is not a regular open or soft-closed month (MNE-001-083). */
+  'error.FX_REVALUATION_PERIOD_NOT_OPEN':
+    '{period} is {type} and {status}: the revaluation belongs to a regular month that is open or soft-closed, before its seal.',
+  /** `AccountingError('FX_REVALUATION_NEXT_PERIOD_NOT_OPEN')`: the day-1 mirror has no open period to land in. */
+  'error.FX_REVALUATION_NEXT_PERIOD_NOT_OPEN':
+    'The revaluation of {period} is reversed on the first day of the next period, and that period {status, select, missing {does not exist} other {is {status}}}. Open it (in December, open the next fiscal year first) and run it again: nothing was posted.',
+  /** `AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED')`: an entity whose functional currency is not MXN (#124). */
+  'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
+    'The closing revaluation is built for entities that keep their books in Mexican pesos (NIF B-15), and this one keeps them in {currency}. Other functional currencies, and ASC 830, are issue 124: nothing was posted.',
+  /** `AccountingError('FX_REVALUATION_PLAN_CHANGED')`: the live run recomputed a different gain or loss than the plan the user confirmed. */
+  'error.FX_REVALUATION_PLAN_CHANGED':
+    'The revaluation of {period} changed between the plan you confirmed (gain {expectedGain}, loss {expectedLoss}) and the post (gain {gain}, loss {loss}): something was posted or a rate changed in between. Nothing was posted; run it again to see the new plan.',
+  /** `AccountingError('FX_REVALUATION_MARKER_MISMATCH')`: fx_revaluation_runs no longer agrees with the ledger's fx_revaluation entries of the period. */
+  'error.FX_REVALUATION_MARKER_MISMATCH':
+    'The revaluation record of {period} does not agree with the ledger: the ledger holds {ledger} revaluation entries for it and the record {marker}, or their amounts differ. Running it again could post the revaluation twice, so nothing was posted; the record needs to be reviewed.',
+  /** `AccountingError('FX_RATE_MISSING')` when the source was chosen by a panel key other than fuente_tipo_cambio (the closing revaluation). */
+  'error.FX_RATE_MISSING':
+    'There is no {from}→{to} rate from the source {source} for {date}. Enter it with: mnemosine fx rate set {from}/{to} {date} RATE --source {source}, or download it with: mnemosine fx rate download. No other source or date is taken silently: the source was chosen on the policy panel, and it is a criterion of the firm.',
+
   // ==== end of error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152, MNE-001-090) ====
@@ -943,6 +962,21 @@ export const EN = {
     'DOF (Diario Oficial; the tax rate under art. 20 CFF), whatever the operations use',
   'policy.closing_exchange_rate_source.option.fix_banxico':
     'Banxico FIX (published as banco_mexico)',
+
+  'policy.fx_revaluation_reversal.question':
+    'Is the closing revaluation of foreign balances reversed on day 1 of the next period?',
+  'policy.fx_revaluation_reversal.impact':
+    'closing fx revalue posts the unrealised exchange difference on the last day of the period and its mirror on day 1 of the next one, which must exist and be open. The balance goes back to its historical rate, the one the realised difference of a later payment or collection is measured against.',
+  'policy.fx_revaluation_reversal.rationale':
+    'NIF B-15 revalues monetary items at the closing rate for the balance sheet. Payments and collections measure the realised difference against the document’s historical rate (ar-ap-posting.ts), so the revaluation must be reversed on day 1: otherwise the same difference would be recognised twice, once unrealised at the close and again when paid. Keeping the revaluation (no reversal) is not offered until payments read the book rate instead.',
+  'policy.fx_revaluation_reversal.why':
+    'Reversing or keeping the revaluation are both legitimate under NIF B-15; which one is right depends on how payments measure the realised difference.',
+  'policy.fx_revaluation_reversal.what':
+    'I post the mirror of the revaluation on day 1 of the next period.',
+  'policy.fx_revaluation_reversal.if_skipped':
+    'I reverse it on day 1 of the next period.',
+  'policy.fx_revaluation_reversal.option.reverse_on_day_one':
+    'Reverse it on day 1 of the next period',
 
   'policy.rep_foreign_currency.question':
     'A receipt in a currency other than the functional one: register it, or leave it for review?',
@@ -2314,8 +2348,24 @@ export const EN = {
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
   'help.closing.fx.description': 'Foreign currency at the close',
   'help.closing.fx.revalue.description':
-    'Revalue the foreign-currency receivables, payables and banks at the closing rate, and reverse it on day 1 of the next period',
+    'Revalue the foreign-currency receivables, payables and banks at the closing rate, and reverse it on day 1 of the next period. It belongs after the soft close; a later run posts only what moved since',
   'help.closing.fx.revalue.argument.period': 'period to revalue: 2026-08, its id, or part of its name',
+
+  'closing.fx.revalue.already_run':
+    '{period} was already revalued (run {sequence}) and nothing has moved since; nothing was posted again.',
+  'closing.fx.revalue.summary':
+    '{period} at {rates} · gain {gain} · loss {loss} · reversed on {reversalDate}',
+  'closing.fx.revalue.no_foreign_balance': 'no foreign balance',
+  'closing.fx.revalue.supplement':
+    'Supplementary run {sequence}: the difference is only what moved since the earlier runs of this period.',
+  'closing.fx.revalue.dry_run': 'Dry run: the ledger was not touched.',
+  'closing.fx.revalue.nothing': 'Nothing to revalue: the ledger was not touched.',
+  'closing.fx.revalue.confirm':
+    'Post the revaluation of {period} (gain {gain}, loss {loss}) and its mirror on {reversalDate}? The ledger does not admit undo.',
+  'closing.fx.revalue.aborted': 'Nothing was posted.',
+  'closing.fx.revalue.aborted_no_tty':
+    'Nothing was posted: there is no terminal to confirm on. Add -y, or --dry-run to look first.',
+  'closing.fx.revalue.posted': '✔ {entry} on {closingDate}, reversed by {reversal} on {reversalDate}.',
   'help.bill.rule.description': 'Firm processing rules: what codes an incoming CFDI with no model involved',
   'help.bill.rule.create.description':
     'Create a processing rule (conditions → actions) that the next ingest applies',

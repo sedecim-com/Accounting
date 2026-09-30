@@ -87,8 +87,9 @@ import {
 //   pack generate — sella las cifras del periodo en un expediente
 //   pack verify   — el expediente vuelve a correrse contra los libros
 //
-// MNE-001-083 AÑADE `fx revalue` (closing-fx-command.ts): la revaluación
-// cambiaria de cierre, NIF B-15. Entra al conductor en MNE-001-112.
+// MNE-001-083 adds `fx revalue` (closing-fx-command.ts): the closing
+// revaluation of foreign balances, NIF B-15. It joins the conductor in
+// MNE-001-112.
 //
 // Las filas de F06d que siguen sin existir —`start`, `status`, `task*`,
 // `approve`, `calendar*`, `template*`— siguen sin existir NI COMO ESQUELETO,

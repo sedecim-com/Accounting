@@ -1528,6 +1528,35 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 56,
   },
   {
+    // MNE-001-083 · #305: the owner's decision of 2026-09-26 named it
+    // revaluacion_cambiaria_reversion = revertir_al_inicio; new keys are born
+    // English. Read by fx-revaluation.ts, which fails closed on any other value.
+    // TODO(#305): offer no_reversal once payments measure the realised difference against the book rate.
+    key: 'fx_revaluation_reversal',
+    textKey: 'fx_revaluation_reversal',
+    category: 'contable',
+    question: 'Is the closing revaluation of foreign balances reversed on day 1 of the next period?',
+    impact:
+      'closing fx revalue posts the unrealised exchange difference on the last day of the period and its mirror ' +
+      'on day 1 of the next one, which must exist and be open. The balance goes back to its historical rate, ' +
+      'the one the realised difference of a later payment or collection is measured against.',
+    options: [
+      { value: 'reverse_on_day_one', label: 'Reverse it on day 1 of the next period' },
+    ],
+    defaultValue: 'reverse_on_day_one',
+    defaultRationale:
+      'NIF B-15 revalues monetary items at the closing rate for the balance sheet. Payments and collections ' +
+      'measure the realised difference against the document’s historical rate (ar-ap-posting.ts), so the ' +
+      'revaluation must be reversed on day 1: otherwise the same difference would be recognised twice, once ' +
+      'unrealised at the close and again when paid. Keeping the revaluation (no reversal) is not offered until ' +
+      'payments read the book rate instead.',
+    whyAsking:
+      'Reversing or keeping the revaluation are both legitimate under NIF B-15; which one is right depends on how payments measure the realised difference.',
+    whatIDo: 'I post the mirror of the revaluation on day 1 of the next period.',
+    ifSkipped: 'I reverse it on day 1 of the next period.',
+    priority: 57,
+  },
+  {
     key: 'rep_moneda_extranjera',
     textKey: 'rep_foreign_currency',
     category: 'contable',

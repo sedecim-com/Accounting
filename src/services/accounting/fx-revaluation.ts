@@ -29,13 +29,22 @@ type EntryLine = Parameters<typeof createJournalEntry>[4][number];
 //     never takes the previous business day.
 //   · HOW: one `adjusting` entry with its own source_type (`fx_revaluation`,
 //     never `closing`) on the last day, and its mirror on day 1 of the next
-//     period, which must exist and be open. Reversing is what keeps the
-//     realised difference of a later payment right: payments measure it
-//     against the document's historical rate, so the book value must go back
-//     to that rate once the balance sheet is dated. `sin_reversion` is not
-//     offered until payments read the book rate instead (owner, 2026-09-26).
-//   · ONCE: `fx_revaluation_runs` is the marker (migration 168). The ledger
-//     cannot be, because a reversed original reads as "not done".
+//     period, which must exist and be open. Whether to reverse is the panel's
+//     `fx_revaluation_reversal`, whose one option today is `reverse_on_day_one`:
+//     payments measure the realised difference against the document's
+//     historical rate, so the book value must go back to that rate once the
+//     balance sheet is dated. The mirror carries no source_type of its own; it
+//     is found by `reverses_entry_id` or by the marker's `reversal_entry_id`.
+//   · WHEN: on an open or soft-closed month. A soft close still accepts
+//     adjusting postings until the seal, and it is where the run belongs, once
+//     the cutoff has frozen the balances.
+//   · ONCE, AND NEVER STALE: `fx_revaluation_runs` is the marker (migration
+//     168); the ledger cannot be, because a reversed original reads as "not
+//     done". Each run recomputes and subtracts what the earlier runs of the
+//     period posted, so a foreign posting dated inside the period after the
+//     first run is revalued by a supplementary entry (with its own mirror), and
+//     nothing is ever posted twice.
+//   · MXN ONLY: another functional currency, and ASC 830, are #124.
 //
 // The revaluation lines carry no FX columns: they move the functional value
 // only, so the foreign balance the next run reads is untouched, and the lines
@@ -45,12 +54,22 @@ type EntryLine = Parameters<typeof createJournalEntry>[4][number];
 
 export const FX_REVALUATION_SOURCE = 'fx_revaluation';
 
+/** The functional currency this engine was built and cited for (NIF B-15). */
+const SUPPORTED_FUNCTIONAL = 'MXN';
+
 /** closing_exchange_rate_source → the `exchange_rates.source` it reads, or null for the operations' one. */
 const CLOSING_SOURCE: Record<string, string | null> = {
   operations_source: null,
   dof: 'dof',
   fix_banxico: 'banco_mexico',
 };
+
+/** fx_revaluation_reversal values this reader understands. Anything else fails closed. */
+// TODO(#305): offer no_reversal once payments measure the realised difference against the book rate.
+const REVERSAL_POLICY: ReadonlySet<string> = new Set(['reverse_on_day_one']);
+
+/** A soft close still accepts adjusting postings until the seal: that is where the run belongs. */
+const REVALUABLE_STATUSES: ReadonlySet<string> = new Set(['open', 'soft_close']);
 
 export interface RevaluationLine {
   accountId: string;
@@ -62,7 +81,9 @@ export interface RevaluationLine {
   bookBalance: string;
   rate: string;
   revaluedBalance: string;
-  /** revalued − book: positive raises the balance's debit side (a gain on an asset). */
+  /** What earlier runs of this period already posted on this balance. */
+  alreadyPosted: string;
+  /** revalued − book − already posted: positive raises the balance's debit side (a gain on an asset). */
   difference: string;
 }
 
@@ -75,16 +96,26 @@ export interface RevaluationRun {
   lines: RevaluationLine[];
   gain: string;
   loss: string;
-  /** Set when the period was already revalued: nothing was computed or posted again. */
-  alreadyRun: { journalEntryId: string; reversalEntryId: string } | null;
+  /** Set when the period was already revalued and nothing moved since: nothing was posted again. */
+  alreadyRun: { journalEntryId: string; reversalEntryId: string; sequence: number } | null;
+  /** The run's number within the period (1, then one per supplement); null when nothing is to be posted. */
+  sequence: number | null;
   entry: { id: string; number: string } | null;
   reversal: { id: string; number: string } | null;
 }
 
-/** The revaluation of one balance: foreign × rate, half-up to 4 places, minus its book value. */
-export function revalue(foreign: string, book: string, rate: string): { revalued: string; difference: string } {
+/**
+ * The revaluation of one balance: foreign × rate, half-up to 4 places, minus
+ * its book value and minus what earlier runs of the period already posted.
+ */
+export function revalue(
+  foreign: string,
+  book: string,
+  rate: string,
+  alreadyPosted = '0'
+): { revalued: string; difference: string } {
   const revalued = convertirAFuncional(foreign, rate);
-  return { revalued, difference: new Decimal(revalued).minus(book).toFixed(4) };
+  return { revalued, difference: new Decimal(revalued).minus(book).minus(alreadyPosted).toFixed(4) };
 }
 
 /** Gain and loss totals of the lines: an increase of a debit balance or a decrease of a credit one is a gain. */
@@ -99,6 +130,26 @@ export function gainAndLoss(lines: Array<Pick<RevaluationLine, 'difference'>>): 
   return { gain: gain.toFixed(4), loss: loss.toFixed(4) };
 }
 
+export interface PostedLine {
+  accountId: string;
+  accountCode: string;
+  currency: string;
+  difference: string;
+}
+
+/** What the earlier runs of the period posted, per `account|currency`. */
+export function postedSoFar(runs: Array<{ lines: PostedLine[] }>): Map<string, { accountCode: string; posted: string }> {
+  const byBalance = new Map<string, { accountCode: string; posted: string }>();
+  for (const run of runs) {
+    for (const l of run.lines) {
+      const key = `${l.accountId}|${l.currency}`;
+      const before = byBalance.get(key)?.posted ?? '0';
+      byBalance.set(key, { accountCode: l.accountCode, posted: new Decimal(before).plus(l.difference).toFixed(4) });
+    }
+  }
+  return byBalance;
+}
+
 interface PeriodRow {
   id: string;
   period_name: string;
@@ -109,7 +160,7 @@ interface PeriodRow {
 
 async function periodToRevalue(client: pg.PoolClient, entityId: string, periodId: string): Promise<PeriodRow> {
   // FOR UPDATE: two runs on the same period queue here, and the second one
-  // finds the first one's marker instead of posting again.
+  // reads the first one's marker instead of posting again.
   const r = await client.query<PeriodRow>(
     `SELECT id, period_name, period_type, status, to_char(end_date, 'YYYY-MM-DD') AS end_date
        FROM fiscal_periods WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
@@ -117,12 +168,11 @@ async function periodToRevalue(client: pg.PoolClient, entityId: string, periodId
   );
   const p = r.rows[0];
   if (!p) throw new NotFoundError('Fiscal period', periodId);
-  if (p.period_type !== 'regular' || p.status !== 'open') {
-    throw new AccountingError(
-      'FX_REVALUATION_PERIOD_NOT_OPEN',
-      `${p.period_name} is ${p.period_type} and ${p.status}: the revaluation belongs to an open regular ` +
-        'month, before its close.'
-    );
+  if (p.period_type !== 'regular' || !REVALUABLE_STATUSES.has(p.status)) {
+    throw new AccountingError('FX_REVALUATION_PERIOD_NOT_OPEN', {
+      key: 'error.FX_REVALUATION_PERIOD_NOT_OPEN',
+      params: { period: p.period_name, type: p.period_type, status: p.status },
+    });
   }
   return p;
 }
@@ -141,14 +191,20 @@ async function reversalPeriod(
   );
   const next = r.rows[0];
   if (!next || next.status !== 'open') {
-    throw new AccountingError(
-      'FX_REVALUATION_NEXT_PERIOD_NOT_OPEN',
-      `The revaluation of ${period.period_name} is reversed on the first day of the next period, and ` +
-        (next ? `that period is ${next.status}.` : 'that period does not exist.') +
-        ' Open it (in December, open the next fiscal year first) and run it again: nothing was posted.'
-    );
+    throw new AccountingError('FX_REVALUATION_NEXT_PERIOD_NOT_OPEN', {
+      key: 'error.FX_REVALUATION_NEXT_PERIOD_NOT_OPEN',
+      params: { period: period.period_name, status: next ? next.status : 'missing' },
+    });
   }
   return { id: next.id, startDate: next.start_date };
+}
+
+interface Balance {
+  account_id: string;
+  code: string;
+  currency: string;
+  foreign: string;
+  book: string;
 }
 
 /** The foreign balances of receivables, payables and banks at the period's last day, per account and currency. */
@@ -157,8 +213,8 @@ async function foreignBalances(
   entityId: string,
   closingDate: string,
   functional: string
-): Promise<Array<{ account_id: string; code: string; currency: string; foreign: string; book: string }>> {
-  const r = await client.query<{ account_id: string; code: string; currency: string; foreign: string; book: string }>(
+): Promise<Balance[]> {
+  const r = await client.query<Balance>(
     `WITH scope AS (
        SELECT account_id FROM account_roles
         WHERE entity_id = $1 AND role IN ('cxc', 'cxp', 'banco')
@@ -205,6 +261,18 @@ async function closingRate(
   });
 }
 
+/** fx_revaluation_reversal, read and checked: an unknown value fails closed instead of skipping the mirror. */
+async function assertReversalPolicy(client: pg.PoolClient, ctx: { tenantId: string; entityId: string }): Promise<void> {
+  const policy = await getPolicy(ctx, 'fx_revaluation_reversal', client);
+  if (!REVERSAL_POLICY.has(policy.value)) {
+    throw new AccountingError(
+      'FX_POLITICA_DESCONOCIDA',
+      `fx_revaluation_reversal is "${policy.value}" and this reader only understands ` +
+        `${[...REVERSAL_POLICY].join(', ')}. Fix it with mnemosine pending.`
+    );
+  }
+}
+
 async function roleAccount(client: pg.PoolClient, entityId: string, role: string): Promise<string> {
   const r = await client.query<{ account_id: string }>(
     'SELECT account_id FROM account_roles WHERE entity_id = $1 AND role = $2 AND qualifier IS NULL',
@@ -216,18 +284,75 @@ async function roleAccount(client: pg.PoolClient, entityId: string, role: string
   return r.rows[0].account_id;
 }
 
+interface PriorRun {
+  sequence: number;
+  journal_entry_id: string;
+  reversal_entry_id: string;
+  lines: PostedLine[];
+}
+
+/**
+ * The marker is trusted only as far as the ledger (inviolable since migration
+ * 041) agrees with it: the period's `fx_revaluation` entries must be exactly
+ * the rows' entries, and their net per revalued account what the rows say. A
+ * deleted, repointed or rewritten row would otherwise let the run post again.
+ */
+async function assertMarkerMatchesLedger(
+  client: pg.PoolClient,
+  entityId: string,
+  period: PeriodRow,
+  prior: PriorRun[]
+): Promise<void> {
+  const entries = await client.query<{ id: string }>(
+    `SELECT id FROM journal_entries
+      WHERE entity_id = $1 AND source_type = $2 AND source_id = $3 AND status = 'posted'`,
+    [entityId, FX_REVALUATION_SOURCE, period.id]
+  );
+  const inLedger = new Set(entries.rows.map((r) => r.id));
+  const inMarker = new Set(prior.map((r) => r.journal_entry_id));
+  let agrees = inLedger.size === inMarker.size && [...inMarker].every((id) => inLedger.has(id));
+  if (agrees && inLedger.size > 0) {
+    // The gain and loss lines are the counterpart, not a revalued balance.
+    const net = await client.query<{ account_id: string; net: string }>(
+      `SELECT account_id, SUM(COALESCE(debit_amount, 0) - COALESCE(credit_amount, 0))::text AS net
+         FROM journal_entry_lines
+        WHERE journal_entry_id = ANY($1::uuid[])
+          AND account_id NOT IN (SELECT account_id FROM account_roles
+                                  WHERE entity_id = $2 AND role IN ('utilidad_cambiaria', 'perdida_cambiaria'))
+        GROUP BY account_id`,
+      [[...inLedger], entityId]
+    );
+    const markerNet = new Map<string, Decimal>();
+    for (const run of prior) {
+      for (const l of run.lines) {
+        markerNet.set(l.accountId, (markerNet.get(l.accountId) ?? new Decimal(0)).plus(l.difference));
+      }
+    }
+    const ledgerNet = new Map(net.rows.map((r) => [r.account_id, new Decimal(r.net)]));
+    const accounts = new Set([...markerNet.keys(), ...ledgerNet.keys()]);
+    agrees = [...accounts].every((a) => (ledgerNet.get(a) ?? new Decimal(0)).equals(markerNet.get(a) ?? new Decimal(0)));
+  }
+  if (!agrees) {
+    throw new AccountingError('FX_REVALUATION_MARKER_MISMATCH', {
+      key: 'error.FX_REVALUATION_MARKER_MISMATCH',
+      params: { period: period.period_name, ledger: inLedger.size, marker: inMarker.size },
+    });
+  }
+}
+
 /**
  * Revalue the period's open foreign balances. With `dryRun` it computes and
  * checks everything the post needs (the rate, the next open period) and
- * writes nothing.
+ * writes nothing. `expect` is the gain and loss the user confirmed on the
+ * plan: a live run whose recomputation differs posts nothing.
  */
 export async function revalueForeignBalances(
   ctx: { tenantId: string; entityId: string },
   periodId: string,
   userId: string,
-  opts: { dryRun?: boolean } = {}
+  opts: { dryRun?: boolean; expect?: { gain: string; loss: string } } = {}
 ): Promise<RevaluationRun> {
-  const posted: string[] = [];
+  const toAttest: string[] = [];
   const result = await withTransaction(async (client) => {
     const period = await periodToRevalue(client, ctx.entityId, periodId);
     const base: RevaluationRun = {
@@ -240,29 +365,45 @@ export async function revalueForeignBalances(
       gain: '0.0000',
       loss: '0.0000',
       alreadyRun: null,
+      sequence: null,
       entry: null,
       reversal: null,
     };
 
-    const marker = await client.query<{ journal_entry_id: string; reversal_entry_id: string }>(
-      'SELECT journal_entry_id, reversal_entry_id FROM fx_revaluation_runs WHERE entity_id = $1 AND fiscal_period_id = $2',
-      [ctx.entityId, period.id]
-    );
-    if (marker.rows[0]) {
-      return {
-        ...base,
-        alreadyRun: {
-          journalEntryId: marker.rows[0].journal_entry_id,
-          reversalEntryId: marker.rows[0].reversal_entry_id,
-        },
-      };
+    const functional = await functionalCurrencyOf(client, ctx.entityId);
+    if (functional !== SUPPORTED_FUNCTIONAL) {
+      throw new AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED', {
+        key: 'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED',
+        params: { currency: functional },
+      });
     }
+    await assertReversalPolicy(client, ctx);
+
+    const prior = (
+      await client.query<PriorRun>(
+        `SELECT sequence, journal_entry_id, reversal_entry_id, lines
+           FROM fx_revaluation_runs WHERE entity_id = $1 AND fiscal_period_id = $2
+          ORDER BY sequence`,
+        [ctx.entityId, period.id]
+      )
+    ).rows;
+    await assertMarkerMatchesLedger(client, ctx.entityId, period, prior);
+    const posted = postedSoFar(prior);
+    const last = prior.at(-1);
 
     const next = await reversalPeriod(client, ctx.entityId, period);
-    const functional = await functionalCurrencyOf(client, ctx.entityId);
-    const balances = (await foreignBalances(client, ctx.entityId, period.end_date, functional)).filter(
-      (b) => !new Decimal(b.foreign).isZero() || !new Decimal(b.book).isZero()
-    );
+    const ledger = await foreignBalances(client, ctx.entityId, period.end_date, functional);
+    // A balance an earlier run revalued and that has left the ledger since
+    // (paid in full) still needs that revaluation taken back.
+    const inLedger = new Set(ledger.map((b) => `${b.account_id}|${b.currency}`));
+    for (const [key, p] of posted) {
+      if (inLedger.has(key)) continue;
+      const [accountId, currency] = key.split('|');
+      ledger.push({ account_id: accountId, code: p.accountCode, currency, foreign: '0', book: '0' });
+    }
+    const balances = ledger
+      .map((b) => ({ ...b, posted: posted.get(`${b.account_id}|${b.currency}`)?.posted ?? '0.0000' }))
+      .filter((b) => ![b.foreign, b.book, b.posted].every((v) => new Decimal(v).isZero()));
 
     const rates = new Map<string, TipoCambioResuelto>();
     for (const currency of new Set(balances.map((b) => b.currency))) {
@@ -270,7 +411,7 @@ export async function revalueForeignBalances(
     }
     const lines: RevaluationLine[] = balances.map((b) => {
       const rate = (rates.get(b.currency) as TipoCambioResuelto).tasa;
-      const { revalued, difference } = revalue(b.foreign, b.book, rate);
+      const { revalued, difference } = revalue(b.foreign, b.book, rate, b.posted);
       return {
         accountId: b.account_id,
         accountCode: b.code,
@@ -279,6 +420,7 @@ export async function revalueForeignBalances(
         bookBalance: new Decimal(b.book).toFixed(4),
         rate,
         revaluedBalance: revalued,
+        alreadyPosted: b.posted,
         difference,
       };
     });
@@ -290,7 +432,27 @@ export async function revalueForeignBalances(
       lines,
       ...gainAndLoss(moving),
     };
-    if (opts.dryRun || moving.length === 0) return run;
+    if (moving.length === 0) {
+      if (!last) return run;
+      return {
+        ...run,
+        alreadyRun: { journalEntryId: last.journal_entry_id, reversalEntryId: last.reversal_entry_id, sequence: last.sequence },
+      };
+    }
+    const sequence = (last?.sequence ?? 0) + 1;
+    if (opts.dryRun) return { ...run, sequence };
+    if (opts.expect && (opts.expect.gain !== run.gain || opts.expect.loss !== run.loss)) {
+      throw new AccountingError('FX_REVALUATION_PLAN_CHANGED', {
+        key: 'error.FX_REVALUATION_PLAN_CHANGED',
+        params: {
+          period: period.period_name,
+          expectedGain: opts.expect.gain,
+          expectedLoss: opts.expect.loss,
+          gain: run.gain,
+          loss: run.loss,
+        },
+      });
+    }
 
     const entryLines: EntryLine[] = moving.map((l) => {
       const amount = new Decimal(l.difference).abs().toFixed(4);
@@ -323,7 +485,8 @@ export async function revalueForeignBalances(
       ctx.entityId,
       period.end_date,
       JournalEntryType.ADJUSTING,
-      `FX revaluation ${period.period_name} at the ${period.end_date} closing rate`,
+      `FX revaluation ${period.period_name} at the ${period.end_date} closing rate` +
+        (sequence > 1 ? ` (supplement ${sequence})` : ''),
       entryLines,
       userId,
       { autoPost: true, client, sourceType: FX_REVALUATION_SOURCE, sourceId: period.id, fiscalPeriodId: period.id }
@@ -336,28 +499,37 @@ export async function revalueForeignBalances(
       next.startDate,
       next.id
     );
+    const postedLines: PostedLine[] = moving.map((l) => ({
+      accountId: l.accountId,
+      accountCode: l.accountCode,
+      currency: l.currency,
+      difference: l.difference,
+    }));
     await client.query(
       `INSERT INTO fx_revaluation_runs
-         (entity_id, fiscal_period_id, journal_entry_id, reversal_entry_id, rate_date, rates, created_by)
-       VALUES ($1, $2, $3, $4, $5::date, $6::jsonb, $7)`,
+         (entity_id, fiscal_period_id, journal_entry_id, reversal_entry_id, sequence, rate_date, rates, lines, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6::date, $7::jsonb, $8::jsonb, $9)`,
       [
         ctx.entityId,
         period.id,
         entry.id,
         reversal.id,
+        sequence,
         period.end_date,
         JSON.stringify(Object.fromEntries(run.rates.map((r) => [r.currency, { rate: r.tasa, source: r.fuente }]))),
+        JSON.stringify(postedLines),
         userId,
       ]
     );
-    posted.push(entry.id, reversal.id);
+    toAttest.push(entry.id, reversal.id);
     return {
       ...run,
+      sequence,
       entry: { id: entry.id, number: entry.entry_number },
       reversal: { id: reversal.id, number: reversal.entry_number },
     };
   });
   // Attestation must see committed data: after the transaction, never inside it.
-  for (const id of posted) attestEntryAsync(ctx.tenantId, ctx.entityId, id);
+  for (const id of toAttest) attestEntryAsync(ctx.tenantId, ctx.entityId, id);
   return result;
 }

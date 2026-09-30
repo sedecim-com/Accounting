@@ -6728,7 +6728,8 @@ Commands:
   revalue|revaluar [options] <period>  Revalue the foreign-currency receivables,
                                        payables and banks at the closing rate,
                                        and reverse it on day 1 of the next
-                                       period
+                                       period. It belongs after the soft close;
+                                       a later run posts only what moved since
   help [command]                       display help for command
 ```
 
@@ -6738,7 +6739,8 @@ Commands:
 Usage: mnemosine closing fx revalue|revaluar [options] <period>
 
 Revalue the foreign-currency receivables, payables and banks at the closing
-rate, and reverse it on day 1 of the next period
+rate, and reverse it on day 1 of the next period. It belongs after the soft
+close; a later run posts only what moved since
 
 Arguments:
   period                                   period to revalue: 2026-08, its id, or part of its name
