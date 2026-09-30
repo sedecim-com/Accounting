@@ -75,9 +75,12 @@ export interface CensusReconciliation {
   cancelledUnbooked: number;
 }
 
-/** Every UUID the books carry, with the direction and, where known, date and amount. */
-const BOOKED = `
-  booked AS (
+/**
+ * Every UUID the books carry, with the direction and, where known, date and amount.
+ * The rows only: each query names its own `booked AS (...)`, because the schema
+ * contract test finds CTE names in the text of the query it scans.
+ */
+const BOOKED_ROWS = `
     SELECT lower(i.cfdi_uuid) AS u, 'issued' AS direction, 'invoice' AS source,
            i.invoice_date AS d, i.total_amount AS amount
       FROM invoices i
@@ -105,10 +108,10 @@ const BOOKED = `
       JOIN pay_runs r ON r.id = pc.pay_run_id AND r.tenant_id = $2
       JOIN journal_entries je ON je.id = r.journal_entry_id AND je.entity_id = $1 AND je.status = 'posted'
      WHERE pc.tenant_id = $2 AND pc.cfdi_uuid IS NOT NULL
-  )`;
+`;
 
 const SQL_CENSUS = `
-  WITH ${BOOKED},
+  WITH booked AS (${BOOKED_ROWS}),
   fetched AS (SELECT DISTINCT lower(cfdi_uuid) AS u FROM xml_documents WHERE entity_id = $1)
   SELECT c.cfdi_uuid::text AS uuid, c.direction, c.cfdi_type AS "cfdiType",
          to_char(c.issued_at, 'YYYY-MM-DD HH24:MI:SS') AS "issuedAt", c.amount::text AS amount,
@@ -122,7 +125,7 @@ const SQL_CENSUS = `
    ORDER BY c.issued_at, c.cfdi_uuid`;
 
 const SQL_SURPLUS = `
-  WITH ${BOOKED}
+  WITH booked AS (${BOOKED_ROWS})
   SELECT b.u AS uuid, b.direction, b.source, to_char(b.d, 'YYYY-MM-DD') AS date, b.amount::text AS amount
     FROM booked b
     JOIN legal_entities le ON le.id = $1 AND le.tenant_id = $2

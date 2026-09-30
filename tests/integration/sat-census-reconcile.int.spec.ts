@@ -47,6 +47,13 @@ async function postedEntry(fx: Fixture): Promise<string> {
      VALUES ($1, $2, 'standard', $3, $4, '2026-08-10', '2026-08-10', 'posted', 1160, 1160, 'census test', $5, $5)`,
     [id, `C119-${id.slice(0, 8)}`, fx.entityId, fx.periodos[8], fx.userId]
   );
+  // The entry is injected, so its `post` trail is too: the suite shares one database,
+  // and `doctor` (mayor-inviolable) would otherwise report posted entries with no author.
+  await query(
+    `INSERT INTO audit_log (user_id, tenant_id, action, entity_type, entity_id, reason)
+     VALUES ($1, $2, 'post', 'journal_entries', $3, 'entry injected by the census test')`,
+    [fx.userId, fx.tenantId, id]
+  );
   return id;
 }
 
