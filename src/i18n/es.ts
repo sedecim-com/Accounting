@@ -1273,6 +1273,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'Primero el importe diario: mensual / 30.4 al centavo, luego × los días del periodo',
 
+  'policy.employment_subsidy_separate_run.question':
+    'Cuando un trabajador recibe un segundo recibo en el mismo periodo de pago (un aguinaldo pagado en su propia corrida, por ejemplo), ¿cuánto subsidio al empleo lleva?',
+  'policy.employment_subsidy_separate_run.impact':
+    'Decide el subsidio, el ISR retenido, el efectivo que se entrega al trabajador y el CFDI de nómina del segundo recibo. En cualquier caso el periodo nunca recibe el subsidio dos veces; las opciones difieren cuando el recibo anterior no recibió ninguno.',
+  'policy.employment_subsidy_separate_run.rationale':
+    'El decreto que rige el subsidio (DOF 31-12-2025) otorga un importe por periodo a quien no gana más de un tope mensual, así que el importe y el tope se miden sobre el ingreso del periodo, no de cada recibo. Recalcular sobre el ingreso combinado da lo mismo que pagar el aguinaldo junto con el sueldo, y el segundo recibo acredita sólo lo que el primero no. Una diferencia menor que cero no se le descuenta al trabajador.',
+  'policy.employment_subsidy_separate_run.why':
+    'Pagar el aguinaldo en su propia corrida es común, y el subsidio es por periodo: sin una regla el segundo recibo lo volvía a recibir.',
+  'policy.employment_subsidy_separate_run.what':
+    'Antes de acreditar el subsidio en un recibo, leo los otros recibos calculados, aprobados o pagados del mismo trabajador y periodo. Con "recompute_on_combined_income" calculo el subsidio sobre su ingreso más el de éste y acredito la diferencia; con "none_on_separate_paycheck" no acredito ninguno.',
+  'policy.employment_subsidy_separate_run.if_skipped':
+    'Recalculo sobre el ingreso combinado del periodo y acredito sólo la diferencia.',
+  'policy.employment_subsidy_separate_run.option.recompute_on_combined_income':
+    'Recalcularlo una sola vez sobre el ingreso de ambos recibos, y acreditar en el segundo sólo la diferencia',
+  'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
+    'Ninguno: el segundo recibo del periodo no lleva subsidio',
+
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
   'policy.filing_rounding_to_pesos.impact':

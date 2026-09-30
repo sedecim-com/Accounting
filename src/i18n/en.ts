@@ -1307,6 +1307,23 @@ export const EN = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'The daily amount first: monthly / 30.4 to the cent, then × the days of the period',
 
+  'policy.employment_subsidy_separate_run.question':
+    'When a worker gets a second paycheck in the same pay period (an aguinaldo paid in its own run, for example), how much employment subsidy does it carry?',
+  'policy.employment_subsidy_separate_run.impact':
+    'It decides the subsidy, the ISR withheld, the cash handed to the worker and the payroll CFDI of the second paycheck. Either way the period never receives the subsidy twice; the options differ when the earlier paycheck received none.',
+  'policy.employment_subsidy_separate_run.rationale':
+    'The decree that governs the subsidy (DOF 31-12-2025) grants one amount per period to whoever earns no more than a monthly cap, so both the amount and the cap are measured on the income of the period, not of each payslip. Recomputing on the combined income gives the same result as paying the aguinaldo with the salary, and the second paycheck credits only what the first did not. A difference below zero is not clawed back from the worker.',
+  'policy.employment_subsidy_separate_run.why':
+    'Paying the aguinaldo in its own run is common, and the subsidy is per period: without a rule the second paycheck received it again.',
+  'policy.employment_subsidy_separate_run.what':
+    'Before crediting the subsidy on a paycheck, I read the other calculated, approved or paid paychecks of the same worker and period. With "recompute_on_combined_income" I compute the subsidy on their income plus this one and credit the difference; with "none_on_separate_paycheck" I credit none.',
+  'policy.employment_subsidy_separate_run.if_skipped':
+    'I recompute on the combined income of the period and credit only the difference.',
+  'policy.employment_subsidy_separate_run.option.recompute_on_combined_income':
+    'Recompute it once on the income of both paychecks, and credit on the second only the difference',
+  'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
+    'None: the second paycheck of the period carries no subsidy',
+
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
   'policy.filing_rounding_to_pesos.impact':

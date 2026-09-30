@@ -13,7 +13,12 @@ import {
   type RegistroSubsidioLeido,
 } from '../mx/subsidio-entregado.js';
 import { isrPartsOf, type IsrExemptionContext } from '../mx/isr-exemption.js';
-import { readEmploymentSubsidyRounding } from '../mx/employment-subsidy.js';
+import {
+  readEmploymentSubsidyRounding,
+  readEmploymentSubsidySeparateRun,
+  subsidyOfLaterPaycheck,
+  subsidyOfOtherRunsInPeriod,
+} from '../mx/employment-subsidy.js';
 import type { TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
 // ============================================================
@@ -448,11 +453,46 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
       tenantId: input.tenant_id,
       entityId: period.entity_id,
     });
-    const sub = await subCalc.calculate({
+    const subsidyInput = {
       ...baseTaxInput,
-      taxable_wages: taxableIsr,
       employment_subsidy_rounding: employmentSubsidyRounding,
+    };
+    const ownSubsidy = await subCalc.calculate({ ...subsidyInput, taxable_wages: taxableIsr });
+    // ONE SUBSIDY PER PERIOD (#430, MNE-001-398): an aguinaldo paid in its own
+    // run of a period whose fortnight already caused the subsidy got it again.
+    // Another paycheck of the period hands the amount to the policy.
+    const otherRuns = await subsidyOfOtherRunsInPeriod({
+      tenantId: input.tenant_id,
+      employeeId: input.employee_id,
+      payRunId: scope.run.id,
+      payPeriodId: scope.run.pay_period_id,
     });
+    let sub = ownSubsidy;
+    if (otherRuns.paychecks > 0) {
+      const treatment = await readEmploymentSubsidySeparateRun({
+        tenantId: input.tenant_id,
+        entityId: period.entity_id,
+      });
+      const combined =
+        treatment === 'recompute_on_combined_income'
+          ? await subCalc.calculate({
+              ...subsidyInput,
+              taxable_wages: otherRuns.taxableIsr.plus(taxableIsr).toNumber(),
+            })
+          : null;
+      const amount = subsidyOfLaterPaycheck({
+        treatment,
+        onCombinedIncome: combined?.tax_amount ?? 0,
+        alreadyCaused: otherRuns.subsidy,
+      });
+      sub = {
+        ...ownSubsidy,
+        tax_amount: amount.toNumber(),
+        notes:
+          `${(combined ?? ownSubsidy).notes ?? 'Subsidio al empleo'} · otro recibo del periodo ya causó ` +
+          `${otherRuns.subsidy.toFixed(2)} [${treatment}]`,
+      };
+    }
     breakdown.subsidio_empleo = sub.tax_amount;
 
     // EL SUBSIDIO QUE EXCEDE AL ISR NO SE EVAPORA: SE ENTREGA.

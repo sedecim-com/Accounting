@@ -2117,6 +2117,44 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I round once, on the period amount. From February to December the two options give the same figures.',
     priority: 42,
   },
+  // #430 · MNE-001-398. Decided by the owner in MNE-001-397. Read by
+  // `readEmploymentSubsidySeparateRun` (payroll/mx/employment-subsidy.ts), only
+  // when the employee already has another paycheck in the same pay period.
+  {
+    key: 'employment_subsidy_separate_run',
+    textKey: 'employment_subsidy_separate_run',
+    category: 'fiscal',
+    question:
+      'When a worker gets a second paycheck in the same pay period (an aguinaldo paid in its own run, for example), how much employment subsidy does it carry?',
+    impact:
+      'It decides the subsidy, the ISR withheld, the cash handed to the worker and the payroll CFDI of the second paycheck. ' +
+      'Either way the period never receives the subsidy twice; the options differ when the earlier paycheck received none.',
+    options: [
+      {
+        value: 'recompute_on_combined_income',
+        label: 'Recompute it once on the income of both paychecks, and credit on the second only the difference',
+      },
+      {
+        value: 'none_on_separate_paycheck',
+        label: 'None: the second paycheck of the period carries no subsidy',
+      },
+    ],
+    defaultValue: 'recompute_on_combined_income',
+    defaultRationale:
+      'The decree that governs the subsidy (DOF 31-12-2025) grants one amount per period to whoever earns no more than a ' +
+      'monthly cap, so both the amount and the cap are measured on the income of the period, not of each payslip. ' +
+      'Recomputing on the combined income gives the same result as paying the aguinaldo with the salary, and the second ' +
+      'paycheck credits only what the first did not. A difference below zero is not clawed back from the worker.',
+    whyAsking:
+      'Paying the aguinaldo in its own run is common, and the subsidy is per period: without a rule the second paycheck received it again.',
+    whatIDo:
+      'Before crediting the subsidy on a paycheck, I read the other calculated, approved or paid paychecks of the same worker ' +
+      'and period. With "recompute_on_combined_income" I compute the subsidy on their income plus this one and credit the ' +
+      'difference; with "none_on_separate_paycheck" I credit none.',
+    ifSkipped:
+      'I recompute on the combined income of the period and credit only the difference.',
+    priority: 42,
+  },
   // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
   // `readFilingRounding` (fiscal/iva-workpaper.ts). The adjustment itself is
   // not an option: CFF art. 20 fixes it (1–50 cents down, 51–99 up).

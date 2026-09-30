@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import type pg from 'pg';
+import { query } from '../../../database/connection.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import { AccountingError } from '../../../utils/errors.js';
 import type { PayFrequency } from '../tax-engine/tax-engine.interface.js';
@@ -118,4 +119,112 @@ export async function readEmploymentSubsidyRounding(
     );
   }
   return value;
+}
+
+// ============================================================
+// ONE SUBSIDY PER PAY PERIOD, WHATEVER THE NUMBER OF RUNS (#430, MNE-001-398)
+//
+// The subsidy was computed per paycheck from that paycheck's own income, so
+// an aguinaldo paid in its own run of a period whose regular fortnight had
+// already credited it received it again, and the part over its ISR went out
+// as cash. What a later paycheck of the same period gets is the policy
+// `employment_subsidy_separate_run` (AGENTS.md invariant 6), decided by the
+// owner in MNE-001-397:
+//
+//   · recompute_on_combined_income (default): the subsidy is computed once on
+//     the income of every paycheck of the period together, and the later
+//     paycheck causes only what the earlier ones did not. A negative
+//     difference is not clawed back here: a subsidy already delivered stays.
+//   · none_on_separate_paycheck: a paycheck of a period in which the
+//     employee already has another one gets no subsidy.
+//
+// Every other run of the same pay period counts (regular, bonus, off_cycle,
+// correction, final), with the statuses the overtime and aguinaldo caps read:
+// the subsidy is per period, not per kind of payment.
+// ============================================================
+
+/** The policy that decides the subsidy of a later paycheck of the period. Its values are persisted. */
+export const EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY = 'employment_subsidy_separate_run';
+
+export type EmploymentSubsidySeparateRun = 'recompute_on_combined_income' | 'none_on_separate_paycheck';
+
+const KNOWN_SEPARATE_RUN_TREATMENTS: readonly EmploymentSubsidySeparateRun[] = [
+  'recompute_on_combined_income',
+  'none_on_separate_paycheck',
+];
+
+/** Closed on declaring, like `readEmploymentSubsidyRounding`. */
+export async function readEmploymentSubsidySeparateRun(
+  ctx: { tenantId: string; entityId?: string },
+  client?: pg.PoolClient
+): Promise<EmploymentSubsidySeparateRun> {
+  const policy = await getPolicy(ctx, EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY, client);
+  const value = KNOWN_SEPARATE_RUN_TREATMENTS.find((t) => t === policy.value);
+  if (!value) {
+    throw new AccountingError(
+      'EMPLOYMENT_SUBSIDY_SEPARATE_RUN_UNKNOWN',
+      `La política ${EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY} vale "${policy.value}" y este lector sólo ` +
+        `entiende ${KNOWN_SEPARATE_RUN_TREATMENTS.join(', ')}. Corrígela en mnemosine pending.`
+    );
+  }
+  return value;
+}
+
+/** What the employee's OTHER paychecks of the same pay period already carry. */
+export interface SubsidyOfOtherRuns {
+  paychecks: number;
+  /** Their ISR base (`paychecks.taxable_wages_isr`). */
+  taxableIsr: Decimal;
+  /** The subsidy they caused: credited against their ISR plus delivered in cash. */
+  subsidy: Decimal;
+}
+
+/**
+ * Reads the employee's paychecks of the other runs of the same pay period.
+ * The run being calculated is left out, and only runs that count are read.
+ *
+ * Scope: tenant and employee in the SQL; the period is the run's own, which
+ * the caller resolved inside the tenant and the entity.
+ */
+export async function subsidyOfOtherRunsInPeriod(ctx: {
+  tenantId: string;
+  employeeId: string;
+  payRunId: string;
+  payPeriodId: string;
+}): Promise<SubsidyOfOtherRuns> {
+  const r = await query<{ paychecks: number; taxable: string; subsidy: string }>(
+    `SELECT COUNT(*)::int AS paychecks,
+            COALESCE(SUM(p.taxable_wages_isr), 0) AS taxable,
+            COALESCE(SUM(p.subsidio_empleo), 0) AS subsidy
+       FROM paychecks p
+       JOIN pay_runs pr ON pr.id = p.pay_run_id AND pr.tenant_id = p.tenant_id
+      WHERE p.tenant_id = $1
+        AND p.employee_id = $2
+        AND pr.pay_period_id = $3
+        AND pr.id <> $4
+        AND pr.status IN ('calculated', 'approved', 'paid')`,
+    [ctx.tenantId, ctx.employeeId, ctx.payPeriodId, ctx.payRunId]
+  );
+  const row = r.rows[0];
+  return {
+    paychecks: row?.paychecks ?? 0,
+    taxableIsr: new Decimal(row?.taxable ?? 0),
+    subsidy: new Decimal(row?.subsidy ?? 0),
+  };
+}
+
+/**
+ * The subsidy a later paycheck of the period causes.
+ *
+ * @param onCombinedIncome the subsidy of the period computed on the income of
+ *   all its paychecks together; not used under `none_on_separate_paycheck`.
+ */
+export function subsidyOfLaterPaycheck(args: {
+  treatment: EmploymentSubsidySeparateRun;
+  onCombinedIncome: Decimal.Value;
+  alreadyCaused: Decimal.Value;
+}): Decimal {
+  if (args.treatment === 'none_on_separate_paycheck') return new Decimal(0);
+  const difference = new Decimal(args.onCombinedIncome).minus(args.alreadyCaused);
+  return difference.greaterThan(0) ? difference : new Decimal(0);
 }
