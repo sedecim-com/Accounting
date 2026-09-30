@@ -283,6 +283,25 @@ describe('S2 · Users and roles', () => {
     expect(inserts).toHaveLength(0);
   });
 
+  it('refuses what `user create` refuses: a password bcrypt would truncate, and length in code points', async () => {
+    mockQuery.mockImplementation((sql?: unknown) => {
+      const q = typeof sql === 'string' ? sql : '';
+      if (q.includes('SELECT email, roles')) return Promise.resolve({ rows: [] });
+      if (q.includes('public.tenants')) return Promise.resolve({ rows: [{ id: 't1' }] });
+      return Promise.resolve({ rows: [], rowCount: 1 });
+    });
+    // 73 bytes: bcrypt would keep only the first 72.
+    const long = makeCtx({ text: ['nuevo@demo.com', '1'], secrets: ['a'.repeat(73)] });
+    await new UsuariosSection().configure(long);
+    expect(long.lines.join('\n')).toMatch(/too long/);
+    // 6 emoji are 12 UTF-16 units but 6 characters: too short for both doors.
+    const astral = makeCtx({ text: ['nuevo@demo.com', '1'], secrets: ['\u{1F511}'.repeat(6)] });
+    await new UsuariosSection().configure(astral);
+    expect(astral.lines.join('\n')).toMatch(/too short/);
+    const inserts = mockQuery.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO users'));
+    expect(inserts).toHaveLength(0);
+  });
+
   it('hashes the password (never stores it in the clear)', async () => {
     mockQuery.mockImplementation((sql?: unknown) => {
       const q = typeof sql === 'string' ? sql : '';

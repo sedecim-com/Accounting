@@ -101,7 +101,7 @@ import { registerCfdiCommand } from './cfdi-command.js';
 import { registerRepCommand } from './rep-command.js';
 import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
-import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
+import { registerInitCommand, runInitWizard, readSecretFromTty, type InitWizardResult } from './init-command.js';
 import { palette } from './palette.js';
 import { parseKind, refuseIngestionFlags, runCensus, type IngestKind } from './ingest-census.js';
 import { entityScope } from '../database/scope.js';
@@ -120,6 +120,8 @@ import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
 import { registerEntityCommand } from './entity-command.js';
 import { registerTenantCommand } from './tenant-command.js';
+import { registerUserCommand } from './user-command.js';
+import { noticeRlsBypassOnce } from './rls-bypass-notice.js';
 import { registerAccountCommand } from './account-command.js';
 import { registerEntryCommand } from './entry-command.js';
 import { registerPeriodCommand, registerYearCommand } from './period-command.js';
@@ -1195,6 +1197,11 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
       if (duro) throw notFound(texto);
       console.error(ce.yellow(texto));
     }
+  }
+
+  // #326: a write under a role that RLS does not filter says so, once per session.
+  if (!chatDbInitError) {
+    await noticeRlsBypassOnce(actionCommand, (line) => stderr.write(ce.yellow(line)));
   }
 });
 
@@ -3502,6 +3509,8 @@ registerCompactCommand(program, { palette: c, shutdown, reportError });
 registerApprovalsCommand(program, { palette: c, shutdown, reportError });
 registerEntityCommand(program, { palette: c, shutdown, reportError });
 registerTenantCommand(program, { palette: c, shutdown, reportError });
+// The prompt goes to stderr: `user create --json | jq` keeps a clean stdout.
+registerUserCommand(program, { palette: c, shutdown, reportError, readSecret: (p) => readSecretFromTty(p, stderr) });
 registerPaymentCommands(program, { palette: c, shutdown, reportError });
 registerAccountCommand(program, { palette: c, shutdown, reportError });
 registerAnexo24MigrationCommands(program, { palette: c, shutdown, reportError });
