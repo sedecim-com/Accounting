@@ -1698,6 +1698,15 @@ export const EN = {
     'With several invoices, the withholding "{spec}" has to say which one it belongs to ("INV-2026-00042:{spec}").',
   'receipt.withholding.not_applied':
     'The withholding "{spec}" names {invoice}, which is not one of the --invoice of this application.',
+  'receipt.withholding.negative': 'A withholding cannot be negative ({amount}).',
+  'receipt.withholding.cash_required':
+    'The cash applied to {invoice} must be greater than zero (got {amount}): a withholding rides on a cash application, it is never applied alone.',
+  'receipt.withholding.exceeds_due':
+    '{invoice} owes {due} and {settled} would be applied ({cash} collected + {withheld} withheld).',
+  'receipt.withholding.vat_cap': '{invoice} transfers {cap} of VAT: the customer cannot withhold more than that.',
+  'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
+  'receipt.withholding.booked_at_issuance':
+    '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',

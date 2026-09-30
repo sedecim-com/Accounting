@@ -956,8 +956,10 @@ export interface AplicacionPosterior {
  */
 // MNE-001-113: what the customer withheld also closes the receivable, as a
 // debit to the two customer-withholding roles. The VAT the customer
-// withholds was collected all the same (it remits it for us), so the PPD
-// release is on the cash plus the withholding.
+// withholds counts as collected (LIVA art. 1-B: the creditor's interest is
+// satisfied when the customer withholds it and remits it for us), so the PPD
+// release is on the cash plus the withholding; the withheld VAT is then
+// credited in the monthly computation (LIVA art. 5-D), from 1146.
 export async function postReceiptApplicationEntry(
   client: pg.PoolClient,
   payment: PaymentRow,

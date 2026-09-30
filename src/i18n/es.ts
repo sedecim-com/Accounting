@@ -1583,6 +1583,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'Con varias facturas, la retención "{spec}" tiene que decir de cuál es ("INV-2026-00042:{spec}").',
   'receipt.withholding.not_applied':
     'La retención "{spec}" nombra {invoice}, que no está entre las --invoice de esta aplicación.',
+  'receipt.withholding.negative': 'Una retención no puede ser negativa ({amount}).',
+  'receipt.withholding.cash_required':
+    'El efectivo aplicado a {invoice} debe ser mayor que cero (llegó {amount}): una retención viaja con una aplicación de efectivo, nunca se aplica sola.',
+  'receipt.withholding.exceeds_due':
+    '{invoice} debe {due} y se intentan aplicar {settled} ({cash} cobrado + {withheld} retenido).',
+  'receipt.withholding.vat_cap': '{invoice} traslada {cap} de IVA: el cliente no puede retener más que eso.',
+  'receipt.withholding.isr_cap': '{invoice} tiene un subtotal de {cap}: el ISR retenido no puede pasar de ahí.',
+  'receipt.withholding.booked_at_issuance':
+    '{invoice} ya registró la retención del cliente ({amount}) al emitirse: su cuenta por cobrar es el neto que paga el cliente. Aplica sólo el efectivo; --withholding es para facturas cuya cuenta por cobrar se registró en bruto.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',

@@ -4,14 +4,16 @@ import Decimal from 'decimal.js';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
-import { createInvoice, issueInvoice, listInvoices } from '../../src/services/ar/invoice-service.js';
+import { createInvoice, issueInvoice, listInvoices, listInvoiceAllocations } from '../../src/services/ar/invoice-service.js';
 import {
   recordCustomerPayment,
   applyCustomerPayment,
   unapplyCustomerPayment,
   reverseCustomerPayment,
 } from '../../src/services/payments/payment-service.js';
-import { arReconcile } from '../../src/services/ar/ar-controls.js';
+import { arReconcile, runArChecks } from '../../src/services/ar/ar-controls.js';
+import { createJournalEntry } from '../../src/services/accounting/posting.js';
+import { ValidationError } from '../../src/utils/errors.js';
 import type { Invoice } from '../../src/types/index.js';
 
 /**
@@ -151,6 +153,12 @@ describe('receipt apply with the customer withholding', () => {
       [paymentId]
     );
     expect(alloc.rows).toEqual([{ isr: '1000.0000', iva: '1066.6700', cash: '9533.3300' }]);
+    // `invoice show` reads the same row: its allocations add up to amount_paid.
+    expect(await listInvoiceAllocations(invoice.id)).toEqual([
+      expect.objectContaining({
+        amount_applied: '9533.3300', withholding_isr_amount: '1000.0000', withholding_iva_amount: '1066.6700',
+      }),
+    ]);
 
     // The as-of balance agrees with amount_due: a withheld peso is not owed.
     const { rows } = await listInvoices(f.entityId, { customerId, asOf: '2026-12-31', dateBasis: 'posting', withAging: true });
@@ -166,6 +174,8 @@ describe('receipt apply with the customer withholding', () => {
     );
 
     expect(r.desaplicado).toBe('9533.33');
+    // The withholding it takes back is reported, not just the cash.
+    expect(r.documento).toMatchObject({ withholdingIsr: '1000.00', withholdingIva: '1066.67' });
     expect(r.documento.saldoNuevo).toBe('11600.00');
     expect(await invoiceRow(invoice.id)).toEqual({ status: 'sent', due: 11600, paid: 0 });
     const lines = await linesOf(r.journalEntry.id);
@@ -180,6 +190,8 @@ describe('receipt apply with the customer withholding', () => {
   it('an NSF reversal reopens the whole settlement, withholding included', async () => {
     const other = await feesInvoice();
     const pid = await netOnAccount('9533.33');
+    const isrBefore = await balance('1145');
+    const ivaBefore = await balance('1146');
     await applyCustomerPayment(
       f.entityId, pid,
       [{ documentId: other.id, amountApplied: '9533.33', withholdingIsr: '1000.00', withholdingIva: '1066.67' }],
@@ -188,6 +200,12 @@ describe('receipt apply with the customer withholding', () => {
     const r = await reverseCustomerPayment(f.entityId, pid, { reason: 'bounced' }, f.userId);
     expect(r.documentosReabiertos[0].saldoNuevo).toBe('11600.00');
     expect(await invoiceRow(other.id)).toEqual({ status: 'sent', due: 11600, paid: 0 });
+    // The mirror took the withholding off its role accounts, and no live
+    // allocation keeps it.
+    expect(await balance('1145')).toBeCloseTo(isrBefore);
+    expect(await balance('1146')).toBeCloseTo(ivaBefore);
+    const live = await query('SELECT 1 FROM payment_allocations WHERE payment_id = $1 AND unapplied_at IS NULL', [pid]);
+    expect(live.rowCount).toBe(0);
   });
 
   it('on a PPD invoice the whole VAT is caused: the withheld part was collected too', async () => {
@@ -217,12 +235,126 @@ describe('receipt apply with the customer withholding', () => {
     // More ISR than the invoice's subtotal.
     await expect(apply('10000.01', '0', '100.00')).rejects.toThrow(/10000\.00/);
     await expect(apply('-1', '0')).rejects.toThrow(/negative/);
+    // A withholding rides on cash: alone it is refused before Postgres sees it.
+    const alone = apply('1000.00', '0', '0');
+    await expect(alone).rejects.toBeInstanceOf(ValidationError);
+    await expect(alone).rejects.toThrow(/greater than zero/);
     expect(await invoiceRow(inv.id)).toEqual({ status: 'sent', due: 11600, paid: 0 });
+  });
+
+  it('unapply refuses when the invoice no longer shows what the collection settled', async () => {
+    const inv = await feesInvoice();
+    const pid = await netOnAccount('9533.33');
+    await applyCustomerPayment(
+      f.entityId, pid,
+      [{ documentId: inv.id, amountApplied: '9533.33', withholdingIsr: '1000.00', withholdingIva: '1066.67' }],
+      f.userId
+    );
+    // Someone else took 5000 off amount_paid meanwhile: reopening 11600
+    // would leave it negative, so the guarded UPDATE matches no row.
+    await query('UPDATE invoices SET amount_paid = amount_paid - 5000 WHERE id = $1', [inv.id]);
+    try {
+      await expect(
+        unapplyCustomerPayment(f.entityId, pid, { invoiceId: inv.id, reason: 'race' }, f.userId)
+      ).rejects.toThrow(/less paid than this collection settled/);
+      const live = await query('SELECT 1 FROM payment_allocations WHERE payment_id = $1 AND unapplied_at IS NULL', [pid]);
+      expect(live.rowCount).toBe(1);
+    } finally {
+      await query('UPDATE invoices SET amount_paid = amount_paid + 5000 WHERE id = $1', [inv.id]);
+    }
+  });
+
+  it('over-application counts the withholding, not just the cash', async () => {
+    const inv = await feesInvoice();
+    const pid = await netOnAccount('9533.33');
+    await applyCustomerPayment(
+      f.entityId, pid,
+      [{ documentId: inv.id, amountApplied: '9533.33', withholdingIsr: '1000.00', withholdingIva: '1066.67' }],
+      f.userId
+    );
+    const probe = async () =>
+      (await runArChecks(f.entityId, { checks: ['over-application'] })).results[0];
+    // Cash plus withholding equals the total: a settled invoice, not an excess.
+    expect((await probe()).count).toBe(0);
+    // A row that promises 100 more than the invoice (as a hand edit would):
+    // the cash alone (9533.33) is still below 11600, only the withholding
+    // tells the probe the subledger promises more than was invoiced.
+    await query(
+      `UPDATE payment_allocations SET withholding_iva_amount = withholding_iva_amount + 100
+        WHERE payment_id = $1 AND invoice_id = $2 AND unapplied_at IS NULL`,
+      [pid, inv.id]
+    );
+    try {
+      const r = await probe();
+      expect(r.count).toBe(1);
+      expect(r.sample[0]).toContain(`${inv.invoice_number}: 11700.00`);
+    } finally {
+      await query(
+        `UPDATE payment_allocations SET withholding_iva_amount = withholding_iva_amount - 100
+          WHERE payment_id = $1 AND invoice_id = $2 AND unapplied_at IS NULL`,
+        [pid, inv.id]
+      );
+    }
   });
 
   it('after all of it the subledger still ties to the control account', async () => {
     const r = await arReconcile(f.entityId);
     expect(r.balanced, `delta ${r.delta}`).toBe(true);
-    expect(new Decimal(await balance('1146')).toFixed(2)).toBe('1066.67');
+    expect(new Decimal(await balance('1146')).toFixed(2)).toBe('3200.01');
+  });
+});
+
+describe('an invoice whose receivable was booked net of the withholding', () => {
+  /**
+   * The shape issued-invoice-approval.ts gives an invoice born from an issued
+   * CFDI with retenciones: total and amount_due are the CFDI's net total, and
+   * the issuance entry already debited 1145/1146 for what the customer
+   * withholds.
+   */
+  async function netBookedInvoice(): Promise<{ id: string; number: string }> {
+    const id = uuidv4();
+    const number = `INV-113-NET-${id.slice(0, 8)}`;
+    await query(
+      `INSERT INTO invoices (id, entity_id, invoice_number, customer_id, subtotal, tax_amount, total_amount,
+                             amount_due, amount_paid, currency_code, invoice_date, due_date, status,
+                             cfdi_uuid, cfdi_status, created_by)
+       VALUES ($1, $2, $3, $4, 10000, 1600, 9533.33, 9533.33, 0, 'MXN', $5, $5, 'sent', $6, 'stamped', $7)`,
+      [id, f.entityId, number, customerId, day(), uuidv4(), f.userId]
+    );
+    const entry = await createJournalEntry(
+      f.entityId, day(), 'auto_invoice' as never, `CFDI issued ${number}`,
+      [
+        { account_id: f.roles.cxc, debit_amount: '9533.33', credit_amount: null, description: 'AR net' },
+        { account_id: f.roles.isr_retenido_a_favor, debit_amount: '1000.00', credit_amount: null, description: 'ISR withheld' },
+        { account_id: f.roles.iva_retenido_a_favor, debit_amount: '1066.67', credit_amount: null, description: 'VAT withheld' },
+        { account_id: f.cuentas['4100'], debit_amount: null, credit_amount: '10000.00', description: 'fees' },
+        { account_id: f.roles.iva_trasladado, debit_amount: null, credit_amount: '1600.00', description: 'VAT' },
+      ] as never,
+      f.userId,
+      { autoPost: true, sourceType: 'invoice', sourceId: id }
+    );
+    await query('UPDATE invoices SET journal_entry_id = $1 WHERE id = $2 AND entity_id = $3', [entry.id, id, f.entityId]);
+    return { id, number };
+  }
+
+  it('refuses a second withholding: it would count the same ISR and VAT twice', async () => {
+    const inv = await netBookedInvoice();
+    const pid = await netOnAccount('5000.00');
+    const isrBefore = await balance('1145');
+    await expect(
+      applyCustomerPayment(
+        f.entityId, pid,
+        [{ documentId: inv.id, amountApplied: '5000.00', withholdingIsr: '500.00', withholdingIva: '533.33' }],
+        f.userId
+      )
+    ).rejects.toThrow(new RegExp(`${inv.number} already booked the customer's withholding \\(2066\\.67\\)`));
+    expect(await invoiceRow(inv.id)).toEqual({ status: 'sent', due: 9533.33, paid: 0 });
+    expect(await balance('1145')).toBeCloseTo(isrBefore);
+
+    // The cash alone is what it takes: the receivable is already the net.
+    const r = await applyCustomerPayment(
+      f.entityId, pid, [{ documentId: inv.id, amountApplied: '5000.00' }], f.userId
+    );
+    expect(r.documentos[0]).toMatchObject({ saldoAnterior: '9533.33', saldoNuevo: '4533.33' });
   });
 });

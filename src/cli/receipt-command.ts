@@ -545,11 +545,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           cobro.aplicaciones.map((a) => ({
             invoice: a.invoice_number,
             applied: a.amount_applied,
+            isr_withheld: a.withholding_isr_amount,
+            vat_withheld: a.withholding_iva_amount,
             iva_released: a.iva_reclass_amount ?? '',
             live: a.viva ? 'yes' : 'no',
             unapplied_reason: a.unapply_reason ?? '',
           })),
-          { format: 'table', numeric: ['applied', 'iva_released'] }
+          { format: 'table', numeric: ['applied', 'isr_withheld', 'vat_withheld', 'iva_released'] }
         );
       }
       out.write('\n');
@@ -666,7 +668,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
 
         await confirmOrAbort(
           opts,
-          `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo})`).join(', ')} ` +
+          `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo}${withheldText(d)})`).join(', ')} ` +
             `from ${cobro.payment_number} (on account ${previo.remanenteAnterior} → ${previo.remanenteNuevo}) ` +
             `in ${ctx.entityName}? This posts to the ledger.`
         );
@@ -717,7 +719,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (dryRun) {
           process.stdout.write(
             `${p.bold(`Would unapply ${previo.desaplicado} from ${previo.documento.numero}`)} ` +
-              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account)`) +
+              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)})`) +
               (new Decimal(previo.ivaReAparcado).greaterThan(0)
                 ? p.dim(` · IVA re-parked ${previo.ivaReAparcado}${previo.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
                 : '') + '\n'
@@ -729,7 +731,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         await confirmOrAbort(
           opts,
           `Unapply ${previo.desaplicado} of ${cobro.payment_number} from ${previo.documento.numero} ` +
-            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo})? ` +
+            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)})? ` +
             'The cash stays on account; the invoice reopens.'
         );
 
@@ -745,6 +747,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             payment_number: result.paymentNumber,
             invoice: result.documento.numero,
             unapplied: result.desaplicado,
+            withholding_isr: result.documento.withholdingIsr ?? '0.00',
+            withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
             entry_number: result.journalEntry.entry_number,
           }], { json: true });
@@ -752,7 +756,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         }
         process.stdout.write(
           `${p.green('✔')} ${p.bold(result.paymentNumber)} unapplied from ${p.bold(result.documento.numero)} ` +
-            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo} · entry ${result.journalEntry.entry_number}`) +
+            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)} · entry ${result.journalEntry.entry_number}`) +
             (new Decimal(result.ivaReAparcado).greaterThan(0)
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
               : '') + '\n'
@@ -883,8 +887,23 @@ function imprimirRegistro(
   }
 }
 
+/**
+ * The customer's withholding a document carries (MNE-001-113), as a suffix:
+ * it lands on 1145/1146 with the post, so it is shown before and after it.
+ */
+function withheldText(d: { withholdingIsr?: string; withholdingIva?: string }): string {
+  const parts = [
+    ['ISR', d.withholdingIsr],
+    ['VAT', d.withholdingIva],
+  ].filter(([, v]) => v !== undefined && new Decimal(v).greaterThan(0));
+  return parts.length === 0 ? '' : `; withheld ${parts.map(([k, v]) => `${k} ${v}`).join(' + ')}`;
+}
+
 function imprimirAplicacion(
-  documentos: { numero: string; saldoAnterior: string; saldoNuevo: string; estado: string }[],
+  documentos: {
+    numero: string; saldoAnterior: string; saldoNuevo: string; estado: string;
+    withholdingIsr?: string; withholdingIva?: string;
+  }[],
   remanenteAnterior: string,
   remanenteNuevo: string,
   paymentNumber: string,
@@ -900,6 +919,8 @@ function imprimirAplicacion(
         invoice: d.numero,
         amount_due_before: d.saldoAnterior,
         amount_due_after: d.saldoNuevo,
+        withholding_isr: d.withholdingIsr ?? '0.00',
+        withholding_iva: d.withholdingIva ?? '0.00',
         invoice_status: d.estado,
         on_account_before: remanenteAnterior,
         on_account_after: remanenteNuevo,
@@ -912,7 +933,7 @@ function imprimirAplicacion(
   }
   const prefijo = ensayo ? p.bold('Would apply') : `${p.green('✔')} ${p.bold(paymentNumber)} applied`;
   process.stdout.write(
-    `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado})`).join(', ')} ` +
+    `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado}${withheldText(d)})`).join(', ')} ` +
       p.dim(`· on account ${remanenteAnterior} → ${remanenteNuevo}`) +
       (entryNumber ? p.dim(` · entry ${entryNumber}`) : '') +
       '\n'

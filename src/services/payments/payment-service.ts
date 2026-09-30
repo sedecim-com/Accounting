@@ -212,6 +212,13 @@ function oNulo(v: string | null | undefined): string | null {
 interface DocumentoAplicado {
   id: string; numero: string; saldoAnterior: string; saldoNuevo: string;
   estado: string; moneda: string;
+  /**
+   * MNE-001-113 · customer side: the ISR and VAT the customer withheld that
+   * this event books (or, on unapply, takes back). Absent on paths that
+   * never carry a withholding.
+   */
+  withholdingIsr?: string;
+  withholdingIva?: string;
 }
 
 export interface ResultadoPago {
@@ -1042,6 +1049,32 @@ export interface ResultadoAplicacion {
   remanenteNuevo: string;
 }
 
+/**
+ * What the invoice's own issuance entry debited to the two
+ * customer-withholding roles (MNE-001-113). Non-zero means the receivable was
+ * booked NET of the customer's withholding, as an invoice born from an issued
+ * CFDI with retenciones is. Entity-scoped in the SQL, on the role accounts
+ * the entity itself points at.
+ */
+async function withholdingBookedAtIssuance(
+  client: pg.PoolClient,
+  entityId: string,
+  invoiceId: string
+): Promise<Decimal> {
+  const r = await client.query<{ booked: string }>(
+    `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS booked
+       FROM invoices i
+       JOIN journal_entry_lines l ON l.journal_entry_id = i.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = i.entity_id
+                            AND ar.qualifier IS NULL
+                            AND ar.role IN ('isr_retenido_a_favor', 'iva_retenido_a_favor')
+      WHERE i.id = $1 AND i.entity_id = $2`,
+    [invoiceId, entityId]
+  );
+  return new Decimal(r.rows[0]?.booked ?? '0');
+}
+
 /** Aplicar saldo a cuenta de un cobro existente a una o varias facturas. */
 export async function applyCustomerPayment(
   entityId: string,
@@ -1063,7 +1096,7 @@ export async function applyCustomerPayment(
     vistos.add(a.documentId);
     for (const w of [a.withholdingIsr, a.withholdingIva]) {
       if (w !== undefined && new Decimal(w).isNegative()) {
-        throw new ValidationError(`A withholding cannot be negative (${w}).`);
+        throw new ValidationError({ key: 'receipt.withholding.negative', params: { amount: w } });
       }
     }
   }
@@ -1104,6 +1137,14 @@ export async function applyCustomerPayment(
       }
       assertMoneda(inv.invoice_number, inv.currency_code, pago.currency_code);
       const aplicado = new Decimal(app.amountApplied);
+      // An allocation row holds cash (CHECK amount_applied > 0): a withholding
+      // alone would reach Postgres as a constraint error, so say why here.
+      if (!aplicado.greaterThan(0)) {
+        throw new ValidationError({
+          key: 'receipt.withholding.cash_required',
+          params: { invoice: inv.invoice_number, amount: app.amountApplied },
+        });
+      }
       const isr = new Decimal(app.withholdingIsr ?? '0');
       const iva = new Decimal(app.withholdingIva ?? '0');
       // What this event takes off the invoice: the cash plus what the
@@ -1112,9 +1153,27 @@ export async function applyCustomerPayment(
       const saldo = new Decimal(inv.amount_due);
       if (settled.greaterThan(saldo)) {
         throw new ValidationError(
-          `${inv.invoice_number} debe ${saldo.toFixed(2)} y se intentan aplicar ${settled.toFixed(2)}` +
-            (settled.equals(aplicado) ? '.' : ` (${aplicado.toFixed(2)} cobrado + ${isr.plus(iva).toFixed(2)} retenido).`)
+          settled.equals(aplicado)
+            ? `${inv.invoice_number} debe ${saldo.toFixed(2)} y se intentan aplicar ${settled.toFixed(2)}.`
+            : { key: 'receipt.withholding.exceeds_due', params: {
+                invoice: inv.invoice_number, due: saldo.toFixed(2), settled: settled.toFixed(2),
+                cash: aplicado.toFixed(2), withheld: isr.plus(iva).toFixed(2),
+              } }
         );
+      }
+      if (isr.plus(iva).greaterThan(0)) {
+        // An invoice born from an issued CFDI with retenciones is booked NET:
+        // its issuance entry already debited the two customer-withholding
+        // roles (issued-invoice-approval.ts, 'withholdings by the customer').
+        // Withholding it again here would count the same ISR and VAT twice
+        // toward the provisional payment and the VAT return, and close AR
+        // with money nobody paid.
+        const atIssuance = await withholdingBookedAtIssuance(client, entityId, inv.id);
+        if (atIssuance.greaterThan(0)) {
+          throw new ValidationError(
+            { key: 'receipt.withholding.booked_at_issuance', params: { invoice: inv.invoice_number, amount: atIssuance.toFixed(2) } }
+          );
+        }
       }
 
       // Lo aplicado (vivo) a la factura ANTES de este evento: la base del
@@ -1132,14 +1191,10 @@ export async function applyCustomerPayment(
       const ivaCap = new Decimal(inv.tax_amount);
       const isrCap = new Decimal(inv.subtotal);
       if (iva.plus(prev.rows[0]?.iva ?? '0').greaterThan(ivaCap)) {
-        throw new ValidationError(
-          `${inv.invoice_number} traslada ${ivaCap.toFixed(2)} de IVA: no se puede retener más que eso.`
-        );
+        throw new ValidationError({ key: 'receipt.withholding.vat_cap', params: { invoice: inv.invoice_number, cap: ivaCap.toFixed(2) } });
       }
       if (isr.plus(prev.rows[0]?.isr ?? '0').greaterThan(isrCap)) {
-        throw new ValidationError(
-          `${inv.invoice_number} tiene un subtotal de ${isrCap.toFixed(2)}: el ISR retenido no puede pasar de ahí.`
-        );
+        throw new ValidationError({ key: 'receipt.withholding.isr_cap', params: { invoice: inv.invoice_number, cap: isrCap.toFixed(2) } });
       }
 
       const allocId = uuidv4();
@@ -1149,15 +1204,21 @@ export async function applyCustomerPayment(
          VALUES ($1,$2,$3,$4,$5,$6)`,
         [allocId, paymentId, app.documentId, app.amountApplied, isr.toFixed(4), iva.toFixed(4)]
       );
-      await client.query(
+      const settledRow = await client.query(
         `UPDATE invoices SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $1,
            status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
            last_payment_date = $2
-         WHERE id = $3 AND entity_id = $4`,
-        [settled.toFixed(4), new Date(), app.documentId, entityId]
+         WHERE id = $3 AND entity_id = $4 AND status = ANY($5::text[]) AND amount_due >= $1`,
+        [settled.toFixed(4), new Date(), app.documentId, entityId, [...COBRABLES]]
       );
+      if (settledRow.rowCount !== 1) {
+        throw new AccountingError(
+          'INVOICE_CHANGED',
+          `${inv.invoice_number} changed while the collection was being applied; nothing was written.`
+        );
+      }
 
       const nuevo = saldo.minus(settled);
       documentos.push({
@@ -1165,6 +1226,8 @@ export async function applyCustomerPayment(
         saldoAnterior: saldo.toFixed(2), saldoNuevo: nuevo.toFixed(2),
         estado: nuevo.lessThanOrEqualTo(0) ? 'paid' : 'partially_paid',
         moneda: inv.currency_code,
+        withholdingIsr: isr.toFixed(2),
+        withholdingIva: iva.toFixed(2),
       });
       posteriores.push({
         invoiceId: inv.id,
@@ -1325,14 +1388,20 @@ export async function unapplyCustomerPayment(
         WHERE payment_id = $3 AND invoice_id = $4 AND unapplied_at IS NULL`,
       [userId, args.reason, paymentId, args.invoiceId]
     );
-    await client.query(
+    const reopenedRow = await client.query(
       `UPDATE invoices SET
          amount_paid = amount_paid - $1,
          amount_due  = amount_due + $1,
          status = CASE WHEN amount_paid - $1 <= 0 THEN 'sent' ELSE 'partially_paid' END
-       WHERE id = $2 AND entity_id = $3`,
+       WHERE id = $2 AND entity_id = $3 AND amount_paid >= $1`,
       [reopened.toFixed(4), args.invoiceId, entityId]
     );
+    if (reopenedRow.rowCount !== 1) {
+      throw new AccountingError(
+        'INVOICE_CHANGED',
+        `${factura.invoice_number} has less paid than this collection settled on it; nothing was written.`
+      );
+    }
 
     const entry = await postReceiptUnapplicationEntry(
       client,
@@ -1376,6 +1445,8 @@ export async function unapplyCustomerPayment(
         saldoNuevo: new Decimal(factura.amount_due).plus(reopened).toFixed(2),
         estado: new Decimal(factura.amount_paid).minus(reopened).lessThanOrEqualTo(0) ? 'sent' : 'partially_paid',
         moneda: factura.currency_code,
+        withholdingIsr: withheldIsr.toFixed(2),
+        withholdingIva: withheldIva.toFixed(2),
       },
       desaplicado: total.toFixed(2),
       ivaReAparcado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
@@ -1418,6 +1489,9 @@ export interface CobroDetalle {
   aplicaciones: {
     invoice_number: string;
     amount_applied: string;
+    /** MNE-001-113: the customer's withholding that settled the invoice with the cash. */
+    withholding_isr_amount: string;
+    withholding_iva_amount: string;
     iva_reclass_amount: string | null;
     viva: boolean;
     unapplied_at: Date | null;
@@ -1451,9 +1525,11 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
 
   const apps = await query<{
     invoice_number: string; amount_applied: string; iva_reclass_amount: string | null;
+    withholding_isr_amount: string; withholding_iva_amount: string;
     unapplied_at: Date | null; unapply_reason: string | null;
   }>(
     `SELECT i.invoice_number, pa.amount_applied::text, pa.iva_reclass_amount::text,
+            pa.withholding_isr_amount::text, pa.withholding_iva_amount::text,
             pa.unapplied_at, pa.unapply_reason
        FROM payment_allocations pa
        JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $2
@@ -1485,6 +1561,9 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     aplicaciones: apps.rows.map((a) => ({
       invoice_number: a.invoice_number,
       amount_applied: new Decimal(a.amount_applied).toFixed(2),
+      // MNE-001-113: what the customer withheld settled the invoice with the cash.
+      withholding_isr_amount: new Decimal(a.withholding_isr_amount).toFixed(2),
+      withholding_iva_amount: new Decimal(a.withholding_iva_amount).toFixed(2),
       iva_reclass_amount: a.iva_reclass_amount,
       viva: a.unapplied_at === null,
       unapplied_at: a.unapplied_at,
