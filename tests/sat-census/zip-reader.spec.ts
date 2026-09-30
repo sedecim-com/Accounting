@@ -6,6 +6,8 @@ import { makeZip } from './make-zip.js';
 // dependency. The reader must return the bytes that went in, and refuse what
 // it cannot read instead of reading it wrong.
 
+const CENTRAL = Buffer.from([0x50, 0x4b, 0x01, 0x02]);
+
 describe('readZip', () => {
   it('reads deflated and stored entries back byte for byte, skipping directories', () => {
     const xml = '<?xml version="1.0"?><a>ñ</a>'.repeat(50);
@@ -32,6 +34,25 @@ describe('readZip', () => {
     const central = lying.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
     lying.writeUInt32LE(10, central + 24); // declares 10 bytes
     expect(() => readZip(lying)).toThrow();
+  });
+
+  it('refuses central records that share one local header (the overlapping zip bomb)', () => {
+    const zip = makeZip([{ name: 'A.xml', data: 'a'.repeat(10_000) }, { name: 'B.xml', data: 'b' }]);
+    const centrals: number[] = [];
+    for (let at = zip.indexOf(CENTRAL); at >= 0; at = zip.indexOf(CENTRAL, at + 1)) centrals.push(at);
+    const bomb = Buffer.from(zip);
+    bomb.writeUInt32LE(0, centrals[1] + 42); // B's central record points at A's local header
+    expect(() => readZip(bomb)).toThrow(/overlapping/);
+  });
+
+  it('caps what all the entries inflate to together, and never inflates what the caller filters out', () => {
+    const zip = makeZip([{ name: 'A.xml', data: 'a'.repeat(1000) }, { name: 'm.txt', data: 'x~y' }]);
+    expect(() => readZip(zip, { maxTotalBytes: 1002 })).toThrow(/too large/);
+    const corrupt = Buffer.from(makeZip([{ name: 'A.xml', data: 'hello world' }, { name: 'm.txt', data: 'x~y' }], true));
+    corrupt[30 + 'A.xml'.length] ^= 0xff;
+    expect(() => readZip(corrupt)).toThrow(/Corrupt/);
+    const only = readZip(corrupt, { accept: (n) => n.endsWith('.txt'), maxTotalBytes: 3 });
+    expect(only.map((e) => e.data.toString())).toEqual(['x~y']);
   });
 
   it('refuses encryption and methods other than stored and deflate by name', () => {

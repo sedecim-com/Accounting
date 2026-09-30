@@ -103,7 +103,8 @@ import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
 import { palette } from './palette.js';
-import { parseKind, runCensus } from './ingest-census.js';
+import { parseKind, refuseIngestionFlags, runCensus, type IngestKind } from './ingest-census.js';
+import { entityScope } from '../database/scope.js';
 import { beginWarningScope } from '../utils/logger.js';
 import { detectSetupState, type SetupState } from './first-run.js';
 import { renderBanner, type BannerInfo } from './banner.js';
@@ -2146,8 +2147,7 @@ const ingest = describeCommand(
   .addHelpText('after', EJEMPLOS.ingest);
 // MNE-001-096 (#312): the SAT census enters through the same leaf.
 argumentByKey(ingest, '<files...>', 'help.ingest.argument.files');
-optionByKey(ingest, '--kind <kind>', 'help.ingest.option.kind', { defaultValue: 'xml' });
-optionByKey(ingest, '--types <list>', 'help.ingest.option.types');
+optionByKey(ingest, '--kind <kind>', 'help.ingest.option.kind', { defaultValue: 'xml', parser: parseKind });
 // Irreversible por su camino más grave (el auto-posteo), declarado junto a su
 // registro (S0.6). El plan de cierre proponía partirlo por bandera, pero S0.3
 // lo dejó atrás: el auto-posteo no lo decide una bandera sino el panel del
@@ -2159,15 +2159,18 @@ declareRisk(ingest, {
   risk: 'irreversible',
   llave: { innecesaria: 'cada CFDI deduplica por su propio UUID y hash' },
   agent: false,
-  writes: 'xml_documents, pre_registrations, bills; y con auto-posteo, asientos POSTEADOS',
+  writes:
+    'xml_documents, pre_registrations, bills; y con auto-posteo, asientos POSTEADOS; ' +
+    'con --kind zip|metadata, sat_cfdi_census y sat_census_loads',
 });
 ingest.action(async (files: string[], opts: {
     entity?: string; provider?: string; model?: string; user?: string;
     autoPost?: boolean; minConfidence?: number; maxAmount?: number;
-    yes?: boolean; idempotencyKey?: string; retry?: boolean; kind?: string; types?: string;
+    yes?: boolean; idempotencyKey?: string; retry?: boolean; kind: IngestKind;
   }) => {
     try {
-      const kind = parseKind(opts.kind);
+      const kind = opts.kind;
+      refuseIngestionFlags(kind, opts);
       const ctx = await resolveEntity(opts.entity);
       // El panel entra en la precedencia (bandera > archivo > política >
       // omisión): antes las dos claves de auto-posteo del panel no las leía
@@ -2199,11 +2202,14 @@ ingest.action(async (files: string[], opts: {
       }
       const { dryRun } = gateMutation(ingest, opts);
       let censusInvalid = 0;
+      let censusReviewer: Awaited<ReturnType<typeof resolveReviewer>> | undefined;
       if (kind !== 'xml') {
         // MNE-001-096: the census is loaded first; a ZIP's XML then goes on
         // through the regular ingestion below, as if passed one by one.
+        if (!dryRun) censusReviewer = await resolveReviewer(ctx.tenantId, opts.user);
         const census = await runCensus({
-          kind, files, entityId: ctx.entityId, entityRfc: ctx.taxId, types: opts.types, dryRun,
+          kind, files, scope: entityScope(ctx.tenantId, ctx.entityId), entityRfc: ctx.taxId, dryRun,
+          loadedBy: censusReviewer?.userId ?? null,
         });
         if (kind === 'metadata' || census.xmlFiles.length === 0) {
           await shutdown(census.reading.invalid.length > 0 ? 1 : 0);
@@ -2242,7 +2248,7 @@ ingest.action(async (files: string[], opts: {
           '  --idempotency-key does not apply to the batch: each CFDI deduplicates on its own UUID/hash.\n'
         );
       }
-      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const reviewer = censusReviewer ?? await resolveReviewer(ctx.tenantId, opts.user);
 
       // No interactive channel: the AI's questions land in `mnemosine questions`.
       const capture: DraftCapture = { drafts: [] };

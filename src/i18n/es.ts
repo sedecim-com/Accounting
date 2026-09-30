@@ -787,6 +787,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.opening_balance_load_mode.option.borrador':
     'Dejar un borrador: `entry post` lo aplica después de una revisión',
 
+  'policy.census_cfdi_types.question':
+    '¿Qué tipos de CFDI del censo del SAT cuentan para la completitud al cierre?',
+  'policy.census_cfdi_types.impact':
+    'El censo del SAT lista todos los CFDI emitidos y recibidos: ingreso (I), egreso (E), pago (P), nómina (N) y traslado (T). Se guardan todos los tipos; esto decide cuáles reporta como faltantes la revisión de completitud cuando no están contabilizados. Añadir N compara la nómina que la entidad timbró con la que contabilizó.',
+  'policy.census_cfdi_types.rationale':
+    'Decisión del dueño del 2026-09-26 en la issue 312: la nómina y los traslados no salen como faltantes por omisión. I, E y P son los CFDI que soportan los asientos de ingresos, compras y su cobro o pago (CFF art. 29 y 29-A; LISR art. 27 fr. III; LIVA art. 5 fr. II). Un CFDI de nómina (N, LISR art. 99 fr. III) soporta un gasto que el módulo de nómina contabiliza en conjunto, no un asiento por recibo, y un CFDI de traslado (T) ampara mercancía en tránsito sin contraprestación, así que ninguno corresponde uno a uno con un documento contabilizado. Un despacho que también concilia su nómina timbrada elige N.',
+  'policy.census_cfdi_types.why':
+    'El SAT también lista recibos de nómina y documentos de traslado. Hay despachos que los cotejan con los libros y otros que no.',
+  'policy.census_cfdi_types.what':
+    'Cuento los CFDI de los tipos que elijas cuando te digo qué falta en los libros; los demás se quedan en el censo.',
+  'policy.census_cfdi_types.if_skipped':
+    'Cuento ingresos, egresos y pagos, y dejo fuera la nómina y los traslados.',
+  'policy.census_cfdi_types.option.invoices_and_payments':
+    'Ingreso, egreso y pago (I, E, P)',
+  'policy.census_cfdi_types.option.plus_payroll':
+    'También nómina (I, E, P, N)',
+  'policy.census_cfdi_types.option.all_types':
+    'Todos los tipos, traslados incluidos (I, E, P, N, T)',
+
   'policy.opening_payable_iva.question':
     'Cuando una factura de proveedor migrada no dice la tasa de IVA dentro de su saldo pendiente, ¿qué hace la carga de apertura?',
   'policy.opening_payable_iva.impact':
@@ -1592,9 +1611,27 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ingest.option.kind':
     'Qué son los archivos: xml (CFDI uno por uno), zip (paquete del SAT con XML: carga el censo e ingiere ' +
     'cada XML) o metadata (archivo de metadatos del SAT separado por `~`, suelto o en ZIP: sólo carga el censo)',
-  'help.ingest.option.types':
-    'Tipos de CFDI que entran al censo con --kind zip|metadata, separados por coma (por omisión I,E,P: la ' +
-    'nómina N y los traslados T quedan fuera)',
+  // MNE-001-096 (#312): `src/cli/ingest-census.ts`, el censo del SAT que carga `ingest --kind zip|metadata`.
+  'ingest.census.bad_kind': 'se esperaba uno de {valid}',
+  'ingest.census.flag_not_for_metadata':
+    '{flags}: no aplica a --kind metadata, que sólo carga el censo y no ingiere nada',
+  'ingest.census.no_rfc': 'La entidad no tiene RFC: el censo no puede distinguir emitidos de recibidos.',
+  'ingest.census.not_zip': '{file} no es un archivo ZIP.',
+  'ingest.census.bad_zip': '{file}: no se puede leer el ZIP ({detail}).',
+  'ingest.census.not_metadata': '{file}: no es un archivo de metadatos del SAT (falta(n) la(s) columna(s) {columns}).',
+  'ingest.census.invalid.field_count': '{found} campos, el encabezado tiene {expected}',
+  'ingest.census.invalid.status': 'Estatus «{value}» no es ni 1 ni 0',
+  'ingest.census.invalid.field': '{field} inválido',
+  'ingest.census.invalid.xml': 'no es un CFDI legible ({detail})',
+  'ingest.census.title': 'Censo del SAT ({kind})',
+  'ingest.census.summary': '{total} CFDI ({issued} emitidos, {received} recibidos)',
+  'ingest.census.by_month': 'por mes: {months}',
+  'ingest.census.completeness':
+    '{counted} cuentan para la completitud según {key} ({types}); {others} de otros tipos quedan en el censo',
+  'ingest.census.counts': '{foreign} no son de esta entidad · {invalid} inválidos',
+  'ingest.census.more_invalid': '… y {count} más',
+  'ingest.census.loaded': 'Censo cargado de {file}: {inserted} nuevos, {refreshed} ya conocidos.',
+  'ingest.census.dry_run': '(dry-run: el censo se leyó, no se cargó.)',
   'help.ingest.description':
     'Ingesta por lote de CFDI (XML): reglas → clasificación por IA → borradores (o alta ' +
     'automática según los umbrales)',

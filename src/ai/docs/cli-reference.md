@@ -299,9 +299,6 @@ Options:
                            each XML) or metadata (the SAT `~` metadata file,
                            bare or zipped: loads the census only) (default:
                            "xml")
-  --types <list>           CFDI types that enter the census with --kind
-                           zip|metadata, comma-separated (default I,E,P: payroll
-                           N and transfers T stay out)
   -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
