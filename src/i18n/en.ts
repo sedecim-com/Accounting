@@ -1692,6 +1692,12 @@ export const EN = {
   // manda conservar; y los bloques de `EJEMPLOS`, congelados por
   // `src/ai/docs/cli-reference.md`.
   // --- Los analizadores de bandera: uso (2), no validación (4) ---------
+  'receipt.withholding.unreadable':
+    'Cannot read the withholding "{spec}": write "isr:1000" or "iva:1066.67", and with several invoices put the invoice first ("INV-2026-00042:isr:1000").',
+  'receipt.withholding.which_invoice':
+    'With several invoices, the withholding "{spec}" has to say which one it belongs to ("INV-2026-00042:{spec}").',
+  'receipt.withholding.not_applied':
+    'The withholding "{spec}" names {invoice}, which is not one of the --invoice of this application.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',

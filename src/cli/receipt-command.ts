@@ -17,6 +17,7 @@ import {
   type ResultadoPago,
 } from '../services/payments/payment-service.js';
 import { InvoiceStatus } from '../types/index.js';
+import { t } from '../i18n/index.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -175,18 +176,13 @@ export function parseWithholding(
   const out = new Map<string, { isr: Decimal; iva: Decimal }>();
   for (const spec of specs ?? []) {
     const m = /^(?:(.+):)?(isr|iva):(\d+(?:\.\d+)?)$/i.exec(spec.trim());
-    if (!m) {
-      throw usageError(
-        `No entiendo la retención "${spec}": escribe "isr:1000" o "iva:1066.67", y con varias ` +
-          'facturas antepón el folio ("INV-2026-00042:isr:1000").'
-      );
-    }
+    if (!m) throw usageError(t('receipt.withholding.unreadable', { spec }));
     const invoiceRef = m[1] ?? (refs.length === 1 ? refs[0] : undefined);
     if (invoiceRef === undefined || !refs.includes(invoiceRef)) {
       throw usageError(
         m[1] === undefined
-          ? `Con varias facturas, la retención "${spec}" tiene que decir de cuál es ("<folio>:${spec}").`
-          : `La retención "${spec}" nombra ${m[1]}, que no está entre las --invoice de esta aplicación.`
+          ? t('receipt.withholding.which_invoice', { spec })
+          : t('receipt.withholding.not_applied', { spec, invoice: m[1] })
       );
     }
     const tax = m[2].toLowerCase() as 'isr' | 'iva';

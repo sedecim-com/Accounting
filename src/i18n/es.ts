@@ -1577,6 +1577,12 @@ export const ES: Record<keyof typeof EN, string> = {
 
   // ==== I7 · EL PILOTO: `src/cli/bank-command.ts` (issue #149) =====
   // --- Los analizadores de bandera: uso (2), no validación (4) ---------
+  'receipt.withholding.unreadable':
+    'No entiendo la retención "{spec}": escribe "isr:1000" o "iva:1066.67", y con varias facturas antepón el folio ("INV-2026-00042:isr:1000").',
+  'receipt.withholding.which_invoice':
+    'Con varias facturas, la retención "{spec}" tiene que decir de cuál es ("INV-2026-00042:{spec}").',
+  'receipt.withholding.not_applied':
+    'La retención "{spec}" nombra {invoice}, que no está entre las --invoice de esta aplicación.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',

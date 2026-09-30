@@ -42,7 +42,7 @@ describe('parseWithholding', () => {
   it('refuses what it cannot read or place', () => {
     expect(() => parseWithholding(['ieps:10'], ['INV-1'])).toThrow(/isr:1000/);
     expect(() => parseWithholding(['isr:-5'], ['INV-1'])).toThrow(/isr:1000/);
-    expect(() => parseWithholding(['isr:10'], ['INV-1', 'INV-2'])).toThrow(/<folio>:isr:10/);
+    expect(() => parseWithholding(['isr:10'], ['INV-1', 'INV-2'])).toThrow(/INV-2026-00042:isr:10/);
     expect(() => parseWithholding(['INV-9:isr:10'], ['INV-1'])).toThrow(/INV-9/);
   });
 });
