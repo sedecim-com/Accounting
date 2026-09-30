@@ -51,7 +51,7 @@ function mockRuleQueries(opts: {
 
 beforeEach(() => mockQuery.mockReset());
 
-describe('balanceRule — NIF A-2 dualidad económica', () => {
+describe('balanceRule — NIF A-1, cap. 20, dualidad económica', () => {
   it('accepts an exactly balanced entry', async () => {
     mockRuleQueries();
     const result = await validateJournalEntry(ENTRY, [
@@ -72,7 +72,7 @@ describe('balanceRule — NIF A-2 dualidad económica', () => {
     expect(result.isValid).toBe(false);
     const err = result.errors.find((e) => e.includes('must equal'));
     expect(err).toBeDefined();
-    expect(err).toMatch(/NIF A-2/);
+    expect(err).toMatch(/NIF A-1, cap\. 20, dualidad económica/);
   });
 });
 
@@ -251,7 +251,7 @@ describe('periodStatusRule — estado del periodo fiscal', () => {
     mockRuleQueries({ periodStatus: 'future' });
     const result = await validateJournalEntry(ENTRY, balanceado);
     expect(result.isValid).toBe(true);
-    expect(result.warnings.some((w) => w.includes('NIF A-2'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('NIF A-1, cap. 20, devengación'))).toBe(true);
   });
 
   it('no dice nada cuando el periodo está abierto', async () => {
