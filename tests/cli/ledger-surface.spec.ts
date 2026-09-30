@@ -109,7 +109,11 @@ describe('what the agent may and may not do with the ledger', () => {
     const longs = find('entry create').options.map((o) => o.long);
     expect(longs).not.toContain('--post');
     expect(longs).not.toContain('--auto-post');
-    expect(longs).not.toContain('--yes');
+    // `--yes` is universal on every mutation since #327 (MNE-001-088), so its
+    // presence no longer hints at a posting path: `entry create` has no prompt
+    // for it to skip, and no flag above that could post.
+    expect(longs).toContain('--yes');
+    expect(riskOf(find('entry create'))?.requiresDryRun).toBe(false);
   });
 
   it('makes post, reverse and void irreversible, and each HONOURS its key', () => {
