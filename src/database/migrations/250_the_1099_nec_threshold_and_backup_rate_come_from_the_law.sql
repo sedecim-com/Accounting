@@ -14,8 +14,9 @@
 --   only employee_id (008). The partial unique index makes regeneration an
 --   idempotent upsert: one row per entity, form, year and vendor.
 --
--- Additive: two rows of law per figure through the unique key of 080, one
--- nullable column and one partial index. Nothing is rewritten.
+-- Additive: two rows of law for the threshold and one for the backup rate
+-- through the unique key of 080, one nullable column, one CHECK and one partial
+-- index. Nothing is rewritten.
 -- ============================================================
 
 INSERT INTO legal_parameters (jurisdiction, key, effective_from, value, unit, source_url, source_note)
@@ -37,3 +38,15 @@ ALTER TABLE tax_form_filings
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tax_filings_vendor_year
   ON tax_form_filings (entity_id, form_type, tax_year, vendor_id)
   WHERE vendor_id IS NOT NULL;
+
+-- The payee of a w2 or 1099_nec row is exactly one of employee_id or vendor_id;
+-- employer-level forms (941, 940, SUA) carry neither, so a reader of those must
+-- filter on form_type, not only on employee_id IS NULL.
+ALTER TABLE tax_form_filings
+  ADD CONSTRAINT chk_tax_filings_one_payee
+  CHECK (NOT (employee_id IS NOT NULL AND vendor_id IS NOT NULL));
+
+COMMENT ON COLUMN tax_form_filings.employee_id IS
+  'Payee of a w2 row (an employee). NULL for employer-level forms and for 1099_nec, whose payee is vendor_id. Never set together with vendor_id.';
+COMMENT ON COLUMN tax_form_filings.vendor_id IS
+  'Payee of a 1099_nec row (a vendor). NULL for employer-level forms and for w2, whose payee is employee_id. Never set together with employee_id.';
