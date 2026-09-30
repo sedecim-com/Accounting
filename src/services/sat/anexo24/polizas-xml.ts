@@ -43,6 +43,12 @@ import {
 //     attribute names, including the transfer's destination: the schema says
 //     `CtaDest` and `BancoDestNal`, not the «CtaDes» and «BancoDesNal» this
 //     tranche's brief used.
+//   · The bank codes are required: `Cheque/@BanEmisNal`,
+//     `Transferencia/@BancoOriNal` and `@BancoDestNal` are use="required",
+//     type c_Banco, and a foreign bank's name (`*Ext`) goes on top of the
+//     code, never instead of it. The service leaves a node without its code
+//     out and names its entry (#532); an empty code is off c_Banco and is
+//     refused like any other.
 //   · The XSD found two defects on its first run, both fixed in #397: request
 //     numbers were not checked against its patterns, and the pre-CFDI voucher
 //     had no RFC.
@@ -153,8 +159,8 @@ export interface PagoConCheque {
   clase: 'cheque';
   /** El número del cheque. `vendor_payments.check_number`, por fin escrito. */
   num: string;
-  /** Clave c_Banco del banco EMISOR nacional. */
-  banEmisNal?: string;
+  /** c_Banco code of the ISSUING bank. Required by the XSD, foreign bank or not (#532). */
+  banEmisNal: string;
   /** Nombre del banco emisor extranjero. Excluyente con el anterior. */
   banEmisExt?: string;
   /** Cuenta de la que salió el dinero. */
@@ -173,12 +179,16 @@ export interface PagoConCheque {
 export interface PagoPorTransferencia {
   clase: 'transferencia';
   ctaOri?: string;
-  /** Clave c_Banco del banco de ORIGEN. Sale de bank_accounts.sat_bank_code. */
-  bancoOriNal?: string;
+  /**
+   * c_Banco code of the ORIGIN bank. Required by the XSD, foreign bank or not
+   * (#532). In a payment it comes from bank_accounts.sat_bank_code.
+   */
+  bancoOriNal: string;
   bancoOriExt?: string;
   /** La cuenta que RECIBIÓ el dinero. Es el dato obligatorio del nodo. */
   ctaDest: string;
-  bancoDestNal?: string;
+  /** c_Banco code of the DESTINATION bank. Required by the XSD, foreign bank or not (#532). */
+  bancoDestNal: string;
   bancoDestExt?: string;
   fecha: string;
   benef: string;
@@ -658,7 +668,15 @@ function nodoDePago(p: NodoDePago): NodoXml {
   }
 }
 
-/** Nacional o extranjero, no los dos: el mismo criterio que el CHECK de la 064. */
+/**
+ * Nacional o extranjero, no los dos: el mismo criterio que el CHECK de la 064.
+ *
+ * TODO(#532): with the code now required, no valid node carries a `*Ext`: a
+ * real code next to it is refused here, and an empty one is off c_Banco. So
+ * no foreign bank reaches the file; the service names its entry instead. Which
+ * c_Banco code goes with a foreign name, and whether this and the 064 CHECK
+ * change, is the owner's call on #532.
+ */
 function exigirBancoUnico(
   nodo: string,
   nacional: string | undefined,

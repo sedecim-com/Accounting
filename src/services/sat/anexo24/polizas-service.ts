@@ -484,13 +484,21 @@ function rastroDePago(
   const nuestroBanco = (banco?.sat_bank_code ?? '').trim() || undefined;
   const cuentaCapturada = (p.cuenta_destino ?? '').replace(/\s+/g, '') || undefined;
   const bancoCapturadoNal = (p.banco_destino_sat ?? '').trim() || undefined;
-  // El nombre del banco extranjero SÍ es texto libre (VARCHAR(150)) y sí
-  // admite espacios interiores: va por el saneador como el beneficiario.
-  const crudoBancoExt = (p.banco_destino_extranjero ?? '').trim();
-  const bancoCapturadoExt =
-    crudoBancoExt === ''
-      ? undefined
-      : sanear(crudoBancoExt, numUnIdenPol, `BancoDestExt del pago ${p.payment_number}`);
+  // A foreign bank's name reaches only the motive, never the file (see
+  // `bankGap`), so it does not go through the sanitizer. TODO(#532): once the
+  // file declares it again as `BancoDestExt`, it is free text (VARCHAR(150))
+  // and goes through `sanear` like the beneficiary.
+  const bancoCapturadoExt = (p.banco_destino_extranjero ?? '').trim() || undefined;
+
+  // THE BANK CODES ARE REQUIRED TOO (#532). PolizasPeriodo 1.3 declares
+  // Cheque/@BanEmisNal, Transferencia/@BancoOriNal and Transferencia/@BancoDestNal
+  // use="required", type c_Banco. A foreign bank's name (`*Ext`) goes on top of
+  // the code, never instead of it. A node without the code makes the SAT
+  // reject the whole file, so the node is left out and the entry is named.
+  const bankGap = (node: string, attribute: string, why: string): string =>
+    `${why}, y el nodo ${node} exige ${attribute}`;
+  const fromAccountWithoutCode =
+    'sale de una cuenta bancaria sin clave c_Banco (`bank account edit <cuenta> --sat-bank-code`)';
 
   if (p.payment_method === 'check') {
     const num = (p.check_number ?? '').trim();
@@ -500,6 +508,9 @@ function rastroDePago(
           `el pago ${p.payment_number} se hizo por cheque y no tiene número de cheque capturado ` +
           `(\`payment create --check-number\`); el nodo Cheque lo exige`,
       };
+    }
+    if (nuestroBanco === undefined) {
+      return { motivo: bankGap('Cheque', 'BanEmisNal', `el cheque ${num} ${fromAccountWithoutCode}`) };
     }
     if (nuestraCuenta === undefined) {
       return {
@@ -524,7 +535,7 @@ function rastroDePago(
       pago: {
         clase: 'cheque',
         num,
-        ...(nuestroBanco !== undefined ? { banEmisNal: nuestroBanco } : {}),
+        banEmisNal: nuestroBanco,
         ctaOri: nuestraCuenta,
         fecha: p.payment_date,
         benef,
@@ -558,32 +569,56 @@ function rastroDePago(
           `que no tiene forma de RFC`,
       };
     }
+    // In a payment the origin bank is ours. In a receipt it is the payer's,
+    // and nothing captures it. TODO(#532): `customer_payments` has no column
+    // for it, so every customer transfer is named until one exists.
+    const originBank = sentido === 'sale' ? nuestroBanco : undefined;
+    // THE FILL-IN DOES NOT OVERRIDE WHAT WAS CAPTURED. In a receipt the account
+    // that receives is usually ours, so when no one captured a destination
+    // bank, ours goes in. It must not go in next to a captured FOREIGN one:
+    // `exigirBancoUnico` throws with both set, and that used to KILL the whole
+    // month's file. The 064 CHECK cannot see it, because the ROW holds only
+    // one of the two; they meet here.
+    const destinationBank =
+      sentido === 'sale'
+        ? bancoCapturadoNal
+        : (bancoCapturadoNal ?? (bancoCapturadoExt === undefined ? nuestroBanco : undefined));
+    const who =
+      sentido === 'sale' ? `la transferencia ${p.payment_number}` : `el cobro ${p.payment_number}`;
+    if (originBank === undefined) {
+      return {
+        motivo: bankGap(
+          'Transferencia',
+          'BancoOriNal',
+          sentido === 'sale'
+            ? `${who} ${fromAccountWithoutCode}`
+            : `${who} entró por transferencia; el banco del cliente que la ordenó no se ` +
+                `captura en ningún sitio (#532)`
+        ),
+      };
+    }
+    if (destinationBank === undefined) {
+      return {
+        motivo: bankGap(
+          'Transferencia',
+          'BancoDestNal',
+          // TODO(#532): which c_Banco code declares a foreign bank, with its
+          // name in BancoDestExt, is the owner's call. Until then, no node.
+          bancoCapturadoExt !== undefined
+            ? `el banco destino de ${who} es extranjero («${bancoCapturadoExt}»); qué clave ` +
+                `c_Banco lo declara está por decidirse (#532)`
+            : sentido === 'sale'
+              ? `${who} no tiene banco destino capturado (\`payment create --to-bank\`)`
+              : `${who} no tiene banco destino capturado y entró a una cuenta bancaria sin ` +
+                `clave c_Banco (\`bank account edit <cuenta> --sat-bank-code\`)`
+        ),
+      };
+    }
     const nodo: NodoDePago = {
       clase: 'transferencia',
-      ...(sentido === 'sale'
-        ? {
-            ...(nuestraCuenta !== undefined ? { ctaOri: nuestraCuenta } : {}),
-            ...(nuestroBanco !== undefined ? { bancoOriNal: nuestroBanco } : {}),
-            ...(bancoCapturadoNal !== undefined ? { bancoDestNal: bancoCapturadoNal } : {}),
-            ...(bancoCapturadoExt !== undefined ? { bancoDestExt: bancoCapturadoExt } : {}),
-          }
-        : {
-            // EL RELLENO NO PISA AL DATO CAPTURADO. En un cobro la cuenta que
-            // recibe suele ser la nuestra, así que cuando nadie capturó banco
-            // destino se pone el de nuestra cuenta. Lo que NO puede hacer ese
-            // relleno es convivir con un banco destino EXTRANJERO capturado:
-            // `exigirBancoUnico` lanza con los dos puestos y MATABA la
-            // generación del mes entera. Medido con un cobro cuyo destino se
-            // capturó como banco extranjero mientras nuestra cuenta tiene
-            // `sat_bank_code`; el CHECK de la 064 no lo ve porque en la FILA
-            // sólo hay uno de los dos — los dos se juntan aquí.
-            ...(bancoCapturadoNal !== undefined
-              ? { bancoDestNal: bancoCapturadoNal }
-              : bancoCapturadoExt === undefined && nuestroBanco !== undefined
-                ? { bancoDestNal: nuestroBanco }
-                : {}),
-            ...(bancoCapturadoExt !== undefined ? { bancoDestExt: bancoCapturadoExt } : {}),
-          }),
+      ...(sentido === 'sale' && nuestraCuenta !== undefined ? { ctaOri: nuestraCuenta } : {}),
+      bancoOriNal: originBank,
+      bancoDestNal: destinationBank,
       ctaDest,
       fecha: p.payment_date,
       benef,

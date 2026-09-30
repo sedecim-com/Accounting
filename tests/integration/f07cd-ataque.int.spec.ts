@@ -785,7 +785,7 @@ describe('el banco de destino de un COBRO', () => {
     // MISMA FILA, y `assertRastroDePago` lo repite con mensaje. Lo que ninguno
     // de los dos ve es que en un COBRO el generador RELLENA el banco destino
     // nacional con el nuestro cuando no viene capturado
-    // (polizas-service.ts:493-497) y deja el extranjero capturado en su sitio:
+    // (`rastroDePago`, «the fill-in») y deja el extranjero capturado en su sitio:
     // los dos atributos salen a la vez y `exigirBancoUnico` lanza.
     const clienteId = uuidv4();
     await query(
@@ -813,7 +813,7 @@ describe('el banco de destino de un COBRO', () => {
     const emitida = await issueInvoice(draft.id, f.userId, { entityId: f.entityId });
 
     // La fila pasa el CHECK: sólo lleva el banco EXTRANJERO.
-    await recordCustomerPayment(
+    const cobro = await recordCustomerPayment(
       {
         entityId: f.entityId,
         paymentAmount: '1160.00',
@@ -836,15 +836,20 @@ describe('el banco de destino de un COBRO', () => {
       solicitud: SOLICITUD,
     });
 
-    // Manda lo CAPTURADO: el banco destino que se declaró es el extranjero, y
-    // el nuestro no se le añade encima.
-    expect(r.xml).toContain('BancoDestExt="Bank of Nowhere"');
-    const transferencia = r.xml
-      .split('\n')
-      .find((l) => l.includes('BancoDestExt="Bank of Nowhere"'));
-    expect(transferencia).toBeDefined();
-    expect(transferencia, 'nacional y extranjero no conviven').not.toContain('BancoDestNal=');
-    expect(r.xml).toContain('CtaDest="GB29NWBK60161331926819"');
+    // The month still builds, and the receipt is named instead. A node with
+    // `BancoDestExt` and no `BancoDestNal` was what this test used to expect,
+    // and the XSD rejects it: the code is required even for a foreign bank.
+    // Which code goes with the name is open on #532, and a receipt has no
+    // payer's bank (`BancoOriNal`) to declare anyway, so it gets no node.
+    const entry = cobro.journalEntry?.entry_number;
+    expect(entry, 'the receipt must have posted').toBeTruthy();
+    expect(r.xml).not.toContain('BancoDestExt=');
+    expect(r.xml).not.toContain('CtaDest="GB29NWBK60161331926819"');
+    const untraced = r.hallazgos.filter(
+      (h) => h.check === 'poliza-con-dinero-sin-rastro' && h.referencia === entry
+    );
+    expect(untraced).toHaveLength(1);
+    expect(untraced[0].detalle).toContain('el nodo Transferencia exige BancoOriNal');
 
     // Y el auxiliar de cuentas del mismo mes, que no toca nodos de pago, sale
     // igual: la prueba de que el dato que mataba no era el de los libros.
