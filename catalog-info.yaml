@@ -4,18 +4,20 @@
 # plataforma es la suma de estos archivos; platform-docs los agrega cuando
 # exista (hoy no existe: ver docs/platform/README.md).
 #
-# Cada campo marcado `# inferido` lo llenó un agente leyendo el código y el
-# historial; el owner lo confirma quitando la marca, en un PR. Un campo sin
-# marca ya está confirmado. Las cifras (pruebas, migraciones, comandos) NO
-# viven aquí: se preguntan al árbol (AGENTS.md, «Antes de escribir una línea»).
+# Los campos los llenó un agente leyendo el código y el historial, marcados
+# `# inferido`; el owner los confirmó todos el 2026-09-30 (#337) y las marcas
+# se quitaron. Un campo nuevo que llene un agente vuelve a llevar la marca
+# hasta que el owner lo confirme en un PR. Las cifras (pruebas, migraciones,
+# comandos) NO viven aquí: se preguntan al árbol (AGENTS.md, «Antes de
+# escribir una línea»).
 
 name: accounting                 # nombre del repo en GitHub (sedecim-com/Accounting); el producto se llama mnemosine
-id_prefix: MNE                   # inferido · prefijo de las tareas MNE-<PRD>-<nnn> (§12.5). No ACC: choca con la familia acceso-*
-type: service                    # inferido · CLI `mnemosine` + API REST /v1 sobre el mismo motor; el producto es el CLI
-lifecycle: experimental          # inferido · sin despliegue de producción declarado; la ruta al MVP es #329
-domain: contabilidad             # inferido · contabilidad de despachos y cumplimiento fiscal MX
+id_prefix: MNE                   # prefijo de las tareas MNE-<PRD>-<nnn> (§12.5). No ACC: choca con la familia acceso-*
+type: service                    # CLI `mnemosine` + API REST /v1 sobre el mismo motor; el producto es el CLI
+lifecycle: experimental          # sin despliegue de producción declarado; la ruta al MVP es #329
+domain: contabilidad             # contabilidad de despachos y cumplimiento fiscal MX
 owners: ["@vic2099"]             # .github/CODEOWNERS
-criticality: tier-1              # inferido · una caída o un error pierde dinero o datos de clientes del despacho
+criticality: tier-1              # una caída o un error pierde dinero o datos de clientes del despacho
 data_classification: pii         # RFC, CURP, NSS, sueldos y credenciales fiscales (e.firma, CSD) — docs/SCOPE.md
 language: typescript
 runtime: node-22                 # package.json engines ">=22.12"; CI y docker/Dockerfile en Node 22
@@ -56,7 +58,7 @@ consumes: []                     # ningún contrato de otro repo de Sedecim hoy.
 # Extensión propuesta al esquema del framework: los servicios de terceros no
 # son contratos entre repos, pero la matriz de impacto y PLATFORM.md los
 # necesitan (guía de implementación, Fase 3: «Lista de dependencias externas»).
-external:                        # inferido
+external:
   - contalink                    # sistema contable externo: lectura (onboarding, diff de balanza) y escritura por la cola revisada ai_external_ops
   - sat-consulta-cfdi            # estado de CFDI ante el SAT
   - sat-descarga-masiva          # servicio web del SAT autenticado con la e.firma; en el MVP desde el 2026-09-28 (#312). La autenticación existe (#439); solicitud, verificación y descarga no (#440, #441)
@@ -75,7 +77,7 @@ external:                        # inferido
 depends_on_libs: []
 datastores:
   - "postgres:mnemosine"         # dueño único; RLS por inquilino
-  - "redis:rate-limit"           # inferido · sólo el limitador de la API REST
+  - "redis:rate-limit"           # sólo el limitador de la API REST
 
 related_repos:                   # extensión propuesta; ver docs/platform/inventory.md
   - repo: sedecim-com/accounting-manager
