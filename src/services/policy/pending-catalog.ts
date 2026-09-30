@@ -403,6 +403,40 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I ask you each time, which is the safest default but the most interruptive.',
     priority: 40,
   },
+  {
+    // MNE-001-096 (#312): the census keeps every type the SAT lists; this key
+    // decides which of them count toward completeness. Read by
+    // `completenessTypes` (src/services/sat-census/census.ts), which the census
+    // load prints and MNE-001-119 reconciles with.
+    key: 'census_cfdi_types',
+    textKey: 'census_cfdi_types',
+    category: 'contable',
+    question: 'Which CFDI types in the SAT census count toward completeness at close?',
+    impact:
+      'The SAT census lists every CFDI issued and received: income (I), credit notes (E), payment ' +
+      'receipts (P), payroll (N) and transfers (T). Every type is kept; this decides which of them the ' +
+      'completeness check reports as missing when they are not posted. Adding N checks the payroll the ' +
+      'entity stamped against the payroll it posted.',
+    options: [
+      { value: 'invoices_and_payments', label: 'Income, credit notes and payment receipts (I, E, P)' },
+      { value: 'plus_payroll', label: 'Also payroll (I, E, P, N)' },
+      { value: 'all_types', label: 'Every type, transfers included (I, E, P, N, T)' },
+    ],
+    defaultValue: 'invoices_and_payments',
+    defaultRationale:
+      'Owner decision of 2026-09-26 on issue 312: payroll and transfers do not show as missing by default. ' +
+      'I, E and P are the CFDI that support the entries of revenue, purchases and their collection or ' +
+      'payment (CFF art. 29 and 29-A; LISR art. 27 fr. III; LIVA art. 5 fr. II). A payroll CFDI (N, ' +
+      'LISR art. 99 fr. III) supports an expense the payroll module posts as a whole, not one entry per ' +
+      'receipt, and a transfer CFDI (T) records goods in transit with no consideration, so neither maps ' +
+      'to a posted document one by one. A firm that also reconciles its stamped payroll chooses N.',
+    whyAsking:
+      'The SAT lists payroll receipts and transfer documents too. Some firms check those against the books, others do not.',
+    whatIDo:
+      'I count the CFDI of the types you choose when I tell you what is missing from the books; the rest stay in the census.',
+    ifSkipped: 'I count income, credit notes and payment receipts, and leave payroll and transfers out.',
+    priority: 40,
+  },
 
   // ── Received CFDI → vendor bill, when a person approves the AI draft (#318) ──
   //
