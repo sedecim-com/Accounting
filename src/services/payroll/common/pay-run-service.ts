@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
-import { calculatePaycheck, type EarningLine, type DeductionLine } from './paycheck-service.js';
+import { calculatePaycheck, checkOvertimeLines, type EarningLine, type DeductionLine } from './paycheck-service.js';
 import {
   acumularPasivoPatronal,
   hallazgosQueBloquean,
@@ -104,6 +104,18 @@ export async function calculatePayRun(
   let totalEeTax = new Decimal(0);
   let totalErTax = new Decimal(0);
   let totalNet = new Decimal(0);
+
+  // Overtime is checked for EVERY employee before the first paycheck is
+  // written (MNE-001-110): each paycheck commits on its own, so a line refused
+  // halfway would leave the run half-written.
+  for (const emp of input.employee_inputs) {
+    await checkOvertimeLines({
+      tenant_id: input.tenant_id,
+      pay_run_id: payRunId,
+      employee_id: emp.employee_id,
+      earnings: emp.earnings,
+    });
+  }
 
   for (const emp of input.employee_inputs) {
     const result = await calculatePaycheck({
