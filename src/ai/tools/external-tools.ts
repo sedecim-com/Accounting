@@ -38,7 +38,7 @@ export function buildExternalTools(ctx: AgentContext, deps: ToolDeps) {
     }),
     run: async (input) => {
       deps.observe?.('external_pull', input);
-      const adapter = getExternalAdapter(input.provider);
+      const adapter = await getExternalAdapter(ctx, input.provider);
 
       if (input.resource === 'trial_balance') {
         if (!input.start_date || !input.end_date) return 'Error: trial_balance requires start_date and end_date';

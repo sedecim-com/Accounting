@@ -48,7 +48,7 @@ realización, el menor. Registro:
 - Compra de mercancía (inventario perpetuo): Cargo Inventarios · Cargo IVA ·
   Abono Proveedores.
 - Venta: además del ingreso, Cargo Costo de ventas · Abono Inventarios
-  (postulado de asociación de costos con ingresos, NIF A-2).
+  (postulado de asociación de costos con ingresos, NIF A-1, cap. 20).
 
 ## C-5 — Pagos anticipados
 
