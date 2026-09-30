@@ -594,11 +594,11 @@ async function acumular(
       });
     }
 
-    // El importe del mes se RECALCULA desde todos los recibos aprobados cuyo
-    // periodo toca el mes —incluida esta corrida, que ya está aprobada dentro
-    // de esta transacción—, cada uno con la parte de sus días cotizados que
-    // cae en el mes. Recalcular en vez de sumar es lo que hace la operación
-    // idempotente sin depender de ningún índice.
+    // Each month's amount is RECOMPUTED from every approved payslip whose
+    // period touches the month —this run included, since it is already
+    // approved inside this transaction—, each one contributing the share of
+    // its contribution days that falls in the month. Recomputing instead of
+    // adding is what makes the operation idempotent without any index.
     for (const monthStart of months) {
       const monthEnd = finDeMes(monthStart);
       const delMes = await client.query<PayslipAmounts>(
@@ -646,11 +646,12 @@ async function acumular(
     // demás. Escribir los renglones por corrida encima de él cuenta este mes
     // dos veces, y eso es una cifra falsa: se declara bloqueante para que
     // nadie presente el pasivo del mes sin resolver antes el solape a mano.
-    const mensualVivo = await client.query<{ tax_type: string; amount: string }>(
-      `SELECT tax_type, amount::text FROM employer_tax_liabilities
+    const mensualVivo = await client.query<{ tax_type: string; amount: string; period_start: string }>(
+      `SELECT tax_type, amount::text, period_start::text FROM employer_tax_liabilities
         WHERE tenant_id = $1 AND entity_id = $2 AND pay_run_id IS NULL
           AND tax_type IN ('imss_employer', 'infonavit_employer')
-          AND period_start = ANY($3::date[]) AND status = 'pending'`,
+          AND period_start = ANY($3::date[]) AND status = 'pending'
+        ORDER BY period_start, tax_type`,
       [tenantId, entityId, months]
     );
     if ((mensualVivo.rowCount ?? 0) > 0) {
@@ -659,12 +660,14 @@ async function acumular(
         severidad: 'bloqueante',
         periodo: `${months[0]} a ${finDeMes(months[months.length - 1])}`,
         mensaje:
-          `El mes ${months.join(', ')} ya tiene ${mensualVivo.rowCount} renglón(es) de cuotas ` +
-          'patronales provisionados AL CIERRE DEL MES (' +
-          mensualVivo.rows.map((x) => `${x.tax_type} ${x.amount}`).join(', ') +
+          `Hay ${mensualVivo.rowCount} renglón(es) de cuotas patronales provisionados AL ` +
+          'CIERRE DEL MES en los meses que toca esta corrida (' +
+          mensualVivo.rows
+            .map((x) => `${x.tax_type} ${x.amount} del mes que inicia el ${x.period_start}`)
+            .join('; ') +
           '), y esta corrida los está apuntando además POR CORRIDA porque ' +
-          '`provision_cuotas_patronales` cambió a «por_corrida». El mes queda contado dos ' +
-          'veces. El renglón mensual agrega varias corridas y este cierre no lo puede ' +
+          '`provision_cuotas_patronales` cambió a «por_corrida». Lo provisionado queda contado ' +
+          'dos veces. El renglón mensual agrega varias corridas y este cierre no lo puede ' +
           'retirar sin llevarse el pasivo de las demás: resuélvelo a mano antes de declarar.',
       });
     }
@@ -699,6 +702,50 @@ async function acumular(
         if (r.accion) renglones.push({ ...fila, accion: r.accion });
       }
     }
+  }
+
+  // A SHARE THAT LANDS IN A MONTH ALREADY CLOSED IS SAID OUT LOUD (#231).
+  //
+  // The split writes into the months BEFORE the one holding `period_end`,
+  // which the old whole-period rule never did. When such a month's IMSS or
+  // INFONAVIT is already deposited, or its SUA file already generated, this
+  // share arrives after the month was settled: in month-end mode the
+  // deposited row is left intact and the share stays out of the books, and in
+  // either mode a SUA already produced for that month is short by it. Neither
+  // is fixed here —a settled month is evidence—, so it is a finding that asks
+  // for the complementary filing.
+  const endMonth = inicioDeMes(c.period_end);
+  for (const s of stretches) {
+    const monthStart = inicioDeMes(s.start);
+    if (recibosMx === 0 || monthStart === endMonth) continue;
+    const settled = await client.query<{ closed_rows: number; sua_filings: number }>(
+      `SELECT (SELECT COUNT(*) FROM employer_tax_liabilities
+                WHERE tenant_id = $1 AND entity_id = $2
+                  AND tax_type IN ('imss_employer', 'infonavit_employer')
+                  AND period_end >= $3::date AND period_end <= $4::date
+                  AND status <> 'pending')::int AS closed_rows,
+              (SELECT COUNT(*) FROM tax_form_filings
+                WHERE tenant_id = $1 AND entity_id = $2 AND form_type = 'sua'
+                  AND tax_year = $5 AND period = $6)::int AS sua_filings`,
+      [tenantId, entityId, monthStart, finDeMes(monthStart), Number(monthStart.slice(0, 4)), monthStart.slice(5, 7)]
+    );
+    const { closed_rows: closedRows, sua_filings: suaFilings } = settled.rows[0];
+    if (closedRows === 0 && suaFilings === 0) continue;
+    const reasons = [
+      closedRows > 0 ? `${closedRows} renglón(es) de IMSS/INFONAVIT patronal ya depositados` : null,
+      suaFilings > 0 ? 'su archivo del SUA ya generado' : null,
+    ].filter((x): x is string => x !== null);
+    hallazgos.push({
+      codigo: 'share_in_already_settled_month',
+      severidad: 'aviso',
+      periodo: `${s.start} a ${s.end}`,
+      mensaje:
+        `La corrida cruza el cambio de mes: ${s.days} día(s) cotizados, del ${s.start} al ` +
+        `${s.end}, caen en el mes que inicia el ${monthStart}, que ya tiene ` +
+        `${reasons.join(' y ')}. Esa parte de las cuotas llega después de cerrado el mes: ` +
+        'el SUA ya generado la declara de menos y, si el renglón del mes ya se depositó, ' +
+        'no se reescribe. Presenta la complementaria de ese mes.',
+    });
   }
 
   // ---- ISN, uno por estado ----
@@ -782,6 +829,108 @@ async function acumular(
     renglones,
     hallazgos,
   };
+}
+
+// ------------------------------------------------------------
+// LEGACY ROWS OF A STRADDLING RUN (#231 review)
+//
+// Before the split, a run whose period crossed a month booked each employer
+// contribution WHOLE, by `period_end`. Nothing re-closes an approved run
+// —`approvePayRun` only takes a calculated one—, so after the split those
+// rows would stay whole forever and the SUA cross-check, which reads by
+// month, would block both months. This re-accrues such runs with the SAME
+// `acumular` an approval runs, so there is one rule and not a second one
+// written for the repair.
+//
+// Run by run, each in its own transaction and rehearsed first: the entity's
+// liability rows are read before and after the re-accrual, and a run whose
+// rows do not change is left out, so running it twice finds nothing the
+// second time. Without `apply` every transaction is rolled back and the
+// result is the census of what `apply` would write.
+//
+// A legacy whole-period row that is no longer 'pending' is evidence of a
+// payment and is never rewritten; re-accruing around it would book the other
+// month's share a second time on top of it. That run is reported, not
+// touched.
+// ------------------------------------------------------------
+
+export interface StraddleResplit {
+  payRunId: string;
+  entityId: string;
+  periodStart: string;
+  periodEnd: string;
+  outcome: 'resplit' | 'skipped_settled';
+  /** Liability rows of the entity that the re-accrual removes and adds. */
+  removed: string[];
+  added: string[];
+  findings: HallazgoNomina[];
+}
+
+/** Thrown inside a re-accrual transaction to roll it back. */
+class ResplitRehearsal extends Error {}
+
+async function liabilitySnapshot(client: pg.PoolClient, tenantId: string, entityId: string): Promise<string[]> {
+  const r = await client.query<{ row: string }>(
+    `SELECT concat_ws(' ', tax_type, jurisdiction, COALESCE(pay_run_id::text, 'month'),
+                      period_start::text, period_end::text, amount::text, status) AS row
+       FROM employer_tax_liabilities
+      WHERE tenant_id = $1 AND entity_id = $2
+      ORDER BY 1`,
+    [tenantId, entityId]
+  );
+  return r.rows.map((x) => x.row);
+}
+
+export async function resplitStraddlingLiabilities(
+  tenantId: string,
+  options: { apply: boolean }
+): Promise<StraddleResplit[]> {
+  const runs = await withTransaction((client) =>
+    client.query<{ id: string; entity_id: string; period_start: string; period_end: string; settled: boolean }>(
+      `SELECT pr.id, ps.entity_id, pp.period_start::text AS period_start, pp.period_end::text AS period_end,
+              EXISTS (SELECT 1 FROM employer_tax_liabilities l
+                       WHERE l.tenant_id = pr.tenant_id AND l.pay_run_id = pr.id
+                         AND l.tax_type IN ('imss_employer', 'infonavit_employer')
+                         AND date_trunc('month', l.period_start) <> date_trunc('month', l.period_end)
+                         AND l.status <> 'pending') AS settled
+         FROM pay_runs pr
+         JOIN pay_periods pp ON pp.id = pr.pay_period_id AND pp.tenant_id = pr.tenant_id
+         JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id AND ps.tenant_id = pp.tenant_id
+        WHERE pr.tenant_id = $1 AND pr.status IN ('approved', 'paid')
+          AND date_trunc('month', pp.period_start) <> date_trunc('month', pp.period_end)
+        ORDER BY pp.period_start, pr.id`,
+      [tenantId]
+    )
+  );
+
+  const results: StraddleResplit[] = [];
+  for (const run of runs.rows) {
+    const base = {
+      payRunId: run.id, entityId: run.entity_id,
+      periodStart: run.period_start, periodEnd: run.period_end,
+    };
+    if (run.settled) {
+      results.push({ ...base, outcome: 'skipped_settled', removed: [], added: [], findings: [] });
+      continue;
+    }
+    let found: StraddleResplit | null = null;
+    try {
+      await withTransaction(async (client) => {
+        const before = await liabilitySnapshot(client, tenantId, run.entity_id);
+        const accrual = await acumular(client, { tenantId, payRunId: run.id });
+        const after = await liabilitySnapshot(client, tenantId, run.entity_id);
+        const removed = before.filter((x) => !after.includes(x));
+        const added = after.filter((x) => !before.includes(x));
+        if (removed.length === 0 && added.length === 0) throw new ResplitRehearsal();
+        found = { ...base, outcome: 'resplit', removed, added, findings: accrual.hallazgos };
+        if (!options.apply) throw new ResplitRehearsal();
+      });
+    } catch (err) {
+      if (!(err instanceof ResplitRehearsal)) throw err;
+    }
+    if (found) results.push(found);
+  }
+  return results;
 }
 
 export { hallazgosQueBloquean };

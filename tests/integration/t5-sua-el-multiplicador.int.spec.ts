@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { generateSuaFile } from '../../src/services/payroll/mx/sua-generator.js';
-import { acumularPasivoPatronal } from '../../src/services/payroll/common/employer-liability-service.js';
+import {
+  acumularPasivoPatronal,
+  resplitStraddlingLiabilities,
+} from '../../src/services/payroll/common/employer-liability-service.js';
 import { resolvePolicy, seedPolicies } from '../../src/services/policy/policy-service.js';
 
 /**
@@ -321,6 +324,77 @@ describe('the straddling week is split by the contribution days of each month', 
     await bothMonthsTieOut();
   }, 180_000);
 
+  /** Replaces the straddler's IMSS/INFONAVIT rows with whole-period ones, as booked before the split. */
+  async function seedLegacyWholeRows(status: 'pending' | 'deposited'): Promise<void> {
+    await query(
+      `DELETE FROM employer_tax_liabilities
+        WHERE tenant_id = $1 AND pay_run_id = $2 AND tax_type IN ('imss_employer', 'infonavit_employer')`,
+      [f.tenantId, straddlerRun]
+    );
+    await query(
+      `INSERT INTO employer_tax_liabilities (tenant_id, entity_id, pay_run_id, tax_type, jurisdiction,
+         period_start, period_end, amount, due_date, deposit_frequency, status)
+       VALUES ($1,$2,$3,'imss_employer','MX','2026-02-25','2026-03-03','500.00','2026-04-17','monthly',$4),
+              ($1,$2,$3,'infonavit_employer','MX','2026-02-25','2026-03-03','250.00','2026-05-17','bimestral',$4)`,
+      [f.tenantId, f.entityId, straddlerRun, status]
+    );
+  }
+
+  it('a whole-period row booked before the split is re-split by the backfill, and both months tie out', async () => {
+    await seedLegacyWholeRows('pending');
+    // The state a deploy leaves behind: March's file declares 214.29 against
+    // the 500.00 booked whole, and the cross-check refuses it.
+    await expect(generateSuaFile(f.tenantId, f.entityId, 2026, 3)).rejects.toThrow(
+      /no cuadra con el pasivo patronal/
+    );
+
+    // The census writes nothing and names the run.
+    const census = await resplitStraddlingLiabilities(f.tenantId, { apply: false });
+    expect(census.map((r) => [r.payRunId, r.outcome])).toEqual([[straddlerRun, 'resplit']]);
+    expect(census[0].removed.some((x) => x.includes('500.00'))).toBe(true);
+    expect((await straddlerRows()).map((r) => r[3])).toEqual(['500.00', '250.00']);
+
+    await resplitStraddlingLiabilities(f.tenantId, { apply: true });
+    expect(await straddlerRows()).toEqual([
+      ['imss_employer', '2026-02-25', '2026-02-28', '285.71', '2026-03-17'],
+      ['infonavit_employer', '2026-02-25', '2026-02-28', '142.86', '2026-03-17'],
+      ['imss_employer', '2026-03-01', '2026-03-03', '214.29', '2026-04-17'],
+      ['infonavit_employer', '2026-03-01', '2026-03-03', '107.14', '2026-05-17'],
+    ]);
+    await bothMonthsTieOut();
+    // Running it again finds nothing: the rows already carry the split.
+    expect(await resplitStraddlingLiabilities(f.tenantId, { apply: true })).toEqual([]);
+  }, 180_000);
+
+  it('a whole-period row already deposited is never rewritten: the run is reported and left alone', async () => {
+    await seedLegacyWholeRows('deposited');
+    try {
+      const r = await resplitStraddlingLiabilities(f.tenantId, { apply: true });
+      expect(r.map((x) => [x.payRunId, x.outcome])).toEqual([[straddlerRun, 'skipped_settled']]);
+      expect((await straddlerRows()).map((x) => x[3])).toEqual(['500.00', '250.00']);
+    } finally {
+      await seedLegacyWholeRows('pending');
+      await resplitStraddlingLiabilities(f.tenantId, { apply: true });
+    }
+  }, 180_000);
+
+  it("a share that lands in a month whose SUA was already generated is said out loud", async () => {
+    const settledFinding = async () =>
+      (await acumularPasivoPatronal({ tenantId: f.tenantId, payRunId: straddlerRun })).hallazgos.find(
+        (h) => h.codigo === 'share_in_already_settled_month'
+      );
+    await query(`DELETE FROM tax_form_filings WHERE tenant_id = $1 AND form_type = 'sua' AND period = '02'`, [
+      f.tenantId,
+    ]);
+    expect(await settledFinding(), 'February is still open').toBeUndefined();
+
+    await generateSuaFile(f.tenantId, f.entityId, 2026, 2);
+    const finding = await settledFinding();
+    expect(finding?.severidad).toBe('aviso');
+    expect(finding?.periodo).toBe('2026-02-25 a 2026-02-28');
+    expect(finding?.mensaje).toMatch(/2026-02-01.*SUA ya generado/);
+  }, 180_000);
+
   it('the month-end liability books the same split, so both months tie out', async () => {
     await query(`DELETE FROM employer_tax_liabilities WHERE tenant_id = $1`, [f.tenantId]);
     const scope = { tenantId: f.tenantId, entityId: f.entityId };
@@ -342,5 +416,19 @@ describe('the straddling week is split by the contribution days of each month', 
       ['2026-03-01', '1214.29'],
     ]);
     await bothMonthsTieOut();
+
+    // Switching back to per-run while those month rows are pending counts the
+    // months twice; the blocking finding names each month row it collides with.
+    // `resolvePolicy` only takes pending decisions; the panel redefines in place.
+    await query(
+      `UPDATE policy_decisions SET resolved_value = 'por_corrida'
+        WHERE tenant_id = $1 AND key = 'provision_cuotas_patronales'`,
+      [f.tenantId]
+    );
+    const back = await acumularPasivoPatronal({ tenantId: f.tenantId, payRunId: straddlerRun });
+    const both = back.hallazgos.find((h) => h.codigo === 'pasivo_mensual_y_por_corrida_a_la_vez');
+    expect(both?.severidad).toBe('bloqueante');
+    expect(both?.mensaje).toContain('imss_employer 1285.71 del mes que inicia el 2026-02-01');
+    expect(both?.mensaje).toContain('imss_employer 1214.29 del mes que inicia el 2026-03-01');
   }, 180_000);
 });

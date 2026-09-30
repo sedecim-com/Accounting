@@ -45,6 +45,20 @@ describe('splitByContributionMonth', () => {
     ]);
   });
 
+  it('prorates the stored total by days, which drifts by cents from per-stretch figures across a UMA change', () => {
+    // Pins the CURRENT approximation (open point for the owner, #231). The
+    // engine prices each stretch with its own month's UMA (`contributionMonths`,
+    // #242) but the payslip stores only the total, so the split can only
+    // prorate it. Say a contribution costs 10.00 a day at January's UMA and
+    // 10.50 at February's: the exact stretches are 30.00 and 42.00 (72.00),
+    // and the split gives 30.86 and 41.14. The total always ties out; the
+    // per-month figures are exact only when both months share the UMA.
+    expect(plain('2026-01-29', '2026-02-04', '72.00')).toEqual([
+      { start: '2026-01-29', end: '2026-01-31', days: 3, amount: '30.86' },
+      { start: '2026-02-01', end: '2026-02-04', days: 4, amount: '41.14' },
+    ]);
+  });
+
   it('crosses the year and a leap February', () => {
     expect(plain('2027-12-29', '2028-01-11', '140.00')).toEqual([
       { start: '2027-12-29', end: '2027-12-31', days: 3, amount: '30.00' },

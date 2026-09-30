@@ -351,7 +351,8 @@ async function cotejarContraElPasivo(
           `${concepto}: el archivo declara ${enElArchivo.toFixed(2)} y el pasivo apuntado dice ` +
           `${enLosLibros.toFixed(2)} (diferencia ${enLosLibros.minus(enElArchivo).toFixed(2)}). ` +
           `Si un periodo cruza el cambio de mes y su pasivo se apuntó antes del reparto por ` +
-          `días cotizados, ese renglón lo lleva entero en un solo mes`,
+          `días cotizados, ese renglón lo lleva entero en un solo mes: ` +
+          '`npm run backfill:straddling-liabilities -- --tenant <id>` lo reparte',
         bloquea: true,
         file_amount: enElArchivo.toFixed(2),
         ledger_amount: enLosLibros.toFixed(2),
