@@ -1,0 +1,77 @@
+import { describe, it, expect } from 'vitest';
+import type { Command } from 'commander';
+import { program } from '../../src/cli/mnemosine.js';
+
+// ============================================================
+// THE EXAMPLES OF --help, ONCE (#327, MNE-001-089)
+//
+// The end-to-end walk of 2026-09-25 saw `invoice create --help` print its
+// examples twice. The examples of a command can reach its help from several
+// places: an `addHelpText('after', …)` registered twice, an ancestor's
+// `afterAllHelp`, or a description that repeats them. So this renders the
+// help the way `--help` does (`outputHelp`, every event included) for every
+// node of the shipped tree, instead of reading one listener.
+// ============================================================
+
+function nodes(cmd: Command, prefix: string[] = []): { path: string; cmd: Command }[] {
+  return (cmd.commands as Command[]).flatMap((child) => {
+    const path = [...prefix, child.name()];
+    return [{ path: path.join(' '), cmd: child }, ...nodes(child, path)];
+  });
+}
+
+/** What `<path> --help` writes to stdout. */
+function renderedHelp(cmd: Command): string {
+  const config = cmd.configureOutput();
+  const saved = { ...config };
+  const chunks: string[] = [];
+  cmd.configureOutput({ writeOut: (s: string) => { chunks.push(s); } });
+  try {
+    cmd.outputHelp();
+  } finally {
+    cmd.configureOutput(saved);
+  }
+  return chunks.join('');
+}
+
+/** Lines that appear more than once among the header and the example invocations. */
+function repeated(help: string): string[] {
+  const lines = help
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l === 'Examples:' || l.startsWith('mnemosine '));
+  return [...new Set(lines.filter((l, i) => lines.indexOf(l) !== i))];
+}
+
+describe('--help prints its examples once', () => {
+  const all = nodes(program);
+
+  it('the whole shipped tree is walked', () => {
+    // 210 leaves plus their families today; far below that means the walk
+    // lost a branch and the check below would pass over nothing.
+    expect(all.length).toBeGreaterThan(250);
+  });
+
+  it('the harness sees a repetition when there is one', () => {
+    expect(repeated('Examples:\n  mnemosine a\nExamples:\n  mnemosine a\n')).toEqual([
+      'Examples:',
+      'mnemosine a',
+    ]);
+  });
+
+  it('invoice create shows its examples once', () => {
+    const invoiceCreate = all.find((n) => n.path === 'invoice create');
+    expect(invoiceCreate).toBeDefined();
+    const help = renderedHelp(invoiceCreate!.cmd);
+    expect(help.match(/^Examples:$/gm)).toHaveLength(1);
+    expect(repeated(help)).toEqual([]);
+  });
+
+  it('no command repeats its examples', () => {
+    const offenders = all
+      .map((n) => ({ path: n.path, lines: repeated(renderedHelp(n.cmd)) }))
+      .filter((o) => o.lines.length > 0)
+      .map((o) => `${o.path}: ${o.lines.join(' | ')}`);
+    expect(offenders).toEqual([]);
+  });
+});

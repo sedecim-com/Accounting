@@ -102,6 +102,7 @@ import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
 import { palette } from './palette.js';
+import { logEachWarningOnce } from '../utils/logger.js';
 import { detectSetupState, type SetupState } from './first-run.js';
 import { renderBanner, type BannerInfo } from './banner.js';
 import { registerCloseCommand } from './close-command.js';
@@ -3687,6 +3688,9 @@ export { program };
 // pulls the exported pure helpers — must not launch the CLI.
 if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
   void (async () => {
+    // One command is one process: a warning about the same document says
+    // nothing new the second time (#327).
+    logEachWarningOnce();
     const argv = [...process.argv];
     const veredicto = veredictoDeRaiz(argv[2], comandosRegistrados(program));
     if (veredicto.tipo === 'desconocido') {
