@@ -364,6 +364,8 @@ const SAMPLE_FIXUPS: Readonly<Record<string, SampleFixup>> = {
   'PUT /v1/processing-rules/:id': withField('rule_name'),
   // "company_name or first_name is required".
   'POST /v1/customers': withField('company_name'),
+  // The manual match now requires its amount (a union JSON Schema cannot sample).
+  'POST /v1/bank-accounts/transactions/:id/match': withField('matched_amount'),
   // "xml_content or xml_contents array is required".
   'POST /v1/upload': withField('xml_content'),
   // A journal line carries a debit OR a credit, never both and never neither.
