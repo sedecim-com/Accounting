@@ -2,9 +2,11 @@ import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { daysBetween } from '../../../utils/calendar-date.js';
 import type { Scope } from '../../../database/scope.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
 import { estadoParaPersistir } from '../../integrations/mexico/pac/simulacion.js';
+import { PAY_RUN_TYPES } from '../../../database/enums.js';
+import type { PayFrequency } from '../tax-engine/tax-engine.interface.js';
 import { storedIsrParts } from './isr-exemption.js';
 
 // ============================================================
@@ -75,8 +77,8 @@ export async function generateAndStampCfdiNomina(
     hire_date: string;
     entity_tax_id: string;
     entity_name: string;
-    run_type: string;
-    pay_frequency: string;
+    run_type: PayRunType;
+    pay_frequency: Exclude<PayFrequency, 'annual'>;
   }>(
     `SELECT p.id AS paycheck_id, p.tenant_id,
             p.gross_earnings, p.net_pay,
@@ -234,32 +236,45 @@ ${otrosPagosXml}    </nomina12:Nomina>
   };
 }
 
+type PayRunType = (typeof PAY_RUN_TYPES)[number];
+
 /**
- * TipoNomina comes from the run, not from the employee's surname (it used to
- * read `emp_second_last === 'EXTRAORDINARIA'`). c_TipoNomina: O ordinaria,
- * E extraordinaria. A regular or correction run is the ordinary payroll; a
- * bonus, final settlement or off-cycle run is paid outside the period cadence.
+ * TipoNomina comes from the run, not from the employee's surname. SAT payroll
+ * complement guide: E (extraordinaria) is for a payment outside the ordinary
+ * cadence (bonus, final settlement, off-cycle), O for the ordinary one.
+ * A correction is refused: it may re-issue an ordinary run (O) or a bonus,
+ * final or off-cycle one (E), and pay_runs holds no pointer to the corrected
+ * run, so the type cannot be derived.
  */
-export function payrollTypeForRunType(runType: string): 'O' | 'E' {
+export function payrollTypeForRunType(runType: PayRunType): 'O' | 'E' {
   switch (runType) {
     case 'regular':
-    case 'correction':
       return 'O';
     case 'bonus':
     case 'final':
     case 'off_cycle':
       return 'E';
-    default:
-      throw new Error(`Unknown pay run type for CFDI TipoNomina: ${runType}`);
+    case 'correction':
+      throw new ValidationError(
+        'A correction run cannot be stamped as a payroll CFDI: its TipoNomina depends on the run it corrects, which is not recorded',
+        'run_type'
+      );
+    default: {
+      const unreachable: never = runType;
+      throw new ValidationError(`Unknown pay run type for CFDI TipoNomina: ${String(unreachable)}`, 'run_type');
+    }
   }
 }
 
 /**
- * PeriodicidadPago from the pay schedule, per c_PeriodicidadPago (02 semanal,
- * 03 catorcenal, 04 quincenal, 05 mensual). The SAT requires 99 (otra) when
- * TipoNomina is E, because an extraordinary payment has no periodicity.
+ * PeriodicidadPago from the pay schedule, per c_PeriodicidadPago (02 weekly,
+ * 03 biweekly, 04 semimonthly, 05 monthly). SAT payroll complement guide: when
+ * TipoNomina is E the value is 99, an extraordinary payment has no periodicity.
  */
-export function paymentPeriodicityFor(kind: 'O' | 'E', frequency: string): string {
+export function paymentPeriodicityFor(
+  kind: 'O' | 'E',
+  frequency: Exclude<PayFrequency, 'annual'>
+): string {
   if (kind === 'E') return '99';
   switch (frequency) {
     case 'weekly': return '02';
@@ -267,19 +282,38 @@ export function paymentPeriodicityFor(kind: 'O' | 'E', frequency: string): strin
     case 'semimonthly':
     case 'quincenal': return '04';
     case 'monthly': return '05';
-    default:
-      throw new Error(`Unknown pay schedule frequency for CFDI PeriodicidadPago: ${frequency}`);
+    default: {
+      const unreachable: never = frequency;
+      throw new ValidationError(
+        `Unknown pay schedule frequency for CFDI PeriodicidadPago: ${String(unreachable)}`,
+        'frequency'
+      );
+    }
   }
 }
 
 /**
  * Antiguedad as P{n}W: whole weeks from hire date to the end of the paid
- * period, both days counted. The schema pattern rejects P0W, so the minimum
- * is one week.
+ * period, both days counted. A hire date after the period end, or less than a
+ * full week of seniority, is refused by naming the dates: a stamped CFDI cannot
+ * be taken back, so no week is invented.
  */
 export function seniorityWeeks(hireDate: string | Date, periodEnd: string | Date): string {
-  const weeks = Math.floor((daysBetween(hireDate, periodEnd) + 1) / 7);
-  return `P${Math.max(1, weeks)}W`;
+  const days = daysBetween(hireDate, periodEnd) + 1;
+  if (days < 1) {
+    throw new ValidationError(
+      `Hire date ${String(hireDate)} is after the period end ${String(periodEnd)}`,
+      'hire_date'
+    );
+  }
+  const weeks = Math.floor(days / 7);
+  if (weeks < 1) {
+    throw new ValidationError(
+      `Seniority from hire date ${String(hireDate)} to period end ${String(periodEnd)} is under one week, which Antiguedad P{n}W cannot state`,
+      'hire_date'
+    );
+  }
+  return `P${weeks}W`;
 }
 
 function escapeXml(s: string): string {

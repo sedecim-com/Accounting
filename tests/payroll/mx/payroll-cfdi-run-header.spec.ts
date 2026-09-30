@@ -15,6 +15,7 @@ import {
   seniorityWeeks,
 } from '../../../src/services/payroll/mx/cfdi-nomina-generator.js';
 import { query } from '../../../src/database/connection.js';
+import { ValidationError } from '../../../src/utils/errors.js';
 import { pacRouter } from '../../../src/services/integrations/mexico/pac/pac-router.js';
 
 const mockQuery = query as unknown as Mock;
@@ -77,17 +78,38 @@ describe('payroll CFDI header attributes', () => {
 
 describe('catalog helpers', () => {
   it('maps run types', () => {
-    expect(['regular', 'correction', 'bonus', 'final', 'off_cycle'].map(payrollTypeForRunType))
-      .toEqual(['O', 'O', 'E', 'E', 'E']);
-    expect(() => payrollTypeForRunType('x')).toThrow();
+    expect((['regular', 'bonus', 'final', 'off_cycle'] as const).map(payrollTypeForRunType))
+      .toEqual(['O', 'E', 'E', 'E']);
+  });
+  it('refuses a correction run, whose type depends on the corrected run', () => {
+    expect(() => payrollTypeForRunType('correction')).toThrow(ValidationError);
+  });
+  it('refuses an unknown run type with a project error', () => {
+    expect(() => payrollTypeForRunType('x' as never)).toThrow(ValidationError);
   });
   it('maps schedule frequencies', () => {
-    expect(['weekly', 'biweekly', 'semimonthly', 'quincenal', 'monthly'].map((f) => paymentPeriodicityFor('O', f)))
+    expect((['weekly', 'biweekly', 'semimonthly', 'quincenal', 'monthly'] as const).map((f) => paymentPeriodicityFor('O', f)))
       .toEqual(['02', '03', '04', '04', '05']);
-    expect(() => paymentPeriodicityFor('O', 'x')).toThrow();
+    expect(() => paymentPeriodicityFor('O', 'x' as never)).toThrow(ValidationError);
   });
-  it('seniority is at least one week', () => {
-    expect(seniorityWeeks('2026-03-08', '2026-03-08')).toBe('P1W');
+  it('seniority counts whole weeks, both days included', () => {
+    expect(seniorityWeeks('2026-03-02', '2026-03-08')).toBe('P1W');
     expect(seniorityWeeks('2026-03-01', '2026-03-08')).toBe('P1W');
+  });
+  it('refuses a hire date after the period end and names both dates', () => {
+    expect(() => seniorityWeeks('2026-03-09', '2026-03-08')).toThrow(/2026-03-09.*2026-03-08/);
+  });
+  it('refuses under one week of seniority instead of declaring a full week', () => {
+    expect(() => seniorityWeeks('2026-03-06', '2026-03-08')).toThrow(/under one week/);
+  });
+});
+
+describe('the SELECT that feeds the header', () => {
+  it('reads run_type from pay_runs and frequency from the schedule joined through the period', async () => {
+    await xmlFor({});
+    const sql = mockQuery.mock.calls.map((c) => String(c[0])).find((q) => /FROM paychecks p/.test(q)) ?? '';
+    expect(sql).toMatch(/pr\.run_type/);
+    expect(sql).toMatch(/ps\.frequency AS pay_frequency/);
+    expect(sql).toMatch(/JOIN pay_schedules ps ON ps\.id = pp\.pay_schedule_id/);
   });
 });
