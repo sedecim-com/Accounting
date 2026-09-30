@@ -80,6 +80,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/cli/bank-command.ts`
 - `src/cli/bill-command.ts`
 - `src/cli/closing-command.ts`
+- `src/cli/e-accounting-command.ts`
 - `src/cli/entry-command.ts`
 - `src/cli/invoice-command.ts`
 - `src/cli/mnemosine.ts`

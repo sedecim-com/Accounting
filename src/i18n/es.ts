@@ -186,6 +186,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.fees_without_withholding.option.record_as_issued':
     'Registrarlo como se emitió, con un aviso en la lista de verificación del cierre',
 
+  'policy.withholding_mismatch.question':
+    "¿Qué pasa cuando un CFDI recibido declara una retención (ISR o IVA) distinta de la que la ley le exige a tu empresa como retenedora?",
+  'policy.withholding_mismatch.impact':
+    "Gobierna los CFDI recibidos sobre los que una persona moral retiene por ley (honorarios o arrendamiento de una persona física, fletes, una persona física del RESICO) y cuya retención declarada difiere de la de ley más allá del redondeo; los honorarios del régimen 612 que no declaran ISR retenido siguen fees_without_withholding. «request_substitute_cfdi» deja el CFDI en espera en la bandeja, no escribe nada en el mayor y dice que se le pida al proveedor un CFDI sustituto. «withhold_by_law» propone la póliza con la retención de ley y la deja en revisión. «record_as_issued» contabiliza el CFDI con la retención que declara, y la lista de verificación del cierre lo muestra en honorarios sin retención.",
+  'policy.withholding_mismatch.rationale':
+    "Quien paga es responsable solidario del impuesto que debió retener (CFF 26-I) y el gasto sólo es deducible si la retención se hizo y se enteró (LISR 27-V). El CFDI es de un tercero: el remedio limpio es un sustituto del proveedor, y no se registra nada sobre una cifra que va a cambiar.",
+  'policy.withholding_mismatch.why':
+    "Cuando tu empresa retiene por ley, la factura tiene que mostrar la misma retención que exige la ley. Si muestra otra, o el proveedor se equivocó o el caso no es el que describe la ley. Esperar una factura corregida, aplicar de todos modos la retención de ley o registrarla como vino es decisión de tu despacho.",
+  'policy.withholding_mismatch.what':
+    "Por omisión dejo la factura en espera y te digo que le pidas un sustituto al proveedor. Con «withhold_by_law» propongo la póliza con la retención de ley y la dejo para que la revises. Con «record_as_issued» la contabilizo como vino y la listo en la lista de verificación del cierre.",
+  'policy.withholding_mismatch.if_skipped':
+    "Dejo esas facturas en espera y te pregunto por cada una: nada llega a tus libros hasta que llegue un sustituto o contestes.",
+  'policy.withholding_mismatch.option.request_substitute_cfdi':
+    "Dejarlo en espera y pedirle al proveedor un CFDI sustituto",
+  'policy.withholding_mismatch.option.withhold_by_law':
+    "Registrar la retención de ley y dejar la póliza en revisión",
+  'policy.withholding_mismatch.option.record_as_issued':
+    "Registrarlo como se declaró, con un aviso en la lista de verificación del cierre",
+
   'policy.inventory_method.question':
     '¿La empresa lleva inventarios perpetuos?',
   'policy.inventory_method.impact':
@@ -1428,7 +1447,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.withholding_accounts_layout.question':
     '¿En qué cuentas se acumulan el ISR y el IVA que esta entidad les retiene a sus proveedores?',
   'policy.withholding_accounts_layout.impact':
-    'Decide dónde se registran las retenciones de honorarios y arrendamiento hasta que el día 17 se pagan. El ISR de nómina se queda en 2140 en cualquier esquema. Una cuenta por impuesto da los dos renglones del pago mensual y de la DIOT sin partir un saldo. Tres cuentas siguen el código agrupador del SAT (216.03 arrendamiento, 216.04 servicios profesionales, 216.10 IVA); el ISR retenido sobre algo que no sea arrendamiento se registra como servicios profesionales. Con una cuenta por impuesto, 2141 junta el ISR de arrendamiento y de honorarios, así que su código agrupador en la balanza del Anexo 24 (CFF 28-IV) sólo puede ser uno de los dos. Una sola cuenta necesita el papel de trabajo para separar el ISR del IVA, y la aprobación de un borrador sólo puede revisar su suma.',
+    'Decide dónde se registran las retenciones de honorarios y arrendamiento hasta que el día 17 se pagan. El ISR de nómina se queda en 2140 en cualquier esquema. Una cuenta por impuesto da los dos renglones del pago mensual y de la DIOT sin partir un saldo. Tres cuentas siguen el código agrupador del SAT (216.03 arrendamiento, 216.04 servicios profesionales, 216.10 IVA); el ISR retenido sobre algo que no sea arrendamiento, incluido el 1.25 % del RESICO (LISR 113-J) sobre bienes, servicios o fletes, se registra como servicios profesionales; el arrendamiento de inmuebles de un RESICO se registra como arrendamiento. Con una cuenta por impuesto, 2141 junta el ISR de arrendamiento y de honorarios, así que su código agrupador en la balanza del Anexo 24 (CFF 28-IV) sólo puede ser uno de los dos. Una sola cuenta necesita el papel de trabajo para separar el ISR del IVA, y la aprobación de un borrador sólo puede revisar su suma.',
   'policy.withholding_accounts_layout.rationale':
     'El retenedor paga el ISR (LISR 106, 116) y el IVA (LIVA 1-A, 5-D) que retuvo con la declaración mensual que vence el día 17, como impuestos separados, y la DIOT reporta el IVA retenido por proveedor (LIVA 32-VIII): un saldo por impuesto es lo que leen las dos sin partir nada. Es con lo que se siembran las entidades.',
   'policy.withholding_accounts_layout.why':
@@ -2417,6 +2436,129 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.imss.sua.export.option.output': 'escribe el archivo del SUA en esta ruta (sin ella, el archivo sale por stdout)',
   'help.imss.sua.export.option.yes': 'sobrescribe el archivo de -o si ya existe',
   'help.imss.sua.export.option.dry_run': 'arma y coteja el archivo sin escribirlo ni registrar la declaración',
+  // ==== MNE-001-092 · help by key, the close and control families (issue #314) ====
+  'help.close.description': 'Cierre de mes: revisa lo que falta y cierra el periodo',
+  'help.close.option.period':
+    'Periodo a cerrar: 2026-08, su id o una parte inequívoca de su nombre (por omisión, el abierto más antiguo)',
+  'help.close.option.list': 'Lista los periodos que se pueden cerrar y termina',
+  'help.close.option.check': 'Sólo revisa si está listo; nunca cierra',
+  'help.close.option.hard': 'Cierre definitivo (irreversible) en vez de cierre blando',
+  'help.close.option.reason': 'por qué se cierra ahora; queda en la bitácora de auditoría',
+  'help.close.option.json': 'salida JSON para scripts',
+  'help.closing.description': 'El cierre como proceso: conducirlo, leerlo y entregar el expediente que lo prueba',
+  'help.closing.preview.description':
+    'Gemelo de sólo lectura del inicio del cierre: dice si el periodo puede entrar a cierre y qué falta',
+  'help.closing.preview.argument.period':
+    'periodo abierto: 2026-07, su id o parte de su nombre (por omisión, el abierto más antiguo)',
+  'help.closing.check.description':
+    'Corre el catálogo de verificaciones del cierre, o sólo las nombradas; --check sin valor lista los nombres',
+  'help.closing.check.option.check': 'códigos de verificación separados por comas; sin valor, imprime los disponibles',
+  'help.closing.check.option.period':
+    'periodo a verificar: 2026-07, su id o parte de su nombre (por omisión, el abierto más antiguo)',
+  'help.closing.explain.description':
+    'Imprime los renglones que fallan en una verificación (ids, importes, fechas) y el comando exacto que lo corrige',
+  'help.closing.explain.argument.code': 'código de verificación, uno de: {codes}',
+  'help.closing.explain.option.limit': 'máximo de renglones con falla a imprimir',
+  'help.closing.explain.option.period':
+    'periodo a explicar: 2026-07, su id o parte de su nombre (por omisión, el abierto más antiguo)',
+  'help.closing.run.description':
+    'Conduce el cierre: provisiona, amortiza, deprecia, verifica la lista de cierre, hace el cierre blando y el definitivo, en ese orden',
+  'help.closing.run.argument.period':
+    'periodo abierto: 2026-07, su id o parte de su nombre (por omisión, el abierto más antiguo)',
+  'help.closing.run.option.stop_at': 'se detiene ANTES de este paso: {steps}',
+  'help.closing.run.option.resume':
+    'continúa la corrida abierta de este periodo; cada paso vuelve a correr y sólo contabiliza lo que falta',
+  'help.closing.pack.description':
+    'El expediente de un cierre: generarlo y comprobar que sus cifras se siguen reproduciendo',
+  'help.closing.pack.generate.description':
+    'Sella las cifras del periodo en un expediente que un tercero puede volver a correr',
+  'help.closing.pack.generate.argument.period':
+    'nombre del periodo, AAAA-MM o id, en cualquier estado (por omisión, el cerrado más reciente)',
+  'help.closing.pack.generate.option.output':
+    'escribe el expediente en esta ruta (closing_packs guarda su propia copia)',
+  'help.closing.pack.verify.description':
+    'Vuelve a correr un expediente contra los libros: si se emitió aquí, si sus cifras se reproducen y qué se movió exactamente',
+  'help.closing.pack.verify.argument.file': 'el expediente a comprobar',
+  'help.year.description': 'Ejercicios fiscales: el calendario en el que una entidad lleva sus libros',
+  'help.year.list.description': 'Lista los ejercicios fiscales de la entidad con su estado y el avance de su cierre',
+  'help.year.show.description': 'Muestra un ejercicio fiscal con cada uno de sus periodos y su estado',
+  'help.year.show.argument.year': 'año de cuatro dígitos, p. ej. 2026',
+  'help.year.create.description':
+    'Crea un ejercicio fiscal: sus doce periodos mensuales y el periodo de ajustes de cierre (13)',
+  'help.year.create.argument.year': 'año de cuatro dígitos, p. ej. 2027',
+  'help.year.create.option.dry_run': 'muestra el calendario que se crearía; no escribe nada',
+  'help.year.create.option.json': 'salida JSON',
+  'help.chart.description': 'Catálogo de cuentas: traer el catálogo de un despacho',
+  'help.chart.import.description':
+    'Importa un XML CatalogoCuentas del Anexo 24, conservando los códigos y la jerarquía del despacho',
+  'help.chart.import.option.partial': 'escribe aunque queden renglones fuera (por omisión: todo o nada)',
+  'help.chart.import.option.reason': 'por qué se importa el catálogo; va a la bitácora de auditoría',
+  'help.opening_balance.description':
+    'Saldos iniciales migrados de la balanza de comprobación del Anexo 24 del sistema anterior',
+  'help.opening_balance.import.description':
+    'Contabiliza la póliza de apertura desde un XML BalanzaComprobacion del Anexo 24, el día siguiente a su corte -- irreversible',
+  'help.opening_balance.import.option.subledger':
+    'arreglo JSON con los documentos abiertos de las cuentas de control de clientes y proveedores',
+  'help.opening_balance.import.option.reason': 'por qué se carga la apertura; va a la bitácora de auditoría',
+  'help.opening_balance.check.description':
+    'Compara la balanza de origen contra el mayor en el día de apertura, al peso; sale con 4 si difieren',
+  'help.ar.description':
+    'Controles de cuentas por cobrar: concilia el auxiliar contra la cuenta de control y corre diagnósticos por nombre',
+  'help.ar.reconcile.description':
+    'Auxiliar (facturas abiertas − notas de crédito sin aplicar) contra la cuenta de control de cxc, nombrando las pólizas manuales',
+  'help.ar.reconcile.option.strict': 'sale con 4 ante cualquier diferencia, por corta que sea la lista de sospechosos',
+  'help.ar.check.description':
+    'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
+  'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',
+  'help.ar.check.option.strict': 'sale con 4 también ante avisos, no sólo ante hallazgos bloqueantes',
+  'help.ap.description':
+    'Controles de cuentas por pagar: concilia el auxiliar de proveedores contra la cuenta de control',
+  'help.ap.reconcile.description':
+    'Auxiliar de proveedores (facturas abiertas) contra la cuenta de control de cxp, nombrando las partidas en conciliación',
+  'help.ap.reconcile.option.as_of': 'fecha de corte de los dos lados de la conciliación (AAAA-MM-DD; por omisión, hoy)',
+  'help.ap.reconcile.option.explain': 'explica en prosa cada partida en conciliación, no sólo la tabla',
+  'help.cashflow.description':
+    'Estado de flujos de efectivo (NIF B-2 / ASC 230): armarlo y cuadrarlo contra el efectivo real',
+  'help.cashflow.generate.description':
+    'Arma el estado de flujos de efectivo de un periodo, con su cuadre contra el efectivo real',
+  'help.cashflow.generate.option.method':
+    'método con el que se arma el estado (por omisión, la política `flujo_efectivo_metodo`)',
+  'help.cashflow.generate.option.gross':
+    'presenta cobros y pagos brutos en vez de netos (NIF B-2 §40 / ASC 230-10-45-7); se rechaza con su razón — estos libros no lo sostienen',
+  'help.cashflow.reconcile.description':
+    'Concilia el estado de flujos de efectivo derivado contra el movimiento real de efectivo y equivalentes, e imprime el residuo en vez de absorberlo',
+  'help.cashflow.reconcile.option.show_candidates':
+    'lista los renglones de póliza que más probablemente explican el residuo (sospechosos, no un veredicto)',
+  'help.depreciation.description': 'La corrida mensual de depreciación: calcularla, revisarla y luego contabilizarla',
+  'help.depreciation.run.description':
+    'Calcula la corrida del periodo y la muestra activo por activo — no escribe ni contabiliza nada',
+  'help.depreciation.run.option.period': 'periodo a calcular: 2026-08 o cualquier parte inequívoca de su nombre',
+  'help.depreciation.run.option.book': 'el libro de depreciación que crees estar corriendo; se contrasta con el panel',
+  'help.depreciation.run.option.by': 'detalle o resumen: {dimensions} (asset es el detalle por activo)',
+  'help.depreciation.post.description':
+    'Contabiliza la corrida del periodo en el mayor — una póliza por activo, irreversible',
+  'help.depreciation.post.option.period': 'periodo a contabilizar: 2026-08 o cualquier parte inequívoca de su nombre',
+  'help.depreciation.post.option.book':
+    'el libro de depreciación que crees estar contabilizando; se contrasta con el panel',
+  'help.depreciation.post.option.file':
+    'el plan aprobado (JSON de `depreciation run --format json`); se niega si las cifras cambiaron',
+  'help.diot.description':
+    'DIOT de México: armar el mes a partir de operaciones pagadas, verificarlo y exportar el papel de trabajo',
+  'help.diot.generate.description':
+    'Arma la DIOT del mes a partir de operaciones pagadas, desglosada por tercero y por tasa',
+  'help.diot.generate.option.period': 'mes a declarar (la DIOT es mensual; no hay mes 13)',
+  'help.diot.check.description':
+    'Corre por nombre las invariantes de la DIOT: el hecho del pago, el desglose por tasa, la base exenta, el tercero y su tipo de operación',
+  'help.diot.check.option.period': 'mes a verificar (la DIOT es mensual; no hay mes 13)',
+  'help.diot.check.option.check': 'nombres de verificación separados por comas; sin valor, imprime los disponibles',
+  'help.diot.export.description':
+    'Emite el archivo de la DIOT, estable byte a byte para comparar: el papel de trabajo o el archivo de carga masiva del SAT',
+  'help.diot.export.option.period': 'mes a exportar (la DIOT es mensual; no hay mes 13)',
+  'help.diot.export.option.layout':
+    'formato del archivo: working-paper es la conciliación por tercero; sat es el archivo de carga masiva de la autoridad',
+  'help.diot.export.option.yes': 'omite la confirmación de sobrescritura cuando -o nombra un archivo existente',
+  'help.diot.export.option.output':
+    'escribe el archivo exportado en esta ruta (sin ella, va a la salida estándar para poder compararlo)',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
@@ -2563,4 +2705,36 @@ export const ES: Record<keyof typeof EN, string> = {
   'payslip.status_invalid': '--status {status}: usa uno de {states}.',
   'imss.sua.not_filed':
     'Archivo del SUA de {count} empleado(s) armado y registrado como declaración en borrador. No se envió nada: cárgalo en el SUA y paga.',
+  // --- e-accounting catalog|balance seal · sellar (EFIRMA-4, #442) --------
+  'anexo24.seal.refused_by_policy':
+    'No se sella: la política {policy} está en "{value}" y el sistema sólo sella con la e.firma ' +
+    'bajo "{optIn}". No se descifró nada y la bitácora de accesos no tiene fila por esto.',
+  'anexo24.seal.done':
+    'Sellado con la e.firma (certificado {certificate}): Sello, noCertificado y Certificado puestos, ' +
+    'y el archivo valida contra el XSD del SAT.',
+  'anexo24.seal.nothing_filed':
+    'NO SE PRESENTÓ NADA ANTE EL SAT. El SAT no tiene servicio web para recibir este archivo: ' +
+    'cárgalo tú en el portal del SAT (Contabilidad electrónica) y guarda el acuse de recepción.',
+  'help.e_accounting.catalog.seal.description':
+    'Sella con la e.firma de la entidad el CtaCatalogo archivado de un mes (sólo con sellar_con_custodia); no presenta nada',
+  'help.e_accounting.balance.seal.description':
+    'Sella con la e.firma de la entidad la balanza archivada de un periodo (sólo con sellar_con_custodia); no presenta nada',
+  'help.e_accounting.seal.option.period': 'mes del archivo archivado: YYYY-MM (el ejercicio con --closing)',
+  'help.e_accounting.catalog.seal.option.period': 'mes del catálogo archivado: YYYY-MM',
+  'help.e_accounting.balance.check.option.type': 'tipo de envío a verificar: N normal, C complementaria (pide --modified)',
+  'help.e_accounting.balance.check.option.modified': 'FechaModBal de la balanza complementaria; obligatoria con --type C',
+  'anexo24.seal.not_archived':
+    'No hay {document} archivado sin sellar de {period}: genéralo primero, revísalo y después séllalo.',
+  'anexo24.seal.rfc_mismatch':
+    'La e.firma es de {certificateRfc} y el documento declara {documentRfc}: no se sella.',
+  'anexo24.seal.not_sat_serial':
+    'El número de serie {serial} no es un número de certificado del SAT (20 dígitos): no puede ir en noCertificado.',
+  'anexo24.seal.separator_in_attribute':
+    'No se sella: {element} (cuenta {account}) tiene "|" en {attribute} ("{value}"). El Anexo 24 prohíbe "|" en ' +
+    'cualquier atributo porque separa los campos de la cadena original. Corrige el valor y vuelve a generar.',
+  'anexo24.seal.source_invalid':
+    'No se sella: el archivo archivado no valida contra el XSD del SAT ({errors}). No se descifró nada.',
+  'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
+  'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
+  'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',
 };

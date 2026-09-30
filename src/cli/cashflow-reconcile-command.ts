@@ -19,6 +19,8 @@ import {
   checkExitCode,
   usageError,
   exitCodeFor,
+  describeCommand,
+  optionByKey,
   type Row,
 } from './kernel/index.js';
 
@@ -152,18 +154,12 @@ export function registerCashFlowReconcile(
   const note = (message: string) => process.stderr.write(p.dim(`${message}\n`));
   const warn = (message: string) => process.stderr.write(p.yellow(`${message}\n`));
 
-  const reconcile = cashflow
-    .command('reconcile')
-    .alias('conciliar')
-    .description(
-      'Reconcile the derived statement of cash flows against the real movement ' +
-        'of cash and equivalents, and print the residue instead of absorbing it'
-    );
-  withOutput(withStrict(withTime(withContext(reconcile))));
-  reconcile.option(
-    '--show-candidates',
-    'list the journal lines that most likely explain the residue (suspects, not a verdict)'
+  const reconcile = describeCommand(
+    cashflow.command('reconcile').alias('conciliar'),
+    'help.cashflow.reconcile.description'
   );
+  withOutput(withStrict(withTime(withContext(reconcile))));
+  optionByKey(reconcile, '--show-candidates', 'help.cashflow.reconcile.option.show_candidates');
   declareRisk(reconcile, { risk: 'lectura', agent: true });
 
   reconcile.addHelpText(
