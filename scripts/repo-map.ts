@@ -79,6 +79,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   'src/services/sat-census': 'The SAT census: the `~` metadata file and ZIP packages of CFDI read into sat_cfdi_census (MNE-001-096).',
   'src/services/sat-download': 'SAT Descarga Masiva client: the Autentica request (EFIRMA-1) and the request/verify/download engine with its lifetime XML quota (EFIRMA-2), signed with the vault e.firma through withCredential.',
   'src/services/tenant': 'Inquilinos (despachos) de la instalación: alta y lista, fuera de RLS y fuera del alcance del agente.',
+  'src/services/user': "Logins of one firm: created without a terminal, listed and archived; outside RLS and outside the agent's reach.",
   'src/services/vault': 'Cifrado y bóveda de secretos (ruta con dueño reforzado).',
   'src/services/webhooks': 'Suscripciones y entrega de webhooks salientes.',
   'src/services/xml-ingestion': 'Lectura de CFDI, pre-registro, taxonomía y decisiones de posteo.',

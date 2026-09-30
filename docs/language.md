@@ -113,7 +113,7 @@ manual act and its trace is the diff.
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 1245 (baseline 1246) | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28589 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28590 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 
