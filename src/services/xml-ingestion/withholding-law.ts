@@ -18,15 +18,39 @@ import type { CfdiFacts } from './cfdi-facts.js';
 // withholding. A 612 invoice for professional services that declares none is
 // MNE-001-148's case, below: the firm's `fees_without_withholding` policy
 // decides what happens to it.
+//
+// FREIGHT AND RESICO (MNE-001-057). A legal entity that receives land freight
+// of goods withholds 4 % of the consideration as VAT, whoever the carrier is
+// (LIVA 1-A II c, RLIVA 3-II). A legal entity that pays an individual in the
+// simplified regime (RESICO, 626) withholds 1.25 % of ISR on whatever it pays
+// for, goods, services or rent (LISR 113-J), and two thirds of the VAT when it
+// is an independent personal service or the use of goods (LIVA 1-A II a). A
+// CFDI whose declared withholdings differ from these is held with a question
+// to the accountant; the CFDI is a third party's and is never corrected.
 // ============================================================
 
 export const WITHHOLDING_KEYS = {
   professionalFeesIsr: 'income_tax.withholding.professional_fees_rate',
   leaseIsr: 'income_tax.withholding.lease_rate',
   vatThirds: 'vat.withholding.individual_thirds',
+  freightVat: 'vat.withholding.freight_rate',
+  resicoIsr: 'income_tax.withholding.resico_rate',
 } as const;
 
-export type WithholdingCase = 'professional_fees' | 'lease';
+export type WithholdingCase = 'professional_fees' | 'lease' | 'freight' | 'resico';
+
+/** c_ClaveProdServ family of land freight of goods ("transporte de carga por carretera"). */
+const LAND_FREIGHT_PREFIX = '781018';
+/** c_ClaveProdServ family of the lease of real estate. */
+const REAL_ESTATE_LEASE_PREFIX = '801315';
+const RESICO_REGIME = '626';
+
+const allConceptsIn = (f: CfdiFacts, prefixes: readonly string[]): boolean =>
+  f.clavesProdServ.length > 0 && f.clavesProdServ.every((k) => prefixes.some((p) => k.startsWith(p)));
+
+/** An individual in RESICO: its ISR is withheld 1.25 % by a legal entity that pays it (LISR 113-J). */
+const isResicoIndividual = (f: CfdiFacts): boolean =>
+  f.emisorRfc.length === 13 && f.issuerRegime === RESICO_REGIME;
 
 /** Reads one Mexican legal parameter on a date; fails closed like `legalParameterAt`. */
 export type LegalParameterReader = (key: string, onDate: string) => Promise<LegalParameterInForce>;
@@ -41,7 +65,11 @@ export interface WithholdingByLaw {
 
 export function withholdingCaseOf(f: CfdiFacts): WithholdingCase | null {
   if (f.direction !== 'recibido' || f.tipo !== 'I') return null;
-  if (f.receptorRfc.length !== 12 || f.emisorRfc.length !== 13) return null;
+  if (f.receptorRfc.length !== 12) return null;
+  // Freight first: it is withheld whoever the carrier is, individual or not.
+  if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return 'freight';
+  if (f.emisorRfc.length !== 13) return null;
+  if (f.issuerRegime === RESICO_REGIME) return 'resico';
   if (f.issuerRegime === '606') return 'lease';
   if (f.issuerRegime === '612' && f.isrRetenido > 0) return 'professional_fees';
   return null;
@@ -108,22 +136,46 @@ export async function withholdingByLaw(
 ): Promise<WithholdingByLaw | null> {
   if (which === null) return null;
   const onDate = toCalendarDate(f.fecha);
-  const isrRate = await read(
-    which === 'lease' ? WITHHOLDING_KEYS.leaseIsr : WITHHOLDING_KEYS.professionalFeesIsr,
-    onDate
-  );
-  const thirds = await read(WITHHOLDING_KEYS.vatThirds, onDate);
   // ISR on the payment without any deduction and without VAT; VAT on the VAT
-  // transferred. Rounded once, to the cent, as the CFDI states amounts.
+  // transferred, or on the consideration for freight. Rounded once, to the
+  // cent, as the CFDI states amounts.
   const base = new Decimal(f.subtotal).minus(f.descuento);
   const vat = new Decimal(f.ivaTrasladado16).plus(f.ivaTrasladado8);
+  const cents = (d: Decimal) => d.toDecimalPlaces(2).toNumber();
+  const used: LegalParameterInForce[] = [];
+  const rate = async (key: string) => {
+    const p = await read(key, onDate);
+    used.push(p);
+    return p.value;
+  };
+  let isr = 0;
+  let iva = 0;
+  if (which === 'freight') {
+    iva = cents(base.times(await rate(WITHHOLDING_KEYS.freightVat)));
+    // A RESICO carrier is an individual paid by a legal entity: 113-J applies too.
+    if (isResicoIndividual(f)) isr = cents(base.times(await rate(WITHHOLDING_KEYS.resicoIsr)));
+  } else if (which === 'resico') {
+    isr = cents(base.times(await rate(WITHHOLDING_KEYS.resicoIsr)));
+    // Two thirds of the VAT only on an independent personal service or the use
+    // of goods, not on a sale. The CFDI declaring VAT withheld says so, and so
+    // do concepts that are all professional services or a real-estate lease;
+    // a sale declares none and is not withheld on.
+    if (f.ivaRetenido > 0 || allConceptsIn(f, [...PROFESSIONAL_SERVICE_PREFIXES, REAL_ESTATE_LEASE_PREFIX])) {
+      iva = cents(vat.times(await rate(WITHHOLDING_KEYS.vatThirds)).div(3));
+    }
+  } else {
+    isr = cents(base.times(
+      await rate(which === 'lease' ? WITHHOLDING_KEYS.leaseIsr : WITHHOLDING_KEYS.professionalFeesIsr)
+    ));
+    iva = cents(vat.times(await rate(WITHHOLDING_KEYS.vatThirds)).div(3));
+  }
   return {
     case: which,
-    isr: base.times(isrRate.value).toDecimalPlaces(2).toNumber(),
-    iva: vat.times(thirds.value).div(3).toDecimalPlaces(2).toNumber(),
+    isr,
+    iva,
     basis:
-      `${isrRate.key} = ${isrRate.value} and ${thirds.key} = ${thirds.value} ` +
-      `(in force on ${onDate}; ${isrRate.sourceUrl}, ${thirds.sourceUrl})`,
+      `${used.map((p) => `${p.key} = ${p.value}`).join(' and ')} ` +
+      `(in force on ${onDate}; ${used.map((p) => p.sourceUrl).join(', ')})`,
   };
 }
 

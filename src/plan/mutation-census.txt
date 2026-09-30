@@ -254,6 +254,10 @@ mirror	memory	E1.2 fees-without-withholding-follow-the-panel	src/services/xml-in
 mirror	memory	E1.2 fees-without-withholding-follow-the-panel	src/services/xml-ingestion/withholding-law.ts	a CFDI that sells a good next to a service is held as professional fees
 mirror	memory	E1.2 fees-without-withholding-follow-the-panel	src/services/xml-ingestion/pre-registration-service.ts	the firm answers the panel and ingestion keeps holding every fee: the answer never reaches the classifier
 mirror	memory	E1.2 fees-without-withholding-follow-the-panel	src/services/accounting/period-close.ts	the fees recorded as issued never reach the close checklist: the LISR 27-V warning is promised and not shown
+mirror	memory	E1.2 freight-and-resico-withholdings-come-from-the-law	src/services/xml-ingestion/withholding-law.ts	freight is booked with whatever VAT the carrier declares, and one declaring none is booked with none
+mirror	memory	E1.2 freight-and-resico-withholdings-come-from-the-law	src/services/xml-ingestion/withholding-law.ts	a RESICO individual is paid with no 1.25 % ISR withheld unless the CFDI happens to declare it
+mirror	memory	E1.2 freight-and-resico-withholdings-come-from-the-law	src/services/xml-ingestion/cfdi-classifier.ts	a discrepancy only shows up as an entry that does not balance: nobody is asked about the CFDI
+mirror	memory	E1.2 freight-and-resico-withholdings-come-from-the-law	src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql	RESICO is withheld 1 % instead of the 1.25 % of LISR 113-J
 mirror	memory	E1.3 policy-panel-owns-auto-post	src/ai/ingest-thresholds.ts	la capa local vuelve a encender sobre un panel que no lo autorizó: la puerta que A7 cerró
 mirror	memory	E1.3 policy-panel-owns-auto-post	src/ai/ingest-thresholds.ts	la bandera vuelve a aflojar el tope por encima del panel
 mirror	memory	E1.3 shadow-evidence-matches-enabled-mode	src/services/policy/policy-service.ts	la decisión vuelve a escribirse sin alcance: la evidencia de una entidad enciende a todas (pilar 6 del plan)
@@ -895,6 +899,10 @@ anchor	src/plan/criteria/e1-2.ts	de: "return UNWITHHELD_FEES_POLICIES.find((p) =
 anchor	src/plan/criteria/e1-2.ts	de: '.every((k) => PROFESSIONAL_SERVICE_PREFIXES',
 anchor	src/plan/criteria/e1-2.ts	de: 'unwithheldFees: unwithheldFees.value,',
 anchor	src/plan/criteria/e1-2.ts	de: "AND cc.facts->>'feesWithoutWithholding' = 'record_as_issued'",
+anchor	src/plan/criteria/e1-2.ts	de: "if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return 'freight';",
+anchor	src/plan/criteria/e1-2.ts	de: "if (f.issuerRegime === RESICO_REGIME) return 'resico';",
+anchor	src/plan/criteria/e1-2.ts	de: 'mismatchQuestion = withholdingMismatchQuestion(facts, settled.mismatch);',
+anchor	src/plan/criteria/e1-2.ts	de: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0125', 'rate',",
 anchor	src/plan/criteria/e1-3.ts	de: 'if (autorizado) {',
 anchor	src/plan/criteria/e1-3.ts	de: 'const tope = maxPolitica ?? Infinity;',
 anchor	src/plan/criteria/e1-3.ts	de: 'AND entity_id IS NOT DISTINCT FROM $6::uuid',

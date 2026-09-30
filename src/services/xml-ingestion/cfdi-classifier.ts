@@ -167,6 +167,7 @@ export async function classifyParsed(
     feesPolicy === 'withhold_by_law' ? 'professional_fees' : undefined
   );
   let heldForReview: string | null = null;
+  let mismatchQuestion: PendingDecision | null = null;
   if (law) {
     const settled = settleWithholding(facts, law);
     facts.withholdingDue = settled.due;
@@ -175,6 +176,13 @@ export async function classifyParsed(
       heldForReview =
         'Professional fees with no ISR withheld declared, held for review by policy ' +
         `fees_without_withholding=withhold_by_law. ${settled.mismatch ?? law.basis}`;
+    } else if (settled.mismatch) {
+      // MNE-001-057: the CFDI's withholding differs from the law's. It is
+      // said by name, as the reason of the hold and as a question left to the
+      // accountant in the classification trail, not as an entry that merely
+      // fails to balance. The CFDI is a third party's and is not corrected.
+      heldForReview = settled.mismatch;
+      mismatchQuestion = withholdingMismatchQuestion(facts, settled.mismatch);
     }
   }
   if (feesPolicy === 'record_as_issued') {
@@ -230,6 +238,8 @@ export async function classifyParsed(
       topic: d.topic(facts),
       basis: d.basis,
     }));
+
+  if (mismatchQuestion) pending.push(mismatchQuestion);
 
   // ── An answer can change the role of the expense line
   const roleOverride = resolveRoleOverride(points, answers);
@@ -329,6 +339,25 @@ export async function classifyParsed(
         : facts.uuidsRelacionados.map((u) => ({ uuid: u, amount: facts.total }))
       : [],
     warnings,
+  };
+}
+
+/**
+ * MNE-001-057: the question a withholding discrepancy leaves to the accountant.
+ * It has no option that posts: the entry waits for a substitute CFDI or for
+ * the accountant to record it by hand, since the CFDI cannot be corrected.
+ */
+function withholdingMismatchQuestion(f: CfdiFacts, mismatch: string): PendingDecision {
+  return {
+    id: 'withholding_mismatch',
+    severity: 'blocking',
+    question:
+      `The withholdings declared by ${f.emisorRfc} differ from the ones the law requires. ` +
+      'Is the vendor asked for a substitute CFDI, or does the case not apply to this CFDI?',
+    context: mismatch,
+    options: [],
+    topic: `withholding_mismatch:${f.emisorRfc}`,
+    basis: 'LISR 106, 113-J, 116; LIVA 1-A; RLIVA 3; CFF 26-I (the payer is jointly liable)',
   };
 }
 

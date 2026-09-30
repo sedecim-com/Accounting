@@ -3444,4 +3444,62 @@ export const E1_2: Criterio[] = [
         : falla('no test RUNS the three answers of fees_without_withholding');
     },
   },
+  {
+    paquete: 'E1.2',
+    id: 'freight-and-resico-withholdings-come-from-the-law',
+    enunciado:
+      "A legal entity withholds 4 % VAT on land freight and 1.25 % ISR from a RESICO individual, with the rates of legal_parameters, and a CFDI whose declared withholding differs from the law's is held with a question to the accountant (#309, MNE-001-057)",
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: "if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return 'freight';",
+        a: '',
+        porque: 'freight is booked with whatever VAT the carrier declares, and one declaring none is booked with none',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: "if (f.issuerRegime === RESICO_REGIME) return 'resico';",
+        a: '',
+        porque: 'a RESICO individual is paid with no 1.25 % ISR withheld unless the CFDI happens to declare it',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-classifier.ts',
+        de: 'mismatchQuestion = withholdingMismatchQuestion(facts, settled.mismatch);',
+        a: '',
+        porque: 'a discrepancy only shows up as an entry that does not balance: nobody is asked about the CFDI',
+      },
+      {
+        archivo: 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql',
+        de: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0125', 'rate',",
+        a: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0100', 'rate',",
+        porque: 'RESICO is withheld 1 % instead of the 1.25 % of LISR 113-J',
+      },
+    ],
+    evaluar: () => {
+      const law = codigoDe('src/services/xml-ingestion/withholding-law.ts');
+      if (!/if \(allConceptsIn\(f, \[LAND_FREIGHT_PREFIX\]\)\) return 'freight';/.test(law)) {
+        return falla('land freight is no longer told from the CFDI: its 4 % VAT is not withheld by law');
+      }
+      if (!/if \(f\.issuerRegime === RESICO_REGIME\) return 'resico';/.test(law)) {
+        return falla('a RESICO issuer is no longer told from the CFDI: its 1.25 % ISR is not withheld by law');
+      }
+      const classifier = codigoDe('src/services/xml-ingestion/cfdi-classifier.ts');
+      if (!/heldForReview = settled\.mismatch;/.test(classifier) ||
+          !/mismatchQuestion = withholdingMismatchQuestion\(facts, settled\.mismatch\);/.test(classifier)) {
+        return falla('a withholding discrepancy is no longer the reason of the hold and a question to the accountant');
+      }
+      const mig = 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql';
+      const rows = existe(mig) ? crudoDe(mig) : '';
+      for (const row of [
+        /'vat\.withholding\.freight_rate', '2006-12-05', '0\.0400', 'rate',/,
+        /'income_tax\.withholding\.resico_rate', '2022-01-01', '0\.0125', 'rate',/,
+      ]) {
+        if (!row.test(rows)) return falla(`migration 175 no longer seeds ${row.source} as the law says`);
+      }
+      return existe('tests/integration/mne-001-057-withholdings-freight-resico.int.spec.ts') &&
+        existe('tests/xml-ingestion/withholding-freight-resico.spec.ts')
+        ? ok('freight 4 % VAT and RESICO 1.25 % ISR come from legal_parameters, and a discrepancy is asked')
+        : falla('no test RUNS freight, RESICO and the discrepancy against the law and a migrated database');
+    },
+  },
 ];
