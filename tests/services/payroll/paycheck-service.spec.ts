@@ -117,7 +117,9 @@ function prepararLecturas(empleado: Record<string, unknown> = EMPLEADO_MX): void
     // inquilino antes de escribir nada. Ver la prueba de más abajo.
     // Desde TEN-12 la corrida trae su periodo y la entidad a la que llega
     // por camino: de ella cuelgan las otras dos llaves.
-    if (/FROM pay_runs/.test(sql)) return { rows: [{ id: 'run-1', pay_period_id: 'per-1', entity_id: 'ent-1' }] };
+    if (/FROM pay_runs/.test(sql)) return { rows: [{ id: 'run-1', pay_period_id: 'per-1', entity_id: 'ent-1', run_type: 'regular' }] };
+    // No other run of the period has paid this employee (#430).
+    if (/FROM paychecks/.test(sql)) return { rows: [{ paychecks: 0, taxable: '0', subsidy: '0' }] };
     throw new Error(`consulta inesperada en la prueba: ${sql.slice(0, 60)}`);
   });
 }
@@ -138,7 +140,9 @@ function policies(treatment: string, decided: boolean): void {
   mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) =>
     key === 'subsidio_al_empleo_redondeo'
       ? { key, value: 'producto_al_centavo', defined: false, question: 'q', rationale: null }
-      : { key, value: treatment, defined: decided, question: 'q', rationale: null }
+      : key === 'employment_subsidy_separate_run'
+        ? { key, value: 'recompute_on_combined_income', defined: false, question: 'q', rationale: null }
+        : { key, value: treatment, defined: decided, question: 'q', rationale: null }
   );
 }
 
@@ -422,7 +426,7 @@ describe('la frontera de inquilino', () => {
   it('no calcula nada si el trabajador no es de ese inquilino', async () => {
     mockQuery.mockImplementation(async (sql: string) => {
       if (/FROM employees/.test(sql)) return { rows: [] };
-      if (/FROM pay_runs/.test(sql)) return { rows: [{ id: 'run-1', pay_period_id: 'per-1', entity_id: 'ent-1' }] };
+      if (/FROM pay_runs/.test(sql)) return { rows: [{ id: 'run-1', pay_period_id: 'per-1', entity_id: 'ent-1', run_type: 'regular' }] };
       return { rows: [PERIODO] };
     });
     await expect(calculatePaycheck(ENTRADA)).rejects.toThrow(/Employee with id emp-1 not found/);
@@ -450,5 +454,55 @@ describe('the subsidy rounding is the entity policy (#298)', () => {
       { tenantId: 'tenant-1', entityId: 'ent-1' }, 'subsidio_al_empleo_redondeo', undefined
     );
     expect(seen).toEqual(['diario_al_centavo']);
+  });
+});
+
+describe('another paycheck of the period already caused the subsidy (#430, MNE-001-398)', () => {
+  it('recomputes on the combined income and credits only the difference', async () => {
+    mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
+      key,
+      value: key === 'subsidio_al_empleo_redondeo' ? 'producto_al_centavo'
+        : key === 'employment_subsidy_separate_run' ? 'recompute_on_combined_income' : 'cuenta_por_cobrar_fisco',
+      defined: false, question: 'q', rationale: null,
+    }));
+    const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;
+    mockQuery.mockImplementation(async (sql: string, args: unknown[]) =>
+      /FROM paychecks/.test(sql) ? { rows: [{ paychecks: 1, taxable: '1500.00', subsidy: '406.62' }] } : base(sql, args)
+    );
+    const wages: number[] = [];
+    calculadoras.set('MX:subsidio_empleo', {
+      jurisdiction: 'MX',
+      taxType: 'subsidio_empleo',
+      calculate: async (input): Promise<TaxOutput> => {
+        wages.push(input.taxable_wages);
+        return { jurisdiction: 'MX', tax_type: 'subsidio_empleo', tax_amount: 406.62, taxable_wages_used: input.taxable_wages };
+      },
+    });
+    const r = await calculatePaycheck(ENTRADA);
+    expect(wages).toEqual([3000, 4500]);
+    expect(r.subsidio_entregado_efectivo).toBe('0.0000');
+    const subsidy = renglonesEscritos().filter((x) => x.tax_type.startsWith('subsidio'));
+    expect(subsidy.map((x) => [x.tax_type, x.tax_amount])).toEqual([['subsidio_empleo', '0.0000']]);
+    expect(subsidy[0].notas).toMatch(/406\.62 \[recompute_on_combined_income\]/);
+  });
+
+  it('under "none_on_separate_paycheck" a bonus run gets none even when it is the first one calculated', async () => {
+    mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
+      key,
+      value: key === 'subsidio_al_empleo_redondeo' ? 'producto_al_centavo'
+        : key === 'employment_subsidy_separate_run' ? 'none_on_separate_paycheck' : 'cuenta_por_cobrar_fisco',
+      defined: false, question: 'q', rationale: null,
+    }));
+    const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;
+    mockQuery.mockImplementation(async (sql: string, args: unknown[]) =>
+      /FROM pay_runs/.test(sql)
+        ? { rows: [{ id: 'run-1', pay_period_id: 'per-1', entity_id: 'ent-1', run_type: 'bonus' }] }
+        : base(sql, args)
+    );
+    const r = await calculatePaycheck(ENTRADA);
+    expect(r.subsidio_entregado_efectivo).toBe('0.0000');
+    const subsidy = renglonesEscritos().filter((x) => x.tax_type.startsWith('subsidio'));
+    expect(subsidy.map((x) => [x.tax_type, x.tax_amount])).toEqual([['subsidio_empleo', '0.0000']]);
+    expect(subsidy[0].notas).toMatch(/recibo aparte \[none_on_separate_paycheck\]/);
   });
 });
