@@ -459,7 +459,7 @@ Examples:
   # ALWAYS this one first: it says what is pending WITHOUT writing, and it
   # really evaluates the checklist -- the one step that can be asked for free.
   mnemosine closing run --dry-run
-  # Conduct the whole month. Three of its steps post to the ledger.
+  # Conduct the whole month. Four of its steps post to the ledger.
   mnemosine closing run 2026-07 --entity "Acme SA de CV" --yes
   # Do the month but leave the period open: --stop-at stops BEFORE the step.
   mnemosine closing run --stop-at soft-close --yes
@@ -757,7 +757,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     .alias('ejecutar')
     .argument('[period]', 'open period: 2026-07, its id, or part of its name (default: the oldest open one)')
     .description(
-      'Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order'
+      'Conduct the close: accrue, amortize, depreciate, revalue foreign balances, verify the checklist, soft-close and hard-close, in that order'
     );
   withContext(runLeaf);
   withOutput(runLeaf);
@@ -766,7 +766,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     `stop BEFORE this step: ${CLOSING_STEPS.join(', ')}`
   );
   runLeaf.option('--resume', 'continue the open run of this period; every step runs again, posting only what is missing');
-  // IRREVERSIBLE, and it does not pretend otherwise: three of its six steps
+  // IRREVERSIBLE, and it does not pretend otherwise: four of its seven steps
   // post to the ledger of migration 041, where nothing is edited or deleted,
   // and the last one seals the period.
   // The agent is refused: it proposes, a human conducts.
@@ -783,9 +783,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     risk: 'irreversible',
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines (through the accrual, amortization and depreciation engines), ' +
-      'closing_runs, closing_run_steps, fiscal_periods.status on the soft and the hard close, and with the ' +
-      'hard close the carry-forward, the closing entries of the year\'s last period and fiscal_years.status',
+      'journal_entries + journal_entry_lines (through the accrual, amortization, depreciation and FX revaluation ' +
+      'engines), fx_revaluation_runs, closing_runs, closing_run_steps, fiscal_periods.status on the soft ' +
+      'and the hard close, and with the hard close the carry-forward, the closing entries of the year\'s last period and fiscal_years.status',
     llave: {
       innecesaria:
         'the engines never post the same month twice and an advisory lock keeps two conductors off the ' +
@@ -851,7 +851,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
 
         if (!dryRun && opts.yes !== true) {
           const si = await ask(
-            `Conduct the close of ${period.period_name}? Three of its steps post to the ledger, ` +
+            `Conduct the close of ${period.period_name}? Four of its steps post to the ledger, ` +
               'which does not admit undo, and the last one hard-closes the period.'
           );
           if (!si) {

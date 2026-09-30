@@ -41,6 +41,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
   'error.FX_REVALUATION_MARKER_MISMATCH':
     'El registro de la revaluación de {period} no coincide con el mayor: el mayor tiene {ledger} pólizas de revaluación para él y el registro {marker}, o sus importes difieren. Volver a correrla podría postear la revaluación dos veces, así que no se posteó nada; hay que revisar el registro.',
+  'error.FX_REVALUATION_KEY_LOCKED':
+    '{policy} no puede cambiar mientras haya una revaluación viva: {entity} revaluó {period}, que aún no tiene cierre definitivo, y un complemento con el valor nuevo mediría ese mes con dos criterios. Cámbiala cuando los meses revaluados estén sellados (a más tardar, al inicio del ejercicio siguiente).',
   'error.FX_RATE_MISSING':
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ==== fin de error.* ================================================

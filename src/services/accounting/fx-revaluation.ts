@@ -1,9 +1,9 @@
 import Decimal from 'decimal.js';
 import type pg from 'pg';
-import { withTransaction } from '../../database/connection.js';
+import { query, withTransaction } from '../../database/connection.js';
 import { createJournalEntry, reverseWithinTransaction, attestEntryAsync } from './posting.js';
 import { convertirAFuncional, functionalCurrencyOf, resolverTipoCambio, type TipoCambioResuelto } from './moneda-origen.js';
-import { getPolicy } from '../policy/policy-service.js';
+import { FX_REVALUATION_POLICY_KEYS, getPolicy } from '../policy/policy-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { JournalEntryType } from '../../types/index.js';
 import type { JournalEntry } from '../../types/index.js';
@@ -370,15 +370,6 @@ export async function revalueForeignBalances(
       reversal: null,
     };
 
-    const functional = await functionalCurrencyOf(client, ctx.entityId);
-    if (functional !== SUPPORTED_FUNCTIONAL) {
-      throw new AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED', {
-        key: 'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED',
-        params: { currency: functional },
-      });
-    }
-    await assertReversalPolicy(client, ctx);
-
     const prior = (
       await client.query<PriorRun>(
         `SELECT sequence, journal_entry_id, reversal_entry_id, lines
@@ -391,8 +382,17 @@ export async function revalueForeignBalances(
     const posted = postedSoFar(prior);
     const last = prior.at(-1);
 
-    const next = await reversalPeriod(client, ctx.entityId, period);
-    const ledger = await foreignBalances(client, ctx.entityId, period.end_date, functional);
+    // Read against MXN, the one functional currency this engine knows: for an
+    // entity in another one, any currency-tagged balance is something it
+    // cannot revalue, and saying so beats skipping it.
+    const ledger = await foreignBalances(client, ctx.entityId, period.end_date, SUPPORTED_FUNCTIONAL);
+    const functional = await functionalCurrencyOf(client, ctx.entityId);
+    if (functional !== SUPPORTED_FUNCTIONAL && (ledger.length > 0 || prior.length > 0)) {
+      throw new AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED', {
+        key: 'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED',
+        params: { currency: functional },
+      });
+    }
     // A balance an earlier run revalued and that has left the ledger since
     // (paid in full) still needs that revaluation taken back.
     const inLedger = new Set(ledger.map((b) => `${b.account_id}|${b.currency}`));
@@ -404,10 +404,18 @@ export async function revalueForeignBalances(
     const balances = ledger
       .map((b) => ({ ...b, posted: posted.get(`${b.account_id}|${b.currency}`)?.posted ?? '0.0000' }))
       .filter((b) => ![b.foreign, b.book, b.posted].every((v) => new Decimal(v).isZero()));
+    // MNE-001-112: nothing in a foreign currency is nothing to revalue, and it
+    // asks for no rate, no reversal policy and no open next period. The close
+    // conductor runs this step on every entity, most of which never touch a
+    // dollar: a December without the next year opened must still close.
+    if (balances.length === 0) return base;
+
+    await assertReversalPolicy(client, ctx);
+    const next = await reversalPeriod(client, ctx.entityId, period);
 
     const rates = new Map<string, TipoCambioResuelto>();
     for (const currency of new Set(balances.map((b) => b.currency))) {
-      rates.set(currency, await closingRate(client, ctx, currency, functional, period.end_date));
+      rates.set(currency, await closingRate(client, ctx, currency, SUPPORTED_FUNCTIONAL, period.end_date));
     }
     const lines: RevaluationLine[] = balances.map((b) => {
       const rate = (rates.get(b.currency) as TipoCambioResuelto).tasa;
@@ -532,4 +540,113 @@ export async function revalueForeignBalances(
   // Attestation must see committed data: after the transaction, never inside it.
   for (const id of toAttest) attestEntryAsync(ctx.tenantId, ctx.entityId, id);
   return result;
+}
+
+/**
+ * The adjusting entries the period's revaluation runs posted, read from the
+ * marker. The close conductor records them: the ledger alone cannot say,
+ * because every revaluation is reversed on day 1 by design.
+ */
+export async function revaluationEntriesOf(entityId: string, periodId: string): Promise<string[]> {
+  const r = await query<{ journal_entry_id: string }>(
+    `SELECT journal_entry_id FROM fx_revaluation_runs
+      WHERE entity_id = $1 AND fiscal_period_id = $2 ORDER BY sequence`,
+    [entityId, periodId]
+  );
+  return r.rows.map((x) => x.journal_entry_id);
+}
+
+/**
+ * MNE-001-112 · the owner's transition rule (#305, 2026-09-26): a key the
+ * revaluation reads only changes when no revaluation is live. A revaluation
+ * is live while its period is not hard-closed, because until the seal a late
+ * foreign posting can still call for a supplement, and a supplement under the
+ * new key would measure one period's balance sheet at two rates or with two
+ * reversal treatments. Once the revalued months are sealed (the start of the
+ * next fiscal year, at the latest) the key changes, prospectively (NIF B-1).
+ *
+ * The scope follows the row being written: an entity's row checks that
+ * entity; the tenant's row governs all of its entities, so it checks them all.
+ */
+export async function assertNoLiveRevaluation(
+  ctx: { tenantId: string; entityId?: string },
+  key: string
+): Promise<void> {
+  if (!FX_REVALUATION_POLICY_KEYS.has(key)) return;
+  const r = await query<{ period_name: string; entity_name: string }>(
+    `SELECT fp.period_name, le.name AS entity_name
+       FROM fx_revaluation_runs run
+       JOIN fiscal_periods fp ON fp.id = run.fiscal_period_id AND fp.entity_id = run.entity_id
+       JOIN legal_entities le ON le.id = run.entity_id
+      WHERE le.tenant_id = $1
+        AND ($2::uuid IS NULL OR run.entity_id = $2::uuid)
+        AND fp.status <> 'hard_close'
+      ORDER BY fp.start_date, le.name
+      LIMIT 1`,
+    [ctx.tenantId, ctx.entityId ?? null]
+  );
+  const live = r.rows[0];
+  if (live) {
+    throw new AccountingError('FX_REVALUATION_KEY_LOCKED', {
+      key: 'error.FX_REVALUATION_KEY_LOCKED',
+      params: { policy: key, period: live.period_name, entity: live.entity_name },
+    });
+  }
+}
+
+// ============================================================
+// MNE-001-112 · WHAT `ar reconcile` AND `ap reconcile` NEED TO READ A
+// FOREIGN-CURRENCY SUBLEDGER
+//
+// A document's `amount_due` is in its own currency, and the control account
+// is in the functional one. The control carries an open foreign document at
+// the rate it was born with (bills.exchange_rate, invoices.exchange_rate as
+// MNE-001-081 writes it back), because payments book the realised difference
+// against that same rate. So the subledger's book value is `amount_due ×
+// exchange_rate`, rounded as `convertirAFuncional` rounds a posting.
+//
+// And between the close and day 1 the control also carries the revaluation:
+// an entry of this engine, or its mirror, is neither a document nor a manual
+// entry. The reconciliations show it as its own line.
+// ============================================================
+
+/**
+ * SQL: the book value of a document's open balance in the functional
+ * currency. `alias` is the document table's alias, `entityParam` the
+ * placeholder of the entity id (the functional currency is read in the SQL).
+ */
+export function bookAmountDueSql(alias: string, entityParam: string): string {
+  return (
+    `CASE WHEN ${alias}.currency_code IS NULL OR ${alias}.currency_code = ` +
+    `(SELECT functional_currency FROM legal_entities WHERE id = ${entityParam}) ` +
+    `THEN ${alias}.amount_due ELSE ROUND(${alias}.amount_due * ${alias}.exchange_rate, 4) END`
+  );
+}
+
+/** Open foreign documents per currency: what the subledger holds in each, and at what book value. */
+export interface ForeignOpen {
+  currency: string;
+  foreign: string;
+  book: string;
+}
+
+/**
+ * Net debit − credit that revaluation entries and their mirrors leave on an
+ * account up to `asOf` (every date when omitted). The revaluation of a closed
+ * month is live until its day-1 mirror.
+ */
+export async function revaluationOnAccount(entityId: string, accountId: string, asOf?: string): Promise<Decimal> {
+  const r = await query<{ net: string }>(
+    `SELECT COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0)::text AS net
+       FROM journal_entry_lines jel
+       JOIN journal_entries je ON je.id = jel.journal_entry_id
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2
+        AND ($3::date IS NULL OR je.entry_date <= $3::date)
+        AND (je.source_type = $4 OR EXISTS (
+              SELECT 1 FROM journal_entries orig
+               WHERE orig.id = je.reverses_entry_id AND orig.entity_id = je.entity_id
+                 AND orig.source_type = $4))`,
+    [entityId, accountId, asOf ?? null, FX_REVALUATION_SOURCE]
+  );
+  return new Decimal(r.rows[0]?.net ?? '0');
 }

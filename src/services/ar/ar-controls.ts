@@ -1,6 +1,12 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { AccountingError } from '../../utils/errors.js';
+import {
+  FX_REVALUATION_SOURCE,
+  bookAmountDueSql,
+  revaluationOnAccount,
+  type ForeignOpen,
+} from '../accounting/fx-revaluation.js';
 
 // ============================================================
 // LOS CONTROLES DE CxC (F03)
@@ -30,11 +36,18 @@ const ENGINE_SOURCE_TYPES = [
   'invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication',
 ] as const;
 
+/** Also not manual: the closing revaluation (and its mirror) has its own line (MNE-001-112). */
+const NOT_MANUAL_SOURCE_TYPES = [...ENGINE_SOURCE_TYPES, FX_REVALUATION_SOURCE] as const;
+
 export interface ArReconcileResult {
   control_account: { code: string; name: string } | null;
   control_balance: string;
   open_invoices: string;
   unapplied_credit_notes: string;
+  /** The closing revaluation live on the control (MNE-001-112): part of the subledger's book value. */
+  fx_revaluation: string;
+  /** Open invoices in a foreign currency, per currency, with their book value (already in open_invoices). */
+  foreign_open: ForeignOpen[];
   subledger_net: string;
   delta: string;
   balanced: boolean;
@@ -65,10 +78,18 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
     [entityId, cuenta.account_id]
   );
 
-  const abiertas = await query<{ total: string }>(
-    `SELECT COALESCE(SUM(amount_due), 0)::text AS total
-       FROM invoices
-      WHERE entity_id = $1 AND status = ANY($2) AND amount_due > 0`,
+  // MNE-001-112: in the functional currency, per currency. A foreign invoice
+  // weighs its book value, amount_due at the rate it was posted at.
+  const abiertas = await query<{ currency: string | null; functional: boolean; foreign: string; book: string }>(
+    `SELECT i.currency_code AS currency,
+            (i.currency_code IS NULL OR i.currency_code = le.functional_currency) AS functional,
+            SUM(i.amount_due)::text AS foreign,
+            SUM(${bookAmountDueSql('i', '$1')})::text AS book
+       FROM invoices i
+       JOIN legal_entities le ON le.id = i.entity_id
+      WHERE i.entity_id = $1 AND i.status = ANY($2) AND i.amount_due > 0
+      GROUP BY 1, 2
+      ORDER BY 1`,
     [entityId, [...ABIERTAS]]
   );
 
@@ -79,10 +100,12 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
     [entityId]
   );
 
+  const revaluation = await revaluationOnAccount(entityId, cuenta.account_id);
+
   const controlBal = new Decimal(control.rows[0].saldo);
-  const auxiliar = new Decimal(abiertas.rows[0].total);
+  const auxiliar = abiertas.rows.reduce((sum, row) => sum.plus(row.book), new Decimal(0));
   const porAplicar = new Decimal(notas.rows[0].total);
-  const neto = auxiliar.minus(porAplicar);
+  const neto = auxiliar.minus(porAplicar).plus(revaluation);
   const delta = controlBal.minus(neto);
 
   // Los asientos que tocaron el control SIN venir de un documento: la causa
@@ -112,7 +135,7 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
       GROUP BY je.id, je.entry_number, je.entry_date, je.description
       ORDER BY je.entry_date DESC
       LIMIT 50`,
-    [entityId, cuenta.account_id, [...ENGINE_SOURCE_TYPES]]
+    [entityId, cuenta.account_id, [...NOT_MANUAL_SOURCE_TYPES]]
   );
 
   return {
@@ -120,6 +143,14 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
     control_balance: controlBal.toFixed(2),
     open_invoices: auxiliar.toFixed(2),
     unapplied_credit_notes: porAplicar.toFixed(2),
+    fx_revaluation: revaluation.toFixed(2),
+    foreign_open: abiertas.rows
+      .filter((row) => !row.functional)
+      .map((row) => ({
+        currency: row.currency ?? '',
+        foreign: new Decimal(row.foreign).toFixed(2),
+        book: new Decimal(row.book).toFixed(2),
+      })),
     subledger_net: neto.toFixed(2),
     delta: delta.toFixed(2),
     balanced: delta.abs().lessThan('0.01'),

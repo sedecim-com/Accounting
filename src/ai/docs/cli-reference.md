@@ -6607,7 +6607,7 @@ Commands:
   preview|previsualizar [options] [period]  Read-only twin of closing start: says whether the period can enter close and what is missing
   check|verificar [options]                 Run the close verification catalog, or only the named checks; bare --check lists the names
   explain|explicar [options] <code>         Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it
-  run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order
+  run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, revalue foreign balances, verify the checklist, soft-close and hard-close, in that order
   fx|cambio                                 Foreign currency at the close
   pack|paquete                              The dossier of a close: generate it, and verify that its figures still reproduce
   help [command]                            display help for command
@@ -6717,8 +6717,8 @@ Examples:
 ```
 Usage: mnemosine closing run|ejecutar [options] [period]
 
-Conduct the close: accrue, amortize, depreciate, verify the checklist,
-soft-close and hard-close, in that order
+Conduct the close: accrue, amortize, depreciate, revalue foreign balances,
+verify the checklist, soft-close and hard-close, in that order
 
 Arguments:
   period                                   open period: 2026-07, its id, or part of its name (default: the oldest open one)
@@ -6732,7 +6732,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, verify-checklist, soft-close, hard-close
+  --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, revalue-fx, verify-checklist, soft-close, hard-close
   --resume                                 continue the open run of this period; every step runs again, posting only what is missing
   -y, --yes                                skip the confirmation prompt
   --dry-run                                compute and show the full effect; write nothing and call nothing external
@@ -6743,7 +6743,7 @@ Examples:
   # ALWAYS this one first: it says what is pending WITHOUT writing, and it
   # really evaluates the checklist -- the one step that can be asked for free.
   mnemosine closing run --dry-run
-  # Conduct the whole month. Three of its steps post to the ledger.
+  # Conduct the whole month. Four of its steps post to the ledger.
   mnemosine closing run 2026-07 --entity "Acme SA de CV" --yes
   # Do the month but leave the period open: --stop-at stops BEFORE the step.
   mnemosine closing run --stop-at soft-close --yes

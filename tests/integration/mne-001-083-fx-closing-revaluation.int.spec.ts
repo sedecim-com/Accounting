@@ -272,6 +272,8 @@ describe('MNE-001-083 · closing fx revalue', () => {
 
   it('closing_exchange_rate_source = fix_banxico revalues at the FIX of that day', async () => {
     await RATE('2026-09-30', '18.0000', 'banco_mexico');
+    // MNE-001-112: the key changes only once August's revaluation is sealed.
+    await query(`UPDATE fiscal_periods SET status = 'hard_close' WHERE id = $1`, [f.periodos[8]]);
     await seedPolicies({ tenantId: f.tenantId });
     await resolvePolicy({ tenantId: f.tenantId }, 'closing_exchange_rate_source', 'fix_banxico', f.userId);
     const run = await revalueForeignBalances(ctx(), f.periodos[9], f.userId, { dryRun: true });

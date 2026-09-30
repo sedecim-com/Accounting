@@ -114,7 +114,7 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
         render([r as unknown as Record<string, unknown>], {
           ...opts,
           idField: 'delta',
-          numeric: ['control_balance', 'open_invoices', 'unapplied_credit_notes', 'subledger_net', 'delta'],
+          numeric: ['control_balance', 'open_invoices', 'unapplied_credit_notes', 'fx_revaluation', 'subledger_net', 'delta'],
         });
       } else {
         const out = process.stdout;
@@ -125,7 +125,10 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
           out.write(`  ${p.dim(label.padEnd(28))}${value.padStart(14)}\n`);
         linea('Control account balance', r.control_balance);
         linea('Open invoices', r.open_invoices);
+        for (const f of r.foreign_open) linea(`  of which ${f.currency} ${f.foreign}`, f.book);
         linea('− Credit notes unapplied', r.unapplied_credit_notes);
+        // MNE-001-112: between a close and its day-1 mirror the control holds the revaluation.
+        if (r.fx_revaluation !== '0.00') linea('+ FX revaluation (NIF B-15)', r.fx_revaluation);
         linea('Subledger net', r.subledger_net);
         out.write(
           r.balanced

@@ -43,20 +43,49 @@ describe('arReconcile manual entries', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', code: '1120', name: 'Clientes' }] })
       .mockResolvedValueOnce({ rows: [{ saldo: '0' }] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ total: '0' }] })
-      .mockResolvedValueOnce({ rows: [{ total: '0' }] })
+      .mockResolvedValueOnce({ rows: [{ net: '0' }] })
       .mockResolvedValueOnce({ rows: [] });
 
     await arReconcile(ENTITY);
 
-    const manualSql = sql(4);
+    const manualSql = sql(5);
     expect(manualSql).toMatch(
       /NOT EXISTS \( SELECT 1 FROM journal_entries orig WHERE orig\.id = je\.reverses_entry_id AND orig\.entity_id = je\.entity_id AND orig\.source_type = ANY\(\$3::text\[\]\)\)/
     );
-    expect(mockQuery.mock.calls[4][1]).toEqual([
+    expect(mockQuery.mock.calls[5][1]).toEqual([
       ENTITY,
       'acc-1',
-      ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication'],
+      ['invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication', 'fx_revaluation'],
     ]);
+  });
+});
+
+describe('arReconcile in a foreign currency (MNE-001-112)', () => {
+  it('adds each currency at book value and the live revaluation to the subledger', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', code: '1120', name: 'Clientes' }] })
+      .mockResolvedValueOnce({ rows: [{ saldo: '20400' }] })
+      .mockResolvedValueOnce({
+        rows: [
+          { currency: 'MXN', functional: true, foreign: '2200', book: '2200' },
+          { currency: 'USD', functional: false, foreign: '1000', book: '17500' },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ total: '0' }] })
+      .mockResolvedValueOnce({ rows: [{ net: '700' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const r = await arReconcile(ENTITY);
+
+    expect(sql(2)).toMatch(/ROUND\(i\.amount_due \* i\.exchange_rate, 4\)/);
+    expect(r).toMatchObject({
+      open_invoices: '19700.00',
+      fx_revaluation: '700.00',
+      subledger_net: '20400.00',
+      balanced: true,
+      foreign_open: [{ currency: 'USD', foreign: '1000.00', book: '17500.00' }],
+    });
   });
 });
