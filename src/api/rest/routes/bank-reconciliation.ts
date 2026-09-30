@@ -50,7 +50,9 @@ const matchTransactionSchema = z.object({
   // 'journal_entry_line' —el caso más común— ni los dos tipos de pago.
   matched_entity_type: z.enum(MATCHED_ENTITY_TYPES),
   matched_entity_id: uuidString(),
-  matched_amount: z.union([z.string(), z.number()]).optional(),
+  // Required: a match row without an amount used to be stored as 0 and read as
+  // a zero-value match. The amount is the money the match covers, never a default.
+  matched_amount: z.union([z.string(), z.number()]),
 });
 
 const createReconciliationSchema = z.object({
@@ -110,6 +112,23 @@ async function movimientoDelLlamador(req: Request, txId: string): Promise<BankTr
   );
   if (r.rows.length === 0) throw new NotFoundError('Bank Transaction', txId);
   return r.rows[0];
+}
+
+// The table that holds each matchable document kind, and how it reaches its
+// legal entity. Fixed literals: the type comes from a closed enum, never SQL.
+const DOCUMENT_ENTITY_SQL: Record<(typeof MATCHED_ENTITY_TYPES)[number], string> = {
+  invoice: 'SELECT 1 FROM invoices WHERE id = $1 AND entity_id = $2',
+  bill: 'SELECT 1 FROM bills WHERE id = $1 AND entity_id = $2',
+  customer_payment: 'SELECT 1 FROM customer_payments WHERE id = $1 AND entity_id = $2',
+  vendor_payment: 'SELECT 1 FROM vendor_payments WHERE id = $1 AND entity_id = $2',
+  journal_entry_line:
+    'SELECT 1 FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id WHERE l.id = $1 AND je.entity_id = $2',
+};
+
+/** 404 unless the matched document belongs to the caller's entity (same answer as a missing one). */
+async function callerOwnedDocument(req: Request, kind: (typeof MATCHED_ENTITY_TYPES)[number], id: string): Promise<void> {
+  const r = await query(DOCUMENT_ENTITY_SQL[kind], [id, req.entityId]);
+  if (r.rows.length === 0) throw new NotFoundError('Matched document', id);
 }
 
 // POST /v1/bank-accounts/:account_id/import
@@ -232,8 +251,9 @@ router.get('/transactions/:id/suggestions', requirePermission('journal_entries:r
 
 // POST /v1/bank-transactions/:id/match
 router.post('/transactions/:id/match', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'reconciliation_matches + bank_transactions.is_matched' }), requirePermission('journal_entries:create'), requireEntityAccess, validateBody(matchTransactionSchema), asyncHandler(async (req: Request, res: Response) => {
-  const { matched_entity_type, matched_entity_id, matched_amount } = req.body;
+  const { matched_entity_type, matched_entity_id, matched_amount } = req.body as z.infer<typeof matchTransactionSchema>;
   await movimientoDelLlamador(req, req.params.id);
+  await callerOwnedDocument(req, matched_entity_type, matched_entity_id);
 
   await withTransaction(async (client) => {
     await client.query(
@@ -241,7 +261,7 @@ router.post('/transactions/:id/match', declararRiesgoRuta({ riesgo: 'escritura',
         id, bank_transaction_id, match_type, matched_entity_type,
         matched_entity_id, matched_amount, matched_by
       ) VALUES ($1, $2, 'manual', $3, $4, $5, $6)`,
-      [uuidv4(), req.params.id, matched_entity_type, matched_entity_id, matched_amount || 0, req.user!.user_id]
+      [uuidv4(), req.params.id, matched_entity_type, matched_entity_id, matched_amount, req.user!.user_id]
     );
 
     await client.query(
