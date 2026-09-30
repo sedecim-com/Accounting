@@ -7525,8 +7525,8 @@ Options:
   -o, --output <path>                      write the XML to this path (the artifact store keeps its own copy)
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id
-  --closing                                the vouchers of month 13, where the year-end adjustments fall
+  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id; with --closing, the fiscal year (2026)
+  --closing                                the vouchers of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)
   --request-type <AF|FC|DE|CO>             the request the file answers (TipoSolicitud): AF audit, FC compulsory check, DE refund, CO offset; no default
   --order-number <number>                  audit order number (NumOrden), required with AF and FC: ABC1234567/26
   --procedure-number <number>              filing number (NumTramite), required with DE and CO: DE202600000009
@@ -7546,6 +7546,8 @@ Examples:
   mnemosine e-accounting voucher generate --period 2026-07 --request-type AF --order-number ABC1234567/26 --dry-run
   # A refund request: DE and CO carry the procedure number, not an order number.
   mnemosine e-accounting voucher generate --period 2026-07 --request-type DE --procedure-number DE202600000009 -o polizas-2026-07.xml --yes
+  # Month 13: with --closing, --period names the fiscal year.
+  mnemosine e-accounting voucher generate --closing --period 2026 --request-type AF --order-number ABC1234567/26 --dry-run
 ```
 
 ### `mnemosine e-accounting subledger` (alias: auxiliar)
@@ -7583,8 +7585,8 @@ Options:
   -o, --output <path>                      write the XML to this path (the artifact store keeps its own copy)
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id
-  --closing                                the auxiliary of month 13, where the year-end adjustments fall
+  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id; with --closing, the fiscal year (2026)
+  --closing                                the auxiliary of month 13, where the year-end adjustments fall; with it, --period names the fiscal year (2026)
   --request-type <AF|FC|DE|CO>             the request the file answers (TipoSolicitud): AF audit, FC compulsory check, DE refund, CO offset; no default
   --order-number <number>                  audit order number (NumOrden), required with AF and FC: ABC1234567/26
   --procedure-number <number>              filing number (NumTramite), required with DE and CO: DE202600000009
@@ -7604,6 +7606,8 @@ Examples:
   mnemosine e-accounting subledger generate --period 2026-07 --kind folios --request-type AF --order-number ABC1234567/26 --dry-run
   # The account and sub-account auxiliary for an offset request, written to disk.
   mnemosine e-accounting subledger generate --period 2026-07 --kind accounts --request-type CO --procedure-number CO202600000011 -o auxiliar-2026-07.xml --yes
+  # Month 13: with --closing, --period names the fiscal year.
+  mnemosine e-accounting subledger generate --closing --period 2026 --kind accounts --request-type AF --order-number ABC1234567/26 --dry-run
 ```
 
 ## `mnemosine diot`

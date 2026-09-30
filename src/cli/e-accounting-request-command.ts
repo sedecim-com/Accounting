@@ -12,6 +12,7 @@ import {
 } from '../services/sat/anexo24/polizas-service.js';
 import {
   atributosDeSolicitud,
+  CON_NUM_ORDEN,
   TIPOS_DE_SOLICITUD,
   type Solicitud,
   type TipoSolicitud,
@@ -48,10 +49,16 @@ import {
 // `voucher generate` was blocked by `cfdi link add`: with no UUID on the entry
 // there is no CompNal. Since #318 (PR #365) approving a received CFDI creates
 // the bill with its `cfdi_uuid` and posts with `source_type 'bill'`, and the
-// engine resolves the voucher's CFDI through that link (`soporteDe`). A manual
+// engine resolves the voucher's CFDI through that link (`soporteDe`), and the
+// same way the CFDI of an invoice and a credit note's own type-E CFDI. A manual
 // entry with no source document carries no CompNal, which the XSD allows; a
 // CFDI whose counterparty RFC is unusable is left out and NAMED by voucher
-// number (`comprobante-sin-rfc-usable`).
+// number (`comprobante-sin-rfc-usable`) by both leaves: `voucher generate`
+// and `subledger generate --kind folios` print it as a warning.
+//
+// Money moved with no registered payment behind it (a bank fee, a pay run, a
+// transfer between own accounts) blocks or only warns by the firm's answer to
+// the policy key `anexo24_voucher_money_without_trace`, whose default blocks.
 //
 // CONTRACT: the files these leaves write are SAT deliverables
 // (catalog-info.yaml, `sat-anexo24`); their shape is the official XSD.
@@ -126,10 +133,29 @@ export function requestFromFlags(opts: RequestFileOpts): Solicitud {
   try {
     atributosDeSolicitud(request);
   } catch (err) {
-    if (err instanceof ValidationError) throw usageError(err.message);
+    // The builder decides WHETHER the request is refused; this only picks the
+    // message key for the case it refused, so the refusal speaks the locale.
+    if (err instanceof ValidationError) throw usageError(requestRefusal(request));
     throw err;
   }
   return request;
+}
+
+/** The i18n key of the case `atributosDeSolicitud` refused, in its order. */
+export function requestRefusal(request: Solicitud): { key: string; params: Record<string, string> } {
+  const type = request.tipo;
+  if (!TIPOS_DE_SOLICITUD.includes(type)) {
+    return { key: 'e_accounting.request.type_unknown', params: { value: type, types: TIPOS_DE_SOLICITUD.join(', ') } };
+  }
+  const withOrder = CON_NUM_ORDEN.includes(type);
+  const order = (request.numOrden ?? '').trim();
+  const filing = (request.numTramite ?? '').trim();
+  if (withOrder && order === '') return { key: 'e_accounting.request.order_missing', params: { type } };
+  if (withOrder && filing !== '') return { key: 'e_accounting.request.order_not_filing', params: { type } };
+  if (!withOrder && filing === '') return { key: 'e_accounting.request.filing_missing', params: { type } };
+  if (!withOrder && order !== '') return { key: 'e_accounting.request.filing_not_order', params: { type } };
+  if (withOrder) return { key: 'e_accounting.request.order_shape', params: { value: order } };
+  return { key: 'e_accounting.request.filing_shape', params: { value: filing } };
 }
 
 /** The month the file declares is asked for, never guessed. */
@@ -217,6 +243,7 @@ export function subledgerReceipt(
     kind: a.clase,
     vouchers: a.meta.polizas,
     lines: a.meta.transacciones,
+    findings: a.findings.map(findingRow),
   };
 }
 
@@ -227,6 +254,8 @@ Examples:
   mnemosine e-accounting voucher generate --period 2026-07 --request-type AF --order-number ABC1234567/26 --dry-run
   # A refund request: DE and CO carry the procedure number, not an order number.
   mnemosine e-accounting voucher generate --period 2026-07 --request-type DE --procedure-number DE202600000009 -o polizas-2026-07.xml --yes
+  # Month 13: with --closing, --period names the fiscal year.
+  mnemosine e-accounting voucher generate --closing --period 2026 --request-type AF --order-number ABC1234567/26 --dry-run
 `,
   subledger: `
 Examples:
@@ -234,6 +263,8 @@ Examples:
   mnemosine e-accounting subledger generate --period 2026-07 --kind folios --request-type AF --order-number ABC1234567/26 --dry-run
   # The account and sub-account auxiliary for an offset request, written to disk.
   mnemosine e-accounting subledger generate --period 2026-07 --kind accounts --request-type CO --procedure-number CO202600000011 -o auxiliar-2026-07.xml --yes
+  # Month 13: with --closing, --period names the fiscal year.
+  mnemosine e-accounting subledger generate --closing --period 2026 --kind accounts --request-type AF --order-number ABC1234567/26 --dry-run
 `,
 };
 
@@ -268,10 +299,12 @@ function requestFlags(cmd: Command, leaf: 'voucher' | 'subledger'): void {
 export function registerRequestFileLeaves(family: Command, h: RequestFileHelpers): void {
   const c = h.palette;
   const engine: RequestFileEngine = h.engine ?? { vouchers: generarPolizas, subledger: generarAuxiliar };
-  const targetOf = (opts: RequestFileOpts, dryRun: boolean): string =>
+  const targetOf = (opts: RequestFileOpts, dryRun: boolean, deliverable = true): string =>
     dryRun
       ? t('e_accounting.target.dry_run')
-      : (opts.output ?? t('e_accounting.target.store'));
+      : !deliverable
+        ? t('e_accounting.target.not_written')
+        : (opts.output ?? t('e_accounting.target.store'));
 
   /** What every generate leaf says at the end: unsealed, and what the dry run did. */
   const closing = (dryRun: boolean, alreadyThere: boolean, policy: string): void => {
@@ -326,7 +359,7 @@ export function registerRequestFileLeaves(family: Command, h: RequestFileHelpers
         dryRun,
       });
 
-      const target = targetOf(opts, dryRun);
+      const target = targetOf(opts, dryRun, p.puedeEntregarse);
       // Only a deliverable file reaches the disk: a blocked one written there
       // is the file someone seals by mistake three weeks later.
       if (opts.output !== undefined && !dryRun && p.puedeEntregarse) {
@@ -419,6 +452,12 @@ export function registerRequestFileLeaves(family: Command, h: RequestFileHelpers
           c.dim(`  ${t('e_accounting.subledger.summary', { vouchers: a.meta.polizas, lines: a.meta.transacciones })}\n`)
         );
       }
+      // Warnings only: a CFDI the folio auxiliary left out is named, never dropped in silence.
+      const lines = h.findingLines(
+        a.findings.map((x) => ({ severity: x.severity, nombre: x.check, referencia: x.referencia, detalle: x.detalle })),
+        c
+      );
+      if (lines.length > 0) process.stderr.write(`\n${lines.join('\n')}\n`);
       closing(dryRun, a.artefacto?.yaExistia === true, a.meta.criterio_sellado);
       return ExitCode.OK;
     })

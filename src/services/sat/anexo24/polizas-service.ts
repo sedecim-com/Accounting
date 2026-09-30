@@ -29,10 +29,14 @@ import {
   type MovimientoAuxiliar,
 } from './polizas-auxiliar-xml.js';
 import {
+  comprobanteSinRfcUsable,
   contarHallazgos,
   correrVerificaciones,
   totalesDePolizas,
   POLIZA_CHECK_NAMES,
+  UNTRACED_MONEY_TREATMENTS,
+  type UntracedMoney,
+  type UntracedMoneyTreatment,
   type CatalogoDeBancos,
   type HallazgoPoliza,
   type PolizaCheckName,
@@ -68,6 +72,7 @@ import {
 //
 //   source_type 'bill'             → bills.cfdi_uuid + el RFC del proveedor
 //   source_type 'invoice'          → invoices.cfdi_uuid + el RFC del cliente
+//   source_type 'credit_note'      → credit_notes.cfdi_uuid (its own type-E CFDI) + the customer's RFC
 //   source_type 'vendor_payment'   → el REP del pago, si lo hay, y su RASTRO
 //   source_type 'customer_payment' → ídem del lado del cobro
 //
@@ -623,23 +628,39 @@ interface FilaDeDocumento {
   contraparte_rfc: string | null;
 }
 
+/** The source types whose document carries the voucher's own CFDI. */
+type DocumentSource = 'bill' | 'invoice' | 'credit_note';
+const DOCUMENT_SOURCES: readonly string[] = ['bill', 'invoice', 'credit_note'];
+const DOCUMENT_NOUN: Readonly<Record<DocumentSource, string>> = {
+  bill: 'el gasto',
+  invoice: 'la factura',
+  credit_note: 'la nota de crédito',
+};
+
 /** Los documentos del periodo, también por lote y con la entidad en el SQL. */
 async function documentosDePolizas(
   entityId: string,
-  tipo: 'bill' | 'invoice',
+  tipo: DocumentSource,
   ids: readonly string[]
 ): Promise<Map<string, FilaDeDocumento>> {
   if (ids.length === 0) return new Map();
+  // A credit note's own stamped CFDI (type E, migration 049) is the voucher's
+  // CompNal exactly as an invoice's is; its counterparty is the customer.
   const sql =
     tipo === 'bill'
       ? `SELECT b.id::text AS id, b.cfdi_uuid, b.total_amount::text AS total, b.currency_code,
                 v.tax_id AS contraparte_rfc
            FROM bills b JOIN vendors v ON v.id = b.vendor_id AND v.entity_id = $1
           WHERE b.id = ANY($2::uuid[]) AND b.entity_id = $1`
-      : `SELECT i.id::text AS id, i.cfdi_uuid, i.total_amount::text AS total, i.currency_code,
+      : tipo === 'invoice'
+        ? `SELECT i.id::text AS id, i.cfdi_uuid, i.total_amount::text AS total, i.currency_code,
                 c.tax_id AS contraparte_rfc
            FROM invoices i JOIN customers c ON c.id = i.customer_id AND c.entity_id = $1
-          WHERE i.id = ANY($2::uuid[]) AND i.entity_id = $1`;
+          WHERE i.id = ANY($2::uuid[]) AND i.entity_id = $1`
+        : `SELECT n.id::text AS id, n.cfdi_uuid, n.total_amount::text AS total, n.currency_code,
+                c.tax_id AS contraparte_rfc
+           FROM credit_notes n JOIN customers c ON c.id = n.customer_id AND c.entity_id = $1
+          WHERE n.id = ANY($2::uuid[]) AND n.entity_id = $1`;
   const r = await query<FilaDeDocumento & { id: string }>(sql, [entityId, [...ids]]);
   return new Map(r.rows.map((x) => [x.id, x]));
 }
@@ -719,6 +740,7 @@ interface Lectura {
   /** El soporte de cada póliza, ya resuelto por lote y no una consulta por fila. */
   gastos: Map<string, FilaDeDocumento>;
   facturas: Map<string, FilaDeDocumento>;
+  creditNotes: Map<string, FilaDeDocumento>;
   pagos: Map<string, FilaDePago>;
   cobros: Map<string, FilaDePago>;
 }
@@ -750,7 +772,7 @@ async function leer(entityId: string, opts: OpcionesDePolizas): Promise<Lectura>
     lista.push(l);
     renglones.set(l.journal_entry_id, lista);
   }
-  const [dinero, control, bancos, catalogoBancos, gastos, facturas, pagos, cobros] =
+  const [dinero, control, bancos, catalogoBancos, gastos, facturas, creditNotes, pagos, cobros] =
     await Promise.all([
       cuentasDeDinero(entityId),
       cuentasDeControl(entityId),
@@ -758,12 +780,13 @@ async function leer(entityId: string, opts: OpcionesDePolizas): Promise<Lectura>
       catalogoDeBancos(),
       documentosDePolizas(entityId, 'bill', origenes(filas, 'bill')),
       documentosDePolizas(entityId, 'invoice', origenes(filas, 'invoice')),
+      documentosDePolizas(entityId, 'credit_note', origenes(filas, 'credit_note')),
       pagosAProveedores(entityId, origenes(filas, 'vendor_payment')),
       cobrosDeClientes(entityId, origenes(filas, 'customer_payment')),
     ]);
   return {
     e, periodo, filas, renglones, dinero, control, bancos, catalogoBancos,
-    gastos, facturas, pagos, cobros,
+    gastos, facturas, creditNotes, pagos, cobros,
   };
 }
 
@@ -804,17 +827,22 @@ function rfcDeclarable(crudo: string | null): string | null {
 function soporteDe(f: FilaDePoliza, L: Lectura, sanear: Saneador = SANEADOR_MUDO): Soporte {
   const nuestro = { nombre: L.e.name, rfc: L.e.rfc };
 
-  if (f.source_type === 'bill' || f.source_type === 'invoice') {
+  if (f.source_type !== null && DOCUMENT_SOURCES.includes(f.source_type)) {
     if (f.source_id === null) return { comprobantes: [] };
+    const source = f.source_type as DocumentSource;
     const doc =
-      f.source_type === 'bill' ? L.gastos.get(f.source_id) : L.facturas.get(f.source_id);
+      source === 'bill'
+        ? L.gastos.get(f.source_id)
+        : source === 'invoice'
+          ? L.facturas.get(f.source_id)
+          : L.creditNotes.get(f.source_id);
     if (!doc || doc.cfdi_uuid === null) return { comprobantes: [] };
     const rfc = rfcDeclarable(doc.contraparte_rfc);
     if (rfc === null) {
       return {
         comprobantes: [],
         motivoSinComprobante:
-          `el ${f.source_type === 'bill' ? 'gasto' : 'la factura'} trae el CFDI ` +
+          `${DOCUMENT_NOUN[source]} trae el CFDI ` +
           `${doc.cfdi_uuid} y el RFC de la contraparte es «${(doc.contraparte_rfc ?? '').trim()}», ` +
           `que no tiene forma de RFC. El comprobante NO se declara: la autoridad cruza ese RFC ` +
           `contra las declaraciones del tercero, y uno mal formado no encuentra nada. Corrige el ` +
@@ -907,9 +935,10 @@ export async function generarPolizas(
 ): Promise<PolizasGeneradas> {
   const L = await leer(entityId, opts);
   const criterioSellado = await selladoDe(entityId, L.e.tenant_id);
+  const untracedMoney = await untracedMoneyOf(entityId, L.e.tenant_id);
 
   const polizas: Poliza[] = [];
-  const sinRastro: { numUnIdenPol: string; motivo: string }[] = [];
+  const sinRastro: UntracedMoney[] = [];
   const sinComprobante: { numUnIdenPol: string; motivo: string }[] = [];
   const normalizados: { numUnIdenPol: string; campo: string; texto: string }[] = [];
   let conRastro = 0;
@@ -948,6 +977,14 @@ export async function generarPolizas(
     const iRol = lineas.findIndex((l) => L.control.has(l.account_id));
     const iControl = iRol >= 0 ? iRol : lineas.findIndex((l) => !L.dinero.has(l.account_id));
 
+    // Money moved with NO registered payment behind it (a bank fee from
+    // reconciliation, a pay run, a transfer between own accounts). Whether it
+    // blocks or only warns is the firm's answer to
+    // `anexo24_voucher_money_without_trace`; a payment that exists and lacks
+    // data (`motivoSinRastro`) always blocks.
+    const withoutRegisteredPayment =
+      mueveDinero && soporte.pago === undefined && soporte.motivoSinRastro === undefined;
+
     const transacciones: Transaccion[] = lineas.map((l, i) => {
       const debe = importeAnexo24(l.debit_amount ?? '0').texto;
       const haber = importeAnexo24(l.credit_amount ?? '0').texto;
@@ -977,6 +1014,7 @@ export async function generarPolizas(
       } else {
         sinRastro.push({
           numUnIdenPol: f.entry_number,
+          ...(withoutRegisteredPayment ? { withoutRegisteredPayment: true } : {}),
           motivo:
             soporte.motivoSinRastro ??
             `el asiento toca una cuenta de banco y no viene de ningún pago registrado ` +
@@ -998,6 +1036,7 @@ export async function generarPolizas(
     {
       polizas,
       sinRastro,
+      untracedMoney,
       sinComprobante,
       bancos: L.catalogoBancos,
       validarUuids: opts.validarUuids === true,
@@ -1073,6 +1112,13 @@ export interface AuxiliarGenerado {
   bytes: number;
   nombre: string;
   meta: MetaDePolizas;
+  /**
+   * Warnings only, never blocking. For `folios`: every CFDI left out because
+   * its counterparty RFC is unusable (`comprobante-sin-rfc-usable`), named by
+   * voucher, so the auxiliary never drops a CFDI in silence. Empty for
+   * `accounts`, which declares no CFDI.
+   */
+  findings: HallazgoPoliza[];
   artefacto: ArtefactoArchivado | null;
   notaDeSellado: string;
 }
@@ -1107,11 +1153,16 @@ export async function generarAuxiliar(
   let xml: string;
   let polizasContadas = 0;
   let transacciones = 0;
+  let findings: HallazgoPoliza[] = [];
 
   if (clase === 'folios') {
     const detalles: DetalleDeFolios[] = [];
+    const droppedCfdis: { numUnIdenPol: string; motivo: string }[] = [];
     for (const f of L.filas) {
       const soporte = soporteDe(f, L);
+      if (soporte.motivoSinComprobante !== undefined) {
+        droppedCfdis.push({ numUnIdenPol: f.entry_number, motivo: soporte.motivoSinComprobante });
+      }
       // Sólo las pólizas CON comprobante. Una sin él no se omite por comodidad:
       // el auxiliar de folios relaciona folios, y un nodo vacío no relaciona
       // nada — el vacío ya lo denuncia `voucher generate`, que es su sitio.
@@ -1125,6 +1176,7 @@ export async function generarAuxiliar(
     polizasContadas = detalles.length;
     transacciones = detalles.reduce((a, d) => a + d.comprobantes.length, 0);
     xml = construirAuxiliarFoliosXml({ ...base, detalles });
+    findings = comprobanteSinRfcUsable(droppedCfdis);
   } else {
     const cuentas = await cuentasDelAuxiliar(entityId, L);
     polizasContadas = L.filas.length;
@@ -1150,7 +1202,7 @@ export async function generarAuxiliar(
   };
 
   const artefacto = await archivarSiProcede(
-    { entityId, meta, xml, hallazgos: [], puedeEntregarse: true, opts },
+    { entityId, meta, xml, hallazgos: findings, puedeEntregarse: true, opts },
     clase === 'folios' ? 'auxiliar_folios' : 'auxiliar_cuentas',
     clase === 'folios' ? VERSION_AUX_FOLIOS : VERSION_AUX_CTAS
   );
@@ -1162,6 +1214,7 @@ export async function generarAuxiliar(
     bytes: Buffer.byteLength(xml, 'utf8'),
     nombre: nombreDelArchivoAuxiliar(base, clase),
     meta,
+    findings,
     artefacto,
     notaDeSellado: NOTA_SIN_SELLAR,
   };
@@ -1259,6 +1312,20 @@ async function selladoDe(entityId: string, tenantId: string): Promise<string> {
   // el mismo criterio que `contextoDePolitica` en balanza-service.
   const ctx = { tenantId: currentTenant() ?? tenantId, entityId };
   return (await getPolicy(ctx, 'efirma_sellado_contabilidad_electronica')).value;
+}
+
+/**
+ * The firm's answer to `anexo24_voucher_money_without_trace`, read with the
+ * entity in the context like the sealing policy. A value outside the two
+ * options (written straight into the table) falls back to the default,
+ * `block`: an unknown answer never loosens what reaches the authority.
+ */
+async function untracedMoneyOf(entityId: string, tenantId: string): Promise<UntracedMoneyTreatment> {
+  const ctx = { tenantId: currentTenant() ?? tenantId, entityId };
+  const value = (await getPolicy(ctx, 'anexo24_voucher_money_without_trace')).value;
+  return (UNTRACED_MONEY_TREATMENTS as readonly string[]).includes(value)
+    ? (value as UntracedMoneyTreatment)
+    : 'block';
 }
 
 async function archivarSiProcede(

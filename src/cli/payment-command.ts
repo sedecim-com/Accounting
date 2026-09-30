@@ -771,7 +771,7 @@ export function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: b
     p.yellow(
       `The SAT voucher (Anexo 24) declares where this money went, and that is missing: ` +
         `${faltan.join(', ')}. ` +
-        `\`mnemosine e-accounting voucher generate --period <YYYY-MM>\` will name this payment as untraced.\n`
+        `When the SAT asks for the period vouchers, \`mnemosine e-accounting voucher generate\` will name this payment as untraced.\n`
     )
   );
 }

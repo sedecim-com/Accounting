@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { registerEAccountingCommand } from '../../src/cli/e-accounting-command.js';
 import {
   requestFromFlags,
+  requestRefusal,
   requirePeriod,
   subledgerKindOf,
   type RequestFileEngine,
@@ -118,6 +119,7 @@ function subledger(over: Record<string, unknown> = {}) {
     bytes: Buffer.byteLength(XML_AUX, 'utf8'),
     nombre: 'AAA010101AAA202607XF.XML',
     meta: META,
+    findings: [],
     artefacto: null,
     notaDeSellado: 'SIN SELLAR',
     ...over,
@@ -208,6 +210,36 @@ describe('requestFromFlags: TipoSolicitud and its number, never a default', () =
       }
       expect(caught, JSON.stringify(c)).toBeDefined();
       expect(exitCodeFor(caught), JSON.stringify(c)).toBe(ExitCode.USAGE);
+    }
+  });
+
+  it('each refusal has its own message key, so it speaks the locale and not the builder\'s Spanish', () => {
+    const cases: [Record<string, string>, string][] = [
+      [{ requestType: 'XX', orderNumber: 'ABC1234567/26' }, 'e_accounting.request.type_unknown'],
+      [{ requestType: 'AF' }, 'e_accounting.request.order_missing'],
+      [{ requestType: 'AF', orderNumber: 'ABC1234567/26', procedureNumber: 'DE202600000009' }, 'e_accounting.request.order_not_filing'],
+      [{ requestType: 'DE' }, 'e_accounting.request.filing_missing'],
+      [{ requestType: 'CO', orderNumber: 'ABC1234567/26' }, 'e_accounting.request.filing_missing'],
+      [{ requestType: 'CO', procedureNumber: 'CO202600000011', orderNumber: 'ABC1234567/26' }, 'e_accounting.request.filing_not_order'],
+      [{ requestType: 'FC', orderNumber: '1234' }, 'e_accounting.request.order_shape'],
+      [{ requestType: 'DE', procedureNumber: 'DE2026' }, 'e_accounting.request.filing_shape'],
+    ];
+    for (const [flags, key] of cases) {
+      let caught: unknown;
+      try {
+        requestFromFlags(flags);
+      } catch (e) {
+        caught = e;
+      }
+      const request = {
+        tipo: flags.requestType as never,
+        ...(flags.orderNumber !== undefined ? { numOrden: flags.orderNumber } : {}),
+        ...(flags.procedureNumber !== undefined ? { numTramite: flags.procedureNumber } : {}),
+      };
+      expect(requestRefusal(request).key, JSON.stringify(flags)).toBe(key);
+      // The builder's own text is Spanish prose about «estas pólizas»; the
+      // terminal gets the catalog's text for the key instead.
+      expect((caught as Error).message, JSON.stringify(flags)).not.toMatch(/estas pólizas|a requerimiento, y el archivo dice/);
     }
   });
 
@@ -316,6 +348,30 @@ describe('voucher generate', () => {
     expect(fs.existsSync(target)).toBe(false);
   });
 
+  it('--closing hands cierre: true and the fiscal year to the engine', async () => {
+    const r = await run(['voucher', 'generate', '--closing', '--period', '2026', ...AUDIT, '--dry-run']);
+    expect(r.exitCode, String(r.errs[0])).toBe(ExitCode.OK);
+    expect(world.lastVouchers).toMatchObject({ opts: { cierre: true, periodo: '2026', dryRun: true } });
+  });
+
+  it('a blocked file with -o does not report that path as its target', async () => {
+    world.vouchers = vouchers({
+      puedeEntregarse: false,
+      conteo: { blocking: 1, warning: 0 },
+      artefacto: null,
+      hallazgos: [
+        { check: 'poliza-con-dinero-sin-rastro', severity: 'blocking', referencia: 'JE-0042', detalle: 'sin pago' },
+      ],
+    });
+    const target = path.join(tmpRoot, 'blocked-json.xml');
+    const r = await run(['voucher', 'generate', '--period', '2026-07', ...AUDIT, '-o', target, '--json']);
+    expect(r.exitCode).toBe(ExitCode.VALIDATION);
+    const row = (JSON.parse(r.out) as { rows: Record<string, unknown>[] }).rows[0];
+    expect(row.deliverable).toBe(false);
+    expect(row.target).not.toBe(target);
+    expect(fs.existsSync(target)).toBe(false);
+  });
+
   it('refuses before the database without a request type (2)', async () => {
     const r = await run(['voucher', 'generate', '--period', '2026-07']);
     expect(r.exitCode).toBe(ExitCode.USAGE);
@@ -337,6 +393,32 @@ describe('subledger generate', () => {
       opts: { periodo: '2026-07', solicitud: { tipo: 'CO', numTramite: 'CO202600000011' }, dryRun: false },
     });
     expect(fs.readFileSync(target, 'utf8')).toBe(XML_AUX);
+  });
+
+  it('--dry-run hands dryRun: true to the engine, writes no file and says nothing was archived', async () => {
+    const target = path.join(tmpRoot, 'aux-dry.xml');
+    const r = await run([
+      'subledger', 'generate', '--kind', 'folios', '--period', '2026-07', ...AUDIT, '--dry-run', '-o', target,
+    ]);
+    expect(r.exitCode, String(r.errs[0])).toBe(ExitCode.OK);
+    expect(world.lastSubledger).toMatchObject({ kind: 'folios', opts: { dryRun: true } });
+    expect(fs.existsSync(target)).toBe(false);
+    expect(r.err).toMatch(/--dry-run: (nothing was archived|no se archivó)/);
+  });
+
+  it('names every CFDI the folio auxiliary left out, on stderr and in the receipt', async () => {
+    world.subledger = subledger({
+      findings: [
+        { check: 'comprobante-sin-rfc-usable', severity: 'warning', referencia: 'JE-0077', detalle: 'RFC «XAXX»' },
+      ],
+    });
+    const r = await run(['subledger', 'generate', '--kind', 'folios', '--period', '2026-07', ...AUDIT, '--json']);
+    expect(r.exitCode, String(r.errs[0])).toBe(ExitCode.OK);
+    expect(r.err).toMatch(/comprobante-sin-rfc-usable\s+JE-0077/);
+    const row = (JSON.parse(r.out) as { rows: Record<string, unknown>[] }).rows[0];
+    expect(row.findings).toEqual([
+      { check: 'comprobante-sin-rfc-usable', severity: 'warning', voucher: 'JE-0077', detail: 'RFC «XAXX»' },
+    ]);
   });
 
   it('refuses before the database without --kind (2)', async () => {
@@ -365,7 +447,9 @@ describe('payment create names a command the binary answers', () => {
     } finally {
       process.stderr.write = original;
     }
-    expect(err.join('')).toContain('`mnemosine e-accounting voucher generate --period <YYYY-MM>`');
+    // The citation is the command alone: a bare `--period` form would exit 2
+    // for want of --request-type, so it is not offered as runnable.
+    expect(err.join('')).toContain('When the SAT asks for the period vouchers, `mnemosine e-accounting voucher generate`');
   });
 
   it('every e-accounting citation in payment-command.ts resolves in the tree', () => {

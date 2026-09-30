@@ -5796,6 +5796,30 @@
       "why": "Born in English (MNE-001-147): what happens to an entity whose withholding roles do not follow withholding_accounts_layout."
     },
     {
+      "class": "policy-key",
+      "where": "anexo24_voucher_money_without_trace",
+      "es": "anexo24_voucher_money_without_trace",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-054): what the Anexo 24 vouchers do with money moved by no registered payment. «Anexo 24» stays as the RMF annex identifier."
+    },
+    {
+      "class": "policy-value",
+      "where": "anexo24_voucher_money_without_trace/block",
+      "es": "block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: refuse the vouchers file and name each voucher."
+    },
+    {
+      "class": "policy-value",
+      "where": "anexo24_voucher_money_without_trace/warn",
+      "es": "warn",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: deliver without the payment node and name each voucher."
+    },
+    {
       "class": "policy-value",
       "where": "withholding_accounts_layout/per_tax",
       "es": "per_tax",
