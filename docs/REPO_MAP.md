@@ -59,7 +59,7 @@ Qué es cada cosa y por qué: [`docs/SCOPE.md`](SCOPE.md), [`AGENTS.md`](../AGEN
 | `src/services/sat/` | Obligaciones ante el SAT: Anexo 24, DIOT y estado de CFDI. |
 | `src/services/sat-download/` | SAT Descarga Masiva client: the Autentica request signed with the vault e.firma through withCredential (EFIRMA-1). |
 | `src/services/tenant/` | Inquilinos (despachos) de la instalación: alta y lista, fuera de RLS y fuera del alcance del agente. |
-| `src/services/user/` | Usuarios (logins) de un despacho: alta sin terminal, lista y archivo; fuera de RLS y fuera del alcance del agente. |
+| `src/services/user/` | Logins of one firm: created without a terminal, listed and archived; outside RLS and outside the agent's reach. |
 | `src/services/vault/` | Cifrado y bóveda de secretos (ruta con dueño reforzado). |
 | `src/services/webhooks/` | Suscripciones y entrega de webhooks salientes. |
 | `src/services/xml-ingestion/` | Lectura de CFDI, pre-registro, taxonomía y decisiones de posteo. |

@@ -23,9 +23,9 @@ import { MIN_PASSWORD, BCRYPT_ROUNDS, validatePassword } from '../../services/us
 import { ValidationError } from '../../utils/errors.js';
 
 /** Why the service would refuse this password, or null when it would take it. */
-function passwordRefusal(password: string | null): string | null {
+function passwordRefusal(password: string): string | null {
   try {
-    validatePassword(password ?? '');
+    validatePassword(password);
     return null;
   } catch (err) {
     if (err instanceof ValidationError) return err.message;
@@ -123,9 +123,9 @@ export class UsuariosSection implements SetupSection {
 
     // The password is asked with hidden echo and is NEVER printed or logged.
     const password = await ctx.askSecret(`  Password (minimum ${MIN_PASSWORD} characters): `);
-    const refused = passwordRefusal(password);
-    if (refused) {
-      ctx.print(`  ${refused} Section incomplete.`);
+    const refused = passwordRefusal(password ?? '');
+    if (password === null || refused !== null) {
+      ctx.print(`  ${refused ?? ''} Section incomplete.`);
       ctx.print('  Without a terminal: mnemosine user create --email <address> --role <name> --password-stdin');
       return;
     }
