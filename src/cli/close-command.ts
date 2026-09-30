@@ -13,7 +13,7 @@ import { resolveClosablePeriod } from './kernel/closable-period.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import {
-  abortedByUser, exitCodeFor, notFound, resolveActiveEntity,
+  abortedByUser, exitCodeFor, notFound, resolveActiveEntity, describeCommand, optionByKey,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
@@ -173,20 +173,18 @@ Examples:
 `;
 
 export function registerCloseCommand(program: Command, deps: CloseCliDeps): void {
-  const close = program
-    .command('close')
-    .alias('cierre')
-    .description('Month-end close: checks what is missing and closes the period')
-    .option('-e, --entity <idOrName>', 'Legal entity')
-    .option('-t, --tenant <id>', 'Tenant')
-    .option('-u, --user <email>', 'Who performs the close')
-    // Sin forma corta: el diccionario reserva -p a --provider (R6).
-    .option('--period <expr>', 'Period to close: 2026-08, its id, or an unambiguous part of its name (default: the oldest open one)')
-    .option('-l, --list', 'List closable periods and exit')
-    .option('--check', 'Only check readiness, never close')
-    .option('--hard', 'Hard close (irreversible) instead of soft close')
-    .option('--reason <text>', 'why this close happens now; recorded in the audit trail')
-    .option('--json', 'JSON output for scripts');
+  // Help by key (#314): help.close.{description,option.<flag>}.
+  const close = describeCommand(program.command('close').alias('cierre'), 'help.close.description');
+  optionByKey(close, '-e, --entity <idOrName>', 'help.close.option.entity');
+  optionByKey(close, '-t, --tenant <id>', 'help.close.option.tenant');
+  optionByKey(close, '-u, --user <email>', 'help.close.option.user');
+  // Sin forma corta: el diccionario reserva -p a --provider (R6).
+  optionByKey(close, '--period <expr>', 'help.close.option.period');
+  optionByKey(close, '-l, --list', 'help.close.option.list');
+  optionByKey(close, '--check', 'help.close.option.check');
+  optionByKey(close, '--hard', 'help.close.option.hard');
+  optionByKey(close, '--reason <text>', 'help.close.option.reason');
+  optionByKey(close, '--json', 'help.close.option.json');
   // Declarado por su camino más grave: --hard genera asientos de cierre y
   // arrastra saldos, y no se deshace re-ejecutando. El kernel añade
   // --dry-run, --yes e --idempotency-key, y le niega el comando al agente.
