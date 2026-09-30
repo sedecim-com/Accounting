@@ -96,8 +96,11 @@ bash scripts/verify-isolation.sh
 1. Haz fork y crea una rama con nombre propio (`fase-0-1-cli-y-cimientos`,
    `aud-7-bitacora`, no `patch-1`).
 2. Un PR por idea. Un PR que arregla tres cosas no se puede revisar ni revertir.
-3. PR contra `main`. Se exige **1 aprobación**, y los pushes nuevos invalidan
-   las aprobaciones anteriores.
+3. PR contra `develop`: el flujo es `feature → develop → release → main`
+   (`docs/adr/0008-ramas-develop-release.md`). En `main` se exige
+   **1 aprobación**, y los pushes nuevos invalidan las aprobaciones
+   anteriores; la misma protección para `develop` y `release` es un ajuste de
+   GitHub que el owner todavía no activa, y hasta entonces no se afirma.
 4. La CI debe estar en verde: **Tipos**, **Pruebas unitarias**, **Integración
    contra Postgres**, **Aislamiento por inquilino**, **Estado del plan** y
    **Commit subjects**. Un rojo se arregla, no se explica en un comentario.

@@ -1,15 +1,12 @@
 # Nivel de madurez — sedecim-com/Accounting
 
-> Autoevaluación contra el modelo N0–N4 de la guía de implementación (§1). Su destino es la fila de este repo en `platform-docs/maturity.md`, que calculará un workflow cuando exista. Evaluada el 2026-09-25 por un agente contra el árbol y la configuración visible; lo que no se pudo ver desde el repo está marcado **sin verificar**.
+> Autoevaluación contra el modelo N0–N4 de la guía de implementación (§1). Su destino es la fila de este repo en `platform-docs/maturity.md`, que calculará un workflow cuando exista. Evaluada el 2026-09-25 por un agente contra el árbol y la configuración visible, y actualizada el 2026-09-30 con la firma del SCOPE (#337) y las ramas (#333, ADR-0008); lo que no se pudo ver desde el repo está marcado **sin verificar**.
 
 ## Resultado
 
-**Nivel formal: N0.** Cumple casi todo N2 y buena parte de N3, pero la guía no permite saltarse niveles, y N1 exige las ramas `develop` y `release`, que el ADR-0001 difirió a propósito (#333).
+**Nivel formal: N0.** Cumple casi todo N2 y buena parte de N3, pero la guía no permite saltarse niveles. Las ramas `develop` y `release` ya no son lo que falta para N1: existen desde el 2026-09-30 ([ADR-0008](../adr/0008-ramas-develop-release.md)). Faltan el escaneo de secretos (#338), confirmar los rulesets y proteger las ramas nuevas.
 
-**Por qué importa:** la guía dice que ningún agente escribe código en un repo por debajo de N3. Este repo ya trabaja con agentes que escriben código, bajo reglas propias más estrictas que las del framework en varios puntos: criterios con mutantes, siete invariantes y revisión independiente de Witness. Hay que decidir una de dos cosas, y es decisión del owner y del arquitecto de plataforma, no de un agente:
-
-1. Adelantar #333 y crear `develop` y `release` sin tener despliegue; o
-2. Registrar en la plataforma una excepción para repos sin despliegue: N1 exige ramas protegidas, no dos ramas.
+**Por qué importa:** la guía dice que ningún agente escribe código en un repo por debajo de N3. Este repo ya trabaja con agentes que escriben código, bajo reglas propias más estrictas que las del framework en varios puntos: criterios con mutantes, siete invariantes y revisión independiente de Witness. La decisión que esto pedía —adelantar #333 o registrar una excepción para repos sin despliegue— la tomó el owner el 2026-09-30: se adelantó #333.
 
 ## Criterio por criterio
 
@@ -17,9 +14,9 @@
 
 | Criterio | Estado | Evidencia |
 |---|---|---|
-| `catalog-info.yaml` | ✅ inferido | `catalog-info.yaml`; falta que el owner confirme los campos |
+| `catalog-info.yaml` | ✅ | `catalog-info.yaml`; campos confirmados por el owner el 2026-09-30 (#337) |
 | Owner asignado | ✅ | `.github/CODEOWNERS` |
-| Tier y clasificación de datos | ✅ inferido | tier-1, `pii` |
+| Tier y clasificación de datos | ✅ | tier-1, `pii`; confirmados el 2026-09-30 (#337) |
 
 ### N1 — Protegido
 
@@ -29,7 +26,7 @@
 | Secret scanning | ❌ / sin verificar | No hay escaneo en CI; push protection es un ajuste de GitHub (#338) |
 | Escaneo de dependencias | ✅ | Dependabot y CodeQL |
 | CODEOWNERS | ✅ | `.github/CODEOWNERS`, con rutas reforzadas |
-| Ramas `develop` y `release` | ❌ | Sólo `main`; diferido en ADR-0001 (#333) |
+| Ramas `develop` y `release` | ✅ | Existen en `origin` desde el 2026-09-30, creadas desde `main` en `70acac8`; el flujo es ADR-0008 (#333). Su **protección está pendiente**: es un ajuste de GitHub del owner, y hasta que lo active no están protegidas |
 
 ### N2 — Documentado
 
@@ -37,7 +34,7 @@
 |---|---|---|
 | README | ✅ | `README.md` |
 | AGENTS.md | ✅ | `AGENTS.md`, con `CLAUDE.md` que apunta a él |
-| `docs/SCOPE.md` firmado | ⚠️ | Existe, con secciones `[inferido]`; la firma en entrevista es #337 |
+| `docs/SCOPE.md` firmado | ✅ | Firmado por el owner el 2026-09-30 (#337); sin secciones `[inferido]` |
 | Contratos v0 publicados | ⚠️ | `docs/openapi.json` existe y CI vigila que no se desvíe del código; falta publicarlo en `platform-docs/contracts/` |
 
 ### N3 — Verificable
@@ -61,6 +58,6 @@
 
 ## Qué cambia el nivel
 
-- **→ N1:** confirmar rulesets, activar push protection o gitleaks en CI (#338), y resolver la decisión de ramas de arriba.
-- **→ N2:** firmar el SCOPE (#337) y publicar el contrato v0 cuando exista `platform-docs`.
+- **→ N1:** confirmar rulesets, activar push protection o gitleaks en CI (#338), y proteger `develop` y `release` en GitHub.
+- **→ N2:** publicar el contrato v0 cuando exista `platform-docs`.
 - **→ N3:** devcontainer y un script de preparación idempotente (#335).

@@ -26,7 +26,7 @@
 
 ## Rollback
 
-- **Código:** revertir el PR en `main` y reinstalar. Mientras no haya `release`, no hay tag anterior al que volver (#338).
+- **Código:** revertir el PR y reinstalar. Cada fusión de `release` a `main` deja un tag (ADR-0008); hasta el primer corte no hay tag anterior al que volver (#338).
 - **Esquema:** una migración nueva que deshace; una migración aplicada nunca se edita (`AGENTS.md`, «Límites»).
 - **Datos contables:** no se borran. Un asiento equivocado se corrige con otro asiento; el mayor es inmutable por diseño.
 
@@ -55,4 +55,4 @@ Con `AUTH_OIDC_PROVIDER=cognito`, la API acepta los access tokens del user pool 
 
 ## Pendiente para un despliegue compartido
 
-Alertas, SLO (pregunta abierta en `docs/SCOPE.md`), on-call, canary con rollback automático, y ventana de congelamiento en el cierre de mes de los despachos: #333.
+Alertas sobre los SLO que declara `docs/SCOPE.md` («Operación»), on-call, canary con rollback automático, y ventana de congelamiento en el cierre de mes de los despachos: #333.
