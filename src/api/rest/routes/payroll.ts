@@ -6,7 +6,7 @@ import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
 import { entityScope } from '../../../database/scope.js';
-import { corridaEnEntidad, periodoEnEntidad, reciboEnEntidad } from '../../../services/payroll/common/alcance-nomina.js';
+import { corridaEnEntidad, periodoEnEntidad } from '../../../services/payroll/common/alcance-nomina.js';
 import {
   createEmployee,
   getEmployee,
@@ -27,6 +27,7 @@ import {
 import { postPayRunToGL } from '../../../services/payroll/common/gl-posting-service.js';
 import { generateAndStampCfdiNomina } from '../../../services/payroll/mx/cfdi-nomina-generator.js';
 import { generateSuaFile } from '../../../services/payroll/mx/sua-generator.js';
+import { getPaycheck } from '../../../services/payroll/common/paycheck-read-service.js';
 import { calculateFiniquito } from '../../../services/payroll/mx/finiquito-calculator.js';
 import { generateW2 } from '../../../services/payroll/usa/forms/w2-generator.js';
 import { generateForm941 } from '../../../services/payroll/usa/forms/form-941-generator.js';
@@ -568,16 +569,8 @@ router.get('/me/w2/:tax_year', asyncHandler(async (req: Request, res: Response) 
 
 // ---------- Paychecks & filings ----------
 router.get('/paychecks/:id', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
-  const pc = await query(
-    `SELECT * FROM paychecks WHERE id = $1 AND tenant_id = $2
-        AND ${reciboEnEntidad('paychecks.employee_id', 3)}`,
-    [req.params.id, req.user!.tenant_id, req.entityId!]
-  );
-  if (pc.rows.length === 0) throw new NotFoundError('Paycheck', req.params.id);
-  const earnings = await query(`SELECT * FROM paycheck_earnings WHERE paycheck_id = $1`, [req.params.id]);
-  const deductions = await query(`SELECT * FROM paycheck_deductions WHERE paycheck_id = $1`, [req.params.id]);
-  const taxes = await query(`SELECT * FROM paycheck_taxes WHERE paycheck_id = $1`, [req.params.id]);
-  res.json({ data: { ...pc.rows[0], earnings: earnings.rows, deductions: deductions.rows, taxes: taxes.rows }, meta: meta(req) });
+  const data = await getPaycheck(req.params.id, entityScope(req.user!.tenant_id, req.entityId!));
+  res.json({ data, meta: meta(req) });
 }));
 
 router.get('/tax-filings', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {

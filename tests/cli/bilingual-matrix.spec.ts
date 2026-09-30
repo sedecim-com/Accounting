@@ -194,6 +194,9 @@ const TOP_LEVEL: Record<string, string> = {
   garnishment: 'embargo',
   // MNE-001-066: the payroll roll.
   employee: 'empleado',
+  // MNE-001-070: the paycheck, and the IMSS family (the same word in both languages).
+  payslip: 'recibo',
+  imss: '',
   // F02: cfdi es la misma palabra en los dos idiomas, como sat.
   cfdi: '',
   rep: '',
@@ -276,6 +279,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   garnishment: { record: 'registrar', list: 'listar', archive: 'archivar' },
   // MNE-001-066: the payroll roll, one file per leaf.
   employee: { create: 'crear', show: 'ver', list: 'listar' },
+  payslip: { list: 'listar', show: 'ver' },
   // G1b: las dos hojas de fase 1 del catálogo.
   cashflow: { generate: 'generar', reconcile: 'conciliar' },
   subscription: { delivery: 'entrega' },
@@ -384,7 +388,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'garnishment', 'employee', 'web', 'tenant'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'garnishment', 'employee', 'payslip', 'web', 'tenant'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

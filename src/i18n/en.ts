@@ -1010,6 +1010,20 @@ export const EN = {
     '--post posts it directly',
   'help.pay_run.post.argument.id': 'approved pay run whose entry is built',
   'help.pay_run.post.option.post': 'post the entry to the ledger now instead of leaving a draft for review',
+  'help.payslip.description': 'Paychecks of a pay run: list them, show one with its lines',
+  'help.payslip.list.description': 'List the paychecks of a run with gross, net and stamp status; no tax identifiers',
+  'help.payslip.list.option.run': 'pay run whose paychecks are listed (required)',
+  'help.payslip.show.description':
+    'Show one paycheck: totals from gross to net and every earning, deduction and tax line',
+  'help.payslip.show.argument.id': 'paycheck id (from `payslip list --run`)',
+  'help.payslip.show.option.redacted': 'hide RFC, CURP and NSS entirely, for a shared screen',
+  'help.imss.description': 'IMSS obligations of the employer: the monthly SUA file',
+  'help.imss.sua.description': 'The SUA import file of a month',
+  'help.imss.sua.export.description':
+    'Build the SUA import file of a month from the approved paychecks, checked against the employer liability',
+  'help.imss.sua.export.option.period': 'month to export (YYYY-MM); the SUA is monthly',
+  'help.imss.sua.export.option.output': 'write the SUA file to this path (without it, the file goes to stdout)',
+  'help.imss.sua.export.option.yes': 'overwrite the file named by -o if it already exists',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -1093,4 +1107,11 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+
+  // --- payslip · recibo and imss sua export (MNE-001-070) -----------------
+  'payslip.run_required': 'Missing --run: name the pay run whose paychecks you want (`pay-run create` printed its id).',
+  'imss.sua.period_invalid': '--period "{period}": use the month as YYYY-MM, for example 2026-07.',
+  'imss.sua.exists': '{path} already exists and is not overwritten without asking: use another path, or --yes.',
+  'imss.sua.not_filed':
+    'SUA file of {count} employee(s) built and recorded as a draft filing. Nothing was sent: load it into the SUA and pay.',
 } as const;
