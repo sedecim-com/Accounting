@@ -45,11 +45,7 @@
     "payroll.md": [
       "src/services/payroll/common/pay-run-service.ts",
       "src/services/payroll/common/paycheck-service.ts",
-      "src/services/payroll/mx/cfdi-nomina-generator.ts",
-      "src/services/payroll/mx/sua-generator.ts",
-      "src/services/payroll/common/paycheck-read-service.ts",
-      "src/cli/payslip-command.ts",
-      "src/cli/imss-command.ts"
+      "src/services/payroll/mx/cfdi-nomina-generator.ts"
     ],
     "reports.md": [
       "src/services/reporting/report-service.ts",
@@ -123,7 +119,7 @@
     "src/services/banking/matching.ts": "377481c3ea9dff2f4b259649fce70ebb5dd600ca",
     "src/api/rest/routes/bank-reconciliation.ts": "16e698660be84850a8a8158e2700b4fffe36eeba",
     "src/database/enums.ts": "a77d1bc0759b7c8e4556749f239855b2035950e2",
-    "src/ai/external-service.ts": "8d70bb34cf193b74c4447d445630f8b2ddaebefb",
+    "src/ai/external-service.ts": "0d33222b252af235e5729de6f97127ec057d2193",
     "src/ai/tools/external-tools.ts": "0c527a4c31f0ce8d481bca66182e5e904a4f7f3d",
     "src/services/integrations/accounting/contalink-adapter.ts": "9c2dfe880f5a8d890d9f39630c124aaea900eade",
     "src/services/ap/bill-service.ts": "ecfbc52bb98e2483e70effef1f51159ba91041d9",
@@ -141,11 +137,11 @@
     "src/services/integrations/index.ts": "dbc0e6ce18781390ac18dfab30d2f70576156225",
     "src/database/rls-policies.sql": "9d482ead1f8f0cda34aaae4684a724e9cdd04971",
     "src/services/fiscal-credentials/service.ts": "73621e7b394ab66de58dde768933998aff7506c1",
-    "src/services/reporting/report-service.ts": "732ad8a697d443e95f07949a03fb43d401907913",
+    "src/services/reporting/report-service.ts": "6b1858fdd9fc84a655741a72d6a4f79fff471aeb",
     "src/services/ar/invoice-service.ts": "61ac600186d7a3a5023f2e5a1889b55bb5521f07",
     "src/services/ar/customer-service.ts": "48789714b21f1cb384a82662eadf8415ac185e65",
     "src/services/ar/credit-note-service.ts": "02175b4cb65c6c9cc05eff4965c877eb3581dae1",
-    "src/services/ar/ar-controls.ts": "2e78b9c70b7922d177b9c5c83713f6eaab97ca57",
+    "src/services/ar/ar-controls.ts": "ec8d8c257b17d590802e5372a9982b34c5869ec5",
     "src/services/accounting/ar-ap-posting.ts": "4edb1902e9191f10132a25b49f0635b2182b047a",
     "src/ai/providers/index.ts": "ed591a9ca62a734081e910ec1aceced42cdf5bbc",
     "src/ai/providers/config.ts": "0efc3e11411b898a12306aab3ccca3baf8cc58b3",
