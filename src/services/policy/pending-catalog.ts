@@ -172,7 +172,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'life you set per asset (NIF C-6). With "tasa_lisr" it follows the tax rate stored on each ' +
       'asset, at most the maximum of its class (arts. 34-35 LISR), which is what most Mexican SMEs ' +
       'book so that the accounting and the deduction do not diverge. Only ONE schedule is computed ' +
-      'and posted: the other basis is not kept in parallel (that is #112). An asset without a stored ' +
+      'and posted: the other basis is not kept in parallel. An asset without a stored ' +
       'tax rate (registered before the rates existed) keeps running on its useful life under either ' +
       'answer. An asset that already posted rows never switches basis: if you change this answer, ' +
       'the run refuses that asset with the reason instead of depreciating it on the other basis.',
@@ -1152,7 +1152,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     options: [
       { value: 'exigir_misma_seccion', label: 'Refuse the account: a subaccount stays in its parent section' },
       { value: 'advertir_misma_seccion', label: 'Name it and let it through' },
-      { value: 'sin_regla', label: 'No rule: the chart is the firm s business' },
+      { value: 'sin_regla', label: 'No rule: the chart is the firm’s business' },
     ],
     defaultValue: 'exigir_misma_seccion',
     defaultRationale:
@@ -2226,8 +2226,8 @@ export const POLICY_CATALOG: PolicySpec[] = [
     defaultRationale:
       'The withholder pays the ISR (LISR 106, 116) and the VAT (LIVA 1-A, 5-D) it withheld with the ' +
       'monthly return due on the 17th, as separate taxes, and the DIOT reports the VAT withheld per ' +
-      'supplier (LIVA 32-VIII): a balance per tax is what both read without any split. It is the ' +
-      'owner\'s default on #309 and what entities are seeded with.',
+      'supplier (LIVA 32-VIII): a balance per tax is what both read without any split. It is what ' +
+      'entities are seeded with.',
     whyAsking:
       'Some firms keep one withholdings account, others one per tax, others follow the SAT grouping code line by line.',
     whatIDo:

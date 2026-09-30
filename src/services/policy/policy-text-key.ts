@@ -20,6 +20,28 @@ export function optionKeySegment(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9_]/g, '_');
 }
 
+/**
+ * The six prose fields of a `PolicySpec`, each with the segment its text
+ * lives under: `policy.<textKey>.<segment>`. The segments are the ones the
+ * issue fixed (#152); the field names are the spec's, which keep their
+ * longer names until the readers render by key.
+ */
+export const POLICY_TEXT_FIELDS = [
+  ['question', 'question'],
+  ['impact', 'impact'],
+  ['defaultRationale', 'rationale'],
+  ['whyAsking', 'why'],
+  ['whatIDo', 'what'],
+  ['ifSkipped', 'if_skipped'],
+] as const;
+
+export type PolicyTextField = (typeof POLICY_TEXT_FIELDS)[number][1];
+
+/** `policy.<textKey>.<field>`: the key of one prose field of a policy. */
+export function policyTextKey(textKey: string, field: PolicyTextField): string {
+  return `policy.${textKey}.${field}`;
+}
+
 /** `policy.<textKey>.option.<segment>`: the key of one option's label. */
 export function policyOptionKey(textKey: string, value: string): string {
   return `policy.${textKey}.option.${optionKeySegment(value)}`;
