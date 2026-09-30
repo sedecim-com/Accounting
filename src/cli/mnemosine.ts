@@ -144,6 +144,8 @@ import { registerDiotCommand } from './diot-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerGarnishmentCommand } from './garnishment-command.js';
 import { registerEmployeeCommand } from './employee-command.js';
+import { registerPayslipCommand } from './payslip-command.js';
+import { registerImssCommand } from './imss-command.js';
 import { registerCashFlowCommand } from './cashflow-command.js';
 import { registerAuditCommand } from './audit-command.js';
 import { registerWebhookSweepCommand } from './webhook-sweep-command.js';
@@ -3515,6 +3517,10 @@ registerGarnishmentCommand(program, { palette: c, shutdown, reportError });
 // MNE-001-066 (#306): the payroll roll at the terminal, over the same
 // employee service as the API.
 registerEmployeeCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-070 (#306): the paycheck and the month's SUA file, over the same
+// services as GET /paychecks/:id and POST /sua.
+registerPayslipCommand(program, { palette: c, shutdown, reportError });
+registerImssCommand(program, { palette: c, shutdown, reportError });
 registerCashFlowCommand(program, { palette: c, shutdown, reportError });
 registerAuditCommand(program, { palette: c, shutdown, reportError });
 // G4b · el barrido de entregas SALIENTES. Cuelga de `subscription`·`suscripcion`,
