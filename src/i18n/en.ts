@@ -2408,4 +2408,22 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+  // --- e-accounting catalog|balance seal · sellar (EFIRMA-4, #442) --------
+  'anexo24.seal.refused_by_policy':
+    'Sealing is refused: the policy {policy} is "{value}", and the system seals with the e.firma only ' +
+    'under "{optIn}". Nothing was decrypted and the access log has no row for this.',
+  'anexo24.seal.done':
+    'Sealed with the e.firma (certificate {certificate}): Sello, noCertificado and Certificado are set, ' +
+    'and the file validates against the SAT XSD.',
+  'anexo24.seal.nothing_filed':
+    'NOTHING WAS FILED WITH THE SAT. The SAT has no web service to receive this file: upload it ' +
+    'yourself in the SAT portal (Contabilidad electrónica) and keep the acknowledgement of receipt.',
+  'help.e_accounting.catalog.seal.description':
+    'Seal the archived CtaCatalogo of a month with the entity e.firma (only under sellar_con_custodia); files nothing',
+  'help.e_accounting.balance.seal.description':
+    'Seal the archived trial balance of a period with the entity e.firma (only under sellar_con_custodia); files nothing',
+  'help.e_accounting.seal.option.period': 'month of the archived file: YYYY-MM (the fiscal year with --closing)',
+  'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
+  'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
+  'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',
 } as const;

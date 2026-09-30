@@ -1,5 +1,5 @@
 {
-  "note": "The SAT official ContabilidadE 1.3 schemas (Anexo 24), byte for byte as published: CRLF line endings, and a BOM in CatalogosParaEsqContE.xsd. Never edit one: download it again from its url, then update downloaded and sha256. .gitattributes keeps git from normalizing them.",
+  "note": "The SAT official ContabilidadE 1.3 schemas (Anexo 24), and the XSLT stylesheets that produce the cadena original of the catalog and the trial balance, byte for byte as published: CRLF line endings, and a BOM in CatalogosParaEsqContE.xsd. The SAT publishes the 1.3 stylesheets in the 1_3 folder under the file name _1_2.xslt; their namespace is 1_3. Never edit one: download it again from its url, then update downloaded and sha256. .gitattributes keeps git from normalizing them.",
   "files": [
     {
       "path": "ContabilidadE/1_3/CatalogoCuentas/CatalogoCuentas_1_3.xsd",
@@ -36,6 +36,24 @@
       "url": "https://www.sat.gob.mx/esquemas/ContabilidadE/1_3/CatalogosParaEsqContE/CatalogosParaEsqContE.xsd",
       "downloaded": "2026-09-27",
       "sha256": "2a80344af6a221993dfbfdb7c882ff1ced49517a324048f08335e2e61d9ab72c"
+    },
+    {
+      "path": "ContabilidadE/1_3/CatalogoCuentas/CatalogoCuentas_1_2.xslt",
+      "url": "https://www.sat.gob.mx/esquemas/ContabilidadE/1_3/CatalogoCuentas/CatalogoCuentas_1_2.xslt",
+      "downloaded": "2026-09-30",
+      "sha256": "b02dd9f41a8d4d664cc14a7a64aaca3074b6b19175a406e095aa1899e295459b"
+    },
+    {
+      "path": "ContabilidadE/1_3/BalanzaComprobacion/BalanzaComprobacion_1_2.xslt",
+      "url": "https://www.sat.gob.mx/esquemas/ContabilidadE/1_3/BalanzaComprobacion/BalanzaComprobacion_1_2.xslt",
+      "downloaded": "2026-09-30",
+      "sha256": "2e7cf1b260122a3d7a7115e77ab8418ee14157b48d8deb796d8b7d35c7266339"
+    },
+    {
+      "path": "utilerias.xslt",
+      "url": "https://www.sat.gob.mx/esquemas/utilerias.xslt",
+      "downloaded": "2026-09-30",
+      "sha256": "1f7e9c9c04b2239cdf0928e6471d4f48165535c4d4d3ea445ec310b65cdf6c2c"
     }
   ]
 }

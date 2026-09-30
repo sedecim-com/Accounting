@@ -13,6 +13,7 @@ import {
 } from '../services/sat/anexo24/index.js';
 import {
   generarBalanza,
+  resolverPeriodoDeBalanza,
   verificarBalanza,
   type BalanzaGenerada,
   type ResultadoDeVerificacion,
@@ -22,6 +23,10 @@ import {
   type BalanzaCheckName,
   type HallazgoBalanza,
 } from '../services/sat/anexo24/balanza-invariantes.js';
+import { sealArchivedDocument } from '../services/sat/anexo24/seal.js';
+import type { SealableDocument } from '../services/sat/anexo24/original-string.js';
+import { t } from '../i18n/index.js';
+import { describeCommand, describeOption, optionByKey } from './kernel/help.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
 import {
@@ -47,15 +52,17 @@ import { changePolicyHint } from '../services/policy/policy-hint.js';
 // ============================================================
 // mnemosine e-accounting · contabilidad-electronica — EL XML QUE SE ENTREGA
 //
-// TRES HOJAS, LAS TRES FILAS DE FASE 1 DEL CATÁLOGO (docs/cli-command-catalog.md
-// 2060, 2063, 2064) Y NI UNA MÁS:
+// CINCO HOJAS, FILAS DE FASE 1 DEL CATÁLOGO (docs/cli-command-catalog.md):
 //
 //   catalog generate · catalogo generar — el CtaCatalogo 1.3, con su hash
 //   balance generate · balanza generar  — la balanza del periodo (N, C o cierre)
 //   balance check    · balanza verificar— las invariantes que el SAT rehace
+//   catalog seal · balance seal · sellar — the archived file, sealed with the
+//     vault e.firma, ONLY under sellar_con_custodia (EFIRMA-4, #442)
 //
-// LO QUE NO ESTÁ AQUÍ, Y NO POR FALTA DE TIEMPO: `catalog file` y
-// `balance file`, que FIRMAN con la e.firma y TRANSMITEN al SAT; `catalog
+// LO QUE NO ESTÁ AQUÍ: a transmission to the SAT. The SAT has no public web
+// service to receive these files; the upload is a person's act in the SAT
+// portal, and no leaf of this family pretends otherwise. Also missing: `catalog
 // match|apply|diff`; `voucher generate` (a las pólizas les falta sustrato: el
 // número de cheque no lo escribe nadie y la cuenta destino no existe en el
 // esquema); `subledger generate`. Un comando que existe y no hace lo que su
@@ -66,8 +73,9 @@ import { changePolicyHint } from '../services/policy/policy-hint.js';
 // La e.firma JAMÁS se pide por chat y este sistema NO sella salvo que el
 // despacho lo declare; con el criterio por omisión
 // (`efirma_sellado_contabilidad_electronica` = `nunca_sellar_en_el_sistema`)
-// el generador produce el XML SIN SELLAR y se detiene ahí. No hay en ninguna
-// rama de este archivo una lectura de llave privada, y no debe haberla.
+// el generador produce el XML SIN SELLAR y se detiene ahí. No branch of this
+// file reads a private key: the `seal` leaves go through seal.ts, which reads
+// it only inside withCredential and refuses before that under any other value.
 //
 // Por eso las dos hojas de generación GRITAN lo que hicieron y lo que NO:
 // «este archivo no va sellado y NADA se presentó ante el SAT», con los pasos
@@ -103,9 +111,9 @@ import { changePolicyHint } from '../services/policy/policy-hint.js';
 // hay camino desde aquí al mayor, ni a una autoridad, ni a una credencial, por
 // ninguna bandera. Lo peor que el agente puede hacer con ellas es dejar un
 // archivo que un humano tendrá que mirar antes de firmarlo — que es la misma
-// razón por la que `bank statement import` es ✓ (ver su cabecera). Las filas
-// que SÍ salen del sistema, `catalog file` y `balance file`, son irreversibles
-// y IA ✗, y no están en este tramo.
+// razón por la que `bank statement import` es ✓ (ver su cabecera). The `seal`
+// leaves sign in the taxpayer's name, so they are agent ✗; filing with the SAT
+// has no leaf at all, because the SAT offers no web service for it.
 // ============================================================
 
 export interface EAccountingCommandDeps {
@@ -147,15 +155,15 @@ export const TITULAR_SIN_SELLO =
  * prueba los fije: una lista que se acorta sin querer deja al lector creyendo
  * que ya terminó, que es el defecto que esta lista existe para impedir.
  *
- * No nombran ningún comando de este binario a propósito: `catalog file` y
- * `balance file` —las dos hojas que firman y transmiten— NO están construidas,
- * y mandar a alguien a un comando que no existe es la misma mentira en otra
- * forma.
+ * No nombran ningún comando de este binario a propósito: the upload has no
+ * command (the SAT offers no web service for it), and the seal leaf applies
+ * only under sellar_con_custodia, so a step that names it would mislead the
+ * firm on the default.
  */
 export const PASOS_PARA_PRESENTAR: readonly string[] = Object.freeze([
   'Revisa el XML: es el documento que vas a declarar, y una vez sellado ya no se toca.',
-  'Séllalo con la e.firma del contribuyente FUERA de este sistema. Este binario no ' +
-    'carga llaves privadas y nunca te va a pedir la e.firma por chat.',
+  'Séllalo con la e.firma del contribuyente: fuera de este sistema o, si el despacho declaró ' +
+    'sellar_con_custodia, con la hoja seal de esta familia. Nadie te va a pedir la e.firma por chat.',
   'Compríimelo y transmítelo tú por el Buzón Tributario (Contabilidad electrónica).',
   'Guarda el acuse de recepción y, después, el de aceptación o rechazo: es la única ' +
     'prueba de que se presentó.',
@@ -461,9 +469,10 @@ export function registerEAccountingCommand(
     cmd.addHelpText(
       'after',
       '\nThis builds the file. It does NOT seal it and does NOT file it.\n' +
-        'The XML comes out with no Sello, noCertificado or Certificado: sealing with the\n' +
-        "e.firma and transmitting through the Buzón Tributario are your acts, outside this\n" +
-        'system. This binary never asks for an e.firma and never loads a private key.\n'
+        'The XML comes out with no Sello, noCertificado or Certificado.\n' +
+        'generate never loads a private key. Sealing is yours, or `seal` under\n' +
+        'sellar_con_custodia; uploading\n' +
+        'through the Buzón Tributario in the SAT portal is always yours.\n'
     );
   };
 
@@ -492,6 +501,19 @@ Examples:
   # The year-end balance, filed as month 13. With --closing the period names the
   # FISCAL YEAR: it declares the closing adjustments, not December again.
   mnemosine e-accounting balance generate --period 2026 --closing --yes
+`,
+    catalogSeal: `
+Examples:
+  # Seal the catalog you generated and reviewed for July, and keep a copy of it.
+  # Only under efirma_sellado_contabilidad_electronica = sellar_con_custodia.
+  mnemosine e-accounting catalog seal --period 2026-07 -o catalogo-2026-07-sellado.xml
+`,
+    balanceSeal: `
+Examples:
+  # Seal the archived July balance. Nothing is filed: upload it in the SAT portal.
+  mnemosine e-accounting balance seal --period 2026-07
+  # The year-end balance (month 13) of fiscal year 2026.
+  mnemosine e-accounting balance seal --period 2026 --closing
 `,
     balanceCheck: `
 Examples:
@@ -807,8 +829,9 @@ Examples:
           err.write(
             c.yellow(
               `    El despacho tiene declarado '${b.meta.criterio_sellado}' en ` +
-                '`efirma_sellado_contabilidad_electronica`, y este tramo no sella: el archivo ' +
-                'sale sin Sello, noCertificado ni Certificado.\n\n'
+                '`efirma_sellado_contabilidad_electronica`, y `generate` no sella: el archivo ' +
+                'sale sin Sello, noCertificado ni Certificado. Revísalo y séllalo con ' +
+                '`e-accounting balance seal`.\n\n'
             )
           );
         }
@@ -939,4 +962,88 @@ Examples:
         return checkExitCode(r.conteo, { strict: opts.strict });
       })
   );
+
+  // ==========================================================
+  // catalog seal · balance seal (EFIRMA-4, #442)
+  //
+  // Their own verb, not a `--seal` on `generate`: `generate` is agent ✓ with
+  // draftOnly, and a seal is the taxpayer's signature (agent ✗). Permission
+  // never depends on the value of a flag. What is sealed is the ARCHIVED file
+  // the accountant generated and reviewed; nothing is filed with the SAT.
+  // ==========================================================
+  const sealLeaf = (parent: Command, document: SealableDocument): void => {
+    const leaf = describeCommand(
+      parent.command('seal').alias('sellar'),
+      document === 'catalogo'
+        ? 'help.e_accounting.catalog.seal.description'
+        : 'help.e_accounting.balance.seal.description'
+    );
+    withContext(leaf);
+    optionByKey(leaf, '--period <expr>', 'help.e_accounting.seal.option.period');
+    if (document === 'balanza') {
+      optionByKey(leaf, '--type <N|C>', 'help.e_accounting.seal.option.type');
+      optionByKey(leaf, '--closing', 'help.e_accounting.seal.option.closing');
+    }
+    // `-o` names the sealed XML here, as in `generate`; the receipt still goes to stdout.
+    withOutput(leaf);
+    const outputOption = leaf.options.find((o) => o.long === '--output');
+    if (outputOption) describeOption(outputOption, 'help.e_accounting.seal.option.output');
+    leaf.addHelpText('after', document === 'catalogo' ? EJEMPLOS.catalogSeal : EJEMPLOS.balanceSeal);
+    declareRisk(leaf, {
+      risk: 'escritura',
+      agent: false,
+      writes:
+        'sat_anexo24_artefactos (the sealed copy, sellado = true) and fiscal_credential_access_log ' +
+        '(purpose seal_anexo24); nothing is sent to the SAT',
+    });
+    leaf.action(
+      (opts: CommonOpts & { period?: string; type?: string; closing?: boolean; yes?: boolean }) =>
+        run(async () => {
+          const envelopeType = document === 'balanza' ? exigirTipoDeEnvio(opts.type) : undefined;
+          const catalogMonth = document === 'catalogo' ? mesDelCatalogo(opts.period) : undefined;
+          const ctx = await entidadDeEscritura(opts);
+          const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+          const period =
+            catalogMonth ??
+            (await resolverPeriodoDeBalanza(ctx.entityId, {
+              ...(opts.period !== undefined ? { periodo: opts.period } : {}),
+              ...(opts.closing === true ? { cierre: true } : {}),
+            }));
+
+          const sealed = await sealArchivedDocument({
+            tenantId: ctx.tenantId,
+            entityId: ctx.entityId,
+            document,
+            year: period.anio,
+            month: Number(period.mes),
+            envelopeType: envelopeType ?? 'N',
+            actor: reviewer.email,
+            userId: reviewer.userId,
+          });
+          if (opts.output !== undefined) await escribirXml(opts.output, sealed.xml, opts);
+
+          emitirRecibo(
+            {
+              hash: sealed.artifact.hash_sha256,
+              artefacto: sealed.artifact.id,
+              sella_a: sealed.sealedFrom,
+              no_certificado: sealed.certificateNumber,
+              bytes: sealed.artifact.bytes,
+              destino: opts.output ?? '',
+              presentado_ante_el_sat: false,
+            },
+            opts
+          );
+          const c = deps.palette;
+          process.stderr.write(
+            `\n  ${t('anexo24.seal.done', { certificate: sealed.certificateNumber })}\n` +
+              c.yellow(`  ⚠ ${t('anexo24.seal.nothing_filed')}`) +
+              '\n\n'
+          );
+          return ExitCode.OK;
+        })
+    );
+  };
+  sealLeaf(catalogo, 'catalogo');
+  sealLeaf(balanza, 'balanza');
 }

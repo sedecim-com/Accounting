@@ -36,6 +36,7 @@ import {
   nombreDelArchivo,
   type TipoEnvio,
 } from './balanza-xml.js';
+import { hasSealedCopy } from './seal.js';
 
 // ============================================================
 // F07b · LA BALANZA QUE SE ENTREGA
@@ -578,7 +579,10 @@ export interface MetaDeBalanza {
   criterio_niveles: string;
   /** Valor efectivo de 'efirma_sellado_contabilidad_electronica'. */
   criterio_sellado: string;
-  /** SIEMPRE false en este tramo, y por decisión, no por falta de tiempo. */
+  /**
+   * `check`: whether these exact bytes have a sealed copy archived (EFIRMA-4).
+   * `generate` builds an unsealed file, so there it is always false.
+   */
   sellada: boolean;
 }
 
@@ -653,6 +657,17 @@ async function prepararBalanza(
   };
 }
 
+function xmlDeLaBalanza(meta: MetaDeBalanza, cuentas: CuentaDeBalanza[]): string {
+  return construirBalanzaXml({
+    rfc: meta.rfc,
+    anio: meta.anio,
+    mes: meta.mes,
+    tipoEnvio: meta.tipo_envio,
+    ...(meta.fecha_mod_bal ? { fechaModBal: meta.fecha_mod_bal } : {}),
+    cuentas,
+  });
+}
+
 /**
  * `e-accounting balance check` · las invariantes que el SAT revisa.
  *
@@ -664,7 +679,13 @@ export async function verificarBalanza(
   entityId: string,
   opts: OpcionesDeBalanza & { checks?: readonly BalanzaCheckName[] } = {}
 ): Promise<ResultadoDeVerificacion> {
-  const { meta, contexto, inicial } = await prepararBalanza(entityId, opts);
+  const { meta, cuentas, contexto, inicial } = await prepararBalanza(entityId, opts);
+  // A balance counts as sealed when the bytes it would be generated with today
+  // have a sealed copy: sealing an older version does not seal this one.
+  if (meta.criterio_sellado !== 'nunca_sellar_en_el_sistema') {
+    const hash = hashDelXml(xmlDeLaBalanza(meta, cuentas));
+    meta.sellada = contexto.sellada = await hasSealedCopy(meta.tenant_id, entityId, 'balanza', hash);
+  }
   const checks = [...(opts.checks ?? BALANZA_CHECK_NAMES)];
   const hallazgos = correrVerificaciones(contexto, checks);
   return {
@@ -727,14 +748,7 @@ export async function generarBalanza(
     );
   }
 
-  const xml = construirBalanzaXml({
-    rfc: meta.rfc,
-    anio: meta.anio,
-    mes: meta.mes,
-    tipoEnvio: meta.tipo_envio,
-    ...(meta.fecha_mod_bal ? { fechaModBal: meta.fecha_mod_bal } : {}),
-    cuentas,
-  });
+  const xml = xmlDeLaBalanza(meta, cuentas);
 
   // SE ARCHIVA porque `diff` y `file` dependen de saber qué se generó, y
   // porque firmar «el catálogo de hoy» reconstruido en el momento es firmar

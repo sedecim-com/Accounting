@@ -48,7 +48,8 @@ export interface AutenticaEnvelopeOptions {
   tokenId: string;
 }
 
-function certificateBase64(cer: Buffer): string {
+/** The certificate as base64 DER. Also the Anexo 24 `Certificado` (EFIRMA-4). */
+export function certificateBase64(cer: Buffer): string {
   // storeCredential tolerates a PEM certificate; the token carries DER.
   const pem = /-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/.exec(cer.toString('latin1'));
   return pem ? pem[1].replace(/\s+/g, '') : cer.toString('base64');

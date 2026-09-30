@@ -55,21 +55,24 @@ const provenance = JSON.parse(
   fs.readFileSync(path.join(XSD_ROOT, 'provenance.json'), 'utf8')
 ) as { files: ProvenanceEntry[] };
 
-const vendoredXsds = (dir = XSD_ROOT): string[] =>
+const vendoredFiles = (extension: '.xsd' | '.xslt', dir = XSD_ROOT): string[] =>
   fs
     .readdirSync(dir, { withFileTypes: true })
     .flatMap((entry) =>
       entry.isDirectory()
-        ? vendoredXsds(path.join(dir, entry.name))
-        : entry.name.endsWith('.xsd')
+        ? vendoredFiles(extension, path.join(dir, entry.name))
+        : entry.name.endsWith(extension)
           ? [path.relative(XSD_ROOT, path.join(dir, entry.name))]
           : []
     )
     .sort();
+const vendoredXsds = (): string[] => vendoredFiles('.xsd');
 
 describe('the vendored schemas', () => {
-  it('provenance.json lists every .xsd in the folder, and nothing else', () => {
-    expect(provenance.files.map((f) => f.path).sort()).toEqual(vendoredXsds());
+  it('provenance.json lists every .xsd and .xslt in the folder, and nothing else', () => {
+    expect(provenance.files.map((f) => f.path).sort()).toEqual(
+      [...vendoredXsds(), ...vendoredFiles('.xslt')].sort()
+    );
   });
 
   it.each(provenance.files.map((f) => [f.path, f] as const))(

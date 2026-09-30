@@ -7,7 +7,7 @@ import { query } from '../../../database/connection.js';
 //
 // La fila del catálogo de comandos lo pide con su razón escrita: «persiste el
 // artefacto porque `diff` y `file` dependen de saber qué se generó». Sin esto,
-// `catalog diff` compararía el catálogo de hoy contra nada, y `catalog file`
+// `catalog diff` compararía el catálogo de hoy contra nada, y `catalog seal`
 // firmaría un archivo que se reconstruye en el momento —o sea, otro archivo—
 // en vez del que el contador revisó.
 //
@@ -53,6 +53,11 @@ export interface DatosArtefacto {
   politicaSellado: string;
   hallazgos: unknown;
   generadoPor: string;
+  /**
+   * The unsealed artifact this one seals (EFIRMA-4, #442). Set only by
+   * seal.ts, after the e.firma signed it; it is what makes `sellado` true.
+   */
+  sealedFrom?: string;
 }
 
 /** El hash de los BYTES, no de la cadena: es lo que se va a entregar. */
@@ -61,10 +66,9 @@ export function hashDelXml(xml: string): string {
 }
 
 /**
- * Archiva el XML. `sellado` se escribe SIEMPRE en false: en F07b no hay
- * ningún camino que cargue una llave privada, y la columna existe para que el
- * día que `catalog file` selle, el sellado sea un hecho registrado y no una
- * suposición del que lee la tabla.
+ * Archiva el XML. `sellado` is true only for the sealed copy seal.ts archives
+ * (`sealedFrom` set): the seal is a recorded fact, never an assumption of
+ * whoever reads the table. Every generator archives with it false.
  */
 export async function archivarArtefacto(
   datos: DatosArtefacto,
@@ -80,14 +84,15 @@ export async function archivarArtefacto(
   const insercion = await ejecutar<{ id: string; generado_en: string }>(
     `INSERT INTO sat_anexo24_artefactos
        (tenant_id, entity_id, tipo, version, rfc, anio, mes, tipo_envio,
-        xml, hash_sha256, bytes, sellado, politica_sellado, hallazgos, generado_por)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, $12, $13::jsonb, $14)
+        xml, hash_sha256, bytes, sellado, politica_sellado, hallazgos, generado_por, sealed_from)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $15::uuid IS NOT NULL, $12, $13::jsonb, $14, $15)
      ON CONFLICT (entity_id, tipo, anio, mes, tipo_envio, hash_sha256) DO NOTHING
      RETURNING id, generado_en::text AS generado_en`,
     [
       datos.tenantId, datos.entityId, datos.tipo, datos.version, datos.rfc,
       datos.anio, datos.mes, datos.tipoEnvio, datos.xml, hash, bytes,
       datos.politicaSellado, JSON.stringify(datos.hallazgos), datos.generadoPor,
+      datos.sealedFrom ?? null,
     ]
   );
 

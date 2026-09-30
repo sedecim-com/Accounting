@@ -2250,4 +2250,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+  // --- e-accounting catalog|balance seal · sellar (EFIRMA-4, #442) --------
+  'anexo24.seal.refused_by_policy':
+    'No se sella: la política {policy} está en "{value}" y el sistema sólo sella con la e.firma ' +
+    'bajo "{optIn}". No se descifró nada y la bitácora de accesos no tiene fila por esto.',
+  'anexo24.seal.done':
+    'Sellado con la e.firma (certificado {certificate}): Sello, noCertificado y Certificado puestos, ' +
+    'y el archivo valida contra el XSD del SAT.',
+  'anexo24.seal.nothing_filed':
+    'NO SE PRESENTÓ NADA ANTE EL SAT. El SAT no tiene servicio web para recibir este archivo: ' +
+    'cárgalo tú en el portal del SAT (Contabilidad electrónica) y guarda el acuse de recepción.',
+  'help.e_accounting.catalog.seal.description':
+    'Sella con la e.firma de la entidad el CtaCatalogo archivado de un mes (sólo con sellar_con_custodia); no presenta nada',
+  'help.e_accounting.balance.seal.description':
+    'Sella con la e.firma de la entidad la balanza archivada de un periodo (sólo con sellar_con_custodia); no presenta nada',
+  'help.e_accounting.seal.option.period': 'mes del archivo archivado: YYYY-MM (el ejercicio con --closing)',
+  'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
+  'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
+  'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',
 };

@@ -49,11 +49,11 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **259 comandos** repartidos en **72 familias** de primer nivel. De las **1638** filas del catálogo, **244** (14.9 %) ya se pueden invocar.
+El binario ejecuta hoy **261 comandos** repartidos en **72 familias** de primer nivel. De las **1638** filas del catálogo, **246** (15.0 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **284** filas lo declaran completo, **387** a medias y **967** inexistente.
+Del motor que cada comando necesita, **286** filas lo declaran completo, **387** a medias y **965** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **207** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **209** ya se teclean.
 
 **El objetivo comprometible son 1395 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
@@ -75,8 +75,8 @@ Contadas por COMANDO, las 1638 filas son **1616 rutas únicas**: **17 rutas** es
 | `receipt` | 11 | 6 |
 | `close` | 9 | 6 |
 | `vendor` | 23 | 5 |
+| `e-accounting` | 12 | 5 |
 | `batch` | 7 | 5 |
-| `credit-note` | 7 | 5 |
 
 **1 de 606** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
@@ -1868,7 +1868,7 @@ En México el cumplimiento es *documento primero*: el SAT no audita el mayor, au
 
 **Cuatro actos son irreversibles y quedan siempre fuera del alcance autónomo del agente**: timbrar, cancelar, aceptar una cancelación como receptor y presentar contabilidad electrónica. Deben vivir por encima del piso inquebrantable de `src/ai/floor.ts` (que hoy sólo cubre monto de auto-post, periodo abierto y vejez de la operación externa), no detrás de un prompt. Todo lo demás que escribe en el mayor pasa por el mismo camino de borrador → `mnemosine review`.
 
-**Nota de honestidad sobre presentar ante la autoridad:** este catálogo **no incluye ningún comando que presente una declaración de impuestos ante el SAT**. `filing record` registra que un humano ya la presentó. Las únicas transmisiones reales a la autoridad son `e-accounting catalog file` y `e-accounting balance file`, y ambas son ✗ para la IA.
+**Nota de honestidad sobre presentar ante la autoridad:** este catálogo **no incluye ningún comando que presente una declaración de impuestos ante el SAT**. `filing record` registra que un humano ya la presentó. La contabilidad electrónica tampoco se transmite desde aquí: el SAT no ofrece servicio web para recibirla, así que `e-accounting catalog seal` y `balance seal` sólo **sellan** (✗ para la IA) y la carga la hace una persona en el portal del SAT (#442).
 
 #### Convenciones
 
@@ -2065,10 +2065,10 @@ Esta sección no publica diccionarios propios. **Los verbos (§1), los sustantiv
 | `mnemosine e-accounting catalog apply` · `contabilidad-electronica catalogo aplicar` | Aplica, idempotentemente, el mapeo propuesto sobre `accounts`. **Escisión de seguridad:** antes era la bandera `--apply` de la fila anterior, lo que hacía que el permiso de la IA dependiera del valor de un flag | `--file`, `--only-unmapped`, `--dry-run`, `-y/--yes`, `--idempotency-key` | 🟡 mismo hueco de columna que la fila anterior; el `UPDATE` sobre `accounts` es nuevo | escritura | ✗ | 1 |
 | `mnemosine e-accounting catalog generate` · `contabilidad-electronica catalogo generar` | Genera y archiva el XML `CtaCatalogo` 1.3 con NumCta, Desc, SubCtaDe, Nivel, Natur y CodigoAgrupador, con su hash | `--dry-run`, `-o/--output` | ✅ **hecha en F07b**: CtaCatalogo 1.3 con XMLBuilder detrás de una puerta de saneado obligatoria —el escapado es estructural, no una llamada que se pueda olvidar— y el artefacto archivado con su hash. El agrupador sale de la columna única que dejó F07a. NO va sellado: la e.firma no entra en este proceso salvo que el panel lo diga (`efirma_sellado_contabilidad_electronica`) | escritura | ✓ | 1 |
 | `mnemosine e-accounting catalog diff` · `contabilidad-electronica catalogo comparar` | Muestra las cuentas nuevas o modificadas desde el último catálogo presentado: presentar una balanza con una cuenta desconocida es el rechazo número uno | `--vs`, `--json` | ❌ hay que construirlo | lectura | ✓ | 1 |
-| `mnemosine e-accounting catalog file` · `contabilidad-electronica catalogo presentar` | Firma con la e.firma, comprime y **transmite** el catálogo al SAT; archiva el acuse de recepción | `--live`, `--dry-run`, `-y/--yes`, `--idempotency-key` | ❌ hay que construirlo. Junto con `e-accounting balance file` es la **única** transmisión a la autoridad de todo el catálogo | irreversible | ✗ | 1 |
+| `mnemosine e-accounting catalog seal` · `contabilidad-electronica catalogo sellar` | Sella con la e.firma de la entidad el CtaCatalogo **archivado** del mes —el que se generó y revisó, no uno reconstruido—: cadena original por el XSLT oficial del SAT, `Sello` SHA-256 con RSA, `noCertificado` y `Certificado`, y el XML valida contra el XSD. Archiva la copia sellada. **No transmite**: el SAT no ofrece servicio web para recibir estos archivos; la carga la hace una persona en el portal del SAT, y la salida lo dice. Antes esta fila era `catalog file` y prometía transmitir | `--period`, `-o/--output`, `-y/--yes` | ✅ **hecha en EFIRMA-4 (#442)**: sólo con `efirma_sellado_contabilidad_electronica = sellar_con_custodia` (el defecto sigue en `nunca_sellar_en_el_sistema`, y con él rehúsa sin descifrar); la llave se lee sólo dentro de `withCredential`, propósito `seal_anexo24`, con su fila en la bitácora | escritura | ✗ | 1 |
 | `mnemosine e-accounting balance generate` · `contabilidad-electronica balanza generar` | Genera la balanza de comprobación del periodo (normal, complementaria o de cierre) con `SaldoIni`, `Debe`, `Haber` y `SaldoFin` | `--period`, `--type N\|C`, `--closing`, `--dry-run`, `-o/--output` | ✅ **hecha en F07b**: consume las cuatro columnas de F07a (saldo inicial derivado del mayor, no de la columna que sólo siembra el cierre duro) y respeta `Natur` al declarar el signo | escritura | ✓ | 1 |
 | `mnemosine e-accounting balance check` · `contabilidad-electronica balanza verificar` | Verifica las invariantes que el SAT revisa: `SaldoIni + Debe − Haber = SaldoFin` respetando `Natur`, y que toda cuenta exista en el último catálogo presentado. Hallazgo que bloquea → código 4 | `--period`, `--check`, `--strict`, `--json` | ✅ **hecha en F07b**: el recálculo del SAT no es simétrico entre una cuenta deudora y una acreedora, y aquí se hace con esa asimetría; publica los descuadres que F07a calculaba y las tres superficies tiraban | lectura | ✓ | 1 |
-| `mnemosine e-accounting balance file` · `contabilidad-electronica balanza presentar` | **Transmite** la balanza del mes; rehúsa o encadena el catálogo automáticamente cuando el diff muestra cuentas nuevas | `--period`, `--chain-catalog`, `--live`, `--dry-run`, `-y/--yes`, `--idempotency-key` | ❌ hay que construirlo | irreversible | ✗ | 1 |
+| `mnemosine e-accounting balance seal` · `contabilidad-electronica balanza sellar` | Sella con la e.firma de la entidad la balanza **archivada** del periodo (normal, complementaria o de cierre), igual que `catalog seal`, y `balance check` deja de avisar `sin-sello` para esos bytes. **No transmite**: la carga es en el portal del SAT. Antes esta fila era `balance file` y prometía transmitir | `--period`, `--type N\|C`, `--closing`, `-o/--output`, `-y/--yes` | ✅ **hecha en EFIRMA-4 (#442)**: misma compuerta de política y mismo camino por `withCredential` que `catalog seal` | escritura | ✗ | 1 |
 | `mnemosine e-accounting voucher generate` · `contabilidad-electronica poliza generar` | Genera las pólizas del periodo con el nodo de evidencia correcto por transacción: `CompNal` con UUID, `CompExt`, `Cheque` u `OtrMetodoPago` | `--period`, `--validate-uuids`, `--dry-run`, `-o/--output` | ❌ hay que construirlo, y **está bloqueado por `cfdi link add`**: sin UUID, RFC de contraparte y método de pago en la línea de asiento no hay póliza emisible en el plazo de 15 días que da el SAT | escritura | ✓ | 2 |
 | `mnemosine e-accounting subledger generate` · `contabilidad-electronica auxiliar generar` | Genera el auxiliar de folios de comprobantes o el auxiliar de cuenta y subcuenta, que el SAT pide sólo a requerimiento | `--period`, `--kind folios\|accounts`, `--dry-run`, `-o/--output` | ❌ hay que construirlo | escritura | ✓ | 2 |
 | `mnemosine e-accounting acuse download` · `contabilidad-electronica acuse descargar` | Recupera y archiva el acuse de recepción y el posterior de aceptación o rechazo — la única prueba de que se presentó | `--period`, `--kind`, `-o/--output`, `--idempotency-key` | ❌ hay que construirlo. **IA ✗ por la regla (a): consume una credencial del cliente contra un tercero (Buzón Tributario).** | externo | ✗ | 1 |

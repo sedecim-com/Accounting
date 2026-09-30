@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 227 of 351 subcommands
+  spelling is `-T` at the root and `-t` on the 229 of 353 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -7356,6 +7356,9 @@ Commands:
   generate|generar [options]  Build and archive the CtaCatalogo 1.3 XML (NumCta,
                               Desc, SubCtaDe, Nivel, Natur, CodAgrup) with its
                               hash
+  seal|sellar [options]       Seal the archived CtaCatalogo of a month with the
+                              entity e.firma (only under sellar_con_custodia);
+                              files nothing
   help [command]              display help for command
 ```
 
@@ -7382,9 +7385,10 @@ Options:
   -h, --help                               display help for command
 
 This builds the file. It does NOT seal it and does NOT file it.
-The XML comes out with no Sello, noCertificado or Certificado: sealing with the
-e.firma and transmitting through the Buzón Tributario are your acts, outside this
-system. This binary never asks for an e.firma and never loads a private key.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
 
 
 Examples:
@@ -7393,6 +7397,33 @@ Examples:
   mnemosine e-accounting catalog generate --period 2026-07 --dry-run
   # The real run, with a copy of the XML next to the archived one.
   mnemosine e-accounting catalog generate --period 2026-07 -o catalogo-2026-07.xml --yes
+```
+
+#### `mnemosine e-accounting catalog seal` (alias: sellar)
+
+```
+Usage: mnemosine e-accounting catalog seal|sellar [options]
+
+Seal the archived CtaCatalogo of a month with the entity e.firma (only under
+sellar_con_custodia); files nothing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          month of the archived file: YYYY-MM (the fiscal year with --closing)
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      also write the sealed XML to this path
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+Examples:
+  # Seal the catalog you generated and reviewed for July, and keep a copy of it.
+  # Only under efirma_sellado_contabilidad_electronica = sellar_con_custodia.
+  mnemosine e-accounting catalog seal --period 2026-07 -o catalogo-2026-07-sellado.xml
 ```
 
 ### `mnemosine e-accounting balance` (alias: balanza)
@@ -7411,6 +7442,9 @@ Commands:
   check|verificar [options]   Run the invariants the SAT re-runs: SaldoIni +
                               Debe − Haber = SaldoFin honouring Natur, and every
                               account in the catalog
+  seal|sellar [options]       Seal the archived trial balance of a period with
+                              the entity e.firma (only under
+                              sellar_con_custodia); files nothing
   help [command]              display help for command
 ```
 
@@ -7440,9 +7474,10 @@ Options:
   -h, --help                               display help for command
 
 This builds the file. It does NOT seal it and does NOT file it.
-The XML comes out with no Sello, noCertificado or Certificado: sealing with the
-e.firma and transmitting through the Buzón Tributario are your acts, outside this
-system. This binary never asks for an e.firma and never loads a private key.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
 
 
 Examples:
@@ -7483,6 +7518,36 @@ Examples:
   mnemosine e-accounting balance check --period 2026-07
   # The year-end balance, with warnings made blocking so cron stops on them (exit 4).
   mnemosine e-accounting balance check --period 2026 --closing --strict
+```
+
+#### `mnemosine e-accounting balance seal` (alias: sellar)
+
+```
+Usage: mnemosine e-accounting balance seal|sellar [options]
+
+Seal the archived trial balance of a period with the entity e.firma (only under
+sellar_con_custodia); files nothing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          month of the archived file: YYYY-MM (the fiscal year with --closing)
+  --type <N|C>                             envelope type of the archived balance: N normal, C amended
+  --closing                                the year-end balance, archived as month 13
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      also write the sealed XML to this path
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+Examples:
+  # Seal the archived July balance. Nothing is filed: upload it in the SAT portal.
+  mnemosine e-accounting balance seal --period 2026-07
+  # The year-end balance (month 13) of fiscal year 2026.
+  mnemosine e-accounting balance seal --period 2026 --closing
 ```
 
 ## `mnemosine diot`

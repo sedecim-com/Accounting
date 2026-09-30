@@ -144,7 +144,11 @@ metadata, and seals the Anexo 24 files only when the firm sets
 `efirma_sellado_contabilidad_electronica = sellar_con_custodia`; submitting the
 files and filing any return stays manual in the SAT portal. A consent given
 under an earlier version keeps that version on its row. Do not describe the
-e.firma as doing more than this.
+e.firma as doing more than this. The seal is `e-accounting catalog seal |
+balance seal`, over the file already generated and archived; under any other
+policy value it refuses before touching the key. Each seal is a logged use
+with purpose `seal_anexo24`, the agent may not invoke either leaf, and nothing
+is filed: the SAT has no web service for these files.
 
 Never ask the human to paste keys or passwords into chat — point them to
 `sat cred add`, which takes certificate and key as FILES (`--cer`, `--key`, in

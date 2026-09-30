@@ -91,6 +91,10 @@ export const VERBS: Readonly<Record<string, string>> = Object.freeze({
   'revoke'     : 'revocar',
   'rotate'     : 'rotar',
   'run'        : 'ejecutar',
+  // EFIRMA-4 (#442): the e.firma seal on an Anexo 24 file. Not `stamp` (a
+  // PAC or authority seal) and not `file` (a transmission): it is the
+  // taxpayer's own signature, and nothing leaves the firm.
+  'seal'       : 'sellar',
   'search'     : 'buscar',
   'seed'       : 'sembrar',
   'send'       : 'entregar',
