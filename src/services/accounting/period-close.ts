@@ -432,8 +432,9 @@ export function subledgerDeltaCheck(code: SubledgerCode, side: SubledgerSide | n
 
 /**
  * MNE-001-148 (#309) · Professional fees from an individual (regime 612) that
- * `fees_without_withholding=record_as_issued` posted with no ISR withheld, in
- * entries of the period. The classifier marks them in the facts it stores; the
+ * `fees_without_withholding=record_as_issued` posted with no ISR withheld, and
+ * (MNE-001-057) any CFDI `withholding_mismatch=record_as_issued` posted with a
+ * withholding other than the law's, in entries of the period. The classifier marks them in the facts it stores; the
  * checkbox counts these rows and `closing explain` lists them, so the two
  * cannot disagree. $3 is the row limit.
  */
@@ -443,7 +444,7 @@ export const FEES_WITHOUT_WITHHOLDING_ROWS = `
     FROM cfdi_classifications cc
     JOIN journal_entries je ON je.id = cc.journal_entry_id AND je.entity_id = cc.entity_id
    WHERE cc.entity_id = $1 AND je.fiscal_period_id = $2 AND je.status = 'posted'
-     AND cc.facts->>'feesWithoutWithholding' = 'record_as_issued'
+     AND 'record_as_issued' IN (cc.facts->>'feesWithoutWithholding', cc.facts->>'withholdingMismatch')
    ORDER BY je.entry_date, je.entry_number
    LIMIT $3`;
 
@@ -779,11 +780,11 @@ export async function getPeriodCloseStatus(
     severity: 'warning',
     details:
       unwithheldCount > 0
-        ? `${unwithheldCount} fees CFDI(s) recorded as issued with no ISR withheld: the expense may not be deductible (LISR 27-V)`
+        ? `${unwithheldCount} CFDI(s) recorded as issued without the withholding the law requires: the expense may not be deductible (LISR 27-V)`
         : undefined,
   });
   if (unwithheldCount > 0) {
-    warnings.push(`${unwithheldCount} professional fees recorded without the ISR withheld (LISR 27-V)`);
+    warnings.push(`${unwithheldCount} CFDI(s) recorded without the withholding the law requires (LISR 27-V)`);
   }
 
   // 4. Check depreciation calculated

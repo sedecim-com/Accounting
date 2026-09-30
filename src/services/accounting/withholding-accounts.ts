@@ -49,7 +49,9 @@ export const WITHHOLDING_LAYOUTS: Readonly<Record<WithholdingLayout, readonly Ta
     { role: VAT, qualifier: null, code: '2143' },
   ],
   // The SAT grouping code (c_CodAgrup) names these three lines; ISR withheld
-  // on anything that is not a lease is booked as professional services.
+  // on anything that is not a lease is booked as professional services, the
+  // RESICO 1.25 % (LISR 113-J) included; a RESICO real-estate lease is a lease
+  // (withholdingQualifierOf).
   by_concept: [
     { role: ISR, qualifier: null, code: '2145', groupingCode: '216.04' },
     { role: ISR, qualifier: LEASE_QUALIFIER, code: '2144', groupingCode: '216.03' },

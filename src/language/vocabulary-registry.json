@@ -5813,6 +5813,38 @@
     },
     {
       "class": "policy-key",
+      "where": "withholding_mismatch",
+      "es": "withholding_mismatch",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-057): what happens to a received CFDI whose declared withholding differs from the one the law requires of the payer."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_mismatch/request_substitute_cfdi",
+      "es": "request_substitute_cfdi",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI is held, nothing is written, and the vendor is asked for a substitute CFDI."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_mismatch/withhold_by_law",
+      "es": "withhold_by_law",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the law's withholding is proposed and the entry is held for review."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_mismatch/record_as_issued",
+      "es": "record_as_issued",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI posts with its declared withholding, and the close checklist lists it."
+    },
+    {
+      "class": "policy-key",
       "where": "withholding_accounts_layout",
       "es": "withholding_accounts_layout",
       "en": null,
