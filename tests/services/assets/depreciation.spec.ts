@@ -22,7 +22,7 @@ import {
   type DepreciationResult,
 } from '../../../src/services/assets/depreciation-math.js';
 import { DepreciationMethod } from '../../../src/types/index.js';
-import { basisLock } from '../../../src/services/assets/depreciation.js';
+import { basisLock, investmentBaseFor } from '../../../src/services/assets/depreciation.js';
 
 /**
  * LA ARITMÉTICA DE LA DEPRECIACIÓN, SIN POSTGRES DETRÁS.
@@ -352,6 +352,7 @@ describe('lo que queda escrito del cálculo', () => {
       periodos: 37,
       vidaUtilMeses: 36,
       baseDepreciable: '90000.0000',
+      investmentBase: 'cost_less_salvage',
       baseDefinida: true,
       convencionDefinida: false,
     });
@@ -362,6 +363,7 @@ describe('lo que queda escrito del cálculo', () => {
     expect(meta.tipo_calendario).toBe('tax');
     expect(meta.periodos_totales).toBe(37);
     expect(meta.base_depreciable).toBe('90000.0000');
+    expect(meta.investment_base).toBe('cost_less_salvage');
     // Si el criterio venía del despacho o del defecto declarado se guarda
     // también: es lo que permite auditar por qué el importe es ése.
     expect(meta.politicas).toEqual({
@@ -404,5 +406,37 @@ describe('the basis lock of an asset with posted rows (#322)', () => {
     expect(basisLock(new Set(['book']), 'tax')).toMatch(/cannot change/);
     expect(basisLock(new Set(['book']), 'book')).toBeNull();
     expect(basisLock(undefined, 'tax')).toBeNull();
+  });
+});
+
+describe('under tasa_lisr the rate applies to the original investment (art. 31 LISR, MNE-001-396)', () => {
+  const example = (over: Partial<DepreciationInput> = {}): DepreciationInput =>
+    activo({ salvage_value: '10000.0000', annual_rate: '0.2500', ...over });
+
+  it('100000 with 10000 of salvage at 25 % posts 2083.3333 a month and stops at 100000', () => {
+    const rows = calculateStraightLine(example({ investment_base: 'original_investment' }));
+    expect(rows).toHaveLength(48);
+    expect(rows[0].depreciation_expense).toBe('2083.3333');
+    expect(rows[47].accumulated_depreciation).toBe('100000.0000');
+    expect(rows[47].ending_book_value).toBe('0.0000');
+    expect(sumaDeGastos(rows)).toBe('100000.0000');
+    expect(baseDeLaVida(example({ investment_base: 'original_investment' }))).toBe('100000.0000');
+  });
+
+  it('cost less salvage stays the base when nothing asks for the original investment', () => {
+    const rows = calculateStraightLine(example());
+    expect(rows[0].depreciation_expense).toBe('1875.0000');
+    expect(rows[rows.length - 1].accumulated_depreciation).toBe('90000.0000');
+  });
+
+  it('the basis picks the base: tasa_lisr the original investment, vida_util_nif cost less salvage', () => {
+    expect(investmentBaseFor('tasa_lisr', undefined)).toBe('original_investment');
+    expect(investmentBaseFor('vida_util_nif', undefined)).toBe('cost_less_salvage');
+    expect(investmentBaseFor('vida_util_nif', 'original_investment')).toBe('cost_less_salvage');
+  });
+
+  it('an asset whose tax rows started on cost less salvage keeps that base', () => {
+    expect(investmentBaseFor('tasa_lisr', 'cost_less_salvage')).toBe('cost_less_salvage');
+    expect(investmentBaseFor('tasa_lisr', 'original_investment')).toBe('original_investment');
   });
 });

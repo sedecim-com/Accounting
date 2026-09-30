@@ -62,6 +62,17 @@ export type ConvencionPrimerMes = (typeof CONVENCIONES_PRIMER_MES)[number];
  * UNIQUE (asset_id, fiscal_period_id, schedule_type) dejaba de poder guardar
  * las dos corridas del mismo mes.
  */
+/**
+ * What the depreciable base is measured from.
+ *
+ * `cost_less_salvage` is NIF C-6's depreciable amount. `original_investment`
+ * is LISR art. 31: the maximum percentages apply to the *monto original de la
+ * inversión*, with no salvage value subtracted (owner decision MNE-001-135,
+ * #429). The service picks it from the basis; this module only applies it.
+ */
+export const INVESTMENT_BASES = ['cost_less_salvage', 'original_investment'] as const;
+export type InvestmentBase = (typeof INVESTMENT_BASES)[number];
+
 export const TIPO_DE_CALENDARIO: Record<BaseDepreciacion, 'book' | 'tax'> = {
   vida_util_nif: 'book',
   tasa_lisr: 'tax',
@@ -90,6 +101,8 @@ export interface DepreciationInput {
    * integer life can express, so the last whole month takes the remainder.
    */
   annual_rate?: string;
+  /** Defaults to `cost_less_salvage`. MACRS ignores it: it always runs on the cost. */
+  investment_base?: InvestmentBase;
 }
 
 export interface DepreciationResult {
@@ -175,7 +188,8 @@ interface SerieCruda {
 }
 
 function baseDepreciable(input: DepreciationInput): Decimal {
-  return new Decimal(input.acquisition_cost).minus(input.salvage_value);
+  const cost = new Decimal(input.acquisition_cost);
+  return input.investment_base === 'original_investment' ? cost : cost.minus(input.salvage_value);
 }
 
 /**
@@ -521,6 +535,7 @@ export function metadatosDeCalculo(a: {
   periodos: number;
   vidaUtilMeses: number;
   baseDepreciable: string;
+  investmentBase: InvestmentBase;
   baseDefinida: boolean;
   convencionDefinida: boolean;
 }): Record<string, unknown> {
@@ -533,6 +548,9 @@ export function metadatosDeCalculo(a: {
     periodos_totales: a.periodos,
     vida_util_meses: a.vidaUtilMeses,
     base_depreciable: a.baseDepreciable,
+    // Read back by `taxBasesStarted`: a tax row without it was posted before
+    // MNE-001-396, on cost less salvage, and its asset keeps that base.
+    investment_base: a.investmentBase,
     politicas: {
       base_depreciacion: { valor: a.base, definida: a.baseDefinida },
       convencion_primer_mes: { valor: a.convencion, definida: a.convencionDefinida },

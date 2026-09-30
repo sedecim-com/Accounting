@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
 
 import { getPolicySpec, type PolicySpec } from '../../../src/services/policy/policy-service.js';
-import { basisLock, taxRateForBasis } from '../../../src/services/assets/depreciation.js';
+import { basisLock, investmentBaseFor, taxRateForBasis } from '../../../src/services/assets/depreciation.js';
 import { DECISIONS, DEFAULT_THRESHOLDS, PREPAID_THRESHOLD_MXN } from '../../../src/services/xml-ingestion/cfdi-decisions.js';
 import type { CfdiFacts } from '../../../src/services/xml-ingestion/cfdi-facts.js';
 import type { FixedAsset } from '../../../src/types/index.js';
@@ -104,6 +104,12 @@ describe('base_depreciacion — the text promises one schedule and the lock the 
     expect(s.impact).toMatch(/without a stored (tax )?rate/i);
     expect(taxRateForBasis(asset({ tax_rate: null }), 'tasa_lisr')).toBeUndefined();
     expect(taxRateForBasis(asset({ tax_rate: '0.35' } as Partial<FixedAsset>), 'tasa_lisr')).toBe('0.35');
+  });
+
+  it('says tasa_lisr runs on the original investment (art. 31 LISR), which is what investmentBaseFor does', () => {
+    expect(s.impact).toMatch(/original investment with no salvage value subtracted \(art\. 31 LISR\)/);
+    expect(investmentBaseFor('tasa_lisr', undefined)).toBe('original_investment');
+    expect(investmentBaseFor('vida_util_nif', undefined)).toBe('cost_less_salvage');
   });
 });
 

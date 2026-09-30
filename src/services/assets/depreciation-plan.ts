@@ -19,6 +19,8 @@ import {
   criteriosDeLaCorrida,
   fechaDelAsiento,
   postedBooks,
+  investmentBaseFor,
+  taxBasesStarted,
   taxRateForBasis,
   inquilinoDeLaEntidad,
   medianocheLocal,
@@ -229,6 +231,7 @@ export async function planDeDepreciacion(
   // distinto.
   const faltante = await getPolicy({ tenantId, entityId }, 'depreciacion_faltante_al_cierre');
   const posted = await postedBooks(entityId);
+  const startedBases = await taxBasesStarted(entityId);
 
   const assets = await query<FilaDeActivo>(
     `SELECT fa.*,
@@ -324,6 +327,7 @@ export async function planDeDepreciacion(
       macrs_class: asset.macrs_class ?? undefined,
       convencion: criterios.convencion,
       annual_rate: taxRateForBasis(asset, criterios.base),
+      investment_base: investmentBaseFor(criterios.base, startedBases.get(asset.id)),
     };
 
     let calendario;
