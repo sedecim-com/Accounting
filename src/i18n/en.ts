@@ -1235,6 +1235,39 @@ export const EN = {
     'Every line: each captured figure is adjusted to pesos and the arithmetic continues in whole pesos',
   'policy.filing_rounding_to_pesos.option.solo_el_pago':
     'Only the payment: the arithmetic runs in cents and only the result is adjusted to pesos',
+  'policy.overtime_isr_exemption.question':
+    'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
+  'policy.overtime_isr_exemption.impact':
+    'It moves the ISR withheld on every paycheck with overtime, and the exempt part the payroll CFDI declares. "exempt_by_law" exempts 50 % of the double-paid hours within the LFT weekly limit, up to 5 daily UMA of the payment date per week of the period; triple-paid hours go as an earning of their own and are taxed whole. "taxed_in_full" taxes all overtime.',
+  'policy.overtime_isr_exemption.rationale':
+    'LISR art. 93 fr. I exempts 50 % of overtime pay within the labour-law limit (LFT art. 66, dated by the reform of DOF 01-05-2026), up to 5 times the minimum wage (the UMA since DOF 27-01-2016) per week of service. Withholding on the exempt half over-withholds the worker every period. Taxing it whole is for a firm that cannot evidence the overtime was worked, where the SAT would reject the exemption.',
+  'policy.overtime_isr_exemption.why':
+    'The law exempts part of the overtime, but only overtime that was really worked and recorded. A firm with time records applies the exemption; one without them may prefer to withhold on all of it.',
+  'policy.overtime_isr_exemption.what':
+    'With "exempt_by_law" I split each overtime line into its exempt and taxable part and compute the ISR on the taxable one. Every overtime line must carry its `hours`: a line without them, or hours that, added to the other lines and runs of the same period, pass the LFT weekly limit, stop the run before any paycheck is written. With "taxed_in_full" the whole line is taxed and no hours are needed.',
+  'policy.overtime_isr_exemption.if_skipped':
+    'I apply the exemption of the law.',
+  'policy.overtime_isr_exemption.option.exempt_by_law':
+    'Exempt it as LISR art. 93 fr. I says: half, up to 5 UMA a week',
+  'policy.overtime_isr_exemption.option.taxed_in_full':
+    'Tax all overtime, with no exemption',
+
+  'policy.overtime_exempt_weeks.question':
+    'How many weeks of service does a pay period count for the overtime cap of LISR art. 93 fr. I (5 UMA per week)?',
+  'policy.overtime_exempt_weeks.impact':
+    'It moves the exempt overtime of every period that is not a whole number of weeks, and the LFT hours limit of that period: a quincena gets 5 × 15/7 UMA (1 256.89 from February 2026) with "calendar_days_over_seven", and 5 × 2 UMA (1 173.10) with "whole_weeks_of_period". A weekly payroll gets 5 UMA either way.',
+  'policy.overtime_exempt_weeks.rationale':
+    'Fraction I caps the exemption "por cada semana de servicios" and neither the LISR, its regulation nor the RMF says how a period that is not a whole number of weeks counts them. Days / 7 scales the weekly cap to the days of the period, the way the ISR tariff of each period is scaled to its days (Anexo 8 RMF: weekly, ten-day, fifteen-day and monthly tariffs). Whole weeks is the stricter reading of the words, and never exempts a part of a week: it withholds more. Please confirm this default.',
+  'policy.overtime_exempt_weeks.why':
+    'The law caps overtime per week, but most payrolls pay by quincena or month, and there are two honest ways to count the weeks in them.',
+  'policy.overtime_exempt_weeks.what':
+    'I multiply the 5 UMA cap and the LFT weekly hours by the weeks this answer gives: the period\'s days / 7, or the whole weeks in it.',
+  'policy.overtime_exempt_weeks.if_skipped':
+    'I count the period\'s days / 7.',
+  'policy.overtime_exempt_weeks.option.calendar_days_over_seven':
+    'The period\'s calendar days / 7: a quincena is 15/7 weeks',
+  'policy.overtime_exempt_weeks.option.whole_weeks_of_period':
+    'Only the whole weeks in the period: a quincena is 2 weeks, a month 4',
 
   'policy.isn_taxing_state.question':
     'For the state payroll tax (ISN), which state does a worker belong to: the one where the work is performed, or the one of the firm\'s tax domicile?',
