@@ -1,7 +1,8 @@
 import Decimal from 'decimal.js';
-import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { XMLValidator } from 'fast-xml-parser';
 import { query, currentTenant } from '../../../database/connection.js';
 import { ValidationError, NotFoundError } from '../../../utils/errors.js';
+import { createXmlReader, normalizeAttributes } from '../../../utils/xml-reader.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import {
   getTrialBalance,
@@ -502,6 +503,10 @@ export async function catalogoSegunElPlanDeCuentas(
  * (`catalogocuentas:` es el habitual, no el obligatorio), y preguntar por un
  * prefijo concreto es cómo un cotejo devuelve cero cuentas en silencio — que
  * aquí se leería como «ninguna cuenta está declarada».
+ *
+ * NOTE: the parser is the shared third-party reader (#218), so a `NumCta`
+ * written as `&#49;120` is `1120` and a `&#10;` inside it is the space the SAT
+ * read (XML 1.0 §3.3.3): see src/utils/xml-reader.ts.
  */
 export function catalogoDesdeXml(xml: string, referencia?: string): CatalogoDeReferencia {
   if (XMLValidator.validate(xml) !== true) {
@@ -510,16 +515,8 @@ export function catalogoDesdeXml(xml: string, referencia?: string): CatalogoDeRe
         `contra él. Regenere el catálogo antes de presentar.`
     );
   }
-  const analizador = new XMLParser({
-    ignoreAttributes: false,
-    attributeNamePrefix: '@_',
-    removeNSPrefix: true,
-    parseTagValue: false,
-    parseAttributeValue: false,
-    trimValues: true,
-    isArray: (nombre) => nombre === 'Ctas',
-  });
-  const crudo: unknown = analizador.parse(xml) as unknown;
+  const analizador = createXmlReader({ trimValues: true, repeated: ['Ctas'] });
+  const crudo: unknown = normalizeAttributes(analizador.parse(xml) as unknown);
   const catalogo = esObjeto(crudo) ? crudo['Catalogo'] : undefined;
   const filas = esObjeto(catalogo) ? catalogo['Ctas'] : undefined;
   const cuentas = Array.isArray(filas)
