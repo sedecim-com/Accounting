@@ -53,6 +53,12 @@ import {
 //     a blocking finding that names its entry, and the XML is still built so
 //     it can be looked at. The builder refuses them only as a last resort,
 //     when no one ran those checks, and then it names every entry at once.
+//   · The payee is required on all three payment nodes: `Benef` (minLength
+//     1) and `RFC` (the RFC pattern) are use="required" on Cheque,
+//     Transferencia and OtrMetodoPago alike. OtrMetodoPago used to leave
+//     without them when the vendor had no usable name or RFC, and the file
+//     failed the XSD (#530). The service now leaves such a node out and names
+//     its entry, and `requirePayee` refuses a caller that does not.
 //   · `Sello`, `noCertificado` y `Certificado` EXISTEN en el esquema y este
 //     módulo NO los emite ni tiene por dónde: no hay una sola rama que cargue
 //     una llave privada, y no debe haberla. La e.firma es el contribuyente
@@ -193,8 +199,13 @@ export interface PagoPorOtroMetodo {
   /** Método con el que se pagó, en las grafías del catálogo del SAT. */
   metPagoPol: string;
   fecha: string;
-  benef?: string;
-  rfc?: string;
+  /**
+   * Required, as on Cheque and Transferencia: PolizasPeriodo_1_3.xsd declares
+   * `Benef` and `RFC` use="required" on all three payment nodes (#530). A
+   * payment without them gets no node; its entry is named instead.
+   */
+  benef: string;
+  rfc: string;
   monto: string;
   moneda?: string;
   tipCamb?: string;
@@ -371,6 +382,28 @@ function exigirFecha(donde: string, atributo: string, valor: string): string {
     throw new ValidationError(`${donde}/@${atributo} = «${valor}» no tiene forma YYYY-MM-DD.`);
   }
   return valor;
+}
+
+/**
+ * THE PAYEE OF A PAYMENT NODE. `Benef` (minLength 1) and `RFC` (the RFC
+ * pattern) are use="required" on Cheque, Transferencia and OtrMetodoPago
+ * alike, and a node without them makes the SAT reject the whole file (#530).
+ * The service leaves such a node out and names its entry before it gets here;
+ * this refusal keeps any other caller from building that file.
+ */
+function requirePayee(node: string, payment: { benef: string; rfc: string }): void {
+  if (payment.benef.trim() === '') {
+    throw new ValidationError(
+      `${node}/@Benef está vacío. El esquema lo exige en los tres nodos de pago, con al menos un ` +
+        `carácter: sin él el SAT rechaza el archivo entero.`
+    );
+  }
+  if (!RFC_RE.test(payment.rfc)) {
+    throw new ValidationError(
+      `${node}/@RFC = «${payment.rfc}»: el esquema lo exige en los tres nodos de pago con forma de ` +
+        `RFC, y el que se emita es el que la autoridad cruza contra las declaraciones del tercero.`
+    );
+  }
 }
 
 /** `CFD_CBB_Serie` in PolizasPeriodo and AuxiliarFolios 1.3: pattern [A-Z]+, length 1 to 10. */
@@ -596,6 +629,7 @@ function nodoDePago(p: NodoDePago): NodoXml {
     case 'cheque': {
       const nombre = `${PREFIJO_POLIZAS}:Cheque`;
       exigirBancoUnico(nombre, p.banEmisNal, p.banEmisExt, 'emisor');
+      requirePayee(nombre, p);
       return {
         nombre,
         atributos: [
@@ -616,6 +650,7 @@ function nodoDePago(p: NodoDePago): NodoXml {
       const nombre = `${PREFIJO_POLIZAS}:Transferencia`;
       exigirBancoUnico(nombre, p.bancoOriNal, p.bancoOriExt, 'de origen');
       exigirBancoUnico(nombre, p.bancoDestNal, p.bancoDestExt, 'de destino');
+      requirePayee(nombre, p);
       if (p.ctaDest.trim() === '') {
         throw new ValidationError(
           `${nombre}/@CtaDest está vacío. La cuenta que RECIBIÓ el dinero es lo obligatorio de este ` +
@@ -642,6 +677,7 @@ function nodoDePago(p: NodoDePago): NodoXml {
     }
     case 'otro': {
       const nombre = `${PREFIJO_POLIZAS}:OtrMetodoPago`;
+      requirePayee(nombre, p);
       return {
         nombre,
         atributos: [

@@ -556,3 +556,41 @@ describe('the journal generator refuses, by name, a value the XSD rejects', () =
     expect(() => construirAuxiliarFoliosXml(data)).toThrow('RepAuxFol:ComprExt/@Moneda = «QQQ»');
   });
 });
+
+const PAYMENT_NODES = ['Cheque', 'Transferencia', 'OtrMetodoPago'] as const;
+const payeeCases = PAYMENT_NODES.flatMap((node, i) =>
+  [
+    ['Benef', 'benef', ''],
+    ['RFC', 'rfc', ''],
+    ['RFC', 'rfc', 'PSA0101'],
+  ].map(([attribute, field, bad]) => [node, attribute, bad, i, field] as const)
+);
+
+describe('a payment node without its payee is refused by name, and the XSD agrees (#530)', () => {
+  it.each(PAYMENT_NODES.flatMap((node) => [[node, 'Benef'], [node, 'RFC']]))(
+    'the XSD requires PLZ:%s/@%s',
+    (node, attribute) => {
+      const without = new RegExp(`(<PLZ:${node} [^>]*?) ${attribute}="[^"]*"`);
+      const valid = construirPolizasXml(journal());
+      const xml = valid.replace(without, '$1');
+      expect(xml).not.toBe(valid);
+      expect(validateAgainstOfficialXsd(xml, 'journal').errors.join('\n')).toContain(
+        `The attribute '${attribute}' is required but missing`
+      );
+    }
+  );
+
+  it.each(payeeCases)('PLZ:%s/@%s = «%s» is refused by name', (node, attribute, bad, i, field) => {
+    const data = journal();
+    Object.assign(payment(data, i), { [field]: bad });
+    expect(() => construirPolizasXml(data)).toThrow(ValidationError);
+    expect(() => construirPolizasXml(data)).toThrow(`PLZ:${node}/@${attribute}`);
+
+    // The same value, written into a valid file: the XSD rejects it too.
+    const present = new RegExp(`(<PLZ:${node} [^>]*?)${attribute}="[^"]*"`);
+    const xml = construirPolizasXml(journal()).replace(present, `$1${attribute}="${bad}"`);
+    const verdict = validateAgainstOfficialXsd(xml, 'journal');
+    expect(verdict.valid).toBe(false);
+    expect(verdict.errors.join('\n')).toContain(`attribute '${attribute}'`);
+  });
+});

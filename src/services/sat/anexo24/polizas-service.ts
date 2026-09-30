@@ -467,9 +467,9 @@ function rastroDePago(
   // el tercero pondría al cliente como beneficiario de un dinero que entró en
   // nuestra cuenta.
   const crudoBenef = sentido === 'sale' ? p.contraparte : nuestro.nombre;
-  // El vacío NO pasa por el saneador: `limpiar('')` devuelve '-', y en el nodo
-  // `OtrMetodoPago` el beneficiario es OPCIONAL — declarar «-» donde el dato
-  // no consta es peor que omitirlo.
+  // A blank name does not go through the sanitizer: `limpiar('')` returns
+  // '-', and a «-» declared as the beneficiary is a value nobody captured.
+  // It stays blank, and `payeeGap` below turns it into the entry's motive.
   const benef =
     crudoBenef.trim() === ''
       ? ''
@@ -482,6 +482,28 @@ function rastroDePago(
     sentido === 'sale'
       ? (p.contraparte_rfc ?? '').toUpperCase().replace(/\s+/g, '')
       : nuestro.rfc.toUpperCase().replace(/\s+/g, '');
+
+  // BENEF AND RFC ARE REQUIRED ON ALL THREE NODES (#530). PolizasPeriodo 1.3
+  // declares both use="required" on Cheque, Transferencia and OtrMetodoPago
+  // alike: Benef with minLength 1, RFC with the RFC pattern. Leaving either
+  // out does not make a thinner trace, it makes the SAT reject the whole
+  // file, and an RFC without the shape of one fails the XSD and matches no one
+  // in the authority's cross-check. So the node is left out and the entry is
+  // named.
+  const payeeGap = (node: string, which: string): string | undefined => {
+    if (benef === '') {
+      const whose = sentido === 'sale' ? 'del proveedor' : 'de la entidad';
+      return `el beneficiario ${which} no tiene nombre (el nombre ${whose} está vacío), y el nodo ${node} lo exige`;
+    }
+    if (rfcDeclarable(rfcBenef) === null) {
+      const said =
+        rfcBenef === ''
+          ? 'no tiene RFC capturado'
+          : `tiene «${rfcBenef}» como RFC, que no tiene forma de RFC (12 caracteres persona moral o 13 física)`;
+      return `el beneficiario ${which} ${said}, y el nodo ${node} lo exige`;
+    }
+    return undefined;
+  };
 
   const crudoCuenta = numeroDeCuenta(banco);
   const nuestraCuenta =
@@ -513,18 +535,8 @@ function rastroDePago(
           `la cuenta bancaria del pago no tiene número guardado o no descifra`,
       };
     }
-    // EL RFC DEL BENEFICIARIO SE COMPRUEBA, NO SE EMITE A CIEGAS. El nodo
-    // `Cheque` declara @RFC como obligatorio, así que omitirlo no es opción;
-    // emitir uno malformado es peor, porque el archivo se acepta y el cruce
-    // que la autoridad hace contra ese RFC no encuentra a nadie. Se prefiere
-    // no emitir el nodo y NOMBRAR la póliza, que es lo que hace el hallazgo.
-    if (rfcDeclarable(rfcBenef) === null) {
-      return {
-        motivo:
-          `el beneficiario del cheque ${num} tiene «${rfcBenef}» como RFC, que no tiene forma de ` +
-          `RFC (12 caracteres persona moral o 13 física)`,
-      };
-    }
+    const gap = payeeGap('Cheque', `del cheque ${num}`);
+    if (gap !== undefined) return { motivo: gap };
     return {
       pago: {
         clase: 'cheque',
@@ -556,13 +568,8 @@ function rastroDePago(
               `que lo recibió: ni está capturada ni la cuenta bancaria del cobro tiene número`,
       };
     }
-    if (rfcDeclarable(rfcBenef) === null) {
-      return {
-        motivo:
-          `el beneficiario de la transferencia ${p.payment_number} tiene «${rfcBenef}» como RFC, ` +
-          `que no tiene forma de RFC`,
-      };
-    }
+    const gap = payeeGap('Transferencia', `de la transferencia ${p.payment_number}`);
+    if (gap !== undefined) return { motivo: gap };
     const nodo: NodoDePago = {
       clase: 'transferencia',
       ...(sentido === 'sale'
@@ -604,16 +611,15 @@ function rastroDePago(
   // un cajón de sastre: es el nodo con el que el Anexo 24 admite que hubo un
   // pago que no fue ni cheque ni transferencia, y llevar un pago en efectivo
   // al nodo Transferencia sería una afirmación falsa sobre cómo se movió.
+  const gap = payeeGap('OtrMetodoPago', `del pago ${p.payment_number}`);
+  if (gap !== undefined) return { motivo: gap };
   return {
     pago: {
       clase: 'otro',
       metPagoPol: METODO_A_SAT[p.payment_method] ?? '99',
       fecha: p.payment_date,
-      ...(benef !== '' ? { benef } : {}),
-      // Aquí @RFC sí es OPCIONAL, así que un RFC sin forma se OMITE en vez de
-      // costar el nodo entero: un rastro con beneficiario y sin RFC dice más
-      // que ningún rastro, y un RFC inventado no dice nada verdadero.
-      ...(rfcDeclarable(rfcBenef) !== null ? { rfc: rfcBenef } : {}),
+      benef,
+      rfc: rfcBenef,
       monto,
       moneda,
       ...(tipCamb !== undefined ? { tipCamb } : {}),
