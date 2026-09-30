@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
 vi.mock('../../../src/services/integrations/accounting/registry.js', () => ({
   getExternalAdapter: vi.fn(),
+  assertExternalAdapterUsable: vi.fn(),
   listExternalSystems: vi.fn(() => ['contalink']),
 }));
 vi.mock('../../../src/ai/approval-policy.js', () => ({
@@ -23,12 +24,17 @@ import {
 } from '../../../src/ai/external-service.js';
 import { FLOOR_MAX_OP_AGE_DAYS } from '../../../src/ai/floor.js';
 import { query } from '../../../src/database/connection.js';
-import { getExternalAdapter } from '../../../src/services/integrations/accounting/registry.js';
+import {
+  assertExternalAdapterUsable,
+  getExternalAdapter,
+} from '../../../src/services/integrations/accounting/registry.js';
+import { ExternalCredentialError } from '../../../src/services/integrations/accounting/entity-credentials.js';
 import { matchApproval } from '../../../src/ai/approval-policy.js';
 import type { AgentContext } from '../../../src/ai/context.js';
 
 const mockQuery = query as unknown as Mock;
 const mockGetAdapter = getExternalAdapter as unknown as Mock;
+const mockAssertUsable = assertExternalAdapterUsable as unknown as Mock;
 const mockMatchApproval = matchApproval as unknown as Mock;
 
 const CTX: AgentContext = {
@@ -40,6 +46,7 @@ const CTX: AgentContext = {
 beforeEach(() => {
   mockQuery.mockReset();
   mockGetAdapter.mockReset();
+  mockAssertUsable.mockReset();
   mockMatchApproval.mockReset();
 });
 
@@ -78,17 +85,39 @@ describe('diffTrialBalance', () => {
 });
 
 describe('outbox', () => {
-  it('queueExternalOp validates the provider BEFORE inserting', async () => {
-    mockGetAdapter.mockImplementationOnce(() => {
-      throw new Error('requires the CONTALINK_API_KEY environment variable');
-    });
+  it('queueExternalOp validates the provider and THIS entity\'s key BEFORE inserting, without reading the key', async () => {
+    mockAssertUsable.mockRejectedValueOnce(new ExternalCredentialError('This entity has no contalink key registered'));
     await expect(
       queueExternalOp(CTX, {
         provider: 'contalink', operation: 'create_policy', payload: {},
         reasoning: 'x', model: 'm',
       })
-    ).rejects.toThrow(/CONTALINK_API_KEY/);
+    ).rejects.toThrow(/no contalink key registered/);
+    expect(mockAssertUsable).toHaveBeenCalledWith(CTX, 'contalink');
+    // Queueing needs the metadata only: the vault is read when the op runs.
+    expect(mockGetAdapter).not.toHaveBeenCalled();
     expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('a missing key at execution is refused before any call: the op returns to pending, 423 survives', async () => {
+    mockGetAdapter.mockRejectedValueOnce(new ExternalCredentialError('This entity has no contalink key registered'));
+    mockQuery.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [{ id: 'op-1', provider: 'contalink', operation: 'create_policy', payload: {}, status: 'executing', ai_reasoning: 'r', result: null, error: null, created_at: new Date() }],
+    });
+    mockQuery.mockResolvedValueOnce({ rowCount: 1, rows: [] });
+
+    const err = await executeExternalOp(CTX, 'op-1', 'e').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ExternalCredentialError);
+    expect(exitCodeFor(err)).toBe(ExitCode.BLOCKED);
+    const [sql, params] = mockQuery.mock.calls[1] as [string, unknown[]];
+    // Not 'failed': the approval is not spent on a configuration gap.
+    expect(sql).toMatch(/SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, error = \$1/);
+    expect(sql).toMatch(/AND status = 'executing'/);
+    expect(params).toEqual([
+      'Refused before calling contalink: This entity has no contalink key registered', 'op-1', CTX.entityId,
+    ]);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 
   it('queues with tenant/entity and reasoning', async () => {

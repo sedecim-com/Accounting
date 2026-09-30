@@ -116,6 +116,9 @@ export function batchExitCode(codes: readonly ExitCodeValue[]): ExitCodeValue {
   if (codes.length === 0) return ExitCode.OK;
   if (codes.includes(ExitCode.EXTERNAL_FAILED)) return ExitCode.EXTERNAL_FAILED;
   if (codes.every((c) => c === ExitCode.EXTERNAL_REJECTED)) return ExitCode.EXTERNAL_REJECTED;
+  // Every op refused before any call because a human must act first (the
+  // entity's external key is missing, #357): the batch is blocked, not failed.
+  if (codes.every((c) => c === ExitCode.BLOCKED)) return ExitCode.BLOCKED;
   return ExitCode.FAILURE;
 }
 
