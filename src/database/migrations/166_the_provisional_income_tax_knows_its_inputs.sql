@@ -33,7 +33,7 @@
 --     so the calculation (MNE-001-059) can finish the update and prove it.
 --   · APPEND-ONLY, ENFORCED. A correction (an amended return) is a new row;
 --     the figure in force for a return is the one with the highest seq, and
---     the trigger below refuses UPDATE and DELETE for everyone, as 033, 035
+--     the triggers below refuse UPDATE, DELETE and TRUNCATE for everyone, as 033, 035
 --     and 041 do. seq is an identity, not recorded_at: two captures in the
 --     same microsecond still have one order.
 --
@@ -83,6 +83,13 @@ $fn$;
 CREATE TRIGGER income_tax_annual_inputs_append_only
   BEFORE UPDATE OR DELETE ON public.income_tax_annual_inputs
   FOR EACH ROW
+  EXECUTE FUNCTION public.income_tax_annual_inputs_append_only();
+
+-- A TRUNCATE fires no row trigger, so it gets its own statement-level one,
+-- as 033 and 083 do: otherwise one statement would empty the history.
+CREATE TRIGGER income_tax_annual_inputs_no_truncate
+  BEFORE TRUNCATE ON public.income_tax_annual_inputs
+  FOR EACH STATEMENT
   EXECUTE FUNCTION public.income_tax_annual_inputs_append_only();
 
 COMMENT ON TABLE income_tax_annual_inputs IS
