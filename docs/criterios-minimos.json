@@ -116,6 +116,7 @@
     "single-maker-checker-gate",
     "sql-scanner-resolves-alias-columns",
     "startup-rejects-rls-bypass-role",
+    "straddling-period-split-by-contribution-days",
     "sua-file-declares-the-month-and-only-the-month",
     "tenant-context-mounted-globally",
     "tenant-predicate-inlinable-and-qualified",
