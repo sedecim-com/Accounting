@@ -61,7 +61,7 @@ consumes: []                     # ningún contrato de otro repo de Sedecim hoy.
 external:
   - contalink                    # sistema contable externo: lectura (onboarding, diff de balanza) y escritura por la cola revisada ai_external_ops
   - sat-consulta-cfdi            # estado de CFDI ante el SAT
-  - sat-descarga-masiva          # servicio web del SAT autenticado con la e.firma; en el MVP desde el 2026-09-28 (#312). La autenticación existe (#439); solicitud, verificación y descarga no (#440, #441)
+  - sat-descarga-masiva          # servicio web del SAT autenticado con la e.firma; en el MVP desde el 2026-09-28 (#312). La autenticación (#439) y el motor de solicitud, verificación y descarga (#440 1/2) existen; los comandos y la ingesta de paquetes no (#440 2/2, #441)
     # CONTRACT: src/services/sat-download/ws-security.ts builds the Autentica request of the
     # SAT Descarga Masiva service v1.5 (SOAPAction
     # http://DescargaMasivaTerceros.gob.mx/IAutenticacion/Autentica, endpoint in config
@@ -69,6 +69,12 @@ external:
     # XML-DSig (exclusive c14n, SHA-1 digest, RSA-SHA1) and the e.firma certificate as an
     # X509v3 BinarySecurityToken. The key is read only inside withCredential (purpose
     # sat_auth); the token is held in memory for its validity and never stored (#439).
+    # CONTRACT: src/services/sat-download/descarga-masiva.ts sends SolicitaDescargaEmitidos /
+    # SolicitaDescargaRecibidos, VerificaSolicitudDescarga and Descargar (v1.5; endpoints in
+    # config sat.descargaMasiva{Solicita,Verifica,Descarga}Url), each body with an enveloped
+    # XML-DSig by the e.firma (purpose sat_auth) and the token as WRAP access_token. The SAT
+    # codes and their sources live in sat-codes.ts; the lifetime limit on identical XML
+    # requests (5002) is refused before the call by sat_download_quota (migration 167, #440).
   - pac                          # timbrado; adaptadores sin contrato firmado, fuera del MVP
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
