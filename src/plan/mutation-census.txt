@@ -562,6 +562,7 @@ mirror	memory	E4.2 report-sections-are-identified-by-key	src/ai/tools/report-too
 mirror	memory	E4.2 report-sections-are-identified-by-key	src/ai/tools/report-tools.ts	resultado-buscado-por-nombre: traducido el rótulo, la búsqueda no encuentra nada y `equity.result_of_the_period` desaparece del JSON sin que nada lo acuse
 mirror	memory	E4.2 report-sections-are-identified-by-key	src/services/reporting/report-service.ts	subseccion-sin-clave: la única subsección que no viene de `fs_category` se quedaría sin identidad, y quien la busque tendría que volver al rótulo
 mirror	memory	E4.2 report-labels-come-from-the-catalog	src/cli/report-command.ts	rotulo-ingles-con-otra-caja: la prosa vuelve a la FILA, y en mayúscula. El guardia de este rótulo era el único de los cuatro sin la bandera `i`, así que «Net Income» pasaba por delante de él mientras «Net income» moría — un rótulo se escapa cambiando una letra de caja
+mirror	memory	E4.2 report-labels-come-from-the-catalog	src/cli/report-command.ts	subseccion-sin-respaldo-de-seccion: la columna `category` vuelve a preguntar sólo a la tabla de categorías, que no conoce `result_of_the_period`, y el balance imprime la clave cruda en el renglón del resultado del ejercicio (MNE-001-126)
 mirror	memory	E4.2 report-labels-come-from-the-catalog	src/cli/report-command.ts	concatenacion-que-fija-el-orden: la palabra «Total» vuelve al código con el orden inglés cosido, de modo que ninguna traducción puede moverla de sitio aunque el rótulo que la acompaña sí se traduzca
 mirror	memory	E4.2 report-labels-come-from-the-catalog	src/cli/report-command.ts	el-pegado-que-no-es-plantilla: el mismo defecto escrito con `+` en vez de con `${}`. El guardia miraba sólo la plantilla, así que la forma más natural de recaer —concatenar— salía verde con «Total» cosido delante igual que antes
 mirror	memory	E4.2 report-labels-come-from-the-catalog	src/cli/report-command.ts	clave-obligatoria-que-nadie-exigia: el renglón de la suma deja de pedirle su prosa al catálogo y se la pide al rotulador de secciones, que no tiene esa clave y cae al identificador crudo. La lista de claves obligatorias sólo nombraba las dos notas al pie, así que los tres rótulos compuestos podían irse sin que nada se pusiera rojo
@@ -1196,6 +1197,7 @@ anchor	src/plan/criteria/e4-2.ts	de: ' category: sub.key,',
 anchor	src/plan/criteria/e4-2.ts	de: " (x: Seccion['subsections'][number]) => x.key === 'result_of_the_period'",
 anchor	src/plan/criteria/e4-2.ts	de: " key: 'result_of_the_period',\n",
 anchor	src/plan/criteria/e4-2.ts	de: " rows.push({ section: '', code: '', name: '', amount: is.net_income, line: 'total' });",
+anchor	src/plan/criteria/e4-2.ts	de: "const categoryOf = (value: string): string => (value === '' ? '' : reportSubsectionLabel(value, getLanguage()));",
 anchor	src/plan/criteria/e4-2.ts	de: "t('report.total_of', { name: reportSubsectionLabel(keyOf(row.category), getLanguage()) })",
 anchor	src/plan/criteria/e4-2.ts	de: "t('report.total_of', { name: reportSubsectionLabel(keyOf(row.category), getLanguage()) })",
 anchor	src/plan/criteria/e4-2.ts	de: "t('report.total_liabilities_and_equity')",
