@@ -287,6 +287,8 @@ mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/common/pay-run-service.ts	`status = paid` AFIRMA QUE EL DINERO SALIÓ, y vuelve a poder afirmarse sobre la corrida de cualquier entidad: la mentira queda escrita en la fila de otro despacho
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/common/pay-run-service.ts	recalcular vuelve a poder hacerse sobre la corrida de otra entidad, y no sólo la mira: medido, le dejó `total_gross` en 0.00 y `employee_count` en 0 — reescribe los libros de al lado
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/mx/cfdi-nomina-generator.ts	el CFDI de nómina vuelve a armarse desde cualquier recibo del sistema, con el RFC, la CURP y el NSS de su empleado dentro, y se manda a timbrar: un comprobante emitido no se deshace
+mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/common/paycheck-read-service.ts	the paycheck reader keeps its third parameter and drops the path predicate: GET /paychecks/:id and `payslip show` read the sister entity's paycheck, with its RFC and NSS
+mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/api/rest/routes/payroll.ts	the route still calls the scoped reader but feeds it a key that is not the validated entity: the predicate stays written and bounds nothing
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/mx/finiquito-calculator.ts	el finiquito vuelve a leer al empleado por inquilino: con la guarda de entidad montada y todo, basta cambiar x-entity-id para liquidar a alguien de la sociedad hermana y ver su sueldo en la respuesta
 mirror	memory	E2.1 write-route-hands-entity-to-its-resolver	src/api/rest/routes/bills.ts	reabre #235 tal cual: la aprobación vuelve a tomar la factura por su id y postea en el mayor de la hermana. El criterio viejo sigue en verde ante esto, porque la ruta no nombra ninguna entidad
 mirror	memory	E2.1 write-route-hands-entity-to-its-resolver	src/api/rest/routes/bills.ts	la guarda desaparece de la cadena de middlewares y su NOMBRE queda escrito dentro de una cadena, en los primeros caracteres del bloque: el criterio viejo, que busca el nombre por texto, sobrevive a este mutante
@@ -937,6 +939,8 @@ anchor	src/plan/criteria/e2-1.ts	de: 'WHERE id = $1 AND ${alcance.sql} FOR UPDAT
 anchor	src/plan/criteria/e2-1.ts	de: "WHERE id = $1 AND ${alcance.sql} AND status = 'approved' RETURNING tenant_id",
 anchor	src/plan/criteria/e2-1.ts	de: "UPDATE pay_runs SET status = 'calculating' WHERE id = $1 AND ${alcance.sql}",
 anchor	src/plan/criteria/e2-1.ts	de: 'WHERE p.id = $1 AND p.tenant_id = $2 AND ${predicadoEntidad.sql}',
+anchor	src/plan/criteria/e2-1.ts	de: "AND ${reciboEnEntidad('paychecks.employee_id', 3)}`",
+anchor	src/plan/criteria/e2-1.ts	de: 'getPaycheck(req.params.id, entityScope(req.user!.tenant_id, req.entityId!))',
 anchor	src/plan/criteria/e2-1.ts	de: "WHERE id = $1 AND tenant_id = $2${porEntidad ? ' AND entity_id = $3' : ''}",
 anchor	src/plan/criteria/e2-1.ts	de: 'approveBill(req.params.id, req.user!.user_id, {\n entityId: req.entityId!,\n })',
 anchor	src/plan/criteria/e2-1.ts	de: "IVA acreditable' }), requirePermission('bills:approve'), requireEntityAccess, asyncHandler(",
