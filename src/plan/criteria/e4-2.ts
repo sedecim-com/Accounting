@@ -256,15 +256,15 @@ export const E4_2: Criterio[] = [
       },
       {
         archivo: 'src/cli/report-command.ts',
-        de: "t('report.total_of', { name: reportCategoryLabel(keyOf(row.category)) })",
-        a: "`Total ${reportCategoryLabel(keyOf(row.category))}`",
+        de: "t('report.total_of', { name: reportSubsectionLabel(keyOf(row.category), getLanguage()) })",
+        a: "`Total ${reportSubsectionLabel(keyOf(row.category), getLanguage())}`",
         porque:
           'concatenacion-que-fija-el-orden: la palabra «Total» vuelve al código con el orden inglés cosido, de modo que ninguna traducción puede moverla de sitio aunque el rótulo que la acompaña sí se traduzca',
       },
       {
         archivo: 'src/cli/report-command.ts',
-        de: "t('report.total_of', { name: reportCategoryLabel(keyOf(row.category)) })",
-        a: "'Total ' + reportCategoryLabel(keyOf(row.category))",
+        de: "t('report.total_of', { name: reportSubsectionLabel(keyOf(row.category), getLanguage()) })",
+        a: "'Total ' + reportSubsectionLabel(keyOf(row.category), getLanguage())",
         porque:
           'el-pegado-que-no-es-plantilla: el mismo defecto escrito con `+` en vez de con `${}`. El guardia miraba sólo la plantilla, así que la forma más natural de recaer —concatenar— salía verde con «Total» cosido delante igual que antes',
       },
@@ -505,8 +505,8 @@ export const E4_2: Criterio[] = [
       // prose is the same defect one indirection further in.
       const hooks: [string, RegExp, string][] = [
         ['sectionOf', /reportSectionLabel\(/, 'la columna `section` de las dos tablas'],
-        ['categoryOf', /reportCategoryLabel\(/, 'la columna `category` del balance'],
-        ['balanceSheetName', /reportCategoryLabel\(/, 'el renglón de subtotal del balance'],
+        ['categoryOf', /report(?:Category|Subsection)Label\(/, 'la columna `category` del balance'],
+        ['balanceSheetName', /report(?:Category|Subsection)Label\(/, 'el renglón de subtotal del balance'],
         ['incomeStatementName', /t\('report\./, 'el renglón de total del estado de resultados'],
       ];
       for (const [hook, reaches, what] of hooks) {
