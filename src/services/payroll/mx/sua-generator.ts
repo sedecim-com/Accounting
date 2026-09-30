@@ -61,11 +61,12 @@ export class SuaMismatchError extends ValidationError {
   }
 }
 
-export interface SuaFilingData {
+// `hallazgos` is the JSON key already persisted in tax_form_filings.data; it
+// stays as written, so it is a key of the stored document, not a new name.
+export type SuaFilingData = Record<'hallazgos', HallazgoSua[]> & {
   employee_count: number;
-  hallazgos: HallazgoSua[];
   totals: { imss_employer: number; imss_employee: number; infonavit_employer: number; infonavit_employee: number };
-}
+};
 
 /**
  * Records the month's SUA file as ONE draft filing per (tenant, entity, year,

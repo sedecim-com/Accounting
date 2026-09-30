@@ -8089,6 +8089,10 @@ Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
   -t, --tenant <id>                        tenant (firm) whose data to scope to
   -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
   --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
   --json                                   shorthand for --format json
   -o, --output <path>                      write to a file instead of stdout
@@ -8100,6 +8104,8 @@ Options:
 Examples:
   # The paychecks of a run, by employee number; no tax identifier is printed.
   mnemosine payslip list --run 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d
+  # Only the paychecks whose CFDI is still to stamp, twenty at a time.
+  mnemosine payslip list --run 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --status pending -n 20
   # As JSON, to pick the id of one paycheck.
   mnemosine payslip list --run 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --json
 ```
@@ -8185,6 +8191,7 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --period <YYYY-MM>                       month to export (YYYY-MM); the SUA is monthly
   -y, --yes                                overwrite the file named by -o if it already exists
+  --dry-run                                build and check the file without writing it or recording the filing
   -h, --help                               display help for command
 
 Examples:
@@ -8194,6 +8201,8 @@ Examples:
   mnemosine imss sua export --period 2026-07 > SUA_2026-07.txt
   # What was exported, as JSON, for a script.
   mnemosine imss sua export --period 2026-07 -o SUA_2026-07.txt --json
+  # Build and check the month without writing the file or recording it.
+  mnemosine imss sua export --period 2026-07 --dry-run
 ```
 
 ## `mnemosine cashflow` (alias: flujo)

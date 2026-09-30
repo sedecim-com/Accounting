@@ -603,11 +603,10 @@ export const E2_1: Criterio[] = [
       }
       const paycheckReader = 'src/services/payroll/common/paycheck-read-service.ts';
       if (!existe(paycheckReader)) return falla(`desapareció ${paycheckReader}`);
-      if (
-        !/FROM paychecks WHERE id = \$1 AND tenant_id = \$2\s+AND \$\{reciboEnEntidad\('paychecks\.employee_id', 3\)\}/.test(
-          codigoDe(paycheckReader)
-        )
-      ) {
+      const readerSrc = codigoDe(paycheckReader);
+      const paycheckWhere = readerSrc.indexOf('FROM paychecks WHERE id = $1 AND tenant_id = $2');
+      const pathPredicate = "AND ${reciboEnEntidad('paychecks.employee_id', 3)}";
+      if (paycheckWhere < 0 || !readerSrc.slice(paycheckWhere, paycheckWhere + 120).includes(pathPredicate)) {
         return falla(
           "getPaycheck no longer bounds the paycheck by its employee's entity inside the SQL: the sister entity's paycheck, with its RFC and NSS, is readable again"
         );
