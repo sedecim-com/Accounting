@@ -26,8 +26,8 @@ import {
   listPaychecks,
   type PaycheckDetail,
 } from '../../src/services/payroll/common/paycheck-read-service.js';
-import type { HallazgoSua } from '../../src/services/payroll/mx/sua-generator.js';
-import { NotFoundError } from '../../src/utils/errors.js';
+import { suaMismatchFindings, type HallazgoSua } from '../../src/services/payroll/mx/sua-generator.js';
+import { NotFoundError, ValidationError } from '../../src/utils/errors.js';
 
 // ============================================================
 // MNE-001-070 · THE PAYSLIP AND THE SUA LEAVES, BY THEIR PURE PIECES
@@ -220,6 +220,16 @@ describe('imss sua export: findings by key, not by Spanish prose', () => {
       code: 'el_archivo_no_cuadra_con_el_pasivo', concept: 'imss_employer',
       file_amount: '1000.00', ledger_amount: '1500.00', blocking: true,
     });
+  });
+
+  // The refusal is a plain ValidationError (the E4.1 floor reads the throw):
+  // only one carrying findings is the mismatch; any other is rethrown as is.
+  it('recognizes the mismatch refusal by its findings, and nothing else', () => {
+    const refused = new ValidationError('no cuadra', undefined, { findings: [mismatch] });
+    expect(suaMismatchFindings(refused)).toEqual([mismatch]);
+    expect(exitCodeFor(refused)).toBe(ExitCode.VALIDATION);
+    expect(suaMismatchFindings(new ValidationError('year, month required'))).toBeNull();
+    expect(suaMismatchFindings(new NotFoundError('Entity'))).toBeNull();
   });
 });
 

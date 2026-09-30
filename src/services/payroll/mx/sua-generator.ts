@@ -49,16 +49,20 @@ export interface HallazgoSua {
   ledger_amount: string | null;
 }
 
+const SUA_MISMATCH_FINDINGS = 'findings';
+
 /**
- * The file does not match the liability already recorded. A ValidationError
- * (422, exit 4) as before, now carrying the findings by code and figure so a
- * caller renders them in its own language instead of this Spanish prose.
+ * The blocking findings a refused SUA file carries in its ValidationError
+ * (422, exit 4) `details.findings`, by code and figure, so a caller renders
+ * them in its own language instead of the Spanish prose of the message. The
+ * refusal stays a plain `throw new ValidationError` at the call site on
+ * purpose: the E4.1 floor criterion reads that the mismatch is thrown, not
+ * warned.
  */
-export class SuaMismatchError extends ValidationError {
-  constructor(message: string, readonly findings: HallazgoSua[]) {
-    super(message, undefined, { findings });
-    this.name = 'SuaMismatchError';
-  }
+export function suaMismatchFindings(err: unknown): HallazgoSua[] | null {
+  if (!(err instanceof ValidationError)) return null;
+  const findings = err.details?.[SUA_MISMATCH_FINDINGS];
+  return Array.isArray(findings) ? (findings as HallazgoSua[]) : null;
 }
 
 // `hallazgos` is the JSON key already persisted in tax_form_filings.data; it
@@ -239,10 +243,11 @@ export async function generateSuaFile(
     // No se entrega, y NO se persiste la declaración: un `tax_form_filings` en
     // 'draft' con una cifra que no cuadra es exactamente el archivo que alguien
     // acaba subiendo al SUA sin volver a mirarlo.
-    throw new SuaMismatchError(
+    throw new ValidationError(
       `El archivo del SUA no cuadra con el pasivo patronal ya apuntado, así que no se entrega: ` +
         bloqueantes.map((h) => h.detalle).join(' · '),
-      bloqueantes
+      undefined,
+      { [SUA_MISMATCH_FINDINGS]: bloqueantes }
     );
   }
 

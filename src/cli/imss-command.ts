@@ -3,9 +3,9 @@ import * as path from 'node:path';
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
 import {
-  SuaMismatchError,
   generateSuaFile,
   recordSuaFiling,
+  suaMismatchFindings,
   type HallazgoSua,
 } from '../services/payroll/mx/sua-generator.js';
 import { t, type TranslationKey } from '../i18n/index.js';
@@ -177,10 +177,12 @@ export function registerImssCommand(program: Command, deps: ImssCommandDeps): vo
       try {
         r = await generateSuaFile(ctx.tenantId, ctx.entityId, year, month, { record: false });
       } catch (err) {
-        if (!(err instanceof SuaMismatchError)) throw err;
+        // Nothing was written yet and nothing is recorded: a mismatch refuses.
+        const findings = suaMismatchFindings(err);
+        if (findings === null) throw err;
         throw validationFailed(
-          { key: 'imss.sua.mismatch', params: { findings: err.findings.map(suaFindingText).join(' · ') } },
-          { findings: err.findings.map(suaFindingRow) }
+          { key: 'imss.sua.mismatch', params: { findings: findings.map(suaFindingText).join(' · ') } },
+          { findings: findings.map(suaFindingRow) }
         );
       }
 
