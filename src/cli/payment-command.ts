@@ -747,7 +747,7 @@ const POR_BANCO = ['check', 'ach', 'wire', 'spei'] as const;
  *
  * Va por stderr para no ensuciar el `--json`, que es contrato de máquina.
  */
-function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: boolean): void {
+export function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: boolean): void {
   if (json) return;
   // `some` y no `includes(x as ...)`: Commander entrega `string`, y una
   // aserción aquí sólo callaría al compilador. Es la misma lección que la
@@ -771,7 +771,7 @@ function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: boolean)
     p.yellow(
       `The SAT voucher (Anexo 24) declares where this money went, and that is missing: ` +
         `${faltan.join(', ')}. ` +
-        `\`e-accounting voucher generate\` will name this payment as untraced.\n`
+        `When the SAT asks for the period vouchers, \`mnemosine e-accounting voucher generate\` will name this payment as untraced.\n`
     )
   );
 }

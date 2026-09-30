@@ -185,7 +185,11 @@ describe('registro del comando closing', () => {
     // siguen sin existir, ni siquiera como esqueleto.
     expect(hojas.run).toContain('ejecutar');
     expect(hojas.pack).toContain('paquete');
-    expect(Object.keys(hojas).sort()).toEqual(['check', 'explain', 'pack', 'preview', 'run']);
+    // MNE-001-083 (#305) adds the fx group and its one leaf, the closing revaluation.
+    expect(hojas.fx).toContain('cambio');
+    expect(Object.keys(hojas).sort()).toEqual(['check', 'explain', 'fx', 'pack', 'preview', 'run']);
+    const fxLeaves = (closing?.commands.find((c) => c.name() === 'fx')?.commands ?? []).map((c) => [c.name(), c.aliases()]);
+    expect(fxLeaves).toEqual([['revalue', ['revaluar']]]);
 
     const packGroup = closing?.commands.find((c) => c.name() === 'pack');
     const subleaves = Object.fromEntries(
@@ -218,6 +222,8 @@ describe('registro del comando closing', () => {
     expect(riskOfPath(['run'])).toEqual({ risk: 'irreversible', agent: false });
     // Sellar escribe una fila de sólo-agregar, y tampoco la firma una máquina.
     expect(riskOfPath(['pack', 'generate'])).toEqual({ risk: 'escritura', agent: false });
+    // The revaluation posts an entry and its mirror: irreversible, human-only.
+    expect(riskOfPath(['fx', 'revalue'])).toEqual({ risk: 'irreversible', agent: false });
   });
 
   it('pasa la auditoría de consistencia sin violaciones', () => {

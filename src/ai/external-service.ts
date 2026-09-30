@@ -10,6 +10,7 @@ import {
   getExternalAdapter,
 } from '../services/integrations/accounting/registry.js';
 import { ExternalCredentialError } from '../services/integrations/accounting/entity-credentials.js';
+import { queryTrialBalanceRows } from '../services/reporting/report-service.js';
 import type {
   ExternalTrialBalanceRow,
   ManualPolicyInput,
@@ -35,31 +36,27 @@ export interface TrialBalanceDiff {
   only_remote: Array<{ account_code: string; name: string; balance: string }>;
 }
 
-/** Local (posted) balances per account at the cutoff — same criterion as get_trial_balance. */
+/**
+ * Local posted balances per account at the cutoff: the same query as
+ * get_trial_balance, read RAW (no report-panel criteria), because this is a
+ * ledger-to-ledger comparison.
+ */
 async function fetchLocalBalances(
   entityId: string,
   endDate: string
 ): Promise<Map<string, { name: string; balance: Decimal }>> {
-  const result = await query<{ code: string; name: string; balance: string }>(
-    `SELECT a.code, a.name,
-            COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0) AS balance
-     FROM accounts a
-     LEFT JOIN (journal_entry_lines jel
-                JOIN journal_entries je
-                  ON je.id = jel.journal_entry_id
-                 AND je.status = 'posted' AND je.entry_date <= $2)
-            ON jel.account_id = a.id
-     -- SIN el filtro de is_active (T13 · #100). Este cotejo compara el mayor
-     -- local contra el del sistema externo, y borrar aquí la cuenta archivada
-     -- con movimiento la publicaba como only_remote: una diferencia INVENTADA
-     -- contra el otro sistema, que es la misma clase de defecto que T13 repara
-     -- en los informes. El docblock de arriba promete «el mismo criterio que
-     -- get_trial_balance»; desde T13 ese criterio no filtra el catálogo.
-     WHERE a.entity_id = $1
-     GROUP BY a.id, a.code, a.name`,
-    [entityId, endDate]
+  // The trial balance's own query (T14 · #101), not a copy of it: a second
+  // copy is how one side got fixed while the other kept publishing the old
+  // figure. RAW (`ignoreClosingPolicy`): this diff is a comparison against
+  // another system's ledger, like the materialized-view check, not a report,
+  // so the panel's presentation criteria do not apply — every posted entry up
+  // to the cutoff counts, closing entries included, and archived accounts
+  // stay in (T13 · #100): dropping an archived account with movement here
+  // published it as only_remote, a difference INVENTED against the other side.
+  const rows = await queryTrialBalanceRows(entityId, { asOfDate: endDate, ignoreClosingPolicy: true });
+  return new Map(
+    rows.map((r) => [r.account_code, { name: r.account_name, balance: new Decimal(r.ending_balance) }])
   );
-  return new Map(result.rows.map((r) => [r.code, { name: r.name, balance: new Decimal(r.balance) }]));
 }
 
 /** Compares the external system's trial balance against the local one, account by account. */

@@ -928,6 +928,13 @@ export interface AplicacionPosterior {
    * la misma que el descuento.
    */
   writeOff?: string;
+  /**
+   * MNE-001-113 · customer side only: the ISR and VAT the customer withheld on
+   * this application. They close the receivable with `amount` and are
+   * debited to the two customer-withholding roles.
+   */
+  withholdingIsr?: string;
+  withholdingIva?: string;
   /** Lo aplicado (vivo) a la factura por CUALQUIER pago, ANTES de este evento. */
   priorApplied: string;
   taxAmount: string;
@@ -947,6 +954,12 @@ export interface AplicacionPosterior {
  * Devuelve el IVA liberado por factura para que el llamador lo persista en
  * las filas de aplicación recién insertadas.
  */
+// MNE-001-113: what the customer withheld also closes the receivable, as a
+// debit to the two customer-withholding roles. The VAT the customer
+// withholds counts as collected (LIVA art. 1-B: the creditor's interest is
+// satisfied when the customer withholds it and remits it for us), so the PPD
+// release is on the cash plus the withholding; the withheld VAT is then
+// credited in the monthly computation (LIVA art. 5-D), from 1146.
 export async function postReceiptApplicationEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
@@ -954,6 +967,8 @@ export async function postReceiptApplicationEntry(
   userId: string
 ): Promise<{ entry: JournalEntry; ivaPorFactura: Map<string, string> }> {
   const total = aplicaciones.reduce((s, a) => s.plus(a.amount), new Decimal(0));
+  const withheldIsr = aplicaciones.reduce((s, a) => s.plus(a.withholdingIsr ?? '0'), new Decimal(0));
+  const withheldIva = aplicaciones.reduce((s, a) => s.plus(a.withholdingIva ?? '0'), new Decimal(0));
   const cashBasis = await entityUsesCashBasisIva(client, payment.entity_id);
   const ivaPorFactura = new Map<string, string>();
   const ivaLines: JeLine[] = [];
@@ -976,7 +991,7 @@ export async function postReceiptApplicationEntry(
         ivaTotal: app.taxAmount,
         documentTotal: app.totalAmount,
         priorApplied: app.priorApplied,
-        appliedNow: app.amount,
+        appliedNow: new Decimal(app.amount).plus(app.withholdingIsr ?? '0').plus(app.withholdingIva ?? '0').toFixed(4),
       });
       const parked = await ivaStillParked(client, 'issued', payment.entity_id, app.invoiceId);
       const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
@@ -1014,10 +1029,11 @@ export async function postReceiptApplicationEntry(
         credit_amount: null,
         description: `On-account applied ${payment.payment_number}`,
       },
+      ...(await withholdingLines(client, payment, withheldIsr, withheldIva, 'debit')),
       {
         account_id: requireRole(roles, 'cxc'),
         debit_amount: null,
-        credit_amount: total.toFixed(4),
+        credit_amount: total.plus(withheldIsr).plus(withheldIva).toFixed(4),
         description: `AR settlement ${payment.payment_number}`,
       },
       ...ivaLines,
@@ -1028,6 +1044,33 @@ export async function postReceiptApplicationEntry(
     { autoPost: true, client, sourceType: 'receipt_application', sourceId: payment.id, reference: payment.payment_number }
   );
   return { entry, ivaPorFactura };
+}
+
+/**
+ * The customer's withholding on its role accounts (MNE-001-113): debit when
+ * an application books it, credit when an unapplication takes it back. The
+ * roles are only read when there is something to book, so a collection
+ * without withholding never needs them.
+ */
+async function withholdingLines(
+  client: pg.PoolClient,
+  payment: PaymentRow,
+  isr: Decimal,
+  iva: Decimal,
+  side: 'debit' | 'credit'
+): Promise<JeLine[]> {
+  const parts = [
+    { role: 'isr_retenido_a_favor', amount: isr, label: 'ISR' },
+    { role: 'iva_retenido_a_favor', amount: iva, label: 'VAT' },
+  ].filter((p) => p.amount.greaterThan(0));
+  if (parts.length === 0) return [];
+  const roles = await roleAccounts(client, payment.entity_id, parts.map((p) => p.role));
+  return parts.map((p) => ({
+    account_id: requireRole(roles, p.role),
+    debit_amount: side === 'debit' ? p.amount.toFixed(4) : null,
+    credit_amount: side === 'credit' ? p.amount.toFixed(4) : null,
+    description: `${p.label} withheld by the customer ${payment.payment_number}${side === 'credit' ? ' (unapply)' : ''}`,
+  }));
 }
 
 /**
@@ -1245,14 +1288,20 @@ export async function postVendorApplicationEntry(
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
-  app: { invoiceNumber: string; amount: string; ivaReclass: string | null; ivaEstimado: string },
+  app: {
+    invoiceNumber: string; amount: string; ivaReclass: string | null; ivaEstimado: string;
+    /** MNE-001-113: what the customer withheld on the rows being closed. */
+    withholdingIsr?: string; withholdingIva?: string;
+  },
   userId: string
 ): Promise<JournalEntry> {
   const roles = await roleAccounts(client, payment.entity_id, ['cxc', 'anticipo_clientes']);
+  const isr = new Decimal(app.withholdingIsr ?? '0');
+  const vat = new Decimal(app.withholdingIva ?? '0');
   const jeLines: JeLine[] = [
     {
       account_id: requireRole(roles, 'cxc'),
-      debit_amount: app.amount,
+      debit_amount: new Decimal(app.amount).plus(isr).plus(vat).toFixed(4),
       credit_amount: null,
       description: `AR reopened ${app.invoiceNumber} (unapply ${payment.payment_number})`,
     },
@@ -1262,6 +1311,7 @@ export async function postReceiptUnapplicationEntry(
       credit_amount: app.amount,
       description: `Back on account ${payment.payment_number}`,
     },
+    ...(await withholdingLines(client, payment, isr, vat, 'credit')),
   ];
 
   const iva = new Decimal(app.ivaReclass ?? app.ivaEstimado);

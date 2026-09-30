@@ -1231,6 +1231,40 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 28,
   },
   {
+    // MNE-001-054 (#328). Read by polizas-service.ts (`untracedMoneyOf`) and
+    // applied by `polizaConDineroSinRastro`. Only for money with NO registered
+    // payment behind it; a payment that exists and lacks data always blocks.
+    key: 'anexo24_voucher_money_without_trace',
+    textKey: 'anexo24_voucher_money_without_trace',
+    category: 'contable',
+    question:
+      'A voucher moves bank money with no registered payment behind it (a bank fee, interest, a pay run, a transfer between own accounts): what do the Anexo 24 vouchers do?',
+    impact:
+      'Decides whether `e-accounting voucher generate` delivers a month with such entries. "block" ' +
+      'refuses the file (exit 4) and names each voucher until a payment with its trace is captured. ' +
+      '"warn" delivers it without the payment node and names each voucher. Neither changes the ' +
+      'ledger. Declaring an OtrMetodoPago node instead is not offered: the XSD requires its Benef ' +
+      'and RFC, and with no payment record the ledger has neither, so they would be invented.',
+    options: [
+      { value: 'block', label: 'Refuse the file until each one has a registered payment with its trace' },
+      { value: 'warn', label: 'Deliver the file without the payment node and list the vouchers' },
+    ],
+    defaultValue: 'block',
+    defaultRationale:
+      'In PolizasPeriodo 1.3 (Anexo 24 RMF) the Cheque, Transferencia and OtrMetodoPago nodes are ' +
+      'optional, and each "becomes required" when resources go out or come in by that method; ' +
+      'Transferencia is also required for every transaction between the taxpayer\'s own accounts ' +
+      '(the XSD documentation of each node). With no payment record the system cannot tell which of ' +
+      'those cases an entry is, and a file that lacks a required node is incomplete books (CFF 28-IV). ' +
+      'So the default refuses and names the voucher. A firm whose untraced entries are bank charges ' +
+      'no instrument moved can answer "warn".',
+    whyAsking:
+      'Bank fees and interest move money that no cheque or transfer of yours moved. Whether your firm files those vouchers without a payment node or captures a payment first is your criterion.',
+    whatIDo: 'I apply your answer to every voucher that moves bank money with no registered payment, and I always name each one.',
+    ifSkipped: 'I refuse the file and name each voucher.',
+    priority: 26,
+  },
+  {
     key: 'anexo24_niveles_a_presentar',
     textKey: 'anexo24_levels_to_report',
     category: 'contable',
@@ -1559,6 +1593,64 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whatIDo: 'I convert with the rate of the chosen source for the operation date, and stop if it is missing.',
     ifSkipped: 'I use the DOF rate.',
     priority: 55,
+  },
+  {
+    // MNE-001-083 · #305: the owner's decision of 2026-09-26 (MNE-001-006).
+    // Read by fx-revaluation.ts, the only engine that needs a closing rate.
+    key: 'closing_exchange_rate_source',
+    textKey: 'closing_exchange_rate_source',
+    category: 'contable',
+    question: 'At the close, which published rate revalues the open foreign-currency balances?',
+    impact:
+      'closing fx revalue revalues the foreign-currency receivables, payables and bank balances at the rate ' +
+      "of this source for the period's last calendar day, exactly that day. If the source published no rate " +
+      'for it, the run stops and says so: it never takes the previous business day or another source.',
+    options: [
+      { value: 'operations_source', label: 'The same source as the operations (fuente_tipo_cambio; DOF unless changed)' },
+      { value: 'dof', label: 'DOF (Diario Oficial; the tax rate under art. 20 CFF), whatever the operations use' },
+      { value: 'fix_banxico', label: 'Banxico FIX (published as banco_mexico)' },
+    ],
+    defaultValue: 'operations_source',
+    defaultRationale:
+      'NIF B-15 revalues monetary items at the closing rate, and the realised difference of a later payment ' +
+      'is measured with the source of the operations: closing with the same source keeps the unrealised and ' +
+      'the realised halves of one difference on the same scale. For a Mexican firm that source is the DOF by ' +
+      'default, the rate art. 20 CFF gives legal effect and the one the exchange gain or loss of LISR art. 8 ' +
+      'is measured with.',
+    whyAsking:
+      'DOF and FIX for the same day are different numbers, and the revaluation posts the gap between the book rate and this one.',
+    whatIDo: "I revalue at the chosen source's rate for the period's last day, and stop if it is missing.",
+    ifSkipped: 'I use the same source as the operations: the DOF unless you changed it.',
+    priority: 56,
+  },
+  {
+    // MNE-001-083 · #305: the owner's decision of 2026-09-26 named it
+    // revaluacion_cambiaria_reversion = revertir_al_inicio; new keys are born
+    // English. Read by fx-revaluation.ts, which fails closed on any other value.
+    // TODO(#305): offer no_reversal once payments measure the realised difference against the book rate.
+    key: 'fx_revaluation_reversal',
+    textKey: 'fx_revaluation_reversal',
+    category: 'contable',
+    question: 'Is the closing revaluation of foreign balances reversed on day 1 of the next period?',
+    impact:
+      'closing fx revalue posts the unrealised exchange difference on the last day of the period and its mirror ' +
+      'on day 1 of the next one, which must exist and be open. The balance goes back to its historical rate, ' +
+      'the one the realised difference of a later payment or collection is measured against.',
+    options: [
+      { value: 'reverse_on_day_one', label: 'Reverse it on day 1 of the next period' },
+    ],
+    defaultValue: 'reverse_on_day_one',
+    defaultRationale:
+      'NIF B-15 revalues monetary items at the closing rate for the balance sheet. Payments and collections ' +
+      'measure the realised difference against the document’s historical rate (ar-ap-posting.ts), so the ' +
+      'revaluation must be reversed on day 1: otherwise the same difference would be recognised twice, once ' +
+      'unrealised at the close and again when paid. Keeping the revaluation (no reversal) is not offered until ' +
+      'payments read the book rate instead.',
+    whyAsking:
+      'Reversing or keeping the revaluation are both legitimate under NIF B-15; which one is right depends on how payments measure the realised difference.',
+    whatIDo: 'I post the mirror of the revaluation on day 1 of the next period.',
+    ifSkipped: 'I reverse it on day 1 of the next period.',
+    priority: 57,
   },
   {
     key: 'rep_moneda_extranjera',

@@ -30,8 +30,11 @@ import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
 // surfaces agree about the QUERY and disagree about the PRESENTATION:
 //
 //   query*Rows()  — the SQL. One implementation, shared by REST, the
-//                   agent tools and the CLI. This is the part where a
-//                   mistake produces a wrong number.
+//                   agent tools and the CLI — and by the services that
+//                   read a balance to guard money (the AR reconciliation,
+//                   the prepaid backing, the external-ledger diff; T14,
+//                   #101). This is the part where a mistake produces a
+//                   wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
 //                   by REST and the CLI, which publish the same shape.
 //                   The agent tools keep their own (2-decimal, flatter)
@@ -504,8 +507,26 @@ export async function queryAccumulatedBalances(
      */
     periodId?: string;
   },
-  filters: { ignoreClosingPolicy?: boolean } = {}
+  filters: {
+    ignoreClosingPolicy?: boolean;
+    /** Only this account: the balance a control or a guard reads. */
+    accountId?: string;
+    /**
+     * Run inside the caller's transaction. A guard that measures a balance
+     * and then consumes it (prepaid backing, under its FOR UPDATE) must read
+     * both on the same connection, or it measures outside its own lock.
+     * Only with `ignoreClosingPolicy`: the panel read goes through the pool,
+     * so a client plus the panel would read the policy outside the caller's
+     * transaction — that combination is refused, not silently half-honoured.
+     */
+    client?: pg.PoolClient;
+  } = {}
 ): Promise<AccumulatedBalanceRow[]> {
+  if (filters.client && !filters.ignoreClosingPolicy) {
+    throw new ValidationError(
+      'queryAccumulatedBalances: a transaction client requires ignoreClosingPolicy — the report panel is read outside the transaction'
+    );
+  }
   const params: unknown[] = [entityId];
   let dateFilter = '';
   if (corte.date !== undefined) {
@@ -522,8 +543,17 @@ export async function queryAccumulatedBalances(
     ? null
     : await criterioDeCierreEnInformes(entityId);
   const closingFilter = criterio && !criterio.enBalanza ? predicadoSinCierre() : '';
+  let accountFilter = '';
+  if (filters.accountId !== undefined) {
+    params.push(filters.accountId);
+    accountFilter = `AND a.id = $${params.length}`;
+  }
+  const client = filters.client;
+  const run = client
+    ? <T extends pg.QueryResultRow>(sql: string, p: unknown[]) => client.query<T>(sql, p)
+    : query;
 
-  const result = await query<AccumulatedBalanceRow>(
+  const result = await run<AccumulatedBalanceRow>(
     // La resta va escrita como Σcargos − Σabonos, y no como Σ(cargos − abonos)
     // que es la forma de las otras cinco consultas de este archivo. Dicen lo
     // mismo; la diferencia es que el criterio E1.2 CUENTA las cinco
@@ -539,9 +569,118 @@ export async function queryAccumulatedBalances(
     JOIN journal_entry_lines jel ON jel.account_id = a.id
     JOIN journal_entries je
       ON je.id = jel.journal_entry_id
+     AND je.entity_id = $1
      AND je.status = 'posted' ${dateFilter} ${closingFilter}
-    WHERE a.entity_id = $1
+    WHERE a.entity_id = $1 ${accountFilter}
     GROUP BY jel.account_id`,
+    params
+  );
+  return result.rows;
+}
+
+/**
+ * The lifetime posted balance of ONE account, debit-positive, straight from
+ * the ledger: every posted entry, closing entries included. It is the number
+ * a control account is reconciled against and the number that backs a
+ * prepaid schedule; neither is a presentation, so the report panel's closing
+ * criterion does not apply. An account without lines reads as zero.
+ */
+export async function queryAccountBalance(
+  entityId: string,
+  accountId: string,
+  client?: pg.PoolClient
+): Promise<Decimal> {
+  const rows = await queryAccumulatedBalances(
+    entityId,
+    { inclusive: true },
+    { ignoreClosingPolicy: true, accountId, ...(client ? { client } : {}) }
+  );
+  return new Decimal(rows[0]?.balance ?? '0');
+}
+
+export interface EntryMovementRow {
+  journal_entry_id: string;
+  entry_number: string;
+  entry_date: Date;
+  description: string | null;
+  /** Net debit-positive movement the entry left on the account. */
+  amount: string;
+}
+
+export interface EntryMovementFilters {
+  /**
+   * Leave out entries whose `source_type` is one of these, AND the reversals
+   * of such entries. An engine reversal is born with a NULL `source_type`
+   * (the reversal path does not carry the origin over), so filtering on the
+   * column alone would list every clean void as if someone had typed it.
+   */
+  excludeSourceTypes?: readonly string[];
+  /** Leave out these entries by id. */
+  excludeEntryIds?: readonly string[];
+  /** Only entries whose net movement on the account is a debit. */
+  netDebitsOnly?: boolean;
+  /** Oldest first (default) or newest first; the entry number breaks ties. */
+  order?: 'oldest' | 'newest';
+  limit?: number;
+}
+
+/**
+ * The movement of ONE account broken down by posted entry: what a control
+ * lists when it has to say WHICH entries explain its balance. Entity and
+ * account scope live in the SQL, bounded on BOTH sides — the entry's entity
+ * and the account's — like queryAccumulatedBalances: the schema does not
+ * forbid a line whose account belongs to another entity than its entry, and
+ * a balance and the list that explains it must count the same lines.
+ */
+export async function queryEntryMovementsOnAccount(
+  entityId: string,
+  accountId: string,
+  filters: EntryMovementFilters = {}
+): Promise<EntryMovementRow[]> {
+  const params: unknown[] = [entityId, accountId];
+  const where: string[] = [];
+  if (filters.excludeSourceTypes) {
+    params.push([...filters.excludeSourceTypes]);
+    const types = `$${params.length}::text[]`;
+    where.push(
+      `AND (je.source_type IS NULL OR NOT (je.source_type = ANY(${types})))
+        AND NOT EXISTS (
+              SELECT 1
+                FROM journal_entries orig
+               WHERE orig.id = je.reverses_entry_id
+                 AND orig.entity_id = je.entity_id
+                 AND orig.source_type = ANY(${types}))`
+    );
+  }
+  if (filters.excludeEntryIds) {
+    params.push([...filters.excludeEntryIds]);
+    where.push(`AND NOT (je.id = ANY($${params.length}::uuid[]))`);
+  }
+  const having = filters.netDebitsOnly
+    ? 'HAVING SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) > 0'
+    : '';
+  const direction = filters.order === 'newest' ? 'DESC' : 'ASC';
+  let limit = '';
+  if (filters.limit !== undefined) {
+    params.push(filters.limit);
+    limit = `LIMIT $${params.length}`;
+  }
+
+  const result = await query<EntryMovementRow>(
+    `SELECT je.id           AS journal_entry_id,
+            je.entry_number AS entry_number,
+            je.entry_date   AS entry_date,
+            je.description  AS description,
+            SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS amount
+       FROM journal_entry_lines jel
+       JOIN journal_entries je ON je.id = jel.journal_entry_id
+       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2
+        ${where.join(' ')}
+      GROUP BY je.id, je.entry_number, je.entry_date, je.description
+      ${having}
+      ORDER BY je.entry_date ${direction}, je.entry_number ${direction}
+      ${limit}`,
     params
   );
   return result.rows;

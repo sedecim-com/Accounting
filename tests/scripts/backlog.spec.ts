@@ -140,6 +140,13 @@ describe('dependencies and requirements', () => {
     expect(errorsOf([task('001', { wave: 1 }), task('002', { wave: 2, depends_on: ['MNE-001-001'] })])).toEqual([]);
   });
 
+  it('accepts a wave after the MVP when it has a stage, and rejects a wave that is not a whole number', () => {
+    const b = backlog([task('001', { wave: 4 })]);
+    b.schedule.stages = { ...b.schedule.stages, '4': { name: 'Después del MVP', release: 'v1.x' } };
+    expect(validate(b, REQS, '001')).toEqual([]);
+    expect(errorsOf([task('001', { wave: 1.5 })]).join()).toMatch(/MNE-001-001: wave must be a whole number/);
+  });
+
   it('rejects a wave with tasks and no stage', () => {
     const b = backlog([task('001', { wave: 2 })]);
     const { '2': _dropped, ...rest } = b.schedule.stages!;

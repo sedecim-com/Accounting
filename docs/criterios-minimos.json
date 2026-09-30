@@ -116,6 +116,7 @@
     "single-maker-checker-gate",
     "sql-scanner-resolves-alias-columns",
     "startup-rejects-rls-bypass-role",
+    "straddling-period-split-by-contribution-days",
     "sua-file-declares-the-month-and-only-the-month",
     "tenant-context-mounted-globally",
     "tenant-predicate-inlinable-and-qualified",
@@ -163,6 +164,7 @@
     "cashflow-selfcheck-lists-and-policy-blocks",
     "close-sweeps-by-balance-sign",
     "foreign-currency-origin-preserved",
+    "foreign-balances-revalued-at-close",
     "depreciation-month-posted-once",
     "depreciation-final-row-absorbs-rounding",
     "bank-statement-document-with-balances",
@@ -178,6 +180,7 @@
     "sat-cancellation-reaches-invoice",
     "sat-auth-signs-through-withcredential",
     "fees-without-withholding-follow-the-panel",
+    "sat-bulk-cfdi-download",
     "freight-and-resico-withholdings-come-from-the-law"
   ],
   "_f05": "F05 (frontera de banco) subio el piso de 31 a 37 criterios: los seis verdes de E2.1 que nadie protegia. Se anaden aqui porque el arreglo de la frontera bancaria estuvo a punto de regresar uno de ellos —acotaba por `req.entityId` sin montar requireEntityAccess, y acotar por una cabecera que nadie valida no es acotar—. El criterio lo cazo; el piso impide que la proxima vez dependa de que alguien mire.",
@@ -210,5 +213,7 @@
   "_mne_001_141": "MNE-001-141 (#439) raises the floor by one: sat-auth-signs-through-withcredential. E3.2 is still open (the bulk download itself is EFIRMA-2), so --exigir does not cover it. What it protects: the SAT authentication is the first production caller of the vault, and a client that reached the vault itself, or a withCredential that stopped logging success or error, would decrypt the e.firma with no trace, no daily cap and no anomaly policy.",
   "_mne_001_148": "MNE-001-148 (#309) raises the floor by one, for the reason _mne_001_117 gives: E1.2 opens wherever its behaviour criterion cannot run. fees-without-withholding-follow-the-panel is this task's; fee-and-lease-withholdings-come-from-the-law was already named by MNE-001-056 (#478).",
   "_mne_001_115": "MNE-001-115 (#308) raises the floor by one, for the reason _mne_001_117 gives: provisional-income-tax-inputs-come-from-the-return-and-the-law anchors the income_tax.corporate_rate row of migration 166 (0.3000 from 2014-01-01, LISR art. 9) with a mutant, as 129 does for the withholding rates, and the choice of return by the payment due date (LISR art. 14 fr. I).",
+  "_mne_001_142": "MNE-001-142 (#440) raises the floor by one: sat-bulk-cfdi-download, red since S1 and green now by behaviour: it runs the engine against an in-process SAT on an ephemeral database (src/plan/conducta.ts), no longer a grep of its source. E3.2 is not in the --exigir list of ci.yml, so the floor is what protects it. What it protects: the SAT allows two identical XML requests per period for life (5002); a guard that moved to memory, or a request sent before reserving its slot in sat_download_quota, would burn a period for good, received XML sent without EstadoComprobante=Vigente would come back 5012, and a 5004 read as an error would report a month with no CFDI as a failed download.",
+  "_mne_001_083": "MNE-001-083 (#305) raises the floor by one, for the reason _mne_001_117 gives: foreign-balances-revalued-at-close, whose first mutant restores the FX_AR_NOT_WIRED refusal of a USD invoice.",
   "_mne_001_057": "MNE-001-057 (#309) raises the floor by one, for the same reason: freight-and-resico-withholdings-come-from-the-law, the 4 % VAT on land freight, the 1.25 % ISR of RESICO and the discrepancy held with a question to the accountant."
 }

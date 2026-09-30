@@ -145,7 +145,8 @@ export function amountDueAsOfSql(asOfParam: string): string {
   const asOf = `${asOfParam}::date`;
   return `(i.total_amount
       - COALESCE((
-          SELECT SUM(pa.amount_applied)
+          -- A withholding settled the invoice with the cash (MNE-001-113).
+          SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
           FROM payment_allocations pa
           JOIN customer_payments p ON p.id = pa.payment_id
           WHERE pa.invoice_id = i.id

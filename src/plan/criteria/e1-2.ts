@@ -2771,6 +2771,70 @@ export const E1_2: Criterio[] = [
         : falla('registerFxCommand no está en el binario: R4 quedó verificada y no entregada');
     },
   },
+  {
+    paquete: 'E1.2',
+    id: 'foreign-balances-revalued-at-close',
+    enunciado:
+      'A USD invoice posts, and closing fx revalue revalues the foreign receivables, payables and banks at the rate of the last calendar day in an adjusting entry of its own source, reversed on day 1 of the open next period, once (#305, MNE-001-083)',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: '  const fx = rate;',
+        a: "  if (rate) throw new AccountingError('FX_AR_NOT_WIRED', 'income waits for the engine'); const fx = rate;",
+        porque: 'THE DEFECT OF #305: a USD invoice refuses to post, and the month of a firm that bills one service in dollars cannot be kept',
+      },
+      {
+        archivo: 'src/services/accounting/fx-revaluation.ts',
+        de: 'sourceType: FX_REVALUATION_SOURCE,',
+        a: "sourceType: 'closing',",
+        porque: 'the revaluation posts as a closing entry: the year-end close and the conductor would take it for their own',
+      },
+      {
+        archivo: 'src/services/accounting/fx-revaluation.ts',
+        de: 'AND start_date = $2::date + 1`,',
+        a: 'AND start_date > $2::date`,',
+        porque: 'the mirror lands on whatever later period comes first, not on day 1 of the next one',
+      },
+      {
+        archivo: 'src/services/accounting/fx-revaluation.ts',
+        de: 'revalue(b.foreign, b.book, rate, b.posted);',
+        a: 'revalue(b.foreign, b.book, rate);',
+        porque: 'the marker is written and never subtracted: a second run posts the whole revaluation again',
+      },
+    ],
+    evaluar: () => {
+      if (/FX_AR_NOT_WIRED/.test(codigoDe('src/services/accounting/ar-ap-posting.ts'))) {
+        return falla('a foreign-currency invoice refuses to post again (FX_AR_NOT_WIRED): the income side of R4 is gone');
+      }
+      const rev = 'src/services/accounting/fx-revaluation.ts';
+      if (!existe(rev)) return falla('there is no closing revaluation engine');
+      const code = codigoDe(rev);
+      if (!/export const FX_REVALUATION_SOURCE = 'fx_revaluation';/.test(code) ||
+          !/JournalEntryType\.ADJUSTING,/.test(code) || !/sourceType: FX_REVALUATION_SOURCE,/.test(code)) {
+        return falla('the revaluation is no longer an adjusting entry with its own source_type');
+      }
+      if (!/reverseWithinTransaction\(/.test(code) || !/AND start_date = \$2::date \+ 1`,/.test(code) ||
+          !/next\.status !== 'open'/.test(code)) {
+        return falla('the revaluation is no longer reversed on day 1 of an open next period');
+      }
+      if (!/revalue\(b\.foreign, b\.book, rate, b\.posted\);/.test(code) || !/INSERT INTO fx_revaluation_runs/.test(code)) {
+        return falla('the revaluation has no idempotency marker: a resumed run posts it twice');
+      }
+      if (!/getPolicy\(ctx, 'fx_revaluation_reversal', client\)/.test(code)) {
+        return falla('whether the revaluation is reversed is no longer read from fx_revaluation_reversal');
+      }
+      if (!/getPolicy\(ctx, 'closing_exchange_rate_source', client\)/.test(code)) {
+        return falla('the closing rate no longer follows closing_exchange_rate_source');
+      }
+      if (!/registerClosingFx\(closing, /.test(codigoDe('src/cli/closing-command.ts'))) {
+        return falla('closing fx revalue is not in the binary: the engine is verified and not delivered');
+      }
+      return existe('tests/integration/mne-001-083-fx-closing-revaluation.int.spec.ts') &&
+        existe('tests/services/accounting/fx-revaluation.spec.ts')
+        ? ok('USD invoices post, and the close revalues foreign balances once, adjusting, reversed on day 1')
+        : falla('no test RUNS the revaluation against a migrated database');
+    },
+  },
 
   // ---- F06a · El activo y su corrida ----
 
