@@ -41,6 +41,11 @@
  * CITA por su `--json` en vez de recontarse. Dos instrumentos midiendo la
  * misma superficie divergen el día que uno cambie su recorrido, y entonces
  * hay que decidir cuál tiene razón sin nadie que lo sepa.
+ *
+ * The one lane that walks the CLI tree, `help-descriptions-without-key`
+ * (scripts/language/lanes/help.ts, #314), does not measure the rendered prose
+ * either: it asks each description whether it comes from a catalog KEY, a
+ * question `ux-status.ts` does not ask. The prose itself stays its business.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -50,6 +55,7 @@ import { codeLanes } from './language/lanes/code.js';
 import { planLanes } from './language/lanes/plan.js';
 import { docsLanes } from './language/lanes/docs.js';
 import { commentTagsLanes } from './language/lanes/comment-tags.js';
+import { helpLanes } from './language/lanes/help.js';
 
 const ROOT = path.resolve(__dirname, '..');
 const BASELINE = path.join(ROOT, 'docs', 'language-baseline.json');
@@ -73,7 +79,7 @@ interface Baseline {
 
 /** Every lane, in the order they are published. The count is the meter's to say, not this comment's. */
 export function measure(): Lane[] {
-  return [...codeLanes(), ...planLanes(), ...docsLanes(), ...commentTagsLanes()];
+  return [...codeLanes(), ...planLanes(), ...docsLanes(), ...commentTagsLanes(), ...helpLanes()];
 }
 
 function readBaseline(): Baseline | null {
@@ -155,13 +161,14 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
         if (n > 0) {
           findings.push({
             lane: c.id,
-            detail: `${file}: 0 → ${n} — sin entrada en la línea base; un archivo nuevo no nace con deuda`,
+            detail: `${file}: 0 → ${n} — sin entrada en la línea base; ${c.perEntryRule ?? 'un archivo nuevo no nace con deuda'}`,
           });
         }
         continue;
       }
       if (n > previous) {
-        findings.push({ lane: c.id, detail: `${file}: creció ${previous} → ${n}` });
+        const rule = c.perEntryRule ? `; ${c.perEntryRule}` : '';
+        findings.push({ lane: c.id, detail: `${file}: creció ${previous} → ${n}${rule}` });
       }
     }
   }

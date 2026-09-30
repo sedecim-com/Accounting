@@ -119,6 +119,12 @@ Dos consecuencias que se olvidan y cuestan caro:
 - **Lo que identifica no se traduce nunca**: una clave, un id, un código de
   error. Traducir una llave no cambia lo que dice, cambia a qué se parece — y
   todo lo que casaba contra ella deja de casar, en silencio y de golpe.
+- **La ayuda nueva del CLI nace con clave.** Un comando, opción o argumento
+  nuevo se declara con `describeCommand`, `optionByKey` o `argumentByKey`
+  (`src/cli/kernel/help.ts`), con su clave `help.<familia>.…` en `en.ts` y
+  `es.ts`. Una descripción escrita en prosa en el sitio suma al carril
+  `help-descriptions-without-key`, que se mide **por familia** y sólo baja:
+  `language:status --check` la rechaza (#314).
 
 Lo existente no se traduce a mano y a ojo: entra a una línea base por archivo
 que **sólo encoge**, tramo a tramo.

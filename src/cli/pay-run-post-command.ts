@@ -18,6 +18,9 @@ import {
   render,
   withContext,
   withOutput,
+  describeCommand,
+  optionByKey,
+  argumentByKey,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -91,17 +94,13 @@ Examples:
 
 export function registerPayRunPostCommand(payRun: Command, h: PayRunPostHelpers): void {
   const p = h.palette;
-  const post = payRun
-    .command('post')
-    .alias('contabilizar')
-    .argument('<id>', 'approved pay run whose entry is built')
-    .description(
-      'Build the payroll entry of an approved run and leave it as a draft for `mnemosine review`; ' +
-        '--post posts it directly'
-    );
+  const post = describeCommand(
+    argumentByKey(payRun.command('post').alias('contabilizar'), '<id>', 'help.pay_run.post.argument.id'),
+    'help.pay_run.post.description'
+  );
   withContext(post);
   withOutput(post);
-  post.option('--post', 'post the entry to the ledger now instead of leaving a draft for review');
+  optionByKey(post, '--post', 'help.pay_run.post.option.post');
   declareRisk(post, {
     // The worst road decides the class: with --post the entry is POSTED.
     risk: 'irreversible',

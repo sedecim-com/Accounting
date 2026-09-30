@@ -37,6 +37,9 @@ import {
   usageError,
   withContext,
   withOutput,
+  describeCommand,
+  optionByKey,
+  argumentByKey,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -214,10 +217,9 @@ async function blockedOnConflict<T>(fn: () => Promise<T>): Promise<T> {
 
 export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps): void {
   const p = deps.palette;
-  const payRun = program
-    .command('pay-run')
-    .alias('corrida')
-    .description('Payroll runs of a pay period: create, calculate gross to net, approve, post the entry');
+  // The help of this family is rendered by key (#314):
+  // help.pay_run.<leaf>.{description,option.<flag>,argument.<name>}.
+  const payRun = describeCommand(program.command('pay-run').alias('corrida'), 'help.pay_run.description');
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -253,15 +255,15 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
   };
 
   // ---- pay-run create ------------------------------------------------
-  const create = payRun
-    .command('create')
-    .alias('crear')
-    .description('Create a draft run over a pay period; the tax year is fixed from the period');
+  const create = describeCommand(payRun.command('create').alias('crear'), 'help.pay_run.create.description');
   withContext(create);
   withOutput(create);
-  create
-    .option('--period <id>', 'pay period of the active entity (its id)')
-    .option('--type <type>', `run type: ${PAY_RUN_TYPES.join(' | ')}`, runType, 'regular');
+  optionByKey(create, '--period <id>', 'help.pay_run.create.option.period');
+  optionByKey(create, '--type <type>', 'help.pay_run.create.option.type', {
+    params: { types: PAY_RUN_TYPES.join(' | ') },
+    parser: runType,
+    defaultValue: 'regular',
+  });
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'pay_runs (one draft row)' });
   create.addHelpText('after', EXAMPLES.create);
   create.action((opts: CommonOpts & { period?: string; type: string }) =>
@@ -285,14 +287,16 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
   );
 
   // ---- pay-run calculate ---------------------------------------------
-  const calculate = payRun
-    .command('calculate')
-    .alias('calcular')
-    .argument('<id>', 'pay run to calculate')
-    .description('Calculate gross to net for each employee in the inputs file and total the run');
+  const calculate = describeCommand(
+    argumentByKey(payRun.command('calculate').alias('calcular'), '<id>', 'help.pay_run.calculate.argument.id'),
+    'help.pay_run.calculate.description'
+  );
   withContext(calculate);
   withOutput(calculate);
-  calculate.option('--file <path>', 'JSON with the employee inputs: an array, or {"employee_inputs": [...]}');
+  // The object shape goes in as a parameter: a literal brace is a placeholder to t().
+  optionByKey(calculate, '--file <path>', 'help.pay_run.calculate.option.file', {
+    params: { shape: '{"employee_inputs": [...]}' },
+  });
   declareRisk(calculate, {
     risk: 'escritura',
     agent: false,
@@ -330,11 +334,10 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
   );
 
   // ---- pay-run approve -----------------------------------------------
-  const approve = payRun
-    .command('approve')
-    .alias('aprobar')
-    .argument('<id>', 'calculated pay run to approve')
-    .description('Approve a calculated run, sealing its totals and writing the employer liability; irreversible');
+  const approve = describeCommand(
+    argumentByKey(payRun.command('approve').alias('aprobar'), '<id>', 'help.pay_run.approve.argument.id'),
+    'help.pay_run.approve.description'
+  );
   withContext(approve);
   withOutput(approve);
   declareRisk(approve, {

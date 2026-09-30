@@ -22,6 +22,8 @@ import {
   requireExplicitEntity,
   resolveActiveEntity,
   usageError,
+  describeCommand,
+  optionByKey,
 } from './kernel/index.js';
 
 // ============================================================
@@ -97,26 +99,24 @@ export function summarizeRule(row: Record<string, unknown>): Record<string, unkn
 }
 
 export function registerBillRuleCommands(bill: Command, deps: BillRuleDeps): void {
-  const rule = bill
-    .command('rule')
-    .alias('regla')
-    .description('Firm processing rules: what codes an incoming CFDI with no model involved');
+  // The help of these leaves is rendered by key (#314):
+  // help.bill.rule.<leaf>.{description,option.<flag>}.
+  const rule = describeCommand(bill.command('rule').alias('regla'), 'help.bill.rule.description');
 
   // ---- bill rule create -------------------------------------------
-  const create = rule
-    .command('create')
-    .alias('crear')
-    .description('Create a processing rule (conditions → actions) that the next ingest applies');
+  const create = describeCommand(rule.command('create').alias('crear'), 'help.bill.rule.create.description');
   withContext(create);
-  create
-    .requiredOption('--name <text>', 'rule name, shown in the trace of every CFDI it decides')
-    .option('--when <condition...>', 'repeatable, all must hold: "<field> <operator> <value>"')
-    .option('--then <action...>', 'repeatable: "<action>=<value>", e.g. set_account=6100')
-    .option('--type <type>', `rule type: ${RULE_TYPES.join(', ')}`, 'account_mapping')
-    .option('--priority <n>', 'lower runs first; a later match overrides an earlier one', '100')
-    .option('--description <text>', 'why the firm keeps this rule')
-    .option('--dry-run', 'validate and show the rule; write nothing')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--name <text>', 'help.bill.rule.create.option.name', { mandatory: true });
+  optionByKey(create, '--when <condition...>', 'help.bill.rule.create.option.when');
+  optionByKey(create, '--then <action...>', 'help.bill.rule.create.option.then');
+  optionByKey(create, '--type <type>', 'help.bill.rule.create.option.type', {
+    params: { types: RULE_TYPES.join(', ') },
+    defaultValue: 'account_mapping',
+  });
+  optionByKey(create, '--priority <n>', 'help.bill.rule.create.option.priority', { defaultValue: '100' });
+  optionByKey(create, '--description <text>', 'help.bill.rule.create.option.description');
+  optionByKey(create, '--dry-run', 'help.bill.rule.create.option.dry_run');
+  optionByKey(create, '--json', 'help.bill.rule.create.option.json');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'processing_rules' });
   create.addHelpText('after', EXAMPLES.create);
   create.action(
@@ -168,12 +168,9 @@ export function registerBillRuleCommands(bill: Command, deps: BillRuleDeps): voi
   );
 
   // ---- bill rule list ---------------------------------------------
-  const list = rule
-    .command('list')
-    .alias('listar')
-    .description('List the processing rules in evaluation order, with how often each one fired');
+  const list = describeCommand(rule.command('list').alias('listar'), 'help.bill.rule.list.description');
   withOutput(withSelection(withContext(list)));
-  list.option('--type <type>', `only this rule type: ${RULE_TYPES.join(', ')}`);
+  optionByKey(list, '--type <type>', 'help.bill.rule.list.option.type', { params: { types: RULE_TYPES.join(', ') } });
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EXAMPLES.list);
   list.action((opts: RuleOpts) =>

@@ -245,7 +245,7 @@ La receta para una issue `status:agent-ready` (o una D3 ya confirmada):
 |---|---|---|
 | `src/plan/mutation-census.txt` | El censo de espejos y anclas que sustituyó a `MIRRORS_FLOOR` y `ANCHORS_HERE` (#356). Una línea por espejo: dos PRs sólo chocan si tocan el mismo sitio | `npm run mutation:census` sobre el árbol fusionado; nunca se suma a mano |
 | `docs/language.md` y `docs/language.es.md` (bloque) | Lo genera el metro del idioma | `npm run language:status -- --write` |
-| `docs/language-baseline.json` | La línea base sólo baja | `npm run language:status -- --tighten` |
+| `docs/language-baseline.json` | La línea base sólo baja. El carril `help-descriptions-without-key` va por familia del CLI: la ayuda nueva se registra con `describeCommand`/`optionByKey`/`argumentByKey`, no en prosa (#314) | `npm run language:status -- --tighten` |
 | `src/i18n/en.ts` y `src/i18n/es.ts` | El extractor inserta antes del último `};` | Conservar el orden de los bloques en los dos archivos |
 | `src/ai/docs/manifiesto.json` | Sello del corpus contra sus fuentes | Releer el manual y `npx tsx scripts/corpus-manifiesto.ts --actualizar <manual>.md` |
 | `docs/cli-command-catalog.md` (bloque) y `docs/catalogo-minimos.json` | Recuento del binario y suelo | `npm run catalogo:estado`. Ojo: **sin `--check` reescribe el archivo** |

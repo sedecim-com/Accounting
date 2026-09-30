@@ -140,6 +140,9 @@ export const EN = {
   //     `src/cli/mnemosine.ts` registra por su cuenta. Las demás familias
   //     viven en sus propios archivos y NO están aquí; su adopción es otro
   //     tramo, y decirlo es más útil que insinuar que ya están.
+  //     Update (#314): families registered in their own files now adopt keys
+  //     one per PR, each in its own block below (the first is `period`); the
+  //     lane `help-descriptions-without-key` counts the families still pending.
   //
   // LAS DOS CARAS DE UNA DESCRIPCIÓN, Y POR QUÉ NO SON LA MISMA. Lo que se
   // guarda en el objeto de Commander (`Option.description`, `Command._description`)
@@ -944,6 +947,69 @@ export const EN = {
     'Leave the opening of fiscal year {year} on {date} as a DRAFT (Debit {debit} · Credit {credit})? ' +
     'It stays out of the ledger until you apply it with `entry post`.',
   'migration.check.as_of': 'As of {date} · {comparison}',
+  // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
+  //
+  // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,
+  // .option.<flag> and .argument.<name>, in snake_case; generic flags reuse
+  // cli.flag.*. The lane `help-descriptions-without-key` counts what is left.
+  'help.period.description': 'Fiscal periods: what exists, what state it is in, and opening a future one',
+  'help.period.list.description': 'List every period with its state, dates and overdue mark',
+  'help.period.list.option.year': 'only periods of this fiscal year',
+  'help.period.show.description':
+    'Show a period: state, who closed it, the checklist it closed with, its entries',
+  'help.period.show.argument.name': 'period name, YYYY-MM, or id',
+  'help.period.open.description': 'Open a future period so work can be captured in it',
+  'help.period.open.argument.name': 'period name, YYYY-MM, or id',
+  'help.period.open.option.reason': 'why it is being opened; recorded in the audit trail',
+  'help.period.reopen.description':
+    'Reopen a closed period so a correction can land in the month it belongs to',
+  'help.period.reopen.argument.name': 'period name, YYYY-MM, or id',
+  // ==== MNE-001-093 · help by key, the families merged from main (issue #314) ====
+  //
+  // Same format as `period`: help.<cmd>[.<sub>…].description, .option.<flag>
+  // and .argument.<name>, in snake_case (`pay-run` → `pay_run`). A literal
+  // brace cannot live in a message (it is a placeholder), so the one example
+  // object of `pay-run calculate --file` travels as the parameter {shape}.
+  'help.tenant.description': 'Create and list the firms (tenants) of this installation',
+  'help.tenant.list.description': 'List the tenants of this installation, archived ones included',
+  'help.tenant.create.description': 'Create a tenant for a new firm, with its system account',
+  'help.tenant.create.argument.name': 'name of the firm',
+  'help.tenant.create.option.subdomain': 'unique handle of the firm (derived from the name when omitted)',
+  'help.tenant.create.option.json': 'JSON output',
+  'help.account.role.sync.description': 'Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones',
+  'help.account.role.sync.option.dry_run': 'show the plan, without writing',
+  'help.bill.rule.description': 'Firm processing rules: what codes an incoming CFDI with no model involved',
+  'help.bill.rule.create.description':
+    'Create a processing rule (conditions → actions) that the next ingest applies',
+  'help.bill.rule.create.option.name': 'rule name, shown in the trace of every CFDI it decides',
+  'help.bill.rule.create.option.when': 'repeatable, all must hold: "<field> <operator> <value>"',
+  'help.bill.rule.create.option.then': 'repeatable: "<action>=<value>", e.g. set_account=6100',
+  'help.bill.rule.create.option.type': 'rule type: {types}',
+  'help.bill.rule.create.option.priority': 'lower runs first; a later match overrides an earlier one',
+  'help.bill.rule.create.option.description': 'why the firm keeps this rule',
+  'help.bill.rule.create.option.dry_run': 'validate and show the rule; write nothing',
+  'help.bill.rule.create.option.json': 'JSON output',
+  'help.bill.rule.list.description':
+    'List the processing rules in evaluation order, with how often each one fired',
+  'help.bill.rule.list.option.type': 'only this rule type: {types}',
+  'help.pay_run.description':
+    'Payroll runs of a pay period: create, calculate gross to net, approve, post the entry',
+  'help.pay_run.create.description':
+    'Create a draft run over a pay period; the tax year is fixed from the period',
+  'help.pay_run.create.option.period': 'pay period of the active entity (its id)',
+  'help.pay_run.create.option.type': 'run type: {types}',
+  'help.pay_run.calculate.description':
+    'Calculate gross to net for each employee in the inputs file and total the run',
+  'help.pay_run.calculate.argument.id': 'pay run to calculate',
+  'help.pay_run.calculate.option.file': 'JSON with the employee inputs: an array, or {shape}',
+  'help.pay_run.approve.description':
+    'Approve a calculated run, sealing its totals and writing the employer liability; irreversible',
+  'help.pay_run.approve.argument.id': 'calculated pay run to approve',
+  'help.pay_run.post.description':
+    'Build the payroll entry of an approved run and leave it as a draft for `mnemosine review`; ' +
+    '--post posts it directly',
+  'help.pay_run.post.argument.id': 'approved pay run whose entry is built',
+  'help.pay_run.post.option.post': 'post the entry to the ledger now instead of leaving a draft for review',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and

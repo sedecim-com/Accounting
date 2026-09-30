@@ -117,6 +117,19 @@ describe('comparar — qué cuenta como retroceso', () => {
     expect(h.length).toBeGreaterThan(0);
   });
 
+  it('a lane whose unit is not a file names its own rule on a new or grown entry (#314)', () => {
+    const rule = 'register it by key';
+    const withRule: Lane = { ...lane('a', 12, { bank: 5, employee: 7 }), perEntryRule: rule };
+    const h = compare([withRule], baselineOf({ a: 12 }, { a: { bank: 4 } }));
+    expect(h.map((f) => f.detail)).toEqual([
+      'bank: creció 4 → 5; register it by key',
+      'employee: 0 → 7 — sin entrada en la línea base; register it by key',
+    ]);
+    // Without a rule the file wording stays, so the other lanes read as before.
+    const plain = compare([lane('a', 1, { 'x.ts': 1 })], baselineOf({ a: 1 }));
+    expect(plain[0].detail).toContain('un archivo nuevo no nace con deuda');
+  });
+
   it('un archivo que DESAPARECE del desglose no es hallazgo: desaparecer es llegar a cero', () => {
     // La otra cara de la misma regla. El desglose sólo lista archivos con
     // deuda; si `y.ts` se traduce entero, deja la lista. Acusarlo convertiría

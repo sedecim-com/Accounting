@@ -38,6 +38,9 @@ import {
   exitCodeFor,
   ExitCode,
   type ExitCodeValue,
+  describeCommand,
+  optionByKey,
+  argumentByKey,
 } from './kernel/index.js';
 
 // ============================================================
@@ -223,21 +226,17 @@ Examples:
 } as const;
 
 export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps): void {
-  const period = program
-    .command('period')
-    .alias('periodo')
-    .description('Fiscal periods: what exists, what state it is in, and opening a future one');
+  // The help of this family is rendered by key (#314, pilot of the recipe):
+  // help.period.<leaf>.{description,option.<flag>,argument.<name>}.
+  const period = describeCommand(program.command('period').alias('periodo'), 'help.period.description');
 
   const run = makeRunner(deps);
   const entityOf = makeEntityResolver(deps);
 
   // ---- period list -------------------------------------------------
-  const list = period
-    .command('list')
-    .alias('listar')
-    .description('List every period with its state, dates and overdue mark');
+  const list = describeCommand(period.command('list').alias('listar'), 'help.period.list.description');
   withOutput(withSelection(withContext(list)));
-  list.option('--year <year>', 'only periods of this fiscal year');
+  optionByKey(list, '--year <year>', 'help.period.list.option.year');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.periodList);
   list.action((opts: CommonOpts & { year?: string }) =>
@@ -276,11 +275,10 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
   );
 
   // ---- period show -------------------------------------------------
-  const show = period
-    .command('show')
-    .alias('ver')
-    .argument('<name>', 'period name, YYYY-MM, or id')
-    .description('Show a period: state, who closed it, the checklist it closed with, its entries');
+  const show = describeCommand(
+    argumentByKey(period.command('show').alias('ver'), '<name>', 'help.period.show.argument.name'),
+    'help.period.show.description'
+  );
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.periodShow);
@@ -361,15 +359,14 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
   );
 
   // ---- period open -------------------------------------------------
-  const open = period
-    .command('open')
-    .alias('abrir')
-    .argument('<name>', 'period name, YYYY-MM, or id')
-    .description('Open a future period so work can be captured in it');
+  const open = describeCommand(
+    argumentByKey(period.command('open').alias('abrir'), '<name>', 'help.period.open.argument.name'),
+    'help.period.open.description'
+  );
   withContext(open);
-  open
-    .option('--reason <text>', 'why it is being opened; recorded in the audit trail')
-    .option('--dry-run', 'show the transition without performing it');
+  optionByKey(open, '--reason <text>', 'help.period.open.option.reason');
+  // A generic flag reuses the kernel's key (decision of 2026-09-26 on #152).
+  optionByKey(open, '--dry-run', 'cli.flag.dry_run');
   declareRisk(open, { risk: 'escritura', agent: false, writes: 'fiscal_periods.status' });
   open.addHelpText('after', EJEMPLOS.periodOpen);
   open.action((name: string, opts: CommonOpts & { reason?: string; dryRun?: boolean }) =>
@@ -410,11 +407,10 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
   // 'reopen' con el estado anterior. Reabrir es el acto que un auditor más
   // pregunta, así que el rastro no es opcional y no se duplica aquí: lo
   // escribe el servicio, dentro de su misma transacción.
-  const reopen = period
-    .command('reopen')
-    .alias('reabrir')
-    .argument('<name>', 'period name, YYYY-MM, or id')
-    .description('Reopen a closed period so a correction can land in the month it belongs to');
+  const reopen = describeCommand(
+    argumentByKey(period.command('reopen').alias('reabrir'), '<name>', 'help.period.reopen.argument.name'),
+    'help.period.reopen.description'
+  );
   withContext(reopen);
   withForce(reopen);
   // Irreversible por CATÁLOGO, no por capricho: técnicamente se vuelve a

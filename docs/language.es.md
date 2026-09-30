@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: 848ceae831c044b09fe91862ee91a089e14b9e2b
+> Gemela en español de [`language.md`](language.md) · source_sha: 09c737853ef5c0368afb358cf6dfd3395e8bd32e
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -89,7 +89,7 @@ La medición viva, escrita por el propio metro. **No se edita a mano**: `npm run
 
 ### How much Spanish is left, and where
 
-17 lanes under the ratchet and 1 measured but not yet required.
+18 lanes under the ratchet and 1 measured but not yet required.
 The ratchet lives in `docs/language-baseline.json` and only goes down; raising a number is a
 manual act and its trace is the diff.
 
@@ -112,6 +112,7 @@ manual act and its trace is the diff.
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
+| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 1246 | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28652 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
