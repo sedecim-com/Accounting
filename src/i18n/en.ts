@@ -2408,4 +2408,48 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+
+  // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
+  'help.e_accounting.voucher.description': 'The period vouchers the SAT asks for on request: PolizasPeriodo 1.3',
+  'help.e_accounting.voucher.generate.description':
+    'Build and archive the period vouchers XML with the evidence node of each line (CompNal, Cheque, Transferencia, OtrMetodoPago) and its hash',
+  'help.e_accounting.voucher.option.closing': 'the vouchers of month 13, where the year-end adjustments fall',
+  'help.e_accounting.voucher.option.validate_uuids': 'also check the shape of every CFDI UUID the vouchers declare',
+  'help.e_accounting.subledger.description': 'The auxiliaries the SAT asks for on request: voucher folios or accounts',
+  'help.e_accounting.subledger.generate.description':
+    'Build and archive the voucher-folio auxiliary (AuxiliarFolios 1.3) or the account and sub-account auxiliary (AuxiliarCtas 1.3) with its hash',
+  'help.e_accounting.subledger.option.closing': 'the auxiliary of month 13, where the year-end adjustments fall',
+  'help.e_accounting.subledger.option.kind': 'which auxiliary: folios (voucher folios) or accounts (account and sub-account); no default',
+  'help.e_accounting.request.option.period': 'period to declare: 2026-02, its name, or the fiscal period id',
+  'help.e_accounting.request.option.request_type':
+    'the request the file answers (TipoSolicitud): AF audit, FC compulsory check, DE refund, CO offset; no default',
+  'help.e_accounting.request.option.order_number': 'audit order number (NumOrden), required with AF and FC: ABC1234567/26',
+  'help.e_accounting.request.option.procedure_number': 'filing number (NumTramite), required with DE and CO: DE202600000009',
+  'help.e_accounting.request.option.dry_run': 'build it and show the verdict; archive nothing and write no file',
+  'help.e_accounting.request.option.output': 'write the XML to this path (the artifact store keeps its own copy)',
+  'help.e_accounting.request.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'e_accounting.request.type_missing':
+    'Say which request the file answers with --request-type ({types}). Vouchers and auxiliaries are delivered on request, never on your own, and the file states which request it answers: there is no default.',
+  'e_accounting.period.missing':
+    'Say which month: --period YYYY-MM (or its name or id), or --closing for month 13 of the fiscal year.',
+  'e_accounting.subledger.kind_missing':
+    'Say which auxiliary with --kind: folios (voucher folios) or accounts (account and sub-account). There is no default: delivering the wrong one does not answer the request.',
+  'e_accounting.subledger.kind_unknown': '--kind "{value}" does not exist: use folios or accounts.',
+  'e_accounting.target.dry_run': '(dry run: nothing was written)',
+  'e_accounting.target.store': '(artifact store)',
+  'e_accounting.target.label': 'target {target}',
+  'e_accounting.sealing.declared':
+    'The firm declared "{policy}" in efirma_sellado_contabilidad_electronica, and this command does not seal: the file comes out without Sello, noCertificado or Certificado.',
+  'e_accounting.dry_run.done': '--dry-run: nothing was archived and no file was written.',
+  'e_accounting.archive.already_there':
+    'These same bytes were already archived: no new version was created. The generator is deterministic.',
+  'e_accounting.voucher.title': 'Vouchers {month}/{year}',
+  'e_accounting.voucher.summary':
+    '{vouchers, plural, one {# voucher} other {# vouchers}}, {traced} with payment trace · debit {debit} · credit {credit}',
+  'e_accounting.voucher.blocked':
+    'No deliverable file was produced: {blocking, plural, one {# blocking finding} other {# blocking findings}} above, each with its voucher number. Fix them and generate again.',
+  'e_accounting.subledger.title_folios': 'Voucher-folio auxiliary {month}/{year}',
+  'e_accounting.subledger.title_accounts': 'Account auxiliary {month}/{year}',
+  'e_accounting.subledger.summary':
+    '{vouchers, plural, one {# voucher} other {# vouchers}} · {lines, plural, one {# line} other {# lines}}',
 } as const;
