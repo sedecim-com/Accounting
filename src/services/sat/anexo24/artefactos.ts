@@ -84,8 +84,10 @@ export async function archivarArtefacto(
   const insercion = await ejecutar<{ id: string; generado_en: string }>(
     `INSERT INTO sat_anexo24_artefactos
        (tenant_id, entity_id, tipo, version, rfc, anio, mes, tipo_envio,
-        xml, hash_sha256, bytes, sellado, politica_sellado, hallazgos, generado_por, sealed_from)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $15::uuid IS NOT NULL, $12, $13::jsonb, $14, $15)
+        xml, hash_sha256, bytes, sellado, politica_sellado, hallazgos, generado_por, sealed_from,
+        last_generated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $15::uuid IS NOT NULL, $12, $13::jsonb, $14, $15,
+             clock_timestamp())
      ON CONFLICT (entity_id, tipo, anio, mes, tipo_envio, hash_sha256) DO NOTHING
      RETURNING id, generado_en::text AS generado_en`,
     [
@@ -103,11 +105,14 @@ export async function archivarArtefacto(
 
   // El ON CONFLICT no devuelve fila: estos bytes ya estaban. Se recupera la
   // que hay, con la entidad DENTRO del SQL como en cualquier otra consulta.
+  // It becomes the LAST generated (migration 172): after generate A, generate
+  // B, generate A again, the file the accountant has in hand is A, and
+  // `seal` must pick A, not B. generado_en keeps the first time.
   const existente = await ejecutar<{ id: string; generado_en: string }>(
-    `SELECT id, generado_en::text AS generado_en
-       FROM sat_anexo24_artefactos
+    `UPDATE sat_anexo24_artefactos SET last_generated_at = clock_timestamp()
       WHERE entity_id = $1 AND tipo = $2 AND anio = $3 AND mes = $4
-        AND tipo_envio = $5 AND hash_sha256 = $6`,
+        AND tipo_envio = $5 AND hash_sha256 = $6
+      RETURNING id, generado_en::text AS generado_en`,
     [datos.entityId, datos.tipo, datos.anio, datos.mes, datos.tipoEnvio, hash]
   );
   const fila = existente.rows[0];

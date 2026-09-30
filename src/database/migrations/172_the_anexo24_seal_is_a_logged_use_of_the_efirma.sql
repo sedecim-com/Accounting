@@ -7,12 +7,18 @@
 --
 --   · the access log gets a new purpose, 'seal_anexo24'. `purpose` has no
 --     CHECK (014 left it free text), so only its comment changes;
+--   · each row records when its bytes were LAST produced. `generate` is
+--     idempotent by hash, so regenerating bytes already archived inserts
+--     nothing and generado_en keeps the first time; without this column the
+--     seal would pick the newest FIRST generation, which after
+--     generate A, generate B, generate A again is B, not the file the
+--     accountant just reviewed;
 --   · the sealed copy is archived as its own row, pointing at the unsealed
 --     artifact it seals. `sellado` stops being always false, and the CHECK
 --     ties the two columns: a row is sealed exactly when it names its source.
 --
 -- Additive only: every existing row is unsealed with no source, which the
--- CHECK admits.
+-- CHECK admits, and its last generation is its only known one, generado_en.
 -- ============================================================
 
 COMMENT ON COLUMN fiscal_credential_access_log.purpose IS
@@ -31,3 +37,16 @@ COMMENT ON COLUMN sat_anexo24_artefactos.sellado IS
 
 COMMENT ON COLUMN sat_anexo24_artefactos.sealed_from IS
   'The unsealed artifact this row seals: the document the accountant generated and reviewed, never a rebuild.';
+
+ALTER TABLE sat_anexo24_artefactos
+  ADD COLUMN IF NOT EXISTS last_generated_at TIMESTAMPTZ;
+UPDATE sat_anexo24_artefactos SET last_generated_at = generado_en WHERE last_generated_at IS NULL;
+ALTER TABLE sat_anexo24_artefactos
+  ALTER COLUMN last_generated_at SET DEFAULT NOW(),
+  ALTER COLUMN last_generated_at SET NOT NULL;
+
+COMMENT ON COLUMN sat_anexo24_artefactos.last_generated_at IS
+  'When these exact bytes were last produced. generado_en is the first time; regenerating identical bytes inserts no row and moves only this. `catalog seal` and `balance seal` seal the unsealed row with the latest value: the file the accountant generated last.';
+
+COMMENT ON TABLE sat_anexo24_artefactos IS
+  'The Anexo 24 XML exactly as generated, with its hash, so what was generated can be compared and shown later. `catalog seal` / `balance seal` sign the archived bytes the accountant reviewed, never a rebuild; the sealed copy is archived as its own row (sellado, sealed_from).';

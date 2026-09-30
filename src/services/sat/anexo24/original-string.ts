@@ -48,7 +48,7 @@ interface Element {
 }
 type XmlNode = Element | string;
 
-const parser = new XMLParser({
+const PARSER_OPTIONS = {
   preserveOrder: true,
   ignoreAttributes: false,
   attributeNamePrefix: '',
@@ -56,7 +56,17 @@ const parser = new XMLParser({
   parseAttributeValue: false,
   trimValues: false,
   ignoreDeclaration: true,
-});
+} as const;
+
+const stylesheetParser = new XMLParser(PARSER_OPTIONS);
+
+// The DOCUMENT parser decodes numeric character references, as the XSLT does:
+// fast-xml-parser 5.11.1 leaves `&#237;` literal without `htmlEntities: true`
+// (measured and written down in src/utils/xml-reader.ts). A line break that
+// arrives as `&#10;` becomes a real one here, where an XML parser would keep
+// it too (a character reference escapes attribute normalization); every value
+// in the cadena goes through normalize-space, which collapses both the same.
+const documentParser = new XMLParser({ ...PARSER_OPTIONS, processEntities: true, htmlEntities: true });
 
 function toTree(raw: unknown): XmlNode[] {
   return (raw as Record<string, unknown>[]).map((item) => {
@@ -72,7 +82,7 @@ function toTree(raw: unknown): XmlNode[] {
 
 const elements = (nodes: XmlNode[]): Element[] => nodes.filter((n): n is Element => typeof n !== 'string');
 
-function rootOf(xml: string): Element {
+function rootOf(xml: string, parser: XMLParser = stylesheetParser): Element {
   const [root, ...rest] = elements(toTree(parser.parse(xml)));
   if (!root || rest.length > 0) throw new Error('The document must have exactly one root element.');
   return root;
@@ -248,8 +258,26 @@ function run(body: XmlNode[], ctx: Context, sheet: Stylesheet, out: string[]): v
 export function originalString(xml: string, document: SealableDocument): string {
   const sheet = stylesheetFor(document);
   if (!sheet.root) throw new UnsupportedStylesheetError('no template matches "/"');
-  const root = documentTree(rootOf(xml), new Map());
+  const root = documentTree(rootOf(xml, documentParser), new Map());
   const out: string[] = [];
   run(sheet.root.body, { node: null, root, vars: new Map(), ns: sheet.root.ns }, sheet, out);
   return out.join('');
+}
+
+/** One element of a document, with its attribute values decoded. */
+export interface DocumentElement {
+  /** The local name, without prefix. */
+  name: string;
+  attrs: Readonly<Record<string, string>>;
+}
+
+/** Every element of the document in document order, parsed as the cadena reads it. */
+export function documentElements(xml: string): DocumentElement[] {
+  const out: DocumentElement[] = [];
+  const walk = (el: Element): void => {
+    out.push({ name: el.name.slice(el.name.indexOf(':') + 1), attrs: el.attrs });
+    elements(el.children).forEach(walk);
+  };
+  walk(rootOf(xml, documentParser));
+  return out;
 }

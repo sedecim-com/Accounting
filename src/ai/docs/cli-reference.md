@@ -7411,7 +7411,7 @@ Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
   -t, --tenant <id>                        tenant (firm) whose data to scope to
   -u, --user <email>                       acting user, for attribution and permissions
-  --period <expr>                          month of the archived file: YYYY-MM (the fiscal year with --closing)
+  --period <expr>                          month of the archived catalog: YYYY-MM
   --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
   --json                                   shorthand for --format json
   -o, --output <path>                      also write the sealed XML to this path
@@ -7511,6 +7511,8 @@ Options:
   --period <expr>                          period to check: 2026-02, its name, or the fiscal period id
   --closing                                check the year-end balance (month 13) instead of a month
   --check [names]                          comma-separated check names; with no value, prints the available ones
+  --type <N|C>                             envelope type to check: N normal, C amended (needs --modified) (default: "N")
+  --modified <date>                        FechaModBal of the amended balance; required with --type C
   -h, --help                               display help for command
 
 Examples:

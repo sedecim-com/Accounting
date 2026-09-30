@@ -63,6 +63,7 @@ vi.mock('../../src/services/sat/anexo24/seal.js', () => ({
     return Promise.resolve({
       xml: '<sealed/>',
       sealedFrom: 'art-unsealed',
+      sourceHash: 's'.repeat(64),
       certificateNumber: '00001000000000000145',
       artifact: { id: 'art-sealed', hash_sha256: 'h'.repeat(64), bytes: 9, generado_en: '', yaExistia: false },
     });
@@ -369,6 +370,13 @@ describe('registro de la familia e-accounting', () => {
     expect(hoja('catalog', 'generate')?.aliases()).toContain('generar');
     expect(hoja('balance', 'generate')?.aliases()).toContain('generar');
     expect(hoja('balance', 'check')?.aliases()).toContain('verificar');
+  });
+
+  it('the catalog seal --period help names no --closing, which that leaf does not have', () => {
+    const period = hoja('catalog', 'seal')?.options.find((o) => o.long === '--period');
+    expect(period?.description).toBe(t('help.e_accounting.catalog.seal.option.period'));
+    expect(period?.description).not.toMatch(/--closing/);
+    expect(hoja('catalog', 'seal')?.options.some((o) => o.long === '--closing')).toBe(false);
   });
 
   it('lo que NO entra en este tramo sigue sin existir: file, diff, match, apply, voucher', () => {
@@ -883,6 +891,11 @@ describe('balance check · el contrato de salida §4', () => {
     expect(r.out).toMatch(/Balanza 02\/2026/);
   });
 
+  it('--type C and --modified reach the check: an amended balance is sealed as its own bytes', async () => {
+    await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', '--type', 'c', '--modified', '2026-03-15', ...E]);
+    expect(mundo.ultimaVerificacion).toMatchObject({ opts: { periodo: '2026-02', tipo: 'C', fechaModBal: '2026-03-15' } });
+  });
+
   it('check NO archiva ni escribe: el motor de generación no se llama nunca', async () => {
     await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
     expect((mundo.ultimaBalanza as unknown) ?? null).toBe(null);
@@ -899,7 +912,12 @@ describe('catalog seal · balance seal (EFIRMA-4, #442)', () => {
       actor: 'contador@despacho.mx', userId: 'U-1',
     });
     const receipt = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
-    expect(receipt.rows[0]).toMatchObject({ no_certificado: '00001000000000000145', presentado_ante_el_sat: false });
+    expect(receipt.rows[0]).toMatchObject({
+      sealed_from: 'art-unsealed',
+      sealed_from_hash: 's'.repeat(64),
+      certificate_number: '00001000000000000145',
+      filed_with_sat: false,
+    });
     expect(r.err).toContain(t('anexo24.seal.nothing_filed'));
   });
 

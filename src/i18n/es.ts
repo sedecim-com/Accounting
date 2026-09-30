@@ -2315,6 +2315,20 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.e_accounting.balance.seal.description':
     'Sella con la e.firma de la entidad la balanza archivada de un periodo (sólo con sellar_con_custodia); no presenta nada',
   'help.e_accounting.seal.option.period': 'mes del archivo archivado: YYYY-MM (el ejercicio con --closing)',
+  'help.e_accounting.catalog.seal.option.period': 'mes del catálogo archivado: YYYY-MM',
+  'help.e_accounting.balance.check.option.type': 'tipo de envío a verificar: N normal, C complementaria (pide --modified)',
+  'help.e_accounting.balance.check.option.modified': 'FechaModBal de la balanza complementaria; obligatoria con --type C',
+  'anexo24.seal.not_archived':
+    'No hay {document} archivado sin sellar de {period}: genéralo primero, revísalo y después séllalo.',
+  'anexo24.seal.rfc_mismatch':
+    'La e.firma es de {certificateRfc} y el documento declara {documentRfc}: no se sella.',
+  'anexo24.seal.not_sat_serial':
+    'El número de serie {serial} no es un número de certificado del SAT (20 dígitos): no puede ir en noCertificado.',
+  'anexo24.seal.separator_in_attribute':
+    'No se sella: {element} (cuenta {account}) tiene "|" en {attribute} ("{value}"). El Anexo 24 prohíbe "|" en ' +
+    'cualquier atributo porque separa los campos de la cadena original. Corrige el valor y vuelve a generar.',
+  'anexo24.seal.source_invalid':
+    'No se sella: el archivo archivado no valida contra el XSD del SAT ({errors}). No se descifró nada.',
   'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
   'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
   'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',

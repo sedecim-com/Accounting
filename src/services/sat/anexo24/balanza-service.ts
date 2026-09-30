@@ -657,14 +657,14 @@ async function prepararBalanza(
   };
 }
 
-function xmlDeLaBalanza(meta: MetaDeBalanza, cuentas: CuentaDeBalanza[]): string {
+function balanceXml(meta: MetaDeBalanza, accounts: CuentaDeBalanza[]): string {
   return construirBalanzaXml({
     rfc: meta.rfc,
     anio: meta.anio,
     mes: meta.mes,
     tipoEnvio: meta.tipo_envio,
     ...(meta.fecha_mod_bal ? { fechaModBal: meta.fecha_mod_bal } : {}),
-    cuentas,
+    cuentas: accounts,
   });
 }
 
@@ -679,11 +679,11 @@ export async function verificarBalanza(
   entityId: string,
   opts: OpcionesDeBalanza & { checks?: readonly BalanzaCheckName[] } = {}
 ): Promise<ResultadoDeVerificacion> {
-  const { meta, cuentas, contexto, inicial } = await prepararBalanza(entityId, opts);
+  const { meta, cuentas: accounts, contexto, inicial } = await prepararBalanza(entityId, opts);
   // A balance counts as sealed when the bytes it would be generated with today
   // have a sealed copy: sealing an older version does not seal this one.
   if (meta.criterio_sellado !== 'nunca_sellar_en_el_sistema') {
-    const hash = hashDelXml(xmlDeLaBalanza(meta, cuentas));
+    const hash = hashDelXml(balanceXml(meta, accounts));
     meta.sellada = contexto.sellada = await hasSealedCopy(meta.tenant_id, entityId, 'balanza', hash);
   }
   const checks = [...(opts.checks ?? BALANZA_CHECK_NAMES)];
@@ -700,7 +700,7 @@ export async function verificarBalanza(
 
 export interface BalanzaGenerada {
   xml: string;
-  /** sha256 de los bytes. Es lo que `diff` y `file` comparan. */
+  /** sha256 of the bytes: what `balance seal` names as the source it signs. */
   hash: string;
   bytes: number;
   /** Nombre sugerido del archivo. */
@@ -748,13 +748,13 @@ export async function generarBalanza(
     );
   }
 
-  const xml = xmlDeLaBalanza(meta, cuentas);
+  const xml = balanceXml(meta, cuentas);
 
-  // SE ARCHIVA porque `diff` y `file` dependen de saber qué se generó, y
-  // porque firmar «el catálogo de hoy» reconstruido en el momento es firmar
-  // otro archivo que el que el contador revisó. La idempotencia es por hash
-  // (artefactos.ts): regenerar sin cambios devuelve la fila que ya estaba, lo
-  // que además comprueba gratis que el generador es determinista.
+  // ARCHIVED because `balance seal` signs the archived bytes: sealing a
+  // balance rebuilt at seal time would sign another file than the one the
+  // accountant reviewed. Idempotent by hash (artefactos.ts): regenerating
+  // unchanged bytes returns the existing row and marks it as the last
+  // generated, which also checks for free that the generator is deterministic.
   const generadoPor = opts.dryRun === true ? undefined : opts.generadoPor;
   const artefacto = generadoPor !== undefined
     ? await archivarArtefacto({

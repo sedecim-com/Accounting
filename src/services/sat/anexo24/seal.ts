@@ -1,6 +1,6 @@
 import forge from 'node-forge';
 import { query } from '../../../database/connection.js';
-import { AppError, NotFoundError, ValidationError } from '../../../utils/errors.js';
+import { AppError, ValidationError } from '../../../utils/errors.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import { withCredential } from '../../fiscal-credentials/service.js';
 import {
@@ -10,7 +10,7 @@ import {
 } from '../../fiscal-credentials/certificate.js';
 import { certificateBase64, wipeRsaPrivateKey } from '../../sat-download/ws-security.js';
 import { archivarArtefacto, type ArtefactoArchivado } from './artefactos.js';
-import { originalString, type SealableDocument } from './original-string.js';
+import { documentElements, originalString, type SealableDocument } from './original-string.js';
 import { validateAgainstOfficialXsd, type OfficialSchema } from './official-xsd.js';
 
 // ============================================================
@@ -35,8 +35,17 @@ import { validateAgainstOfficialXsd, type OfficialSchema } from './official-xsd.
 // the key is decrypted. The decrypted forge key is wiped after signing.
 //
 // What is sealed is the ARCHIVED document the accountant generated and
-// reviewed, not a rebuild: the sealed copy is archived as its own row
-// (sellado = true) pointing at the one it seals. Nothing is filed with the
+// reviewed, not a rebuild: the unsealed row of the period that was generated
+// LAST (last_generated_at, migration 172, which regenerating identical bytes
+// also moves), and its hash is printed in the receipt. The sealed copy is
+// archived as its own row (sellado = true) pointing at the one it seals.
+//
+// Everything that can be refused without the key is refused BEFORE
+// withCredential, so a broken setup or a bad source costs no decryption and
+// none of the daily accesses: the source must validate against the XSD (Sello,
+// noCertificado and Certificado are optional there, so an unsealed file
+// validates, and this also proves xmllint runs) and no attribute may carry
+// '|', the cadena's separator (Anexo 24, «Generación de sellos digitales»). Nothing is filed with the
 // SAT: there is no public web service for it, and the upload stays in the
 // SAT portal, done by a person.
 // ============================================================
@@ -55,9 +64,7 @@ export function satCertificateNumber(cer: Buffer): string {
   const hex = parseCertificate(cer).serial;
   const digits = Buffer.from(hex.length % 2 === 0 ? hex : `0${hex}`, 'hex').toString('latin1');
   if (!/^\d{20}$/.test(digits)) {
-    throw new ValidationError(
-      `The certificate serial ${hex} is not a SAT certificate number (20 digits): it cannot go in noCertificado.`
-    );
+    throw new AppError(422, 'VALIDATION_ERROR', { key: 'anexo24.seal.not_sat_serial', params: { serial: hex } });
   }
   return digits;
 }
@@ -117,6 +124,8 @@ export interface SealRequest {
 export interface SealedDocument {
   xml: string;
   sealedFrom: string;
+  /** SHA-256 of the unsealed source: the hash `generate` printed for it. */
+  sourceHash: string;
   certificateNumber: string;
   artifact: ArtefactoArchivado;
 }
@@ -132,22 +141,56 @@ export class SealRefusedByPolicy extends AppError {
   }
 }
 
-/** Seals the last archived, unsealed document of the period, and archives the sealed copy. */
+/**
+ * Refuses a document with '|' in any attribute: it is the separator of the
+ * cadena original, so the SAT's own rule forbids it, and a seal over such a
+ * cadena signs something that does not read one way only.
+ */
+export function assertNoSeparatorInAttributes(xml: string): void {
+  for (const el of documentElements(xml)) {
+    for (const [attribute, value] of Object.entries(el.attrs)) {
+      if (value.includes('|')) {
+        throw new AppError(422, 'VALIDATION_ERROR', {
+          key: 'anexo24.seal.separator_in_attribute',
+          params: { element: el.name, account: el.attrs.NumCta ?? '-', attribute, value },
+        });
+      }
+    }
+  }
+}
+
+/** The checks that need no key. Throws on the first failure. */
+export function assertSealableSource(xml: string, document: SealableDocument): void {
+  assertNoSeparatorInAttributes(xml);
+  const verdict = validateAgainstOfficialXsd(xml, SCHEMA_OF[document]);
+  if (!verdict.valid) {
+    throw new AppError(422, 'VALIDATION_ERROR', {
+      key: 'anexo24.seal.source_invalid',
+      params: { errors: verdict.errors.join('; ') },
+    });
+  }
+}
+
+/** Seals the archived, unsealed document of the period generated last, and archives the sealed copy. */
 export async function sealArchivedDocument(req: SealRequest): Promise<SealedDocument> {
   const policy = (await getPolicy({ tenantId: req.tenantId, entityId: req.entityId }, SEAL_POLICY)).value;
   if (policy !== SEAL_POLICY_OPT_IN) throw new SealRefusedByPolicy(policy);
 
-  const found = await query<{ id: string; xml: string; rfc: string; version: string }>(
-    `SELECT id, xml, rfc, version FROM sat_anexo24_artefactos
+  const found = await query<{ id: string; xml: string; rfc: string; version: string; hash_sha256: string }>(
+    `SELECT id, xml, rfc, version, hash_sha256 FROM sat_anexo24_artefactos
       WHERE entity_id = $1 AND tenant_id = $2 AND tipo = $3 AND anio = $4 AND mes = $5
         AND tipo_envio = $6 AND sellado = false
-      ORDER BY generado_en DESC LIMIT 1`,
+      ORDER BY last_generated_at DESC, generado_en DESC LIMIT 1`,
     [req.entityId, req.tenantId, req.document, req.year, req.month, req.envelopeType]
   );
   const source = found.rows[0];
   if (!source) {
-    throw new NotFoundError(`Archived ${req.document} ${req.year}-${String(req.month).padStart(2, '0')} (generate it first)`);
+    throw new AppError(404, 'RESOURCE_NOT_FOUND', {
+      key: 'anexo24.seal.not_archived',
+      params: { document: req.document, period: `${req.year}-${String(req.month).padStart(2, '0')}` },
+    });
   }
+  assertSealableSource(source.xml, req.document);
 
   let certificateNumber = '';
   const xml = await withCredential(
@@ -157,7 +200,10 @@ export async function sealArchivedDocument(req: SealRequest): Promise<SealedDocu
     async (material) => {
       const rfc = parseCertificate(material.cer).rfc;
       if (rfc.toUpperCase() !== source.rfc.toUpperCase()) {
-        throw new ValidationError(`The e.firma belongs to ${rfc} and the document declares ${source.rfc}.`);
+        throw new AppError(422, 'VALIDATION_ERROR', {
+          key: 'anexo24.seal.rfc_mismatch',
+          params: { certificateRfc: rfc, documentRfc: source.rfc },
+        });
       }
       certificateNumber = satCertificateNumber(material.cer);
       return sealAnexo24Xml(source.xml, req.document, material);
@@ -179,7 +225,7 @@ export async function sealArchivedDocument(req: SealRequest): Promise<SealedDocu
     generadoPor: req.userId,
     sealedFrom: source.id,
   });
-  return { xml, sealedFrom: source.id, certificateNumber, artifact };
+  return { xml, sealedFrom: source.id, sourceHash: source.hash_sha256, certificateNumber, artifact };
 }
 
 /** Whether the unsealed document with these bytes has a sealed copy archived. */

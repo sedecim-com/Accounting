@@ -15,6 +15,7 @@ import { construirCatalogoCuentas } from '../../src/services/sat/anexo24/catalog
 import { originalString } from '../../src/services/sat/anexo24/original-string.js';
 import { sealArchivedDocument, SealRefusedByPolicy } from '../../src/services/sat/anexo24/seal.js';
 import { validateAgainstOfficialXsd } from '../helpers/official-xsd.js';
+import type { AppError } from '../../src/utils/errors.js';
 
 // ============================================================
 // EFIRMA-4 (#442), against a real database. The e.firma is the synthetic
@@ -42,17 +43,37 @@ async function logRows(): Promise<{ purpose: string; outcome: string; denied_rea
 const setSealPolicy = (value: string) =>
   resolvePolicy({ tenantId: f.tenantId }, 'efirma_sellado_contabilidad_electronica', value, f.userId);
 
-const sealFebruary = (document: 'catalogo' | 'balanza') =>
+const sealPeriod = (document: 'catalogo' | 'balanza', month: number, envelopeType: 'N' | 'C' = 'N') =>
   sealArchivedDocument({
     tenantId: f.tenantId,
     entityId: f.entityId,
     document,
     year: 2026,
-    month: 2,
-    envelopeType: 'N',
+    month,
+    envelopeType,
     actor: ACTOR,
     userId: f.userId,
   });
+const sealFebruary = (document: 'catalogo' | 'balanza') => sealPeriod(document, 2);
+
+const chartAccount = (code: string, name: string) => ({
+  code, name, account_level: 1, parent_code: null, codigo_agrupador_sat: '105',
+  normal_balance: 'debit' as const, account_type: 'asset', lineas_posteadas: 1, naturaleza_agrupador: null,
+  estado_agrupador: 'valido' as const,
+});
+
+/** Archives a catalog as `catalog generate` does, and returns its row id. */
+async function archiveChart(month: number, accounts: ReturnType<typeof chartAccount>[], mangle = (x: string) => x) {
+  const built = construirCatalogoCuentas({
+    rfc: RFC, anio: 2026, mes: month, cuentas: accounts,
+    politicas: { niveles: 'jerarquia_completa', sinAgrupador: 'bloquear', sellado: 'sellar_con_custodia' },
+  });
+  const archived = await archivarArtefacto({
+    tenantId: f.tenantId, entityId: f.entityId, tipo: 'catalogo', version: '1.3', rfc: RFC, anio: 2026, mes: month,
+    tipoEnvio: 'N', xml: mangle(built.xml!), politicaSellado: 'sellar_con_custodia', hallazgos: [], generadoPor: f.userId,
+  });
+  return archived;
+}
 
 beforeAll(async () => {
   f = await crearInquilino('EFIRMA-4 Anexo 24 seal');
@@ -134,6 +155,16 @@ describe('EFIRMA-4 · the Anexo 24 seal', () => {
     expect(after.hallazgos.some((h) => h.check === 'sin-sello')).toBe(false);
   });
 
+  it('balance check with --type C sees the sealed amended balance', async () => {
+    const amended = { periodo: f.periodos[2], tipo: 'C' as const, fechaModBal: '2026-03-15' };
+    await generarBalanza(f.entityId, { ...amended, generadoPor: f.userId });
+    expect((await verificarBalanza(f.entityId, amended)).meta.sellada).toBe(false);
+    await sealPeriod('balanza', 2, 'C');
+    const after = await verificarBalanza(f.entityId, amended);
+    expect(after.meta.sellada).toBe(true);
+    expect(after.hallazgos.some((h) => h.check === 'sin-sello')).toBe(false);
+  });
+
   it('seals the archived catalog, and it validates against the XSD', async () => {
     const built = construirCatalogoCuentas({
       rfc: RFC,
@@ -156,6 +187,29 @@ describe('EFIRMA-4 · the Anexo 24 seal', () => {
     const sealed = await sealFebruary('catalogo');
     expect(validateAgainstOfficialXsd(sealed.xml, 'chart')).toEqual({ valid: true, errors: [] });
     expect((await logRows()).at(-1)).toEqual({ purpose: 'seal_anexo24', outcome: 'success', denied_reason: null });
+  });
+
+  it('seals the file generated LAST: generate A, generate B, regenerate A, then seal signs A', async () => {
+    const a = await archiveChart(3, [chartAccount('1140', 'Clientes')]);
+    const b = await archiveChart(3, [chartAccount('1140', 'Clientes'), chartAccount('1150', 'Deudores')]);
+    const again = await archiveChart(3, [chartAccount('1140', 'Clientes')]);
+    expect(again).toMatchObject({ id: a.id, yaExistia: true });
+    expect(b.id).not.toBe(a.id);
+
+    const sealed = await sealPeriod('catalogo', 3);
+    expect(sealed.sealedFrom).toBe(a.id);
+    expect(sealed.sourceHash).toBe(a.hash_sha256);
+  });
+
+  it.each([
+    ['the XSD rejects it', 4, (x: string) => x.replace(`RFC="${RFC}"`, 'RFC="NOT-AN-RFC"'), 'anexo24.seal.source_invalid'],
+    ["an attribute carries '|'", 5, (x: string) => x.replace('Desc="Clientes"', 'Desc="Caja | chica"'), 'anexo24.seal.separator_in_attribute'],
+  ] as const)('a source where %s is refused before the key: no decryption, no access used', async (_why, month, mangle, key) => {
+    await archiveChart(month, [chartAccount('1140', 'Clientes')], mangle);
+    const before = (await logRows()).length;
+    const refused = await sealPeriod('catalogo', month).catch((e: unknown) => e);
+    expect((refused as AppError).messageKey?.key).toBe(key);
+    expect((await logRows()).length).toBe(before);
   });
 
   it('the daily cap applies: with bloquear, a seal past the cap is denied and logged, and nothing is archived', async () => {

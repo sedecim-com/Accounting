@@ -872,6 +872,10 @@ Examples:
       '--check [names]',
       'comma-separated check names; with no value, prints the available ones'
     );
+  // --type/--modified as in `generate`: an amended balance (C with FechaModBal)
+  // is other bytes, and whether it was sealed is asked of those bytes.
+  optionByKey(verificar, '--type <N|C>', 'help.e_accounting.balance.check.option.type', { defaultValue: 'N' });
+  optionByKey(verificar, '--modified <date>', 'help.e_accounting.balance.check.option.modified');
   // LECTURA: no escribe, no genera y no archiva. IA ✓ sin más condiciones.
   declareRisk(verificar, { risk: 'lectura', agent: true });
   verificar.addHelpText('after', EJEMPLOS.balanceCheck);
@@ -880,6 +884,8 @@ Examples:
       opts: CommonOpts & {
         period?: string;
         closing?: boolean;
+        type?: string;
+        modified?: string;
         check?: string | boolean;
         strict?: boolean;
       }
@@ -898,10 +904,13 @@ Examples:
         const pedidos =
           typeof opts.check === 'string' ? exigirChecksDeBalanza(opts.check) : undefined;
 
+        const envelopeType = exigirTipoDeEnvio(opts.type);
         const ctx = await entidadDeLectura(opts);
         const r: ResultadoDeVerificacion = await verificarBalanza(ctx.entityId, {
           ...(opts.period !== undefined ? { periodo: opts.period } : {}),
           ...(opts.closing === true ? { cierre: true } : {}),
+          ...(envelopeType !== undefined ? { tipo: envelopeType } : {}),
+          ...(opts.modified !== undefined ? { fechaModBal: opts.modified } : {}),
           ...(pedidos !== undefined ? { checks: pedidos } : {}),
         });
 
@@ -979,7 +988,11 @@ Examples:
         : 'help.e_accounting.balance.seal.description'
     );
     withContext(leaf);
-    optionByKey(leaf, '--period <expr>', 'help.e_accounting.seal.option.period');
+    optionByKey(
+      leaf,
+      '--period <expr>',
+      document === 'catalogo' ? 'help.e_accounting.catalog.seal.option.period' : 'help.e_accounting.seal.option.period'
+    );
     if (document === 'balanza') {
       optionByKey(leaf, '--type <N|C>', 'help.e_accounting.seal.option.type');
       optionByKey(leaf, '--closing', 'help.e_accounting.seal.option.closing');
@@ -1026,11 +1039,13 @@ Examples:
             {
               hash: sealed.artifact.hash_sha256,
               artefacto: sealed.artifact.id,
-              sella_a: sealed.sealedFrom,
-              no_certificado: sealed.certificateNumber,
+              sealed_from: sealed.sealedFrom,
+              // The hash `generate` printed: the accountant checks it is the file they reviewed.
+              sealed_from_hash: sealed.sourceHash,
+              certificate_number: sealed.certificateNumber,
               bytes: sealed.artifact.bytes,
               destino: opts.output ?? '',
-              presentado_ante_el_sat: false,
+              filed_with_sat: false,
             },
             opts
           );

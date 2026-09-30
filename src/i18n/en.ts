@@ -2473,6 +2473,20 @@ export const EN = {
   'help.e_accounting.balance.seal.description':
     'Seal the archived trial balance of a period with the entity e.firma (only under sellar_con_custodia); files nothing',
   'help.e_accounting.seal.option.period': 'month of the archived file: YYYY-MM (the fiscal year with --closing)',
+  'help.e_accounting.catalog.seal.option.period': 'month of the archived catalog: YYYY-MM',
+  'help.e_accounting.balance.check.option.type': 'envelope type to check: N normal, C amended (needs --modified)',
+  'help.e_accounting.balance.check.option.modified': 'FechaModBal of the amended balance; required with --type C',
+  'anexo24.seal.not_archived':
+    'There is no archived, unsealed {document} for {period}: generate it first, review it, then seal it.',
+  'anexo24.seal.rfc_mismatch':
+    'The e.firma belongs to {certificateRfc} and the document declares {documentRfc}: it is not sealed.',
+  'anexo24.seal.not_sat_serial':
+    'The certificate serial {serial} is not a SAT certificate number (20 digits): it cannot go in noCertificado.',
+  'anexo24.seal.separator_in_attribute':
+    'It is not sealed: {element} (account {account}) has "|" in {attribute} ("{value}"). The Anexo 24 forbids "|" in ' +
+    'any attribute because it separates the fields of the cadena original. Fix the value and generate again.',
+  'anexo24.seal.source_invalid':
+    'It is not sealed: the archived file does not validate against the SAT XSD ({errors}). Nothing was decrypted.',
   'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
   'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
   'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',

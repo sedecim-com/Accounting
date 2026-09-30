@@ -9,8 +9,13 @@ import {
 import { construirBalanzaXml } from '../../../src/services/sat/anexo24/balanza-xml.js';
 import type { CuentaDeBalanza } from '../../../src/services/sat/anexo24/balanza-invariantes.js';
 import { originalString, normalizeSpace } from '../../../src/services/sat/anexo24/original-string.js';
-import { sealAnexo24Xml, satCertificateNumber } from '../../../src/services/sat/anexo24/seal.js';
-import { ValidationError } from '../../../src/utils/errors.js';
+import {
+  assertNoSeparatorInAttributes,
+  assertSealableSource,
+  sealAnexo24Xml,
+  satCertificateNumber,
+} from '../../../src/services/sat/anexo24/seal.js';
+import { AppError } from '../../../src/utils/errors.js';
 import { validateAgainstOfficialXsd } from '../../helpers/official-xsd.js';
 
 // ============================================================
@@ -39,14 +44,14 @@ const account = (over: Partial<CuentaParaCatalogo> & { code: string }): CuentaPa
   ...over,
 });
 
-const chartXml = (): string =>
+const chartXml = (cashName = 'Caja y bancos'): string =>
   construirCatalogoCuentas({
     rfc: 'AAA010101AAA',
     anio: 2026,
     mes: 2,
     cuentas: [
       account({ code: '1000', name: 'Activo' }),
-      account({ code: '1110', name: 'Caja y bancos', account_level: 2, parent_code: '1000', codigo_agrupador_sat: '102.01' }),
+      account({ code: '1110', name: cashName, account_level: 2, parent_code: '1000', codigo_agrupador_sat: '102.01' }),
       account({ code: '2110', name: 'Proveedores & Cía', codigo_agrupador_sat: '201', normal_balance: 'credit' }),
     ],
     politicas: { niveles: 'jerarquia_completa', sinAgrupador: 'bloquear', sellado: 'sellar_con_custodia' },
@@ -106,6 +111,11 @@ describe('the cadena original, by the SAT stylesheet', () => {
     expect(originalString(renamed, 'catalogo')).toBe(originalString(xml, 'catalogo'));
   });
 
+  it('decodes a numeric character reference as the XSLT does, instead of signing it literally', () => {
+    const xml = chartXml().replace('Desc="Activo"', 'Desc="Activo C&#237;a"');
+    expect(originalString(xml, 'catalogo')).toContain('|1000|Activo Cía|1|D');
+  });
+
   it('normalize-space trims and collapses the four XML whitespace characters', () => {
     expect(normalizeSpace(' \t a \r\n  b\n')).toBe('a b');
   });
@@ -149,7 +159,49 @@ describe('satCertificateNumber', () => {
     expect(satCertificateNumber(MATERIAL.cer)).toBe('00001000000000000145');
   });
 
-  it('refuses a certificate whose serial is not a SAT certificate number', () => {
-    expect(() => satCertificateNumber(fs.readFileSync(`${DIR}/fiel.cer`))).toThrow(ValidationError);
+  it('refuses a certificate whose serial is not a SAT certificate number, by key', () => {
+    const refused = (() => {
+      try {
+        return satCertificateNumber(fs.readFileSync(`${DIR}/fiel.cer`));
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(refused).toBeInstanceOf(AppError);
+    expect((refused as AppError).code).toBe('VALIDATION_ERROR');
+    expect((refused as AppError).messageKey?.key).toBe('anexo24.seal.not_sat_serial');
+  });
+});
+
+describe('what is refused before the key is read', () => {
+  const refusal = (fn: () => void): AppError => {
+    try {
+      fn();
+    } catch (e) {
+      return e as AppError;
+    }
+    throw new Error('it did not refuse');
+  };
+
+  it("an attribute with '|', the cadena separator, naming the account and the attribute", () => {
+    const xml = chartXml('Caja | chica');
+    const e = refusal(() => assertNoSeparatorInAttributes(xml));
+    expect(e.messageKey).toEqual({
+      key: 'anexo24.seal.separator_in_attribute',
+      params: { element: 'Ctas', account: '1110', attribute: 'Desc', value: 'Caja | chica' },
+    });
+    expect(() => assertNoSeparatorInAttributes(chartXml())).not.toThrow();
+  });
+
+  it("a '|' written as a character reference is still a '|'", () => {
+    const xml = chartXml().replace('Desc="Activo"', 'Desc="A&#124;B"');
+    expect(refusal(() => assertNoSeparatorInAttributes(xml)).messageKey?.key).toBe('anexo24.seal.separator_in_attribute');
+  });
+
+  it('an unsealed source the XSD rejects; a valid unsealed source passes', () => {
+    const invalid = chartXml().replace('RFC="AAA010101AAA"', 'RFC="NOT-AN-RFC"');
+    expect(refusal(() => assertSealableSource(invalid, 'catalogo')).messageKey?.key).toBe('anexo24.seal.source_invalid');
+    expect(() => assertSealableSource(chartXml(), 'catalogo')).not.toThrow();
+    expect(() => assertSealableSource(balanceXml(), 'balanza')).not.toThrow();
   });
 });
