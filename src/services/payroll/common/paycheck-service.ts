@@ -12,7 +12,7 @@ import {
   notaDelSubsidioEntregado,
   type RegistroSubsidioLeido,
 } from '../mx/subsidio-entregado.js';
-import { isrPartsOf } from '../mx/isr-exemption.js';
+import { isrPartsOf, type IsrExemptionContext } from '../mx/isr-exemption.js';
 import { readEmploymentSubsidyRounding } from '../mx/employment-subsidy.js';
 import type { TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
@@ -124,7 +124,8 @@ function sum(arr: number[]): number {
   return arr.reduce((a, b) => new Decimal(a).plus(b).toNumber(), 0);
 }
 
-export async function calculatePaycheck(input: PaycheckInput): Promise<CalculatedPaycheck> {
+/** The run, the employee and the period of one paycheck, each checked against the one before. */
+async function paycheckScope(input: Pick<PaycheckInput, 'tenant_id' | 'pay_run_id' | 'employee_id'>) {
   // THE THREE KEYS, AND THE ORDER IS THE POINT (TEN-12, #235).
   //
   // The tenant boundary already lived in the SQL of all three, and for a good
@@ -200,6 +201,46 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
   // día de menos o de más según dónde estuviera el servidor, y este número
   // divide el sueldo.
   const daysInPeriod = daysBetween(period.period_start, period.period_end) + 1;
+  return { run, emp, period, daysInPeriod };
+}
+
+/** What the ISR exemptions need of one paycheck; null outside Mexico. */
+function isrContextOf(
+  input: Pick<PaycheckInput, 'tenant_id' | 'employee_id'>,
+  scope: Awaited<ReturnType<typeof paycheckScope>>
+): IsrExemptionContext | null {
+  const { run, emp, period, daysInPeriod } = scope;
+  return emp.country_code === 'MX'
+    ? {
+        tenantId: input.tenant_id,
+        employeeId: input.employee_id,
+        payRunId: run.id,
+        payDate: toCalendarDate(period.pay_date),
+        entityId: period.entity_id,
+        periodDays: daysInPeriod,
+      }
+    : null;
+}
+
+/**
+ * Checks one employee's overtime lines against LISR art. 93 fr. I and the LFT
+ * limit WITHOUT writing anything (MNE-001-110).
+ *
+ * A run calculates employee by employee, each in its own transaction: an
+ * overtime line refused for the tenth employee used to leave nine paychecks
+ * written. `calculatePayRun` calls this for every input first, so a refused
+ * line stops the run before its first paycheck. It runs the same reader the
+ * calculation runs, so the two cannot disagree.
+ */
+export async function checkOvertimeLines(input: PaycheckInput): Promise<void> {
+  const overtime = input.earnings.filter((e) => e.earning_type === 'overtime');
+  if (overtime.length === 0) return;
+  await isrPartsOf(overtime, isrContextOf(input, await paycheckScope(input)));
+}
+
+export async function calculatePaycheck(input: PaycheckInput): Promise<CalculatedPaycheck> {
+  const scope = await paycheckScope(input);
+  const { emp, period, daysInPeriod } = scope;
 
   // --- Gross + deductions ---
   const grossEarnings = sum(input.earnings.map((e) => e.amount));
@@ -222,19 +263,10 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
   const taxableFuta = taxableFica;
   const taxableState = taxableFit;
   // Each earning's ISR parts (#297): the aguinaldo is exempt up to 30 UMA a
-  // year (LISR art. 93 fr. XIV) and only the rest is taxed. The parts are
-  // written on the earning row, and the ISR base is the sum of the taxable ones.
-  const isrParts = await isrPartsOf(
-    input.earnings,
-    emp.country_code === 'MX'
-      ? {
-          tenantId: input.tenant_id,
-          employeeId: input.employee_id,
-          payRunId: run.id,
-          payDate: toCalendarDate(period.pay_date),
-        }
-      : null
-  );
+  // year (LISR art. 93 fr. XIV), overtime by half up to 5 UMA a week (fr. I),
+  // and only the rest is taxed. The parts are written on the earning row, and
+  // the ISR base is the sum of the taxable ones.
+  const isrParts = await isrPartsOf(input.earnings, isrContextOf(input, scope));
   const taxableIsr = sum(isrParts.map((p) => p.taxable.toNumber())) - preTaxDeductions;
   // NOTE(#296): the IMSS base is the period's SBC (capped at 25 UMA), not the
   // ISR base: it was `taxableIsr`, so exempt earnings and pre-tax deductions
