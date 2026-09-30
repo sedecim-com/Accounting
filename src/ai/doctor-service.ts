@@ -89,6 +89,7 @@ export const CHECK_IDENTITIES = {
   credentials: { id: 'fiscal-credential-expiry', name: 'Fiscal credentials' },
   modelProvider: { id: 'default-provider-usable', name: 'Model provider' },
   encryptionKey: { id: 'encryption-key-strength', name: 'Encryption key' },
+  retiredContalinkKey: { id: 'global-contalink-key-unread', name: 'Retired Contalink key' },
   orphanedCapability: { id: 'unreachable-capability', name: 'Orphaned capability' },
   ledgerIntegrity: { id: 'balances-match-posted-lines', name: 'Ledger integrity' },
   reopenedPeriods: { id: 'periods-left-open', name: 'Reopened periods' },
@@ -158,6 +159,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
   }
   checks.push(checkModelProvider(deps.cwd));
   checks.push(checkEncryptionKey());
+  checks.push(checkRetiredContalinkKey());
 
   const worst: CheckLevel = checks.some((c) => c.level === 'fail')
     ? 'fail'
@@ -767,6 +769,23 @@ export function checkModelProvider(cwd?: string): CheckResult {
 }
 
 /** The example default (64 zeros) is nominal encryption: it must be shouted. */
+/**
+ * `CONTALINK_API_KEY` was retired by #357: each entity now has its own key in
+ * the vault. A deployment that still sets it would otherwise get no signal
+ * that the variable is ignored and its Contalink link is off.
+ */
+export function checkRetiredContalinkKey(): CheckResult {
+  if (!process.env.CONTALINK_API_KEY) {
+    return { ...CHECK_IDENTITIES.retiredContalinkKey, level: 'ok', detail: 'CONTALINK_API_KEY not set' };
+  }
+  return {
+    ...CHECK_IDENTITIES.retiredContalinkKey,
+    level: 'warn',
+    detail: 'CONTALINK_API_KEY is set but retired by #357 and not read: each entity needs its own key',
+    fix: 'mnemosine init --section import  (option 1, per entity), then remove CONTALINK_API_KEY from .env',
+  };
+}
+
 export function checkEncryptionKey(): CheckResult {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {

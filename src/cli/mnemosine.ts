@@ -187,6 +187,7 @@ import {
   type ExternalOpRow,
 } from '../ai/external-service.js';
 import { diffTrialBalance } from '../ai/external-service.js';
+import { ExternalCredentialError } from '../services/integrations/accounting/entity-credentials.js';
 import { planOnboarding, executeOnboarding } from '../ai/onboarding-service.js';
 import type { AskUserFn } from '../ai/tools/index.js';
 import type { SessionCallbacks } from '../ai/providers/types.js';
@@ -2801,7 +2802,12 @@ async function correrOutboxImpl(
         } catch (err) {
           veredictos.push(exitCodeFor(err));
           reportError(err);
-          console.log(c.dim('The operation is left as-is (check outbox list --status failed); continuing.'));
+          console.log(c.dim(
+            err instanceof ExternalCredentialError
+              ? 'Nothing was sent; the operation is back in pending. Register the entity\'s key ' +
+                  '(mnemosine init --section import), then run it again; continuing.'
+              : 'The operation is left as-is (check outbox list --status failed); continuing.'
+          ));
         }
       }
       console.log(c.dim(`\nDone: ${executed} executed, ${veredictos.length} failed.`));
