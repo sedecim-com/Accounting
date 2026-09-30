@@ -2346,6 +2346,14 @@
     },
     {
       "class": "policy-key",
+      "where": "census_cfdi_types",
+      "es": "census_cfdi_types",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-096): the CFDI types of the SAT census (sat_cfdi_census) that count toward completeness. Read by `completenessTypes` (sat-census/census.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "opening_payable_iva",
       "es": "opening_payable_iva",
       "en": null,
@@ -2915,6 +2923,30 @@
       "es": "contabilizar",
       "en": "post",
       "why": "`post` es el verbo del árbol para llevar un asiento al mayor (`postJournalEntry`, `autoPost`, `entry post`), y el informe ya lo nombra así (`loadMode: 'post'`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_cfdi_types/invoices_and_payments",
+      "es": "invoices_and_payments",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-096): the literal `completenessTypes` (sat-census/census.ts) maps to I, E and P: income, credit notes and payment receipts."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_cfdi_types/plus_payroll",
+      "es": "plus_payroll",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-096): the literal `completenessTypes` (sat-census/census.ts) maps to I, E, P and payroll N."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_cfdi_types/all_types",
+      "es": "all_types",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-096): the literal `completenessTypes` (sat-census/census.ts) maps to every type, transfers T included."
     },
     {
       "class": "policy-value",

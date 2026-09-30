@@ -45,7 +45,7 @@ Apagarlo quitaría a Promessa un flujo de producción sin reemplazo.
    - Este repo es la fuente de verdad de su propio mayor.
    - `accounting-manager` lo es de las comisiones de agentes en la compañía de Contalink de Grupo Promessa.
 2. **Regla de frontera: un solo escritor por compañía de Contalink, identificada por RFC.** `accounting-manager` es el único que escribe en la compañía de Promessa, y sólo comisiones de agentes. Este repo puede leerla, pero no escribir en ella.
-3. **La llave de Contalink de este repo se ata a una entidad y a su RFC** (#357). Hoy es una `CONTALINK_API_KEY` global del proceso (`src/services/integrations/accounting/registry.ts`) y no puede cumplir la regla del punto 2.
+3. **La llave de Contalink de este repo se ata a una entidad y a su RFC** (#357). Hasta el 2026-09-30 era una `CONTALINK_API_KEY` global del proceso (`src/services/integrations/accounting/registry.ts`) y no podía cumplir la regla del punto 2. Desde MNE-001-121 cada entidad tiene su llave en la bóveda (`external_system_credentials`, migración 171; `src/services/integrations/accounting/entity-credentials.ts`) y la variable global ya no se lee. El RFC lo declara quien registra la llave y se vuelve a comparar con el de la entidad en cada uso; nada confirma con Contalink qué compañía abre la llave, así que la regla del punto 2 descansa en esa declaración.
 4. **Si Promessa llegara a ser una entidad de este repo,** el cambio de escritor lo decide otro ADR y va en este orden:
    1. Se revoca `API_CONTALINK_KEY` de `accounting-manager` (secret `secrets`, junto a `CONTALINK_API_URL`).
    2. Se quita la location `/accounting/policies/manual` de `api-gateway` en dev, uat y producción.

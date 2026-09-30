@@ -59,9 +59,11 @@ const REVIEWER = { userId: 'u1', email: 'jefa@acme.mx' };
 /** Section context that captures output and answers a fixed script. */
 function makeCtx(answers: {
   text?: (string | null)[]; confirms?: boolean[]; flags?: Record<string, unknown>;
+  secrets?: (string | null)[];
 } = {}): SectionContext & { lines: string[] } {
   const lines: string[] = [];
   const text = [...(answers.text ?? [])];
+  const secrets = [...(answers.secrets ?? [])];
   const confirms = [...(answers.confirms ?? [])];
   return {
     rl: {} as never, // interactive unless the test overrides it
@@ -70,7 +72,7 @@ function makeCtx(answers: {
     print: (l?: string) => lines.push(l ?? ''),
     askText: async (_p: string, fallback?: string) =>
       text.length ? text.shift()! : (fallback ?? null),
-    askSecret: async () => null,
+    askSecret: async () => (secrets.length ? secrets.shift()! : null),
     confirm: async (_p: string, d = true) => (confirms.length ? confirms.shift()! : d),
   };
 }
@@ -89,7 +91,8 @@ function makeSection(overrides: Partial<Parameters<typeof deps>[0]> = {}) {
 }
 
 function deps(overrides: {
-  env?: NodeJS.ProcessEnv;
+  hasCredential?: Mock;
+  storeCredential?: Mock;
   plan?: Mock;
   execute?: Mock;
   ingest?: Mock;
@@ -103,7 +106,8 @@ function deps(overrides: {
     executeOnboarding: (overrides.execute ?? vi.fn()) as never,
     ingest: (overrides.ingest ?? vi.fn()) as never,
     createSession: async () => ({ label: 'stub', runTurn: async () => '', reset: () => undefined }),
-    env: overrides.env ?? {},
+    hasCredential: (overrides.hasCredential ?? vi.fn().mockResolvedValue(false)) as never,
+    storeCredential: (overrides.storeCredential ?? vi.fn()) as never,
     listXmlFiles: overrides.listXmlFiles ?? (() => []),
   };
 }
@@ -198,21 +202,67 @@ describe('S5 · configure choices', () => {
     expect(plan).not.toHaveBeenCalled();
   });
 
-  it('[1] without CONTALINK_API_KEY: exact env line, exact resume command, no call', async () => {
+  it('[1] without the ENTITY\'s own key and none typed: says what is missing, resume command, no call (#357)', async () => {
     const plan = vi.fn();
-    const ctx = makeCtx({ text: ['1'] }); // provider Enter → contalink default
-    await makeSection({ plan, env: {} }).configure(ctx);
+    const hasCredential = vi.fn().mockResolvedValue(false);
+    const storeCredential = vi.fn();
+    const ctx = makeCtx({ text: ['1'] }); // provider Enter → contalink default; key Enter → skip
+    await makeSection({ plan, hasCredential, storeCredential }).configure(ctx);
     const out = ctx.lines.join('\n');
-    expect(out).toMatch(/CONTALINK_API_KEY=<your key>/);
+    expect(hasCredential).toHaveBeenCalledWith(ENTITY, 'contalink');
+    expect(out).toMatch(/has no usable contalink key/);
+    expect(out).toMatch(/its own company \(same RFC\)/);
+    expect(out).toMatch(/RFC AME010101AAA/);
+    expect(out).not.toMatch(/CONTALINK_API_KEY/);
     expect(out).toMatch(/mnemosine init --section import/);
     expect(out).toMatch(/incomplete/);
+    expect(storeCredential).not.toHaveBeenCalled();
+    expect(plan).not.toHaveBeenCalled();
+  });
+
+  it('[1] registers the typed key for the entity\'s OWN RFC, then goes on to the import (#357)', async () => {
+    const plan = vi.fn().mockResolvedValue({ ...SMALL_PLAN, openingLines: [] });
+    const storeCredential = vi.fn().mockResolvedValue({ id: 'c1', rfc: 'AME010101AAA' });
+    const ctx = makeCtx({ text: ['1', 'contalink', '2026-06-30'], secrets: ['  k-secret  '], confirms: [true] });
+    await makeSection({ plan, storeCredential }).configure(ctx);
+    expect(storeCredential).toHaveBeenCalledTimes(1);
+    const input = storeCredential.mock.calls[0][0] as { apiKey: Buffer } & Record<string, unknown>;
+    expect(input).toMatchObject({
+      tenantId: 't1', entityId: 'e1', provider: 'contalink', rfc: 'AME010101AAA', registeredBy: 'jefa@acme.mx',
+    });
+    // The buffer handed to the vault is wiped once registration returns.
+    expect(input.apiKey.every((byte) => byte === 0)).toBe(true);
+    const out = ctx.lines.join('\n');
+    expect(out).toMatch(/key registered for RFC AME010101AAA/);
+    expect(out).not.toMatch(/k-secret/);
+    expect(plan).toHaveBeenCalledWith(ENTITY, 'contalink', '2026-01-01', '2026-06-30');
+  });
+
+  it('[1] a key whose company the person does not attest is NOT registered (#357)', async () => {
+    const plan = vi.fn();
+    const storeCredential = vi.fn();
+    const ctx = makeCtx({ text: ['1', 'contalink'], secrets: ['k-secret'], confirms: [false] });
+    await makeSection({ plan, storeCredential }).configure(ctx);
+    expect(storeCredential).not.toHaveBeenCalled();
+    expect(ctx.lines.join('\n')).toMatch(/Not registered: a key for another company/);
+    expect(plan).not.toHaveBeenCalled();
+  });
+
+  it('[1] a refused registration says why and stops before any call (#357)', async () => {
+    const plan = vi.fn();
+    const storeCredential = vi.fn().mockRejectedValue(new Error('The entity has no RFC'));
+    const ctx = makeCtx({ text: ['1', 'contalink'], secrets: ['k-secret'], confirms: [true] });
+    await makeSection({ plan, storeCredential }).configure(ctx);
+    const out = ctx.lines.join('\n');
+    expect(out).toMatch(/Could not register the key: The entity has no RFC/);
+    expect(out).toMatch(/mnemosine init --section import/);
     expect(plan).not.toHaveBeenCalled();
   });
 
   it('[1] rejects a malformed cutoff before touching the remote system', async () => {
     const plan = vi.fn();
     const ctx = makeCtx({ text: ['1', 'contalink', 'junio'] });
-    await makeSection({ plan, env: { CONTALINK_API_KEY: 'k' } }).configure(ctx);
+    await makeSection({ plan, hasCredential: vi.fn().mockResolvedValue(true) }).configure(ctx);
     expect(ctx.lines.join('\n')).toMatch(/must be YYYY-MM-DD/);
     expect(plan).not.toHaveBeenCalled();
   });
@@ -221,7 +271,7 @@ describe('S5 · configure choices', () => {
     const plan = vi.fn().mockResolvedValue(SMALL_PLAN);
     const execute = vi.fn().mockResolvedValue({ accountsCreated: 1, draftId: 'd1' });
     const ctx = makeCtx({ text: ['1', 'contalink', '2026-06-30'], confirms: [true] });
-    await makeSection({ plan, execute, env: { CONTALINK_API_KEY: 'k' } }).configure(ctx);
+    await makeSection({ plan, execute, hasCredential: vi.fn().mockResolvedValue(true) }).configure(ctx);
 
     expect(plan).toHaveBeenCalledWith(ENTITY, 'contalink', '2026-01-01', '2026-06-30');
     expect(execute).toHaveBeenCalledWith(
@@ -236,7 +286,7 @@ describe('S5 · configure choices', () => {
     const execute = vi.fn();
     // no confirms scripted → ctx.confirm returns the default, which is false
     const ctx = makeCtx({ text: ['1', 'contalink', '2026-06-30'] });
-    await makeSection({ plan, execute, env: { CONTALINK_API_KEY: 'k' } }).configure(ctx);
+    await makeSection({ plan, execute, hasCredential: vi.fn().mockResolvedValue(true) }).configure(ctx);
     expect(execute).not.toHaveBeenCalled();
     expect(ctx.lines.join('\n')).toMatch(/Cancelled/);
   });

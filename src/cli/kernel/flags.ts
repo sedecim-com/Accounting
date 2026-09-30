@@ -376,7 +376,7 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // check`, `cashflow explain` de fase 3— las ofrezca con esta misma palabra.
   '--show-candidates': null,
 
-  // ── D1a · el devengo de los pagos anticipados (NIF A-2) ───────────────
+  // ── D1a · el devengo de los pagos anticipados (NIF A-1, cap. 20) ──────
   //
   // Ninguna lleva forma corta. Seis grafías nuevas para la familia
   // `prepaid`·`pago-anticipado`, y dos que el catálogo escribe de otra manera

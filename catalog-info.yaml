@@ -60,6 +60,12 @@ consumes: []                     # ningún contrato de otro repo de Sedecim hoy.
 # necesitan (guía de implementación, Fase 3: «Lista de dependencias externas»).
 external:
   - contalink                    # sistema contable externo: lectura (onboarding, diff de balanza) y escritura por la cola revisada ai_external_ops
+    # CONTRACT: src/services/integrations/accounting/registry.ts builds the Contalink adapter
+    # only with the acting entity's own key (external_system_credentials + vault, migration
+    # 171, #357). The key's RFC is ATTESTED by whoever registers it (mnemosine init --section
+    # import), must equal the entity's RFC at registration and is re-checked against the
+    # entity's current RFC at every use. Nothing reads back from Contalink which company the
+    # key opens. There is no process-wide CONTALINK_API_KEY.
   - sat-consulta-cfdi            # estado de CFDI ante el SAT
   - sat-descarga-masiva          # servicio web del SAT autenticado con la e.firma; en el MVP desde el 2026-09-28 (#312). La autenticación existe (#439); solicitud, verificación y descarga no (#440, #441)
     # CONTRACT: src/services/sat-download/ws-security.ts builds the Autentica request of the
