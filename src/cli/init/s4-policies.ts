@@ -8,6 +8,7 @@ import {
   type PolicyRow,
 } from '../../services/policy/policy-service.js';
 import { previewFor } from '../../services/policy/policy-preview.js';
+import { panelTranslator, previewText } from '../../i18n/panel-text.js';
 import { specWording } from '../../services/policy/policy-text-key.js';
 import { getPolicySpec } from '../../services/policy/pending-catalog.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
@@ -109,6 +110,7 @@ export class PoliciesSection implements SetupSection {
           entityId: entity.entityId,
           tenantId: entity.tenantId,
           currency: entity.currency,
+          text: previewText(),
         }),
       }))
     );
@@ -150,9 +152,9 @@ export class PoliciesSection implements SetupSection {
     // cannot disagree about it. `whyAsking`/`whatIDo`/`ifSkipped` are not
     // part of that wording and still come from the spec.
     const spec = getPolicySpec(row.key);
-    const wording = policyWording(row);
+    const wording = policyWording(row, panelTranslator());
     const question = wording.question;
-    const extra = spec ? specWording(spec) : undefined;
+    const extra = spec ? specWording(spec, panelTranslator()) : undefined;
     const why = extra?.whyAsking ?? wording.impact;
     const what = extra?.whatIDo;
     // The same list is printed below and indexed by the typed number.

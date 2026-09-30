@@ -27,6 +27,7 @@ import { concordanciaSombra } from '../../src/ai/shadow-verdicts.js';
 import { FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_VEREDICTOS } from '../../src/ai/floor.js';
 import { renderBoard, renderExplanation, renderPolicies } from '../../src/cli/pending-command.js';
 import { ambiguityQuestion } from '../../src/cli/policy-answer.js';
+import { panelTranslator, previewText } from '../../src/i18n/panel-text.js';
 import { PREVIEWS } from '../../src/services/policy/policy-preview.js';
 import { POLICY_CATALOG } from '../../src/services/policy/pending-catalog.js';
 import { policyWording, type PolicyRow } from '../../src/services/policy/policy-service.js';
@@ -56,8 +57,8 @@ afterEach(() => resetLanguage());
 describe('the listing paints the catalog in the active language', () => {
   it('every policy: question, impact, rationale and options come out in Spanish under es', () => {
     for (const spec of POLICY_CATALOG) {
-      const es = policyWording(rowOf(spec), 'es');
-      const en = policyWording(rowOf(spec), 'en');
+      const es = policyWording(rowOf(spec), panelTranslator('es'));
+      const en = policyWording(rowOf(spec), panelTranslator('en'));
       expect(en.question, spec.key).toBe(spec.question);
       expect(es.question, spec.key).not.toBe(spec.question);
       expect(es.impact, spec.key).not.toBe(spec.impact);
@@ -101,7 +102,7 @@ describe('the listing paints the catalog in the active language', () => {
     const row = rowOf(POLICY_CATALOG[0]);
     const before = JSON.stringify(row);
     Object.freeze(row);
-    policyWording(row, 'es');
+    policyWording(row, panelTranslator('es'));
     renderPolicies([row], plain, { verbose: true });
     expect(JSON.stringify(row)).toBe(before);
   });
@@ -137,7 +138,8 @@ describe('the work board and the prompts follow the language', () => {
 });
 
 describe('policy-preview.ts: wording by key, figures by the formatter', () => {
-  const ctx = { entityId: 'e', tenantId: 't', currency: 'MXN' };
+  // Built per call: the edge binds the text to the language active right then.
+  const ctx = () => ({ entityId: 'e', tenantId: 't', currency: 'MXN', text: previewText() });
   const invoices = (subtotals: number[]) => ({
     rows: subtotals.map((s) => ({ subtotal: String(s), total: String(s) })),
   });
@@ -145,17 +147,17 @@ describe('policy-preview.ts: wording by key, figures by the formatter', () => {
   it('threshold preview: plural, percentage and money in es and en', async () => {
     mockQuery.mockResolvedValue(invoices([100, 6000, 30000, 60000]));
     setLanguage('es');
-    const es = await PREVIEWS.umbral_capitalizacion_mxn(ctx);
+    const es = await PREVIEWS.umbral_capitalizacion_mxn(ctx());
     expect(es[0]).toBe('De tus 4 facturas recibidas:');
     expect(es[1]).toContain('con MXN 5,000 → te preguntaría 3 veces (75 %)');
     mockQuery.mockResolvedValue(invoices([60000]));
-    const one = await PREVIEWS.umbral_capitalizacion_mxn(ctx);
+    const one = await PREVIEWS.umbral_capitalizacion_mxn(ctx());
     expect(one[0]).toBe('De tu 1 factura recibida:');
     expect(one[3]).toContain('te preguntaría 1 vez (100 %)');
 
     mockQuery.mockResolvedValue(invoices([100, 6000, 30000, 60000]));
     setLanguage('en');
-    const en = await PREVIEWS.umbral_capitalizacion_mxn(ctx);
+    const en = await PREVIEWS.umbral_capitalizacion_mxn(ctx());
     expect(en[0]).toBe('Of your 4 received invoices:');
     expect(en[1]).toContain('I would ask you 3 times (75%)');
   });
@@ -163,14 +165,14 @@ describe('policy-preview.ts: wording by key, figures by the formatter', () => {
   it('restaurants preview uses the formatter for every amount, in both languages', async () => {
     mockQuery.mockResolvedValue({ rows: [{ n: '1', total: '2000' }] });
     setLanguage('es');
-    const es = await PREVIEWS.politica_restaurantes(ctx);
+    const es = await PREVIEWS.politica_restaurantes(ctx());
     expect(es).toEqual([
       '1 factura de restaurante por MXN 2,000:',
       '  · deducible (8.5 %): MXN 170',
       '  · no deducible: MXN 1,830',
     ]);
     setLanguage('en');
-    expect((await PREVIEWS.politica_restaurantes(ctx))[0]).toBe('1 restaurant invoice for MXN 2,000:');
+    expect((await PREVIEWS.politica_restaurantes(ctx()))[0]).toBe('1 restaurant invoice for MXN 2,000:');
   });
 
   it('the shadow line reads the floors from the code constants, in both languages', async () => {
@@ -179,13 +181,13 @@ describe('policy-preview.ts: wording by key, figures by the formatter', () => {
       veredictos: 5, dias_con_veredictos: 1, decididos: 3, tasa_acuerdo: '0.900',
     });
     setLanguage('en');
-    const en = await PREVIEWS.ingest_auto_post(ctx);
+    const en = await PREVIEWS.ingest_auto_post(ctx());
     expect(en[0]).toBe('Of the 12 drafts I have proposed so far:');
     expect(en.at(-1)).toContain(
       `requires at least ${FLOOR_SOMBRA_DIAS} days, ${FLOOR_SOMBRA_VEREDICTOS} decided and ${FLOOR_SOMBRA_ACUERDO.toFixed(2)} agreement`
     );
     setLanguage('es');
-    const es = await PREVIEWS.ingest_auto_post(ctx);
+    const es = await PREVIEWS.ingest_auto_post(ctx());
     expect(es[0]).toBe('De los 12 borradores que he propuesto hasta ahora:');
     expect(es.at(-1)).toContain('sombra: 5 veredictos en 1 día');
   });

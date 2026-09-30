@@ -1,4 +1,3 @@
-import { getLanguage, t, type Language, type TranslationKey } from '../../i18n/index.js';
 import type { PolicyOption, PolicySpec } from './pending-catalog.js';
 
 // ============================================================
@@ -66,6 +65,14 @@ export function optionSegmentCollisions(values: readonly string[]): string[] {
     .map(([segment, vs]) => `${vs.join(' / ')} → ${segment}`);
 }
 
+/**
+ * Looks a message up by key, already bound to a language. Built at the EDGE
+ * (`panelTranslator` in src/i18n/panel-text.ts): no file under `src/services`
+ * imports the language catalog, because a service can only resolve the
+ * language of the PROCESS and the API negotiates it per request.
+ */
+export type PanelTranslate = (key: string) => string;
+
 /** The wording of one catalog policy in one language, read by key. */
 export interface SpecWording {
   question: string;
@@ -78,7 +85,7 @@ export interface SpecWording {
 }
 
 /**
- * The text of a catalog policy in `language` (default: the active one).
+ * The text of a catalog policy, read by key through `translate`.
  *
  * The spec's own prose stays as the English source the `en` catalog was
  * extracted from. Every reader that PAINTS a policy goes through here, so the
@@ -86,9 +93,8 @@ export interface SpecWording {
  * (state, not wording) is never touched. An optional field the spec does not
  * carry stays absent instead of becoming a blank line.
  */
-export function specWording(spec: PolicySpec, language: Language = getLanguage()): SpecWording {
-  const text = (field: PolicyTextField): string =>
-    t(policyTextKey(spec.textKey, field) as TranslationKey, {}, language);
+export function specWording(spec: PolicySpec, translate: PanelTranslate): SpecWording {
+  const text = (field: PolicyTextField): string => translate(policyTextKey(spec.textKey, field));
   return {
     question: text('question'),
     impact: text('impact'),
@@ -98,7 +104,7 @@ export function specWording(spec: PolicySpec, language: Language = getLanguage()
     ifSkipped: spec.ifSkipped === undefined ? undefined : text('if_skipped'),
     options: spec.options.map((o) => ({
       value: o.value,
-      label: t(policyOptionKey(spec.textKey, o.value) as TranslationKey, {}, language),
+      label: translate(policyOptionKey(spec.textKey, o.value)),
     })),
   };
 }

@@ -16,6 +16,7 @@ import {
 } from '../services/policy/policy-service.js';
 import { getPolicySpec } from '../services/policy/pending-catalog.js';
 import { previewFor } from '../services/policy/policy-preview.js';
+import { panelTranslator, previewText } from '../i18n/panel-text.js';
 import { specWording } from '../services/policy/policy-text-key.js';
 import { t } from '../i18n/index.js';
 import { exitCodeFor, notFound } from './kernel/index.js';
@@ -190,7 +191,7 @@ export function renderExplanation(
   indent = '   '
 ): string[] {
   const spec = getPolicySpec(key);
-  const wording = spec ? specWording(spec) : undefined;
+  const wording = spec ? specWording(spec, panelTranslator()) : undefined;
   const out: string[] = [];
   if (wording?.whyAsking) out.push(...field(t('pending.policies.label.why'), wording.whyAsking, c, indent));
   if (wording?.whatIDo) out.push(...field(t('pending.policies.label.what'), wording.whatIDo, c, indent));
@@ -238,7 +239,7 @@ export function renderPolicies(
     // (catalog for a live key, the row's snapshot only for an orphan), so
     // nothing below reads the row's seeded text columns. Same rule as the
     // wizard.
-    const wording = policyWording(p);
+    const wording = policyWording(p, panelTranslator());
     // The header line above is deliberately NOT wrapped: key plus default
     // value reaches 60 characters on the longest policy in the catalog.
     out.push(...wrapLines('   ', '   ', wording.question));
@@ -285,6 +286,7 @@ export async function renderAll(
                 entityId: ctx.entityId,
                 tenantId: ctx.tenantId,
                 currency: ctx.currency,
+                text: previewText(),
               }),
             ] as const
         )
@@ -378,7 +380,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
 
         let chosen = value;
         if (!chosen) {
-          const wording = policyWording(p);
+          const wording = policyWording(p, panelTranslator());
           // ONE list for both halves of the prompt: the numbered lines printed
           // below and the number-to-value lookup after the answer. Printing
           // the catalog's list and indexing the row's would save a value the
@@ -391,7 +393,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
           // listing gives — and the preview against this entity's own data,
           // which is the whole reason `previewFor` exists. Built from the
           // same `panelScope` the write below uses.
-          const preview = await previewFor(key, { ...panelScope(ctx), currency: ctx.currency });
+          const preview = await previewFor(key, { ...panelScope(ctx), currency: ctx.currency, text: previewText() });
           for (const l of renderExplanation(key, c, preview, '')) console.log(l);
           options.forEach((o, i) => {
             const head = `  ${i + 1}) `;
