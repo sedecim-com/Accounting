@@ -102,6 +102,7 @@ import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
 import { palette } from './palette.js';
+import { beginWarningScope } from '../utils/logger.js';
 import { detectSetupState, type SetupState } from './first-run.js';
 import { renderBanner, type BannerInfo } from './banner.js';
 import { registerCloseCommand } from './close-command.js';
@@ -1485,7 +1486,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
         console.log(c.dim(`Sending your first message: "${seedMessage}"`));
         stdout.write(c.cyan('you> ') + seedMessage + '\n\n');
         try {
-          await session.runTurn(seedMessage, ac.signal);
+          await runChatTurn(session, seedMessage, ac.signal);
         } catch (err) {
           provenance.onTurnFailed();
           if (isInterrupt(err)) return;
@@ -1581,7 +1582,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
 
         stdout.write('\n');
         try {
-          await session.runTurn(line, ac.signal);
+          await runChatTurn(session, line, ac.signal);
         } catch (err) {
           // The turn produced no completed output: discard any provider that
           // failover staged so a later, non-failing turn never inherits it.
@@ -3682,11 +3683,33 @@ export function veredictoDeRaiz(
 // tree to emit the agent-facing CLI reference without spawning the binary.
 export { program };
 
+/**
+ * Process-level setup the entry block runs before parsing. A one-shot
+ * command is one unit of work: a warning about the same document says
+ * nothing new the second time (#327). The chat REPL opens a fresh scope on
+ * every turn (runChatTurn), so a warning that recurs in a later turn is
+ * printed again.
+ */
+export function prepareCliProcess(): void {
+  beginWarningScope();
+}
+
+/** One chat turn is one unit of work for the warning dedupe (#327). */
+export function runChatTurn(
+  session: Pick<LlmSession, 'runTurn'>,
+  text: string,
+  signal?: AbortSignal
+): Promise<string> {
+  beginWarningScope();
+  return session.runTurn(text, signal);
+}
+
 // Parse only when executed as the entrypoint (tsx / node dist are CJS, where
 // require.main identifies it). Importing this module — the entry-flow spec
 // pulls the exported pure helpers — must not launch the CLI.
 if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
   void (async () => {
+    prepareCliProcess();
     const argv = [...process.argv];
     const veredicto = veredictoDeRaiz(argv[2], comandosRegistrados(program));
     if (veredicto.tipo === 'desconocido') {
