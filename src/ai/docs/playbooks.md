@@ -52,7 +52,9 @@ advanced before moving on.
    otherwise use a current-year cutoff or have the human create the prior year
    first with `mnemosine year create <year>` (in a year already past its twelve
    months are born open).
-3. If Contalink is configured: `external_pull` to inspect, then the human runs
+3. If Contalink is configured (`external_accounting_configured` means THIS
+   entity has a key for its current RFC; if not, the human registers it with
+   `mnemosine init --section import`, option 1): `external_pull` to inspect, then the human runs
    `mnemosine onboard --provider contalink --cutoff <date> --dry-run` → review
    the plan together → run without `--dry-run` → they approve via `mnemosine review`.
    Onboard refuses to run twice for the same provider+cutoff while a draft is

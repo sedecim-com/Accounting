@@ -23,7 +23,7 @@ Hay diferencias entre GAAP, IFRS y NIF que el motor no puede resolver con un `if
 - **Arrendamientos**: modelo único para el arrendatario en IFRS 16 y NIF D-5; ASC 842 conserva la clasificación operativo/financiero.
 - **Impuestos diferidos** (ASC 740, NIC 12, NIF D-4): distintos en umbrales de reconocimiento y en la posición fiscal incierta.
 
-Y una consecuencia que el delta NIIF/NIF hizo visible: **las citas normativas son un parámetro por jurisdicción y por vigencia.** La NIF B-1 cambia de título en 2028, la NIC 8 se renombra en 2027, y la NIF A-2 ya cambió de contenido en 2026 —hoy es *Incertidumbres sobre negocio en marcha*, y el motor la cita en doce sitios como si fuera el postulado de devengación—. Un literal `'NIF A-2'` en el código es una fecha de caducidad escondida.
+Y una consecuencia que el delta NIIF/NIF hizo visible: **las citas normativas son un parámetro por jurisdicción y por vigencia.** La NIF B-1 cambia de título en 2028, la NIC 8 se renombra en 2027, y la NIF A-2 ya cambió de contenido en 2026 —hoy es *Incertidumbres sobre negocio en marcha*, y el motor la citaba en doce sitios como si fuera el postulado de devengación; desde MNE-001-077 el motor y sus manuales citan «NIF A-1, cap. 20», y sólo queda el comentario de tabla de la migración 059, que es inmutable y espera una migración nueva; la ficha de la A-2 nueva y ONIF 7 son MNE-001-078—. Un literal `'NIF A-2'` en el código es una fecha de caducidad escondida.
 
 ## Lo que el agente sabe hoy
 

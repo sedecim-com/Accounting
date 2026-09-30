@@ -367,7 +367,7 @@ export const EN = {
   'policy.prepaid_amortization_convention.impact':
     'Sets every month of the schedule. An insurance policy running 20 March to 19 March accrues over 12 months by one convention and 13 by the other, and the last month of the fiscal year differs.',
   'policy.prepaid_amortization_convention.rationale':
-    'It is what the NIF A-2 accrual postulate actually says — the expense belongs to the period that consumed the service — and it is the only convention that keeps the schedule tied to the contract dates rather than to the calendar. Firms that prefer whole months for simplicity can say so here, but the default should be the one that is right rather than the one that is easy.',
+    'It is what the accrual postulate (NIF A-1, chapter 20) actually says — the expense belongs to the period that consumed the service — and it is the only convention that keeps the schedule tied to the contract dates rather than to the calendar. Firms that prefer whole months for simplicity can say so here, but the default should be the one that is right rather than the one that is easy.',
   'policy.prepaid_amortization_convention.why':
     'Your insurance starts on the 20th, not on the 1st. By days it spreads over thirteen calendar months and by whole months over twelve, so the choice changes which month carries the expense and what the last month of the year shows.',
   'policy.prepaid_amortization_convention.what':
@@ -814,6 +814,25 @@ export const EN = {
     'Post it: the opening is in the ledger once the load is confirmed',
   'policy.opening_balance_load_mode.option.borrador':
     'Leave a draft: `entry post` applies it after a review',
+
+  'policy.census_cfdi_types.question':
+    'Which CFDI types in the SAT census count toward completeness at close?',
+  'policy.census_cfdi_types.impact':
+    'The SAT census lists every CFDI issued and received: income (I), credit notes (E), payment receipts (P), payroll (N) and transfers (T). Every type is kept; this decides which of them the completeness check reports as missing when they are not posted. Adding N checks the payroll the entity stamped against the payroll it posted.',
+  'policy.census_cfdi_types.rationale':
+    'Owner decision of 2026-09-26 on issue 312: payroll and transfers do not show as missing by default. I, E and P are the CFDI that support the entries of revenue, purchases and their collection or payment (CFF art. 29 and 29-A; LISR art. 27 fr. III; LIVA art. 5 fr. II). A payroll CFDI (N, LISR art. 99 fr. III) supports an expense the payroll module posts as a whole, not one entry per receipt, and a transfer CFDI (T) records goods in transit with no consideration, so neither maps to a posted document one by one. A firm that also reconciles its stamped payroll chooses N.',
+  'policy.census_cfdi_types.why':
+    'The SAT lists payroll receipts and transfer documents too. Some firms check those against the books, others do not.',
+  'policy.census_cfdi_types.what':
+    'I count the CFDI of the types you choose when I tell you what is missing from the books; the rest stay in the census.',
+  'policy.census_cfdi_types.if_skipped':
+    'I count income, credit notes and payment receipts, and leave payroll and transfers out.',
+  'policy.census_cfdi_types.option.invoices_and_payments':
+    'Income, credit notes and payment receipts (I, E, P)',
+  'policy.census_cfdi_types.option.plus_payroll':
+    'Also payroll (I, E, P, N)',
+  'policy.census_cfdi_types.option.all_types':
+    'Every type, transfers included (I, E, P, N, T)',
 
   'policy.opening_payable_iva.question':
     'When a migrated vendor invoice does not say the IVA rate inside its open balance, what does the opening load do?',
@@ -1696,6 +1715,32 @@ export const EN = {
   'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})? [y/N] ',
   /** `src/cli/mnemosine.ts` review: the reviewer answered no to registering the vendor. */
   'review.vendor.not_registered': 'The vendor was not registered: nothing was posted and the draft stays pending.',
+  'help.ingest.argument.files':
+    'Paths to CFDI XML files; with --kind zip or metadata, the ZIP or metadata files downloaded from the SAT',
+  'help.ingest.option.kind':
+    'What the files are: xml (CFDI one by one), zip (a SAT package of CFDI XML: loads the census and ingests ' +
+    'each XML) or metadata (the SAT `~` metadata file, bare or zipped: loads the census only)',
+  // MNE-001-096 (#312): `src/cli/ingest-census.ts`, the SAT census loaded by `ingest --kind zip|metadata`.
+  'ingest.census.bad_kind': 'expected one of {valid}',
+  'ingest.census.flag_not_for_metadata':
+    '{flags}: does not apply to --kind metadata, which loads the census only and ingests nothing',
+  'ingest.census.no_rfc': 'The entity has no RFC: the census cannot tell issued from received.',
+  'ingest.census.not_zip': '{file} is not a ZIP file.',
+  'ingest.census.bad_zip': '{file}: the ZIP cannot be read ({detail}).',
+  'ingest.census.not_metadata': '{file}: not a SAT metadata file (missing column(s) {columns}).',
+  'ingest.census.invalid.field_count': '{found} fields, the header has {expected}',
+  'ingest.census.invalid.status': 'Estatus «{value}» is neither 1 nor 0',
+  'ingest.census.invalid.field': 'invalid {field}',
+  'ingest.census.invalid.xml': 'not a readable CFDI ({detail})',
+  'ingest.census.title': 'SAT census ({kind})',
+  'ingest.census.summary': '{total} CFDI ({issued} issued, {received} received)',
+  'ingest.census.by_month': 'by month: {months}',
+  'ingest.census.completeness':
+    '{counted} count toward completeness under {key} ({types}); {others} of other types are kept in the census',
+  'ingest.census.counts': "{foreign} not this entity's · {invalid} invalid",
+  'ingest.census.more_invalid': '… and {count} more',
+  'ingest.census.loaded': 'Census loaded from {file}: {inserted} new, {refreshed} already known.',
+  'ingest.census.dry_run': '(dry-run: the census was read, not loaded.)',
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':

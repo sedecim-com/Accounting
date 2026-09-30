@@ -4,18 +4,22 @@ Mapa entre las validaciones automáticas del motor contable y la NIF que las
 fundamenta. Úsalo para explicar al usuario POR QUÉ el sistema rechazó o advirtió
 algo, y para saber qué NO se valida solo (y por tanto exige tu criterio).
 
-> Los mensajes del motor usan las claves clásicas de la Serie A ("NIF A-2",
-> "NIF A-5") porque así las conoce el gremio; desde 2023 son capítulos de la
-> NIF A-1 consolidada — el mapeo exacto está en `nif-marco`. Al explicar,
-> cita ambas: "NIF A-1 cap. 20 (antes A-2)".
+> Los postulados básicos (devengación, dualidad económica, asociación de
+> costos con ingresos) son desde 2023 el capítulo 20 de la NIF A-1
+> consolidada, y así los cita el motor: "[NIF A-1, cap. 20, …]" (MNE-001-077).
+> **No los cites como "NIF A-2"**: desde el 1-ene-2026 esa clave es otra norma
+> vigente, *Incertidumbres sobre negocio en marcha*, y citarla por un
+> postulado manda al contador a leer la norma equivocada. Algunos mensajes
+> aún usan claves antiguas de otros capítulos ("NIF A-4", "NIF A-5"); el
+> mapeo a capítulos de la NIF A-1 está en `nif-marco`.
 
 ## Validaciones que BLOQUEAN (errores)
 
 | Regla del motor | Qué verifica | Fundamento |
 |---|---|---|
-| `balance` | Cargos = abonos, igualdad EXACTA (sin tolerancia) | NIF A-2, dualidad económica. El CHECK de la BD también lo exige al postear |
+| `balance` | Cargos = abonos, igualdad EXACTA (sin tolerancia) | NIF A-1, cap. 20, dualidad económica. El CHECK de la BD también lo exige al postear |
 | `lineAmount` | Cada línea tiene exactamente uno de cargo/abono, y positivo | Partida doble bien formada |
-| `periodStatus` | No se postea a periodos hard_close/locked | NIF A-2 devengación + control interno de cierre |
+| `periodStatus` | No se postea a periodos hard_close/locked | NIF A-1, cap. 20, devengación + control interno de cierre |
 | `accountPermission` | La cuenta existe, está activa, no es de agrupación, acepta pólizas manuales | Integridad del catálogo |
 | `currency` | Moneda extranjera exige tipo de cambio y montos en ambas monedas, conversión aritméticamente correcta | NIF B-15: reconocimiento al tipo de cambio histórico de la fecha de transacción |
 
@@ -26,14 +30,14 @@ algo, y para saber qué NO se valida solo (y por tanto exige tu criterio).
 | `accountType` | Cargo/abono contra-natural (p. ej. gasto abonado) | NIF A-5. Un movimiento contra-natural suele ser cuenta equivocada o una corrección — y las correcciones van por REVERSA, no editando (NIF B-1) |
 | `nifSubstance` | Ingreso abonado en póliza que menciona "anticipo" | NIF D-1: el anticipo de cliente es PASIVO hasta transferir el control; reconocerlo como ingreso adelanta utilidades |
 | `nifSubstance` | Póliza manual a cuentas de capital contable | NIF C-11: los movimientos de capital derivan de actos formales — verifica que exista el acta o acuerdo |
-| `periodStatus` | Posteo a periodo futuro o en soft_close | NIF A-2 devengación |
+| `periodStatus` | Posteo a periodo futuro o en soft_close | NIF A-1, cap. 20, devengación |
 
 ## Validaciones de la capa de IA (antes de crear el borrador)
 
 - Estructura y balance exacto del borrador; cuentas existentes y posteables;
   periodo fiscal abierto para la fecha (todo en `validateDraftPayload`).
 - Clasificación CFDI (taxonomía): PUE vs PPD decide el momento del IVA (LIVA,
-  y devengación NIF A-2 para el gasto); tipo P jamás genera gasto ni ingreso;
+  y devengación NIF A-1, cap. 20 para el gasto); tipo P jamás genera gasto ni ingreso;
   TipoRelacion 07 = aplicación de anticipo, no devolución; el asiento propuesto
   debe cuadrar exactamente contra el total del CFDI.
 - Al aprobar, TODO vuelve a pasar por el motor (`createJournalEntry` con
@@ -44,7 +48,7 @@ algo, y para saber qué NO se valida solo (y por tanto exige tu criterio).
 | Decisión | Por qué no se automatiza | Norma de referencia |
 |---|---|---|
 | Gasto vs activo fijo | El umbral de capitalización es política de la empresa | NIF C-6 define QUÉ es PPyE; el umbral práctico no lo fija ninguna norma |
-| Devengar un gasto plurianual | Requiere saber el periodo de cobertura real | NIF A-2 asociación de costos con ingresos |
+| Devengar un gasto plurianual | Requiere saber el periodo de cobertura real | NIF A-1, cap. 20, asociación de costos con ingresos |
 | Inventario vs costo directo | Depende del sistema de inventarios de la entidad | NIF C-4 |
 | Estimación de cuentas incobrables | Juicio sobre pérdidas crediticias esperadas | NIF C-3 |
 | Provisiones (aguinaldo, PTU, garantías) | Estimación de monto y probabilidad | NIF C-9 y D-3 |
