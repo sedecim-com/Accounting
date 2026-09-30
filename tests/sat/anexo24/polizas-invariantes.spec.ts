@@ -117,6 +117,7 @@ describe('la clave de banco contra el c_Banco', () => {
           pagos: [
             {
               clase: 'transferencia',
+              bancoOriNal: '012',
               ctaDest: '002180009876543210',
               bancoDestNal: clave,
               fecha: '2026-02-10',
@@ -160,11 +161,14 @@ describe('la clave de banco contra el c_Banco', () => {
 
   it('a code off the XSD c_Banco blocks and names the entry, even with no seeded catalog', () => {
     const hs = bancoEnCatalogo([p({ ...conPago('003'), numUnIdenPol: 'JE-7' })], SIN_CATALOGO);
-    expect(hs).toHaveLength(1);
-    expect(hs[0].severity).toBe('blocking');
-    expect(hs[0].referencia).toBe('JE-7');
-    expect(hs[0].detalle).toContain('PLZ:Transferencia/@BancoDestNal = «003»');
-    expect(hs[0].detalle).toContain('CatalogosParaEsqContE.xsd');
+    // The origin code is on the XSD list, so it gets the one «not checked
+    // against sat_bancos» warning; the off-list destination is the block.
+    expect(hs.filter((h) => h.severity === 'warning')).toHaveLength(1);
+    const blocking = hs.filter((h) => h.severity === 'blocking');
+    expect(blocking).toHaveLength(1);
+    expect(blocking[0].referencia).toBe('JE-7');
+    expect(blocking[0].detalle).toContain('PLZ:Transferencia/@BancoDestNal = «003»');
+    expect(blocking[0].detalle).toContain('CatalogosParaEsqContE.xsd');
   });
 
   it('a code off both the XSD and the seeded list is reported once, for the XSD', () => {

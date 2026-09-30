@@ -12,7 +12,11 @@ import { query, closeDatabase, enterTenant } from '../../src/database/connection
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { JournalEntryType } from '../../src/types/index.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
-import { recordVendorPayment } from '../../src/services/payments/payment-service.js';
+import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
+import {
+  recordVendorPayment,
+  recordCustomerPayment,
+} from '../../src/services/payments/payment-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { encrypt } from '../../src/utils/encryption.js';
 import { ValidationError, NotFoundError } from '../../src/utils/errors.js';
@@ -20,6 +24,7 @@ import {
   generarPolizas,
   generarAuxiliar,
 } from '../../src/services/sat/anexo24/polizas-service.js';
+import { validateAgainstOfficialXsd } from '../helpers/official-xsd.js';
 
 // ============================================================
 // F07d · LAS PÓLIZAS Y SU RASTRO DE PAGO, MEDIDO CONTRA POSTGRES.
@@ -577,6 +582,138 @@ describe('los errores de uso, dichos en el idioma del que los comete', () => {
         solicitud: { tipo: 'AF' },
       })
     ).rejects.toThrow(/exige NumOrden/);
+  });
+});
+
+describe('a payment node without its c_Banco code is left out and its entry is named (#532)', () => {
+  // PolizasPeriodo_1_3.xsd declares Cheque/@BanEmisNal, Transferencia/@BancoOriNal
+  // and Transferencia/@BancoDestNal use="required", type c_Banco; a foreign
+  // bank's name in `*Ext` goes on top of the code, never instead of it. A month
+  // of its own keeps the other tests' entries, some of them invalid on purpose
+  // (the '003' bank below), out of the file this one validates. The bills stay
+  // in `MES`: only the payments fall in this month.
+  const TRACE_MONTH = 10;
+  const PAYMENT_NODE = /<PLZ:(Cheque|Transferencia|OtrMetodoPago)\b/;
+  let noCodeBankId: string;
+
+  beforeAll(async () => {
+    // A bank account with a CLABE and no `sat_bank_code`: what `bank account
+    // create` leaves when the code is not given and cannot be derived.
+    noCodeBankId = uuidv4();
+    await query(
+      `INSERT INTO bank_accounts (id, entity_id, account_name, bank_name, gl_account_id,
+         currency_code, sat_bank_code, clabe_encrypted, clabe_last4, is_active)
+       VALUES ($1,$2,'Cuenta sin clave SAT','Banco sin clave',$3,'MXN',NULL,$4,$5,true)`,
+      [noCodeBankId, f.entityId, await cuentaPorCodigo(f.entityId, '1110'), encrypt(CLABE), CLABE.slice(-4)]
+    );
+  });
+
+  /** What the payment captured for its trace, under the service's own names. */
+  type Captured = Pick<
+    Parameters<typeof recordVendorPayment>[0],
+    'checkNumber' | 'cuentaDestino' | 'bancoDestinoSat' | 'bancoDestinoExtranjero'
+  >;
+
+  async function vendorPayment(
+    method: 'check' | 'spei',
+    bank: 'with code' | 'without code',
+    captured: Captured
+  ): Promise<string | undefined> {
+    const g = await gastoAprobado(f.entityId, f.userId, '100.00', '16.00');
+    const payment = await recordVendorPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: g.total,
+        paymentDate: fechaEnPeriodo(TRACE_MONTH),
+        paymentMethod: method,
+        bankAccountId: bank === 'with code' ? bancoId : noCodeBankId,
+        ...captured,
+        applications: [{ documentId: g.billId, amountApplied: g.total }],
+      },
+      f.userId
+    );
+    return payment.journalEntry?.entry_number;
+  }
+
+  async function customerTransfer(): Promise<string | undefined> {
+    const customerId = uuidv4();
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, tax_id, currency_code, created_by)
+       VALUES ($1,$2,$3,'Cliente Puntual SA','CPU010101AB1','MXN',$4)`,
+      [customerId, f.entityId, `C-${customerId.slice(0, 8)}`, f.userId]
+    );
+    const day = fechaEnPeriodo(TRACE_MONTH, 5).toISOString().slice(0, 10);
+    const draft = await createInvoice({
+      entity_id: f.entityId,
+      customer_id: customerId,
+      invoice_date: day,
+      due_date: day,
+      currency_code: 'MXN',
+      lines: [
+        {
+          revenue_account_id: await cuentaPorCodigo(f.entityId, '4100'),
+          description: 'Servicio',
+          quantity: '1',
+          unit_price: '100.00',
+          tax_rate: '16.0000',
+        },
+      ],
+      created_by: f.userId,
+    });
+    const issued = await issueInvoice(draft.id, f.userId, { entityId: f.entityId });
+    // Our own account has a code and a number, so the destination is complete:
+    // the only gap left is the payer's bank.
+    const receipt = await recordCustomerPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: '116.00',
+        paymentDate: fechaEnPeriodo(TRACE_MONTH, 20),
+        paymentMethod: 'spei',
+        bankAccountId: bancoId,
+        applications: [{ documentId: issued.invoice.id, amountApplied: '116.00' }],
+      },
+      f.userId
+    );
+    return receipt.journalEntry?.entry_number;
+  }
+
+  // Each case captures everything else its node needs, payee included, so the
+  // only gap left is one bank code: with the fix reverted, the node leaves
+  // without it and the XSD rejects the whole file.
+  it.each([
+    ['a cheque from a bank account with no SAT bank code', 'Cheque', 'BanEmisNal', '--sat-bank-code',
+      () => vendorPayment('check', 'without code', { checkNumber: '30001' })],
+    ['a vendor transfer from a bank account with no SAT bank code', 'Transferencia', 'BancoOriNal', '--sat-bank-code',
+      () => vendorPayment('spei', 'without code', { cuentaDestino: '002180009876543210', bancoDestinoSat: '002' })],
+    ['a vendor transfer with no destination bank captured', 'Transferencia', 'BancoDestNal', '--to-bank',
+      () => vendorPayment('spei', 'with code', { cuentaDestino: '002180009876543210' })],
+    ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal', '#532',
+      () => vendorPayment('spei', 'with code', { cuentaDestino: 'GB29NWBK60161331926819', bancoDestinoExtranjero: 'Bank of Nowhere' })],
+    ['a customer transfer', 'Transferencia', 'BancoOriNal', 'el banco del cliente',
+      () => customerTransfer()],
+  ] as const)('%s', async (_label, node, attribute, reason, record) => {
+    const entry = await record();
+    expect(entry, 'the payment must have posted').toBeTruthy();
+
+    const r = await generarPolizas(f.entityId, {
+      periodo: `2026-${TRACE_MONTH}`,
+      solicitud: SOLICITUD,
+    });
+
+    expect(validateAgainstOfficialXsd(r.xml, 'journal')).toEqual({ valid: true, errors: [] });
+    const voucher = r.xml
+      .split('<PLZ:Poliza ')
+      .find((block) => block.includes(`NumUnIdenPol="${entry}"`));
+    expect(voucher, 'the entry must be in the file').toBeDefined();
+    expect(voucher).not.toMatch(PAYMENT_NODE);
+    const untraced = r.hallazgos.filter(
+      (h) => h.check === 'poliza-con-dinero-sin-rastro' && h.referencia === entry
+    );
+    expect(untraced).toHaveLength(1);
+    expect(untraced[0].severity).toBe('blocking');
+    expect(untraced[0].detalle).toContain(`el nodo ${node} exige ${attribute}`);
+    expect(untraced[0].detalle).toContain(reason);
+    expect(r.puedeEntregarse).toBe(false);
   });
 });
 

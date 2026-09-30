@@ -511,6 +511,10 @@ const journalCases: Array<[node: string, attribute: string, bad: string, mutate:
   ['CompNalOtr', 'CFD_CBB_Serie', 'ABCDEFGHIJK', (d) => Object.assign(evidence(d, 1), { serie: 'ABCDEFGHIJK' })],
   ['CompExt', 'Moneda', 'MXP', (d) => Object.assign(evidence(d, 2), { moneda: 'MXP' })],
   ['Cheque', 'BanEmisNal', '003', (d) => Object.assign(payment(d, 0), { banEmisNal: '003' })],
+  // The bank codes are required (#532): an empty one is off c_Banco too.
+  ['Cheque', 'BanEmisNal', '', (d) => Object.assign(payment(d, 0), { banEmisNal: '' })],
+  ['Transferencia', 'BancoOriNal', '', (d) => Object.assign(payment(d, 1), { bancoOriNal: '' })],
+  ['Transferencia', 'BancoDestNal', '', (d) => Object.assign(payment(d, 1), { bancoDestNal: '' })],
   ['Cheque', 'Moneda', 'QQQ', (d) => Object.assign(payment(d, 0), { moneda: 'QQQ' })],
   ['Transferencia', 'BancoOriNal', '003', (d) => Object.assign(payment(d, 1), { bancoOriNal: '003' })],
   ['Transferencia', 'BancoDestNal', '001', (d) => Object.assign(payment(d, 1), { bancoDestNal: '001' })],
