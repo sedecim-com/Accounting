@@ -157,17 +157,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.fees_without_withholding.question':
     'Una persona física (régimen 612) le factura servicios profesionales a tu empresa y el CFDI no declara ISR retenido. ¿Qué pasa?',
   'policy.fees_without_withholding.impact':
-    'Gobierna los CFDI recibidos de una persona física del régimen 612 cuyos conceptos son todos servicios profesionales (legales, consultoría, contabilidad, ingeniería, desarrollo de software, médicos): una compra de bienes, o un CFDI con algún concepto que no sea uno de esos servicios, nunca se toma por honorarios. «request_substitute_cfdi» retiene el CFDI en la bandeja, no escribe nada en el mayor y dice que se le pida al proveedor un CFDI sustituto con la retención. «withhold_by_law» calcula el 10 % de ISR y las dos terceras partes del IVA con legal_parameters y deja esa póliza en revisión. «record_as_issued» contabiliza el CFDI tal como viene, sin retención, y la lista de verificación del cierre lo muestra en honorarios sin retención.',
+    'Gobierna los CFDI recibidos de una persona física del régimen 612 cuyos conceptos son todos servicios profesionales (legales, consultoría, contabilidad, ingeniería, desarrollo de software, médicos): una compra de bienes, o un CFDI con algún concepto que no sea uno de esos servicios, nunca se toma por honorarios. «request_substitute_cfdi» deja el CFDI en espera en la bandeja, no escribe nada en el mayor y dice que se le pida al proveedor un CFDI sustituto con la retención. «withhold_by_law» calcula el 10 % de ISR y las dos terceras partes del IVA con legal_parameters y deja esa póliza en revisión. «record_as_issued» contabiliza el CFDI tal como viene, sin retención, y la lista de verificación del cierre lo muestra en honorarios sin retención.',
   'policy.fees_without_withholding.rationale':
     'Una persona moral que paga honorarios sin retener es responsable solidaria del impuesto (CFF 26-I) y el gasto puede no ser deducible (LISR 27-V). El CFDI es de un tercero: el remedio limpio es un sustituto del proveedor, y no se registra nada sobre una cifra que va a cambiar.',
   'policy.fees_without_withholding.why':
     'Cuando tu empresa le paga servicios profesionales a una persona física tiene que retener parte del ISR y del IVA. Si la factura no muestra la retención, o el proveedor se equivocó o el pago se va a hacer completo. Esperar una factura corregida, retener de todos modos o registrarla como vino es decisión de tu despacho.',
   'policy.fees_without_withholding.what':
-    'Por omisión retengo la factura y te digo que le pidas un sustituto al proveedor. Con «withhold_by_law» propongo la póliza con la retención que exige la ley y la dejo para que la revises. Con «record_as_issued» la contabilizo como vino y la listo en la lista de verificación del cierre.',
+    'Por omisión dejo la factura en espera y te digo que le pidas un sustituto al proveedor. Con «withhold_by_law» propongo la póliza con la retención que exige la ley y la dejo para que la revises. Con «record_as_issued» la contabilizo como vino y la listo en la lista de verificación del cierre.',
   'policy.fees_without_withholding.if_skipped':
-    'Retengo esas facturas hasta que llegue un CFDI sustituto con la retención: nada llega a tus libros.',
+    'Dejo esas facturas en espera hasta que llegue un CFDI sustituto con la retención: nada llega a tus libros.',
   'policy.fees_without_withholding.option.request_substitute_cfdi':
-    'Retenerlo y pedirle al proveedor un CFDI sustituto con la retención',
+    'Dejarlo en espera y pedirle al proveedor un CFDI sustituto con la retención',
   'policy.fees_without_withholding.option.withhold_by_law':
     'Calcular la retención de ley y dejar la póliza en revisión',
   'policy.fees_without_withholding.option.record_as_issued':
@@ -265,7 +265,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.rep_payment_not_recorded.impact':
     'Decide si cargar un REP puede mover dinero por su cuenta. Crear el pago es lo que libera el IVA pendiente, porque la liberación cuelga de las aplicaciones del pago; pero también quiere decir que el sistema mueve el banco sin que una persona lo haya registrado.',
   'policy.rep_payment_not_recorded.rationale':
-    'El REP es prueba documental de que el dinero ya se movió: trae la fecha y la forma de pago. Crear el pago lo hace pasar por la única puerta que además libera el IVA. Una tercera opción —contabilizar el efectivo directo, sin registro de pago— NO se ofrece a propósito: es lo que acredita dos veces el banco cuando el pago también se capturó a mano, y deja el IVA pendiente para siempre. No hay comportamiento anterior con el cual ser compatible, porque esta puerta nunca funcionó: un CFDI de tipo P moría con UNSUPPORTED_TYPE antes de llegar a contabilizarse.',
+    'El REP es prueba documental de que el dinero ya se movió: trae la fecha y la forma de pago. Crear el pago lo hace pasar por la única puerta que además libera el IVA. Una tercera opción —contabilizar el efectivo directo, sin registro de pago— NO se ofrece a propósito: es lo que registra dos veces el movimiento del banco cuando el pago también se capturó a mano, y deja el IVA pendiente para siempre. No hay comportamiento anterior con el cual ser compatible, porque esta puerta nunca funcionó: un CFDI de tipo P moría con UNSUPPORTED_TYPE antes de llegar a contabilizarse.',
   'policy.rep_payment_not_recorded.why':
     'Cuando tu proveedor manda el complemento de una factura que pagaste, puedo tomarlo como el registro de ese pago o esperar a que alguien lo confirme. Los despachos que capturan los movimientos del banco a diario quieren confirmar; los que registran directo desde los CFDI quieren que lo tome.',
   'policy.rep_payment_not_recorded.what':
@@ -303,7 +303,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.rep_unknown_document.rationale':
     'Las descargas masivas del SAT llegan en desorden, así que un complemento que llega antes que su factura es normal, no excepcional. El IVA no se pierde: se queda pendiente, que es justo donde lo quiere el art. 5 fracc. III de la LIVA hasta que un documento lo ampare. Cuando el complemento SÍ trae ImpuestosDR, esa cifra se coteja contra el prorrateo sobre la factura original: si difieren más allá de la tolerancia, el complemento va a revisión en vez de liberar cualquiera de las dos cifras en silencio.',
   'policy.rep_unknown_document.why':
-    'Los complementos suelen llegar antes que la factura a la que se refieren. Puedo retener el impuesto hasta que aparezca la factura, o seguir sin él.',
+    'Los complementos suelen llegar antes que la factura a la que se refieren. Puedo dejar pendiente el traslado del impuesto hasta que aparezca la factura, o seguir sin él.',
   'policy.rep_unknown_document.what':
     'Por omisión espero, y el vínculo se resuelve solo el día que se carga la factura.',
   'policy.rep_unknown_document.if_skipped':
@@ -824,7 +824,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'Todos los informes las cuentan y avisan que el rango contiene un cierre',
 
   'policy.year_result_destination.question':
-    'En el cierre del ejercicio, ¿a dónde va el resultado: directo a resultados acumulados, o antes a «Resultado del Ejercicio»?',
+    'En el cierre del ejercicio, ¿a dónde va el resultado: directo a «Resultado de Ejercicios Anteriores», o antes a «Resultado del Ejercicio»?',
   'policy.year_result_destination.impact':
     'Decide si el balance general todavía puede mostrar lo que ganó ESTE año después del cierre. Barrerlo directo a 3200 lo mezcla con todos los años anteriores el día del cierre, antes de que los accionistas hayan aprobado nada.',
   'policy.year_result_destination.rationale':
@@ -836,14 +836,14 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.year_result_destination.if_skipped':
     'Uso la ruta de dos pasos por «Resultado del Ejercicio».',
   'policy.year_result_destination.option.dos_pasos_hasta_asamblea':
-    'Cerrar a «Resultado del Ejercicio» (3300); una reclasificación posterior y auditada lo pasa a Resultados Acumulados (3200)',
+    'Cerrar a «Resultado del Ejercicio» (3300); una reclasificación posterior y auditada lo pasa a «Resultado de Ejercicios Anteriores» (3200)',
   'policy.year_result_destination.option.directo_a_acumulados':
-    'Cerrar directo a Resultados Acumulados (3200)',
+    'Cerrar directo a «Resultado de Ejercicios Anteriores» (3200)',
 
   'policy.reclose_of_reopened_period.question':
     'Si un periodo de fin de año que ya emitió su póliza de cierre se reabre y se vuelve a cerrar, ¿qué pasa con la primera?',
   'policy.reclose_of_reopened_period.impact':
-    'Hoy el segundo cierre emite un segundo juego COMPLETO de pólizas de cierre y nada quita el primero: resultados acumulados recibe el resultado dos veces. `period reopen` hizo que esto se pudiera alcanzar desde la terminal, así que la respuesta dejó de ser hipotética.',
+    'Hoy el segundo cierre emite un segundo juego COMPLETO de pólizas de cierre y nada quita el primero: «Resultado de Ejercicios Anteriores» (3200) recibe el resultado dos veces. `period reopen` hizo que esto se pudiera alcanzar desde la terminal, así que la respuesta dejó de ser hipotética.',
   'policy.reclose_of_reopened_period.rationale':
     'Es la única opción que deja los libros diciendo una sola verdad y muestra cómo llegaron ahí: la NIF B-1 corrige por reversión, nunca por edición, y la reversión es la evidencia de que el primer cierre se deshizo a propósito. «Incremental» dependería de que el primer cierre estuviera bien, que es precisamente lo que una reapertura pone en duda.',
   'policy.reclose_of_reopened_period.why':

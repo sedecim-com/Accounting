@@ -54,8 +54,10 @@ export const EN = {
   // `policy.<textKey>.option.<segment>`. `textKey` is the English name the
   // vocabulary registry decided for the persisted key (owner decision on #152,
   // 2026-09-26), and `<segment>` is `optionKeySegment(value)` of the persisted
-  // value: both come from `src/services/policy/policy-text-key.ts`, never typed
-  // by hand. The English here is the catalog's prose, extracted as is;
+  // value: their spelling is the one `policyTextKey()`/`policyOptionKey()` in
+  // `src/services/policy/policy-text-key.ts` produce, and
+  // `tests/i18n/policy-panel-keys.spec.ts` fails on any key that drifts from
+  // it. The English here is the catalog's prose, extracted as is;
   // `tests/i18n/policy-panel-keys.spec.ts` holds the two equal until the
   // readers render by key (MNE-001-090 part 2/2) and the prose leaves the spec.
   // A block of its own, so tranches that add other keys do not collide here.

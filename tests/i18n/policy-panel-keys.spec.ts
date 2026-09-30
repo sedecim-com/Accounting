@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { EN } from '../../src/i18n/en.js';
 import { ES } from '../../src/i18n/es.js';
@@ -85,6 +87,52 @@ describe('the English of the panel is the spec prose, until the readers render b
     const drift = [...EXPECTED.entries()]
       .filter(([key, text]) => (EN as Readonly<Record<string, string>>)[key] !== text)
       .map(([key]) => key);
+    expect(drift).toEqual([]);
+  });
+});
+
+// ---- Mexican accounting vocabulary in the es half ---------------------
+
+/** The es text of every policy.* key, so each check below walks the whole block. */
+const ES_POLICY = Object.entries(ES as Readonly<Record<string, string>>).filter(([key]) =>
+  key.startsWith('policy.'),
+);
+
+describe('the es panel does not borrow a tax term for a plain verb', () => {
+  it('"retener" means to withhold tax, never to hold a document or the tax back', () => {
+    // English "hold" was once rendered as "retener", which a Mexican accountant
+    // reads as withholding: the default of fees_without_withholding read as
+    // "withhold it", next to the option that really withholds. The system never
+    // withholds in the first person, and a document or the tax is never the
+    // object of "retener".
+    const holdSense = [
+      /\bretengo\b/i,
+      /\bretener(?:lo|la|los|las)\b/i,
+      /\bret(?:en|ien|eng)\w*\s+(?:el|la|los|las|esas?|esos?)\s+(?:CFDI|facturas?|impuesto|complementos?)\b/i,
+    ];
+    const offenders = ES_POLICY.filter(([, text]) => holdSense.some((re) => re.test(text))).map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
+
+  it('"acreditar" is kept for the VAT credit, never for a ledger credit to the bank', () => {
+    const offenders = ES_POLICY.filter(([, text]) =>
+      /\bacredit\w*\s+(?:dos veces\s+)?(?:el|al)\s+banco\b/i.test(text),
+    ).map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('the es panel names account 3200 as the seeded chart does', () => {
+  const seed = readFileSync(join(__dirname, '..', '..', 'src', 'database', 'seed.ts'), 'utf8');
+  const name3200 = /code: '3200', name: '([^']+)'/.exec(seed)?.[1];
+
+  it('every mention of 3200 by name uses the chart name, and no other name for it survives', () => {
+    expect(name3200, 'seed.ts no longer seeds 3200 with a name').toBeTruthy();
+    const drift = ES_POLICY.filter(
+      ([, text]) =>
+        /resultados acumulados/i.test(text) ||
+        [...text.matchAll(/«([^»]+)» \(3200\)/g)].some((m) => m[1] !== name3200),
+    ).map(([key]) => key);
     expect(drift).toEqual([]);
   });
 });
