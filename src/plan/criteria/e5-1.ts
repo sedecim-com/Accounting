@@ -1269,6 +1269,13 @@ export const E5_1: Criterio[] = [
         porque:
           'ejemplo-que-miente: tax= es TASA en invoice y MONTO en bill, así que el ejemplo copiable registraría 16 pesos de IVA donde van 2 000 — la confusión H3 que este tramo existe para curar, en el propio texto que la cura',
       },
+      {
+        archivo: 'src/cli/invoice-command.ts',
+        de: 'tax-rate=16;description=Servicios contables julio',
+        a: 'tax=16;description=Servicios contables julio',
+        porque:
+          'invoice-teaches-the-legacy-key: the copyable invoice example goes back to the bare tax=, which bill reads as an AMOUNT, so the H3 confusion returns from the other side',
+      },
     ],
     evaluar: () => {
       const spec = codigoDe('tests/cli/ejemplos-de-ayuda.spec.ts');
@@ -1285,11 +1292,22 @@ export const E5_1: Criterio[] = [
       if (suelos.length < 2) {
         return falla('el guardián de ejemplos perdió sus suelos medidos: sin ellos un revert parcial pasa en verde');
       }
-      const bill = codigoDe('src/cli/bill-command.ts');
-      const ejemplosDeBill = bill.slice(bill.indexOf('EJEMPLOS'));
-      return /tax-amount=/.test(ejemplosDeBill) && !/--line "[^"]*[,"]tax=/.test(ejemplosDeBill)
-        ? ok('los ejemplos parsean contra el Commander embarcado y bill enseña tax-amount, no la clave legada')
-        : falla('un ejemplo de bill volvió a la clave legada tax=: registraría el IVA con un factor de diez');
+      // A bare tax= at ANY pair boundary of a --line: the first pair, or
+      // after a "," (bill's legacy separator) or a ";" (the one grammar, #327).
+      const legacyTaxKey = /--line "(?:[^"]*[,;])?\s*tax=/;
+      const examplesOf = (file: string): string => {
+        const code = codigoDe(file);
+        return code.slice(code.indexOf('EJEMPLOS'));
+      };
+      const billExamples = examplesOf('src/cli/bill-command.ts');
+      const invoiceExamples = examplesOf('src/cli/invoice-command.ts');
+      if (!/tax-amount=/.test(billExamples) || legacyTaxKey.test(billExamples)) {
+        return falla('un ejemplo de bill volvió a la clave legada tax=: registraría el IVA con un factor de diez');
+      }
+      if (!/tax-rate=/.test(invoiceExamples) || legacyTaxKey.test(invoiceExamples)) {
+        return falla('un ejemplo de invoice volvió a la clave legada tax=: en bill la misma clave es un MONTO, no una tasa');
+      }
+      return ok('los ejemplos parsean contra el Commander embarcado; bill enseña tax-amount= e invoice tax-rate=, ninguno la clave legada');
     },
   },
   {
