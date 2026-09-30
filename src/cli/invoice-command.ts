@@ -561,8 +561,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
             method: row.payment_method,
             status: row.payment_status,
             applied: row.amount_applied,
+            isr_withheld: row.withholding_isr_amount,
+            vat_withheld: row.withholding_iva_amount,
           })),
-          { format: 'table', numeric: ['applied'] }
+          { format: 'table', numeric: ['applied', 'isr_withheld', 'vat_withheld'] }
         );
       }
       out.write('\n');

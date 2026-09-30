@@ -4269,6 +4269,10 @@ Options:
   --amount <amount>        amount for a single --invoice without an inline
                            amount
   --json                   JSON output
+  --withholding <spec...>  what the customer withheld, which settles the invoice
+                           with the cash: "isr:1000" or "iva:1066.67"
+                           (repeatable); with several invoices,
+                           "INV-2026-00042:isr:1000"
   -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
@@ -4281,6 +4285,8 @@ Examples:
   mnemosine receipt apply PMT-2026-00042 --invoice "INV-2026-00042:2500.00" --invoice "INV-2026-00051:1800.00"
   # A single invoice, with the amount as its own flag.
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042 --amount 2500.00
+  # The customer paid 9533.33 on fees of 10000 + VAT: it withheld 10 % ISR and 2/3 of the VAT.
+  mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:9533.33 --withholding isr:1000 --withholding iva:1066.67
 ```
 
 ### `mnemosine receipt unapply` (alias: desaplicar)

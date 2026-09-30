@@ -18,6 +18,7 @@ import {
   type ResultadoPago,
 } from '../services/payments/payment-service.js';
 import { InvoiceStatus } from '../types/index.js';
+import { t } from '../i18n/index.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -34,6 +35,7 @@ import {
   abortedByUser,
   exitCodeFor,
   dateOnly,
+  optionByKey,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
@@ -144,6 +146,8 @@ Examples:
   mnemosine receipt apply PMT-2026-00042 --invoice "INV-2026-00042:2500.00" --invoice "INV-2026-00051:1800.00"
   # A single invoice, with the amount as its own flag.
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042 --amount 2500.00
+  # The customer paid 9533.33 on fees of 10000 + VAT: it withheld 10 % ISR and 2/3 of the VAT.
+  mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:9533.33 --withholding isr:1000 --withholding iva:1066.67
 `,
   unapply: `
 Examples:
@@ -160,6 +164,35 @@ Examples:
   mnemosine receipt reverse PMT-2026-00042 --dry-run
 `,
 } as const;
+
+/**
+ * `--withholding isr:1000` for the only invoice, or `INV-2026-00042:iva:1066.67`
+ * to name one of several (MNE-001-113). Repeated specs for the same invoice
+ * and tax add up.
+ */
+export function parseWithholding(
+  specs: string[] | undefined,
+  refs: string[]
+): Map<string, { isr: Decimal; iva: Decimal }> {
+  const out = new Map<string, { isr: Decimal; iva: Decimal }>();
+  for (const spec of specs ?? []) {
+    const m = /^(?:(.+):)?(isr|iva):(\d+(?:\.\d+)?)$/i.exec(spec.trim());
+    if (!m) throw usageError(t('receipt.withholding.unreadable', { spec }));
+    const invoiceRef = m[1] ?? (refs.length === 1 ? refs[0] : undefined);
+    if (invoiceRef === undefined || !refs.includes(invoiceRef)) {
+      throw usageError(
+        m[1] === undefined
+          ? t('receipt.withholding.which_invoice', { spec })
+          : t('receipt.withholding.not_applied', { spec, invoice: m[1] })
+      );
+    }
+    const tax = m[2].toLowerCase() as 'isr' | 'iva';
+    const current = out.get(invoiceRef) ?? { isr: new Decimal(0), iva: new Decimal(0) };
+    current[tax] = current[tax].plus(m[3]);
+    out.set(invoiceRef, current);
+  }
+  return out;
+}
 
 export function registerReceiptCommand(program: Command, deps: ReceiptCommandDeps): void {
   const receipt = program
@@ -512,11 +545,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           cobro.aplicaciones.map((a) => ({
             invoice: a.invoice_number,
             applied: a.amount_applied,
+            isr_withheld: a.withholding_isr_amount,
+            vat_withheld: a.withholding_iva_amount,
             iva_released: a.iva_reclass_amount ?? '',
             live: a.viva ? 'yes' : 'no',
             unapplied_reason: a.unapply_reason ?? '',
           })),
-          { format: 'table', numeric: ['applied', 'iva_released'] }
+          { format: 'table', numeric: ['applied', 'isr_withheld', 'vat_withheld', 'iva_released'] }
         );
       }
       out.write('\n');
@@ -593,6 +628,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .option('--invoice <spec...>', 'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount')
     .option('--amount <amount>', 'amount for a single --invoice without an inline amount')
     .option('--json', 'JSON output');
+  optionByKey(apply, '--withholding <spec...>', 'help.receipt.apply.option.withholding');
   declareRisk(apply, {
     risk: 'irreversible',
     llave: { sinLlave: 'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento' },
@@ -601,18 +637,24 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   });
   apply.addHelpText('after', EJEMPLOS.apply);
   apply.action(
-    (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string }) =>
+    (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string; withholding?: string[] }) =>
       run(async () => {
         const ctx = await writeEntityOf(opts);
         const { dryRun } = gateMutation(apply, opts as Record<string, unknown>);
         const p = deps.palette;
         const pares = parseAplicaciones(opts.invoice, opts.amount);
+        const withheld = parseWithholding(opts.withholding, pares.map((x) => x.ref));
 
         const cobro = await getCustomerPayment(ctx.entityId, ref);
         const aplicaciones = [];
         for (const par of pares) {
           const factura = await resolveInvoice(ctx.entityId, par.ref);
-          aplicaciones.push({ documentId: factura.id, amountApplied: new Decimal(par.amount as string).toFixed(2) });
+          const w = withheld.get(par.ref);
+          aplicaciones.push({
+            documentId: factura.id,
+            amountApplied: new Decimal(par.amount as string).toFixed(2),
+            ...(w ? { withholdingIsr: w.isr.toFixed(2), withholdingIva: w.iva.toFixed(2) } : {}),
+          });
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -626,7 +668,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
 
         await confirmOrAbort(
           opts,
-          `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo})`).join(', ')} ` +
+          `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo}${withheldText(d)})`).join(', ')} ` +
             `from ${cobro.payment_number} (on account ${previo.remanenteAnterior} → ${previo.remanenteNuevo}) ` +
             `in ${ctx.entityName}? This posts to the ledger.`
         );
@@ -677,7 +719,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (dryRun) {
           process.stdout.write(
             `${p.bold(`Would unapply ${previo.desaplicado} from ${previo.documento.numero}`)} ` +
-              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account)`) +
+              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)})`) +
               (new Decimal(previo.ivaReAparcado).greaterThan(0)
                 ? p.dim(` · IVA re-parked ${previo.ivaReAparcado}${previo.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
                 : '') + '\n'
@@ -689,7 +731,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         await confirmOrAbort(
           opts,
           `Unapply ${previo.desaplicado} of ${cobro.payment_number} from ${previo.documento.numero} ` +
-            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo})? ` +
+            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)})? ` +
             'The cash stays on account; the invoice reopens.'
         );
 
@@ -705,6 +747,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             payment_number: result.paymentNumber,
             invoice: result.documento.numero,
             unapplied: result.desaplicado,
+            withholding_isr: result.documento.withholdingIsr ?? '0.00',
+            withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
             entry_number: result.journalEntry.entry_number,
           }], { json: true });
@@ -712,7 +756,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         }
         process.stdout.write(
           `${p.green('✔')} ${p.bold(result.paymentNumber)} unapplied from ${p.bold(result.documento.numero)} ` +
-            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo} · entry ${result.journalEntry.entry_number}`) +
+            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)} · entry ${result.journalEntry.entry_number}`) +
             (new Decimal(result.ivaReAparcado).greaterThan(0)
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
               : '') + '\n'
@@ -843,8 +887,23 @@ function imprimirRegistro(
   }
 }
 
+/**
+ * The customer's withholding a document carries (MNE-001-113), as a suffix:
+ * it lands on 1145/1146 with the post, so it is shown before and after it.
+ */
+function withheldText(d: { withholdingIsr?: string; withholdingIva?: string }): string {
+  const parts = [
+    ['ISR', d.withholdingIsr],
+    ['VAT', d.withholdingIva],
+  ].filter(([, v]) => v !== undefined && new Decimal(v).greaterThan(0));
+  return parts.length === 0 ? '' : `; withheld ${parts.map(([k, v]) => `${k} ${v}`).join(' + ')}`;
+}
+
 function imprimirAplicacion(
-  documentos: { numero: string; saldoAnterior: string; saldoNuevo: string; estado: string }[],
+  documentos: {
+    numero: string; saldoAnterior: string; saldoNuevo: string; estado: string;
+    withholdingIsr?: string; withholdingIva?: string;
+  }[],
   remanenteAnterior: string,
   remanenteNuevo: string,
   paymentNumber: string,
@@ -860,6 +919,8 @@ function imprimirAplicacion(
         invoice: d.numero,
         amount_due_before: d.saldoAnterior,
         amount_due_after: d.saldoNuevo,
+        withholding_isr: d.withholdingIsr ?? '0.00',
+        withholding_iva: d.withholdingIva ?? '0.00',
         invoice_status: d.estado,
         on_account_before: remanenteAnterior,
         on_account_after: remanenteNuevo,
@@ -872,7 +933,7 @@ function imprimirAplicacion(
   }
   const prefijo = ensayo ? p.bold('Would apply') : `${p.green('✔')} ${p.bold(paymentNumber)} applied`;
   process.stdout.write(
-    `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado})`).join(', ')} ` +
+    `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado}${withheldText(d)})`).join(', ')} ` +
       p.dim(`· on account ${remanenteAnterior} → ${remanenteNuevo}`) +
       (entryNumber ? p.dim(` · entry ${entryNumber}`) : '') +
       '\n'

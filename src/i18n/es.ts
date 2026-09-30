@@ -1688,6 +1688,21 @@ export const ES: Record<keyof typeof EN, string> = {
 
   // ==== I7 · EL PILOTO: `src/cli/bank-command.ts` (issue #149) =====
   // --- Los analizadores de bandera: uso (2), no validación (4) ---------
+  'receipt.withholding.unreadable':
+    'No entiendo la retención "{spec}": escribe "isr:1000" o "iva:1066.67", y con varias facturas antepón el folio ("INV-2026-00042:isr:1000").',
+  'receipt.withholding.which_invoice':
+    'Con varias facturas, la retención "{spec}" tiene que decir de cuál es ("INV-2026-00042:{spec}").',
+  'receipt.withholding.not_applied':
+    'La retención "{spec}" nombra {invoice}, que no está entre las --invoice de esta aplicación.',
+  'receipt.withholding.negative': 'Una retención no puede ser negativa ({amount}).',
+  'receipt.withholding.cash_required':
+    'El efectivo aplicado a {invoice} debe ser mayor que cero (llegó {amount}): una retención viaja con una aplicación de efectivo, nunca se aplica sola.',
+  'receipt.withholding.exceeds_due':
+    '{invoice} debe {due} y se intentan aplicar {settled} ({cash} cobrado + {withheld} retenido).',
+  'receipt.withholding.vat_cap': '{invoice} traslada {cap} de IVA: el cliente no puede retener más que eso.',
+  'receipt.withholding.isr_cap': '{invoice} tiene un subtotal de {cap}: el ISR retenido no puede pasar de ahí.',
+  'receipt.withholding.booked_at_issuance':
+    '{invoice} ya registró la retención del cliente ({amount}) al emitirse: su cuenta por cobrar es el neto que paga el cliente. Aplica sólo el efectivo; --withholding es para facturas cuya cuenta por cobrar se registró en bruto.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
@@ -2255,6 +2270,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.tenant.create.option.json': 'salida en JSON',
   'help.account.role.sync.description': 'Apunta los roles de retención a las cuentas que elige withholding_accounts_layout y crea las que falten',
   'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
+  'help.receipt.apply.option.withholding':
+    'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
   'help.bill.rule.description':
     'Reglas de procesamiento del despacho: con qué se clasifica un CFDI recibido sin que intervenga el modelo',
   'help.bill.rule.create.description':
