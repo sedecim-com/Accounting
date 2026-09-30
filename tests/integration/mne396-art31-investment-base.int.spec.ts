@@ -94,6 +94,25 @@ describe('the base the rate applies to (art. 31 LISR)', () => {
     expect(rows[0].meta).toMatchObject({ base_depreciable: '90000.0000', investment_base: 'cost_less_salvage' });
   });
 
+  it('an asset with no stored rate posts the same amount under tasa_lisr as under vida_util_nif', async () => {
+    const posted: string[] = [];
+    for (const basis of ['tasa_lisr', 'vida_util_nif'] as const) {
+      const E = await entityOn(`MNE-396 sin tasa ${basis}`, basis);
+      const id = await registerExample(E);
+      // An asset registered before 088 stores no rate: it runs on its life.
+      await query(`UPDATE fixed_assets SET tax_rate = NULL, useful_life_years = 5, useful_life_months = 60 WHERE id = $1`, [id]);
+
+      const plan = await planDeDepreciacion(E.entityId, E.periodos[1]);
+      expect(plan.renglones.find((r) => r.asset_id === id)?.depreciacion).toBe('1500.0000');
+      const r = await runMonthlyDepreciation(E.entityId, E.periodos[1], E.userId);
+      expect(r.errors).toEqual([]);
+      const rows = await postedRows(id);
+      expect(rows[0].meta).toMatchObject({ base_depreciable: '90000.0000', investment_base: 'cost_less_salvage' });
+      posted.push(rows[0].d);
+    }
+    expect(posted).toEqual(['1500.0000', '1500.0000']);
+  });
+
   it('an asset whose tax rows started on cost less salvage keeps that base', async () => {
     const L = await entityOn('MNE-396 heredado', 'tasa_lisr');
     const id = await registerExample(L);

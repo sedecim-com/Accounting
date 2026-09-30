@@ -12,6 +12,7 @@ import {
   TIPO_DE_CALENDARIO,
   baseDeLaVida,
   calculateDepreciation,
+  effectiveInvestmentBase,
   esImporteCero,
   indiceDeCalendario,
   metadatosDeCalculo,
@@ -243,6 +244,9 @@ export function taxRateForBasis(asset: FixedAsset, base: BaseDepreciacion): stri
  * subtracted: LISR art. 31 applies the maximum percentages to the *monto
  * original de la inversión* (owner decision MNE-001-135, #429). Under
  * `vida_util_nif` it stays cost less salvage, NIF C-6's depreciable amount.
+ * This is the base asked for: an asset that does not run on the rate (no
+ * stored rate, or not straight line) still subtracts salvage, and
+ * `effectiveInvestmentBase` decides that and is what the row records.
  *
  * An asset that already posted tax rows keeps the base it started with, for
  * the same reason as `basisLock`: moving the base under posted months would
@@ -450,7 +454,7 @@ export async function runMonthlyDepreciation(
         periodos: calendario.length,
         vidaUtilMeses: asset.useful_life_months,
         baseDepreciable: baseDeLaVida(entrada),
-        investmentBase: entrada.investment_base ?? 'cost_less_salvage',
+        investmentBase: effectiveInvestmentBase(entrada),
         baseDefinida: criterios.baseDefinida,
         convencionDefinida: criterios.convencionDefinida,
       });

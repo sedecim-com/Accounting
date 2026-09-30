@@ -62,6 +62,11 @@ export type ConvencionPrimerMes = (typeof CONVENCIONES_PRIMER_MES)[number];
  * UNIQUE (asset_id, fiscal_period_id, schedule_type) dejaba de poder guardar
  * las dos corridas del mismo mes.
  */
+export const TIPO_DE_CALENDARIO: Record<BaseDepreciacion, 'book' | 'tax'> = {
+  vida_util_nif: 'book',
+  tasa_lisr: 'tax',
+};
+
 /**
  * What the depreciable base is measured from.
  *
@@ -72,11 +77,6 @@ export type ConvencionPrimerMes = (typeof CONVENCIONES_PRIMER_MES)[number];
  */
 export const INVESTMENT_BASES = ['cost_less_salvage', 'original_investment'] as const;
 export type InvestmentBase = (typeof INVESTMENT_BASES)[number];
-
-export const TIPO_DE_CALENDARIO: Record<BaseDepreciacion, 'book' | 'tax'> = {
-  vida_util_nif: 'book',
-  tasa_lisr: 'tax',
-};
 
 export interface DepreciationInput {
   asset_id?: string;
@@ -101,7 +101,10 @@ export interface DepreciationInput {
    * integer life can express, so the last whole month takes the remainder.
    */
   annual_rate?: string;
-  /** Defaults to `cost_less_salvage`. MACRS ignores it: it always runs on the cost. */
+  /**
+   * Defaults to `cost_less_salvage`. Only honoured where the LISR rate is
+   * actually applied: see `effectiveInvestmentBase`.
+   */
   investment_base?: InvestmentBase;
 }
 
@@ -187,9 +190,28 @@ interface SerieCruda {
   base: Decimal;
 }
 
+/**
+ * The base the schedule actually runs on, whatever was asked for.
+ *
+ * MACRS always runs on the whole cost: the law that defines it ignores
+ * salvage. Otherwise art. 31's original investment only holds where the LISR
+ * rate is applied, which is the straight line with a stored `annual_rate`. An
+ * asset without a rate, or on declining balance or sum of years, runs on its
+ * useful life, and there the salvage value is subtracted as NIF C-6 says.
+ * The row records this value, so it never contradicts its own base.
+ */
+export function effectiveInvestmentBase(input: DepreciationInput): InvestmentBase {
+  if (input.method === DepreciationMethod.MACRS) return 'original_investment';
+  const appliesTheRate =
+    input.method === DepreciationMethod.STRAIGHT_LINE && input.annual_rate !== undefined;
+  return appliesTheRate && input.investment_base === 'original_investment'
+    ? 'original_investment'
+    : 'cost_less_salvage';
+}
+
 function baseDepreciable(input: DepreciationInput): Decimal {
   const cost = new Decimal(input.acquisition_cost);
-  return input.investment_base === 'original_investment' ? cost : cost.minus(input.salvage_value);
+  return effectiveInvestmentBase(input) === 'original_investment' ? cost : cost.minus(input.salvage_value);
 }
 
 /**
@@ -199,11 +221,7 @@ function baseDepreciable(input: DepreciationInput): Decimal {
  * define ignora el salvamento y deprecia el costo entero.
  */
 export function baseDeLaVida(input: DepreciationInput): string {
-  const base =
-    input.method === DepreciationMethod.MACRS
-      ? new Decimal(input.acquisition_cost)
-      : baseDepreciable(input);
-  return base.toFixed(DECIMALES);
+  return baseDepreciable(input).toFixed(DECIMALES);
 }
 
 /** Un importe de la corrida que no mueve nada. Con Decimal, no con `=== 0`. */

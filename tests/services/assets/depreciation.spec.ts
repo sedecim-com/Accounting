@@ -12,6 +12,7 @@ import {
   calculateStraightLine,
   calculateSumOfYearsDigits,
   calculateUnitsOfProduction,
+  effectiveInvestmentBase,
   esImporteCero,
   fraccionDelPrimerMes,
   indiceDeCalendario,
@@ -438,5 +439,36 @@ describe('under tasa_lisr the rate applies to the original investment (art. 31 L
   it('an asset whose tax rows started on cost less salvage keeps that base', () => {
     expect(investmentBaseFor('tasa_lisr', 'cost_less_salvage')).toBe('cost_less_salvage');
     expect(investmentBaseFor('tasa_lisr', 'original_investment')).toBe('original_investment');
+  });
+});
+
+describe('art. 31 only where the LISR rate is actually applied (MNE-001-396 review)', () => {
+  const asked = (over: Partial<DepreciationInput> = {}): DepreciationInput =>
+    activo({ salvage_value: '10000.0000', useful_life_months: 60, investment_base: 'original_investment', ...over });
+
+  it('an asset with no stored rate runs on its life on cost less salvage, as under vida_util_nif', () => {
+    const rows = calculateStraightLine(asked());
+    expect(rows[0].depreciation_expense).toBe('1500.0000');
+    expect(sumaDeGastos(rows)).toBe('90000.0000');
+    expect(effectiveInvestmentBase(asked())).toBe('cost_less_salvage');
+    expect(baseDeLaVida(asked())).toBe('90000.0000');
+  });
+
+  it('declining balance and sum of years never apply the rate, so they keep subtracting salvage', () => {
+    for (const method of [DepreciationMethod.DECLINING_BALANCE_200, DepreciationMethod.SUM_OF_YEARS_DIGITS]) {
+      const input = asked({ method, annual_rate: '0.2500' });
+      expect(effectiveInvestmentBase(input)).toBe('cost_less_salvage');
+      expect(sumaDeGastos(calculateDepreciation(input))).toBe('90000.0000');
+    }
+  });
+
+  it('straight line with a stored rate is the one that runs on the original investment', () => {
+    expect(effectiveInvestmentBase(asked({ annual_rate: '0.2500' }))).toBe('original_investment');
+  });
+
+  it('a MACRS row records the original investment, the cost its schedule ran on', () => {
+    const input = activo({ salvage_value: '10000.0000', method: DepreciationMethod.MACRS });
+    expect(effectiveInvestmentBase(input)).toBe('original_investment');
+    expect(baseDeLaVida(input)).toBe('100000.0000');
   });
 });
