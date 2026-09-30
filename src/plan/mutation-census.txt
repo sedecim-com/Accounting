@@ -536,6 +536,11 @@ mirror	memory	E4.1 policy-panel-is-per-entity	src/services/policy/policy-service
 mirror	memory	E4.1 sua-file-declares-the-month-and-only-the-month	src/services/payroll/mx/sua-generator.ts	los movimientos del mes dejan de colgar del empleado: cada trabajador se lleva las cuotas de TODA la plantilla, y el archivo que se sube al SUA multiplica por el número de empleados
 mirror	memory	E4.1 sua-file-declares-the-month-and-only-the-month	src/services/payroll/mx/sua-generator.ts	una corrida en borrador —un recálculo que nadie aprobó— vuelve a declararse como cuota a pagar: el patrón le paga al IMSS por un cálculo que su propio despacho no cerró
 mirror	memory	E4.1 sua-file-declares-the-month-and-only-the-month	src/services/payroll/mx/sua-generator.ts	el archivo vuelve a entregarse aunque contradiga el pasivo que el patrón ya apuntó: se persiste un `draft` descuadrado, que es justo el que alguien sube al SUA sin volver a mirarlo
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/mx/sua-generator.ts	the SUA file stops splitting: the straddling week lands whole in the month it starts in, while the liability splits it — the file and the books disagree again
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/mx/sua-generator.ts	the SUA file wants the whole period inside the month again: the straddling week is declared in no month
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/common/employer-liability-service.ts	the liability books the run in one month again, by its `period_end`, while the SUA file splits it by days
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/common/employer-liability-service.ts	each payslip stops being split: the month that holds the period start books the whole amount and the other month nothing
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/common/employer-liability-service.ts	the month-end liability only sees periods that END in the month: the first month of a straddling week loses its share
 mirror	memory	E4.1 garnishment-vocabulary-is-the-persisted-one	src/services/payroll/usa/garnishments/garnishment-engine.ts	la pensión alimenticia deja de tratarse como lo que es y pierde su tope de la CCPA: era el caso que MEDIDO retenía 0 contra 500, dinero que un juez adjudicó y no llegaba
 mirror	memory	E4.1 garnishment-vocabulary-is-the-persisted-one	src/services/payroll/usa/garnishments/garnishment-engine.ts	vuelve el cero silencioso: un vocabulario que el motor no entiende retiene nada en vez de negarse, que es el defecto original de T20 y su principio entero
 mirror	memory	E4.1 garnishment-vocabulary-is-the-persisted-one	src/database/migrations/075_el_embargo_que_no_retenia.sql	la columna vuelve a admitir cualquier cadena, y con ella vuelve a poder guardarse la orden que no retiene: un vocabulario sin restricción es una sugerencia
@@ -1182,6 +1187,11 @@ anchor	src/plan/criteria/e4-1.ts	de: ' if (!ctx.entityId) {\n throw new Validati
 anchor	src/plan/criteria/e4-1.ts	de: ' ) m ON m.employee_id = e.id',
 anchor	src/plan/criteria/e4-1.ts	de: " WHERE pr.status IN ('approved', 'paid')",
 anchor	src/plan/criteria/e4-1.ts	de: ' if (bloqueantes.length > 0) {',
+anchor	src/plan/criteria/e4-1.ts	de: " const s = splitByContributionMonth(r.period_start!, r.period_end!, amount ?? '0').find(",
+anchor	src/plan/criteria/e4-1.ts	de: ' AND pp.period_start <= $4 AND pp.period_end >= $3',
+anchor	src/plan/criteria/e4-1.ts	de: ' const stretches = splitByContributionMonth(c.period_start, c.period_end, 0);',
+anchor	src/plan/criteria/e4-1.ts	de: " const share = splitByContributionMonth(p.period_start, p.period_end, p[column] ?? '0').find(",
+anchor	src/plan/criteria/e4-1.ts	de: ' AND pp.period_start <= $4::date AND pp.period_end >= $3::date`,',
 anchor	src/plan/criteria/e4-1.ts	de: " case 'pension_alimenticia':\n return 'child_support';",
 anchor	src/plan/criteria/e4-1.ts	de: ' throw new Error(\n `Unknown garnishment amount_type',
 anchor	src/plan/criteria/e4-1.ts	de: " CHECK (amount_type IN ('fixed', 'percent_disposable', 'percent_gross'));",

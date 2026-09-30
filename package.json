@@ -32,6 +32,7 @@
     "costo:por-fila": "tsx scripts/costo-por-fila.ts",
     "reclass:iva-ppd": "tsx scripts/reclasificar-iva-ppd.ts",
     "backfill:account-roles": "tsx scripts/rellenar-roles-de-cuenta.ts",
+    "backfill:straddling-liabilities": "tsx scripts/resplit-straddling-liabilities.ts",
     "corpus:estado": "tsx scripts/corpus-manifiesto.ts",
     "historial:estado": "tsx scripts/historial-estado.ts",
     "mutation:census": "tsx scripts/mutation-census.ts",
