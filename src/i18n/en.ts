@@ -2598,6 +2598,125 @@ export const EN = {
   'help.imss.sua.export.option.output': 'write the SUA file to this path (without it, the file goes to stdout)',
   'help.imss.sua.export.option.yes': 'overwrite the file named by -o if it already exists',
   'help.imss.sua.export.option.dry_run': 'build and check the file without writing it or recording the filing',
+  // ==== MNE-001-092 · help by key, the close and control families (issue #314) ====
+  //
+  // Same format as `period`: help.<cmd>[.<sub>…].description, .option.<flag>
+  // and .argument.<name>, in snake_case (`opening-balance` → `opening_balance`).
+  // Families: close, closing, year, chart, opening-balance, ar, ap, cashflow,
+  // depreciation, diot. The English is the prose these commands already showed.
+  'help.close.description': 'Month-end close: checks what is missing and closes the period',
+  'help.close.option.period':
+    'Period to close: 2026-08, its id, or an unambiguous part of its name (default: the oldest open one)',
+  'help.close.option.list': 'List closable periods and exit',
+  'help.close.option.check': 'Only check readiness, never close',
+  'help.close.option.hard': 'Hard close (irreversible) instead of soft close',
+  'help.close.option.reason': 'why this close happens now; recorded in the audit trail',
+  'help.close.option.json': 'JSON output for scripts',
+  'help.closing.description': 'The close as a process: conduct it, read it, and hand over the dossier that proves it',
+  'help.closing.preview.description':
+    'Read-only twin of closing start: says whether the period can enter close and what is missing',
+  'help.closing.preview.argument.period':
+    'open period: 2026-07, its id, or part of its name (default: the oldest open one)',
+  'help.closing.check.description':
+    'Run the close verification catalog, or only the named checks; bare --check lists the names',
+  'help.closing.check.option.check': 'comma-separated check codes; with no value, prints the available ones',
+  'help.closing.check.option.period':
+    'period to check: 2026-07, its id, or part of its name (default: the oldest open one)',
+  'help.closing.explain.description':
+    'Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it',
+  'help.closing.explain.argument.code': 'check code, one of: {codes}',
+  'help.closing.explain.option.limit': 'maximum offending rows to print',
+  'help.closing.explain.option.period':
+    'period to explain: 2026-07, its id, or part of its name (default: the oldest open one)',
+  'help.closing.run.description':
+    'Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order',
+  'help.closing.run.argument.period':
+    'open period: 2026-07, its id, or part of its name (default: the oldest open one)',
+  'help.closing.run.option.stop_at': 'stop BEFORE this step: {steps}',
+  'help.closing.run.option.resume':
+    'continue the open run of this period; every step runs again, posting only what is missing',
+  'help.closing.pack.description': 'The dossier of a close: generate it, and verify that its figures still reproduce',
+  'help.closing.pack.generate.description': 'Seal the period figures into a dossier a third party can re-run',
+  'help.closing.pack.generate.argument.period':
+    'period name, YYYY-MM or id, in any status (default: the most recently closed one)',
+  'help.closing.pack.generate.option.output': 'write the dossier to this path (closing_packs keeps its own copy)',
+  'help.closing.pack.verify.description':
+    'Re-run a dossier against the books: was it issued here, do its figures still reproduce, and exactly what moved',
+  'help.closing.pack.verify.argument.file': 'the dossier to verify',
+  'help.year.description': 'Fiscal years: the calendar an entity keeps its books in',
+  'help.year.list.description': 'List the fiscal years of the entity with their state and close progress',
+  'help.year.show.description': 'Show a fiscal year with each of its periods and their states',
+  'help.year.show.argument.year': 'four-digit year, e.g. 2026',
+  'help.year.create.description':
+    'Create a fiscal year: its twelve monthly periods and the year-end adjustment period (13)',
+  'help.year.create.argument.year': 'four-digit year, e.g. 2027',
+  'help.year.create.option.dry_run': 'show the calendar that would be created; write nothing',
+  'help.year.create.option.json': 'JSON output',
+  'help.chart.description': 'Chart of accounts: bring a firm catalog in',
+  'help.chart.import.description': 'Import an Anexo 24 CatalogoCuentas XML, keeping the firm codes and hierarchy',
+  'help.chart.import.option.partial': 'write even if some rows are left out (default: all or nothing)',
+  'help.chart.import.option.reason': 'why the chart is imported; goes to the audit log',
+  'help.opening_balance.description':
+    'Opening balances migrated from the Anexo 24 trial balance of the previous system',
+  'help.opening_balance.import.description':
+    'Post the opening entry from an Anexo 24 BalanzaComprobacion XML, on the day after its cutoff -- irreversible',
+  'help.opening_balance.import.option.subledger':
+    'JSON array with the open documents of the receivable and payable control accounts',
+  'help.opening_balance.import.option.reason': 'why the opening is loaded; goes to the audit log',
+  'help.opening_balance.check.description':
+    'Compare the source trial balance against the ledger on the opening day, to the peso; exits 4 if they differ',
+  'help.ar.description':
+    'Receivables controls: reconcile the subledger against the control account, run named diagnostics',
+  'help.ar.reconcile.description':
+    'Subledger (open invoices − unapplied credit notes) vs the cxc control account, naming manual entries',
+  'help.ar.reconcile.option.strict': 'exit 4 on any delta, however small the list of suspects',
+  'help.ar.check.description':
+    'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
+  'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
+  'help.ar.check.option.strict': 'exit 4 on warnings too, not only blocking findings',
+  'help.ap.description': 'Payables controls: reconcile the vendor subledger against the control account',
+  'help.ap.reconcile.description':
+    'Vendor subledger (open bills) vs the cxp control account, naming the reconciling items',
+  'help.ap.reconcile.option.as_of': 'cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)',
+  'help.ap.reconcile.option.explain': 'spell out every reconciling item in prose, not just the table',
+  'help.cashflow.description': 'Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash',
+  'help.cashflow.generate.description': 'Build the statement of cash flows for a period, with the tie-out to real cash',
+  'help.cashflow.generate.option.method':
+    'method to build the statement with (default: the `flujo_efectivo_metodo` policy)',
+  'help.cashflow.generate.option.gross':
+    'present gross receipts and payments instead of net (NIF B-2 §40 / ASC 230-10-45-7); refused with a reason — these books cannot support it',
+  'help.cashflow.reconcile.description':
+    'Reconcile the derived statement of cash flows against the real movement of cash and equivalents, and print the residue instead of absorbing it',
+  'help.cashflow.reconcile.option.show_candidates':
+    'list the journal lines that most likely explain the residue (suspects, not a verdict)',
+  'help.depreciation.description': 'The monthly depreciation run: compute it, look at it, then post it',
+  'help.depreciation.run.description':
+    'Compute the period run and show it asset by asset — writes nothing, posts nothing',
+  'help.depreciation.run.option.period': 'period to compute: 2026-08, or any unambiguous part of its name',
+  'help.depreciation.run.option.book': 'the depreciation book you believe you are running; checked against the panel',
+  'help.depreciation.run.option.by': 'detail or summary: {dimensions} (asset is the per-asset detail)',
+  'help.depreciation.post.description': 'Post the period run to the ledger — one journal entry per asset, irreversible',
+  'help.depreciation.post.option.period': 'period to post: 2026-08, or any unambiguous part of its name',
+  'help.depreciation.post.option.book': 'the depreciation book you believe you are posting; checked against the panel',
+  'help.depreciation.post.option.file':
+    'the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved',
+  'help.diot.description':
+    'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
+  'help.diot.generate.description':
+    "Build the month's DIOT from paid transactions, broken down by third party and by rate",
+  'help.diot.generate.option.period': 'month to declare (the DIOT is monthly; no month 13)',
+  'help.diot.check.description':
+    'Run the DIOT invariants by name: the paid fact, the rate breakdown, the exempt base, the third party and its operation type',
+  'help.diot.check.option.period': 'month to check (the DIOT is monthly; no month 13)',
+  'help.diot.check.option.check': 'comma-separated check names; with no value, prints the available ones',
+  'help.diot.export.description':
+    'Emit the DIOT file, byte-stable for diffing: the working paper, or the SAT batch file to upload',
+  'help.diot.export.option.period': 'month to export (the DIOT is monthly; no month 13)',
+  'help.diot.export.option.layout':
+    'file layout: working-paper is the per-third-party reconciliation; sat is the authority batch file',
+  'help.diot.export.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'help.diot.export.option.output':
+    'write the exported file to this path (without it, the file goes to stdout so it can be diffed)',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
