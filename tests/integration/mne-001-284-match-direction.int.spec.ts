@@ -51,6 +51,28 @@ async function bill(total: string): Promise<string> {
   return id;
 }
 
+function bankGl(): string {
+  return f.roles.banco ?? Object.values(f.cuentas)[0];
+}
+
+// A posted entry with a DEBIT on the bank's GL account (a deposit booked in the books).
+async function bankDebitLine(amount: string): Promise<string> {
+  const id = uuidv4();
+  const other = Object.values(f.cuentas).find((c) => c !== bankGl())!;
+  await query(
+    `INSERT INTO journal_entries (id, entry_number, entry_type, entity_id, fiscal_period_id,
+       entry_date, posted_date, status, total_debits, total_credits, description, created_by, posted_by)
+     VALUES ($1, $2, 'standard', $3, $4, $5::date, $5::date, 'posted', $6, $6, 'Deposit in books', $7, $7)`,
+    [id, `DIR-${id.slice(0, 8)}`, f.entityId, f.periodos[8], date(), amount, f.userId]
+  );
+  const line = await query<{ id: string }>(
+    `INSERT INTO journal_entry_lines (journal_entry_id, line_number, account_id, debit_amount, credit_amount)
+     VALUES ($1, 1, $2, $3, NULL), ($1, 2, $4, NULL, $3) RETURNING id`,
+    [id, bankGl(), amount, other]
+  );
+  return line.rows[0].id;
+}
+
 async function bankTx(amount: string): Promise<string> {
   const id = uuidv4();
   await query(
@@ -93,7 +115,7 @@ beforeAll(async () => {
   await query(
     `INSERT INTO bank_accounts (id, entity_id, account_name, bank_name, gl_account_id, currency_code)
      VALUES ($1,$2,'Operativa','Banco de prueba',$3,'MXN')`,
-    [account, f.entityId, f.roles.banco ?? Object.values(f.cuentas)[0]]
+    [account, f.entityId, bankGl()]
   );
 }, 180_000);
 
@@ -130,5 +152,28 @@ describe('MNE-001-284 · the match direction is part of the match', () => {
     const b = await bill('1160.00');
     const tx = await bankTx('-1160.00');
     expect(await best(tx)).toBe(b);
+  });
+
+  it('a -2,230 charge is not auto-applied to a DEBIT book line on the bank account (REST)', async () => {
+    await reset();
+    await bankDebitLine('2230.00');
+    const tx = await bankTx('-2230.00');
+    expect(await best(tx)).toBeUndefined();
+    expect(await autoMatch()).toBe(0);
+    const row = await query<{ is_matched: boolean }>(
+      'SELECT is_matched FROM bank_transactions WHERE id = $1',
+      [tx]
+    );
+    expect(row.rows[0].is_matched).toBe(false);
+  });
+
+  it('a +2,230 deposit still matches the DEBIT book line on the bank account', async () => {
+    await reset();
+    const tx = await bankTx('2230.00');
+    const line = await query<{ id: string }>(
+      `SELECT id FROM journal_entry_lines WHERE account_id = $1 AND debit_amount = 2230`,
+      [bankGl()]
+    );
+    expect(await best(tx)).toBe(line.rows[0].id);
   });
 });

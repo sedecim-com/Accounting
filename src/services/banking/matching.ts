@@ -409,12 +409,12 @@ async function getCandidates(
   //
   // Se proyecta el SALDO, que es lo que el banco puede venir a cubrir.
   //
-  // LA DIRECCIÓN DEL MOVIMIENTO DECIDE DE QUÉ LADO SE BUSCA (MNE-001-284). El
-  // importe del banco va firmado —positivo entra, negativo sale— y el rango de
-  // abajo compara en valor absoluto, así que un cargo de −1160 casaba contra
-  // una factura por cobrar de 1160 del mismo día y se autoaplicaba. Un abono
-  // sólo puede ser un cobro (CxC) y un cargo sólo un pago (CxP): el otro lado
-  // ni se consulta. Importe cero no es ninguna de las dos direcciones.
+  // The movement direction decides which ledger side is searched (MNE-001-284).
+  // The bank amount is signed (positive in, negative out) while the range below
+  // compares absolute values, so a -1160 charge used to match a same-day 1160
+  // receivable and was auto-applied. A deposit can only be a collection (AR) or
+  // a debit book line; a charge only a payment (AP) or a credit book line. The
+  // other side is not queried. A zero amount is neither direction.
   const isDeposit = new Decimal(tx.amount).isPositive() && !new Decimal(tx.amount).isZero();
   const isCharge = new Decimal(tx.amount).isNegative();
 
@@ -455,7 +455,9 @@ async function getCandidates(
   // La 051 le puso índice único a `gl_account_id`: la correspondencia cuenta
   // bancaria ↔ cuenta de mayor es 1:1, así que este filtro es exacto y no una
   // heurística.
-  const jelEntries = await query<Matchable>(
+  // Same veto for book lines: a deposit is a DEBIT on the bank GL account, a
+  // charge a CREDIT.
+  const jelEntries = isDeposit || isCharge ? await query<Matchable>(
     `SELECT jel.id, 'journal_entry_line' as type,
             COALESCE(jel.debit_amount, jel.credit_amount) as amount,
             je.entry_date as date,
@@ -464,9 +466,10 @@ async function getCandidates(
      JOIN journal_entries je ON je.id = jel.journal_entry_id
      WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.is_reconciled = false
        AND jel.account_id = $4
+       AND ${isDeposit ? 'jel.debit_amount' : 'jel.credit_amount'} IS NOT NULL
        AND ABS(COALESCE(jel.debit_amount, jel.credit_amount)) BETWEEN $2 AND $3`,
     [entityId, amountLow, amountHigh, cuenta.gl_account_id]
-  );
+  ) : { rows: [] as Matchable[] };
   candidates.push(...jelEntries.rows);
 
   return candidates;

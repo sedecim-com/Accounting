@@ -389,7 +389,7 @@ describe('getCandidates · la factura pagada a medias', () => {
     });
   });
 
-  it('proyecta el SALDO del gasto para un cargo', async () => {
+  it('projects the bill BALANCE (amount_due) for a charge', async () => {
     mockQuery.mockResolvedValue(filas([]));
     await findBestMatch('cta-1', movimientoCompleto({ amount: '-500.0000' }), ALCANCE);
     const sqlGastos = mockQuery.mock.calls.map((c) => c[0] as string).find((s) => s.includes('FROM bills'))!;
@@ -402,7 +402,10 @@ describe('getCandidates · the direction of the movement picks the ledger side (
   const tables = (): string[] =>
     mockQuery.mock.calls
       .map((c) => c[0] as string)
-      .flatMap((s) => (s.includes('FROM invoices') ? ['invoices'] : s.includes('FROM bills') ? ['bills'] : []));
+      .flatMap((s) =>
+        s.includes('FROM invoices') ? ['invoices'] : s.includes('FROM bills') ? ['bills'] : s.includes('FROM journal_entry_lines') ? ['jel'] : []
+      );
+  const jelSql = (): string => mockQuery.mock.calls.map((c) => c[0] as string).find((s) => s.includes('FROM journal_entry_lines'))!;
 
   beforeEach(() => {
     mockFindByIdInScope.mockResolvedValue({ entity_id: 'ent-1', gl_account_id: 'gl-1' });
@@ -411,12 +414,16 @@ describe('getCandidates · the direction of the movement picks the ledger side (
 
   it('a deposit only reads receivables', async () => {
     await findBestMatch('cta-1', movimientoCompleto({ amount: '1160.0000' }), ALCANCE);
-    expect(tables()).toEqual(['invoices']);
+    expect(tables()).toEqual(['invoices', 'jel']);
+    expect(jelSql()).toContain('jel.debit_amount IS NOT NULL');
+    expect(jelSql()).not.toContain('jel.credit_amount IS NOT NULL');
   });
 
   it('a charge only reads payables', async () => {
     await findBestMatch('cta-1', movimientoCompleto({ amount: '-1160.0000' }), ALCANCE);
-    expect(tables()).toEqual(['bills']);
+    expect(tables()).toEqual(['bills', 'jel']);
+    expect(jelSql()).toContain('jel.credit_amount IS NOT NULL');
+    expect(jelSql()).not.toContain('jel.debit_amount IS NOT NULL');
   });
 
   it('a zero movement reads neither', async () => {

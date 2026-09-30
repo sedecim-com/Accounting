@@ -116,7 +116,7 @@
     "src/services/integrations/mexico/pac/pac-router.ts": "d4e73952e123807caf206889a59c802f8bc04a73",
     "src/api/rest/routes/invoices.ts": "f3e615ddb5bf2c243e25ee416ae8f7fe61de2040",
     "src/ai/ingest-service.ts": "4cfb4d08e881a1da384ab80df08e841ab7ca45f6",
-    "src/services/banking/matching.ts": "499474a6b62fa5bb234640989ee5721302adea7f",
+    "src/services/banking/matching.ts": "0e292826286cdfd0daf14f7692b244a7f780121d",
     "src/api/rest/routes/bank-reconciliation.ts": "16e698660be84850a8a8158e2700b4fffe36eeba",
     "src/database/enums.ts": "a77d1bc0759b7c8e4556749f239855b2035950e2",
     "src/ai/external-service.ts": "0d33222b252af235e5729de6f97127ec057d2193",
