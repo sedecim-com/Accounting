@@ -63,6 +63,12 @@ describe('auditProgram — the rules it enforces', () => {
     expect(auditProgram(program).some((x) => x.rule === 'R2 singular nouns')).toBe(false);
   });
 
+  it('reads the registry abbreviations as acronyms, not plurals', () => {
+    const program = new Command('mnemosine');
+    withReadFlags(mk(program, 'imss movement list'));
+    expect(auditProgram(program).some((x) => x.rule === 'R2 singular nouns')).toBe(false);
+  });
+
   it('rejects a banned spelling', () => {
     const program = new Command('mnemosine');
     mk(program, 'entry post').option('--dryrun', 'nope');

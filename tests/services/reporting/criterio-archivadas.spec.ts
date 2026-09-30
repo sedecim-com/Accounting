@@ -58,7 +58,8 @@ describe('criterioDeCuentasArchivadas — el lector de la ficha', () => {
     await criterioDeCuentasArchivadas(ENTITY);
     expect(mockPolicy).toHaveBeenCalledWith(
       { tenantId: TENANT, entityId: ENTITY },
-      'informes_cuentas_archivadas'
+      'informes_cuentas_archivadas',
+      undefined
     );
   });
 
@@ -83,6 +84,17 @@ describe('criterioDeCuentasArchivadas — el lector de la ficha', () => {
     const c = await criterioDeCuentasArchivadas(ENTITY);
     expect(String(mockQuery.mock.calls[0][0])).toMatch(/FROM legal_entities WHERE id = \$1/);
     expect(c.valor).toBe('mantener_en_la_balanza');
+  });
+
+  it('inside a transaction it reads the tenant and the panel on the caller\'s client (MNE-001-058)', async () => {
+    mockTenant.mockReturnValue(undefined);
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [{ tenant_id: TENANT }] });
+    const client = { query: clientQuery } as unknown as import('pg').PoolClient;
+    conPolitica('mantener_en_la_balanza');
+    await criterioDeCuentasArchivadas(ENTITY, client);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(String(clientQuery.mock.calls[0][0])).toMatch(/FROM legal_entities WHERE id = \$1/);
+    expect(mockPolicy).toHaveBeenCalledWith({ tenantId: TENANT, entityId: ENTITY }, 'informes_cuentas_archivadas', client);
   });
 
   it('una entidad sin inquilino no revienta el informe: aplica el criterio por omisión', async () => {

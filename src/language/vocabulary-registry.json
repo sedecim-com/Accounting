@@ -2346,6 +2346,14 @@
     },
     {
       "class": "policy-key",
+      "where": "census_cfdi_types",
+      "es": "census_cfdi_types",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-096): the CFDI types of the SAT census (sat_cfdi_census) that count toward completeness. Read by `completenessTypes` (sat-census/census.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "opening_payable_iva",
       "es": "opening_payable_iva",
       "en": null,
@@ -2727,6 +2735,13 @@
     },
     {
       "class": "policy-key",
+      "where": "declaracion_redondeo_a_pesos",
+      "es": "declaracion_redondeo_a_pesos",
+      "en": "filing_rounding_to_pesos",
+      "why": "`filing` is the tax return, as in `filing workpaper generate` (#308), and the constant `FILING_ROUNDING_POLICY` (fiscal/iva-workpaper.ts). `pesos` stays: CFF art. 20 adjusts to the peso, not to a generic unit."
+    },
+    {
+      "class": "policy-key",
       "where": "tratamiento_ieps",
       "es": "tratamiento_ieps",
       "en": "ieps_treatment",
@@ -2908,6 +2923,30 @@
       "es": "contabilizar",
       "en": "post",
       "why": "`post` es el verbo del árbol para llevar un asiento al mayor (`postJournalEntry`, `autoPost`, `entry post`), y el informe ya lo nombra así (`loadMode: 'post'`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_cfdi_types/invoices_and_payments",
+      "es": "invoices_and_payments",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-096): the literal `completenessTypes` (sat-census/census.ts) maps to I, E and P: income, credit notes and payment receipts."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_cfdi_types/plus_payroll",
+      "es": "plus_payroll",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-096): the literal `completenessTypes` (sat-census/census.ts) maps to I, E, P and payroll N."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_cfdi_types/all_types",
+      "es": "all_types",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-096): the literal `completenessTypes` (sat-census/census.ts) maps to every type, transfers T included."
     },
     {
       "class": "policy-value",
@@ -3900,6 +3939,20 @@
       "es": "diario_al_centavo",
       "en": "daily_to_cent",
       "why": "Round the daily amount to the cent first, then multiply (label). Parallel to `product_to_cent`. employment-subsidy.ts:111-116 compares it literally."
+    },
+    {
+      "class": "policy-value",
+      "where": "declaracion_redondeo_a_pesos/cada_renglon",
+      "es": "cada_renglon",
+      "en": "each_line",
+      "why": "Every captured line is adjusted to pesos (label). `line` is the word of the workpaper's `WorkpaperLine` (fiscal/iva-workpaper.ts)."
+    },
+    {
+      "class": "policy-value",
+      "where": "declaracion_redondeo_a_pesos/solo_el_pago",
+      "es": "solo_el_pago",
+      "en": "payment_only",
+      "why": "Only the amount payable is adjusted (label); the arithmetic runs in cents. Parallel to `each_line`."
     },
     {
       "class": "policy-value",
@@ -5821,6 +5874,54 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the entity keeps its roles and nothing warns."
+    },
+    {
+      "class": "policy-key",
+      "where": "overtime_isr_exemption",
+      "es": "overtime_isr_exemption",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-110): whether the firm applies the LISR art. 93 fr. I exemption to overtime."
+    },
+    {
+      "class": "policy-value",
+      "where": "overtime_isr_exemption/exempt_by_law",
+      "es": "exempt_by_law",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: 50 % of the double-paid overtime is exempt, up to 5 UMA a week (LISR art. 93 fr. I)."
+    },
+    {
+      "class": "policy-value",
+      "where": "overtime_isr_exemption/taxed_in_full",
+      "es": "taxed_in_full",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: all overtime is taxed, with no exemption."
+    },
+    {
+      "class": "policy-key",
+      "where": "overtime_exempt_weeks",
+      "es": "overtime_exempt_weeks",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-110): how a pay period counts the weeks of service of the LISR art. 93 fr. I overtime cap."
+    },
+    {
+      "class": "policy-value",
+      "where": "overtime_exempt_weeks/calendar_days_over_seven",
+      "es": "calendar_days_over_seven",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the period's calendar days / 7."
+    },
+    {
+      "class": "policy-value",
+      "where": "overtime_exempt_weeks/whole_weeks_of_period",
+      "es": "whole_weeks_of_period",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: only the whole weeks in the period."
     }
   ]
 }

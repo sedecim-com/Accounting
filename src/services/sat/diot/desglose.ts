@@ -370,6 +370,39 @@ export interface EntradaDesglose {
   porcion: PorcionPagada;
   /** Valor efectivo de `diot_iva_exento_y_base`. */
   politicaBaseExenta: PoliticaBaseExenta;
+  /**
+   * Which document the lines belong to, so a finding names it. The monthly IVA
+   * workpaper splits SALES invoices with this same function (MNE-001-058), and
+   * a finding on a sale that says "el gasto" and cites bill_lines misleads
+   * the accountant reviewing it. Absent: a bill, as the DIOT always passes.
+   */
+  documentKind?: 'bill' | 'invoice';
+}
+
+interface DocumentWords {
+  /** "El gasto" / "La factura de venta", opening a sentence. */
+  the: string;
+  /** "del gasto" / "de la factura de venta". */
+  of: string;
+  /** Why the rate had to be measured. */
+  nullRate: string;
+  /** Where the value of the acts is missing from. */
+  missingBase: string;
+  /** Who declares the base. */
+  declares: string;
+}
+
+function wordsFor(kind: EntradaDesglose['documentKind']): DocumentWords {
+  return kind === 'invoice'
+    ? {
+        the: 'La factura de venta', of: 'de la factura de venta', declares: 'El papel de trabajo del IVA',
+        nullRate: 'invoice_lines.tax_rate es NULL', missingBase: 'ni el CFDI ni invoice_lines lo traen',
+      }
+    : {
+        the: 'El gasto', of: 'del gasto', declares: 'La DIOT',
+        nullRate: 'bill_lines.tax_rate es NULL, como en todo lo anterior a la migración 063',
+        missingBase: 'bill_lines.valor_actos está vacío',
+      };
 }
 
 export interface ResultadoDesglose {
@@ -390,6 +423,7 @@ export interface ResultadoDesglose {
 export function desglosarDocumento(e: EntradaDesglose): ResultadoDesglose {
   const hallazgos: Hallazgo[] = [];
   const ref = { documentId: e.documentId, documentNumber: e.documentNumber };
+  const w = wordsFor(e.documentKind);
 
   const ivaRenglones = e.renglones.reduce((acc, r) => acc.plus(r.iva || '0'), cero());
   const ivaCabecera = new Decimal(e.ivaCabecera || '0');
@@ -404,7 +438,7 @@ export function desglosarDocumento(e: EntradaDesglose): ResultadoDesglose {
       codigo: 'DIOT-IVA-CABECERA',
       severidad: 'bloqueante',
       mensaje:
-        `El gasto ${e.documentNumber} declara ${q(ivaCabecera)} de IVA en la cabecera y ` +
+        `${w.the} ${e.documentNumber} declara ${q(ivaCabecera)} de IVA en la cabecera y ` +
         `${q(ivaRenglones)} sumando sus renglones. El importe que se acredita sale de la ` +
         `cabecera y el desglose por tasa sale de los renglones: con esa diferencia, las ` +
         `casillas sumarían lo correcto repartido en las proporciones equivocadas.`,
@@ -434,8 +468,8 @@ export function desglosarDocumento(e: EntradaDesglose): ResultadoDesglose {
         codigo: 'DIOT-TASA-MEDIDA',
         severidad: 'aviso',
         mensaje:
-          `El renglón ${i + 1} del gasto ${e.documentNumber} no trae tasa declarada ` +
-          `(bill_lines.tax_rate es NULL, como en todo lo anterior a la migración 063). ` +
+          `El renglón ${i + 1} ${w.of} ${e.documentNumber} no trae tasa declarada ` +
+          `(${w.nullRate}). ` +
           `Se midió contra sus importes y reproduce ${clas.etiqueta ?? clas.clave.replace('tasa', '')}%. ` +
           `Captúrala en el documento si la declaración va a firmarse.`,
         ...ref,
@@ -446,7 +480,7 @@ export function desglosarDocumento(e: EntradaDesglose): ResultadoDesglose {
         codigo: 'DIOT-TASA-FUERA-DE-CATALOGO',
         severidad: 'aviso',
         mensaje:
-          `El renglón ${i + 1} del gasto ${e.documentNumber} va a la tasa "${clas.etiqueta}", ` +
+          `El renglón ${i + 1} ${w.of} ${e.documentNumber} va a la tasa "${clas.etiqueta}", ` +
           `que no es 16 %, 0 % ni exento. Queda en su propia casilla y NO se suma al 16 %: ` +
           `una operación de región fronteriza o de tasa histórica metida en la casilla del ` +
           `16 % produce un archivo que cuadra consigo mismo y declara otra cosa.`,
@@ -465,8 +499,8 @@ export function desglosarDocumento(e: EntradaDesglose): ResultadoDesglose {
           severidad: 'bloqueante',
           politica: 'diot_iva_exento_y_base',
           mensaje:
-            `El renglón ${i + 1} del gasto ${e.documentNumber} es EXENTO y no trae el valor de ` +
-            `los actos (bill_lines.valor_actos está vacío). La DIOT declara la base, no sólo el ` +
+            `El renglón ${i + 1} ${w.of} ${e.documentNumber} es EXENTO y no trae el valor de ` +
+            `los actos (${w.missingBase}). ${w.declares} declara la base, no sólo el ` +
             `impuesto, y derivarla del subtotal se rompe en silencio cuando el renglón mezcla ` +
             `conceptos exentos y gravados. Captúrala en el documento.`,
           ...ref,
@@ -479,7 +513,7 @@ export function desglosarDocumento(e: EntradaDesglose): ResultadoDesglose {
           severidad: 'aviso',
           politica: 'diot_iva_exento_y_base',
           mensaje:
-            `El renglón ${i + 1} del gasto ${e.documentNumber} es EXENTO, no trae el valor de los ` +
+            `El renglón ${i + 1} ${w.of} ${e.documentNumber} es EXENTO, no trae el valor de los ` +
             `actos y queda FUERA de la declaración por política. El total declarado es menor que ` +
             `la actividad real por ese importe.`,
           ...ref,
@@ -492,7 +526,7 @@ export function desglosarDocumento(e: EntradaDesglose): ResultadoDesglose {
         severidad: 'aviso',
         politica: 'diot_iva_exento_y_base',
         mensaje:
-          `El renglón ${i + 1} del gasto ${e.documentNumber} es EXENTO y su base se DERIVÓ del ` +
+          `El renglón ${i + 1} ${w.of} ${e.documentNumber} es EXENTO y su base se DERIVÓ del ` +
           `subtotal (${q(new Decimal(r.importe || '0'))}) por política: el documento no la traía.`,
         ...ref,
       });
@@ -504,7 +538,7 @@ export function desglosarDocumento(e: EntradaDesglose): ResultadoDesglose {
         codigo: 'DIOT-EXENTO-CON-IVA',
         severidad: 'bloqueante',
         mensaje:
-          `El renglón ${i + 1} del gasto ${e.documentNumber} se declara EXENTO y trae ` +
+          `El renglón ${i + 1} ${w.of} ${e.documentNumber} se declara EXENTO y trae ` +
           `${q(iva)} de IVA. Una operación exenta no traslada impuesto: o el tipo de factor o ` +
           `el importe está mal, y la declaración heredaría el error.`,
         ...ref,

@@ -27,7 +27,7 @@ import { changePolicyHint } from '../policy/policy-hint.js';
 // `gasto_anticipado`, que es la 1160— o un asiento manual. Ese camino LLEVA
 // AÑOS VIVO y no tenía contrapartida: la opción «Prepaid expenses (accrued
 // month by month)» existe en `cfdi-decisions.ts:121-142` desde antes que este
-// tramo, citando la NIF A-2. Si el alta del calendario volviera a postear el
+// tramo, citando el postulado de devengación. Si el alta del calendario volviera a postear el
 // cargo, un anticipo dado de alta sobre una factura ya contabilizada cargaría
 // la 1160 DOS VECES. Adoptar es la única operación que compone bien con lo
 // que ya corre.
