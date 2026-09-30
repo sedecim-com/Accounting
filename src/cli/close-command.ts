@@ -13,7 +13,7 @@ import { resolveClosablePeriod } from './kernel/closable-period.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import {
-  abortedByUser, exitCodeFor, notFound, resolveActiveEntity, describeCommand, optionByKey,
+  abortedByUser, exitCodeFor, notFound, resolveActiveEntity, describeCommand, optionByKey, withContext,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
@@ -175,9 +175,8 @@ Examples:
 export function registerCloseCommand(program: Command, deps: CloseCliDeps): void {
   // Help by key (#314): help.close.{description,option.<flag>}.
   const close = describeCommand(program.command('close').alias('cierre'), 'help.close.description');
-  optionByKey(close, '-e, --entity <idOrName>', 'help.close.option.entity');
-  optionByKey(close, '-t, --tenant <id>', 'help.close.option.tenant');
-  optionByKey(close, '-u, --user <email>', 'help.close.option.user');
+  // The generic context flags reuse cli.flag.* (owner's decision on #152).
+  withContext(close);
   // Sin forma corta: el diccionario reserva -p a --provider (R6).
   optionByKey(close, '--period <expr>', 'help.close.option.period');
   optionByKey(close, '-l, --list', 'help.close.option.list');

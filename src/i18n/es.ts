@@ -2181,9 +2181,6 @@ export const ES: Record<keyof typeof EN, string> = {
     'contabiliza la póliza en el mayor de inmediato, en lugar de dejarla en borrador para revisión',
   // ==== MNE-001-092 · help by key, the close and control families (issue #314) ====
   'help.close.description': 'Cierre de mes: revisa lo que falta y cierra el periodo',
-  'help.close.option.entity': 'Entidad legal',
-  'help.close.option.tenant': 'Despacho (inquilino)',
-  'help.close.option.user': 'Quién hace el cierre',
   'help.close.option.period':
     'Periodo a cerrar: 2026-08, su id o una parte inequívoca de su nombre (por omisión, el abierto más antiguo)',
   'help.close.option.list': 'Lista los periodos que se pueden cerrar y termina',
@@ -2289,7 +2286,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.depreciation.post.option.file':
     'el plan aprobado (JSON de `depreciation run --format json`); se niega si las cifras cambiaron',
   'help.diot.description':
-    'DIOT: arma el mes a partir de operaciones pagadas, verifícalo y exporta el papel de trabajo',
+    'DIOT de México: armar el mes a partir de operaciones pagadas, verificarlo y exportar el papel de trabajo',
   'help.diot.generate.description':
     'Arma la DIOT del mes a partir de operaciones pagadas, desglosada por tercero y por tasa',
   'help.diot.generate.option.period': 'mes a declarar (la DIOT es mensual; no hay mes 13)',

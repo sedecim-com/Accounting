@@ -533,8 +533,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   };
 
   // ---- closing preview ---------------------------------------------
+  const previewCmd = closing.command('preview').alias('previsualizar');
   const preview = describeCommand(
-    argumentByKey(closing.command('preview').alias('previsualizar'), '[period]', 'help.closing.preview.argument.period'),
+    argumentByKey(previewCmd, '[period]', 'help.closing.preview.argument.period'),
     'help.closing.preview.description'
   );
   withStrict(withOutput(withContext(preview)));
@@ -586,7 +587,10 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   );
 
   // ---- closing check -----------------------------------------------
-  const check = describeCommand(closing.command('check').alias('verificar'), 'help.closing.check.description');
+  const check = describeCommand(
+    closing.command('check').alias('verificar'),
+    'help.closing.check.description'
+  );
   withStrict(withOutput(withContext(check)));
   optionByKey(check, '--check [codes]', 'help.closing.check.option.check');
   optionByKey(check, '--period <expr>', 'help.closing.check.option.period');
@@ -678,8 +682,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   );
 
   // ---- closing explain ---------------------------------------------
+  const explainCmd = closing.command('explain').alias('explicar');
   const explain = describeCommand(
-    argumentByKey(closing.command('explain').alias('explicar'), '<code>', 'help.closing.explain.argument.code', {
+    argumentByKey(explainCmd, '<code>', 'help.closing.explain.argument.code', {
       params: { codes: CLOSE_CHECK_CODES.join(', ') },
     }),
     'help.closing.explain.description'
@@ -690,7 +695,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   // por estado — acota cuántos renglones enseña. El diccionario gobierna la
   // grafía y la forma corta (`-n`), no el grupo (el precedente de
   // `ap reconcile --as-of`).
-  optionByKey(explain, '-n, --limit <n>', 'help.closing.explain.option.limit', { parser: (v: string) => Number(v) });
+  optionByKey(explain, '-n, --limit <n>', 'help.closing.explain.option.limit', {
+    parser: (v: string) => Number(v),
+  });
   optionByKey(explain, '--period <expr>', 'help.closing.explain.option.period');
   declareRisk(explain, { risk: 'lectura', agent: true });
   explain.addHelpText('after', EJEMPLOS.explain);
@@ -884,17 +891,17 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   );
 
   // ---- closing pack ------------------------------------------------
-  const packGroup = describeCommand(closing
-    .command('pack')
-    // `paquete` y no `expediente`: el catálogo publicó `cierre-proceso paquete
-    // generar` antes de que esto existiera, y un alias que no case con la fila
-    // publicada obliga a mantener dos nombres del mismo acto. La prosa sigue
-    // diciendo «expediente», que es la palabra de la tarjeta de A6.
-    .alias('paquete'), 'help.closing.pack.description');
+  // `paquete` y no `expediente`: el catálogo publicó `cierre-proceso paquete
+  // generar` antes de que esto existiera, y un alias que no case con la fila
+  // publicada obliga a mantener dos nombres del mismo acto. La prosa sigue
+  // diciendo «expediente», que es la palabra de la tarjeta de A6.
+  const packCmd = closing.command('pack').alias('paquete');
+  const packGroup = describeCommand(packCmd, 'help.closing.pack.description');
 
   // ---- closing pack generate ---------------------------------------
+  const generateCmd = packGroup.command('generate').alias('generar');
   const generateLeaf = describeCommand(
-    argumentByKey(packGroup.command('generate').alias('generar'), '[period]', 'help.closing.pack.generate.argument.period'),
+    argumentByKey(generateCmd, '[period]', 'help.closing.pack.generate.argument.period'),
     'help.closing.pack.generate.description'
   );
   withContext(generateLeaf);
@@ -981,13 +988,15 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   );
 
   // ---- closing pack verify -----------------------------------------
-  const verifyLeaf = describeCommand(argumentByKey(packGroup
-    .command('verify')
-    // `comprobar`, no `verificar`: el diccionario del núcleo asigna
-    // «verificar» a `check` y «comprobar» a `verify`, y dos hojas hermanas que
-    // se llamaran igual en castellano —`closing check` es «verificar»— serían
-    // dos nombres para dos actos distintos.
-    .alias('comprobar'), '<file>', 'help.closing.pack.verify.argument.file'), 'help.closing.pack.verify.description');
+  // `comprobar`, no `verificar`: el diccionario del núcleo asigna
+  // «verificar» a `check` y «comprobar» a `verify`, y dos hojas hermanas que
+  // se llamaran igual en castellano —`closing check` es «verificar»— serían
+  // dos nombres para dos actos distintos.
+  const verifyCmd = packGroup.command('verify').alias('comprobar');
+  const verifyLeaf = describeCommand(
+    argumentByKey(verifyCmd, '<file>', 'help.closing.pack.verify.argument.file'),
+    'help.closing.pack.verify.description'
+  );
   withContext(verifyLeaf);
   withOutput(verifyLeaf);
   withStrict(verifyLeaf);

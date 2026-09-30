@@ -154,7 +154,10 @@ export function registerCashFlowReconcile(
   const note = (message: string) => process.stderr.write(p.dim(`${message}\n`));
   const warn = (message: string) => process.stderr.write(p.yellow(`${message}\n`));
 
-  const reconcile = describeCommand(cashflow.command('reconcile').alias('conciliar'), 'help.cashflow.reconcile.description');
+  const reconcile = describeCommand(
+    cashflow.command('reconcile').alias('conciliar'),
+    'help.cashflow.reconcile.description'
+  );
   withOutput(withStrict(withTime(withContext(reconcile))));
   optionByKey(reconcile, '--show-candidates', 'help.cashflow.reconcile.option.show_candidates');
   declareRisk(reconcile, { risk: 'lectura', agent: true });

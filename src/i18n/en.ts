@@ -2332,9 +2332,6 @@ export const EN = {
   // Families: close, closing, year, chart, opening-balance, ar, ap, cashflow,
   // depreciation, diot. The English is the prose these commands already showed.
   'help.close.description': 'Month-end close: checks what is missing and closes the period',
-  'help.close.option.entity': 'Legal entity',
-  'help.close.option.tenant': 'Tenant',
-  'help.close.option.user': 'Who performs the close',
   'help.close.option.period':
     'Period to close: 2026-08, its id, or an unambiguous part of its name (default: the oldest open one)',
   'help.close.option.list': 'List closable periods and exit',

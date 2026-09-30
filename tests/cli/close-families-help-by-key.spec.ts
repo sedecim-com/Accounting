@@ -101,6 +101,19 @@ describe('close and control families, help by key (#314, MNE-001-092)', () => {
     expect(help).not.toContain(english);
   });
 
+  it('close reuses the generic context flags cli.flag.* (owner decision on #152)', () => {
+    const keys = Object.fromEntries(node('close').options.map((o) => [o.long, helpKeyOf(o)]));
+    expect(keys['--entity']).toBe('cli.flag.entity');
+    expect(keys['--tenant']).toBe('cli.flag.tenant_scope');
+    expect(keys['--user']).toBe('cli.flag.user');
+  });
+
+  it('the Spanish DIOT family description keeps "de México" and the infinitive style of its siblings', () => {
+    expect(t('help.diot.description', {}, 'es')).toBe(
+      'DIOT de México: armar el mes a partir de operaciones pagadas, verificarlo y exportar el papel de trabajo'
+    );
+  });
+
   it('parameters survive the translation: the check codes and the dimensions are listed in Spanish help', () => {
     setLanguage('es');
     const explain = flat(node('closing explain').helpInformation());
