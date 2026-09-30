@@ -5,12 +5,13 @@ Una decisión que no es obvia y que alguien va a querer deshacer sin saber por q
 | ADR | Decisión | Estado |
 |---|---|---|
 | [0000](0000-legacy-baseline.md) | Cómo está construido hoy, y por qué: el punto de partida | Registro (2026-09-25) |
-| [0001](0001-agentic-framework-adoption.md) | Adoptar el Framework de Desarrollo Agéntico, adaptado a un solo repositorio | Aceptada (2026-09-25); fila §1 sustituida por 0002 |
+| [0001](0001-agentic-framework-adoption.md) | Adoptar el Framework de Desarrollo Agéntico, adaptado a un solo repositorio | Aceptada (2026-09-25); fila §1 sustituida por 0002 y fila §7 por 0008 |
 | [0002](0002-platform-coordination.md) | Este repo es uno de la plataforma Sedecim: ficha, inventario y ciclo de desarrollo compartidos | Propuesta (2026-09-25) |
 | [0003](0003-source-of-truth-over-accounting-manager.md) | Accounting es la fuente de verdad; `accounting-manager` se apaga y se archiva | Sustituida por 0004 (2026-09-26) |
 | [0004](0004-coexistence-with-accounting-manager.md) | `accounting-manager` y este repo conviven: un solo escritor por compañía de Contalink, identificada por RFC | Aceptada (2026-09-26) |
 | [0005](0005-typescript-6-until-typescript-eslint-supports-7.md) | TypeScript 6, and 7 once typescript-eslint supports it | Proposed (2026-09-26) |
 | [0006](0006-configurable-options-best-practice-default.md) | Opciones configurables, con la mejor práctica contable por omisión; lo de sistemas no se configura | Aceptada (2026-09-29) |
+| [0008](0008-develop-release-branches.md) | Las ramas `develop` y `release`: `feature → develop → release → main`, con tag en `main` | Aceptada (2026-09-30) |
 
 Cada ADR tiene esta forma:
 

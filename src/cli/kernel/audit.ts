@@ -193,6 +193,12 @@ export function auditProgram(program: Command): Violation[] {
           }
         }
       }
+      if (risk?.risk === 'escritura' && !longs.has('--yes')) {
+        // `--yes` is universal on mutations (#327). The irreversible and
+        // external leaves are already checked by 'R11 risk flags' above; this
+        // covers the reversible writes, which that list does not reach.
+        violations.push({ command: full, rule: 'R11 yes', detail: `risk "${risk.risk}" requires --yes` });
+      }
       if (risk?.requiresLiveGate && !longs.has('--live')) {
         violations.push({ command: full, rule: 'R11 live gate', detail: 'external effects require --live' });
       }

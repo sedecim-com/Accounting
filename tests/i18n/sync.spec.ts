@@ -98,11 +98,22 @@ const CATALOG_KEYS = Object.keys(EN) as TranslationKey[];
 afterEach(() => resetLanguage());
 
 /**
- * Cadenas que legítimamente se escriben igual en los dos idiomas. Hoy está
- * VACÍA, y ése es el punto: cuando llegue la primera —un código, una sigla— se
- * añade aquí con su razón, y no se afloja la comprobación §5 para todas.
+ * Strings that are legitimately spelled the same in both languages. The first
+ * entries arrived with #152 (the six bare-figure policy option labels below);
+ * each new entry is added here with its reason inline, so the §5 check is
+ * never loosened for every key at once.
  */
-const IDENTICAL_BY_DESIGN = new Set<TranslationKey>();
+const IDENTICAL_BY_DESIGN = new Set<TranslationKey>([
+  // Policy option labels that are a bare figure (#152): an amount in pesos or
+  // a percentage reads the same in both languages, and es-MX writes the
+  // thousands separator as en-US does.
+  'policy.prepaid_threshold_mxn.option.5000',
+  'policy.prepaid_threshold_mxn.option.20000',
+  'policy.vacation_premium_pct.option.0_50',
+  'policy.vacation_premium_pct.option.1_00',
+  'policy.ingest_auto_post_max_amount.option.10000',
+  'policy.ingest_auto_post_max_amount.option.50000',
+]);
 
 // ---- §1 · Las claves -------------------------------------------------
 
