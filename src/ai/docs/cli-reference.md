@@ -603,6 +603,12 @@ Options:
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
+
+Examples:
+  # Validate the e.firma locally, without asking for the passphrase or storing anything.
+  mnemosine sat cred add --cer firma.cer --key firma.key --dry-run
+  # Store it in the vault for the entity (asks for the passphrase and the typed consent).
+  mnemosine sat cred add --cer firma.cer --key firma.key --entity "Demo Corp" --live
 ```
 
 #### `mnemosine sat cred status` (alias: estado)
@@ -647,6 +653,12 @@ Options:
                            state it writes; accepted and ignored
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
+
+Examples:
+  # See what a revocation would do, without touching the vault.
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --dry-run
+  # Revoke it and destroy the material (irreversible).
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --yes
 ```
 
 ### `mnemosine sat download` (alias: descarga)
