@@ -3539,4 +3539,60 @@ export const E1_2: Criterio[] = [
         : falla('no test RUNS the three answers of fees_without_withholding');
     },
   },
+  {
+    paquete: 'E1.2',
+    id: 'iva-workpaper-prorates-mixed-activities',
+    enunciado:
+      'The monthly IVA workpaper credits the IVA paid in the proportion of LIVA art. 5 fr. V, the month by default and the prior year when the panel says so (#308, MNE-001-385)',
+    mutantes: [
+      {
+        archivo: 'src/services/fiscal/iva-workpaper.ts',
+        de: 'creditable: q4(new Decimal(paid).times(acts.taxed).dividedBy(total)),',
+        a: 'creditable: q4(paid),',
+        porque: 'the IVA paid is credited whole next to exempt acts: the creditable IVA is overstated',
+      },
+      {
+        archivo: 'src/services/fiscal/iva-workpaper.ts',
+        de: "...rateLines('creditable', f.creditable, f.proration ? 0 : -1),",
+        a: "...rateLines('creditable', f.creditable, -1),",
+        porque: 'the settlement subtracts the IVA paid and its credited share: the IVA is credited twice',
+      },
+      {
+        archivo: 'src/services/fiscal/iva-workpaper.ts',
+        de: "method === 'monthly' ? range : { desde: `${year - 1}-01-01`, hasta: `${year - 1}-12-31` }",
+        a: "method === 'monthly' ? range : { desde: `${year}-01-01`, hasta: `${year}-12-31` }",
+        porque: 'the annual option reads the current year instead of the prior one (LIVA art. 5-B)',
+      },
+      {
+        archivo: 'src/services/policy/pending-catalog.ts',
+        de: "defaultValue: 'monthly',",
+        a: "defaultValue: 'annual',",
+        porque: 'an unanswered panel binds the entity to the prior-year option, which art. 5-B holds for sixty months',
+      },
+    ],
+    evaluar: () => {
+      const wp = codigoDe('src/services/fiscal/iva-workpaper.ts');
+      if (!/creditable: q4\(new Decimal\(paid\)\.times\(acts\.taxed\)\.dividedBy\(total\)\),/.test(wp)) {
+        return falla('the credited IVA is no longer the IVA paid times the taxed acts over all the acts');
+      }
+      if (!/rateLines\('creditable', f\.creditable, f\.proration \? 0 : -1\)/.test(wp) ||
+          !/\['creditable\.prorated', f\.proration\.creditable, -1\]/.test(wp)) {
+        return falla('the prorated settlement does not subtract only the credited share');
+      }
+      if (!/\{ desde: `\$\{year - 1\}-01-01`, hasta: `\$\{year - 1\}-12-31` \}/.test(wp)) {
+        return falla('the annual option no longer reads the prior calendar year (LIVA art. 5-B)');
+      }
+      if (/IVA-WP-PRORATION-NOT-APPLIED/.test(wp)) {
+        return falla('the workpaper still warns that the proration is not applied');
+      }
+      const catalog = codigoDe('src/services/policy/pending-catalog.ts');
+      const spec = /key: 'iva_creditable_proration',[\s\S]*?priority:/.exec(catalog)?.[0] ?? '';
+      if (!/defaultValue: 'monthly',/.test(spec)) {
+        return falla('iva_creditable_proration no longer defaults to the month proportion (LIVA art. 5 fr. V inc. d)');
+      }
+      return existe('tests/integration/mne-001-385-iva-proration.int.spec.ts')
+        ? ok('the IVA paid is credited by the month or prior-year proportion, and only that share is subtracted')
+        : falla('no test RUNS the proration against a month of mixed activities');
+    },
+  },
 ];

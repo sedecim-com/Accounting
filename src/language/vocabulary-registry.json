@@ -5949,6 +5949,30 @@
     },
     {
       "class": "policy-key",
+      "where": "iva_creditable_proration",
+      "es": "iva_creditable_proration",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-385): which proportion of LIVA art. 5 fr. V credits the IVA of mixed activities."
+    },
+    {
+      "class": "policy-value",
+      "where": "iva_creditable_proration/monthly",
+      "es": "monthly",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the proportion of the acts collected in the month (LIVA art. 5 fr. V inc. d)."
+    },
+    {
+      "class": "policy-value",
+      "where": "iva_creditable_proration/annual",
+      "es": "annual",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the proportion of the prior calendar year (LIVA art. 5-B)."
+    },
+    {
+      "class": "policy-key",
       "where": "overtime_isr_exemption",
       "es": "overtime_isr_exemption",
       "en": null,

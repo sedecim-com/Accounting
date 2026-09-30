@@ -2154,6 +2154,38 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I adjust every line to pesos before adding them.',
     priority: 42,
   },
+  // #308 · MNE-001-385. Decided by the owner in MNE-001-114. Read by
+  // `readCreditableProration` (fiscal/iva-workpaper.ts).
+  {
+    key: 'iva_creditable_proration',
+    textKey: 'iva_creditable_proration',
+    category: 'fiscal',
+    question:
+      'When the entity collects exempt or non-taxed acts next to taxed ones, which proportion credits the IVA it paid: the month\'s, or the prior year\'s?',
+    impact:
+      'It moves the creditable IVA of every month with mixed activities, and so the IVA payable. "monthly" divides the ' +
+      'taxed acts collected in the month by all the acts collected in it; "annual" uses that proportion over the ' +
+      'prior calendar year.',
+    options: [
+      { value: 'monthly', label: 'The month\'s proportion (LIVA art. 5 fr. V inc. d)' },
+      { value: 'annual', label: 'The prior calendar year\'s proportion (LIVA art. 5-B)' },
+    ],
+    defaultValue: 'monthly',
+    defaultRationale:
+      'LIVA art. 5 fr. V inc. d credits the IVA of goods and services used for both taxed and exempt acts in the ' +
+      'proportion the taxed acts bear to all the acts of the month: it is the rule of the law, and it follows the ' +
+      'entity\'s activity as it changes. Art. 5-B lets the taxpayer use the prior calendar year\'s proportion ' +
+      'instead, but binds it to that option for sixty months, so it is an election to make on purpose, not a default.',
+    whyAsking:
+      'The law gives both proportions and the choice is the taxpayer\'s. The annual one smooths the months, and once ' +
+      'chosen it must be kept for five years.',
+    whatIDo:
+      'The monthly IVA workpaper credits the IVA paid in the month times the proportion you choose here, shows the ' +
+      'proportion and its acts, and subtracts only the credited share. With "annual", a prior year without any ' +
+      'collected act stops the workpaper instead of guessing a proportion.',
+    ifSkipped: 'I use the month\'s proportion.',
+    priority: 42,
+  },
   // #297 · MNE-001-110. Decided by the owner in MNE-001-109: the exemption of
   // the law, configurable. Reader: `overtimeLaw` in payroll/mx/isr-exemption.ts,
   // only when a paycheck carries an `overtime` earning.
