@@ -1,7 +1,7 @@
 import { query } from '../../database/connection.js';
 import type { EntityScope } from '../../database/scope.js';
 import type { SatAuthContext } from './authentication.js';
-import { downloadPackage, type BulkDownloadDeps, type DownloadedPackage } from './descarga-masiva.js';
+import { downloadPackage, LIFETIME_XML_LIMIT, type BulkDownloadDeps, type DownloadedPackage } from './descarga-masiva.js';
 
 // ============================================================
 // EFIRMA-2 2/2 (#440, MNE-001-143) · THE LOCAL MIRROR OF THE DOWNLOADS
@@ -97,7 +97,7 @@ export async function quotaRows(scope: EntityScope, range: { since?: string; unt
   );
   return r.rows.map((x) => ({
     rfc: x.rfc, direction: x.direction, periodStart: x.start, periodEnd: x.end,
-    requestsMade: x.requests_made, remaining: 2 - x.requests_made, lastAt: x.last_at,
+    requestsMade: x.requests_made, remaining: LIFETIME_XML_LIMIT - x.requests_made, lastAt: x.last_at,
   }));
 }
 
