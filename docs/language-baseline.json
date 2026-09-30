@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 2,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 1246
+    "help-descriptions-without-key": 1163
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1450,9 +1450,7 @@
     "help-descriptions-without-key": {
       "account": 72,
       "ai": 2,
-      "ap": 4,
       "approvals": 21,
-      "ar": 6,
       "ask": 4,
       "asset": 26,
       "audit": 14,
@@ -1460,18 +1458,12 @@
       "bank": 243,
       "batch": 17,
       "bill": 56,
-      "cashflow": 6,
       "cfdi": 15,
-      "chart": 4,
       "chat": 6,
-      "close": 10,
-      "closing": 20,
       "compact": 6,
       "completion": 2,
       "credit-note": 26,
       "customer": 47,
-      "depreciation": 9,
-      "diot": 11,
       "doctor": 2,
       "drafts": 2,
       "e-accounting": 20,
@@ -1490,7 +1482,6 @@
       "login": 1,
       "memory": 22,
       "onboard": 8,
-      "opening-balance": 5,
       "outbox": 6,
       "payment": 33,
       "payroll": 3,
@@ -1510,8 +1501,7 @@
       "tax-deposit": 7,
       "usage": 6,
       "vendor": 35,
-      "webhooks": 17,
-      "year": 8
+      "webhooks": 17
     }
   }
 }
