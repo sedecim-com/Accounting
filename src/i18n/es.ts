@@ -890,6 +890,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.imss.sua.export.option.period': 'mes por exportar (AAAA-MM); el SUA es mensual',
   'help.imss.sua.export.option.output': 'escribe el archivo del SUA en esta ruta (sin ella, el archivo sale por stdout)',
   'help.imss.sua.export.option.yes': 'sobrescribe el archivo de -o si ya existe',
+  'help.imss.sua.export.option.dry_run': 'arma y coteja el archivo sin escribirlo ni registrar la declaración',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
@@ -964,6 +965,14 @@ export const ES: Record<keyof typeof EN, string> = {
   'payslip.run_required': 'Falta --run: nombra la corrida cuyos recibos quieres (`pay-run create` imprimió su id).',
   'imss.sua.period_invalid': '--period "{period}": usa el mes como AAAA-MM, por ejemplo 2026-07.',
   'imss.sua.exists': '{path} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes.',
+  'imss.sua.tty':
+    'El archivo del SUA lleva el NSS, RFC y CURP de toda la plantilla y no se imprime en una terminal: nombra un archivo con -o, o redirige stdout.',
+  'imss.sua.mismatch': 'El archivo del SUA no cuadra con el pasivo patronal ya apuntado, así que no se entrega: {findings}',
+  'imss.sua.finding.no_liability':
+    'el archivo declara {file} de {concept} y no hay pasivo patronal apuntado en el mes contra el que cotejarlo: la cifra sale de un solo camino',
+  'imss.sua.finding.mismatch': '{concept}: el archivo declara {file} y el pasivo apuntado dice {ledger}',
+  'imss.sua.dry_run': 'Simulación: el archivo del SUA de {count} empleado(s) se armó y se cotejó; no se escribió archivo ni se registró nada.',
+  'payslip.status_invalid': '--status {status}: usa uno de {states}.',
   'imss.sua.not_filed':
     'Archivo del SUA de {count} empleado(s) armado y registrado como declaración en borrador. No se envió nada: cárgalo en el SUA y paga.',
 };

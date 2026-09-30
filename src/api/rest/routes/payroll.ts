@@ -341,7 +341,7 @@ router.post('/paychecks/:id/cfdi-nomina', declararRiesgoRuta({ riesgo: 'externo'
 router.post('/sua', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings + el archivo SUA; no transmite' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, year, month } = req.body;
   if (!year || !month) throw new ValidationError('year, month required');
-  const result = await generateSuaFile(req.tenantId!, entity_id || req.entityId!, year, month);
+  const { filing: _filing, ...result } = await generateSuaFile(req.tenantId!, entity_id || req.entityId!, year, month);
   res.json({ data: result, meta: meta(req) });
 }));
 

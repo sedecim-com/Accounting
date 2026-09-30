@@ -3,8 +3,10 @@ import { bootstrapTenant } from '../ai/context.js';
 import { entityScope, type EntityScope } from '../database/scope.js';
 import { getEmployee } from '../services/payroll/common/employee-service.js';
 import {
+  PAYCHECK_CFDI_STATES,
   getPaycheck,
   listPaychecks,
+  type PaycheckCfdiState,
   type PaycheckDetail,
 } from '../services/payroll/common/paycheck-read-service.js';
 import type { Palette } from './palette.js';
@@ -22,6 +24,7 @@ import {
   usageError,
   withContext,
   withOutput,
+  withSelection,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -61,6 +64,27 @@ interface PayslipOpts {
   output?: string;
   run?: string;
   redacted?: boolean;
+  limit?: number;
+  offset?: number;
+  status?: string[];
+  all?: boolean;
+}
+
+/**
+ * `--status` filters by stamp state; none given, or `--all`, means every
+ * paycheck of the run (a run is read whole by default, unlike the roll).
+ */
+export function paycheckStatusFilter(opts: { status?: string[]; all?: boolean }): PaycheckCfdiState[] {
+  if (opts.all) return [];
+  const states = (opts.status ?? []).flatMap((s) => s.split(',')).map((s) => s.trim().toLowerCase());
+  const unknown = states.filter((s) => !(PAYCHECK_CFDI_STATES as readonly string[]).includes(s));
+  if (unknown.length > 0) {
+    throw usageError({
+      key: 'payslip.status_invalid',
+      params: { status: unknown.join(', '), states: PAYCHECK_CFDI_STATES.join(', ') },
+    });
+  }
+  return states as PaycheckCfdiState[];
 }
 
 /** Every line of the paycheck in one table: earnings, deductions, taxes. */
@@ -105,6 +129,8 @@ const LIST_EXAMPLES = `
 Examples:
   # The paychecks of a run, by employee number; no tax identifier is printed.
   mnemosine payslip list --run 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d
+  # Only the paychecks whose CFDI is still to stamp, twenty at a time.
+  mnemosine payslip list --run 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --status pending -n 20
   # As JSON, to pick the id of one paycheck.
   mnemosine payslip list --run 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --json
 `;
@@ -136,14 +162,19 @@ export function registerPayslipCommand(program: Command, deps: PayslipCommandDep
   const payslip = describeCommand(program.command('payslip').alias('recibo'), 'help.payslip.description');
 
   const list = describeCommand(payslip.command('list').alias('listar'), 'help.payslip.list.description');
-  withOutput(withContext(list));
+  withOutput(withSelection(withContext(list)));
   optionByKey(list, '--run <id>', 'help.payslip.list.option.run');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', LIST_EXAMPLES);
   list.action((opts: PayslipOpts) =>
     run(async () => {
       if (!opts.run) throw usageError({ key: 'payslip.run_required' });
-      const rows = await listPaychecks(opts.run, await scopeFor(opts));
+      const cfdiStatus = paycheckStatusFilter(opts);
+      const rows = await listPaychecks(opts.run, await scopeFor(opts), {
+        limit: opts.limit,
+        offset: opts.offset,
+        cfdiStatus,
+      });
       render(
         rows.map((r) => ({
           employee: r.employee_number, name: r.employee_name, gross: r.gross_earnings, net_pay: r.net_pay,

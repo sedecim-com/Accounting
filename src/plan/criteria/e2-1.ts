@@ -456,6 +456,20 @@ export const E2_1: Criterio[] = [
           'el CFDI de nómina vuelve a armarse desde cualquier recibo del sistema, con el RFC, la CURP y el NSS de su empleado dentro, y se manda a timbrar: un comprobante emitido no se deshace',
       },
       {
+        archivo: 'src/services/payroll/common/paycheck-read-service.ts',
+        de: "AND ${reciboEnEntidad('paychecks.employee_id', 3)}`",
+        a: 'AND $3::uuid IS NOT NULL`',
+        porque:
+          "the paycheck reader keeps its third parameter and drops the path predicate: GET /paychecks/:id and `payslip show` read the sister entity's paycheck, with its RFC and NSS",
+      },
+      {
+        archivo: 'src/api/rest/routes/payroll.ts',
+        de: 'getPaycheck(req.params.id, entityScope(req.user!.tenant_id, req.entityId!))',
+        a: 'getPaycheck(req.params.id, entityScope(req.user!.tenant_id, req.params.id))',
+        porque:
+          'the route still calls the scoped reader but feeds it a key that is not the validated entity: the predicate stays written and bounds nothing',
+      },
+      {
         archivo: 'src/services/payroll/mx/finiquito-calculator.ts',
         de: "WHERE id = $1 AND tenant_id = $2${porEntidad ? ' AND entity_id = $3' : ''}",
         a: 'WHERE id = $1 AND tenant_id = $2',
@@ -569,12 +583,33 @@ export const E2_1: Criterio[] = [
         );
       }
 
-      // 4. LAS TRES CONSULTAS DE RUTA QUE ACOTAN POR EL CAMINO.
+      // 4. LAS CONSULTAS DE RUTA QUE ACOTAN POR EL CAMINO.
+      //
+      // Reading one paycheck moved to paycheck-read-service.ts (MNE-001-070),
+      // shared with `payslip show`. The check moves with it: the route must
+      // hand the validated entity to getPaycheck, and the service must keep
+      // the path predicate inside the paychecks WHERE.
       const rt = codigoDe(rutas);
-      const usos = (rt.match(/corridaEnEntidad\(|periodoEnEntidad\(|reciboEnEntidad\(/g) ?? []).length;
-      if (usos < 3) {
+      const usos = (rt.match(/corridaEnEntidad\(|periodoEnEntidad\(/g) ?? []).length;
+      if (usos < 2) {
         return falla(
-          `las rutas de nómina sólo usan ${usos} de los 3 predicados de camino: leer la corrida, leer el recibo y crear sobre un periodo ajeno vuelven a no acotar por entidad`
+          `las rutas de nómina sólo usan ${usos} de los 2 predicados de camino: leer la corrida y crear sobre un periodo ajeno vuelven a no acotar por entidad`
+        );
+      }
+      if (!rt.includes('getPaycheck(req.params.id, entityScope(req.user!.tenant_id, req.entityId!))')) {
+        return falla(
+          'GET /paychecks/:id no longer hands the validated entity to getPaycheck: reading the paycheck stops being bounded by entity'
+        );
+      }
+      const paycheckReader = 'src/services/payroll/common/paycheck-read-service.ts';
+      if (!existe(paycheckReader)) return falla(`desapareció ${paycheckReader}`);
+      if (
+        !/FROM paychecks WHERE id = \$1 AND tenant_id = \$2\s+AND \$\{reciboEnEntidad\('paychecks\.employee_id', 3\)\}/.test(
+          codigoDe(paycheckReader)
+        )
+      ) {
+        return falla(
+          "getPaycheck no longer bounds the paycheck by its employee's entity inside the SQL: the sister entity's paycheck, with its RFC and NSS, is readable again"
         );
       }
 

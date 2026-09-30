@@ -14,6 +14,15 @@ import { getPayRun } from './pay-run-service.js';
 // the same 404 as one that does not exist.
 // ============================================================
 
+// A non-UUID id is «not found», not a 22P02 that exits FAILURE with the raw
+// Postgres text: the same answer as a paycheck that is not the entity's
+// (garnishment-service.ts follows the same rule).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The stamp states a paycheck can be filtered by; `pending` includes not yet generated. */
+export const PAYCHECK_CFDI_STATES = ['pending', 'stamped', 'cancelled', 'failed'] as const;
+export type PaycheckCfdiState = (typeof PAYCHECK_CFDI_STATES)[number];
+
 export type PaycheckDetail = Record<string, unknown> & {
   id: string;
   employee_id: string;
@@ -24,6 +33,7 @@ export type PaycheckDetail = Record<string, unknown> & {
 
 /** One paycheck of the entity, with its earning, deduction and tax lines. */
 export async function getPaycheck(paycheckId: string, scope: EntityScope): Promise<PaycheckDetail> {
+  if (!UUID_RE.test(paycheckId)) throw new NotFoundError('Paycheck', paycheckId);
   const pc = await query<Record<string, unknown> & { id: string; employee_id: string }>(
     `SELECT * FROM paychecks WHERE id = $1 AND tenant_id = $2
         AND ${reciboEnEntidad('paychecks.employee_id', 3)}`,
@@ -56,9 +66,15 @@ export interface PaycheckSummary {
  * identifier: a listing that carried the RFC of the whole roll would be the
  * bulk PII the catalog keeps away from the agent.
  */
-export async function listPaychecks(payRunId: string, scope: EntityScope): Promise<PaycheckSummary[]> {
+export async function listPaychecks(
+  payRunId: string,
+  scope: EntityScope,
+  opts: { limit?: number; offset?: number; cfdiStatus?: readonly PaycheckCfdiState[] } = {}
+): Promise<PaycheckSummary[]> {
+  if (!UUID_RE.test(payRunId)) throw new NotFoundError('PayRun', payRunId);
   // A foreign or missing run is a 404, not an empty list.
   await getPayRun(payRunId, scope);
+  const states = opts.cfdiStatus && opts.cfdiStatus.length > 0 ? [...opts.cfdiStatus] : null;
   const r = await query<PaycheckSummary>(
     `SELECT p.id, e.employee_number,
             concat_ws(' ', e.first_name, e.last_name, e.second_last_name) AS employee_name,
@@ -67,8 +83,10 @@ export async function listPaychecks(payRunId: string, scope: EntityScope): Promi
        FROM paychecks p
        JOIN employees e ON e.id = p.employee_id
       WHERE p.pay_run_id = $1 AND p.tenant_id = $2 AND e.entity_id = $3
-      ORDER BY e.employee_number, p.id`,
-    [payRunId, scope.tenantId, scope.entityId]
+        AND ($4::text[] IS NULL OR COALESCE(p.cfdi_status, 'pending') = ANY($4::text[]))
+      ORDER BY e.employee_number, p.id
+      LIMIT $5 OFFSET $6`,
+    [payRunId, scope.tenantId, scope.entityId, states, opts.limit ?? null, opts.offset ?? 0]
   );
   return r.rows;
 }

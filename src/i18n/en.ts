@@ -1024,6 +1024,7 @@ export const EN = {
   'help.imss.sua.export.option.period': 'month to export (YYYY-MM); the SUA is monthly',
   'help.imss.sua.export.option.output': 'write the SUA file to this path (without it, the file goes to stdout)',
   'help.imss.sua.export.option.yes': 'overwrite the file named by -o if it already exists',
+  'help.imss.sua.export.option.dry_run': 'build and check the file without writing it or recording the filing',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -1112,6 +1113,14 @@ export const EN = {
   'payslip.run_required': 'Missing --run: name the pay run whose paychecks you want (`pay-run create` printed its id).',
   'imss.sua.period_invalid': '--period "{period}": use the month as YYYY-MM, for example 2026-07.',
   'imss.sua.exists': '{path} already exists and is not overwritten without asking: use another path, or --yes.',
+  'imss.sua.tty':
+    'The SUA file carries the NSS, RFC and CURP of the whole roll and is not printed to a terminal: name a file with -o, or redirect stdout.',
+  'imss.sua.mismatch': 'The SUA file does not match the employer liability already recorded, so it is not delivered: {findings}',
+  'imss.sua.finding.no_liability':
+    'the file declares {file} of {concept} and no employer liability is recorded for the month to check it against: the figure comes from one road only',
+  'imss.sua.finding.mismatch': '{concept}: the file declares {file} and the recorded liability says {ledger}',
+  'imss.sua.dry_run': 'Dry run: the SUA file of {count} employee(s) was built and checked; no file was written and nothing was recorded.',
+  'payslip.status_invalid': '--status {status}: use one of {states}.',
   'imss.sua.not_filed':
     'SUA file of {count} employee(s) built and recorded as a draft filing. Nothing was sent: load it into the SUA and pay.',
 } as const;

@@ -44,6 +44,57 @@ export interface HallazgoSua {
   concepto: 'imss_employer' | 'infonavit_employer';
   detalle: string;
   bloquea: boolean;
+  /** The figure the file declares, and the one recorded in the liability (null: none recorded). */
+  file_amount: string;
+  ledger_amount: string | null;
+}
+
+/**
+ * The file does not match the liability already recorded. A ValidationError
+ * (422, exit 4) as before, now carrying the findings by code and figure so a
+ * caller renders them in its own language instead of this Spanish prose.
+ */
+export class SuaMismatchError extends ValidationError {
+  constructor(message: string, readonly findings: HallazgoSua[]) {
+    super(message, undefined, { findings });
+    this.name = 'SuaMismatchError';
+  }
+}
+
+export interface SuaFilingData {
+  employee_count: number;
+  hallazgos: HallazgoSua[];
+  totals: { imss_employer: number; imss_employee: number; infonavit_employer: number; infonavit_employee: number };
+}
+
+/**
+ * Records the month's SUA file as ONE draft filing per (tenant, entity, year,
+ * month): a re-export refreshes the draft instead of piling up another row
+ * (tax_form_filings has no unique key to lean on). The UPDATE is guarded by
+ * status and scope and its rowCount decides whether to INSERT; a filing that
+ * already left 'draft' is never touched, and a new export after it opens a
+ * new draft.
+ */
+export async function recordSuaFiling(
+  tenantId: string,
+  entityId: string,
+  year: number,
+  month: number,
+  data: SuaFilingData
+): Promise<void> {
+  const params = [tenantId, entityId, year, String(month).padStart(2, '0'), JSON.stringify(data)];
+  const updated = await query(
+    `UPDATE tax_form_filings SET data = $5::jsonb
+      WHERE tenant_id = $1 AND entity_id = $2 AND form_type = 'sua'
+        AND tax_year = $3 AND period = $4 AND status = 'draft'`,
+    params
+  );
+  if ((updated.rowCount ?? 0) > 0) return;
+  await query(
+    `INSERT INTO tax_form_filings (tenant_id, entity_id, form_type, tax_year, period, status, data)
+     VALUES ($1, $2, 'sua', $3, $4, 'draft', $5::jsonb)`,
+    params
+  );
 }
 
 interface SuaEmployee {
@@ -65,12 +116,14 @@ export async function generateSuaFile(
   tenantId: string,
   entityId: string,
   year: number,
-  month: number
+  month: number,
+  opts: { record?: boolean } = {}
 ): Promise<{
   content: string;
   filename: string;
   employee_count: number;
   hallazgos: HallazgoSua[];
+  filing: SuaFilingData;
 }> {
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 0));
@@ -185,28 +238,28 @@ export async function generateSuaFile(
     // No se entrega, y NO se persiste la declaración: un `tax_form_filings` en
     // 'draft' con una cifra que no cuadra es exactamente el archivo que alguien
     // acaba subiendo al SUA sin volver a mirarlo.
-    throw new ValidationError(
+    throw new SuaMismatchError(
       `El archivo del SUA no cuadra con el pasivo patronal ya apuntado, así que no se entrega: ` +
-        bloqueantes.map((h) => h.detalle).join(' · ')
+        bloqueantes.map((h) => h.detalle).join(' · '),
+      bloqueantes
     );
   }
 
-  await query(
-    `INSERT INTO tax_form_filings (tenant_id, entity_id, form_type, tax_year, period, status, data)
-     VALUES ($1, $2, 'sua', $3, $4, 'draft', $5::jsonb)`,
-    [tenantId, entityId, year, String(month).padStart(2, '0'), JSON.stringify({
-      employee_count: employees.length,
-      hallazgos,
-      totals: {
-        imss_employer: employees.reduce((s, e) => s + e.imss_employer_amount, 0),
-        imss_employee: employees.reduce((s, e) => s + e.imss_employee_amount, 0),
-        infonavit_employer: employees.reduce((s, e) => s + e.infonavit_employer_amount, 0),
-        infonavit_employee: employees.reduce((s, e) => s + e.infonavit_employee_amount, 0),
-      },
-    })]
-  );
+  const filing: SuaFilingData = {
+    employee_count: employees.length,
+    hallazgos,
+    totals: {
+      imss_employer: employees.reduce((s, e) => s + e.imss_employer_amount, 0),
+      imss_employee: employees.reduce((s, e) => s + e.imss_employee_amount, 0),
+      infonavit_employer: employees.reduce((s, e) => s + e.infonavit_employer_amount, 0),
+      infonavit_employee: employees.reduce((s, e) => s + e.infonavit_employee_amount, 0),
+    },
+  };
+  // `record: false` lets the terminal record only after the file is safely
+  // written, and lets --dry-run build and check without recording.
+  if (opts.record !== false) await recordSuaFiling(tenantId, entityId, year, month, filing);
 
-  return { content, filename, employee_count: employees.length, hallazgos };
+  return { content, filename, employee_count: employees.length, hallazgos, filing };
 }
 
 /**
@@ -250,6 +303,8 @@ async function cotejarContraElPasivo(
           `de pasivo apuntado para ${mesInicio}..${mesFin} contra el que cotejarlo: la cifra ` +
           `sale de un solo camino y nadie la confirma`,
         bloquea: false,
+        file_amount: enElArchivo.toFixed(2),
+        ledger_amount: null,
       });
       continue;
     }
@@ -263,6 +318,8 @@ async function cotejarContraElPasivo(
           `Un periodo que cruza el cambio de mes entra en el pasivo por su fecha de cierre y ` +
           `no en el archivo, que pide el periodo entero dentro del mes`,
         bloquea: true,
+        file_amount: enElArchivo.toFixed(2),
+        ledger_amount: enLosLibros.toFixed(2),
       });
     }
   }

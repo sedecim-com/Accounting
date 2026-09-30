@@ -161,6 +161,11 @@ describe('a fortnight from the terminal', () => {
     const rows = (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows;
     expect(rows.map((x) => x.employee)).toEqual(['P-01', 'P-02']);
     expect(r.out).not.toMatch(/XAXX|12345678901/);
+    // The list contract reaches the SQL: paging, and the stamp state.
+    expect((await ok(['payslip', 'list', '--run', runId, '-n', '1', '--offset', '1'])).map((x) => x.employee)).toEqual(['P-02']);
+    expect(await ok(['payslip', 'list', '--run', runId, '--status', 'stamped'])).toHaveLength(0);
+    expect(await ok(['payslip', 'list', '--run', runId, '--status', 'pending'])).toHaveLength(2);
+    expect((await cli(['payslip', 'list', '--run', 'abc', '--json'])).exitCode).toBe(3);
   });
 
   it('payslip show masks the identifiers and its lines add up to the gross', async () => {
@@ -204,6 +209,27 @@ describe('a fortnight from the terminal', () => {
     expect(await suaFilings()).toBe(1);
   });
 
+  it('re-exporting the month, and a dry run, leave ONE draft filing', async () => {
+    const file = join(dir, 'SUA_2026-07.txt');
+    const again = await cli(['imss', 'sua', 'export', '--period', '2026-07', '-o', file, '--yes', '--json']);
+    expect(again.exitCode, String(again.errs[0])).toBe(0);
+    const dry = await cli(['imss', 'sua', 'export', '--period', '2026-07', '--dry-run', '--json']);
+    expect(dry.exitCode, String(dry.errs[0])).toBe(0);
+    expect(await suaFilings()).toBe(1);
+    const { rows } = await query<{ status: string }>(
+      `SELECT status FROM tax_form_filings WHERE entity_id = $1 AND form_type = 'sua'`, [f.entityId]
+    );
+    expect(rows.map((x) => x.status)).toEqual(['draft']);
+  });
+
+  it('a failed write records no filing', async () => {
+    await query(`DELETE FROM tax_form_filings WHERE entity_id = $1 AND form_type = 'sua'`, [f.entityId]);
+    // A directory where the file should go: the write fails with EISDIR.
+    const r = await cli(['imss', 'sua', 'export', '--period', '2026-07', '-o', dir, '--yes', '--json']);
+    expect(r.exitCode).not.toBe(0);
+    expect(await suaFilings()).toBe(0);
+  });
+
   it('a liability that does not match the file refuses it: exit 4, no file, no filing', async () => {
     await query(
       `UPDATE employer_tax_liabilities SET amount = amount + 1
@@ -214,6 +240,11 @@ describe('a fortnight from the terminal', () => {
     const r = await cli(['imss', 'sua', 'export', '--period', '2026-07', '-o', file, '--json']);
     expect(r.exitCode).toBe(4);
     expect(existsSync(file)).toBe(false);
-    expect(await suaFilings()).toBe(1);
+    expect(await suaFilings()).toBe(0);
+    // The refusal is keyed and carries both figures by code, not Spanish prose.
+    const e = r.errs[0] as { key?: string; detail?: { findings: Array<Record<string, unknown>> } };
+    expect(e.key).toBe('imss.sua.mismatch');
+    expect(e.detail?.findings[0]).toMatchObject({ code: 'el_archivo_no_cuadra_con_el_pasivo', concept: 'imss_employer' });
+    expect(e.detail?.findings[0].ledger_amount).not.toBe(e.detail?.findings[0].file_amount);
   });
 });
