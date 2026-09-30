@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { generateSuaFile } from '../../src/services/payroll/mx/sua-generator.js';
+import { acumularPasivoPatronal } from '../../src/services/payroll/common/employer-liability-service.js';
+import { resolvePolicy, seedPolicies } from '../../src/services/policy/policy-service.js';
 
 /**
  * T5·SUA (#92) · EL ARCHIVO QUE SE LE ENTREGA AL IMSS MULTIPLICA LAS CUOTAS.
@@ -28,6 +30,9 @@ const SOLO_BORRADOR = randomUUID();
 /** Calendario SEMANAL, para la semana que cruza el cambio de mes. */
 const SEMANAL = randomUUID();
 const A_CABALLO = randomUUID();
+const STRADDLER_NSS = '11223344556';
+/** The approved run of the week from February 25th to March 3rd. */
+let straddlerRun: string;
 
 const CUOTA = { imssEe: '100.00', imssEr: '500.00', infEe: '50.00', infEr: '250.00' };
 
@@ -51,7 +56,7 @@ async function corridaSobre(
   periodo: string,
   estado: 'approved' | 'paid' | 'draft',
   empleado: string = EMPLEADO
-): Promise<void> {
+): Promise<string> {
   const corrida = randomUUID();
   await query(
     `INSERT INTO pay_runs (id, tenant_id, pay_period_id, status, tax_year_used,
@@ -66,6 +71,7 @@ async function corridaSobre(
      VALUES ($1,$2,$3,$4, 10000, 8500, $5, $6, $7, $8)`,
     [randomUUID(), f.tenantId, corrida, empleado, CUOTA.imssEe, CUOTA.imssEr, CUOTA.infEe, CUOTA.infEr]
   );
+  return corrida;
 }
 
 /**
@@ -140,7 +146,7 @@ beforeAll(async () => {
      VALUES ($1,$2,$3,'2026-02-25','2026-03-03','2026-03-03',2026)`,
     [semana, f.tenantId, SEMANAL]
   );
-  await corridaSobre(semana, 'approved', A_CABALLO);
+  straddlerRun = await corridaSobre(semana, 'approved', A_CABALLO);
 }, 180_000);
 
 afterAll(async () => {
@@ -203,41 +209,34 @@ describe('el archivo del SUA declara lo del mes, y sólo lo del mes', () => {
 });
 
 /**
- * LO QUE ESTE TRAMO NO ARREGLA, MEDIDO Y ESCRITO.
+ * THE WEEK THAT STRADDLES TWO MONTHS IS SPLIT BY THE CONTRIBUTION DAYS OF EACH
+ * MONTH (#231, MNE-001-071; owner decision MNE-001-131, which confirms #242).
  *
- * Un periodo que cruza el cambio de mes no cumple `period_start >= $3` para el
- * mes que termina ni `period_end <= $4` para el que empieza, así que sus cuotas
- * no se declaran en NINGUNO de los dos. No es el defecto de este tramo —aquél
- * declaraba de MÁS, éste declara de MENOS— y no se arregla aquí porque cómo se
- * reparte una semana a caballo es una decisión CONTABLE, no una de programación:
- * a prorrata por días, al mes de la fecha de pago, o al mes en que inicia. En
- * esta casa una bifurcación de criterio no se elige en el código, se añade al
- * panel. Esta prueba fija lo que hoy pasa para que el día que se conteste se
- * vea cambiar.
+ * Before, the week of February 25th to March 3rd met neither `period_start >=`
+ * for February nor `period_end <=` for March, so its contributions were
+ * declared in NO month, while the liability carried it whole in March. The law
+ * fixes the split —four days of February, three of March—, so it is not a
+ * panel key, and the file and the liability now read it from the same place.
  */
-describe('la semana a caballo entre dos meses: no se arregla aquí, pero no se calla', () => {
-  it('sus cuotas no entran en el archivo de ningún mes', async () => {
-    const marzo = await generateSuaFile(f.tenantId, f.entityId, 2026, 3);
-    const febrero = await generateSuaFile(f.tenantId, f.entityId, 2026, 2);
-    expect(cuotasDelArchivo(marzo.content, '11223344556').imssEr, 'marzo').toBe(0);
-    expect(cuotasDelArchivo(febrero.content, '11223344556').imssEr, 'febrero').toBe(0);
-    // Y el recibo existe y está aprobado: 500.00 patronales de nadie.
-    const { rows } = await query<{ suma: string }>(
-      `SELECT COALESCE(SUM(p.imss_employer), 0)::text AS suma
-         FROM paychecks p
-         JOIN pay_runs pr ON pr.id = p.pay_run_id
-        WHERE p.employee_id = $1 AND pr.status = 'approved'`,
-      [A_CABALLO]
+describe('the straddling week is split by the contribution days of each month', () => {
+  it('each month declares its share: four days of February and three of March', async () => {
+    const february = cuotasDelArchivo(
+      (await generateSuaFile(f.tenantId, f.entityId, 2026, 2)).content,
+      STRADDLER_NSS
     );
-    expect(rows[0].suma).toBe('500.00');
+    const march = cuotasDelArchivo(
+      (await generateSuaFile(f.tenantId, f.entityId, 2026, 3)).content,
+      STRADDLER_NSS
+    );
+    // 500.00 × 4/7 = 285.71 and the rest, 214.29; the same for every amount.
+    expect(february).toEqual({ dias: 4, imssEr: 28571, imssEe: 5714, infEr: 14286, infEe: 2857 });
+    expect(march).toEqual({ dias: 3, imssEr: 21429, imssEe: 4286, infEr: 10714, infEe: 2143 });
   }, 120_000);
 
   it('y en cuanto el pasivo del mes está apuntado, el archivo se NIEGA a salir', async () => {
-    // El acumulador atribuye el periodo al mes por su fecha de CIERRE, así que
-    // la semana del 25-feb al 3-mar es marzo para los libros y de nadie para el
-    // archivo. Con el renglón apuntado, el cotejo lo ve y no entrega nada:
-    // entregar un archivo que contradice los propios libros del patrón es
-    // exactamente lo que este cotejo existe para impedir.
+    // A booked liability row that does not match the month's payslips: the
+    // cross-check sees it and delivers nothing. A file that contradicts the
+    // employer's own books is exactly what the cross-check exists to stop.
     const declaraciones = async (): Promise<number> => {
       const { rows } = await query<{ n: string }>(
         `SELECT COUNT(*)::text AS n FROM tax_form_filings
@@ -276,4 +275,72 @@ describe('la semana a caballo entre dos meses: no se arregla aquí, pero no se c
     expect(aviso, 'nadie avisó de que la cifra no la confirma nadie').toBeTruthy();
     expect(aviso!.bloquea).toBe(false);
   }, 120_000);
+
+  /** The liability rows of the straddling run, oldest month first. */
+  async function straddlerRows(): Promise<string[][]> {
+    const { rows } = await query<{ r: string[] }>(
+      `SELECT ARRAY[tax_type, period_start::text, period_end::text, amount::text, due_date::text] AS r
+         FROM employer_tax_liabilities
+        WHERE tenant_id = $1 AND pay_run_id = $2
+          AND tax_type IN ('imss_employer', 'infonavit_employer')
+        ORDER BY period_start, tax_type`,
+      [f.tenantId, straddlerRun]
+    );
+    return rows.map((x) => x.r);
+  }
+
+  /** Both months are delivered, and neither carries a blocking finding. */
+  async function bothMonthsTieOut(): Promise<void> {
+    for (const month of [2, 3]) {
+      const r = await generateSuaFile(f.tenantId, f.entityId, 2026, month);
+      expect(r.hallazgos.filter((h) => h.bloquea), `month ${month}`).toEqual([]);
+      expect(
+        r.hallazgos.filter((h) => h.codigo === 'sin_pasivo_que_cotejar'),
+        `month ${month} has nothing booked to cross-check`
+      ).toEqual([]);
+    }
+  }
+
+  it('the per-run liability books the same split, so both months tie out', async () => {
+    const runs = await query<{ id: string }>(
+      `SELECT id FROM pay_runs WHERE tenant_id = $1 AND status IN ('approved', 'paid')`,
+      [f.tenantId]
+    );
+    for (const run of runs.rows) {
+      await acumularPasivoPatronal({ tenantId: f.tenantId, payRunId: run.id });
+    }
+    expect(await straddlerRows()).toEqual([
+      ['imss_employer', '2026-02-25', '2026-02-28', '285.71', '2026-03-17'],
+      ['infonavit_employer', '2026-02-25', '2026-02-28', '142.86', '2026-03-17'],
+      ['imss_employer', '2026-03-01', '2026-03-03', '214.29', '2026-04-17'],
+      ['infonavit_employer', '2026-03-01', '2026-03-03', '107.14', '2026-05-17'],
+    ]);
+    // Closing the run again moves nothing: each month keeps its own row.
+    await acumularPasivoPatronal({ tenantId: f.tenantId, payRunId: straddlerRun });
+    expect((await straddlerRows()).length).toBe(4);
+    await bothMonthsTieOut();
+  }, 180_000);
+
+  it('the month-end liability books the same split, so both months tie out', async () => {
+    await query(`DELETE FROM employer_tax_liabilities WHERE tenant_id = $1`, [f.tenantId]);
+    const scope = { tenantId: f.tenantId, entityId: f.entityId };
+    await seedPolicies(scope);
+    await resolvePolicy(scope, 'provision_cuotas_patronales', 'mensual_al_cierre', 'integration test');
+    await acumularPasivoPatronal({ tenantId: f.tenantId, payRunId: straddlerRun });
+    const { rows } = await query<{ r: string[] }>(
+      `SELECT ARRAY[period_start::text, amount::text] AS r
+         FROM employer_tax_liabilities
+        WHERE tenant_id = $1 AND pay_run_id IS NULL AND tax_type = 'imss_employer'
+        ORDER BY period_start`,
+      [f.tenantId]
+    );
+    // February: its two paid fortnights (1 000.00) plus 285.71 of the week;
+    // March: its two fortnights plus 214.29 — every payslip overlapping the
+    // month, not only those whose period ends in it.
+    expect(rows.map((x) => x.r)).toEqual([
+      ['2026-02-01', '1285.71'],
+      ['2026-03-01', '1214.29'],
+    ]);
+    await bothMonthsTieOut();
+  }, 180_000);
 });
