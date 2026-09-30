@@ -32,7 +32,11 @@ export interface TrialBalanceDiff {
   only_remote: Array<{ account_code: string; name: string; balance: string }>;
 }
 
-/** Local (posted) balances per account at the cutoff — same criterion as get_trial_balance. */
+/**
+ * Local posted balances per account at the cutoff: the same query as
+ * get_trial_balance, read RAW (no report-panel criteria), because this is a
+ * ledger-to-ledger comparison.
+ */
 async function fetchLocalBalances(
   entityId: string,
   endDate: string

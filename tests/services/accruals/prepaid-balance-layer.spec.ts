@@ -79,9 +79,13 @@ describe('huecoDeAnticipados lists unclaimed debits through the report layer', (
 
     const r = await huecoDeAnticipados(ENTITY, PREPAID);
 
-    // The claims are read scoped to the entity and to live schedules.
-    expect(sql(2)).toMatch(/FROM prepaid_expenses WHERE entity_id = \$1 AND status <> 'cancelled'/);
-    expect(mockQuery.mock.calls[2][1]).toEqual([ENTITY]);
+    // The claims are read scoped to the entity, to non-cancelled schedules
+    // and to entries that touch THIS account: the list stays bounded by the
+    // account's movements, not by every schedule of the entity's life.
+    expect(sql(2)).toMatch(
+      /FROM prepaid_expenses pe JOIN journal_entry_lines jel ON jel\.journal_entry_id = pe\.source_journal_entry_id AND jel\.account_id = \$2 WHERE pe\.entity_id = \$1 AND pe\.status <> 'cancelled'/
+    );
+    expect(mockQuery.mock.calls[2][1]).toEqual([ENTITY, PREPAID]);
     expect(queryEntryMovementsOnAccount).toHaveBeenCalledWith(ENTITY, PREPAID, {
       excludeEntryIds: ['je-claimed'],
       netDebitsOnly: true,

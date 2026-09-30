@@ -509,10 +509,18 @@ export async function queryAccumulatedBalances(
      * Run inside the caller's transaction. A guard that measures a balance
      * and then consumes it (prepaid backing, under its FOR UPDATE) must read
      * both on the same connection, or it measures outside its own lock.
+     * Only with `ignoreClosingPolicy`: the panel read goes through the pool,
+     * so a client plus the panel would read the policy outside the caller's
+     * transaction — that combination is refused, not silently half-honoured.
      */
     client?: pg.PoolClient;
   } = {}
 ): Promise<AccumulatedBalanceRow[]> {
+  if (filters.client && !filters.ignoreClosingPolicy) {
+    throw new ValidationError(
+      'queryAccumulatedBalances: a transaction client requires ignoreClosingPolicy — the report panel is read outside the transaction'
+    );
+  }
   const params: unknown[] = [entityId];
   let dateFilter = '';
   if (corte.date !== undefined) {
@@ -555,6 +563,7 @@ export async function queryAccumulatedBalances(
     JOIN journal_entry_lines jel ON jel.account_id = a.id
     JOIN journal_entries je
       ON je.id = jel.journal_entry_id
+     AND je.entity_id = $1
      AND je.status = 'posted' ${dateFilter} ${closingFilter}
     WHERE a.entity_id = $1 ${accountFilter}
     GROUP BY jel.account_id`,
@@ -612,7 +621,10 @@ export interface EntryMovementFilters {
 /**
  * The movement of ONE account broken down by posted entry: what a control
  * lists when it has to say WHICH entries explain its balance. Entity and
- * account scope live in the SQL.
+ * account scope live in the SQL, bounded on BOTH sides — the entry's entity
+ * and the account's — like queryAccumulatedBalances: the schema does not
+ * forbid a line whose account belongs to another entity than its entry, and
+ * a balance and the list that explains it must count the same lines.
  */
 export async function queryEntryMovementsOnAccount(
   entityId: string,
@@ -656,6 +668,7 @@ export async function queryEntryMovementsOnAccount(
             SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS amount
        FROM journal_entry_lines jel
        JOIN journal_entries je ON je.id = jel.journal_entry_id
+       JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
       WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2
         ${where.join(' ')}
       GROUP BY je.id, je.entry_number, je.entry_date, je.description

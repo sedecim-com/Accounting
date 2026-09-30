@@ -577,13 +577,19 @@ export async function huecoDeAnticipados(
   // claims are read scoped to the entity: a prepaid of another entity cannot
   // "explain" a debit of this one. The per-entry movement itself comes from
   // the report layer (T14 · #101), not from a copy of its SQL.
+  // Only the claimed entries that touch THIS account: every non-cancelled
+  // schedule of the entity's life (completed ones included) would grow the
+  // list without bound, and an entry with no line here cannot be excluded
+  // from this account's movements anyway.
   const claimed = await query<{ id: string }>(
-    `SELECT DISTINCT source_journal_entry_id AS id
-       FROM prepaid_expenses
-      WHERE entity_id = $1
-        AND status <> 'cancelled'
-        AND source_journal_entry_id IS NOT NULL`,
-    [entityId]
+    `SELECT DISTINCT pe.source_journal_entry_id AS id
+       FROM prepaid_expenses pe
+       JOIN journal_entry_lines jel
+         ON jel.journal_entry_id = pe.source_journal_entry_id
+        AND jel.account_id = $2
+      WHERE pe.entity_id = $1
+        AND pe.status <> 'cancelled'`,
+    [entityId, prepaidAccountId]
   );
   const movements = await queryEntryMovementsOnAccount(entityId, prepaidAccountId, {
     excludeEntryIds: claimed.rows.map((c) => c.id),
