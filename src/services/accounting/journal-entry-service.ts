@@ -524,12 +524,10 @@ export function parseEntryDocument(raw: string): Omit<DraftEntryInput, 'entityId
     if (typeof account !== 'string') {
       throw new ValidationError(`Line ${index + 1}: "account" must be the account code, as a string.`);
     }
-    const side = (value: unknown): string | undefined =>
-      value === undefined || value === null || value === '' ? undefined : String(value);
     return {
       account,
-      debit: side(l.debit ?? l.debit_amount),
-      credit: side(l.credit ?? l.credit_amount),
+      debit: documentSide(l, index, DOCUMENT_SIDE_KEYS.debit),
+      credit: documentSide(l, index, DOCUMENT_SIDE_KEYS.credit),
       description: typeof l.description === 'string' ? l.description : undefined,
     };
   });
@@ -541,6 +539,27 @@ export function parseEntryDocument(raw: string): Omit<DraftEntryInput, 'entityId
     reference: typeof doc.reference === 'string' ? doc.reference : undefined,
     lines,
   };
+}
+
+/**
+ * The keys a document line may give each side under. cargo/abono are the
+ * permanent synonyms of #327, here as in `--line`. A line that gives one side
+ * under two of them is refused: keeping one of two amounts in silence is how
+ * a ledger goes wrong.
+ */
+const DOCUMENT_SIDE_KEYS = {
+  debit: ['debit', 'debit_amount', 'cargo'],
+  credit: ['credit', 'credit_amount', 'abono'],
+} as const;
+
+function documentSide(line: Record<string, unknown>, index: number, keys: readonly string[]): string | undefined {
+  const given = keys.filter((k) => line[k] !== undefined && line[k] !== null && line[k] !== '');
+  if (given.length > 1) {
+    throw new ValidationError(
+      `Line ${index + 1} gives one side twice: ${given.map((k) => `"${k}"`).join(' and ')} are the same key.`
+    );
+  }
+  return given.length ? String(line[given[0]]) : undefined;
 }
 
 const POSITIONAL_SIDES = new Map<string, 'debit' | 'credit'>([

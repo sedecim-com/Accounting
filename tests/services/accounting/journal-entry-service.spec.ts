@@ -376,6 +376,29 @@ describe('documents a person or an agent hands us', () => {
     ]);
   });
 
+  it('reads cargo/abono as the keys of a document line, as in --line (#327)', () => {
+    const doc = parseEntryDocument(
+      JSON.stringify({
+        date: '2026-02-01',
+        lines: [
+          { account: '6120', cargo: '100' },
+          { account: '2110', abono: 100 },
+        ],
+      })
+    );
+    expect(doc.lines).toEqual([
+      { account: '6120', debit: '100', credit: undefined, description: undefined },
+      { account: '2110', debit: undefined, credit: '100', description: undefined },
+    ]);
+  });
+
+  it('refuses a document line that gives one side under two keys', () => {
+    const line = (l: Record<string, unknown>) =>
+      parseEntryDocument(JSON.stringify({ date: '2026-02-01', lines: [l] }));
+    expect(() => line({ account: '6120', debit: '100', cargo: '200' })).toThrow(/"debit" and "cargo"/);
+    expect(() => line({ account: '2110', credit_amount: 5, abono: 5 })).toThrow(/"credit_amount" and "abono"/);
+  });
+
   it('refuses a document without a date or without lines', () => {
     expect(() => parseEntryDocument('{"lines":[]}')).toThrow(/"date" as YYYY-MM-DD/);
     expect(() => parseEntryDocument('{"date":"2026-02-01"}')).toThrow(/"lines" array/);

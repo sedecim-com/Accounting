@@ -58,7 +58,7 @@ import {
   lineKeysHelp,
   normalizeLineRecord,
   parseKeyValueLine,
-  rejectUnknownLineKeys,
+  type LineGrammar,
 } from './kernel/line-spec.js';
 import { registerBillRuleCommands } from './bill-rule-command.js';
 
@@ -147,13 +147,22 @@ function requireDate(flag: string, value: string): string {
  * way the columns are: a person typing a bill is not reading the schema.
  */
 export function parseLineSpec(spec: string): Record<string, string> {
-  return parseKeyValueLine(spec, { allowLegacyComma: true }).fields;
+  return parseKeyValueLine(spec, { allowLegacyComma: true, grammar: BILL_LINE_GRAMMAR }).fields;
 }
 
-const LINE_KEYS = [
-  'account', 'qty', 'quantity', 'price', 'unit-price', 'tax-amount', 'tax',
-  'description', 'cost-center', 'project',
-];
+/**
+ * qty/quantity and price/unit-price set one field each, so a line that gives
+ * both is refused. tax/tax-amount is not in that list on purpose: the
+ * explicit tax-amount= has won over the legacy tax= since that key was
+ * named (resolveLineTaxAmount), and this change keeps that rule.
+ */
+const BILL_LINE_GRAMMAR: LineGrammar = {
+  known: [
+    'account', 'qty', 'quantity', 'price', 'unit-price', 'tax-amount', 'tax',
+    'description', 'cost-center', 'project',
+  ],
+  sameField: [['qty', 'quantity'], ['price', 'unit-price']],
+};
 
 /**
  * El IVA de la línea de un bill, resuelto desde las claves que el operador
@@ -642,13 +651,12 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         for (const spec of specs) {
           let parsed: Record<string, string>;
           if (typeof spec === 'string') {
-            const read = parseKeyValueLine(spec, { allowLegacyComma: true });
+            const read = parseKeyValueLine(spec, { allowLegacyComma: true, grammar: BILL_LINE_GRAMMAR });
             parsed = read.fields;
             someLineUsedLegacyComma ||= read.legacyComma;
           } else {
-            parsed = normalizeLineRecord(spec as Record<string, unknown>);
+            parsed = normalizeLineRecord(spec as Record<string, unknown>, BILL_LINE_GRAMMAR);
           }
-          rejectUnknownLineKeys(parsed, LINE_KEYS);
           const accountRef = parsed.account;
           if (!accountRef) throw usageError('Every line needs account=<code>: a line with no account cannot be posted.');
           const price = parsed.price ?? parsed['unit-price'];

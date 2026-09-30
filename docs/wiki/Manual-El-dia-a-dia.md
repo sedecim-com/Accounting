@@ -328,11 +328,11 @@ npm run mnemosine -- entry create \
   --date 2026-08-31 \
   --type adjusting \
   --description "Comisiones bancarias agosto" \
-  --line "5910:debit:850.00:Comisión manejo de cuenta" \
-  --line "1120:credit:850.00:Cargo BBVA 31/08"
+  --line "account=5910;cargo=850.00;description=Comisión manejo de cuenta" \
+  --line "account=1120;abono=850.00;description=Cargo BBVA 31/08"
 ```
 
-Sepárador de dos puntos, lado en inglés (`debit`/`credit`), importe con punto decimal y sin comas de millares.
+La misma forma `clave=valor` separada por `;` que en `invoice` y `bill`. El lado se escribe `cargo=`/`abono=` o `debit=`/`credit=`, que son la misma clave; el importe, con punto decimal y sin comas de millares. El atajo posicional `5910:debit:850.00:texto` se sigue aceptando.
 
 Los tipos disponibles en `--type` son `standard`, `adjusting` y `correction`. **No existe la clasificación mexicana de póliza** —ingresos, egresos, diario—: no hay campo donde guardarla, y no se puede reconstruir después. Si tu despacho la necesita para archivar, ponla en la descripción o en `--reference`.
 

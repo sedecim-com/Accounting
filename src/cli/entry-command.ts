@@ -62,7 +62,7 @@ import {
   type ExitCodeValue,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
-import { isKeyValueLine, lineKeysHelp, parseKeyValueLine, rejectUnknownLineKeys } from './kernel/line-spec.js';
+import { isKeyValueLine, lineKeysHelp, parseKeyValueLine, SIDE_ALIASES, type LineGrammar } from './kernel/line-spec.js';
 import { AppError } from '../utils/errors.js';
 
 // ============================================================
@@ -195,7 +195,10 @@ function lineRow(line: JournalEntryLineWithAccount): Record<string, unknown> {
   };
 }
 
-const ENTRY_LINE_KEYS = ['account', 'debit', 'credit', 'description'] as const;
+const ENTRY_LINE_GRAMMAR: LineGrammar = {
+  known: ['account', 'debit', 'credit', 'description'],
+  aliases: SIDE_ALIASES,
+};
 
 const ENTRY_LINE_KEYS_HELP = lineKeysHelp([
   ['account', 'chart account CODE the line is posted to (required)'],
@@ -212,8 +215,7 @@ const ENTRY_LINE_KEYS_HELP = lineKeysHelp([
  */
 export function parseEntryLine(spec: string): DraftLineInput {
   if (!isKeyValueLine(spec)) return parseLineFlag(spec);
-  const { fields } = parseKeyValueLine(spec);
-  rejectUnknownLineKeys(fields, ENTRY_LINE_KEYS);
+  const { fields } = parseKeyValueLine(spec, { grammar: ENTRY_LINE_GRAMMAR });
   if (!fields.account) throw usageError(`Line "${spec}" has no account=<code>.`);
   if ((fields.debit === undefined) === (fields.credit === undefined)) {
     throw usageError(`Line "${spec}" needs exactly one of debit=<amount> or credit=<amount> (cargo=/abono=).`);
@@ -261,8 +263,9 @@ Examples:
   mnemosine entry create --date 2026-07-31 --type adjusting --description "Renta de oficina julio 2026" --line "account=6120;debit=45000.00" --line "account=2110;credit=45000.00"
   # Reclassify a misposted expense; cargo=/abono= are the same keys as debit=/credit=.
   mnemosine entry create --type correction --description "Reclasificacion de energia electrica" --line "account=6130;cargo=8700.50;description=CFE julio" --line "account=6100;abono=8700.50;description=Sale de gastos de administracion"
-  # The positional shortcut <account>:<debit|credit>:<amount> is still accepted.
   # See exactly what would be drafted, writing nothing.
+  mnemosine entry create --description "Honorarios cobrados en efectivo" --line "account=1110;debit=12000.00" --line "account=4200;credit=12000.00" --dry-run
+  # Shortcut, still accepted: <account>:<debit|credit>:<amount>[:description].
   mnemosine entry create --description "Honorarios cobrados en efectivo" --line "1110:debit:12000.00" --line "4200:credit:12000.00" --dry-run
 `,
   check: `

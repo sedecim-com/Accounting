@@ -7,7 +7,7 @@ import { cuentasRequeridasPara } from '../../src/services/xml-ingestion/account-
 import { parseLineSpec, resolveLineTaxAmount } from '../../src/cli/bill-command.js';
 import { parseInvoiceLine } from '../../src/cli/invoice-command.js';
 import { parseEntryLine } from '../../src/cli/entry-command.js';
-import { isKeyValueLine } from '../../src/cli/kernel/line-spec.js';
+import { isKeyValueLine, parseKeyValueLine, SIDE_ALIASES } from '../../src/cli/kernel/line-spec.js';
 
 // ============================================================
 // LOS EJEMPLOS DE LA AYUDA TIENEN QUE PODER TECLEARSE
@@ -753,14 +753,14 @@ describe('los ejemplos pasan por el commander de verdad', () => {
 
 // ── Los valores DENTRO de --line ────────────────────────────────────
 //
-// Para commander `--line` es una cadena y con eso se da por satisfecho: la
-// gramática vive dentro. Desde #327 es UNA —key=value separados por «;» en
-// bill, invoice y entry, más el atajo posicional de entry—, pero un ejemplo mal
-// escrito aquí sigue sin cazarlo nadie más.
+// To commander `--line` is a string and that satisfies it: the grammar lives
+// inside. Since #327 there is ONE (key=value pairs separated by ";" in bill,
+// invoice and entry, plus entry's positional shortcut), but a mistyped example
+// here is still caught by nobody else.
 //
-// Así que el valor de cada ejemplo se pasa por el parser que su comando usa DE
-// VERDAD (`parseLineSpec`, `parseInvoiceLine`, `parseEntryLine`), no por una
-// copia de la gramática escrita en esta prueba.
+// So each example's value goes through the parser its command REALLY uses
+// (`parseLineSpec`, `parseInvoiceLine`, `parseEntryLine`), not through a copy
+// of the grammar written in this test.
 
 describe('lo que va dentro de --line también se puede teclear', () => {
   it('las claves de --line son las que la propia hoja documenta aceptar', () => {
@@ -780,9 +780,12 @@ describe('lo que va dentro de --line también se puede teclear', () => {
       ).toContain('account');
       for (const ejemplo of hoja.ejemplos) {
         for (const valor of valoresDeLinea(invocacion(tokenizar(ejemplo)))) {
-          // El atajo posicional de entry no tiene claves: lo mira su propia prueba.
+          // Entry's positional shortcut has no keys: its own test checks it.
           if (!isKeyValueLine(valor)) continue;
-          for (const clave of Object.keys(parseLineSpec(valor))) {
+          // Grammar-free on purpose: each sheet's key block is the oracle here,
+          // and cargo/abono are the documented names of debit/credit.
+          for (const written of Object.keys(parseKeyValueLine(valor, { allowLegacyComma: true }).fields)) {
+            const clave = SIDE_ALIASES[written] ?? written;
             if (!claves.has(clave)) {
               rotas.push(
                 `${hoja.ruta}: "${clave}" no está entre las claves que --line acepta ` +
@@ -853,10 +856,10 @@ describe('lo que va dentro de --line también se puede teclear', () => {
   });
 
   it('cada --line de entry tiene la forma que entry documenta, y la póliza cuadra', () => {
-    // La forma la decide el parser de entry (`account=…;debit=…` o el atajo
-    // `<cuenta>:<debit|credit>:<importe>`). Un ejemplo descuadrado es tan
-    // intecleable como uno con una bandera inventada: el comando lo rechaza al
-    // validar la partida doble.
+    // Entry's own parser decides the form (`account=…;debit=…` or the
+    // `<account>:<debit|credit>:<amount>` shortcut). An unbalanced example is
+    // as untypeable as one with an invented flag: the command rejects it when
+    // it checks double entry.
     const AMOUNT_RE = /^\d+(?:\.\d+)?$/;
     const rotas: string[] = [];
     let miradas = 0;

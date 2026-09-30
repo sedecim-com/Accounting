@@ -48,7 +48,7 @@ import {
   lineKeysHelp,
   normalizeLineRecord,
   parseKeyValueLine,
-  rejectUnknownLineKeys,
+  type LineGrammar,
 } from './kernel/line-spec.js';
 
 // ============================================================
@@ -136,10 +136,18 @@ function isHumanTable(opts: CommonOpts): boolean {
   return !opts.quiet && !opts.output && resolveFormat(opts) === 'table';
 }
 
-const INVOICE_LINE_KEYS = [
-  'account', 'qty', 'quantity', 'price', 'unit-price', 'tax-rate', 'tax', 'tax-code',
-  'description', 'cost-center', 'project',
-] as const;
+/**
+ * qty/quantity and price/unit-price set one field each, so a line that gives
+ * both is refused. tax/tax-rate follows bill's tax/tax-amount rule instead:
+ * the explicit key wins over the legacy one (resolveInvoiceTaxRate).
+ */
+const INVOICE_LINE_GRAMMAR: LineGrammar = {
+  known: [
+    'account', 'qty', 'quantity', 'price', 'unit-price', 'tax-rate', 'tax', 'tax-code',
+    'description', 'cost-center', 'project',
+  ],
+  sameField: [['qty', 'quantity'], ['price', 'unit-price']],
+};
 
 const INVOICE_LINE_KEYS_HELP = lineKeysHelp([
   ['account', 'revenue account code (required)'],
@@ -170,9 +178,11 @@ export const LEGACY_INVOICE_TAX_KEY_WARNING =
  * the invoice came out with 0 IVA.
  */
 export function parseInvoiceLine(spec: string | Record<string, unknown>): Record<string, string> {
-  const fields = typeof spec === 'string' ? parseKeyValueLine(spec).fields : normalizeLineRecord(spec);
+  const fields =
+    typeof spec === 'string'
+      ? parseKeyValueLine(spec, { grammar: INVOICE_LINE_GRAMMAR }).fields
+      : normalizeLineRecord(spec, INVOICE_LINE_GRAMMAR);
   const label = typeof spec === 'string' ? spec : JSON.stringify(spec);
-  rejectUnknownLineKeys(fields, INVOICE_LINE_KEYS);
   if (!fields.account) throw usageError(`Line "${label}" has no account=<code>.`);
   if (!(fields.price ?? fields['unit-price'])) throw usageError(`Line "${label}" has no price=<amount>.`);
   return fields;
@@ -240,10 +250,10 @@ export function dueDateFromTerms(terms: string | null | undefined, invoiceDate: 
 // ============================================================
 // EJEMPLOS · invocaciones copiables, con datos mexicanos
 //
-// El separador de `--line` es el PUNTO Y COMA en invoice, bill y entry
-// (#327), y la tasa se escribe `tax-rate=`, que no se confunde con el
-// `tax-amount=` de bill: la brecha H3. Cada ejemplo se escribe entero en vez
-// de remitir a otro comando.
+// The `--line` separator is the SEMICOLON in invoice, bill and entry (#327),
+// and the rate is spelled `tax-rate=`, which cannot be mistaken for bill's
+// `tax-amount=`: the H3 gap. Every example is written out in full instead of
+// pointing at another command.
 //
 // Las cuentas son códigos del catálogo base real (chart-seed.ts): 4100
 // Ventas, 4200 Ingresos por Servicios. Prosa en inglés (idioma del nodo),

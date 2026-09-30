@@ -28,12 +28,34 @@ export const LINE_PAIR_SEPARATOR = ';';
  */
 export const LEGACY_LINE_FORMS_RETIRE_IN = '2.0.0';
 
-const SIDE_SYNONYMS: Readonly<Record<string, 'debit' | 'credit'>> = { cargo: 'debit', abono: 'credit' };
+/**
+ * What one command accepts in its --line. The same checks run for a typed
+ * spec and for a --from-file object, and they name keys as the person wrote
+ * them, not as they were folded.
+ */
+export interface LineGrammar {
+  /** Every key the command accepts, canonical spelling ("-", lower case). */
+  readonly known: readonly string[];
+  /** Keys renamed before anything is checked (entry: cargo is debit). */
+  readonly aliases?: Readonly<Record<string, string>>;
+  /**
+   * Different keys that set one field (price and unit-price). A line may give
+   * only one key of each group: silently keeping one of two amounts is how a
+   * ledger goes wrong.
+   */
+  readonly sameField?: ReadonlyArray<readonly string[]>;
+}
 
-/** Lower case, `_` read as `-`, and cargo/abono folded into debit/credit. */
+/**
+ * cargo/abono as keys of an entry line (#327). They are the entry grammar's
+ * aliases, not a global fold: bill and invoice have no debit/credit key, so a
+ * cargo= typed there is reported as cargo, the key the person wrote.
+ */
+export const SIDE_ALIASES: Readonly<Record<string, 'debit' | 'credit'>> = { cargo: 'debit', abono: 'credit' };
+
+/** Lower case, with `_` read as `-`. */
 export function normalizeLineKey(raw: string): string {
-  const key = raw.trim().toLowerCase().replace(/_/g, '-');
-  return SIDE_SYNONYMS[key] ?? key;
+  return raw.trim().toLowerCase().replace(/_/g, '-');
 }
 
 export interface ParsedLineSpec {
@@ -67,11 +89,12 @@ function looksLikeLegacyCommaForm(spec: string): boolean {
 /**
  * Parses one `key=value;key=value` spec. With `allowLegacyComma`, a spec
  * written the old bill way (commas) is read too and flagged, so the caller
- * can warn once.
+ * can warn once. With a `grammar`, unknown keys and two keys for one field
+ * are refused here.
  */
 export function parseKeyValueLine(
   spec: string,
-  options: { allowLegacyComma?: boolean } = {}
+  options: { allowLegacyComma?: boolean; grammar?: LineGrammar } = {}
 ): ParsedLineSpec {
   const legacyComma = options.allowLegacyComma === true && looksLikeLegacyCommaForm(spec);
   const parts = spec.split(legacyComma ? ',' : LINE_PAIR_SEPARATOR);
@@ -80,36 +103,50 @@ export function parseKeyValueLine(
     if (!part.trim()) continue;
     pairs.push(splitPair(part.trim(), spec));
   }
-  return { fields: normalizePairs(pairs, spec), legacyComma };
+  return { fields: normalizePairs(pairs, spec, options.grammar), legacyComma };
 }
 
 /**
- * The same key normalization for a line that arrives as a JSON object
- * (`--from-file`). Two spellings of one key (`debit` and `cargo`, `tax_rate`
- * and `tax-rate`) in one line are an error: silently keeping one of two
- * amounts is how a ledger goes wrong.
+ * The same key normalization and checks for a line that arrives as a JSON
+ * object (`--from-file`).
  */
-export function normalizeLineRecord(record: Record<string, unknown>): Record<string, string> {
-  return normalizePairs(Object.entries(record), JSON.stringify(record));
+export function normalizeLineRecord(record: Record<string, unknown>, grammar?: LineGrammar): Record<string, string> {
+  return normalizePairs(Object.entries(record), JSON.stringify(record), grammar);
 }
 
-function normalizePairs(pairs: Array<[string, unknown]>, label: string): Record<string, string> {
+function normalizePairs(pairs: Array<[string, unknown]>, label: string, grammar?: LineGrammar): Record<string, string> {
   const out: Record<string, string> = {};
+  // The spelling each key arrived with, so every error names what was typed.
+  const written: Record<string, string> = {};
   for (const [raw, value] of pairs) {
     if (value === null || value === undefined) continue;
-    const key = normalizeLineKey(raw);
-    if (key in out) throw usageError(`The line "${label}" gives "${key}" twice.`);
+    const folded = normalizeLineKey(raw);
+    const key = grammar?.aliases?.[folded] ?? folded;
+    if (key in out) {
+      throw usageError(`The line "${label}" gives "${key}" twice (as "${written[key]}" and "${raw.trim()}").`);
+    }
     out[key] = (typeof value === 'string' ? value : JSON.stringify(value)).trim();
+    written[key] = raw.trim();
+  }
+  if (!grammar) return out;
+
+  const unknown = Object.keys(out).filter((k) => !grammar.known.includes(k));
+  if (unknown.length) {
+    throw usageError(
+      `Unknown key(s) in --line: ${unknown.map((k) => written[k]).join(', ')}. ` +
+        `Known keys: ${grammar.known.join(', ')}.`
+    );
+  }
+  for (const group of grammar.sameField ?? []) {
+    const given = group.filter((k) => k in out);
+    if (given.length > 1) {
+      throw usageError(
+        `The line "${label}" gives one field twice: ${given.map((k) => `"${written[k]}"`).join(' and ')} ` +
+          'are the same key. Give only one.'
+      );
+    }
   }
   return out;
-}
-
-/** Rejects any key outside `known`, naming the full list. */
-export function rejectUnknownLineKeys(fields: Record<string, string>, known: readonly string[]): void {
-  const unknown = Object.keys(fields).filter((k) => !known.includes(k));
-  if (unknown.length) {
-    throw usageError(`Unknown key(s) in --line: ${unknown.join(', ')}. Known keys: ${known.join(', ')}.`);
-  }
 }
 
 /** True when the spec starts with `key=`, i.e. it is not entry's positional shortcut. */
