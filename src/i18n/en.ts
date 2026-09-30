@@ -888,6 +888,25 @@ export const EN = {
   'policy.census_cfdi_types.option.all_types':
     'Every type, transfers included (I, E, P, N, T)',
 
+  'policy.census_missing_at_close.question':
+    'A CFDI the SAT lists is missing from the books at close: which direction stops the close?',
+  'policy.census_missing_at_close.impact':
+    'The SAT census is read against what was posted. A CFDI you issued that is not posted understates income and the IVA you owe; a CFDI you received that is not posted understates a deduction and the IVA you can credit. This decides whether each direction stops the close or only warns.',
+  'policy.census_missing_at_close.rationale':
+    'An issued CFDI is income the entity already stamped and the SAT already holds: leaving it unposted understates the ISR base and the IVA trasladado of the month (LISR art. 17; LIVA arts. 1-B and 17), and the books must record every operation (CFF art. 28 fr. I). A received CFDI that is not posted is a right not yet exercised: the deduction and the IVA acreditable can still be claimed in a later period (LISR art. 27 fr. III; LIVA art. 5), so it warns. A firm that wants the books to match the SAT both ways before any close chooses both_block.',
+  'policy.census_missing_at_close.why':
+    'Missing an issued CFDI and missing a received one do not cost the same, and firms differ on how much of that they accept at close.',
+  'policy.census_missing_at_close.what':
+    'I list what the SAT has and the books lack in the close checklist, and stop the close only for the directions you choose.',
+  'policy.census_missing_at_close.if_skipped':
+    'A missing issued CFDI stops the close and a missing received one warns.',
+  'policy.census_missing_at_close.option.issued_blocks':
+    'Issued stops the close; received warns',
+  'policy.census_missing_at_close.option.both_block':
+    'Both directions stop the close',
+  'policy.census_missing_at_close.option.both_warn':
+    'Both directions only warn',
+
   'policy.opening_payable_iva.question':
     'When a migrated vendor invoice does not say the IVA rate inside its open balance, what does the opening load do?',
   'policy.opening_payable_iva.impact':
@@ -2503,6 +2522,15 @@ export const EN = {
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
   'help.receipt.apply.option.withholding':
     'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
+  'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
+  'help.sat.download.reconcile.description':
+    'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
+  'help.sat.download.reconcile.option.period': 'month to reconcile, as YYYY-MM',
+  'sat.reconcile.bad_period': 'The period must be a month as YYYY-MM, and "{value}" is not.',
+  'sat.reconcile.summary':
+    '{period}: {matched} agree · {fetch} to fetch · {post} to post · {cancelled} cancelled at the SAT but posted · {surplus} posted but not in the census ({cancelledUnbooked} cancelled and never posted: not a gap).',
+  'sat.reconcile.not_loaded':
+    'No census of {direction} CFDI covers this month: it is not loaded, which is not the same as nothing having been {direction}. Load it with `ingest --kind metadata`.',
   'help.closing.fx.description': 'Foreign currency at the close',
   'help.closing.fx.revalue.description':
     'Revalue the foreign-currency receivables, payables and banks at the closing rate, and reverse it on day 1 of the next period. It belongs after the soft close; a later run posts only what moved since',

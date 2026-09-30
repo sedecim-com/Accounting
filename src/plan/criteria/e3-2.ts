@@ -192,4 +192,63 @@ export const E3_2: Criterio[] = [
         : falla('withCredential dejó de escribir la bitácora en el éxito o en el error: un uso de la e.firma queda sin rastro');
     },
   },
+  // ---- MNE-001-119 (#312) · the SAT census against the books ----
+  {
+    paquete: 'E3.2',
+    id: 'sat-census-reconcile-weighs-by-direction',
+    enunciado: 'El censo del SAT se lee contra lo contabilizado, lista lo que falta y lo que sobra, y un emitido faltante pesa distinto al cierre que un recibido',
+    mutantes: [
+      {
+        archivo: 'src/services/sat-census/reconcile.ts',
+        de: "if (policyValue === 'issued_blocks' && direction === 'issued') return 'blocking';",
+        a: "if (policyValue === 'issued_blocks' && direction === 'received') return 'blocking';",
+        porque: 'the weights are swapped: a missing received CFDI stops the close and a missing issued one only warns',
+      },
+      {
+        archivo: 'src/services/sat-census/reconcile.ts',
+        de: 'out.surplus = surplus.rows.filter((s) => covered[s.direction]);',
+        a: 'out.surplus = surplus.rows;',
+        porque: 'a direction nobody loaded reads as «everything the books carry is surplus»',
+      },
+      {
+        archivo: 'src/services/sat-census/reconcile.ts',
+        de: 'else (fetched ? out.toPost : out.toFetch).push(item);',
+        a: 'else out.toFetch.push(item);',
+        porque: 'a CFDI already brought in but not posted is asked for again instead of being posted',
+      },
+      {
+        archivo: 'src/services/sat-census/reconcile.ts',
+        de: "AND i.cfdi_uuid IS NOT NULL AND i.status NOT IN ('void', 'cancelled')",
+        a: 'AND i.cfdi_uuid IS NOT NULL',
+        porque: 'a voided invoice still counts as the CFDI being in the books',
+      },
+      {
+        archivo: 'src/services/accounting/period-close.ts',
+        de: 'if (census.hasLoads) {',
+        a: 'if (false) {',
+        porque: 'the close never asks for the census: a month closes with CFDI the SAT lists and the books lack',
+      },
+    ],
+    evaluar: () => {
+      const r = codigoDe('src/services/sat-census/reconcile.ts');
+      if (!/issued_blocks' && direction === 'issued'\) return 'blocking'/.test(r) || !/both_block/.test(r)) {
+        return falla('el peso de un faltante ya no depende de la dirección: un emitido y un recibido pesan igual al cierre');
+      }
+      if (!/covered\[s\.direction\]/.test(r) || !/l\.first_issued_at < /.test(r)) {
+        return falla('el sobrante no mira la cobertura de las cargas: «no se cargó» se lee como «sobra todo»');
+      }
+      if (!/fetched \? out\.toPost : out\.toFetch/.test(r) || !/je\.status = 'posted'/.test(r)) {
+        return falla('la conciliación no distingue lo que falta traer de lo que falta contabilizar, o cuenta asientos no posteados');
+      }
+      const close = codigoDe('src/services/accounting/period-close.ts');
+      if (!/if \(census\.hasLoads\) \{[\s\S]*?censusBox\(census, await censusGapPolicy/.test(close)) {
+        return falla('el cierre no lee el censo contra lo contabilizado');
+      }
+      const cli = codigoDe('src/cli/sat-census-command.ts');
+      return /ExitCode\.VALIDATION/.test(cli) && /reconcileCensus\(/.test(cli)
+        ? ok('sat download reconcile lista lo que falta traer, contabilizar, cancelar y lo que sobra; el cierre pesa emitido y recibido por la política census_missing_at_close')
+        : falla('sat download reconcile no sale con 4 cuando el mes no está completo');
+    },
+  },
+
 ];

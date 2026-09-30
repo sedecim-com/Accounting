@@ -15,6 +15,7 @@ import {
 } from '../services/fiscal-credentials/service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import { exitCodeFor, notFound, ExitCode } from './kernel/index.js';
+import { registerSatCensus } from './sat-census-command.js';
 
 // ============================================================
 // `mnemosine sat cred …` COMMANDS
@@ -70,6 +71,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
     .command('sat')
     .description('SAT services (e.firma credentials; the CFDI bulk download is not built yet)');
   const cred = sat.command('cred').description('Fiscal credentials (e.firma)');
+  registerSatCensus(sat, { shutdown, reportError });
 
   const add = cred
     .command('add')
