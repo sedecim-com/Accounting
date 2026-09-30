@@ -2727,6 +2727,13 @@
     },
     {
       "class": "policy-key",
+      "where": "declaracion_redondeo_a_pesos",
+      "es": "declaracion_redondeo_a_pesos",
+      "en": "filing_rounding_to_pesos",
+      "why": "`filing` is the tax return, as in `filing workpaper generate` (#308), and the constant `FILING_ROUNDING_POLICY` (fiscal/iva-workpaper.ts). `pesos` stays: CFF art. 20 adjusts to the peso, not to a generic unit."
+    },
+    {
+      "class": "policy-key",
       "where": "tratamiento_ieps",
       "es": "tratamiento_ieps",
       "en": "ieps_treatment",
@@ -3900,6 +3907,20 @@
       "es": "diario_al_centavo",
       "en": "daily_to_cent",
       "why": "Round the daily amount to the cent first, then multiply (label). Parallel to `product_to_cent`. employment-subsidy.ts:111-116 compares it literally."
+    },
+    {
+      "class": "policy-value",
+      "where": "declaracion_redondeo_a_pesos/cada_renglon",
+      "es": "cada_renglon",
+      "en": "each_line",
+      "why": "Every captured line is adjusted to pesos (label). `line` is the word of the workpaper's `WorkpaperLine` (fiscal/iva-workpaper.ts)."
+    },
+    {
+      "class": "policy-value",
+      "where": "declaracion_redondeo_a_pesos/solo_el_pago",
+      "es": "solo_el_pago",
+      "en": "payment_only",
+      "why": "Only the amount payable is adjusted (label); the arithmetic runs in cents. Parallel to `each_line`."
     },
     {
       "class": "policy-value",
