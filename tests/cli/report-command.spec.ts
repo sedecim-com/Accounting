@@ -696,6 +696,113 @@ function mockBalanceSheet(): void {
   });
 }
 
+// ============================================================
+// THE LABELS A PERSON READS (MNE-001-126 · #327)
+// ============================================================
+
+describe('report labels: no column or line says what it is not', () => {
+  function mockRangedTrialBalance(): void {
+    vi.mocked(reportService.getTrialBalance).mockResolvedValue({
+      entity_id: 'ent-1',
+      rows: [{
+        account_id: 'a', account_code: '1110', account_name: 'Caja', account_type: 'asset',
+        debit_total: '300.0000', credit_total: '100.0000', ending_balance: '200.0000',
+        beginning_balance: '1000.0000', final_balance: '1200.0000',
+      }],
+      total: 1,
+      totals: { total_debits: '300.0000', total_credits: '100.0000', is_balanced: true },
+      inicial: {
+        criterio: 'derivar_del_mayor', origen: 'mayor', desde: '2026-08-01', firme: true,
+        periodo_anterior: null, descuadres: [], note: 'Opening balance derived from the ledger.',
+      },
+    });
+  }
+
+  it('a ranged trial balance names its movement net_change, never ending_balance', async () => {
+    mockRangedTrialBalance();
+    const { code, out } = await runCli(['report', 'trial-balance', 'show', '--entity', 'Demo', '--format', 'csv']);
+    expect(code).toBe(0);
+    // Debe − Haber is 200, the ending balance is 1 200: the column that holds
+    // 200 cannot be called ending_balance next to the one that holds 1 200.
+    expect(out.split('\n')[0]).toBe(
+      'account_code,account_name,account_type,beginning_balance,debit_total,credit_total,net_change,final_balance'
+    );
+    expect(out).toContain('200.0000,1200.0000');
+  });
+
+  it('a ranged trial balance in json carries no ending_balance key', async () => {
+    mockRangedTrialBalance();
+    const { out } = await runCli(['report', 'trial-balance', 'show', '--entity', 'Demo', '--json']);
+    const row = (JSON.parse(out) as { rows: Record<string, string>[] }).rows[0];
+    expect(row).not.toHaveProperty('ending_balance');
+    expect(row.net_change).toBe('200.0000');
+    expect(row.final_balance).toBe('1200.0000');
+  });
+
+  it('a cumulative trial balance keeps ending_balance, which there IS the ending balance', async () => {
+    vi.mocked(reportService.getTrialBalance).mockResolvedValue({
+      entity_id: 'ent-1',
+      rows: [{
+        account_id: 'a', account_code: '1110', account_name: 'Caja', account_type: 'asset',
+        debit_total: '1300.0000', credit_total: '100.0000', ending_balance: '1200.0000',
+      }],
+      total: 1,
+      totals: { total_debits: '1300.0000', total_credits: '100.0000', is_balanced: true },
+    });
+    const { out } = await runCli(['report', 'trial-balance', 'show', '--entity', 'Demo', '--json']);
+    const row = (JSON.parse(out) as { rows: Record<string, string>[] }).rows[0];
+    expect(row.ending_balance).toBe('1200.0000');
+    expect(row).not.toHaveProperty('net_change');
+  });
+
+  function mockBalanceSheetWithResult(): void {
+    vi.mocked(reportService.getBalanceSheet).mockResolvedValue({
+      entity_id: 'ent-1',
+      as_of_date: '2026-08-31',
+      assets: {
+        key: 'assets', name: 'Assets', total: '800.0000',
+        subsections: [{
+          key: 'current_assets', name: 'Current Assets', total: '800.0000',
+          accounts: [{ id: 'a', code: '1110', name: 'Caja', balance: '800.0000' }],
+        }],
+      },
+      liabilities: { key: 'liabilities', name: 'Liabilities', total: '0.0000', subsections: [] },
+      equity: {
+        key: 'equity', name: 'Equity', total: '800.0000',
+        subsections: [
+          {
+            key: 'equity', name: 'Equity', total: '500.0000',
+            accounts: [{ id: 'c', code: '3000', name: 'Capital social', balance: '500.0000' }],
+          },
+          { key: 'result_of_the_period', name: 'Result Of The Period', total: '300.0000', accounts: [] },
+        ],
+      },
+      total_liabilities_and_equity: '800.0000',
+      out_of_balance: '0.0000',
+      is_balanced: true,
+    });
+  }
+
+  it.each([
+    ['es', 'Total de Utilidad (pérdida) del ejercicio'],
+    ['en', 'Total Profit (loss) for the period'],
+  ] as const)('the balance sheet in %s names the result of the period', async (language, line) => {
+    mockBalanceSheetWithResult();
+    setLanguage(language);
+    const { code, out } = await runCli(['report', 'balance-sheet', 'show', '--entity', 'Demo']);
+    expect(code).toBe(0);
+    expect(out).toContain(line);
+    expect(out).not.toContain('result_of_the_period');
+  });
+
+  it('the balance sheet csv keeps result_of_the_period as the key it is', async () => {
+    mockBalanceSheetWithResult();
+    setLanguage('es');
+    const { out } = await runCli(['report', 'balance-sheet', 'show', '--entity', 'Demo', '--format', 'csv']);
+    expect(out).toContain('equity,result_of_the_period,,,300.0000,subtotal');
+  });
+});
+
 describe('report balance-sheet show: what a person reads, and what a script reads', () => {
   it('in Spanish the table and the footing are Spanish', async () => {
     mockBalanceSheet();
