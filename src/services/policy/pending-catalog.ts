@@ -1991,6 +1991,43 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I round once, on the period amount. From February to December the two options give the same figures.',
     priority: 42,
   },
+  // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
+  // `readFilingRounding` (fiscal/iva-workpaper.ts). The adjustment itself is
+  // not an option: CFF art. 20 fixes it (1–50 cents down, 51–99 up).
+  {
+    key: 'declaracion_redondeo_a_pesos',
+    textKey: 'filing_rounding_to_pesos',
+    category: 'fiscal',
+    question:
+      'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
+    impact:
+      'It can move the IVA payable by a peso or two: adjusting every line and adding whole pesos is not the same as adding cents and adjusting the result.',
+    options: [
+      {
+        value: 'cada_renglon',
+        label: 'Every line: each captured figure is adjusted to pesos and the arithmetic continues in whole pesos',
+      },
+      {
+        value: 'solo_el_pago',
+        label: 'Only the payment: the arithmetic runs in cents and only the result is adjusted to pesos',
+      },
+    ],
+    defaultValue: 'cada_renglon',
+    defaultRationale:
+      'CFF art. 20 adjusts the amounts of a return to whole pesos (cents 1 to 50 go down, 51 to 99 go up), after ' +
+      'rounding the ledger\'s four decimals to the cent. Adjusting each line before it is added keeps every captured ' +
+      'figure a whole peso, as the law asks of each amount. Unverified assumption: that the current Declaraciones y ' +
+      'Pagos IVA form captures each line in pesos; if it captures only bases and computes the tax itself, neither ' +
+      'option models it.',
+    whyAsking:
+      'CFF art. 20 says the amounts of a return are adjusted to whole pesos, but not at which step of the calculation. ' +
+      'Firms do it both ways, and the IVA payable they declare can differ by a peso or two.',
+    whatIDo:
+      'The workpaper always shows two columns, the cents traceable to the ledger and the pesos to capture, and derives the IVA payable or in favor the way you choose here.',
+    ifSkipped:
+      'I adjust every line to pesos before adding them.',
+    priority: 42,
+  },
   // #297 · MNE-001-110. Decided by the owner in MNE-001-109: the exemption of
   // the law, configurable. Reader: `overtimeLaw` in payroll/mx/isr-exemption.ts,
   // only when a paycheck carries an `overtime` earning.

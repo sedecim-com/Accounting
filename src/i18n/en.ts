@@ -1219,6 +1219,22 @@ export const EN = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'The daily amount first: monthly / 30.4 to the cent, then × the days of the period',
 
+  'policy.filing_rounding_to_pesos.question':
+    'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
+  'policy.filing_rounding_to_pesos.impact':
+    'It can move the IVA payable by a peso or two: adjusting every line and adding whole pesos is not the same as adding cents and adjusting the result.',
+  'policy.filing_rounding_to_pesos.rationale':
+    'CFF art. 20 adjusts the amounts of a return to whole pesos (cents 1 to 50 go down, 51 to 99 go up), after rounding the ledger\'s four decimals to the cent. Adjusting each line before it is added keeps every captured figure a whole peso, as the law asks of each amount. Unverified assumption: that the current Declaraciones y Pagos IVA form captures each line in pesos; if it captures only bases and computes the tax itself, neither option models it.',
+  'policy.filing_rounding_to_pesos.why':
+    'CFF art. 20 says the amounts of a return are adjusted to whole pesos, but not at which step of the calculation. Firms do it both ways, and the IVA payable they declare can differ by a peso or two.',
+  'policy.filing_rounding_to_pesos.what':
+    'The workpaper always shows two columns, the cents traceable to the ledger and the pesos to capture, and derives the IVA payable or in favor the way you choose here.',
+  'policy.filing_rounding_to_pesos.if_skipped':
+    'I adjust every line to pesos before adding them.',
+  'policy.filing_rounding_to_pesos.option.cada_renglon':
+    'Every line: each captured figure is adjusted to pesos and the arithmetic continues in whole pesos',
+  'policy.filing_rounding_to_pesos.option.solo_el_pago':
+    'Only the payment: the arithmetic runs in cents and only the result is adjusted to pesos',
   'policy.overtime_isr_exemption.question':
     'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
   'policy.overtime_isr_exemption.impact':
@@ -2359,6 +2375,21 @@ export const EN = {
     '--post posts it directly',
   'help.pay_run.post.argument.id': 'approved pay run whose entry is built',
   'help.pay_run.post.option.post': 'post the entry to the ledger now instead of leaving a draft for review',
+  'help.payslip.description': 'Paychecks of a pay run: list them, show one with its lines',
+  'help.payslip.list.description': 'List the paychecks of a run with gross, net and stamp status; no tax identifiers',
+  'help.payslip.list.option.run': 'pay run whose paychecks are listed (required)',
+  'help.payslip.show.description':
+    'Show one paycheck: totals from gross to net and every earning, deduction and tax line',
+  'help.payslip.show.argument.id': 'paycheck id (from `payslip list --run`)',
+  'help.payslip.show.option.redacted': 'hide RFC, CURP and NSS entirely, for a shared screen',
+  'help.imss.description': 'IMSS obligations of the employer: the monthly SUA file',
+  'help.imss.sua.description': 'The SUA import file of a month',
+  'help.imss.sua.export.description':
+    'Build the SUA import file of a month from the approved paychecks, checked against the employer liability',
+  'help.imss.sua.export.option.period': 'month to export (YYYY-MM); the SUA is monthly',
+  'help.imss.sua.export.option.output': 'write the SUA file to this path (without it, the file goes to stdout)',
+  'help.imss.sua.export.option.yes': 'overwrite the file named by -o if it already exists',
+  'help.imss.sua.export.option.dry_run': 'build and check the file without writing it or recording the filing',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -2442,4 +2473,19 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+
+  // --- payslip · recibo and imss sua export (MNE-001-070) -----------------
+  'payslip.run_required': 'Missing --run: name the pay run whose paychecks you want (`pay-run create` printed its id).',
+  'imss.sua.period_invalid': '--period "{period}": use the month as YYYY-MM, for example 2026-07.',
+  'imss.sua.exists': '{path} already exists and is not overwritten without asking: use another path, or --yes.',
+  'imss.sua.tty':
+    'The SUA file carries the NSS, RFC and CURP of the whole roll and is not printed to a terminal: name a file with -o, or redirect stdout.',
+  'imss.sua.mismatch': 'The SUA file does not match the employer liability already recorded, so it is not delivered: {findings}',
+  'imss.sua.finding.no_liability':
+    'the file declares {file} of {concept} and no employer liability is recorded for the month to check it against: the figure comes from one road only',
+  'imss.sua.finding.mismatch': '{concept}: the file declares {file} and the recorded liability says {ledger}',
+  'imss.sua.dry_run': 'Dry run: the SUA file of {count} employee(s) was built and checked; no file was written and nothing was recorded.',
+  'payslip.status_invalid': '--status {status}: use one of {states}.',
+  'imss.sua.not_filed':
+    'SUA file of {count} employee(s) built and recorded as a draft filing. Nothing was sent: load it into the SUA and pay.',
 } as const;

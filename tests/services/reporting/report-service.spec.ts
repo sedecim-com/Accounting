@@ -141,6 +141,19 @@ describe('the (jel JOIN je) pair — the defect that must never come back', () =
   });
 });
 
+describe('queryTrialBalanceRows on the caller\'s transaction (MNE-001-058)', () => {
+  it('reads on the client it is given, and passes it to both panel readers, never the pool', async () => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [tbRow('1146', '10', '0')] });
+    const client = { query: clientQuery } as unknown as import('pg').PoolClient;
+    const rows = await queryTrialBalanceRows(ENTITY, { sinceDate: '2026-05-01', untilDate: '2026-05-31' }, client);
+    expect(rows).toHaveLength(1);
+    expect(clientQuery).toHaveBeenCalledTimes(1);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(criterioDeCierreEnInformes).toHaveBeenLastCalledWith(ENTITY, client);
+    expect(criterioDeCuentasArchivadas).toHaveBeenLastCalledWith(ENTITY, client);
+  });
+});
+
 describe('queryTrialBalanceRows', () => {
   // ══════════════════════════════════════════════════════════
   // T13 · ESTA PRUEBA AFIRMABA EL DEFECTO. Se reescribe, no se borra.

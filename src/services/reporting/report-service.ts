@@ -318,7 +318,11 @@ function entryFilter(filters: TrialBalanceFilters, params: unknown[], start: num
  */
 export async function queryTrialBalanceRows(
   entityId: string,
-  filters: TrialBalanceFilters = {}
+  filters: TrialBalanceFilters = {},
+  // A caller inside a transaction passes its client, so the balance reads the
+  // same snapshot as the rest of its work and does not take a second
+  // pooled connection while it holds the first (MNE-001-058).
+  client?: pg.PoolClient
 ): Promise<TrialBalanceQueryRow[]> {
   const params: unknown[] = [entityId];
   let where = 'WHERE a.entity_id = $1';
@@ -336,7 +340,7 @@ export async function queryTrialBalanceRows(
   // balanza con el mayor— y quien la publica añade la nota que lo dice.
   const criterio = filters.ignoreClosingPolicy
     ? null
-    : await criterioDeCierreEnInformes(entityId);
+    : await criterioDeCierreEnInformes(entityId, client);
   const closingFilter = criterio && !criterio.enBalanza ? predicadoSinCierre() : '';
   // Unidos sin dejar un hueco cuando uno de los dos falta: los predicados del
   // par (jel JOIN je) se leen —y se prueban— como una sola cadena.
@@ -357,10 +361,12 @@ export async function queryTrialBalanceRows(
   // T13, y sólo por eso esta rama es correcta ahora.
   const archivadas = filters.ignoreClosingPolicy
     ? null
-    : await criterioDeCuentasArchivadas(entityId);
+    : await criterioDeCuentasArchivadas(entityId, client);
   where += predicadoDeCuentaEnBalanza(archivadas, filters, posicionDelCorte);
 
-  const result = await query<TrialBalanceQueryRow>(
+  const run = (text: string, values: unknown[]) =>
+    client ? client.query<TrialBalanceQueryRow>(text, values) : query<TrialBalanceQueryRow>(text, values);
+  const result = await run(
     `SELECT
       a.id AS account_id,
       a.code AS account_code,
