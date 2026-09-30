@@ -3471,7 +3471,8 @@ registerCompactCommand(program, { palette: c, shutdown, reportError });
 registerApprovalsCommand(program, { palette: c, shutdown, reportError });
 registerEntityCommand(program, { palette: c, shutdown, reportError });
 registerTenantCommand(program, { palette: c, shutdown, reportError });
-registerUserCommand(program, { palette: c, shutdown, reportError, readSecret: readSecretFromTty });
+// The prompt goes to stderr: `user create --json | jq` keeps a clean stdout.
+registerUserCommand(program, { palette: c, shutdown, reportError, readSecret: (p) => readSecretFromTty(p, stderr) });
 registerPaymentCommands(program, { palette: c, shutdown, reportError });
 registerAccountCommand(program, { palette: c, shutdown, reportError });
 registerAnexo24MigrationCommands(program, { palette: c, shutdown, reportError });

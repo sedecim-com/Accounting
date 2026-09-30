@@ -125,6 +125,26 @@ describe('readPassword', () => {
     expect(d.readSecret).not.toHaveBeenCalled();
   });
 
+  it('--password-stdin on a terminal is refused instead of reading typed, echoed input', async () => {
+    const stdin = Object.assign(Readable.from([SECRET]), { isTTY: true });
+    const d = deps({ stdin });
+    await expect(readPassword({ passwordStdin: true }, d)).rejects.toMatchObject({
+      exitCode: ExitCode.USAGE,
+      message: expect.stringMatching(/expects a pipe/),
+    });
+    // The stream was never read: nothing typed was consumed in cooked mode.
+    expect(stdin.readableEnded).toBe(false);
+    expect(d.readSecret).not.toHaveBeenCalled();
+  });
+
+  it('a cancelled prompt says so, instead of asking for a pipe', async () => {
+    const d = deps({ stdin: Object.assign(Readable.from([]), { isTTY: true }) });
+    await expect(readPassword({}, d)).rejects.toMatchObject({
+      exitCode: ExitCode.USAGE,
+      message: expect.stringMatching(/^Cancelled; nothing was created/),
+    });
+  });
+
   it('on a real terminal it asks with the hidden-echo prompt', async () => {
     const d = deps({ stdin: Object.assign(Readable.from([]), { isTTY: true }), readSecret: vi.fn(async () => SECRET) });
     expect(await readPassword({}, d)).toBe(SECRET);

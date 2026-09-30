@@ -59,7 +59,10 @@ export interface UserCommandDeps {
   palette: Palette;
   shutdown: (code: number) => Promise<void> | void;
   reportError: (err: unknown) => void;
-  /** Hidden-echo prompt for a real terminal; injectable for tests. */
+  /**
+   * Hidden-echo prompt for a real terminal; injectable for tests. It must
+   * write to stderr, so `--json` on stdout stays parseable.
+   */
   readSecret: (prompt: string) => Promise<string | null>;
   stdin?: NodeJS.ReadableStream & { isTTY?: boolean };
   env?: NodeJS.ProcessEnv;
@@ -84,7 +87,15 @@ export async function readPassword(opts: { passwordStdin?: boolean }, deps: User
   if (opts.passwordStdin && fromEnv !== undefined) {
     throw usageError(`--password-stdin and ${PASSWORD_ENV} are both set; use one.`);
   }
-  if (opts.passwordStdin) return readAll(stdin);
+  if (opts.passwordStdin) {
+    // On a terminal, reading stdin in cooked mode echoes every character
+    // typed (#326). --password-stdin is the script's door; a person at a
+    // terminal gets the hidden prompt by leaving the flag out.
+    if (stdin.isTTY) {
+      throw usageError('--password-stdin expects a pipe; run without it on a terminal for a hidden prompt.');
+    }
+    return readAll(stdin);
+  }
   if (fromEnv !== undefined) {
     // Not inherited by anything this process spawns afterwards.
     delete env[PASSWORD_ENV];
@@ -92,7 +103,8 @@ export async function readPassword(opts: { passwordStdin?: boolean }, deps: User
   }
   if (stdin.isTTY) {
     const typed = await deps.readSecret('  Password: ');
-    if (typed !== null) return typed;
+    if (typed === null) throw usageError('Cancelled; nothing was created.');
+    return typed;
   }
   throw usageError(
     `No password: pipe it with --password-stdin or set ${PASSWORD_ENV}. ` +

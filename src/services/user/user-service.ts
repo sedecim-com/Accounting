@@ -57,6 +57,22 @@ export function resolveRole(input: string): RoleName {
   );
 }
 
+/**
+ * The one password rule of both doors (the wizard and `user create`): at
+ * least MIN_PASSWORD characters counted as code points, at most
+ * MAX_PASSWORD_BYTES bytes of UTF-8. The message names the rule, never the value.
+ */
+export function validatePassword(password: string): void {
+  if ([...password].length < MIN_PASSWORD) {
+    throw new ValidationError(`The password is too short: at least ${MIN_PASSWORD} characters.`);
+  }
+  if (Buffer.byteLength(password, 'utf-8') > MAX_PASSWORD_BYTES) {
+    throw new ValidationError(
+      `The password is too long: bcrypt keeps only the first ${MAX_PASSWORD_BYTES} bytes.`
+    );
+  }
+}
+
 /** Validates what can be checked before a connection is taken. */
 export function normalizeUserInput(input: CreateUserInput): { email: string; role: RoleName } {
   const email = input.email.trim().toLowerCase();
@@ -64,15 +80,7 @@ export function normalizeUserInput(input: CreateUserInput): { email: string; rol
     throw new ValidationError(`"${input.email}" is not a usable email address.`);
   }
   const role = resolveRole(input.role);
-  // The message names the rule, never the value.
-  if ([...input.password].length < MIN_PASSWORD) {
-    throw new ValidationError(`The password is too short: at least ${MIN_PASSWORD} characters.`);
-  }
-  if (Buffer.byteLength(input.password, 'utf-8') > MAX_PASSWORD_BYTES) {
-    throw new ValidationError(
-      `The password is too long: bcrypt keeps only the first ${MAX_PASSWORD_BYTES} bytes.`
-    );
-  }
+  validatePassword(input.password);
   return { email, role };
 }
 
@@ -120,6 +128,17 @@ export async function createUser(input: CreateUserInput): Promise<{ id: string; 
   const hash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
 
   return inTenant(input.tenantId, async (client, systemUser) => {
+    // Addresses are compared case-insensitively: an OIDC login is stored as
+    // the provider spelled it (Ana@Example.com), and the UNIQUE constraint on
+    // (tenant_id, email) is case-sensitive, so ON CONFLICT alone would let a
+    // second row in for the same person.
+    const taken = await client.query(
+      'SELECT 1 FROM public.users WHERE tenant_id = $1 AND lower(email) = $2',
+      [input.tenantId, email]
+    );
+    if (taken.rows.length > 0) {
+      throw new ConflictError(`User ${email} already exists in this firm; nothing was changed.`);
+    }
     const created = await client.query<{ id: string }>(
       `INSERT INTO public.users (tenant_id, email, password_hash, first_name, roles, permissions, accessible_entities)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, '[]'::jsonb)
@@ -171,24 +190,36 @@ export async function archiveUser(input: { tenantId: string; email: string; reas
         FOR UPDATE`,
       [input.tenantId]
     );
-    if (owners.rows.length === 1 && owners.rows[0].email === email) {
+    // Case-insensitive throughout: OIDC provisioning stores the address as the
+    // provider spelled it, and `user archive` lower-cases what it is given.
+    if (owners.rows.length === 1 && owners.rows[0].email.toLowerCase() === email) {
       throw new ValidationError(`${email} is the last active owner of this firm; create another owner first.`);
     }
 
-    const updated = await client.query<{ id: string }>(
-      `UPDATE public.users SET is_active = false, updated_at = NOW()
-        WHERE tenant_id = $1 AND email = $2 AND is_active = true AND NOT roles @> $3::jsonb
-        RETURNING id`,
+    const matches = await client.query<{ id: string; email: string; is_active: boolean }>(
+      `SELECT id, email, is_active FROM public.users
+        WHERE tenant_id = $1 AND lower(email) = $2 AND NOT roles @> $3::jsonb
+        FOR UPDATE`,
       [input.tenantId, email, JSON.stringify([SYSTEM_ROLE])]
     );
-    if (updated.rowCount !== 1) {
-      const seen = await client.query<{ is_active: boolean }>(
-        `SELECT is_active FROM public.users WHERE tenant_id = $1 AND email = $2 AND NOT roles @> $3::jsonb`,
-        [input.tenantId, email, JSON.stringify([SYSTEM_ROLE])]
+    if (matches.rows.length === 0) throw new NotFoundError(`User ${email} in this firm`);
+    const active = matches.rows.filter((u) => u.is_active);
+    if (active.length === 0) throw new ConflictError(`User ${email} is already archived.`);
+    if (active.length > 1) {
+      // Rows older than the case-insensitive check may differ only in case;
+      // archiving one of them by guess would leave the other able to sign in.
+      throw new ConflictError(
+        `${active.length} active logins match ${email} ignoring case (${active.map((u) => u.email).join(', ')}); ` +
+          'nothing was changed.'
       );
-      if (seen.rows.length === 0) throw new NotFoundError(`User ${email} in this firm`);
-      throw new ConflictError(`User ${email} is already archived.`);
     }
+    const target = active[0];
+    const updated = await client.query<{ id: string }>(
+      `UPDATE public.users SET is_active = false, updated_at = NOW()
+        WHERE tenant_id = $1 AND id = $2
+        RETURNING id`,
+      [input.tenantId, target.id]
+    );
     const id = updated.rows[0].id;
     await registrarAuditoria(client, {
       tenantId: input.tenantId,
@@ -200,6 +231,6 @@ export async function archiveUser(input: { tenantId: string; email: string; reas
       newValues: { is_active: false },
       reason: input.reason,
     });
-    return { id, email };
+    return { id, email: target.email };
   });
 }

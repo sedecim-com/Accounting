@@ -90,6 +90,40 @@ describe('the service', () => {
     expect(r.rows[0].roles).toEqual(['viewer']);
   });
 
+  it('matches an address ignoring case, as OIDC provisioning stores it', async () => {
+    // provisioning.ts inserts identity.email exactly as the provider sends it.
+    const seeded = await query<{ id: string }>(
+      `INSERT INTO users (tenant_id, email, password_hash, roles, permissions, accessible_entities)
+       VALUES ($1, 'Mixed@Example.com', 'oidc', '["viewer"]'::jsonb, '[]'::jsonb, '[]'::jsonb)
+       RETURNING id`,
+      [f.tenantId]
+    );
+    await expect(
+      createUser({ tenantId: f.tenantId, email: 'mixed@example.com', role: 'owner', password: SECRET })
+    ).rejects.toThrow(ConflictError);
+    const rows = await query('SELECT 1 FROM users WHERE tenant_id = $1 AND lower(email) = $2', [f.tenantId, 'mixed@example.com']);
+    expect(rows.rows).toHaveLength(1);
+
+    const archived = await archiveUser({ tenantId: f.tenantId, email: 'Mixed@Example.com', reason: 'left' });
+    expect(archived).toEqual({ id: seeded.rows[0].id, email: 'Mixed@Example.com' });
+    const row = await query<{ is_active: boolean }>('SELECT is_active FROM users WHERE id = $1', [seeded.rows[0].id]);
+    expect(row.rows[0].is_active).toBe(false);
+
+    // The last-owner guard ignores case too.
+    const lone = await crearInquilino('MNE-086 mixed-case owner');
+    await query(
+      `INSERT INTO users (tenant_id, email, password_hash, roles, permissions, accessible_entities)
+       VALUES ($1, 'Chief@Example.com', 'oidc', '["owner"]'::jsonb, '[]'::jsonb, '[]'::jsonb)`,
+      [lone.tenantId]
+    );
+    const others = await query<{ email: string }>(
+      `SELECT email FROM users WHERE tenant_id = $1 AND is_active AND roles @> '["owner"]' AND email <> 'Chief@Example.com'`,
+      [lone.tenantId]
+    );
+    for (const o of others.rows) await archiveUser({ tenantId: lone.tenantId, email: o.email, reason: 'test' });
+    await expect(archiveUser({ tenantId: lone.tenantId, email: 'chief@example.com', reason: 'x' })).rejects.toThrow(ValidationError);
+  });
+
   it('refuses to archive the last active owner, an unknown user, and an archived one', async () => {
     const lone = await crearInquilino('MNE-086 lone owner');
     await createUser({ tenantId: lone.tenantId, email: 'boss@example.com', role: 'owner', password: SECRET });
