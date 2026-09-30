@@ -263,7 +263,7 @@ async function killLockOf(killer: LockKiller, lockKey: string): Promise<{ heldBy
 }
 
 describe('A6 · el conductor', () => {
-  it('walks the six steps in order and ends with the hard close, which carries the month forward (#99)', async () => {
+  it('walks the seven steps in order and ends with the hard close, which carries the month forward (#99)', async () => {
     enterTenant(f.tenantId);
     const julio = await periodOf(f, JULIO);
     const r = await conductClose(ctx, julio, { userId: f.userId });

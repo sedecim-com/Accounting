@@ -127,7 +127,9 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
         linea('Open invoices', r.open_invoices);
         for (const f of r.foreign_open) linea(`  of which ${f.currency} ${f.foreign}`, f.book);
         linea('− Credit notes unapplied', r.unapplied_credit_notes);
-        // MNE-001-112: between a close and its day-1 mirror the control holds the revaluation.
+        for (const f of r.foreign_unapplied) linea(`  of which ${f.currency} ${f.foreign}`, f.book);
+        // MNE-001-112: this control has no cut-off date, so a revaluation and its
+        // day-1 mirror net to zero; the line shows only when a mirror is missing.
         if (r.fx_revaluation !== '0.00') linea('+ FX revaluation (NIF B-15)', r.fx_revaluation);
         linea('Subledger net', r.subledger_net);
         out.write(

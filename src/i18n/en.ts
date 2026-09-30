@@ -64,7 +64,7 @@ export const EN = {
     'The revaluation record of {period} does not agree with the ledger: the ledger holds {ledger} revaluation entries for it and the record {marker}, or their amounts differ. Running it again could post the revaluation twice, so nothing was posted; the record needs to be reviewed.',
   /** `AccountingError('FX_REVALUATION_KEY_LOCKED')`: changing a key the revaluation reads while a revaluation is live (MNE-001-112). */
   'error.FX_REVALUATION_KEY_LOCKED':
-    '{policy} cannot change while a revaluation is live: {entity} revalued {period}, which is not hard-closed yet, and a supplement under the new value would measure that month twice over. Change it once the revalued months are sealed (at the latest, at the start of the next fiscal year).',
+    '{policy} cannot change now: {entity} revalued {period}, which is not hard-closed yet, and the months still to be revalued in its fiscal year would be measured under the new value. It changes once the revalued months are sealed, or at the start of a fiscal year: when the next fiscal year is open, has no revaluation yet, and every month before it is revalued or hard-closed.',
   /** `AccountingError('FX_RATE_MISSING')` when the source was chosen by a panel key other than fuente_tipo_cambio (the closing revaluation). */
   'error.FX_RATE_MISSING':
     'There is no {from}→{to} rate from the source {source} for {date}. Enter it with: mnemosine fx rate set {from}/{to} {date} RATE --source {source}, or download it with: mnemosine fx rate download. No other source or date is taken silently: the source was chosen on the policy panel, and it is a criterion of the firm.',

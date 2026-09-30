@@ -44,7 +44,7 @@ describe('arReconcile manual entries', () => {
       .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', code: '1120', name: 'Clientes' }] })
       .mockResolvedValueOnce({ rows: [{ saldo: '0' }] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ total: '0' }] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ net: '0' }] })
       .mockResolvedValueOnce({ rows: [] });
 
@@ -73,7 +73,7 @@ describe('arReconcile in a foreign currency (MNE-001-112)', () => {
           { currency: 'USD', functional: false, foreign: '1000', book: '17500' },
         ],
       })
-      .mockResolvedValueOnce({ rows: [{ total: '0' }] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ net: '700' }] })
       .mockResolvedValueOnce({ rows: [] });
 
@@ -86,6 +86,30 @@ describe('arReconcile in a foreign currency (MNE-001-112)', () => {
       subledger_net: '20400.00',
       balanced: true,
       foreign_open: [{ currency: 'USD', foreign: '1000.00', book: '17500.00' }],
+    });
+  });
+});
+
+describe('arReconcile credit notes in a foreign currency (MNE-001-112 review)', () => {
+  it('weighs an unapplied USD note at its invoice rate, not at face', async () => {
+    // USD 1 000 invoice at 17.50 (17 500) and a USD 100 note on it, issued
+    // and posted converted (a legacy correct entry): control 15 750.
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ account_id: 'acc-1', code: '1120', name: 'Clientes' }] })
+      .mockResolvedValueOnce({ rows: [{ saldo: '15750' }] })
+      .mockResolvedValueOnce({ rows: [{ currency: 'USD', functional: false, foreign: '1000', book: '17500' }] })
+      .mockResolvedValueOnce({ rows: [{ currency: 'USD', functional: false, foreign: '100', book: '1750' }] })
+      .mockResolvedValueOnce({ rows: [{ net: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const r = await arReconcile(ENTITY);
+
+    expect(sql(3)).toMatch(/ROUND\(\(cn\.total_amount - cn\.amount_applied\) \* i\.exchange_rate, 4\)/);
+    expect(r).toMatchObject({
+      unapplied_credit_notes: '1750.00',
+      subledger_net: '15750.00',
+      balanced: true,
+      foreign_unapplied: [{ currency: 'USD', foreign: '100.00', book: '1750.00' }],
     });
   });
 });

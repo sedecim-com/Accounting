@@ -48,6 +48,8 @@ export interface ArReconcileResult {
   fx_revaluation: string;
   /** Open invoices in a foreign currency, per currency, with their book value (already in open_invoices). */
   foreign_open: ForeignOpen[];
+  /** Unapplied credit notes in a foreign currency, per currency, with their book value (already in unapplied_credit_notes). */
+  foreign_unapplied: ForeignOpen[];
   subledger_net: string;
   delta: string;
   balanced: boolean;
@@ -93,10 +95,26 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
     [entityId, [...ABIERTAS]]
   );
 
-  const notas = await query<{ total: string }>(
-    `SELECT COALESCE(SUM(total_amount - amount_applied), 0)::text AS total
-       FROM credit_notes
-      WHERE entity_id = $1 AND status = 'issued'`,
+  // MNE-001-112: the unapplied notes, per currency, at book value like the
+  // invoices they will be applied to. A foreign note weighs its unapplied
+  // balance at its invoice's rate: applying it lowers that invoice's book
+  // value at that rate, so the note must hold the same figure until then. A
+  // foreign note without an invoice has no rate to read and stays at face:
+  // issuing one is refused (FX_CREDIT_NOTE_NOT_WIRED), so only a note issued
+  // before that refusal can be here, and it was posted at face.
+  const notas = await query<{ currency: string; functional: boolean; foreign: string; book: string }>(
+    `SELECT cn.currency_code AS currency,
+            (cn.currency_code = le.functional_currency) AS functional,
+            SUM(cn.total_amount - cn.amount_applied)::text AS foreign,
+            SUM(CASE WHEN cn.currency_code = le.functional_currency OR i.id IS NULL
+                     THEN cn.total_amount - cn.amount_applied
+                     ELSE ROUND((cn.total_amount - cn.amount_applied) * i.exchange_rate, 4) END)::text AS book
+       FROM credit_notes cn
+       JOIN legal_entities le ON le.id = cn.entity_id
+       LEFT JOIN invoices i ON i.id = cn.invoice_id AND i.entity_id = cn.entity_id
+      WHERE cn.entity_id = $1 AND cn.status = 'issued'
+      GROUP BY 1, 2
+      ORDER BY 1`,
     [entityId]
   );
 
@@ -104,7 +122,7 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
 
   const controlBal = new Decimal(control.rows[0].saldo);
   const auxiliar = abiertas.rows.reduce((sum, row) => sum.plus(row.book), new Decimal(0));
-  const porAplicar = new Decimal(notas.rows[0].total);
+  const porAplicar = notas.rows.reduce((sum, row) => sum.plus(row.book), new Decimal(0));
   const neto = auxiliar.minus(porAplicar).plus(revaluation);
   const delta = controlBal.minus(neto);
 
@@ -148,6 +166,13 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
       .filter((row) => !row.functional)
       .map((row) => ({
         currency: row.currency ?? '',
+        foreign: new Decimal(row.foreign).toFixed(2),
+        book: new Decimal(row.book).toFixed(2),
+      })),
+    foreign_unapplied: notas.rows
+      .filter((row) => !row.functional)
+      .map((row) => ({
+        currency: row.currency,
         foreign: new Decimal(row.foreign).toFixed(2),
         book: new Decimal(row.book).toFixed(2),
       })),

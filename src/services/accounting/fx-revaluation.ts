@@ -242,8 +242,11 @@ async function closingRate(
   ctx: { tenantId: string; entityId: string },
   currency: string,
   functional: string,
-  closingDate: string
+  closingDate: string,
+  /** The source an earlier run of the period measured at: it wins over the panel. */
+  fixedSource?: string
 ): Promise<TipoCambioResuelto> {
+  if (fixedSource) return resolverTipoCambio(client, ctx, { de: currency, a: functional, fecha: closingDate, source: fixedSource });
   const policy = await getPolicy(ctx, 'closing_exchange_rate_source', client);
   if (!(policy.value in CLOSING_SOURCE)) {
     throw new AccountingError(
@@ -289,6 +292,29 @@ interface PriorRun {
   journal_entry_id: string;
   reversal_entry_id: string;
   lines: PostedLine[];
+  /** Per currency, the rate and the source it was read from. */
+  rates: Record<string, { rate: string; source: string }>;
+}
+
+/**
+ * MNE-001-112 · the source a period's first run fixed, per currency. A
+ * supplement measures at it, not at whatever the panel says today: one
+ * period's balance sheet at two closing rates is not a revaluation. It is
+ * what lets `closing_exchange_rate_source` change at the start of a fiscal
+ * year while the past year's last months are still live (see
+ * `assertNoLiveRevaluation`). A currency the earlier runs did not see takes
+ * the one source they used; with none recorded, or several, the panel rules.
+ */
+export function sourcesFixedBy(prior: Array<Pick<PriorRun, 'rates'>>): (currency: string) => string | undefined {
+  const recorded = new Map<string, string>();
+  for (const run of prior) {
+    for (const [currency, r] of Object.entries(run.rates ?? {})) {
+      if (!recorded.has(currency)) recorded.set(currency, r.source);
+    }
+  }
+  const all = new Set(recorded.values());
+  const single = all.size === 1 ? [...all][0] : undefined;
+  return (currency) => recorded.get(currency) ?? single;
 }
 
 /**
@@ -372,7 +398,7 @@ export async function revalueForeignBalances(
 
     const prior = (
       await client.query<PriorRun>(
-        `SELECT sequence, journal_entry_id, reversal_entry_id, lines
+        `SELECT sequence, journal_entry_id, reversal_entry_id, lines, rates
            FROM fx_revaluation_runs WHERE entity_id = $1 AND fiscal_period_id = $2
           ORDER BY sequence`,
         [ctx.entityId, period.id]
@@ -382,11 +408,12 @@ export async function revalueForeignBalances(
     const posted = postedSoFar(prior);
     const last = prior.at(-1);
 
-    // Read against MXN, the one functional currency this engine knows: for an
-    // entity in another one, any currency-tagged balance is something it
-    // cannot revalue, and saying so beats skipping it.
-    const ledger = await foreignBalances(client, ctx.entityId, period.end_date, SUPPORTED_FUNCTIONAL);
+    // Read against the entity's own functional currency: for an entity in one
+    // this engine does not know (only MXN), any balance tagged with another
+    // currency (MXN included) is something it cannot revalue, and saying so
+    // beats skipping it. Nothing tagged is nothing to refuse.
     const functional = await functionalCurrencyOf(client, ctx.entityId);
+    const ledger = await foreignBalances(client, ctx.entityId, period.end_date, functional);
     if (functional !== SUPPORTED_FUNCTIONAL && (ledger.length > 0 || prior.length > 0)) {
       throw new AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED', {
         key: 'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED',
@@ -413,9 +440,13 @@ export async function revalueForeignBalances(
     await assertReversalPolicy(client, ctx);
     const next = await reversalPeriod(client, ctx.entityId, period);
 
+    const fixed = sourcesFixedBy(prior);
     const rates = new Map<string, TipoCambioResuelto>();
     for (const currency of new Set(balances.map((b) => b.currency))) {
-      rates.set(currency, await closingRate(client, ctx, currency, SUPPORTED_FUNCTIONAL, period.end_date));
+      rates.set(
+        currency,
+        await closingRate(client, ctx, currency, SUPPORTED_FUNCTIONAL, period.end_date, fixed(currency))
+      );
     }
     const lines: RevaluationLine[] = balances.map((b) => {
       const rate = (rates.get(b.currency) as TipoCambioResuelto).tasa;
@@ -558,15 +589,25 @@ export async function revaluationEntriesOf(entityId: string, periodId: string): 
 
 /**
  * MNE-001-112 · the owner's transition rule (#305, 2026-09-26): a key the
- * revaluation reads only changes when no revaluation is live. A revaluation
- * is live while its period is not hard-closed, because until the seal a late
- * foreign posting can still call for a supplement, and a supplement under the
- * new key would measure one period's balance sheet at two rates or with two
- * reversal treatments. Once the revalued months are sealed (the start of the
- * next fiscal year, at the latest) the key changes, prospectively (NIF B-1).
+ * revaluation reads changes only at the start of the fiscal year, or when no
+ * revaluation is live. Both halves, per entity the row governs:
+ *
+ *  · NO REVALUATION LIVE: every period with a revaluation run is hard-closed.
+ *    Until the seal a late foreign posting can still call for a supplement,
+ *    and a supplement under the new key would measure one period's balance
+ *    sheet with two criteria.
+ *  · THE START OF A FISCAL YEAR: some fiscal year of the entity has no run in
+ *    it or after it, and every regular period before it is either revalued or
+ *    hard-closed. The old key measured the whole past year and the new one
+ *    measures the whole new year; no month of either is left to be measured
+ *    by the other. What stays live from the past year is kept at its own
+ *    source by the engine (`sourcesFixedBy`): a supplement measures at the
+ *    source the period's first run used, not at the new key. The rule reads
+ *    the ledger, not the clock.
  *
  * The scope follows the row being written: an entity's row checks that
- * entity; the tenant's row governs all of its entities, so it checks them all.
+ * entity; the tenant's row checks the entities it governs, which are those
+ * without a row of their own for the key.
  */
 export async function assertNoLiveRevaluation(
   ctx: { tenantId: string; entityId?: string },
@@ -579,11 +620,27 @@ export async function assertNoLiveRevaluation(
        JOIN fiscal_periods fp ON fp.id = run.fiscal_period_id AND fp.entity_id = run.entity_id
        JOIN legal_entities le ON le.id = run.entity_id
       WHERE le.tenant_id = $1
+        AND ($2::uuid IS NOT NULL OR NOT EXISTS (
+              SELECT 1 FROM policy_decisions pd
+               WHERE pd.tenant_id = le.tenant_id AND pd.entity_id = run.entity_id AND pd.key = $3))
         AND ($2::uuid IS NULL OR run.entity_id = $2::uuid)
         AND fp.status <> 'hard_close'
+        AND NOT EXISTS (
+              SELECT 1 FROM fiscal_years fy
+               WHERE fy.entity_id = run.entity_id
+                 AND NOT EXISTS (
+                       SELECT 1 FROM fx_revaluation_runs later
+                         JOIN fiscal_periods lp ON lp.id = later.fiscal_period_id AND lp.entity_id = later.entity_id
+                        WHERE later.entity_id = run.entity_id AND lp.end_date >= fy.start_date)
+                 AND NOT EXISTS (
+                       SELECT 1 FROM fiscal_periods pp
+                        WHERE pp.entity_id = run.entity_id AND pp.period_type = 'regular'
+                          AND pp.end_date < fy.start_date AND pp.status <> 'hard_close'
+                          AND NOT EXISTS (SELECT 1 FROM fx_revaluation_runs pr
+                                           WHERE pr.entity_id = pp.entity_id AND pr.fiscal_period_id = pp.id)))
       ORDER BY fp.start_date, le.name
       LIMIT 1`,
-    [ctx.tenantId, ctx.entityId ?? null]
+    [ctx.tenantId, ctx.entityId ?? null, key]
   );
   const live = r.rows[0];
   if (live) {
