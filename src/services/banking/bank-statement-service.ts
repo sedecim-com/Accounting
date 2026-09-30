@@ -233,6 +233,12 @@ async function cuentaDeLaEntidad(
   return r.rows[0];
 }
 
+function ambiguousBankAccount(needle: string): ValidationError {
+  return new ValidationError(
+    `"${needle}" nombra más de una cuenta bancaria. Usa el identificador que imprime 'bank account list'.`
+  );
+}
+
 /**
  * Resuelve `--account` por id o por nombre. El nombre es lo que un operador
  * teclea; el uuid es lo que devuelve `list`. Ambos acotados por entidad DENTRO
@@ -250,19 +256,29 @@ export async function resolverCuentaBancaria(
     if (r.rows.length === 0) throw new NotFoundError('Bank Account', aguja);
     return r.rows[0];
   }
+  // The exact name wins before any substring: with 'BBVA' and 'BBVA USD' on the
+  // same entity, `BBVA` names the first one and is not ambiguous (#327).
+  const exact = await query<{ id: string; account_name: string }>(
+    `SELECT id, account_name FROM bank_accounts
+      WHERE entity_id = $1 AND lower(account_name) = lower($2)
+      ORDER BY is_active DESC, account_name
+      LIMIT 2`,
+    [entityId, aguja]
+  );
+  if (exact.rows.length === 1) return exact.rows[0];
+  if (exact.rows.length > 1) throw ambiguousBankAccount(aguja);
+  // LIKE metacharacters in the needle are escaped: `--bank %` must not match
+  // every account.
+  const escapedNeedle = aguja.replace(/[\\%_]/g, '\\$&');
   const r = await query<{ id: string; account_name: string }>(
     `SELECT id, account_name FROM bank_accounts
       WHERE entity_id = $1 AND account_name ILIKE $2
       ORDER BY is_active DESC, account_name
       LIMIT 2`,
-    [entityId, `%${aguja}%`]
+    [entityId, `%${escapedNeedle}%`]
   );
   if (r.rows.length === 0) throw new NotFoundError('Bank Account', aguja);
-  if (r.rows.length > 1) {
-    throw new ValidationError(
-      `"${aguja}" nombra más de una cuenta bancaria. Usa el identificador que imprime 'bank account list'.`
-    );
-  }
+  if (r.rows.length > 1) throw ambiguousBankAccount(aguja);
   return r.rows[0];
 }
 

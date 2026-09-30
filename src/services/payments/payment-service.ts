@@ -395,6 +395,32 @@ async function foreignCurrencyContext(
   return { moneda, monedaFuncional: funcional, tasaPago: resolved.tasa, fuenteTasa: resolved.fuente, aplicaciones: apps };
 }
 
+/**
+ * The bank account a NEW payment names has to be this entity's and active
+ * (#327). The check lives here, not in one caller, so REST and the terminal
+ * fail closed alike: before it, another entity's id reached the INSERT and the
+ * posting silently fell back to the default bank role, and a closed account took
+ * new money movement. Zero rows means both "does not exist" and "not yours".
+ */
+async function assertPayableBankAccount(
+  client: pg.PoolClient,
+  entityId: string,
+  bankAccountId: string | null | undefined
+): Promise<void> {
+  if (!bankAccountId) return;
+  const r = await client.query<{ account_name: string; is_active: boolean }>(
+    'SELECT account_name, is_active FROM bank_accounts WHERE id = $1 AND entity_id = $2',
+    [bankAccountId, entityId]
+  );
+  if (r.rows.length === 0) throw new NotFoundError('Bank Account', bankAccountId);
+  if (!r.rows[0].is_active) {
+    throw new ValidationError(
+      `La cuenta bancaria "${r.rows[0].account_name}" está inactiva: no registra movimientos nuevos. ` +
+        'Elige una cuenta activa de `bank account list`.'
+    );
+  }
+}
+
 // ── Proveedores ──
 
 export async function recordVendorPayment(
@@ -410,6 +436,7 @@ export async function recordVendorPayment(
   assertRastroDePago(entrada, 'proveedor');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
+    await assertPayableBankAccount(client, entrada.entityId, entrada.bankAccountId);
     const documentos: DocumentoAplicado[] = [];
     // R4 · lo que el desglose cambiario necesita de cada gasto: su tasa
     // histórica viaja junto a lo aplicado, porque cada pasivo se extingue
@@ -658,6 +685,7 @@ export async function recordCustomerPayment(
   assertRastroDePago(entrada, 'cliente');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
+    await assertPayableBankAccount(client, entrada.entityId, entrada.bankAccountId);
     const documentos: DocumentoAplicado[] = [];
     // What the exchange breakdown needs from each invoice: the rate its
     // receivable was born with travels next to what is applied.
