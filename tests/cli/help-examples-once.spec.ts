@@ -47,9 +47,11 @@ describe('--help prints its examples once', () => {
   const all = nodes(program);
 
   it('the whole shipped tree is walked', () => {
-    // 210 leaves plus their families today; far below that means the walk
-    // lost a branch and the check below would pass over nothing.
-    expect(all.length).toBeGreaterThan(250);
+    // Measured 2026-09-30: 351 nodes, 259 of them leaves. The floor is that
+    // count, so losing a single branch turns this red instead of letting the
+    // check below pass over the commands it no longer sees. Raise it when the
+    // tree grows.
+    expect(all.length).toBeGreaterThanOrEqual(351);
   });
 
   it('the harness sees a repetition when there is one', () => {

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Writable } from 'node:stream';
 import winston from 'winston';
+import { colorEnabled } from '../../src/utils/color.js';
+import { palette } from '../../src/cli/palette.js';
 
 // ============================================================
 // THE LOGGER ON A TERMINAL (#327, MNE-001-089)
@@ -83,17 +85,24 @@ describe('logger colour follows the same gate as the CLI palette', () => {
     expect(lines[0]).not.toMatch(ANSI);
   });
 
-  it('colorEnabled reads NO_COLOR as the spec does: present and non-empty', async () => {
-    const { mod } = await freshLogger();
-    expect(mod.colorEnabled({ isTTY: true }, {})).toBe(true);
-    expect(mod.colorEnabled({ isTTY: true }, { NO_COLOR: '' })).toBe(true);
-    expect(mod.colorEnabled({ isTTY: true }, { NO_COLOR: '0' })).toBe(false);
-    expect(mod.colorEnabled({ isTTY: false }, {})).toBe(false);
-    expect(mod.colorEnabled({}, {})).toBe(false);
+  it('colorEnabled reads NO_COLOR as the spec does: present and non-empty', () => {
+    expect(colorEnabled({ isTTY: true }, {})).toBe(true);
+    expect(colorEnabled({ isTTY: true }, { NO_COLOR: '' })).toBe(true);
+    expect(colorEnabled({ isTTY: true }, { NO_COLOR: '0' })).toBe(false);
+    expect(colorEnabled({ isTTY: false }, {})).toBe(false);
+    expect(colorEnabled({}, {})).toBe(false);
+  });
+
+  it('the CLI palette reads the same gate: NO_COLOR on a terminal leaves its text plain', () => {
+    const tty = { isTTY: true } as NodeJS.WriteStream;
+    vi.stubEnv('NO_COLOR', '1');
+    expect(palette(tty).red('x')).toBe('x');
+    vi.stubEnv('NO_COLOR', '');
+    expect(palette(tty).red('x')).toMatch(ANSI);
   });
 });
 
-describe('each warning once per CLI command', () => {
+describe('each warning once per unit of work', () => {
   const warnThrice = (mod: LoggerModule) => {
     for (let i = 0; i < 3; i++) {
       mod.logger.warn('CFDI MetodoPago missing: conservative IVA treatment applied', {
@@ -106,7 +115,7 @@ describe('each warning once per CLI command', () => {
   it('the CLI mode prints an identical warning once', async () => {
     stdoutIsTTY(false);
     const { mod, lines } = await freshLogger();
-    mod.logEachWarningOnce();
+    mod.beginWarningScope();
     warnThrice(mod);
     await drained();
     expect(lines).toHaveLength(1);
@@ -116,7 +125,7 @@ describe('each warning once per CLI command', () => {
   it('a warning about another document is a different warning, and is printed', async () => {
     stdoutIsTTY(false);
     const { mod, lines } = await freshLogger();
-    mod.logEachWarningOnce();
+    mod.beginWarningScope();
     warnThrice(mod);
     mod.logger.warn('CFDI MetodoPago missing: conservative IVA treatment applied', {
       document: 'invoice',
@@ -129,7 +138,7 @@ describe('each warning once per CLI command', () => {
   it('only warnings are collapsed: a repeated error is still printed each time', async () => {
     stdoutIsTTY(false);
     const { mod, lines } = await freshLogger();
-    mod.logEachWarningOnce();
+    mod.beginWarningScope();
     mod.logger.error('same failure');
     mod.logger.error('same failure');
     await drained();
@@ -140,6 +149,36 @@ describe('each warning once per CLI command', () => {
     stdoutIsTTY(false);
     const { mod, lines } = await freshLogger();
     warnThrice(mod);
+    await drained();
+    expect(lines).toHaveLength(3);
+  });
+
+  it('a new scope (the next chat turn) prints the same warning again, once', async () => {
+    stdoutIsTTY(false);
+    const { mod, lines } = await freshLogger();
+    mod.beginWarningScope();
+    warnThrice(mod);
+    mod.beginWarningScope();
+    warnThrice(mod);
+    await drained();
+    expect(lines).toHaveLength(2);
+  });
+
+  it('metadata JSON cannot key (a BigInt, a cycle) is printed each time, not thrown', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    // The production config refuses the development secrets.
+    vi.stubEnv('JWT_SECRET', 'a'.repeat(48));
+    vi.stubEnv('ENCRYPTION_KEY', 'ab'.repeat(32));
+    stdoutIsTTY(false);
+    const { mod, lines } = await freshLogger();
+    mod.beginWarningScope();
+    const cyclic: Record<string, unknown> = { reference: 'INV-2026-00042' };
+    cyclic.self = cyclic;
+    expect(() => {
+      mod.logger.warn('amount out of range', { amount: 10n });
+      mod.logger.warn('amount out of range', { amount: 10n });
+      mod.logger.warn('cyclic document', { document: cyclic });
+    }).not.toThrow();
     await drained();
     expect(lines).toHaveLength(3);
   });

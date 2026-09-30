@@ -1,6 +1,7 @@
 import winston from 'winston';
 import { AsyncLocalStorage } from 'async_hooks';
 import { config } from '../config/index.js';
+import { colorEnabled } from './color.js';
 
 // ─── AsyncLocalStorage context for correlation IDs ───
 // Every request opens a context with { request_id, tenant_id, user_id, entity_id }
@@ -28,36 +29,39 @@ const contextFormat = winston.format((info) => {
   return info;
 });
 
-/**
- * Colour only on a real terminal, and never when NO_COLOR is present and
- * non-empty (https://no-color.org). The same gate as src/cli/palette.ts:
- * the CLI prints these warnings on the accountant's terminal, and a warning
- * that ignores NO_COLOR leaves raw escape codes in a pipe or a log file.
- */
-export function colorEnabled(
-  stream: { isTTY?: boolean },
-  env: NodeJS.ProcessEnv = process.env
-): boolean {
-  return stream.isTTY === true && !env.NO_COLOR;
-}
-
 // NOTE: null means "log every occurrence", which is what the long-lived API
 // server needs: a warning that recurs across requests is a signal. The CLI
-// runs one command per process, and there the same warning repeated (the
-// MetodoPago of one document is resolved by posting and again by the
-// checks) is noise, so the CLI entry point opts in with logEachWarningOnce.
+// opens one scope per unit of work (a one-shot command, or one chat turn),
+// and inside a scope the same warning repeated (the MetodoPago of one
+// document is resolved by posting and again by the checks) is noise.
 let seenWarnings: Set<string> | null = null;
 
-/** From now on in this process, an identical warning (message and metadata) is printed once. */
-export function logEachWarningOnce(): void {
-  seenWarnings ??= new Set();
+/**
+ * Starts a unit of work: from now on an identical warning (message and
+ * metadata) is printed once, until the next call opens a fresh scope. A
+ * warning that recurs in a later scope, such as the next chat turn, is
+ * printed again, and the set of seen warnings never outlives its scope.
+ */
+export function beginWarningScope(): void {
+  seenWarnings = new Set();
+}
+
+/** The dedupe key; null when the metadata cannot be serialised (a BigInt, a cycle). */
+function warningKey(info: object): string | null {
+  try {
+    // String keys only: winston's own Symbol-keyed fields stay out, and so
+    // does the timestamp, which is added after this format runs.
+    return JSON.stringify(info);
+  } catch {
+    return null;
+  }
 }
 
 const onceFormat = winston.format((info) => {
   if (!seenWarnings || info.level !== 'warn') return info;
-  // String keys only: winston's own Symbol-keyed fields stay out, and so does
-  // the timestamp, which is added after this format runs.
-  const key = JSON.stringify(info);
+  const key = warningKey(info);
+  // Metadata with no key: print it every time rather than throw into the caller.
+  if (key === null) return info;
   if (seenWarnings.has(key)) return false;
   seenWarnings.add(key);
   return info;
