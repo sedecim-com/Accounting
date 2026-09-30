@@ -1,4 +1,3 @@
-import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { query } from '../../database/connection.js';
 import type { EntityScope } from '../../database/scope.js';
@@ -11,12 +10,17 @@ import { legalParameterAt, type LegalParameterInForce } from '../jurisdiction/le
 // LISR art. 14 needs three figures the ledger does not hold:
 //
 //   · the PROFIT COEFFICIENT and the TAX LOSSES pending amortization, which
-//     the accountant reads off an earlier annual return. They are captured
-//     here, each with that return as its source, in a table by fiscal year
-//     (owner decision MNE-001-114). Append-only: a correction is a new row
-//     and the latest capture is the one in force (migration 166).
+//     the accountant reads off an annual return. They are captured here, each
+//     with that return (its year, filing date and identification), in a table
+//     by the return's fiscal year (owner decision MNE-001-114). Append-only,
+//     enforced by a trigger: a correction is a new row (migration 166).
 //   · the CORPORATE RATE, which is law: it is read from legal_parameters on
 //     the date of the payment, never from a constant.
+//
+// WHICH RETURN A PAYMENT USES is the law's, not the latest capture's: the
+// last return filed, or due, by the payment's due date (art. 14 fr. I). So
+// January and February read the return before last unless the last one was
+// already filed. A re-run passes asOf and reads what had been captured then.
 //
 // The calculation itself is MNE-001-059; this module only keeps and reads
 // the inputs, and fails closed on what it cannot vouch for.
@@ -28,40 +32,64 @@ export type IncomeTaxInputKind = 'profit_coefficient' | 'pending_tax_losses';
 export const CORPORATE_INCOME_TAX_RATE_KEY = 'income_tax.corporate_rate';
 
 export interface IncomeTaxInputCapture {
-  /** The year whose provisional payments use the figure. */
-  fiscalYear: number;
   kind: IncomeTaxInputKind;
-  /** Decimal string, up to 4 places: the house discipline for money and rates. */
+  /**
+   * Decimal string, up to 4 places. A coefficient may exceed 1: the nominal
+   * income of its denominator excludes the accumulable inflation adjustment
+   * that the utilidad fiscal includes.
+   */
   value: string;
   /** The year of the annual return the figure was read from. */
   sourceFiscalYear: number;
-  /** How the accountant identifies that return (operation number, date). */
+  /** When that return was filed, YYYY-MM-DD. */
+  sourceFiledOn: string;
+  /** How the accountant identifies that return (operation number). */
   sourceDocument: string;
+  /**
+   * Pending tax losses only, and required for them: the INPC month (YYYY-MM)
+   * the amount is already updated through (LISR art. 57). The calculation
+   * (MNE-001-059) finishes the update to the year of application.
+   */
+  updatedThrough?: string;
+  /** A user of the scope's tenant; any other answers 404. */
   recordedBy?: string;
 }
 
 export interface IncomeTaxInput {
   id: string;
-  fiscalYear: number;
   kind: IncomeTaxInputKind;
   value: string;
   sourceFiscalYear: number;
+  sourceFiledOn: string;
   sourceDocument: string;
+  /** YYYY-MM, or null for a coefficient. */
+  updatedThrough: string | null;
   recordedAt: string;
+}
+
+/** The monthly provisional payment whose input is asked for. */
+export interface ProvisionalPayment {
+  fiscalYear: number;
+  /** 1..12, the month the payment covers. */
+  month: number;
 }
 
 const KINDS: readonly IncomeTaxInputKind[] = ['profit_coefficient', 'pending_tax_losses'];
 const DECIMAL_4 = /^\d+(\.\d{1,4})?$/;
+const ISO_DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+const ISO_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 /** LISR art. 14 fr. I: a coefficient from a return up to five years older. */
-const COEFFICIENT_MAX_AGE_YEARS = 5;
+export const COEFFICIENT_MAX_AGE_YEARS = 5;
+/** LISR art. 14: the provisional payment is due by the 17th of the next month. */
+const PAYMENT_DUE_DAY = 17;
 
 /**
- * Records one captured figure for the entity. Never overwrites: the previous
- * capture stays as history and this one becomes the figure in force.
+ * Records one captured figure for the entity. Never overwrites: an earlier
+ * capture of the same return stays as history and this one is in force.
  *
- * The entity bound lives in the INSERT itself (it copies the entity only if it
- * belongs to the scope's tenant), so a foreign entity answers 404 exactly like
- * a missing one.
+ * The entity and the user are bound inside the statement (each is copied
+ * only if it belongs to the scope's tenant), so a foreign one answers 404
+ * exactly like a missing one.
  */
 export async function recordIncomeTaxInput(
   scope: EntityScope,
@@ -69,41 +97,83 @@ export async function recordIncomeTaxInput(
   client?: pg.PoolClient
 ): Promise<IncomeTaxInput> {
   assertCapture(capture);
-  const r = await run(client)<IncomeTaxInput>(
-    `INSERT INTO income_tax_annual_inputs
-       (entity_id, fiscal_year, kind, value, source_fiscal_year, source_document, recorded_by)
-     SELECT le.id, $3, $4, $5::numeric, $6, $7, $8
-       FROM legal_entities le
-      WHERE le.id = $1 AND le.tenant_id = $2
-     RETURNING ${COLUMNS}`,
-    [scope.entityId, scope.tenantId, capture.fiscalYear, capture.kind, capture.value,
-     capture.sourceFiscalYear, capture.sourceDocument.trim(), capture.recordedBy ?? null]
+  const r = await run(client)<Partial<IncomeTaxInput> & { entityFound: boolean }>(
+    `WITH le AS (
+       SELECT id FROM legal_entities WHERE id = $1 AND tenant_id = $2
+     ), who AS (
+       SELECT id FROM users WHERE id = $9::uuid AND tenant_id = $2
+     ), ins AS (
+       INSERT INTO income_tax_annual_inputs
+         (entity_id, kind, value, source_fiscal_year, source_filed_on, source_document,
+          updated_through, recorded_by)
+       SELECT le.id, $3, $4::numeric, $5, $6::date, $7, $8::date, (SELECT id FROM who)
+         FROM le
+        WHERE $9::uuid IS NULL OR EXISTS (SELECT 1 FROM who)
+       RETURNING ${COLUMNS}
+     )
+     SELECT EXISTS (SELECT 1 FROM le) AS "entityFound", ins.*
+       FROM (SELECT 1) AS one LEFT JOIN ins ON true`,
+    [scope.entityId, scope.tenantId, capture.kind, capture.value, capture.sourceFiscalYear,
+     capture.sourceFiledOn, capture.sourceDocument.trim(),
+     capture.updatedThrough ? `${capture.updatedThrough}-01` : null, capture.recordedBy ?? null]
   );
-  if (r.rows.length === 0) throw new NotFoundError('Entity', scope.entityId);
-  return r.rows[0];
+  const row = r.rows[0];
+  if (!row?.entityFound) throw new NotFoundError('Entity', scope.entityId);
+  if (!row.id) throw new NotFoundError('User', capture.recordedBy);
+  const { entityFound: _entityFound, ...input } = row;
+  return input as IncomeTaxInput;
 }
 
 /**
- * The figure in force for the year: the latest capture, or null when nobody
- * captured it. Null is not zero, and the caller decides what a missing
- * coefficient means; this reader does not invent one.
+ * The figure a provisional payment uses: from the latest return filed, or
+ * due, by the payment's due date (LISR art. 14 fr. I) and, for a coefficient,
+ * no more than five years older than the payment's year; within that return,
+ * the latest capture. `asOf` (an ISO timestamp) reads only what had been
+ * captured by then, so a re-run explains the payment as it was filed.
+ *
+ * Null when nothing applicable was captured. Null is not zero: the caller
+ * decides what a missing coefficient means. An entity outside the scope's
+ * tenant answers 404, never null.
  */
-export async function incomeTaxInputInForce(
+export async function incomeTaxInputForPayment(
   scope: EntityScope,
-  fiscalYear: number,
   kind: IncomeTaxInputKind,
+  payment: ProvisionalPayment,
+  options: { asOf?: string } = {},
   client?: pg.PoolClient
 ): Promise<IncomeTaxInput | null> {
-  const r = await run(client)<IncomeTaxInput>(
-    `SELECT ${COLUMNS}
-       FROM income_tax_annual_inputs
-      WHERE entity_id = $1 AND fiscal_year = $2 AND kind = $3
-        AND entity_id IN (SELECT id FROM legal_entities WHERE tenant_id = $4)
-      ORDER BY recorded_at DESC
-      LIMIT 1`,
-    [scope.entityId, fiscalYear, kind, scope.tenantId]
+  const dueOn = provisionalPaymentDueOn(payment);
+  const r = await run(client)<Partial<IncomeTaxInput>>(
+    `SELECT t.* FROM legal_entities le
+       LEFT JOIN LATERAL (
+         SELECT ${COLUMNS}
+           FROM income_tax_annual_inputs
+          WHERE entity_id = le.id AND kind = $3
+            AND source_fiscal_year < $4
+            AND (kind <> 'profit_coefficient' OR source_fiscal_year >= $4 - $5)
+            AND (source_filed_on <= $6::date
+                 OR make_date(source_fiscal_year + 1, 3, 31) <= $6::date)
+            AND ($7::timestamptz IS NULL OR recorded_at <= $7::timestamptz)
+          ORDER BY source_fiscal_year DESC, seq DESC
+          LIMIT 1
+       ) t ON true
+      WHERE le.id = $1 AND le.tenant_id = $2`,
+    [scope.entityId, scope.tenantId, kind, payment.fiscalYear, COEFFICIENT_MAX_AGE_YEARS,
+     dueOn, options.asOf ?? null]
   );
-  return r.rows[0] ?? null;
+  if (r.rows.length === 0) throw new NotFoundError('Entity', scope.entityId);
+  const row = r.rows[0];
+  return row.id ? (row as IncomeTaxInput) : null;
+}
+
+/** The 17th of the month after the one the payment covers (LISR art. 14). */
+export function provisionalPaymentDueOn(p: ProvisionalPayment): string {
+  if (!Number.isInteger(p.fiscalYear) || !Number.isInteger(p.month) || p.month < 1 || p.month > 12) {
+    throw new ValidationError(`${p.fiscalYear}-${p.month} no es un mes de pago provisional.`, 'month');
+  }
+  const year = p.month === 12 ? p.fiscalYear + 1 : p.fiscalYear;
+  const month = p.month === 12 ? 1 : p.month + 1;
+  return `${year}-${String(month).padStart(2, '0')}-${PAYMENT_DUE_DAY}`;
 }
 
 /**
@@ -118,8 +188,9 @@ export function corporateIncomeTaxRateAt(
   return legalParameterAt('MX', CORPORATE_INCOME_TAX_RATE_KEY, onDate, client);
 }
 
-const COLUMNS = `id, fiscal_year AS "fiscalYear", kind, value::text AS value,
-       source_fiscal_year AS "sourceFiscalYear", source_document AS "sourceDocument",
+const COLUMNS = `id, kind, value::text AS value, source_fiscal_year AS "sourceFiscalYear",
+       to_char(source_filed_on, 'YYYY-MM-DD') AS "sourceFiledOn", source_document AS "sourceDocument",
+       to_char(updated_through, 'YYYY-MM') AS "updatedThrough",
        to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "recordedAt"`;
 
 function run(client?: pg.PoolClient) {
@@ -136,8 +207,8 @@ function assertCapture(c: IncomeTaxInputCapture): void {
   if (!KINDS.includes(c.kind)) {
     throw new ValidationError(`"${c.kind}" no es un dato del ISR provisional: ${KINDS.join(', ')}.`, 'kind');
   }
-  if (!Number.isInteger(c.fiscalYear) || !Number.isInteger(c.sourceFiscalYear)) {
-    throw new ValidationError('El ejercicio y el de la declaración fuente son años enteros.', 'fiscalYear');
+  if (!Number.isInteger(c.sourceFiscalYear)) {
+    throw new ValidationError('El ejercicio de la declaración fuente es un año entero.', 'sourceFiscalYear');
   }
   if (!DECIMAL_4.test(c.value)) {
     throw new ValidationError(
@@ -147,21 +218,19 @@ function assertCapture(c: IncomeTaxInputCapture): void {
     throw new ValidationError(
       'Falta la fuente: la declaración anual de la que se tomó la cifra.', 'sourceDocument');
   }
-  if (c.sourceFiscalYear >= c.fiscalYear) {
+  if (!ISO_DATE.test(c.sourceFiledOn) || c.sourceFiledOn <= `${c.sourceFiscalYear}-12-31`) {
     throw new ValidationError(
-      `La declaración fuente (${c.sourceFiscalYear}) tiene que ser de un ejercicio anterior a ${c.fiscalYear}.`,
-      'sourceFiscalYear');
+      `La declaración de ${c.sourceFiscalYear} se presenta después de que termina el ejercicio: ` +
+        `"${c.sourceFiledOn}" no puede ser su fecha.`,
+      'sourceFiledOn');
   }
-  if (c.kind === 'profit_coefficient') {
-    if (new Decimal(c.value).gt(1)) {
-      throw new ValidationError(
-        `El coeficiente de utilidad es una fracción de los ingresos: ${c.value} excede 1.`, 'value');
-    }
-    if (c.fiscalYear - c.sourceFiscalYear > COEFFICIENT_MAX_AGE_YEARS) {
-      throw new ValidationError(
-        `El coeficiente de ${c.sourceFiscalYear} no puede aplicarse en ${c.fiscalYear}: la declaración ` +
-          'no puede ser anterior en más de cinco años (LISR art. 14 fr. I).',
-        'sourceFiscalYear');
-    }
+  const losses = c.kind === 'pending_tax_losses';
+  if (losses !== (c.updatedThrough !== undefined) ||
+      (c.updatedThrough !== undefined && !ISO_MONTH.test(c.updatedThrough))) {
+    throw new ValidationError(
+      losses
+        ? 'Las pérdidas pendientes dicen hasta qué mes del INPC están actualizadas (AAAA-MM, LISR art. 57).'
+        : 'Sólo las pérdidas pendientes llevan mes de actualización.',
+      'updatedThrough');
   }
 }

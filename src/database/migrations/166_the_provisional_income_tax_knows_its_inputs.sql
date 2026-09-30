@@ -8,22 +8,34 @@
 -- the ledger: they are read off an annual return the firm already filed. The
 -- third is law.
 --
--- THE TWO CAPTURED FIGURES live in their own table, one row per fact and per
--- fiscal year, each with the annual return it was read from (owner decision
--- MNE-001-114, 2026-09-30: a table by fiscal year, not the policy panel; the
--- panel holds choices between treatments, and these are facts).
+-- THE TWO CAPTURED FIGURES live in their own table by fiscal year, each with
+-- the annual return it was read from (owner decision MNE-001-114, 2026-09-30:
+-- a table by fiscal year, not the policy panel; the panel holds choices
+-- between treatments, and these are facts).
 --
---   · APPEND-ONLY HISTORY, NOT OVERWRITE. A correction is a new row; the
---     figure in force for (entity, year, kind) is the latest recorded one.
---     A provisional payment already filed with the old coefficient must stay
---     explainable after someone corrects it.
---   · recorded_at defaults to clock_timestamp(), not now(): two captures in
---     one transaction must still have an order.
---   · THE WINDOW OF THE SOURCE is the law's, not a convention: the source
---     return is always of an EARLIER year, and a coefficient may come from a
---     return at most five years older than the year it is applied to
---     (LISR art. 14 fr. I, second paragraph).
---   · A coefficient is a fraction of income, so it lies in [0, 1].
+--   · ONE ROW PER FIGURE OF A RETURN, KEYED BY THE RETURN'S FISCAL YEAR, not
+--     by the year that applies it. LISR art. 14 fr. I takes the coefficient
+--     of the last 12-month return that "se hubiera o debió haberse
+--     presentado" when the payment is due: the January and February 2026
+--     payments (due 17 Feb and 17 Mar) still use the 2024 return unless the
+--     2025 one was already filed, because the 2025 return is due on 31 March
+--     (LISR art. 76 fr. V); March onwards uses 2025. One fiscal year of
+--     payments therefore reads two returns, and the reader chooses by the
+--     payment's due date and source_filed_on. The five-year window of art. 14
+--     fr. I depends on the payment's year, so it lives in the reader too.
+--   · A COEFFICIENT HAS NO UPPER BOUND. It is (utilidad fiscal + PTU) /
+--     ingresos nominales, and the nominal income excludes the accumulable
+--     inflation adjustment that the utilidad fiscal includes: an entity with
+--     little income and net monetary debt files a coefficient above 1.
+--   · PENDING LOSSES SAY HOW FAR THEY ARE UPDATED. LISR art. 57 updates them
+--     through the last month of the first half of the year that applies them;
+--     updated_through is the INPC month the captured amount already reflects,
+--     so the calculation (MNE-001-059) can finish the update and prove it.
+--   · APPEND-ONLY, ENFORCED. A correction (an amended return) is a new row;
+--     the figure in force for a return is the one with the highest seq, and
+--     the trigger below refuses UPDATE and DELETE for everyone, as 033, 035
+--     and 041 do. seq is an identity, not recorded_at: two captures in the
+--     same microsecond still have one order.
 --
 -- Only entity_id, like fiscal_years: rls-policies.sql derives the tenant
 -- through legal_entities for every table that has the column, and scope.ts
@@ -36,32 +48,53 @@
 
 CREATE TABLE income_tax_annual_inputs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
     entity_id UUID NOT NULL REFERENCES legal_entities(id),
-    fiscal_year INTEGER NOT NULL CHECK (fiscal_year BETWEEN 2000 AND 2200),
     kind VARCHAR(30) NOT NULL CHECK (kind IN ('profit_coefficient', 'pending_tax_losses')),
     value DECIMAL(19,4) NOT NULL CHECK (value >= 0),
-    source_fiscal_year INTEGER NOT NULL,
+    source_fiscal_year INTEGER NOT NULL CHECK (source_fiscal_year BETWEEN 2000 AND 2200),
+    source_filed_on DATE NOT NULL,
     source_document TEXT NOT NULL CHECK (btrim(source_document) <> ''),
+    updated_through DATE,
     recorded_by UUID REFERENCES users(id),
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-    CONSTRAINT income_tax_input_source_is_an_earlier_return
-        CHECK (source_fiscal_year < fiscal_year),
-    CONSTRAINT income_tax_input_coefficient_within_law
-        CHECK (kind <> 'profit_coefficient'
-               OR (value <= 1 AND source_fiscal_year >= fiscal_year - 5))
+    CONSTRAINT income_tax_input_return_filed_after_its_year
+        CHECK (source_filed_on > make_date(source_fiscal_year, 12, 31)),
+    CONSTRAINT income_tax_input_losses_state_their_update
+        CHECK ((kind = 'pending_tax_losses') = (updated_through IS NOT NULL)
+               AND (updated_through IS NULL OR extract(day FROM updated_through) = 1))
 );
 
 CREATE INDEX idx_income_tax_annual_inputs_in_force
-    ON income_tax_annual_inputs (entity_id, fiscal_year, kind, recorded_at DESC);
+    ON income_tax_annual_inputs (entity_id, kind, source_fiscal_year DESC, seq DESC);
+
+CREATE OR REPLACE FUNCTION public.income_tax_annual_inputs_append_only() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $fn$
+BEGIN
+  RAISE EXCEPTION
+    'income_tax_annual_inputs es de sólo escritura: % rechazado. Una corrección es un renglón nuevo; el pago provisional ya presentado tiene que seguir explicándose.',
+    TG_OP
+    USING ERRCODE = 'insufficient_privilege';
+END
+$fn$;
+
+CREATE TRIGGER income_tax_annual_inputs_append_only
+  BEFORE UPDATE OR DELETE ON public.income_tax_annual_inputs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.income_tax_annual_inputs_append_only();
 
 COMMENT ON TABLE income_tax_annual_inputs IS
-  'Figures of the provisional ISR of a legal entity read off an earlier annual return (profit coefficient, tax losses pending amortization), one row per capture. Append-only: the figure in force for (entity_id, fiscal_year, kind) is the latest recorded_at.';
-COMMENT ON COLUMN income_tax_annual_inputs.fiscal_year IS
-  'The fiscal year whose provisional payments use the figure, not the year of the return it came from.';
+  'Figures of the provisional ISR of a legal entity read off an annual return (profit coefficient, tax losses pending amortization), one row per capture, keyed by the return. Append-only (trigger): the figure in force for (entity_id, kind, source_fiscal_year) is the highest seq; which return a payment uses is chosen by its due date (LISR art. 14 fr. I).';
 COMMENT ON COLUMN income_tax_annual_inputs.source_fiscal_year IS
-  'The fiscal year of the annual return the figure was read from. Earlier than fiscal_year; for a coefficient, at most five years earlier (LISR art. 14 fr. I).';
+  'The fiscal year of the annual return the figure was read from.';
+COMMENT ON COLUMN income_tax_annual_inputs.source_filed_on IS
+  'When that return was filed. A payment due before 31 March of source_fiscal_year + 1 uses it only if it was already filed (LISR art. 14 fr. I).';
 COMMENT ON COLUMN income_tax_annual_inputs.source_document IS
-  'The annual return as the accountant identifies it (operation number, filing date). Required: a coefficient without its return cannot be audited.';
+  'The annual return as the accountant identifies it (operation number). Required: a coefficient without its return cannot be audited.';
+COMMENT ON COLUMN income_tax_annual_inputs.updated_through IS
+  'Pending tax losses only: the first day of the INPC month the captured amount is already updated through (LISR art. 57). NULL for a coefficient.';
 
 INSERT INTO legal_parameters (jurisdiction, key, effective_from, value, unit, source_url, source_note)
 VALUES
