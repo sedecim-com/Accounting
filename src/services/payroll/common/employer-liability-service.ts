@@ -3,6 +3,7 @@ import Decimal from 'decimal.js';
 import { withTransaction } from '../../../database/connection.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { getPolicy } from '../../policy/policy-service.js';
+import { splitByContributionMonth } from '../tax-engine/tax-tables.js';
 import {
   basesIsnDeCorrida,
   calcularIsn,
@@ -267,7 +268,8 @@ interface FilaPasivo {
  */
 async function apuntarPorCorrida(
   client: pg.PoolClient,
-  f: FilaPasivo
+  f: FilaPasivo,
+  keepStarts: string[] = [f.periodStart]
 ): Promise<{ accion: AccionPasivo | null; reubicados: number }> {
   const r = await client.query<{ insertado: boolean }>(
     `INSERT INTO employer_tax_liabilities (
@@ -305,12 +307,16 @@ async function apuntarPorCorrida(
   // MISMA corrida y el mismo impuesto y jurisdicción, y sólo si el viejo
   // sigue en 'pending': un renglón ya depositado es evidencia de un pago y no
   // se toca ni para reubicarlo.
+  //
+  // `keepStarts` names the sibling rows THIS closing writes for the same tax: a
+  // period straddling two months books one row per month (#231), and sweeping
+  // by "any other period_start" would delete the other month's share.
   const viejos = await client.query(
     `DELETE FROM employer_tax_liabilities
       WHERE tenant_id = $1 AND entity_id = $2 AND pay_run_id = $3
         AND tax_type = $4 AND jurisdiction = $5
-        AND period_start <> $6::date AND status = 'pending'`,
-    [f.tenantId, f.entityId, f.payRunId, f.taxType, f.jurisdiction, f.periodStart]
+        AND period_start <> ALL($6::date[]) AND status = 'pending'`,
+    [f.tenantId, f.entityId, f.payRunId, f.taxType, f.jurisdiction, keepStarts]
   );
 
   return {
@@ -367,6 +373,33 @@ async function apuntarMensual(
     ]
   );
   return 'creado';
+}
+
+/** One payslip's employer contributions with the period they were earned in. */
+interface PayslipAmounts {
+  imss: string | null;
+  infonavit: string | null;
+  period_start: string;
+  period_end: string;
+}
+
+/**
+ * What a set of payslips owes for the month starting on `monthStart`: each
+ * payslip split by contribution days on its own, then added (#231). The SUA
+ * file adds the same per-payslip shares, so the two tie out to the cent.
+ */
+function shareInMonth(
+  payslips: PayslipAmounts[],
+  column: 'imss' | 'infonavit',
+  monthStart: string
+): Decimal {
+  const month = monthStart.slice(0, 7);
+  return payslips.reduce((sum, p) => {
+    const share = splitByContributionMonth(p.period_start, p.period_end, p[column] ?? '0').find(
+      (s) => s.start.slice(0, 7) === month
+    );
+    return share ? sum.plus(share.amount) : sum;
+  }, new Decimal(0));
 }
 
 function aColumna(importe: string): string {
@@ -477,12 +510,10 @@ async function acumular(
   // en pequeño; se cuenta y se avisa.
   const propios = await client.query<{
     imss: string;
-    infonavit: string;
     recibos: number;
     ajenos: number;
   }>(
     `SELECT COALESCE(SUM(p.imss_employer) FILTER (WHERE e.entity_id = $3), 0)::text AS imss,
-            COALESCE(SUM(p.infonavit_employer) FILTER (WHERE e.entity_id = $3), 0)::text AS infonavit,
             COUNT(*) FILTER (WHERE e.entity_id = $3)::int AS recibos,
             COUNT(*) FILTER (WHERE e.entity_id <> $3)::int AS ajenos
        FROM paychecks p
@@ -505,7 +536,6 @@ async function acumular(
     });
   }
   const imssPropio = new Decimal(propios.rows[0]?.imss ?? '0');
-  const infonavitPropio = new Decimal(propios.rows[0]?.infonavit ?? '0');
 
   // Recibos mexicanos sin un peso de cuota patronal es un síntoma, no un
   // resultado: casi siempre significa que el SBC del trabajador no está
@@ -522,8 +552,16 @@ async function acumular(
     });
   }
 
-  const mesInicio = inicioDeMes(c.period_end);
-  const mesFin = finDeMes(c.period_end);
+  // ONE STRETCH PER MONTH THE PERIOD TOUCHES (#231, owner decision
+  // MNE-001-131). IMSS and INFONAVIT are split by the contribution days of
+  // each month —the law fixes it, so it is not a panel key—, payslip by
+  // payslip, through the same `splitByContributionMonth` the SUA file reads.
+  // Before, the whole period went to the month of its `period_end`, and a
+  // week from February 25th to March 3rd was March's in the books and no
+  // month's in the file. A period inside one month is a single stretch, the
+  // row it always was.
+  const stretches = splitByContributionMonth(c.period_start, c.period_end, 0);
+  const months = stretches.map((s) => inicioDeMes(s.start));
 
   if (criterioProvision === 'mensual_al_cierre') {
     // EL MISMO MES NO SE PROVISIONA POR LAS DOS VÍAS.
@@ -556,44 +594,48 @@ async function acumular(
       });
     }
 
-    // El importe del mes se RECALCULA desde todos los recibos aprobados cuyo
-    // periodo cierra dentro del mes —incluida esta corrida, que ya está
-    // aprobada dentro de esta transacción—. Recalcular en vez de sumar es lo
-    // que hace la operación idempotente sin depender de ningún índice.
-    const delMes = await client.query<{ imss: string; infonavit: string }>(
-      `SELECT COALESCE(SUM(p.imss_employer), 0)::text AS imss,
-              COALESCE(SUM(p.infonavit_employer), 0)::text AS infonavit
-         FROM paychecks p
-         JOIN pay_runs pr ON pr.id = p.pay_run_id AND pr.tenant_id = p.tenant_id
-         JOIN pay_periods pp ON pp.id = pr.pay_period_id AND pp.tenant_id = pr.tenant_id
-         JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id AND ps.tenant_id = pp.tenant_id
-         JOIN employees e ON e.id = p.employee_id AND e.tenant_id = p.tenant_id
-        WHERE p.tenant_id = $1 AND e.country_code = 'MX'
-          -- LAS DOS ENTIDADES, la del calendario de la corrida y la del
-          -- trabajador, y por la misma razón que en el camino por corrida: si
-          -- sólo se acotara por el calendario, el recibo de un trabajador de la
-          -- entidad hermana entraría en ESTE pasivo mensual, y el aviso de
-          -- recibos_de_otra_entidad_en_la_corrida estaría diciendo que quedó
-          -- fuera mientras el renglón del mes lo lleva dentro.
-          AND ps.entity_id = $2 AND e.entity_id = $2
-          AND pr.status IN ('approved', 'paid')
-          AND pp.period_end >= $3::date AND pp.period_end <= $4::date`,
-      [tenantId, entityId, mesInicio, mesFin]
-    );
-    const imssMes = aColumna(delMes.rows[0]?.imss ?? '0');
-    const infonavitMes = aColumna(delMes.rows[0]?.infonavit ?? '0');
+    // Each month's amount is RECOMPUTED from every approved payslip whose
+    // period touches the month —this run included, since it is already
+    // approved inside this transaction—, each one contributing the share of
+    // its contribution days that falls in the month. Recomputing instead of
+    // adding is what makes the operation idempotent without any index.
+    for (const monthStart of months) {
+      const monthEnd = finDeMes(monthStart);
+      const delMes = await client.query<PayslipAmounts>(
+        `SELECT p.imss_employer::text AS imss, p.infonavit_employer::text AS infonavit,
+                pp.period_start::text AS period_start, pp.period_end::text AS period_end
+           FROM paychecks p
+           JOIN pay_runs pr ON pr.id = p.pay_run_id AND pr.tenant_id = p.tenant_id
+           JOIN pay_periods pp ON pp.id = pr.pay_period_id AND pp.tenant_id = pr.tenant_id
+           JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id AND ps.tenant_id = pp.tenant_id
+           JOIN employees e ON e.id = p.employee_id AND e.tenant_id = p.tenant_id
+          WHERE p.tenant_id = $1 AND e.country_code = 'MX'
+            -- LAS DOS ENTIDADES, la del calendario de la corrida y la del
+            -- trabajador, y por la misma razón que en el camino por corrida: si
+            -- sólo se acotara por el calendario, el recibo de un trabajador de la
+            -- entidad hermana entraría en ESTE pasivo mensual, y el aviso de
+            -- recibos_de_otra_entidad_en_la_corrida estaría diciendo que quedó
+            -- fuera mientras el renglón del mes lo lleva dentro.
+            AND ps.entity_id = $2 AND e.entity_id = $2
+            AND pr.status IN ('approved', 'paid')
+            AND pp.period_start <= $4::date AND pp.period_end >= $3::date`,
+        [tenantId, entityId, monthStart, monthEnd]
+      );
+      const imssMes = aColumna(shareInMonth(delMes.rows, 'imss', monthStart).toFixed(2));
+      const infonavitMes = aColumna(shareInMonth(delMes.rows, 'infonavit', monthStart).toFixed(2));
 
-    for (const [taxType, importe, frecuencia, limite] of [
-      ['imss_employer', imssMes, 'monthly', fechaLimiteDia17(mesFin)],
-      ['infonavit_employer', infonavitMes, 'bimestral', fechaLimiteBimestral(mesFin)],
-    ] as const) {
-      const fila: FilaPasivo = {
-        tenantId, entityId, payRunId: null, taxType, jurisdiction: 'MX',
-        periodStart: mesInicio, periodEnd: mesFin, importe,
-        fechaLimite: limite, frecuencia,
-      };
-      const accion = await apuntarMensual(client, fila, new Decimal(importe).isZero());
-      if (accion) renglones.push({ ...fila, accion });
+      for (const [taxType, importe, frecuencia, limite] of [
+        ['imss_employer', imssMes, 'monthly', fechaLimiteDia17(monthEnd)],
+        ['infonavit_employer', infonavitMes, 'bimestral', fechaLimiteBimestral(monthEnd)],
+      ] as const) {
+        const fila: FilaPasivo = {
+          tenantId, entityId, payRunId: null, taxType, jurisdiction: 'MX',
+          periodStart: monthStart, periodEnd: monthEnd, importe,
+          fechaLimite: limite, frecuencia,
+        };
+        const accion = await apuntarMensual(client, fila, new Decimal(importe).isZero());
+        if (accion) renglones.push({ ...fila, accion });
+      }
     }
   } else {
     // LA DIRECCIÓN CONTRARIA NO SE PUEDE BARRER, Y POR ESO SE DICE EN VOZ ALTA.
@@ -604,48 +646,106 @@ async function acumular(
     // demás. Escribir los renglones por corrida encima de él cuenta este mes
     // dos veces, y eso es una cifra falsa: se declara bloqueante para que
     // nadie presente el pasivo del mes sin resolver antes el solape a mano.
-    const mensualVivo = await client.query<{ tax_type: string; amount: string }>(
-      `SELECT tax_type, amount::text FROM employer_tax_liabilities
+    const mensualVivo = await client.query<{ tax_type: string; amount: string; period_start: string }>(
+      `SELECT tax_type, amount::text, period_start::text FROM employer_tax_liabilities
         WHERE tenant_id = $1 AND entity_id = $2 AND pay_run_id IS NULL
           AND tax_type IN ('imss_employer', 'infonavit_employer')
-          AND period_start = $3::date AND status = 'pending'`,
-      [tenantId, entityId, mesInicio]
+          AND period_start = ANY($3::date[]) AND status = 'pending'
+        ORDER BY period_start, tax_type`,
+      [tenantId, entityId, months]
     );
     if ((mensualVivo.rowCount ?? 0) > 0) {
       hallazgos.push({
         codigo: 'pasivo_mensual_y_por_corrida_a_la_vez',
         severidad: 'bloqueante',
-        periodo: `${mesInicio} a ${mesFin}`,
+        periodo: `${months[0]} a ${finDeMes(months[months.length - 1])}`,
         mensaje:
-          `El mes ${mesInicio} ya tiene ${mensualVivo.rowCount} renglón(es) de cuotas ` +
-          'patronales provisionados AL CIERRE DEL MES (' +
-          mensualVivo.rows.map((x) => `${x.tax_type} ${x.amount}`).join(', ') +
+          `Hay ${mensualVivo.rowCount} renglón(es) de cuotas patronales provisionados AL ` +
+          'CIERRE DEL MES en los meses que toca esta corrida (' +
+          mensualVivo.rows
+            .map((x) => `${x.tax_type} ${x.amount} del mes que inicia el ${x.period_start}`)
+            .join('; ') +
           '), y esta corrida los está apuntando además POR CORRIDA porque ' +
-          '`provision_cuotas_patronales` cambió a «por_corrida». El mes queda contado dos ' +
-          'veces. El renglón mensual agrega varias corridas y este cierre no lo puede ' +
+          '`provision_cuotas_patronales` cambió a «por_corrida». Lo provisionado queda contado ' +
+          'dos veces. El renglón mensual agrega varias corridas y este cierre no lo puede ' +
           'retirar sin llevarse el pasivo de las demás: resuélvelo a mano antes de declarar.',
       });
     }
 
-    for (const [taxType, importe, frecuencia, limite] of [
-      ['imss_employer', aColumna(imssPropio.toFixed(4)), 'monthly', fechaLimiteDia17(c.period_end)],
-      [
-        'infonavit_employer',
-        aColumna(infonavitPropio.toFixed(4)),
-        'bimestral',
-        fechaLimiteBimestral(c.period_end),
-      ],
+    // This run's payslips of this entity, each split by month on its own so
+    // that the rows add up to exactly what the SUA file declares.
+    const payslips = await client.query<PayslipAmounts>(
+      `SELECT p.imss_employer::text AS imss, p.infonavit_employer::text AS infonavit,
+              $4::text AS period_start, $5::text AS period_end
+         FROM paychecks p
+         JOIN employees e ON e.id = p.employee_id AND e.tenant_id = p.tenant_id
+        WHERE p.tenant_id = $1 AND p.pay_run_id = $2
+          AND e.entity_id = $3 AND e.country_code = 'MX'`,
+      [tenantId, payRunId, entityId, c.period_start, c.period_end]
+    );
+    for (const [taxType, column, frecuencia, dueDateOf] of [
+      ['imss_employer', 'imss', 'monthly', fechaLimiteDia17],
+      ['infonavit_employer', 'infonavit', 'bimestral', fechaLimiteBimestral],
     ] as const) {
-      if (new Decimal(importe).isZero()) continue;
-      const fila: FilaPasivo = {
-        tenantId, entityId, payRunId, taxType, jurisdiction: 'MX',
-        periodStart: c.period_start, periodEnd: c.period_end, importe,
-        fechaLimite: limite, frecuencia,
-      };
-      const r = await apuntarPorCorrida(client, fila);
-      reubicados += r.reubicados;
-      if (r.accion) renglones.push({ ...fila, accion: r.accion });
+      const rows = stretches
+        .map((s) => ({ s, importe: aColumna(shareInMonth(payslips.rows, column, s.start).toFixed(2)) }))
+        .filter((x) => !new Decimal(x.importe).isZero());
+      const keepStarts = rows.map((x) => x.s.start);
+      for (const { s, importe } of rows) {
+        const fila: FilaPasivo = {
+          tenantId, entityId, payRunId, taxType, jurisdiction: 'MX',
+          periodStart: s.start, periodEnd: s.end, importe,
+          fechaLimite: dueDateOf(s.end), frecuencia,
+        };
+        const r = await apuntarPorCorrida(client, fila, keepStarts);
+        reubicados += r.reubicados;
+        if (r.accion) renglones.push({ ...fila, accion: r.accion });
+      }
     }
+  }
+
+  // A SHARE THAT LANDS IN A MONTH ALREADY CLOSED IS SAID OUT LOUD (#231).
+  //
+  // The split writes into the months BEFORE the one holding `period_end`,
+  // which the old whole-period rule never did. When such a month's IMSS or
+  // INFONAVIT is already deposited, or its SUA file already generated, this
+  // share arrives after the month was settled: in month-end mode the
+  // deposited row is left intact and the share stays out of the books, and in
+  // either mode a SUA already produced for that month is short by it. Neither
+  // is fixed here —a settled month is evidence—, so it is a finding that asks
+  // for the complementary filing.
+  const endMonth = inicioDeMes(c.period_end);
+  for (const s of stretches) {
+    const monthStart = inicioDeMes(s.start);
+    if (recibosMx === 0 || monthStart === endMonth) continue;
+    const settled = await client.query<{ closed_rows: number; sua_filings: number }>(
+      `SELECT (SELECT COUNT(*) FROM employer_tax_liabilities
+                WHERE tenant_id = $1 AND entity_id = $2
+                  AND tax_type IN ('imss_employer', 'infonavit_employer')
+                  AND period_end >= $3::date AND period_end <= $4::date
+                  AND status <> 'pending')::int AS closed_rows,
+              (SELECT COUNT(*) FROM tax_form_filings
+                WHERE tenant_id = $1 AND entity_id = $2 AND form_type = 'sua'
+                  AND tax_year = $5 AND period = $6)::int AS sua_filings`,
+      [tenantId, entityId, monthStart, finDeMes(monthStart), Number(monthStart.slice(0, 4)), monthStart.slice(5, 7)]
+    );
+    const { closed_rows: closedRows, sua_filings: suaFilings } = settled.rows[0];
+    if (closedRows === 0 && suaFilings === 0) continue;
+    const reasons = [
+      closedRows > 0 ? `${closedRows} renglón(es) de IMSS/INFONAVIT patronal ya depositados` : null,
+      suaFilings > 0 ? 'su archivo del SUA ya generado' : null,
+    ].filter((x): x is string => x !== null);
+    hallazgos.push({
+      codigo: 'share_in_already_settled_month',
+      severidad: 'aviso',
+      periodo: `${s.start} a ${s.end}`,
+      mensaje:
+        `La corrida cruza el cambio de mes: ${s.days} día(s) cotizados, del ${s.start} al ` +
+        `${s.end}, caen en el mes que inicia el ${monthStart}, que ya tiene ` +
+        `${reasons.join(' y ')}. Esa parte de las cuotas llega después de cerrado el mes: ` +
+        'el SUA ya generado la declara de menos y, si el renglón del mes ya se depositó, ' +
+        'no se reescribe. Presenta la complementaria de ese mes.',
+    });
   }
 
   // ---- ISN, uno por estado ----
@@ -729,6 +829,108 @@ async function acumular(
     renglones,
     hallazgos,
   };
+}
+
+// ------------------------------------------------------------
+// LEGACY ROWS OF A STRADDLING RUN (#231 review)
+//
+// Before the split, a run whose period crossed a month booked each employer
+// contribution WHOLE, by `period_end`. Nothing re-closes an approved run
+// —`approvePayRun` only takes a calculated one—, so after the split those
+// rows would stay whole forever and the SUA cross-check, which reads by
+// month, would block both months. This re-accrues such runs with the SAME
+// `acumular` an approval runs, so there is one rule and not a second one
+// written for the repair.
+//
+// Run by run, each in its own transaction and rehearsed first: the entity's
+// liability rows are read before and after the re-accrual, and a run whose
+// rows do not change is left out, so running it twice finds nothing the
+// second time. Without `apply` every transaction is rolled back and the
+// result is the census of what `apply` would write.
+//
+// A legacy whole-period row that is no longer 'pending' is evidence of a
+// payment and is never rewritten; re-accruing around it would book the other
+// month's share a second time on top of it. That run is reported, not
+// touched.
+// ------------------------------------------------------------
+
+export interface StraddleResplit {
+  payRunId: string;
+  entityId: string;
+  periodStart: string;
+  periodEnd: string;
+  outcome: 'resplit' | 'skipped_settled';
+  /** Liability rows of the entity that the re-accrual removes and adds. */
+  removed: string[];
+  added: string[];
+  findings: HallazgoNomina[];
+}
+
+/** Thrown inside a re-accrual transaction to roll it back. */
+class ResplitRehearsal extends Error {}
+
+async function liabilitySnapshot(client: pg.PoolClient, tenantId: string, entityId: string): Promise<string[]> {
+  const r = await client.query<{ row: string }>(
+    `SELECT concat_ws(' ', tax_type, jurisdiction, COALESCE(pay_run_id::text, 'month'),
+                      period_start::text, period_end::text, amount::text, status) AS row
+       FROM employer_tax_liabilities
+      WHERE tenant_id = $1 AND entity_id = $2
+      ORDER BY 1`,
+    [tenantId, entityId]
+  );
+  return r.rows.map((x) => x.row);
+}
+
+export async function resplitStraddlingLiabilities(
+  tenantId: string,
+  options: { apply: boolean }
+): Promise<StraddleResplit[]> {
+  const runs = await withTransaction((client) =>
+    client.query<{ id: string; entity_id: string; period_start: string; period_end: string; settled: boolean }>(
+      `SELECT pr.id, ps.entity_id, pp.period_start::text AS period_start, pp.period_end::text AS period_end,
+              EXISTS (SELECT 1 FROM employer_tax_liabilities l
+                       WHERE l.tenant_id = pr.tenant_id AND l.pay_run_id = pr.id
+                         AND l.tax_type IN ('imss_employer', 'infonavit_employer')
+                         AND date_trunc('month', l.period_start) <> date_trunc('month', l.period_end)
+                         AND l.status <> 'pending') AS settled
+         FROM pay_runs pr
+         JOIN pay_periods pp ON pp.id = pr.pay_period_id AND pp.tenant_id = pr.tenant_id
+         JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id AND ps.tenant_id = pp.tenant_id
+        WHERE pr.tenant_id = $1 AND pr.status IN ('approved', 'paid')
+          AND date_trunc('month', pp.period_start) <> date_trunc('month', pp.period_end)
+        ORDER BY pp.period_start, pr.id`,
+      [tenantId]
+    )
+  );
+
+  const results: StraddleResplit[] = [];
+  for (const run of runs.rows) {
+    const base = {
+      payRunId: run.id, entityId: run.entity_id,
+      periodStart: run.period_start, periodEnd: run.period_end,
+    };
+    if (run.settled) {
+      results.push({ ...base, outcome: 'skipped_settled', removed: [], added: [], findings: [] });
+      continue;
+    }
+    let found: StraddleResplit | null = null;
+    try {
+      await withTransaction(async (client) => {
+        const before = await liabilitySnapshot(client, tenantId, run.entity_id);
+        const accrual = await acumular(client, { tenantId, payRunId: run.id });
+        const after = await liabilitySnapshot(client, tenantId, run.entity_id);
+        const removed = before.filter((x) => !after.includes(x));
+        const added = after.filter((x) => !before.includes(x));
+        if (removed.length === 0 && added.length === 0) throw new ResplitRehearsal();
+        found = { ...base, outcome: 'resplit', removed, added, findings: accrual.hallazgos };
+        if (!options.apply) throw new ResplitRehearsal();
+      });
+    } catch (err) {
+      if (!(err instanceof ResplitRehearsal)) throw err;
+    }
+    if (found) results.push(found);
+  }
+  return results;
 }
 
 export { hallazgosQueBloquean };

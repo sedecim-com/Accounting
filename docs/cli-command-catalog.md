@@ -49,9 +49,9 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **262 comandos** repartidos en **74 familias** de primer nivel. De las **1638** filas del catálogo, **247** (15.1 %) ya se pueden invocar.
+El binario ejecuta hoy **264 comandos** repartidos en **74 familias** de primer nivel. De las **1638** filas del catálogo, **249** (15.2 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **285** filas lo declaran completo, **386** a medias y **967** inexistente.
+Del motor que cada comando necesita, **287** filas lo declaran completo, **386** a medias y **965** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **207** ya se teclean.
 
@@ -75,8 +75,8 @@ Contadas por COMANDO, las 1638 filas son **1616 rutas únicas**: **17 rutas** es
 | `receipt` | 11 | 6 |
 | `close` | 9 | 6 |
 | `vendor` | 23 | 5 |
+| `e-accounting` | 12 | 5 |
 | `batch` | 7 | 5 |
-| `credit-note` | 7 | 5 |
 
 **1 de 603** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
@@ -2069,8 +2069,8 @@ Esta sección no publica diccionarios propios. **Los verbos (§1), los sustantiv
 | `mnemosine e-accounting balance generate` · `contabilidad-electronica balanza generar` | Genera la balanza de comprobación del periodo (normal, complementaria o de cierre) con `SaldoIni`, `Debe`, `Haber` y `SaldoFin` | `--period`, `--type N\|C`, `--closing`, `--dry-run`, `-o/--output` | ✅ **hecha en F07b**: consume las cuatro columnas de F07a (saldo inicial derivado del mayor, no de la columna que sólo siembra el cierre duro) y respeta `Natur` al declarar el signo | escritura | ✓ | 1 |
 | `mnemosine e-accounting balance check` · `contabilidad-electronica balanza verificar` | Verifica las invariantes que el SAT revisa: `SaldoIni + Debe − Haber = SaldoFin` respetando `Natur`, y que toda cuenta exista en el último catálogo presentado. Hallazgo que bloquea → código 4 | `--period`, `--check`, `--strict`, `--json` | ✅ **hecha en F07b**: el recálculo del SAT no es simétrico entre una cuenta deudora y una acreedora, y aquí se hace con esa asimetría; publica los descuadres que F07a calculaba y las tres superficies tiraban | lectura | ✓ | 1 |
 | `mnemosine e-accounting balance file` · `contabilidad-electronica balanza presentar` | **Transmite** la balanza del mes; rehúsa o encadena el catálogo automáticamente cuando el diff muestra cuentas nuevas | `--period`, `--chain-catalog`, `--live`, `--dry-run`, `-y/--yes`, `--idempotency-key` | ❌ hay que construirlo | irreversible | ✗ | 1 |
-| `mnemosine e-accounting voucher generate` · `contabilidad-electronica poliza generar` | Genera las pólizas del periodo con el nodo de evidencia correcto por transacción: `CompNal` con UUID, `CompExt`, `Cheque` u `OtrMetodoPago` | `--period`, `--validate-uuids`, `--dry-run`, `-o/--output` | ❌ hay que construirlo, y **está bloqueado por `cfdi link add`**: sin UUID, RFC de contraparte y método de pago en la línea de asiento no hay póliza emisible en el plazo de 15 días que da el SAT | escritura | ✓ | 2 |
-| `mnemosine e-accounting subledger generate` · `contabilidad-electronica auxiliar generar` | Genera el auxiliar de folios de comprobantes o el auxiliar de cuenta y subcuenta, que el SAT pide sólo a requerimiento | `--period`, `--kind folios\|accounts`, `--dry-run`, `-o/--output` | ❌ hay que construirlo | escritura | ✓ | 2 |
+| `mnemosine e-accounting voucher generate` · `contabilidad-electronica poliza generar` | Genera las pólizas del periodo con el nodo de evidencia correcto por transacción: `CompNal` con UUID, `CompExt`, `Cheque` u `OtrMetodoPago` | `--period`, `--closing`, `--request-type AF\|FC\|DE\|CO`, `--order-number`\|`--procedure-number`, `--validate-uuids`, `--dry-run`, `-o/--output`, `-y/--yes` | ✅ **hecha en MNE-001-054**: src/cli/e-accounting-request-command.ts sobre `generarPolizas` (src/services/sat/anexo24/polizas-service.ts). **El bloqueo por `cfdi link add` se levantó**: desde #318 (PR #365) aprobar un CFDI recibido crea el gasto con su `cfdi_uuid` y postea con `source_type 'bill'`, y el motor resuelve el `CompNal` por ese vínculo; una póliza manual sin documento sale sin `CompNal` (el XSD lo permite) y un CFDI con RFC de contraparte inservible se nombra por su póliza (`comprobante-sin-rfc-usable`). Un hallazgo bloqueante sale 4 y no deja archivo en disco. Un asiento que mueve banco sin un pago registrado detrás (comisión o interés de la conciliación, nómina, traspaso entre cuentas propias) **bloquea por omisión**: lo decide la política `anexo24_voucher_money_without_trace` (`block`\|`warn`), así que un mes real con una comisión bancaria no sale hasta contestarla o capturar el pago. Las notas de crédito timbradas llevan su `CompNal` como las facturas. `TipoSolicitud` no tiene valor por omisión | escritura | ✓ | 2 |
+| `mnemosine e-accounting subledger generate` · `contabilidad-electronica auxiliar generar` | Genera el auxiliar de folios de comprobantes o el auxiliar de cuenta y subcuenta, que el SAT pide sólo a requerimiento | `--period`, `--closing`, `--kind folios\|accounts`, `--request-type AF\|FC\|DE\|CO`, `--order-number`\|`--procedure-number`, `--dry-run`, `-o/--output`, `-y/--yes` | ✅ **hecha en MNE-001-054**: src/cli/e-accounting-request-command.ts sobre `generarAuxiliar` (src/services/sat/anexo24/polizas-service.ts); `--kind` y `TipoSolicitud` sin valor por omisión; con `--kind folios`, un CFDI que queda fuera por un RFC de contraparte inservible se nombra como aviso (`comprobante-sin-rfc-usable`) | escritura | ✓ | 2 |
 | `mnemosine e-accounting acuse download` · `contabilidad-electronica acuse descargar` | Recupera y archiva el acuse de recepción y el posterior de aceptación o rechazo — la única prueba de que se presentó | `--period`, `--kind`, `-o/--output`, `--idempotency-key` | ❌ hay que construirlo. **IA ✗ por la regla (a): consume una credencial del cliente contra un tercero (Buzón Tributario).** | externo | ✗ | 1 |
 | `mnemosine e-accounting status` · `contabilidad-electronica estado` | Qué se presentó, qué falta y qué fue rechazado en el año, con la fecha límite de cada envío | `--year`, `--all-entities`, `--json` | ❌ hay que construirlo | lectura | ✓ | 1 |
 

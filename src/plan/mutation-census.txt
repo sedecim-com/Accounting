@@ -536,6 +536,11 @@ mirror	memory	E4.1 policy-panel-is-per-entity	src/services/policy/policy-service
 mirror	memory	E4.1 sua-file-declares-the-month-and-only-the-month	src/services/payroll/mx/sua-generator.ts	los movimientos del mes dejan de colgar del empleado: cada trabajador se lleva las cuotas de TODA la plantilla, y el archivo que se sube al SUA multiplica por el número de empleados
 mirror	memory	E4.1 sua-file-declares-the-month-and-only-the-month	src/services/payroll/mx/sua-generator.ts	una corrida en borrador —un recálculo que nadie aprobó— vuelve a declararse como cuota a pagar: el patrón le paga al IMSS por un cálculo que su propio despacho no cerró
 mirror	memory	E4.1 sua-file-declares-the-month-and-only-the-month	src/services/payroll/mx/sua-generator.ts	el archivo vuelve a entregarse aunque contradiga el pasivo que el patrón ya apuntó: se persiste un `draft` descuadrado, que es justo el que alguien sube al SUA sin volver a mirarlo
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/mx/sua-generator.ts	the SUA file stops splitting: the straddling week lands whole in the month it starts in, while the liability splits it — the file and the books disagree again
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/mx/sua-generator.ts	the SUA file wants the whole period inside the month again: the straddling week is declared in no month
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/common/employer-liability-service.ts	the liability books the run in one month again, by its `period_end`, while the SUA file splits it by days
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/common/employer-liability-service.ts	each payslip stops being split: the month that holds the period start books the whole amount and the other month nothing
+mirror	memory	E4.1 straddling-period-split-by-contribution-days	src/services/payroll/common/employer-liability-service.ts	the month-end liability only sees periods that END in the month: the first month of a straddling week loses its share
 mirror	memory	E4.1 garnishment-vocabulary-is-the-persisted-one	src/services/payroll/usa/garnishments/garnishment-engine.ts	la pensión alimenticia deja de tratarse como lo que es y pierde su tope de la CCPA: era el caso que MEDIDO retenía 0 contra 500, dinero que un juez adjudicó y no llegaba
 mirror	memory	E4.1 garnishment-vocabulary-is-the-persisted-one	src/services/payroll/usa/garnishments/garnishment-engine.ts	vuelve el cero silencioso: un vocabulario que el motor no entiende retiene nada en vez de negarse, que es el defecto original de T20 y su principio entero
 mirror	memory	E4.1 garnishment-vocabulary-is-the-persisted-one	src/database/migrations/075_el_embargo_que_no_retenia.sql	la columna vuelve a admitir cualquier cadena, y con ella vuelve a poder guardarse la orden que no retiene: un vocabulario sin restricción es una sugerencia
@@ -606,6 +611,7 @@ mirror	memory	E5.1 shadow-verdicts-gate-auto-post	src/services/policy/policy-ser
 mirror	memory	E5.1 shell-completion-from-shipped-tree	src/cli/completion-command.ts	profundidad-truncada: un generador que se detiene un nivel antes pierde las 53 tablas de tercer nivel (el guion cae de 597 a 544 líneas) y una prueba sobre un árbol sintético de dos niveles no tiene tercer nivel que perder
 mirror	memory	E5.1 cli-reference-mirrors-real-help	scripts/generate-cli-reference.ts	ayuda-a-medias: helpInformation() no dispara afterHelp, así que las 244 invocaciones de ejemplo desaparecen del documento mientras el generador sigue prometiendo fidelidad byte a byte
 mirror	memory	E5.1 every-help-example-parses	src/cli/bill-command.ts	ejemplo-que-miente: tax= es TASA en invoice y MONTO en bill, así que el ejemplo copiable registraría 16 pesos de IVA donde van 2 000 — la confusión H3 que este tramo existe para curar, en el propio texto que la cura
+mirror	memory	E5.1 every-help-example-parses	src/cli/invoice-command.ts	invoice-teaches-the-legacy-key: the copyable invoice example goes back to the bare tax=, which bill reads as an AMOUNT, so the H3 confusion returns from the other side
 mirror	memory	E5.1 contract-exit-codes-have-producers	src/services/integrations/accounting/contalink-adapter.ts	rechazo-disfrazado-de-fallo: un 401 (credencial muerta) o un 422 (payload que jamás aceptará) saldrían por el 8, y el contrato dice de ese 8 «Retryable» — el cron reintentaría para siempre una petición que nunca puede salir bien
 mirror	memory	E5.1 contract-exit-codes-have-producers	src/services/integrations/accounting/contalink-adapter.ts	el-cuarto-desenlace: el `json()` vuelve a quedar FUERA del guarda, así que un proxy o un portal cautivo que conteste 200 con HTML da un SyntaxError pelado que sale por el 1 genérico y ni siquiera nombra al proveedor
 mirror	memory	E5.1 contract-exit-codes-have-producers	src/cli/kernel/index.ts	la-puerta-tapiada: la única fila del mapa que produce el 9. Borrada, la clase ExternalRejectedError sigue existiendo intacta y el árbol compila — pero todo rechazo definitivo vuelve al 1 genérico y el 9 vuelve a ser papel
@@ -1182,6 +1188,11 @@ anchor	src/plan/criteria/e4-1.ts	de: ' if (!ctx.entityId) {\n throw new Validati
 anchor	src/plan/criteria/e4-1.ts	de: ' ) m ON m.employee_id = e.id',
 anchor	src/plan/criteria/e4-1.ts	de: " WHERE pr.status IN ('approved', 'paid')",
 anchor	src/plan/criteria/e4-1.ts	de: ' if (bloqueantes.length > 0) {',
+anchor	src/plan/criteria/e4-1.ts	de: " const s = splitByContributionMonth(r.period_start!, r.period_end!, amount ?? '0').find(",
+anchor	src/plan/criteria/e4-1.ts	de: ' AND pp.period_start <= $4 AND pp.period_end >= $3',
+anchor	src/plan/criteria/e4-1.ts	de: ' const stretches = splitByContributionMonth(c.period_start, c.period_end, 0);',
+anchor	src/plan/criteria/e4-1.ts	de: " const share = splitByContributionMonth(p.period_start, p.period_end, p[column] ?? '0').find(",
+anchor	src/plan/criteria/e4-1.ts	de: ' AND pp.period_start <= $4::date AND pp.period_end >= $3::date`,',
 anchor	src/plan/criteria/e4-1.ts	de: " case 'pension_alimenticia':\n return 'child_support';",
 anchor	src/plan/criteria/e4-1.ts	de: ' throw new Error(\n `Unknown garnishment amount_type',
 anchor	src/plan/criteria/e4-1.ts	de: " CHECK (amount_type IN ('fixed', 'percent_disposable', 'percent_gross'));",
@@ -1252,6 +1263,7 @@ anchor	src/plan/criteria/e5-1.ts	de: 'c.decididos < FLOOR_SOMBRA_VEREDICTOS ||',
 anchor	src/plan/criteria/e5-1.ts	de: ' visit(child, childPath);',
 anchor	src/plan/criteria/e5-1.ts	de: " emitir(cmd, 'afterHelp', contexto);",
 anchor	src/plan/criteria/e5-1.ts	de: 'tax-amount=2000.00',
+anchor	src/plan/criteria/e5-1.ts	de: 'tax-rate=16;description=Servicios contables julio',
 anchor	src/plan/criteria/e5-1.ts	de: ' throw new ExternalRejectedError(this.name, `HTTP ${response.status} at ${path}`, detalle);',
 anchor	src/plan/criteria/e5-1.ts	de: ' let data: T;\n try {\n data = (await response.json()) as T;',
 anchor	src/plan/criteria/e5-1.ts	de: ' 424: ExitCode.EXTERNAL_REJECTED,',

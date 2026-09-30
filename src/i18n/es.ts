@@ -661,6 +661,22 @@ export const ES: Record<keyof typeof EN, string> = {
     'Negarse a generar hasta que cada cuenta lleve su código agrupador',
   'policy.anexo24_account_without_grouping_code.option.omitir_y_avisar':
     'Dejarlas fuera del archivo y listarlas',
+  'policy.anexo24_voucher_money_without_trace.question':
+    'Una póliza mueve dinero del banco sin un pago registrado detrás (una comisión, intereses, una nómina, un traspaso entre cuentas propias): ¿qué hacen las pólizas del Anexo 24?',
+  'policy.anexo24_voucher_money_without_trace.impact':
+    'Decide si `e-accounting voucher generate` entrega un mes con esos asientos. «block» rechaza el archivo (código 4) y nombra cada póliza hasta que se capture un pago con su rastro. «warn» lo entrega sin nodo de pago y nombra cada póliza. Ninguna toca el mayor. Declarar un nodo OtrMetodoPago no se ofrece: el XSD exige su Benef y su RFC, y sin un pago registrado el mayor no tiene ninguno de los dos, así que se inventarían.',
+  'policy.anexo24_voucher_money_without_trace.rationale':
+    'En PolizasPeriodo 1.3 (Anexo 24 de la RMF) los nodos Cheque, Transferencia y OtrMetodoPago son opcionales y cada uno «se convierte en requerido» cuando hay una salida o entrada de recursos por ese método; Transferencia también es requerido en toda transacción entre cuentas propias del contribuyente (la documentación del XSD de cada nodo). Sin un pago registrado el sistema no sabe cuál de esos casos es el asiento, y un archivo al que le falta un nodo requerido es contabilidad incompleta (CFF 28-IV). Por eso, por omisión, se rechaza y se nombra la póliza. Un despacho cuyos asientos sin rastro son cargos del banco que ningún instrumento movió puede contestar «warn».',
+  'policy.anexo24_voucher_money_without_trace.why':
+    'Las comisiones e intereses del banco mueven dinero que ningún cheque ni transferencia tuya movió. Si tu despacho presenta esas pólizas sin nodo de pago o captura antes un pago, es criterio tuyo.',
+  'policy.anexo24_voucher_money_without_trace.what':
+    'Aplico tu respuesta a cada póliza que mueve dinero del banco sin un pago registrado, y siempre nombro cada una.',
+  'policy.anexo24_voucher_money_without_trace.if_skipped':
+    'Rechazo el archivo y nombro cada póliza.',
+  'policy.anexo24_voucher_money_without_trace.option.block':
+    'Rechazar el archivo hasta que cada una tenga un pago registrado con su rastro',
+  'policy.anexo24_voucher_money_without_trace.option.warn':
+    'Entregar el archivo sin nodo de pago y listar las pólizas',
 
   'policy.chart_parent_child_coherence.question':
     '¿Una subcuenta puede estar en una sección de los estados distinta de la de su cuenta padre?',
@@ -2378,6 +2394,68 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+
+  // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
+  'help.e_accounting.voucher.description': 'Las pólizas del periodo que el SAT pide a requerimiento: PolizasPeriodo 1.3',
+  'help.e_accounting.voucher.generate.description':
+    'Genera y archiva el XML de pólizas del periodo con el nodo de evidencia de cada renglón (CompNal, Cheque, Transferencia, OtrMetodoPago) y su hash',
+  'help.e_accounting.voucher.option.closing':
+    'las pólizas del mes 13, donde caen los ajustes de cierre del ejercicio; con él, --period nombra el ejercicio (2026)',
+  'help.e_accounting.voucher.option.validate_uuids': 'comprueba además la forma de cada UUID de CFDI que declaran las pólizas',
+  'help.e_accounting.subledger.description': 'Los auxiliares que el SAT pide a requerimiento: de folios o de cuentas',
+  'help.e_accounting.subledger.generate.description':
+    'Genera y archiva el auxiliar de folios (AuxiliarFolios 1.3) o el de cuenta y subcuenta (AuxiliarCtas 1.3) con su hash',
+  'help.e_accounting.subledger.option.closing':
+    'el auxiliar del mes 13, donde caen los ajustes de cierre del ejercicio; con él, --period nombra el ejercicio (2026)',
+  'help.e_accounting.subledger.option.kind': 'qué auxiliar: folios (de folios) o accounts (de cuenta y subcuenta); sin valor por omisión',
+  'help.e_accounting.request.option.period':
+    'periodo a declarar: 2026-02, su nombre o el id del periodo fiscal; con --closing, el ejercicio (2026)',
+  'help.e_accounting.request.option.request_type':
+    'el requerimiento al que responde el archivo (TipoSolicitud): AF acto de fiscalización, FC fiscalización compulsa, DE devolución, CO compensación; sin valor por omisión',
+  'help.e_accounting.request.option.order_number': 'número de orden (NumOrden), obligatorio con AF y FC: ABC1234567/26',
+  'help.e_accounting.request.option.procedure_number': 'número de trámite (NumTramite), obligatorio con DE y CO: DE202600000009',
+  'help.e_accounting.request.option.dry_run': 'lo construye y muestra el veredicto; no archiva nada ni escribe archivo',
+  'help.e_accounting.request.option.output': 'escribe el XML en esta ruta (el almacén de artefactos guarda su propia copia)',
+  'help.e_accounting.request.option.yes': 'no pregunta antes de sobrescribir cuando -o nombra un archivo que ya existe',
+  'e_accounting.request.type_missing':
+    'Indica a qué requerimiento responde el archivo con --request-type ({types}). Las pólizas y los auxiliares se entregan a requerimiento, nunca de oficio, y el archivo dice a cuál responde: no hay valor por omisión.',
+  'e_accounting.period.missing':
+    'Indica el mes: --period YYYY-MM (o su nombre o id), o --closing para el mes 13 del ejercicio.',
+  'e_accounting.subledger.kind_missing':
+    'Indica qué auxiliar con --kind: folios (de folios) o accounts (de cuenta y subcuenta). No hay valor por omisión: entregar el equivocado es no contestar el requerimiento.',
+  'e_accounting.subledger.kind_unknown': '--kind «{value}» no existe: usa folios o accounts.',
+  'e_accounting.target.dry_run': '(ensayo: no se escribió nada)',
+  'e_accounting.target.not_written': '(no se escribió: el archivo está bloqueado)',
+  'e_accounting.request.type_unknown':
+    'TipoSolicitud «{value}» no existe. El Anexo 24 admite {types}: AF acto de fiscalización, FC fiscalización compulsa, DE devolución, CO compensación. No hay valor por omisión.',
+  'e_accounting.request.order_missing':
+    'TipoSolicitud {type} exige --order-number (NumOrden): el número de la orden de la revisión que pidió este archivo.',
+  'e_accounting.request.order_not_filing':
+    'TipoSolicitud {type} lleva --order-number, no --procedure-number: los dos dirían que el archivo responde a la vez a una revisión y a una devolución o compensación.',
+  'e_accounting.request.filing_missing':
+    'TipoSolicitud {type} exige --procedure-number (NumTramite): el número del trámite de devolución o compensación al que este archivo da soporte.',
+  'e_accounting.request.filing_not_order': 'TipoSolicitud {type} lleva --procedure-number, no --order-number.',
+  'e_accounting.request.order_shape':
+    'NumOrden «{value}» no tiene el formato del SAT: tres letras, siete dígitos, una diagonal y dos dígitos (ABC1234567/26). Con otro valor el esquema rechaza el archivo entero.',
+  'e_accounting.request.filing_shape':
+    'NumTramite «{value}» no tiene el formato del SAT: dos letras y doce dígitos (DE202600000009). Con otro valor el esquema rechaza el archivo entero.',
+  'e_accounting.target.store': '(almacén de artefactos)',
+  'e_accounting.target.label': 'destino {target}',
+  'e_accounting.sealing.declared':
+    'El despacho tiene declarado «{policy}» en efirma_sellado_contabilidad_electronica, y este comando no sella: el archivo sale sin Sello, noCertificado ni Certificado.',
+  'e_accounting.dry_run.done': '--dry-run: no se archivó nada y no se escribió ningún archivo.',
+  'e_accounting.archive.already_there':
+    'Estos mismos bytes ya estaban archivados: no se creó una versión nueva. El generador es determinista.',
+  'e_accounting.voucher.title': 'Pólizas {month}/{year}',
+  'e_accounting.voucher.summary':
+    '{vouchers, plural, one {# póliza} other {# pólizas}}, {traced} con rastro de pago · cargos {debit} · abonos {credit}',
+  'e_accounting.voucher.blocked':
+    'No se generó ningún archivo entregable: {blocking, plural, one {# hallazgo bloqueante} other {# hallazgos bloqueantes}} arriba, cada uno con su número de póliza. Corrígelos y vuelve a generar.',
+  'e_accounting.subledger.title_folios': 'Auxiliar de folios {month}/{year}',
+  'e_accounting.subledger.title_accounts': 'Auxiliar de cuentas {month}/{year}',
+  'e_accounting.subledger.summary':
+    '{vouchers, plural, one {# póliza} other {# pólizas}} · {lines, plural, one {# renglón} other {# renglones}}',
+
   'payslip.run_required': 'Falta --run: nombra la corrida cuyos recibos quieres (`pay-run create` imprimió su id).',
   'imss.sua.period_invalid': '--period "{period}": usa el mes como AAAA-MM, por ejemplo 2026-07.',
   'imss.sua.exists': '{path} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes.',

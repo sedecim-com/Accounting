@@ -2398,8 +2398,8 @@ export const E4_1: Criterio[] = [
           'el archivo del SUA dejó de exigir que la corrida esté aprobada: un recálculo en borrador vuelve a declararse como cuota a pagar',
         ],
         [
-          /pp\.period_start >= \$3 AND pp\.period_end <= \$4/,
-          'el archivo del SUA dejó de acotar los recibos al mes que declara',
+          /pp\.period_start <= \$4 AND pp\.period_end >= \$3/,
+          'the SUA file no longer bounds the payslips to the periods that overlap the month it declares',
         ],
       ];
       for (const [ancla, porque] of piezas) {
@@ -2442,6 +2442,88 @@ export const E4_1: Criterio[] = [
       return ok(
         'los filtros del SUA viven donde filtran, la cifra la confirma el pasivo apuntado, la discrepancia no deja salir el archivo y hay reproducción contra Postgres'
       );
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'straddling-period-split-by-contribution-days',
+    // A PERIOD THAT STRADDLES TWO MONTHS IS SPLIT BY CONTRIBUTION DAYS, AND BY
+    // THE SAME FUNCTION IN BOTH READERS (#231, MNE-001-071; owner decision
+    // MNE-001-131). The law fixes the split, so there is no panel key. The
+    // defect was two readers with two rules: the SUA file wanted the whole
+    // period inside the month and the liability took it whole by `period_end`,
+    // so the week of February 25th to March 3rd was March's in the books and
+    // no month's in the file. Removing the reader from EITHER side reopens it.
+    enunciado:
+      'A pay period that straddles two months is split by the contribution days of each month, the same way in the SUA file and in the employer liability',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/sua-generator.ts',
+        de: "      const s = splitByContributionMonth(r.period_start!, r.period_end!, amount ?? '0').find(",
+        a: "      const s = [{ start: r.period_start!, days: 0, amount: new Decimal(amount ?? '0') }].find(",
+        porque:
+          'the SUA file stops splitting: the straddling week lands whole in the month it starts in, while the liability splits it — the file and the books disagree again',
+      },
+      {
+        archivo: 'src/services/payroll/mx/sua-generator.ts',
+        de: '          AND pp.period_start <= $4 AND pp.period_end >= $3',
+        a: '          AND pp.period_start >= $3 AND pp.period_end <= $4',
+        porque:
+          'the SUA file wants the whole period inside the month again: the straddling week is declared in no month',
+      },
+      {
+        archivo: 'src/services/payroll/common/employer-liability-service.ts',
+        de: '  const stretches = splitByContributionMonth(c.period_start, c.period_end, 0);',
+        a: '  const stretches = [{ start: c.period_end, end: c.period_end, days: 0 }];',
+        porque:
+          'the liability books the run in one month again, by its `period_end`, while the SUA file splits it by days',
+      },
+      {
+        archivo: 'src/services/payroll/common/employer-liability-service.ts',
+        de: "    const share = splitByContributionMonth(p.period_start, p.period_end, p[column] ?? '0').find(",
+        a: "    const share = [{ start: p.period_start, amount: new Decimal(p[column] ?? '0') }].find(",
+        porque:
+          'each payslip stops being split: the month that holds the period start books the whole amount and the other month nothing',
+      },
+      {
+        archivo: 'src/services/payroll/common/employer-liability-service.ts',
+        de: '            AND pp.period_start <= $4::date AND pp.period_end >= $3::date`,',
+        a: '            AND pp.period_end >= $3::date AND pp.period_end <= $4::date`,',
+        porque:
+          'the month-end liability only sees periods that END in the month: the first month of a straddling week loses its share',
+      },
+    ],
+    evaluar: () => {
+      const gen = 'src/services/payroll/mx/sua-generator.ts';
+      const liab = 'src/services/payroll/common/employer-liability-service.ts';
+      const test = 'tests/payroll/mx/contribution-month-split.spec.ts';
+      for (const f of [gen, liab, test]) {
+        if (!existe(f)) return falla(`${f} is gone`);
+      }
+      const g = codigoDe(gen);
+      if (!/splitByContributionMonth\(r\.period_start!, r\.period_end!/.test(g)) {
+        return falla('the SUA file no longer splits each payslip by the contribution days of each month');
+      }
+      if (!/pp\.period_start <= \$4 AND pp\.period_end >= \$3/.test(g)) {
+        return falla('the SUA file no longer reads every period that overlaps the month: a straddling week is declared in no month');
+      }
+      const l = codigoDe(liab);
+      if (!/const stretches = splitByContributionMonth\(c\.period_start, c\.period_end/.test(l)) {
+        return falla('the liability no longer books one row per month the period touches');
+      }
+      if (!/splitByContributionMonth\(p\.period_start, p\.period_end, p\[column\]/.test(l)) {
+        return falla('the liability no longer splits each payslip on its own, so it cannot tie out with the SUA file to the cent');
+      }
+      if (!/pp\.period_start <= \$4::date AND pp\.period_end >= \$3::date/.test(l)) {
+        return falla('the month-end liability no longer reads every period that overlaps the month');
+      }
+      const t = crudoDe(test);
+      // The Postgres reproduction of both readers lives in
+      // t5-sua-el-multiplicador.int.spec.ts; the split itself is pinned here.
+      if (!/amount: '285\.71'/.test(t) || !/amount: '214\.29'/.test(t)) {
+        return falla('no test pins the 4/3 split of the week of February 25th to March 3rd any more');
+      }
+      return ok('the SUA file and the employer liability split a straddling period by contribution days, through the same function');
     },
   },
   {
