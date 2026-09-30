@@ -60,8 +60,8 @@ realización, el menor. Registro:
 Erogaciones por bienes/servicios AÚN no recibidos (seguros, rentas, licencias
 pagadas por adelantado): son **activo** y se llevan a resultados conforme se
 devengan. Cargo Pagos anticipados al pagar; cada mes Cargo Gasto · Abono Pagos
-anticipados. Un seguro anual cargado 100% a gasto el día 1 viola A-2
-(asociación); adviértelo y ofrece la tabla de devengo.
+anticipados. Un seguro anual cargado 100% a gasto el día 1 viola NIF A-1,
+cap. 20 (asociación); adviértelo y ofrece la tabla de devengo.
 
 ## C-6 — Propiedades, planta y equipo
 
@@ -113,7 +113,7 @@ manual al capital, pide el documento que la soporta.
   Infonavit, SAR, impuesto sobre nómina) · Abono Sueldos por pagar · Abono
   ISR retenido · Abono IMSS retenido.
 - **Aguinaldo, vacaciones, prima vacacional**: se devengan DURANTE el año
-  (provisión mensual), no de golpe en diciembre (A-2 devengación). El sistema
+  (provisión mensual), no de golpe en diciembre (NIF A-1, cap. 20, devengación). El sistema
   lo hace: `runMonthlyProvisions` postea un asiento por corrida y deja la
   cédula por trabajador y periodo, y se pide con `mnemosine payroll accrue
   --period <YYYY-MM>` (con `--dry-run` para ver la cédula antes de postear).
@@ -158,7 +158,7 @@ cosa y conviene no confundir.
 
 | Concepto | NIF | El sistema |
 |---|---|---|
-| Anticipos y pagos anticipados (1160) | A-2, C-5 | **Devenga**, corrida mensual idempotente por entidad-periodo |
+| Anticipos y pagos anticipados (1160) | NIF A-1 cap. 20, C-5 | **Devenga**, corrida mensual idempotente por entidad-periodo |
 | Aguinaldo, vacaciones, prima vacacional | D-3 | **Devenga**, corrida mensual idempotente por entidad-periodo (`provisions-run.ts`): un asiento por corrida con cargo a 6116 y abono a 2202/2203/2204, cuentas resueltas por rol. El mes del aniversario se parte en dos tramos del art. 76. La base salarial (`provision_base_salarial`) y el momento del reconocimiento de vacaciones (`devengo_vacaciones`) los fija el panel |
 | PTU | D-3, LFT 117 | **Cuenta sembrada** (2205) y SIN motor, también con el panel encendido: la PTU es el 10 % de la renta gravable de la ENTIDAD (LFT 120), no una proporción del salario de cada persona, así que no se prorratea por trabajador. La corrida mensual declara la ausencia en su resultado en vez de dejar un cero mudo; el reconocimiento es al cierre |
 | Prima de antigüedad | D-3, LFT 162 | **Fuera de alcance, declarado.** Exige valuación actuarial —rotación, mortalidad, descuento—; una cuenta sin motor que la alimente es peor que ninguna, porque parece cobertura |
@@ -217,5 +217,5 @@ propón solo con confirmación del usuario.
   trasladado no cobrado" (ver mexico-cfdi).
 - Sin documento soporte (CFDI, contrato, acta), un gasto es probablemente
   **no deducible** (6900) aunque contablemente sea gasto real.
-- Ante la duda entre dos tratamientos: postulados de A-2 (sustancia económica
-  y devengación) → ver nif-marco.
+- Ante la duda entre dos tratamientos: postulados, NIF A-1 cap. 20 (sustancia
+  económica y devengación) → ver nif-marco.

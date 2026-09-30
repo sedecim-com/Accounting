@@ -66,6 +66,20 @@ export function monthsSince(verifiedAt: string, now: Date): number {
   return months;
 }
 
+/**
+ * Freshness guard for the registry's verified_at: null when it is fresh, else
+ * the reason it is not. Rejects a malformed or future date (a future date would
+ * otherwise read as negative months and pass forever).
+ */
+export function freshnessProblem(verifiedAt: string, now: Date, maxMonths: number): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(verifiedAt) || Number.isNaN(Date.parse(verifiedAt))) {
+    return `verified_at "${verifiedAt}" is not a YYYY-MM-DD date`;
+  }
+  if (Date.parse(verifiedAt) > now.getTime()) return `verified_at ${verifiedAt} is in the future`;
+  const age = monthsSince(verifiedAt, now);
+  return age > maxMonths ? `verified_at ${verifiedAt} is ${age} months old; max ${maxMonths}` : null;
+}
+
 export function buildRegistryBlock(registry: Registry): string {
   const lines: string[] = [''];
   for (const [topic, heading] of GROUP_ORDER) {

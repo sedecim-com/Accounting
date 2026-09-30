@@ -103,7 +103,7 @@ El idioma **es inglés desde I22** del epic [#141](https://github.com/sedecim-co
 
 El corpus de normas del agente (`src/ai/docs/ifrs-registry.json`) lleva un `verified_at`: la fecha en que alguien lo contrastó con las fuentes vigentes. Una norma vigente se nos pasó porque nada avisaba de que esa fecha envejecía.
 
-- **Plazo máximo (N): 6 meses.** Decidido por el dueño el 2026-09-30 (#133, MNE-001-123). La prueba de frescura de `tests/ai/niif-registry.spec.ts` lee este valor de la línea siguiente y se pone en rojo cuando `verified_at` es más viejo.
+- **Plazo máximo (N): 6 meses.** Decidido por el dueño el 2026-09-30 (#133, MNE-001-123). La prueba de frescura de `tests/ai/niif-registry.spec.ts` lee este valor de la última línea de esta sección y se pone en rojo cuando `verified_at` es más viejo, o está en el futuro. Depende del calendario (`new Date()`): se pondrá en rojo solo, a propósito, al cumplirse el plazo.
 - **Qué hacer cuando se pone en rojo:** revisar NIF y leyes del corpus contra su fuente vigente y actualizar `verified_at` (la renovación semestral es MNE-001-149). No subas la fecha sin revisar: es la mentira que la prueba existe para evitar.
 
-FRESCURA_MESES: 6
+FRESHNESS_MAX_MONTHS: 6

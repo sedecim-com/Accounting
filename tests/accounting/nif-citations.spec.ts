@@ -52,8 +52,18 @@ function scannedFiles(dir: string): string[] {
   });
 }
 
-function citesA2ForAPostulate(line: string): boolean {
-  return CITES_A2.test(line) && !NEW_A2_TITLE.test(line);
+// In the agent manuals the key is also written bare («A-2 devengación», «postulados
+// de A-2», «| A-2, C-5 |»). A bare A-2 next to a postulate word is the same defect;
+// «NIF A-1» / «A-20» do not match, the new standard's title clears the line, and
+// the historical pointer «antes A-2» (cap. 20, formerly A-2) is legitimate.
+const BARE_A2 = /(?<![\w-])A\s*[-‐‑‒–]?\s*2(?![\d-])/;
+const POSTULATE_WORD = /devenga|devengaci|postulad|asociaci/i;
+const FORMERLY_A2 = /antes\s+(de\s+)?(la\s+)?A\s*[-‐‑‒–]?\s*2\b/i;
+
+function citesA2ForAPostulate(line: string, manual = false): boolean {
+  if (NEW_A2_TITLE.test(line)) return false;
+  if (CITES_A2.test(line)) return true;
+  return manual && BARE_A2.test(line) && POSTULATE_WORD.test(line) && !FORMERLY_A2.test(line);
 }
 
 describe('NIF citations in the engine', () => {
@@ -62,7 +72,7 @@ describe('NIF citations in the engine', () => {
       readFileSync(file, 'utf8')
         .split('\n')
         .map((text, i) => ({ text, at: `${relative(ROOT, file)}:${i + 1}` }))
-        .filter(({ text, at }) => citesA2ForAPostulate(text) && !(at in ALLOWED))
+        .filter(({ text, at }) => citesA2ForAPostulate(text, at.includes('.md:')) && !(at in ALLOWED))
         .map(({ at }) => at)
     );
     expect(offenders).toEqual([]);
@@ -82,6 +92,18 @@ describe('NIF citations in the engine', () => {
     expect(citesA2ForAPostulate('NIF A‑2 devengación')).toBe(true);
     expect(citesA2ForAPostulate('NIF A2 devengación')).toBe(true);
     expect(citesA2ForAPostulate('NIF A-2 dualidad económica')).toBe(true);
+  });
+
+  it('in the manuals, flags a bare A-2 beside accrual or postulate words', () => {
+    expect(citesA2ForAPostulate('viola A-2 (asociación)', true)).toBe(true);
+    expect(citesA2ForAPostulate('(A-2 devengación)', true)).toBe(true);
+    expect(citesA2ForAPostulate('| Anticipos | A-2, C-5 | **Devenga**, corrida |', true)).toBe(true);
+    expect(citesA2ForAPostulate('postulados de A-2 (sustancia económica)', true)).toBe(true);
+    // code lines are not manuals; the bare form is only judged in .md
+    expect(citesA2ForAPostulate('viola A-2 (asociación)')).toBe(false);
+    expect(citesA2ForAPostulate('postulados, NIF A-1 cap. 20 (devengación)', true)).toBe(false);
+    expect(citesA2ForAPostulate('cap. 20 (antes A-2), devengación contable', true)).toBe(false);
+    expect(citesA2ForAPostulate('A-20 devengación', true)).toBe(false);
   });
 
   it('lets through the new standard named by its title, and other keys', () => {
