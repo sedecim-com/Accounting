@@ -1567,6 +1567,64 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 55,
   },
   {
+    // MNE-001-083 · #305: the owner's decision of 2026-09-26 (MNE-001-006).
+    // Read by fx-revaluation.ts, the only engine that needs a closing rate.
+    key: 'closing_exchange_rate_source',
+    textKey: 'closing_exchange_rate_source',
+    category: 'contable',
+    question: 'At the close, which published rate revalues the open foreign-currency balances?',
+    impact:
+      'closing fx revalue revalues the foreign-currency receivables, payables and bank balances at the rate ' +
+      "of this source for the period's last calendar day, exactly that day. If the source published no rate " +
+      'for it, the run stops and says so: it never takes the previous business day or another source.',
+    options: [
+      { value: 'operations_source', label: 'The same source as the operations (fuente_tipo_cambio; DOF unless changed)' },
+      { value: 'dof', label: 'DOF (Diario Oficial; the tax rate under art. 20 CFF), whatever the operations use' },
+      { value: 'fix_banxico', label: 'Banxico FIX (published as banco_mexico)' },
+    ],
+    defaultValue: 'operations_source',
+    defaultRationale:
+      'NIF B-15 revalues monetary items at the closing rate, and the realised difference of a later payment ' +
+      'is measured with the source of the operations: closing with the same source keeps the unrealised and ' +
+      'the realised halves of one difference on the same scale. For a Mexican firm that source is the DOF by ' +
+      'default, the rate art. 20 CFF gives legal effect and the one the exchange gain or loss of LISR art. 8 ' +
+      'is measured with.',
+    whyAsking:
+      'DOF and FIX for the same day are different numbers, and the revaluation posts the gap between the book rate and this one.',
+    whatIDo: "I revalue at the chosen source's rate for the period's last day, and stop if it is missing.",
+    ifSkipped: 'I use the same source as the operations: the DOF unless you changed it.',
+    priority: 56,
+  },
+  {
+    // MNE-001-083 · #305: the owner's decision of 2026-09-26 named it
+    // revaluacion_cambiaria_reversion = revertir_al_inicio; new keys are born
+    // English. Read by fx-revaluation.ts, which fails closed on any other value.
+    // TODO(#305): offer no_reversal once payments measure the realised difference against the book rate.
+    key: 'fx_revaluation_reversal',
+    textKey: 'fx_revaluation_reversal',
+    category: 'contable',
+    question: 'Is the closing revaluation of foreign balances reversed on day 1 of the next period?',
+    impact:
+      'closing fx revalue posts the unrealised exchange difference on the last day of the period and its mirror ' +
+      'on day 1 of the next one, which must exist and be open. The balance goes back to its historical rate, ' +
+      'the one the realised difference of a later payment or collection is measured against.',
+    options: [
+      { value: 'reverse_on_day_one', label: 'Reverse it on day 1 of the next period' },
+    ],
+    defaultValue: 'reverse_on_day_one',
+    defaultRationale:
+      'NIF B-15 revalues monetary items at the closing rate for the balance sheet. Payments and collections ' +
+      'measure the realised difference against the document’s historical rate (ar-ap-posting.ts), so the ' +
+      'revaluation must be reversed on day 1: otherwise the same difference would be recognised twice, once ' +
+      'unrealised at the close and again when paid. Keeping the revaluation (no reversal) is not offered until ' +
+      'payments read the book rate instead.',
+    whyAsking:
+      'Reversing or keeping the revaluation are both legitimate under NIF B-15; which one is right depends on how payments measure the realised difference.',
+    whatIDo: 'I post the mirror of the revaluation on day 1 of the next period.',
+    ifSkipped: 'I reverse it on day 1 of the next period.',
+    priority: 57,
+  },
+  {
     key: 'rep_moneda_extranjera',
     textKey: 'rep_foreign_currency',
     category: 'contable',

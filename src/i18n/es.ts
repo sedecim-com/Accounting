@@ -30,6 +30,19 @@ import type { EN } from './en.js';
 export const ES: Record<keyof typeof EN, string> = {
   // ==== error.* — mensajes de los errores de la API y los servicios (I9) ====
   'error.PERIOD_ALREADY_OPEN': '{period} ya está abierto.',
+
+  'error.FX_REVALUATION_PERIOD_NOT_OPEN':
+    '{period} es {type} y está en {status}: la revaluación corresponde a un mes regular abierto o con cierre suave, antes de su sello.',
+  'error.FX_REVALUATION_NEXT_PERIOD_NOT_OPEN':
+    'La revaluación de {period} se revierte el primer día del periodo siguiente, y ese periodo {status, select, missing {no existe} other {está en {status}}}. Ábrelo (en diciembre, abre antes el ejercicio siguiente) y vuelve a correrla: no se posteó nada.',
+  'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
+    'La revaluación de cierre está hecha para entidades que llevan sus libros en pesos mexicanos (NIF B-15), y ésta los lleva en {currency}. Otras monedas funcionales, y ASC 830, son el issue 124: no se posteó nada.',
+  'error.FX_REVALUATION_PLAN_CHANGED':
+    'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
+  'error.FX_REVALUATION_MARKER_MISMATCH':
+    'El registro de la revaluación de {period} no coincide con el mayor: el mayor tiene {ledger} pólizas de revaluación para él y el registro {marker}, o sus importes difieren. Volver a correrla podría postear la revaluación dos veces, así que no se posteó nada; hay que revisar el registro.',
+  'error.FX_RATE_MISSING':
+    'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ==== fin de error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152); see en.ts ====
@@ -931,6 +944,40 @@ export const ES: Record<keyof typeof EN, string> = {
     'FIX de Banxico (el tipo de referencia, publicado como banco_mexico)',
   'policy.exchange_rate_source.option.manual':
     'Tipos que fijo a mano con `fx rate set`',
+
+  'policy.closing_exchange_rate_source.question':
+    'Al cierre, ¿con qué tipo publicado se revalúan los saldos vivos en moneda extranjera?',
+  'policy.closing_exchange_rate_source.impact':
+    'closing fx revalue revalúa las cuentas por cobrar, por pagar y los bancos en moneda extranjera al tipo de esta fuente para el último día natural del periodo, ese día exacto. Si la fuente no publicó tipo para ese día, la corrida se detiene y lo dice: nunca toma el día hábil anterior ni otra fuente.',
+  'policy.closing_exchange_rate_source.rationale':
+    'La NIF B-15 revalúa las partidas monetarias al tipo de cierre, y la diferencia realizada de un pago posterior se mide con la fuente de las operaciones: cerrar con la misma fuente deja en la misma escala las mitades no realizada y realizada de una misma diferencia. Para un despacho mexicano esa fuente es por omisión el DOF, el tipo al que el art. 20 CFF da efectos y con el que se mide la ganancia o pérdida cambiaria del art. 8 LISR.',
+  'policy.closing_exchange_rate_source.why':
+    'El DOF y el FIX del mismo día son números distintos, y la revaluación postea la brecha entre el tipo en libros y éste.',
+  'policy.closing_exchange_rate_source.what':
+    'Revalúo al tipo de la fuente elegida para el último día del periodo, y me detengo si falta.',
+  'policy.closing_exchange_rate_source.if_skipped':
+    'Uso la misma fuente que las operaciones: el DOF, salvo que la hayas cambiado.',
+  'policy.closing_exchange_rate_source.option.operations_source':
+    'La misma fuente que las operaciones (fuente_tipo_cambio; el DOF salvo que se cambie)',
+  'policy.closing_exchange_rate_source.option.dof':
+    'DOF (Diario Oficial; el tipo fiscal del art. 20 CFF), usen lo que usen las operaciones',
+  'policy.closing_exchange_rate_source.option.fix_banxico':
+    'FIX de Banxico (publicado como banco_mexico)',
+
+  'policy.fx_revaluation_reversal.question':
+    '¿La revaluación de cierre de los saldos en moneda extranjera se revierte el día 1 del periodo siguiente?',
+  'policy.fx_revaluation_reversal.impact':
+    'closing fx revalue postea la diferencia cambiaria no realizada el último día del periodo y su espejo el día 1 del siguiente, que tiene que existir y estar abierto. El saldo vuelve a su tipo histórico, contra el que se mide la diferencia realizada de un pago o cobro posterior.',
+  'policy.fx_revaluation_reversal.rationale':
+    'La NIF B-15 revalúa las partidas monetarias al tipo de cierre para el balance. Los pagos y cobros miden la diferencia realizada contra el tipo histórico del documento (ar-ap-posting.ts), así que la revaluación se revierte el día 1: si no, la misma diferencia se reconocería dos veces, no realizada al cierre y otra vez al pagarse. Conservar la revaluación (sin reversión) no se ofrece hasta que los pagos lean el tipo en libros.',
+  'policy.fx_revaluation_reversal.why':
+    'Revertir o conservar la revaluación son legítimos bajo la NIF B-15; cuál es el correcto depende de cómo miden los pagos la diferencia realizada.',
+  'policy.fx_revaluation_reversal.what':
+    'Posteo el espejo de la revaluación el día 1 del periodo siguiente.',
+  'policy.fx_revaluation_reversal.if_skipped':
+    'La revierto el día 1 del periodo siguiente.',
+  'policy.fx_revaluation_reversal.option.reverse_on_day_one':
+    'Revertirla el día 1 del periodo siguiente',
 
   'policy.rep_foreign_currency.question':
     'Un complemento en una moneda distinta de la funcional: ¿registrarlo o dejarlo en revisión?',
@@ -2272,6 +2319,26 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
   'help.receipt.apply.option.withholding':
     'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
+  'help.closing.fx.description': 'La moneda extranjera en el cierre',
+  'help.closing.fx.revalue.description':
+    'Revalúa las cuentas por cobrar, por pagar y los bancos en moneda extranjera al tipo de cierre, y lo revierte el día 1 del periodo siguiente. Va después del cierre suave; una corrida posterior postea sólo lo que se movió desde entonces',
+  'help.closing.fx.revalue.argument.period': 'periodo a revaluar: 2026-08, su id o parte de su nombre',
+
+  'closing.fx.revalue.already_run':
+    '{period} ya se revaluó (corrida {sequence}) y nada se ha movido desde entonces; no se posteó nada otra vez.',
+  'closing.fx.revalue.summary':
+    '{period} a {rates} · utilidad {gain} · pérdida {loss} · se revierte el {reversalDate}',
+  'closing.fx.revalue.no_foreign_balance': 'sin saldos en moneda extranjera',
+  'closing.fx.revalue.supplement':
+    'Corrida complementaria {sequence}: la diferencia es sólo lo que se movió desde las corridas anteriores de este periodo.',
+  'closing.fx.revalue.dry_run': 'Marcha seca: el mayor no se tocó.',
+  'closing.fx.revalue.nothing': 'Nada que revaluar: el mayor no se tocó.',
+  'closing.fx.revalue.confirm':
+    '¿Posteo la revaluación de {period} (utilidad {gain}, pérdida {loss}) y su espejo el {reversalDate}? El mayor no admite deshacer.',
+  'closing.fx.revalue.aborted': 'No se posteó nada.',
+  'closing.fx.revalue.aborted_no_tty':
+    'No se posteó nada: no hay terminal donde confirmar. Añade -y, o --dry-run para verlo antes.',
+  'closing.fx.revalue.posted': '✔ {entry} el {closingDate}, revertida por {reversal} el {reversalDate}.',
   'help.bill.rule.description':
     'Reglas de procesamiento del despacho: con qué se clasifica un CFDI recibido sin que intervenga el modelo',
   'help.bill.rule.create.description':
