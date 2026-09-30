@@ -49,15 +49,15 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **259 comandos** repartidos en **72 familias** de primer nivel. De las **1638** filas del catálogo, **244** (14.9 %) ya se pueden invocar.
+El binario ejecuta hoy **260 comandos** repartidos en **72 familias** de primer nivel. De las **1639** filas del catálogo, **245** (14.9 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **284** filas lo declaran completo, **387** a medias y **967** inexistente.
+Del motor que cada comando necesita, **285** filas lo declaran completo, **387** a medias y **967** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **207** ya se teclean.
 
-**El objetivo comprometible son 1395 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1396 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1638 filas son **1616 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1639 filas son **1617 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
@@ -69,8 +69,8 @@ Contadas por COMANDO, las 1638 filas son **1616 rutas únicas**: **17 rutas** es
 | `invoice` | 19 | 9 |
 | `report` | 32 | 8 |
 | `cfdi` | 46 | 7 |
+| `closing` | 37 | 7 |
 | `entity` | 11 | 7 |
-| `closing` | 36 | 6 |
 | `period` | 15 | 6 |
 | `receipt` | 11 | 6 |
 | `close` | 9 | 6 |
@@ -2594,6 +2594,7 @@ Los códigos de salida son los de REGISTRY §4 y §4.1: limpio `0`, hallazgo blo
 | `mnemosine closing execution list` · `cierre-proceso ejecucion listar` | Lista las corridas del periodo (depreciación, FX, asignaciones, ingresos, reversión de provisiones) con su estado y pólizas | `--kind`, `--json` | ❌ tabla `process_runs` (kind, params_hash, dry_run, journal_entry_ids[], reversal_of_run_id) | lectura | ✓ | 2 |
 | `mnemosine closing execution show <id>` · `cierre-proceso ejecucion ver` | Detalle de una corrida: parámetros, hash de parámetros, pólizas generadas, quién la ejecutó | `--json` | ❌ | lectura | ✓ | 2 |
 | `mnemosine closing run [period]` · `cierre-proceso ejecutar` | **El conductor del cierre**: devengo de prestaciones, amortización de anticipados, depreciación, verificación del checklist y cierre suave, en ese orden y una vez cada uno. Reanudable: `--stop-at` para ANTES del paso nombrado y `--resume` continúa la corrida abierta —que la hoja y el conductor se niegan a continuar en silencio—, volviendo a correr cada paso: los motores postean sólo lo que falta y el checklist se juzga de nuevo. Un candado consultivo impide dos conductores sobre el mismo periodo. Postea al libro | `--stop-at`, `--resume`, `--dry-run`, `--yes`, `--idempotency-key`, `-e/--entity`, `-u/--user` | ✅ **hecha en A6**: `src/services/accounting/closing-conductor.ts`, con `closing_runs` y `closing_run_steps` (083). No calcula ni una cifra: delega en los tres motores que ya existían, y su criterio ejecutable lo vigila | irreversible | ✗ | 1 |
+| `mnemosine closing fx revalue <period>` · `cierre-proceso cambio revaluar` | La revaluación cambiaria de cierre (NIF B-15, no realizada): revalúa los saldos vivos en moneda extranjera de CxC, CxP y bancos —las líneas con origen en moneda extranjera de los roles `cxc`, `cxp`, `banco` y de la cuenta contable de cada cuenta bancaria— al tipo que elige `closing_exchange_rate_source` para el ÚLTIMO DÍA NATURAL del periodo, y falla si esa fuente no publicó tipo ese día. Postea una póliza `adjusting` con `source_type = fx_revaluation` (nunca `closing`) y su espejo el día 1 del periodo siguiente, que tiene que existir y estar abierto. `fx_revaluation_runs` (168) es su marcador: una segunda corrida del mismo periodo no postea nada. Cubre lo que las filas `fx revaluation run`, `ar revaluation run`, `ap revaluation run` y `bank revaluation run` describen por separado | `--dry-run`, `--yes` | ✅ **hecha en MNE-001-083** (#305): src/services/accounting/fx-revaluation.ts (`revalueForeignBalances`); entra al conductor del cierre en MNE-001-112 | irreversible | ✗ | 2 |
 | `mnemosine closing execution run <kind>` · `cierre-proceso ejecucion ejecutar` | Ejecuta —o vuelve a ejecutar con otros parámetros— UNA corrida de motor, revirtiendo primero las pólizas anteriores y sin duplicar nunca. Postea al libro. **Esta fila era `closing run <kind>` y A6 la mudó aquí**: el nombre `closing run` pasó a nombrar al conductor del cierre entero, que es lo que su tarjeta pedía, y re-ejecutar un motor suelto con reversión es hermano de `closing execution reverse`, no del conductor | `--dry-run`, `--reason`, `--yes`, `--idempotency-key`, `-u/--user` | ❌ requiere `process_runs`; la reversión por póliza existe (posting.ts:497) | irreversible | ✗ | 3 |
 | `mnemosine closing execution reverse <id>` · `cierre-proceso ejecucion revertir` | Revierte por completo una corrida mal ejecutada generando las pólizas espejo enlazadas. Postea al libro | `--as-of`, `--reason`, `--yes`, `--dry-run`, `--idempotency-key`, `-u/--user` | 🟡 `src/services/accounting/posting.ts:497 `reverseJournalEntry`` | irreversible | ✗ | 2 |
 | `mnemosine doctor --scope close` · `doctor` *(raíz, sin alias)* | **Extiende el comando existente**: una sola pantalla con todo lo que impide cerrar — infraestructura, aislamiento, credenciales y el resumen de `closing check`. No reimplementa las verificaciones, las compone | `--scope`, `-e/--entity`, `--period`, `--json` | 🟡 src/ai/doctor-service.ts:39 `runDoctor` (9 checks de sistema); `doctor-command.ts:42` hoy solo acepta `--json`, no tiene `-e` ni `--period` | lectura | ✓ | 1 |

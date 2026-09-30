@@ -1499,6 +1499,35 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 55,
   },
   {
+    // MNE-001-083 · #305: the owner's decision of 2026-09-26 (MNE-001-006).
+    // Read by fx-revaluation.ts, the only engine that needs a closing rate.
+    key: 'closing_exchange_rate_source',
+    textKey: 'closing_exchange_rate_source',
+    category: 'contable',
+    question: 'At the close, which published rate revalues the open foreign-currency balances?',
+    impact:
+      'closing fx revalue revalues the foreign-currency receivables, payables and bank balances at the rate ' +
+      "of this source for the period's last calendar day, exactly that day. If the source published no rate " +
+      'for it, the run stops and says so: it never takes the previous business day or another source.',
+    options: [
+      { value: 'operations_source', label: 'The same source as the operations (fuente_tipo_cambio; DOF unless changed)' },
+      { value: 'dof', label: 'DOF (Diario Oficial; the tax rate under art. 20 CFF), whatever the operations use' },
+      { value: 'fix_banxico', label: 'Banxico FIX (published as banco_mexico)' },
+    ],
+    defaultValue: 'operations_source',
+    defaultRationale:
+      'NIF B-15 revalues monetary items at the closing rate, and the realised difference of a later payment ' +
+      'is measured with the source of the operations: closing with the same source keeps the unrealised and ' +
+      'the realised halves of one difference on the same scale. For a Mexican firm that source is the DOF by ' +
+      'default, the rate art. 20 CFF gives legal effect and the one the exchange gain or loss of LISR art. 8 ' +
+      'is measured with.',
+    whyAsking:
+      'DOF and FIX for the same day are different numbers, and the revaluation posts the gap between the book rate and this one.',
+    whatIDo: "I revalue at the chosen source's rate for the period's last day, and stop if it is missing.",
+    ifSkipped: 'I use the same source as the operations: the DOF unless you changed it.',
+    priority: 56,
+  },
+  {
     key: 'rep_moneda_extranjera',
     textKey: 'rep_foreign_currency',
     category: 'contable',

@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 227 of 351 subcommands
+  spelling is `-T` at the root and `-t` on the 228 of 353 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -6501,6 +6501,7 @@ Commands:
   check|verificar [options]                 Run the close verification catalog, or only the named checks; bare --check lists the names
   explain|explicar [options] <code>         Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it
   run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order
+  fx|cambio                                 Foreign currency at the close
   pack|paquete                              The dossier of a close: generate it, and verify that its figures still reproduce
   help [command]                            display help for command
 ```
@@ -6646,6 +6647,56 @@ Examples:
   # stops being a claim anybody can stand behind. Every step runs again; the
   # engines post only what is still missing.
   mnemosine closing run --resume --yes
+```
+
+### `mnemosine closing fx` (alias: cambio)
+
+```
+Usage: mnemosine closing fx|cambio [options] [command]
+
+Foreign currency at the close
+
+Options:
+  -h, --help                           display help for command
+
+Commands:
+  revalue|revaluar [options] <period>  Revalue the foreign-currency receivables,
+                                       payables and banks at the closing rate,
+                                       and reverse it on day 1 of the next
+                                       period
+  help [command]                       display help for command
+```
+
+#### `mnemosine closing fx revalue` (alias: revaluar)
+
+```
+Usage: mnemosine closing fx revalue|revaluar [options] <period>
+
+Revalue the foreign-currency receivables, payables and banks at the closing
+rate, and reverse it on day 1 of the next period
+
+Arguments:
+  period                                   period to revalue: 2026-08, its id, or part of its name
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
+  -h, --help                               display help for command
+
+Examples:
+  # What August's revaluation would post, at the rate of August 31st, writing nothing.
+  mnemosine closing fx revalue 2026-08 --dry-run
+  # Post it: one adjusting entry on August 31st and its mirror on September 1st.
+  mnemosine closing fx revalue 2026-08 --yes
 ```
 
 ### `mnemosine closing pack` (alias: paquete)

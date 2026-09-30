@@ -925,6 +925,25 @@ export const EN = {
   'policy.exchange_rate_source.option.manual':
     'Rates I set by hand with `fx rate set`',
 
+  'policy.closing_exchange_rate_source.question':
+    'At the close, which published rate revalues the open foreign-currency balances?',
+  'policy.closing_exchange_rate_source.impact':
+    "closing fx revalue revalues the foreign-currency receivables, payables and bank balances at the rate of this source for the period's last calendar day, exactly that day. If the source published no rate for it, the run stops and says so: it never takes the previous business day or another source.",
+  'policy.closing_exchange_rate_source.rationale':
+    'NIF B-15 revalues monetary items at the closing rate, and the realised difference of a later payment is measured with the source of the operations: closing with the same source keeps the unrealised and the realised halves of one difference on the same scale. For a Mexican firm that source is the DOF by default, the rate art. 20 CFF gives legal effect and the one the exchange gain or loss of LISR art. 8 is measured with.',
+  'policy.closing_exchange_rate_source.why':
+    'DOF and FIX for the same day are different numbers, and the revaluation posts the gap between the book rate and this one.',
+  'policy.closing_exchange_rate_source.what':
+    "I revalue at the chosen source's rate for the period's last day, and stop if it is missing.",
+  'policy.closing_exchange_rate_source.if_skipped':
+    'I use the same source as the operations: the DOF unless you changed it.',
+  'policy.closing_exchange_rate_source.option.operations_source':
+    'The same source as the operations (fuente_tipo_cambio; DOF unless changed)',
+  'policy.closing_exchange_rate_source.option.dof':
+    'DOF (Diario Oficial; the tax rate under art. 20 CFF), whatever the operations use',
+  'policy.closing_exchange_rate_source.option.fix_banxico':
+    'Banxico FIX (published as banco_mexico)',
+
   'policy.rep_foreign_currency.question':
     'A receipt in a currency other than the functional one: register it, or leave it for review?',
   'policy.rep_foreign_currency.impact':
@@ -2293,6 +2312,10 @@ export const EN = {
   'help.tenant.create.option.json': 'JSON output',
   'help.account.role.sync.description': 'Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones',
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
+  'help.closing.fx.description': 'Foreign currency at the close',
+  'help.closing.fx.revalue.description':
+    'Revalue the foreign-currency receivables, payables and banks at the closing rate, and reverse it on day 1 of the next period',
+  'help.closing.fx.revalue.argument.period': 'period to revalue: 2026-08, its id, or part of its name',
   'help.bill.rule.description': 'Firm processing rules: what codes an incoming CFDI with no model involved',
   'help.bill.rule.create.description':
     'Create a processing rule (conditions → actions) that the next ingest applies',

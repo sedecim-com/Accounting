@@ -897,6 +897,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.exchange_rate_source.option.manual':
     'Tipos que fijo a mano con `fx rate set`',
 
+  'policy.closing_exchange_rate_source.question':
+    'Al cierre, ¿con qué tipo publicado se revalúan los saldos vivos en moneda extranjera?',
+  'policy.closing_exchange_rate_source.impact':
+    'closing fx revalue revalúa las cuentas por cobrar, por pagar y los bancos en moneda extranjera al tipo de esta fuente para el último día natural del periodo, ese día exacto. Si la fuente no publicó tipo para ese día, la corrida se detiene y lo dice: nunca toma el día hábil anterior ni otra fuente.',
+  'policy.closing_exchange_rate_source.rationale':
+    'La NIF B-15 revalúa las partidas monetarias al tipo de cierre, y la diferencia realizada de un pago posterior se mide con la fuente de las operaciones: cerrar con la misma fuente deja en la misma escala las mitades no realizada y realizada de una misma diferencia. Para un despacho mexicano esa fuente es por omisión el DOF, el tipo al que el art. 20 CFF da efectos y con el que se mide la ganancia o pérdida cambiaria del art. 8 LISR.',
+  'policy.closing_exchange_rate_source.why':
+    'El DOF y el FIX del mismo día son números distintos, y la revaluación postea la brecha entre el tipo en libros y éste.',
+  'policy.closing_exchange_rate_source.what':
+    'Revalúo al tipo de la fuente elegida para el último día del periodo, y me detengo si falta.',
+  'policy.closing_exchange_rate_source.if_skipped':
+    'Uso la misma fuente que las operaciones: el DOF, salvo que la hayas cambiado.',
+  'policy.closing_exchange_rate_source.option.operations_source':
+    'La misma fuente que las operaciones (fuente_tipo_cambio; el DOF salvo que se cambie)',
+  'policy.closing_exchange_rate_source.option.dof':
+    'DOF (Diario Oficial; el tipo fiscal del art. 20 CFF), usen lo que usen las operaciones',
+  'policy.closing_exchange_rate_source.option.fix_banxico':
+    'FIX de Banxico (publicado como banco_mexico)',
+
   'policy.rep_foreign_currency.question':
     'Un complemento en una moneda distinta de la funcional: ¿registrarlo o dejarlo en revisión?',
   'policy.rep_foreign_currency.impact':
@@ -2144,6 +2163,10 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.tenant.create.option.json': 'salida en JSON',
   'help.account.role.sync.description': 'Apunta los roles de retención a las cuentas que elige withholding_accounts_layout y crea las que falten',
   'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
+  'help.closing.fx.description': 'La moneda extranjera en el cierre',
+  'help.closing.fx.revalue.description':
+    'Revalúa las cuentas por cobrar, por pagar y los bancos en moneda extranjera al tipo de cierre, y lo revierte el día 1 del periodo siguiente',
+  'help.closing.fx.revalue.argument.period': 'periodo a revaluar: 2026-08, su id o parte de su nombre',
   'help.bill.rule.description':
     'Reglas de procesamiento del despacho: con qué se clasifica un CFDI recibido sin que intervenga el modelo',
   'help.bill.rule.create.description':

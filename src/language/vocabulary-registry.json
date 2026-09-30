@@ -5799,6 +5799,38 @@
       "why": "Born in English: three accounts by SAT grouping line (2144 216.03, 2145 216.04, 2142 216.10)."
     },
     {
+      "class": "policy-key",
+      "where": "closing_exchange_rate_source",
+      "es": "closing_exchange_rate_source",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-083): the source whose rate for the period's last calendar day revalues foreign balances at the close. The owner's decision on #305 called it fuente_tipo_cambio_cierre; new keys are born English."
+    },
+    {
+      "class": "policy-value",
+      "where": "closing_exchange_rate_source/operations_source",
+      "es": "operations_source",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the same source fuente_tipo_cambio chooses for the operations (the decision's la_de_operaciones)."
+    },
+    {
+      "class": "policy-value",
+      "where": "closing_exchange_rate_source/dof",
+      "es": "dof",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Proper name of the Diario Oficial publication, the same value fuente_tipo_cambio already has."
+    },
+    {
+      "class": "policy-value",
+      "where": "closing_exchange_rate_source/fix_banxico",
+      "es": "fix_banxico",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "The same value fuente_tipo_cambio already has for the Banxico FIX."
+    },
+    {
       "class": "policy-value",
       "where": "withholding_accounts_existing/warn",
       "es": "warn",

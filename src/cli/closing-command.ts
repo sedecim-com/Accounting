@@ -45,6 +45,7 @@ import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { translateDomainError } from './entry-command.js';
 import type { Palette } from './palette.js';
+import { registerClosingFx } from './closing-fx-command.js';
 import {
   abortedByUser,
   blockedByState,
@@ -85,6 +86,9 @@ import {
 //                   checklist, cierre suave y cierre duro (#99), en ese orden
 //   pack generate — sella las cifras del periodo en un expediente
 //   pack verify   — el expediente vuelve a correrse contra los libros
+//
+// MNE-001-083 AÑADE `fx revalue` (closing-fx-command.ts): la revaluación
+// cambiaria de cierre, NIF B-15. Entra al conductor en MNE-001-112.
 //
 // Las filas de F06d que siguen sin existir —`start`, `status`, `task*`,
 // `approve`, `calendar*`, `template*`— siguen sin existir NI COMO ESQUELETO,
@@ -886,6 +890,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         return runExitCode(outcome);
       })
   );
+
+  // ---- closing fx revalue (MNE-001-083, #305) ------------------------
+  registerClosingFx(closing, deps, run, ask);
 
   // ---- closing pack ------------------------------------------------
   const packGroup = closing
