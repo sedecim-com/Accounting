@@ -254,9 +254,17 @@ export function declareRisk(cmd: Command, decl: RiskDeclaration): Command {
     anadir('--idempotency-key <key>', 'cli.flag.idempotency_key_unneeded');
   };
 
+  // `-y, --yes` IS UNIVERSAL ON MUTATIONS (catalog §3, #327). It used to ride
+  // along with `--dry-run`, so only irreversible and external leaves had it
+  // and a script passing `--yes` to every write died with "unknown option" on
+  // the reversible ones (`account map import`, `rep reconcile`,
+  // `asset create`). A leaf that asks nothing simply has nothing to skip; a
+  // leaf that does ask reads `opts.yes`.
+  if (risk !== 'lectura') {
+    anadir('-y, --yes', 'cli.flag.yes');
+  }
   if (resolved.requiresDryRun) {
     anadir('--dry-run', 'cli.flag.dry_run');
-    anadir('-y, --yes', 'cli.flag.yes');
     if (decl.llave && 'sinLlave' in decl.llave) {
       anadirLlaveQueMiente();
     } else if (decl.llave && 'innecesaria' in decl.llave) {
