@@ -399,7 +399,7 @@ async function foreignCurrencyContext(
  * The bank account a NEW payment names has to be this entity's and active
  * (#327). The check lives here, not in one caller, so REST and the terminal
  * fail closed alike: before it, another entity's id reached the INSERT and the
- * posting silently fell back to the `banco` role, and a closed account took
+ * posting silently fell back to the default bank role, and a closed account took
  * new money movement. Zero rows means both "does not exist" and "not yours".
  */
 async function assertPayableBankAccount(

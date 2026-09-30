@@ -233,9 +233,9 @@ async function cuentaDeLaEntidad(
   return r.rows[0];
 }
 
-function ambiguousBankAccount(aguja: string): ValidationError {
+function ambiguousBankAccount(needle: string): ValidationError {
   return new ValidationError(
-    `"${aguja}" nombra más de una cuenta bancaria. Usa el identificador que imprime 'bank account list'.`
+    `"${needle}" nombra más de una cuenta bancaria. Usa el identificador que imprime 'bank account list'.`
   );
 }
 
@@ -267,15 +267,15 @@ export async function resolverCuentaBancaria(
   );
   if (exact.rows.length === 1) return exact.rows[0];
   if (exact.rows.length > 1) throw ambiguousBankAccount(aguja);
-  // LIKE metacharacters in the needle are literal: `--bank %` must not match
+  // LIKE metacharacters in the needle are escaped: `--bank %` must not match
   // every account.
-  const literal = aguja.replace(/[\\%_]/g, '\\$&');
+  const escapedNeedle = aguja.replace(/[\\%_]/g, '\\$&');
   const r = await query<{ id: string; account_name: string }>(
     `SELECT id, account_name FROM bank_accounts
       WHERE entity_id = $1 AND account_name ILIKE $2
       ORDER BY is_active DESC, account_name
       LIMIT 2`,
-    [entityId, `%${literal}%`]
+    [entityId, `%${escapedNeedle}%`]
   );
   if (r.rows.length === 0) throw new NotFoundError('Bank Account', aguja);
   if (r.rows.length > 1) throw ambiguousBankAccount(aguja);
