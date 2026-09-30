@@ -1587,6 +1587,14 @@ export const ES: Record<keyof typeof EN, string> = {
   'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N] ',
   'review.vendor.not_registered':
     'No se dio de alta al proveedor: no se contabilizó nada y el borrador sigue pendiente.',
+  'help.ingest.argument.files':
+    'Rutas a los XML de CFDI; con --kind zip o metadata, los ZIP o archivos de metadatos descargados del SAT',
+  'help.ingest.option.kind':
+    'Qué son los archivos: xml (CFDI uno por uno), zip (paquete del SAT con XML: carga el censo e ingiere ' +
+    'cada XML) o metadata (archivo de metadatos del SAT separado por `~`, suelto o en ZIP: sólo carga el censo)',
+  'help.ingest.option.types':
+    'Tipos de CFDI que entran al censo con --kind zip|metadata, separados por coma (por omisión I,E,P: la ' +
+    'nómina N y los traslados T quedan fuera)',
   'help.ingest.description':
     'Ingesta por lote de CFDI (XML): reglas → clasificación por IA → borradores (o alta ' +
     'automática según los umbrales)',

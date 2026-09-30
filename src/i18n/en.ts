@@ -1696,6 +1696,14 @@ export const EN = {
   'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})? [y/N] ',
   /** `src/cli/mnemosine.ts` review: the reviewer answered no to registering the vendor. */
   'review.vendor.not_registered': 'The vendor was not registered: nothing was posted and the draft stays pending.',
+  'help.ingest.argument.files':
+    'Paths to CFDI XML files; with --kind zip or metadata, the ZIP or metadata files downloaded from the SAT',
+  'help.ingest.option.kind':
+    'What the files are: xml (CFDI one by one), zip (a SAT package of CFDI XML: loads the census and ingests ' +
+    'each XML) or metadata (the SAT `~` metadata file, bare or zipped: loads the census only)',
+  'help.ingest.option.types':
+    'CFDI types that enter the census with --kind zip|metadata, comma-separated (default I,E,P: payroll N ' +
+    'and transfers T stay out)',
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':

@@ -87,6 +87,7 @@ import {
   describeCommand,
   describeLastOption,
   optionByKey,
+  argumentByKey,
   type ExitCodeValue,
 } from './kernel/index.js';
 import { esAfirmativa, esNegativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
@@ -102,6 +103,7 @@ import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
 import { palette } from './palette.js';
+import { parseKind, runCensus } from './ingest-census.js';
 import { beginWarningScope } from '../utils/logger.js';
 import { detectSetupState, type SetupState } from './first-run.js';
 import { renderBanner, type BannerInfo } from './banner.js';
@@ -818,6 +820,10 @@ Examples:
   mnemosine ingest ./cfdi/julio/*.xml --auto-post --min-confidence 0.95 --max-amount 20000
   # Reprocess the CFDI whose processing failed (model down, no key) instead of «duplicate».
   mnemosine ingest ./cfdi/julio/*.xml --retry
+  # Load the SAT census of the month from the portal's metadata file.
+  mnemosine ingest ./sat/julio-recibidos.txt --kind metadata
+  # Load the census from a SAT package of XML, and ingest each CFDI in it.
+  mnemosine ingest ./sat/julio-emitidos.zip --kind zip
 `,
   lang: `
 Examples:
@@ -2127,7 +2133,6 @@ const ingest = describeCommand(
   program.command('ingest').alias('ingesta'),
   'help.ingest.description'
 )
-  .argument('<files...>', 'Paths to CFDI XML files')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
   .option('-m, --model <model>', 'Override the profile model')
@@ -2138,6 +2143,10 @@ const ingest = describeCommand(
   .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat)
   .option('--retry', 'Reprocess CFDI already registered whose processing failed, instead of reporting them as duplicates')
   .addHelpText('after', EJEMPLOS.ingest);
+// MNE-001-096 (#312): the SAT census enters through the same leaf.
+argumentByKey(ingest, '<files...>', 'help.ingest.argument.files');
+optionByKey(ingest, '--kind <kind>', 'help.ingest.option.kind', { defaultValue: 'xml' });
+optionByKey(ingest, '--types <list>', 'help.ingest.option.types');
 // Irreversible por su camino más grave (el auto-posteo), declarado junto a su
 // registro (S0.6). El plan de cierre proponía partirlo por bandera, pero S0.3
 // lo dejó atrás: el auto-posteo no lo decide una bandera sino el panel del
@@ -2154,9 +2163,10 @@ declareRisk(ingest, {
 ingest.action(async (files: string[], opts: {
     entity?: string; provider?: string; model?: string; user?: string;
     autoPost?: boolean; minConfidence?: number; maxAmount?: number;
-    yes?: boolean; idempotencyKey?: string; retry?: boolean;
+    yes?: boolean; idempotencyKey?: string; retry?: boolean; kind?: string; types?: string;
   }) => {
     try {
+      const kind = parseKind(opts.kind);
       const ctx = await resolveEntity(opts.entity);
       // El panel entra en la precedencia (bandera > archivo > política >
       // omisión): antes las dos claves de auto-posteo del panel no las leía
@@ -2187,6 +2197,19 @@ ingest.action(async (files: string[], opts: {
         );
       }
       const { dryRun } = gateMutation(ingest, opts);
+      let censusInvalid = 0;
+      if (kind !== 'xml') {
+        // MNE-001-096: the census is loaded first; a ZIP's XML then goes on
+        // through the regular ingestion below, as if passed one by one.
+        const census = await runCensus({
+          kind, files, entityId: ctx.entityId, entityRfc: ctx.taxId, types: opts.types, dryRun,
+        });
+        if (kind === 'metadata' || census.xmlFiles.length === 0) {
+          await shutdown(census.reading.invalid.length > 0 ? 1 : 0);
+        }
+        files = census.xmlFiles;
+        censusInvalid = census.reading.invalid.length;
+      }
 
       if (dryRun) {
         // La capa determinista, sin escribir NADA y sin llamar a nadie: ni
@@ -2211,7 +2234,7 @@ ingest.action(async (files: string[], opts: {
             'classification and the journal-entry plan are decided on the real run.)'
         ));
         const broken = preview.filter((r) => r.verdict === 'invalid' || r.verdict === 'error').length;
-        await shutdown(broken > 0 ? 1 : 0);
+        await shutdown(broken + censusInvalid > 0 ? 1 : 0);
       }
       if (opts.idempotencyKey) {
         stderr.write(
@@ -2396,7 +2419,7 @@ ingest.action(async (files: string[], opts: {
         console.error(c.yellow(`⚠ ${aviso}`));
       }
 
-      await shutdown(cnt.error + cnt.invalid > 0 ? 1 : 0);
+      await shutdown(cnt.error + cnt.invalid + censusInvalid > 0 ? 1 : 0);
     } catch (err) {
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
