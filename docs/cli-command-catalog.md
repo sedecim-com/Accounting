@@ -49,11 +49,11 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **265 comandos** repartidos en **74 familias** de primer nivel. De las **1639** filas del catálogo, **250** (15.3 %) ya se pueden invocar.
+El binario ejecuta hoy **268 comandos** repartidos en **75 familias** de primer nivel. De las **1639** filas del catálogo, **253** (15.4 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **288** filas lo declaran completo, **386** a medias y **965** inexistente.
+Del motor que cada comando necesita, **291** filas lo declaran completo, **384** a medias y **964** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **207** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **210** ya se teclean.
 
 **El objetivo comprometible son 1396 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
@@ -78,7 +78,7 @@ Contadas por COMANDO, las 1639 filas son **1617 rutas únicas**: **17 rutas** es
 | `e-accounting` | 12 | 5 |
 | `batch` | 7 | 5 |
 
-**1 de 603** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
+**1 de 602** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
 _Que una cita resuelva no prueba que siga apuntando a lo mismo: sólo que el archivo existe y tiene esa línea. El juicio ✅/🟡/❌ de cada fila es humano y se revisa a mano._
 
@@ -2824,10 +2824,10 @@ Todo lo que no es contabilidad: a qué entidad y a qué despacho apuntas, cómo 
 | `mnemosine login` · `entrar` | (hoy `login`) Inicia sesión con el proveedor de identidad OIDC por PKCE en loopback o por código de dispositivo | `--device`, `--no-input`, `--live`; faltan `--issuer`, `--json`, `--profile` | ✅ src/cli/mnemosine.ts:1505 · src/auth/login-flows.ts:80 (`loginWithPkce`) y :181 (`loginWithDeviceCode`) | externo [5] | ✗ | 1 |
 | `mnemosine logout` · `salir` | (hoy `logout`) Borra la credencial almacenada en el llavero del sistema o en el archivo de credenciales | faltan `-a/--all` (todas las cuentas) y `-y/--yes` | ✅ src/cli/mnemosine.ts:1550 · src/auth/token-store.ts:87 (`clearToken`) | escritura [1] | ✗ | 1 |
 | `mnemosine whoami` · `quien` | (hoy `whoami`) Muestra la credencial activa, el sujeto y su vigencia | falta `--json` | ✅ src/cli/mnemosine.ts:1560 · src/auth/token-store.ts:76 (`loadToken`) | lectura [0] | ✓ | 1 |
-| `mnemosine user list` · `usuario listar` | Lista los usuarios del tenant con rol, entidades accesibles y última entrada | `--json`, `--role`, `-a/--all`, `-n/--limit` | 🟡 tabla `users` (001_core_schema.sql:28); src/cli/init/s2-users.ts:57 solo cuenta owners | lectura [0] | ✓ | 1 |
-| `mnemosine user create` · `usuario crear` | Alta de usuario con rol del catálogo y contraseña de lectura oculta (bcrypt 12 rondas, mínimo 12 caracteres) | `--email`, `--role`, `--oidc-subject`, `--file`, `--no-input`, `--dry-run` | 🟡 src/cli/init/s2-users.ts:116 (INSERT dentro del asistente, sin servicio reutilizable) | escritura [1] | ✗ | 1 |
+| `mnemosine user list` · `usuario listar` | Lista los usuarios del despacho con rol, estado y última entrada; la cuenta de sistema no es un usuario y no sale | `--json`, `-q`, `-s/--status active\|archived`, `-n/--limit`, `--offset`, `-a/--all`, `-t/--tenant` | ✅ MNE-001-086 (#326): `listUsers` (src/services/user/user-service.ts) y la hoja en src/cli/user-command.ts, acotada al despacho en el SQL porque `users` está fuera de RLS. **IA ✗ y no ✓**: los correos del personal no son del agente. `--role` y las entidades accesibles quedan pendientes | lectura [0] | ✗ | 1 |
+| `mnemosine user create` · `usuario crear` | Alta de usuario con un rol del catálogo (src/auth/roles.ts, nombre o alias) y contraseña que nunca va en la línea de órdenes (bcrypt 12 rondas, de 12 caracteres a 72 bytes) | `--email`, `--role` (obligatorio), `--password-stdin`, `-t/--tenant`, `--json`, `-y/--yes` | ✅ MNE-001-086 (#326): `createUser` (src/services/user/user-service.ts) y la hoja en src/cli/user-command.ts. Sin TTY: la contraseña llega por `--password-stdin` o `MNEMOSINE_USER_PASSWORD`; con TTY, pregunta con eco apagado. No hay `--password <valor>`: `ps` la mostraría. Un segundo alta del mismo correo es conflicto, nunca cambio de rol. `--oidc-subject`, `--file` y `--dry-run` quedan pendientes | escritura [1] | ✗ | 1 |
 | `mnemosine user show <email>` · `usuario ver` | Ficha del usuario: roles, permisos efectivos, entidades accesibles, identidades OIDC ligadas | `--json`, `--fields` | ❌ falta un servicio de administración de usuarios | lectura [0] | ✓ | 2 |
-| `mnemosine user archive <email>` · `usuario archivar` | Desactiva un usuario sin borrarlo: deja de poder aprobar y de ser revisor por defecto. **Mismo verbo que `entity archive` porque es la misma operación** (`is_active = false`), R4 | `--reason` (obligatorio), `-y/--yes`, `--dry-run` | ❌ `users.is_active` (001_core_schema.sql:35) existe y **nada lo escribe** | escritura [1] | ✗ | 1 |
+| `mnemosine user archive <email>` · `usuario archivar` | Desactiva un usuario sin borrarlo: deja de poder aprobar y de ser revisor por defecto. **Mismo verbo que `entity archive` porque es la misma operación** (`is_active = false`), R4; `disable`·`desactivar`, la palabra de #326, queda como alias | `--reason` (obligatorio), `-t/--tenant`, `-y/--yes` | ✅ MNE-001-086 (#326): `archiveUser` (src/services/user/user-service.ts) con UPDATE guardado y renglón de auditoría con el motivo; niega archivar al último dueño activo del despacho. `--dry-run` queda pendiente | escritura [1] | ✗ | 1 |
 | `mnemosine user restore <email>` · `usuario restaurar` | Reactiva un usuario archivado; sin esto, archivar sería un camino de una sola dirección | `-y/--yes`, `--dry-run` | ❌ mismo `is_active`, sin escritor | escritura [1] | ✗ | 2 |
 | `mnemosine user access add <email> <entity...>` · `usuario acceso agregar` | Concede acceso a entidades concretas (lo que el README llama acción de administrador y hoy no tiene comando) | `--all-entities`, `--dry-run`, `--reason` | 🟡 `users.accessible_entities` JSONB, escrito solo por src/cli/init/s2-users.ts:116 y src/auth/provisioning.ts:120 | escritura [1] | ✗ | 1 |
 | `mnemosine user access remove <email> <entity...>` · `usuario acceso quitar` | Revoca el acceso a entidades concretas | `-y/--yes`, `--reason`, `--dry-run` | 🟡 mismo campo, sin escritor de revocación | escritura [1] | ✗ | 2 |
