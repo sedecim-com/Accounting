@@ -45,7 +45,11 @@
     "payroll.md": [
       "src/services/payroll/common/pay-run-service.ts",
       "src/services/payroll/common/paycheck-service.ts",
-      "src/services/payroll/mx/cfdi-nomina-generator.ts"
+      "src/services/payroll/mx/cfdi-nomina-generator.ts",
+      "src/services/payroll/mx/sua-generator.ts",
+      "src/services/payroll/common/paycheck-read-service.ts",
+      "src/cli/payslip-command.ts",
+      "src/cli/imss-command.ts"
     ],
     "reports.md": [
       "src/services/reporting/report-service.ts",

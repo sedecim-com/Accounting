@@ -2248,6 +2248,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.pay_run.post.argument.id': 'corrida aprobada cuya póliza se arma',
   'help.pay_run.post.option.post':
     'contabiliza la póliza en el mayor de inmediato, en lugar de dejarla en borrador para revisión',
+  'help.payslip.description': 'Recibos de una corrida: listarlos y ver uno con sus renglones',
+  'help.payslip.list.description':
+    'Lista los recibos de una corrida con bruto, neto y estatus de timbre; sin identificadores fiscales',
+  'help.payslip.list.option.run': 'corrida cuyos recibos se listan (obligatoria)',
+  'help.payslip.show.description':
+    'Muestra un recibo: los totales de bruto a neto y cada percepción, deducción e impuesto',
+  'help.payslip.show.argument.id': 'id del recibo (de `payslip list --run`)',
+  'help.payslip.show.option.redacted': 'oculta por completo RFC, CURP y NSS, para una pantalla compartida',
+  'help.imss.description': 'Obligaciones del patrón ante el IMSS: el archivo mensual del SUA',
+  'help.imss.sua.description': 'El archivo de importación al SUA de un mes',
+  'help.imss.sua.export.description':
+    'Arma el archivo de importación al SUA de un mes con los recibos aprobados, cotejado contra el pasivo patronal',
+  'help.imss.sua.export.option.period': 'mes por exportar (AAAA-MM); el SUA es mensual',
+  'help.imss.sua.export.option.output': 'escribe el archivo del SUA en esta ruta (sin ella, el archivo sale por stdout)',
+  'help.imss.sua.export.option.yes': 'sobrescribe el archivo de -o si ya existe',
+  'help.imss.sua.export.option.dry_run': 'arma y coteja el archivo sin escribirlo ni registrar la declaración',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
@@ -2319,4 +2335,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+  'payslip.run_required': 'Falta --run: nombra la corrida cuyos recibos quieres (`pay-run create` imprimió su id).',
+  'imss.sua.period_invalid': '--period "{period}": usa el mes como AAAA-MM, por ejemplo 2026-07.',
+  'imss.sua.exists': '{path} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes.',
+  'imss.sua.tty':
+    'El archivo del SUA lleva el NSS, RFC y CURP de toda la plantilla y no se imprime en una terminal: nombra un archivo con -o, o redirige stdout.',
+  'imss.sua.mismatch': 'El archivo del SUA no cuadra con el pasivo patronal ya apuntado, así que no se entrega: {findings}',
+  'imss.sua.finding.no_liability':
+    'el archivo declara {file} de {concept} y no hay pasivo patronal apuntado en el mes contra el que cotejarlo: la cifra sale de un solo camino',
+  'imss.sua.finding.mismatch': '{concept}: el archivo declara {file} y el pasivo apuntado dice {ledger}',
+  'imss.sua.dry_run': 'Simulación: el archivo del SUA de {count} empleado(s) se armó y se cotejó; no se escribió archivo ni se registró nada.',
+  'payslip.status_invalid': '--status {status}: usa uno de {states}.',
+  'imss.sua.not_filed':
+    'Archivo del SUA de {count} empleado(s) armado y registrado como declaración en borrador. No se envió nada: cárgalo en el SUA y paga.',
 };
