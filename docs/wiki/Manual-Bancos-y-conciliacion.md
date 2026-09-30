@@ -28,7 +28,7 @@ mnemosine bank account edit "BBVA Operativa MXN" --clabe 012180001234567899 \
   --reason "Cambio de CLABE notificado por el banco el 2026-07-01"
 ```
 
-Con la cuenta dada de alta, la bandera `--bank` de `payment create` y `receipt record` ya sirve, con el nombre de la cuenta o con su id (`bank account list -q` imprime los ids); un nombre que no existe o que nombra dos cuentas se rechaza sin escribir. Sin ella, el asiento sigue usando el rol `banco` de la entidad.
+Con la cuenta dada de alta, la bandera `--bank` de `payment create` y `receipt record` ya sirve, con el nombre de la cuenta o con su id (`bank account list -q` imprime los ids); un nombre desconocido, o que nombra dos cuentas, se rechaza sin escribir. Sin ella, el asiento sigue usando el rol `banco` de la entidad.
 
 ---
 
