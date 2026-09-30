@@ -2145,6 +2145,53 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I round once, on the period amount. From February to December the two options give the same figures.',
     priority: 42,
   },
+  // #430 · MNE-001-398. Decided by the owner in MNE-001-397. Read by
+  // `readEmploymentSubsidySeparateRun` (payroll/mx/employment-subsidy.ts) when
+  // the employee has another paycheck in the same pay period, or when this
+  // paycheck is itself the separate one (a run other than the regular one, or
+  // a paycheck that pays only aguinaldo).
+  {
+    key: 'employment_subsidy_separate_run',
+    textKey: 'employment_subsidy_separate_run',
+    category: 'fiscal',
+    question:
+      'When a worker gets a second paycheck in the same pay period (an aguinaldo paid in its own run, for example), how much employment subsidy does it carry?',
+    impact:
+      'It decides the subsidy, the ISR withheld, the cash handed to the worker and the payroll CFDI of each paycheck of the period. ' +
+      'Either way the period never receives the subsidy twice; with the recomputation it follows the income of the whole period, ' +
+      'and with "none" it stays on the regular paycheck.',
+    options: [
+      {
+        value: 'recompute_on_combined_income',
+        label: 'Recompute it once on the income of both paychecks, and credit on the second only the difference',
+      },
+      {
+        value: 'none_on_separate_paycheck',
+        label:
+          'None on the separate paycheck: a run other than the regular one, or a paycheck that pays only aguinaldo, carries no subsidy; the regular paycheck keeps its own',
+      },
+    ],
+    defaultValue: 'recompute_on_combined_income',
+    defaultRationale:
+      'The decree that governs the subsidy (DOF 31-12-2025) grants one amount per period to whoever earns no more than a ' +
+      'monthly cap, so both the amount and the cap are measured on the income of the period, not of each payslip. ' +
+      'Recomputing on the combined income applies that cap to the whole period, and a later paycheck credits only what the ' +
+      'earlier ones did not. When the combined income is over the cap, the subsidy an earlier paycheck already caused was not ' +
+      'due: the later paycheck credits nothing more, but that subsidy is not recovered, so the result then differs from paying ' +
+      'the aguinaldo with the salary, which would give no subsidy at all.',
+    whyAsking:
+      'The decree measures the subsidy and its income cap per pay period, not per payslip, and paying the aguinaldo in its own ' +
+      'run is common. Without a rule the second paycheck of the period received the subsidy again and handed the part over its ' +
+      'ISR to the worker as cash.',
+    whatIDo:
+      'Before crediting the subsidy on a paycheck, I read the other calculated, approved or paid paychecks of the same worker ' +
+      'and period. With "recompute_on_combined_income" I compute the subsidy on their income plus this one and credit the ' +
+      'difference, never below zero. With "none_on_separate_paycheck" a paycheck of a run other than the regular one, or one ' +
+      'that pays only aguinaldo, carries none, and the regular paycheck keeps its own whichever was calculated first.',
+    ifSkipped:
+      'I recompute on the combined income of the period and credit only the difference.',
+    priority: 42,
+  },
   // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
   // `readFilingRounding` (fiscal/iva-workpaper.ts). The adjustment itself is
   // not an option: CFF art. 20 fixes it (1–50 cents down, 51–99 up).
