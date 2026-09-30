@@ -34,6 +34,10 @@ const ALLOWED: Record<string, string> = {
   // The collision note tells the agent that accountants still say "NIF A-2";
   // the new A-2 fiche that rewrites it is MNE-001-078.
   [join('ai', 'docs', 'nif-marco.md') + ':12']: 'collision note, MNE-001-078',
+  // The same collision, told again where the new A-2 fiche is introduced (MNE-001-078):
+  // «NIF A-2» today is NOT the accrual postulate, and «antes A-2» must not be written as if alive.
+  [join('ai', 'docs', 'nif-marco.md') + ':16']: 'the new A-2 is not the accrual (MNE-001-078)',
+  [join('ai', 'docs', 'nif-marco.md') + ':17']: 'the warning against «antes A-2» (MNE-001-078)',
   // The warning itself: «No los cites como "NIF A-2"».
   [join('ai', 'docs', 'nif-validaciones.md') + ':10']: 'the warning against the old key',
 };
