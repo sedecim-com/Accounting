@@ -66,4 +66,17 @@ describe('one definition of the reader options', () => {
       .filter((f) => /htmlEntities\s*:/.test(stripComments(fs.readFileSync(path.join(src, f), 'utf8'))));
     expect(setters).toEqual([path.join('utils', 'xml-reader.ts')]);
   });
+
+  it('the bank-statement and catalogue readers build their parser through it', () => {
+    const src = path.join(__dirname, '..', '..', 'src');
+    for (const file of [
+      path.join('services', 'banking', 'parsers', 'camt053.ts'),
+      path.join('services', 'sat', 'anexo24', 'balanza-service.ts'),
+    ]) {
+      const code = stripComments(fs.readFileSync(path.join(src, file), 'utf8'));
+      expect(code, file).not.toMatch(/new\s+XMLParser\s*\(/);
+      expect(code, file).toMatch(/createXmlReader\(/);
+      expect(code, file).toMatch(/normalizeAttributes\(/);
+    }
+  });
 });

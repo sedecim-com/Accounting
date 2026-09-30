@@ -1,5 +1,6 @@
-import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { XMLValidator } from 'fast-xml-parser';
 import { ValidationError } from '../../../utils/errors.js';
+import { createXmlReader, normalizeAttributes } from '../../../utils/xml-reader.js';
 import { crearAvisos, type ColectorAvisos } from './avisos.js';
 import { analizarFecha } from './fecha.js';
 import { analizarImporte } from './importe.js';
@@ -33,6 +34,12 @@ import type { ExtractoLeido, LineaLeida } from './tipos.js';
 // valor por omisión, fast-xml-parser convierte «1000.00» en el número 1000 y
 // «0007» en 7, y a partir de ahí el dinero ya viajó por un float. Aquí todo
 // sale como texto y lo valida decimal.js.
+//
+// NOTE: the parser is the shared third-party reader of src/utils/xml-reader.ts
+// (#218): it keeps every value as text, drops namespace prefixes and decodes
+// accents written as `&#233;` in a counterparty name or a remittance line. A
+// `&#10;` in an ATTRIBUTE is read as a space (XML 1.0 §3.3.3); in element text
+// it stays the line feed the bank wrote, because that rule covers attributes only.
 // ============================================================
 
 export interface OpcionesCamt053 {
@@ -87,17 +94,12 @@ export function leerCamt053(
     throw new ValidationError(`El archivo no es XML bien formado: ${motivoDeValidacion(validacion)}`);
   }
 
-  const analizador = new XMLParser({
-    ignoreAttributes: false,
-    attributeNamePrefix: '@_',
-    // Los camt reales llegan con prefijo de espacio de nombres y no siempre el
-    // mismo. Quitarlo es lo que evita tener que preguntar por `ns:Ntry` y por
-    // `Doc:Ntry` y por `Ntry`.
-    removeNSPrefix: true,
-    parseTagValue: false,
-    parseAttributeValue: false,
+  // Los camt reales llegan con prefijo de espacio de nombres y no siempre el
+  // mismo; el lector compartido lo quita, y eso evita tener que preguntar por
+  // `ns:Ntry` y por `Doc:Ntry` y por `Ntry`.
+  const analizador = createXmlReader({
     trimValues: true,
-    isArray: (nombre) => ['Stmt', 'Bal', 'Ntry', 'TxDtls', 'Ustrd'].includes(nombre),
+    repeated: ['Stmt', 'Bal', 'Ntry', 'TxDtls', 'Ustrd'],
   });
 
   // La firma de fast-xml-parser devuelve `any`. Se estrecha a `unknown` aquí,
@@ -105,7 +107,7 @@ export function leerCamt053(
   // guardas de tipo: el `any` no se propaga.
   let crudo: unknown;
   try {
-    crudo = analizador.parse(decodificado.texto) as unknown;
+    crudo = normalizeAttributes(analizador.parse(decodificado.texto) as unknown);
   } catch (error) {
     throw new ValidationError(
       `El archivo no es XML válido: ${error instanceof Error ? error.message : String(error)}`
