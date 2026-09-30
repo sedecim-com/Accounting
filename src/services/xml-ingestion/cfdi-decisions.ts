@@ -168,7 +168,7 @@ export const DECISIONS: DecisionPoint[] = [
       { value: 'gasto', label: 'Full period expense', role: 'gasto' },
       // HISTORIA DE ESTA ETIQUETA, y es la peor variante del defecto que la
       // hermana de arriba ya corrigió dos veces. Decía «Prepaid expenses
-      // (accrued month by month)» y su fundamento citaba la NIF A-2 cuando en
+      // (accrued month by month)» y su fundamento citaba el devengo cuando en
       // el sistema NADA devengaba: ni tabla, ni migración, ni motor, ni
       // comando — cero menciones de prepaid/accrual en todo `src` fuera de la
       // descripción sembrada de la 1160. El importe entraba al activo y se
@@ -205,7 +205,7 @@ export const DECISIONS: DecisionPoint[] = [
         f.conceptosDescripcion
       ),
     basis:
-      'NIF A-2 (accrual accounting), and it is now an act and not only a norm: the schedule is ' +
+      'NIF A-1, chapter 20 (accrual postulate), and it is now an act and not only a norm: the schedule is ' +
       'registered with `mnemosine prepaid create` and posted month by month by `mnemosine prepaid ' +
       'run` (services/accruals, migration 059). Choosing this option only books the amount to ' +
       '1160; without the schedule nothing accrues it. The floor comes from the ' +

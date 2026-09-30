@@ -367,7 +367,7 @@ export const EN = {
   'policy.prepaid_amortization_convention.impact':
     'Sets every month of the schedule. An insurance policy running 20 March to 19 March accrues over 12 months by one convention and 13 by the other, and the last month of the fiscal year differs.',
   'policy.prepaid_amortization_convention.rationale':
-    'It is what the NIF A-2 accrual postulate actually says — the expense belongs to the period that consumed the service — and it is the only convention that keeps the schedule tied to the contract dates rather than to the calendar. Firms that prefer whole months for simplicity can say so here, but the default should be the one that is right rather than the one that is easy.',
+    'It is what the accrual postulate (NIF A-1, chapter 20) actually says — the expense belongs to the period that consumed the service — and it is the only convention that keeps the schedule tied to the contract dates rather than to the calendar. Firms that prefer whole months for simplicity can say so here, but the default should be the one that is right rather than the one that is easy.',
   'policy.prepaid_amortization_convention.why':
     'Your insurance starts on the 20th, not on the 1st. By days it spreads over thirteen calendar months and by whole months over twelve, so the choice changes which month carries the expense and what the last month of the year shows.',
   'policy.prepaid_amortization_convention.what':
