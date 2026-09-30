@@ -16,7 +16,10 @@ Postgres 15 para la suite de integración.
 `xmllint` (de libxml2: `libxml2-utils` en Debian y Ubuntu, `libxml2` en
 Homebrew). La suite unitaria valida el XML del Anexo 24 contra el XSD oficial
 del SAT, que vive en `src/services/sat/anexo24/xsd/`. Sin `xmllint` esas
-pruebas fallan; no se saltan.
+pruebas fallan; no se saltan. También es requisito EN EJECUCIÓN: `catalog seal`
+y `balance seal` validan contra el XSD antes de descifrar la e.firma y otra vez
+después de sellar, y sin `xmllint` se niegan. La imagen de `docker/Dockerfile`
+lo instala (`libxml2-utils` en Alpine); cualquier otro despliegue debe hacerlo.
 
 ```bash
 scripts/setup.sh
