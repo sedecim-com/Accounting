@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 233 of 363 subcommands
+  spelling is `-T` at the root and `-t` on the 236 of 367 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -65,6 +65,7 @@ Commands:
   approvals|aprobaciones                 Graduated approval policies for staged writes (once / session / always)
   entity|entidad                         Select and inspect the legal entity commands operate on
   tenant|despacho                        Create and list the firms (tenants) of this installation
+  user|usuario                           Create, list and archive the logins of a firm, without a terminal
   payment|pago                           Vendor payments: record cash that already left the bank and settle the bill it pays
   account|cuenta                         Chart of accounts: inspect, create and retire accounts
   chart|catalogo                         Chart of accounts: bring a firm catalog in
@@ -1239,6 +1240,97 @@ Examples:
   mnemosine tenant create "Despacho Alameda"
   # Name the handle yourself when the derived one is taken.
   mnemosine tenant create "Despacho Alameda" --subdomain alameda-norte --json
+```
+
+## `mnemosine user` (alias: usuario)
+
+```
+Usage: mnemosine user|usuario [options] [command]
+
+Create, list and archive the logins of a firm, without a terminal
+
+Options:
+  -h, --help                          display help for command
+
+Commands:
+  list|listar [options]               List the users of the firm, archived ones
+                                      included
+  create|crear [options]              Create a user with one role of the
+                                      catalog; the password comes from stdin,
+                                      the environment or a hidden prompt
+  archive|archivar [options] <email>  Archive a user: it can no longer sign in,
+                                      and nothing it did is erased
+  help [command]                      display help for command
+```
+
+### `mnemosine user list` (alias: listar)
+
+```
+Usage: mnemosine user list|listar [options]
+
+List the users of the firm, archived ones included
+
+Options:
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  mnemosine user list
+  mnemosine user list --status archived --json
+```
+
+### `mnemosine user create` (alias: crear)
+
+```
+Usage: mnemosine user create|crear [options]
+
+Create a user with one role of the catalog; the password comes from stdin, the
+environment or a hidden prompt
+
+Options:
+  -t, --tenant <id>  tenant (firm) whose data to scope to
+  --email <address>  email address the user signs in with
+  --role <name>      role of src/auth/roles.ts (owner, admin, controller,
+                     contador, revisor, auditor, viewer) or its alias
+  --password-stdin   read the password from stdin (never pass it as an argument)
+  --json             JSON output
+  -y, --yes          skip the confirmation prompt
+  -h, --help         display help for command
+
+Examples:
+  # From a script, the password piped on stdin: printf '%s' "$PASSWORD" | …
+  mnemosine user create --email ana@example.com --role contador --password-stdin
+  # Or with MNEMOSINE_USER_PASSWORD set in the environment.
+  mnemosine user create --email ana@example.com --role viewer
+```
+
+### `mnemosine user archive` (alias: archivar, disable, desactivar)
+
+```
+Usage: mnemosine user archive|archivar [options] <email>
+
+Archive a user: it can no longer sign in, and nothing it did is erased
+
+Arguments:
+  email              email of the user to archive
+
+Options:
+  -t, --tenant <id>  tenant (firm) whose data to scope to
+  -y, --yes          skip the confirmation prompt
+  --reason <text>    justification recorded in the audit trail (required)
+  -h, --help         display help for command
+
+Examples:
+  mnemosine user archive ana@example.com --reason "left the firm"
 ```
 
 ## `mnemosine payment` (alias: pago)
