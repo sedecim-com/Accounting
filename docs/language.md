@@ -98,22 +98,22 @@ manual act and its trace is the diff.
 | `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10518 (baseline 10578) | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5765 (baseline 5774) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
-| `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
+| `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
 | `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
 | `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 465 (baseline 466) | 0 |
-| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 119 (baseline 121) | 0 |
-| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 37 (baseline 38) | 0 |
-| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 26 | 0 |
+| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 118 (baseline 121) | 0 |
+| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 36 (baseline 38) | 0 |
+| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 29 | 0 |
 | `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
 | `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
-| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 339 (baseline 341) | 0 |
+| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 336 (baseline 341) | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 1245 (baseline 1246) | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28700 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28716 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 

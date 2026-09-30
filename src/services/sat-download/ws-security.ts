@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, X509Certificate } from 'node:crypto';
 import forge from 'node-forge';
 import { decryptPrivateKey, type EfirmaMaterial } from '../fiscal-credentials/certificate.js';
 
@@ -64,12 +64,12 @@ function canonicalTimestamp(created: Date): string {
   );
 }
 
-function canonicalSignedInfo(digest: string): string {
+function canonicalSignedInfo(digest: string, uri = '#_0'): string {
   return (
     `<SignedInfo xmlns="${NS_DSIG}">` +
     `<CanonicalizationMethod Algorithm="${EXC_C14N}"></CanonicalizationMethod>` +
     `<SignatureMethod Algorithm="${NS_DSIG}rsa-sha1"></SignatureMethod>` +
-    '<Reference URI="#_0">' +
+    `<Reference URI="${uri}">` +
     `<Transforms><Transform Algorithm="${EXC_C14N}"></Transform></Transforms>` +
     `<DigestMethod Algorithm="${NS_DSIG}sha1"></DigestMethod>` +
     `<DigestValue>${digest}</DigestValue>` +
@@ -94,6 +94,17 @@ export function wipeRsaPrivateKey(key: forge.pki.rsa.PrivateKey): void {
   }
 }
 
+function signRsaSha1(material: EfirmaMaterial, signedInfo: string): string {
+  const key = decryptPrivateKey(material.key, material.password);
+  try {
+    const md = forge.md.sha1.create();
+    md.update(signedInfo, 'utf8');
+    return forge.util.encode64(key.sign(md));
+  } finally {
+    wipeRsaPrivateKey(key);
+  }
+}
+
 /**
  * Builds the `Autentica` request signed with the e.firma. Call it only
  * inside withCredential: `material` is the decrypted vault content.
@@ -103,15 +114,7 @@ export function buildSignedAutentica(material: EfirmaMaterial, opts: AutenticaEn
   const digest = createHash('sha1').update(timestamp, 'utf8').digest('base64');
   const signedInfo = canonicalSignedInfo(digest);
 
-  const key = decryptPrivateKey(material.key, material.password);
-  let signature: string;
-  try {
-    const md = forge.md.sha1.create();
-    md.update(signedInfo, 'utf8');
-    signature = forge.util.encode64(key.sign(md));
-  } finally {
-    wipeRsaPrivateKey(key);
-  }
+  const signature = signRsaSha1(material, signedInfo);
 
   return (
     '<?xml version="1.0" encoding="utf-8"?>' +
@@ -134,4 +137,65 @@ export function buildSignedAutentica(material: EfirmaMaterial, opts: AutenticaEn
     '<s:Body><Autentica xmlns="http://DescargaMasivaTerceros.gob.mx"/></s:Body>' +
     '</s:Envelope>'
   );
+}
+
+// ============================================================
+// EFIRMA-2 (#440) · THE SIGNED SolicitaDescarga / Verifica / Descargar BODY
+//
+// CONTRACT: the SAT's documents for request (v1.5), verification (v1.2) and
+// download (v1.1) put an enveloped XML-DSig inside the request node, with the
+// certificate in X509Data (issuer, DECIMAL serial, DER) and the attributes
+// in alphabetical order. The digest is taken, as the reference client
+// phpcfdi/sat-ws-descarga-masiva does, over the operation element as written
+// without the Signature, with the `des` namespace declared on it and no
+// whitespace: the same exclusive-c14n shortcut as the Autentica above.
+// ============================================================
+
+export const SAT_DOWNLOAD_NS = 'http://DescargaMasivaTerceros.sat.gob.mx';
+
+function escapeXml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+}
+
+/** RFC 4514 order (most specific first), with the special characters escaped. */
+function issuerName(cert: X509Certificate): string {
+  return cert.issuer
+    .split('\n')
+    .reverse()
+    .map((rdn) => {
+      const i = rdn.indexOf('=');
+      return `${rdn.slice(0, i)}=${rdn.slice(i + 1).replace(/([,+"\\<>;])/g, '\\$1')}`;
+    })
+    .join(',');
+}
+
+/**
+ * The body of a Descarga Masiva operation, signed with the e.firma. Call it
+ * only inside withCredential: `material` is the decrypted vault content.
+ */
+export function buildSignedRequest(
+  material: EfirmaMaterial,
+  operation: string,
+  node: string,
+  attributes: Record<string, string | undefined>
+): string {
+  const attrs = Object.entries(attributes)
+    .filter((e): e is [string, string] => e[1] !== undefined && e[1] !== '')
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([k, v]) => ` ${k}="${escapeXml(v)}"`)
+    .join('');
+  const digested = `<des:${operation} xmlns:des="${SAT_DOWNLOAD_NS}"><des:${node}${attrs}></des:${node}></des:${operation}>`;
+  const signedInfo = canonicalSignedInfo(createHash('sha1').update(digested, 'utf8').digest('base64'), '');
+  const der = certificateBase64(material.cer);
+  const cert = new X509Certificate(Buffer.from(der, 'base64'));
+  const signature =
+    `<Signature xmlns="${NS_DSIG}">` +
+    signedInfo +
+    `<SignatureValue>${signRsaSha1(material, signedInfo)}</SignatureValue>` +
+    '<KeyInfo><X509Data><X509IssuerSerial>' +
+    `<X509IssuerName>${escapeXml(issuerName(cert))}</X509IssuerName>` +
+    `<X509SerialNumber>${BigInt(`0x${cert.serialNumber}`).toString()}</X509SerialNumber>` +
+    `</X509IssuerSerial><X509Certificate>${der}</X509Certificate></X509Data></KeyInfo>` +
+    '</Signature>';
+  return `<des:${operation}><des:${node}${attrs}>${signature}</des:${node}></des:${operation}>`;
 }

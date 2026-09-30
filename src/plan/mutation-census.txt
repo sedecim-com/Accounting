@@ -660,6 +660,12 @@ mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/index.ts	the guard exists a
 mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/database/rls-guard.ts	back to a log line in production: isolation hangs on someone reading it
 mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/database/rls-guard.ts	no explicit break-glass: the only way left to start in an emergency is to comment the guard out
 mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/index.ts	start() logs the refusal and never exits: the process lingers with an open pool and no server
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/descarga-masiva.ts	a received request goes out as SolicitaDescargaEmitidos: the firm never gets what it received
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/descarga-masiva.ts	the request is never verified with the SAT: no request ever reaches its packages
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/descarga-masiva.ts	the lifetime limit on identical XML requests is left to the SAT: the third request burns the period for good
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/sat-codes.ts	received XML asks for Todos, cancelled included: the SAT answers 5012 and nothing received ever arrives
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/sat-codes.ts	a period with no CFDI reads as a failed download
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/database/migrations/167_the_sat_counts_identical_xml_requests.sql	the counter no longer stops the third identical XML request
 anchor	src/plan/criteria/e0-0.ts	de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
 anchor	src/plan/criteria/e0-0.ts	de: 'Los comentarios y la documentación **nacen en inglés**',
 anchor	src/plan/criteria/e0-0.ts	de: 'Lo que identifica no se traduce nunca',
