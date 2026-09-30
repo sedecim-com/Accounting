@@ -39,7 +39,7 @@ function law(opts: { umaDaily?: string; alreadyExempt?: string } = {}): void {
   });
 }
 
-const CTX = { tenantId: 't-1', employeeId: 'e-1', payRunId: 'r-1', payDate: '2026-12-15' };
+const CTX = { tenantId: 't-1', employeeId: 'e-1', payRunId: 'r-1', payDate: '2026-12-15', entityId: 'n-1', periodDays: 15 };
 
 beforeEach(() => {
   mockQuery.mockReset();
