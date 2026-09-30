@@ -124,6 +124,36 @@ describe('EFIRMA-2 · SolicitaDescarga', () => {
     expect(await quota(input)).toBeUndefined();
   });
 
+  it('asks for received XML through SolicitaDescargaRecibidos with EstadoComprobante Vigente', async () => {
+    const input = xml('received');
+    const state = await requestDownload(ctx(), input, deps());
+
+    expect(state).toMatchObject({ status: 'accepted', satCode: '5000', errorKey: null });
+    expect(sim.actions.at(-1)).toBe('http://DescargaMasivaTerceros.sat.gob.mx/ISolicitaDescargaService/SolicitaDescargaRecibidos');
+    expect(sim.requests.at(-1)).toContain(
+      `<des:solicitud EstadoComprobante="Vigente" FechaFinal="${input.end}" FechaInicial="${input.start}" RfcReceptor="${RFC}" RfcSolicitante="${RFC}" TipoSolicitud="CFDI">`
+    );
+    expect(await quota(input)).toBe(1);
+  });
+
+  it('a request row that cannot be written takes no lifetime slot', async () => {
+    const input = xml();
+    const tooLong = { ...ctx(), actor: `${'x'.repeat(256)}@efirma-2.test` };
+    await expect(requestDownload(tooLong, input, deps())).rejects.toThrow();
+    expect(sim.requests).toHaveLength(0);
+    expect(await quota(input) ?? 0).toBe(0);
+  });
+
+  it('a 300 drops the cached token, so the next call signs a fresh Autentica', async () => {
+    await requestDownload(ctx(), xml(), deps());
+    sim.script.request = { code: '300' };
+    expect(await requestDownload(ctx(), xml(), deps())).toMatchObject({ status: 'rejected', errorKey: 'sat_download.user_not_valid' });
+    sim.script = defaultScript();
+    sim.actions.length = 0;
+    await requestDownload(ctx(), xml(), deps());
+    expect(sim.actions[0]).toBe('http://DescargaMasivaTerceros.gob.mx/IAutenticacion/Autentica');
+  });
+
   it('refuses the third identical XML request from the database, before any call', async () => {
     const input = xml();
     await requestDownload(ctx(), input, deps());

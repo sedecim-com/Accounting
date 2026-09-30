@@ -73,6 +73,11 @@ function cacheKey(ctx: SatAuthContext): string {
   return `${ctx.tenantId}:${ctx.entityId}`;
 }
 
+/** Drops the entity's cached token (the SAT answered 300): the next call signs a fresh Autentica. */
+export function forgetSatToken(ctx: SatAuthContext): void {
+  tokenCache.delete(cacheKey(ctx));
+}
+
 interface ActiveCredential {
   id: string;
   unattended_access: boolean;

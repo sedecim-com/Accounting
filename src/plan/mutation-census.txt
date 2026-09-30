@@ -406,11 +406,6 @@ mirror	memory	E2.2 report-api-declares-the-language-it-rendered	src/i18n/report-
 mirror	memory	E2.2 report-api-declares-the-language-it-rendered	src/api/rest/middleware/error-handler.ts	la-unificacion-que-rompe-la-otra-mitad: al ver dos sitios declarando idioma, lo natural es igualarlos — y allí no se puede, porque casi todo mensaje sigue siendo prosa: un 401 inglés volvería a salir etiquetado es-MX
 mirror	memory	E2.2 report-api-declares-the-language-it-rendered	src/api/rest/middleware/error-handler.ts	la-condicion-vaciada-por-dentro: la forma del `if` sobrevive y la distinción desaparece, así que la cabecera y meta.language salen sobre prosa con toda la estructura intacta
 mirror	memory	E3.1 no-simulated-email-delivery	src/api/rest/routes/invoices.ts	la ruta vuelve a mentir que transmite: el «sent:true sin envío» que CLI-5 purgó
-mirror	memory	E3.2 sat-bulk-cfdi-download	src/services/sat-download/descarga-masiva.ts	a received request goes out as SolicitaDescargaEmitidos: the firm never gets what it received
-mirror	memory	E3.2 sat-bulk-cfdi-download	src/services/sat-download/descarga-masiva.ts	the request is never verified with the SAT: no request ever reaches its packages
-mirror	memory	E3.2 sat-bulk-cfdi-download	src/services/sat-download/descarga-masiva.ts	the lifetime limit on identical XML requests is left to the SAT: the third request burns the period for good
-mirror	memory	E3.2 sat-bulk-cfdi-download	src/services/sat-download/sat-codes.ts	a period with no CFDI reads as a failed download
-mirror	memory	E3.2 sat-bulk-cfdi-download	src/database/migrations/167_the_sat_counts_identical_xml_requests.sql	the counter no longer stops the third identical XML request
 mirror	memory	E3.2 efirma-consent-states-actual-uses	src/services/fiscal-credentials/service.ts	the text changes and the version does not: a consent recorded as 2026-08-1 could mean either text
 mirror	memory	E3.2 efirma-consent-states-actual-uses	src/services/fiscal-credentials/service.ts	the text stops tying the sealing to sellar_con_custodia: the taxpayer is told the system seals whatever the firm declared
 mirror	memory	E3.2 efirma-consent-states-actual-uses	src/services/fiscal-credentials/service.ts	storing again rewrites the version an earlier consent was given under
@@ -648,6 +643,12 @@ mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/index.ts	the guard exists a
 mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/database/rls-guard.ts	back to a log line in production: isolation hangs on someone reading it
 mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/database/rls-guard.ts	no explicit break-glass: the only way left to start in an emergency is to comment the guard out
 mirror	disk	E2.1 startup-rejects-rls-bypass-role	src/index.ts	start() logs the refusal and never exits: the process lingers with an open pool and no server
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/descarga-masiva.ts	a received request goes out as SolicitaDescargaEmitidos: the firm never gets what it received
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/descarga-masiva.ts	the request is never verified with the SAT: no request ever reaches its packages
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/descarga-masiva.ts	the lifetime limit on identical XML requests is left to the SAT: the third request burns the period for good
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/sat-codes.ts	received XML asks for Todos, cancelled included: the SAT answers 5012 and nothing received ever arrives
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/services/sat-download/sat-codes.ts	a period with no CFDI reads as a failed download
+mirror	disk	E3.2 sat-bulk-cfdi-download	src/database/migrations/167_the_sat_counts_identical_xml_requests.sql	the counter no longer stops the third identical XML request
 anchor	src/plan/criteria/e0-0.ts	de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
 anchor	src/plan/criteria/e0-0.ts	de: 'Los comentarios y la documentación **nacen en inglés**',
 anchor	src/plan/criteria/e0-0.ts	de: 'Lo que identifica no se traduce nunca',
@@ -1047,11 +1048,6 @@ anchor	src/plan/criteria/e2-2.ts	de: ' const report = await getTrialBalance(enti
 anchor	src/plan/criteria/e2-2.ts	de: ' name: subsectionLabel(sub.key, language),',
 anchor	src/plan/criteria/e2-2.ts	de: ' const keyed = err.messageKey !== undefined;',
 anchor	src/plan/criteria/e3-1.ts	de: 'transmitted: false',
-anchor	src/plan/criteria/e3-2.ts	de: "received: 'SolicitaDescargaRecibidos',",
-anchor	src/plan/criteria/e3-2.ts	de: "const VERIFY_OPERATION = 'VerificaSolicitudDescarga';",
-anchor	src/plan/criteria/e3-2.ts	de: "if (input.requestType === 'CFDI') await reserveXmlRequest(ctx, key);",
-anchor	src/plan/criteria/e3-2.ts	de: "'5004': { key: 'sat_download.no_data', outcome: 'empty'",
-anchor	src/plan/criteria/e3-2.ts	de: 'CHECK (requests_made BETWEEN 0 AND 2)',
 anchor	src/plan/criteria/e3-2.ts	de: "export const CONSENT_VERSION = '2026-09-1';",
 anchor	src/plan/criteria/e3-2.ts	de: 'efirma_sellado_contabilidad_electronica = sellar_con_custodia',
 anchor	src/plan/criteria/e3-2.ts	de: 'vault_version = EXCLUDED.vault_version,',

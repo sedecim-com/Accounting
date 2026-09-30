@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { XMLParser } from 'fast-xml-parser';
-import { query } from '../../database/connection.js';
+import type pg from 'pg';
+import { query, withTransaction } from '../../database/connection.js';
 import { config } from '../../config/index.js';
 import { CredentialError, withCredential } from '../fiscal-credentials/service.js';
-import { authenticateWithSat, type SatAuthContext, type SatAuthDeps } from './authentication.js';
+import { authenticateWithSat, forgetSatToken, type SatAuthContext, type SatAuthDeps } from './authentication.js';
 import { buildSignedRequest, SAT_DOWNLOAD_NS } from './ws-security.js';
-import { REQUEST_STATES, satCode, type SatRetryClass } from './sat-codes.js';
+import { REQUEST_STATES, requestedDocumentStatus, satCode, type SatRetryClass } from './sat-codes.js';
 
 // ============================================================
 // EFIRMA-2 1/2 (#440, MNE-001-142) · THE DESCARGA MASIVA ENGINE
@@ -143,9 +144,9 @@ const QUOTA_WHERE = `tenant_id = $1 AND entity_id = $2 AND rfc = $3 AND directio
 const quotaParams = (ctx: SatAuthContext, k: QuotaKey) => [ctx.tenantId, ctx.entityId, k.rfc, k.direction, k.start, k.end];
 
 /** Takes one of the lifetime slots, or refuses: the CHECK of migration 167 stops the third. */
-async function reserveXmlRequest(ctx: SatAuthContext, k: QuotaKey): Promise<void> {
+async function reserveXmlRequest(client: pg.PoolClient, ctx: SatAuthContext, k: QuotaKey): Promise<void> {
   try {
-    const r = await query(
+    const r = await client.query(
       `INSERT INTO sat_download_quota (tenant_id, entity_id, rfc, direction, request_type, period_start, period_end, requests_made)
        VALUES ($1, $2, $3, $4, 'CFDI', $5, $6, 1)
        ON CONFLICT ON CONSTRAINT uq_sat_download_quota DO UPDATE
@@ -191,22 +192,24 @@ async function settleRequest(ctx: SatAuthContext, id: string, from: string[], s:
 export async function requestDownload(ctx: SatAuthContext, input: DownloadRequestInput, deps: BulkDownloadDeps = {}): Promise<DownloadRequestState> {
   const datetime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
   if (!datetime.test(input.start) || !datetime.test(input.end) || input.start >= input.end) {
-    throw new SatDownloadError('The period must be two SAT datetimes (YYYY-MM-DDTHH:mm:ss), start before end', 'sat_download.invalid_period', 'permanent');
+    throw new SatDownloadError('The period must be two SAT datetimes (YYYY-MM-DDTHH:mm:ss), start before end', 'sat_download.invalid_period', 'ambiguous');
   }
   const rfc = await activeRfc(ctx);
   const key: QuotaKey = { rfc, direction: input.direction, start: input.start, end: input.end };
-  if (input.requestType === 'CFDI') await reserveXmlRequest(ctx, key);
-  const inserted = await query<{ id: string }>(
-    `INSERT INTO sat_download_requests (tenant_id, entity_id, rfc, direction, request_type, period_start, period_end, actor)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [ctx.tenantId, ctx.entityId, rfc, input.direction, input.requestType, input.start, input.end, ctx.actor]
-  );
-  const id = inserted.rows[0].id;
+  // The slot and the row that explains it commit together: a request row that
+  // cannot be written takes no lifetime slot with it.
+  const id = await withTransaction(async (client) => {
+    if (input.requestType === 'CFDI') await reserveXmlRequest(client, ctx, key);
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO sat_download_requests (tenant_id, entity_id, rfc, direction, request_type, period_start, period_end, actor)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [ctx.tenantId, ctx.entityId, rfc, input.direction, input.requestType, input.start, input.end, ctx.actor]
+    );
+    return inserted.rows[0].id;
+  });
   const operation = SOLICITA_OPERATIONS[input.direction];
   const party = input.direction === 'issued' ? { RfcEmisor: rfc } : { RfcReceptor: rfc };
-  // NOTE: the SAT never hands out the XML of a cancelled received CFDI (5012),
-  // so that request keeps its default (Vigente); every other one asks for all.
-  const state = input.direction === 'received' && input.requestType === 'CFDI' ? undefined : 'Todos';
+  const state = requestedDocumentStatus(input.direction, input.requestType);
   let answer: XmlNode;
   let sent = false;
   try {
@@ -224,6 +227,7 @@ export async function requestDownload(ctx: SatAuthContext, input: DownloadReques
     throw e;
   }
   const code = attr(answer, 'CodEstatus');
+  if (code === '300') forgetSatToken(ctx);
   const meaning = satCode(code);
   if (input.requestType === 'CFDI' && (code === '5002' || !meaning.consumesQuota)) {
     await settleQuota(ctx, key, code === '5002' ? 'exhaust' : 'release');
@@ -248,7 +252,7 @@ async function loadRequest(ctx: SatAuthContext, id: string): Promise<RequestRow>
        FROM sat_download_requests WHERE id = $1 AND tenant_id = $2 AND entity_id = $3`,
     [id, ctx.tenantId, ctx.entityId]
   );
-  if (!r.rows[0]) throw new SatDownloadError(`Download request ${id} not found`, 'sat_download.request_not_found', 'permanent');
+  if (!r.rows[0]) throw new SatDownloadError(`Download request ${id} not found`, 'sat_download.request_not_found', 'ambiguous');
   return r.rows[0];
 }
 
@@ -256,18 +260,19 @@ async function loadRequest(ctx: SatAuthContext, id: string): Promise<RequestRow>
 export async function verifyDownload(ctx: SatAuthContext, id: string, deps: BulkDownloadDeps = {}): Promise<DownloadRequestState> {
   const row = await loadRequest(ctx, id);
   if (!row.sat_request_id || !OPEN_STATES.includes(row.status)) {
-    throw new SatDownloadError(`Download request ${id} is ${row.status}, not open`, 'sat_download.request_not_open', 'permanent');
+    throw new SatDownloadError(`Download request ${id} is ${row.status}, not open`, 'sat_download.request_not_open', 'ambiguous');
   }
   const { body } = await callSat(ctx, deps, deps.verifyUrl ?? config.sat.descargaMasivaVerificaUrl,
     `${SAT_DOWNLOAD_NS}/IVerificaSolicitudDescargaService/${VERIFY_OPERATION}`, VERIFY_OPERATION, 'solicitud',
     { IdSolicitud: row.sat_request_id, RfcSolicitante: row.rfc });
   const result = child(child(body, `${VERIFY_OPERATION}Response`), `${VERIFY_OPERATION}Result`);
   const code = attr(result, 'CodEstatus');
+  if (code === '300') forgetSatToken(ctx);
   if (code !== '5000') {
     // A 5004 HERE is «the request to verify was not found», not zero rows.
     const c = satCode(code);
     throw new SatDownloadError(`The SAT refused to verify request ${id} (${code})`,
-      code === '5004' ? 'sat_download.request_not_found' : c.key, code === '5004' ? 'permanent' : c.retry ?? 'ambiguous', code);
+      code === '5004' ? 'sat_download.request_not_found' : c.key, c.retry ?? 'ambiguous', code);
   }
   const requestCode = attr(result, 'CodigoEstadoSolicitud');
   const meaning = satCode(requestCode ?? '5000');
@@ -299,16 +304,17 @@ export interface DownloadedPackage {
 export async function downloadPackage(ctx: SatAuthContext, id: string, packageId: string, deps: BulkDownloadDeps = {}): Promise<DownloadedPackage> {
   const row = await loadRequest(ctx, id);
   if (row.status !== 'finished' || !row.package_ids.includes(packageId)) {
-    throw new SatDownloadError(`Package ${packageId} is not a package of finished request ${id}`, 'sat_download.package_not_in_request', 'permanent');
+    throw new SatDownloadError(`Package ${packageId} is not a package of finished request ${id}`, 'sat_download.package_not_in_request', 'ambiguous');
   }
   const { header, body } = await callSat(ctx, deps, deps.downloadUrl ?? config.sat.descargaMasivaDescargaUrl,
     `${SAT_DOWNLOAD_NS}/IDescargaMasivaTercerosService/Descargar`, DOWNLOAD_OPERATION, 'peticionDescarga',
     { IdPaquete: packageId, RfcSolicitante: row.rfc });
   const code = attr(child(header, 'respuesta'), 'CodEstatus');
+  if (code === '300') forgetSatToken(ctx);
   const meaning = satCode(code);
   if (meaning.outcome !== 'ok') {
     throw new SatDownloadError(`The SAT did not deliver package ${packageId} (${code})`,
-      meaning.outcome === 'empty' ? 'sat_download.package_not_found' : meaning.key, meaning.retry ?? 'permanent', code);
+      meaning.outcome === 'empty' ? 'sat_download.package_not_found' : meaning.key, meaning.retry ?? 'ambiguous', code);
   }
   const packageB64 = child(child(body, 'RespuestaDescargaMasivaTercerosSalida'), 'Paquete') as unknown;
   const bytes = Buffer.from(typeof packageB64 === 'string' ? packageB64 : '', 'base64');

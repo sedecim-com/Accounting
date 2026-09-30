@@ -22,6 +22,14 @@
 -- The key is scoped by entity (invariant 4) and not by RFC alone: a UNIQUE
 -- over RFC across tenants would let one tenant's upsert collide with a row
 -- RLS hides from it.
+--
+-- RESIDUAL RISK, said: the SAT counts per RFC and parameters, this guard per
+-- entity. The same taxpayer held by two entities (a client that moved firms,
+-- or a duplicate inside one firm) has a counter in each, so the local guard
+-- can let a third identical request out; the SAT then answers 5002, and the
+-- engine fills that entity's counter. Keying by tenant and RFC instead would
+-- close the duplicate-inside-one-firm case, but every query here carries
+-- entity_id (invariant 4), and the cross-firm case stays open either way.
 -- ============================================================
 
 CREATE TABLE sat_download_requests (

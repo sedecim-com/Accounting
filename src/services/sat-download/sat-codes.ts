@@ -18,14 +18,15 @@
 // periodo» (README of phpcfdi/sat-ws-descarga-masiva for v1.5); the SAT's
 // table names the limit without the number. Migration 167 holds it.
 //
-// The retry class tells the caller what to do, never the engine:
-// retryable_transient (try again later), permanent_quota (a SAT limit was
-// reached; a new call with the same parameters cannot succeed), permanent
-// (the SAT refused this request or credential; retrying repeats the refusal)
-// and ambiguous (we cannot tell what the SAT kept: a person looks).
+// The retry class tells the caller what to do, never the engine. The three
+// classes are the ones #440 fixes: retryable_transient (try again later),
+// permanent_quota (a SAT limit was reached; a new call with the same
+// parameters cannot succeed) and ambiguous (no machine retries it: either we
+// cannot tell what the SAT kept, or the SAT refused this request or
+// credential and repeating it repeats the refusal; a person looks).
 // ============================================================
 
-export type SatRetryClass = 'retryable_transient' | 'permanent_quota' | 'permanent' | 'ambiguous';
+export type SatRetryClass = 'retryable_transient' | 'permanent_quota' | 'ambiguous';
 
 export interface SatCode {
   /** Stable machine key; the operator's text is looked up by it. */
@@ -44,29 +45,43 @@ const err = (key: string, retry: SatRetryClass, consumesQuota = false): SatCode 
 export const SAT_CODES: Readonly<Record<string, SatCode>> = {
   '5000': { key: 'sat_download.accepted', outcome: 'ok', consumesQuota: true },
   '5004': { key: 'sat_download.no_data', outcome: 'empty', consumesQuota: true },
-  // 300 is also what an expired token gets: one retry with a fresh token, then a person.
+  // 300 is also what an expired token gets: the engine drops the cached token,
+  // so one retry by the caller signs a fresh Autentica; if it persists, a person.
   '300': err('user_not_valid', 'ambiguous'),
-  '301': err('malformed_xml', 'permanent'),
-  '302': err('malformed_seal', 'permanent'),
-  '303': err('seal_does_not_match_rfc', 'permanent'),
-  '304': err('certificate_revoked_or_expired', 'permanent'),
-  '305': err('certificate_invalid', 'permanent'),
+  '301': err('malformed_xml', 'ambiguous'),
+  '302': err('malformed_seal', 'ambiguous'),
+  '303': err('seal_does_not_match_rfc', 'ambiguous'),
+  '304': err('certificate_revoked_or_expired', 'ambiguous'),
+  '305': err('certificate_invalid', 'ambiguous'),
   // «realizar nuevamente la petición y si persiste el error levantar un RMA».
   '404': err('unhandled_sat_error', 'retryable_transient', true),
-  '5001': err('third_party_not_authorized', 'permanent'),
+  '5001': err('third_party_not_authorized', 'ambiguous'),
   '5002': err('lifetime_requests_exhausted', 'permanent_quota', true),
   '5003': err('maximum_results_exceeded', 'permanent_quota', true),
   // An identical request is still active: the SAT kept that one, not this.
   '5005': err('duplicate_request_active', 'ambiguous'),
-  '5007': err('package_not_found', 'permanent'),
+  '5007': err('package_not_found', 'ambiguous'),
   '5008': err('package_download_limit', 'permanent_quota'),
   '5011': err('daily_folio_download_limit', 'retryable_transient'),
-  '5012': err('cancelled_xml_not_downloadable', 'permanent'),
+  '5012': err('cancelled_xml_not_downloadable', 'ambiguous'),
 };
 
 /** A code the table does not know is kept verbatim and treated as ambiguous. */
 export function satCode(code: string | undefined): SatCode {
   return (code !== undefined && SAT_CODES[code]) || err('unknown_code', 'ambiguous', true);
+}
+
+/**
+ * EstadoComprobante of SolicitaDescarga. The SAT never hands out the XML of a
+ * cancelled received CFDI (5012), so received XML asks for Vigente,
+ * explicitly: the reference client phpcfdi/sat-ws-descarga-masiva never omits
+ * the attribute (an unset status is sent as 'Todos'), and its QueryValidator
+ * refuses received XML unless the status is active («No es posible hacer una
+ * consulta de XML Recibidos que contenga Cancelados»). Every other request
+ * asks for all.
+ */
+export function requestedDocumentStatus(direction: 'issued' | 'received', requestType: 'CFDI' | 'Metadata'): 'Vigente' | 'Todos' {
+  return direction === 'received' && requestType === 'CFDI' ? 'Vigente' : 'Todos';
 }
 
 /** EstadoSolicitud of VerificaSolicitudDescarga. */

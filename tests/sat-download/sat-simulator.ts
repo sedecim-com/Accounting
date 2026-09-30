@@ -107,15 +107,27 @@ export function defaultScript(): SatScript {
   };
 }
 
-function answer(action: string, sim: SatSimulator): string {
+/**
+ * The SAT never hands out the XML of a cancelled received CFDI: a received XML
+ * request that does not ask for Vigente only is refused with 5012 (the rule
+ * phpcfdi/sat-ws-descarga-masiva's QueryValidator enforces before sending).
+ */
+function asksForCancelledReceivedXml(op: string, envelope: string): boolean {
+  const request = /<des:solicitud [^>]*>/.exec(envelope)?.[0] ?? '';
+  return op === 'SolicitaDescargaRecibidos' && request.includes('TipoSolicitud="CFDI"') &&
+    !request.includes('EstadoComprobante="Vigente"');
+}
+
+function answer(action: string, envelope: string, sim: SatSimulator): string {
   const script = sim.script;
   const op = action.slice(action.lastIndexOf('/') + 1);
   let body: string;
   let header = '';
   if (op.startsWith('SolicitaDescarga')) {
-    sim.lastRequestId = script.request.id ?? (script.request.code === '5000' ? randomUUID() : undefined);
+    const code = asksForCancelledReceivedXml(op, envelope) ? '5012' : script.request.code;
+    sim.lastRequestId = code === '5000' ? script.request.id ?? randomUUID() : undefined;
     const id = sim.lastRequestId ? ` IdSolicitud="${sim.lastRequestId}"` : '';
-    body = `<${op}Response xmlns="${DES}"><${op}Result${id} RfcSolicitante="AAA010101AAA" CodEstatus="${script.request.code}" Mensaje="Simulated"/></${op}Response>`;
+    body = `<${op}Response xmlns="${DES}"><${op}Result${id} RfcSolicitante="AAA010101AAA" CodEstatus="${code}" Mensaje="Simulated"/></${op}Response>`;
   } else if (op === 'VerificaSolicitudDescarga') {
     const v = script.verify;
     body =
@@ -160,7 +172,7 @@ export async function startSatSimulator(): Promise<SatSimulator> {
       const now = new Date();
       res.writeHead(ok ? 200 : 500, { 'Content-Type': 'text/xml; charset=utf-8' });
       if (!ok) res.end(faultResponse());
-      else res.end(auth ? tokenResponse(now, new Date(now.getTime() + 5 * 60_000)) : answer(action, sim));
+      else res.end(auth ? tokenResponse(now, new Date(now.getTime() + 5 * 60_000)) : answer(action, body, sim));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

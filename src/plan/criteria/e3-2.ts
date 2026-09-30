@@ -9,75 +9,8 @@ import { codigoDe, type Criterio, existe, falla, ok } from './shared.js';
 export const E3_2: Criterio[] = [
 
   // ---- E3.2 · Descarga del SAT ----
-  {
-    paquete: 'E3.2',
-    id: 'sat-bulk-cfdi-download',
-    enunciado: 'El despacho puede traer del SAT los CFDI que no le llegaron',
-    mutantes: [
-      {
-        archivo: 'src/services/sat-download/descarga-masiva.ts',
-        de: "received: 'SolicitaDescargaRecibidos',",
-        a: "received: 'SolicitaDescargaEmitidos',",
-        porque: 'a received request goes out as SolicitaDescargaEmitidos: the firm never gets what it received',
-      },
-      {
-        archivo: 'src/services/sat-download/descarga-masiva.ts',
-        de: "const VERIFY_OPERATION = 'VerificaSolicitudDescarga';",
-        a: "const VERIFY_OPERATION = 'Verify';",
-        porque: 'the request is never verified with the SAT: no request ever reaches its packages',
-      },
-      {
-        archivo: 'src/services/sat-download/descarga-masiva.ts',
-        de: "if (input.requestType === 'CFDI') await reserveXmlRequest(ctx, key);",
-        a: '',
-        porque: 'the lifetime limit on identical XML requests is left to the SAT: the third request burns the period for good',
-      },
-      {
-        archivo: 'src/services/sat-download/sat-codes.ts',
-        de: "'5004': { key: 'sat_download.no_data', outcome: 'empty'",
-        a: "'5004': { key: 'sat_download.no_data', outcome: 'error'",
-        porque: 'a period with no CFDI reads as a failed download',
-      },
-      {
-        archivo: 'src/database/migrations/167_the_sat_counts_identical_xml_requests.sql',
-        de: 'CHECK (requests_made BETWEEN 0 AND 2)',
-        a: 'CHECK (requests_made >= 0)',
-        porque: 'the counter no longer stops the third identical XML request',
-      },
-    ],
-    evaluar: () => {
-      // The previous version turned green on two strings of prose (AUD-6);
-      // then it asked only for the file with the words «SolicitaDescarga» and
-      // «Verifica». Green now asks for the cycle the SAT defines: both
-      // request operations, the verification, the download, the lifetime
-      // guard reserved in the database before the call, and 5004 read as a
-      // period with nothing in it.
-      const file = 'src/services/sat-download/descarga-masiva.ts';
-      if (!existe(file)) {
-        return falla('la descarga masiva del SAT no existe: el despacho no puede afirmar completitud, que es lo que vende');
-      }
-      const motor = codigoDe(file);
-      const missing = ["'SolicitaDescargaEmitidos'", "'SolicitaDescargaRecibidos'", "'VerificaSolicitudDescarga'",
-        "'PeticionDescargaMasivaTercerosEntrada'", '/IDescargaMasivaTercerosService/Descargar']
-        .filter((op) => !motor.includes(op));
-      if (missing.length) return falla(`el motor no tiene el ciclo solicitar/verificar/descargar: falta ${missing.join(', ')}`);
-      if (/\b(getVault|deserializeMaterial|privateKeyToPem)\b/.test(motor) || !motor.includes("purpose: 'sat_auth'")) {
-        return falla('el motor firma fuera de withCredential con purpose sat_auth');
-      }
-      const reserva = motor.indexOf("if (input.requestType === 'CFDI') await reserveXmlRequest(ctx, key);");
-      const call = motor.indexOf('await callSat(', reserva);
-      if (reserva < 0 || call < 0) {
-        return falla('la solicitud de XML sale sin reservar antes su lugar en el tope de por vida de la base');
-      }
-      const quotaDdl = codigoDe('src/database/migrations/167_the_sat_counts_identical_xml_requests.sql');
-      if (!/CHECK \(requests_made BETWEEN 0 AND 2\)/.test(quotaDdl) || !/UNIQUE \(entity_id, rfc, direction, request_type, period_start, period_end\)/.test(quotaDdl)) {
-        return falla('sat_download_quota no tiene su UNIQUE y su CHECK: el quotaDdl de por vida vive en memoria o no vive');
-      }
-      return /'5004': \{ key: 'sat_download\.no_data', outcome: 'empty'/.test(codigoDe('src/services/sat-download/sat-codes.ts'))
-        ? ok('el motor solicita emitidos y recibidos, verifica, descarga, reserva el quotaDdl en la base antes de llamar y lee 5004 como periodo vacío')
-        : falla('5004 no se lee como éxito con cero filas');
-    },
-  },
+  // sat-bulk-cfdi-download is a behaviour criterion now: it runs the engine
+  // against a simulated SAT on an ephemeral database (src/plan/conducta.ts).
 
   // ---- MNE-001-076 (#313) · the e.firma consent and the SAT cancellation ----
   {
@@ -242,7 +175,7 @@ export const E3_2: Criterio[] = [
       const signer = codigoDe('src/services/sat-download/ws-security.ts');
       const direct = /\b(getVault|deserializeMaterial|privateKeyToPem)\b|vault\/index/;
       if (direct.test(auth) || direct.test(signer)) {
-        return falla('el cliente del SAT toca la bóveda o descifra por su cuenta: la llave sale sin bitácora ni quotaDdl diario');
+        return falla('el cliente del SAT toca la bóveda o descifra por su cuenta: la llave sale sin bitácora ni tope diario');
       }
       const i = auth.indexOf('await withCredential(');
       if (i < 0 || auth.slice(0, i).includes('buildSignedAutentica(')) {
