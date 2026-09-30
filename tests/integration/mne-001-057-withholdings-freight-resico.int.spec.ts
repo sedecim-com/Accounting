@@ -5,7 +5,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
-import { seedPolicies } from '../../src/services/policy/policy-service.js';
+import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-service.js';
+import { getPeriodCloseStatus } from '../../src/services/accounting/period-close.js';
+import { explainCloseCheck } from '../../src/services/accounting/close-explain.js';
 import { legalParameterAt } from '../../src/services/jurisdiction/legal-parameters.js';
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { WITHHOLDING_KEYS } from '../../src/services/xml-ingestion/withholding-law.js';
@@ -27,6 +29,10 @@ const fixture = (name: string) =>
 const FREIGHT = fixture('fletes-pm.xml');
 const RESICO = fixture('resico-pf-626.xml');
 const ENTITY_RFC = 'EMP010101AB1';
+/** The carrier declares 6 % instead of the 4 % of RLIVA 3-II. */
+const SIX_PERCENT = FREIGHT.replace(/Importe="400\.00"/g, 'Importe="600.00"')
+  .replace('TotalImpuestosRetenidos="400.00"', 'TotalImpuestosRetenidos="600.00"')
+  .replace('Total="11200.00"', 'Total="11000.00"');
 
 let f: Fixture;
 const svc = new PreRegistrationService();
@@ -114,10 +120,7 @@ describe('withholdings on freight and RESICO', () => {
   }, 120_000);
 
   it('ACCEPTANCE: a CFDI withholding different from the computed one is flagged and asked, and the ledger is untouched', async () => {
-    const sixPercent = FREIGHT.replace(/Importe="400\.00"/g, 'Importe="600.00"')
-      .replace('TotalImpuestosRetenidos="400.00"', 'TotalImpuestosRetenidos="600.00"')
-      .replace('Total="11200.00"', 'Total="11000.00"');
-    const { uuid, preRegistration } = await upload(sixPercent);
+    const { uuid, preRegistration } = await upload(SIX_PERCENT);
     const held = await svc.processToAccounting(preRegistration, f.userId).then(
       () => null,
       (e: unknown) => e as { code?: string; message: string }
@@ -146,5 +149,27 @@ describe('withholdings on freight and RESICO', () => {
       [f.entityId, uuid]
     );
     expect(xml.rows[0].xml_content).toContain('TotalImpuestosRetenidos="600.00"');
+  }, 120_000);
+
+  it('withholding_mismatch=record_as_issued answers the question: the CFDI posts as declared and the close lists it', async () => {
+    await resolvePolicy({ tenantId: f.tenantId, entityId: f.entityId }, 'withholding_mismatch', 'record_as_issued', f.userId);
+    const { uuid, preRegistration } = await upload(SIX_PERCENT);
+    const r = await svc.processToAccounting(preRegistration, f.userId);
+    const entryId = (r.bill as { journal_entry_id: string }).journal_entry_id;
+    const vat = await query<{ credit: string }>(
+      `SELECT jl.credit_amount::text AS credit FROM journal_entry_lines jl JOIN accounts a ON a.id = jl.account_id
+        WHERE jl.journal_entry_id = $1 AND a.code = '2142'`,
+      [entryId]
+    );
+    expect(vat.rows).toEqual([{ credit: '600.0000' }]);
+    const trail = await query<{ facts: { withholdingMismatch?: string } }>(
+      `SELECT facts FROM cfdi_classifications WHERE entity_id = $1 AND cfdi_uuid = $2`, [f.entityId, uuid]
+    );
+    expect(trail.rows[0].facts.withholdingMismatch).toBe('record_as_issued');
+
+    const st = await getPeriodCloseStatus(f.periodos[8], f.entityId);
+    expect(st.checklist.find((i) => i.codigo === 'fees-without-withholding')).toMatchObject({ is_complete: false });
+    const explained = await explainCloseCheck(f.entityId, f.periodos[8], 'fees-without-withholding');
+    expect(explained.renglones.map((x) => x.cfdi_uuid)).toEqual([uuid]);
   }, 120_000);
 });

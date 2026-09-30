@@ -3412,8 +3412,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/period-close.ts',
-        de: "AND cc.facts->>'feesWithoutWithholding' = 'record_as_issued'",
-        a: "AND cc.facts->>'feesWithoutWithholding' = 'recorded'",
+        de: "AND 'record_as_issued' IN (cc.facts->>'feesWithoutWithholding', cc.facts->>'withholdingMismatch')",
+        a: "AND 'recorded' IN (cc.facts->>'feesWithoutWithholding', cc.facts->>'withholdingMismatch')",
         porque: 'the fees recorded as issued never reach the close checklist: the LISR 27-V warning is promised and not shown',
       },
     ],
@@ -3435,7 +3435,8 @@ export const E1_2: Criterio[] = [
           !/unwithheldFees: unwithheldFees\.value,/.test(preReg)) {
         return falla('ingestion does not pass the fees_without_withholding answer to the classifier');
       }
-      if (!/cc\.facts->>'feesWithoutWithholding' = 'record_as_issued'/.test(codigoDe('src/services/accounting/period-close.ts'))) {
+      if (!/'record_as_issued' IN \(cc\.facts->>'feesWithoutWithholding', cc\.facts->>'withholdingMismatch'\)/
+        .test(codigoDe('src/services/accounting/period-close.ts'))) {
         return falla('the close checklist does not look for the fees recorded as issued');
       }
       return existe('tests/integration/mne-001-148-fees-without-withholding.int.spec.ts') &&
@@ -3452,7 +3453,7 @@ export const E1_2: Criterio[] = [
     mutantes: [
       {
         archivo: 'src/services/xml-ingestion/withholding-law.ts',
-        de: "if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return 'freight';",
+        de: "if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return isBorderRateFreight(f) ? null : 'freight';",
         a: '',
         porque: 'freight is booked with whatever VAT the carrier declares, and one declaring none is booked with none',
       },
@@ -3469,6 +3470,18 @@ export const E1_2: Criterio[] = [
         porque: 'a discrepancy only shows up as an entry that does not balance: nobody is asked about the CFDI',
       },
       {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'if (withholdingMismatch.defined) answers.withholding_mismatch = withholdingMismatch.value;',
+        a: '',
+        porque: 'the firm answers withholding_mismatch and every discrepancy stays held: the answer never reaches the question',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: 'const taxed = Decimal.max(0, base.minus(f.ivaTasaCero).minus(f.importeExento));',
+        a: 'const taxed = base;',
+        porque: 'zero-rated freight legs enter the base: more VAT is withheld than the carrier charged on them',
+      },
+      {
         archivo: 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql',
         de: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0125', 'rate',",
         a: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0100', 'rate',",
@@ -3477,7 +3490,7 @@ export const E1_2: Criterio[] = [
     ],
     evaluar: () => {
       const law = codigoDe('src/services/xml-ingestion/withholding-law.ts');
-      if (!/if \(allConceptsIn\(f, \[LAND_FREIGHT_PREFIX\]\)\) return 'freight';/.test(law)) {
+      if (!/if \(allConceptsIn\(f, \[LAND_FREIGHT_PREFIX\]\)\) return isBorderRateFreight\(f\) \? null : 'freight';/.test(law)) {
         return falla('land freight is no longer told from the CFDI: its 4 % VAT is not withheld by law');
       }
       if (!/if \(f\.issuerRegime === RESICO_REGIME\) return 'resico';/.test(law)) {
@@ -3487,6 +3500,12 @@ export const E1_2: Criterio[] = [
       if (!/heldForReview = settled\.mismatch;/.test(classifier) ||
           !/mismatchQuestion = withholdingMismatchQuestion\(facts, settled\.mismatch\);/.test(classifier)) {
         return falla('a withholding discrepancy is no longer the reason of the hold and a question to the accountant');
+      }
+      if (!/answers\.withholding_mismatch = withholdingMismatch\.value;/.test(codigoDe('src/services/xml-ingestion/pre-registration-service.ts'))) {
+        return falla('ingestion does not pass the withholding_mismatch answer to the classifier');
+      }
+      if (!/const taxed = Decimal\.max\(0, base\.minus\(/.test(law)) {
+        return falla('the freight VAT withholding is no longer computed only on the concepts that carry VAT');
       }
       const mig = 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql';
       const rows = existe(mig) ? crudoDe(mig) : '';

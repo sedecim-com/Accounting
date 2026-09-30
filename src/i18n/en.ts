@@ -201,6 +201,25 @@ export const EN = {
   'policy.fees_without_withholding.option.record_as_issued':
     'Record it as issued, with a warning in the close checklist',
 
+  'policy.withholding_mismatch.question':
+    "A received CFDI declares a withholding (ISR or VAT) other than the one the law requires of your company as payer. What happens?",
+  'policy.withholding_mismatch.impact':
+    "Governs received CFDIs on which a legal entity withholds by law (an individual's fees or lease, land freight, an individual in RESICO) and whose declared withholding differs from the law's beyond rounding; professional fees under regime 612 that declare no ISR withheld follow fees_without_withholding instead. \"request_substitute_cfdi\" holds the CFDI in the inbox, writes nothing to the ledger and says to ask the vendor for a substitute CFDI. \"withhold_by_law\" proposes the entry with the law's withholding and holds it for review. \"record_as_issued\" posts the CFDI with its declared withholding, and the close checklist lists it under fees-without-withholding.",
+  'policy.withholding_mismatch.rationale':
+    "The payer is jointly liable for the tax it should have withheld (CFF 26-I) and the expense is deductible only if the withholding was made and paid (LISR 27-V). The CFDI belongs to a third party: the clean remedy is a substitute from the vendor, and nothing is booked on a figure that will change.",
+  'policy.withholding_mismatch.why':
+    "When your company withholds by law, the invoice has to show the same withholding the law requires. If it shows another, either the vendor made a mistake or the case is not the one the law describes. Whether to wait for a corrected invoice, withhold the law's amount anyway or book it as it came is a call for your firm.",
+  'policy.withholding_mismatch.what':
+    "By default I hold the invoice and tell you to ask the vendor for a substitute. With \"withhold_by_law\" I propose the entry with the law's withholding and leave it for you to review. With \"record_as_issued\" I post it as it came and list it in the close checklist.",
+  'policy.withholding_mismatch.if_skipped':
+    "I hold those invoices and ask you about each one: nothing reaches your books until a substitute arrives or you answer.",
+  'policy.withholding_mismatch.option.request_substitute_cfdi':
+    "Hold it and ask the vendor for a substitute CFDI",
+  'policy.withholding_mismatch.option.withhold_by_law':
+    "Book the law's withholding and hold the entry for review",
+  'policy.withholding_mismatch.option.record_as_issued':
+    "Record it as declared, with a warning in the close checklist",
+
   'policy.inventory_method.question':
     'Does the company keep perpetual inventories?',
   'policy.inventory_method.impact':
@@ -1357,7 +1376,7 @@ export const EN = {
   'policy.withholding_accounts_layout.question':
     'On which accounts does the ISR and VAT this entity withholds from its suppliers accumulate?',
   'policy.withholding_accounts_layout.impact':
-    'Decides where fees and lease withholdings are booked until the 17th pays them. Payroll ISR stays on 2140 in every layout. One account per tax gives the two lines of the monthly payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything that is not a lease is booked as professional services. With one account per tax, 2141 holds lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can only be one of the two. One account needs the working paper to split ISR from VAT, and the approval of a draft can only check their sum.',
+    'Decides where fees and lease withholdings are booked until the 17th pays them. Payroll ISR stays on 2140 in every layout. One account per tax gives the two lines of the monthly payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything that is not a lease, the 1.25 % of RESICO (LISR 113-J) on goods, services or freight included, is booked as professional services; a RESICO real-estate lease is booked as a lease. With one account per tax, 2141 holds lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can only be one of the two. One account needs the working paper to split ISR from VAT, and the approval of a draft can only check their sum.',
   'policy.withholding_accounts_layout.rationale':
     'The withholder pays the ISR (LISR 106, 116) and the VAT (LIVA 1-A, 5-D) it withheld with the monthly return due on the 17th, as separate taxes, and the DIOT reports the VAT withheld per supplier (LIVA 32-VIII): a balance per tax is what both read without any split. It is what entities are seeded with.',
   'policy.withholding_accounts_layout.why':

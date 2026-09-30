@@ -111,6 +111,10 @@ describe('withholdings on freight and RESICO, by law', () => {
     expect(c.reason).toMatch(/VAT 400\.00, but the CFDI declares ISR 0\.00 and VAT 600\.00/);
     expect(c.decisions.map((d) => [d.id, d.severity])).toEqual([['withholding_mismatch', 'blocking']]);
     expect(c.decisions[0].question).toMatch(/TCA010101AB2/);
+    // It can be answered: the options are the panel key's, the default holds.
+    expect(c.decisions[0].options.map((o) => o.value))
+      .toEqual(['request_substitute_cfdi', 'withhold_by_law', 'record_as_issued']);
+    expect(c.decisions[0].default).toBe('request_substitute_cfdi');
     expect(c.decisions[0].context).toMatch(/vat\.withholding\.freight_rate = 0\.0400/);
     // The law's amount is what would be booked; the CFDI's 600 is never taken.
     expect(withheld(c)).toEqual([['2142', 400]]);
@@ -149,8 +153,198 @@ describe('withholdings on freight and RESICO, by law', () => {
 
   it('freight next to a good is not taken for freight: every concept must be land freight', async () => {
     const calls: string[] = [];
-    const xml = FREIGHT.replace('ClaveProdServ="78101802"', 'ClaveProdServ="44121600"');
-    await classify(xml, readerOf(LAW, calls));
+    const xml = cfdiOf(CARRIER, [
+      { code: '78101802', amount: 10000, vat: 16, vatWithheld: 400 },
+      { code: '44121600', amount: 1000, vat: 16 },
+    ]);
+    const c = await classify(xml, readerOf(LAW, calls));
     expect(calls).toEqual([]);
+    // Not the law's case: what the carrier declares is booked.
+    expect(c.verdict, c.reason).toBe('ready');
+    expect(withheld(c)).toEqual([['2142', 400]]);
+  });
+
+  it('freight next to a service (loading) is not freight either: it posts as declared, even with nothing withheld', async () => {
+    const calls: string[] = [];
+    const c = await classify(cfdiOf(CARRIER, [
+      { code: '78101802', amount: 10000, vat: 16 },
+      { code: '78141500', amount: 500, vat: 16 },
+    ]), readerOf(LAW, calls));
+    expect(calls).toEqual([]);
+    expect(c.verdict, c.reason).toBe('ready');
+    expect(withheld(c)).toEqual([]);
+  });
+});
+
+// ── Review of PR #525 ────────────────────────────────────────
+
+const CARRIER = { rfc: 'TCA010101AB2', regime: '601' };
+const RESICO_PF = { rfc: 'MOPL800101HB3', regime: '626' };
+
+interface ConceptSpec { code: string; amount: number; vat?: 16 | 8 | 0; isrWithheld?: number; vatWithheld?: number }
+
+const money = (n: number) => n.toFixed(2);
+
+function conceptXml(k: ConceptSpec): string {
+  const transfer = k.vat === undefined
+    ? ''
+    : `<cfdi:Traslados><cfdi:Traslado Base="${money(k.amount)}" Impuesto="002" TipoFactor="Tasa" ` +
+      `TasaOCuota="${(k.vat / 100).toFixed(6)}" Importe="${money((k.amount * k.vat) / 100)}"/></cfdi:Traslados>`;
+  const rets =
+    (k.isrWithheld ? `<cfdi:Retencion Base="${money(k.amount)}" Impuesto="001" TipoFactor="Tasa" TasaOCuota="0.012500" Importe="${money(k.isrWithheld)}"/>` : '') +
+    (k.vatWithheld ? `<cfdi:Retencion Base="${money(k.amount)}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.040000" Importe="${money(k.vatWithheld)}"/>` : '');
+  return `<cfdi:Concepto ClaveProdServ="${k.code}" ClaveUnidad="E48" Unidad="Servicio" Descripcion="x" Cantidad="1" ` +
+    `ValorUnitario="${money(k.amount)}" Importe="${money(k.amount)}" ObjetoImp="${k.vat === undefined ? '01' : '02'}">` +
+    `<cfdi:Impuestos>${transfer}${rets ? `<cfdi:Retenciones>${rets}</cfdi:Retenciones>` : ''}</cfdi:Impuestos></cfdi:Concepto>`;
+}
+
+/** A balanced CFDI received by ENTITY_RFC with the given concepts. */
+function cfdiOf(issuer: { rfc: string; regime: string }, concepts: ConceptSpec[]): string {
+  const sum = (f: (k: ConceptSpec) => number) => concepts.reduce((s, k) => s + f(k), 0);
+  const subtotal = sum((k) => k.amount);
+  const vat = sum((k) => (k.vat === undefined ? 0 : (k.amount * k.vat) / 100));
+  const isr = sum((k) => k.isrWithheld ?? 0);
+  const vatWithheld = sum((k) => k.vatWithheld ?? 0);
+  const rates = [...new Set(concepts.map((k) => k.vat).filter((r): r is 16 | 8 | 0 => r !== undefined))];
+  const globalTransfers = rates.map((r) => {
+    const base = sum((k) => (k.vat === r ? k.amount : 0));
+    return `<cfdi:Traslado Base="${money(base)}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="${(r / 100).toFixed(6)}" Importe="${money((base * r) / 100)}"/>`;
+  }).join('');
+  const globalWithholdings =
+    (isr ? `<cfdi:Retencion Impuesto="001" Importe="${money(isr)}"/>` : '') +
+    (vatWithheld ? `<cfdi:Retencion Impuesto="002" Importe="${money(vatWithheld)}"/>` : '');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="T" Folio="1" Fecha="2026-08-05T10:00:00" FormaPago="03" MetodoPago="PUE" TipoDeComprobante="I" Moneda="MXN" SubTotal="${money(subtotal)}" Total="${money(subtotal + vat - isr - vatWithheld)}" LugarExpedicion="64000">
+  <cfdi:Emisor Rfc="${issuer.rfc}" Nombre="Emisor Sintetico" RegimenFiscal="${issuer.regime}"/>
+  <cfdi:Receptor Rfc="${ENTITY_RFC}" Nombre="Empresa Sintetica SA de CV" UsoCFDI="G03" DomicilioFiscalReceptor="06600" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>${concepts.map(conceptXml).join('')}</cfdi:Conceptos>
+  <cfdi:Impuestos${isr + vatWithheld ? ` TotalImpuestosRetenidos="${money(isr + vatWithheld)}"` : ''} TotalImpuestosTrasladados="${money(vat)}">${globalWithholdings ? `<cfdi:Retenciones>${globalWithholdings}</cfdi:Retenciones>` : ''}${globalTransfers ? `<cfdi:Traslados>${globalTransfers}</cfdi:Traslados>` : ''}</cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="5C0E0A56-0001-4057-8057-000000000999" FechaTimbrado="2026-08-05T10:05:00" RfcProvCertif="SAT970701NN3" SelloCFD="s" NoCertificadoSAT="30001000000500000001" SelloSAT="s"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+}
+
+const answering = (xml: string, answer: string) =>
+  classifyXml(xml, {
+    entityId: 'e1', entityRfc: ENTITY_RFC, roleMap: SEEDED, satStatus: 'vigente', vendorExists: true,
+    periodOpen: true, readLegalParameter: readerOf(LAW), answers: { withholding_mismatch: answer },
+  });
+
+describe('withholding_mismatch: the question has answers, and the panel gives them', () => {
+  const sixPercent = () => freightDeclaring('600.00');
+
+  it('request_substitute_cfdi holds the CFDI with nothing proposed and asks nothing more', async () => {
+    const c = await answering(sixPercent(), 'request_substitute_cfdi');
+    expect(c.verdict).toBe('needs_input');
+    expect(c.reason).toMatch(/withholding_mismatch=request_substitute_cfdi: ask the vendor for a substitute CFDI/);
+    expect(c.lines).toEqual([]);
+    expect(c.decisions).toEqual([]);
+  });
+
+  it("withhold_by_law proposes the law's figure and holds it for review", async () => {
+    const c = await answering(sixPercent(), 'withhold_by_law');
+    expect(c.verdict).toBe('needs_input');
+    expect(c.reason).toMatch(/^Held for review by policy withholding_mismatch=withhold_by_law/);
+    expect(c.decisions).toEqual([]);
+    expect(withheld(c)).toEqual([['2142', 400]]);
+  });
+
+  it('record_as_issued RELEASES the CFDI: it posts as declared, marked for the close, with the warning kept', async () => {
+    const c = await answering(sixPercent(), 'record_as_issued');
+    expect(c.verdict, c.reason).toBe('ready');
+    expect(c.decisions).toEqual([]);
+    expect(withheld(c)).toEqual([['2142', 600]]);
+    expect(c.facts.withholdingMismatch).toBe('record_as_issued');
+    expect(c.warnings.join('\n')).toMatch(/Recorded as declared by policy withholding_mismatch=record_as_issued.*CFF 26-I/);
+  });
+
+  it('an unknown answer is no answer: the CFDI stays held and the question is asked', async () => {
+    const c = await answering(sixPercent(), 'anything');
+    expect(c.verdict).toBe('needs_input');
+    expect(c.decisions.map((d) => d.id)).toEqual(['withholding_mismatch']);
+  });
+
+  it('a RESICO consultant declaring no withholding follows the panel: held by default, released by record_as_issued', async () => {
+    const xml = cfdiOf(RESICO_PF, [{ code: '80101500', amount: 10000, vat: 16 }]);
+    const held = await classify(xml, readerOf(LAW));
+    expect(held.verdict).toBe('needs_input');
+    expect(held.decisions.map((d) => d.id)).toEqual(['withholding_mismatch']);
+    const released = await answering(xml, 'record_as_issued');
+    expect(released.verdict, released.reason).toBe('ready');
+    expect(withheld(released)).toEqual([]);
+  });
+
+  it('a 612 fee with no ISR withheld keeps following fees_without_withholding, whatever withholding_mismatch says', async () => {
+    const xml = cfdiOf({ rfc: 'MOPL800101HB3', regime: '612' }, [{ code: '80101500', amount: 10000, vat: 16 }]);
+    const c = await answering(xml, 'record_as_issued');
+    expect(c.verdict).toBe('needs_input');
+    expect(c.reason).toMatch(/fees_without_withholding=request_substitute_cfdi/);
+  });
+});
+
+describe('freight VAT is withheld only on the VAT the carrier transferred', () => {
+  it('zero-rated international freight (LIVA 29-V) with no VAT and no withholding posts with none', async () => {
+    const calls: string[] = [];
+    const c = await classify(cfdiOf(CARRIER, [{ code: '78101806', amount: 10000, vat: 0 }]), readerOf(LAW, calls));
+    expect(c.verdict, c.reason).toBe('ready');
+    expect(withheld(c)).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('only the concepts that carry VAT are the base: a zero-rated leg next to a taxed one', async () => {
+    const c = await classify(cfdiOf(CARRIER, [
+      { code: '78101802', amount: 1000, vat: 16, vatWithheld: 40 },
+      { code: '78101806', amount: 4000, vat: 0 },
+    ]), readerOf(LAW));
+    // 4 % of the whole consideration (200) would even exceed the 160 of VAT charged.
+    expect(c.verdict, c.reason).toBe('ready');
+    expect(withheld(c)).toEqual([['2142', 40]]);
+  });
+
+  it('freight at the 8 % border rate is not computed: the declared figure stands and the classifier says why', async () => {
+    const calls: string[] = [];
+    const xml = cfdiOf(CARRIER, [{ code: '78101802', amount: 10000, vat: 8, vatWithheld: 400 }]);
+    const c = await classify(xml, readerOf(LAW, calls));
+    expect(calls).toEqual([]);
+    expect(c.verdict, c.reason).toBe('ready');
+    expect(withheld(c)).toEqual([['2142', 400]]);
+    expect(c.warnings.join('\n')).toMatch(/8 % border VAT rate: no legal_parameters row/);
+  });
+});
+
+describe('RESICO: two thirds of the VAT come from the concepts, never from what the CFDI declares', () => {
+  it('a RESICO sale of goods that declares 2/3 of the VAT withheld is a discrepancy, not the law', async () => {
+    const xml = cfdiOf(RESICO_PF, [{ code: '44121600', amount: 10000, vat: 16, isrWithheld: 125, vatWithheld: 1066.67 }]);
+    const c = await classify(xml, readerOf(LAW));
+    expect(c.verdict).toBe('needs_input');
+    expect(c.reason).toMatch(/ISR 125\.00 and VAT 0\.00, but the CFDI declares ISR 125\.00 and VAT 1066\.67/);
+    expect(c.decisions.map((d) => d.id)).toEqual(['withholding_mismatch']);
+  });
+});
+
+describe('by_concept layout: RESICO ISR withheld lands where the layout declares', () => {
+  const byConceptMap = new Map([
+    ...SEEDED,
+    ['isr_retenido_por_pagar', { code: '2145', name: 'ISR Retenido por Servicios Profesionales' }],
+    ['isr_retenido_por_pagar:lease', { code: '2144', name: 'ISR Retenido por Arrendamiento' }],
+  ]);
+  const byConcept = (xml: string) =>
+    classifyXml(xml, {
+      entityId: 'e1', entityRfc: ENTITY_RFC, roleMap: byConceptMap, satStatus: 'vigente', vendorExists: true,
+      periodOpen: true, readLegalParameter: readerOf(LAW),
+    });
+
+  it('a RESICO real-estate lease is a lease: 2144 (216.03)', async () => {
+    const xml = cfdiOf(RESICO_PF, [{ code: '80131502', amount: 10000, vat: 16, isrWithheld: 125, vatWithheld: 1066.67 }]);
+    const c = await byConcept(xml);
+    expect(c.verdict, c.reason).toBe('ready');
+    expect(withheld(c)).toEqual([['2144', 125], ['2142', 1066.67]]);
+  });
+
+  it('a RESICO sale of goods falls back to the default ISR mapping: 2145, as the layout text says', async () => {
+    const c = await byConcept(cfdiOf(RESICO_PF, [{ code: '44121600', amount: 10000, vat: 16, isrWithheld: 125 }]));
+    expect(c.verdict, c.reason).toBe('ready');
+    expect(withheld(c)).toEqual([['2145', 125]]);
   });
 });

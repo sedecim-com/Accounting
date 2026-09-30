@@ -25,8 +25,15 @@ import type { CfdiFacts } from './cfdi-facts.js';
 // simplified regime (RESICO, 626) withholds 1.25 % of ISR on whatever it pays
 // for, goods, services or rent (LISR 113-J), and two thirds of the VAT when it
 // is an independent personal service or the use of goods (LIVA 1-A II a). A
-// CFDI whose declared withholdings differ from these is held with a question
-// to the accountant; the CFDI is a third party's and is never corrected.
+// CFDI whose declared withholdings differ from these follows the firm's
+// `withholding_mismatch` policy, below; the CFDI is a third party's and is
+// never corrected.
+//
+// Freight VAT is withheld only on VAT actually transferred: zero-rated
+// international freight (LIVA 29-V) has none to withhold, and the withholding
+// never exceeds what the carrier charged. Freight at the 8 % border rate is
+// not computed: no rule in legal_parameters sets its withholding, so its
+// declared figures stand and the classifier says so.
 // ============================================================
 
 export const WITHHOLDING_KEYS = {
@@ -63,11 +70,27 @@ export interface WithholdingByLaw {
   basis: string;
 }
 
+/** Land freight at the 8 % border rate: its withholding is not in legal_parameters (see above). */
+export function isBorderRateFreight(f: CfdiFacts): boolean {
+  return allConceptsIn(f, [LAND_FREIGHT_PREFIX]) && f.ivaTrasladado8 > 0;
+}
+
+/**
+ * The account qualifier of the ISR withheld (withholding-accounts.ts): a
+ * RESICO individual's real-estate lease is a lease (grouping code 216.03)
+ * even though its rate is 113-J's; anything else RESICO withholds falls back
+ * to the default mapping, as the layout declares.
+ */
+export function withholdingQualifierOf(f: CfdiFacts): WithholdingCase | null {
+  const which = withholdingCaseOf(f);
+  return which === 'resico' && allConceptsIn(f, [REAL_ESTATE_LEASE_PREFIX]) ? 'lease' : which;
+}
+
 export function withholdingCaseOf(f: CfdiFacts): WithholdingCase | null {
   if (f.direction !== 'recibido' || f.tipo !== 'I') return null;
   if (f.receptorRfc.length !== 12) return null;
   // Freight first: it is withheld whoever the carrier is, individual or not.
-  if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return 'freight';
+  if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return isBorderRateFreight(f) ? null : 'freight';
   if (f.emisorRfc.length !== 13) return null;
   if (f.issuerRegime === RESICO_REGIME) return 'resico';
   if (f.issuerRegime === '606') return 'lease';
@@ -151,16 +174,22 @@ export async function withholdingByLaw(
   let isr = 0;
   let iva = 0;
   if (which === 'freight') {
-    iva = cents(base.times(await rate(WITHHOLDING_KEYS.freightVat)));
+    // Only on the concepts that carry VAT (zero-rated and exempt ones are
+    // left out of the base), and never more than the VAT transferred.
+    const taxed = Decimal.max(0, base.minus(f.ivaTasaCero).minus(f.importeExento));
+    if (vat.greaterThan(0) && taxed.greaterThan(0)) {
+      iva = cents(Decimal.min(taxed.times(await rate(WITHHOLDING_KEYS.freightVat)), vat));
+    }
     // A RESICO carrier is an individual paid by a legal entity: 113-J applies too.
     if (isResicoIndividual(f)) isr = cents(base.times(await rate(WITHHOLDING_KEYS.resicoIsr)));
   } else if (which === 'resico') {
     isr = cents(base.times(await rate(WITHHOLDING_KEYS.resicoIsr)));
     // Two thirds of the VAT only on an independent personal service or the use
-    // of goods, not on a sale. The CFDI declaring VAT withheld says so, and so
-    // do concepts that are all professional services or a real-estate lease;
-    // a sale declares none and is not withheld on.
-    if (f.ivaRetenido > 0 || allConceptsIn(f, [...PROFESSIONAL_SERVICE_PREFIXES, REAL_ESTATE_LEASE_PREFIX])) {
+    // of goods, not on a sale, told from the concepts alone: professional
+    // services or a real-estate lease. What the CFDI declares is what gets
+    // checked, never the proof: a sale that declares VAT withheld is a
+    // discrepancy, and so asked.
+    if (allConceptsIn(f, [...PROFESSIONAL_SERVICE_PREFIXES, REAL_ESTATE_LEASE_PREFIX])) {
       iva = cents(vat.times(await rate(WITHHOLDING_KEYS.vatThirds)).div(3));
     }
   } else {
@@ -177,6 +206,19 @@ export async function withholdingByLaw(
       `${used.map((p) => `${p.key} = ${p.value}`).join(' and ')} ` +
       `(in force on ${onDate}; ${used.map((p) => p.sourceUrl).join(', ')})`,
   };
+}
+
+// ── MNE-001-057 · A DECLARED WITHHOLDING THAT DIFFERS FROM THE LAW'S ──
+//
+// The panel key `withholding_mismatch` (pending-catalog.ts) says what happens
+// to it; pre-registration passes the firm's answer as the answer to the
+// classifier's question of the same name. Unanswered, the CFDI is held and
+// the question is asked; an unknown value is taken as unanswered.
+export const WITHHOLDING_MISMATCH_POLICIES = ['request_substitute_cfdi', 'withhold_by_law', 'record_as_issued'] as const;
+export type WithholdingMismatchPolicy = (typeof WITHHOLDING_MISMATCH_POLICIES)[number];
+
+export function withholdingMismatchPolicyOf(value: string | undefined): WithholdingMismatchPolicy | null {
+  return WITHHOLDING_MISMATCH_POLICIES.find((p) => p === value) ?? null;
 }
 
 /**

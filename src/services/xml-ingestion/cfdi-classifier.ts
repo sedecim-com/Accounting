@@ -9,8 +9,9 @@ import {
 } from './cfdi-decisions.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
 import {
-  isUnwithheldProfessionalFees, settleWithholding, substituteCfdiFinding, unwithheldFeesPolicyOf,
-  withholdingByLaw, withholdingCaseOf, type LegalParameterReader,
+  isBorderRateFreight, isUnwithheldProfessionalFees, settleWithholding, substituteCfdiFinding,
+  unwithheldFeesPolicyOf, withholdingByLaw, withholdingMismatchPolicyOf, withholdingQualifierOf,
+  WITHHOLDING_MISMATCH_POLICIES, type LegalParameterReader,
 } from './withholding-law.js';
 
 // ============================================================
@@ -166,24 +167,52 @@ export async function classifyParsed(
     opts.readLegalParameter ?? ((key, onDate) => legalParameterAt('MX', key, onDate)),
     feesPolicy === 'withhold_by_law' ? 'professional_fees' : undefined
   );
+  const answers = opts.answers ?? {};
   let heldForReview: string | null = null;
   let mismatchQuestion: PendingDecision | null = null;
   if (law) {
     const settled = settleWithholding(facts, law);
     facts.withholdingDue = settled.due;
-    if (settled.mismatch) warnings.push(settled.mismatch);
+    // MNE-001-057: a CFDI whose withholding differs from the law's follows
+    // `withholding_mismatch`, the firm's answer to the question below. It is
+    // said by name, never as an entry that merely fails to balance, and the
+    // CFDI, a third party's, is never corrected.
+    const onMismatch = feesPolicy ? null : withholdingMismatchPolicyOf(answers.withholding_mismatch);
+    if (settled.mismatch && onMismatch === 'record_as_issued') {
+      delete facts.withholdingDue;
+      facts.withholdingMismatch = onMismatch;
+      warnings.push(
+        `${settled.mismatch.replace(/ The law's amounts are booked and the entry is held: .*$/, '')} ` +
+          'Recorded as declared by policy withholding_mismatch=record_as_issued: the payer is jointly ' +
+          'liable for the difference (CFF 26-I), the expense may not be deductible (LISR 27-V), and the ' +
+          `close checklist lists it. ${law.basis}.`
+      );
+    } else if (settled.mismatch) {
+      warnings.push(settled.mismatch);
+    }
     if (feesPolicy === 'withhold_by_law') {
       heldForReview =
         'Professional fees with no ISR withheld declared, held for review by policy ' +
         `fees_without_withholding=withhold_by_law. ${settled.mismatch ?? law.basis}`;
-    } else if (settled.mismatch) {
-      // MNE-001-057: the CFDI's withholding differs from the law's. It is
-      // said by name, as the reason of the hold and as a question left to the
-      // accountant in the classification trail, not as an entry that merely
-      // fails to balance. The CFDI is a third party's and is not corrected.
+    } else if (settled.mismatch && onMismatch === 'request_substitute_cfdi') {
+      return {
+        ...blocked(facts, matched,
+          `${settled.mismatch} Policy withholding_mismatch=request_substitute_cfdi: ask the vendor for a ` +
+            'substitute CFDI; nothing was written to the ledger.'),
+        verdict: 'needs_input',
+      };
+    } else if (settled.mismatch && onMismatch === 'withhold_by_law') {
+      heldForReview = `Held for review by policy withholding_mismatch=withhold_by_law. ${settled.mismatch}`;
+    } else if (settled.mismatch && onMismatch === null) {
       heldForReview = settled.mismatch;
       mismatchQuestion = withholdingMismatchQuestion(facts, settled.mismatch);
     }
+  }
+  if (isBorderRateFreight(facts) && facts.direction === 'recibido' && facts.receptorRfc.length === 12) {
+    warnings.push(
+      'Land freight at the 8 % border VAT rate: no legal_parameters row sets its VAT withholding, so the ' +
+        "carrier's declared withholding is booked unchecked. Verify it against RLIVA 3-II before paying."
+    );
   }
   if (feesPolicy === 'record_as_issued') {
     warnings.push(
@@ -214,7 +243,6 @@ export async function classifyParsed(
     warnings.push('The CFDI has not been validated against the SAT: its current status is unknown.');
   }
 
-  const answers = opts.answers ?? {};
   const pending: PendingDecision[] = points
     .filter((d) => !(d.id in answers))
     .map((d) => ({
@@ -253,7 +281,7 @@ export async function classifyParsed(
     // MNE-001-147: ISR withheld on a lease has its own mapping when the
     // withholding layout splits it (withholding-accounts.ts); otherwise the
     // default one.
-    const withheldOn = role === 'isr_retenido_por_pagar' ? withholdingCaseOf(facts) : null;
+    const withheldOn = role === 'isr_retenido_por_pagar' ? withholdingQualifierOf(facts) : null;
     const acct = (withheldOn && roleMap.get(qualifiedRole(role, withheldOn))) || roleMap.get(role);
     if (!acct) missingRoles.push(role);
     lines.push({
@@ -342,10 +370,16 @@ export async function classifyParsed(
   };
 }
 
+const MISMATCH_LABELS: Readonly<Record<(typeof WITHHOLDING_MISMATCH_POLICIES)[number], string>> = {
+  request_substitute_cfdi: 'Hold it and ask the vendor for a substitute CFDI',
+  withhold_by_law: "Book the law's withholding and hold the entry for review",
+  record_as_issued: 'Record it as declared, with a warning in the close checklist',
+};
+
 /**
  * MNE-001-057: the question a withholding discrepancy leaves to the accountant.
- * It has no option that posts: the entry waits for a substitute CFDI or for
- * the accountant to record it by hand, since the CFDI cannot be corrected.
+ * Its options are the panel key's, and the firm's answer to
+ * `withholding_mismatch` answers it (pre-registration-service.ts).
  */
 function withholdingMismatchQuestion(f: CfdiFacts, mismatch: string): PendingDecision {
   return {
@@ -353,9 +387,10 @@ function withholdingMismatchQuestion(f: CfdiFacts, mismatch: string): PendingDec
     severity: 'blocking',
     question:
       `The withholdings declared by ${f.emisorRfc} differ from the ones the law requires. ` +
-      'Is the vendor asked for a substitute CFDI, or does the case not apply to this CFDI?',
+      'What happens to this CFDI? The answer of the panel key withholding_mismatch applies to every such CFDI.',
     context: mismatch,
-    options: [],
+    options: WITHHOLDING_MISMATCH_POLICIES.map((value) => ({ value, label: MISMATCH_LABELS[value] })),
+    default: 'request_substitute_cfdi',
     topic: `withholding_mismatch:${f.emisorRfc}`,
     basis: 'LISR 106, 113-J, 116; LIVA 1-A; RLIVA 3; CFF 26-I (the payer is jointly liable)',
   };

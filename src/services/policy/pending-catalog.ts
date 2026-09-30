@@ -359,6 +359,34 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 31,
   },
   {
+    // MNE-001-057 (#309) · A declared withholding that differs from the law's.
+    // Reader: pre-registration-service.ts, which passes the answer to the
+    // classifier's `withholding_mismatch` question; the close checklist lists
+    // what was recorded as issued (period-close.ts).
+    key: 'withholding_mismatch',
+    textKey: 'withholding_mismatch',
+    category: 'fiscal',
+    question:
+      "A received CFDI declares a withholding (ISR or VAT) other than the one the law requires of your company as payer. What happens?",
+    impact:
+      "Governs received CFDIs on which a legal entity withholds by law (an individual's fees or lease, land freight, an individual in RESICO) and whose declared withholding differs from the law's beyond rounding; professional fees under regime 612 that declare no ISR withheld follow fees_without_withholding instead. \"request_substitute_cfdi\" holds the CFDI in the inbox, writes nothing to the ledger and says to ask the vendor for a substitute CFDI. \"withhold_by_law\" proposes the entry with the law's withholding and holds it for review. \"record_as_issued\" posts the CFDI with its declared withholding, and the close checklist lists it under fees-without-withholding.",
+    options: [
+      { value: 'request_substitute_cfdi', label: "Hold it and ask the vendor for a substitute CFDI" },
+      { value: 'withhold_by_law', label: "Book the law's withholding and hold the entry for review" },
+      { value: 'record_as_issued', label: "Record it as declared, with a warning in the close checklist" },
+    ],
+    defaultValue: 'request_substitute_cfdi',
+    defaultRationale:
+      "The payer is jointly liable for the tax it should have withheld (CFF 26-I) and the expense is deductible only if the withholding was made and paid (LISR 27-V). The CFDI belongs to a third party: the clean remedy is a substitute from the vendor, and nothing is booked on a figure that will change.",
+    whyAsking:
+      "When your company withholds by law, the invoice has to show the same withholding the law requires. If it shows another, either the vendor made a mistake or the case is not the one the law describes. Whether to wait for a corrected invoice, withhold the law's amount anyway or book it as it came is a call for your firm.",
+    whatIDo:
+      "By default I hold the invoice and tell you to ask the vendor for a substitute. With \"withhold_by_law\" I propose the entry with the law's withholding and leave it for you to review. With \"record_as_issued\" I post it as it came and list it in the close checklist.",
+    ifSkipped:
+      "I hold those invoices and ask you about each one: nothing reaches your books until a substitute arrives or you answer.",
+    priority: 32,
+  },
+  {
     key: 'lleva_inventarios',
     textKey: 'inventory_method',
     category: 'contable',
@@ -2272,7 +2300,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'stays on 2140 in every layout. One account per tax gives the two lines of the monthly ' +
       'payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping ' +
       'code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything ' +
-      'that is not a lease is booked as professional services. With one account per tax, 2141 holds ' +
+      'that is not a lease, the 1.25 % of RESICO (LISR 113-J) on goods, services or freight included, is ' +
+      'booked as professional services; a RESICO real-estate lease is booked as a lease. With one ' +
+      'account per tax, 2141 holds ' +
       'lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can ' +
       'only be one of the two. One account needs the working paper to split ISR from VAT, and the ' +
       'approval of a draft can only check their sum.',

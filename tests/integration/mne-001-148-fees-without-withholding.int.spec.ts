@@ -123,7 +123,7 @@ describe('fees_without_withholding, one value at a time', () => {
     const st = await getPeriodCloseStatus(f.periodos[8], f.entityId);
     const box = st.checklist.find((i) => i.codigo === 'fees-without-withholding')!;
     expect(box).toMatchObject({ is_complete: false, severity: 'warning' });
-    expect(box.details).toMatch(/^1 fees CFDI\(s\) recorded as issued/);
+    expect(box.details).toMatch(/^1 CFDI\(s\) recorded as issued without the withholding/);
     const explained = await explainCloseCheck(f.entityId, f.periodos[8], 'fees-without-withholding');
     expect(explained.renglones.map((x) => x.cfdi_uuid)).toEqual([r.uuid]);
     // Another month has nothing to say.
