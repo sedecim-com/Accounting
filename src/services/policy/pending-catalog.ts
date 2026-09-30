@@ -1991,6 +1991,101 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I round once, on the period amount. From February to December the two options give the same figures.',
     priority: 42,
   },
+  // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
+  // `readFilingRounding` (fiscal/iva-workpaper.ts). The adjustment itself is
+  // not an option: CFF art. 20 fixes it (1–50 cents down, 51–99 up).
+  {
+    key: 'declaracion_redondeo_a_pesos',
+    textKey: 'filing_rounding_to_pesos',
+    category: 'fiscal',
+    question:
+      'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
+    impact:
+      'It can move the IVA payable by a peso or two: adjusting every line and adding whole pesos is not the same as adding cents and adjusting the result.',
+    options: [
+      {
+        value: 'cada_renglon',
+        label: 'Every line: each captured figure is adjusted to pesos and the arithmetic continues in whole pesos',
+      },
+      {
+        value: 'solo_el_pago',
+        label: 'Only the payment: the arithmetic runs in cents and only the result is adjusted to pesos',
+      },
+    ],
+    defaultValue: 'cada_renglon',
+    defaultRationale:
+      'CFF art. 20 adjusts the amounts of a return to whole pesos (cents 1 to 50 go down, 51 to 99 go up), after ' +
+      'rounding the ledger\'s four decimals to the cent. Adjusting each line before it is added keeps every captured ' +
+      'figure a whole peso, as the law asks of each amount. Unverified assumption: that the current Declaraciones y ' +
+      'Pagos IVA form captures each line in pesos; if it captures only bases and computes the tax itself, neither ' +
+      'option models it.',
+    whyAsking:
+      'CFF art. 20 says the amounts of a return are adjusted to whole pesos, but not at which step of the calculation. ' +
+      'Firms do it both ways, and the IVA payable they declare can differ by a peso or two.',
+    whatIDo:
+      'The workpaper always shows two columns, the cents traceable to the ledger and the pesos to capture, and derives the IVA payable or in favor the way you choose here.',
+    ifSkipped:
+      'I adjust every line to pesos before adding them.',
+    priority: 42,
+  },
+  // #297 · MNE-001-110. Decided by the owner in MNE-001-109: the exemption of
+  // the law, configurable. Reader: `overtimeLaw` in payroll/mx/isr-exemption.ts,
+  // only when a paycheck carries an `overtime` earning.
+  {
+    key: 'overtime_isr_exemption',
+    textKey: 'overtime_isr_exemption',
+    category: 'fiscal',
+    question: 'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
+    impact:
+      'It moves the ISR withheld on every paycheck with overtime, and the exempt part the payroll CFDI declares. ' +
+      '"exempt_by_law" exempts 50 % of the double-paid hours within the LFT weekly limit, up to 5 daily UMA of the ' +
+      'payment date per week of the period; triple-paid hours go as an earning of their own and are taxed whole. ' +
+      '"taxed_in_full" taxes all overtime.',
+    options: [
+      { value: 'exempt_by_law', label: 'Exempt it as LISR art. 93 fr. I says: half, up to 5 UMA a week' },
+      { value: 'taxed_in_full', label: 'Tax all overtime, with no exemption' },
+    ],
+    defaultValue: 'exempt_by_law',
+    defaultRationale:
+      'LISR art. 93 fr. I exempts 50 % of overtime pay within the labour-law limit (LFT art. 66, dated by the ' +
+      'reform of DOF 01-05-2026), up to 5 times the minimum wage (the UMA since DOF 27-01-2016) per week of ' +
+      'service. Withholding on the exempt half over-withholds the worker every period. Taxing it whole is for a ' +
+      'firm that cannot evidence the overtime was worked, where the SAT would reject the exemption.',
+    whyAsking:
+      'The law exempts part of the overtime, but only overtime that was really worked and recorded. A firm with ' +
+      'time records applies the exemption; one without them may prefer to withhold on all of it.',
+    whatIDo:
+      'With "exempt_by_law" I split each overtime line into its exempt and taxable part and compute the ISR on the ' +
+      'taxable one. Every overtime line must carry its `hours`: a line without them, or hours that, added to the ' +
+      'other lines and runs of the same period, pass the LFT weekly limit, stop the run before any paycheck is ' +
+      'written. With "taxed_in_full" the whole line is taxed and no hours are needed.',
+    ifSkipped: 'I apply the exemption of the law.',
+    priority: 42,
+  },
+  // #297 · MNE-001-110 review. "Por cada semana de servicios" has two honest
+  // readings for a period that is not a whole number of weeks (invariant 6).
+  // Reader: `weeksOfService` in payroll/mx/isr-exemption.ts.
+  {
+    key: 'overtime_exempt_weeks',
+    textKey: 'overtime_exempt_weeks',
+    category: 'fiscal',
+    question: 'How many weeks of service does a pay period count for the overtime cap of LISR art. 93 fr. I (5 UMA per week)?',
+    impact:
+      'It moves the exempt overtime of every period that is not a whole number of weeks, and the LFT hours limit of that period: a quincena gets 5 × 15/7 UMA (1 256.89 from February 2026) with "calendar_days_over_seven", and 5 × 2 UMA (1 173.10) with "whole_weeks_of_period". A weekly payroll gets 5 UMA either way.',
+    options: [
+      { value: 'calendar_days_over_seven', label: 'The period\'s calendar days / 7: a quincena is 15/7 weeks' },
+      { value: 'whole_weeks_of_period', label: 'Only the whole weeks in the period: a quincena is 2 weeks, a month 4' },
+    ],
+    defaultValue: 'calendar_days_over_seven',
+    defaultRationale:
+      'Fraction I caps the exemption "por cada semana de servicios" and neither the LISR, its regulation nor the RMF says how a period that is not a whole number of weeks counts them. Days / 7 scales the weekly cap to the days of the period, the way the ISR tariff of each period is scaled to its days (Anexo 8 RMF: weekly, ten-day, fifteen-day and monthly tariffs). Whole weeks is the stricter reading of the words, and never exempts a part of a week: it withholds more. Please confirm this default.',
+    whyAsking:
+      'The law caps overtime per week, but most payrolls pay by quincena or month, and there are two honest ways to count the weeks in them.',
+    whatIDo:
+      'I multiply the 5 UMA cap and the LFT weekly hours by the weeks this answer gives: the period\'s days / 7, or the whole weeks in it.',
+    ifSkipped: 'I count the period\'s days / 7.',
+    priority: 42,
+  },
   {
     key: 'isn_estado_que_causa',
     textKey: 'isn_taxing_state',
