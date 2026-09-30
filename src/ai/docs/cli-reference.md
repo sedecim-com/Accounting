@@ -2197,9 +2197,8 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
-  --line <spec...>         a line as
-                           <account>:<debit|credit>:<amount>[:description];
-                           repeat for each line
+  --line <spec...>         a line: "account=6120;debit=45000.00;description=…";
+                           repeat for each line. See the key list below
   --file <path>            JSON document with date, type, description and lines
   --date <date>            entry date (YYYY-MM-DD); defaults to today
   --type <type>            entry type: standard, adjusting, correction (default:
@@ -2212,13 +2211,22 @@ Options:
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
+Keys accepted in --line (key=value pairs separated by ";"; "_" and "-" are the same):
+  account       chart account CODE the line is posted to (required)
+  debit         amount charged to the account; cargo= is the same key
+  credit        amount credited to the account; abono= is the same key
+  description   the line's own text
+Shortcut, still accepted: <account>:<side>:<amount>[:description], where <side> takes the names of the two amount keys above.
+
+
 Examples:
   # Accrue July office rent: 45,000.00 charged to 6120, owed on 2110.
-  # Each --line is <account>:<debit|credit>:<amount> — <account> is the CODE
+  # Each --line is key=value pairs separated by ";" — account= is the CODE
   # from the chart of accounts, and the amount carries no thousands separator.
-  mnemosine entry create --date 2026-07-31 --type adjusting --description "Renta de oficina julio 2026" --line "6120:debit:45000.00" --line "2110:credit:45000.00"
-  # Reclassify a misposted expense. A fourth field is the line's own text.
-  mnemosine entry create --type correction --description "Reclasificacion de energia electrica" --line "6130:debit:8700.50:CFE julio" --line "6100:credit:8700.50:Sale de gastos de administracion"
+  mnemosine entry create --date 2026-07-31 --type adjusting --description "Renta de oficina julio 2026" --line "account=6120;debit=45000.00" --line "account=2110;credit=45000.00"
+  # Reclassify a misposted expense; cargo=/abono= are the same keys as debit=/credit=.
+  mnemosine entry create --type correction --description "Reclasificacion de energia electrica" --line "account=6130;cargo=8700.50;description=CFE julio" --line "account=6100;abono=8700.50;description=Sale de gastos de administracion"
+  # The positional shortcut <account>:<debit|credit>:<amount> is still accepted.
   # See exactly what would be drafted, writing nothing.
   mnemosine entry create --description "Honorarios cobrados en efectivo" --line "1110:debit:12000.00" --line "4200:credit:12000.00" --dry-run
 ```
@@ -2354,7 +2362,8 @@ Options:
   --note <text>            new note
   --date <date>            new entry date (YYYY-MM-DD)
   --line <spec...>         replace ALL lines:
-                           <account>:<debit|credit>:<amount>[:description]
+                           "account=6120;debit=45000.00;description=…" (key list
+                           in entry create --help)
   --file <path>            JSON document whose date/description/reference/lines
                            replace the draft
   -y, --yes                skip the confirmation prompt
@@ -2364,7 +2373,7 @@ Examples:
   # Correct the description and the external reference of a draft.
   mnemosine entry edit JE-2026-00042 --description "Renta de oficina julio 2026" --reference "Contrato ARR-2024-11"
   # Replace ALL the lines: what you pass IS the entry, not an addition to it.
-  mnemosine entry edit JE-2026-00042 --line "6120:debit:46500.00" --line "2110:credit:46500.00"
+  mnemosine entry edit JE-2026-00042 --line "account=6120;debit=46500.00" --line "account=2110;credit=46500.00"
 ```
 
 ### `mnemosine entry export` (alias: exportar)
@@ -3095,7 +3104,7 @@ Options:
   --due-date <date>               due date (YYYY-MM-DD); defaults to the
                                   vendor's terms
   --line <spec...>                one line, repeatable:
-                                  "account=5100,qty=1,price=1000,tax-amount=160".
+                                  "account=5100;qty=1;price=1000;tax-amount=160".
                                   See the key list below
   --currency <code>               3-letter ISO code; defaults to the vendor's
                                   currency
@@ -3108,25 +3117,25 @@ Options:
   -y, --yes                       skip the confirmation prompt
   -h, --help                      display help for command
 
-Keys accepted in --line (key=value, comma-separated):
-  account      chart account code the line is coded to (required)
-  qty          quantity; defaults to 1
-  quantity     same as qty
-  price        unit price before tax (required)
-  unit-price   same as price
-  tax-amount   IVA of the line as an AMOUNT in the bill currency — NOT a rate
-  tax          same as tax-amount: an AMOUNT, never a rate (invoice's tax= IS a rate)
-  description  free text for the line
-  cost-center  cost center id
-  project      project id
+Keys accepted in --line (key=value pairs separated by ";"; "_" and "-" are the same):
+  account       chart account code the line is coded to (required)
+  qty           quantity; defaults to 1
+  quantity      same as qty
+  price         unit price before tax (required)
+  unit-price    same as price
+  tax-amount    IVA of the line as an AMOUNT in the bill currency — NOT a rate
+  tax           deprecated (warns; retired in 2.0.0): same as tax-amount, an AMOUNT
+  description   free text for the line
+  cost-center   cost center id
+  project       project id
 
 
 Examples:
   # One line, coded to administrative expense, with 2,000.00 of IVA.
-  # Inside --line the pairs are separated by COMMAS (invoice uses ";", entry ":").
-  mnemosine bill create "Papeleria del Centro" --vendor-invoice-number A-4471 --bill-date 2026-07-08 --line "account=6100,qty=1,price=12500.00,tax-amount=2000.00,description=Papeleria de oficina"
+  # Inside --line the pairs are separated by ";", as in invoice and entry.
+  mnemosine bill create "Papeleria del Centro" --vendor-invoice-number A-4471 --bill-date 2026-07-08 --line "account=6100;qty=1;price=12500.00;tax-amount=2000.00;description=Papeleria de oficina"
   # Two lines, one of them capital equipment; the due date comes from the vendor terms.
-  mnemosine bill create --vendor "Papeleria del Centro" --description "Compras de julio" --line "account=6100,price=8600.00,tax-amount=1376.00" --line "account=1220,qty=2,price=15900.00,tax-amount=5088.00"
+  mnemosine bill create --vendor "Papeleria del Centro" --description "Compras de julio" --line "account=6100;price=8600.00;tax-amount=1376.00" --line "account=1220;qty=2;price=15900.00;tax-amount=5088.00"
 ```
 
 ### `mnemosine bill line` (alias: linea)
@@ -3847,9 +3856,9 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --customer <ref>         customer number, name or id
   --line <spec...>         a line:
-                           "account=4100;qty=2;price=1500;tax=16;description=…".
-                           Here tax= is a RATE in % (16 means 16%), not an
-                           amount — unlike bill, where it is the amount
+                           "account=4100;qty=2;price=1500;tax-rate=16;description=…".
+                           tax-rate= is a RATE in % (16 means 16%), not an
+                           amount. See the key list below
   --from-file <path>       JSON array of lines instead of repeated --line
   --date <date>            invoice date (YYYY-MM-DD); defaults to today
   --due-date <date>        due date; defaults to the customer's payment terms
@@ -3861,12 +3870,26 @@ Options:
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command
 
+Keys accepted in --line (key=value pairs separated by ";"; "_" and "-" are the same):
+  account       revenue account code (required)
+  qty           quantity; defaults to 1
+  quantity      same as qty
+  price         unit price before tax (required)
+  unit-price    same as price
+  tax-rate      IVA RATE in percent: 16 means 16% — NOT an amount
+  tax           deprecated (warns; retired in 2.0.0): same as tax-rate
+  tax-code      tax code of the line
+  description   the line's text; defaults to the account name
+  cost-center   cost center id
+  project       project id
+
+
 Examples:
   # One service line at 16% IVA. Inside --line the pairs are separated by
-  # SEMICOLONS, and tax= is a RATE in percent — 16 means 16%, not 16 pesos.
-  mnemosine invoice create --customer "Grupo Alameda" --date 2026-07-15 --line "account=4200;qty=1;price=85000.00;tax=16;description=Servicios contables julio"
+  # SEMICOLONS, and tax-rate= is a RATE in percent — 16 means 16%, not 16 pesos.
+  mnemosine invoice create --customer "Grupo Alameda" --date 2026-07-15 --line "account=4200;qty=1;price=85000.00;tax-rate=16;description=Servicios contables julio"
   # Goods and services on one document, against the customer's purchase order.
-  mnemosine invoice create --customer "Grupo Alameda" --po-number OC-2026-118 --line "account=4100;qty=10;price=1250.00;tax=16" --line "account=4200;qty=1;price=32000.00;tax=16"
+  mnemosine invoice create --customer "Grupo Alameda" --po-number OC-2026-118 --line "account=4100;qty=10;price=1250.00;tax-rate=16" --line "account=4200;qty=1;price=32000.00;tax-rate=16"
 ```
 
 ### `mnemosine invoice issue` (alias: emitir)
@@ -3948,8 +3971,8 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --line <spec...>         REPLACE all lines:
-                           "account=4100;qty=2;price=1500;tax=16;…"
-                           (repeatable). Here tax= is a RATE in %, not an amount
+                           "account=4100;qty=2;price=1500;tax-rate=16;…"
+                           (repeatable). Key list in invoice create --help
   --from-file <path>       JSON array of lines instead of repeated --line
   --date <date>            new invoice date (YYYY-MM-DD)
   --due-date <date>        new due date
@@ -3963,7 +3986,7 @@ Examples:
   # Move the due date of a DRAFT and correct its memo.
   mnemosine invoice edit INV-2026-00043 --due-date 2026-08-30 --memo "Vence a 45 dias por convenio"
   # Replace ALL the lines of the draft: what you pass IS the invoice.
-  mnemosine invoice edit INV-2026-00043 --line "account=4200;qty=1;price=92000.00;tax=16"
+  mnemosine invoice edit INV-2026-00043 --line "account=4200;qty=1;price=92000.00;tax-rate=16"
 ```
 
 ### `mnemosine invoice delete` (alias: eliminar)

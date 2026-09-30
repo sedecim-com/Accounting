@@ -344,8 +344,12 @@ describe('documents a person or an agent hands us', () => {
     });
   });
 
-  it('rejects a side that is neither debit nor credit', () => {
-    expect(() => parseLineFlag('1110:cargo:100')).toThrow(/debit.*credit/);
+  it('reads cargo/abono as debit/credit, and rejects any other side', () => {
+    // #327: cargo/abono are permanent synonyms; a single letter is not ("c"
+    // is credit in English and cargo in Spanish).
+    expect(parseLineFlag('1110:cargo:100')).toMatchObject({ debit: '100', credit: undefined });
+    expect(parseLineFlag('1110:ABONO:100')).toMatchObject({ debit: undefined, credit: '100' });
+    expect(() => parseLineFlag('1110:c:100')).toThrow(/debit.*credit/);
   });
 
   it('rejects a line flag that is missing a field', () => {

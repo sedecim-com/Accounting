@@ -52,6 +52,14 @@ import {
   type ExitCodeValue,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import {
+  LEGACY_COMMA_WARNING,
+  LEGACY_LINE_FORMS_RETIRE_IN,
+  lineKeysHelp,
+  normalizeLineRecord,
+  parseKeyValueLine,
+  rejectUnknownLineKeys,
+} from './kernel/line-spec.js';
 import { registerBillRuleCommands } from './bill-rule-command.js';
 
 // ============================================================
@@ -133,23 +141,13 @@ function requireDate(flag: string, value: string): string {
 }
 
 /**
- * `--line "account=5100,qty=2,price=350.00,tax-amount=112,description=Papelería"`.
- * Keys are spelled the way the flags are, not the way the columns are: a
- * person typing a bill is not reading the schema.
+ * `--line "account=5100;qty=2;price=350.00;tax-amount=112;description=Papelería"`,
+ * the one grammar of #327. The old comma form is still read (with a warning,
+ * see LEGACY_COMMA_WARNING). Keys are spelled the way the flags are, not the
+ * way the columns are: a person typing a bill is not reading the schema.
  */
 export function parseLineSpec(spec: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const part of spec.split(',')) {
-    const eq = part.indexOf('=');
-    if (eq < 0) {
-      throw usageError(
-        `Cannot read the line "${spec}". Each part is key=value, comma-separated: ` +
-          '--line "account=5100,qty=2,price=350.00,tax-amount=112,description=Text".'
-      );
-    }
-    out[part.slice(0, eq).trim().toLowerCase()] = part.slice(eq + 1).trim();
-  }
-  return out;
+  return parseKeyValueLine(spec, { allowLegacyComma: true }).fields;
 }
 
 const LINE_KEYS = [
@@ -182,26 +180,26 @@ export function resolveLineTaxAmount(parsed: Record<string, string>): {
 
 /** Una sola línea de aviso, por invocación, cuando alguien escribe `tax=`. */
 export const LEGACY_TAX_KEY_WARNING =
-  'tax= es el MONTO del IVA de la línea, no la tasa; usa tax-amount= para que quede explícito.';
+  'tax= es el MONTO del IVA de la línea, no la tasa; usa tax-amount= para que quede explícito. ' +
+  `tax= deja de aceptarse en la versión ${LEGACY_LINE_FORMS_RETIRE_IN}.`;
 
 /**
  * La ayuda de --line, una clave por renglón. El help enumeraba cinco claves de
  * las que el comando acepta, y justo la que faltaba documentar (tax) era la
  * que se prestaba a registrar el IVA equivocado.
  */
-const LINE_KEYS_HELP = `
-Keys accepted in --line (key=value, comma-separated):
-  account      chart account code the line is coded to (required)
-  qty          quantity; defaults to 1
-  quantity     same as qty
-  price        unit price before tax (required)
-  unit-price   same as price
-  tax-amount   IVA of the line as an AMOUNT in the bill currency — NOT a rate
-  tax          same as tax-amount: an AMOUNT, never a rate (invoice's tax= IS a rate)
-  description  free text for the line
-  cost-center  cost center id
-  project      project id
-`;
+const LINE_KEYS_HELP = lineKeysHelp([
+  ['account', 'chart account code the line is coded to (required)'],
+  ['qty', 'quantity; defaults to 1'],
+  ['quantity', 'same as qty'],
+  ['price', 'unit price before tax (required)'],
+  ['unit-price', 'same as price'],
+  ['tax-amount', 'IVA of the line as an AMOUNT in the bill currency — NOT a rate'],
+  ['tax', `deprecated (warns; retired in ${LEGACY_LINE_FORMS_RETIRE_IN}): same as tax-amount, an AMOUNT`],
+  ['description', 'free text for the line'],
+  ['cost-center', 'cost center id'],
+  ['project', 'project id'],
+]);
 
 // ---- la bandeja de CFDI ---------------------------------------------
 //
@@ -338,10 +336,10 @@ Examples:
   create: `
 Examples:
   # One line, coded to administrative expense, with 2,000.00 of IVA.
-  # Inside --line the pairs are separated by COMMAS (invoice uses ";", entry ":").
-  mnemosine bill create "Papeleria del Centro" --vendor-invoice-number A-4471 --bill-date 2026-07-08 --line "account=6100,qty=1,price=12500.00,tax-amount=2000.00,description=Papeleria de oficina"
+  # Inside --line the pairs are separated by ";", as in invoice and entry.
+  mnemosine bill create "Papeleria del Centro" --vendor-invoice-number A-4471 --bill-date 2026-07-08 --line "account=6100;qty=1;price=12500.00;tax-amount=2000.00;description=Papeleria de oficina"
   # Two lines, one of them capital equipment; the due date comes from the vendor terms.
-  mnemosine bill create --vendor "Papeleria del Centro" --description "Compras de julio" --line "account=6100,price=8600.00,tax-amount=1376.00" --line "account=1220,qty=2,price=15900.00,tax-amount=5088.00"
+  mnemosine bill create --vendor "Papeleria del Centro" --description "Compras de julio" --line "account=6100;price=8600.00;tax-amount=1376.00" --line "account=1220;qty=2;price=15900.00;tax-amount=5088.00"
 `,
   lineSet: `
 Examples:
@@ -602,7 +600,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     .option('--due-date <date>', "due date (YYYY-MM-DD); defaults to the vendor's terms")
     .option(
       '--line <spec...>',
-      'one line, repeatable: "account=5100,qty=1,price=1000,tax-amount=160". See the key list below'
+      'one line, repeatable: "account=5100;qty=1;price=1000;tax-amount=160". See the key list below'
     )
     .addHelpText('after', LINE_KEYS_HELP)
     .option('--currency <code>', "3-letter ISO code; defaults to the vendor's currency")
@@ -634,20 +632,23 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         const specs = [...(opts.line ?? []), ...((fromFile.lines as unknown[] | undefined) ?? [])];
         if (specs.length === 0) {
           throw usageError(
-            'A bill needs at least one line: --line "account=5100,qty=1,price=1000,tax-amount=160".'
+            'A bill needs at least one line: --line "account=5100;qty=1;price=1000;tax-amount=160".'
           );
         }
 
         const lines: BillLineInput[] = [];
         let someLineUsedLegacyTaxKey = false;
+        let someLineUsedLegacyComma = false;
         for (const spec of specs) {
-          const parsed = typeof spec === 'string' ? parseLineSpec(spec) : (spec as Record<string, string>);
-          const unknown = Object.keys(parsed).filter((k) => !LINE_KEYS.includes(k));
-          if (unknown.length) {
-            throw usageError(
-              `Unknown key(s) in --line: ${unknown.join(', ')}. Known keys: ${LINE_KEYS.join(', ')}.`
-            );
+          let parsed: Record<string, string>;
+          if (typeof spec === 'string') {
+            const read = parseKeyValueLine(spec, { allowLegacyComma: true });
+            parsed = read.fields;
+            someLineUsedLegacyComma ||= read.legacyComma;
+          } else {
+            parsed = normalizeLineRecord(spec as Record<string, unknown>);
           }
+          rejectUnknownLineKeys(parsed, LINE_KEYS);
           const accountRef = parsed.account;
           if (!accountRef) throw usageError('Every line needs account=<code>: a line with no account cannot be posted.');
           const price = parsed.price ?? parsed['unit-price'];
@@ -670,6 +671,9 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         // ya entendió a la primera.
         if (someLineUsedLegacyTaxKey) {
           process.stderr.write(deps.palette.dim(`  ${LEGACY_TAX_KEY_WARNING}\n`));
+        }
+        if (someLineUsedLegacyComma) {
+          process.stderr.write(deps.palette.dim(`  ${LEGACY_COMMA_WARNING}\n`));
         }
 
         const billDate = opts.billDate

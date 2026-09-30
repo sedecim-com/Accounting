@@ -242,7 +242,13 @@ describe('list commands can be paged and formatted', () => {
 });
 
 describe('parseLineSpec', () => {
-  it('reads the key=value line a person types', () => {
+  it('reads the canonical ";" form (#327)', () => {
+    expect(parseLineSpec('account=5100;qty=2;price=350.00;tax-amount=112')).toEqual({
+      account: '5100', qty: '2', price: '350.00', 'tax-amount': '112',
+    });
+  });
+
+  it('still reads the legacy comma form a person types', () => {
     expect(parseLineSpec('account=5100,qty=2,price=350.00,tax=112')).toEqual({
       account: '5100', qty: '2', price: '350.00', tax: '112',
     });

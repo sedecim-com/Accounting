@@ -543,9 +543,15 @@ export function parseEntryDocument(raw: string): Omit<DraftEntryInput, 'entityId
   };
 }
 
+const POSITIONAL_SIDES = new Map<string, 'debit' | 'credit'>([
+  ['debit', 'debit'], ['cargo', 'debit'], ['credit', 'credit'], ['abono', 'credit'],
+]);
+
 /**
- * Parses a repeatable `--line <code>:<debit|credit>:<amount>[:description]`.
- * The description may contain colons; nothing else may.
+ * Parses entry's positional shortcut `<code>:<debit|credit>:<amount>[:description]`.
+ * The description may contain colons; nothing else may. cargo/abono are
+ * permanent synonyms of debit/credit (#327); single letters are not, because
+ * "c" is credit in English and cargo in Spanish.
  */
 export function parseLineFlag(spec: string): DraftLineInput {
   const parts = spec.split(':');
@@ -555,10 +561,10 @@ export function parseLineFlag(spec: string): DraftLineInput {
     );
   }
   const [account, sideRaw, amount, ...rest] = parts;
-  const side = sideRaw.trim().toLowerCase();
-  if (side !== 'debit' && side !== 'credit') {
+  const side = POSITIONAL_SIDES.get(sideRaw.trim().toLowerCase());
+  if (!side) {
     throw new ValidationError(
-      `--line "${spec}": the side must be "debit" or "credit", not "${sideRaw}".`
+      `--line "${spec}": the side must be "debit" or "credit" (or cargo/abono), not "${sideRaw}".`
     );
   }
   return {

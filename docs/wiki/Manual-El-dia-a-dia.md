@@ -236,15 +236,15 @@ Antes de los comandos, la advertencia que ahorra más tiempo de todo el manual.
 
 ### Los tres formatos de renglón
 
-Los tres comandos de captura usan **tres sintaxis distintas** para escribir un renglón, y `tax` significa cosas distintas en dos de ellos. No es un error de este manual: es así.
+Los tres comandos de captura usan **una sola forma**: `clave=valor` separados por punto y coma (#327). `cargo`/`abono` valen lo mismo que `debit`/`credit`, y el guion bajo lo mismo que el guion. La clave del IVA dice lo que es:
 
-| Comando | Separador | Forma de un renglón | Qué es `tax` |
-|---|---|---|---|
-| `entry create` | dos puntos | `1120:debit:11600.00:Cobro` | (no aplica) |
-| `bill create` | **coma** | `account=5100,qty=1,price=1000,tax=160` | **el MONTO del IVA** |
-| `invoice create` | **punto y coma** | `account=4100;qty=1;price=10000;tax=16` | **la TASA en por ciento** |
+| Comando | Forma de un renglón | El IVA |
+|---|---|---|
+| `entry create` | `account=1120;cargo=11600.00;description=Cobro` (atajo: `1120:debit:11600.00:Cobro`) | (no aplica) |
+| `bill create` | `account=5100;qty=1;price=1000;tax-amount=160` | **el MONTO del IVA** |
+| `invoice create` | `account=4100;qty=1;price=10000;tax-rate=16` | **la TASA en por ciento** |
 
-Si confundes los dos últimos, la factura de proveedor de 1,000 más IVA se registra con **16 pesos** de IVA acreditable en vez de 160, la factura cuadra a 1,016, el pago de 1,160 no casa, y el faltante no aparece hasta la declaración. La ayuda de `bill create` ni siquiera menciona la clave `tax`. Ténlo apuntado.
+La coma de `bill` y el `tax=` a secas siguen valiendo hasta la versión 2.0.0, con aviso. Si confundes tasa y monto, la factura de proveedor de 1,000 más IVA se registra con **16 pesos** de IVA acreditable en vez de 160, y el faltante no aparece hasta la declaración.
 
 ### Una factura de proveedor
 
@@ -253,10 +253,10 @@ npm run mnemosine -- bill create "Papelería del Centro" \
   --vendor-invoice-number A-1234 \
   --bill-date 2026-08-10 \
   --terms "Net 30 PPD" \
-  --line "account=5100,qty=1,price=1000,tax=160,description=Papelería agosto"
+  --line "account=5100;qty=1;price=1000;tax-amount=160;description=Papelería agosto"
 ```
 
-Las claves aceptadas en `--line` son: `account`, `qty` (o `quantity`), `price` (o `unit-price`), `tax`, `description`, `cost-center` y `project`.
+Las claves aceptadas en `--line` son: `account`, `qty` (o `quantity`), `price` (o `unit-price`), `tax-amount` (o `tax`, en desuso), `description`, `cost-center` y `project`.
 
 **Sobre `--terms` y el PPD/PUE.** Ese `PPD` dentro de las condiciones de pago no es decorativo: **es hoy la única forma de declarar el método de pago en una captura manual**. No existe una bandera `--metodo-pago`. El sistema busca las palabras `PUE` o `PPD` en `--terms` o en el memo; si no las encuentra, aplica el criterio conservador —para una factura recibida, PPD— y **lo escribe en la descripción del asiento** («MetodoPago missing: PPD assumed»), de modo que quede visible en el mayor de dónde salió el criterio. Está bien resuelto, pero depende de que tú escribas la palabra.
 
@@ -290,7 +290,7 @@ npm run mnemosine -- invoice create \
   --customer "Comercializadora del Norte" \
   --date 2026-08-31 \
   --terms "Net 30" \
-  --line "account=4100;qty=1;price=10000;tax=16;description=Servicios agosto"
+  --line "account=4100;qty=1;price=10000;tax-rate=16;description=Servicios agosto"
 ```
 
 ```bash
