@@ -3591,7 +3591,8 @@
                       {
                         "type": "number"
                       }
-                    ]
+                    ],
+                    "x-validacion-adicional": true
                   }
                 },
                 "required": [
