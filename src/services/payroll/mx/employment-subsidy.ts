@@ -127,16 +127,20 @@ export async function readEmploymentSubsidyRounding(
 // The subsidy was computed per paycheck from that paycheck's own income, so
 // an aguinaldo paid in its own run of a period whose regular fortnight had
 // already credited it received it again, and the part over its ISR went out
-// as cash. What a later paycheck of the same period gets is the policy
-// `employment_subsidy_separate_run` (AGENTS.md invariant 6), decided by the
-// owner in MNE-001-397:
+// as cash. What a paycheck gets when its period has more than one is the
+// policy `employment_subsidy_separate_run` (AGENTS.md invariant 6), decided
+// by the owner in MNE-001-397:
 //
 //   · recompute_on_combined_income (default): the subsidy is computed once on
 //     the income of every paycheck of the period together, and the later
 //     paycheck causes only what the earlier ones did not. A negative
-//     difference is not clawed back here: a subsidy already delivered stays.
-//   · none_on_separate_paycheck: a paycheck of a period in which the
-//     employee already has another one gets no subsidy.
+//     difference (the combined income is over the cap, so the subsidy already
+//     caused was not due) is credited as 0 and not recovered; whether to
+//     recover it is a question to the owner on #430.
+//   · none_on_separate_paycheck: the SEPARATE paycheck carries no subsidy and
+//     the regular one keeps its own. Separate means what the paycheck is, not
+//     when it was calculated: a paycheck of a run that is not `regular`, or
+//     one that pays only aguinaldo.
 //
 // Every other run of the same pay period counts (regular, bonus, off_cycle,
 // correction, final), with the statuses the overtime and aguinaldo caps read:
@@ -213,18 +217,39 @@ export async function subsidyOfOtherRunsInPeriod(ctx: {
   };
 }
 
+/** The earning type of the aguinaldo (LFT art. 87) as payroll captures it. */
+const YEAR_END_BONUS_EARNING = 'aguinaldo';
+
 /**
- * The subsidy a later paycheck of the period causes.
- *
- * @param onCombinedIncome the subsidy of the period computed on the income of
- *   all its paychecks together; not used under `none_on_separate_paycheck`.
+ * Whether a paycheck is the "separate" one of its period: its run is not the
+ * regular one, or everything it pays is aguinaldo. It is read from what the
+ * paycheck is, so the answer does not depend on which run was calculated first.
  */
-export function subsidyOfLaterPaycheck(args: {
+export function isSeparatePaycheck(runType: string, earnings: readonly { earning_type: string }[]): boolean {
+  if (runType !== 'regular') return true;
+  return earnings.length > 0 && earnings.every((e) => e.earning_type === YEAR_END_BONUS_EARNING);
+}
+
+/**
+ * The subsidy a paycheck causes, given what the other paychecks of its period
+ * already caused.
+ *
+ * @param own the subsidy on this paycheck's own income.
+ * @param onCombinedIncome the subsidy of the period computed on the income of
+ *   all its paychecks together; used only by `recompute_on_combined_income`.
+ */
+export function subsidyOfPaycheckInPeriod(args: {
   treatment: EmploymentSubsidySeparateRun;
+  separate: boolean;
+  own: Decimal.Value;
   onCombinedIncome: Decimal.Value;
   alreadyCaused: Decimal.Value;
 }): Decimal {
-  if (args.treatment === 'none_on_separate_paycheck') return new Decimal(0);
-  const difference = new Decimal(args.onCombinedIncome).minus(args.alreadyCaused);
+  const recompute = args.treatment === 'recompute_on_combined_income';
+  if (!recompute && args.separate) return new Decimal(0);
+  // Under "none" the regular paycheck keeps its own subsidy; the separate
+  // paychecks carry none, so `alreadyCaused` only stops a second REGULAR
+  // paycheck of the period from getting it twice.
+  const difference = new Decimal(recompute ? args.onCombinedIncome : args.own).minus(args.alreadyCaused);
   return difference.greaterThan(0) ? difference : new Decimal(0);
 }

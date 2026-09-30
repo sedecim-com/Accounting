@@ -15,9 +15,10 @@ import {
 import { isrPartsOf, type IsrExemptionContext } from '../mx/isr-exemption.js';
 import {
   readEmploymentSubsidyRounding,
+  isSeparatePaycheck,
   readEmploymentSubsidySeparateRun,
-  subsidyOfLaterPaycheck,
   subsidyOfOtherRunsInPeriod,
+  subsidyOfPaycheckInPeriod,
 } from '../mx/employment-subsidy.js';
 import type { TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
@@ -148,8 +149,8 @@ async function paycheckScope(input: Pick<PaycheckInput, 'tenant_id' | 'pay_run_i
   // and the other two hang from it. The employee must belong to the run's
   // entity — reached by path, because `pay_runs` has no `entity_id` — and the
   // period is the run's own, never one the caller names.
-  const runResult = await query<{ id: string; pay_period_id: string; entity_id: string }>(
-    `SELECT r.id, r.pay_period_id, ps.entity_id
+  const runResult = await query<{ id: string; pay_period_id: string; entity_id: string; run_type: string }>(
+    `SELECT r.id, r.pay_period_id, ps.entity_id, r.run_type
        FROM pay_runs r
        JOIN pay_periods pp ON pp.id = r.pay_period_id
        JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
@@ -460,38 +461,45 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
     const ownSubsidy = await subCalc.calculate({ ...subsidyInput, taxable_wages: taxableIsr });
     // ONE SUBSIDY PER PERIOD (#430, MNE-001-398): an aguinaldo paid in its own
     // run of a period whose fortnight already caused the subsidy got it again.
-    // Another paycheck of the period hands the amount to the policy.
+    // Another paycheck of the period, or a paycheck that is itself the
+    // separate one (whatever was calculated first), hands the amount to the
+    // policy.
     const otherRuns = await subsidyOfOtherRunsInPeriod({
       tenantId: input.tenant_id,
       employeeId: input.employee_id,
       payRunId: scope.run.id,
       payPeriodId: scope.run.pay_period_id,
     });
+    const separate = isSeparatePaycheck(scope.run.run_type, input.earnings);
     let sub = ownSubsidy;
-    if (otherRuns.paychecks > 0) {
+    if (otherRuns.paychecks > 0 || separate) {
       const treatment = await readEmploymentSubsidySeparateRun({
         tenantId: input.tenant_id,
         entityId: period.entity_id,
       });
       const combined =
-        treatment === 'recompute_on_combined_income'
+        treatment === 'recompute_on_combined_income' && otherRuns.paychecks > 0
           ? await subCalc.calculate({
               ...subsidyInput,
               taxable_wages: otherRuns.taxableIsr.plus(taxableIsr).toNumber(),
             })
           : null;
-      const amount = subsidyOfLaterPaycheck({
+      const amount = subsidyOfPaycheckInPeriod({
         treatment,
-        onCombinedIncome: combined?.tax_amount ?? 0,
+        separate,
+        own: ownSubsidy.tax_amount,
+        onCombinedIncome: (combined ?? ownSubsidy).tax_amount,
         alreadyCaused: otherRuns.subsidy,
       });
-      sub = {
-        ...ownSubsidy,
-        tax_amount: amount.toNumber(),
-        notes:
-          `${(combined ?? ownSubsidy).notes ?? 'Subsidio al empleo'} · otro recibo del periodo ya causó ` +
-          `${otherRuns.subsidy.toFixed(2)} [${treatment}]`,
-      };
+      if (otherRuns.paychecks > 0 || !amount.equals(ownSubsidy.tax_amount)) {
+        sub = {
+          ...ownSubsidy,
+          tax_amount: amount.toNumber(),
+          notes:
+            `${(combined ?? ownSubsidy).notes ?? 'Subsidio al empleo'} · otros recibos del periodo ya causaron ` +
+            `${otherRuns.subsidy.toFixed(2)}${separate ? ' · recibo aparte' : ''} [${treatment}]`,
+        };
+      }
     }
     breakdown.subsidio_empleo = sub.tax_amount;
 

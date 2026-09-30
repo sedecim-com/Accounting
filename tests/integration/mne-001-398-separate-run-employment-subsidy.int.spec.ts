@@ -96,6 +96,27 @@ describe('an aguinaldo paid in its own run does not get a second employment subs
   const salary = (amount: number) => ({ earning_type: 'salary', amount });
   const yearEndBonus = (amount: number) => ({ earning_type: 'aguinaldo', amount, cfdi_clave_sat: '002' });
 
+  /** The payroll CFDI of one paycheck, with the PAC stubbed out. */
+  async function stampedXml(paycheckId: string): Promise<string> {
+    const { pacRouter } = await import('../../src/services/integrations/mexico/pac/pac-router.js');
+    const cfdi = await import('../../src/services/payroll/mx/cfdi-nomina-generator.js');
+    const spy = vi.spyOn(pacRouter, 'stamp').mockResolvedValue({
+      uuid: uuidv4(), xml_timbrado: '', cadena_original: '',
+      fecha_timbrado: new Date(), no_certificado_sat: '0000', sello_sat: '',
+      provider_used: 'test', simulado: true,
+    });
+    try {
+      const r = await cfdi.generateAndStampCfdiNomina(
+        paycheckId, { tenantId: f.tenantId, userId: f.userId }, entityScope(f.tenantId, f.entityId)
+      );
+      return r.xml;
+    } finally {
+      spy.mockRestore();
+    }
+  }
+  const attr = (xml: string, name: string): Decimal =>
+    new Decimal(new RegExp(`\\b${name}="([0-9.]+)"`).exec(xml)![1]);
+
   beforeAll(async () => {
     f = await crearInquilino('MNE-001-398 · subsidy once per period');
     await seedPolicies({ tenantId: f.tenantId, entityId: f.entityId });
@@ -157,23 +178,9 @@ describe('an aguinaldo paid in its own run does not get a second employment subs
     });
 
     it('the payroll CFDI declares no OtrosPagos 002 and still adds up', async () => {
-      const { pacRouter } = await import('../../src/services/integrations/mexico/pac/pac-router.js');
-      const cfdi = await import('../../src/services/payroll/mx/cfdi-nomina-generator.js');
-      const spy = vi.spyOn(pacRouter, 'stamp').mockResolvedValue({
-        uuid: uuidv4(), xml_timbrado: '', cadena_original: '',
-        fecha_timbrado: new Date(), no_certificado_sat: '0000', sello_sat: '',
-        provider_used: 'test', simulado: true,
-      });
-      try {
-        const r = await cfdi.generateAndStampCfdiNomina(
-          bonus.paycheck.id, { tenantId: f.tenantId, userId: f.userId }, entityScope(f.tenantId, f.entityId)
-        );
-        expect(r.xml).not.toMatch(/TipoOtroPago="002"/);
-        const attr = (name: string): Decimal => new Decimal(new RegExp(`\\b${name}="([0-9.]+)"`).exec(r.xml)![1]);
-        expect(attr('Total').toFixed(2)).toBe(attr('SubTotal').minus(attr('Descuento')).toFixed(2));
-      } finally {
-        spy.mockRestore();
-      }
+      const xml = await stampedXml(bonus.paycheck.id);
+      expect(xml).not.toMatch(/TipoOtroPago="002"/);
+      expect(attr(xml, 'Total').toFixed(2)).toBe(attr(xml, 'SubTotal').minus(attr(xml, 'Descuento')).toFixed(2));
     });
   });
 
@@ -192,20 +199,67 @@ describe('an aguinaldo paid in its own run does not get a second employment subs
     const employee = await newEmployee('MX-398C');
     const first = await approvedRun(period, 'bonus', employee, [yearEndBonus(1000)]);
     expect(first.paycheck.subsidy).toBe('0.00');
-    const { paycheck } = await approvedRun(period, 'regular', employee, [salary(1500)]);
+    const { runId, paycheck } = await approvedRun(period, 'regular', employee, [salary(1500)]);
     expect(paycheck.subsidy).toBe('264.30');
+    const cash = new Decimal(paycheck.subsidy_cash);
+    expect(cash.greaterThan(0)).toBe(true);
+
+    // Net pay: gross less the ISR retained (`isr_withheld` holds the ISR before
+    // the credit) and the worker's IMSS, plus the subsidy handed over in cash.
+    const isrRetained = Decimal.max(0, new Decimal(paycheck.isr_withheld).minus(paycheck.subsidy));
+    const net = new Decimal(paycheck.gross_earnings)
+      .minus(isrRetained)
+      .minus(paycheck.imss_employee)
+      .minus(paycheck.infonavit_withheld)
+      .plus(cash);
+    expect(new Decimal(paycheck.net_pay).toFixed(2)).toBe(net.toFixed(2));
+
+    // The CFDI declares what the columns hold: OtrosPagos 002 with the cash
+    // delivered and the subsidy caused, and the nómina complement adds up to
+    // the net pay: perceptions + other payments − deductions.
+    const xml = await stampedXml(paycheck.id);
+    expect(xml).toMatch(new RegExp(`TipoOtroPago="002"[^>]*Importe="${cash.toFixed(2)}"`));
+    expect(xml).toMatch(new RegExp(`SubsidioCausado="${paycheck.subsidy}"`));
+    expect(attr(xml, 'TotalOtrosPagos').toFixed(2)).toBe(cash.toFixed(2));
+    expect(
+      attr(xml, 'TotalPercepciones').plus(attr(xml, 'TotalOtrosPagos')).minus(attr(xml, 'TotalDeducciones')).toFixed(2)
+    ).toBe(new Decimal(paycheck.net_pay).toFixed(2));
+
+    // The entry balances and debits the subsidy delivered.
+    const entry = await previewPayRunEntry(runId, f.tenantId, f.entityId);
+    expect(entry.totalDebits).toBe(entry.totalCredits);
+    const delivered = entry.lines.find((l) => /Subsidio al empleo entregado/.test(l.description));
+    expect(delivered?.debit_amount).toBe(cash.toFixed(2));
   });
 
-  it('with "none_on_separate_paycheck" a later paycheck of the period gets no subsidy at all', async () => {
-    await resolvePolicy(
-      { tenantId: f.tenantId, entityId: f.entityId },
-      EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY, 'none_on_separate_paycheck', f.userId, 'MNE-001-398 test'
-    );
-    const period = await newPeriod('2026-10-01', '2026-10-15');
-    const employee = await newEmployee('MX-398D');
-    await approvedRun(period, 'bonus', employee, [yearEndBonus(1000)]);
-    const { paycheck } = await approvedRun(period, 'regular', employee, [salary(1500)]);
-    expect(paycheck.subsidy).toBe('0.00');
-    expect(Number(paycheck.subsidy_cash)).toBe(0);
+  describe('with "none_on_separate_paycheck" the separate paycheck carries none, whatever runs first', () => {
+    beforeAll(async () => {
+      await resolvePolicy(
+        { tenantId: f.tenantId, entityId: f.entityId },
+        EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY, 'none_on_separate_paycheck', f.userId, 'MNE-001-398 test'
+      );
+    });
+
+    it('the aguinaldo run calculated BEFORE the fortnight gets none, and the fortnight keeps its own', async () => {
+      const period = await newPeriod('2026-10-01', '2026-10-15');
+      const employee = await newEmployee('MX-398D');
+      // 480.70 of it is taxed: on its own it would cause the whole 264.30.
+      const bonusRun = await approvedRun(period, 'bonus', employee, [yearEndBonus(4000)]);
+      expect(bonusRun.paycheck.subsidy).toBe('0.00');
+      expect(Number(bonusRun.paycheck.subsidy_cash)).toBe(0);
+      const { paycheck } = await approvedRun(period, 'regular', employee, [salary(1500)]);
+      expect(paycheck.subsidy).toBe('264.30');
+      expect(Number(paycheck.subsidy_cash)).toBeGreaterThan(0);
+    });
+
+    it('the aguinaldo run calculated AFTER the fortnight gets none', async () => {
+      const period = await newPeriod('2026-10-16', '2026-10-31');
+      const employee = await newEmployee('MX-398E');
+      const regularRun = await approvedRun(period, 'regular', employee, [salary(1500)]);
+      expect(regularRun.paycheck.subsidy).toBe('264.30');
+      const { paycheck } = await approvedRun(period, 'bonus', employee, [yearEndBonus(4000)]);
+      expect(paycheck.subsidy).toBe('0.00');
+      expect(Number(paycheck.subsidy_cash)).toBe(0);
+    });
   });
 });

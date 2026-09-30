@@ -16,7 +16,8 @@ import {
   employmentSubsidyForPeriod,
   readEmploymentSubsidyRounding,
   readEmploymentSubsidySeparateRun,
-  subsidyOfLaterPaycheck,
+  isSeparatePaycheck,
+  subsidyOfPaycheckInPeriod,
   subsidyOfOtherRunsInPeriod,
   subsidyDaysInPeriod,
   type EmploymentSubsidyRounding,
@@ -232,15 +233,34 @@ describe('the subsidy of a later paycheck of the same period', () => {
 
   it('recomputing credits only the difference, never a second subsidy and never below zero', () => {
     const later = (onCombinedIncome: string, alreadyCaused: string): string =>
-      subsidyOfLaterPaycheck({ treatment: 'recompute_on_combined_income', onCombinedIncome, alreadyCaused }).toFixed(2);
+      subsidyOfPaycheckInPeriod({
+        treatment: 'recompute_on_combined_income', separate: true, own: '264.30', onCombinedIncome, alreadyCaused,
+      }).toFixed(2);
     expect(later('264.30', '264.30')).toBe('0.00');
     expect(later('264.30', '0')).toBe('264.30');
     expect(later('0', '264.30')).toBe('0.00');
   });
 
-  it('"none_on_separate_paycheck" credits nothing whatever the combined income gives', () => {
-    const r = subsidyOfLaterPaycheck({ treatment: 'none_on_separate_paycheck', onCombinedIncome: '264.30', alreadyCaused: '0' });
-    expect(r.toFixed(2)).toBe('0.00');
+  it('"none_on_separate_paycheck" zeroes the separate paycheck and leaves the regular one its own subsidy', () => {
+    const none = (separate: boolean, alreadyCaused: string): string =>
+      subsidyOfPaycheckInPeriod({
+        treatment: 'none_on_separate_paycheck', separate, own: '264.30', onCombinedIncome: '0', alreadyCaused,
+      }).toFixed(2);
+    expect(none(true, '0')).toBe('0.00');
+    // The regular fortnight calculated AFTER the aguinaldo run keeps its own.
+    expect(none(false, '0')).toBe('264.30');
+    // A second regular paycheck of the period still does not get it twice.
+    expect(none(false, '264.30')).toBe('0.00');
+  });
+
+  it('the separate paycheck is told by what it is, not by when it was calculated', () => {
+    const yearEndBonus = { earning_type: 'aguinaldo' };
+    const salary = { earning_type: 'salary' };
+    expect(isSeparatePaycheck('bonus', [yearEndBonus])).toBe(true);
+    expect(isSeparatePaycheck('off_cycle', [salary])).toBe(true);
+    expect(isSeparatePaycheck('regular', [yearEndBonus])).toBe(true);
+    expect(isSeparatePaycheck('regular', [salary, yearEndBonus])).toBe(false);
+    expect(isSeparatePaycheck('regular', [])).toBe(false);
   });
 
   it('reads the other runs of the period inside the tenant, leaving out the run being calculated', async () => {
