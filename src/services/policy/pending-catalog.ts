@@ -2014,16 +2014,18 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ],
     defaultValue: 'cada_renglon',
     defaultRationale:
-      'The Declaraciones y Pagos portal captures whole pesos in every field, so each line is adjusted before it ' +
-      'is added, following CFF art. 20 (cents 1 to 50 go down, 51 to 99 go up) after rounding the ledger\'s four ' +
-      'decimals to the cent. The workpaper that adds the same whole numbers as the form is the one that matches it.',
+      'CFF art. 20 adjusts the amounts of a return to whole pesos (cents 1 to 50 go down, 51 to 99 go up), after ' +
+      'rounding the ledger\'s four decimals to the cent. Adjusting each line before it is added keeps every captured ' +
+      'figure a whole peso, as the law asks of each amount. Unverified assumption: that the current Declaraciones y ' +
+      'Pagos IVA form captures each line in pesos; if it captures only bases and computes the tax itself, neither ' +
+      'option models it.',
     whyAsking:
       'CFF art. 20 says the amounts of a return are adjusted to whole pesos, but not at which step of the calculation. ' +
       'Firms do it both ways, and the IVA payable they declare can differ by a peso or two.',
     whatIDo:
       'The workpaper always shows two columns, the cents traceable to the ledger and the pesos to capture, and derives the IVA payable or in favor the way you choose here.',
     ifSkipped:
-      'I adjust every line to pesos, as the portal does.',
+      'I adjust every line to pesos before adding them.',
     priority: 42,
   },
   {

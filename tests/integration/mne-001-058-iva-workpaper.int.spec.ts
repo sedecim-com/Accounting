@@ -8,7 +8,7 @@ import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-servi
 import { approveBill } from '../../src/services/ap/bill-service.js';
 import { recordCustomerPayment, recordVendorPayment } from '../../src/services/payments/payment-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
-import { NotFoundError } from '../../src/utils/errors.js';
+import { NotFoundError, ValidationError } from '../../src/utils/errors.js';
 import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 
 // ============================================================
@@ -22,12 +22,21 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 //                half collected (1 700)                          → 160 + 40 charged
 //   purchase PUE   800 at 16 % (128), paid                        → 128 creditable
 //   purchase PPD 1 500 at 16 % (240), total 1 740, half paid (870) → 120 creditable
-//   a customer withheld 10.50 of IVA                             → 10.50, 10 in whole
+//   a prior balance in favor of 10.50 is applied                 → 10.50, 10 in whole
 //
 //   charged 16 %  base 2 000  IVA 320      charged 8 %  base 500  IVA 40
 //   charged 0 %   base   500  IVA 0        creditable 16 %  base 1 550  IVA 248
 //   cents: 320 + 40 − 248 − 10.50 = 101.50
 //   whole, cada_renglon (default): 320 + 40 − 248 − 10 = 102
+//
+// Two manual entries no document explains, which the tie-outs must name:
+// 10.50 debited to iva_retenido_a_favor and 12.34 credited to iva_trasladado.
+// A manual retention is NOT the customer's withholding on a document: only
+// the document's own entry says that (the CFDI case is in
+// mne-001-058-iva-workpaper-cfdi.int.spec.ts).
+//
+// June holds one PUE sale whose lines lost their tax, as an ingested CFDI
+// without its pre-registration looks: the settlement must be withheld.
 // ============================================================
 
 const MONTH = 5;
@@ -37,13 +46,14 @@ let f: Fixture;
 let customerId: string;
 let vendorId: string;
 let wp: IvaWorkpaper;
+let june: IvaWorkpaper;
 
-async function sale(terms: 'PUE' | 'PPD', lines: Array<[string, string]>): Promise<string> {
+async function sale(terms: 'PUE' | 'PPD', lines: Array<[string, string]>, date = day(5)): Promise<string> {
   const draft = await createInvoice({
     entity_id: f.entityId,
     customer_id: customerId,
-    invoice_date: day(5),
-    due_date: day(30),
+    invoice_date: date,
+    due_date: date,
     currency_code: 'MXN',
     terms,
     lines: lines.map(([price, rate]) => ({
@@ -123,7 +133,23 @@ beforeAll(async () => {
     { autoPost: true }
   );
 
-  wp = await buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: MONTH });
+  await createJournalEntry(
+    f.entityId, new Date(Date.UTC(2026, MONTH - 1, 26)), JournalEntryType.STANDARD, 'IVA trasladado sin documento',
+    [
+      { account_id: f.roles['cxc'], debit_amount: '12.34', credit_amount: null, description: 'Cliente' },
+      { account_id: f.roles['iva_trasladado'], debit_amount: null, credit_amount: '12.34', description: 'IVA' },
+    ],
+    f.userId,
+    { autoPost: true }
+  );
+
+  wp = await buildIvaWorkpaper({
+    tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: MONTH, priorBalanceInFavor: '10.50',
+  });
+
+  const bare = await sale('PUE', [['1000', '16']], '2026-06-05');
+  await query(`UPDATE invoice_lines SET tax_amount = 0, tax_rate = NULL WHERE invoice_id = $1`, [bare]);
+  june = await buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: 6 });
 }, 240_000);
 
 afterAll(async () => {
@@ -143,19 +169,48 @@ describe('the definitive IVA of the month equals the hand calculation', () => {
     expect(wp.figures.creditable.tasa16).toEqual({ base: '1550.0000', iva: '248.0000' });
   });
 
-  it('the retention comes from its role account, and each side ties to the ledger', () => {
-    expect(wp.figures.withheldByCustomers).toBe('10.5000');
-    expect(wp.ledger.iva_trasladado).toBe('-360.0000');
+  it('the creditable side ties to the ledger', () => {
     expect(wp.ledger.iva_acreditable).toBe('248.0000');
-    expect(wp.findings.filter((h) => h.codigo.startsWith('IVA-WP-'))).toEqual([]);
+    expect(wp.findings.map((h) => h.codigo)).not.toContain('IVA-WP-CREDITABLE-VS-LEDGER');
+  });
+
+  it('a manual IVA entry no document explains is named by the charged tie-out', () => {
+    expect(wp.ledger.iva_trasladado).toBe('-372.3400');
+    const found = wp.findings.find((h) => h.codigo === 'IVA-WP-CHARGED-VS-LEDGER');
+    expect(found?.mensaje).toMatch(/360\.0000.*372\.3400/);
+  });
+
+  it('a manual retention is not a customer withholding: it is left out and named', () => {
+    expect(wp.figures.withheldByCustomers).toBe('0.0000');
+    expect(wp.ledger.iva_retenido_a_favor).toBe('10.5000');
+    const found = wp.findings.find((h) => h.codigo === 'IVA-WP-WITHHELD-VS-LEDGER');
+    expect(found?.mensaje).toMatch(/0\.0000.*10\.5000/);
+  });
+
+  it('a manual 0 % line cannot say it is not exempt: the finding says so', () => {
+    expect(wp.findings.find((h) => h.codigo === 'IVA-WP-ZERO-RATE-UNVERIFIED')?.mensaje).toMatch(/^500\.0000/);
   });
 
   it('every line adjusted to whole by CFF art. 20 by default: 102 payable', () => {
     expect(wp.rounding).toMatchObject({ key: 'declaracion_redondeo_a_pesos', value: 'cada_renglon' });
-    const line = (k: string) => wp.settlement.lines.find((l) => l.key === k);
-    expect(line('withheld_by_customers')).toMatchObject({ cents: '10.50', whole: '10' });
-    expect(wp.settlement.resultCents).toBe('101.50');
-    expect(wp.settlement.resultWhole).toBe('102');
+    expect(wp.blockedBy).toEqual([]);
+    const line = (k: string) => wp.settlement?.lines.find((l) => l.key === k);
+    expect(line('prior_balance_in_favor')).toMatchObject({ cents: '10.50', whole: '10' });
+    expect(wp.settlement?.resultCents).toBe('101.50');
+    expect(wp.settlement?.resultWhole).toBe('102');
+  });
+
+  it('a blocking finding withholds the settlement: no figure is presented as declarable', () => {
+    expect(june.blockedBy).toEqual(['DIOT-IVA-CABECERA']);
+    expect(june.settlement).toBeNull();
+    const found = june.findings.find((h) => h.codigo === 'DIOT-IVA-CABECERA');
+    expect(found?.mensaje).toMatch(/^La factura de venta /);
+  });
+
+  it('a prior balance in favor that is not an amount of zero or more is refused', async () => {
+    await expect(
+      buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: MONTH, priorBalanceInFavor: '-1' })
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 
   it('another tenant does not see the entity', async () => {

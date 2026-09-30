@@ -1219,6 +1219,23 @@ export const EN = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'The daily amount first: monthly / 30.4 to the cent, then × the days of the period',
 
+  'policy.filing_rounding_to_pesos.question':
+    'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
+  'policy.filing_rounding_to_pesos.impact':
+    'It can move the IVA payable by a peso or two: adjusting every line and adding whole pesos is not the same as adding cents and adjusting the result.',
+  'policy.filing_rounding_to_pesos.rationale':
+    'CFF art. 20 adjusts the amounts of a return to whole pesos (cents 1 to 50 go down, 51 to 99 go up), after rounding the ledger\'s four decimals to the cent. Adjusting each line before it is added keeps every captured figure a whole peso, as the law asks of each amount. Unverified assumption: that the current Declaraciones y Pagos IVA form captures each line in pesos; if it captures only bases and computes the tax itself, neither option models it.',
+  'policy.filing_rounding_to_pesos.why':
+    'CFF art. 20 says the amounts of a return are adjusted to whole pesos, but not at which step of the calculation. Firms do it both ways, and the IVA payable they declare can differ by a peso or two.',
+  'policy.filing_rounding_to_pesos.what':
+    'The workpaper always shows two columns, the cents traceable to the ledger and the pesos to capture, and derives the IVA payable or in favor the way you choose here.',
+  'policy.filing_rounding_to_pesos.if_skipped':
+    'I adjust every line to pesos before adding them.',
+  'policy.filing_rounding_to_pesos.option.cada_renglon':
+    'Every line: each captured figure is adjusted to pesos and the arithmetic continues in whole pesos',
+  'policy.filing_rounding_to_pesos.option.solo_el_pago':
+    'Only the payment: the arithmetic runs in cents and only the result is adjusted to pesos',
+
   'policy.isn_taxing_state.question':
     'For the state payroll tax (ISN), which state does a worker belong to: the one where the work is performed, or the one of the firm\'s tax domicile?',
   'policy.isn_taxing_state.impact':
