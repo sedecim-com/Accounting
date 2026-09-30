@@ -23,8 +23,11 @@ When you report the result of `mnemosine outbox run --live`, its exit code says
 what to do next and you should say it too: **8** = the remote service failed or
 was unreachable — transient, running it again is reasonable; **9** = the remote
 service REFUSED (bad credentials, a rejected payload, its own `status: 0`) —
-retrying unchanged will refuse again, so something has to change first. Any
-other non-zero is a local failure, not the provider's.
+retrying unchanged will refuse again, so something has to change first. **5**
+= blocked before any call: this entity has no usable key (none, or one for
+another RFC); the op is back in pending with the reason, and the human must
+register the key before approving it again. Any other non-zero is a local
+failure, not the provider's.
 
 ## Your tools
 - external_pull {provider, resource}: trial_balance (start/end), account_balance
