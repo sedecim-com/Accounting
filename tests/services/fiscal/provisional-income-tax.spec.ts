@@ -47,6 +47,10 @@ describe('settleProvisionalIncomeTax', () => {
     const s = settleProvisionalIncomeTax(august, 'solo_el_pago');
     expect(s.resultCents).toBe('4273.46');
     expect(s.resultWhole).toBe('4273');
+    // One payment on the paper: every line's pesos come from its own cents.
+    expect(line(s, 'payable')?.whole).toBe(s.resultWhole);
+    expect(line(s, 'estimated_profit')?.whole).toBe('107258');
+    expect(line(s, 'tax_caused')?.whole).toBe('19397');
   });
 
   it('losses never exceed the profit left, and a payment is never negative', () => {

@@ -1289,6 +1289,22 @@ export const ES: Record<keyof typeof EN, string> = {
     'Cada renglón: cada cifra capturada se ajusta a pesos y el cálculo sigue en pesos enteros',
   'policy.filing_rounding_to_pesos.option.solo_el_pago':
     'Sólo el pago: el cálculo corre en centavos y sólo el resultado se ajusta a pesos',
+  'policy.provisional_isr_sales_returns.question':
+    'En el ISR provisional, ¿las devoluciones, descuentos y bonificaciones sobre ventas disminuyen los ingresos nominales, o se dejan a la declaración anual como deducción?',
+  'policy.provisional_isr_sales_returns.impact':
+    'Mueve los ingresos nominales de cada pago provisional de ISR por las devoluciones del ejercicio, y la utilidad estimada por ese importe por el coeficiente.',
+  'policy.provisional_isr_sales_returns.rationale':
+    'El art. 14 fr. I de la LISR toma como ingresos nominales los ingresos acumulables, menos sólo el ajuste anual por inflación acumulable, y el art. 25 fr. I hace de las devoluciones, descuentos y bonificaciones del ejercicio una deducción, no un ingreso menor. El coeficiente de la declaración anual divide la utilidad fiscal entre esos ingresos nominales brutos, así que una base mensual armada igual es aquella contra la que se midió el coeficiente. Premisa sin verificar: que la declaración anual de la que sale el coeficiente declaró las devoluciones como deducción; un despacho cuya declaración las restó al ingreso elige la otra opción.',
+  'policy.provisional_isr_sales_returns.why':
+    'La ley llama deducción a las devoluciones, pero los despachos que las restan al ingreso en la anual también las restan cada mes. El coeficiente y los ingresos nominales del mes tienen que armarse igual.',
+  'policy.provisional_isr_sales_returns.what':
+    'El papel de trabajo lista aparte de los ingresos nominales las cuentas de ingreso con el rol de devoluciones sobre ventas, y las suma o no según elijas aquí.',
+  'policy.provisional_isr_sales_returns.if_skipped':
+    'Dejo las devoluciones fuera de los ingresos nominales, como deducción de la declaración anual.',
+  'policy.provisional_isr_sales_returns.option.deduction':
+    'Deducción: los ingresos nominales son brutos y las devoluciones esperan a la declaración anual',
+  'policy.provisional_isr_sales_returns.option.net_of_income':
+    'Netas del ingreso: las devoluciones del ejercicio se restan de los ingresos nominales',
   'policy.overtime_isr_exemption.question':
     '¿Aplicas a las horas extra que pagas la exención de ISR del art. 93 fr. I de la LISR?',
   'policy.overtime_isr_exemption.impact':

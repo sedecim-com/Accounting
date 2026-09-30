@@ -5949,6 +5949,30 @@
     },
     {
       "class": "policy-key",
+      "where": "provisional_isr_sales_returns",
+      "es": "provisional_isr_sales_returns",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-059): whether sales returns lower the nominal income of the provisional ISR or wait for the annual return as a deduction (LISR arts. 14 fr. I and 25 fr. I)."
+    },
+    {
+      "class": "policy-value",
+      "where": "provisional_isr_sales_returns/deduction",
+      "es": "deduction",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the nominal income is gross; returns are a deduction of the annual return (LISR art. 25 fr. I)."
+    },
+    {
+      "class": "policy-value",
+      "where": "provisional_isr_sales_returns/net_of_income",
+      "es": "net_of_income",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the returns of the year are subtracted from the nominal income."
+    },
+    {
+      "class": "policy-key",
       "where": "overtime_isr_exemption",
       "es": "overtime_isr_exemption",
       "en": null,
