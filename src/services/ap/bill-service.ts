@@ -1,10 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
-import { daysBetween } from '../../utils/calendar-date.js';
+import { daysBetween, toCalendarDate } from '../../utils/calendar-date.js';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../database/connection.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { postBillEntry } from '../accounting/ar-ap-posting.js';
+import { billCfdiPaidInCash, cashLimitFinding, type CashDeductibilityFinding } from './cash-deductibility.js';
 import { parsePaymentTerms } from './vendor-service.js';
 import type { Bill, BillLine, JournalEntry, JournalEntryLine } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
@@ -474,6 +475,12 @@ export interface ApproveBillResult {
   entryLines: Array<Record<string, unknown>>;
   /** Fire attestEntryAsync with this AFTER the transaction commits. */
   attestation: { entityId: string; entryId: string } | null;
+  /**
+   * MNE-001-345 · LISR art. 27 fr. III: the bill's CFDI says cash and the total
+   * is above the limit in force on the bill date. Informative; the entry is
+   * unchanged and the reviewer decides on the reclassification.
+   */
+  deductibilityFindings: CashDeductibilityFinding[];
   /** True when everything above was computed and then rolled back. */
   dryRun: boolean;
 }
@@ -582,11 +589,25 @@ export async function approveBill(
         },
       });
 
+      // A bill has no payment method of its own; the only one known at approval is
+      // the CFDI's FormaPago. The parameter is read only when that says cash.
+      const cfdiUuid = (approved as Bill & { cfdi_uuid?: string | null }).cfdi_uuid ?? null;
+      const deductibilityFindings = (await billCfdiPaidInCash(client, approved.entity_id, cfdiUuid))
+        ? await cashLimitFinding(client, {
+            entityId: approved.entity_id,
+            billNumber: approved.bill_number,
+            amount: approved.total_amount,
+            currency: approved.currency_code,
+            onDate: toCalendarDate(approved.bill_date),
+          })
+        : [];
+
       const out = {
         bill: approved,
         entry,
         entryLines,
         attestation: entry ? { entityId: approved.entity_id, entryId: entry.id } : null,
+        deductibilityFindings,
       };
       // Everything above really happened; throwing is what undoes it. A
       // preview that ran the engine cannot disagree with the engine.

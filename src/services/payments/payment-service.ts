@@ -26,6 +26,7 @@ import { ivaToReclassify, entityUsesCashBasisIva } from '../accounting/iva-cash-
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
+import { cashLimitFinding, type CashDeductibilityFinding } from '../ap/cash-deductibility.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
 
@@ -233,6 +234,11 @@ export interface ResultadoPago {
    * diferencia cambiaria REALIZADA que el pago asentó, y con qué tasa.
    */
   diferenciaCambiaria?: (DiferenciaCambiaria & { tasaPago: string; fuente: string }) | null;
+  /**
+   * MNE-001-345 · vendor side: LISR art. 27 fr. III signals (cash above the
+   * limit in force on the payment date). Informative; the entry is unchanged.
+   */
+  deductibilityFindings?: CashDeductibilityFinding[];
 }
 
 export interface OpcionesPago {
@@ -639,6 +645,19 @@ export async function recordVendorPayment(
       ? { ...entry.realisedFx, tasaPago: fx.tasaPago, fuente: fx.fuenteTasa }
       : null;
 
+    // MNE-001-345 · LISR 27-III: cash above the limit IN FORCE ON THE PAYMENT
+    // DATE. Only when the method is cash, so other payments never read the law.
+    const deductibilityFindings =
+      entrada.paymentMethod === 'cash' && documentos.length > 0
+        ? await cashLimitFinding(client, {
+            entityId: entrada.entityId,
+            billNumber: documentos.map((d) => d.numero).join(', '),
+            amount: entrada.paymentAmount,
+            currency: currencyOf(documentos),
+            onDate: toCalendarDate(entrada.paymentDate),
+          })
+        : [];
+
     // R1: el pago deja su rastro propio — antes sólo el asiento derivado
     // quedaba auditado, y «quién registró el pago» no estaba en el rastro.
     await registrarAuditoria(client, {
@@ -652,6 +671,7 @@ export async function recordVendorPayment(
         payment_amount: entrada.paymentAmount,
         journal_entry_id: entry?.id ?? null,
         documentos: documentos.length,
+        ...(deductibilityFindings.length > 0 ? { no_deducible_efectivo: deductibilityFindings.map((x) => x.code) } : {}),
         // R4 · el pago en extranjera deja en su rastro la diferencia que
         // realizó y la tasa con la que la midió: es la única huella de por
         // qué el efectivo en funcional no coincide con el pasivo extinguido.
@@ -673,6 +693,7 @@ export async function recordVendorPayment(
         attestation: entry ? { entityId: entrada.entityId, entryId: entry.id } : null,
         documentos,
         diferenciaCambiaria: diferencia,
+        deductibilityFindings,
       });
     }
 
@@ -681,6 +702,7 @@ export async function recordVendorPayment(
       attestation: entry ? { entityId: entrada.entityId, entryId: entry.id } : null,
       documentos,
       diferenciaCambiaria: diferencia,
+      deductibilityFindings,
     };
   };
 

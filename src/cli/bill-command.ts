@@ -857,6 +857,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
               : ' · no entry: it was already posted') +
             '\n'
         );
+        for (const w of result.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${w.message}\n`));
         if (opts.idempotencyKey) {
           process.stderr.write(
             deps.palette.dim(
