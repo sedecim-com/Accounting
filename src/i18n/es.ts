@@ -1191,6 +1191,40 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'Primero el importe diario: mensual / 30.4 al centavo, luego × los días del periodo',
 
+  'policy.overtime_isr_exemption.question':
+    '¿Aplicas a las horas extra que pagas la exención de ISR del art. 93 fr. I de la LISR?',
+  'policy.overtime_isr_exemption.impact':
+    'Mueve el ISR retenido en cada recibo con horas extra, y la parte exenta que declara el CFDI de nómina. "exempt_by_law" exenta el 50 % de las horas dobles dentro del límite semanal de la LFT, hasta 5 UMA diarias de la fecha de pago por cada semana del periodo; las horas triples van como una percepción aparte y gravan completas. "taxed_in_full" grava todas las horas extra.',
+  'policy.overtime_isr_exemption.rationale':
+    'El art. 93 fr. I de la LISR exenta el 50 % del tiempo extraordinario dentro del límite de la ley laboral (art. 66 de la LFT, fechado por la reforma del DOF 01-05-2026), hasta 5 veces el salario mínimo (la UMA desde el DOF 27-01-2016) por cada semana de servicios. Retener sobre la mitad exenta le retiene de más al trabajador cada periodo. Gravarlas completas es para un despacho que no puede acreditar que las horas se trabajaron, donde el SAT rechazaría la exención.',
+  'policy.overtime_isr_exemption.why':
+    'La ley exenta una parte de las horas extra, pero sólo de las que de verdad se trabajaron y se registraron. Un despacho con control de asistencia aplica la exención; uno sin él puede preferir retener sobre todas.',
+  'policy.overtime_isr_exemption.what':
+    'Con "exempt_by_law" separo cada renglón de horas extra en su parte exenta y su parte gravada y calculo el ISR sobre la gravada. Cada renglón de horas extra debe traer sus `hours`: un renglón sin ellas, o unas horas que, sumadas a los demás renglones y corridas del mismo periodo, pasan el límite semanal de la LFT, detienen la corrida antes de escribir ningún recibo. Con "taxed_in_full" el renglón entero grava y no hacen falta las horas.',
+  'policy.overtime_isr_exemption.if_skipped':
+    'Aplico la exención de la ley.',
+  'policy.overtime_isr_exemption.option.exempt_by_law':
+    'Exentarlas como dice el art. 93 fr. I de la LISR: la mitad, hasta 5 UMA por semana',
+  'policy.overtime_isr_exemption.option.taxed_in_full':
+    'Gravar todas las horas extra, sin exención',
+
+  'policy.overtime_exempt_weeks.question':
+    '¿Cuántas semanas de servicios cuenta un periodo de pago para el tope de horas extra del art. 93 fr. I de la LISR (5 UMA por semana)?',
+  'policy.overtime_exempt_weeks.impact':
+    'Mueve la parte exenta de las horas extra de cada periodo que no es un número entero de semanas, y el límite de horas de la LFT de ese periodo: una quincena recibe 5 × 15/7 UMA (1 256.89 desde febrero de 2026) con "calendar_days_over_seven", y 5 × 2 UMA (1 173.10) con "whole_weeks_of_period". Una nómina semanal recibe 5 UMA en ambos casos.',
+  'policy.overtime_exempt_weeks.rationale':
+    'La fracción I topa la exención "por cada semana de servicios" y ni la LISR, ni su reglamento, ni la RMF dicen cómo las cuenta un periodo que no es un número entero de semanas. Días / 7 escala el tope semanal a los días del periodo, como la tarifa del ISR de cada periodo se escala a sus días (Anexo 8 de la RMF: tarifas semanal, decenal, quincenal y mensual). Semanas completas es la lectura más estricta del texto y nunca exenta una fracción de semana: retiene más. Confirma este valor por omisión.',
+  'policy.overtime_exempt_weeks.why':
+    'La ley topa las horas extra por semana, pero la mayoría de las nóminas pagan por quincena o por mes, y hay dos formas honestas de contar las semanas que contienen.',
+  'policy.overtime_exempt_weeks.what':
+    'Multiplico el tope de 5 UMA y las horas semanales de la LFT por las semanas que da esta respuesta: los días del periodo / 7, o las semanas completas que contiene.',
+  'policy.overtime_exempt_weeks.if_skipped':
+    'Cuento los días del periodo / 7.',
+  'policy.overtime_exempt_weeks.option.calendar_days_over_seven':
+    'Los días de calendario del periodo / 7: una quincena son 15/7 semanas',
+  'policy.overtime_exempt_weeks.option.whole_weeks_of_period':
+    'Sólo las semanas completas del periodo: una quincena son 2 semanas, un mes 4',
+
   'policy.isn_taxing_state.question':
     'Para el impuesto sobre nómina (ISN), ¿a qué estado pertenece un trabajador: al estado donde se presta el trabajo, o al del domicilio fiscal del despacho?',
   'policy.isn_taxing_state.impact':
