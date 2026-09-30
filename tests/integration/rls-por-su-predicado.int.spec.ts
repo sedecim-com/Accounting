@@ -8,6 +8,7 @@ import {
   SQL_POLITICAS_HIJAS,
   discrimina,
   hijaAnclada,
+  childPolicyShape,
   type PoliticaDirecta,
   type PoliticaHija,
 } from './helpers/rls-censo.js';
@@ -154,11 +155,81 @@ async function evaluar(
   tabla: string, columna: string, predicado: string,
   valor: string | null, tenant: string | null, rol: 'dueno' | 'sonda'
 ): Promise<boolean | null> {
+  return evaluateRow(tabla, { [columna]: valor }, predicado, tenant, rol);
+}
+
+/** Igual, con varias columnas en la fila sintética (las dos mitades de una hija dividida). */
+async function evaluateRow(
+  table: string, row: Record<string, string | null>, predicate: string,
+  tenant: string | null, role: 'dueno' | 'sonda'
+): Promise<boolean | null> {
+  const cols = Object.keys(row);
   const sql =
-    `WITH ${ident(tabla)}(${ident(columna)}) AS (VALUES ($1::uuid)) ` +
-    `SELECT (${predicado}) AS v FROM ${ident(tabla)}`;
-  const filas = await conContexto<{ v: boolean | null }>(tenant, sql, [valor], rol);
-  return filas[0]?.v ?? null;
+    `WITH ${ident(table)}(${cols.map(ident).join(', ')}) AS ` +
+    `(VALUES (${cols.map((_, i) => `$${i + 1}::uuid`).join(', ')})) ` +
+    `SELECT (${predicate}) AS v FROM ${ident(table)}`;
+  const rows = await conContexto<{ v: boolean | null }>(tenant, sql, cols.map((c) => row[c]), role);
+  return rows[0]?.v ?? null;
+}
+
+/**
+ * Juzga cada mitad de una política de hijos contra lo que promete, y devuelve
+ * lo que encuentre roto (vacío = sana). `padres`: inquilino -> padre -> id de
+ * una row suya.
+ *
+ *  - suelta: rota por forma (sin padre, o WITH CHECK ausente sobre un USING que
+ *    no cuelga del padre).
+ *  - delegada: el USING hace de comprobación; se sondea contra el padre propio
+ *    y el ajeno.
+ *  - dividida: el USING se sondea contra el inquilino (row con sólo
+ *    `tenant_id`) y el WITH CHECK contra inquilino Y padre visible.
+ */
+async function judgeChildPolicy(
+  h: PoliticaHija, parents: Map<string, Map<string, string>>
+): Promise<string[]> {
+  const shape = childPolicyShape(h);
+  const broken: string[] = [];
+  if (!hijaAnclada(h) || shape === 'loose') {
+    const cause = h.check === null
+      ? 'WITH CHECK ausente y el USING no cuelga del parent'
+      : 'el WITH CHECK no comprueba al parent';
+    return [`${h.hijo}: ${cause}\n      USING ${h.predicado}\n      CHECK ${h.check}`];
+  }
+  const parentA = parents.get(a.tenantId)?.get(h.padre);
+  const parentB = parents.get(b.tenantId)?.get(h.padre);
+  if (parentA === undefined || parentB === undefined) return [];   // familia no sembrada
+  if (shape === 'delegated') {
+    const own = await evaluar(h.hijo, h.fk, h.predicado, parentA, a.tenantId, 'sonda');
+    const foreign = await evaluar(h.hijo, h.fk, h.predicado, parentA, b.tenantId, 'sonda');
+    if (own !== true || foreign === true) broken.push(`${h.hijo}: USING delegado dueño=${own} foreign=${foreign}`);
+    return broken;
+  }
+  // USING: lo que promete es el inquilino.
+  const usingHalf = async (tenant: string | null, value: string): Promise<boolean | null> =>
+    evaluateRow(h.hijo, { tenant_id: value }, h.predicado, tenant, 'sonda');
+  const uOwn = await usingHalf(a.tenantId, a.tenantId);
+  const uForeign = await usingHalf(b.tenantId, a.tenantId);
+  const uGhost = await usingHalf(FANTASMA, a.tenantId);
+  const uNull = await usingHalf(null, a.tenantId);
+  if (uOwn !== true || uForeign === true || uGhost === true || uNull === true) {
+    broken.push(`${h.hijo}: USING no distingue al inquilino (dueño=${uOwn} foreign=${uForeign} ` +
+      `inexistente=${uGhost} sin-contexto=${uNull})\n      ${h.predicado}`);
+  }
+  // WITH CHECK: inquilino Y parent visible; cada conjunción se quita por separado.
+  const checkHalf = async (rowTenant: string, parent: string, ctx: string | null): Promise<boolean | null> =>
+    evaluateRow(h.hijo, { tenant_id: rowTenant, [h.fk]: parent }, h.check!, ctx, 'sonda');
+  const cGood = await checkHalf(a.tenantId, parentA, a.tenantId);
+  const cOtherTenant = await checkHalf(b.tenantId, parentA, a.tenantId);   // row de B bajo A
+  const cForeignParent = await checkHalf(a.tenantId, parentB, a.tenantId);      // parent de B bajo A
+  const cNoParent = await checkHalf(a.tenantId, FANTASMA, a.tenantId);
+  const cNoContext = await checkHalf(a.tenantId, parentA, null);
+  if (cGood !== true || cOtherTenant === true || cForeignParent === true ||
+      cNoParent === true || cNoContext === true) {
+    broken.push(`${h.hijo}: WITH CHECK no comprueba inquilino y parent (buena=${cGood} ` +
+      `inquilino-foreign=${cOtherTenant} parent-foreign=${cForeignParent} parent-inexistente=${cNoParent} ` +
+      `sin-contexto=${cNoContext})\n      ${h.check}`);
+  }
+  return broken;
 }
 
 /** Identidad de fila que no depende de que la tabla tenga clave primaria simple. */
@@ -501,7 +572,7 @@ describe('forma · la cadena del hijo cuelga de un padre aislado', () => {
     // puede ser visible. Un `true OR ...` lo haría visible igual.
     const rotas: string[] = [];
     for (const h of hijas) {
-      if (!hijaAnclada(h)) continue;   // ya acusada arriba; no tiene fk que sondear
+      if (!hijaAnclada(h) || childPolicyShape(h) !== 'delegated') continue;   // las otras formas las juzga judgeChildPolicy
       const v = await evaluar(h.hijo, h.fk, h.predicado, FANTASMA, a.tenantId, 'sonda');
       if (v === true) rotas.push(`${h.hijo}.${h.fk}: llave inexistente -> ${v}\n      ${h.predicado}`);
     }
@@ -520,7 +591,7 @@ describe('forma · la cadena del hijo cuelga de un padre aislado', () => {
     const rotas: string[] = [];
     let cubiertas = 0;
     for (const h of hijas) {
-      if (!hijaAnclada(h)) continue;   // ya acusada arriba; no tiene fk que sondear
+      if (!hijaAnclada(h) || childPolicyShape(h) !== 'delegated') continue;   // las otras formas las juzga judgeChildPolicy
       const padreA = padresDe.get(a.tenantId)?.get(h.padre);
       if (padreA === undefined) continue;   // familia no sembrada: no se afirma nada
       cubiertas += 1;
@@ -541,6 +612,66 @@ describe('forma · la cadena del hijo cuelga de un padre aislado', () => {
     expect(cubiertas, 'la siembra tiene que cubrir la mayoría de las familias de hijos')
       .toBeGreaterThanOrEqual(10);
   });
+});
+
+describe('forma · cada mitad de la política de una hija se juzga contra lo que promete', () => {
+  it('no real child policy has a broken half', async () => {
+    const broken: string[] = [];
+    for (const h of hijas) broken.push(...await judgeChildPolicy(h, padresDe));
+    expect(broken, 'Mitades de política de hijos broken:\n  ' + broken.join('\n  ')).toEqual([]);
+  });
+
+  it('the probe catches broken halves and lets sound ones pass (tablas de juguete)', async () => {
+    const PARENT_OK = 'EXISTS (SELECT 1 FROM public.juguete_padre p WHERE p.id = juguete_hijo.padre_id)';
+    const TENANT = 'tenant_id = public.app_current_tenant()';
+    const cases: Array<{ name: string; using: string; check: string | null; sound: boolean }> = [
+      { name: 'delegada (la forma de hoy)', using: PARENT_OK, check: null, sound: true },
+      { name: 'dividida sound', using: TENANT, check: `${TENANT} AND ${PARENT_OK}`, sound: true },
+      { name: 'USING (true)', using: 'true', check: `${TENANT} AND ${PARENT_OK}`, sound: false },
+      { name: 'USING (true) sin WITH CHECK', using: 'true', check: null, sound: false },
+      { name: 'WITH CHECK ausente', using: TENANT, check: null, sound: false },
+      { name: 'WITH CHECK sin padre', using: TENANT, check: TENANT, sound: false },
+      { name: 'WITH CHECK sin inquilino', using: TENANT, check: PARENT_OK, sound: false },
+      { name: 'WITH CHECK (true)', using: TENANT, check: 'true', sound: false },
+    ];
+    const toyParents = new Map<string, Map<string, string>>();
+    await admin.query('DROP TABLE IF EXISTS juguete_hijo');
+    await admin.query('DROP TABLE IF EXISTS juguete_padre');
+    try {
+      await admin.query('CREATE TABLE juguete_padre (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL)');
+      await admin.query(`CREATE TABLE juguete_hijo (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id uuid NOT NULL, padre_id uuid NOT NULL REFERENCES juguete_padre(id))`);
+      for (const t of ['juguete_padre', 'juguete_hijo']) {
+        await admin.query(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`);
+        await admin.query(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`);
+        await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${t} TO ${SONDA}`);
+      }
+      await admin.query(`CREATE POLICY tenant_isolation ON juguete_padre FOR ALL USING (tenant_id = public.app_current_tenant())`);
+      for (const f of [a, b]) {
+        const id = (await admin.query<{ id: string }>(
+          'INSERT INTO juguete_padre (tenant_id) VALUES ($1) RETURNING id', [f.tenantId])).rows[0].id;
+        toyParents.set(f.tenantId, new Map([['juguete_padre', id]]));
+      }
+      const verdicts: string[] = [];
+      for (const c of cases) {
+        await admin.query('DROP POLICY IF EXISTS tenant_isolation_child ON juguete_hijo');
+        await admin.query(
+          `CREATE POLICY tenant_isolation_child ON juguete_hijo FOR ALL USING (${c.using})` +
+          (c.check === null ? '' : ` WITH CHECK (${c.check})`));
+        // El MISMO SQL del censo que corre contra las políticas reales.
+        const h = (await admin.query<PoliticaHija>(SQL_POLITICAS_HIJAS)).rows.find((r) => r.hijo === 'juguete_hijo');
+        if (h === undefined) { verdicts.push(`${c.name}: el censo no la trajo`); continue; }
+        const broken = await judgeChildPolicy(h, toyParents);
+        if (c.sound !== (broken.length === 0)) {
+          verdicts.push(`${c.name}: esperada ${c.sound ? 'sound' : 'rota'}, hallazgos=${broken.length}`);
+        }
+      }
+      expect(verdicts, 'Veredictos equivocados de la sonda de hijas:\n  ' + verdicts.join('\n  ')).toEqual([]);
+    } finally {
+      await admin.query('DROP TABLE IF EXISTS juguete_hijo');
+      await admin.query('DROP TABLE IF EXISTS juguete_padre');
+    }
+  }, 60_000);
 });
 
 describe('conducta · lo que ve A y lo que ve B son conjuntos disjuntos', () => {
