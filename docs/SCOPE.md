@@ -12,7 +12,7 @@
 - **El estado no se escribe:** se pregunta con `npm run plan:status` y `npm run catalogo:estado`.
 - **Dónde está el código:** [`docs/REPO_MAP.md`](REPO_MAP.md).
 - **Cómo se trabaja con agentes:** [ADR-0001](adr/0001-agentic-framework-adoption.md), [`docs/ROUTING.md`](ROUTING.md) y [`docs/PROCESS.md`](PROCESS.md).
-- **Las secciones marcadas `[inferido]`** las pre-llenó un agente; su confirmación con el autor es [#337](https://github.com/sedecim-com/Accounting/issues/337).
+- **Firmado por el owner el 2026-09-30** ([#337](https://github.com/sedecim-com/Accounting/issues/337)): las secciones que un agente pre-llenó como `[inferido]` están confirmadas, y las preguntas abiertas de la entrevista, contestadas abajo.
 
 ## Visión
 
@@ -97,7 +97,7 @@ La e.firma **sí** se usa dentro del MVP para descargar del SAT y para sellar el
 - **No tiene interfaz gráfica para operar.** El producto es el CLI. `W0–W1` entregó un tablero de **lectura** en el navegador, detrás de un gateway que sólo sostiene la sesión y reenvía lecturas (GET y HEAD) a `/v1`: la cartera del despacho y una vista de entidad. Desde el navegador no se postea, no se sella y no se cierra nada; el panel de pendientes y la revisión de borradores con el CFDI al lado siguen sin existir.
 - **La IA no decide criterio contable.** Una bifurcación entre dos tratamientos legítimos va al panel de políticas (`src/services/policy/`), nunca al prompt ni al chat.
 
-## Interacciones `[inferido]`
+## Interacciones
 
 | Dirección | Contrato | Contraparte | Criticidad |
 |---|---|---|---|
@@ -112,7 +112,7 @@ La e.firma **sí** se usa dentro del MVP para descargar del SAT y para sellar el
 | Lee y escribe | Contalink: lee para migrar y comparar balanza; escribe sólo por la cola revisada `ai_external_ops` | Sistema contable externo | Media: `accounting-manager` escribe las comisiones de Grupo Promessa en su compañía; este repo no escribe en una compañía que ya tiene escritor (ADR-0004, #357) |
 | Ninguna | Ningún contrato con otro repo de Sedecim. `accounting-manager` convive: contabiliza las comisiones de Grupo Promessa, con un solo escritor por compañía de Contalink (ADR-0004) | Plataforma Sedecim (`docs/platform/inventory.md`) | — |
 
-## Datos y clasificación `[inferido]`
+## Datos y clasificación
 
 - **Datos financieros de terceros:** el mayor, los auxiliares y los CFDI de cada cliente del despacho. La fuente de verdad es el mayor: los informes se derivan, no se guardan aparte.
 - **Datos personales:**
@@ -120,12 +120,19 @@ La e.firma **sí** se usa dentro del MVP para descargar del SAT y para sellar el
   - de los empleados, en nómina: CURP, NSS, SSN y sueldo;
   - las credenciales fiscales (e.firma, CSD), que van cifradas en `src/services/vault/` y `src/services/fiscal-credentials/` con consentimiento versionado.
 - **Aislamiento:** por inquilino con RLS en Postgres, y por entidad en el SQL (invariante 4).
-- **Regulación que probablemente aplica** (confirmar en #337):
+- **Regulación que aplica** (confirmada el 2026-09-30, #337):
   - LFPDPPP, por los datos personales;
   - CFF, por la conservación de la contabilidad y la contabilidad electrónica (Anexo 24);
-  - LISR, LIVA, LSS e INFONAVIT, por los cálculos.
+  - LISR, LIVA, LSS e INFONAVIT, por los cálculos;
+  - LFT, por la nómina y las horas extra;
+  - las NIF del CINIF, como norma contable.
+- **Retención y cifrado** (decisión del owner, 2026-09-30):
+  - la contabilidad y los CFDI se conservan 5 años desde la última declaración relacionada (CFF, art. 30), y no se borran antes;
+  - las credenciales fiscales y la PII de nómina van cifradas en reposo;
+  - la PII se suprime al terminar la relación y su plazo legal (LFPDPPP);
+  - los respaldos van cifrados.
 
-## Reglas de negocio invariantes `[inferido]`
+## Reglas de negocio invariantes
 
 Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/plan/criteria/`.
 
@@ -135,7 +142,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 4. **El IVA se causa y se acredita sobre flujo:** PPD con su REP, y el IVA pendiente hasta el pago.
 5. **Cada cifra que sale** (informes, XML al SAT, SUA) **sale de una sola capa de consulta** y coincide con el mayor (E4.2, X0).
 
-## Zonas sensibles, que requieren revisión humana `[inferido]`
+## Zonas sensibles, que requieren revisión humana
 
 - Las rutas con dueño reforzado de `.github/CODEOWNERS`:
   - migraciones;
@@ -147,15 +154,20 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 - Los generadores de entregables al SAT y al IMSS (`src/services/sat/`, `src/services/payroll/mx/`).
 - El panel de políticas (`src/services/policy/`): cada clave nueva es una decisión contable del despacho.
 
-## Operación `[inferido]`
+## Operación
 
-- **Despliegue:** no hay un entorno de producción declarado en el repo. Hoy se instala en el equipo del despacho y se opera con el CLI ([`docs/wiki/Puesta-en-marcha.md`](wiki/Puesta-en-marcha.md)). Ramas y promoción, al primer despliegue: #333.
+- **Despliegue:** no hay un entorno de producción declarado en el repo. Hoy se instala en el equipo del despacho y se opera con el CLI ([`docs/wiki/Puesta-en-marcha.md`](wiki/Puesta-en-marcha.md)).
+- **Ramas:** `feature → develop → release → main`, con un tag en cada fusión a `main` ([ADR-0008](adr/0008-develop-release-branches.md), #333).
 - **Salud:** `mnemosine doctor`, y en REST `/health` y `/ready`.
 - **Respaldo:** `mnemosine backup create|verify --restore|restore`. CI ensaya la restauración en cada corrida.
 - **Rollback de código:** revertir el PR. Para el esquema, una migración nueva; nunca se edita una aplicada.
-- **SLO:** no declarados → pregunta abierta.
+- **SLO** (decisión del owner, 2026-09-30):
+  - 99.5 % de disponibilidad en horario laboral (lunes a sábado, de 8 a 20 h, hora de la Ciudad de México);
+  - el CLI de lectura responde en menos de 2 s al p95;
+  - la API `/v1` responde en menos de 500 ms al p95;
+  - el cierre de mes no tiene límite de tiempo.
 
-## Deuda conocida `[inferido]`
+## Deuda conocida
 
 - Los paquetes en rojo de `npm run plan:status`.
 - Las issues `via-a`, de lo que ya está mal: la lista y su orden están en #329.
@@ -166,11 +178,16 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 
 | Pregunta | Dueño | Fecha |
 |---|---|---|
-| ¿Qué SLO de disponibilidad y latencia tiene una instalación de despacho? | @vic2099 | 2026-10-09 |
-| ¿Qué retención y qué cifrado en reposo se exigen por dato (CFF, LFPDPPP)? | @vic2099 | 2026-10-09 |
-| ¿Qué carpetas no debe tocar nunca un agente, además de las de `CODEOWNERS`? | @vic2099 | 2026-10-09 |
 | Las decisiones pendientes de la ruta al MVP (`status:needs-clarification`) | @vic2099 | ver #329 |
-| ¿Se adelantan `develop` y `release` (#333) para llegar a N1, o la plataforma registra una excepción para repos sin despliegue? (`docs/platform/maturity.md`) | @vic2099 | 2026-10-09 |
+
+## Preguntas contestadas
+
+| Pregunta | Respuesta | Dueño | Fecha |
+|---|---|---|---|
+| ¿Qué SLO de disponibilidad y latencia tiene una instalación de despacho? | 99.5 % en horario laboral (L–S, 8–20 h, CDMX); CLI de lectura p95 < 2 s; API `/v1` p95 < 500 ms; cierre de mes sin límite. Ver «Operación» | @vic2099 | 2026-09-30 |
+| ¿Qué retención y qué cifrado en reposo se exigen por dato (CFF, LFPDPPP)? | Contabilidad y CFDI, 5 años desde la última declaración relacionada (CFF art. 30), sin borrado antes; credenciales fiscales y PII de nómina cifradas en reposo; la PII se suprime al terminar la relación y su plazo legal (LFPDPPP); respaldos cifrados. Ver «Datos y clasificación» | @vic2099 | 2026-09-30 |
+| ¿Qué carpetas no debe tocar nunca un agente, además de las de `CODEOWNERS`? | Ninguna. Las de `CODEOWNERS` tampoco están prohibidas: piden la revisión del owner | @vic2099 | 2026-09-30 |
+| ¿Se adelantan `develop` y `release` (#333) para llegar a N1, o la plataforma registra una excepción para repos sin despliegue? | Se crean: existen en `origin` desde el 2026-09-30, creadas desde `main` en `70acac8`. El flujo es [ADR-0008](adr/0008-develop-release-branches.md) | @vic2099 | 2026-09-30 |
 
 ## Riesgos conocidos
 
@@ -197,6 +214,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 
 | Fecha | Cambio | PR |
 |---|---|---|
+| 2026-09-30 | Firmado por el owner (#337): sin marcas `[inferido]`, la regulación con LFT y NIF, las preguntas de SLO, retención, carpetas y ramas contestadas, y el flujo `develop → release → main` (ADR-0008, #333) | este |
 | 2026-09-26 | Corregida la relación con `accounting-manager`: conviven, con un solo escritor por compañía de Contalink (ADR-0004 sustituye al 0003, #342) | este |
 | 2026-09-26 | Resuelta la fuente de verdad frente a `accounting-manager`: este repo (ADR-0003, #342) | #347 |
 | 2026-09-25 | Interacciones con Contalink y la plataforma Sedecim; dos preguntas abiertas de plataforma (ADR-0002) | #343 |

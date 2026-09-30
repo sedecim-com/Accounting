@@ -6,6 +6,8 @@ import { getPolicySpec, type PolicySpec } from '../../src/services/policy/pendin
 import { renderPolicies } from '../../src/cli/pending-command.js';
 import { leerPanel } from '../../src/ai/tools/policy-tools.js';
 import type { AgentContext } from '../../src/ai/context.js';
+import { CATALOGS, LANGUAGES } from '../../src/i18n/index.js';
+import { policyOptionKey, policyTextKey } from '../../src/services/policy/policy-text-key.js';
 
 /**
  * I10 (#152) · THE PANEL'S WORDING COMES FROM THE CATALOG, AND READING IT
@@ -194,6 +196,35 @@ describe('I10 · the panel paints the catalog and leaves policy_decisions untouc
       expect(effective.question).toBe(spec.question);
       expect(effective.rationale).toBe(spec.defaultRationale);
     }
+
+    expect(await fingerprint(f.tenantId)).toEqual(aged);
+  }, 60_000);
+
+  it('every seeded row finds its panel texts by key in es and in en (MNE-001-090), and nothing is written', async () => {
+    // The row stays in Spanish (`key`, `options[].value`) and the texts are
+    // looked up by the registry's English name. This joins the two from the
+    // database side: a row whose key or option value had no text would show
+    // an empty question the day the readers render by key.
+    const { rows } = await query<{ key: string; options: { value: string }[] | null }>(
+      `SELECT key, options FROM policy_decisions WHERE tenant_id = $1 ORDER BY key`,
+      [f.tenantId]
+    );
+    expect(rows.length).toBe(seeded.count);
+    const missing: string[] = [];
+    for (const row of rows) {
+      const spec = specOf(row.key);
+      const wanted = [
+        policyTextKey(spec.textKey, 'question'),
+        policyTextKey(spec.textKey, 'impact'),
+        policyTextKey(spec.textKey, 'rationale'),
+        ...(row.options ?? []).map((o) => policyOptionKey(spec.textKey, o.value)),
+      ];
+      for (const language of LANGUAGES) {
+        const catalog = CATALOGS[language] as Readonly<Record<string, string>>;
+        for (const key of wanted) if (typeof catalog[key] !== 'string') missing.push(`${language}.${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
 
     expect(await fingerprint(f.tenantId)).toEqual(aged);
   }, 60_000);
