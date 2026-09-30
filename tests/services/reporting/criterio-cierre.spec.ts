@@ -75,7 +75,8 @@ describe('criterioDeCierreEnInformes', () => {
     expect(mockQuery).not.toHaveBeenCalled();
     expect(mockPolicy).toHaveBeenCalledWith(
       { tenantId: TENANT, entityId: ENTITY },
-      'informes_asientos_de_cierre'
+      'informes_asientos_de_cierre',
+      undefined
     );
   });
 
@@ -87,8 +88,20 @@ describe('criterioDeCierreEnInformes', () => {
     expect(sql(0)).toMatch(/FROM legal_entities WHERE id = \$1/);
     expect(mockPolicy).toHaveBeenCalledWith(
       { tenantId: TENANT, entityId: ENTITY },
-      'informes_asientos_de_cierre'
+      'informes_asientos_de_cierre',
+      undefined
     );
+  });
+
+  it('inside a transaction it reads the tenant and the panel on the caller\'s client (MNE-001-058)', async () => {
+    mockTenant.mockReturnValue(undefined);
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [{ tenant_id: TENANT }] });
+    const client = { query: clientQuery } as unknown as import('pg').PoolClient;
+    conPolitica('excluir_siempre');
+    await criterioDeCierreEnInformes(ENTITY, client);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(String(clientQuery.mock.calls[0][0])).toMatch(/FROM legal_entities WHERE id = \$1/);
+    expect(mockPolicy).toHaveBeenCalledWith({ tenantId: TENANT, entityId: ENTITY }, 'informes_asientos_de_cierre', client);
   });
 
   it('una entidad sin inquilino no revienta el informe: aplica el criterio declarado', async () => {

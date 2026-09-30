@@ -7,8 +7,9 @@
 // fixed kernel rule, not a policy key:
 //
 //   - canonical form: key=value pairs separated by ";" in all three;
-//   - cargo/abono are permanent synonyms of debit/credit, as a side and as a
-//     key (never single letters: "c" is credit in English and cargo in Spanish);
+//   - the Spanish side names are permanent synonyms of debit/credit, as a
+//     side and as a key (never single letters, which read differently in
+//     each language);
 //   - "-" and "_" are the same in key names (tax_rate is tax-rate);
 //   - what people already type keeps working: entry's positional form as a
 //     documented shortcut, and bill's commas plus the bare tax= key with a
@@ -36,7 +37,7 @@ export const LEGACY_LINE_FORMS_RETIRE_IN = '2.0.0';
 export interface LineGrammar {
   /** Every key the command accepts, canonical spelling ("-", lower case). */
   readonly known: readonly string[];
-  /** Keys renamed before anything is checked (entry: cargo is debit). */
+  /** Keys folded into another key before any check (entry: SIDE_ALIASES). */
   readonly aliases?: Readonly<Record<string, string>>;
   /**
    * Different keys that set one field (price and unit-price). A line may give
@@ -47,9 +48,9 @@ export interface LineGrammar {
 }
 
 /**
- * cargo/abono as keys of an entry line (#327). They are the entry grammar's
- * aliases, not a global fold: bill and invoice have no debit/credit key, so a
- * cargo= typed there is reported as cargo, the key the person wrote.
+ * The Spanish side names as keys of an entry line (#327). They belong to the
+ * entry grammar, not to a global fold: bill and invoice have no debit/credit
+ * key, so there such a key is reported exactly as the person typed it.
  */
 export const SIDE_ALIASES: Readonly<Record<string, 'debit' | 'credit'>> = { cargo: 'debit', abono: 'credit' };
 

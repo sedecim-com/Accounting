@@ -286,6 +286,8 @@ mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/common/pay-run-service.ts	`status = paid` AFIRMA QUE EL DINERO SALIÓ, y vuelve a poder afirmarse sobre la corrida de cualquier entidad: la mentira queda escrita en la fila de otro despacho
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/common/pay-run-service.ts	recalcular vuelve a poder hacerse sobre la corrida de otra entidad, y no sólo la mira: medido, le dejó `total_gross` en 0.00 y `employee_count` en 0 — reescribe los libros de al lado
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/mx/cfdi-nomina-generator.ts	el CFDI de nómina vuelve a armarse desde cualquier recibo del sistema, con el RFC, la CURP y el NSS de su empleado dentro, y se manda a timbrar: un comprobante emitido no se deshace
+mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/common/paycheck-read-service.ts	the paycheck reader keeps its third parameter and drops the path predicate: GET /paychecks/:id and `payslip show` read the sister entity's paycheck, with its RFC and NSS
+mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/api/rest/routes/payroll.ts	the route still calls the scoped reader but feeds it a key that is not the validated entity: the predicate stays written and bounds nothing
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/mx/finiquito-calculator.ts	el finiquito vuelve a leer al empleado por inquilino: con la guarda de entidad montada y todo, basta cambiar x-entity-id para liquidar a alguien de la sociedad hermana y ver su sueldo en la respuesta
 mirror	memory	E2.1 write-route-hands-entity-to-its-resolver	src/api/rest/routes/bills.ts	reabre #235 tal cual: la aprobación vuelve a tomar la factura por su id y postea en el mayor de la hermana. El criterio viejo sigue en verde ante esto, porque la ruta no nombra ninguna entidad
 mirror	memory	E2.1 write-route-hands-entity-to-its-resolver	src/api/rest/routes/bills.ts	la guarda desaparece de la cadena de middlewares y su NOMBRE queda escrito dentro de una cadena, en los primeros caracteres del bloque: el criterio viejo, que busca el nombre por texto, sobrevive a este mutante
@@ -554,6 +556,14 @@ mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/service
 mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/services/payroll/mx/isr-exemption.ts	the two caps are pooled: an aguinaldo paid earlier in the year consumes the room of the vacation premium, which the law gives "por cada uno de los conceptos"
 mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/database/migrations/106_the_vacation_premium_is_exempt_up_to_fifteen_uma.sql	the premium is given the 30 UMA of the aguinaldo: twice the exemption the law allows, and ISR under-withheld
 mirror	memory	E4.1 vacation-premium-exempt-and-cfdi-states-the-split	src/services/payroll/mx/isr-exemption.ts	THE LITERAL OF #297: the payroll CFDI declares every perception with no exempt part, and contradicts the ISR withheld on it
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	THE DEFECT OF MNE-001-110: overtime falls back to the plain branch and is taxed whole, while the panel still says the law exempts half of it
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	the 5 UMA stop being per week of service: a 15-day period gets the cap of one week and is over-withheld
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/database/migrations/164_overtime_is_exempt_by_art_93_fraction_one.sql	the whole overtime becomes exempt: the law gives half to workers above the minimum wage, and ISR is under-withheld
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/policy/pending-catalog.ts	the default stops being the law: a firm that never answers the panel over-withholds every paycheck with overtime
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	a line paying hours beyond the LFT limit is exempted by half, triple pay included, and ISR is under-withheld
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	the hours stop adding up across the lines of a paycheck: two lines of 9 h in one week are both half-exempted
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	an off-cycle run of the same period gets a fresh cap for the same weeks of service, and ISR is under-withheld
+mirror	memory	E4.1 overtime-exempt-by-fraction-one-as-the-panel-says	src/services/payroll/mx/isr-exemption.ts	an overtime line with no hours is half-exempted with no check against the LFT limit: the check fails open
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05
 mirror	memory	E4.2 agent-balance-sheet-foots	src/ai/tools/report-tools.ts	el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre
@@ -595,6 +605,7 @@ mirror	memory	E5.1 shadow-verdicts-gate-auto-post	src/services/policy/policy-ser
 mirror	memory	E5.1 shell-completion-from-shipped-tree	src/cli/completion-command.ts	profundidad-truncada: un generador que se detiene un nivel antes pierde las 53 tablas de tercer nivel (el guion cae de 597 a 544 líneas) y una prueba sobre un árbol sintético de dos niveles no tiene tercer nivel que perder
 mirror	memory	E5.1 cli-reference-mirrors-real-help	scripts/generate-cli-reference.ts	ayuda-a-medias: helpInformation() no dispara afterHelp, así que las 244 invocaciones de ejemplo desaparecen del documento mientras el generador sigue prometiendo fidelidad byte a byte
 mirror	memory	E5.1 every-help-example-parses	src/cli/bill-command.ts	ejemplo-que-miente: tax= es TASA en invoice y MONTO en bill, así que el ejemplo copiable registraría 16 pesos de IVA donde van 2 000 — la confusión H3 que este tramo existe para curar, en el propio texto que la cura
+mirror	memory	E5.1 every-help-example-parses	src/cli/invoice-command.ts	invoice-teaches-the-legacy-key: the copyable invoice example goes back to the bare tax=, which bill reads as an AMOUNT, so the H3 confusion returns from the other side
 mirror	memory	E5.1 contract-exit-codes-have-producers	src/services/integrations/accounting/contalink-adapter.ts	rechazo-disfrazado-de-fallo: un 401 (credencial muerta) o un 422 (payload que jamás aceptará) saldrían por el 8, y el contrato dice de ese 8 «Retryable» — el cron reintentaría para siempre una petición que nunca puede salir bien
 mirror	memory	E5.1 contract-exit-codes-have-producers	src/services/integrations/accounting/contalink-adapter.ts	el-cuarto-desenlace: el `json()` vuelve a quedar FUERA del guarda, así que un proxy o un portal cautivo que conteste 200 con HTML da un SyntaxError pelado que sale por el 1 genérico y ni siquiera nombra al proveedor
 mirror	memory	E5.1 contract-exit-codes-have-producers	src/cli/kernel/index.ts	la-puerta-tapiada: la única fila del mapa que produce el 9. Borrada, la clase ExternalRejectedError sigue existiendo intacta y el árbol compila — pero todo rechazo definitivo vuelve al 1 genérico y el 9 vuelve a ser papel
@@ -927,6 +938,8 @@ anchor	src/plan/criteria/e2-1.ts	de: 'WHERE id = $1 AND ${alcance.sql} FOR UPDAT
 anchor	src/plan/criteria/e2-1.ts	de: "WHERE id = $1 AND ${alcance.sql} AND status = 'approved' RETURNING tenant_id",
 anchor	src/plan/criteria/e2-1.ts	de: "UPDATE pay_runs SET status = 'calculating' WHERE id = $1 AND ${alcance.sql}",
 anchor	src/plan/criteria/e2-1.ts	de: 'WHERE p.id = $1 AND p.tenant_id = $2 AND ${predicadoEntidad.sql}',
+anchor	src/plan/criteria/e2-1.ts	de: "AND ${reciboEnEntidad('paychecks.employee_id', 3)}`",
+anchor	src/plan/criteria/e2-1.ts	de: 'getPaycheck(req.params.id, entityScope(req.user!.tenant_id, req.entityId!))',
 anchor	src/plan/criteria/e2-1.ts	de: "WHERE id = $1 AND tenant_id = $2${porEntidad ? ' AND entity_id = $3' : ''}",
 anchor	src/plan/criteria/e2-1.ts	de: 'approveBill(req.params.id, req.user!.user_id, {\n entityId: req.entityId!,\n })',
 anchor	src/plan/criteria/e2-1.ts	de: "IVA acreditable' }), requirePermission('bills:approve'), requireEntityAccess, asyncHandler(",
@@ -1189,6 +1202,14 @@ anchor	src/plan/criteria/e4-1.ts	de: ' prima_vacacional: VACATION_PREMIUM_EXEMPT
 anchor	src/plan/criteria/e4-1.ts	de: 'AND pe.earning_type = $6',
 anchor	src/plan/criteria/e4-1.ts	de: "'income_tax.exempt_cap.vacation_premium_uma', '2016-01-28', '15.0000', 'UMA',",
 anchor	src/plan/criteria/e4-1.ts	de: 'return { exempt: new Decimal(row.isr_exempt_amount), taxable: new Decimal(row.isr_taxable_amount) };',
+anchor	src/plan/criteria/e4-1.ts	de: "} else if (mx && e.earning_type === 'overtime') {",
+anchor	src/plan/criteria/e4-1.ts	de: 'room: new Decimal(cap.value).times(String(uma)).times(weeks).toDecimalPlaces(2).minus(used.exempt),',
+anchor	src/plan/criteria/e4-1.ts	de: "'income_tax.exempt_share.overtime', '2014-01-01', '0.5000', 'rate',",
+anchor	src/plan/criteria/e4-1.ts	de: "defaultValue: 'exempt_by_law',",
+anchor	src/plan/criteria/e4-1.ts	de: 'if (law.hoursLeft.isNegative()) {',
+anchor	src/plan/criteria/e4-1.ts	de: 'law.hoursLeft = law.hoursLeft.minus(hours);',
+anchor	src/plan/criteria/e4-1.ts	de: 'toDecimalPlaces(2).minus(used.exempt),',
+anchor	src/plan/criteria/e4-1.ts	de: "if (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0) {",
 anchor	src/plan/criteria/e4-2.ts	de: 'await getBalanceSheet(ctx.entityId',
 anchor	src/plan/criteria/e4-2.ts	de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
 anchor	src/plan/criteria/e4-2.ts	de: 'ending_balance: aEscala(',
@@ -1230,6 +1251,7 @@ anchor	src/plan/criteria/e5-1.ts	de: 'c.decididos < FLOOR_SOMBRA_VEREDICTOS ||',
 anchor	src/plan/criteria/e5-1.ts	de: ' visit(child, childPath);',
 anchor	src/plan/criteria/e5-1.ts	de: " emitir(cmd, 'afterHelp', contexto);",
 anchor	src/plan/criteria/e5-1.ts	de: 'tax-amount=2000.00',
+anchor	src/plan/criteria/e5-1.ts	de: 'tax-rate=16;description=Servicios contables julio',
 anchor	src/plan/criteria/e5-1.ts	de: ' throw new ExternalRejectedError(this.name, `HTTP ${response.status} at ${path}`, detalle);',
 anchor	src/plan/criteria/e5-1.ts	de: ' let data: T;\n try {\n data = (await response.json()) as T;',
 anchor	src/plan/criteria/e5-1.ts	de: ' 424: ExitCode.EXTERNAL_REJECTED,',
