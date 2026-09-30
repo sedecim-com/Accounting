@@ -835,7 +835,7 @@ anchor	src/plan/criteria/e1-2.ts	de: "const asOf = input.as_of_date ?? (await to
 anchor	src/plan/criteria/e1-2.ts	de: 'const asOfValue = filters.asOf ?? (needsToday ? await todayForEntity(entityId) : undefined);',
 anchor	src/plan/criteria/e1-2.ts	de: 'params.push(filters.asOf ?? (await todayForEntity(entityId)));',
 anchor	src/plan/criteria/e1-2.ts	de: "`Today's date: ${today}.`",
-anchor	src/plan/criteria/e1-2.ts	de: 'return todayFor(tenantId ? { tenantId, entityId } : null, opts);',
+anchor	src/plan/criteria/e1-2.ts	de: 'return zoneFor(tenantId ? { tenantId, entityId } : null);',
 anchor	src/plan/criteria/e1-2.ts	de: 'if (advanceCurrency !== functionalCurrency) {',
 anchor	src/plan/criteria/e1-2.ts	de: 'const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);',
 anchor	src/plan/criteria/e1-2.ts	de: 'vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod',

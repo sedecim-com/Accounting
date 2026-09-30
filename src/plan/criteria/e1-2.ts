@@ -780,8 +780,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/policy/today.ts',
-        de: 'return todayFor(tenantId ? { tenantId, entityId } : null, opts);',
-        a: 'return todayFor(null, opts);',
+        de: 'return zoneFor(tenantId ? { tenantId, entityId } : null);',
+        a: 'return zoneFor(null);',
         porque: "the entity's own zona_horaria row stops being read: an entity in Tokyo gets Mexico City's day",
       },
     ],
@@ -839,7 +839,12 @@ export const E1_2: Criterio[] = [
         return falla("the agent's prompt no longer states the resolved day");
       }
       const r = codigoDe(resolver);
-      if (!r.includes('return todayFor(tenantId ? { tenantId, entityId } : null, opts);')) {
+      // The zone of an entity held by id is resolved in `zoneForEntity` (MNE-001-290 split it out of
+      // `todayForEntity` so the renderers of instants share it), and "today" is that zone's calendar day.
+      if (
+        !r.includes('return zoneFor(tenantId ? { tenantId, entityId } : null);') ||
+        !r.includes('calendarDateIn(await zoneForEntity(entityId), opts.now)')
+      ) {
         return falla("todayForEntity no longer reads the entity's zona_horaria row");
       }
       if (!r.includes('return todayFor(row ? { tenantId: row.tenant_id, entityId: row.entity_id } : null, opts);')) {
