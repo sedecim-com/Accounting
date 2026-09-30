@@ -840,6 +840,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.tenant.create.option.json': 'salida en JSON',
   'help.account.role.sync.description': 'Apunta los roles de retención a las cuentas que elige withholding_accounts_layout y crea las que falten',
   'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
+  'help.receipt.apply.option.withholding':
+    'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
   'help.bill.rule.description':
     'Reglas de procesamiento del despacho: con qué se clasifica un CFDI recibido sin que intervenga el modelo',
   'help.bill.rule.create.description':

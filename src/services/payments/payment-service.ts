@@ -61,6 +61,13 @@ export interface AplicacionPago {
   documentId: string;
   amountApplied: string;
   discountAmount?: string;
+  /**
+   * MNE-001-113 · customer side only: the ISR and VAT the customer withheld
+   * and remits to the SAT for us. They settle the invoice together with
+   * amountApplied but are not cash of the collection.
+   */
+  withholdingIsr?: string;
+  withholdingIva?: string;
 }
 
 export interface EntradaPago {
@@ -1026,6 +1033,11 @@ export async function applyCustomerPayment(
       );
     }
     vistos.add(a.documentId);
+    for (const w of [a.withholdingIsr, a.withholdingIva]) {
+      if (w !== undefined && new Decimal(w).isNegative()) {
+        throw new ValidationError(`A withholding cannot be negative (${w}).`);
+      }
+    }
   }
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoAplicacion> => {
@@ -1046,11 +1058,11 @@ export async function applyCustomerPayment(
     for (const app of aplicaciones) {
       const r = await client.query<{
         id: string; invoice_number: string; amount_due: string; status: string;
-        currency_code: string; tax_amount: string; total_amount: string;
+        currency_code: string; subtotal: string; tax_amount: string; total_amount: string;
         cfdi_uuid: string | null; terms: string | null; memo: string | null;
       }>(
         `SELECT id, invoice_number, amount_due, status, currency_code,
-                tax_amount, total_amount, cfdi_uuid, terms, memo
+                subtotal, tax_amount, total_amount, cfdi_uuid, terms, memo
            FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entityId]
       );
@@ -1064,26 +1076,50 @@ export async function applyCustomerPayment(
       }
       assertMoneda(inv.invoice_number, inv.currency_code, pago.currency_code);
       const aplicado = new Decimal(app.amountApplied);
+      const isr = new Decimal(app.withholdingIsr ?? '0');
+      const iva = new Decimal(app.withholdingIva ?? '0');
+      // What this event takes off the invoice: the cash plus what the
+      // customer withheld (MNE-001-113).
+      const settled = aplicado.plus(isr).plus(iva);
       const saldo = new Decimal(inv.amount_due);
-      if (aplicado.greaterThan(saldo)) {
+      if (settled.greaterThan(saldo)) {
         throw new ValidationError(
-          `${inv.invoice_number} debe ${saldo.toFixed(2)} y se intentan aplicar ${aplicado.toFixed(2)}.`
+          `${inv.invoice_number} debe ${saldo.toFixed(2)} y se intentan aplicar ${settled.toFixed(2)}` +
+            (settled.equals(aplicado) ? '.' : ` (${aplicado.toFixed(2)} cobrado + ${isr.plus(iva).toFixed(2)} retenido).`)
         );
       }
 
       // Lo aplicado (vivo) a la factura ANTES de este evento: la base del
       // objetivo acumulado del IVA, para que las parciales no deriven.
-      const prev = await client.query<{ aplicado: string }>(
-        `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
+      const prev = await client.query<{ aplicado: string; isr: string; iva: string }>(
+        // MNE-001-113: a withholding settled the invoice too, so it counts.
+        `SELECT COALESCE(SUM(amount_applied + withholding_isr_amount + withholding_iva_amount), 0)::text AS aplicado,
+                COALESCE(SUM(withholding_isr_amount), 0)::text AS isr,
+                COALESCE(SUM(withholding_iva_amount), 0)::text AS iva
            FROM payment_allocations WHERE invoice_id = $1 AND unapplied_at IS NULL`,
         [app.documentId]
       );
+      // The customer cannot withhold more VAT than the invoice transferred,
+      // nor more ISR than its subtotal, across every live collection.
+      const ivaCap = new Decimal(inv.tax_amount);
+      const isrCap = new Decimal(inv.subtotal);
+      if (iva.plus(prev.rows[0]?.iva ?? '0').greaterThan(ivaCap)) {
+        throw new ValidationError(
+          `${inv.invoice_number} traslada ${ivaCap.toFixed(2)} de IVA: no se puede retener más que eso.`
+        );
+      }
+      if (isr.plus(prev.rows[0]?.isr ?? '0').greaterThan(isrCap)) {
+        throw new ValidationError(
+          `${inv.invoice_number} tiene un subtotal de ${isrCap.toFixed(2)}: el ISR retenido no puede pasar de ahí.`
+        );
+      }
 
       const allocId = uuidv4();
       await client.query(
-        `INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_applied)
-         VALUES ($1,$2,$3,$4)`,
-        [allocId, paymentId, app.documentId, app.amountApplied]
+        `INSERT INTO payment_allocations
+           (id, payment_id, invoice_id, amount_applied, withholding_isr_amount, withholding_iva_amount)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [allocId, paymentId, app.documentId, app.amountApplied, isr.toFixed(4), iva.toFixed(4)]
       );
       await client.query(
         `UPDATE invoices SET
@@ -1092,10 +1128,10 @@ export async function applyCustomerPayment(
            status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
            last_payment_date = $2
          WHERE id = $3 AND entity_id = $4`,
-        [app.amountApplied, new Date(), app.documentId, entityId]
+        [settled.toFixed(4), new Date(), app.documentId, entityId]
       );
 
-      const nuevo = saldo.minus(aplicado);
+      const nuevo = saldo.minus(settled);
       documentos.push({
         id: inv.id, numero: inv.invoice_number,
         saldoAnterior: saldo.toFixed(2), saldoNuevo: nuevo.toFixed(2),
@@ -1106,6 +1142,8 @@ export async function applyCustomerPayment(
         invoiceId: inv.id,
         invoiceNumber: inv.invoice_number,
         amount: aplicado.toFixed(4),
+        withholdingIsr: isr.toFixed(4),
+        withholdingIva: iva.toFixed(4),
         priorApplied: prev.rows[0]?.aplicado ?? '0',
         taxAmount: inv.tax_amount,
         totalAmount: inv.total_amount,
@@ -1145,6 +1183,9 @@ export async function applyCustomerPayment(
       newValues: {
         evento: 'apply',
         aplicado: total.toFixed(2),
+        withholding: aplicaciones.reduce(
+          (s, a) => s.plus(a.withholdingIsr ?? '0').plus(a.withholdingIva ?? '0'), new Decimal(0)
+        ).toFixed(2),
         documentos: documentos.length,
         journal_entry_id: entry.id,
       },
@@ -1210,8 +1251,11 @@ export async function unapplyCustomerPayment(
     if (inv.rows.length === 0) throw new NotFoundError('Invoice', args.invoiceId);
     const factura = inv.rows[0];
 
-    const vivas = await client.query<{ id: string; amount_applied: string; iva_reclass_amount: string | null }>(
-      `SELECT id, amount_applied::text, iva_reclass_amount::text
+    const vivas = await client.query<{
+      id: string; amount_applied: string; iva_reclass_amount: string | null; isr: string; iva: string;
+    }>(
+      `SELECT id, amount_applied::text, iva_reclass_amount::text,
+              withholding_isr_amount::text AS isr, withholding_iva_amount::text AS iva
          FROM payment_allocations
         WHERE payment_id = $1 AND invoice_id = $2 AND unapplied_at IS NULL
         FOR UPDATE`,
@@ -1225,6 +1269,11 @@ export async function unapplyCustomerPayment(
     }
 
     const total = vivas.rows.reduce((s, r) => s.plus(r.amount_applied), new Decimal(0));
+    // MNE-001-113: the withholding closed part of the invoice too, so it
+    // reopens with the cash and leaves its role accounts.
+    const withheldIsr = vivas.rows.reduce((s, r) => s.plus(r.isr), new Decimal(0));
+    const withheldIva = vivas.rows.reduce((s, r) => s.plus(r.iva), new Decimal(0));
+    const reopened = total.plus(withheldIsr).plus(withheldIva);
     const conIva = vivas.rows.filter((r) => r.iva_reclass_amount !== null);
     const sinIva = vivas.rows.filter((r) => r.iva_reclass_amount === null);
     const ivaExacto = conIva.reduce((s, r) => s.plus(r.iva_reclass_amount as string), new Decimal(0));
@@ -1254,7 +1303,7 @@ export async function unapplyCustomerPayment(
          amount_due  = amount_due + $1,
          status = CASE WHEN amount_paid - $1 <= 0 THEN 'sent' ELSE 'partially_paid' END
        WHERE id = $2 AND entity_id = $3`,
-      [total.toFixed(4), args.invoiceId, entityId]
+      [reopened.toFixed(4), args.invoiceId, entityId]
     );
 
     const entry = await postReceiptUnapplicationEntry(
@@ -1267,6 +1316,8 @@ export async function unapplyCustomerPayment(
       {
         invoiceNumber: factura.invoice_number,
         amount: total.toFixed(4),
+        withholdingIsr: withheldIsr.toFixed(4),
+        withholdingIva: withheldIva.toFixed(4),
         ivaReclass: estimado ? null : ivaExacto.toFixed(4),
         ivaEstimado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
       },
@@ -1294,8 +1345,8 @@ export async function unapplyCustomerPayment(
       documento: {
         id: factura.id, numero: factura.invoice_number,
         saldoAnterior: new Decimal(factura.amount_due).toFixed(2),
-        saldoNuevo: new Decimal(factura.amount_due).plus(total).toFixed(2),
-        estado: new Decimal(factura.amount_paid).minus(total).lessThanOrEqualTo(0) ? 'sent' : 'partially_paid',
+        saldoNuevo: new Decimal(factura.amount_due).plus(reopened).toFixed(2),
+        estado: new Decimal(factura.amount_paid).minus(reopened).lessThanOrEqualTo(0) ? 'sent' : 'partially_paid',
         moneda: factura.currency_code,
       },
       desaplicado: total.toFixed(2),
@@ -1553,8 +1604,9 @@ export async function reverseCustomerPayment(
     }
 
     // Las facturas reabren por lo VIVO que este cobro les tenía aplicado.
+    // The withholding reopens too (MNE-001-113): the mirror took it off 1145/1146.
     const vivas = await client.query<{ invoice_id: string; total: string }>(
-      `SELECT invoice_id, SUM(amount_applied)::text AS total
+      `SELECT invoice_id, SUM(amount_applied + withholding_isr_amount + withholding_iva_amount)::text AS total
          FROM payment_allocations
         WHERE payment_id = $1 AND unapplied_at IS NULL
         GROUP BY invoice_id`,

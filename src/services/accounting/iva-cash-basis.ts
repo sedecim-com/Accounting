@@ -492,8 +492,9 @@ async function invoicesAppliedBy(
             i.invoice_number                    AS document_number,
             i.tax_amount::text                  AS tax_amount,
             i.total_amount::text                AS total_amount,
-            SUM(pa.amount_applied)::text        AS applied_now,
-            (SELECT COALESCE(SUM(pa2.amount_applied), 0)
+            -- The customer's withholding settles the invoice too (MNE-001-113).
+            SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)::text AS applied_now,
+            (SELECT COALESCE(SUM(pa2.amount_applied + pa2.withholding_isr_amount + pa2.withholding_iva_amount), 0)
                FROM payment_allocations pa2
               WHERE pa2.invoice_id = pa.invoice_id
                 AND pa2.unapplied_at IS NULL)::text AS applied_total,

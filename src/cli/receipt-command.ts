@@ -33,6 +33,7 @@ import {
   abortedByUser,
   exitCodeFor,
   dateOnly,
+  optionByKey,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
@@ -143,6 +144,8 @@ Examples:
   mnemosine receipt apply PMT-2026-00042 --invoice "INV-2026-00042:2500.00" --invoice "INV-2026-00051:1800.00"
   # A single invoice, with the amount as its own flag.
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042 --amount 2500.00
+  # The customer paid 9533.33 on fees of 10000 + VAT: it withheld 10 % ISR and 2/3 of the VAT.
+  mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:9533.33 --withholding isr:1000 --withholding iva:1066.67
 `,
   unapply: `
 Examples:
@@ -159,6 +162,40 @@ Examples:
   mnemosine receipt reverse PMT-2026-00042 --dry-run
 `,
 } as const;
+
+/**
+ * `--withholding isr:1000` for the only invoice, or `INV-2026-00042:iva:1066.67`
+ * to name one of several (MNE-001-113). Repeated specs for the same invoice
+ * and tax add up.
+ */
+export function parseWithholding(
+  specs: string[] | undefined,
+  refs: string[]
+): Map<string, { isr: Decimal; iva: Decimal }> {
+  const out = new Map<string, { isr: Decimal; iva: Decimal }>();
+  for (const spec of specs ?? []) {
+    const m = /^(?:(.+):)?(isr|iva):(\d+(?:\.\d+)?)$/i.exec(spec.trim());
+    if (!m) {
+      throw usageError(
+        `No entiendo la retención "${spec}": escribe "isr:1000" o "iva:1066.67", y con varias ` +
+          'facturas antepón el folio ("INV-2026-00042:isr:1000").'
+      );
+    }
+    const invoiceRef = m[1] ?? (refs.length === 1 ? refs[0] : undefined);
+    if (invoiceRef === undefined || !refs.includes(invoiceRef)) {
+      throw usageError(
+        m[1] === undefined
+          ? `Con varias facturas, la retención "${spec}" tiene que decir de cuál es ("<folio>:${spec}").`
+          : `La retención "${spec}" nombra ${m[1]}, que no está entre las --invoice de esta aplicación.`
+      );
+    }
+    const tax = m[2].toLowerCase() as 'isr' | 'iva';
+    const current = out.get(invoiceRef) ?? { isr: new Decimal(0), iva: new Decimal(0) };
+    current[tax] = current[tax].plus(m[3]);
+    out.set(invoiceRef, current);
+  }
+  return out;
+}
 
 export function registerReceiptCommand(program: Command, deps: ReceiptCommandDeps): void {
   const receipt = program
@@ -586,6 +623,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .option('--invoice <spec...>', 'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount')
     .option('--amount <amount>', 'amount for a single --invoice without an inline amount')
     .option('--json', 'JSON output');
+  optionByKey(apply, '--withholding <spec...>', 'help.receipt.apply.option.withholding');
   declareRisk(apply, {
     risk: 'irreversible',
     llave: { sinLlave: 'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento' },
@@ -594,18 +632,24 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   });
   apply.addHelpText('after', EJEMPLOS.apply);
   apply.action(
-    (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string }) =>
+    (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string; withholding?: string[] }) =>
       run(async () => {
         const ctx = await writeEntityOf(opts);
         const { dryRun } = gateMutation(apply, opts as Record<string, unknown>);
         const p = deps.palette;
         const pares = parseAplicaciones(opts.invoice, opts.amount);
+        const withheld = parseWithholding(opts.withholding, pares.map((x) => x.ref));
 
         const cobro = await getCustomerPayment(ctx.entityId, ref);
         const aplicaciones = [];
         for (const par of pares) {
           const factura = await resolveInvoice(ctx.entityId, par.ref);
-          aplicaciones.push({ documentId: factura.id, amountApplied: new Decimal(par.amount as string).toFixed(2) });
+          const w = withheld.get(par.ref);
+          aplicaciones.push({
+            documentId: factura.id,
+            amountApplied: new Decimal(par.amount as string).toFixed(2),
+            ...(w ? { withholdingIsr: w.isr.toFixed(2), withholdingIva: w.iva.toFixed(2) } : {}),
+          });
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);

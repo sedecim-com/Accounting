@@ -978,6 +978,8 @@ export const EN = {
   'help.tenant.create.option.json': 'JSON output',
   'help.account.role.sync.description': 'Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones',
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
+  'help.receipt.apply.option.withholding':
+    'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
   'help.bill.rule.description': 'Firm processing rules: what codes an incoming CFDI with no model involved',
   'help.bill.rule.create.description':
     'Create a processing rule (conditions → actions) that the next ingest applies',
