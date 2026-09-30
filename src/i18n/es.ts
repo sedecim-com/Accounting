@@ -1191,6 +1191,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'Primero el importe diario: mensual / 30.4 al centavo, luego × los días del periodo',
 
+  'policy.filing_rounding_to_pesos.question':
+    'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
+  'policy.filing_rounding_to_pesos.impact':
+    'Puede mover el IVA a pagar uno o dos pesos: ajustar cada renglón y sumar pesos no es lo mismo que sumar centavos y ajustar el resultado.',
+  'policy.filing_rounding_to_pesos.rationale':
+    'El art. 20 del CFF ajusta a pesos las cantidades de una declaración (de 1 a 50 centavos a la unidad anterior, de 51 a 99 a la siguiente), después de redondear al centavo los cuatro decimales del mayor. Ajustar cada renglón antes de sumarlo deja en pesos cada cifra capturada, como la ley pide de cada cantidad. Premisa sin verificar: que el formulario vigente de IVA en Declaraciones y Pagos capture cada renglón en pesos; si captura sólo las bases y calcula él el impuesto, ninguna de las dos opciones lo modela.',
+  'policy.filing_rounding_to_pesos.why':
+    'El art. 20 del CFF dice que las cantidades de una declaración se ajustan a pesos, pero no en qué paso del cálculo. Los despachos lo hacen de las dos maneras, y el IVA a pagar que declaran puede diferir uno o dos pesos.',
+  'policy.filing_rounding_to_pesos.what':
+    'El papel de trabajo muestra siempre dos columnas, los centavos rastreables al mayor y los pesos a capturar, y obtiene el IVA a pagar o a favor como elijas aquí.',
+  'policy.filing_rounding_to_pesos.if_skipped':
+    'Ajusto cada renglón a pesos antes de sumarlo.',
+  'policy.filing_rounding_to_pesos.option.cada_renglon':
+    'Cada renglón: cada cifra capturada se ajusta a pesos y el cálculo sigue en pesos enteros',
+  'policy.filing_rounding_to_pesos.option.solo_el_pago':
+    'Sólo el pago: el cálculo corre en centavos y sólo el resultado se ajusta a pesos',
   'policy.overtime_isr_exemption.question':
     '¿Aplicas a las horas extra que pagas la exención de ISR del art. 93 fr. I de la LISR?',
   'policy.overtime_isr_exemption.impact':
