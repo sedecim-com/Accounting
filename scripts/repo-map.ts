@@ -64,7 +64,7 @@ const MODULE_DESCRIPTIONS: Record<string, string> = {
   'src/services/blockchain': 'Publicación de cifras públicas y su sello (superficie apagada por omisión).',
   'src/services/cache': 'Limitador de tasa, con Redis opcional.',
   'src/services/entity': 'Entidades (sociedades) del inquilino.',
-  'src/services/fiscal': 'Periodo fiscal, factores e INPC.',
+  'src/services/fiscal': 'Periodo fiscal, factores e INPC, y el IVA definitivo del mes por tasa (papel de trabajo).',
   'src/services/fiscal-credentials': 'Custodia de e.firma y CSD y su consentimiento (ruta con dueño reforzado).',
   'src/services/fx': 'Tipos de cambio y conversión.',
   'src/services/idempotency': 'Almacén de llaves de idempotencia.',
