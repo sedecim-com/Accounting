@@ -23,6 +23,11 @@ cumplir). Consecuencias de registro:
   Clientes. No se borra la venta original (NIF B-1: nada se edita).
 - **Ingreso por avance de obra (D-2):** requiere medir el grado de avance —
   registro solo con confirmación del usuario.
+- **ONIF 7** (30-ago-2024, en el libro NIF 2026): orientación NO obligatoria
+  sobre contratos de construcción y de compraventa de bienes de capital; aplica
+  D-1 / D-2 a esos contratos (identificar el contrato y sus obligaciones, y medir
+  el avance). Cítala como orientación, nunca como requisito. Fuente secundaria
+  (el CINIF la publica sólo en su sección de pago).
 
 Precisiones D-1: **emitir factura NO equivale a devengar** (un CFDI por bienes
 no entregados no genera ingreso contable — genera pasivo del contrato); el

@@ -1230,6 +1230,31 @@
       "sources": [
         "https://www.ifrs.org/issued-standards/list-of-standards/"
       ]
+    },
+    {
+      "code": "NIF A-2",
+      "title_es": "Incertidumbres sobre negocio en marcha",
+      "title_en": "Uncertainties about the going concern",
+      "status": "vigente",
+      "effective": "Promulgada en dic-2024; vigente para ejercicios que inicien el 1-ene-2026, con adopción anticipada permitida. Desde esa fecha «NIF A-2» ya NO es el postulado de devengación (ese es NIF A-1, cap. 20).",
+      "topic": "nif-marco",
+      "confidence": "medium",
+      "sources": [
+        "https://www.cinif.org.mx/uploads/NIF_A2_Proyecto_Auscultacion.pdf",
+        "https://www.veritas.org.mx/Opinion/Las-NIF-en-corto/nif-a-2-del-cinif-y-las-incertidumbres-sobre-el-negocio-en-marcha"
+      ]
+    },
+    {
+      "code": "ONIF 7",
+      "title_es": "Contratos de construcción y contratos de compraventa de bienes de capital",
+      "title_en": "Construction contracts and contracts for the sale of capital goods",
+      "status": "vigente",
+      "effective": "Orientación (NO obligatoria) publicada el 30-ago-2024 e incluida en el libro NIF 2026; interpreta NIF D-1 / D-2 sobre el avance de obra.",
+      "topic": "nif-registro",
+      "confidence": "medium",
+      "sources": [
+        "https://www.bhrmx.com/onif-7-contratos-de-construccion-y-contratos-de-compraventa-de-bienes-de-capital/"
+      ]
     }
   ]
 }

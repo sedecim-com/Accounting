@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DOC_TOPICS } from '../../src/ai/tools/docs-tools.js';
-import { regenerateIndice } from '../../scripts/build-niif-indice.js';
+import { monthsSince, regenerateIndice } from '../../scripts/build-niif-indice.js';
 
 // __dirname instead of import.meta.url: the test project compiles as CommonJS,
 // where import.meta is a syntax error. Same directory either way, and it is what
@@ -73,5 +73,40 @@ describe('ifrs-registry.json — la fuente de verdad del corpus NIIF', () => {
       expect(content.length, `${topic}.md muy corto`).toBeGreaterThan(1500);
       expect(content.startsWith('# NIIF'), `${topic}.md sin título NIIF`).toBe(true);
     }
+  });
+});
+
+describe('freshness of the normative corpus (docs/PROCESS.md)', () => {
+  const processMd = fs.readFileSync(path.join(DOCS, '..', '..', '..', 'docs', 'PROCESS.md'), 'utf-8');
+  const maxMonths = Number(/^FRESCURA_MESES:\s*(\d+)\s*$/m.exec(processMd)?.[1]);
+
+  it('PROCESS.md declares N as a positive whole number of months', () => {
+    expect(Number.isInteger(maxMonths) && maxMonths > 0).toBe(true);
+  });
+
+  it('counts whole months from verified_at', () => {
+    const now = new Date('2026-09-30T12:00:00Z');
+    expect(monthsSince('2026-09-30', now)).toBe(0);
+    expect(monthsSince('2026-03-30', now)).toBe(6);
+    expect(monthsSince('2026-03-31', now)).toBe(5);
+    expect(monthsSince('2025-09-30', now)).toBe(12);
+  });
+
+  it('verified_at is no older than N months (renew the corpus, then bump the date)', () => {
+    const age = monthsSince(registry.verified_at, new Date());
+    expect(
+      age,
+      `verified_at ${registry.verified_at} is ${age} months old; max ${maxMonths} (docs/PROCESS.md)`
+    ).toBeLessThanOrEqual(maxMonths);
+  });
+
+  it('indexes the new NIF A-2 and ONIF 7 (MNE-001-078)', () => {
+    const indexDoc = fs.readFileSync(path.join(DOCS, 'niif-indice.md'), 'utf-8');
+    for (const code of ['NIF A-2', 'ONIF 7']) {
+      expect(registry.standards.map((s) => s.code), code).toContain(code);
+      expect(indexDoc, code).toContain(`| ${code} |`);
+    }
+    const frameworkDoc = fs.readFileSync(path.join(DOCS, 'nif-marco.md'), 'utf-8');
+    expect(frameworkDoc).toContain('Incertidumbres sobre negocio en marcha');
   });
 });

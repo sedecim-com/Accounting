@@ -156,7 +156,19 @@ guía NO obligatoria y solo se listan aquí.
 | IFRS Practice Statement 1 | Comentarios de la Administración (revisado jun-2025) | vigente | Versión revisada emitida el 23-jun-2025; guía NO obligatoria (no es norma) |
 | IFRS Practice Statement 2 | Realización de Juicios sobre Materialidad | vigente | Guía NO obligatoria (no es norma) |
 
-_72 fichas · verificado 2026-09-06_
+### NIF mexicanas de la serie A → doc `nif-marco`
+
+| Norma | Nombre | Estado | Vigencia |
+|---|---|---|---|
+| NIF A-2 | Incertidumbres sobre negocio en marcha | vigente | Promulgada en dic-2024; vigente para ejercicios que inicien el 1-ene-2026, con adopción anticipada permitida. |
+
+### Orientaciones a las NIF (ONIF) → doc `nif-registro`
+
+| Norma | Nombre | Estado | Vigencia |
+|---|---|---|---|
+| ONIF 7 | Contratos de construcción y contratos de compraventa de bienes de capital | vigente | Orientación (NO obligatoria) publicada el 30-ago-2024 e incluida en el libro NIF 2026; interpreta NIF D-1 /… |
+
+_74 fichas · verificado 2026-09-06_
 <!-- REGISTRY:END -->
 
 ## Cómo mantener actualizado este corpus
