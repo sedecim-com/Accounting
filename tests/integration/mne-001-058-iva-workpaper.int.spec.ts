@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { query, closeDatabase } from '../../src/database/connection.js';
+import { AsyncResource } from 'node:async_hooks';
+import { query, closeDatabase, getClient, currentTenant } from '../../src/database/connection.js';
+import { criterioDeCierreEnInformes } from '../../src/services/reporting/criterio-cierre.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { JournalEntryType } from '../../src/types/index.js';
@@ -38,6 +40,10 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 // June holds one PUE sale whose lines lost their tax, as an ingested CFDI
 // without its pre-registration looks: the settlement must be withheld.
 // ============================================================
+
+// Bound at module load, before the fixture enters its tenant: what runs
+// through it sees no RLS context, as a REST read inside withTransaction does.
+const outsideTenant = AsyncResource.bind(<T>(fn: () => Promise<T>): Promise<T> => fn());
 
 const MONTH = 5;
 const day = (d: number): string => `2026-05-${String(d).padStart(2, '0')}`;
@@ -217,5 +223,35 @@ describe('the definitive IVA of the month equals the hand calculation', () => {
     await expect(
       buildIvaWorkpaper({ tenantId: uuidv4(), entityId: f.entityId, year: 2026, month: MONTH })
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+// The workpaper reads the close criterion inside its own transaction, so with
+// no RLS context criterioDeCierreEnInformes must resolve the tenant through
+// that same client, and an entity that does not exist gets the catalog
+// default instead of failing a read.
+describe('the close criterion read through the caller transaction', () => {
+  it('with no tenant context it finds the tenant with the same client', async () => {
+    const client = await getClient();
+    try {
+      const seen = await outsideTenant(async () => ({
+        tenant: currentTenant(),
+        criterio: await criterioDeCierreEnInformes(f.entityId, client),
+      }));
+      expect(seen.tenant).toBeUndefined();
+      expect(seen.criterio).toEqual({ valor: 'estado_sin_cierre_balanza_con_cierre', enEstadoDeResultados: false, enBalanza: true });
+    } finally {
+      client.release();
+    }
+  });
+
+  it('an entity that does not exist gets the default instead of an error', async () => {
+    const client = await getClient();
+    try {
+      const c = await outsideTenant(() => criterioDeCierreEnInformes(uuidv4(), client));
+      expect(c.valor).toBe('estado_sin_cierre_balanza_con_cierre');
+    } finally {
+      client.release();
+    }
   });
 });
