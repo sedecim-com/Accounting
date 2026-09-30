@@ -240,6 +240,9 @@ export const E3_2: Criterio[] = [
       if (!/fetched \? out\.toPost : out\.toFetch/.test(r) || !/je\.status = 'posted'/.test(r)) {
         return falla('la conciliación no distingue lo que falta traer de lo que falta contabilizar, o cuenta asientos no posteados');
       }
+      if (!/i\.cfdi_uuid IS NOT NULL AND i\.status NOT IN \('void', 'cancelled'\)/.test(r)) {
+        return falla('una factura anulada cuenta como el CFDI ya contabilizado: el censo dejaría de pedir el que sí falta');
+      }
       const close = codigoDe('src/services/accounting/period-close.ts');
       if (!/if \(census\.hasLoads\) \{[\s\S]*?censusBox\(census, await censusGapPolicy/.test(close)) {
         return falla('el cierre no lee el censo contra lo contabilizado');
