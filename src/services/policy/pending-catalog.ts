@@ -1991,6 +1991,39 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I round once, on the period amount. From February to December the two options give the same figures.',
     priority: 42,
   },
+  // #297 · MNE-001-110. Decided by the owner in MNE-001-109: the exemption of
+  // the law, configurable. Reader: `overtimeLaw` in payroll/mx/isr-exemption.ts,
+  // only when a paycheck carries an `overtime` earning.
+  {
+    key: 'overtime_isr_exemption',
+    textKey: 'overtime_isr_exemption',
+    category: 'fiscal',
+    question: 'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
+    impact:
+      'It moves the ISR withheld on every paycheck with overtime, and the exempt part the payroll CFDI declares. ' +
+      '"exempt_by_law" exempts 50 % of the double-paid hours within the LFT weekly limit, up to 5 daily UMA of the ' +
+      'payment date per week of the period; triple-paid hours go as an earning of their own and are taxed whole. ' +
+      '"taxed_in_full" taxes all overtime.',
+    options: [
+      { value: 'exempt_by_law', label: 'Exempt it as LISR art. 93 fr. I says: half, up to 5 UMA a week' },
+      { value: 'taxed_in_full', label: 'Tax all overtime, with no exemption' },
+    ],
+    defaultValue: 'exempt_by_law',
+    defaultRationale:
+      'LISR art. 93 fr. I exempts 50 % of overtime pay within the labour-law limit (LFT art. 66, dated by the ' +
+      'reform of DOF 01-05-2026), up to 5 times the minimum wage (the UMA since DOF 27-01-2016) per week of ' +
+      'service. Withholding on the exempt half over-withholds the worker every period. Taxing it whole is for a ' +
+      'firm that cannot evidence the overtime was worked, where the SAT would reject the exemption.',
+    whyAsking:
+      'The law exempts part of the overtime, but only overtime that was really worked and recorded. A firm with ' +
+      'time records applies the exemption; one without them may prefer to withhold on all of it.',
+    whatIDo:
+      'With "exempt_by_law" I split each overtime line into its exempt and taxable part and compute the ISR on the ' +
+      'taxable one; a line that pays more hours than the LFT weekly limit stops the paycheck. With "taxed_in_full" ' +
+      'the whole line is taxed.',
+    ifSkipped: 'I apply the exemption of the law.',
+    priority: 42,
+  },
   {
     key: 'isn_estado_que_causa',
     textKey: 'isn_taxing_state',

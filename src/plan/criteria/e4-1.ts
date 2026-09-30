@@ -2862,4 +2862,82 @@ export const E4_1: Criterio[] = [
         : falla('no test RUNS the premium exemption and the CFDI against a migrated database');
     },
   },
+  {
+    paquete: 'E4.1',
+    id: 'overtime-exempt-by-fraction-one-as-the-panel-says',
+    enunciado:
+      'Overtime is exempt by half, up to 5 UMA of the payment date per week of the period and within the dated LFT limit (LISR art. 93 fr. I), unless the panel key overtime_isr_exemption says to tax it whole',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: "} else if (mx && e.earning_type === 'overtime') {",
+        a: "} else if (mx && e.earning_type === 'overtime_by_law') {",
+        porque:
+          'THE DEFECT OF MNE-001-110: overtime falls back to the plain branch and is taxed whole, while the panel still says the law exempts half of it',
+      },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: 'room: new Decimal(cap.value).times(String(uma)).times(weeks).toDecimalPlaces(2),',
+        a: 'room: new Decimal(cap.value).times(String(uma)).toDecimalPlaces(2),',
+        porque: 'the 5 UMA stop being per week of service: a 15-day period gets the cap of one week and is over-withheld',
+      },
+      {
+        archivo: 'src/database/migrations/164_overtime_is_exempt_by_art_93_fraction_one.sql',
+        de: "'income_tax.exempt_share.overtime', '2014-01-01', '0.5000', 'rate',",
+        a: "'income_tax.exempt_share.overtime', '2014-01-01', '1.0000', 'rate',",
+        porque: 'the whole overtime becomes exempt: the law gives half to workers above the minimum wage, and ISR is under-withheld',
+      },
+      {
+        archivo: 'src/services/policy/pending-catalog.ts',
+        de: "defaultValue: 'exempt_by_law',",
+        a: "defaultValue: 'taxed_in_full',",
+        porque: 'the default stops being the law: a firm that never answers the panel over-withholds every paycheck with overtime',
+      },
+      {
+        archivo: 'src/services/payroll/mx/isr-exemption.ts',
+        de: 'e.hours !== undefined && law.maxHours.lessThan(e.hours)',
+        a: 'e.hours !== undefined && false',
+        porque: 'a line paying hours beyond the LFT limit is exempted by half, triple pay included, and ISR is under-withheld',
+      },
+    ],
+    evaluar: () => {
+      // #297 (MNE-001-110). Fraction I: half the double-paid overtime, capped
+      // per week of service, within the labour-law limit, and the panel's key.
+      const exemption = 'src/services/payroll/mx/isr-exemption.ts';
+      if (!existe(exemption)) return falla('the ISR exemption module is gone: every earning is all or nothing again');
+      const src = codigoDe(exemption);
+      if (!/\} else if \(mx && e\.earning_type === 'overtime'\) \{/.test(src)) {
+        return falla('overtime has no branch of its own: it is taxed whole again (MNE-001-110)');
+      }
+      if (!/room: new Decimal\(cap\.value\)\.times\(String\(uma\)\)\.times\(weeks\)\.toDecimalPlaces\(2\),/.test(src)) {
+        return falla('the overtime cap is not 5 UMA per week of the period');
+      }
+      if (!/e\.hours !== undefined && law\.maxHours\.lessThan\(e\.hours\)/.test(src) ||
+          !/legalParameterAt\('MX', OVERTIME_WEEKLY_HOURS_KEY, mx\.payDate\)/.test(src)) {
+        return falla('overtime beyond the dated LFT weekly limit is no longer refused');
+      }
+      if (!/getPolicy\(\{ tenantId: mx\.tenantId, entityId: mx\.entityId \}, OVERTIME_POLICY_KEY\)/.test(src)) {
+        return falla('the overtime_isr_exemption key has no reader: the panel decides nothing');
+      }
+      if (!/key: 'overtime_isr_exemption',[\s\S]{0,1200}?defaultValue: 'exempt_by_law',/.test(codigoDe('src/services/policy/pending-catalog.ts'))) {
+        return falla('the default of overtime_isr_exemption is not the exemption of the law');
+      }
+
+      const mig = 'src/database/migrations/164_overtime_is_exempt_by_art_93_fraction_one.sql';
+      const seeded = existe(mig) ? sinProsa(crudoDe(mig)) : '';
+      if (!/'income_tax\.exempt_share\.overtime', '2014-01-01', '0\.5000', 'rate',/.test(seeded) ||
+          !/'income_tax\.exempt_cap\.overtime_uma_per_week', '2016-01-28', '5\.0000', 'UMA',/.test(seeded) ||
+          !/'labor\.overtime\.double_hours_per_week', '2030-01-01', '12\.0000', 'hours',/.test(seeded)) {
+        return falla('migration 164 no longer seeds the half, the 5 UMA a week and the dated LFT limit');
+      }
+
+      const unit = 'tests/payroll/mx/overtime-exemption.spec.ts';
+      if (!existe(unit) || !/1256\.89/.test(crudoDe(unit))) {
+        return falla('no unit test pins 5 × 117.31 × 15/7 for a quincena of overtime');
+      }
+      return existe('tests/integration/mne-001-110-overtime-exemption.int.spec.ts')
+        ? ok('overtime is split by half against 5 UMA a week of the payment date, within the dated LFT limit, as the panel says')
+        : falla('no test RUNS the overtime exemption against a migrated database');
+    },
+  },
 ];

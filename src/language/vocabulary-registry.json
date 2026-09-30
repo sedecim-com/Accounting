@@ -5821,6 +5821,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the entity keeps its roles and nothing warns."
+    },
+    {
+      "class": "policy-key",
+      "where": "overtime_isr_exemption",
+      "es": "overtime_isr_exemption",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-110): whether the firm applies the LISR art. 93 fr. I exemption to overtime."
+    },
+    {
+      "class": "policy-value",
+      "where": "overtime_isr_exemption/exempt_by_law",
+      "es": "exempt_by_law",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: 50 % of the double-paid overtime is exempt, up to 5 UMA a week (LISR art. 93 fr. I)."
+    },
+    {
+      "class": "policy-value",
+      "where": "overtime_isr_exemption/taxed_in_full",
+      "es": "taxed_in_full",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: all overtime is taxed, with no exemption."
     }
   ]
 }

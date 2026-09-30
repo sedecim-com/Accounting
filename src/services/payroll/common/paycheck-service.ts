@@ -222,8 +222,9 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
   const taxableFuta = taxableFica;
   const taxableState = taxableFit;
   // Each earning's ISR parts (#297): the aguinaldo is exempt up to 30 UMA a
-  // year (LISR art. 93 fr. XIV) and only the rest is taxed. The parts are
-  // written on the earning row, and the ISR base is the sum of the taxable ones.
+  // year (LISR art. 93 fr. XIV), overtime by half up to 5 UMA a week (fr. I),
+  // and only the rest is taxed. The parts are written on the earning row, and
+  // the ISR base is the sum of the taxable ones.
   const isrParts = await isrPartsOf(
     input.earnings,
     emp.country_code === 'MX'
@@ -232,6 +233,8 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
           employeeId: input.employee_id,
           payRunId: run.id,
           payDate: toCalendarDate(period.pay_date),
+          entityId: period.entity_id,
+          periodDays: daysInPeriod,
         }
       : null
   );
