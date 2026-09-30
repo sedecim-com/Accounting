@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import { calendarDateIn } from '../../utils/calendar-date.js';
+import { calendarDateIn, calendarDateTimeIn } from '../../utils/calendar-date.js';
 import { currentTenant, query } from '../../database/connection.js';
 import { getPolicy, type PolicyContext } from './policy-service.js';
 import { getPolicySpec, TIME_ZONE_POLICY_KEY } from './pending-catalog.js';
@@ -28,6 +28,25 @@ export async function todayFor(
   return calendarDateIn(zone, opts.now);
 }
 
+/** An instant as the calendar day it was in the context's zone (MNE-001-290). */
+export async function localDateFor(ctx: PolicyContext | null, instant: Date | string): Promise<string> {
+  return calendarDateIn(await zoneFor(ctx), new Date(instant));
+}
+
+/** An instant as 'YYYY-MM-DD HH:mm' on the context's clock (MNE-001-290). */
+export async function localDateTimeFor(ctx: PolicyContext | null, instant: Date | string): Promise<string> {
+  return calendarDateTimeIn(await zoneFor(ctx), instant);
+}
+
+/**
+ * The `zona_horaria` in force for a context (entity row, else the firm's, else
+ * the panel default), for renderers that format many instants and must not
+ * read the policy once per row (MNE-001-290).
+ */
+export async function zoneFor(ctx: PolicyContext | null): Promise<string> {
+  return ctx ? (await getPolicy(ctx, TIME_ZONE_POLICY_KEY)).value : defaultTimeZone();
+}
+
 /**
  * "Today" for a reader that holds an entity id but not its tenant (#242,
  * MNE-001-111): the aging reports, `invoice list` and `customer list`.
@@ -38,11 +57,19 @@ export async function todayFor(
  * must not fail for the date it would have used on an empty page.
  */
 export async function todayForEntity(entityId: string, opts: { now?: Date } = {}): Promise<string> {
+  return calendarDateIn(await zoneForEntity(entityId), opts.now);
+}
+
+/**
+ * The zone of an entity the caller holds only by id, for formatting instants
+ * (MNE-001-290). Same tenant resolution and same fallback as `todayForEntity`.
+ */
+export async function zoneForEntity(entityId: string): Promise<string> {
   const tenantId =
     currentTenant() ??
     (await query<{ tenant_id: string }>('SELECT tenant_id FROM legal_entities WHERE id = $1', [entityId]))
       .rows[0]?.tenant_id;
-  return todayFor(tenantId ? { tenantId, entityId } : null, opts);
+  return zoneFor(tenantId ? { tenantId, entityId } : null);
 }
 
 /**

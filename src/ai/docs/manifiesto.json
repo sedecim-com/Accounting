@@ -132,7 +132,7 @@
     "src/services/banking/reconciliation-service.ts": "2e5ced5e9c98a122ece9ff5ac3a1bff47441efe5",
     "src/services/banking/reconciling-items.ts": "7d552b4396a1518c3cd3ec98f4922e222d80c57b",
     "src/services/banking/reconciliation-adjustments.ts": "5c5f5ea6db5b2c7fa57d3773fde688dcca2c86f7",
-    "src/cli/bank-command.ts": "836de6e73551c0a55676249543a71768ebbf8b4d",
+    "src/cli/bank-command.ts": "f7a8f1443c66ecfc30046c90a50dacd049abea9e",
     "src/services/webhooks/webhook-service.ts": "1207441f2f2f4fe020ef37789269afb23f3261bc",
     "src/services/integrations/index.ts": "dbc0e6ce18781390ac18dfab30d2f70576156225",
     "src/database/rls-policies.sql": "9d482ead1f8f0cda34aaae4684a724e9cdd04971",
@@ -158,6 +158,6 @@
     "src/index.ts": "071c8b6b0188fc0512e9a9e3a0411d98e65c4429",
     "src/ai/tools/report-tools.ts": "6ac2848ac3532c4214388758c8f9ae8b354b1274",
     "src/ai/tools/question-tools.ts": "b8992141a7297cdd8ca366ed72472fde2b584da0",
-    "src/ai/memory-service.ts": "e6cda54c251a7946b45174d6f6c4c9d8153fcf40"
+    "src/ai/memory-service.ts": "51ffab1e042294ece8d9976beadedbe694d60dfc"
   }
 }

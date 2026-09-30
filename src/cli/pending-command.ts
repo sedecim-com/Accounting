@@ -17,6 +17,8 @@ import {
 import { getPolicySpec } from '../services/policy/pending-catalog.js';
 import { previewFor } from '../services/policy/policy-preview.js';
 import { exitCodeFor, notFound } from './kernel/index.js';
+import { calendarDateIn } from '../utils/calendar-date.js';
+import { zoneFor } from '../services/policy/today.js';
 import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from './policy-answer.js';
 
 // ============================================================
@@ -327,9 +329,10 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
           );
           if (closed.length > 0) {
             console.log(c.bold('\nAlready defined'));
+            const zone = await zoneFor(ctx);
             for (const p of closed) {
               const icon = p.status === 'resolved' ? '✔' : '✘';
-              const date = p.resolved_at ? new Date(p.resolved_at).toISOString().split('T')[0] : '';
+              const date = p.resolved_at ? calendarDateIn(zone, new Date(p.resolved_at)) : '';
               console.log(
                 `${icon} ${c.bold(p.key)} = ${p.resolved_value ?? '(dismissed)'}` +
                   c.dim(` · ${p.resolved_by ?? ''} · ${date}`)

@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
+// Zone lookups read the policy panel; these specs mock the DB, so they get the default zone.
+vi.mock('../../src/services/policy/today.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/policy/today.js')>()),
+  zoneFor: vi.fn(async () => 'America/Mexico_City'),
+  zoneForEntity: vi.fn(async () => 'America/Mexico_City'),
+  todayFor: vi.fn(async () => '2026-10-31'),
+  todayForEntity: vi.fn(async () => '2026-10-31'),
+}));
+
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(), enterTenant: vi.fn(), currentTenant: vi.fn(),
 }));
@@ -143,7 +152,7 @@ describe('teachMemory', () => {
 describe('buildMemoryDigest', () => {
   const row = (i: number, over: Partial<Record<string, unknown>> = {}) => ({
     topic: `topic-${i}`, question: `question-${i}`, answer: `answer-${i}`,
-    answered_by: 'admin@demo.com', answered_at: new Date('2026-08-10'), ...over,
+    answered_by: 'admin@demo.com', answered_at: new Date('2026-08-10T18:00:00Z'), ...over,
   });
 
   it('queries only active precedents of the entity, newest first', async () => {
@@ -166,6 +175,13 @@ describe('buildMemoryDigest', () => {
       'topic-2: answer-2 (admin@demo.com, 2026-08-10)',
       UNTRUSTED_CLOSE,
     ]);
+  });
+
+  it('dates a precedent on the entity clock: 19:00 CDMX on 31 Jan is 31 Jan, not 1 Feb (MNE-001-290)', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [row(1, { answered_at: new Date('2026-02-01T01:00:00Z') })],
+    });
+    expect(await buildMemoryDigest(CTX)).toContain('(admin@demo.com, 2026-01-31)');
   });
 
   it('falls back to the question when topic is null', async () => {
@@ -214,7 +230,7 @@ describe('buildMemoryDigest', () => {
 describe('el digest de memoria se envuelve como dato de tercero', () => {
   const row = (over: Partial<Record<string, unknown>> = {}) => ({
     topic: 'topic-1', question: 'question-1', answer: 'answer-1',
-    answered_by: 'admin@demo.com', answered_at: new Date('2026-08-10'), ...over,
+    answered_by: 'admin@demo.com', answered_at: new Date('2026-08-10T18:00:00Z'), ...over,
   });
 
   it('el bloque entero viaja entre los marcadores que el prompt ya declara', async () => {

@@ -20,6 +20,8 @@ import {
 } from '../services/accounting/batch-service.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import type { Palette } from './palette.js';
+import { calendarDateIn } from '../utils/calendar-date.js';
+import { zoneFor } from '../services/policy/today.js';
 import {
   declareRisk,
   gateMutation,
@@ -130,9 +132,9 @@ interface CommonOpts {
 const NUMERICAS = ['rows_total', 'rows_invalid', 'entries_posted', 'total_debe', 'lineas', 'row_number'];
 
 /** Fecha corta para pantalla; las columnas de la base ya vienen como Date o texto. */
-const dia = (v: Date | string | null | undefined): string => {
+const dia = (v: Date | string | null | undefined, zone: string): string => {
   if (v === null || v === undefined) return '';
-  return (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
+  return v instanceof Date ? calendarDateIn(zone, v) : String(v).slice(0, 10);
 };
 
 // ============================================================
@@ -378,8 +380,9 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
         limit,
       });
 
+      const zone = await zoneFor(ctx);
       render(
-        lotes.map((l) => ({ ...l, created_at: dia(l.created_at) })),
+        lotes.map((l) => ({ ...l, created_at: dia(l.created_at, zone) })),
         {
           ...opts,
           idField: 'id',
@@ -424,6 +427,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
         ? detalle.filas.filter((f) => f.parse_error !== null)
         : detalle.filas;
       const p = deps.palette;
+      const zone = await zoneFor(ctx);
 
       if (!legible(opts)) {
         // Un solo documento con las filas anidadas: la respuesta de la máquina
@@ -432,7 +436,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
           [
             {
               ...detalle.lote,
-              created_at: dia(detalle.lote.created_at),
+              created_at: dia(detalle.lote.created_at, zone),
               filas,
               errores_por_categoria: detalle.errores_por_categoria,
             },
@@ -452,7 +456,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
         'filas',
         `${l.rows_total} total · ${l.rows_invalid} inválida(s) · ${l.entries_posted} póliza(s) en el mayor`
       );
-      ficha('preparado', `${dia(l.created_at)} por ${l.created_by}`);
+      ficha('preparado', `${dia(l.created_at, zone)} por ${l.created_by}`);
 
       out.write(`\n${p.bold('FILAS')} ${p.dim(`(${filas.length})`)}\n`);
       if (filas.length === 0) {
