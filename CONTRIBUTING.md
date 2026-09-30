@@ -97,7 +97,7 @@ bash scripts/verify-isolation.sh
    `aud-7-bitacora`, no `patch-1`).
 2. Un PR por idea. Un PR que arregla tres cosas no se puede revisar ni revertir.
 3. PR contra `develop`: el flujo es `feature → develop → release → main`
-   (`docs/adr/0008-ramas-develop-release.md`). En `main` se exige
+   (`docs/adr/0008-develop-release-branches.md`). En `main` se exige
    **1 aprobación**, y los pushes nuevos invalidan las aprobaciones
    anteriores; la misma protección para `develop` y `release` es un ajuste de
    GitHub que el owner todavía no activa, y hasta entonces no se afirma.

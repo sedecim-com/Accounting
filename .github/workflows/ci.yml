@@ -9,7 +9,7 @@ on:
   # En un repositorio público eso es el doble de bitácoras publicadas por el
   # mismo trabajo: las de Actions son legibles por cualquiera.
   # develop y release corren lo mismo que main: el flujo es
-  # feature → develop → release → main (docs/adr/0008-ramas-develop-release.md).
+  # feature → develop → release → main (docs/adr/0008-develop-release-branches.md).
   push:
     branches: [main, develop, release]
   pull_request:

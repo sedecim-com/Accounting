@@ -157,7 +157,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 ## Operación
 
 - **Despliegue:** no hay un entorno de producción declarado en el repo. Hoy se instala en el equipo del despacho y se opera con el CLI ([`docs/wiki/Puesta-en-marcha.md`](wiki/Puesta-en-marcha.md)).
-- **Ramas:** `feature → develop → release → main`, con un tag en cada fusión a `main` ([ADR-0008](adr/0008-ramas-develop-release.md), #333).
+- **Ramas:** `feature → develop → release → main`, con un tag en cada fusión a `main` ([ADR-0008](adr/0008-develop-release-branches.md), #333).
 - **Salud:** `mnemosine doctor`, y en REST `/health` y `/ready`.
 - **Respaldo:** `mnemosine backup create|verify --restore|restore`. CI ensaya la restauración en cada corrida.
 - **Rollback de código:** revertir el PR. Para el esquema, una migración nueva; nunca se edita una aplicada.
@@ -187,7 +187,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 | ¿Qué SLO de disponibilidad y latencia tiene una instalación de despacho? | 99.5 % en horario laboral (L–S, 8–20 h, CDMX); CLI de lectura p95 < 2 s; API `/v1` p95 < 500 ms; cierre de mes sin límite. Ver «Operación» | @vic2099 | 2026-09-30 |
 | ¿Qué retención y qué cifrado en reposo se exigen por dato (CFF, LFPDPPP)? | Contabilidad y CFDI, 5 años desde la última declaración relacionada (CFF art. 30), sin borrado antes; credenciales fiscales y PII de nómina cifradas en reposo; la PII se suprime al terminar la relación y su plazo legal (LFPDPPP); respaldos cifrados. Ver «Datos y clasificación» | @vic2099 | 2026-09-30 |
 | ¿Qué carpetas no debe tocar nunca un agente, además de las de `CODEOWNERS`? | Ninguna. Las de `CODEOWNERS` tampoco están prohibidas: piden la revisión del owner | @vic2099 | 2026-09-30 |
-| ¿Se adelantan `develop` y `release` (#333) para llegar a N1, o la plataforma registra una excepción para repos sin despliegue? | Se crean: existen en `origin` desde el 2026-09-30, creadas desde `main` en `70acac8`. El flujo es [ADR-0008](adr/0008-ramas-develop-release.md) | @vic2099 | 2026-09-30 |
+| ¿Se adelantan `develop` y `release` (#333) para llegar a N1, o la plataforma registra una excepción para repos sin despliegue? | Se crean: existen en `origin` desde el 2026-09-30, creadas desde `main` en `70acac8`. El flujo es [ADR-0008](adr/0008-develop-release-branches.md) | @vic2099 | 2026-09-30 |
 
 ## Riesgos conocidos
 

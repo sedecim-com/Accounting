@@ -4,7 +4,7 @@
 
 ## Resultado
 
-**Nivel formal: N0.** Cumple casi todo N2 y buena parte de N3, pero la guía no permite saltarse niveles. Las ramas `develop` y `release` ya no son lo que falta para N1: existen desde el 2026-09-30 ([ADR-0008](../adr/0008-ramas-develop-release.md)). Faltan el escaneo de secretos (#338), confirmar los rulesets y proteger las ramas nuevas.
+**Nivel formal: N0.** Cumple casi todo N2 y buena parte de N3, pero la guía no permite saltarse niveles. Las ramas `develop` y `release` ya no son lo que falta para N1: existen desde el 2026-09-30 ([ADR-0008](../adr/0008-develop-release-branches.md)). Faltan el escaneo de secretos (#338), confirmar los rulesets y proteger las ramas nuevas.
 
 **Por qué importa:** la guía dice que ningún agente escribe código en un repo por debajo de N3. Este repo ya trabaja con agentes que escriben código, bajo reglas propias más estrictas que las del framework en varios puntos: criterios con mutantes, siete invariantes y revisión independiente de Witness. La decisión que esto pedía —adelantar #333 o registrar una excepción para repos sin despliegue— la tomó el owner el 2026-09-30: se adelantó #333.
 
