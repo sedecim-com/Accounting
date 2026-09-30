@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { VERBS, isVerb, OBJECTLESS_COMMANDS, LEGACY_PLURALS } from './vocabulary.js';
+import { VERBS, isVerb, OBJECTLESS_COMMANDS, LEGACY_PLURALS, ABBREVIATION_NOUNS } from './vocabulary.js';
 import { FLAG_DICTIONARY, BANNED_FLAGS } from './flags.js';
 import { riskOf } from './risk.js';
 
@@ -126,7 +126,13 @@ export function auditProgram(program: Command): Violation[] {
 
       // R2: nouns are singular.
       const noun = tokens[0];
-      if (noun.endsWith('s') && !isVerb(noun) && !LEGACY_PLURALS.includes(noun) && !OBJECTLESS_COMMANDS.includes(noun)) {
+      if (
+        noun.endsWith('s') &&
+        !isVerb(noun) &&
+        !LEGACY_PLURALS.includes(noun) &&
+        !OBJECTLESS_COMMANDS.includes(noun) &&
+        !ABBREVIATION_NOUNS.includes(noun)
+      ) {
         violations.push({ command: full, rule: 'R2 singular nouns', detail: `"${noun}" looks plural` });
       }
 

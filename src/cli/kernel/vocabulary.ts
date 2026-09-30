@@ -138,6 +138,19 @@ export const OBJECTLESS_COMMANDS: readonly string[] = Object.freeze([
 ]);
 
 /**
+ * Domain-standard abbreviations allowed as nouns: the closed list of the
+ * command registry (docs/cli-command-registry.md, amendment row 33). They are
+ * acronyms, not plurals, so R2 does not read a final `s` as a plural in them
+ * (`imss` is the Instituto Mexicano del Seguro Social, not many `ims`).
+ * Adding one is an amendment to the registry first.
+ */
+export const ABBREVIATION_NOUNS: readonly string[] = Object.freeze([
+  'cfdi', 'sat', 'rfc', 'iva', 'isr', 'isn', 'diot', 'gl', 'ap', 'ar', 'fx',
+  'imss', 'ptu', 'sbc', 'ssn', 'sui', 'pac', 'rep', 'pbc', 'grni', 'kpi', 'utp',
+  'fbar', 'xbrl', 'sod', 'w2', 'w3', 'w4', 'w8', 'w9', 'efw2', 'inpc',
+]);
+
+/**
  * Nouns whose plural spelling is the shipped name and stays for
  * compatibility, each aliased from its singular. Nothing new joins
  * this list: R2 makes nouns singular.

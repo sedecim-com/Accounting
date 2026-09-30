@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 229 of 355 subcommands
+  spelling is `-T` at the root and `-t` on the 232 of 361 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -95,6 +95,8 @@ Commands:
   tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
   garnishment|embargo                    Court-ordered wage withholding: file an order, see the cascade, stop it
   employee|empleado                      The payroll roll: register an employee, see one record, list the roll
+  payslip|recibo                         Paychecks of a pay run: list them, show one with its lines
+  imss                                   IMSS obligations of the employer: the monthly SUA file
   cashflow|flujo                         Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
   audit|auditoria                        Read the audit trail: who changed what, when, and from which value
   subscription|suscripcion               Outbound event subscriptions: who we notify, and what we could not deliver
@@ -8175,6 +8177,151 @@ Examples:
   mnemosine employee list --all --json
   # Only the Mexican roll, numbers only, to pipe into employee show.
   mnemosine employee list --country MX -q
+```
+
+## `mnemosine payslip` (alias: recibo)
+
+```
+Usage: mnemosine payslip|recibo [options] [command]
+
+Paychecks of a pay run: list them, show one with its lines
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  list|listar [options]    List the paychecks of a run with gross, net and stamp
+                           status; no tax identifiers
+  show|ver [options] <id>  Show one paycheck: totals from gross to net and every
+                           earning, deduction and tax line
+  help [command]           display help for command
+```
+
+### `mnemosine payslip list` (alias: listar)
+
+```
+Usage: mnemosine payslip list|listar [options]
+
+List the paychecks of a run with gross, net and stamp status; no tax identifiers
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --run <id>                               pay run whose paychecks are listed (required)
+  -h, --help                               display help for command
+
+Examples:
+  # The paychecks of a run, by employee number; no tax identifier is printed.
+  mnemosine payslip list --run 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d
+  # Only the paychecks whose CFDI is still to stamp, twenty at a time.
+  mnemosine payslip list --run 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --status pending -n 20
+  # As JSON, to pick the id of one paycheck.
+  mnemosine payslip list --run 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --json
+```
+
+### `mnemosine payslip show` (alias: ver)
+
+```
+Usage: mnemosine payslip show|ver [options] <id>
+
+Show one paycheck: totals from gross to net and every earning, deduction and tax
+line
+
+Arguments:
+  id                                       paycheck id (from `payslip list --run`)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --redacted                               hide RFC, CURP and NSS entirely, for a shared screen
+  -h, --help                               display help for command
+
+Examples:
+  # One paycheck: the totals, then every earning, deduction and tax line.
+  mnemosine payslip show 5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b
+  # For a shared screen: RFC, CURP and NSS hidden entirely.
+  mnemosine payslip show 5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b --redacted
+```
+
+## `mnemosine imss`
+
+```
+Usage: mnemosine imss [options] [command]
+
+IMSS obligations of the employer: the monthly SUA file
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  sua             The SUA import file of a month
+  help [command]  display help for command
+```
+
+### `mnemosine imss sua`
+
+```
+Usage: mnemosine imss sua [options] [command]
+
+The SUA import file of a month
+
+Options:
+  -h, --help                 display help for command
+
+Commands:
+  export|exportar [options]  Build the SUA import file of a month from the
+                             approved paychecks, checked against the employer
+                             liability
+  help [command]             display help for command
+```
+
+#### `mnemosine imss sua export` (alias: exportar)
+
+```
+Usage: mnemosine imss sua export|exportar [options]
+
+Build the SUA import file of a month from the approved paychecks, checked
+against the employer liability
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the SUA file to this path (without it, the file goes to stdout)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <YYYY-MM>                       month to export (YYYY-MM); the SUA is monthly
+  -y, --yes                                overwrite the file named by -o if it already exists
+  --dry-run                                build and check the file without writing it or recording the filing
+  -h, --help                               display help for command
+
+Examples:
+  # The July file, written where the SUA will import it from.
+  mnemosine imss sua export --period 2026-07 -o SUA_2026-07.txt
+  # Without -o the file goes to stdout, byte for byte, so it can be diffed.
+  mnemosine imss sua export --period 2026-07 > SUA_2026-07.txt
+  # What was exported, as JSON, for a script.
+  mnemosine imss sua export --period 2026-07 -o SUA_2026-07.txt --json
+  # Build and check the month without writing the file or recording it.
+  mnemosine imss sua export --period 2026-07 --dry-run
 ```
 
 ## `mnemosine cashflow` (alias: flujo)
