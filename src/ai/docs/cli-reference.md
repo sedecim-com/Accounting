@@ -277,7 +277,8 @@ Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-
 by thresholds)
 
 Arguments:
-  files                    Paths to CFDI XML files
+  files                    Paths to CFDI XML files; with --kind zip or metadata,
+                           the ZIP or metadata files downloaded from the SAT
 
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
@@ -293,6 +294,11 @@ Options:
   --max-amount <n>         Maximum auto-postable amount
   --retry                  Reprocess CFDI already registered whose processing
                            failed, instead of reporting them as duplicates
+  --kind <kind>            What the files are: xml (CFDI one by one), zip (a SAT
+                           package of CFDI XML: loads the census and ingests
+                           each XML) or metadata (the SAT `~` metadata file,
+                           bare or zipped: loads the census only) (default:
+                           "xml")
   -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
@@ -311,6 +317,10 @@ Examples:
   mnemosine ingest ./cfdi/julio/*.xml --auto-post --min-confidence 0.95 --max-amount 20000
   # Reprocess the CFDI whose processing failed (model down, no key) instead of «duplicate».
   mnemosine ingest ./cfdi/julio/*.xml --retry
+  # Load the SAT census of the month from the portal's metadata file.
+  mnemosine ingest ./sat/julio-recibidos.txt --kind metadata
+  # Load the census from a SAT package of XML, and ingest each CFDI in it.
+  mnemosine ingest ./sat/julio-emitidos.zip --kind zip
 ```
 
 ## `mnemosine lang` (alias: idioma)

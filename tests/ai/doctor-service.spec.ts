@@ -231,6 +231,28 @@ describe('runDoctor — encryption key', () => {
   });
 });
 
+describe('runDoctor — retired CONTALINK_API_KEY (#357)', () => {
+  afterEach(() => {
+    delete process.env.CONTALINK_API_KEY;
+  });
+
+  it('warns when the retired variable is still set, and names the per-entity way', async () => {
+    mockDb();
+    process.env.CONTALINK_API_KEY = 'left-over';
+    const c = find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Retired Contalink key');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/retired by #357 and not read/);
+    expect(c.fix).toMatch(/mnemosine init --section import/);
+    expect(c.detail).not.toMatch(/left-over/);
+  });
+
+  it('ok when it is not set', async () => {
+    mockDb();
+    delete process.env.CONTALINK_API_KEY;
+    expect(find(await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir }), 'Retired Contalink key').level).toBe('ok');
+  });
+});
+
 // ============================================================
 // G3 · EL ROL QUE SÓLO MIRA
 //

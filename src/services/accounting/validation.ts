@@ -56,7 +56,7 @@ async function cuentasDeLaEntidad<T extends { id: string }>(
 }
 
 // Rule 1: Debits must equal credits — EXACTLY.
-// NIF A-2 (postulado de dualidad económica): every transaction affects at
+// NIF A-1, cap. 20 (postulado de dualidad económica): every transaction affects at
 // least two elements and the equation must hold. The DB CHECK on posting
 // requires exact equality of the trigger-maintained totals, so a tolerance
 // here would accept entries that can never post (they would die with a raw
@@ -79,7 +79,7 @@ const balanceRule: ValidationRule = {
         errors: [
           `Debits (${totalDebits.toFixed(4)}) must equal credits (${totalCredits.toFixed(4)}). ` +
           `Difference: ${totalDebits.minus(totalCredits).abs().toFixed(4)}. ` +
-          `[NIF A-2, dualidad económica: todo asiento debe estar balanceado]`,
+          `[NIF A-1, cap. 20, dualidad económica: todo asiento debe estar balanceado]`,
         ],
         warnings: [],
       };
@@ -181,7 +181,7 @@ const periodStatusRule: ValidationRule = {
       warnings.push('Period is in soft_close status. Only adjusting entries recommended.');
     } else if (period.status === FiscalPeriodStatus.FUTURE) {
       warnings.push(
-        'Posting to a future period [NIF A-2, devengación: los efectos se reconocen ' +
+        'Posting to a future period [NIF A-1, cap. 20, devengación contable: los efectos se reconocen ' +
         'en el periodo en que ocurren, no antes]'
       );
     }
