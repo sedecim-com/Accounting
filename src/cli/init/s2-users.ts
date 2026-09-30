@@ -18,8 +18,8 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 import { ROLES, type RoleName } from '../../auth/roles.js';
 export { ROLES, type RoleName };
 
-const MIN_PASSWORD = 12;
-const BCRYPT_ROUNDS = 12;
+// One floor for both doors: the wizard and `mnemosine user create` (#326).
+import { MIN_PASSWORD, BCRYPT_ROUNDS } from '../../services/user/user-service.js';
 
 /**
  * One check, three verdicts, one identity. What it measures is not "users" —
@@ -113,6 +113,7 @@ export class UsuariosSection implements SetupSection {
     const password = await ctx.askSecret(`  Password (minimum ${MIN_PASSWORD} characters): `);
     if (!password || password.length < MIN_PASSWORD) {
       ctx.print(`  Password too short (minimum ${MIN_PASSWORD}); section incomplete.`);
+      ctx.print('  Without a terminal: mnemosine user create --email <address> --role <name> --password-stdin');
       return;
     }
 
