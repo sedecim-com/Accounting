@@ -1803,6 +1803,21 @@ export const EN = {
   // manda conservar; y los bloques de `EJEMPLOS`, congelados por
   // `src/ai/docs/cli-reference.md`.
   // --- Los analizadores de bandera: uso (2), no validación (4) ---------
+  'receipt.withholding.unreadable':
+    'Cannot read the withholding "{spec}": write "isr:1000" or "iva:1066.67", and with several invoices put the invoice first ("INV-2026-00042:isr:1000").',
+  'receipt.withholding.which_invoice':
+    'With several invoices, the withholding "{spec}" has to say which one it belongs to ("INV-2026-00042:{spec}").',
+  'receipt.withholding.not_applied':
+    'The withholding "{spec}" names {invoice}, which is not one of the --invoice of this application.',
+  'receipt.withholding.negative': 'A withholding cannot be negative ({amount}).',
+  'receipt.withholding.cash_required':
+    'The cash applied to {invoice} must be greater than zero (got {amount}): a withholding rides on a cash application, it is never applied alone.',
+  'receipt.withholding.exceeds_due':
+    '{invoice} owes {due} and {settled} would be applied ({cash} collected + {withheld} withheld).',
+  'receipt.withholding.vat_cap': '{invoice} transfers {cap} of VAT: the customer cannot withhold more than that.',
+  'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
+  'receipt.withholding.booked_at_issuance':
+    '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
@@ -2404,6 +2419,8 @@ export const EN = {
   'help.tenant.create.option.json': 'JSON output',
   'help.account.role.sync.description': 'Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones',
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
+  'help.receipt.apply.option.withholding':
+    'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
   'help.bill.rule.description': 'Firm processing rules: what codes an incoming CFDI with no model involved',
   'help.bill.rule.create.description':
     'Create a processing rule (conditions → actions) that the next ingest applies',
