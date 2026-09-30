@@ -78,16 +78,15 @@ describe('diffTrialBalance', () => {
 });
 
 describe('outbox', () => {
-  it('queueExternalOp validates the provider BEFORE inserting', async () => {
-    mockGetAdapter.mockImplementationOnce(() => {
-      throw new Error('requires the CONTALINK_API_KEY environment variable');
-    });
+  it('queueExternalOp validates the provider and THIS entity\'s key BEFORE inserting', async () => {
+    mockGetAdapter.mockRejectedValueOnce(new Error('This entity has no contalink key registered'));
     await expect(
       queueExternalOp(CTX, {
         provider: 'contalink', operation: 'create_policy', payload: {},
         reasoning: 'x', model: 'm',
       })
-    ).rejects.toThrow(/CONTALINK_API_KEY/);
+    ).rejects.toThrow(/no contalink key registered/);
+    expect(mockGetAdapter).toHaveBeenCalledWith(CTX, 'contalink');
     expect(mockQuery).not.toHaveBeenCalled();
   });
 

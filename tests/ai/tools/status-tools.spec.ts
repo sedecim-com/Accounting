@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -32,7 +32,7 @@ function mockCounts(over: Partial<Record<string, string>> = {}) {
     rows: [{
       accounts: '0', periods: '0', posted: '0', opening: 'false',
       drafts: '0', questions: '0', ops: '0',
-      customers: '0', vendors: '0', creds: '0',
+      customers: '0', vendors: '0', creds: '0', external_creds: '0',
       ...over,
     }],
   });
@@ -40,10 +40,6 @@ function mockCounts(over: Partial<Record<string, string>> = {}) {
 
 beforeEach(() => {
   mockQuery.mockReset();
-  delete process.env.CONTALINK_API_KEY;
-});
-afterEach(() => {
-  delete process.env.CONTALINK_API_KEY;
 });
 
 describe('getEntityStatus — lifecycle stages (first unmet requirement wins)', () => {
@@ -124,11 +120,10 @@ describe('getEntityStatus — truthful has_opening_balance', () => {
 
 describe('getEntityStatus — payload for guidance', () => {
   it('carries entity identity, pending work and setup signals', async () => {
-    process.env.CONTALINK_API_KEY = 'k';
     mockCounts({
       accounts: '38', periods: '12', posted: '6',
       drafts: '2', questions: '1', ops: '3',
-      customers: '5', vendors: '7', creds: '1',
+      customers: '5', vendors: '7', creds: '1', external_creds: '1',
     });
     const s = await getEntityStatus(CTX);
     expect(s.entity).toEqual({
@@ -140,6 +135,13 @@ describe('getEntityStatus — payload for guidance', () => {
     expect(s.vendors).toBe(7);
     expect(s.fiscal_credentials_active).toBe(1);
     expect(s.external_accounting_configured).toBe(true);
+  });
+
+  it('external accounting counts only as configured with THIS entity\'s own key (#357)', async () => {
+    mockCounts({ external_creds: '0' });
+    expect((await getEntityStatus(CTX)).external_accounting_configured).toBe(false);
+    const [sql] = mockQuery.mock.calls[0];
+    expect(String(sql)).toMatch(/FROM external_system_credentials\s+WHERE entity_id = \$1 AND status = 'active'/);
   });
 
   it('single round-trip, scoped to the entity', async () => {

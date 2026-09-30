@@ -2,8 +2,11 @@
 
 ## What it is
 API connection to other accounting systems to ACQUIRE their data and keep
-supervised synchrony. Available: **contalink** (requires `CONTALINK_API_KEY`
-in .env; the human requests it in Contalink → API Configuration).
+supervised synchrony. Available: **contalink**. The key belongs to ONE entity
+and to its RFC (ADR-0004: one writer per Contalink company): each entity reads
+and writes only with the key registered for it, which lives in the vault. With
+no key, or with a key registered for another RFC, every read, queue and
+execution for that entity is refused before any call to Contalink.
 
 ## Safety rule
 Direct READS with your tools; WRITES to the external system ALWAYS

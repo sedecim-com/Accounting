@@ -316,8 +316,9 @@ justifies it: migrating is a script, not a rewrite.
 ## External accounting systems (Contalink)
 
 mnemosine acquires and synchronizes accounting from other systems via API
-(first: [Contalink](https://apidocs.contalink.com)). Credentials:
-`CONTALINK_API_KEY` in `.env` (+ optional `CONTALINK_BASE_URL`).
+(first: [Contalink](https://apidocs.contalink.com)). Credentials: one key per
+entity, bound to the entity's RFC and kept in the vault (#357, ADR-0004); only
+the optional `CONTALINK_BASE_URL` comes from `.env`.
 
 - **Direct reads** (`external_pull`): remote trial balance, account balance,
   fiscal documents registered over there.

@@ -65,7 +65,7 @@ export async function diffTrialBalance(
   startDate: string,
   endDate: string
 ): Promise<TrialBalanceDiff> {
-  const adapter = getExternalAdapter(provider);
+  const adapter = await getExternalAdapter(ctx, provider);
   const [remoteRows, localMap] = await Promise.all([
     adapter.getTrialBalance(startDate, endDate),
     fetchLocalBalances(ctx.entityId, endDate),
@@ -175,9 +175,9 @@ export async function queueExternalOp(
     userRequest?: string;
   }
 ): Promise<string> {
-  // Validate that the provider exists (and its credentials) BEFORE queueing,
-  // so the AI receives the configuration error immediately.
-  getExternalAdapter(input.provider);
+  // Validate that the provider exists and that THIS entity has its key
+  // BEFORE queueing, so the AI receives the configuration error immediately.
+  await getExternalAdapter(ctx, input.provider);
 
   const id = uuidv4();
   await query(
@@ -325,7 +325,10 @@ export async function executeExternalOp(
 
   let result: Record<string, unknown>;
   try {
-    const adapter = getExternalAdapter(op.provider);
+    // The key is resolved for the op's own entity at execution time: a
+    // missing or foreign-RFC key fails here, before any call to the
+    // external system, and the op is marked failed with the reason.
+    const adapter = await getExternalAdapter(ctx, op.provider);
     const p = op.payload;
     switch (op.operation) {
       case 'create_policy':

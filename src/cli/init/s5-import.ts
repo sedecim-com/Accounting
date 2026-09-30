@@ -21,6 +21,7 @@ import {
   type SessionCallbacks,
 } from '../../ai/providers/index.js';
 import { resolveIngestThresholds } from '../../ai/providers/config.js';
+import { hasExternalCredential } from '../../services/integrations/accounting/entity-credentials.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
@@ -36,8 +37,8 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 //      pipeline, auto-post OFF: everything lands as drafts.
 //   3. Start fresh — the default. Never surprise-import.
 // Everything lands as reviewable drafts; nothing posts without a
-// human. No secrets are prompted here: the Contalink key lives
-// in .env, never in the config.
+// human. No secrets are prompted here: the Contalink key belongs to
+// the entity and lives in the vault (#357), never in the config.
 // ============================================================
 
 /** First-run cap so an accidental point at a huge folder stays reviewable. */
@@ -88,8 +89,8 @@ export interface ImportSectionDeps {
     ctx: AgentContext,
     callbacks: SessionCallbacks
   ) => Promise<LlmSession>;
-  /** Environment to read CONTALINK_API_KEY from (injectable for tests). */
-  env?: NodeJS.ProcessEnv;
+  /** Whether the entity has its own key for the provider (injectable for tests). */
+  hasCredential?: (entity: AgentContext, provider: string) => Promise<boolean>;
   /** Lists *.xml files in a folder, absolute paths (injectable for tests). */
   listXmlFiles?: (dir: string) => string[];
 }
@@ -151,7 +152,7 @@ export class ImportSection implements SetupSection {
       ingest: deps.ingest ?? ingestCfdiFiles,
       resolveProfile: deps.resolveProfile ?? resolveProfile,
       createSession: deps.createSession ?? defaultCreateSession,
-      env: deps.env ?? process.env,
+      hasCredential: deps.hasCredential ?? hasExternalCredential,
       listXmlFiles: deps.listXmlFiles ?? defaultListXmlFiles,
     };
   }
@@ -233,13 +234,13 @@ export class ImportSection implements SetupSection {
     const provider =
       (await ctx.askText('  External system (contalink): ', 'contalink')) ?? 'contalink';
 
-    if (provider === 'contalink' && !this.deps.env.CONTALINK_API_KEY) {
-      // No dead end: the exact line to add, and where the flow resumes.
+    if (!(await this.deps.hasCredential(entity, provider))) {
+      // The key is the entity's own (ADR-0004): no process-wide key reads
+      // another company's catalog. Say what is missing and where to resume.
       ctx.print('');
-      ctx.print('  The contalink provider needs an API key that is not set yet.');
-      ctx.print('  Add this line to your .env (the key never goes in the config):');
-      ctx.print('    CONTALINK_API_KEY=<your key>');
-      ctx.print('  Then re-run: mnemosine init --section import');
+      ctx.print(`  ${entity.entityName} has no ${provider} key registered yet.`);
+      ctx.print('  Each entity reads and writes only with the key of its own company (same RFC).');
+      ctx.print('  Once the key is registered, re-run: mnemosine init --section import');
       ctx.print('  Section left incomplete for now.');
       return;
     }

@@ -41,6 +41,7 @@ El agente nunca escribe el mayor ni sistemas externos, así que apagarlo no pier
 
 - Nunca en el repo ni en el chat (invariante 7). Si uno aparece en el historial se considera comprometido: **primero se rota, después se limpia**.
 - Las credenciales fiscales viven en la bóveda (`src/services/vault/`), cifradas.
+- La llave de Contalink es de cada entidad (#357, ADR-0004): vive en la bóveda y `external_system_credentials` guarda sólo la referencia, el RFC y el estado. `CONTALINK_API_KEY` se retiró y ya no se lee: un despliegue que la tenía en `.env` deja de leer y escribir en Contalink hasta registrar la llave de cada entidad. Sin llave, o con la de otro RFC, la operación aprobada queda `failed` con el motivo y no sale ninguna llamada.
 
 ## Identidad con Cognito
 
