@@ -1,3 +1,4 @@
+import type pg from 'pg';
 import { query, currentTenant } from '../../database/connection.js';
 import { getPolicy } from '../policy/policy-service.js';
 
@@ -70,10 +71,13 @@ export interface AvisoDeCierre {
  * cuando lo hay (CLI y REST lo fijan) y de `legal_entities` cuando no, que es
  * el mismo patrón de `tenantDe`/`inquilinoDe` en el resto de la casa.
  */
-export async function criterioDeCierreEnInformes(entityId: string): Promise<CriterioDeCierre> {
-  const tenantId = currentTenant() ?? (await inquilinoDe(entityId));
+export async function criterioDeCierreEnInformes(
+  entityId: string,
+  client?: pg.PoolClient
+): Promise<CriterioDeCierre> {
+  const tenantId = currentTenant() ?? (await inquilinoDe(entityId, client));
   const valor = tenantId
-    ? (await getPolicy({ tenantId, entityId }, 'informes_asientos_de_cierre')).value
+    ? (await getPolicy({ tenantId, entityId }, 'informes_asientos_de_cierre', client)).value
     : CRITERIO_POR_OMISION;
 
   switch (valor) {
@@ -89,8 +93,11 @@ export async function criterioDeCierreEnInformes(entityId: string): Promise<Crit
   }
 }
 
-async function inquilinoDe(entityId: string): Promise<string | undefined> {
-  const r = await query<{ tenant_id: string }>(
+async function inquilinoDe(entityId: string, client?: pg.PoolClient): Promise<string | undefined> {
+  type Row = { tenant_id: string };
+  const run = (text: string, values: unknown[]) =>
+    client ? client.query<Row>(text, values) : query<Row>(text, values);
+  const r = await run(
     'SELECT tenant_id FROM legal_entities WHERE id = $1',
     [entityId]
   );

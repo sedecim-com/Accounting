@@ -47,6 +47,14 @@ describe('parseEmployeeInputs', () => {
     expect(i.earnings[0].is_taxable_isr).toBe(false);
   });
 
+  it('keeps the hours of an overtime line', () => {
+    const [i] = parseEmployeeInputs(
+      JSON.stringify([{ employee_id: EMP_A, earnings: [{ earning_type: 'overtime', amount: 900, hours: 9 }] }]),
+      'x.json'
+    );
+    expect(i.earnings[0].hours).toBe(9);
+  });
+
   it.each([
     ['text that is not JSON', '{nope'],
     ['an empty list', '[]'],
@@ -54,6 +62,10 @@ describe('parseEmployeeInputs', () => {
     ['an amount as text', JSON.stringify([{ employee_id: EMP_A, earnings: [{ earning_type: 'salary', amount: '1' }] }])],
     ['an employee without earnings', JSON.stringify([{ employee_id: EMP_A, earnings: [] }])],
     ['a misspelled field', JSON.stringify([{ ...line(EMP_A), hours: 80 }])],
+    // MNE-001-110: overtime hours are held against the LFT limit; a null used to crash the Decimal check.
+    ['overtime hours that are null', JSON.stringify([{ employee_id: EMP_A, earnings: [{ earning_type: 'overtime', amount: 1, hours: null }] }])],
+    ['negative overtime hours', JSON.stringify([{ employee_id: EMP_A, earnings: [{ earning_type: 'overtime', amount: 1, hours: -2 }] }])],
+    ['overtime hours as text', JSON.stringify([{ employee_id: EMP_A, earnings: [{ earning_type: 'overtime', amount: 1, hours: '8' }] }])],
   ])('refuses %s with a usage error naming the file', (_why, text) => {
     const err = refused(() => parseEmployeeInputs(text, 'quincena.json'));
     expect(err.exitCode).toBe(ExitCode.USAGE);
