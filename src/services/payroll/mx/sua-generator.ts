@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { ValidationError } from '../../../utils/errors.js';
+import { splitByContributionMonth } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // SUA (Sistema Unico de Autodeterminacion — IMSS self-determination system) — IMSS monthly file
@@ -27,11 +28,11 @@ function padN(n: number, len: number): string {
  * caminos independientes hacia la misma cifra, así que cotejarlos mide de
  * verdad; una ida y vuelta por el mismo código no mediría nada.
  *
- * Y ya discrepan hoy: el pasivo atribuye un periodo al mes por su `period_end`
- * (`employer-liability-service.ts`), mientras este archivo exige que el periodo
- * ENTERO quepa dentro del mes. Una semana a caballo entre dos meses queda fuera
- * del archivo y dentro del pasivo — 500,00 que los libros del patrón declaran y
- * el archivo del IMSS no.
+ * Both paths attribute a period that straddles two months the same way, by the
+ * contribution days of each month (`splitByContributionMonth`, #231): before,
+ * the liability took it whole by `period_end` while this file demanded the
+ * whole period inside the month, and a straddling week was 500.00 the books
+ * declared and the IMSS file did not.
  *
  * Ausencia y discrepancia NO son lo mismo, y por eso se tratan distinto. Que no
  * haya pasivo apuntado significa «no hay contra qué cotejar» —corridas
@@ -136,6 +137,7 @@ export async function generateSuaFile(
   const periodEnd = end.toISOString().slice(0, 10);
 
   const result = await query<{
+    employee_id: string;
     nss: string;
     rfc: string;
     curp: string;
@@ -143,11 +145,12 @@ export async function generateSuaFile(
     second_last_name: string | null;
     first_name: string;
     sbc: string;
-    imss_ee: string;
-    imss_er: string;
-    inf_ee: string;
-    inf_er: string;
-    days: string;
+    imss_employee: string | null;
+    imss_employer: string | null;
+    infonavit_withheld: string | null;
+    infonavit_employer: string | null;
+    period_start: string | null;
+    period_end: string | null;
   }>(
     // EL MES Y EL ESTADO ACOTAN LOS RECIBOS, NO LOS ADORNAN (#92).
     //
@@ -167,47 +170,73 @@ export async function generateSuaFile(
     // empleado se le cuelga por fuera con `LEFT JOIN`, para que la plantilla
     // siga saliendo completa: quien no tuvo movimientos en el mes aparece en
     // ceros, que es lo que el SUA espera, y no desaparece del archivo.
+    //
+    // A PERIOD THAT OVERLAPS THE MONTH ENTERS, NOT ONLY ONE INSIDE IT (#231).
+    // A week straddling two months used to meet neither bound and was declared
+    // in no month. Each payslip now comes back whole with its period, and
+    // `splitByContributionMonth` keeps only this month's contribution days and
+    // their share of every amount — the same split the liability books.
     `SELECT
-       e.nss, e.rfc, e.curp,
+       e.id AS employee_id, e.nss, e.rfc, e.curp,
        e.last_name, e.second_last_name, e.first_name,
        e.sbc,
-       COALESCE(SUM(m.imss_employee), 0) AS imss_ee,
-       COALESCE(SUM(m.imss_employer), 0) AS imss_er,
-       COALESCE(SUM(m.infonavit_withheld), 0) AS inf_ee,
-       COALESCE(SUM(m.infonavit_employer), 0) AS inf_er,
-       COALESCE(SUM(m.period_end - m.period_start + 1), 0) AS days
+       m.imss_employee::text, m.imss_employer::text,
+       m.infonavit_withheld::text, m.infonavit_employer::text,
+       m.period_start, m.period_end
      FROM employees e
      LEFT JOIN (
        SELECT p.employee_id,
               p.imss_employee, p.imss_employer,
               p.infonavit_withheld, p.infonavit_employer,
-              pp.period_start, pp.period_end
+              pp.period_start::text AS period_start, pp.period_end::text AS period_end
          FROM paychecks p
          JOIN pay_runs pr ON pr.id = p.pay_run_id
          JOIN pay_periods pp ON pp.id = pr.pay_period_id
         WHERE pr.status IN ('approved', 'paid')
-          AND pp.period_start >= $3 AND pp.period_end <= $4
+          AND pp.period_start <= $4 AND pp.period_end >= $3
      ) m ON m.employee_id = e.id
-     WHERE e.tenant_id = $1 AND e.entity_id = $2 AND e.country_code = 'MX'
-     GROUP BY e.id, e.nss, e.rfc, e.curp, e.last_name, e.second_last_name, e.first_name, e.sbc`,
+     WHERE e.tenant_id = $1 AND e.entity_id = $2 AND e.country_code = 'MX'`,
     [tenantId, entityId, periodStart, periodEnd]
   );
 
   const records: string[] = [];
-  const employees: SuaEmployee[] = result.rows.map((r) => ({
-    nss: r.nss || '',
-    rfc: r.rfc || '',
-    curp: r.curp || '',
-    last_name: r.last_name,
-    second_last_name: r.second_last_name || '',
-    first_name: r.first_name,
-    sbc: parseFloat(r.sbc),
-    days_worked: parseInt(r.days || '0', 10),
-    imss_employer_amount: parseFloat(r.imss_er),
-    imss_employee_amount: parseFloat(r.imss_ee),
-    infonavit_employer_amount: parseFloat(r.inf_er),
-    infonavit_employee_amount: parseFloat(r.inf_ee),
-  }));
+  const byEmployee = new Map<string, SuaEmployee>();
+  for (const r of result.rows) {
+    let e = byEmployee.get(r.employee_id);
+    if (!e) {
+      e = {
+        nss: r.nss || '',
+        rfc: r.rfc || '',
+        curp: r.curp || '',
+        last_name: r.last_name,
+        second_last_name: r.second_last_name || '',
+        first_name: r.first_name,
+        sbc: parseFloat(r.sbc),
+        days_worked: 0,
+        imss_employer_amount: 0,
+        imss_employee_amount: 0,
+        infonavit_employer_amount: 0,
+        infonavit_employee_amount: 0,
+      };
+      byEmployee.set(r.employee_id, e);
+    }
+    if (!r.period_start || !r.period_end) continue;
+    const share = (amount: string | null) => {
+      const s = splitByContributionMonth(r.period_start!, r.period_end!, amount ?? '0').find(
+        (x) => x.start >= periodStart && x.start <= periodEnd
+      );
+      return s ?? { days: 0, amount: new Decimal(0) };
+    };
+    // Added through Decimal: float sums of cents drift, and the cross-check
+    // below compares these totals with `equals`.
+    const add = (acc: number, amount: string | null) => share(amount).amount.plus(acc).toNumber();
+    e.days_worked += share(r.imss_employer).days;
+    e.imss_employer_amount = add(e.imss_employer_amount, r.imss_employer);
+    e.imss_employee_amount = add(e.imss_employee_amount, r.imss_employee);
+    e.infonavit_employer_amount = add(e.infonavit_employer_amount, r.infonavit_employer);
+    e.infonavit_employee_amount = add(e.infonavit_employee_amount, r.infonavit_withheld);
+  }
+  const employees = [...byEmployee.values()];
 
   for (const e of employees) {
     // Simplified SUA layout (real SUA has ~150 fixed positions per record).
@@ -271,9 +300,9 @@ export async function generateSuaFile(
 /**
  * Lo que el patrón YA APUNTÓ que debe este mes, por el camino del acumulador.
  *
- * Se lee por `period_end` dentro del mes porque es la regla de atribución que
- * usa quien lo escribió: cotejar con otra regla convertiría el cotejo en una
- * discusión sobre qué mes es, que es una pregunta distinta.
+ * Read by `period_end` inside the month: the accumulator writes one row per
+ * month a period touches, each ending inside its own month (#231), and the
+ * month-end row ends on the month's last day.
  */
 async function cotejarContraElPasivo(
   tenantId: string,
@@ -321,8 +350,9 @@ async function cotejarContraElPasivo(
         detalle:
           `${concepto}: el archivo declara ${enElArchivo.toFixed(2)} y el pasivo apuntado dice ` +
           `${enLosLibros.toFixed(2)} (diferencia ${enLosLibros.minus(enElArchivo).toFixed(2)}). ` +
-          `Un periodo que cruza el cambio de mes entra en el pasivo por su fecha de cierre y ` +
-          `no en el archivo, que pide el periodo entero dentro del mes`,
+          `Si un periodo cruza el cambio de mes y su pasivo se apuntó antes del reparto por ` +
+          `días cotizados, ese renglón lo lleva entero en un solo mes: ` +
+          '`npm run backfill:straddling-liabilities -- --tenant <id>` lo reparte',
         bloquea: true,
         file_amount: enElArchivo.toFixed(2),
         ledger_amount: enLosLibros.toFixed(2),
