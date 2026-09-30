@@ -1203,6 +1203,40 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 28,
   },
   {
+    // MNE-001-054 (#328). Read by polizas-service.ts (`untracedMoneyOf`) and
+    // applied by `polizaConDineroSinRastro`. Only for money with NO registered
+    // payment behind it; a payment that exists and lacks data always blocks.
+    key: 'anexo24_voucher_money_without_trace',
+    textKey: 'anexo24_voucher_money_without_trace',
+    category: 'contable',
+    question:
+      'A voucher moves bank money with no registered payment behind it (a bank fee, interest, a pay run, a transfer between own accounts): what do the Anexo 24 vouchers do?',
+    impact:
+      'Decides whether `e-accounting voucher generate` delivers a month with such entries. "block" ' +
+      'refuses the file (exit 4) and names each voucher until a payment with its trace is captured. ' +
+      '"warn" delivers it without the payment node and names each voucher. Neither changes the ' +
+      'ledger. Declaring an OtrMetodoPago node instead is not offered: the XSD requires its Benef ' +
+      'and RFC, and with no payment record the ledger has neither, so they would be invented.',
+    options: [
+      { value: 'block', label: 'Refuse the file until each one has a registered payment with its trace' },
+      { value: 'warn', label: 'Deliver the file without the payment node and list the vouchers' },
+    ],
+    defaultValue: 'block',
+    defaultRationale:
+      'In PolizasPeriodo 1.3 (Anexo 24 RMF) the Cheque, Transferencia and OtrMetodoPago nodes are ' +
+      'optional, and each "becomes required" when resources go out or come in by that method; ' +
+      'Transferencia is also required for every transaction between the taxpayer\'s own accounts ' +
+      '(the XSD documentation of each node). With no payment record the system cannot tell which of ' +
+      'those cases an entry is, and a file that lacks a required node is incomplete books (CFF 28-IV). ' +
+      'So the default refuses and names the voucher. A firm whose untraced entries are bank charges ' +
+      'no instrument moved can answer "warn".',
+    whyAsking:
+      'Bank fees and interest move money that no cheque or transfer of yours moved. Whether your firm files those vouchers without a payment node or captures a payment first is your criterion.',
+    whatIDo: 'I apply your answer to every voucher that moves bank money with no registered payment, and I always name each one.',
+    ifSkipped: 'I refuse the file and name each voucher.',
+    priority: 26,
+  },
+  {
     key: 'anexo24_niveles_a_presentar',
     textKey: 'anexo24_levels_to_report',
     category: 'contable',
