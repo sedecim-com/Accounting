@@ -43,6 +43,13 @@ import {
   dateOnly as day,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import {
+  LEGACY_LINE_FORMS_RETIRE_IN,
+  lineKeysHelp,
+  normalizeLineRecord,
+  parseKeyValueLine,
+  type LineGrammar,
+} from './kernel/line-spec.js';
 
 // ============================================================
 // mnemosine invoice · factura
@@ -130,29 +137,100 @@ function isHumanTable(opts: CommonOpts): boolean {
 }
 
 /**
- * One `--line` spec: `key=value` pairs separated by semicolons, because a
- * description with a comma in it is normal and a description with a semicolon
- * in it is not.
- *
- *   --line "account=4100;qty=2;price=1500;tax=16;description=Consulting, July"
+ * qty/quantity and price/unit-price set one field each, so a line that gives
+ * both is refused. tax/tax-rate follows bill's tax/tax-amount rule instead:
+ * the explicit key wins over the legacy one (resolveInvoiceTaxRate).
  */
-export function parseInvoiceLine(spec: string): Record<string, string> {
-  const fields: Record<string, string> = {};
-  for (const part of spec.split(';')) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq < 1) {
-      throw usageError(
-        `Cannot read the line "${spec}". Expected key=value pairs separated by ";", ` +
-          'for example: --line "account=4100;qty=2;price=1500;tax=16;description=Consulting".'
-      );
-    }
-    fields[trimmed.slice(0, eq).trim().toLowerCase()] = trimmed.slice(eq + 1).trim();
-  }
-  if (!fields.account) throw usageError(`Line "${spec}" has no account=<code>.`);
-  if (!fields.price) throw usageError(`Line "${spec}" has no price=<amount>.`);
+const INVOICE_LINE_GRAMMAR: LineGrammar = {
+  known: [
+    'account', 'qty', 'quantity', 'price', 'unit-price', 'tax-rate', 'tax', 'tax-code',
+    'description', 'cost-center', 'project',
+  ],
+  sameField: [['qty', 'quantity'], ['price', 'unit-price']],
+};
+
+const INVOICE_LINE_KEYS_HELP = lineKeysHelp([
+  ['account', 'revenue account code (required)'],
+  ['qty', 'quantity; defaults to 1'],
+  ['quantity', 'same as qty'],
+  ['price', 'unit price before tax (required)'],
+  ['unit-price', 'same as price'],
+  ['tax-rate', 'IVA RATE in percent: 16 means 16% — NOT an amount'],
+  ['tax', `deprecated (warns; retired in ${LEGACY_LINE_FORMS_RETIRE_IN}): same as tax-rate`],
+  ['tax-code', 'tax code of the line'],
+  ['description', "the line's text; defaults to the account name"],
+  ['cost-center', 'cost center id'],
+  ['project', 'project id'],
+]);
+
+/** One stderr line, once per invocation, when a line used the bare `tax=`. */
+export const LEGACY_INVOICE_TAX_KEY_WARNING =
+  'tax= in an invoice line is the RATE in percent; write tax-rate= so it cannot be read as an amount. ' +
+  `tax= stops working in ${LEGACY_LINE_FORMS_RETIRE_IN}.`;
+
+/**
+ * One `--line` spec (or one object of --from-file), in the one grammar of
+ * #327: `key=value` pairs separated by semicolons.
+ *
+ *   --line "account=4100;qty=2;price=1500;tax-rate=16;description=Consulting, July"
+ *
+ * Unknown keys are rejected: `tax-rate=16` used to be ignored in silence and
+ * the invoice came out with 0 IVA.
+ */
+export function parseInvoiceLine(spec: string | Record<string, unknown>): Record<string, string> {
+  const fields =
+    typeof spec === 'string'
+      ? parseKeyValueLine(spec, { grammar: INVOICE_LINE_GRAMMAR }).fields
+      : normalizeLineRecord(spec, INVOICE_LINE_GRAMMAR);
+  const label = typeof spec === 'string' ? spec : JSON.stringify(spec);
+  if (!fields.account) throw usageError(`Line "${label}" has no account=<code>.`);
+  if (!(fields.price ?? fields['unit-price'])) throw usageError(`Line "${label}" has no price=<amount>.`);
   return fields;
+}
+
+/** The line's IVA rate: `tax-rate=` wins over the legacy bare `tax=`. */
+export function resolveInvoiceTaxRate(fields: Record<string, string>): {
+  tax_rate: string | null;
+  usedLegacyTaxKey: boolean;
+} {
+  const explicit = fields['tax-rate'];
+  return {
+    tax_rate: explicit ?? fields.tax ?? null,
+    usedLegacyTaxKey: explicit === undefined && fields.tax !== undefined,
+  };
+}
+
+/**
+ * Parses every line and resolves its account; warns once if any line used
+ * the legacy `tax=`.
+ */
+async function invoiceLinesFrom(
+  entityId: string,
+  specs: Array<string | Record<string, unknown>>,
+  palette: Palette,
+  onAccount: (account: Awaited<ReturnType<typeof resolveAccount>>) => void = () => undefined
+): Promise<InvoiceLineInput[]> {
+  const lines: InvoiceLineInput[] = [];
+  let legacyTax = false;
+  for (const spec of specs) {
+    const fields = parseInvoiceLine(spec);
+    const account = await resolveAccount(entityId, fields.account);
+    onAccount(account);
+    const tax = resolveInvoiceTaxRate(fields);
+    legacyTax ||= tax.usedLegacyTaxKey;
+    lines.push({
+      revenue_account_id: account.id,
+      description: fields.description ?? account.name,
+      quantity: fields.qty ?? fields.quantity ?? '1',
+      unit_price: fields.price ?? fields['unit-price'],
+      tax_rate: tax.tax_rate,
+      tax_code: fields['tax-code'] ?? null,
+      cost_center_id: fields['cost-center'] ?? null,
+      project_id: fields.project ?? null,
+    });
+  }
+  if (legacyTax) process.stderr.write(palette.dim(`  ${LEGACY_INVOICE_TAX_KEY_WARNING}\n`));
+  return lines;
 }
 
 /**
@@ -172,11 +250,10 @@ export function dueDateFromTerms(terms: string | null | undefined, invoiceDate: 
 // ============================================================
 // EJEMPLOS · invocaciones copiables, con datos mexicanos
 //
-// El separador de `--line` de esta familia es el PUNTO Y COMA —una
-// descripción con coma es normal, con punto y coma no— y su `tax=` es una
-// TASA en por ciento, no un monto: el de `bill` es el monto. Las dos cosas
-// son la brecha H3, y por eso cada ejemplo se escribe entero en vez de
-// remitir a otro comando.
+// The `--line` separator is the SEMICOLON in invoice, bill and entry (#327),
+// and the rate is spelled `tax-rate=`, which cannot be mistaken for bill's
+// `tax-amount=`: the H3 gap. Every example is written out in full instead of
+// pointing at another command.
 //
 // Las cuentas son códigos del catálogo base real (chart-seed.ts): 4100
 // Ventas, 4200 Ingresos por Servicios. Prosa en inglés (idioma del nodo),
@@ -200,10 +277,10 @@ Examples:
   create: `
 Examples:
   # One service line at 16% IVA. Inside --line the pairs are separated by
-  # SEMICOLONS, and tax= is a RATE in percent — 16 means 16%, not 16 pesos.
-  mnemosine invoice create --customer "Grupo Alameda" --date 2026-07-15 --line "account=4200;qty=1;price=85000.00;tax=16;description=Servicios contables julio"
+  # SEMICOLONS, and tax-rate= is a RATE in percent — 16 means 16%, not 16 pesos.
+  mnemosine invoice create --customer "Grupo Alameda" --date 2026-07-15 --line "account=4200;qty=1;price=85000.00;tax-rate=16;description=Servicios contables julio"
   # Goods and services on one document, against the customer's purchase order.
-  mnemosine invoice create --customer "Grupo Alameda" --po-number OC-2026-118 --line "account=4100;qty=10;price=1250.00;tax=16" --line "account=4200;qty=1;price=32000.00;tax=16"
+  mnemosine invoice create --customer "Grupo Alameda" --po-number OC-2026-118 --line "account=4100;qty=10;price=1250.00;tax-rate=16" --line "account=4200;qty=1;price=32000.00;tax-rate=16"
 `,
   issue: `
 Examples:
@@ -224,7 +301,7 @@ Examples:
   # Move the due date of a DRAFT and correct its memo.
   mnemosine invoice edit INV-2026-00043 --due-date 2026-08-30 --memo "Vence a 45 dias por convenio"
   # Replace ALL the lines of the draft: what you pass IS the invoice.
-  mnemosine invoice edit INV-2026-00043 --line "account=4200;qty=1;price=92000.00;tax=16"
+  mnemosine invoice edit INV-2026-00043 --line "account=4200;qty=1;price=92000.00;tax-rate=16"
 `,
   delete: `
 Examples:
@@ -484,8 +561,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
             method: row.payment_method,
             status: row.payment_status,
             applied: row.amount_applied,
+            isr_withheld: row.withholding_isr_amount,
+            vat_withheld: row.withholding_iva_amount,
           })),
-          { format: 'table', numeric: ['applied'] }
+          { format: 'table', numeric: ['applied', 'isr_withheld', 'vat_withheld'] }
         );
       }
       out.write('\n');
@@ -502,7 +581,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .requiredOption('--customer <ref>', 'customer number, name or id')
     .option(
       '--line <spec...>',
-      'a line: "account=4100;qty=2;price=1500;tax=16;description=…". Here tax= is a RATE in % (16 means 16%), not an amount — unlike bill, where it is the amount'
+      'a line: "account=4100;qty=2;price=1500;tax-rate=16;description=…". tax-rate= is a RATE in % (16 means 16%), not an amount. See the key list below'
     )
     .option('--from-file <path>', 'JSON array of lines instead of repeated --line')
     .option('--date <date>', 'invoice date (YYYY-MM-DD); defaults to today')
@@ -513,6 +592,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .option('--po-number <text>', 'the customer purchase order this bills against')
     .option('--json', 'JSON output');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'invoices + invoice_lines (draft)' });
+  create.addHelpText('after', INVOICE_LINE_KEYS_HELP);
   create.addHelpText('after', EJEMPLOS.create);
   create.action(
     (
@@ -538,7 +618,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         ];
         if (specs.length === 0) {
           throw usageError(
-            'An invoice needs at least one line: pass --line "account=<code>;qty=<n>;price=<amount>" ' +
+            'An invoice needs at least one line: pass --line "account=<code>;qty=<n>;price=<amount>;tax-rate=<%>" ' +
               '(repeatable) or --from-file <path>.'
           );
         }
@@ -556,10 +636,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
           throw usageError(`--due-date ${dueDate} falls before the invoice date ${invoiceDate}.`);
         }
 
-        const lines: InvoiceLineInput[] = [];
-        for (const spec of specs) {
-          const fields = parseInvoiceLine(spec);
-          const account = await resolveAccount(ctx.entityId, fields.account);
+        const lines = await invoiceLinesFrom(ctx.entityId, specs, deps.palette, (account) => {
           if (account.account_type !== AccountType.REVENUE && account.account_type !== AccountType.CONTRA_ASSET) {
             process.stderr.write(
               deps.palette.yellow(
@@ -567,17 +644,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
               )
             );
           }
-          lines.push({
-            revenue_account_id: account.id,
-            description: fields.description ?? account.name,
-            quantity: fields.qty ?? fields.quantity ?? '1',
-            unit_price: fields.price ?? fields.unit_price,
-            tax_rate: fields.tax ?? fields.tax_rate ?? null,
-            tax_code: fields['tax-code'] ?? null,
-            cost_center_id: fields['cost-center'] ?? null,
-            project_id: fields.project ?? null,
-          });
-        }
+        });
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
         const created = await createInvoice({
@@ -790,7 +857,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   edit
     .option(
       '--line <spec...>',
-      'REPLACE all lines: "account=4100;qty=2;price=1500;tax=16;…" (repeatable). Here tax= is a RATE in %, not an amount'
+      'REPLACE all lines: "account=4100;qty=2;price=1500;tax-rate=16;…" (repeatable). Key list in invoice create --help'
     )
     .option('--from-file <path>', 'JSON array of lines instead of repeated --line')
     .option('--date <date>', 'new invoice date (YYYY-MM-DD)')
@@ -822,24 +889,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
           ...(opts.line ?? []),
           ...(opts.fromFile ? readLineFile(opts.fromFile) : []),
         ];
-        let lines: InvoiceLineInput[] | undefined;
-        if (specs.length > 0) {
-          lines = [];
-          for (const spec of specs) {
-            const fields = parseInvoiceLine(spec);
-            const account = await resolveAccount(ctx.entityId, fields.account);
-            lines.push({
-              revenue_account_id: account.id,
-              description: fields.description ?? account.name,
-              quantity: fields.qty ?? fields.quantity ?? '1',
-              unit_price: fields.price ?? fields.unit_price,
-              tax_rate: fields.tax ?? fields.tax_rate ?? null,
-              tax_code: fields['tax-code'] ?? null,
-              cost_center_id: fields['cost-center'] ?? null,
-              project_id: fields.project ?? null,
-            });
-          }
-        }
+        const lines = specs.length > 0 ? await invoiceLinesFrom(ctx.entityId, specs, deps.palette) : undefined;
         if (opts.dueDate && opts.date && opts.dueDate < opts.date) {
           throw usageError(`--due-date ${opts.dueDate} falls before the invoice date ${opts.date}.`);
         }
@@ -1048,7 +1098,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
 }
 
 /** Lines from a JSON file: an array of the same key=value fields, as objects. */
-function readLineFile(path: string): string[] {
+function readLineFile(path: string): Array<Record<string, unknown>> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, 'utf-8'));
@@ -1059,12 +1109,9 @@ function readLineFile(path: string): string[] {
     throw usageError(`${path} must contain a JSON array of line objects.`);
   }
   return parsed.map((entry) => {
-    if (!entry || typeof entry !== 'object') {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw usageError(`${path} contains a line that is not an object.`);
     }
-    return Object.entries(entry as Record<string, unknown>)
-      .filter(([, value]) => value !== null && value !== undefined)
-      .map(([key, value]) => `${key}=${String(value)}`)
-      .join(';');
+    return entry as Record<string, unknown>;
   });
 }

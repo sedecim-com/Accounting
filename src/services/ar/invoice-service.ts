@@ -236,12 +236,17 @@ export async function getInvoiceById(
   return invoice;
 }
 
-/** The cash applied to an invoice: the half of `invoice show` the route omitted. */
+/**
+ * The cash applied to an invoice: the half of `invoice show` the route omitted.
+ * With the customer's withholding that settled it alongside the cash
+ * (MNE-001-113), so the rows add up to amount_paid.
+ */
 export async function listInvoiceAllocations(
   invoiceId: string
 ): Promise<Record<string, unknown>[]> {
   const result = await query(
-    `SELECT pa.id, pa.amount_applied, pa.discount_amount, pa.created_at,
+    `SELECT pa.id, pa.amount_applied, pa.discount_amount,
+            pa.withholding_isr_amount, pa.withholding_iva_amount, pa.created_at,
             p.payment_number, p.payment_date, p.payment_method, p.status AS payment_status
      FROM payment_allocations pa
      JOIN customer_payments p ON p.id = pa.payment_id

@@ -62,6 +62,7 @@ import {
   type ExitCodeValue,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { isKeyValueLine, lineKeysHelp, parseKeyValueLine, SIDE_ALIASES, type LineGrammar } from './kernel/line-spec.js';
 import { AppError } from '../utils/errors.js';
 
 // ============================================================
@@ -194,6 +195,34 @@ function lineRow(line: JournalEntryLineWithAccount): Record<string, unknown> {
   };
 }
 
+const ENTRY_LINE_GRAMMAR: LineGrammar = {
+  known: ['account', 'debit', 'credit', 'description'],
+  aliases: SIDE_ALIASES,
+};
+
+const ENTRY_LINE_KEYS_HELP = lineKeysHelp([
+  ['account', 'chart account CODE the line is posted to (required)'],
+  ['debit', 'amount charged to the account; cargo= is the same key'],
+  ['credit', 'amount credited to the account; abono= is the same key'],
+  ['description', "the line's own text"],
+]) + `Shortcut, still accepted: <account>:<side>:<amount>[:description], where <side> takes the names of the two amount keys above.
+`;
+
+/**
+ * One entry `--line`: the canonical `account=6120;debit=45000.00;description=…`
+ * (#327), or the positional shortcut `6120:debit:45000.00[:text]`. Exactly one
+ * side per line, as in the positional form.
+ */
+export function parseEntryLine(spec: string): DraftLineInput {
+  if (!isKeyValueLine(spec)) return parseLineFlag(spec);
+  const { fields } = parseKeyValueLine(spec, { grammar: ENTRY_LINE_GRAMMAR });
+  if (!fields.account) throw usageError(`Line "${spec}" has no account=<code>.`);
+  if ((fields.debit === undefined) === (fields.credit === undefined)) {
+    throw usageError(`Line "${spec}" needs exactly one of debit=<amount> or credit=<amount> (cargo=/abono=).`);
+  }
+  return { account: fields.account, debit: fields.debit, credit: fields.credit, description: fields.description };
+}
+
 // ============================================================
 // EJEMPLOS · lo que `--help` no decía
 //
@@ -229,12 +258,14 @@ Examples:
   create: `
 Examples:
   # Accrue July office rent: 45,000.00 charged to 6120, owed on 2110.
-  # Each --line is <account>:<debit|credit>:<amount> — <account> is the CODE
+  # Each --line is key=value pairs separated by ";" — account= is the CODE
   # from the chart of accounts, and the amount carries no thousands separator.
-  mnemosine entry create --date 2026-07-31 --type adjusting --description "Renta de oficina julio 2026" --line "6120:debit:45000.00" --line "2110:credit:45000.00"
-  # Reclassify a misposted expense. A fourth field is the line's own text.
-  mnemosine entry create --type correction --description "Reclasificacion de energia electrica" --line "6130:debit:8700.50:CFE julio" --line "6100:credit:8700.50:Sale de gastos de administracion"
+  mnemosine entry create --date 2026-07-31 --type adjusting --description "Renta de oficina julio 2026" --line "account=6120;debit=45000.00" --line "account=2110;credit=45000.00"
+  # Reclassify a misposted expense; cargo=/abono= are the same keys as debit=/credit=.
+  mnemosine entry create --type correction --description "Reclasificacion de energia electrica" --line "account=6130;cargo=8700.50;description=CFE julio" --line "account=6100;abono=8700.50;description=Sale de gastos de administracion"
   # See exactly what would be drafted, writing nothing.
+  mnemosine entry create --description "Honorarios cobrados en efectivo" --line "account=1110;debit=12000.00" --line "account=4200;credit=12000.00" --dry-run
+  # Shortcut, still accepted: <account>:<debit|credit>:<amount>[:description].
   mnemosine entry create --description "Honorarios cobrados en efectivo" --line "1110:debit:12000.00" --line "4200:credit:12000.00" --dry-run
 `,
   check: `
@@ -264,7 +295,7 @@ Examples:
   # Correct the description and the external reference of a draft.
   mnemosine entry edit JE-2026-00042 --description "Renta de oficina julio 2026" --reference "Contrato ARR-2024-11"
   # Replace ALL the lines: what you pass IS the entry, not an addition to it.
-  mnemosine entry edit JE-2026-00042 --line "6120:debit:46500.00" --line "2110:credit:46500.00"
+  mnemosine entry edit JE-2026-00042 --line "account=6120;debit=46500.00" --line "account=2110;credit=46500.00"
 `,
   export: `
 Examples:
@@ -562,7 +593,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   create
     .option(
       '--line <spec...>',
-      'a line as <account>:<debit|credit>:<amount>[:description]; repeat for each line'
+      'a line: "account=6120;debit=45000.00;description=…"; repeat for each line. See the key list below'
     )
     .option('--file <path>', 'JSON document with date, type, description and lines')
     .option('--date <date>', 'entry date (YYYY-MM-DD); defaults to today')
@@ -580,6 +611,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     draftOnly: true,
     writes: 'journal_entries (draft) + journal_entry_lines',
   });
+  create.addHelpText('after', ENTRY_LINE_KEYS_HELP);
   create.addHelpText('after', EJEMPLOS.create);
   create.action((
     opts: CommonOpts & {
@@ -613,10 +645,10 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         description = opts.description ?? doc.description;
         reference = opts.reference ?? doc.reference;
       } else if (opts.line?.length) {
-        lines = opts.line.map(parseLineFlag);
+        lines = opts.line.map(parseEntryLine);
       } else {
         throw usageError(
-          'Nothing to record. Give the lines with --line <account>:<debit|credit>:<amount> ' +
+          'Nothing to record. Give the lines with --line "account=<code>;debit=<amount>" ' +
             '(repeat it), or a JSON document with --file.'
         );
       }
@@ -766,7 +798,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     .option('--reference <text>', 'new external reference')
     .option('--note <text>', 'new note')
     .option('--date <date>', 'new entry date (YYYY-MM-DD)')
-    .option('--line <spec...>', 'replace ALL lines: <account>:<debit|credit>:<amount>[:description]')
+    .option('--line <spec...>', 'replace ALL lines: "account=6120;debit=45000.00;description=…" (key list in entry create --help)')
     .option('--file <path>', 'JSON document whose date/description/reference/lines replace the draft');
   // draft-only, igual que create: la edición jamás alcanza una póliza que ya
   // salió del borrador — el servicio lo garantiza bajo FOR UPDATE.
@@ -799,7 +831,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         patch.description = opts.description ?? doc.description;
         patch.reference = opts.reference ?? doc.reference;
       } else {
-        if (opts.line?.length) patch.lines = opts.line.map(parseLineFlag);
+        if (opts.line?.length) patch.lines = opts.line.map(parseEntryLine);
         if (opts.description !== undefined) patch.description = opts.description;
         if (opts.reference !== undefined) patch.reference = opts.reference;
         if (opts.date !== undefined) patch.date = opts.date;

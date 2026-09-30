@@ -58,7 +58,7 @@ Qué es cada cosa y por qué: [`docs/SCOPE.md`](SCOPE.md), [`AGENTS.md`](../AGEN
 | `src/services/reporting/` | Estados financieros, balanza y flujo de efectivo. |
 | `src/services/sat/` | Obligaciones ante el SAT: Anexo 24, DIOT y estado de CFDI. |
 | `src/services/sat-census/` | The SAT census: the `~` metadata file and ZIP packages of CFDI read into sat_cfdi_census (MNE-001-096). |
-| `src/services/sat-download/` | SAT Descarga Masiva client: the Autentica request signed with the vault e.firma through withCredential (EFIRMA-1). |
+| `src/services/sat-download/` | SAT Descarga Masiva client: the Autentica request (EFIRMA-1) and the request/verify/download engine with its lifetime XML quota (EFIRMA-2), signed with the vault e.firma through withCredential. |
 | `src/services/tenant/` | Inquilinos (despachos) de la instalación: alta y lista, fuera de RLS y fuera del alcance del agente. |
 | `src/services/user/` | Logins of one firm: created without a terminal, listed and archived; outside RLS and outside the agent's reach. |
 | `src/services/vault/` | Cifrado y bóveda de secretos (ruta con dueño reforzado). |

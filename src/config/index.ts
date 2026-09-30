@@ -175,6 +175,17 @@ export const config = {
     descargaMasivaAuthUrl:
       process.env.SAT_DESCARGA_AUTH_URL ||
       'https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/Autenticacion/Autenticacion.svc',
+    // EFIRMA-2 (#440): request, verification and download. In config because
+    // the SAT has moved them before (v1.5 moved them to clouda.sat.gob.mx).
+    descargaMasivaSolicitaUrl:
+      process.env.SAT_DESCARGA_SOLICITA_URL ||
+      'https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/SolicitaDescargaService.svc',
+    descargaMasivaVerificaUrl:
+      process.env.SAT_DESCARGA_VERIFICA_URL ||
+      'https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/VerificaSolicitudDescargaService.svc',
+    descargaMasivaDescargaUrl:
+      process.env.SAT_DESCARGA_DESCARGA_URL ||
+      'https://cfdidescargamasiva.clouda.sat.gob.mx/DescargaMasivaService.svc',
   },
 } as const;
 
