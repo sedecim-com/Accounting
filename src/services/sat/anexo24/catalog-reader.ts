@@ -42,8 +42,7 @@ import { NS_CATALOGO, VERSION_CATALOGO } from './validador.js';
 //      escrito a mano: es la mitad de la norma que la librería no implementa.
 //
 // NOTE: both answers now live in src/utils/xml-reader.ts, shared with
-// cfdi-parser.ts (#299); camt053.ts and `catalogoDesdeXml` still build their
-// own parser (#218).
+// cfdi-parser.ts (#299), camt053.ts and `catalogoDesdeXml` (#218).
 //
 // ── QUÉ FALLA Y QUÉ SE ANOTA ────────────────────────────────────────────
 //
