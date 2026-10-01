@@ -2,7 +2,7 @@
   "name": "IFRS Accounting Standards — registro de vigencias para mnemosine",
   "scope": "NIIF/NIC, interpretaciones CINIIF/SIC y NIIF para PyMEs del IASB (IFRS ACCOUNTING Standards). Las normas de sostenibilidad del ISSB (IFRS S1/S2) quedan FUERA de alcance: son revelación de sostenibilidad, no registro contable.",
   "verified_at": "2026-09-06",
-  "verification": "Investigación con 9 agentes + 3 verificadores adversariales (completitud, vigencias, diferencias vs NIF). 69 fichas: 67 vigencias confirmadas contra ifrs.org/iasplus; 2 corregidas; 1 norma faltante agregada (IFRS 20); 8 afirmaciones NIF↔IFRS corregidas. Re-verificación 2026-09-06 (un investigador con web en vivo + verificador de ligas): las 72 vigencias de fondo se sostienen; corregidas la ficha de NIC 28 (enmienda FVO jun-2026 que la ficha negaba) y la de NIIF 16 (PIR concluida jul-2026); sustituidas dos ligas muertas (NIIF 5, NIC 1) por la página oficial; añadidas dos fuentes de verdad. El resto del delta (NIF A-2 2026, ONIF 7, Mejoras 2026/2027, AD del Vol. 14, páginas oficiales de 27 fichas) está en docs/investigacion/2026-09-06-normas-y-motores/normas/ifrs-nif-delta.md §4 y es una issue aparte.",
+  "verification": "Investigación con 9 agentes + 3 verificadores adversariales (completitud, vigencias, diferencias vs NIF). 69 fichas: 67 vigencias confirmadas contra ifrs.org/iasplus; 2 corregidas; 1 norma faltante agregada (IFRS 20); 8 afirmaciones NIF↔IFRS corregidas. Re-verificación 2026-09-06 (un investigador con web en vivo + verificador de ligas): las 72 vigencias de fondo se sostienen; corregidas la ficha de NIC 28 (enmienda FVO jun-2026 que la ficha negaba) y la de NIIF 16 (PIR concluida jul-2026); sustituidas dos ligas muertas (NIIF 5, NIC 1) por la página oficial; añadidas dos fuentes de verdad. MNE-001-366 aplicó a cinco fichas (NIIF 18, NIC 7, NIIF 9, NIC 12, NIIF 20) y a la AD de depósitos a la vista de NIC 7 las decisiones de agenda de 2026 y las fuentes oficiales; queda para MNE-001-367 y MNE-001-368 el resto del delta (NIF A-2 2026, ONIF 7, Mejoras 2026/2027, páginas oficiales de las demás fichas), en docs/investigacion/2026-09-06-normas-y-motores/normas/ifrs-nif-delta.md §4.",
   "sources_of_truth": [
     "https://www.ifrs.org/issued-standards/list-of-standards/",
     "https://www.ifrs.org/projects/work-plan/",
@@ -99,7 +99,7 @@
       "title_es": "Estado de Flujos de Efectivo",
       "title_en": "Statement of Cash Flows",
       "status": "vigente",
-      "effective": "Vigente desde el 1-ene-1994 (revisión 1992); enmiendas recientes en vigor: financiamiento de proveedores desde 1-ene-2024 y Mejoras Anuales Vol. 11 desde 1-ene-2026; enmiendas consecuenciales de NIIF 18 pendientes para 1-ene-2027. La decisión de agenda de factoraje inverso (dic-2020) fue retirada el 21-jul-2026 por el IASB, al quedar absorbida por las enmiendas de 2023; las decisiones de agenda de NIC 7 (depósitos a la vista restringidos, abr-2022; pasivos de financiamiento, sep-2019) se actualizaron para NIIF 18 en la Compilación Vol. 14 (abr-2026).",
+      "effective": "Vigente desde el 1-ene-1994 (revisión 1992); enmiendas recientes en vigor: financiamiento de proveedores desde 1-ene-2024 y Mejoras Anuales Vol. 11 desde 1-ene-2026; enmiendas consecuenciales de NIIF 18 pendientes para 1-ene-2027.",
       "topic": "niif-marco-presentacion",
       "confidence": "high",
       "sources": [
@@ -1224,7 +1224,7 @@
       "title_es": "Activos Regulatorios y Pasivos Regulatorios",
       "title_en": "Regulatory Assets and Regulatory Liabilities",
       "status": "futura",
-      "effective": "Emitida por el IASB el 27 de mayo de 2026; obligatoria para periodos anuales que inicien el 1 de enero de 2029, con adopción anticipada permitida. Sustituirá a la NIIF 14 desde su vigencia. Complementa a la NIIF 15 (texto oficial). No tiene página en la lista de normas emitidas de ifrs.org: las fuentes son la noticia de emisión, la página del proyecto concluido y los materiales de apoyo.",
+      "effective": "Emitida por el IASB el 27 de mayo de 2026; obligatoria para periodos anuales que inicien el 1 de enero de 2029, con adopción anticipada permitida. Sustituirá a la NIIF 14 desde su vigencia.",
       "topic": "niif-moneda-seguros-adopcion",
       "confidence": "high",
       "sources": [
@@ -1233,7 +1233,11 @@
         "https://www.ifrs.org/supporting-implementation/supporting-materials-by-ifrs-standards/ifrs-20/",
         "https://www.ifrs.org/content/dam/ifrs/project/rate-regulated-activities/standard/iasb-ifrs20-projectsummary.pdf"
       ],
-      "replaces": "NIIF 14 / IFRS 14"
+      "replaces": "NIIF 14 / IFRS 14",
+      "amendments": [
+        "Complementa a la NIIF 15 (texto oficial).",
+        "Nota de fuentes: la norma no tiene página en la lista de normas emitidas de ifrs.org; las fuentes son la noticia de emisión, la página del proyecto concluido y los materiales de apoyo."
+      ]
     },
     {
       "code": "IFRS Practice Statement 1",
