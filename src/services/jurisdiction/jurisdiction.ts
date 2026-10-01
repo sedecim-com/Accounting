@@ -287,3 +287,34 @@ export function sqlKeepsMexicanBooks(alias: string): string {
     ` OR coalesce(upper(btrim(${alias}.incorporation_country)), '') IN ('', 'MX'))`
   );
 }
+
+// ============================================================
+// PER-JURISDICTION PACKAGE DATA
+//
+// MNE-001-177 (issue #159). `statutoryLanguage` is the BCP 47 tag of the
+// language in which the law of `fiscal` is written, and therefore the one in
+// which statutory account names are rendered when a chart is seeded (the
+// seeds take it up in MNE-001-178/179). It follows `fiscal`, not `books`:
+// the SAT chart is Spanish and the IRS one English whatever the norm used
+// for recognition. It is NOT the viewer's UI language; that stays a
+// per-user setting.
+// ============================================================
+
+/** BCP 47 tags of the statutory languages the product models. */
+export type StatutoryLanguage = 'es-MX' | 'en-US';
+
+export interface JurisdictionPackage {
+  /** Language of the law of this jurisdiction; renders statutory names. */
+  statutoryLanguage: StatutoryLanguage;
+}
+
+/** One package per fiscal authority; exhaustive over `JurisdictionCode`. */
+export const JURISDICTIONS: Readonly<Record<JurisdictionCode, JurisdictionPackage>> = Object.freeze({
+  MX: Object.freeze({ statutoryLanguage: 'es-MX' }),
+  US: Object.freeze({ statutoryLanguage: 'en-US' }),
+});
+
+/** Statutory language of an entity, via its fiscal authority. */
+export function statutoryLanguageOf(e: EntityWithJurisdiction): StatutoryLanguage {
+  return JURISDICTIONS[jurisdictionOf(e).fiscal].statutoryLanguage;
+}
