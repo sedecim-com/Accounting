@@ -2262,6 +2262,45 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I adjust every line to pesos before adding them.',
     priority: 42,
   },
+  // #308 · MNE-001-385. Decided by the owner in MNE-001-114. Read by
+  // `readCreditableProration` (fiscal/iva-workpaper.ts).
+  {
+    key: 'iva_creditable_proration',
+    textKey: 'iva_creditable_proration',
+    category: 'fiscal',
+    question:
+      'When the entity collects exempt or non-taxed acts next to taxed ones, which proportion credits the IVA it paid: the month\'s, or the prior year\'s?',
+    impact:
+      'It moves the creditable IVA of every month with mixed activities, and so the IVA payable. "monthly" divides ' +
+      'the taxed acts collected in the month by all the acts collected in it; "annual" uses that proportion over the ' +
+      'prior calendar year. Either way the proportion multiplies all the IVA paid in the month.',
+    options: [
+      { value: 'monthly', label: 'The month\'s proportion, over all the IVA paid (LIVA art. 5 fr. V inc. c)' },
+      { value: 'annual', label: 'The prior calendar year\'s proportion, over all the IVA paid (LIVA art. 5-B)' },
+    ],
+    defaultValue: 'monthly',
+    defaultRationale:
+      'LIVA art. 5 fr. V inc. c (inc. d num. 3 for investments) credits the IVA of what serves both taxed and exempt ' +
+      'acts in the proportion the taxed acts bear to all the acts of the month: it is the rule of the law, and it ' +
+      'follows the entity\'s activity as it changes. Art. 5-B, as in force since its last reform (DOF 12-11-2021), ' +
+      'lets the taxpayer instead apply the prior calendar year\'s proportion, and binds it to that option for sixty ' +
+      'months, so it is an election to make on purpose, not a default. The ledger does not say which expense serves ' +
+      'only taxed acts (inc. a, credited whole) or only exempt ones (inc. b, not creditable), so the month\'s ' +
+      'proportion is applied to all the IVA paid: that overstates the credit for an exempt-only expense and ' +
+      'understates it for a taxed-only one, and the workpaper warns every time. Unverified assumption: the proportion ' +
+      'is used as an exact quotient; if the Declaraciones y Pagos form captures it to a fixed number of decimals, the ' +
+      'credit can differ by cents.',
+    whyAsking:
+      'The law gives both proportions and the choice is the taxpayer\'s. The annual one smooths the months, and once ' +
+      'chosen it must be kept for sixty months.',
+    whatIDo:
+      'The monthly IVA workpaper credits all the IVA paid in the month times the proportion you choose here, shows ' +
+      'the proportion and its acts, and subtracts only the credited share. With "annual", a prior year without any ' +
+      'collected act, or one the ledger does not hold from January, stops the workpaper instead of guessing a ' +
+      'proportion. I do not enforce the sixty-month lock of art. 5-B: changing this answer is on you.',
+    ifSkipped: 'I use the month\'s proportion.',
+    priority: 42,
+  },
   // #308 · MNE-001-059. Read by `readSalesReturnsTreatment`
   // (fiscal/provisional-income-tax.ts). The nominal income of the payment has
   // to be built as the coefficient's denominator was, or the coefficient is

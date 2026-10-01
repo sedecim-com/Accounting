@@ -1,12 +1,20 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
+import Decimal from 'decimal.js';
 
 vi.mock('../../../src/services/policy/policy-service.js', () => ({ getPolicy: vi.fn() }));
 
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
 import {
+  CREDITABLE_PRORATION_POLICY,
   FILING_ROUNDING_POLICY,
+  REFERENCE_SUFFIX,
+  actsOf,
+  coversReferenceYear,
   priorBalanceOf,
+  prorate,
+  readCreditableProration,
   readFilingRounding,
+  referenceFindings,
   saleFromCfdi,
   roundToWhole,
   settleIva,
@@ -56,6 +64,7 @@ function month(): IvaWorkpaperFigures {
     withheldByCustomers: '10.2600',
     withheldToRemit: '5.3333',
     priorBalanceInFavor: '0.0000',
+    proration: null,
   };
 }
 
@@ -191,5 +200,91 @@ describe('the prior balance in favor is captured by a person and validated', () 
 
   it.each(['-1', 'abc', 'NaN', 'Infinity'])('refuses %s with a ValidationError', (raw) => {
     expect(() => priorBalanceOf(raw)).toThrow(ValidationError);
+  });
+});
+
+describe('the proration of LIVA art. 5 fr. V (MNE-001-385)', () => {
+  const MAY = { desde: '2026-05-01', hasta: '2026-05-31' };
+
+  it('taxed acts are every rate but exempt; exempt and no objeto are the rest', () => {
+    const charged = desgloseCero();
+    charged.tasa16 = { base: '100.0000', iva: '16.0000' };
+    charged.tasa8 = { base: '50.0000', iva: '4.0000' };
+    charged.tasa0 = { base: '25.0000', iva: '0.0000' };
+    charged.otras = [{ etiqueta: '11.00', base: '25.0000', iva: '2.7500' }];
+    charged.exento = { base: '60.0000', iva: '0.0000' };
+    const acts = actsOf(charged, '40.0000');
+    expect(acts.taxed.toFixed(4)).toBe('200.0000');
+    expect(acts.notTaxed.toFixed(4)).toBe('100.0000');
+  });
+
+  it('no exempt or no objeto act: nothing to prorate', () => {
+    expect(prorate('monthly', MAY, { taxed: new Decimal(100), notTaxed: new Decimal(0) }, '16')).toBeNull();
+  });
+
+  it('the quotient is exact: 100 × 1 / 3 is 33.3333, not 100 × 0.333333', () => {
+    const p = prorate('monthly', MAY, { taxed: new Decimal(1000), notTaxed: new Decimal(2000) }, '100');
+    expect(p).toEqual({
+      method: 'monthly', reference: MAY, taxedActs: '1000.0000', totalActs: '3000.0000',
+      factor: '0.333333', paid: '100.0000', creditable: '33.3333',
+    });
+    const big = prorate('annual', MAY, { taxed: new Decimal(1000), notTaxed: new Decimal(2000) }, '1000000');
+    expect(big?.creditable).toBe('333333.3333'); // × 0.333333 would give 333333.0000
+  });
+
+  it('settled prorated, the IVA paid by rate is shown and only the credited share subtracts', () => {
+    const f = month();
+    // 96.50 paid × 3 / 4 = 72.375 credited.
+    f.proration = prorate('monthly', MAY, { taxed: new Decimal(3), notTaxed: new Decimal(1) }, '96.5');
+    const s = settleIva(f, 'cada_renglon');
+    const line = (k: string) => s.lines.find((l) => l.key === k)!;
+    expect(line('creditable.tasa16.iva')).toMatchObject({ cents: '96.50', whole: '96', sign: 0 });
+    expect(line('creditable.prorated')).toMatchObject({ cents: '72.38', whole: '72', sign: -1 });
+    // 160.05 + 40.50 − 72.38 − 10.26 = 117.91 · whole 160 + 40 − 72 − 10 = 118.
+    expect(s.resultCents).toBe('117.91');
+    expect(s.resultWhole).toBe('118');
+  });
+
+  it('the panel key: the month by default citing inc. c, the prior year as the art. 5-B option', () => {
+    const spec = POLICY_CATALOG.find((p) => p.key === CREDITABLE_PRORATION_POLICY)!;
+    expect(spec.options.map((o) => o.value)).toEqual(['monthly', 'annual']);
+    expect(spec.defaultValue).toBe('monthly');
+    // Inc. c is the month's proportion for goods and services; inc. d is investments.
+    expect(spec.defaultRationale).toMatch(/LIVA art\. 5 fr\. V inc\. c/);
+    expect(spec.options[0].label).toMatch(/inc\. c\)$/);
+    expect(spec.defaultRationale).toMatch(/Art\. 5-B, as in force since its last reform \(DOF 12-11-2021\)/);
+    // Both options multiply all the IVA paid, and each label says so.
+    for (const o of spec.options) expect(o.label).toMatch(/over all the IVA paid/);
+    expect(spec.defaultRationale).toMatch(/overstates the credit for an exempt-only expense/);
+    expect(spec.defaultRationale).toMatch(/Unverified assumption: the proportion is used as an exact quotient/);
+    expect(spec.whatIDo).toMatch(/I do not enforce the sixty-month lock/);
+  });
+
+  it('prior-year findings keep their severity under a code of their own', () => {
+    const found = referenceFindings(
+      [{ codigo: 'DIOT-EXENTO-CON-IVA', severidad: 'bloqueante', mensaje: 'x', documentNumber: 'INV-1' }],
+      2026
+    );
+    expect(REFERENCE_SUFFIX).toBe('@REFERENCE');
+    expect(found).toEqual([{
+      codigo: 'DIOT-EXENTO-CON-IVA@REFERENCE', severidad: 'bloqueante',
+      mensaje: 'Proporción del año 2026: x', documentNumber: 'INV-1',
+    }]);
+  });
+
+  it('the reference year is covered only when the ledger starts by its January', () => {
+    expect(coversReferenceYear('2025-07-01', 2026)).toBe(true);
+    expect(coversReferenceYear('2026-01-01', 2026)).toBe(true);
+    expect(coversReferenceYear('2026-01-31', 2026)).toBe(true);
+    expect(coversReferenceYear('2026-02-01', 2026)).toBe(false);
+    expect(coversReferenceYear('2026-11-10', 2026)).toBe(false);
+    expect(coversReferenceYear(null, 2026)).toBe(false);
+  });
+
+  it('reads a known value and refuses an unknown one', async () => {
+    mockGetPolicy.mockResolvedValueOnce({ key: CREDITABLE_PRORATION_POLICY, value: 'annual', defined: true });
+    await expect(readCreditableProration({ tenantId: 't', entityId: 'e' })).resolves.toBe('annual');
+    mockGetPolicy.mockResolvedValueOnce({ key: CREDITABLE_PRORATION_POLICY, value: 'quarterly', defined: true });
+    await expect(readCreditableProration({ tenantId: 't', entityId: 'e' })).rejects.toThrow(/quarterly/);
   });
 });
