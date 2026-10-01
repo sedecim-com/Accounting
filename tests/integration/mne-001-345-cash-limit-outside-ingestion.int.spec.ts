@@ -98,7 +98,7 @@ function pay(fx: Fixture, b: { billId: string; vendorId: string }, amount: strin
 }
 
 /** Runs the real commands and returns what they wrote. */
-async function correr(fx: Fixture, argv: string[]): Promise<{ exitCode?: number; out: string; err: string }> {
+async function runCli(fx: Fixture, argv: string[]): Promise<{ exitCode?: number; out: string; err: string }> {
   let exitCode: number | undefined;
   const out: string[] = [];
   const err: string[] = [];
@@ -147,7 +147,7 @@ function inTenant(fx: () => Fixture) {
 }
 
 /** Moves the only MX vigencia to 2030, so no vigencia covers DAY; restores it. */
-async function withoutVigencia<T>(run: () => Promise<T>): Promise<T> {
+async function withoutLegalLimit<T>(run: () => Promise<T>): Promise<T> {
   await query(`UPDATE legal_parameters SET effective_from = '2030-01-01' WHERE jurisdiction = 'MX' AND key = $1`, [LIMIT_KEY]);
   try {
     return await run();
@@ -202,7 +202,7 @@ describe('payment --method cash', () => {
 
   it('a date with no vigencia is surfaced, not silent, and does not block the payment', async () => {
     const b = await approvedBill(f, '5000.00');
-    const r = await withoutVigencia(() => pay(f, b, '5000.00', 'cash'));
+    const r = await withoutLegalLimit(() => pay(f, b, '5000.00', 'cash'));
     expect(r.deductibilityFindings).toHaveLength(1);
     expect(r.deductibilityFindings![0]).toMatchObject({ code: 'cash_limit_unavailable', limit: null });
     expect(r.paymentNumber).toBeTruthy();
@@ -221,10 +221,10 @@ describe('payment --method cash', () => {
 
   it('prints the finding in the CLI, in the dry run and in --json', async () => {
     const b = await approvedBill(f, '2600.00');
-    const dry = await correr(f, ['payment', 'create', b.billNumber, '--amount', '2600.00', '--method', 'cash', '--dry-run']);
+    const dry = await runCli(f, ['payment', 'create', b.billNumber, '--amount', '2600.00', '--method', 'cash', '--dry-run']);
     expect(dry.exitCode ?? 0, dry.err).toBe(0);
     expect(dry.err).toContain('LISR art. 27 fr. III');
-    const real = await correr(f, ['payment', 'create', b.billNumber, '--amount', '2600.00', '--method', 'cash', '--json']);
+    const real = await runCli(f, ['payment', 'create', b.billNumber, '--amount', '2600.00', '--method', 'cash', '--json']);
     expect(real.exitCode ?? 0, real.err).toBe(0);
     expect(real.err).toContain('LISR art. 27 fr. III');
     expect(real.out).toContain('deductibility_findings');
@@ -301,7 +301,7 @@ describe('bill approve', () => {
     const uuid = uuidv4();
     await xmlWithPaymentForm(f, uuid, '01', '4000.00');
     const b = await draftBill(f, '4000.00', uuid);
-    const r = await withoutVigencia(() => approveBill(b.billId, f.userId, { entityId: f.entityId }));
+    const r = await withoutLegalLimit(() => approveBill(b.billId, f.userId, { entityId: f.entityId }));
     expect(r.entry).not.toBeNull();
     expect(r.deductibilityFindings).toHaveLength(1);
     expect(r.deductibilityFindings[0].code).toBe('cash_limit_unavailable');
@@ -311,13 +311,13 @@ describe('bill approve', () => {
     const uuid = uuidv4();
     await xmlWithPaymentForm(f, uuid, '01', '4000.00');
     const b = await draftBill(f, '4000.00', uuid);
-    const dry = await correr(f, ['bill', 'approve', b.billNumber, '--dry-run', '--json']);
+    const dry = await runCli(f, ['bill', 'approve', b.billNumber, '--dry-run', '--json']);
     expect(dry.exitCode ?? 0, dry.err).toBe(0);
     expect(dry.err).toContain('LISR art. 27 fr. III');
     expect(dry.out).toContain('cash_over_limit_deductibility_at_risk');
     const status = await query<{ status: string }>('SELECT status FROM bills WHERE id = $1', [b.billId]);
     expect(status.rows[0].status).toBe('draft');
-    const real = await correr(f, ['bill', 'approve', b.billNumber]);
+    const real = await runCli(f, ['bill', 'approve', b.billNumber]);
     expect(real.exitCode ?? 0, real.err).toBe(0);
     expect(real.err).toContain('LISR art. 27 fr. III');
   }, 60_000);

@@ -3301,6 +3301,7 @@ Arguments:
   bill                     bill number, vendor invoice number or id
 
 Options:
+  --json                   shorthand for --format json
   -e, --entity <idOrName>  legal entity to operate on (defaults to the active
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to

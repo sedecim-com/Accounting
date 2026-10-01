@@ -6058,6 +6058,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: only the whole weeks in the period."
+    },
+    {
+      "class": "policy-key",
+      "where": "employment_subsidy_separate_run",
+      "es": "employment_subsidy_separate_run",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-398): the employment subsidy of a later paycheck of the same pay period."
+    },
+    {
+      "class": "policy-value",
+      "where": "employment_subsidy_separate_run/recompute_on_combined_income",
+      "es": "recompute_on_combined_income",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the subsidy is recomputed once on the income of the whole period and the later paycheck credits the difference."
+    },
+    {
+      "class": "policy-value",
+      "where": "employment_subsidy_separate_run/none_on_separate_paycheck",
+      "es": "none_on_separate_paycheck",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the separate paycheck of the period (a run other than the regular one, or one that pays only aguinaldo) carries no subsidy."
     }
   ]
 }

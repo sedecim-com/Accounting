@@ -35,6 +35,7 @@ import type { Palette } from './palette.js';
 import {
   declareRisk,
   gateMutation,
+  optionByKey,
   render,
   withContext,
   withOutput,
@@ -784,8 +785,8 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     .command('approve')
     .alias('aprobar')
     .argument('<bill>', 'bill number, vendor invoice number or id')
-    .description('Approve a bill and recognize the liability in the ledger (DR expense + IVA / CR payables)')
-    .option('--json', 'JSON output, with the deductibility findings');
+    .description('Approve a bill and recognize the liability in the ledger (DR expense + IVA / CR payables)');
+  optionByKey(approve, '--json', 'cli.flag.json');
   withContext(approve);
   // irreversible ⇒ the kernel adds --dry-run, --yes and --idempotency-key,
   // and refuses at startup to let the agent invoke this.
