@@ -5893,6 +5893,38 @@
     },
     {
       "class": "policy-key",
+      "where": "cash_over_limit_outside_ingestion",
+      "es": "cash_over_limit_outside_ingestion",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-345): what to do with cash above the LISR art. 27 fr. III limit outside the CFDI ingestion."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/signal",
+      "es": "signal",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the finding is returned and nothing changes."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/draft_reclassification",
+      "es": "draft_reclassification",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the finding is returned and the non-deductible reclassification is proposed as a draft."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/ignore",
+      "es": "ignore",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the cash above the limit is not reported."
+    },
+    {
+      "class": "policy-key",
       "where": "anexo24_voucher_money_without_trace",
       "es": "anexo24_voucher_money_without_trace",
       "en": null,

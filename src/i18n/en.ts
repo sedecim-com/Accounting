@@ -1535,6 +1535,32 @@ export const EN = {
   'policy.withholding_accounts_existing.option.keep':
     'Leave them as they are, without warning',
 
+  'policy.cash_over_limit_outside_ingestion.question':
+    'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
+  'policy.cash_over_limit_outside_ingestion.impact':
+    'Governs `bill approve` (for a bill whose CFDI says FormaPago 01) and `payment create --method cash`. With "signal" the operation returns a deductibility-at-risk finding and changes nothing. With "draft_reclassification" it also proposes, as a draft a person approves, moving the bill\'s expense and IVA to the non-deductible account. With "ignore" it says nothing. A bill the ingestion created is never judged again: its answer to `efectivo_no_deducible` stands.',
+  'policy.cash_over_limit_outside_ingestion.rationale':
+    'LISR art. 27 fr. III denies the deduction of what is paid in cash above the limit, and LIVA art. 5 fr. I denies the IVA credit with it; but the law keys on how the payment was really made, which a bill alone does not prove (the CFDI method may be the wrong one, the same exception the ingestion offers). The books keep what was posted (NIF A-1, faithful representation) and a person is told, with the figures, before the return is filed.',
+  'policy.cash_over_limit_outside_ingestion.why':
+    'Cash above the limit makes the expense non-deductible, but only if it really was paid in cash. Some firms want a draft ready, others only the warning.',
+  'policy.cash_over_limit_outside_ingestion.what':
+    'I compare the cash against the limit in force on the payment date and report it; with "draft_reclassification" I leave a draft in the review queue.',
+  'policy.cash_over_limit_outside_ingestion.if_skipped': 'I signal it and change nothing.',
+  'policy.cash_over_limit_outside_ingestion.option.signal': 'Signal it and change nothing: a person decides',
+  'policy.cash_over_limit_outside_ingestion.option.draft_reclassification':
+    'Signal it and propose the non-deductible reclassification as a draft',
+  'policy.cash_over_limit_outside_ingestion.option.ignore': 'Say nothing',
+
+  // MNE-001-345 · the finding text of LISR art. 27 fr. III cash above the limit.
+  'cash_limit.finding.at_approve':
+    '{bill}: the CFDI declares payment in cash for {amount} MXN (dated {date}), above the {limit} limit of LISR art. 27 fr. III: the deduction and the IVA credit (LIVA art. 5 fr. I) are at risk if it was really paid in cash. Nothing was reclassified.',
+  'cash_limit.finding.at_payment':
+    '{bill}: {amount} MXN paid in cash on {date} exceeds the {limit} limit of LISR art. 27 fr. III: the deduction and the IVA credit (LIVA art. 5 fr. I) are at risk. Nothing was reclassified.',
+  'cash_limit.finding.unavailable':
+    '{bill}: paid in cash on {date}, but no vigencia of the LISR art. 27 fr. III limit covers that date, so it could not be judged. Seed the legal parameter and review it.',
+  'cash_limit.finding.draft_proposed': 'A reclassification draft was left in the review queue ({count}).',
+  'cash_limit.finding.draft_failed': 'The reclassification draft could not be proposed: {reason}.',
+
   'policy.time_zone.question':
     'In which time zone does "today" fall for these books?',
   'policy.time_zone.impact':

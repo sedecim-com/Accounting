@@ -1,4 +1,5 @@
 import * as readline from 'node:readline/promises';
+import { cashFindingMessage, withCashFindingMessage } from '../i18n/cash-finding-text.js';
 import { readFileSync } from 'node:fs';
 import { stdin, stdout } from 'node:process';
 import type { Command } from 'commander';
@@ -35,6 +36,7 @@ import type { Palette } from './palette.js';
 import {
   declareRisk,
   gateMutation,
+  optionByKey,
   render,
   withContext,
   withOutput,
@@ -786,6 +788,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     .alias('aprobar')
     .argument('<bill>', 'bill number, vendor invoice number or id')
     .description('Approve a bill and recognize the liability in the ledger (DR expense + IVA / CR payables)');
+  optionByKey(approve, '--json', 'cli.flag.json');
   withContext(approve);
   // irreversible ⇒ the kernel adds --dry-run, --yes and --idempotency-key,
   // and refuses at startup to let the agent invoke this.
@@ -826,9 +829,15 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           throw asLedgerRefusal(err, target.bill_number);
         });
         printEntry(preview, deps.palette, target.bill_number);
+        // The signal comes BEFORE the question: once posted, the entry cannot be
+        // reclassified from here (`bill reverse` has no backend yet).
+        for (const w of preview.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${cashFindingMessage(w)}\n`));
 
         if (opts.dryRun) {
           process.stderr.write(deps.palette.dim('Dry run: nothing was written.\n'));
+          if (opts.json) {
+            render([{ bill: target.bill_number, dry_run: true, deductibility_findings: preview.deductibilityFindings.map(withCashFindingMessage) }], { json: true });
+          }
           return;
         }
 
@@ -851,13 +860,26 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
 
-        process.stdout.write(
-          `${deps.palette.green('✔')} ${deps.palette.bold(target.bill_number)} approved` +
-            (result.entry
-              ? ` · entry ${deps.palette.bold(result.entry.entry_number)} posted ${dateOnly(result.entry.entry_date)}`
-              : ' · no entry: it was already posted') +
-            '\n'
-        );
+        if (opts.json) {
+          render(
+            [{
+              bill: target.bill_number,
+              dry_run: false,
+              journal_entry: result.entry?.entry_number ?? null,
+              deductibility_findings: result.deductibilityFindings.map(withCashFindingMessage),
+            }],
+            { json: true }
+          );
+        } else {
+          process.stdout.write(
+            `${deps.palette.green('✔')} ${deps.palette.bold(target.bill_number)} approved` +
+              (result.entry
+                ? ` · entry ${deps.palette.bold(result.entry.entry_number)} posted ${dateOnly(result.entry.entry_date)}`
+                : ' · no entry: it was already posted') +
+              '\n'
+          );
+        }
+        for (const w of result.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${cashFindingMessage(w)}\n`));
         if (opts.idempotencyKey) {
           process.stderr.write(
             deps.palette.dim(

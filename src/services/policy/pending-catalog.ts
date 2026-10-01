@@ -2566,6 +2566,41 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 41,
   },
   {
+    // MNE-001-345 · LISR art. 27 fr. III. The CFDI ingestion already asks this
+    // fork as the decision `efectivo_no_deducible` (non-deductible, or the CFDI
+    // method is wrong). This key says what to do when cash above the limit shows
+    // up OUTSIDE the ingestion: a bill approved from its CFDI (FormaPago 01) or a
+    // vendor payment recorded with --method cash. Reader: cash-deductibility.ts.
+    key: 'cash_over_limit_outside_ingestion',
+    textKey: 'cash_over_limit_outside_ingestion',
+    category: 'fiscal',
+    question: 'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
+    impact:
+      'Governs `bill approve` (for a bill whose CFDI says FormaPago 01) and `payment create --method cash`. ' +
+      'With "signal" the operation returns a deductibility-at-risk finding and changes nothing. With ' +
+      '"draft_reclassification" it also proposes, as a draft a person approves, moving the bill\'s expense and ' +
+      'IVA to the non-deductible account. With "ignore" it says nothing. A bill the ingestion created is never ' +
+      'judged again: its answer to `efectivo_no_deducible` stands.',
+    options: [
+      { value: 'signal', label: 'Signal it and change nothing: a person decides' },
+      { value: 'draft_reclassification', label: 'Signal it and propose the non-deductible reclassification as a draft' },
+      { value: 'ignore', label: 'Say nothing' },
+    ],
+    defaultValue: 'signal',
+    defaultRationale:
+      'LISR art. 27 fr. III denies the deduction of what is paid in cash above the limit, and LIVA art. 5 fr. I ' +
+      'denies the IVA credit with it; but the law keys on how the payment was really made, which a bill alone ' +
+      'does not prove (the CFDI method may be the wrong one, the same exception the ingestion offers). The ' +
+      'books keep what was posted (NIF A-1, faithful representation) and a person is told, with the figures, ' +
+      'before the return is filed.',
+    whyAsking:
+      'Cash above the limit makes the expense non-deductible, but only if it really was paid in cash. Some firms want a draft ready, others only the warning.',
+    whatIDo:
+      'I compare the cash against the limit in force on the payment date and report it; with "draft_reclassification" I leave a draft in the review queue.',
+    ifSkipped: 'I signal it and change nothing.',
+    priority: 42,
+  },
+  {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
     // is already tomorrow, and a credit note without --date was persisted with
     // the next day's date, folio series and period. Which zone the books live
