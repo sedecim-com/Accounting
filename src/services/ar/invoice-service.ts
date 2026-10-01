@@ -1016,7 +1016,14 @@ export async function checkInvoiceSeries(
         `SELECT old_values->>'invoice_number' AS folio, reason, "timestamp" AS ts
            FROM audit_log
           WHERE action = 'delete' AND entity_type = 'invoices'
-            AND legal_entity_id = $2
+            AND (legal_entity_id = $2
+                 -- Rows older than migration 324 name no entity, but an
+                 -- invoice DELETE row carries the customer, and the customer
+                 -- belongs to exactly one entity (append-only: derived here).
+                 OR (legal_entity_id IS NULL AND EXISTS (
+                       SELECT 1 FROM customers c
+                        WHERE c.id::text = audit_log.old_values->>'customer_id'
+                          AND c.entity_id = $2)))
             AND old_values->>'invoice_number' = ANY($1)`,
         [faltantes, entityId]
       );

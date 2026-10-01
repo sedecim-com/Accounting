@@ -289,6 +289,7 @@ export async function reopenClosedPeriod(
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'reopen',
       entityType: 'fiscal_period',
@@ -356,6 +357,7 @@ export async function restorePeriodStatus(
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'close',
       entityType: 'fiscal_period',

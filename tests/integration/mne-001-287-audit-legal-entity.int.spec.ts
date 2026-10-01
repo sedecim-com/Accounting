@@ -104,4 +104,32 @@ describe('invoice series check scopes the explanation by entity', () => {
       'B\'s DELETE must not explain A\'s gap'
     ).toBeUndefined();
   });
+
+  it('attributes a pre-324 DELETE row (NULL entity) through its customer: B\'s does not explain A\'s gap, A\'s does', async () => {
+    const a1 = await draft(a, customerA);
+    await draft(a, customerA);
+    await query(`DELETE FROM invoice_lines WHERE invoice_id = $1`, [a1.id]);
+    await query(`DELETE FROM invoices WHERE id = $1`, [a1.id]);
+
+    // Legacy rows are appended without the entity, as before migration 324.
+    const legacy = (customerId: string, reason: string) =>
+      query(
+        `INSERT INTO audit_log (id, user_id, tenant_id, action, entity_type, entity_id, old_values, reason)
+         VALUES ($1, $2, $3, 'delete', 'invoices', $4, $5, $6)`,
+        [uuidv4(), a.userId, a.tenantId, uuidv4(),
+         JSON.stringify({ invoice_number: a1.invoice_number, customer_id: customerId }), reason]
+      );
+    await legacy(customerB, 'legacy row of B');
+    const before = (await checkInvoiceSeries(a.entityId)).find((s) => s.missing.includes(a1.invoice_number));
+    expect(
+      before!.explained.find((e) => e.folio === a1.invoice_number),
+      'a legacy row of B\'s customer must not explain A\'s gap'
+    ).toBeUndefined();
+
+    await legacy(customerA, 'legacy row of A');
+    const after = (await checkInvoiceSeries(a.entityId)).find((s) => s.missing.includes(a1.invoice_number));
+    const reasons = after!.explained.map((e) => e.reason);
+    expect(reasons).toContain('legacy row of A');
+    expect(reasons).not.toContain('legacy row of B');
+  });
 });

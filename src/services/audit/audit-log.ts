@@ -31,11 +31,13 @@ export type AccionAuditada =
 export interface EntradaAuditoria {
   tenantId: string;
   /**
-   * La entidad legal del hecho (migración 324). Nula sólo en hechos de nivel
-   * inquilino (usuarios, el propio inquilino): cualquier consulta que acote
-   * por entidad (p. ej. `invoice series check`) no cuenta esos renglones.
+   * CONTRACT: the legal entity the audited fact belongs to (migration 324).
+   * Required so a forgotten call does not compile: tenant-level facts (users,
+   * the tenant itself, the HTTP middleware row) write an explicit `null`.
+   * Queries that scope by entity (e.g. `invoice series check`) do not count
+   * NULL rows directly.
    */
-  legalEntityId?: string | null;
+  legalEntityId: string | null;
   /** Quién. Es NOT NULL en la tabla: un hecho sin autor no se registra. */
   userId: string;
   action: AccionAuditada;
@@ -82,7 +84,7 @@ export async function registrarAuditoria(
       uuidv4(),
       entrada.userId,
       entrada.tenantId,
-      entrada.legalEntityId ?? null,
+      entrada.legalEntityId,
       entrada.action,
       entrada.entityType,
       entrada.entityId,

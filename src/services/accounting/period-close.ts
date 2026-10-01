@@ -1179,6 +1179,7 @@ export async function softClosePeriod(
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDe(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'close',
       entityType: 'fiscal_period',
@@ -1309,6 +1310,7 @@ export async function hardClosePeriod(
     // arrastra saldos.
     await registrarAuditoria(client, {
       tenantId: await inquilinoDe(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'close',
       entityType: 'fiscal_period',

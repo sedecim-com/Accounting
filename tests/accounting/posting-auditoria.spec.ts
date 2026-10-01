@@ -79,7 +79,7 @@ function rastros(cf: ClienteFalso): Rastro[] {
   return cf.coincidencias(/INSERT INTO audit_log/).map((c: RegistroConsulta) => ({
     userId: c.params[1] as string,
     tenantId: c.params[2] as string,
-    // params[3] es la entidad legal del hecho (migración 324).
+    // params[3] is the legal entity of the fact (migration 324).
     action: c.params[4] as string,
     entityType: c.params[5] as string,
     entityId: c.params[6] as string,
