@@ -18,6 +18,7 @@ import {
   sumarDesgloses,
   type Desglose,
   type Hallazgo,
+  type HechoPagado,
   type PoliticaBaseExenta,
   type PorcionPagada,
   type RangoDelMes,
@@ -316,13 +317,17 @@ interface InvoiceRow {
   terms: string | null;
   memo: string | null;
   cfdi_uuid: string | null;
+  /** The invoice's own entry. */
+  journal_entry_id: string | null;
+  /** The entries of the customer payments that released IVA in the month (PPD). */
+  payment_entries?: string[];
   applied_before?: string;
   applied_now?: string;
   vat_released?: string;
 }
 
 const INVOICE_COLUMNS = `i.id, i.invoice_number, i.tax_amount::text, i.total_amount::text,
-  i.exchange_rate::text, i.terms, i.memo, i.cfdi_uuid`;
+  i.exchange_rate::text, i.terms, i.memo, i.cfdi_uuid, i.journal_entry_id::text AS journal_entry_id`;
 
 /** What a sale is split by: its CFDI when it was born from one, its lines otherwise. */
 interface SaleSource {
@@ -435,7 +440,26 @@ async function withheldPerSale(
   return new Map(rows.map((r) => [r.id, r.withheld]));
 }
 
+/**
+ * What ONE document put into the month's figures: its own split by rate and the
+ * journal entries of the cash event that caused it. The paper's lines are sums
+ * of these, so a line can name the documents (and entries) that make it up.
+ */
+export interface DocumentContribution {
+  documentId: string;
+  documentNumber: string;
+  documentKind: 'invoice' | 'bill';
+  /** The invoice's own entry for a PUE; the customer or vendor payments' entries for a PPD. */
+  entryIds: string[];
+  breakdown: Desglose;
+  /** Charged side only: the base "no objeto" collected on the document. Four decimals. */
+  notSubject: string;
+  /** Charged side only: the IVA the customer withheld on the document, and the entry that debited it. */
+  withheld: { amount: string; entryId: string | null };
+}
+
 interface ChargedOfMonth {
+  contributions: DocumentContribution[];
   breakdown: Desglose;
   notSubject: string;
   /** IVA withheld by customers, on the same cash basis as the charged side. */
@@ -462,7 +486,8 @@ async function chargedOfMonth(
     `SELECT ${INVOICE_COLUMNS},
             COALESCE(SUM(pa.amount_applied) FILTER (WHERE cp.payment_date < $2::date), 0)::text AS applied_before,
             COALESCE(SUM(pa.amount_applied) FILTER (WHERE cp.payment_date >= $2::date), 0)::text AS applied_now,
-            COALESCE(SUM(pa.iva_reclass_amount) FILTER (WHERE cp.payment_date >= $2::date), 0)::text AS vat_released
+            COALESCE(SUM(pa.iva_reclass_amount) FILTER (WHERE cp.payment_date >= $2::date), 0)::text AS vat_released,
+            COALESCE(array_agg(DISTINCT cp.journal_entry_id::text) FILTER (WHERE cp.payment_date >= $2::date), '{}') AS payment_entries
        FROM invoices i
        JOIN payment_allocations pa ON pa.invoice_id = i.id AND pa.unapplied_at IS NULL
        JOIN customer_payments cp ON cp.id = pa.payment_id
@@ -475,11 +500,14 @@ async function chargedOfMonth(
     [entityId, range.desde, range.hasta]
   );
 
-  const picked: Array<{ row: InvoiceRow; share: PorcionPagada; vat: string }> = [];
+  const picked: Array<{ row: InvoiceRow; share: PorcionPagada; vat: string; entryIds: string[] }> = [];
   for (const row of issuedInMonth.rows) {
     if ((await resolveInvoiceMetodoPago(client, { ...row, entity_id: entityId })).metodo !== 'PUE') continue;
     const share = { aplicadoPrevio: '0', aplicadoAhora: row.total_amount, totalDocumento: row.total_amount, tasaCambio: row.exchange_rate };
-    picked.push({ row, share, vat: acumuladoDelDocumento(row.tax_amount, row.total_amount, row.total_amount, row.exchange_rate) });
+    picked.push({
+      row, share, entryIds: row.journal_entry_id ? [row.journal_entry_id] : [],
+      vat: acumuladoDelDocumento(row.tax_amount, row.total_amount, row.total_amount, row.exchange_rate),
+    });
   }
   for (const row of ppdCandidates.rows) {
     if ((await resolveInvoiceMetodoPago(client, { ...row, entity_id: entityId })).metodo !== 'PPD') continue;
@@ -489,7 +517,7 @@ async function chargedOfMonth(
       totalDocumento: row.total_amount,
       tasaCambio: row.exchange_rate,
     };
-    picked.push({ row, share, vat: row.vat_released ?? '0' });
+    picked.push({ row, share, vat: row.vat_released ?? '0', entryIds: row.payment_entries ?? [] });
   }
 
   const sources = await saleSources(client, entityId, picked.map((p) => p.row.id));
@@ -501,7 +529,8 @@ async function chargedOfMonth(
   let withheld = new Decimal(0);
   let manualZeroRate = new Decimal(0);
   const findings: Hallazgo[] = [];
-  for (const { row, share, vat } of picked) {
+  const contributions: DocumentContribution[] = [];
+  for (const { row, share, vat, entryIds } of picked) {
     const source = sources.get(row.id) ?? { lines: [], notSubject: q4(0), fromCfdi: false };
     const r = desglosarDocumento({
       documentId: row.id,
@@ -518,7 +547,18 @@ async function chargedOfMonth(
     notSubject = notSubject.plus(porcionDelDocumento(source.notSubject, share));
     if (!source.fromCfdi) manualZeroRate = manualZeroRate.plus(r.desglose.tasa0.base);
     // The entry's amount is already in functional currency: only the ratio applies.
-    withheld = withheld.plus(porcionDelDocumento(withheldOf.get(row.id) ?? '0', { ...share, tasaCambio: '1' }));
+    const withheldHere = porcionDelDocumento(withheldOf.get(row.id) ?? '0', { ...share, tasaCambio: '1' });
+    withheld = withheld.plus(withheldHere);
+    contributions.push({
+      documentId: row.id,
+      documentNumber: row.invoice_number,
+      documentKind: 'invoice',
+      entryIds,
+      breakdown: r.desglose,
+      notSubject: q4(porcionDelDocumento(source.notSubject, share)),
+      // The withholding sits in the invoice's own entry, whatever the cash event.
+      withheld: { amount: q4(withheldHere), entryId: row.journal_entry_id },
+    });
   }
   if (manualZeroRate.greaterThan(0)) {
     findings.push({
@@ -533,12 +573,52 @@ async function chargedOfMonth(
   }
   const postedAtIssuance = issuedInMonth.rows.reduce((acc, r) => acc.plus(withheldOf.get(r.id) ?? 0), new Decimal(0));
   return {
+    contributions,
     breakdown,
     notSubject: q4(notSubject),
     withheld: q4(withheld),
     withheldPostedAtIssuance: q4(postedAtIssuance),
     findings,
   };
+}
+
+/**
+ * The journal entries of each bill's cash event, for the bills the DIOT's facts
+ * picked: the bill's own entry (PUE) or the vendor payments of the month (PPD).
+ * The selection of bills stays `hechosDelMes`'s; this only looks the entries up.
+ */
+async function billEntryIds(
+  client: pg.PoolClient,
+  entityId: string,
+  facts: ReadonlyArray<Pick<HechoPagado, 'billId' | 'metodo'>>,
+  range: RangoDelMes
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const pue = facts.filter((h) => h.metodo.metodo === 'PUE').map((h) => h.billId);
+  const ppd = facts.filter((h) => h.metodo.metodo === 'PPD').map((h) => h.billId);
+  if (pue.length > 0) {
+    const { rows } = await client.query<{ id: string; entry: string | null }>(
+      `SELECT id, journal_entry_id::text AS entry FROM bills WHERE entity_id = $1 AND id = ANY($2::uuid[])`,
+      [entityId, pue]
+    );
+    for (const r of rows) out.set(r.id, r.entry ? [r.entry] : []);
+  }
+  if (ppd.length > 0) {
+    // The bridge has no entity_id: both ends are scoped, as in the DIOT's reading.
+    const { rows } = await client.query<{ id: string; entries: string[] }>(
+      `SELECT pa.bill_id AS id, array_agg(DISTINCT vp.journal_entry_id::text) AS entries
+         FROM payment_applications pa
+         JOIN vendor_payments vp ON vp.id = pa.payment_id
+         JOIN bills b ON b.id = pa.bill_id
+        WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
+          AND vp.journal_entry_id IS NOT NULL AND vp.status <> 'void'
+          AND vp.payment_date >= $3::date AND vp.payment_date <= $4::date
+        GROUP BY pa.bill_id`,
+      [entityId, ppd, range.desde, range.hasta]
+    );
+    for (const r of rows) out.set(r.id, r.entries);
+  }
+  return out;
 }
 
 // ------------------------------------------------------------
@@ -591,6 +671,11 @@ export interface IvaWorkpaper {
    */
   proration: { key: string; value: CreditableProration; defined: boolean };
   figures: IvaWorkpaperFigures;
+  /**
+   * What each document put into `figures`, with the entries of its cash event:
+   * the per-line trace of the filing workpaper (MNE-001-060) is a sum over these.
+   */
+  contributions: { charged: DocumentContribution[]; creditable: DocumentContribution[] };
   /**
    * Null while a blocking finding stands: some figure is missing, and a
    * settlement computed without it would look declarable and not be.
@@ -673,6 +758,8 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     const { hechos: facts, hallazgos: factFindings } = await hechosDelMes(client, entityId, year, month);
     findings.push(...factFindings);
     let creditable = desgloseCero();
+    const billEntries = await billEntryIds(client, entityId, facts, range);
+    const creditableContributions: DocumentContribution[] = [];
     for (const h of facts) {
       const r = desglosarDocumento({
         documentId: h.billId,
@@ -685,6 +772,15 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
       });
       creditable = sumarDesgloses(creditable, r.desglose);
       findings.push(...r.hallazgos);
+      creditableContributions.push({
+        documentId: h.billId,
+        documentNumber: h.billNumber,
+        documentKind: 'bill',
+        entryIds: billEntries.get(h.billId) ?? [],
+        breakdown: r.desglose,
+        notSubject: q4(0),
+        withheld: { amount: q4(0), entryId: null },
+      });
     }
 
     const ledger = await roleMovements(client, tenantId, entityId, range);
@@ -775,6 +871,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
       rounding: { key: FILING_ROUNDING_POLICY, value: rounding, defined: roundingPolicy.defined },
       proration: { key: CREDITABLE_PRORATION_POLICY, value: method, defined: prorationPolicy.defined },
       figures,
+      contributions: { charged: charged.contributions, creditable: creditableContributions },
       settlement: blockedBy.length > 0 ? null : settleIva(figures, rounding),
       blockedBy,
       ledger: Object.fromEntries(ROLES.map((r) => [r, q4(net(r))])) as Record<IvaRole, string>,

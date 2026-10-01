@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 239 of 379 subcommands
+  spelling is `-T` at the root and `-t` on the 240 of 382 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -92,6 +92,7 @@ Commands:
   pay-run|corrida                        Payroll runs of a pay period: create, calculate gross to net, approve, post the entry
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
+  filing|declaracion                     Tax returns of the entity: the working papers behind them
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
   tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
   garnishment|embargo                    Court-ordered wage withholding: file an order, see the cascade, stop it
@@ -8272,6 +8273,73 @@ Examples:
   mnemosine diot export --period 2026-07 -o diot-2026-07.txt
   # The batch file to upload in the SAT portal (it is not filed by this command).
   mnemosine diot export --period 2026-07 --layout sat -o diot-sat-2026-07.txt
+```
+
+## `mnemosine filing` (alias: declaracion)
+
+```
+Usage: mnemosine filing|declaracion [options] [command]
+
+Tax returns of the entity: the working papers behind them
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  workpaper|papel-trabajo  The auditable working paper of the month, line by
+                           line
+  help [command]           display help for command
+```
+
+### `mnemosine filing workpaper` (alias: papel-trabajo)
+
+```
+Usage: mnemosine filing workpaper|papel-trabajo [options] [command]
+
+The auditable working paper of the month, line by line
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Generate the month workpaper: IVA and provisional
+                              ISR, cents and pesos, with the entries behind each
+                              line
+  help [command]              display help for command
+```
+
+#### `mnemosine filing workpaper generate` (alias: generar)
+
+```
+Usage: mnemosine filing workpaper generate|generar [options]
+
+Generate the month workpaper: IVA and provisional ISR, cents and pesos, with the
+entries behind each line
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <YYYY-MM>                       month to settle (the filing is monthly)
+  --form <iva|isr|all>                     which settlement to include (default: "all")
+  --ptu-paid <amount>                      PTU paid in the year (ISR), captured by a person
+  --prior-provisional <amount>             provisional ISR already paid this year (ISR), captured by a person
+  -h, --help                               display help for command
+
+This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.
+
+Examples:
+  The month IVA and ISR with their two columns and the entries behind each line:
+    mnemosine filing workpaper generate --period 2026-05
+  Only the IVA, the whole paper (with the entries) as JSON to a file:
+    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json
+  The ISR with the PTU paid in the year and the provisional payments already made:
+    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
 ```
 
 ## `mnemosine isn`

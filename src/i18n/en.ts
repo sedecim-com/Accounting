@@ -3039,6 +3039,30 @@ export const EN = {
   'help.depreciation.post.option.book': 'the depreciation book you believe you are posting; checked against the panel',
   'help.depreciation.post.option.file':
     'the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved',
+  'help.filing.description': 'Tax returns of the entity: the working papers behind them',
+  'help.filing.workpaper.description': 'The auditable working paper of the month, line by line',
+  'help.filing.workpaper.generate.description':
+    'Generate the month workpaper: IVA and provisional ISR, cents and pesos, with the entries behind each line',
+  'help.filing.workpaper.generate.option.period': 'month to settle (the filing is monthly)',
+  'help.filing.workpaper.generate.option.form': 'which settlement to include',
+  'help.filing.workpaper.generate.option.ptu_paid': 'PTU paid in the year (ISR), captured by a person',
+  'help.filing.workpaper.generate.option.prior_provisional':
+    'provisional ISR already paid this year (ISR), captured by a person',
+  'help.filing.workpaper.generate.footer':
+    'This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.\n' +
+    '\nExamples:\n' +
+    '  The month IVA and ISR with their two columns and the entries behind each line:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05\n' +
+    '  Only the IVA, the whole paper (with the entries) as JSON to a file:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json\n' +
+    '  The ISR with the PTU paid in the year and the provisional payments already made:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40',
+  'filing.workpaper.period_invalid': '--period "{value}" is not a month: use YYYY-MM (for example 2026-05).',
+  'filing.workpaper.form_invalid': '--form "{value}" is not known: use iva, isr or all.',
+  'filing.workpaper.label_blocks': 'BLOCKS',
+  'filing.workpaper.label_warning': 'warning',
+  'filing.workpaper.not_a_filing': 'This paper is not a filing: nothing was sent to the SAT.',
+  'filing.workpaper.more_entries': '+{count} more',
   'help.diot.description':
     'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
   'help.diot.generate.description':

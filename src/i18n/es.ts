@@ -2891,6 +2891,30 @@ export const ES: Record<keyof typeof EN, string> = {
     'el libro de depreciación que crees estar contabilizando; se contrasta con el panel',
   'help.depreciation.post.option.file':
     'el plan aprobado (JSON de `depreciation run --format json`); se niega si las cifras cambiaron',
+  'help.filing.description': 'Declaraciones de la entidad: los papeles de trabajo que las respaldan',
+  'help.filing.workpaper.description': 'El papel de trabajo auditable del mes, renglón por renglón',
+  'help.filing.workpaper.generate.description':
+    'Genera el papel de trabajo del mes: IVA e ISR provisional, centavos y pesos, con las pólizas de cada renglón',
+  'help.filing.workpaper.generate.option.period': 'mes a calcular (la declaración es mensual)',
+  'help.filing.workpaper.generate.option.form': 'qué cálculo incluir',
+  'help.filing.workpaper.generate.option.ptu_paid': 'PTU pagada en el ejercicio (ISR), la captura una persona',
+  'help.filing.workpaper.generate.option.prior_provisional':
+    'ISR provisional ya pagado en el ejercicio (ISR), lo captura una persona',
+  'help.filing.workpaper.generate.footer':
+    'Esto calcula el papel. NO presenta nada: una persona lo revisa y declara en el portal del SAT.\n' +
+    '\nEjemplos:\n' +
+    '  El IVA y el ISR del mes con sus dos columnas y las pólizas de cada renglón:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05\n' +
+    '  Sólo el IVA, el papel completo (con las pólizas) como JSON en un archivo:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json\n' +
+    '  El ISR con la PTU pagada en el ejercicio y los pagos provisionales ya hechos:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40',
+  'filing.workpaper.period_invalid': '--period "{value}" no es un mes: usa AAAA-MM (por ejemplo 2026-05).',
+  'filing.workpaper.form_invalid': '--form "{value}" no se conoce: usa iva, isr o all.',
+  'filing.workpaper.label_blocks': 'BLOQUEA',
+  'filing.workpaper.label_warning': 'aviso',
+  'filing.workpaper.not_a_filing': 'Este papel no es una declaración: no se envió nada al SAT.',
+  'filing.workpaper.more_entries': '+{count} más',
   'help.diot.description':
     'DIOT de México: armar el mes a partir de operaciones pagadas, verificarlo y exportar el papel de trabajo',
   'help.diot.generate.description':

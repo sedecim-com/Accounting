@@ -149,6 +149,7 @@ import { registerPayRunCommand } from './pay-run-command.js';
 import { registerAnexo24MigrationCommands } from './anexo24-migration-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
+import { registerFilingWorkpaperCommand } from './filing-workpaper-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerGarnishmentCommand } from './garnishment-command.js';
 import { registerEmployeeCommand } from './employee-command.js';
@@ -3549,6 +3550,7 @@ registerPayrollCommand(program, { palette: c, shutdown, reportError });
 registerPayRunCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
+registerFilingWorkpaperCommand(program, { palette: c, shutdown, reportError });
 // F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y
 // `tax-deposit` (el pasivo patronal, que lleva IMSS e INFONAVIT además del
 // ISN — colgarlo de `isn` habría sido mentira).
