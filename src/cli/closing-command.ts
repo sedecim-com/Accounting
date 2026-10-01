@@ -58,6 +58,10 @@ import {
   withContext,
   withOutput,
   withStrict,
+  describeCommand,
+  describeOption,
+  optionByKey,
+  argumentByKey,
   checkExitCode,
   usageError,
   notFound,
@@ -459,7 +463,7 @@ Examples:
   # ALWAYS this one first: it says what is pending WITHOUT writing, and it
   # really evaluates the checklist -- the one step that can be asked for free.
   mnemosine closing run --dry-run
-  # Conduct the whole month. Three of its steps post to the ledger.
+  # Conduct the whole month. Four of its steps post to the ledger.
   mnemosine closing run 2026-07 --entity "Acme SA de CV" --yes
   # Do the month but leave the period open: --stop-at stops BEFORE the step.
   mnemosine closing run --stop-at soft-close --yes
@@ -491,10 +495,11 @@ Examples:
 } as const;
 
 export function registerClosingCommand(program: Command, deps: ClosingCommandDeps): void {
-  const closing = program
-    .command('closing')
-    .alias('cierre-proceso')
-    .description('The close as a process: conduct it, read it, and hand over the dossier that proves it');
+  // Help by key (#314): help.closing[.<leaf>…].{description,option.<flag>,argument.<name>}.
+  const closing = describeCommand(
+    program.command('closing').alias('cierre-proceso'),
+    'help.closing.description'
+  );
 
   const run = makeRunner(deps);
 
@@ -533,11 +538,11 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   };
 
   // ---- closing preview ---------------------------------------------
-  const preview = closing
-    .command('preview')
-    .alias('previsualizar')
-    .argument('[period]', 'open period: 2026-07, its id, or part of its name (default: the oldest open one)')
-    .description('Read-only twin of closing start: says whether the period can enter close and what is missing');
+  const previewCmd = closing.command('preview').alias('previsualizar');
+  const preview = describeCommand(
+    argumentByKey(previewCmd, '[period]', 'help.closing.preview.argument.period'),
+    'help.closing.preview.description'
+  );
   withStrict(withOutput(withContext(preview)));
   declareRisk(preview, { risk: 'lectura', agent: true });
   preview.addHelpText('after', EJEMPLOS.preview);
@@ -587,14 +592,13 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   );
 
   // ---- closing check -----------------------------------------------
-  const check = closing
-    .command('check')
-    .alias('verificar')
-    .description('Run the close verification catalog, or only the named checks; bare --check lists the names');
+  const check = describeCommand(
+    closing.command('check').alias('verificar'),
+    'help.closing.check.description'
+  );
   withStrict(withOutput(withContext(check)));
-  check
-    .option('--check [codes]', 'comma-separated check codes; with no value, prints the available ones')
-    .option('--period <expr>', 'period to check: 2026-07, its id, or part of its name (default: the oldest open one)');
+  optionByKey(check, '--check [codes]', 'help.closing.check.option.check');
+  optionByKey(check, '--period <expr>', 'help.closing.check.option.period');
   declareRisk(check, { risk: 'lectura', agent: true });
   check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts & { check?: string | boolean; period?: string }) =>
@@ -683,20 +687,23 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   );
 
   // ---- closing explain ---------------------------------------------
-  const explain = closing
-    .command('explain')
-    .alias('explicar')
-    .argument('<code>', `check code, one of: ${CLOSE_CHECK_CODES.join(', ')}`)
-    .description('Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it');
+  const explainCmd = closing.command('explain').alias('explicar');
+  const explain = describeCommand(
+    argumentByKey(explainCmd, '<code>', 'help.closing.explain.argument.code', {
+      params: { codes: CLOSE_CHECK_CODES.join(', ') },
+    }),
+    'help.closing.explain.description'
+  );
   withOutput(withContext(explain));
-  explain
-    // `--limit` suelta y no con `withSelection()`: el grupo entero arrastra
-    // `--offset`, `--status` y `--all`, y una explicación no pagina ni filtra
-    // por estado — acota cuántos renglones enseña. El diccionario gobierna la
-    // grafía y la forma corta (`-n`), no el grupo (el precedente de
-    // `ap reconcile --as-of`).
-    .option('-n, --limit <n>', 'maximum offending rows to print', (v: string) => Number(v))
-    .option('--period <expr>', 'period to explain: 2026-07, its id, or part of its name (default: the oldest open one)');
+  // `--limit` suelta y no con `withSelection()`: el grupo entero arrastra
+  // `--offset`, `--status` y `--all`, y una explicación no pagina ni filtra
+  // por estado — acota cuántos renglones enseña. El diccionario gobierna la
+  // grafía y la forma corta (`-n`), no el grupo (el precedente de
+  // `ap reconcile --as-of`).
+  optionByKey(explain, '-n, --limit <n>', 'help.closing.explain.option.limit', {
+    parser: (v: string) => Number(v),
+  });
+  optionByKey(explain, '--period <expr>', 'help.closing.explain.option.period');
   declareRisk(explain, { risk: 'lectura', agent: true });
   explain.addHelpText('after', EJEMPLOS.explain);
   explain.action(
@@ -752,21 +759,17 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   // A6 · EL CONDUCTOR. Everything it does, some other command could already do
   // by hand and in the right order; what it adds is that nobody has to
   // remember the order, and that what it did is written down.
-  const runLeaf = closing
-    .command('run')
-    .alias('ejecutar')
-    .argument('[period]', 'open period: 2026-07, its id, or part of its name (default: the oldest open one)')
-    .description(
-      'Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order'
-    );
+  const runLeaf = describeCommand(
+    argumentByKey(closing.command('run').alias('ejecutar'), '[period]', 'help.closing.run.argument.period'),
+    'help.closing.run.description'
+  );
   withContext(runLeaf);
   withOutput(runLeaf);
-  runLeaf.option(
-    '--stop-at <step>',
-    `stop BEFORE this step: ${CLOSING_STEPS.join(', ')}`
-  );
-  runLeaf.option('--resume', 'continue the open run of this period; every step runs again, posting only what is missing');
-  // IRREVERSIBLE, and it does not pretend otherwise: three of its six steps
+  optionByKey(runLeaf, '--stop-at <step>', 'help.closing.run.option.stop_at', {
+    params: { steps: CLOSING_STEPS.join(', ') },
+  });
+  optionByKey(runLeaf, '--resume', 'help.closing.run.option.resume');
+  // IRREVERSIBLE, and it does not pretend otherwise: four of its seven steps
   // post to the ledger of migration 041, where nothing is edited or deleted,
   // and the last one seals the period.
   // The agent is refused: it proposes, a human conducts.
@@ -783,9 +786,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     risk: 'irreversible',
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines (through the accrual, amortization and depreciation engines), ' +
-      'closing_runs, closing_run_steps, fiscal_periods.status on the soft and the hard close, and with the ' +
-      'hard close the carry-forward, the closing entries of the year\'s last period and fiscal_years.status',
+      'journal_entries + journal_entry_lines (through the accrual, amortization, depreciation and FX revaluation ' +
+      'engines), fx_revaluation_runs, closing_runs, closing_run_steps, fiscal_periods.status on the soft ' +
+      'and the hard close, and with the hard close the carry-forward, the closing entries of the year\'s last period and fiscal_years.status',
     llave: {
       innecesaria:
         'the engines never post the same month twice and an advisory lock keeps two conductors off the ' +
@@ -851,7 +854,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
 
         if (!dryRun && opts.yes !== true) {
           const si = await ask(
-            `Conduct the close of ${period.period_name}? Three of its steps post to the ledger, ` +
+            `Conduct the close of ${period.period_name}? Four of its steps post to the ledger, ` +
               'which does not admit undo, and the last one hard-closes the period.'
           );
           if (!si) {
@@ -896,21 +899,19 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   registerClosingFx(closing, deps, run, ask);
 
   // ---- closing pack ------------------------------------------------
-  const packGroup = closing
-    .command('pack')
-    // `paquete` y no `expediente`: el catálogo publicó `cierre-proceso paquete
-    // generar` antes de que esto existiera, y un alias que no case con la fila
-    // publicada obliga a mantener dos nombres del mismo acto. La prosa sigue
-    // diciendo «expediente», que es la palabra de la tarjeta de A6.
-    .alias('paquete')
-    .description('The dossier of a close: generate it, and verify that its figures still reproduce');
+  // `paquete` y no `expediente`: el catálogo publicó `cierre-proceso paquete
+  // generar` antes de que esto existiera, y un alias que no case con la fila
+  // publicada obliga a mantener dos nombres del mismo acto. La prosa sigue
+  // diciendo «expediente», que es la palabra de la tarjeta de A6.
+  const packCmd = closing.command('pack').alias('paquete');
+  const packGroup = describeCommand(packCmd, 'help.closing.pack.description');
 
   // ---- closing pack generate ---------------------------------------
-  const generateLeaf = packGroup
-    .command('generate')
-    .alias('generar')
-    .argument('[period]', 'period name, YYYY-MM or id, in any status (default: the most recently closed one)')
-    .description('Seal the period figures into a dossier a third party can re-run');
+  const generateCmd = packGroup.command('generate').alias('generar');
+  const generateLeaf = describeCommand(
+    argumentByKey(generateCmd, '[period]', 'help.closing.pack.generate.argument.period'),
+    'help.closing.pack.generate.description'
+  );
   withContext(generateLeaf);
   withOutput(generateLeaf);
   declareRisk(generateLeaf, {
@@ -926,8 +927,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   // forma corta las sigue gobernando el diccionario.
   const dossierOutputOption = generateLeaf.options.find((o) => o.long === '--output');
   if (dossierOutputOption) {
-    dossierOutputOption.description =
-      'write the dossier to this path (closing_packs keeps its own copy)';
+    describeOption(dossierOutputOption, 'help.closing.pack.generate.option.output');
   }
   generateLeaf.addHelpText('after', EJEMPLOS.packGenerate);
   generateLeaf.action((periodArg: string | undefined, opts: CommonOpts) =>
@@ -996,17 +996,15 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   );
 
   // ---- closing pack verify -----------------------------------------
-  const verifyLeaf = packGroup
-    .command('verify')
-    // `comprobar`, no `verificar`: el diccionario del núcleo asigna
-    // «verificar» a `check` y «comprobar» a `verify`, y dos hojas hermanas que
-    // se llamaran igual en castellano —`closing check` es «verificar»— serían
-    // dos nombres para dos actos distintos.
-    .alias('comprobar')
-    .argument('<file>', 'the dossier to verify')
-    .description(
-      'Re-run a dossier against the books: was it issued here, do its figures still reproduce, and exactly what moved'
-    );
+  // `comprobar`, no `verificar`: el diccionario del núcleo asigna
+  // «verificar» a `check` y «comprobar» a `verify`, y dos hojas hermanas que
+  // se llamaran igual en castellano —`closing check` es «verificar»— serían
+  // dos nombres para dos actos distintos.
+  const verifyCmd = packGroup.command('verify').alias('comprobar');
+  const verifyLeaf = describeCommand(
+    argumentByKey(verifyCmd, '<file>', 'help.closing.pack.verify.argument.file'),
+    'help.closing.pack.verify.description'
+  );
   withContext(verifyLeaf);
   withOutput(verifyLeaf);
   withStrict(verifyLeaf);

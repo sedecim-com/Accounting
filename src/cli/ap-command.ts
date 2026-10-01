@@ -12,8 +12,11 @@ import {
   checkExitCode,
   exitCodeFor,
   usageError,
+  describeCommand,
+  optionByKey,
   type Row,
 } from './kernel/index.js';
+import { isRealCalendarDate } from '../utils/calendar-date.js';
 
 // ============================================================
 // mnemosine ap · cxp
@@ -77,8 +80,7 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
  * que no existen — JS acepta `2026-02-31` y lo desplaza al 3 de marzo.
  */
 function exigirFecha(flag: string, valor: string): string {
-  const d = new Date(`${valor}T00:00:00Z`);
-  if (!FECHA_RE.test(valor) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== valor) {
+  if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
     throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
   }
   return valor;
@@ -101,10 +103,8 @@ Examples:
 `;
 
 export function registerApCommand(program: Command, deps: ApCommandDeps): void {
-  const ap = program
-    .command('ap')
-    .alias('cxp')
-    .description('Payables controls: reconcile the vendor subledger against the control account');
+  // Help by key (#314): help.ap.<leaf>.{description,option.<flag>}.
+  const ap = describeCommand(program.command('ap').alias('cxp'), 'help.ap.description');
 
   /**
    * El manejador DEVUELVE su código y `run` lo cierra una sola vez.
@@ -135,21 +135,15 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
   };
 
   // ---- ap reconcile ------------------------------------------------
-  const reconcile = ap
-    .command('reconcile')
-    .alias('conciliar')
-    .description(
-      'Vendor subledger (open bills) vs the cxp control account, naming the reconciling items'
-    );
+  const reconcile = describeCommand(ap.command('reconcile').alias('conciliar'), 'help.ap.reconcile.description');
   withStrict(withOutput(withContext(reconcile)));
-  reconcile
-    // `--as-of` se declara suelta y no con `withTime()`: el grupo entero
-    // arrastra `--period`, `--since`, `--until` y `--date-basis`, y un cuadre
-    // no tiene rango ni base de fecha que elegir — tiene un corte. Declarar
-    // cuatro banderas para rechazar tres es peor superficie que declarar una.
-    // El diccionario gobierna la grafía y la forma corta (ninguna), no el grupo.
-    .option('--as-of <date>', 'cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)')
-    .option('--explain', 'spell out every reconciling item in prose, not just the table');
+  // `--as-of` se declara suelta y no con `withTime()`: el grupo entero
+  // arrastra `--period`, `--since`, `--until` y `--date-basis`, y un cuadre
+  // no tiene rango ni base de fecha que elegir — tiene un corte. Declarar
+  // cuatro banderas para rechazar tres es peor superficie que declarar una.
+  // El diccionario gobierna la grafía y la forma corta (ninguna), no el grupo.
+  optionByKey(reconcile, '--as-of <date>', 'help.ap.reconcile.option.as_of');
+  optionByKey(reconcile, '--explain', 'help.ap.reconcile.option.explain');
   declareRisk(reconcile, { risk: 'lectura', agent: true });
   reconcile.addHelpText('after', EJEMPLOS);
   reconcile.action((opts: CommonOpts) =>
@@ -182,7 +176,7 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
         render([r as unknown as Row], {
           ...opts,
           idField: 'diferencia',
-          numeric: ['subdiario', 'mayor', 'diferencia', 'explicado', 'sinExplicar'],
+          numeric: ['subdiario', 'fxRevaluation', 'mayor', 'diferencia', 'explicado', 'sinExplicar'],
         });
       } else {
         const out = process.stdout;
@@ -193,6 +187,9 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
         const linea = (etiqueta: string, valor: string) =>
           out.write(`  ${p.dim(etiqueta.padEnd(28))}${valor.padStart(16)}\n`);
         linea('Subledger (open bills)', r.subdiario);
+        for (const f of r.foreignOpen) linea(`  of which ${f.currency} ${f.foreign}`, f.book);
+        // MNE-001-112: between a close and its day-1 mirror the control holds the revaluation.
+        if (r.fxRevaluation !== '0.00') linea('  of which FX revaluation', r.fxRevaluation);
         linea('Control account (ledger)', r.mayor);
         linea('Difference', r.diferencia);
         linea('Explained by items', r.explicado);
