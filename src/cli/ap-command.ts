@@ -16,6 +16,7 @@ import {
   optionByKey,
   type Row,
 } from './kernel/index.js';
+import { isRealCalendarDate } from '../utils/calendar-date.js';
 
 // ============================================================
 // mnemosine ap · cxp
@@ -79,8 +80,7 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
  * que no existen — JS acepta `2026-02-31` y lo desplaza al 3 de marzo.
  */
 function exigirFecha(flag: string, valor: string): string {
-  const d = new Date(`${valor}T00:00:00Z`);
-  if (!FECHA_RE.test(valor) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== valor) {
+  if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
     throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
   }
   return valor;
@@ -176,7 +176,7 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
         render([r as unknown as Row], {
           ...opts,
           idField: 'diferencia',
-          numeric: ['subdiario', 'mayor', 'diferencia', 'explicado', 'sinExplicar'],
+          numeric: ['subdiario', 'fxRevaluation', 'mayor', 'diferencia', 'explicado', 'sinExplicar'],
         });
       } else {
         const out = process.stdout;
@@ -187,6 +187,9 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
         const linea = (etiqueta: string, valor: string) =>
           out.write(`  ${p.dim(etiqueta.padEnd(28))}${valor.padStart(16)}\n`);
         linea('Subledger (open bills)', r.subdiario);
+        for (const f of r.foreignOpen) linea(`  of which ${f.currency} ${f.foreign}`, f.book);
+        // MNE-001-112: between a close and its day-1 mirror the control holds the revaluation.
+        if (r.fxRevaluation !== '0.00') linea('  of which FX revaluation', r.fxRevaluation);
         linea('Control account (ledger)', r.mayor);
         linea('Difference', r.diferencia);
         linea('Explained by items', r.explicado);

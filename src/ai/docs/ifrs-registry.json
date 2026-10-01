@@ -2,7 +2,7 @@
   "name": "IFRS Accounting Standards — registro de vigencias para mnemosine",
   "scope": "NIIF/NIC, interpretaciones CINIIF/SIC y NIIF para PyMEs del IASB (IFRS ACCOUNTING Standards). Las normas de sostenibilidad del ISSB (IFRS S1/S2) quedan FUERA de alcance: son revelación de sostenibilidad, no registro contable.",
   "verified_at": "2026-09-06",
-  "verification": "Investigación con 9 agentes + 3 verificadores adversariales (completitud, vigencias, diferencias vs NIF). 69 fichas: 67 vigencias confirmadas contra ifrs.org/iasplus; 2 corregidas; 1 norma faltante agregada (IFRS 20); 8 afirmaciones NIF↔IFRS corregidas. Re-verificación 2026-09-06 (un investigador con web en vivo + verificador de ligas): las 72 vigencias de fondo se sostienen; corregidas la ficha de NIC 28 (enmienda FVO jun-2026 que la ficha negaba) y la de NIIF 16 (PIR concluida jul-2026); sustituidas dos ligas muertas (NIIF 5, NIC 1) por la página oficial; añadidas dos fuentes de verdad. El resto del delta (NIF A-2 2026, ONIF 7, Mejoras 2026/2027, AD del Vol. 14, páginas oficiales de 27 fichas) está en docs/investigacion/2026-09-06-normas-y-motores/normas/ifrs-nif-delta.md §4 y es una issue aparte.",
+  "verification": "Investigación con 9 agentes + 3 verificadores adversariales (completitud, vigencias, diferencias vs NIF). 69 fichas: 67 vigencias confirmadas contra ifrs.org/iasplus; 2 corregidas; 1 norma faltante agregada (IFRS 20); 8 afirmaciones NIF↔IFRS corregidas. Re-verificación 2026-09-06 (un investigador con web en vivo + verificador de ligas): las 72 vigencias de fondo se sostienen; corregidas la ficha de NIC 28 (enmienda FVO jun-2026 que la ficha negaba) y la de NIIF 16 (PIR concluida jul-2026); sustituidas dos ligas muertas (NIIF 5, NIC 1) por la página oficial; añadidas dos fuentes de verdad. Las fichas NIF A-2 (2026) y ONIF 7 se agregaron el 2026-09-30 con confianza media (A-2 desde el proyecto de auscultación y prensa gremial, sin texto promulgado; sus ligas no se verificaron). El resto del delta (Mejoras 2026/2027, AD del Vol. 14, páginas oficiales de 27 fichas) está en docs/investigacion/2026-09-06-normas-y-motores/normas/ifrs-nif-delta.md §4 y es una issue aparte.",
   "sources_of_truth": [
     "https://www.ifrs.org/issued-standards/list-of-standards/",
     "https://www.ifrs.org/projects/work-plan/",
@@ -1229,6 +1229,31 @@
       "confidence": "high",
       "sources": [
         "https://www.ifrs.org/issued-standards/list-of-standards/"
+      ]
+    },
+    {
+      "code": "NIF A-2",
+      "title_es": "Incertidumbres sobre negocio en marcha",
+      "title_en": "Uncertainties about the going concern",
+      "status": "vigente",
+      "effective": "Fecha de promulgación no verificada en fuente abierta (proyecto de auscultación jun-2024). Se reporta vigente para ejercicios desde el 1-ene-2026, con adopción anticipada. Desde esa fecha «NIF A-2» ya NO es el postulado de devengación (ese es NIF A-1, cap. 20).",
+      "topic": "nif-marco",
+      "confidence": "medium",
+      "sources": [
+        "https://www.cinif.org.mx/uploads/NIF_A2_Proyecto_Auscultacion.pdf",
+        "https://www.veritas.org.mx/Opinion/Las-NIF-en-corto/nif-a-2-del-cinif-y-las-incertidumbres-sobre-el-negocio-en-marcha"
+      ]
+    },
+    {
+      "code": "ONIF 7",
+      "title_es": "Contratos de construcción y contratos de compraventa de bienes de capital",
+      "title_en": "Construction contracts and contracts for the sale of capital goods",
+      "status": "vigente",
+      "effective": "Orientación NO obligatoria (30-ago-2024). Interpreta NIF D-1 y D-2 sobre el avance de obra; va en el libro NIF 2026.",
+      "topic": "nif-registro",
+      "confidence": "medium",
+      "sources": [
+        "https://www.bhrmx.com/onif-7-contratos-de-construccion-y-contratos-de-compraventa-de-bienes-de-capital/"
       ]
     }
   ]

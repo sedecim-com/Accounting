@@ -95,7 +95,7 @@ manual act and its trace is the diff.
 
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10514 (baseline 10578) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10515 (baseline 10578) | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5764 (baseline 5774) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
@@ -113,7 +113,7 @@ manual act and its trace is the diff.
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
 | `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 1162 (baseline 1163) | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28611 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28673 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 

@@ -147,6 +147,7 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | #242 | El «hoy», ¿de quién es? | `zona_horaria` en el panel, `America/Mexico_City` por omisión y fila por entidad. La fecha del acto en nómina la fija la ley |
 | #298, #308 | Redondeos del subsidio y del papel de trabajo | `subsidio_al_empleo_redondeo` = `producto_al_centavo`; `declaracion_redondeo_a_pesos` = `cada_renglon` |
 | #322 | Tasa contable (NIF C-6) frente a tasa fiscal (art. 34) | `base_depreciacion` = `vida_util_nif` por omisión; la tasa fiscal se guarda y `tasa_lisr` opera. El calendario paralelo, en #112 |
+| #322 | Depreciación fiscal (`tasa_lisr`): ¿la tasa se aplica al monto original de la inversión (art. 31 LISR) o a costo menos valor de desecho? | `tasa_lisr`: monto original de la inversión sin restar desecho (art. 31 LISR); lo ya posteado conserva su base; `vida_util_nif`, y el activo sin tasa guardada que corre por su vida útil, restan el desecho — MNE-001-135, entregado en MNE-001-396 (#538) |
 | #305 | Si la revaluación se revierte, y con qué tipo de cambio se cierra | `revaluacion_cambiaria_reversion` = `revertir_al_inicio`; `sin_reversion` no se ofrece hasta tener su lector. `fuente_tipo_cambio_cierre` = `la_de_operaciones` (hoy DOF), del último día natural |
 | #312 | La descarga masiva, ¿entra al MVP? | Entra el censo; la descarga automática con e.firma, después (2026-09-26). **Reemplazada** el 2026-09-28 por la fila siguiente |
 | #312 | La e.firma, ¿descarga y sella dentro del MVP? | Sí (2026-09-28, MNE-001-140): «para efectos de scope del proyecto considera que sí se va a usar [la e.firma] para descargar y firmar… revisa el proyecto y mejora lo que se pueda automatizar con esta posibilidad.» La descarga (#439, #440, #441) y el sellado del Anexo 24 bajo `sellar_con_custodia` (#442) entran; la presentación ante el SAT sigue siendo manual |
@@ -169,7 +170,6 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | #357 | La `CONTALINK_API_KEY` global, ¿queda de respaldo de sólo lectura o se retira? | MNE-001-120 | La llave por entidad (121), y con ella el despliegue |
 | #231 | La semana a caballo entre meses: ¿la prorrata la fija la ley, como dice la decisión de #242, o es un criterio del panel? | MNE-001-131 | 071 |
 | #133 | N, los meses tras los que una norma verificada se considera vieja | MNE-001-123 | 078 |
-| #322 | Depreciación fiscal (`tasa_lisr`): ¿la tasa se aplica al monto original de la inversión (art. 31 LISR) o a costo menos valor de desecho, como hoy? | MNE-001-135 | — |
 | #337 | La sesión de firma del SCOPE | MNE-001-011 | — |
 | #407 | Un cuerpo de 10 MB muy por encima del tope de un arreglo tarda ~24 s en rechazarse: ¿se corta antes, cambiando los bytes del 422, o se acepta? | MNE-001-137 | — |
 
