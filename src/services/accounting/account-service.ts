@@ -6,7 +6,6 @@ import { NotFoundError, ValidationError, ConflictError } from '../../utils/error
 import { logger } from '../../utils/logger.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { getPolicy } from '../policy/policy-service.js';
-import { todayFor } from '../policy/today.js';
 import type { PolicyContext } from '../policy/policy-service.js';
 import { resolvePeriod } from './fiscal-calendar-service.js';
 import {

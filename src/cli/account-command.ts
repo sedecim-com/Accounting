@@ -65,7 +65,6 @@ import {
   optionByKey,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
-import { todayFor } from '../services/policy/today.js';
 
 // ============================================================
 // mnemosine account
