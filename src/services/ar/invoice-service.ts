@@ -526,6 +526,7 @@ async function issueInvoiceInTx(
   // quedaba auditado, y «quién emitió la factura» no estaba en ninguna parte.
   await registrarAuditoria(client, {
     tenantId: await tenantDe(client, invoice.entity_id),
+    legalEntityId: invoice.entity_id,
     userId,
     action: 'update',
     entityType: 'invoices',
@@ -667,6 +668,7 @@ export async function voidInvoice(
       // asiento espejo quedaba auditado.
       await registrarAuditoria(client, {
         tenantId: await tenantDe(client, voided.entity_id),
+        legalEntityId: voided.entity_id,
         userId,
         action: 'void',
         entityType: 'invoices',
@@ -856,6 +858,7 @@ export async function updateDraftInvoice(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, input.entityId),
+      legalEntityId: input.entityId,
       userId,
       action: 'update',
       entityType: 'invoices',
@@ -929,6 +932,7 @@ export async function deleteDraftInvoice(
     // El rastro de un DELETE es lo ÚNICO que queda del documento: completo.
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, opts.entityId),
+      legalEntityId: opts.entityId,
       userId,
       action: 'delete',
       entityType: 'invoices',
@@ -1012,8 +1016,9 @@ export async function checkInvoiceSeries(
         `SELECT old_values->>'invoice_number' AS folio, reason, "timestamp" AS ts
            FROM audit_log
           WHERE action = 'delete' AND entity_type = 'invoices'
+            AND legal_entity_id = $2
             AND old_values->>'invoice_number' = ANY($1)`,
-        [faltantes]
+        [faltantes, entityId]
       );
       explicados = audit.rows.map((a) => ({
         folio: a.folio, reason: a.reason, deleted_at: a.ts,

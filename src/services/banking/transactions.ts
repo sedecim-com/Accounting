@@ -502,6 +502,7 @@ export async function reclassifyTransaction(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId: opts.userId,
       action: 'update',
       entityType: 'bank_transactions',

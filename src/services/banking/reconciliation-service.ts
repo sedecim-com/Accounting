@@ -622,6 +622,7 @@ export async function abrirSesion(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId: ctx.userId,
       action: 'create',
       entityType: 'reconciliation_sessions',
@@ -1503,6 +1504,7 @@ export async function clasificarPartidasDeSesion(
     if (clasificacion.levantadas.length > 0) {
       await registrarAuditoria(client, {
         tenantId: await tenantDe(client, entityId),
+        legalEntityId: entityId,
         userId: ctx.userId,
         action: 'update',
         entityType: 'reconciliation_sessions',
@@ -1689,6 +1691,7 @@ export async function cerrarSesion(
 
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entityId,
       userId: ctx.userId,
       action: 'close',
       entityType: 'reconciliation_sessions',
@@ -2581,6 +2584,7 @@ export async function aprobarSesion(
 
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entityId,
       userId: ctx.userId,
       action: 'approve',
       entityType: 'reconciliation_sessions',
@@ -2796,6 +2800,7 @@ export async function reopenSession(
 
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entityId,
       userId: ctx.userId,
       action: 'reopen',
       entityType: 'reconciliation_sessions',
@@ -3644,6 +3649,7 @@ export async function contabilizarSesion(
 
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entityId,
       userId: ctx.userId,
       action: 'post',
       entityType: 'reconciliation_sessions',

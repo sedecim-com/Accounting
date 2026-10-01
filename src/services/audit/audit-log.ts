@@ -30,6 +30,12 @@ export type AccionAuditada =
 
 export interface EntradaAuditoria {
   tenantId: string;
+  /**
+   * La entidad legal del hecho (migración 324). Nula sólo en hechos de nivel
+   * inquilino (usuarios, el propio inquilino): cualquier consulta que acote
+   * por entidad (p. ej. `invoice series check`) no cuenta esos renglones.
+   */
+  legalEntityId?: string | null;
   /** Quién. Es NOT NULL en la tabla: un hecho sin autor no se registra. */
   userId: string;
   action: AccionAuditada;
@@ -69,13 +75,14 @@ export async function registrarAuditoria(
 ): Promise<void> {
   await client.query(
     `INSERT INTO audit_log (
-       id, user_id, tenant_id, action, entity_type, entity_id,
+       id, user_id, tenant_id, legal_entity_id, action, entity_type, entity_id,
        old_values, new_values, reason
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       uuidv4(),
       entrada.userId,
       entrada.tenantId,
+      entrada.legalEntityId ?? null,
       entrada.action,
       entrada.entityType,
       entrada.entityId,

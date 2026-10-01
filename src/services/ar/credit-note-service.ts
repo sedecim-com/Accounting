@@ -170,6 +170,7 @@ export async function createCreditNote(
 
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: input.entity_id,
       userId,
       action: 'create',
       entityType: 'credit_notes',
@@ -374,6 +375,7 @@ export async function issueCreditNote(
     );
     await registrarAuditoria(client, {
       tenantId: nota.tenant_id,
+      legalEntityId: nota.entity_id,
       userId,
       action: 'post',
       entityType: 'credit_notes',
@@ -560,6 +562,7 @@ export async function applyCreditNote(
 
     await registrarAuditoria(client, {
       tenantId: nota.tenant_id,
+      legalEntityId: nota.entity_id,
       userId,
       action: 'update',
       entityType: 'credit_notes',
