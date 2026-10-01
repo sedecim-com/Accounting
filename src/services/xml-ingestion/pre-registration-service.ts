@@ -35,7 +35,7 @@ function tipoDocumentoDe(tipo: string | undefined, direction: CfdiDirection): st
 }
 import { RulesEngine, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
-import { nextEntityNumber } from '../../utils/sequence.js';
+import { nextEntityNumber, nextVendorNumber, type Queryable } from '../../utils/sequence.js';
 
 /**
  * Which side of the operation the entity is on (ING-3 · #320). The RFC of the
@@ -1391,18 +1391,6 @@ export class PreRegistrationService {
   }
 }
 
-/**
- * A query runner: the transaction client of whichever act writes the bill,
- * the approval of a draft (#318) or `createBillFromPreReg` (#498). Both
- * consumers pass one, so a bill never outlives the entry that failed after it.
- */
-interface Queryable {
-  query<T extends pg.QueryResultRow = Record<string, unknown>>(
-    text: string,
-    params?: unknown[]
-  ): Promise<pg.QueryResult<T>>;
-}
-
 /** One `bill_lines` row, already decided by the caller. */
 export interface BillLineRow {
   line_number: number;
@@ -1500,10 +1488,9 @@ async function insertarFacturaDePreRegistro(
       );
     } else {
       const newId = uuidv4();
-      // MNE-001-399: the same atomic per-entity counter every other writer
-      // of a financial or master document uses, in the series of the CFDI's
-      // own date (R3), never COUNT(*) + the server clock.
-      const vendorNumber = await nextEntityNumber(db, preReg.entity_id as string, 'vendor', 'V', preReg.document_date as Date | string);
+      // MNE-001-399: the one vendor counter every writer shares (series =
+      // year of creation: a vendor is master data, not a dated document).
+      const vendorNumber = await nextVendorNumber(db, preReg.entity_id as string);
 
       await db.query(
         `INSERT INTO vendors (id, entity_id, vendor_number, company_name, tax_id, tax_id_type, currency_code, created_by)

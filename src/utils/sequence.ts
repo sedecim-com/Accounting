@@ -1,7 +1,11 @@
 import type pg from 'pg';
 
-/** The one method the counter needs: a pool client, or the inbox's narrower handle. */
-export interface SequenceClient {
+/**
+ * The one method the counter needs. It MUST be the caller's transaction
+ * client (the type cannot tell a pool-level wrapper apart): the number is
+ * consumed only if that transaction commits.
+ */
+export interface Queryable {
   query<T extends pg.QueryResultRow = Record<string, unknown>>(
     text: string,
     params?: unknown[]
@@ -13,8 +17,9 @@ export interface SequenceClient {
  * The UPSERT takes a row lock until the caller's transaction commits, so
  * two concurrent callers can never draw the same number (the COUNT(*)
  * approach this replaces collided under concurrency). Must run on the
- * caller's transaction client: the number is only consumed if the
- * surrounding transaction commits.
+ * caller's transaction client (a `Queryable` is structurally any query
+ * runner, so the type does not enforce it): the number is only consumed if
+ * the surrounding transaction commits, and a rolled-back approval returns it.
  *
  * R3: LA SERIE LA FIJA LA FECHA DEL DOCUMENTO, NO EL RELOJ. El formato
  * `JE-2026-00042` insinuaba serie anual y no lo era: el año salía de
@@ -27,7 +32,7 @@ export interface SequenceClient {
  * emitidos, para que la serie continúe sin colisiones.
  */
 export async function nextEntityNumber(
-  client: SequenceClient,
+  client: Queryable,
   entityId: string,
   name: string,
   prefix: string,
@@ -62,13 +67,25 @@ export function añoDeDocumento(fecha: Date | string): number {
   return Number(m[1]);
 }
 
+/**
+ * MNE-001-399: the number of a vendor, for EVERY writer (`vendor create`,
+ * the inbox's new-vendor path and the opening-bills migration). A vendor is
+ * master data, not a document: it has no document date, so its series is the
+ * year of creation (the clock is right here, unlike for a bill). One shared
+ * counter `vendor_<year>` seeded by migration 176 from the numbers already
+ * issued, so no writer collides with another.
+ */
+export async function nextVendorNumber(client: Queryable, entityId: string): Promise<string> {
+  return nextEntityNumber(client, entityId, 'vendor', 'V', new Date());
+}
+
 export function formatDocumentNumber(prefix: string, año: number, n: number): string {
   return `${prefix}-${año}-${n.toString().padStart(5, '0')}`;
 }
 
 /**
  * @deprecated Race-prone when fed a COUNT(*): two concurrent callers format
- * the same number. Kept for non-financial identifiers (customers, vendors);
+ * the same number. Kept for the customer number only (vendors moved to nextVendorNumber);
  * every financial document now goes through nextEntityNumber. Conserva el
  * año del reloj a propósito: no es una serie contable.
  */
