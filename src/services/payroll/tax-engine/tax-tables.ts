@@ -62,7 +62,8 @@ export async function getBrackets(
     data: r.data,
   }));
 
-  bracketCache.set(key, brackets);
+  // An empty result is not cached: once the table is seeded the next call must see it.
+  if (brackets.length > 0) bracketCache.set(key, brackets);
   return brackets;
 }
 

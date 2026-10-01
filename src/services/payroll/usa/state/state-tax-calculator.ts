@@ -52,10 +52,14 @@ export class UsStateSitCalculator implements ITaxCalculator {
     }
 
     // Progressive: use brackets table
-    // Not declared stays 'single' (the W-4's own default); a declared but
-    // unknown status throws, and a status with no table throws below instead
-    // of falling back to 'single' or withholding 0.00 (MNE-001-353).
-    const fs = validFilingStatus(w4_data?.filing_status ?? filing_status);
+    // Not declared stays 'single': IRS Pub 15-T and the Form W-4 instructions
+    // treat an employee with no W-4 as Single, and the note below says so. A
+    // declared but unknown status throws, and a status with no table throws
+    // below instead of falling back to 'single' or withholding 0.00
+    // (MNE-001-353).
+    const declaredStatus = w4_data?.filing_status ?? filing_status;
+    const fs = validFilingStatus(declaredStatus);
+    const undeclaredNote = declaredStatus == null ? '; filing_status undeclared, defaulted to single' : '';
     const brackets = requireBrackets(
       await getBrackets(this.jurisdiction, 'sit', tax_year, fs, 'annual'),
       this.jurisdiction, 'sit', tax_year, fs
@@ -71,7 +75,7 @@ export class UsStateSitCalculator implements ITaxCalculator {
       tax_amount: Math.round(perPeriod * 100) / 100,
       taxable_wages_used: taxable_wages,
       rate_applied: rate,
-      notes: `Progressive ${this.stateCode} ${fs}`,
+      notes: `Progressive ${this.stateCode} ${fs}${undeclaredNote}`,
     };
   }
 }

@@ -15,6 +15,10 @@ const FILING_STATUSES = ['single', 'married_jointly', 'head_of_household', 'marr
  * `single` sigue siendo el valor por omisión cuando NO se declara ninguno —es
  * el supuesto del propio W-4 cuando el trabajador no marca casilla—, pero un
  * valor DECLARADO y desconocido ya no se acepta: eso era lo que caía a cero.
+ *
+ * Source of the default: IRS Pub 15-T and the Form W-4 instructions, an
+ * employee who has not furnished a W-4 is treated as Single. Callers add a
+ * note to their output when this default was used, so it is never silent.
  */
 export function validFilingStatus(declarado: string | undefined | null): FilingStatus {
   if (declarado === undefined || declarado === null) return 'single';
@@ -57,7 +61,9 @@ export class UsFederalFitCalculator implements ITaxCalculator {
     // un `filing_status` fuera de catálogo tenía FIT = $0.00 todo el año, con
     // el patrón como retenedor omiso ante el IRS. El defecto no es que el
     // valor sea raro: es que el cero no se distinga de una retención legítima.
-    const filingStatus = validFilingStatus(w4_data?.filing_status ?? input.filing_status);
+    const declaredStatus = w4_data?.filing_status ?? input.filing_status;
+    const filingStatus = validFilingStatus(declaredStatus);
+    const undeclaredNote = declaredStatus == null ? '; filing_status undeclared, defaulted to single' : '';
     const ppy = periodsPerYear(pay_frequency);
 
     // Annualize
@@ -91,7 +97,7 @@ export class UsFederalFitCalculator implements ITaxCalculator {
       tax_amount: Math.round(total * 100) / 100,
       taxable_wages_used: taxable_wages,
       rate_applied: rate,
-      notes: `Pub 15-T ${filingStatus} annualized ${annualWages.toFixed(2)}`,
+      notes: `Pub 15-T ${filingStatus} annualized ${annualWages.toFixed(2)}${undeclaredNote}`,
     };
   }
 }

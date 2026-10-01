@@ -244,6 +244,42 @@ export async function checkOvertimeLines(input: PaycheckInput): Promise<void> {
   await isrPartsOf(overtime, isrContextOf(input, await paycheckScope(input)));
 }
 
+/**
+ * The bracket-table gaps one US employee's paycheck would hit, WITHOUT writing
+ * anything (MNE-001-353). Empty for a non-US employee.
+ *
+ * FIT and SIT throw when the table for the employee's filing status is not
+ * seeded, and each paycheck commits on its own: found mid-run, that left the
+ * earlier employees' paychecks written and the run stuck in `calculating`.
+ * `calculatePayRun` collects these for every employee first. It runs the same
+ * calculators on a nominal wage, so this check and the calculation cannot
+ * disagree about which table is read.
+ */
+export async function checkUsTaxTables(input: PaycheckInput): Promise<string[]> {
+  const { emp, period } = await paycheckScope(input);
+  if (emp.country_code !== 'US') return [];
+  const probe: TaxInput = {
+    taxable_wages: 1,
+    pay_frequency: period.frequency,
+    tax_year: period.tax_year,
+    pay_date: toCalendarDate(period.pay_date),
+    w4_data: emp.w4_data as TaxInput['w4_data'],
+    state: emp.work_state || undefined,
+  };
+  const calculators = [taxRegistry.getRequired('US-FEDERAL', 'fit')];
+  const sit = emp.work_state ? taxRegistry.get(`US-${emp.work_state}`, 'sit') : undefined;
+  if (sit) calculators.push(sit);
+  const problems: string[] = [];
+  for (const calc of calculators) {
+    try {
+      await calc.calculate(probe);
+    } catch (e) {
+      problems.push(`employee ${input.employee_id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return problems;
+}
+
 export async function calculatePaycheck(input: PaycheckInput): Promise<CalculatedPaycheck> {
   const scope = await paycheckScope(input);
   const { emp, period, daysInPeriod } = scope;

@@ -12,7 +12,7 @@ vi.mock('../../src/services/policy/today.js', () => ({ todayFor: vi.fn(async () 
 
 import { UsFederalFitCalculator } from '../../src/services/payroll/usa/federal/fit-calculator.js';
 import { UsStateSitCalculator } from '../../src/services/payroll/usa/state/state-tax-calculator.js';
-import { requireBrackets } from '../../src/services/payroll/tax-engine/tax-tables.js';
+import { requireBrackets, getBrackets } from '../../src/services/payroll/tax-engine/tax-tables.js';
 
 /**
  * MNE-001-353 (#127): a missing bracket table is an error, not a 0.00
@@ -57,5 +57,33 @@ describe('SIT with no table for the filing_status', () => {
   it('an unknown declared status throws instead of falling back to single', async () => {
     await expect(calc().calculate({ ...input(2035, 'single'), filing_status: 'mfs' as never }))
       .rejects.toThrow(/Unknown filing_status/);
+  });
+  it('a seeded table computes tax for the declared status', async () => {
+    db.rows = [{ bracket_order: 1, bracket_low: '0', bracket_high: null, rate: '0.05', base_tax: '0', data: {} }];
+    const out = await calc().calculate({ ...input(2037, 'single'), filing_status: 'married_jointly' });
+    expect(out.tax_amount).toBeGreaterThan(0);
+    expect(out.notes).toBe('Progressive CA married_jointly');
+  });
+  it('an undeclared status defaults to single and the output says so', async () => {
+    db.rows = [{ bracket_order: 1, bracket_low: '0', bracket_high: null, rate: '0.05', base_tax: '0', data: {} }];
+    const out = await calc().calculate({ ...input(2038, 'single'), filing_status: undefined });
+    expect(out.notes).toBe('Progressive CA single; filing_status undeclared, defaulted to single');
+  });
+});
+
+describe('FIT undeclared status', () => {
+  it('defaults to single and the output says so', async () => {
+    db.rows = [{ bracket_order: 1, bracket_low: '0', bracket_high: null, rate: '0.10', base_tax: '0', data: {} }];
+    const out = await new UsFederalFitCalculator().calculate({ ...input(2039, 'single'), filing_status: undefined });
+    expect(out.notes).toMatch(/defaulted to single/);
+  });
+});
+
+describe('getBrackets does not cache an empty table', () => {
+  it('a table seeded after the gap is read by the next call', async () => {
+    db.rows = [];
+    expect(await getBrackets('US-FEDERAL', 'fit', 2036, 'single', 'annual')).toEqual([]);
+    db.rows = [{ bracket_order: 1, bracket_low: '0', bracket_high: null, rate: '0.10', base_tax: '0', data: {} }];
+    expect(await getBrackets('US-FEDERAL', 'fit', 2036, 'single', 'annual')).toHaveLength(1);
   });
 });
