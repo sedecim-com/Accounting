@@ -8,6 +8,8 @@ import { listPaymentsAwaitingRep, watchedAtClose } from './rep-expected.js';
 import { checkMappingCoverageDetallada } from './account-service.js';
 import { arReconcile } from '../ar/ar-controls.js';
 import { apReconcile } from '../ap/ap-controls.js';
+import { censusGapPolicy, gapsOf, reconcileCensus, severityOfCensusGap, type CensusReconciliation, type Direction } from '../sat-census/reconcile.js';
+import { entityScope } from '../../database/scope.js';
 import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 import { revisionDeAmortizacionAlCierre, type RevisionDeCierre } from '../accruals/prepaid-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
@@ -63,6 +65,7 @@ export const CLOSE_CHECK_CODES = [
   'ar-subledger-delta',
   'ap-subledger-delta',
   'withholding-accounts-layout',
+  'sat-census-missing',
 ] as const;
 export type CloseCheckCode = (typeof CLOSE_CHECK_CODES)[number];
 
@@ -89,6 +92,7 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'ar-subledger-delta': 'Receivables subledger agrees with its control account',
   'ap-subledger-delta': 'Payables subledger agrees with its control account',
   'withholding-accounts-layout': 'Withholding roles follow the withholding accounts layout',
+  'sat-census-missing': 'Every CFDI the SAT lists for the period is in the books',
 };
 
 export type CloseCheckSeverity = 'blocking' | 'warning';
@@ -194,6 +198,33 @@ export function casillaDelAgrupador(
             // manda a mapear. El corte en cinco es el de ledger-integrity.
             `${huecos.length} de ${cobertura.poblacion} cuenta(s) con movimiento sin agrupador: ${nombradas}`
           : undefined,
+  };
+}
+
+/**
+ * MNE-001-119 (#312). The census box, apart and without a database: the
+ * JUDGEMENT (when it is complete, how it weighs, what it says) is what gets
+ * tested, not the query behind it. Complete means every CFDI the SAT lists
+ * for the period is in the books AND both directions were loaded; a direction
+ * nobody loaded is not «nothing missing» (same rule as the agrupador box).
+ * The box weighs as its heaviest direction, per `census_missing_at_close`.
+ */
+export function censusBox(rec: CensusReconciliation, policyValue: string): PeriodCloseChecklistItem {
+  const directions: Direction[] = ['issued', 'received'];
+  const notLoaded = directions.filter((d) => !rec.covered[d]);
+  const gaps = directions.map((d) => ({ d, n: gapsOf(rec, d) })).filter((g) => g.n > 0);
+  const severity: CloseCheckSeverity = gaps.some((g) => severityOfCensusGap(policyValue, g.d) === 'blocking')
+    ? 'blocking' : 'warning';
+  const parts = [
+    ...gaps.map((g) => `${g.n} ${g.d} CFDI the SAT lists or cancelled are not in the books`),
+    ...notLoaded.map((d) => `no SAT census loaded for ${d} CFDI in the period: completeness cannot be claimed`),
+  ];
+  return {
+    codigo: 'sat-census-missing',
+    item: CLOSE_CHECK_ITEMS['sat-census-missing'],
+    is_complete: parts.length === 0,
+    severity,
+    details: parts.length > 0 ? parts.join('; ') : undefined,
   };
 }
 
@@ -1122,6 +1153,22 @@ export async function getPeriodCloseStatus(
       : undefined,
   });
   if (withholdingOff) warnings.push(`${CLOSE_CHECK_ITEMS['withholding-accounts-layout']}: account role sync`);
+
+  // 10. MNE-001-119 (#312) · THE SAT CENSUS AGAINST THE BOOKS. Only for an
+  // entity that has loaded a census at all: the box is opt-in by use, so a
+  // firm that never loads one is not nagged by a check it cannot pass.
+  const rangoDelPeriodo = await q<{ start_date: string }>(
+    `SELECT to_char(start_date, 'YYYY-MM-DD') AS start_date FROM fiscal_periods WHERE id = $2 AND entity_id = $1`,
+    [entityId, periodId]
+  );
+  const census = await reconcileCensus(
+    entityScope(ctxPanel.tenantId, entityId), rangoDelPeriodo.rows[0].start_date, finDelPeriodo
+  );
+  if (census.hasLoads) {
+    const box = censusBox(census, await censusGapPolicy(ctxPanel));
+    checklist.push(box);
+    if (!box.is_complete) (box.severity === 'blocking' ? blocking_issues : warnings).push(`${box.item}: ${box.details}`);
+  }
 
   return {
     can_close: blocking_issues.length === 0,
