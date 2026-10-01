@@ -3039,6 +3039,15 @@ export const EN = {
   'help.depreciation.post.option.book': 'the depreciation book you believe you are posting; checked against the panel',
   'help.depreciation.post.option.file':
     'the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved',
+  'help.filing.description': 'Tax returns of the entity: the working papers behind them',
+  'help.filing.workpaper.description': 'The auditable working paper of the month, line by line',
+  'help.filing.workpaper.generate.description':
+    'Generate the month workpaper: IVA and provisional ISR, cents and pesos, with the entries behind each line',
+  'help.filing.workpaper.generate.option.period': 'month to settle (the filing is monthly)',
+  'help.filing.workpaper.generate.option.form': 'which settlement to include',
+  'help.filing.workpaper.generate.option.ptu_paid': 'PTU paid in the year (ISR), captured by a person',
+  'help.filing.workpaper.generate.option.prior_provisional':
+    'provisional ISR already paid this year (ISR), captured by a person',
   'help.diot.description':
     'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
   'help.diot.generate.description':

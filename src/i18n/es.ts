@@ -2891,6 +2891,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'el libro de depreciación que crees estar contabilizando; se contrasta con el panel',
   'help.depreciation.post.option.file':
     'el plan aprobado (JSON de `depreciation run --format json`); se niega si las cifras cambiaron',
+  'help.filing.description': 'Declaraciones de la entidad: los papeles de trabajo que las respaldan',
+  'help.filing.workpaper.description': 'El papel de trabajo auditable del mes, renglón por renglón',
+  'help.filing.workpaper.generate.description':
+    'Genera el papel de trabajo del mes: IVA e ISR provisional, centavos y pesos, con las pólizas de cada renglón',
+  'help.filing.workpaper.generate.option.period': 'mes a calcular (la declaración es mensual)',
+  'help.filing.workpaper.generate.option.form': 'qué cálculo incluir',
+  'help.filing.workpaper.generate.option.ptu_paid': 'PTU pagada en el ejercicio (ISR), la captura una persona',
+  'help.filing.workpaper.generate.option.prior_provisional':
+    'ISR provisional ya pagado en el ejercicio (ISR), lo captura una persona',
   'help.diot.description':
     'DIOT de México: armar el mes a partir de operaciones pagadas, verificarlo y exportar el papel de trabajo',
   'help.diot.generate.description':
