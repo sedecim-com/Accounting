@@ -2,6 +2,12 @@ import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
 import { PAYABLE_OPEN_STATUSES } from '../reporting/report-service.js';
+import {
+  FX_REVALUATION_SOURCE,
+  bookAmountDueSql,
+  revaluationOnAccount,
+  type ForeignOpen,
+} from '../accounting/fx-revaluation.js';
 
 // ============================================================
 // EL CUADRE DE CxP (F04)
@@ -100,8 +106,19 @@ export interface ResultadoConciliacionAP {
   /** La fecha de corte efectiva, YYYY-MM-DD. */
   asOf: string;
   cuentaControl: CuentaControlAP;
-  /** Σ saldos abiertos de gasto a la fecha de corte. */
+  /**
+   * Σ open bill balances at the cut-off, in the functional currency (a dollar
+   * bill weighs its book value), plus the live revaluation (MNE-001-112).
+   */
   subdiario: string;
+  /** Open bills in a foreign currency, per currency, with their book value (already in subdiario). */
+  foreignOpen: ForeignOpen[];
+  /**
+   * MNE-001-112: the closing revaluation the control holds at the cut-off
+   * (its mirror dated after it), as a liability: credit − debit. Part of
+   * subdiario, never a manual entry.
+   */
+  fxRevaluation: string;
   /** Saldo acreedor de la cuenta de control en el mayor a la fecha de corte. */
   mayor: string;
   /** `subdiario − mayor`. */
@@ -288,17 +305,24 @@ export async function apReconcile(
     [entityId, cuenta.id, asOf]
   );
 
-  const subdiarioQ = await query<{ total: string }>(
+  const subdiarioQ = await query<{ currency: string | null; functional: boolean; foreign: string; book: string }>(
     // El mismo conjunto que publica la antigüedad de saldos
     // (`PAYABLE_OPEN_STATUSES`), importado y no copiado: el catálogo promete
     // cuadrar «la antigüedad» contra el control, y dos listas de estados que
     // se puedan separar son dos informes que un día dirán cosas distintas.
-    `SELECT COALESCE(SUM(b.amount_due), 0)::text AS total
+    // MNE-001-112: per currency, at book value.
+    `SELECT b.currency_code AS currency,
+            (b.currency_code IS NULL OR b.currency_code = le.functional_currency) AS functional,
+            SUM(b.amount_due)::text AS foreign,
+            SUM(${bookAmountDueSql('b', '$1')})::text AS book
        FROM bills b
+       JOIN legal_entities le ON le.id = b.entity_id
       WHERE b.entity_id = $1
         AND b.status = ANY($2::text[])
         AND b.amount_due > 0
-        AND b.bill_date <= $3::date`,
+        AND b.bill_date <= $3::date
+      GROUP BY 1, 2
+      ORDER BY 1`,
     [entityId, abiertos, asOf]
   );
 
@@ -337,7 +361,7 @@ export async function apReconcile(
       GROUP BY je.id, je.entry_number, je.entry_date, je.description, u.email, je.created_by
       ORDER BY je.entry_date DESC, je.entry_number DESC
       LIMIT $5`,
-    [entityId, cuenta.id, asOf, origenes, MAX_FILAS]
+    [entityId, cuenta.id, asOf, [...origenes, FX_REVALUATION_SOURCE], MAX_FILAS]
   );
 
   const sinAsientoQ = await query<FilaGastoSinAsiento>(
@@ -351,9 +375,9 @@ export async function apReconcile(
             to_char(b.bill_date, 'YYYY-MM-DD') AS fecha,
             b.status,
             v.company_name AS proveedor,
-            b.amount_due::text AS saldo,
+            (${bookAmountDueSql('b', '$1')})::text AS saldo,
             COALESCE(je.status, 'sin asiento') AS estado_asiento,
-            (SUM(b.amount_due) OVER ())::text AS total,
+            (SUM(${bookAmountDueSql('b', '$1')}) OVER ())::text AS total,
             (COUNT(*) OVER ())::int AS grupos
        FROM bills b
        JOIN vendors v ON v.id = b.vendor_id AND v.entity_id = b.entity_id
@@ -424,8 +448,10 @@ export async function apReconcile(
     [entityId, cuenta.id, asOf, abiertos, [...ORIGENES_LIQUIDACION], MAX_FILAS]
   );
 
+  // A liability: credit − debit, the sign of `mayor`.
+  const fxRevaluation = (await revaluationOnAccount(entityId, cuenta.id, asOf)).negated();
   const mayor = dec(mayorQ.rows[0]?.saldo);
-  const subdiario = dec(subdiarioQ.rows[0]?.total);
+  const subdiario = subdiarioQ.rows.reduce((sum, row) => sum.plus(row.book), new Decimal(0)).plus(fxRevaluation);
   const diferencia = subdiario.minus(mayor);
 
   // Totales sobre TODAS las filas de cada sonda (ventana), no sobre las
@@ -465,6 +491,10 @@ export async function apReconcile(
     asOf,
     cuentaControl: cuenta,
     subdiario: pesos(subdiario),
+    foreignOpen: subdiarioQ.rows
+      .filter((row) => !row.functional)
+      .map((row) => ({ currency: row.currency ?? '', foreign: pesos(dec(row.foreign)), book: pesos(dec(row.book)) })),
+    fxRevaluation: pesos(fxRevaluation),
     mayor: pesos(mayor),
     diferencia: pesos(diferencia),
     cuadra: diferencia.abs().lessThan(TOLERANCIA),

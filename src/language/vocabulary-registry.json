@@ -5893,6 +5893,38 @@
     },
     {
       "class": "policy-key",
+      "where": "cash_over_limit_outside_ingestion",
+      "es": "cash_over_limit_outside_ingestion",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-345): what to do with cash above the LISR art. 27 fr. III limit outside the CFDI ingestion."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/signal",
+      "es": "signal",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the finding is returned and nothing changes."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/draft_reclassification",
+      "es": "draft_reclassification",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the finding is returned and the non-deductible reclassification is proposed as a draft."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/ignore",
+      "es": "ignore",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the cash above the limit is not reported."
+    },
+    {
+      "class": "policy-key",
       "where": "anexo24_voucher_money_without_trace",
       "es": "anexo24_voucher_money_without_trace",
       "en": null,
@@ -6010,6 +6042,54 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the entity keeps its roles and nothing warns."
+    },
+    {
+      "class": "policy-key",
+      "where": "iva_creditable_proration",
+      "es": "iva_creditable_proration",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-385): which proportion of LIVA art. 5 fr. V credits the IVA of mixed activities."
+    },
+    {
+      "class": "policy-value",
+      "where": "iva_creditable_proration/monthly",
+      "es": "monthly",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the proportion of the acts collected in the month (LIVA art. 5 fr. V inc. d)."
+    },
+    {
+      "class": "policy-value",
+      "where": "iva_creditable_proration/annual",
+      "es": "annual",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the proportion of the prior calendar year (LIVA art. 5-B)."
+    },
+    {
+      "class": "policy-key",
+      "where": "provisional_isr_sales_returns",
+      "es": "provisional_isr_sales_returns",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-059): whether sales returns lower the nominal income of the provisional ISR or wait for the annual return as a deduction (LISR arts. 14 fr. I and 25 fr. I)."
+    },
+    {
+      "class": "policy-value",
+      "where": "provisional_isr_sales_returns/deduction",
+      "es": "deduction",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the nominal income is gross; returns are a deduction of the annual return (LISR art. 25 fr. I)."
+    },
+    {
+      "class": "policy-value",
+      "where": "provisional_isr_sales_returns/net_of_income",
+      "es": "net_of_income",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the returns of the year are subtracted from the nominal income."
     },
     {
       "class": "policy-key",
