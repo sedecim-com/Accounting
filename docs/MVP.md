@@ -147,6 +147,7 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | #242 | El «hoy», ¿de quién es? | `zona_horaria` en el panel, `America/Mexico_City` por omisión y fila por entidad. La fecha del acto en nómina la fija la ley |
 | #298, #308 | Redondeos del subsidio y del papel de trabajo | `subsidio_al_empleo_redondeo` = `producto_al_centavo`; `declaracion_redondeo_a_pesos` = `cada_renglon` |
 | #322 | Tasa contable (NIF C-6) frente a tasa fiscal (art. 34) | `base_depreciacion` = `vida_util_nif` por omisión; la tasa fiscal se guarda y `tasa_lisr` opera. El calendario paralelo, en #112 |
+| #322 | Depreciación fiscal (`tasa_lisr`): ¿la tasa se aplica al monto original de la inversión (art. 31 LISR) o a costo menos valor de desecho? | `tasa_lisr`: monto original de la inversión sin restar desecho (art. 31 LISR); lo ya posteado conserva su base; `vida_util_nif`, y el activo sin tasa guardada que corre por su vida útil, restan el desecho — MNE-001-135, entregado en MNE-001-396 (#538) |
 | #305 | Si la revaluación se revierte, y con qué tipo de cambio se cierra | `revaluacion_cambiaria_reversion` = `revertir_al_inicio`; `sin_reversion` no se ofrece hasta tener su lector. `fuente_tipo_cambio_cierre` = `la_de_operaciones` (hoy DOF), del último día natural |
 | #312 | La descarga masiva, ¿entra al MVP? | Entra el censo; la descarga automática con e.firma, después (2026-09-26). **Reemplazada** el 2026-09-28 por la fila siguiente |
 | #312 | La e.firma, ¿descarga y sella dentro del MVP? | Sí (2026-09-28, MNE-001-140): «para efectos de scope del proyecto considera que sí se va a usar [la e.firma] para descargar y firmar… revisa el proyecto y mejora lo que se pueda automatizar con esta posibilidad.» La descarga (#439, #440, #441) y el sellado del Anexo 24 bajo `sellar_con_custodia` (#442) entran; la presentación ante el SAT sigue siendo manual |
@@ -157,19 +158,18 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | PR #249, PR #283 | La lectura de §5.3 del tablero y la revisión de seguridad; si se juzga el título del PR | Los dos se fusionaron el 2026-09-26; desde #283 el asunto de cada commit y el título del PR se juzgan en inglés |
 | #367 | La migración a zod 4: ¿qué se conserva del contrato? | El cuerpo del 422 y la aceptación de UUID, byte a byte (2026-09-26). Dos endurecimientos aprobados en #380 (2026-09-26): ±Infinity y los enteros fuera de ±(2^53 − 1) se rechazan. Entregado en #401 y #402 (2026-09-27) |
 | #323 | Cómo se prueba la validez del XML del Anexo 24 | Contra el XSD oficial del SAT guardado en el repositorio; la relectura estructural no basta (2026-09-27). El trabajo es MNE-001-136 (#397) |
+| #378 | Los dos criterios rojos de E5.1, ¿entran al MVP o se enmienda la meta de RNF-01? | Se enmienda RNF-01 (2026-09-30, MNE-001-132): las herramientas del agente derivadas del registro de riesgo y la rehidratación de `--continue` quedan después del MVP (MNE-001-391, MNE-001-392); ningún criterio verde retrocede. PRD-001 §RNF-01 enmendado en MNE-001-390 |
 
 **Pendientes.** Al cruzar el backlog con las issues, el 2026-09-26, salieron preguntas que nadie había hecho. Cada una es una decisión en el backlog (`docs/backlog/PRD-001.md`) y bloquea tareas concretas:
 
 | Issue | Pregunta | Decisión | Bloquea |
 |---|---|---|---|
-| #378 | Los dos criterios rojos de E5.1, ¿entran al MVP o se enmienda la meta de RNF-01? | MNE-001-132 | La meta de RNF-01 |
 | #308 | El prorrateo del IVA de actividades mixtas (art. 5 fr. V) y dónde se capturan el coeficiente de utilidad y las pérdidas | MNE-001-114 | El ISR provisional (059), y con él el papel de trabajo (060), en la ruta crítica del MVP |
 | #297 | Las horas extra (art. 93 fr. I): ¿qué trato declara el panel, o quedan fuera del MVP? | MNE-001-109 | 110 |
 | #371 | La identidad de plataforma | MNE-001-106 | El despliegue (107) |
 | #357 | La `CONTALINK_API_KEY` global, ¿queda de respaldo de sólo lectura o se retira? | MNE-001-120 | La llave por entidad (121), y con ella el despliegue |
 | #231 | La semana a caballo entre meses: ¿la prorrata la fija la ley, como dice la decisión de #242, o es un criterio del panel? | MNE-001-131 | 071 |
 | #133 | N, los meses tras los que una norma verificada se considera vieja | MNE-001-123 | 078 |
-| #322 | Depreciación fiscal (`tasa_lisr`): ¿la tasa se aplica al monto original de la inversión (art. 31 LISR) o a costo menos valor de desecho, como hoy? | MNE-001-135 | — |
 | #337 | La sesión de firma del SCOPE | MNE-001-011 | — |
 | #407 | Un cuerpo de 10 MB muy por encima del tope de un arreglo tarda ~24 s en rechazarse: ¿se corta antes, cambiando los bytes del 422, o se acepta? | MNE-001-137 | — |
 

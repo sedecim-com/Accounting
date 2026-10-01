@@ -57,7 +57,11 @@ export function registerSatCensus(
   sat: Command,
   deps: { shutdown: (code: number) => Promise<never>; reportError: (err: unknown) => void }
 ): void {
-  const download = describeCommand(sat.command('download').alias('descarga'), 'help.sat.download.description');
+  // `sat download` is shared with the census (`reconcile`, MNE-001-119): whichever registers first creates the
+  // group, the other reuses it, so the order of registration does not matter.
+  const download =
+    sat.commands.find((existing) => existing.name() === 'download') ??
+    describeCommand(sat.command('download').alias('descarga'), 'help.sat.download.description');
   const reconcile = describeCommand(
     download.command('reconcile').alias('conciliar'), 'help.sat.download.reconcile.description'
   );
