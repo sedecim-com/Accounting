@@ -82,10 +82,10 @@
     por turno. Además: atribuir el MODELO en cada borrador
     (un cambio silencioso a un modelo más débil a media revisión debe quedar registrado).
 15. **Cadenas de conmutación por error según el tipo de error** (OpenClaw): conmutar sólo por auth/429/
-    5xx/timeout/facturación, nunca por desbordamiento ni rechazos (esos van a
+    5xx/timeout/cobro o saldo del proveedor (billing), nunca por desbordamiento ni rechazos (esos van a
     compactación); enfriamientos escalonados de 30 s a 5 min; nueva sonda automática del principal.
 16. **Sondas en vivo por capas en doctor** (Test connection de OpenClaw + status de Hermes):
-    sonda en vivo por proveedor con errores CATEGORIZADOS (auth, facturación o
+    sonda en vivo por proveedor con errores CATEGORIZADOS (auth, cobro o saldo del proveedor (billing) o
     timeout cambian lo que hace el operador), `status --all` redactado y
     compartible para tickets de soporte, más verificación de que RLS está activo.
 17. **Cron como tareas persistidas del agente de primera clase** (ambos lo tienen): verificación
