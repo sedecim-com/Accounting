@@ -17,6 +17,7 @@ interface RegistryEntry {
   topic: string;
   confidence: string;
   sources: string[];
+  amendments?: string[];
 }
 
 const registry = JSON.parse(fs.readFileSync(path.join(DOCS, 'ifrs-registry.json'), 'utf-8')) as {
