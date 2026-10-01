@@ -392,6 +392,7 @@ export async function revokeCredential(
     if (auditoria) {
       await registrarAuditoria(client, {
         tenantId,
+        legalEntityId: entityId,
         userId: auditoria.userId,
         action: 'update',
         entityType: 'fiscal_credentials',

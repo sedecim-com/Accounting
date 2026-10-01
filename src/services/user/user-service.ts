@@ -152,6 +152,7 @@ export async function createUser(input: CreateUserInput): Promise<{ id: string; 
     const id = created.rows[0].id;
     await registrarAuditoria(client, {
       tenantId: input.tenantId,
+      legalEntityId: null,
       userId: systemUser,
       action: 'create',
       entityType: 'users',
@@ -223,6 +224,7 @@ export async function archiveUser(input: { tenantId: string; email: string; reas
     const id = updated.rows[0].id;
     await registrarAuditoria(client, {
       tenantId: input.tenantId,
+      legalEntityId: null,
       userId: systemUser,
       action: 'update',
       entityType: 'users',
