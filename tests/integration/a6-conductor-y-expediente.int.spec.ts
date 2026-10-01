@@ -263,7 +263,7 @@ async function killLockOf(killer: LockKiller, lockKey: string): Promise<{ heldBy
 }
 
 describe('A6 · el conductor', () => {
-  it('walks the six steps in order and ends with the hard close, which carries the month forward (#99)', async () => {
+  it('walks the seven steps in order and ends with the hard close, which carries the month forward (#99)', async () => {
     enterTenant(f.tenantId);
     const julio = await periodOf(f, JULIO);
     const r = await conductClose(ctx, julio, { userId: f.userId });
@@ -703,7 +703,7 @@ describe('A6 · el conductor', () => {
         details: {
           haltedAtStep: 'soft-close',
           stepRan: false,
-          stepsTaken: ['accrue-benefits', 'amortize-prepaids', 'depreciate-assets', 'verify-checklist'],
+          stepsTaken: ['accrue-benefits', 'amortize-prepaids', 'depreciate-assets', 'revalue-fx', 'verify-checklist'],
         },
       });
     } finally {
@@ -817,7 +817,7 @@ describe('A6 · el conductor', () => {
         code: 'CLOSING_RUN_LOCK_LOST',
         details: { haltedAtStep: 'hard-close', stepRan: true, stepRecorded: true, takenOver: true },
       });
-      expect(refusal.message).toMatch(/after hard-close and its record, without closing the run, after 6 recorded step\(s\)/);
+      expect(refusal.message).toMatch(/after hard-close and its record, without closing the run, after 7 recorded step\(s\)/);
       expect(refusal.message).toMatch(/ended or taken over by another conductor/);
       expect(refusal.message).not.toMatch(/--resume/);
     } finally {

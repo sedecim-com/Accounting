@@ -156,7 +156,7 @@ export class PreRegistrationService {
   async processXMLUpload(
     entityId: string,
     xmlContent: string,
-    source: 'manual_upload' | 'email' | 'api' | 'sftp',
+    source: 'manual_upload' | 'email' | 'api' | 'sftp' | 'sat_download',
     uploadedBy: string
   ): Promise<{
     xmlDocument: Record<string, unknown>;

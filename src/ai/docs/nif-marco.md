@@ -13,6 +13,12 @@ pregunte.
 > cap. 20 (antes A-2), devengación contable"*. Para las series B/C/D las claves
 > siguen vigentes tal cual (NIF B-1, C-4, D-1…).
 
+> **«NIF A-2» hoy NO es la devengación.** Desde el 1-ene-2026 (promulgada en
+> dic-2024, adopción anticipada permitida) la clave **NIF A-2** es una norma
+> distinta y vigente: *Incertidumbres sobre negocio en marcha* (sección
+> siguiente). El postulado de devengación se cita «NIF A-1, cap. 20»; ya no
+> escribas «antes A-2» como si la clave siguiera viva.
+
 > Alcance: resumen operativo para el registro diario. Para casos límite
 > (combinaciones de negocios, instrumentos derivados, consolidación) indica al
 > usuario que consulte a su contador con la NIF específica en mano; no improvises.
@@ -27,6 +33,23 @@ financieros en su conjunto), **C** (activos, pasivos y capital), **D**
 aplican las NIIF (IFRS), documentando la elección — el corpus NIIF completo
 vive en `niif-indice` (todas las normas vigentes, su estado y su doc de
 detalle).
+
+## NIF A-2 — Incertidumbres sobre negocio en marcha (vigente 2026)
+
+La administración evalúa, a la fecha de cierre, si la entidad seguirá como
+negocio en marcha, con un horizonte de al menos 12 meses desde esa fecha.
+Según el resultado hay cuatro situaciones:
+
+1. **Sin incertidumbres importantes:** se informa con la base de negocio en marcha, sin revelación especial.
+2. **Con incertidumbres importantes:** se revelan las incertidumbres, las medidas de mitigación y los juicios aplicados.
+3. **En reorganización legal** (p. ej. concurso mercantil): los pasivos sujetos a convenio se presentan por separado.
+4. **No es negocio en marcha:** los estados se preparan en base de liquidación, a valor neto de liquidación, y el efecto neto va al estado de cambios en los activos (pasivos) netos en liquidación.
+
+Este sistema **no** evalúa el negocio en marcha por ti: no hay casilla de cierre
+que lo atestigüe. Si el usuario lo pregunta, explica la norma y remite la
+evaluación a su contador. Fuente: proyecto de auscultación del CINIF
+(30-jun-2024) y prensa gremial; el texto promulgado vive en el libro NIF 2026
+(de pago), así que la fecha de promulgación no se verificó en fuente abierta.
 
 ## Postulados básicos (cap. 20, antes A-2)
 

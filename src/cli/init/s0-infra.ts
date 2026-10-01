@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { checkDatabase, checkMigrations, checkEncryptionKey } from '../../ai/doctor-service.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import { query, enterTenant, currentTenant } from '../../database/connection.js';
+import { findEnvFile, userEnvPath } from '../../config/env-file.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -22,8 +23,12 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
  */
 const RLS_CONTEXT: CheckIdentity = { id: 'tenant-context-applied', name: 'RLS context' };
 
-/** Writes/updates a variable in .env without touching the rest of the file. */
-export function upsertEnvVar(envPath: string, key: string, value: string): void {
+/**
+ * Writes/updates a variable in .env without touching the rest of the file.
+ * The file ends up 0600 even when it already existed with looser permissions
+ * (`mode` on writeFileSync only applies at creation); `warn` reports that.
+ */
+export function upsertEnvVar(envPath: string, key: string, value: string, warn?: (msg: string) => void): void {
   let content = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
   const line = `${key}=${value}`;
   const re = new RegExp(`^${key}=.*$`, 'm');
@@ -35,6 +40,11 @@ export function upsertEnvVar(envPath: string, key: string, value: string): void 
   }
   // 600: the .env carries secrets and must not be readable by other users.
   fs.writeFileSync(envPath, content, { mode: 0o600 });
+  const mode = fs.statSync(envPath).mode & 0o777;
+  if (mode !== 0o600) {
+    fs.chmodSync(envPath, 0o600);
+    warn?.(`  ! ${envPath} was mode ${mode.toString(8)}; tightened to 600 (it holds secrets)`);
+  }
 }
 
 export function readEnvVar(envPath: string, key: string): string | null {
@@ -43,8 +53,50 @@ export function readEnvVar(envPath: string, key: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+/** The `.env` in use (./.env, else ~/.mnemosine/.env); ./.env when none exists yet. */
+export function activeEnvPath(cwd: string, home?: string): string {
+  return findEnvFile(cwd, home) ?? path.join(cwd, '.env');
+}
+
+/**
+ * The one place that decides which .env a writer (S0, S1 tenant pin, S3 API
+ * key) touches. An existing .env is never second-guessed. When none exists the
+ * choice is made out loud, because the file holds secrets and creating it in
+ * whatever directory the command ran from, unannounced, scatters them. With a
+ * terminal it asks, defaulting to ./.env only inside a repository checkout
+ * (it ships .env.example); without one it applies the same rule. Anywhere else
+ * the per-user ~/.mnemosine/.env is used. The per-user directory is 0700.
+ */
+export async function resolveEnvTarget(ctx: SectionContext, cwd: string, home?: string): Promise<string> {
+  const existing = findEnvFile(cwd, home);
+  const userFile = userEnvPath(home);
+  if (existing) {
+    if (existing === userFile) fs.chmodSync(path.dirname(userFile), 0o700);
+    return existing;
+  }
+  const local = path.join(cwd, '.env');
+  const inCheckout = fs.existsSync(path.join(cwd, '.env.example'));
+  const interactive = ctx.rl !== null;
+  let useLocal = inCheckout;
+  if (interactive) {
+    ctx.print(`  No .env found. Here: ${local}`);
+    ctx.print(`                 User: ${userFile}`);
+    useLocal = await ctx.confirm('  Create it here (Yes) or in the user directory (No)?', inCheckout);
+  }
+  const target = useLocal ? local : userFile;
+  ctx.print(`  .env location: ${target}${interactive ? '' : ' (no terminal: chosen without asking)'}`);
+  if (!useLocal) {
+    const dir = path.dirname(target);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.chmodSync(dir, 0o700);
+  }
+  return target;
+}
+
 export interface InfraDeps {
   cwd?: string;
+  /** Home directory for ~/.mnemosine/.env; default os.homedir(). Injectable in tests. */
+  home?: string;
   /** Injectable in tests so real migrations do not run. */
   runMigrations?: () => void;
   randomKey?: () => string;
@@ -60,8 +112,9 @@ export class InfraSection implements SetupSection {
   private get cwd(): string {
     return this.deps.cwd ?? process.cwd();
   }
+  private chosenEnvPath?: string;
   private get envPath(): string {
-    return path.join(this.cwd, '.env');
+    return this.chosenEnvPath ?? activeEnvPath(this.cwd, this.deps.home);
   }
 
   async status(): Promise<SectionStatus> {
@@ -137,15 +190,17 @@ export class InfraSection implements SetupSection {
 
   async configure(ctx: SectionContext): Promise<void> {
     // 1. .env from the example if it does not exist
-    if (!fs.existsSync(this.envPath)) {
+    const existed = findEnvFile(this.cwd, this.deps.home) !== null;
+    this.chosenEnvPath = await resolveEnvTarget(ctx, this.cwd, this.deps.home);
+    if (!existed) {
       const example = path.join(this.cwd, '.env.example');
       if (fs.existsSync(example)) {
         fs.copyFileSync(example, this.envPath);
         fs.chmodSync(this.envPath, 0o600);
-        ctx.print('  Created .env from .env.example');
+        ctx.print(`  Created ${this.envPath} from .env.example`);
       } else {
         fs.writeFileSync(this.envPath, '', { mode: 0o600 });
-        ctx.print('  Created an empty .env');
+        ctx.print(`  Created an empty ${this.envPath}`);
       }
     }
 
@@ -153,7 +208,7 @@ export class InfraSection implements SetupSection {
     const current = process.env.ENCRYPTION_KEY ?? readEnvVar(this.envPath, 'ENCRYPTION_KEY');
     if (!current || /^0+$/.test(current) || current.length !== 64) {
       const key = (this.deps.randomKey ?? defaultRandomKey)();
-      upsertEnvVar(this.envPath, 'ENCRYPTION_KEY', key);
+      upsertEnvVar(this.envPath, 'ENCRYPTION_KEY', key, ctx.print);
       process.env.ENCRYPTION_KEY = key;
       ctx.print('  Generated a dedicated 256-bit ENCRYPTION_KEY (the previous one was the example key)');
     }
@@ -167,7 +222,7 @@ export class InfraSection implements SetupSection {
         readEnvVar(this.envPath, 'DATABASE_URL') ?? undefined
       );
       if (url) {
-        upsertEnvVar(this.envPath, 'DATABASE_URL', url);
+        upsertEnvVar(this.envPath, 'DATABASE_URL', url, ctx.print);
         process.env.DATABASE_URL = url;
         ctx.print('  Saved DATABASE_URL. Restart the command to reconnect.');
       } else {
