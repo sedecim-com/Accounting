@@ -117,7 +117,7 @@
     "src/api/rest/routes/invoices.ts": "f3e615ddb5bf2c243e25ee416ae8f7fe61de2040",
     "src/ai/ingest-service.ts": "4cfb4d08e881a1da384ab80df08e841ab7ca45f6",
     "src/services/banking/matching.ts": "377481c3ea9dff2f4b259649fce70ebb5dd600ca",
-    "src/api/rest/routes/bank-reconciliation.ts": "16e698660be84850a8a8158e2700b4fffe36eeba",
+    "src/api/rest/routes/bank-reconciliation.ts": "3e712cfdc05ee11968be735000e9fa14f6fd726b",
     "src/database/enums.ts": "a77d1bc0759b7c8e4556749f239855b2035950e2",
     "src/ai/external-service.ts": "0d33222b252af235e5729de6f97127ec057d2193",
     "src/ai/tools/external-tools.ts": "0c527a4c31f0ce8d481bca66182e5e904a4f7f3d",
