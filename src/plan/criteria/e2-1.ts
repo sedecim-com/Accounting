@@ -1205,6 +1205,14 @@ export const E2_1: Criterio[] = [
         porque: 'una declaración escrita DETRÁS del manejador vuelve a contar como declaración: el manejador ya respondió cuando al marcador le tocaría correr, así que la ruta se queda sin llave de idempotencia y sin el renglón de auditoría, y el censo la cuenta como cerrada — medido, el acto irreversible se ejecuta DOS veces con la misma llave',
       },
       {
+        // Que el censo vuelva a devolver [] en silencio cuando no encuentra
+        // la pila del router.
+        archivo: 'src/api/rest/risk.ts',
+        de: '  if (!Array.isArray(raiz)) {',
+        a: '  if (false) {',
+        porque: 'un Express que ya no expone la pila vuelve a producir un censo vacío sin error: el arranque contesta «ninguna ruta sin declarar» sobre una API que nunca miró',
+      },
+      {
         archivo: 'src/index.ts',
         de: '  const censo = auditarRiesgoDeRutas(app);',
         a: '  const censo = { total: 0, porRiesgo: {} } as ReturnType<typeof auditarRiesgoDeRutas>;',
@@ -1236,6 +1244,9 @@ export const E2_1: Criterio[] = [
       }
       // 4. LA POSICIÓN SE EXIGE. Una declaración detrás del manejador
       //    certifica sin proteger, y el censo la contaba como cerrada.
+      if (!/if \(!Array\.isArray\(raiz\)\) \{\s*throw/.test(risk)) {
+        return falla('el censo volvió a devolver [] en silencio cuando no encuentra la pila del router: un instrumento que no miró contesta que no hay nada que declarar');
+      }
       const posicion = /resumen\.malColocadas\.length > 0/.test(risk);
       return posicion
         ? ok('la API declara como el CLI, el censo deriva de la pila real, el arranque muere si falta una y la declaración tiene que poder correr')

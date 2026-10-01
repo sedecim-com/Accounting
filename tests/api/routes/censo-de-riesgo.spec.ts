@@ -128,6 +128,27 @@ describe('censo de riesgo de rutas', () => {
     expect(() => auditarRiesgoDeRutas(app)).toThrow(/declararRiesgoRuta/);
   });
 
+  it('an app without a router stack makes the census throw instead of returning an empty list', () => {
+    // Simulates a Express whose app no longer exposes `_router` / `stack`.
+    const appWithoutStack = { use: () => undefined } as unknown as Express;
+    expect(() => censarRutas(appWithoutStack)).toThrow(/no encontró la pila del router/);
+    expect(() => resumirCenso(appWithoutStack)).toThrow(/no encontró la pila del router/);
+    expect(() => auditarRiesgoDeRutas(appWithoutStack)).toThrow(/no encontró la pila del router/);
+  });
+
+  it('an empty census with mounted routes makes the census throw', () => {
+    // A mounted router layer that no longer exposes handle.stack, as another Express shapes it.
+    const unreadableStack = {
+      stack: [{ name: 'router' }],
+    } as unknown as Express;
+    expect(() => censarRutas(unreadableStack)).toThrow(/salió vacío/);
+  });
+
+  it('a real app with nothing mounted yet still censuses as empty', () => {
+    expect(censarRutas(Router())).toEqual([]);
+    expect(censarRutas(express().use((_q, _s, next) => next()))).toEqual([]);
+  });
+
   it('un GET sin declarar no rompe nada: un GET es una lectura', () => {
     const app = montarApiReal();
     const nuevo = Router();

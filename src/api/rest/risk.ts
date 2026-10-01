@@ -258,6 +258,7 @@ interface CapaExpress {
   regexp?: RegExp;
   keys?: unknown[];
   handle?: { stack?: CapaExpress[] };
+  name?: string;
 }
 
 function recorrer(pila: CapaExpress[], prefijo: string, salida: RutaCensada[]): void {
@@ -289,14 +290,51 @@ function recorrer(pila: CapaExpress[], prefijo: string, salida: RutaCensada[]): 
   }
 }
 
-/** Recorre una app o un router y devuelve TODAS sus rutas con lo que declararon. */
+/**
+ * Cuántas capas de la pila son un router o una ruta que SÍ debió producir
+ * renglones: una ruta, o un router montado con pila no vacía, o una capa que
+ * se llama `router` pero ya no expone `handle.stack` (la forma de otra
+ * versión de Express). Un router montado y vacío no cuenta: no tiene nada
+ * que censar.
+ */
+function countCensusLayers(pila: CapaExpress[]): number {
+  return pila.filter(
+    (c) =>
+      c.route !== undefined ||
+      (c.handle?.stack?.length ?? 0) > 0 ||
+      (c.name === 'router' && c.handle?.stack === undefined)
+  ).length;
+}
+
+/**
+ * Recorre una app o un router y devuelve TODAS sus rutas con lo que declararon.
+ *
+ * LANZA en vez de devolver `[]` cuando no puede mirar: sin pila de router
+ * (otra versión de Express, o un objeto que no es app ni router) o con un
+ * censo vacío habiendo rutas montadas. Un `[]` silencioso hace que el
+ * arranque conteste «ninguna ruta sin declarar» sobre una API que nunca miró.
+ */
 export function censarRutas(destino: Express | Router): RutaCensada[] {
   const raiz =
     (destino as unknown as { _router?: { stack?: CapaExpress[] } })._router?.stack ??
-    (destino as unknown as { stack?: CapaExpress[] }).stack ??
-    [];
+    (destino as unknown as { stack?: CapaExpress[] }).stack;
+  if (!Array.isArray(raiz)) {
+    throw new Error(
+      'El censo de rutas no encontró la pila del router (ni app._router.stack ni router.stack): ' +
+        'esta versión de Express ya no la expone con esa forma. Devolver un censo vacío haría ' +
+        'pasar el arranque sin haber mirado ninguna ruta; hay que actualizar el recorrido.'
+    );
+  }
   const salida: RutaCensada[] = [];
   recorrer(raiz, '', salida);
+  const mounted = countCensusLayers(raiz);
+  if (salida.length === 0 && mounted > 0) {
+    throw new Error(
+      `El censo de rutas salió vacío con ${mounted} capa(s) de ruta o router montadas: el ` +
+        'recorrido ya no entiende la forma de la pila. Un censo vacío no absuelve a nadie; ' +
+        'hay que actualizar el recorrido.'
+    );
+  }
   return salida;
 }
 
