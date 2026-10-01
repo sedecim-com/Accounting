@@ -41,6 +41,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
   'error.FX_REVALUATION_MARKER_MISMATCH':
     'El registro de la revaluación de {period} no coincide con el mayor: el mayor tiene {ledger} pólizas de revaluación para él y el registro {marker}, o sus importes difieren. Volver a correrla podría postear la revaluación dos veces, así que no se posteó nada; hay que revisar el registro.',
+  'error.FX_REVALUATION_KEY_LOCKED':
+    '{policy} no puede cambiar ahora: {entity} revaluó {period}, que aún no tiene cierre definitivo, y los meses de su ejercicio que faltan por revaluar se medirían con el valor nuevo. Cambia cuando los meses revaluados estén sellados, o al inicio de un ejercicio: cuando el ejercicio siguiente esté abierto, sin revaluación todavía, y cada mes anterior esté revaluado o con cierre definitivo.',
   'error.FX_RATE_MISSING':
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ==== fin de error.* ================================================
@@ -2809,7 +2811,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.closing.explain.option.period':
     'periodo a explicar: 2026-07, su id o parte de su nombre (por omisión, el abierto más antiguo)',
   'help.closing.run.description':
-    'Conduce el cierre: provisiona, amortiza, deprecia, verifica la lista de cierre, hace el cierre blando y el definitivo, en ese orden',
+    'Conduce el cierre: provisiona, amortiza, deprecia, revalúa los saldos en moneda extranjera, verifica la lista de cierre, hace el cierre blando y el definitivo, en ese orden',
   'help.closing.run.argument.period':
     'periodo abierto: 2026-07, su id o parte de su nombre (por omisión, el abierto más antiguo)',
   'help.closing.run.option.stop_at': 'se detiene ANTES de este paso: {steps}',
