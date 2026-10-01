@@ -1,4 +1,4 @@
-import { t } from '../i18n/index.js';
+import { t, type Language } from '../i18n/index.js';
 import type { PolicyOption } from '../services/policy/pending-catalog.js';
 
 // ============================================================
@@ -61,9 +61,9 @@ export function interpretPolicyAnswer(answer: string, options: readonly PolicyOp
   return { kind: 'chosen', value: byPosition };
 }
 
-/** The follow-up question for an ambiguous answer. */
-export function ambiguityQuestion(a: AmbiguousPolicyAnswer): string {
-  return t('pending.define.ambiguous', { typed: a.typed, byPosition: a.byPosition, byValue: a.byValue });
+/** The follow-up question for an ambiguous answer, in `language` (default: the active one). */
+export function ambiguityQuestion(a: AmbiguousPolicyAnswer, language?: Language): string {
+  return t('pending.define.ambiguous', { typed: a.typed, byPosition: a.byPosition, byValue: a.byValue }, language);
 }
 
 /**

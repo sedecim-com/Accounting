@@ -122,7 +122,7 @@ async function expiringCredentials(ctx: AgentContext): Promise<PendingItem | nul
     warning: true,
     summary:
       days <= 0
-        ? t('pending.board.credential_expired', { label })
+        ? t('pending.board.credential_expired', { kind: soonest.credential_type === 'efirma' ? 'efirma' : 'csd' })
         : t('pending.board.credential_expires', { label, days }),
     command: 'mnemosine sat cred status',
   };

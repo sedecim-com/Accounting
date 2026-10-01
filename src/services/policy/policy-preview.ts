@@ -1,5 +1,6 @@
 import { query } from '../../database/connection.js';
 import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
+import { getPolicySpec } from './pending-catalog.js';
 import { FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_VEREDICTOS } from '../../ai/floor.js';
 
 // ============================================================
@@ -29,6 +30,8 @@ export interface PreviewText {
   money(amount: number, currency: string): string;
   /** A number with the reader's separators. */
   number(value: number, options?: { minimumFractionDigits?: number; maximumFractionDigits?: number }): string;
+  /** A proportion (0.75) as a percentage in the reader's convention ("75%"). */
+  percent(ratio: number, options?: { minimumFractionDigits?: number; maximumFractionDigits?: number }): string;
 }
 
 export interface PreviewContext {
@@ -46,13 +49,22 @@ export type PreviewFn = (ctx: PreviewContext) => Promise<string[]>;
 // `ctx.text`, which the edge binds to the reader's language.
 const money = (ctx: PreviewContext, n: number): string => ctx.text.money(n, ctx.currency);
 const pct = (ctx: PreviewContext, part: number, whole: number): string =>
-  ctx.text.number(Math.round((part / whole) * 100));
+  ctx.text.percent(Math.round((part / whole) * 100) / 100);
 
 /**
  * Restaurant spend is deductible at 8.5 % (LISR art. 28 fr. XX). Still wired
  * here: serving it from `legal_parameters` is a separate change.
  */
 const RESTAURANT_DEDUCTIBLE_RATE = 0.085;
+
+/**
+ * The figures a preview probes are the catalog's own options, read from it:
+ * adding an option to the key adds its line here, and the preview cannot
+ * drift from what the accountant is offered.
+ */
+function optionAmounts(key: string): number[] {
+  return (getPolicySpec(key)?.options ?? []).map((o) => Number(o.value)).filter(Number.isFinite);
+}
 
 /** Received CFDIs, which is the population most policies act on. */
 async function receivedInvoices(ctx: PreviewContext): Promise<Array<{ subtotal: number; total: number }>> {
@@ -72,7 +84,7 @@ export const PREVIEWS: Record<string, PreviewFn> = {
     const invoices = await receivedInvoices(ctx);
     if (invoices.length === 0) return [];
     const lines = [ctx.text.t('policy_preview.threshold.intro', { count: invoices.length })];
-    for (const threshold of [5000, 20000, 50000]) {
+    for (const threshold of optionAmounts('umbral_capitalizacion_mxn')) {
       const asked = invoices.filter((i) => i.subtotal >= threshold).length;
       lines.push(
         ctx.text.t('policy_preview.threshold.line', {
@@ -99,7 +111,7 @@ export const PREVIEWS: Record<string, PreviewFn> = {
     lines.push(ctx.text.t('policy_preview.auto_post.counts', { approved, rejected }));
     if (rejected > 0) {
       lines.push(ctx.text.t('policy_preview.auto_post.rejected'));
-    } else if (approved >= 10) {
+    } else if (approved >= FLOOR_SOMBRA_VEREDICTOS) {
       lines.push(ctx.text.t('policy_preview.auto_post.track_record'));
     } else {
       lines.push(ctx.text.t('policy_preview.auto_post.too_few'));
@@ -113,10 +125,13 @@ export const PREVIEWS: Record<string, PreviewFn> = {
           verdicts: sombra.veredictos,
           days: sombra.dias_con_veredictos,
           decided: sombra.decididos,
-          agreement: sombra.tasa_acuerdo ?? '—',
+          agreement:
+            sombra.tasa_acuerdo === null
+              ? '—'
+              : ctx.text.number(Number(sombra.tasa_acuerdo), { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
           minDays: FLOOR_SOMBRA_DIAS,
           minDecided: FLOOR_SOMBRA_VEREDICTOS,
-          minAgreement: FLOOR_SOMBRA_ACUERDO.toFixed(2),
+          minAgreement: ctx.text.number(FLOOR_SOMBRA_ACUERDO, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
         })
       );
     } else {
@@ -137,7 +152,7 @@ export const PREVIEWS: Record<string, PreviewFn> = {
     lines.push(
       ctx.text.t('policy_preview.amounts.largest', { amount: money(ctx, totals[totals.length - 1]) })
     );
-    for (const cap of [5000, 10000, 50000]) {
+    for (const cap of optionAmounts('ingest_auto_post_max_monto')) {
       const covered = totals.filter((total) => total <= cap).length;
       lines.push(
         ctx.text.t('policy_preview.amounts.cap', {
@@ -181,7 +196,7 @@ export const PREVIEWS: Record<string, PreviewFn> = {
     return [
       ctx.text.t('policy_preview.restaurants.intro', { count: n, total: money(ctx, total) }),
       ctx.text.t('policy_preview.restaurants.deductible', {
-        rate: ctx.text.number(RESTAURANT_DEDUCTIBLE_RATE * 100, { maximumFractionDigits: 1 }),
+        rate: ctx.text.percent(RESTAURANT_DEDUCTIBLE_RATE, { maximumFractionDigits: 1 }),
         amount: money(ctx, total * RESTAURANT_DEDUCTIBLE_RATE),
       }),
       ctx.text.t('policy_preview.restaurants.non_deductible', {

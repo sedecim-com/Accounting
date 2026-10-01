@@ -1534,7 +1534,7 @@ export const EN = {
   'pending.board.outbox':
     '{count, plural, one {# queued write} other {# queued writes}} to {providers}',
   'pending.board.credential_expired':
-    'your {label} has ALREADY EXPIRED — renew it at the SAT',
+    'your {kind, select, efirma {e.firma} other {CSD}} has ALREADY EXPIRED — renew it at the SAT',
   'pending.board.credential_expires':
     'your {label} expires in {days, plural, one {# day} other {# days}}',
   'pending.board.period_close':
@@ -1588,7 +1588,7 @@ export const EN = {
   'policy_preview.threshold.intro':
     'Of your {count, plural, one {# received invoice} other {# received invoices}}:',
   'policy_preview.threshold.line':
-    '  · with {threshold} → I would ask you {asked, plural, one {# time} other {# times}} ({pct}%)',
+    '  · with {threshold} → I would ask you {asked, plural, one {# time} other {# times}} ({pct})',
   'policy_preview.auto_post.intro':
     'Of the {total, plural, one {# draft} other {# drafts}} I have proposed so far:',
   'policy_preview.auto_post.counts':
@@ -1612,7 +1612,7 @@ export const EN = {
   'policy_preview.amounts.largest':
     '  · the largest was {amount}',
   'policy_preview.amounts.cap':
-    '  · a cap of {cap} would cover {pct}% of them',
+    '  · a cap of {cap} would cover {pct} of them',
   'policy_preview.inventory.some':
     'I see {count, plural, one {# posted movement} other {# posted movements}} in inventory accounts — you seem to keep them.',
   'policy_preview.inventory.none':
@@ -1622,7 +1622,7 @@ export const EN = {
   'policy_preview.restaurants.intro':
     '{count, plural, one {# restaurant invoice} other {# restaurant invoices}} for {total}:',
   'policy_preview.restaurants.deductible':
-    '  · deductible ({rate}%): {amount}',
+    '  · deductible ({rate}): {amount}',
   'policy_preview.restaurants.non_deductible':
     '  · non-deductible: {amount}',
   'policy_preview.efirma.none':

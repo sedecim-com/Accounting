@@ -15,6 +15,15 @@ import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from '../policy-answer.js';
 
+/**
+ * The wizard's own chrome ("Why I ask:", "In your data:", "Stopping here", ...)
+ * is hand-written English until the init family (I8) is translated. Painting
+ * the catalog text in Spanish beside English labels would ship a half-translated
+ * screen, so the whole wizard speaks English, by key, and moves to the active
+ * language together with its chrome.
+ */
+const WIZARD_LANGUAGE = 'en' as const;
+
 // ============================================================
 // S4 · ACCOUNTING POLICIES
 // The decisions the system cannot make on its own because they
@@ -110,7 +119,7 @@ export class PoliciesSection implements SetupSection {
           entityId: entity.entityId,
           tenantId: entity.tenantId,
           currency: entity.currency,
-          text: previewText(),
+          text: previewText(WIZARD_LANGUAGE),
         }),
       }))
     );
@@ -152,9 +161,9 @@ export class PoliciesSection implements SetupSection {
     // cannot disagree about it. `whyAsking`/`whatIDo`/`ifSkipped` are not
     // part of that wording and still come from the spec.
     const spec = getPolicySpec(row.key);
-    const wording = policyWording(row, panelTranslator());
+    const wording = policyWording(row, panelTranslator(WIZARD_LANGUAGE));
     const question = wording.question;
-    const extra = spec ? specWording(spec, panelTranslator()) : undefined;
+    const extra = spec ? specWording(spec, panelTranslator(WIZARD_LANGUAGE)) : undefined;
     const why = extra?.whyAsking ?? wording.impact;
     const what = extra?.whatIDo;
     // The same list is printed below and indexed by the typed number.
@@ -199,7 +208,7 @@ export class PoliciesSection implements SetupSection {
     // an integer that is also another option's value is asked, not guessed.
     let interpreted = interpretPolicyAnswer(answer, options);
     while (interpreted.kind === 'ambiguous') {
-      ctx.print(`     ${ambiguityQuestion(interpreted)}`);
+      ctx.print(`     ${ambiguityQuestion(interpreted, WIZARD_LANGUAGE)}`);
       const replyRaw = await ctx.askText('     p/v > ');
       if (replyRaw === null) return 'quit';
       const reply = resolveAmbiguity(replyRaw, interpreted);

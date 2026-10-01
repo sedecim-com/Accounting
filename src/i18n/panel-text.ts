@@ -1,6 +1,6 @@
-import { formatMoney, formatNumber } from './format.js';
+import { formatMoney, formatNumber, formatPercent } from './format.js';
 import { getLanguage, t, type Language, type TranslationKey } from './index.js';
-import { resolveLocale } from './locale.js';
+import type { Locale } from './locale.js';
 import type { PanelTranslate } from '../services/policy/policy-text-key.js';
 import type { PreviewText } from '../services/policy/policy-preview.js';
 
@@ -20,16 +20,24 @@ export function panelTranslator(language: Language = getLanguage()): PanelTransl
   return (key) => t(key as TranslationKey, {}, language);
 }
 
+/** The locale whose separators go with each language's words. */
+const FORMAT_LOCALE: Readonly<Record<Language, Locale>> = { es: 'es-MX', en: 'en-US' };
+
 /**
  * The wording and figures a policy preview speaks with. The amounts arrive as
  * `number` from the aggregation and go to the formatter as a fixed-point
- * string, which is what `formatMoney` accepts.
+ * string, which is what `formatMoney` accepts. Words AND separators follow the
+ * same `language`, so a caller that asks for one other than the active one gets
+ * a consistent screen (Spanish words with Spanish separators, or the reverse),
+ * never a mix.
  */
 export function previewText(language: Language = getLanguage()): PreviewText {
+  const locale = FORMAT_LOCALE[language];
   return {
     t: (key, params = {}) => t(key as TranslationKey, params, language),
     money: (amount, currency) =>
-      formatMoney(amount.toFixed(4), { currency, fractionDigits: 0, locale: resolveLocale() }),
-    number: (value, options = {}) => formatNumber(value, { ...options, locale: resolveLocale() }),
+      formatMoney(amount.toFixed(4), { currency, fractionDigits: 0, locale }),
+    number: (value, options = {}) => formatNumber(value, { ...options, locale }),
+    percent: (ratio, options = {}) => formatPercent(ratio, { ...options, locale }),
   };
 }

@@ -28,9 +28,11 @@ import { FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_VEREDICTOS } from
 import { renderBoard, renderExplanation, renderPolicies } from '../../src/cli/pending-command.js';
 import { ambiguityQuestion } from '../../src/cli/policy-answer.js';
 import { panelTranslator, previewText } from '../../src/i18n/panel-text.js';
+import { formatMoney, formatNumber, formatPercent } from '../../src/i18n/format.js';
 import { PREVIEWS } from '../../src/services/policy/policy-preview.js';
 import { POLICY_CATALOG } from '../../src/services/policy/pending-catalog.js';
 import { policyWording, type PolicyRow } from '../../src/services/policy/policy-service.js';
+import { getPolicySpec } from '../../src/services/policy/pending-catalog.js';
 import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 
 const mockQuery = query as unknown as Mock;
@@ -149,11 +151,11 @@ describe('policy-preview.ts: wording by key, figures by the formatter', () => {
     setLanguage('es');
     const es = await PREVIEWS.umbral_capitalizacion_mxn(ctx());
     expect(es[0]).toBe('De tus 4 facturas recibidas:');
-    expect(es[1]).toContain('con MXN 5,000 → te preguntaría 3 veces (75 %)');
+    expect(es[1]).toContain('con MXN 5,000 → te preguntaría 3 veces (75%)');
     mockQuery.mockResolvedValue(invoices([60000]));
     const one = await PREVIEWS.umbral_capitalizacion_mxn(ctx());
     expect(one[0]).toBe('De tu 1 factura recibida:');
-    expect(one[3]).toContain('te preguntaría 1 vez (100 %)');
+    expect(one[3]).toContain('te preguntaría 1 vez (100%)');
 
     mockQuery.mockResolvedValue(invoices([100, 6000, 30000, 60000]));
     setLanguage('en');
@@ -168,7 +170,7 @@ describe('policy-preview.ts: wording by key, figures by the formatter', () => {
     const es = await PREVIEWS.politica_restaurantes(ctx());
     expect(es).toEqual([
       '1 factura de restaurante por MXN 2,000:',
-      '  · deducible (8.5 %): MXN 170',
+      '  · deducible (8.5%): MXN 170',
       '  · no deducible: MXN 1,830',
     ]);
     setLanguage('en');
@@ -190,5 +192,63 @@ describe('policy-preview.ts: wording by key, figures by the formatter', () => {
     const es = await PREVIEWS.ingest_auto_post(ctx());
     expect(es[0]).toBe('De los 12 borradores que he propuesto hasta ahora:');
     expect(es.at(-1)).toContain('sombra: 5 veredictos en 1 día');
+    expect(es.at(-1)).toContain('3 decididos por una persona, acuerdo 0.90');
+    mockShadow.mockResolvedValue({
+      veredictos: 1, dias_con_veredictos: 1, decididos: 1, tasa_acuerdo: null,
+    });
+    expect((await PREVIEWS.ingest_auto_post(ctx())).at(-1)).toContain('1 decidido por una persona, acuerdo —');
+  });
+
+  it('the track record reads the shadow floor constant, not a literal 10', async () => {
+    mockShadow.mockResolvedValue({ veredictos: 0, dias_con_veredictos: 0, decididos: 0, tasa_acuerdo: null });
+    setLanguage('en');
+    mockQuery.mockResolvedValue({ rows: [{ status: 'approved', n: String(FLOOR_SOMBRA_VEREDICTOS - 1) }] });
+    expect((await PREVIEWS.ingest_auto_post(ctx()))[2]).toBe(t('policy_preview.auto_post.too_few'));
+    mockQuery.mockResolvedValue({ rows: [{ status: 'approved', n: String(FLOOR_SOMBRA_VEREDICTOS) }] });
+    expect((await PREVIEWS.ingest_auto_post(ctx()))[2]).toBe(t('policy_preview.auto_post.track_record'));
+  });
+
+  it('the probed thresholds and caps are the catalog options, so a new option gets its line', async () => {
+    setLanguage('en');
+    const values = (key: string) => getPolicySpec(key)!.options.map((o) => Number(o.value));
+    mockQuery.mockResolvedValue(invoices([100, 6000, 30000, 60000]));
+    const lines = async (fn: keyof typeof PREVIEWS) => (await PREVIEWS[fn](ctx())).length;
+    const before = { threshold: await lines('umbral_capitalizacion_mxn'), cap: await lines('ingest_auto_post_max_monto') };
+    const thresholdSpec = getPolicySpec('umbral_capitalizacion_mxn')!;
+    const capSpec = getPolicySpec('ingest_auto_post_max_monto')!;
+    expect(before.threshold).toBe(1 + values('umbral_capitalizacion_mxn').length);
+    expect(before.cap).toBe(4 + values('ingest_auto_post_max_monto').length);
+    thresholdSpec.options.push({ value: '100000', label: 'probe' });
+    capSpec.options.push({ value: '100000', label: 'probe' });
+    try {
+      expect(await lines('umbral_capitalizacion_mxn')).toBe(before.threshold + 1);
+      expect(await lines('ingest_auto_post_max_monto')).toBe(before.cap + 1);
+    } finally {
+      thresholdSpec.options.pop();
+      capSpec.options.pop();
+    }
+  });
+});
+
+describe('previewText: words and separators follow the SAME language', () => {
+  it('each explicit language agrees with its own formatter, whatever the active one is', () => {
+    setLanguage('en');
+    const es = previewText('es');
+    expect(es.t('policy_preview.inventory.none')).toBe(t('policy_preview.inventory.none', {}, 'es'));
+    expect(es.money(12345, 'MXN')).toBe(formatMoney('12345.0000', { currency: 'MXN', fractionDigits: 0, locale: 'es-MX' }));
+    expect(es.number(1234.5, { minimumFractionDigits: 1 })).toBe(formatNumber(1234.5, { minimumFractionDigits: 1, locale: 'es-MX' }));
+    setLanguage('es');
+    const en = previewText('en');
+    expect(en.t('policy_preview.inventory.none')).toBe(t('policy_preview.inventory.none', {}, 'en'));
+    expect(en.money(12345, 'MXN')).toBe(formatMoney('12345.0000', { currency: 'MXN', fractionDigits: 0, locale: 'en-US' }));
+    expect(en.percent(0.085, { maximumFractionDigits: 1 })).toBe(formatPercent(0.085, { maximumFractionDigits: 1, locale: 'en-US' }));
+  });
+
+  it('percentages come from the formatter: no space before the sign, same as the catalog prose', () => {
+    for (const language of ['es', 'en'] as const) {
+      const text = previewText(language);
+      expect(text.percent(0.75)).toBe('75%');
+      expect(text.percent(0.085, { maximumFractionDigits: 1 })).toBe('8.5%');
+    }
   });
 });

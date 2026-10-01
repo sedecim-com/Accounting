@@ -1500,7 +1500,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'pending.board.outbox':
     '{count, plural, one {# escritura en cola} other {# escrituras en cola}} hacia {providers}',
   'pending.board.credential_expired':
-    'tu {label} YA VENCIÓ: renuévala en el SAT',
+    '{kind, select, efirma {tu e.firma YA VENCIÓ: renuévala} other {tu CSD YA VENCIÓ: renuévalo}} en el SAT',
   'pending.board.credential_expires':
     'tu {label} vence en {days, plural, one {# día} other {# días}}',
   'pending.board.period_close':
@@ -1554,7 +1554,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy_preview.threshold.intro':
     'De {count, plural, one {tu # factura recibida} other {tus # facturas recibidas}}:',
   'policy_preview.threshold.line':
-    '  · con {threshold} → te preguntaría {asked, plural, one {# vez} other {# veces}} ({pct} %)',
+    '  · con {threshold} → te preguntaría {asked, plural, one {# vez} other {# veces}} ({pct})',
   'policy_preview.auto_post.intro':
     'De {total, plural, one {el # borrador} other {los # borradores}} que he propuesto hasta ahora:',
   'policy_preview.auto_post.counts':
@@ -1566,7 +1566,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy_preview.auto_post.too_few':
     '  · todavía son muy pocos para saber cuántas veces acertaría',
   'policy_preview.auto_post.shadow_some':
-    '  · sombra: {verdicts, plural, one {# veredicto} other {# veredictos}} en {days, plural, one {# día} other {# días}}, {decided} decididos por una persona, acuerdo {agreement} (encender "on" exige al menos {minDays} días, {minDecided} decididos y {minAgreement} de acuerdo)',
+    '  · sombra: {verdicts, plural, one {# veredicto} other {# veredictos}} en {days, plural, one {# día} other {# días}}, {decided, plural, one {# decidido} other {# decididos}} por una persona, acuerdo {agreement} (encender "on" exige al menos {minDays} días, {minDecided} decididos y {minAgreement} de acuerdo)',
   'policy_preview.auto_post.shadow_none':
     '  · aún sin historial de sombra: responde "shadow" primero; "on" exige esa evidencia',
   'policy_preview.amounts.intro':
@@ -1578,7 +1578,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy_preview.amounts.largest':
     '  · la mayor fue de {amount}',
   'policy_preview.amounts.cap':
-    '  · un tope de {cap} cubriría el {pct} % de ellas',
+    '  · un tope de {cap} cubriría el {pct} de ellas',
   'policy_preview.inventory.some':
     'Veo {count, plural, one {# movimiento contabilizado} other {# movimientos contabilizados}} en cuentas de inventario: parece que los llevas.',
   'policy_preview.inventory.none':
@@ -1588,7 +1588,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy_preview.restaurants.intro':
     '{count, plural, one {# factura de restaurante} other {# facturas de restaurantes}} por {total}:',
   'policy_preview.restaurants.deductible':
-    '  · deducible ({rate} %): {amount}',
+    '  · deducible ({rate}): {amount}',
   'policy_preview.restaurants.non_deductible':
     '  · no deducible: {amount}',
   'policy_preview.efirma.none':
