@@ -7,6 +7,10 @@ vi.mock('../../../src/database/connection.js', () => ({
 vi.mock('../../../src/services/policy/policy-service.js', () => ({
   getPolicy: vi.fn(),
 }));
+// "Today" has its own resolver and its own tests (today-in-zone); here it is a fixed day.
+vi.mock('../../../src/services/policy/today.js', () => ({
+  todayFor: vi.fn().mockResolvedValue('2026-06-30'),
+}));
 
 import {
   checkMappingCoverageDetallada,

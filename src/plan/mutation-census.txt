@@ -155,6 +155,9 @@ mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/utils/calendar-date.ts	t
 mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/utils/calendar-date.ts	the zone stops being checked: a misspelt zone is accepted and fails later, somewhere else
 mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/policy/today.ts	the policy stops being read: an entity in Tijuana or Cancún gets Mexico City's day whatever it answered
 mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/payroll/tax-engine/tax-tables.ts	the fallback of the legal parameters goes back to the UTC day and picks the row of the next day
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/accounting/account-service.ts	a single mapping goes back to the UTC day: at 20:00 on the 31st the next year's SAT catalogue judges the code
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/services/accounting/account-service.ts	the bulk mapping goes back to the UTC day for all its rows
+mirror	memory	E1.2 today-is-the-day-in-zona-horaria	src/cli/account-command.ts	the dry-run of `account map set` validates against another year's catalogue than the write does
 mirror	memory	E1.2 today-is-the-day-in-zona-horaria	tests/utils/today-in-zone.spec.ts	the reproduction stops moving the process zone: it only runs in CI's UTC, where the process-local mirror is invisible
 mirror	memory	E1.2 reports-lists-and-the-agent-read-today-in-zona-horaria	src/api/rest/routes/reports.ts	the REST aging goes back to the UTC day: at 20:00 on the 31st an invoice due that day is one day overdue
 mirror	memory	E1.2 reports-lists-and-the-agent-read-today-in-zona-horaria	src/ai/tools/report-tools.ts	the agent's aging tool reads the UTC day and reports as overdue what is due today
@@ -829,6 +832,9 @@ anchor	src/plan/criteria/e1-2.ts	de: "return formatParts(field('year'), field('m
 anchor	src/plan/criteria/e1-2.ts	de: "knownZones ??= new Set(Intl.supportedValuesOf('timeZone'));",
 anchor	src/plan/criteria/e1-2.ts	de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value',
 anchor	src/plan/criteria/e1-2.ts	de: 'const today = await todayFor(null);',
+anchor	src/plan/criteria/e1-2.ts	de: 'const fecha = opts.fecha ?? (await todayFor(ctxPol));',
+anchor	src/plan/criteria/e1-2.ts	de: 'opts.fecha ?? (await todayFor({ tenantId, entityId }))',
+anchor	src/plan/criteria/e1-2.ts	de: 'fecha ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }))',
 anchor	src/plan/criteria/e1-2.ts	de: 'process.env.TZ = tz;',
 anchor	src/plan/criteria/e1-2.ts	de: "const asOf = as_of_date as string || (await todayForEntity(entityId as string));\n\n // Unlike",
 anchor	src/plan/criteria/e1-2.ts	de: "const asOf = input.as_of_date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));\n const all = await queryAgedReceivableRows(",
