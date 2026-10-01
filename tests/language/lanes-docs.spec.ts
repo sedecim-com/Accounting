@@ -522,13 +522,21 @@ describe('lo que el árbol real enseña, y lo que NO debe volver a contarse', ()
     for (const m of dead) expect(fs.existsSync(path.join(ROOT, m)), m).toBe(false);
   });
 
-  it('la página inglesa del árbol se reconoce y las españolas no', () => {
+  it('English pages in the tree now have a twin and Spanish pages do not slip in', () => {
     const english = linesFor('docs-english-pages-untwinned');
-    // docs/harness-best-practices.md está escrita entera en inglés (proporción
-    // española 0,008) y no tiene gemela.
-    expect(english).toContain('docs/harness-best-practices.md');
-    // Y ninguna de las 145 páginas en castellano se cuela: la que más se acerca
-    // al umbral está en 0,385, casi el doble del 0,20 que lo fija.
+    // MNE-001-191: these two pages were written entirely in English with no twin;
+    // now they have one and the lane reads 0.
+    expect(english).not.toContain('docs/harness-best-practices.md');
+    expect(english).not.toContain('docs/cli-command-registry.md');
+    // The detector still recognises them as English: without a twin they would count again.
+    for (const page of ['docs/harness-best-practices.md', 'docs/cli-command-registry.md']) {
+      const ratio = spanishRatio(fs.readFileSync(path.join(ROOT, page), 'utf8'));
+      expect(ratio !== null && ratio < 0.2, page).toBe(true);
+      expect(fs.existsSync(path.join(ROOT, page.replace(/\.md$/, '.es.md'))), page).toBe(true);
+    }
+    // Every twin declares a source_sha that still matches its English source.
+    expect(linesFor('docs-spanish-twins-stale')).toEqual([]);
+    // And no page written in Spanish slips in.
     expect(english).not.toContain('docs/SCOPE.md');
     expect(english).not.toContain('docs/plan-cierre-brechas.md');
     expect(english).not.toContain('docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md');

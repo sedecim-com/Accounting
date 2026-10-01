@@ -502,12 +502,12 @@ function spanishCommentsLane(root: string): Lane {
 // `source_sha` del original que tradujo. Con eso, una gemela que se quedó atrás
 // se detecta sola: el sha guardado deja de casar con el del archivo de hoy.
 //
-// HOY LOS DOS CARRILES VALEN 2 Y 0, Y ESO ES LO CORRECTO. `docs/language.md`
-// viene de un PR sin fusionar y no está en este árbol; no hay ni una sola
-// `.es.md`. Un carril que reventara por eso sería inútil el día que más falta
-// hace —el día que el rector aterriza—, así que los dos se escribieron para dar
-// un número correcto sobre un árbol donde el esquema todavía no existe, y la
-// prueba les construye ese esquema aparte para verlos contar.
+// HISTORIA DE LA SIEMBRA (2026-09-07): ese día los dos carriles valían 2 y 0.
+// `docs/language.md` venía de un PR sin fusionar y no estaba en el árbol; no había ni una
+// sola `.es.md`. Un carril que reventara por eso habría sido inútil el día que más falta
+// hace —el día que el rector aterriza—, así que los dos se escribieron para dar un número
+// correcto sobre un árbol donde el esquema todavía no existe, y la prueba les construye
+// ese esquema aparte para verlos contar. Hoy el árbol real vale 0 y 0 (MNE-001-191).
 //
 // QUÉ ES «UNA PÁGINA PUBLICADA EN INGLÉS», Y POR QUÉ NO ES «TODA PÁGINA»
 //
