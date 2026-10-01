@@ -39,7 +39,7 @@ El contador del despacho, que opera el CLI, y el dueño o auditor del despacho, 
 
 | ID | Requisito | Meta medible |
 |---|---|---|
-| RNF-01 | La IA nunca escribe el mayor ni sistemas externos (invariante 1) | Los criterios de E5.1 en verde; ninguna herramienta nueva salta `ai_drafts` ni `ai_external_ops` |
+| RNF-01 | La IA nunca escribe el mayor ni sistemas externos (invariante 1) | Ningún criterio de E5.1 que hoy está en verde retrocede (22/24 al 2026-09-30); ninguna herramienta nueva salta `ai_drafts` ni `ai_external_ops`. Los dos rojos (herramientas del agente derivadas del registro de riesgo; rehidratación de `--continue`) quedan después del MVP (#378, MNE-001-132) |
 | RNF-02 | Entrega sin atascos | Los criterios se evalúan una vez por corrida; el tablero no es el archivo donde chocan todos los PRs |
 | RNF-03 | Terminal predecible | Gramática, salida y códigos de salida uniformes entre familias de comandos |
 | RNF-04 | Encaja en la plataforma Sedecim | Acepta la identidad del IdP de la plataforma, se despliega por su camino y ninguna superficie promete lo que no hace (`docs/MVP.md` §3, «Armonía con la plataforma») |
