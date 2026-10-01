@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import { calendarDateIn, calendarDateTimeIn } from '../../utils/calendar-date.js';
+import { calendarDateIn } from '../../utils/calendar-date.js';
 import { currentTenant, query } from '../../database/connection.js';
 import { getPolicy, type PolicyContext } from './policy-service.js';
 import { getPolicySpec, TIME_ZONE_POLICY_KEY } from './pending-catalog.js';
@@ -22,20 +22,7 @@ export async function todayFor(
   ctx: PolicyContext | null,
   opts: { client?: pg.PoolClient; now?: Date } = {}
 ): Promise<string> {
-  const zone = ctx
-    ? (await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value
-    : defaultTimeZone();
-  return calendarDateIn(zone, opts.now);
-}
-
-/** An instant as the calendar day it was in the context's zone (MNE-001-290). */
-export async function localDateFor(ctx: PolicyContext | null, instant: Date | string): Promise<string> {
-  return calendarDateIn(await zoneFor(ctx), new Date(instant));
-}
-
-/** An instant as 'YYYY-MM-DD HH:mm' on the context's clock (MNE-001-290). */
-export async function localDateTimeFor(ctx: PolicyContext | null, instant: Date | string): Promise<string> {
-  return calendarDateTimeIn(await zoneFor(ctx), instant);
+  return calendarDateIn(await zoneFor(ctx, opts.client), opts.now);
 }
 
 /**
@@ -43,8 +30,8 @@ export async function localDateTimeFor(ctx: PolicyContext | null, instant: Date 
  * the panel default), for renderers that format many instants and must not
  * read the policy once per row (MNE-001-290).
  */
-export async function zoneFor(ctx: PolicyContext | null): Promise<string> {
-  return ctx ? (await getPolicy(ctx, TIME_ZONE_POLICY_KEY)).value : defaultTimeZone();
+export async function zoneFor(ctx: PolicyContext | null, client?: pg.PoolClient): Promise<string> {
+  return ctx ? (await getPolicy(ctx, TIME_ZONE_POLICY_KEY, client)).value : defaultTimeZone();
 }
 
 /**

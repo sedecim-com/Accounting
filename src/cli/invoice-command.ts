@@ -44,7 +44,7 @@ import {
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { addCalendarDays, calendarDateIn } from '../utils/calendar-date.js';
-import { zoneFor } from '../services/policy/today.js';
+import { todayFor, zoneFor } from '../services/policy/today.js';
 import {
   LEGACY_LINE_FORMS_RETIRE_IN,
   lineKeysHelp,
@@ -623,8 +623,9 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
           );
         }
 
-        // Hoy es el dia LOCAL del despacho: a las 20:00 en CDMX toISOString ya decia manana.
-        const invoiceDate = opts.date ?? day(new Date());
+        // Today is the day in the entity's zona_horaria, not the process clock (a UTC server
+        // reads tomorrow from 18:00 in Mexico City).
+        const invoiceDate = opts.date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
         const dueDate = opts.dueDate ?? dueDateFromTerms(customer.payment_terms, invoiceDate);
         if (!dueDate) {
           throw usageError(

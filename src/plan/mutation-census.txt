@@ -827,7 +827,7 @@ anchor	src/plan/criteria/e1-2.ts	de: 'input.credit_date ?? (await todayFor({ ten
 anchor	src/plan/criteria/e1-2.ts	de: '(await todayFor({ tenantId, entityId: input.entity_id }, { client }))',
 anchor	src/plan/criteria/e1-2.ts	de: "return formatParts(field('year'), field('month'), field('day'));",
 anchor	src/plan/criteria/e1-2.ts	de: "knownZones ??= new Set(Intl.supportedValuesOf('timeZone'));",
-anchor	src/plan/criteria/e1-2.ts	de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value',
+anchor	src/plan/criteria/e1-2.ts	de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, client)).value',
 anchor	src/plan/criteria/e1-2.ts	de: 'const today = await todayFor(null);',
 anchor	src/plan/criteria/e1-2.ts	de: 'process.env.TZ = tz;',
 anchor	src/plan/criteria/e1-2.ts	de: "const asOf = as_of_date as string || (await todayForEntity(entityId as string));\n\n // Unlike",

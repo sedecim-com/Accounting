@@ -134,7 +134,11 @@ const NUMERICAS = ['rows_total', 'rows_invalid', 'entries_posted', 'total_debe',
 /** Fecha corta para pantalla; las columnas de la base ya vienen como Date o texto. */
 const dia = (v: Date | string | null | undefined, zone: string): string => {
   if (v === null || v === undefined) return '';
-  return v instanceof Date ? calendarDateIn(zone, v) : String(v).slice(0, 10);
+  if (v instanceof Date) return calendarDateIn(zone, v);
+  const text = String(v);
+  // A string with a time part is an instant (timestamptz as ISO text): read its day in the zone.
+  // A bare DATE string already is a calendar day and is left alone.
+  return /^\d{4}-\d{2}-\d{2}[T ]/.test(text) ? calendarDateIn(zone, new Date(text)) : text.slice(0, 10);
 };
 
 // ============================================================

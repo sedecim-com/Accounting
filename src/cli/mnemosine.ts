@@ -3050,7 +3050,7 @@ function renderQuestion(q: QuestionRow, index: number, total: number, zone: stri
 // `questions`/`dudas` vivos como aliases de compatibilidad.
 // ============================================================
 
-async function listarQuestionsImpl(opts: {
+export async function listarQuestionsImpl(opts: {
   entity?: string; status?: string[]; limit?: number; offset?: number; all?: boolean;
   format?: string; json?: boolean; output?: string; fields?: string | boolean; quiet?: boolean;
 }): Promise<void> {

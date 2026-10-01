@@ -69,14 +69,15 @@ describe('calendar arithmetic without an instant', () => {
   });
 });
 
-describe('no CLI surface truncates an instant with toISOString', () => {
+describe('no CLI surface truncates an instant with toISOString or fills a date from the process clock (guard; behaviour is in entity-zone-commands.spec.ts)', () => {
   const walk = (dir: string): string[] =>
     readdirSync(dir).flatMap((n) => {
       const p = join(dir, n);
       return statSync(p).isDirectory() ? walk(p) : p.endsWith('.ts') ? [p] : [];
     });
   const files = [...walk('src/cli'), 'src/ai/memory-service.ts'];
-  const BAD = /toISOString\(\)\s*(\.slice|\.split|\.substring|\.replace)/;
+  // Also the process-local day: a UTC server reads tomorrow from 18:00 in Mexico City.
+  const BAD = /toISOString\(\)\s*(\.slice|\.split|\.substring|\.replace)|\b(dateOnly|day)\(new Date\(\)\)/;
 
   it('scans a real tree', () => {
     expect(files.length).toBeGreaterThan(50);

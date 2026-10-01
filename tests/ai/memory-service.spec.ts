@@ -18,6 +18,7 @@ import {
   teachMemory, memoryStats, buildMemoryDigest,
 } from '../../src/ai/memory-service.js';
 import { query } from '../../src/database/connection.js';
+import { todayForEntity } from '../../src/services/policy/today.js';
 import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE } from '../../src/ai/untrusted.js';
 import type { AgentContext } from '../../src/ai/context.js';
 
@@ -78,6 +79,16 @@ describe('correctMemory', () => {
     expect(params[0]).toBe('6130 Servicios');
     expect(String(params[1])).toMatch(/previously said: 5205 Honorarios/);
     expect(String(params[1])).toMatch(/by jefe@demo\.com/);
+  });
+
+  it("dates the persisted trail with the entity's day, asked for this entity (MNE-001-290)", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [ENTRY] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ ...ENTRY, answer: '6130' }], rowCount: 1 });
+    vi.mocked(todayForEntity).mockResolvedValueOnce('2026-01-31');
+    await correctMemory(CTX, 'mem-1', '6130 Servicios', 'jefe@demo.com');
+    expect(todayForEntity).toHaveBeenCalledWith(CTX.entityId);
+    const params = (mockQuery.mock.calls[1] as [string, string[]])[1];
+    expect(params[1]).toContain('[corrected 2026-01-31 by jefe@demo.com]');
   });
 
   it('accumulates on top of the previous context without losing it', async () => {
