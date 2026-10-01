@@ -73,6 +73,7 @@ import {
   listPending,
   resolvePolicy,
 } from '../../src/services/policy/policy-service.js';
+import type { PreviewText } from '../../src/services/policy/policy-preview.js';
 import { previewFor } from '../../src/services/policy/policy-preview.js';
 import { getPolicySpec } from '../../src/services/policy/pending-catalog.js';
 import { resolveEntity, type AgentContext } from '../../src/ai/context.js';
@@ -468,6 +469,7 @@ describe('la vista previa contra los datos del cliente', () => {
       entityId: 'ent-1',
       tenantId: 'ten-1',
       currency: 'MXN',
+      text: expect.any(Object) as PreviewText,
     });
   });
 
@@ -592,6 +594,7 @@ describe('el prompt interactivo de `pending define` explica antes de preguntar',
       entityId: 'ent-1',
       tenantId: 'ten-1',
       currency: 'MXN',
+      text: expect.any(Object) as PreviewText,
     });
 
     const texto = flat(salida);

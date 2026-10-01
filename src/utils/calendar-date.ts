@@ -112,6 +112,50 @@ export function calendarDateIn(timeZone: string, now: Date = new Date()): string
   return formatParts(field('year'), field('month'), field('day'));
 }
 
+/**
+ * AN INSTANT AS 'YYYY-MM-DD HH:mm' IN A TIME ZONE (MNE-001-290).
+ *
+ * The clock reading the entity's people see, never the UTC one the driver
+ * hands over: a session last active at 19:00 in Mexico City is 01:00 the next
+ * day in UTC, and `toISOString().replace('T', ' ')` printed that.
+ */
+export function calendarDateTimeIn(timeZone: string, instant: Date | string | number): string {
+  assertTimeZone(timeZone);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(new Date(instant));
+  const f = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${f('year')}-${f('month')}-${f('day')} ${f('hour')}:${f('minute')}`;
+}
+
+/**
+ * Normalises year/month/day (month 1-12; a day of 0 or 32 rolls over) into a
+ * calendar date. UTC arithmetic is only calendar arithmetic here: no zone can
+ * move it.
+ */
+export function calendarDateOf(year: number, month: number, day: number): string {
+  const d = new Date(Date.UTC(year, month - 1, day));
+  return formatParts(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+}
+
+/** True when the text is a real 'YYYY-MM-DD' day (2026-02-30 is not). */
+export function isRealCalendarDate(text: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  return m !== null && calendarDateOf(Number(m[1]), Number(m[2]), Number(m[3])) === text;
+}
+
+/** A calendar date plus a whole number of days (negative goes back). */
+export function addCalendarDays(text: string, days: number): string {
+  const [y, m, d] = toCalendarDate(text).split('-').map(Number);
+  return calendarDateOf(y, m, d + days);
+}
+
 let knownZones: Set<string> | undefined;
 
 /** Refuses a zone the runtime does not list (#242): the value is typed by a person. */

@@ -16,8 +16,19 @@ vi.mock('../../src/services/ar/invoice-service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/services/ar/invoice-service.js')>()),
   resolveInvoice: vi.fn(async (_e: string, ref: string) => ({ id: `id-${ref}`, invoice_number: ref })),
 }));
+vi.mock('../../src/services/policy/today.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/policy/today.js')>()),
+  todayFor: vi.fn(async () => '2026-12-31'),
+}));
 vi.mock('../../src/services/payments/payment-service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/services/payments/payment-service.js')>()),
+  recordCustomerPayment: vi.fn(async () => ({
+    paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', journalEntry: null, attestation: null,
+    documentos: [{
+      id: 'id-INV-1', numero: 'INV-1', saldoAnterior: '100.00', saldoNuevo: '0.00', estado: 'paid', moneda: 'MXN',
+    }],
+    remanenteAnterior: '0.00', remanenteNuevo: '0.00',
+  })),
   getCustomerPayment: vi.fn(async () => ({ id: 'pay-1', payment_number: 'PMT-2026-00042' })),
   applyCustomerPayment: vi.fn(async () => ({
     paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', journalEntry: null, attestation: null,
@@ -30,6 +41,8 @@ vi.mock('../../src/services/payments/payment-service.js', async (importOriginal)
 }));
 
 import * as payments from '../../src/services/payments/payment-service.js';
+import * as invoices from '../../src/services/ar/invoice-service.js';
+import { todayFor } from '../../src/services/policy/today.js';
 import { parseWithholding, registerReceiptCommand } from '../../src/cli/receipt-command.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../src/cli/kernel/audit.js';
@@ -134,5 +147,28 @@ describe('receipt apply shows the withholding before it posts (MNE-001-113)', ()
     expect(errs).toEqual([]);
     const { rows } = JSON.parse(out) as { rows: Record<string, unknown>[] };
     expect(rows[0]).toMatchObject({ withholding_isr: '1000.00', withholding_iva: '1066.67', dry_run: true });
+  });
+});
+
+describe('receipt record without --date (MNE-001-290)', () => {
+  it("dates the collection with the entity's day, not the process clock", async () => {
+    resetDeclarations();
+    vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '100.00', customer_id: 'c1',
+    } as never);
+    const program = new Command('mnemosine').exitOverride();
+    registerReceiptCommand(program, { ...deps, home: '/tmp/mnemosine-tests-no-home' } as never);
+    const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      await program.parseAsync([
+        'node', 'mnemosine', 'receipt', 'record', 'INV-1', '--entity', 'ent-1', '--amount', '100.00', '--dry-run',
+      ]);
+    } finally {
+      outSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+    expect(todayFor).toHaveBeenCalledWith({ tenantId: 'ten-1', entityId: 'ent-1' });
+    expect(vi.mocked(payments.recordCustomerPayment).mock.calls[0][0].paymentDate).toBe('2026-12-31');
   });
 });
