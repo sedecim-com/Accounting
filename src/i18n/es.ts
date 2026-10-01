@@ -1465,6 +1465,32 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.withholding_accounts_existing.option.keep':
     'Dejarlos como están, sin aviso',
 
+  'policy.cash_over_limit_outside_ingestion.question':
+    'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
+  'policy.cash_over_limit_outside_ingestion.impact':
+    'Gobierna `bill approve` (para una factura cuyo CFDI dice FormaPago 01) y `payment create --method cash`. Con "signal" la operación devuelve un hallazgo de deducibilidad en riesgo y no cambia nada. Con "draft_reclassification" además propone, como borrador que una persona aprueba, pasar el gasto y el IVA de la factura a la cuenta no deducible. Con "ignore" no dice nada. Una factura que creó la ingesta nunca se vuelve a juzgar: su respuesta a `efectivo_no_deducible` prevalece.',
+  'policy.cash_over_limit_outside_ingestion.rationale':
+    'La LISR art. 27 fr. III niega la deducción de lo pagado en efectivo por encima del límite, y la LIVA art. 5 fr. I niega con ella el acreditamiento del IVA; pero la ley atiende a cómo se pagó de verdad, y una factura sola no lo prueba (el método del CFDI puede ser el equivocado, la misma excepción que ofrece la ingesta). Los libros conservan lo asentado (NIF A-2, representación fiel) y se avisa a una persona, con las cifras, antes de presentar la declaración.',
+  'policy.cash_over_limit_outside_ingestion.why':
+    'El efectivo por encima del límite vuelve no deducible el gasto, pero sólo si de verdad se pagó en efectivo. Algunos despachos quieren un borrador listo, otros sólo el aviso.',
+  'policy.cash_over_limit_outside_ingestion.what':
+    'Comparo el efectivo con el límite vigente en la fecha del pago y lo informo; con "draft_reclassification" dejo un borrador en la cola de revisión.',
+  'policy.cash_over_limit_outside_ingestion.if_skipped': 'Lo señalo y no cambio nada.',
+  'policy.cash_over_limit_outside_ingestion.option.signal': 'Señalarlo y no cambiar nada: decide una persona',
+  'policy.cash_over_limit_outside_ingestion.option.draft_reclassification':
+    'Señalarlo y proponer la reclasificación a no deducible como borrador',
+  'policy.cash_over_limit_outside_ingestion.option.ignore': 'No decir nada',
+
+  // MNE-001-345 · el texto del hallazgo de efectivo sobre el límite (LISR art. 27 fr. III).
+  'cash_limit.finding.at_approve':
+    '{bill}: el CFDI declara pago en efectivo por {amount} MXN (con fecha {date}), por encima del límite de {limit} de la LISR art. 27 fr. III: la deducción y el acreditamiento del IVA (LIVA art. 5 fr. I) están en riesgo si de verdad se pagó en efectivo. No se reclasificó nada.',
+  'cash_limit.finding.at_payment':
+    '{bill}: {amount} MXN pagados en efectivo el {date} superan el límite de {limit} de la LISR art. 27 fr. III: la deducción y el acreditamiento del IVA (LIVA art. 5 fr. I) están en riesgo. No se reclasificó nada.',
+  'cash_limit.finding.unavailable':
+    '{bill}: pagado en efectivo el {date}, pero ninguna vigencia del límite de la LISR art. 27 fr. III cubre esa fecha, así que no se pudo juzgar. Siembra el parámetro legal y revísalo.',
+  'cash_limit.finding.draft_proposed': 'Se dejó un borrador de reclasificación en la cola de revisión ({count}).',
+  'cash_limit.finding.draft_failed': 'No se pudo proponer el borrador de reclasificación: {reason}.',
+
   'policy.time_zone.question':
     '¿En qué zona horaria cae el «hoy» de estos libros?',
   'policy.time_zone.impact':

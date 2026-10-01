@@ -155,14 +155,15 @@ router.post('/:id/approve', declararRiesgoRuta({ riesgo: 'irreversible', escribe
   // `approveBill` is what scopes the UPDATE. Without the second, this route
   // approved the sibling company's bill and posted into its ledger — the POST
   // one line above mounted the guard, and this one did not.
-  const { bill, attestation } = await approveBill(req.params.id, req.user!.user_id, {
+  const { bill, attestation, deductibilityFindings } = await approveBill(req.params.id, req.user!.user_id, {
     entityId: req.entityId!,
   });
   if (attestation && req.tenantId) {
     attestEntryAsync(req.tenantId, attestation.entityId, attestation.entryId);
   }
 
-  res.json({ data: bill, meta: meta(req) });
+  // MNE-001-345: the bill stays the data; the LISR 27-III signal rides in meta.
+  res.json({ data: bill, meta: { ...meta(req), deductibility_findings: deductibilityFindings } });
 }));
 
 // POST /v1/bills/:id/schedule-payment — WITHDRAWN
@@ -224,6 +225,7 @@ router.post('/payments', declararRiesgoRuta({ riesgo: 'irreversible', escribe: '
       payment_number: result.paymentNumber,
       journal_entry_id: result.journalEntry?.id ?? null,
       applied: result.documentos,
+      deductibility_findings: result.deductibilityFindings ?? [],
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });

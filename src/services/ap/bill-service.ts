@@ -592,13 +592,16 @@ export async function approveBill(
       // A bill has no payment method of its own; the only one known at approval is
       // the CFDI's FormaPago. The parameter is read only when that says cash.
       const cfdiUuid = (approved as Bill & { cfdi_uuid?: string | null }).cfdi_uuid ?? null;
-      const deductibilityFindings = (await billCfdiPaidInCash(client, approved.entity_id, cfdiUuid))
+      const deductibilityFindings = (await billCfdiPaidInCash(client, approved.entity_id, cfdiUuid, approved.id))
         ? await cashLimitFinding(client, {
             entityId: approved.entity_id,
             billNumber: approved.bill_number,
             amount: approved.total_amount,
             currency: approved.currency_code,
             onDate: toCalendarDate(approved.bill_date),
+            source: 'bill_approve',
+            billIds: [approved.id],
+            proposeDrafts: !dryRun,
           })
         : [];
 
