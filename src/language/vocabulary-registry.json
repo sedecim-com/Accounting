@@ -2346,6 +2346,14 @@
     },
     {
       "class": "policy-key",
+      "where": "census_missing_at_close",
+      "es": "census_missing_at_close",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-119): how a CFDI the SAT lists and the books lack weighs at close, by direction. Read by `severityOfCensusGap` (sat-census/reconcile.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "census_cfdi_types",
       "es": "census_cfdi_types",
       "en": null,
@@ -2923,6 +2931,30 @@
       "es": "contabilizar",
       "en": "post",
       "why": "`post` es el verbo del árbol para llevar un asiento al mayor (`postJournalEntry`, `autoPost`, `entry post`), y el informe ya lo nombra así (`loadMode: 'post'`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_missing_at_close/issued_blocks",
+      "es": "issued_blocks",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-119): the literal `severityOfCensusGap` (sat-census/reconcile.ts) blocks the close for an issued gap and warns for a received one."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_missing_at_close/both_block",
+      "es": "both_block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-119): the literal `severityOfCensusGap` (sat-census/reconcile.ts) blocks the close for a gap in either direction."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_missing_at_close/both_warn",
+      "es": "both_warn",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-119): the literal `severityOfCensusGap` (sat-census/reconcile.ts) only warns, in either direction."
     },
     {
       "class": "policy-value",
@@ -5858,6 +5890,38 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-147): what happens to an entity whose withholding roles do not follow withholding_accounts_layout."
+    },
+    {
+      "class": "policy-key",
+      "where": "cash_over_limit_outside_ingestion",
+      "es": "cash_over_limit_outside_ingestion",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-345): what to do with cash above the LISR art. 27 fr. III limit outside the CFDI ingestion."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/signal",
+      "es": "signal",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the finding is returned and nothing changes."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/draft_reclassification",
+      "es": "draft_reclassification",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the finding is returned and the non-deductible reclassification is proposed as a draft."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/ignore",
+      "es": "ignore",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the cash above the limit is not reported."
     },
     {
       "class": "policy-key",

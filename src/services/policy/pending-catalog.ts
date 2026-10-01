@@ -466,6 +466,39 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 40,
   },
 
+  {
+    // MNE-001-119 (#312): how a CFDI the SAT lists and the books do not carry
+    // weighs at close. Read by `severityOfCensusGap`
+    // (src/services/sat-census/reconcile.ts) for the `sat-census-missing` box.
+    key: 'census_missing_at_close',
+    textKey: 'census_missing_at_close',
+    category: 'contable',
+    question: 'A CFDI the SAT lists is missing from the books at close: which direction stops the close?',
+    impact:
+      'The SAT census is read against what was posted. A CFDI you issued that is not posted understates ' +
+      'income and the IVA you owe; a CFDI you received that is not posted understates a deduction and the ' +
+      'IVA you can credit. This decides whether each direction stops the close or only warns.',
+    options: [
+      { value: 'issued_blocks', label: 'Issued stops the close; received warns' },
+      { value: 'both_block', label: 'Both directions stop the close' },
+      { value: 'both_warn', label: 'Both directions only warn' },
+    ],
+    defaultValue: 'issued_blocks',
+    defaultRationale:
+      'An issued CFDI is income the entity already stamped and the SAT already holds: leaving it unposted ' +
+      'understates the ISR base and the IVA trasladado of the month (LISR art. 17; LIVA arts. 1-B and 17), ' +
+      'and the books must record every operation (CFF art. 28 fr. I). A received CFDI that is not posted ' +
+      'is a right not yet exercised: the deduction and the IVA acreditable can still be claimed in a later ' +
+      'period (LISR art. 27 fr. III; LIVA art. 5), so it warns. A firm that wants the books to match the SAT ' +
+      'both ways before any close chooses both_block.',
+    whyAsking:
+      'Missing an issued CFDI and missing a received one do not cost the same, and firms differ on how much of that they accept at close.',
+    whatIDo:
+      'I list what the SAT has and the books lack in the close checklist, and stop the close only for the directions you choose.',
+    ifSkipped: 'A missing issued CFDI stops the close and a missing received one warns.',
+    priority: 40,
+  },
+
   // ── Received CFDI → vendor bill, when a person approves the AI draft (#318) ──
   //
   // The CFDI rules the amounts (the liability and the creditable taxes come
@@ -2531,6 +2564,41 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whatIDo: 'I warn and name `account role sync`; with "repoint" I run it myself when the layout is set.',
     ifSkipped: 'I warn, and change nothing.',
     priority: 41,
+  },
+  {
+    // MNE-001-345 · LISR art. 27 fr. III. The CFDI ingestion already asks this
+    // fork as the decision `efectivo_no_deducible` (non-deductible, or the CFDI
+    // method is wrong). This key says what to do when cash above the limit shows
+    // up OUTSIDE the ingestion: a bill approved from its CFDI (FormaPago 01) or a
+    // vendor payment recorded with --method cash. Reader: cash-deductibility.ts.
+    key: 'cash_over_limit_outside_ingestion',
+    textKey: 'cash_over_limit_outside_ingestion',
+    category: 'fiscal',
+    question: 'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
+    impact:
+      'Governs `bill approve` (for a bill whose CFDI says FormaPago 01) and `payment create --method cash`. ' +
+      'With "signal" the operation returns a deductibility-at-risk finding and changes nothing. With ' +
+      '"draft_reclassification" it also proposes, as a draft a person approves, moving the bill\'s expense and ' +
+      'IVA to the non-deductible account. With "ignore" it says nothing. A bill the ingestion created is never ' +
+      'judged again: its answer to `efectivo_no_deducible` stands.',
+    options: [
+      { value: 'signal', label: 'Signal it and change nothing: a person decides' },
+      { value: 'draft_reclassification', label: 'Signal it and propose the non-deductible reclassification as a draft' },
+      { value: 'ignore', label: 'Say nothing' },
+    ],
+    defaultValue: 'signal',
+    defaultRationale:
+      'LISR art. 27 fr. III denies the deduction of what is paid in cash above the limit, and LIVA art. 5 fr. I ' +
+      'denies the IVA credit with it; but the law keys on how the payment was really made, which a bill alone ' +
+      'does not prove (the CFDI method may be the wrong one, the same exception the ingestion offers). The ' +
+      'books keep what was posted (NIF A-1, faithful representation) and a person is told, with the figures, ' +
+      'before the return is filed.',
+    whyAsking:
+      'Cash above the limit makes the expense non-deductible, but only if it really was paid in cash. Some firms want a draft ready, others only the warning.',
+    whatIDo:
+      'I compare the cash against the limit in force on the payment date and report it; with "draft_reclassification" I leave a draft in the review queue.',
+    ifSkipped: 'I signal it and change nothing.',
+    priority: 42,
   },
   {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it
