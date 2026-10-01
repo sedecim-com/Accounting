@@ -293,6 +293,7 @@ export function registerInitCommand(program: Command, deps: InitCliDeps): void {
     .command('init')
     .alias('configurar')
     .description('Guided setup: infrastructure, entity, users, AI provider, and your books')
+    .addHelpText('after', '\n.env: ./.env wins over ~/.mnemosine/.env. With neither, init asks (default ./.env in a checkout,\n~/.mnemosine/.env elsewhere); without a terminal it applies the same rule.')
     .option('--status', 'Only show the status, configure nothing')
     .option('--section <id>', 'Configure a single section (infra|identity|users|ai|policies|import)')
     .option('-y, --yes', 'Non-interactive: use defaults and flags, ask nothing')
