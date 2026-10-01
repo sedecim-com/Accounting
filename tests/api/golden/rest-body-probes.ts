@@ -371,6 +371,13 @@ const SAMPLE_FIXUPS: Readonly<Record<string, SampleFixup>> = {
     isNode(body) ? { ...body, matched_amount: '1.00' } : body,
   // "xml_content or xml_contents array is required".
   'POST /v1/upload': withField('xml_content'),
+  // The three PAC slots only accept a registered provider (MNE-001-309).
+  'PUT /v1/admin/integrations/pac/preferences/all': (body) =>
+    isNode(body)
+      ? Object.fromEntries(
+          Object.entries(body).map(([k, v]) => [k, k.startsWith('pac_') && typeof v === 'string' ? 'finkok' : v])
+        )
+      : body,
   // A journal line carries a debit OR a credit, never both and never neither.
   'POST /v1/journal-entries': (body, mode) => {
     if (!isNode(body) || !Array.isArray(body.lines)) return body;

@@ -5,6 +5,7 @@ import { requirePermission } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
 import { integrationRegistry, pacRouter } from '../../../services/integrations/index.js';
+import { PAC_ADAPTERS } from '../../../services/integrations/mexico/pac/pac-router.js';
 import type { IIntegrationAdapter } from '../../../services/integrations/base/adapter.interface.js';
 import { declararRiesgoRuta } from '../risk.js';
 
@@ -30,10 +31,12 @@ function esSimulado(adapter: IIntegrationAdapter): boolean | undefined {
 
 const configureProviderSchema = z.record(z.string(), z.unknown());
 
+const pacId = z.string().refine((id) => id in PAC_ADAPTERS, 'Unknown PAC provider');
+
 const pacPreferencesSchema = z.object({
-  pac_primary: z.string().optional(),
-  pac_secondary: z.string().optional(),
-  pac_tertiary: z.string().optional(),
+  pac_primary: pacId.optional(),
+  pac_secondary: pacId.optional(),
+  pac_tertiary: pacId.optional(),
   auto_failover: z.boolean().optional(),
 });
 

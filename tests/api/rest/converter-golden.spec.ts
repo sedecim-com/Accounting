@@ -144,7 +144,8 @@ describe('the census of every published request body', () => {
       descartadas: 57,
       conservadas: 15,
       strict: 1,
-      refined: 12,
+      // 15: 12 on develop plus 3 since MNE-001-309 — `pacId` (a refine against the PAC registry) is read by three bodies.
+      refined: 15,
       maxItems: 9,
       uuid: 59,
       email: 10,

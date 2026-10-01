@@ -113,7 +113,7 @@
     "src/cli/entry-command.ts": "c07d43d94ec37071052d12614d2db4d9d470870b",
     "src/services/accounting/iva-cash-basis.ts": "a38895c978fde55e55696b451ee483249984807f",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "26b1cd3b921f374a666ed0e37517c7dd42dc269a",
-    "src/services/integrations/mexico/pac/pac-router.ts": "d4e73952e123807caf206889a59c802f8bc04a73",
+    "src/services/integrations/mexico/pac/pac-router.ts": "e51f69e09c6cd2906d8174e81291114019f2d27e",
     "src/api/rest/routes/invoices.ts": "922309cf3a09da04b1c99459fac01978ef8bdd34",
     "src/ai/ingest-service.ts": "48e173880009696b6ba73639f315b94b12cb89f3",
     "src/services/banking/matching.ts": "0e292826286cdfd0daf14f7692b244a7f780121d",
