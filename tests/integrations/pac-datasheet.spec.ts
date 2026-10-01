@@ -97,7 +97,7 @@ describe('router chain and partial saves', () => {
     loadCredentials.mockImplementation(async (_t: string, id: string) => (id === 'finkok' ? {} : null));
     const { providerId } = await pacRouter.selectPac(ctx);
     expect(providerId).toBe('finkok');
-    expect(loadCredentials.mock.calls.map((c) => c[1])).toEqual(['sw_sapien', 'finkok']);
+    expect(loadCredentials.mock.calls.map((c: unknown[]) => c[1])).toEqual(['sw_sapien', 'finkok']);
   });
 
   it('stamp tries the default chain in order, ending at finkok', async () => {
