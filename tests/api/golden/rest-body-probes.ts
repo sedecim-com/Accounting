@@ -9,6 +9,7 @@ import { AppError } from '../../../src/utils/errors.js';
 
 // ============================================================
 // CONTRACT: the REST 422 body, pinned probe by probe (#367).
+// CONTRACT: the over-cap 422 diverges from the zod 3 recording by design since #407 / MNE-001-395, and the `overCapWithViolations` probes are post-migration additions.
 //
 // Every request-body schema the API validates is replayed through the REAL
 // `validateBody` with a deterministic set of probes, and the outcome is
@@ -364,6 +365,10 @@ const SAMPLE_FIXUPS: Readonly<Record<string, SampleFixup>> = {
   'PUT /v1/processing-rules/:id': withField('rule_name'),
   // "company_name or first_name is required".
   'POST /v1/customers': withField('company_name'),
+  // The manual match requires its amount, a positive decimal (a union plus a
+  // refinement that JSON Schema cannot sample): every sample carries one.
+  'POST /v1/bank-accounts/transactions/:id/match': (body) =>
+    isNode(body) ? { ...body, matched_amount: '1.00' } : body,
   // "xml_content or xml_contents array is required".
   'POST /v1/upload': withField('xml_content'),
   // The three PAC slots only accept a registered provider (MNE-001-309).
@@ -433,6 +438,15 @@ export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body)
         probes.push({
           id: `${label(at)}:maxItems+1`,
           body: setAt(full, at, Array.from({ length: maxItems + 1 }, () => clone(element))),
+        });
+      }
+      if (maxItems !== undefined && maxItems >= 100) {
+        // #407: past a cap the body is refused before its elements are read, so
+        // the 422 names the cap and none of the invalid elements.
+        const bad = firstViolation(items, clone(element));
+        probes.push({
+          id: `${label(at)}:overCapWithViolations`,
+          body: setAt(full, at, Array.from({ length: maxItems + 1 }, () => clone(bad))),
         });
       }
       const pair = [firstViolation(items, clone(element)), wrongTypeFor(items) ?? null];

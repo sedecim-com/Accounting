@@ -1,4 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+
+// Zone lookups read the policy panel; these specs mock the DB, so they get the default zone.
+vi.mock('../../src/services/policy/today.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/policy/today.js')>()),
+  zoneFor: vi.fn(async () => 'America/Mexico_City'),
+  zoneForEntity: vi.fn(async () => 'America/Mexico_City'),
+  todayFor: vi.fn(async () => '2026-10-31'),
+  todayForEntity: vi.fn(async () => '2026-10-31'),
+}));
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -866,7 +875,7 @@ describe('mnemosine memory --conflicts', () => {
 
   it('imprime cada precedente en disputa con su id y el comando que lo retira', async () => {
     const { conflicts, scanned } = await conflictos();
-    const txt = renderConflicts(conflicts, scanned, plain).join('\n');
+    const txt = renderConflicts(conflicts, scanned, plain, 'America/Mexico_City').join('\n');
 
     expect(txt).toContain('6130 Servicios generales');
     expect(txt).toContain('5205 Honorarios');
@@ -878,13 +887,13 @@ describe('mnemosine memory --conflicts', () => {
 
   it('dice por escrito que el sistema NO desempata', async () => {
     const { conflicts, scanned } = await conflictos();
-    const txt = renderConflicts(conflicts, scanned, plain).join('\n');
+    const txt = renderConflicts(conflicts, scanned, plain, 'America/Mexico_City').join('\n');
     expect(txt).toMatch(/Nobody but you decides which one stands/);
     expect(txt).toContain('mnemosine memory correct');
   });
 
   it('sin conflictos lo dice con el denominador delante', () => {
-    const txt = renderConflicts([], 21, plain).join('\n');
+    const txt = renderConflicts([], 21, plain, 'America/Mexico_City').join('\n');
     expect(txt).toMatch(/the 21 active precedent\(s\) do not contradict each other/);
   });
 

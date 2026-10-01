@@ -18,7 +18,7 @@
     "test-mocks-of-spanish-modules": 11,
     "docs-dead-path-citations": 341,
     "src-spanish-comment-lines": 27780,
-    "docs-english-pages-untwinned": 2,
+    "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
     "help-descriptions-without-key": 1163
@@ -1440,10 +1440,7 @@
       "src/utils/strip-comments.ts": 35,
       "src/utils/zod-client-errors.ts": 1
     },
-    "docs-english-pages-untwinned": {
-      "docs/cli-command-registry.md": 1,
-      "docs/harness-best-practices.md": 1
-    },
+    "docs-english-pages-untwinned": {},
     "untagged-comment-markers": {
       "src/services/accounting/validation.ts": 1
     },

@@ -5,6 +5,7 @@ import { NotFoundError, ValidationError, ConflictError } from '../../utils/error
 import { logger } from '../../utils/logger.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { todayFor } from '../policy/today.js';
 import type { PolicyContext } from '../policy/policy-service.js';
 import { resolvePeriod } from './fiscal-calendar-service.js';
 import {
@@ -800,7 +801,7 @@ export async function setAccountMapping(
   if (scheme === 'sat-agrupador' && value !== null) {
     const ctxPol = await contextoDePoliticaDeCuenta(id);
     if (ctxPol === null) throw new NotFoundError('Account', id);
-    const fecha = opts.fecha ?? new Date().toISOString().slice(0, 10);
+    const fecha = opts.fecha ?? (await todayFor(ctxPol));
     const ctxVal = opts.validacion ?? (await prepararValidacionAgrupador(ctxPol, fecha));
     // Revienta si la política dice rechazar; devuelve el veredicto si no.
     const veredicto = await exigirAgrupadorValido(ctxVal, value);
@@ -886,7 +887,7 @@ export async function importAccountMappings(
     if (tenantId) {
       ctxVal = await prepararValidacionAgrupador(
         { tenantId, entityId },
-        opts.fecha ?? new Date().toISOString().slice(0, 10)
+        opts.fecha ?? (await todayFor({ tenantId, entityId }))
       );
     }
   }
