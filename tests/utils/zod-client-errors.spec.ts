@@ -24,7 +24,6 @@ import {
   parseForClient,
   type ClientIssue,
 } from '../../src/utils/zod-client-errors.js';
-import { arregloAcotado } from '../../src/api/rest/topes.js';
 import { bulkPreRegSchema, uploadXmlSchema } from '../../src/api/rest/routes/xml-ingestion.js';
 import { boundedString, emailString, integerNumber, urlString, uuidString } from '../../src/utils/zod-compat.js';
 
