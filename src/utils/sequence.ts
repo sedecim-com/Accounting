@@ -1,5 +1,13 @@
 import type pg from 'pg';
 
+/** The one method the counter needs: a pool client, or the inbox's narrower handle. */
+export interface SequenceClient {
+  query<T extends pg.QueryResultRow = Record<string, unknown>>(
+    text: string,
+    params?: unknown[]
+  ): Promise<pg.QueryResult<T>>;
+}
+
 /**
  * Atomic per-entity document numbering backed by entity_sequences.
  * The UPSERT takes a row lock until the caller's transaction commits, so
@@ -19,7 +27,7 @@ import type pg from 'pg';
  * emitidos, para que la serie continúe sin colisiones.
  */
 export async function nextEntityNumber(
-  client: pg.PoolClient,
+  client: SequenceClient,
   entityId: string,
   name: string,
   prefix: string,

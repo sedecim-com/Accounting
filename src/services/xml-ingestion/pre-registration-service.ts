@@ -35,6 +35,7 @@ function tipoDocumentoDe(tipo: string | undefined, direction: CfdiDirection): st
 }
 import { RulesEngine, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { nextEntityNumber } from '../../utils/sequence.js';
 
 /**
  * Which side of the operation the entity is on (ING-3 · #320). The RFC of the
@@ -1499,12 +1500,10 @@ async function insertarFacturaDePreRegistro(
       );
     } else {
       const newId = uuidv4();
-      const vendorCount = await db.query<{ count: string }>(
-        `SELECT COUNT(*) as count FROM vendors WHERE entity_id = $1`,
-        [preReg.entity_id]
-      );
-      const year = new Date().getFullYear();
-      const vendorNumber = `V-${year}-${(parseInt(vendorCount.rows[0].count, 10) + 1).toString().padStart(5, '0')}`;
+      // MNE-001-399: the same atomic per-entity counter every other writer
+      // of a financial or master document uses, in the series of the CFDI's
+      // own date (R3), never COUNT(*) + the server clock.
+      const vendorNumber = await nextEntityNumber(db, preReg.entity_id as string, 'vendor', 'V', preReg.document_date as Date | string);
 
       await db.query(
         `INSERT INTO vendors (id, entity_id, vendor_number, company_name, tax_id, tax_id_type, currency_code, created_by)
@@ -1518,12 +1517,11 @@ async function insertarFacturaDePreRegistro(
   if (!vendorId) throw new ValidationError('Vendor is required to create a bill');
 
   const billId = uuidv4();
-  const billCount = await db.query<{ count: string }>(
-    `SELECT COUNT(*) as count FROM bills WHERE entity_id = $1`,
-    [preReg.entity_id]
-  );
-  const year = new Date().getFullYear();
-  const billNumber = `BILL-${year}-${(parseInt(billCount.rows[0].count, 10) + 1).toString().padStart(5, '0')}`;
+  // MNE-001-399: one counter shared with `bill create`, series = the CFDI's
+  // own date. The row lock of the UPSERT makes concurrent approvals draw
+  // distinct numbers; the number is consumed only if the caller's
+  // transaction commits.
+  const billNumber = await nextEntityNumber(db, preReg.entity_id as string, 'bill', 'BILL', preReg.document_date as Date | string);
 
   await db.query(
     // El UUID fiscal viaja con el gasto desde su nacimiento (migración
