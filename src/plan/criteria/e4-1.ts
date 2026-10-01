@@ -2605,6 +2605,20 @@ export const E4_1: Criterio[] = [
           'el estado civil deja de validarse y un valor fuera de catálogo vuelve a caer en una tabla vacía: FIT de 0.00 todo el año, con el patrón como retenedor omiso ante el IRS',
       },
       {
+        archivo: 'src/services/payroll/usa/federal/fit-calculator.ts',
+        de: "const brackets = requireBrackets(\n      await getBrackets(this.jurisdiction, 'fit'",
+        a: "const brackets = (\n      await getBrackets(this.jurisdiction, 'fit'",
+        porque:
+          'an empty FIT table (married_separately has no seeded rows) goes back to withholding 0.00 in silence (MNE-001-353)',
+      },
+      {
+        archivo: 'src/services/payroll/usa/state/state-tax-calculator.ts',
+        de: "const brackets = requireBrackets(\n      await getBrackets(this.jurisdiction, 'sit'",
+        a: "const brackets = (\n      await getBrackets(this.jurisdiction, 'sit'",
+        porque:
+          'an empty SIT table goes back to a silent 0.00 instead of naming the missing filing status (MNE-001-353)',
+      },
+      {
         archivo: 'src/services/payroll/common/gl-posting-service.ts',
         de: 'n(b.sit) + n(b.sdi) + n(b.local_tax)',
         a: 'n(b.sit) + n(b.sdi)',
@@ -2667,6 +2681,14 @@ export const E4_1: Criterio[] = [
       // 2. EL ESTADO CIVIL SE VALIDA.
       if (!/export function validFilingStatus\(/.test(codigoDe(fit))) {
         return falla('el filing_status del W-4 dejó de validarse: un valor fuera de catálogo cae en una tabla vacía y retiene 0.00 todo el año');
+      }
+
+      // 2b. UNA TABLA VACÍA NO ES UN CERO (MNE-001-353).
+      if (!/requireBrackets\(\s*await getBrackets\(this\.jurisdiction, 'fit'/.test(codigoDe(fit))) {
+        return falla('the FIT lookup no longer fails on an empty table: married_separately withholds 0.00 in silence');
+      }
+      if (!/requireBrackets\(\s*await getBrackets\(this\.jurisdiction, 'sit'/.test(codigoDe('src/services/payroll/usa/state/state-tax-calculator.ts'))) {
+        return falla('the SIT lookup no longer fails on an empty table: the state withholds 0.00 in silence');
       }
 
       // 3. Y EL IMPUESTO LOCAL ENTRA AL ASIENTO.

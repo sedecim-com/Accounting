@@ -556,6 +556,8 @@ mirror	memory	E4.1 garnishment-vocabulary-is-the-persisted-one	src/services/payr
 mirror	memory	E4.1 garnishment-vocabulary-is-the-persisted-one	src/database/migrations/075_el_embargo_que_no_retenia.sql	la columna vuelve a admitir cualquier cadena, y con ella vuelve a poder guardarse la orden que no retiene: un vocabulario sin restricción es una sugerencia
 mirror	memory	E4.1 payroll-engines-fail-closed-on-missing-law	src/services/payroll/mx/imss-calculator.ts	vuelve la UMA quemada: una corrida de un ejercicio no sembrado produce cuotas con days_worked correctos sobre una UMA de 2025, y esa cifra sale en el recibo, en el CFDI de nómina y en la línea de captura del SUA
 mirror	memory	E4.1 payroll-engines-fail-closed-on-missing-law	src/services/payroll/usa/federal/fit-calculator.ts	el estado civil deja de validarse y un valor fuera de catálogo vuelve a caer en una tabla vacía: FIT de 0.00 todo el año, con el patrón como retenedor omiso ante el IRS
+mirror	memory	E4.1 payroll-engines-fail-closed-on-missing-law	src/services/payroll/usa/federal/fit-calculator.ts	an empty FIT table (married_separately has no seeded rows) goes back to withholding 0.00 in silence (MNE-001-353)
+mirror	memory	E4.1 payroll-engines-fail-closed-on-missing-law	src/services/payroll/usa/state/state-tax-calculator.ts	an empty SIT table goes back to a silent 0.00 instead of naming the missing filing status (MNE-001-353)
 mirror	memory	E4.1 payroll-engines-fail-closed-on-missing-law	src/services/payroll/common/gl-posting-service.ts	el impuesto local sale del asiento y los débitos dejan de igualar a los créditos: cualquier corrida con un recibo de local > 0 vuelve a no poder postearse («Payroll GL entry unbalanced»)
 mirror	memory	E4.1 payroll-engines-fail-closed-on-missing-law	src/services/payroll/mx/imss-calculator.ts	a row without the imss_employer block yields an employer quota of 0.00 that reaches the journal entry and the SUA as if it were the obligation (#296)
 mirror	memory	E4.1 payroll-engines-fail-closed-on-missing-law	src/services/payroll/mx/imss-calculator.ts	restores `|| 0` on one employer rate: a missing retiro rate silently drops the 2 % the AFORE is owed (#296)
@@ -1224,6 +1226,8 @@ anchor	src/plan/criteria/e4-1.ts	de: ' throw new Error(\n `Unknown garnishment a
 anchor	src/plan/criteria/e4-1.ts	de: " CHECK (amount_type IN ('fixed', 'percent_disposable', 'percent_gross'));",
 anchor	src/plan/criteria/e4-1.ts	de: "const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);",
 anchor	src/plan/criteria/e4-1.ts	de: 'export function validFilingStatus(',
+anchor	src/plan/criteria/e4-1.ts	de: "const brackets = requireBrackets(\n await getBrackets(this.jurisdiction, 'fit'",
+anchor	src/plan/criteria/e4-1.ts	de: "const brackets = requireBrackets(\n await getBrackets(this.jurisdiction, 'sit'",
 anchor	src/plan/criteria/e4-1.ts	de: 'n(b.sit) + n(b.sdi) + n(b.local_tax)',
 anchor	src/plan/criteria/e4-1.ts	de: "const er = requiredRates(params, 'imss_employer', EMPLOYER_RATE_KEYS, tax_year);",
 anchor	src/plan/criteria/e4-1.ts	de: 'sbcCapped * er.retiro *',

@@ -1,5 +1,6 @@
 import type { ITaxCalculator, TaxInput, TaxOutput } from '../../tax-engine/tax-engine.interface.js';
-import { getBrackets, applyBrackets, getTaxParameters, periodsPerYear } from '../../tax-engine/tax-tables.js';
+import { validFilingStatus } from '../federal/fit-calculator.js';
+import { getBrackets, applyBrackets, getTaxParameters, periodsPerYear, requireBrackets } from '../../tax-engine/tax-tables.js';
 
 // ============================================================
 // State Income Tax Calculators
@@ -51,11 +52,14 @@ export class UsStateSitCalculator implements ITaxCalculator {
     }
 
     // Progressive: use brackets table
-    const fs = w4_data?.filing_status || filing_status || 'single';
-    const brackets = await getBrackets(this.jurisdiction, 'sit', tax_year, fs, 'annual');
-    if (brackets.length === 0) {
-      return { jurisdiction: this.jurisdiction, tax_type: this.taxType, tax_amount: 0, taxable_wages_used: 0 };
-    }
+    // Not declared stays 'single' (the W-4's own default); a declared but
+    // unknown status throws, and a status with no table throws below instead
+    // of falling back to 'single' or withholding 0.00 (MNE-001-353).
+    const fs = validFilingStatus(w4_data?.filing_status ?? filing_status);
+    const brackets = requireBrackets(
+      await getBrackets(this.jurisdiction, 'sit', tax_year, fs, 'annual'),
+      this.jurisdiction, 'sit', tax_year, fs
+    );
 
     const annualWages = taxable_wages * ppy;
     const { tax: annualTax, rate } = applyBrackets(brackets, annualWages);

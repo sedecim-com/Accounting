@@ -1,5 +1,5 @@
 import type { ITaxCalculator, TaxInput, TaxOutput, FilingStatus } from '../../tax-engine/tax-engine.interface.js';
-import { getBrackets, applyBrackets, periodsPerYear } from '../../tax-engine/tax-tables.js';
+import { getBrackets, applyBrackets, periodsPerYear, requireBrackets } from '../../tax-engine/tax-tables.js';
 
 // ============================================================
 // US Federal Income Tax — IRS Publication 15-T
@@ -72,7 +72,10 @@ export class UsFederalFitCalculator implements ITaxCalculator {
     annualWages = annualWages + otherIncome - deductions;
     if (annualWages < 0) annualWages = 0;
 
-    const brackets = await getBrackets(this.jurisdiction, 'fit', tax_year, filingStatus, 'annual');
+    const brackets = requireBrackets(
+      await getBrackets(this.jurisdiction, 'fit', tax_year, filingStatus, 'annual'),
+      this.jurisdiction, 'fit', tax_year, filingStatus
+    );
     const { tax: annualTax, rate } = applyBrackets(brackets, annualWages);
 
     const taxAfterCredits = Math.max(0, annualTax - dependentsCredit);

@@ -67,6 +67,32 @@ export async function getBrackets(
 }
 
 /**
+ * The brackets for one (jurisdiction, tax type, year, filing status), or an
+ * error naming the gap (MNE-001-353 · #127).
+ *
+ * An empty table is NOT a zero: `applyBrackets` over no rows returns 0.00, and
+ * a withholding of 0.00 because nobody seeded married_separately is
+ * indistinguishable from a legitimate one. The employer would stay a
+ * non-withholding agent for the whole year with a payslip that looks good.
+ * Same rule as `requiredParameter`: a datum that cannot be read is named.
+ */
+export function requireBrackets(
+  brackets: TaxBracket[],
+  jurisdiction: string,
+  taxType: string,
+  taxYear: number,
+  filingStatus: string | null
+): TaxBracket[] {
+  if (brackets.length > 0) return brackets;
+  throw new Error(
+    `No ${taxType} brackets for ${jurisdiction}, ${taxYear}, filing_status «${filingStatus ?? '-'}»: ` +
+    'the table is not seeded for this filing status. Withholding 0.00 here would be ' +
+    'indistinguishable from a legitimate zero and would leave the employer as a ' +
+    'non-withholding agent; seed the table with its source or fix the status.'
+  );
+}
+
+/**
  * The legal parameters in force on a given DATE.
  *
  * Two changes over what was here before, both for the same reason.
