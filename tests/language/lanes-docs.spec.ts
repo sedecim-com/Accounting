@@ -522,13 +522,19 @@ describe('lo que el árbol real enseña, y lo que NO debe volver a contarse', ()
     for (const m of dead) expect(fs.existsSync(path.join(ROOT, m)), m).toBe(false);
   });
 
-  it('la página inglesa del árbol se reconoce y las españolas no', () => {
+  it('las páginas inglesas del árbol ya tienen gemela y las españolas no se cuelan', () => {
     const english = linesFor('docs-english-pages-untwinned');
-    // docs/harness-best-practices.md está escrita entera en inglés (proporción
-    // española 0,008) y no tiene gemela.
-    expect(english).toContain('docs/harness-best-practices.md');
-    // Y ninguna de las 145 páginas en castellano se cuela: la que más se acerca
-    // al umbral está en 0,385, casi el doble del 0,20 que lo fija.
+    // MNE-001-191: docs/harness-best-practices.md y docs/cli-command-registry.md
+    // estaban escritas enteras en inglés sin gemela; ahora la tienen y el carril vale 0.
+    expect(english).not.toContain('docs/harness-best-practices.md');
+    expect(english).not.toContain('docs/cli-command-registry.md');
+    // El detector sigue reconociéndolas como inglesas: sin gemela volverían a contar.
+    for (const page of ['docs/harness-best-practices.md', 'docs/cli-command-registry.md']) {
+      const ratio = spanishRatio(fs.readFileSync(path.join(ROOT, page), 'utf8'));
+      expect(ratio !== null && ratio < 0.2, page).toBe(true);
+      expect(fs.existsSync(path.join(ROOT, page.replace(/\.md$/, '.es.md'))), page).toBe(true);
+    }
+    // Y ninguna página en castellano se cuela.
     expect(english).not.toContain('docs/SCOPE.md');
     expect(english).not.toContain('docs/plan-cierre-brechas.md');
     expect(english).not.toContain('docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md');
