@@ -1,11 +1,10 @@
-import path from 'node:path';
 import { query, enterTenant, currentTenant } from '../../database/connection.js';
 import { checkEntities } from '../../ai/doctor-service.js';
 import { ensureEntityAccounting } from '../../services/accounting/entity-accounting.js';
 import { createEntity as createEntityService } from '../../services/entity/entity-service.js';
 import { ensureFiscalYear } from '../../services/accounting/fiscal-calendar-service.js';
 import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
-import { upsertEnvVar } from './s0-infra.js';
+import { resolveEnvTarget, upsertEnvVar } from './s0-infra.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -31,6 +30,8 @@ const FISCAL_YEAR: CheckIdentity = { id: 'open-fiscal-periods', name: 'Fiscal ye
 
 export interface IdentidadDeps {
   cwd?: string;
+  /** Home directory for ~/.mnemosine/.env; default os.homedir(). */
+  home?: string;
 }
 
 export class IdentidadSection implements SetupSection {
@@ -92,7 +93,7 @@ export class IdentidadSection implements SetupSection {
       const add = await ctx.confirm('  Add another entity?', false);
       if (!add) {
         // Pin the tenant of the first one so RLS stays active.
-        this.persistTenant(existing.rows[0].tenant_id, ctx);
+        await this.persistTenant(existing.rows[0].tenant_id, ctx);
         await this.ensureFiscalYear(existing.rows[0].id, ctx);
         await this.ensureContabilidad(existing.rows[0].id, existing.rows[0].tenant_id, ctx);
         return;
@@ -117,19 +118,19 @@ export class IdentidadSection implements SetupSection {
     const currency = ctx.flags.currency ?? cat.currency;
 
     const created = await this.createEntity({ name, taxId, country, currency, cat });
-    this.persistTenant(created.tenantId, ctx);
+    await this.persistTenant(created.tenantId, ctx);
     ctx.print(`  ✔ Entity "${name}" created (${taxId}, ${country}, ${currency})`);
     await this.ensureFiscalYear(created.entityId, ctx);
     await this.ensureContabilidad(created.entityId, created.tenantId, ctx);
   }
 
   /** Pins the tenant in .env and in the process: RLS scopes from startup. */
-  private persistTenant(tenantId: string, ctx: SectionContext): void {
-    const envPath = path.join(this.deps.cwd ?? process.cwd(), '.env');
-    upsertEnvVar(envPath, 'MNEMOSINE_TENANT', tenantId);
+  private async persistTenant(tenantId: string, ctx: SectionContext): Promise<void> {
+    const envPath = await resolveEnvTarget(ctx, this.deps.cwd ?? process.cwd(), this.deps.home);
+    upsertEnvVar(envPath, 'MNEMOSINE_TENANT', tenantId, ctx.print);
     process.env.MNEMOSINE_TENANT = tenantId;
     enterTenant(tenantId);
-    ctx.print(`  ✔ Tenant pinned in .env (RLS isolation active)`);
+    ctx.print(`  ✔ Tenant pinned in ${envPath} (RLS isolation active)`);
   }
 
   /**

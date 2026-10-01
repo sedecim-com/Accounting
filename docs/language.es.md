@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: cc44d4eedd0dde80815656f1d9bbd097fadb33fc
+> Gemela en español de [`language.md`](language.md) · source_sha: 2574aa181c6dd11f0e79ef6ef826ac44d008f439
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -96,7 +96,7 @@ manual act and its trace is the diff.
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
 | `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10514 (baseline 10578) | 0 |
-| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5765 (baseline 5774) | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5764 (baseline 5774) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
