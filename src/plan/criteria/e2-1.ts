@@ -1252,7 +1252,7 @@ export const E2_1: Criterio[] = [
       }
       // 4. LA POSICIÓN SE EXIGE. Una declaración detrás del manejador
       //    certifica sin proteger, y el censo la contaba como cerrada.
-      if (!/if \(!Array\.isArray\(raiz\)\) \{\s*throw/.test(risk)) {
+      if (!/if \(!Array\.isArray\(raiz\)\) \{[\s\S]{0,400}?throw new Error/.test(risk)) {
         return falla('el censo volvió a devolver [] en silencio cuando no encuentra la pila del router: un instrumento que no miró contesta que no hay nada que declarar');
       }
       if (!/if \(salida\.length === 0 && mounted > 0\) \{\s*throw/.test(risk)) {
