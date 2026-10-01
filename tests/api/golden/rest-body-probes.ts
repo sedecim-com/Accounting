@@ -9,6 +9,7 @@ import { AppError } from '../../../src/utils/errors.js';
 
 // ============================================================
 // CONTRACT: the REST 422 body, pinned probe by probe (#367).
+// CONTRACT: the over-cap 422 diverges from the zod 3 recording by design since #407 / MNE-001-395, and the `overCapWithViolations` probes are post-migration additions.
 //
 // Every request-body schema the API validates is replayed through the REAL
 // `validateBody` with a deterministic set of probes, and the outcome is
@@ -430,6 +431,15 @@ export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body)
         probes.push({
           id: `${label(at)}:maxItems+1`,
           body: setAt(full, at, Array.from({ length: maxItems + 1 }, () => clone(element))),
+        });
+      }
+      if (maxItems !== undefined && maxItems >= 100) {
+        // #407: past a cap the body is refused before its elements are read, so
+        // the 422 names the cap and none of the invalid elements.
+        const bad = firstViolation(items, clone(element));
+        probes.push({
+          id: `${label(at)}:overCapWithViolations`,
+          body: setAt(full, at, Array.from({ length: maxItems + 1 }, () => clone(bad))),
         });
       }
       const pair = [firstViolation(items, clone(element)), wrongTypeFor(items) ?? null];
