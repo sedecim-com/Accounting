@@ -1,4 +1,6 @@
 import { query } from '../database/connection.js';
+import { calendarDateIn } from '../utils/calendar-date.js';
+import { todayForEntity, zoneForEntity } from '../services/policy/today.js';
 import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE, neutralizarEscalar } from './untrusted.js';
 import type { AgentContext } from './context.js';
 import { policyOptions } from '../services/policy/policy-service.js';
@@ -91,7 +93,7 @@ export async function correctMemory(
 
   const trail =
     `${current.context ? current.context + '\n' : ''}` +
-    `[corrected ${new Date().toISOString().split('T')[0]} by ${correctedBy}] ` +
+    `[corrected ${await todayForEntity(ctx.entityId)} by ${correctedBy}] ` +
     `previously said: ${current.answer}`;
 
   const r = await query<MemoryEntry>(
@@ -239,6 +241,7 @@ export async function buildMemoryDigest(
     [ctx.entityId]
   );
   if (r.rows.length === 0) return '';
+  const zone = await zoneForEntity(ctx.entityId);
 
   const lines: string[] = [];
   let used = 0;
@@ -246,7 +249,7 @@ export async function buildMemoryDigest(
   // Reserve room for the note so appending it never busts the budget.
   const budget = maxChars - (DIGEST_TRUNCATION_NOTE.length + 1);
   for (const row of r.rows) {
-    const date = new Date(row.answered_at).toISOString().split('T')[0];
+    const date = calendarDateIn(zone, new Date(row.answered_at));
     // Campo a campo: los cuatro son texto de fila, y `topic`/`question` los
     // redactó el modelo desde datos de tercero.
     const line =

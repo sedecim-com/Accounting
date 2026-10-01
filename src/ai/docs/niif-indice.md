@@ -3,7 +3,8 @@
 Este es el índice maestro de las NIIF (IFRS Accounting Standards) en la base
 de conocimiento. Cubre TODA norma, interpretación y edición PyMEs del IASB
 vigente o promulgada a la fecha de verificación, con su estado y en qué
-documento vive el detalle operativo.
+documento vive el detalle operativo. Al final lista también las fichas NIF
+(serie A) y ONIF que el agente consulta.
 
 **Cuándo aplican las NIIF para ti:** (1) por **supletoriedad** — donde las NIF
 mexicanas callan, la NIF A-1 cap. 90 remite a las NIIF de forma obligatoria
@@ -156,7 +157,19 @@ guía NO obligatoria y solo se listan aquí.
 | IFRS Practice Statement 1 | Comentarios de la Administración (revisado jun-2025) | vigente | Versión revisada emitida el 23-jun-2025; guía NO obligatoria (no es norma) |
 | IFRS Practice Statement 2 | Realización de Juicios sobre Materialidad | vigente | Guía NO obligatoria (no es norma) |
 
-_72 fichas · verificado 2026-09-06_
+### NIF mexicanas de la serie A → doc `nif-marco`
+
+| Norma | Nombre | Estado | Vigencia |
+|---|---|---|---|
+| NIF A-2 | Incertidumbres sobre negocio en marcha | vigente | Fecha de promulgación no verificada en fuente abierta (proyecto de auscultación jun-2024). |
+
+### Orientaciones a las NIF (ONIF) → doc `nif-registro`
+
+| Norma | Nombre | Estado | Vigencia |
+|---|---|---|---|
+| ONIF 7 | Contratos de construcción y contratos de compraventa de bienes de capital | vigente | Orientación NO obligatoria (30-ago-2024). |
+
+_74 fichas · verificado 2026-09-06_
 <!-- REGISTRY:END -->
 
 ## Cómo mantener actualizado este corpus
