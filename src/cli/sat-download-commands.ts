@@ -449,7 +449,11 @@ export function registerSatDownloadCommands(sat: Command, deps: SatCommandDeps):
     },
   });
 
-  const download = describeCommand(sat.command('download').alias('descarga'), 'help.sat.download.description');
+  // `sat download` is shared with the census (`reconcile`, MNE-001-119): whichever registers first creates the
+  // group, the other reuses it, so the order of registration does not matter.
+  const download =
+    sat.commands.find((existing) => existing.name() === 'download') ??
+    describeCommand(sat.command('download').alias('descarga'), 'help.sat.download.description');
   const entityOpt = (cmd: Command) => optionByKey(cmd, '-e, --entity <idOrName>', 'help.sat.download.option.entity');
   const userOpt = (cmd: Command) => optionByKey(cmd, '-u, --user <email>', 'help.sat.download.option.user');
   const jsonOpt = (cmd: Command) => {

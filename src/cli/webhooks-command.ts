@@ -1,5 +1,7 @@
 import type { Command } from 'commander';
 import { resolveEntity, bootstrapTenant } from '../ai/context.js';
+import { calendarDateTimeIn } from '../utils/calendar-date.js';
+import { zoneFor } from '../services/policy/today.js';
 import {
   issueWebhookToken,
   listWebhookTokens,
@@ -34,8 +36,7 @@ export interface WebhooksCommandDeps {
   reportError: (err: unknown) => void;
 }
 
-const fmtDate = (d: Date | null): string =>
-  d ? new Date(d).toISOString().replace('T', ' ').slice(0, 16) : 'never';
+const fmtDate = (d: Date | null, zone: string): string => (d ? calendarDateTimeIn(zone, d) : 'never');
 
 function parseSourceKind(value: string): WebhookSourceKind {
   const normalized = value.trim().toLowerCase() as WebhookSourceKind;
@@ -110,10 +111,11 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
             console.log(
               c.bold(`  ${'NAME'.padEnd(24)}${'SOURCE'.padEnd(20)}${'STATE'.padEnd(10)}LAST USED`)
             );
+            const zone = await zoneFor(ctx);
             for (const t of tokens) {
               const state = t.enabled ? 'enabled' : c.dim('disabled');
               console.log(
-                `  ${t.name.padEnd(24)}${t.source_kind.padEnd(20)}${state.padEnd(10)}${fmtDate(t.last_used_at)}`
+                `  ${t.name.padEnd(24)}${t.source_kind.padEnd(20)}${state.padEnd(10)}${fmtDate(t.last_used_at, zone)}`
               );
             }
           }
@@ -179,11 +181,12 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
                 `  ${'RECEIVED'.padEnd(18)}${'TOKEN'.padEnd(20)}${'STATUS'.padEnd(11)}${'DRAFTS'.padEnd(8)}DOCUMENT`
               )
             );
+            const zone = await zoneFor(ctx);
             for (const d of rows) {
               const suspicious = Array.isArray(d.suspicion) && d.suspicion.length > 0;
               const doc = d.document_key.length > 44 ? `${d.document_key.slice(0, 43)}…` : d.document_key;
               console.log(
-                `  ${fmtDate(d.received_at).padEnd(18)}${d.token_name.padEnd(20)}` +
+                `  ${fmtDate(d.received_at, zone).padEnd(18)}${d.token_name.padEnd(20)}` +
                   `${d.status.padEnd(11)}${String(d.drafts_created).padEnd(8)}${doc}` +
                   (suspicious ? ` ${c.yellow('[suspicious content]')}` : '')
               );

@@ -49,23 +49,23 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **276 comandos** repartidos en **75 familias** de primer nivel. De las **1639** filas del catálogo, **261** (15.9 %) ya se pueden invocar.
+El binario ejecuta hoy **277 comandos** repartidos en **75 familias** de primer nivel. De las **1640** filas del catálogo, **262** (16.0 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **299** filas lo declaran completo, **384** a medias y **956** inexistente.
+Del motor que cada comando necesita, **300** filas lo declaran completo, **384** a medias y **956** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **391** filas, de las que **218** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **392** filas, de las que **219** ya se teclean.
 
-**El objetivo comprometible son 1396 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1397 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1639 filas son **1617 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1640 filas son **1618 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
 | `bank` | 123 | 34 |
 | `account` | 21 | 16 |
 | `entry` | 35 | 13 |
+| `sat` | 23 | 11 |
 | `bill` | 41 | 10 |
-| `sat` | 22 | 10 |
 | `customer` | 26 | 9 |
 | `invoice` | 19 | 9 |
 | `report` | 32 | 8 |
@@ -1982,6 +1982,7 @@ Esta sección no publica diccionarios propios. **Los verbos (§1), los sustantiv
 | `mnemosine sat download status <id>` · `sat descarga estado` | Lee el último estado conocido de la solicitud desde el espejo local, **sin llamar al SAT**: es la mitad no credencializada de `sat download check`, y la que el agente sí puede invocar | `--json` | ✅ MNE-001-143 (#440): src/cli/sat-download-commands.ts sobre el motor de src/services/sat-download (MNE-001-142). Misma tabla que `sat download create`, leída sin salir a la red. | lectura | ✓ | 1 |
 | `mnemosine sat package download <id>` · `sat paquete descargar` | Baja cada paquete (base64 de un ZIP) antes de que expire a las 72 h y lo archiva por bytes con su hash. Se llama `package` y no `download` para que el último token sea el verbo y no repita el sustantivo | `-o/--output`, `--package`, `--import`, `--idempotency-key` | ✅ MNE-001-143 (#440): src/cli/sat-download-commands.ts sobre el motor de src/services/sat-download (MNE-001-142). Nota: `xml_documents.import_source` (src/database/migrations/005_xml_ingestion.sql:79) **ya admite el valor `'sat_download'`**. **IA ✗ por la regla (a): consume una credencial del cliente contra un tercero.** | externo | ✗ | 1 |
 | `mnemosine sat download list` · `sat descarga listar` | Solicitudes de la entidad con su estado, número de CFDI, paquetes y caducidad | `-s/--status`, `--since`, `-n/--limit`, `--json` | ✅ MNE-001-143 (#440): src/cli/sat-download-commands.ts sobre el motor de src/services/sat-download (MNE-001-142). | lectura | ✓ | 1 |
+| `mnemosine sat download reconcile` · `sat descarga conciliar` | Lee el censo del SAT de un mes contra lo contabilizado y lista lo que falta traer, lo que se trajo y falta contabilizar, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. No sale al SAT ni usa la e.firma: lee lo que cargó `ingest --kind zip\|metadata` | `--period AAAA-MM`, `-e/--entity`, `--json` | ✅ **hecha en MNE-001-119**: src/cli/sat-census-command.ts sobre `reconcileCensus` (src/services/sat-census/reconcile.ts). «Contabilizado» es un CFDI con factura, nota, gasto o cobro/pago ligado a un asiento posteado; un sentido que nadie cargó sale «no cargado», nunca vacío. Sale 4 si el mes no puede darse por completo. El peso al cierre (casilla `sat-census-missing`) lo fija la clave `census_missing_at_close` | lectura | ✓ | 1 |
 | `mnemosine sat quota show` · `sat cuota ver` | Estado de la guarda de 2-solicitudes-XML-por-periodo: qué rangos están quemados, cuáles quedan y cuáles son irrecuperables | `--since`, `--until`, `--json` | ✅ MNE-001-143 (#440): src/cli/sat-download-commands.ts sobre el motor de src/services/sat-download (MNE-001-142). La misma tabla de la fila `sat download create`, vista por contador en vez de por solicitud. | lectura | ✓ | 1 |
 | `mnemosine sat download sync` · `sat descarga sincronizar` | Ciclo por entidad **exclusivamente en modo metadata**, que está exento del tope: baja la metadata del rango, la diffea contra el censo local y **encola** —sin solicitar— el XML que falta, para que un humano lo arme con `sat download create` | `--window`, `--all-entities`, `--concurrency`, `--dry-run`, `--idempotency-key` | ❌ hay que construirlo. El modo es una propiedad del comando y no de una bandera: no existe `--kind xml` aquí, así que el permiso nunca depende del valor de un flag. **IA ✗ por la regla (a): aun en metadata firma con la e.firma del cliente contra el SAT; la mitad que el agente sí lee es `sat download status`.** | externo | ✗ | 1 |
 | `mnemosine sat download resume` · `sat descarga reanudar` | Retoma solicitudes atascadas o con paquetes vencidos, distinguiendo lo reintentable de lo permanente (`retryable_transient` / `permanent_quota` / `ambiguous`) | `--entity`, `--older-than`, `--idempotency-key`, `--json` | ❌ hay que construirlo. **IA ✗ por la regla (a): consume una credencial del cliente contra un tercero, y un bucle de reintentos agota el cupo diario de la e.firma.** | externo | ✗ | 2 |

@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 238 of 378 subcommands
+  spelling is `-T` at the root and `-t` on the 239 of 379 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -554,7 +554,8 @@ Options:
 
 Commands:
   cred               Fiscal credentials (e.firma)
-  download|descarga  Bulk download of CFDI from the SAT (e.firma)
+  download|descarga  Bulk download of CFDI from the SAT, and the census against
+                     the books
   package|paquete    Packages of a finished download request
   quota|cuota        The SAT's lifetime limit on identical XML requests
   help [command]     display help for command
@@ -604,6 +605,13 @@ Options:
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
+
+Examples:
+  # Validate the e.firma locally, without asking for the passphrase or storing anything.
+  mnemosine sat cred add --cer firma.cer --key firma.key --dry-run
+  # Store it in the vault for the entity (asks for the passphrase and the typed consent).
+  mnemosine sat cred add --cer firma.cer --key firma.key --entity "Demo Corp" --live
+
 
 Examples:
   # Validate a certificate and key pair locally; nothing is stored and no password is asked.
@@ -656,6 +664,13 @@ Options:
   -h, --help               display help for command
 
 Examples:
+  # See what a revocation would do, without touching the vault.
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --dry-run
+  # Revoke it and destroy the material (irreversible).
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --yes
+
+
+Examples:
   # See which credential would be destroyed; nothing is revoked.
   mnemosine sat cred revoke --dry-run
   # Revoke it, with the reason recorded in the audit trail.
@@ -667,12 +682,20 @@ Examples:
 ```
 Usage: mnemosine sat download|descarga [options] [command]
 
-Bulk download of CFDI from the SAT (e.firma)
+Bulk download of CFDI from the SAT, and the census against the books
 
 Options:
   -h, --help                      display help for command
 
 Commands:
+  reconcile|conciliar [options]   Read the SAT census of a month against what is
+                                  posted: what is still to fetch, what is
+                                  fetched and not posted, what the SAT cancelled
+                                  and the books still carry, and what the books
+                                  carry that the SAT does not list. Reads the
+                                  census that `ingest --kind zip|metadata`
+                                  loaded; it does not go to the SAT. Exits 4
+                                  when the month cannot be called complete
   create|crear [options]          Asks the SAT for a period's CFDI (refuses
                                   before calling when the lifetime XML limit is
                                   spent)
@@ -684,6 +707,36 @@ Commands:
   list|listar [options]           The entity's download requests with their
                                   state, CFDI count and packages
   help [command]                  display help for command
+```
+
+#### `mnemosine sat download reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine sat download reconcile|conciliar [options]
+
+Read the SAT census of a month against what is posted: what is still to fetch,
+what is fetched and not posted, what the SAT cancelled and the books still
+carry, and what the books carry that the SAT does not list. Reads the census
+that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4
+when the month cannot be called complete
+
+Options:
+  --period <YYYY-MM>                       month to reconcile, as YYYY-MM
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # What August's SAT census has that the books do not (exit 4 if the month is not complete).
+  mnemosine sat download reconcile --period 2026-08
+  # The same, as data, for a script.
+  mnemosine sat download reconcile --period 2026-08 --json
 ```
 
 #### `mnemosine sat download create` (alias: crear)
@@ -7020,7 +7073,7 @@ Print the offending rows of one check (ids, amounts, dates) and the exact
 command that fixes it
 
 Arguments:
-  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, fees-without-withholding, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, fees-without-withholding, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout, sat-census-missing
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -10431,6 +10484,9 @@ Options:
   --model <model>        Provider model
   -u, --user <email>     Email of the user to create
   -h, --help             display help for command
+
+.env: ./.env wins over ~/.mnemosine/.env. With neither, init asks (default ./.env in a checkout,
+~/.mnemosine/.env elsewhere); without a terminal it applies the same rule.
 ```
 
 ## `mnemosine close` (alias: cierre)
