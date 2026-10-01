@@ -10,6 +10,7 @@ vi.mock('../../../src/services/policy/policy-service.js', () => ({
 // "Today" has its own resolver and its own tests (today-in-zone); here it is a fixed day.
 vi.mock('../../../src/services/policy/today.js', () => ({
   todayFor: vi.fn().mockResolvedValue('2026-06-30'),
+  dayOrToday: vi.fn(async (_ctx: unknown, day?: string) => day ?? '2026-06-30'),
 }));
 
 import {
@@ -25,6 +26,7 @@ import {
   sembrarCatalogoAgrupadores,
   hayCatalogoVigente,
 } from '../../../src/services/accounting/sat-agrupadores.js';
+import { dayOrToday } from '../../../src/services/policy/today.js';
 import { C_CODAGRUP, rubroDe } from '../../../src/services/accounting/sat-agrupadores-catalogo.js';
 import { query } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
@@ -324,6 +326,20 @@ describe('setAccountMapping — la validación va ANTES del UPDATE', () => {
     expect(sql).toMatch(/UPDATE accounts SET codigo_agrupador_sat = \$1/);
     expect(sql).not.toMatch(/mx_nif_code/);
     expect(params).toEqual(['102.01', 'u1', 'cuenta-1']);
+  });
+
+  it('with a batch context it does not resolve the day again (no policy read per row)', async () => {
+    (dayOrToday as Mock).mockClear();
+    mockGetPolicy.mockResolvedValue(politica('rechazar'));
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ entity_id: ENTIDAD, tenant_id: TENANT }] })
+      .mockResolvedValueOnce({ rows: [{ codigo: '102.01', nombre: 'Bancos nacionales', nivel: 2 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'cuenta-1' }] });
+    const batch = { politica: 'rechazar', hayCatalogo: true, fecha: '2026-06-30' };
+
+    await setAccountMapping('cuenta-1', 'sat-agrupador', '102.01', 'u1', { validacion: batch });
+
+    expect(dayOrToday).not.toHaveBeenCalled();
   });
 
   it('limpiar el mapeo (null) no se valida: borrar no puede estar fuera de catálogo', async () => {

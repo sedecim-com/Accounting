@@ -69,7 +69,7 @@ vi.mock('../../src/services/accounting/account-service.js', async (importOrigina
 }));
 
 vi.mock('../../src/services/policy/today.js', () => ({
-  todayFor: () => Promise.resolve('2026-06-30'),
+  dayOrToday: (_ctx: unknown, day?: string) => Promise.resolve(day ?? '2026-06-30'),
 }));
 
 vi.mock('../../src/services/accounting/sat-agrupadores.js', () => ({

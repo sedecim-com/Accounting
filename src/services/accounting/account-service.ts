@@ -1,3 +1,4 @@
+import { dayOrToday } from '../policy/today.js';
 import { v4 as uuidv4 } from 'uuid';
 import { breachOfEdge, breachMessage, coherenceCriterion } from './parent-child-coherence.js';
 import { query, withTransaction } from '../../database/connection.js';
@@ -5,7 +6,6 @@ import { NotFoundError, ValidationError, ConflictError } from '../../utils/error
 import { logger } from '../../utils/logger.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { getPolicy } from '../policy/policy-service.js';
-import { todayFor } from '../policy/today.js';
 import type { PolicyContext } from '../policy/policy-service.js';
 import { resolvePeriod } from './fiscal-calendar-service.js';
 import {
@@ -801,8 +801,11 @@ export async function setAccountMapping(
   if (scheme === 'sat-agrupador' && value !== null) {
     const ctxPol = await contextoDePoliticaDeCuenta(id);
     if (ctxPol === null) throw new NotFoundError('Account', id);
-    const fecha = opts.fecha ?? (await todayFor(ctxPol));
-    const ctxVal = opts.validacion ?? (await prepararValidacionAgrupador(ctxPol, fecha));
+    // The day is resolved lazily: a caller that brings its batch context
+    // (the bulk import) must not cost a policy read per row.
+    const ctxVal =
+      opts.validacion ??
+      (await prepararValidacionAgrupador(ctxPol, await dayOrToday(ctxPol, opts.fecha)));
     // Revienta si la política dice rechazar; devuelve el veredicto si no.
     const veredicto = await exigirAgrupadorValido(ctxVal, value);
     // Un aviso que nadie recoge es un aviso perdido, así que va al log
@@ -887,7 +890,7 @@ export async function importAccountMappings(
     if (tenantId) {
       ctxVal = await prepararValidacionAgrupador(
         { tenantId, entityId },
-        opts.fecha ?? (await todayFor({ tenantId, entityId }))
+        await dayOrToday({ tenantId, entityId }, opts.fecha)
       );
     }
   }

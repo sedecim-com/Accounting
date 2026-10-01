@@ -4,7 +4,7 @@ vi.mock('../../src/database/connection.js', () => ({ query: vi.fn(), currentTena
 vi.mock('../../src/ai/shadow-verdicts.js', () => ({ concordanciaSombra: vi.fn() }));
 
 import { calendarDateIn, assertTimeZone } from '../../src/utils/calendar-date.js';
-import { todayFor, todayForEntity, todayForCustomer } from '../../src/services/policy/today.js';
+import { todayFor, dayOrToday, todayForEntity, todayForCustomer } from '../../src/services/policy/today.js';
 import { resolvePolicy } from '../../src/services/policy/policy-service.js';
 import { getPolicySpec } from '../../src/services/policy/pending-catalog.js';
 import { getTaxParameters } from '../../src/services/payroll/tax-engine/tax-tables.js';
@@ -117,6 +117,18 @@ describe('todayFor: the one resolver reads zona_horaria', () => {
     await expect(
       todayFor({ tenantId: 't1', entityId: 'e1' }, { now: EVENING_IN_MEXICO_CITY })
     ).rejects.toThrow(/not a time zone/);
+  });
+
+  it('dayOrToday: a named day wins without asking the resolver; otherwise the entity day (MNE-001-379)', async () => {
+    process.env.TZ = 'UTC';
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(EVENING_IN_MEXICO_CITY);
+    const ctx = { tenantId: 't1', entityId: 'e1' };
+    await expect(dayOrToday(ctx, '2025-12-31')).resolves.toBe('2025-12-31');
+    expect(mockQuery).not.toHaveBeenCalled();
+    await expect(dayOrToday(ctx)).resolves.toBe('2026-10-31');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
   });
 
   it('with no entity in hand it answers with the panel\'s declared default', async () => {
