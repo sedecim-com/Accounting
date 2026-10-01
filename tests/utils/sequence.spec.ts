@@ -3,6 +3,7 @@ import { clienteFalso } from '../helpers/fake-pg.js';
 import { ID } from '../helpers/entidades.js';
 import {
   nextEntityNumber,
+  nextVendorNumber,
   formatDocumentNumber,
   generateEntryNumber,
   añoDeDocumento,
@@ -93,5 +94,16 @@ describe('formatDocumentNumber', () => {
     // Se conserva para clientes y proveedores; los documentos financieros
     // usan nextEntityNumber. Ver la nota de obsolescencia en sequence.ts.
     expect(generateEntryNumber('C', 0)).toMatch(/^C-\d{4}-00001$/);
+  });
+});
+
+describe('nextVendorNumber · the one vendor counter (MNE-001-399)', () => {
+  it('draws from vendor_<year> of the creation year, never from COUNT(*)', async () => {
+    const cf = clienteFalso([
+      { cuando: /INSERT INTO entity_sequences/, responde: { rows: [{ value: '8' }] } },
+    ]);
+    const year = new Date().getFullYear();
+    expect(await nextVendorNumber(cf.client, ID.entidad)).toBe(`V-${year}-00008`);
+    expect(cf.coincidencias(/entity_sequences/)[0].params).toEqual([ID.entidad, `vendor_${year}`]);
   });
 });

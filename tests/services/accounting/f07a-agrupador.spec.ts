@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -7,16 +7,12 @@ vi.mock('../../../src/database/connection.js', () => ({
 vi.mock('../../../src/services/policy/policy-service.js', () => ({
   getPolicy: vi.fn(),
 }));
-// "Today" has its own resolver and its own tests (today-in-zone); here it is a fixed day.
-vi.mock('../../../src/services/policy/today.js', () => ({
-  todayFor: vi.fn().mockResolvedValue('2026-06-30'),
-  dayOrToday: vi.fn(async (_ctx: unknown, day?: string) => day ?? '2026-06-30'),
-}));
 
 import {
   checkMappingCoverageDetallada,
   checkMappingCoverage,
   setAccountMapping,
+  importAccountMappings,
   resolverEsquema,
   MAPPING_SCHEMES,
 } from '../../../src/services/accounting/account-service.js';
@@ -26,7 +22,6 @@ import {
   sembrarCatalogoAgrupadores,
   hayCatalogoVigente,
 } from '../../../src/services/accounting/sat-agrupadores.js';
-import { dayOrToday } from '../../../src/services/policy/today.js';
 import { C_CODAGRUP, rubroDe } from '../../../src/services/accounting/sat-agrupadores-catalogo.js';
 import { query } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
@@ -56,6 +51,11 @@ function fila(
 
 function politica(value: string, defined = false) {
   return { key: 'k', value, defined, question: 'q', rationale: null };
+}
+
+/** getPolicy stub that answers the zone key with Mexico City and everything else with `value`. */
+function zonePolicies(value: string, zona = 'America/Mexico_City') {
+  return async (_ctx: unknown, key: string) => (key === 'zona_horaria' ? politica(zona) : politica(value));
 }
 
 beforeEach(() => {
@@ -297,7 +297,7 @@ describe('validación contra el catálogo oficial c_CodAgrup', () => {
 // ============================================================
 describe('setAccountMapping — la validación va ANTES del UPDATE', () => {
   it('no escribe nada cuando el código está fuera de catálogo', async () => {
-    mockGetPolicy.mockResolvedValue(politica('rechazar'));
+    mockGetPolicy.mockImplementation(zonePolicies('rechazar'));
     mockQuery
       .mockResolvedValueOnce({ rows: [{ entity_id: ENTIDAD, tenant_id: TENANT }] })
       .mockResolvedValueOnce({ rows: [{ hay: true }] }) // hayCatalogoVigente
@@ -313,7 +313,7 @@ describe('setAccountMapping — la validación va ANTES del UPDATE', () => {
   });
 
   it('escribe en codigo_agrupador_sat cuando el código es válido', async () => {
-    mockGetPolicy.mockResolvedValue(politica('rechazar'));
+    mockGetPolicy.mockImplementation(zonePolicies('rechazar'));
     mockQuery
       .mockResolvedValueOnce({ rows: [{ entity_id: ENTIDAD, tenant_id: TENANT }] })
       .mockResolvedValueOnce({ rows: [{ hay: true }] })
@@ -328,18 +328,53 @@ describe('setAccountMapping — la validación va ANTES del UPDATE', () => {
     expect(params).toEqual(['102.01', 'u1', 'cuenta-1']);
   });
 
-  it('with a batch context it does not resolve the day again (no policy read per row)', async () => {
-    (dayOrToday as Mock).mockClear();
-    mockGetPolicy.mockResolvedValue(politica('rechazar'));
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ entity_id: ENTIDAD, tenant_id: TENANT }] })
-      .mockResolvedValueOnce({ rows: [{ codigo: '102.01', nombre: 'Bancos nacionales', nivel: 2 }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'cuenta-1' }] });
-    const batch = { politica: 'rechazar', hayCatalogo: true, fecha: '2026-06-30' };
+  describe('the default validation date is the entity-zone day (MNE-001-290)', () => {
+    // 31 Dec 20:00 in Mexico City is 1 Jan 02:00 UTC: the UTC day is already the next catalog year.
+    const EVENING_31_DEC = new Date('2027-01-01T02:00:00Z');
+    afterEach(() => vi.useRealTimers());
 
-    await setAccountMapping('cuenta-1', 'sat-agrupador', '102.01', 'u1', { validacion: batch });
+    it('a single write validates against the 31st, the same day the dry-run uses', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(EVENING_31_DEC);
+      mockGetPolicy.mockImplementation(zonePolicies('rechazar'));
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ entity_id: ENTIDAD, tenant_id: TENANT }] })
+        .mockResolvedValueOnce({ rows: [{ hay: true }] })
+        .mockResolvedValueOnce({ rows: [{ codigo: '102.01', nombre: 'Bancos nacionales', nivel: 2 }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'cuenta-1' }] });
 
-    expect(dayOrToday).not.toHaveBeenCalled();
+      await setAccountMapping('cuenta-1', 'sat-agrupador', '102.01', 'u1');
+
+      expect(mockQuery.mock.calls[1][1]).toEqual(['2026-12-31']);
+      expect(mockQuery.mock.calls[2][1]).toContain('2026-12-31');
+    });
+
+    it('the bulk mapping validates against the same day', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(EVENING_31_DEC);
+      mockGetPolicy.mockImplementation(zonePolicies('rechazar'));
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ tenant_id: TENANT }] })
+        .mockResolvedValueOnce({ rows: [{ hay: true }] });
+
+      await importAccountMappings(ENTIDAD, 'sat-agrupador', [], 'u1', { dryRun: true });
+
+      expect(mockQuery.mock.calls[1][1]).toEqual(['2026-12-31']);
+    });
+
+    it('with a batch context it does not resolve the day again (no policy read per row)', async () => {
+      mockGetPolicy.mockClear();
+      mockGetPolicy.mockResolvedValue(politica('rechazar'));
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ entity_id: ENTIDAD, tenant_id: TENANT }] })
+        .mockResolvedValueOnce({ rows: [{ codigo: '102.01', nombre: 'Bancos nacionales', nivel: 2 }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'cuenta-1' }] });
+      const batch = { politica: 'rechazar', hayCatalogo: true, fecha: '2026-06-30' };
+
+      await setAccountMapping('cuenta-1', 'sat-agrupador', '102.01', 'u1', { validacion: batch });
+
+      expect(mockGetPolicy.mock.calls.map((c) => c[1])).not.toContain('zona_horaria');
+    });
   });
 
   it('limpiar el mapeo (null) no se valida: borrar no puede estar fuera de catálogo', async () => {

@@ -3,7 +3,7 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10578,
+    "spanish-identifiers-src": 10579,
     "spanish-identifiers-tests": 5774,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 51,
@@ -18,7 +18,7 @@
     "test-mocks-of-spanish-modules": 11,
     "docs-dead-path-citations": 341,
     "src-spanish-comment-lines": 27780,
-    "docs-english-pages-untwinned": 2,
+    "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
     "help-descriptions-without-key": 1163
@@ -232,7 +232,7 @@
       "src/services/fx/rate-service.ts": 52,
       "src/services/idempotency/idempotency-store.ts": 24,
       "src/services/integrations/accounting/contalink-adapter.ts": 2,
-      "src/services/integrations/base/adapter.interface.ts": 2,
+      "src/services/integrations/base/adapter.interface.ts": 3,
       "src/services/integrations/mexico/pac/edicom-adapter.ts": 4,
       "src/services/integrations/mexico/pac/finkok-adapter.ts": 4,
       "src/services/integrations/mexico/pac/pac-router.ts": 3,
@@ -1440,10 +1440,7 @@
       "src/utils/strip-comments.ts": 35,
       "src/utils/zod-client-errors.ts": 1
     },
-    "docs-english-pages-untwinned": {
-      "docs/cli-command-registry.md": 1,
-      "docs/harness-best-practices.md": 1
-    },
+    "docs-english-pages-untwinned": {},
     "untagged-comment-markers": {
       "src/services/accounting/validation.ts": 1
     },

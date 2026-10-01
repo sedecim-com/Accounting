@@ -43,6 +43,9 @@ import {
   normalizeLocale,
   resolveLocale,
 } from '../i18n/locale.js';
+import { calendarDateIn, calendarDateTimeIn } from '../utils/calendar-date.js';
+import { zoneFor } from '../services/policy/today.js';
+
 // Two dials one letter apart, and this file touches both. The one imported here
 // pins the language the CLI PRINTS in: it lives in memory and dies with the
 // process. The other one — the language the AGENT answers in — is persisted to
@@ -146,6 +149,7 @@ import { registerPayRunCommand } from './pay-run-command.js';
 import { registerAnexo24MigrationCommands } from './anexo24-migration-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
+import { registerFilingWorkpaperCommand } from './filing-workpaper-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerGarnishmentCommand } from './garnishment-command.js';
 import { registerEmployeeCommand } from './employee-command.js';
@@ -1439,7 +1443,7 @@ describeCommand(program.command('chat', { isDefault: true }), 'help.chat.descrip
               .catch(transcriptOff);
           }
           const when = resumed.last_active_at instanceof Date
-            ? resumed.last_active_at.toISOString().replace('T', ' ').slice(0, 16)
+            ? calendarDateTimeIn(await zoneFor(ctx), resumed.last_active_at)
             : String(resumed.last_active_at);
           console.log(c.dim(`Resuming session ${resumed.id}`));
           console.log(c.dim(`  ${resumed.title ?? `${resumed.provider} · ${resumed.model}`} · last active ${when}`));
@@ -1642,9 +1646,10 @@ describeCommand(program.command('sessions').alias('sesiones'), 'help.sessions.de
       if (sessions.length === 0) {
         console.log('No recorded sessions for this entity.');
       } else {
+        const zone = await zoneFor(ctx);
         for (const s of sessions) {
           const when = s.last_active_at instanceof Date
-            ? s.last_active_at.toISOString().replace('T', ' ').slice(0, 16)
+            ? calendarDateTimeIn(zone, s.last_active_at)
             : String(s.last_active_at);
           console.log(
             `${c.bold(s.title ?? '(untitled)')}  ` +
@@ -3031,8 +3036,8 @@ outbox.action(async (opts: { entity?: string; user?: string; list?: boolean }) =
   await correrOutboxImpl(outboxRun, [], opts);
 });
 
-function renderQuestion(q: QuestionRow, index: number, total: number): void {
-  console.log(c.bold(`\n─── Question ${index + 1}/${total} ───`) + c.dim(`  (${q.created_at.toISOString?.().split('T')[0] ?? q.created_at})`));
+function renderQuestion(q: QuestionRow, index: number, total: number, zone: string): void {
+  console.log(c.bold(`\n─── Question ${index + 1}/${total} ───`) + c.dim(`  (${q.created_at instanceof Date ? calendarDateIn(zone, q.created_at) : q.created_at})`));
   console.log(q.question);
   if (q.context) console.log(c.dim(q.context));
   if (q.options?.length) q.options.forEach((o, i) => console.log(`  ${i + 1}) ${o}`));
@@ -3046,7 +3051,7 @@ function renderQuestion(q: QuestionRow, index: number, total: number): void {
 // `questions`/`dudas` vivos como aliases de compatibilidad.
 // ============================================================
 
-async function listarQuestionsImpl(opts: {
+export async function listarQuestionsImpl(opts: {
   entity?: string; status?: string[]; limit?: number; offset?: number; all?: boolean;
   format?: string; json?: boolean; output?: string; fields?: string | boolean; quiet?: boolean;
 }): Promise<void> {
@@ -3058,6 +3063,7 @@ async function listarQuestionsImpl(opts: {
       throw usageError(`Unknown --status "${s}". Use one of: ${ESTADOS.join(', ')}.`);
     }
   }
+  const zone = await zoneFor(ctx);
   const todas: QuestionRow[] = [];
   for (const s of pedidos) todas.push(...(await listQuestions(ctx, s)));
   const inicio = opts.offset ?? 0;
@@ -3067,7 +3073,7 @@ async function listarQuestionsImpl(opts: {
     visibles.map((q) => ({
       id: q.id,
       status: q.status,
-      created: q.created_at instanceof Date ? q.created_at.toISOString().split('T')[0] : String(q.created_at),
+      created: q.created_at instanceof Date ? calendarDateIn(zone, q.created_at) : String(q.created_at),
       question: q.question.slice(0, 70),
       options: q.options?.length ? String(q.options.length) : '',
       topic: q.topic ?? '',
@@ -3250,6 +3256,7 @@ async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Pr
         c.dim(` · ${ctx.entityName} · ${pending.length} pending · answers: ${reviewer.email}`)
     );
 
+    const zone = await zoneFor(ctx);
     rl = readline.createInterface({ input: stdin, output: stdout });
     rl.on('SIGINT', () => {
       stdout.write(c.dim('\nInterrupted.\n'));
@@ -3263,7 +3270,7 @@ async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Pr
     let dismissed = 0;
     for (let i = 0; i < pending.length; i++) {
       const q = pending[i];
-      renderQuestion(q, i, pending.length);
+      renderQuestion(q, i, pending.length, zone);
       const reply = await askQuestionReply(preguntar, q.options);
       if (reply === null) break; // stdin EOF: stop cleanly instead of hanging
       if (reply.kind === 'quit') break;
@@ -3543,6 +3550,7 @@ registerPayrollCommand(program, { palette: c, shutdown, reportError });
 registerPayRunCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
+registerFilingWorkpaperCommand(program, { palette: c, shutdown, reportError });
 // F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y
 // `tax-deposit` (el pasivo patronal, que lleva IMSS e INFONAVIT además del
 // ISN — colgarlo de `isn` habría sido mentira).

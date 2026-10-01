@@ -22,10 +22,16 @@ export async function todayFor(
   ctx: PolicyContext | null,
   opts: { client?: pg.PoolClient; now?: Date } = {}
 ): Promise<string> {
-  const zone = ctx
-    ? (await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value
-    : defaultTimeZone();
-  return calendarDateIn(zone, opts.now);
+  return calendarDateIn(await zoneFor(ctx, opts.client), opts.now);
+}
+
+/**
+ * The `zona_horaria` in force for a context (entity row, else the firm's, else
+ * the panel default), for renderers that format many instants and must not
+ * read the policy once per row (MNE-001-290).
+ */
+export async function zoneFor(ctx: PolicyContext | null, client?: pg.PoolClient): Promise<string> {
+  return ctx ? (await getPolicy(ctx, TIME_ZONE_POLICY_KEY, client)).value : defaultTimeZone();
 }
 
 /**
@@ -48,11 +54,19 @@ export async function dayOrToday(ctx: PolicyContext, day?: string): Promise<stri
  * must not fail for the date it would have used on an empty page.
  */
 export async function todayForEntity(entityId: string, opts: { now?: Date } = {}): Promise<string> {
+  return calendarDateIn(await zoneForEntity(entityId), opts.now);
+}
+
+/**
+ * The zone of an entity the caller holds only by id, for formatting instants
+ * (MNE-001-290). Same tenant resolution and same fallback as `todayForEntity`.
+ */
+export async function zoneForEntity(entityId: string): Promise<string> {
   const tenantId =
     currentTenant() ??
     (await query<{ tenant_id: string }>('SELECT tenant_id FROM legal_entities WHERE id = $1', [entityId]))
       .rows[0]?.tenant_id;
-  return todayFor(tenantId ? { tenantId, entityId } : null, opts);
+  return zoneFor(tenantId ? { tenantId, entityId } : null);
 }
 
 /**

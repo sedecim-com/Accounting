@@ -647,7 +647,7 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/policy/today.ts',
-        de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value',
+        de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, client)).value',
         a: 'defaultTimeZone()',
         porque: "the policy stops being read: an entity in Tijuana or Cancún gets Mexico City's day whatever it answered",
       },
@@ -747,7 +747,7 @@ export const E1_2: Criterio[] = [
       if (!/new Intl\.DateTimeFormat\([^)]*\{\s*timeZone,/.test(u) || !u.includes("field('day')")) {
         return falla('calendarDateIn no longer takes the day in the zone it was given');
       }
-      if (!codigoDe(resolver).includes('await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)')) {
+      if (!codigoDe(resolver).includes('await getPolicy(ctx, TIME_ZONE_POLICY_KEY, client)') || !codigoDe(resolver).includes('calendarDateIn(await zoneFor(ctx, opts.client), opts.now)')) {
         return falla('todayFor no longer reads the zona_horaria policy: the entity\'s answer is ignored');
       }
       if (!codigoDe('src/services/policy/pending-catalog.ts').includes("TIME_ZONE_POLICY_KEY = 'zona_horaria'")) {
@@ -862,8 +862,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/policy/today.ts',
-        de: 'return todayFor(tenantId ? { tenantId, entityId } : null, opts);',
-        a: 'return todayFor(null, opts);',
+        de: 'return zoneFor(tenantId ? { tenantId, entityId } : null);',
+        a: 'return zoneFor(null);',
         porque: "the entity's own zona_horaria row stops being read: an entity in Tokyo gets Mexico City's day",
       },
     ],
@@ -921,7 +921,12 @@ export const E1_2: Criterio[] = [
         return falla("the agent's prompt no longer states the resolved day");
       }
       const r = codigoDe(resolver);
-      if (!r.includes('return todayFor(tenantId ? { tenantId, entityId } : null, opts);')) {
+      // The zone of an entity held by id is resolved in `zoneForEntity` (MNE-001-290 split it out of
+      // `todayForEntity` so the renderers of instants share it), and "today" is that zone's calendar day.
+      if (
+        !r.includes('return zoneFor(tenantId ? { tenantId, entityId } : null);') ||
+        !r.includes('calendarDateIn(await zoneForEntity(entityId), opts.now)')
+      ) {
         return falla("todayForEntity no longer reads the entity's zona_horaria row");
       }
       if (!r.includes('return todayFor(row ? { tenantId: row.tenant_id, entityId: row.entity_id } : null, opts);')) {
@@ -1054,7 +1059,7 @@ export const E1_2: Criterio[] = [
       if (!(resolvesVendor < checksVendor && checksVendor < writesVendor)) {
         return falla('la guarda del anticipo a proveedor quedó fuera de orden respecto a su INSERT');
       }
-      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos)')) {
+      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod')) {
         return falla('el INSERT del pago a proveedor volvió a tomar la moneda del respaldo literal en vez de la resuelta');
       }
 
@@ -3620,6 +3625,62 @@ export const E1_2: Criterio[] = [
         existe('tests/xml-ingestion/fees-without-withholding.spec.ts')
         ? ok('612 fees with no ISR withheld follow the panel, and goods are not taken for fees')
         : falla('no test RUNS the three answers of fees_without_withholding');
+    },
+  },
+  {
+    paquete: 'E1.2',
+    id: 'iva-workpaper-prorates-mixed-activities',
+    enunciado:
+      'The monthly IVA workpaper credits the IVA paid in the proportion of LIVA art. 5 fr. V, the month by default and the prior year when the panel says so (#308, MNE-001-385)',
+    mutantes: [
+      {
+        archivo: 'src/services/fiscal/iva-workpaper.ts',
+        de: 'creditable: q4(new Decimal(paid).times(acts.taxed).dividedBy(total)),',
+        a: 'creditable: q4(paid),',
+        porque: 'the IVA paid is credited whole next to exempt acts: the creditable IVA is overstated',
+      },
+      {
+        archivo: 'src/services/fiscal/iva-workpaper.ts',
+        de: "...rateLines('creditable', f.creditable, f.proration ? 0 : -1),",
+        a: "...rateLines('creditable', f.creditable, -1),",
+        porque: 'the settlement subtracts the IVA paid and its credited share: the IVA is credited twice',
+      },
+      {
+        archivo: 'src/services/fiscal/iva-workpaper.ts',
+        de: "method === 'monthly' ? range : { desde: `${year - 1}-01-01`, hasta: `${year - 1}-12-31` }",
+        a: "method === 'monthly' ? range : { desde: `${year}-01-01`, hasta: `${year}-12-31` }",
+        porque: 'the annual option reads the current year instead of the prior one (LIVA art. 5-B)',
+      },
+      {
+        archivo: 'src/services/policy/pending-catalog.ts',
+        de: "defaultValue: 'monthly',",
+        a: "defaultValue: 'annual',",
+        porque: 'an unanswered panel binds the entity to the prior-year option, which art. 5-B holds for sixty months',
+      },
+    ],
+    evaluar: () => {
+      const wp = codigoDe('src/services/fiscal/iva-workpaper.ts');
+      if (!/creditable: q4\(new Decimal\(paid\)\.times\(acts\.taxed\)\.dividedBy\(total\)\),/.test(wp)) {
+        return falla('the credited IVA is no longer the IVA paid times the taxed acts over all the acts');
+      }
+      if (!/rateLines\('creditable', f\.creditable, f\.proration \? 0 : -1\)/.test(wp) ||
+          !/\['creditable\.prorated', f\.proration\.creditable, -1\]/.test(wp)) {
+        return falla('the prorated settlement does not subtract only the credited share');
+      }
+      if (!/\{ desde: `\$\{year - 1\}-01-01`, hasta: `\$\{year - 1\}-12-31` \}/.test(wp)) {
+        return falla('the annual option no longer reads the prior calendar year (LIVA art. 5-B)');
+      }
+      if (/IVA-WP-PRORATION-NOT-APPLIED/.test(wp)) {
+        return falla('the workpaper still warns that the proration is not applied');
+      }
+      const catalog = codigoDe('src/services/policy/pending-catalog.ts');
+      const spec = /key: 'iva_creditable_proration',[\s\S]*?priority:/.exec(catalog)?.[0] ?? '';
+      if (!/defaultValue: 'monthly',/.test(spec)) {
+        return falla('iva_creditable_proration no longer defaults to the month proportion (LIVA art. 5 fr. V inc. c)');
+      }
+      return existe('tests/integration/mne-001-385-iva-proration.int.spec.ts')
+        ? ok('the IVA paid is credited by the month or prior-year proportion, and only that share is subtracted')
+        : falla('no test RUNS the proration against a month of mixed activities');
     },
   },
   {
