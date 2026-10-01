@@ -6,8 +6,9 @@ import { z } from 'zod';
 
 // ============================================================
 // CONTRACT: the REST 422 body, and the parsed body behind it (#367).
+// CONTRACT: the over-cap 422 diverges from the zod 3 recording by design since #407 / MNE-001-395, and the `overCapWithViolations` probes are post-migration additions.
 //
-// This file must pass UNCHANGED on zod 3.25.76 and on zod 4: the owner's
+// Except for the over-cap 422 (#407), this file must pass UNCHANGED on zod 3.25.76 and on zod 4: the owner's
 // decision on #367 is that the Zod 4 migration keeps every 422 byte-identical
 // (code, prose, field paths, issue order) and every parsed body identical.
 // The only exceptions are the tightenings listed in TIGHTENINGS below, which
@@ -62,7 +63,7 @@ const movement = (extra: Record<string, unknown> = {}) => ({
 const CAP_EXIT = 'Parte el extracto, o cárgalo con `mnemosine bank statement import`, que inserta por lotes.';
 const INVALID = 'Invalid request body: ';
 
-describe('G1 · every REST body probe answers exactly what zod 3 answered', () => {
+describe('G1 · every REST body probe answers what zod 3 answered (bar the #407 over-cap 422)', () => {
   it('matches tests/api/golden/rest-body.golden.json entry by entry', () => {
     const golden = JSON.parse(fs.readFileSync(REST_BODY_GOLDEN, 'utf8')) as Record<string, string>;
     const actual = recordRestBodyGolden();

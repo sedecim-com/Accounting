@@ -1,6 +1,20 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// The real route module is imported for its schemas; keep it off the database.
+vi.mock('../../src/database/connection.js', () => ({
+  query: vi.fn(),
+  withTransaction: vi.fn(),
+  withTenant: vi.fn(),
+  enterTenant: vi.fn(),
+  currentTenant: vi.fn(),
+  getClient: vi.fn(),
+  setTenantSchema: vi.fn(),
+  initDatabase: vi.fn(),
+  closeDatabase: vi.fn(),
+  getPool: vi.fn(),
+}));
 import { z } from 'zod';
 import type { Request, Response } from 'express';
 import { validateBody } from '../../src/api/rest/middleware/async-handler.js';
@@ -11,6 +25,7 @@ import {
   type ClientIssue,
 } from '../../src/utils/zod-client-errors.js';
 import { arregloAcotado } from '../../src/api/rest/topes.js';
+import { bulkPreRegSchema, uploadXmlSchema } from '../../src/api/rest/routes/xml-ingestion.js';
 import { boundedString, emailString, integerNumber, urlString, uuidString } from '../../src/utils/zod-compat.js';
 
 // CONTRACT: src/utils/zod-client-errors.ts is the only place where a Zod
@@ -334,24 +349,36 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
 
 describe('a body far past an array cap is refused at once (#407)', () => {
   // express.json's 10 MB limit holds ~5.2 million `1,` elements. Zod used to
-  // build an issue per element before the cap applied: ~24 s for the 422.
+  // build an issue per element before the cap applied: ~11-24 s for the 422.
   const ELEMENTS = 5_200_000;
-  it('answers a 10 MB body of invalid elements in under a second', () => {
-    const text = `{"xml_contents":[${Array<string>(ELEMENTS).fill('1').join(',')}]}`;
+  const ones = Array<string>(ELEMENTS).fill('1').join(',');
+
+  it('answers the 10 MB xml_contents body of invalid elements, on the real upload schema, in under a second', () => {
+    const text = `{"xml_contents":[${ones}]}`;
     expect(text.length).toBeGreaterThan(10_000_000);
     const body: unknown = JSON.parse(text);
-    const schema = z.object({
-      xml_contents: arregloAcotado(z.string(), { tope: 100, plural: 'documentos', salida: 'Parte el lote.' }),
-    });
     const started = performance.now();
-    const parsed = parseForClient(schema, body);
+    const parsed = parseForClient(uploadXmlSchema, body);
     const elapsed = performance.now() - started;
     expect(parsed).toEqual({
       success: false,
       issues: [
-        { path: 'xml_contents', message: `llegaron ${ELEMENTS} documentos y caben 100 por petición. Parte el lote.` },
+        {
+          path: 'xml_contents',
+          message: expect.stringContaining(`llegaron ${ELEMENTS} documentos y caben 100 por petición.`) as string,
+        },
       ],
     });
+    expect(elapsed).toBeLessThan(1000);
+  }, 120_000);
+
+  it('does the same for the bulk pre-registration ids', () => {
+    const body: unknown = JSON.parse(`{"action":"approve","ids":[${ones}]}`);
+    const started = performance.now();
+    const parsed = parseForClient(bulkPreRegSchema, body);
+    const elapsed = performance.now() - started;
+    expect(parsed.success).toBe(false);
+    expect(!parsed.success && parsed.issues.map((i) => i.path)).toEqual(['ids']);
     expect(elapsed).toBeLessThan(1000);
   }, 120_000);
 });

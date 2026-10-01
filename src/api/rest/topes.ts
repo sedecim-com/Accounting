@@ -121,7 +121,7 @@ type CappedCheck = z.core.$ZodCheck & {
  * 422 only loses the element issues of a body that was over the cap anyway.
  *
  * It subclasses ZodArray, like ZodV3Record does for records, so the converter
- * and every chained method (`.optional()` aside, `.describe()`, `.refine()`)
+ * and every chained method (`.describe()`, `.refine()`, `.min()`; `.optional()` wraps it)
  * see an ordinary array: zod clones through `_zod.constr`, which is this class.
  */
 const ZodCappedArray = z.core.$constructor('ZodCappedArray', (inst: z.ZodArray, def: z.core.$ZodArrayDef) => {
@@ -160,17 +160,17 @@ export function cotaDeArreglo(esquema: z.core.$ZodType): number | undefined {
 }
 
 /**
- * Un arreglo con tope, y con un refusal que se puede leer.
+ * Un arreglo con tope, y con un rechazo que se puede leer.
  *
  * `z.array(...).max(n)` ya nombra el tope («at most 5000 element(s)»), pero
  * no dice cuántos llegaron ni a dónde ir con el resto, y quien recibe ese
  * 422 con un extracto de veinte mil líneas necesita las dos cosas para
- * partirlo. El mensaje se arma aquí para que los cuatro topes suenen igual.
+ * partirlo. El mensaje se arma aquí para que todos los topes suenen igual.
  *
  * The minimum is an option rather than a chained `.min()` for a reason zod 3
  * had (its refinement wrapper had no `.min()`); on zod 4 chaining would work,
- * since the cap travels on its check, and the option stays so the four call
- * sites keep one shape.
+ * since the cap travels on its check, and the option stays so every call
+ * site keeps one shape.
  */
 export function arregloAcotado<T extends z.ZodType>(
   elemento: T,
