@@ -43,6 +43,10 @@ El agente nunca escribe el mayor ni sistemas externos, así que apagarlo no pier
 - Las credenciales fiscales viven en la bóveda (`src/services/vault/`), cifradas.
 - La llave de Contalink es de cada entidad (#357, ADR-0004): vive en la bóveda y `external_system_credentials` guarda sólo la referencia, el RFC y el estado. Se registra con `mnemosine init --section import` (opción 1), que la pide con eco oculto. El RFC lo **declara quien registra la llave**: debe ser el de la entidad y se vuelve a comparar con el RFC vigente de la entidad en cada uso, pero nada consulta a Contalink qué compañía abre esa llave. `CONTALINK_API_KEY` se retiró y ya no se lee (`mnemosine doctor` avisa si sigue en `.env`): un despliegue que la tenía deja de leer y escribir en Contalink hasta registrar la llave de cada entidad. Sin llave, o con la de otro RFC, la operación aprobada vuelve a `pending` con el motivo, no sale ninguna llamada y el CLI termina con el código de bloqueo.
 
+## Dónde vive el `.env`
+
+El CLI carga `./.env` y, después, `~/.mnemosine/.env` (`src/config/env-file.ts`); **`./.env` gana** si ambos definen la variable. `mnemosine init` (cualquier sección que escriba: infraestructura, identidad o IA) usa el que ya exista; si no hay ninguno, pregunta (por omisión `./.env` dentro de un checkout, `~/.mnemosine/.env` fuera de uno), y sin terminal aplica esa misma regla y dice cuál eligió. El archivo queda en modo 600 y `~/.mnemosine/` en 700, aunque ya existieran más abiertos.
+
 ## Identidad con Cognito
 
 Con `AUTH_OIDC_PROVIDER=cognito`, la API acepta los access tokens del user pool (#369):
