@@ -2262,6 +2262,46 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I adjust every line to pesos before adding them.',
     priority: 42,
   },
+  // #308 · MNE-001-059. Read by `readSalesReturnsTreatment`
+  // (fiscal/provisional-income-tax.ts). The nominal income of the payment has
+  // to be built as the coefficient's denominator was, or the coefficient is
+  // applied to a figure it was not measured against.
+  {
+    key: 'provisional_isr_sales_returns',
+    textKey: 'provisional_isr_sales_returns',
+    category: 'fiscal',
+    question:
+      'In the provisional ISR, do sales returns, discounts and allowances lower the nominal income, or are they left to the annual return as a deduction?',
+    impact:
+      'It moves the nominal income of every monthly ISR payment by the returns of the year, and the estimated profit by that amount times the coefficient.',
+    options: [
+      {
+        value: 'deduction',
+        label: 'A deduction: the nominal income is gross, and the returns wait for the annual return',
+      },
+      {
+        value: 'net_of_income',
+        label: 'Net of income: the returns of the year are subtracted from the nominal income',
+      },
+    ],
+    defaultValue: 'deduction',
+    defaultRationale:
+      'LISR art. 14 fr. I takes as nominal income the accumulable income, less only the accumulable inflation ' +
+      'adjustment, and LISR art. 25 fr. I makes the returns, discounts and allowances of the year a deduction, not ' +
+      'a smaller income. The coefficient of the annual return divides the tax profit by that gross nominal income, ' +
+      'so a monthly base built the same way is the one the coefficient was measured against. Unverified ' +
+      'assumption: that the annual return the coefficient comes from declared the returns as a deduction; a firm ' +
+      'whose return netted them picks the other option.',
+    whyAsking:
+      'The law calls the returns a deduction, but firms that net them in their annual return also net them every ' +
+      'month. The coefficient and the monthly nominal income have to be built the same way.',
+    whatIDo:
+      'The workpaper lists the revenue accounts that carry the sales-returns role apart from the nominal income, ' +
+      'and adds them to it or not as you choose here.',
+    ifSkipped:
+      'I leave the returns out of the nominal income, as a deduction of the annual return.',
+    priority: 43,
+  },
   // #297 · MNE-001-110. Decided by the owner in MNE-001-109: the exemption of
   // the law, configurable. Reader: `overtimeLaw` in payroll/mx/isr-exemption.ts,
   // only when a paycheck carries an `overtime` earning.

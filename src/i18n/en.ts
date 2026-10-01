@@ -1378,6 +1378,22 @@ export const EN = {
     'Every line: each captured figure is adjusted to pesos and the arithmetic continues in whole pesos',
   'policy.filing_rounding_to_pesos.option.solo_el_pago':
     'Only the payment: the arithmetic runs in cents and only the result is adjusted to pesos',
+  'policy.provisional_isr_sales_returns.question':
+    'In the provisional ISR, do sales returns, discounts and allowances lower the nominal income, or are they left to the annual return as a deduction?',
+  'policy.provisional_isr_sales_returns.impact':
+    'It moves the nominal income of every monthly ISR payment by the returns of the year, and the estimated profit by that amount times the coefficient.',
+  'policy.provisional_isr_sales_returns.rationale':
+    'LISR art. 14 fr. I takes as nominal income the accumulable income, less only the accumulable inflation adjustment, and LISR art. 25 fr. I makes the returns, discounts and allowances of the year a deduction, not a smaller income. The coefficient of the annual return divides the tax profit by that gross nominal income, so a monthly base built the same way is the one the coefficient was measured against. Unverified assumption: that the annual return the coefficient comes from declared the returns as a deduction; a firm whose return netted them picks the other option.',
+  'policy.provisional_isr_sales_returns.why':
+    'The law calls the returns a deduction, but firms that net them in their annual return also net them every month. The coefficient and the monthly nominal income have to be built the same way.',
+  'policy.provisional_isr_sales_returns.what':
+    'The workpaper lists the revenue accounts that carry the sales-returns role apart from the nominal income, and adds them to it or not as you choose here.',
+  'policy.provisional_isr_sales_returns.if_skipped':
+    'I leave the returns out of the nominal income, as a deduction of the annual return.',
+  'policy.provisional_isr_sales_returns.option.deduction':
+    'A deduction: the nominal income is gross, and the returns wait for the annual return',
+  'policy.provisional_isr_sales_returns.option.net_of_income':
+    'Net of income: the returns of the year are subtracted from the nominal income',
   'policy.overtime_isr_exemption.question':
     'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
   'policy.overtime_isr_exemption.impact':
