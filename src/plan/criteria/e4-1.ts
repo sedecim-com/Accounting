@@ -2713,7 +2713,7 @@ export const E4_1: Criterio[] = [
         return falla('getBrackets caches an empty table again: a gap seeded later keeps throwing until restart');
       }
       if (!/checkUsTaxTables\(/.test(codigoDe('src/services/payroll/common/pay-run-service.ts'))) {
-        return falla('the run no longer checks every US employee\'s tax tables before the first paycheck: a gap leaves a half-written run');
+        return falla('the run no longer checks the tax tables of every US employee before the first paycheck: a gap leaves a half-written run');
       }
 
       // 3. Y EL IMPUESTO LOCAL ENTRA AL ASIENTO.
