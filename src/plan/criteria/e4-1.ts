@@ -888,6 +888,9 @@ export const E4_1: Criterio[] = [
         'accrue-benefits',
         'amortize-prepaids',
         'depreciate-assets',
+        // MNE-001-112: the revaluation is an engine too, and the checklist
+        // judges the balance sheet at the closing rate.
+        'revalue-fx',
         'verify-checklist',
         'soft-close',
         'hard-close',
@@ -920,6 +923,7 @@ export const E4_1: Criterio[] = [
         'await runMonthlyProvisions(ctx.entityId, period.id, opts.userId)',
         'await runMonthlyAmortization(ctx.entityId, period.id, opts.userId)',
         'await runMonthlyDepreciation(ctx.entityId, period.id, opts.userId)',
+        'await revalueForeignBalances(ctx, period.id, opts.userId)',
         'await getCloseReadiness(ctx, period)',
         'await softClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason)',
         'await hardClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason)',
@@ -971,7 +975,7 @@ export const E4_1: Criterio[] = [
       }
 
       return ok(
-        `los seis pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
+        `los siete pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
           'todos corridos en cada intento, y sin calcular ninguna cifra de los libros'
       );
     },
@@ -979,9 +983,9 @@ export const E4_1: Criterio[] = [
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
         de:
-          "  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'verify-checklist',",
+          "  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'revalue-fx',\n  'verify-checklist',",
         a:
-          "  'verify-checklist',\n  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',",
+          "  'verify-checklist',\n  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'revalue-fx',",
         porque:
           'el checklist pasa a correr ANTES de los motores: su veredicto describe un mes al que ' +
           'todavía le faltan los asientos de ajuste que se van a postear',

@@ -277,6 +277,13 @@ export interface TrialBalanceFilters extends RangoConsultado {
    * de informe y por eso no obedece al panel.
    */
   ignoreClosingPolicy?: boolean;
+  /**
+   * Leaves the closing entries (and their reversals) out whatever the panel
+   * says. A tax figure is not a presentation choice: the December close
+   * sweeps the year's revenue, and the provisional ISR of December would
+   * read zero income (MNE-001-059).
+   */
+  excludeClosingEntries?: boolean;
 }
 
 /** Builds the `AND …` fragment that lives INSIDE the (jel JOIN je) pair. */
@@ -341,7 +348,8 @@ export async function queryTrialBalanceRows(
   const criterio = filters.ignoreClosingPolicy
     ? null
     : await criterioDeCierreEnInformes(entityId, client);
-  const closingFilter = criterio && !criterio.enBalanza ? predicadoSinCierre() : '';
+  const closingFilter =
+    filters.excludeClosingEntries || (criterio && !criterio.enBalanza) ? predicadoSinCierre() : '';
   // Unidos sin dejar un hueco cuando uno de los dos falta: los predicados del
   // par (jel JOIN je) se leen —y se prueban— como una sola cadena.
   const jeFilters = [periodFilter, closingFilter].filter((p) => p !== '').join(' ');

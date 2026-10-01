@@ -205,8 +205,12 @@ describe('a sale born from its CFDI is split by the CFDI, on cash basis', () => 
     expect(september.settlement?.resultWhole).toBe('120');
   });
 
-  it('exempt and no objeto acts collected: the unapplied proration is named', () => {
-    expect(september.findings.map((h) => h.codigo)).toContain('IVA-WP-PRORATION-NOT-APPLIED');
+  it('exempt and no objeto acts collected: both count in the proportion (MNE-001-385)', () => {
+    // 1 000 taxed of 1 000 + 500 exempt + 250 no objeto; no IVA paid, so nothing to credit.
+    expect(september.figures.proration).toMatchObject({
+      method: 'monthly', taxedActs: '1000.0000', totalActs: '1750.0000', factor: '0.571429', creditable: '0.0000',
+    });
+    expect(september.findings.map((h) => h.codigo)).not.toContain('IVA-WP-PRORATION-NOT-APPLIED');
     expect(september.findings.map((h) => h.codigo)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
   });
 });
