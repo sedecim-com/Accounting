@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DOC_TOPICS } from '../../src/ai/tools/docs-tools.js';
-import { regenerateIndice } from '../../scripts/build-niif-indice.js';
+import { freshnessProblem, monthsSince, regenerateIndice } from '../../scripts/build-niif-indice.js';
 
 // __dirname instead of import.meta.url: the test project compiles as CommonJS,
 // where import.meta is a syntax error. Same directory either way, and it is what
@@ -73,5 +73,47 @@ describe('ifrs-registry.json — la fuente de verdad del corpus NIIF', () => {
       expect(content.length, `${topic}.md muy corto`).toBeGreaterThan(1500);
       expect(content.startsWith('# NIIF'), `${topic}.md sin título NIIF`).toBe(true);
     }
+  });
+});
+
+describe('freshness of the normative corpus (docs/PROCESS.md)', () => {
+  const processMd = fs.readFileSync(path.join(DOCS, '..', '..', '..', 'docs', 'PROCESS.md'), 'utf-8');
+  const maxMonths = Number(/^FRESHNESS_MAX_MONTHS:\s*(\d+)\s*$/m.exec(processMd)?.[1]);
+
+  it('PROCESS.md declares N as a positive whole number of months', () => {
+    expect(Number.isInteger(maxMonths) && maxMonths > 0).toBe(true);
+  });
+
+  it('counts whole months from verified_at', () => {
+    const now = new Date('2026-09-30T12:00:00Z');
+    expect(monthsSince('2026-09-30', now)).toBe(0);
+    expect(monthsSince('2026-03-30', now)).toBe(6);
+    expect(monthsSince('2026-03-31', now)).toBe(5);
+    expect(monthsSince('2025-09-30', now)).toBe(12);
+  });
+
+  it('the guard fails at N+1 months, passes at N, and rejects a future or malformed date', () => {
+    const now = new Date('2026-09-30T12:00:00Z');
+    expect(freshnessProblem('2026-03-30', now, 6)).toBeNull(); // exactly N
+    expect(freshnessProblem('2026-02-28', now, 6)).toMatch(/7 months old; max 6/); // N+1
+    expect(freshnessProblem('2026-10-01', now, 6)).toMatch(/future/);
+    expect(freshnessProblem('2026-9-1', now, 6)).toMatch(/not a YYYY-MM-DD/);
+    expect(freshnessProblem('2026-13-45', now, 6)).toMatch(/not a YYYY-MM-DD/);
+  });
+
+  // Intended to go red on its own as the calendar advances (for the current
+  // verified_at, around 2027-03-06): renew the corpus, then bump the date.
+  it('verified_at is no older than N months (renew the corpus, then bump the date)', () => {
+    expect(freshnessProblem(registry.verified_at, new Date(), maxMonths)).toBeNull();
+  });
+
+  it('indexes the new NIF A-2 and ONIF 7 (MNE-001-078)', () => {
+    const indexDoc = fs.readFileSync(path.join(DOCS, 'niif-indice.md'), 'utf-8');
+    for (const code of ['NIF A-2', 'ONIF 7']) {
+      expect(registry.standards.map((s) => s.code), code).toContain(code);
+      expect(indexDoc, code).toContain(`| ${code} |`);
+    }
+    const frameworkDoc = fs.readFileSync(path.join(DOCS, 'nif-marco.md'), 'utf-8');
+    expect(frameworkDoc).toContain('Incertidumbres sobre negocio en marcha');
   });
 });

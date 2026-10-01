@@ -14,6 +14,7 @@ import { assertTimeZone } from '../../utils/calendar-date.js';
 import type { JurisdictionCode } from '../jurisdiction/jurisdiction.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
 import Decimal from 'decimal.js';
+import { specWording, type PanelTranslate } from './policy-text-key.js';
 
 // ============================================================
 // POLICY SERVICE
@@ -210,16 +211,26 @@ export interface PolicyWording {
 /** The seeded text columns of a row: all the wording a row can offer. */
 export type SeededWording = Pick<PolicyRow, 'key' | 'question' | 'impact' | 'options' | 'default_rationale'>;
 
-export function policyWording(row: SeededWording): PolicyWording {
+export function policyWording(row: SeededWording, translate?: PanelTranslate): PolicyWording {
   const spec = getPolicySpec(row.key);
   if (spec === undefined) return seedSnapshotWording(row);
+  // By key, in the language `translate` is bound to (the edge passes it).
+  // Without one the spec's own English prose answers, which is the source the
+  // `en` catalog was extracted from. The options are a fresh list, so a caller
+  // that reorders or trims it must not reach into the catalog.
+  const wording = translate
+    ? specWording(spec, translate)
+    : {
+        question: spec.question,
+        impact: spec.impact,
+        defaultRationale: spec.defaultRationale,
+        options: spec.options.map(({ value, label }) => ({ value, label })),
+      };
   return {
-    question: spec.question,
-    impact: spec.impact,
-    // Copied, not shared: a caller that reorders or trims its list must not
-    // reach into the catalog.
-    options: spec.options.map(({ value, label }) => ({ value, label })),
-    defaultRationale: spec.defaultRationale,
+    question: wording.question,
+    impact: wording.impact,
+    options: wording.options,
+    defaultRationale: wording.defaultRationale,
     source: 'catalog',
   };
 }

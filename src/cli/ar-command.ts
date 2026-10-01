@@ -11,6 +11,8 @@ import {
   checkExitCode,
   exitCodeFor,
   dateOnly,
+  describeCommand,
+  optionByKey,
 } from './kernel/index.js';
 
 // ============================================================
@@ -71,10 +73,8 @@ Examples:
 } as const;
 
 export function registerArCommand(program: Command, deps: ArCommandDeps): void {
-  const ar = program
-    .command('ar')
-    .alias('cxc')
-    .description('Receivables controls: reconcile the subledger against the control account, run named diagnostics');
+  // Help by key (#314): help.ar.<leaf>.{description,option.<flag>}.
+  const ar = describeCommand(program.command('ar').alias('cxc'), 'help.ar.description');
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -96,12 +96,9 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
   };
 
   // ---- ar reconcile ------------------------------------------------
-  const reconcile = ar
-    .command('reconcile')
-    .alias('conciliar')
-    .description('Subledger (open invoices − unapplied credit notes) vs the cxc control account, naming manual entries');
+  const reconcile = describeCommand(ar.command('reconcile').alias('conciliar'), 'help.ar.reconcile.description');
   withOutput(withContext(reconcile));
-  reconcile.option('--strict', 'exit 4 on any delta, however small the list of suspects');
+  optionByKey(reconcile, '--strict', 'help.ar.reconcile.option.strict');
   declareRisk(reconcile, { risk: 'lectura', agent: true });
   reconcile.addHelpText('after', EJEMPLOS.reconcile);
   reconcile.action((opts: CommonOpts) =>
@@ -154,14 +151,10 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
   );
 
   // ---- ar check ----------------------------------------------------
-  const check = ar
-    .command('check')
-    .alias('verificar')
-    .description('Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects');
+  const check = describeCommand(ar.command('check').alias('verificar'), 'help.ar.check.description');
   withOutput(withContext(check));
-  check
-    .option('--check [names]', 'comma-separated diagnostics to run; bare --check lists the battery')
-    .option('--strict', 'exit 4 on warnings too, not only blocking findings');
+  optionByKey(check, '--check [names]', 'help.ar.check.option.check');
+  optionByKey(check, '--strict', 'help.ar.check.option.strict');
   declareRisk(check, { risk: 'lectura', agent: true });
   check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts) =>
