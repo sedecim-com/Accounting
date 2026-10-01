@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { integrationRegistry } from '../../base/registry.js';
-import type { IPacAdapter, AdapterContext, AdapterHealthCheck } from '../../base/adapter.interface.js';
+import type { IPacAdapter, PacDatasheet, AdapterContext, AdapterHealthCheck } from '../../base/adapter.interface.js';
 import { AccountingError } from '../../../../utils/errors.js';
 
 interface FinkokCredentials {
@@ -20,6 +20,13 @@ export class FinkokAdapter implements IPacAdapter {
   readonly providerId = 'finkok';
   readonly displayName = 'Finkok';
   readonly regions = ['MX'] as const;
+  readonly datasheet: PacDatasheet = {
+    provider: 'Finkok',
+    satAuthorization: { number: null, verified: false },
+    // language-allow: field name fixed by the backlog acceptance (MNE-001-309)
+    timbradoPresellado: true,
+    sandbox: { url: 'https://demo-facturacion.finkok.com' },
+  };
 
   // Fabrica el UUID y el sello con crypto.randomBytes: no habla con 
   // Finkok. Mientras siga así, el cerrojo impide que su folio se guarde

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { integrationRegistry } from '../../base/registry.js';
-import type { IPacAdapter, AdapterContext, AdapterHealthCheck } from '../../base/adapter.interface.js';
+import type { IPacAdapter, PacDatasheet, AdapterContext, AdapterHealthCheck } from '../../base/adapter.interface.js';
 import { AccountingError } from '../../../../utils/errors.js';
 
 interface EdicomCredentials {
@@ -19,6 +19,13 @@ export class EdicomAdapter implements IPacAdapter {
   readonly providerId = 'edicom';
   readonly displayName = 'Edicom';
   readonly regions = ['MX'] as const;
+  readonly datasheet: PacDatasheet = {
+    provider: 'Edicom',
+    satAuthorization: { number: null, verified: false },
+    // language-allow: field name fixed by the backlog acceptance (MNE-001-309)
+    timbradoPresellado: true,
+    sandbox: { url: null },
+  };
 
   // Fabrica el UUID y el sello con crypto.randomBytes: no habla con 
   // Edicom. Mientras siga así, el cerrojo impide que su folio se guarde

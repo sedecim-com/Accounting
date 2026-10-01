@@ -46,6 +46,21 @@ for (const adaptador of Object.values(PAC_ADAPTERS)) {
   integrationRegistry.register(adaptador);
 }
 
+/**
+ * Default failover order for a tenant with no saved preferences. Evidence-based
+ * (docs/pac-proveedores.md): SW Sapien first (pre-sealed XML + customId that
+ * dedupes retries), Prodigia second (cfdiPorUUID recovers a lost stamp),
+ * Solucion Factible as reserve, Finkok last. Ids with no registered adapter yet
+ * (prodigia, solucion_factible) are skipped by the router until their adapters
+ * land (MNE-001-311/312).
+ */
+export const DEFAULT_PAC_ORDER: readonly string[] = [
+  'sw_sapien',
+  'prodigia',
+  'solucion_factible',
+  'finkok',
+];
+
 interface PacPreferences {
   pac_primary: string;
   pac_secondary: string | null;
@@ -58,6 +73,13 @@ export class PacRouter {
    * Get tenant's PAC preferences (or defaults)
    */
   async getPreferences(tenantId: string): Promise<PacPreferences> {
+    return (await this.resolvePreferences(tenantId)).prefs;
+  }
+
+  /** Preferences plus the full ordered candidate list (the default order has four entries, the table three columns). */
+  private async resolvePreferences(
+    tenantId: string
+  ): Promise<{ prefs: PacPreferences; order: string[] }> {
     const result = await query<PacPreferences>(
       `SELECT pac_primary, pac_secondary, pac_tertiary, auto_failover
        FROM pac_preferences WHERE tenant_id = $1`,
@@ -66,13 +88,22 @@ export class PacRouter {
 
     if (result.rows.length === 0) {
       return {
-        pac_primary: 'finkok',
-        pac_secondary: 'sw_sapien',
-        pac_tertiary: 'edicom',
-        auto_failover: true,
+        prefs: {
+          pac_primary: DEFAULT_PAC_ORDER[0],
+          pac_secondary: DEFAULT_PAC_ORDER[1],
+          pac_tertiary: DEFAULT_PAC_ORDER[2],
+          auto_failover: true,
+        },
+        order: [...DEFAULT_PAC_ORDER],
       };
     }
-    return result.rows[0];
+    const prefs = result.rows[0];
+    return {
+      prefs,
+      order: [prefs.pac_primary, prefs.pac_secondary, prefs.pac_tertiary].filter(
+        (x): x is string => !!x
+      ),
+    };
   }
 
   /**
@@ -90,9 +121,9 @@ export class PacRouter {
          updated_at = NOW()`,
       [
         tenantId,
-        prefs.pac_primary || 'finkok',
-        prefs.pac_secondary || 'sw_sapien',
-        prefs.pac_tertiary || 'edicom',
+        prefs.pac_primary || DEFAULT_PAC_ORDER[0],
+        prefs.pac_secondary || DEFAULT_PAC_ORDER[1],
+        prefs.pac_tertiary || DEFAULT_PAC_ORDER[2],
         prefs.auto_failover ?? true,
       ]
     );
@@ -103,13 +134,9 @@ export class PacRouter {
    * Returns the adapter + selected provider ID.
    */
   async selectPac(ctx: AdapterContext): Promise<{ adapter: IPacAdapter; providerId: string }> {
-    const prefs = await this.getPreferences(ctx.tenantId);
+    const { prefs, order: candidates } = await this.resolvePreferences(ctx.tenantId);
     const tried: string[] = [];
     const errors: string[] = [];
-
-    const candidates = [prefs.pac_primary, prefs.pac_secondary, prefs.pac_tertiary]
-      .filter((x): x is string => !!x);
-
     for (const providerId of candidates) {
       const adapter = PAC_ADAPTERS[providerId];
       if (!adapter) continue;
@@ -156,10 +183,7 @@ export class PacRouter {
      *  producción y con CFDI_PERMITIR_SIMULACION=true). */
     simulado: boolean;
   }> {
-    const prefs = await this.getPreferences(ctx.tenantId);
-    const candidates = [prefs.pac_primary, prefs.pac_secondary, prefs.pac_tertiary]
-      .filter((x): x is string => !!x);
-
+    const { prefs, order: candidates } = await this.resolvePreferences(ctx.tenantId);
     const errors: Array<{ provider: string; error: string }> = [];
 
     for (let i = 0; i < candidates.length; i++) {

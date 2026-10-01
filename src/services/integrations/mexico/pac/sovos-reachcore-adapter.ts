@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import { integrationRegistry } from '../../base/registry.js';
-import type { IPacAdapter, AdapterContext, AdapterHealthCheck } from '../../base/adapter.interface.js';
+import type { IPacAdapter, PacDatasheet, AdapterContext, AdapterHealthCheck } from '../../base/adapter.interface.js';
 import { AccountingError } from '../../../../utils/errors.js';
 
 // ============================================================
@@ -117,6 +117,13 @@ export class SovosReachcoreAdapter implements IPacAdapter {
   readonly providerId = 'sovos_reachcore';
   readonly displayName = 'Sovos (Reachcore) · RC Timbre 6.0';
   readonly regions = ['MX'] as const;
+  readonly datasheet: PacDatasheet = {
+    provider: 'Sovos Reachcore',
+    satAuthorization: { number: '55267', verified: false },
+    // language-allow: field name fixed by the backlog acceptance (MNE-001-309)
+    timbradoPresellado: true,
+    sandbox: { url: 'https://oat.reachcore.com' },
+  };
   readonly category = 'pac' as const;
 
   /**
