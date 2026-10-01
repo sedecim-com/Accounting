@@ -31,6 +31,8 @@
 // más a una que no las usa se manifiesta como cuatro renglones en cero.
 // ============================================================
 
+import type { Locale } from '../../i18n/locale.js';
+
 /** Autoridad fiscal que gobierna a la entidad. El producto arranca con dos. */
 export type JurisdictionCode = 'MX' | 'US';
 
@@ -292,19 +294,47 @@ export function sqlKeepsMexicanBooks(alias: string): string {
 // PER-JURISDICTION PACKAGE DATA
 //
 // MNE-001-177 (issue #159). `statutoryLanguage` is the BCP 47 tag of the
-// language in which the law of `fiscal` is written, and therefore the one in
-// which statutory account names are rendered when a chart is seeded (the
-// seeds take it up in MNE-001-178/179). It follows `fiscal`, not `books`:
-// the SAT chart is Spanish and the IRS one English whatever the norm used
-// for recognition. It is NOT the viewer's UI language; that stays a
-// per-user setting.
+// language in which the statutory account names of a chart are rendered when
+// it is seeded (the seeds take it up in MNE-001-178/179). It is NOT the
+// viewer's UI language, which stays a per-user setting.
+//
+// WHICH ENTITY GETS WHICH LANGUAGE. The rule is the language of the authority
+// whose chart stratum is seeded, so it is derived from the SAME predicate that
+// selects the stratum (`keepsMexicanBooks`, see `catalogoBasePara`) and the
+// two cannot disagree. Best practice: one decision, one source of truth
+// (Hunt & Thomas, "DRY"), and a language tag travels with the content it
+// labels (W3C i18n, "Declaring language"; BCP 47 / RFC 5646). Concretely:
+//
+//   - keeps Mexican books (MX, absent country, or accounting_standard
+//     mx_nif even if incorporated in US) -> SAT stratum, Spanish -> es-MX.
+//   - otherwise it follows `fiscal`: US -> en-US; any unmodelled country (CA)
+//     falls to MX by the house rule -> es-MX. That entity is seeded the
+//     NEUTRAL stratum, which differs from the SAT one in content (3 accounts)
+//     but not in language: its names are still Spanish.
+//
+// A US entity on mx_nif therefore gets es-MX, NOT en-US: it receives the SAT
+// stratum, whose names are the Spanish of the SAT code grouper. This is the
+// one case where `statutoryLanguageOf(e)` differs from
+// `jurisdictionOf(e).fiscal`, on purpose.
+//
+// RELATION TO OTHER TABLES.
+//   - `FORMAT_LOCALES` (src/i18n/format.ts) is intentionally separate: it is
+//     the number and date FORMAT of the fiscal authority, a presentation
+//     choice, whereas this is the language of the statutory TEXT. Today they
+//     coincide for MX and US; they may diverge and nothing may couple them.
+//   - docs/jurisdicciones.md §3.2 designs the richer J0 package, where the
+//     label language is `informes.idioma` ('es' | 'en'). `statutoryLanguage`
+//     is the field that package will absorb (as a full BCP 47 tag, of which
+//     `informes.idioma` is the primary subtag), so J0 widens this interface
+//     instead of renaming it.
 // ============================================================
 
-/** BCP 47 tags of the statutory languages the product models. */
-export type StatutoryLanguage = 'es-MX' | 'en-US';
+/** A statutory language is one of the product's locales (owner decision D12). */
+export type StatutoryLanguage = Locale;
 
+/** Partial J0 package: only what MNE-001-177 declares so far. */
 export interface JurisdictionPackage {
-  /** Language of the law of this jurisdiction; renders statutory names. */
+  /** Language of the statutory names of this authority's chart stratum. */
   statutoryLanguage: StatutoryLanguage;
 }
 
@@ -314,7 +344,14 @@ export const JURISDICTIONS: Readonly<Record<JurisdictionCode, JurisdictionPackag
   US: Object.freeze({ statutoryLanguage: 'en-US' }),
 });
 
-/** Statutory language of an entity, via its fiscal authority. */
+/**
+ * Statutory language of an entity: the language of the chart stratum it is
+ * seeded with. Mexican books (the `keepsMexicanBooks` predicate) always mean
+ * the Spanish SAT stratum; every other entity follows its fiscal authority.
+ */
 export function statutoryLanguageOf(e: EntityWithJurisdiction): StatutoryLanguage {
+  if (keepsMexicanBooks(e.incorporation_country, e.accounting_standard)) {
+    return JURISDICTIONS.MX.statutoryLanguage;
+  }
   return JURISDICTIONS[jurisdictionOf(e).fiscal].statutoryLanguage;
 }
