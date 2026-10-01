@@ -10,6 +10,7 @@ import {
   parseForClient,
   type ClientIssue,
 } from '../../src/utils/zod-client-errors.js';
+import { arregloAcotado } from '../../src/api/rest/topes.js';
 import { boundedString, emailString, integerNumber, urlString, uuidString } from '../../src/utils/zod-compat.js';
 
 // CONTRACT: src/utils/zod-client-errors.ts is the only place where a Zod
@@ -329,4 +330,28 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
     // magnitude above 3 at this size, so 3 leaves room for a noisy runner.
     expect(adapter / floor).toBeLessThan(3);
   }, TIMEOUT_MS);
+});
+
+describe('a body far past an array cap is refused at once (#407)', () => {
+  // express.json's 10 MB limit holds ~5.2 million `1,` elements. Zod used to
+  // build an issue per element before the cap applied: ~24 s for the 422.
+  const ELEMENTS = 5_200_000;
+  it('answers a 10 MB body of invalid elements in under a second', () => {
+    const text = `{"xml_contents":[${Array<string>(ELEMENTS).fill('1').join(',')}]}`;
+    expect(text.length).toBeGreaterThan(10_000_000);
+    const body: unknown = JSON.parse(text);
+    const schema = z.object({
+      xml_contents: arregloAcotado(z.string(), { tope: 100, plural: 'documentos', salida: 'Parte el lote.' }),
+    });
+    const started = performance.now();
+    const parsed = parseForClient(schema, body);
+    const elapsed = performance.now() - started;
+    expect(parsed).toEqual({
+      success: false,
+      issues: [
+        { path: 'xml_contents', message: `llegaron ${ELEMENTS} documentos y caben 100 por petición. Parte el lote.` },
+      ],
+    });
+    expect(elapsed).toBeLessThan(1000);
+  }, 120_000);
 });

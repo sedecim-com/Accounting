@@ -428,6 +428,15 @@ export function probesFor(schema: JsonNode, fixup: SampleFixup = (body) => body)
           body: setAt(full, at, Array.from({ length: maxItems + 1 }, () => clone(element))),
         });
       }
+      if (maxItems !== undefined && maxItems > 100) {
+        // #407: past a cap the body is refused before its elements are read, so
+        // the 422 names the cap and none of the invalid elements.
+        const bad = firstViolation(items, clone(element));
+        probes.push({
+          id: `${label(at)}:overCapWithViolations`,
+          body: setAt(full, at, Array.from({ length: maxItems + 1 }, () => clone(bad))),
+        });
+      }
       const pair = [firstViolation(items, clone(element)), wrongTypeFor(items) ?? null];
       probes.push({ id: `${label(at)}:violationThenWrongType`, body: setAt(full, at, pair) });
       visit(items, [...at, 0]);

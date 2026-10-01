@@ -131,11 +131,13 @@ describe('G2 · targeted rows on real routes', () => {
       `422 VALIDATION_ERROR ${INVALID}transactions: llegaron 5001 movimientos y caben 5000 por petición. ${CAP_EXIT}`,
     ],
     [
-      'the array cap comes AFTER the element issues',
+      // CONTRACT (#407, MNE-001-395; frozen by #367 until then): a body past the
+      // cap is refused before its elements are validated, so the element issue
+      // that used to precede the cap line is no longer listed.
+      'the array cap is reported alone, before the element issues',
       'POST /v1/bank-accounts/:account_id/import',
       { transactions: [movement({ bank_transaction_id: '' }), ...Array.from({ length: 5000 }, () => movement())] },
-      `422 VALIDATION_ERROR ${INVALID}transactions.0.bank_transaction_id: String must contain at least 1 character(s); ` +
-        `transactions: llegaron 5001 movimientos y caben 5000 por petición. ${CAP_EXIT}`,
+      `422 VALIDATION_ERROR ${INVALID}transactions: llegaron 5001 movimientos y caben 5000 por petición. ${CAP_EXIT}`,
     ],
     [
       'passthrough keeps an unknown key',
