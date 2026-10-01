@@ -16,6 +16,9 @@ import {
 } from '../services/policy/policy-service.js';
 import { getPolicySpec } from '../services/policy/pending-catalog.js';
 import { previewFor } from '../services/policy/policy-preview.js';
+import { panelTranslator, previewText } from '../i18n/panel-text.js';
+import { specWording } from '../services/policy/policy-text-key.js';
+import { t } from '../i18n/index.js';
 import { exitCodeFor, notFound } from './kernel/index.js';
 import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from './policy-answer.js';
 
@@ -73,11 +76,6 @@ function panelScope(ctx: AgentContext): { tenantId: string; entityId: string } {
   return { tenantId: ctx.tenantId, entityId: ctx.entityId };
 }
 
-/** Pluralize: "1 thing" / "4 things". */
-function plural(n: number, singular: string, plural_: string): string {
-  return `${n} ${n === 1 ? singular : plural_}`;
-}
-
 // ─── Work board ───
 
 /**
@@ -88,14 +86,14 @@ function plural(n: number, singular: string, plural_: string): string {
 export function renderBoard(board: PendingBoard, entityName: string, c: Palette): string[] {
   const out: string[] = [];
   if (board.items.length === 0) {
-    out.push(c.bold(`${entityName}: `) + 'Nothing pending. All caught up.');
+    out.push(c.bold(`${entityName}: `) + t('pending.board.empty'));
     return out;
   }
 
   const header =
     board.totalWork > 0
-      ? `${plural(board.totalWork, 'thing to resolve', 'things to resolve')}`
-      : 'warnings only';
+      ? t('pending.board.work', { count: board.totalWork })
+      : t('pending.board.warnings_only');
   out.push(c.bold(`${entityName}: `) + header);
 
   for (const item of board.items) {
@@ -193,14 +191,15 @@ export function renderExplanation(
   indent = '   '
 ): string[] {
   const spec = getPolicySpec(key);
+  const wording = spec ? specWording(spec, panelTranslator()) : undefined;
   const out: string[] = [];
-  if (spec?.whyAsking) out.push(...field('why I ask', spec.whyAsking, c, indent));
-  if (spec?.whatIDo) out.push(...field('what I do', spec.whatIDo, c, indent));
-  if (spec?.ifSkipped) out.push(...field('if you skip it', spec.ifSkipped, c, indent));
+  if (wording?.whyAsking) out.push(...field(t('pending.policies.label.why'), wording.whyAsking, c, indent));
+  if (wording?.whatIDo) out.push(...field(t('pending.policies.label.what'), wording.whatIDo, c, indent));
+  if (wording?.ifSkipped) out.push(...field(t('pending.policies.label.if_skipped'), wording.ifSkipped, c, indent));
   // Silence, not a placeholder: with no history there is nothing useful to
   // say, and `policy-preview.ts` returns [] rather than invent an example.
   if (preview.length > 0) {
-    out.push(c.dim(`${indent}in your data:`));
+    out.push(c.dim(`${indent}${t('pending.policies.label.in_your_data')}`));
     for (const line of preview) out.push(c.dim(`${indent}  ${line}`));
   }
   return out;
@@ -226,13 +225,13 @@ export function renderPolicies(
   c: Palette,
   opts: { verbose?: boolean; previews?: Record<string, string[]> } = {}
 ): string[] {
-  if (rows.length === 0) return [c.dim('No pending definitions.')];
+  if (rows.length === 0) return [c.dim(t('pending.policies.none'))];
   const out: string[] = [];
   for (const p of rows) {
     const icon = CATEGORY_ICON[p.category] ?? '·';
     const using = p.default_value
-      ? c.dim(` — operating with: ${p.default_value}`)
-      : c.dim(' — no default');
+      ? c.dim(t('pending.policies.operating_with', { value: p.default_value }))
+      : c.dim(t('pending.policies.no_default'));
     out.push(`${icon} ${c.bold(p.key)}${using}`);
     // The wording lives in the CATALOG, not in the row: the database keeps
     // the STATE, and a text copied at seed time goes stale the moment the
@@ -240,14 +239,16 @@ export function renderPolicies(
     // (catalog for a live key, the row's snapshot only for an orphan), so
     // nothing below reads the row's seeded text columns. Same rule as the
     // wizard.
-    const wording = policyWording(p);
+    const wording = policyWording(p, panelTranslator());
     // The header line above is deliberately NOT wrapped: key plus default
     // value reaches 60 characters on the longest policy in the catalog.
     out.push(...wrapLines('   ', '   ', wording.question));
     if (opts.verbose) {
-      out.push(...field('impact', wording.impact, c));
+      out.push(...field(t('pending.policies.label.impact'), wording.impact, c));
       out.push(...renderExplanation(p.key, c, opts.previews?.[p.key] ?? []));
-      if (wording.defaultRationale) out.push(...field('why that default', wording.defaultRationale, c));
+      if (wording.defaultRationale) {
+        out.push(...field(t('pending.policies.label.why_default'), wording.defaultRationale, c));
+      }
       // Continuations hang at a FIXED indent, not under the value: values
       // run to 22 characters, and hanging under them would push the line
       // back out of the column we just defended.
@@ -285,6 +286,7 @@ export async function renderAll(
                 entityId: ctx.entityId,
                 tenantId: ctx.tenantId,
                 currency: ctx.currency,
+                text: previewText(),
               }),
             ] as const
         )
@@ -293,9 +295,12 @@ export async function renderAll(
     }
 
     out.push('');
-    out.push(c.bold(`To define (${policies.length})`) + c.dim(' — operating with defaults meanwhile'));
+    out.push(
+      c.bold(t('pending.policies.heading', { count: policies.length })) +
+        c.dim(t('pending.policies.heading_note'))
+    );
     out.push(...renderPolicies(policies, c, { ...opts, previews }));
-    out.push(c.dim('  →  mnemosine pending define <key> <value>'));
+    out.push(c.dim(`  ${t('pending.policies.define_hint')}`));
   }
   return out;
 }
@@ -326,12 +331,12 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
             (r) => r.status !== 'pending'
           );
           if (closed.length > 0) {
-            console.log(c.bold('\nAlready defined'));
+            console.log(c.bold(`\n${t('pending.policies.already_defined')}`));
             for (const p of closed) {
               const icon = p.status === 'resolved' ? '✔' : '✘';
               const date = p.resolved_at ? new Date(p.resolved_at).toISOString().split('T')[0] : '';
               console.log(
-                `${icon} ${c.bold(p.key)} = ${p.resolved_value ?? '(dismissed)'}` +
+                `${icon} ${c.bold(p.key)} = ${p.resolved_value ?? t('pending.policies.dismissed_value')}` +
                   c.dim(` · ${p.resolved_by ?? ''} · ${date}`)
               );
               if (p.resolution_notes) console.log(c.dim(`   ${p.resolution_notes}`));
@@ -370,15 +375,12 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
           // `reportError` prints a CliError already redacted. Throwing also
           // narrows `p` for the rest of the block, which is what the `p!`
           // assertions below were paying for.
-          throw notFound(
-            `There is no pending decision with key "${key}". ` +
-              'List the open ones with: mnemosine pending'
-          );
+          throw notFound(t('pending.define.not_found', { key }));
         }
 
         let chosen = value;
         if (!chosen) {
-          const wording = policyWording(p);
+          const wording = policyWording(p, panelTranslator());
           // ONE list for both halves of the prompt: the numbered lines printed
           // below and the number-to-value lookup after the answer. Printing
           // the catalog's list and indexing the row's would save a value the
@@ -386,12 +388,12 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
           const options = wording.options;
           console.log('');
           for (const l of wrapLines('', '', wording.question)) console.log(c.bold(l));
-          for (const l of field('impact', wording.impact, c, '')) console.log(l);
+          for (const l of field(t('pending.policies.label.impact'), wording.impact, c, '')) console.log(l);
           // The moment of the decision deserves the same explanation the
           // listing gives — and the preview against this entity's own data,
           // which is the whole reason `previewFor` exists. Built from the
           // same `panelScope` the write below uses.
-          const preview = await previewFor(key, { ...panelScope(ctx), currency: ctx.currency });
+          const preview = await previewFor(key, { ...panelScope(ctx), currency: ctx.currency, text: previewText() });
           for (const l of renderExplanation(key, c, preview, '')) console.log(l);
           options.forEach((o, i) => {
             const head = `  ${i + 1}) `;
@@ -399,13 +401,13 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
               console.log(l);
             }
           });
-          console.log(c.dim('  (number, free-form value, or empty to cancel)'));
+          console.log(c.dim(`  ${t('pending.define.input_hint')}`));
           rl = readline.createInterface({ input: stdin, output: stdout });
           const raw = await ask(rl, c.cyan('value> '));
           const answer = (raw ?? '').trim();
           if (!answer) {
             rl.close();
-            console.log(c.dim('Cancelled; still pending.'));
+            console.log(c.dim(t('pending.define.cancelled')));
             await shutdown(0);
             return;
           }
@@ -419,7 +421,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
             const reply = resolveAmbiguity((await ask(rl, c.cyan('p/v> '))) ?? '', interpreted);
             if (reply === null) {
               rl.close();
-              console.log(c.dim('Cancelled; still pending.'));
+              console.log(c.dim(t('pending.define.cancelled')));
               await shutdown(0);
               return;
             }
@@ -431,9 +433,9 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
 
         const followUp = await resolvePolicy(panelScope(ctx), key, chosen, reviewer.email, optOf<string>(opts, command, 'note'));
         const remaining = (await listPending(panelScope(ctx))).length;
-        console.log(`✔ ${c.bold(key)} = ${chosen}`);
+        console.log(t('pending.define.done', { key: c.bold(key), value: chosen }));
         for (const line of followUp) console.log(`  ${line}`);
-        console.log(c.dim(`${plural(remaining, 'definition', 'definitions')} still pending.`));
+        console.log(c.dim(t('pending.define.remaining', { count: remaining })));
         await shutdown(0);
       } catch (err) {
         rl?.close();
@@ -455,7 +457,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
         const ctx = await resolveEntity(optOf<string>(opts, command, 'entity'));
         const reviewer = await resolveReviewer(ctx.tenantId, optOf<string>(opts, command, 'user'));
         await dismissPolicy(panelScope(ctx), key, reviewer.email, optOf<string>(opts, command, 'note'));
-        console.log(`✘ ${key} dismissed.`);
+        console.log(t('pending.dismiss.done', { key }));
         await shutdown(0);
       } catch (err) {
         reportError(err);
@@ -473,7 +475,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
       try {
         const ctx = await resolveEntity(optOf<string>(opts, command, 'entity'));
         await reopenPolicy(panelScope(ctx), key);
-        console.log(`↻ ${key} is pending again.`);
+        console.log(t('pending.reopen.done', { key }));
         await shutdown(0);
       } catch (err) {
         reportError(err);
