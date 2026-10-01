@@ -20,6 +20,8 @@ import { panelTranslator, previewText } from '../i18n/panel-text.js';
 import { specWording } from '../services/policy/policy-text-key.js';
 import { t } from '../i18n/index.js';
 import { exitCodeFor, notFound } from './kernel/index.js';
+import { calendarDateIn } from '../utils/calendar-date.js';
+import { zoneFor } from '../services/policy/today.js';
 import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from './policy-answer.js';
 
 // ============================================================
@@ -332,9 +334,10 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
           );
           if (closed.length > 0) {
             console.log(c.bold(`\n${t('pending.policies.already_defined')}`));
+            const zone = await zoneFor(ctx);
             for (const p of closed) {
               const icon = p.status === 'resolved' ? '✔' : '✘';
-              const date = p.resolved_at ? new Date(p.resolved_at).toISOString().split('T')[0] : '';
+              const date = p.resolved_at ? calendarDateIn(zone, new Date(p.resolved_at)) : '';
               console.log(
                 `${icon} ${c.bold(p.key)} = ${p.resolved_value ?? t('pending.policies.dismissed_value')}` +
                   c.dim(` · ${p.resolved_by ?? ''} · ${date}`)

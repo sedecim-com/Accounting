@@ -15,6 +15,8 @@ import {
 } from '../services/fiscal-credentials/service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import { exitCodeFor, notFound, ExitCode } from './kernel/index.js';
+import { calendarDateIn } from '../utils/calendar-date.js';
+import { zoneFor } from '../services/policy/today.js';
 import { registerSatCensus } from './sat-census-command.js';
 
 // ============================================================
@@ -126,11 +128,12 @@ Examples:
 
         // 1) Local validation: fail here before the secret leaves the machine.
         const info = parseCertificate(cer);
+        const zone = await zoneFor(ctx);
         console.log(
           `\n${c.bold('Certificate read')}\n` +
             `  type: ${info.type === 'efirma' ? c.bold('e.firma') : info.type}\n` +
             `  RFC: ${info.rfc}\n  serial: ${info.serial}\n` +
-            `  validity: ${info.validFrom.toISOString().split('T')[0]} → ${info.validTo.toISOString().split('T')[0]}\n` +
+            `  validity: ${calendarDateIn(zone, info.validFrom)} → ${calendarDateIn(zone, info.validTo)}\n` +
             `  target entity: ${ctx.entityName} (${ctx.taxId})`
         );
         if (info.type === 'csd') {
@@ -158,7 +161,7 @@ Examples:
         }
         if (info.validTo <= new Date()) {
           console.error(
-            ce.red(`\nThe certificate expired on ${info.validTo.toISOString().split('T')[0]}. Renew it at the SAT.`)
+            ce.red(`\nThe certificate expired on ${calendarDateIn(zone, info.validTo)}. Renew it at the SAT.`)
           );
           // «credential expired» está NOMBRADO en la tabla de exit.ts como el
           // caso de BLOCKED. No es que el material sea inválido: era válido y
