@@ -1311,6 +1311,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'Primero el importe diario: mensual / 30.4 al centavo, luego × los días del periodo',
 
+  'policy.employment_subsidy_separate_run.question':
+    'Cuando un trabajador recibe un segundo recibo en el mismo periodo de pago (un aguinaldo pagado en su propia corrida, por ejemplo), ¿cuánto subsidio al empleo lleva?',
+  'policy.employment_subsidy_separate_run.impact':
+    'Decide el subsidio, el ISR retenido, el efectivo que se entrega al trabajador y el CFDI de nómina de cada recibo del periodo. En cualquier caso el periodo nunca recibe el subsidio dos veces; con el recálculo sigue al ingreso de todo el periodo, y con "ninguno" se queda en el recibo ordinario.',
+  'policy.employment_subsidy_separate_run.rationale':
+    'El decreto que rige el subsidio (DOF 31-12-2025) otorga un importe por periodo a quien no gana más de un tope mensual, así que el importe y el tope se miden sobre el ingreso del periodo, no de cada recibo. Recalcular sobre el ingreso combinado aplica ese tope a todo el periodo, y un recibo posterior acredita sólo lo que los anteriores no. Cuando el ingreso combinado rebasa el tope, el subsidio que ya causó un recibo anterior no procedía: el recibo posterior no acredita nada más, pero ese subsidio no se recupera, así que entonces el resultado difiere de pagar el aguinaldo junto con el sueldo, que no daría subsidio alguno.',
+  'policy.employment_subsidy_separate_run.why':
+    'El decreto mide el subsidio y su tope de ingreso por periodo de pago, no por recibo, y pagar el aguinaldo en su propia corrida es común. Sin una regla el segundo recibo del periodo volvía a recibir el subsidio y entregaba en efectivo al trabajador la parte que excedía su ISR.',
+  'policy.employment_subsidy_separate_run.what':
+    'Antes de acreditar el subsidio en un recibo, leo los otros recibos calculados, aprobados o pagados del mismo trabajador y periodo. Con "recompute_on_combined_income" calculo el subsidio sobre su ingreso más el de éste y acredito la diferencia, nunca menos de cero. Con "none_on_separate_paycheck" un recibo de una corrida que no es la ordinaria, o uno que sólo paga aguinaldo, no lleva ninguno, y el recibo ordinario conserva el suyo sin importar cuál se calculó primero.',
+  'policy.employment_subsidy_separate_run.if_skipped':
+    'Recalculo sobre el ingreso combinado del periodo y acredito sólo la diferencia.',
+  'policy.employment_subsidy_separate_run.option.recompute_on_combined_income':
+    'Recalcularlo una sola vez sobre el ingreso de ambos recibos, y acreditar en el segundo sólo la diferencia',
+  'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
+    'Ninguno en el recibo aparte: una corrida que no es la ordinaria, o un recibo que sólo paga aguinaldo, no lleva subsidio; el recibo ordinario conserva el suyo',
+
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
   'policy.filing_rounding_to_pesos.impact':
