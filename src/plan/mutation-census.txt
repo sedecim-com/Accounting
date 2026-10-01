@@ -329,6 +329,8 @@ mirror	memory	E2.1 anexo24-closing-balance-has-its-period-13	src/services/accoun
 mirror	memory	E2.1 openapi-census-and-delivery-retry	src/api/rest/openapi.ts	la especificación deja de derivar de la pila real y pasa a describir un vacío: publicaría lo que alguien recordó y no lo que la app sirve, que es el defecto que este proyecto lleva un mes cazando
 mirror	memory	E2.1 openapi-census-and-delivery-retry	src/services/webhooks/barrido-entregas.ts	el barrido reclama justo las entregas que NO toca reintentar todavía y deja las vencidas donde estaban: la cola vuelve a no vaciarse nunca y la caída de treinta segundos vuelve a perder el evento para siempre
 mirror	memory	E2.1 mutating-route-risk-declaration	src/api/rest/risk.ts	una declaración escrita DETRÁS del manejador vuelve a contar como declaración: el manejador ya respondió cuando al marcador le tocaría correr, así que la ruta se queda sin llave de idempotencia y sin el renglón de auditoría, y el censo la cuenta como cerrada — medido, el acto irreversible se ejecuta DOS veces con la misma llave
+mirror	memory	E2.1 mutating-route-risk-declaration	src/api/rest/risk.ts	un Express que ya no expone la pila vuelve a producir un censo vacío sin error: el arranque contesta «ninguna ruta sin declarar» sobre una API que nunca miró
+mirror	memory	E2.1 mutating-route-risk-declaration	src/api/rest/risk.ts	un recorrido que ya no entiende la pila y devuelve cero renglones con rutas montadas vuelve a pasar el arranque como «ninguna ruta sin declarar» sin haber censado nada
 mirror	memory	E2.1 mutating-route-risk-declaration	src/index.ts	el censo deja de correr al arrancar: la API vuelve a poder desplegar rutas que mutan sin declarar su clase, que es la definición del segundo motor con menos reglas
 mirror	memory	E2.1 tenant-predicate-inlinable-and-qualified	src/database/migrations/069_el_predicado_que_se_paga_por_fila.sql	vuelve el marco de PL/pgSQL por fila. Ninguna prueba se pone roja —la respuesta es idéntica— y todo el sistema paga 6.1× en cada política
 mirror	memory	E2.1 tenant-predicate-inlinable-and-qualified	src/database/migrations/069_el_predicado_que_se_paga_por_fila.sql	el reflejo de endurecimiento que este criterio existe para frenar: la cláusula parece gratis, impide el inline y devuelve el coste entero sin cambiar una sola respuesta
@@ -1018,6 +1020,8 @@ anchor	src/plan/criteria/e2-1.ts	de: 'AND (fp.start_date, fp.period_number) > (c
 anchor	src/plan/criteria/e2-1.ts	de: "import { censarRutas, VERBOS_QUE_MUTAN, alcanceDeIdempotencia, type RutaCensada } from './risk.js';",
 anchor	src/plan/criteria/e2-1.ts	de: ' AND d.next_retry_at <= NOW()',
 anchor	src/plan/criteria/e2-1.ts	de: ' if (resumen.malColocadas.length > 0) {',
+anchor	src/plan/criteria/e2-1.ts	de: ' if (!Array.isArray(raiz)) {',
+anchor	src/plan/criteria/e2-1.ts	de: ' if (salida.length === 0 && mounted > 0) {',
 anchor	src/plan/criteria/e2-1.ts	de: ' const censo = auditarRiesgoDeRutas(app);',
 anchor	src/plan/criteria/e2-1.ts	de: 'LANGUAGE sql STABLE\nAS $fn$',
 anchor	src/plan/criteria/e2-1.ts	de: 'LANGUAGE sql STABLE\nAS $fn$',
