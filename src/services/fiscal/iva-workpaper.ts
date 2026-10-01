@@ -18,6 +18,7 @@ import {
   sumarDesgloses,
   type Desglose,
   type Hallazgo,
+  type HechoPagado,
   type PoliticaBaseExenta,
   type PorcionPagada,
   type RangoDelMes,
@@ -450,7 +451,7 @@ export interface DocumentContribution {
   documentKind: 'invoice' | 'bill';
   /** The invoice's own entry for a PUE; the customer or vendor payments' entries for a PPD. */
   entryIds: string[];
-  desglose: Desglose;
+  breakdown: Desglose;
   /** Charged side only: the base "no objeto" collected on the document. Four decimals. */
   notSubject: string;
   /** Charged side only: the IVA the customer withheld on the document, and the entry that debited it. */
@@ -553,7 +554,7 @@ async function chargedOfMonth(
       documentNumber: row.invoice_number,
       documentKind: 'invoice',
       entryIds,
-      desglose: r.desglose,
+      breakdown: r.desglose,
       notSubject: q4(porcionDelDocumento(source.notSubject, share)),
       // The withholding sits in the invoice's own entry, whatever the cash event.
       withheld: { amount: q4(withheldHere), entryId: row.journal_entry_id },
@@ -589,7 +590,7 @@ async function chargedOfMonth(
 async function billEntryIds(
   client: pg.PoolClient,
   entityId: string,
-  facts: ReadonlyArray<{ billId: string; metodo: { metodo: string } }>,
+  facts: ReadonlyArray<Pick<HechoPagado, 'billId' | 'metodo'>>,
   range: RangoDelMes
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
@@ -776,7 +777,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
         documentNumber: h.billNumber,
         documentKind: 'bill',
         entryIds: billEntries.get(h.billId) ?? [],
-        desglose: r.desglose,
+        breakdown: r.desglose,
         notSubject: q4(0),
         withheld: { amount: q4(0), entryId: null },
       });

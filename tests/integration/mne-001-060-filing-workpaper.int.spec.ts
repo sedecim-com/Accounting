@@ -355,10 +355,10 @@ describe('the ISR lines trace what the builder counted', () => {
     expect(isr.inputs.coefficient).toMatchObject({
       value: '0.0875', sourceFiscalYear: 2025, sourceDocument: 'Declaración anual 2025, operación 000123',
     });
-    expect(isr.inputs.rate).toMatchObject({
-      value: expect.any(String), effectiveFrom: expect.any(String), sourceUrl: expect.any(String),
-    });
-    expect(isr.rounding).toEqual({ key: 'declaracion_redondeo_a_pesos', value: 'cada_renglon', defined: expect.any(Boolean) });
+    expect(Object.keys(isr.inputs.rate).sort()).toEqual(['effectiveFrom', 'sourceUrl', 'value']);
+    expect(isr.inputs.rate.sourceUrl).toBeTruthy();
+    expect(isr.rounding).toMatchObject({ key: 'declaracion_redondeo_a_pesos', value: 'cada_renglon' });
+    expect(typeof isr.rounding.defined).toBe('boolean');
   });
 
   it('a PTU captured in the paper is the input of the derived ptu line', async () => {
@@ -489,8 +489,8 @@ describe('the command', () => {
     expect(r.out).toBe('');
     const written = JSON.parse(fs.readFileSync(target, 'utf8')) as FilingWorkpaper;
     expect(written.filed).toBe(false);
-    const tasa16 = written.sections[0].lines.find((l) => l.key === 'charged.tasa16.iva')!;
-    expect(tasa16.source.documents?.map((d) => d.documentId).sort()).toEqual(sorted(ids.inv16, ids.ppd));
+    const charged16 = written.sections[0].lines.find((l) => l.key === 'charged.tasa16.iva')!;
+    expect(charged16.source.documents?.map((d) => d.documentId).sort()).toEqual(sorted(ids.inv16, ids.ppd));
     expect(await counts()).toBe(before);
   });
 

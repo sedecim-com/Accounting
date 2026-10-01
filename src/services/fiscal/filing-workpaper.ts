@@ -260,9 +260,9 @@ export function contributionAmount(c: DocumentContribution, box: string, field: 
   if (field === 'withheld') return c.withheld.amount;
   if (box === 'no_objeto') return c.notSubject;
   if (box.startsWith('otras:')) {
-    return c.desglose.otras.find((o) => o.etiqueta === box.slice('otras:'.length))?.[field] ?? '0.0000';
+    return c.breakdown.otras.find((o) => o.etiqueta === box.slice('otras:'.length))?.[field] ?? '0.0000';
   }
-  return c.desglose[box as 'tasa16' | 'tasa8' | 'tasa0' | 'exento'][field];
+  return c.breakdown[box as 'tasa16' | 'tasa8' | 'tasa0' | 'exento'][field];
 }
 
 const ROLE_OF_SIDE = { charged: 'iva_trasladado', creditable: 'iva_acreditable' } as const;

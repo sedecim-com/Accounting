@@ -8334,12 +8334,12 @@ Options:
 This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.
 
 Examples:
-  # The month's IVA and ISR with their two columns and the entries behind each line.
-  mnemosine filing workpaper generate --period 2026-05
-  # Only the IVA, the whole paper (with the entries) as JSON to a file.
-  mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json
-  # The ISR with the PTU paid in the year and the provisional payments already made.
-  mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
+  The month IVA and ISR with their two columns and the entries behind each line:
+    mnemosine filing workpaper generate --period 2026-05
+  Only the IVA, the whole paper (with the entries) as JSON to a file:
+    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json
+  The ISR with the PTU paid in the year and the provisional payments already made:
+    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
 ```
 
 ## `mnemosine isn`
