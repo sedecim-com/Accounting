@@ -320,6 +320,7 @@ mirror	memory	E2.1 openapi-census-and-delivery-retry	src/api/rest/openapi.ts	la 
 mirror	memory	E2.1 openapi-census-and-delivery-retry	src/services/webhooks/barrido-entregas.ts	el barrido reclama justo las entregas que NO toca reintentar todavía y deja las vencidas donde estaban: la cola vuelve a no vaciarse nunca y la caída de treinta segundos vuelve a perder el evento para siempre
 mirror	memory	E2.1 mutating-route-risk-declaration	src/api/rest/risk.ts	una declaración escrita DETRÁS del manejador vuelve a contar como declaración: el manejador ya respondió cuando al marcador le tocaría correr, así que la ruta se queda sin llave de idempotencia y sin el renglón de auditoría, y el censo la cuenta como cerrada — medido, el acto irreversible se ejecuta DOS veces con la misma llave
 mirror	memory	E2.1 mutating-route-risk-declaration	src/api/rest/risk.ts	un Express que ya no expone la pila vuelve a producir un censo vacío sin error: el arranque contesta «ninguna ruta sin declarar» sobre una API que nunca miró
+mirror	memory	E2.1 mutating-route-risk-declaration	src/api/rest/risk.ts	un recorrido que ya no entiende la pila y devuelve cero renglones con rutas montadas vuelve a pasar el arranque como «ninguna ruta sin declarar» sin haber censado nada
 mirror	memory	E2.1 mutating-route-risk-declaration	src/index.ts	el censo deja de correr al arrancar: la API vuelve a poder desplegar rutas que mutan sin declarar su clase, que es la definición del segundo motor con menos reglas
 mirror	memory	E2.1 tenant-predicate-inlinable-and-qualified	src/database/migrations/069_el_predicado_que_se_paga_por_fila.sql	vuelve el marco de PL/pgSQL por fila. Ninguna prueba se pone roja —la respuesta es idéntica— y todo el sistema paga 6.1× en cada política
 mirror	memory	E2.1 tenant-predicate-inlinable-and-qualified	src/database/migrations/069_el_predicado_que_se_paga_por_fila.sql	el reflejo de endurecimiento que este criterio existe para frenar: la cláusula parece gratis, impide el inline y devuelve el coste entero sin cambiar una sola respuesta
@@ -433,6 +434,11 @@ mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-downlo
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a successful use of the e.firma leaves no row in the log
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a refusal from the SAT leaves no error row in the log
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	the weights are swapped: a missing received CFDI stops the close and a missing issued one only warns
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	a direction nobody loaded reads as «everything the books carry is surplus»
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	a CFDI already brought in but not posted is asked for again instead of being posted
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	a voided invoice still counts as the CFDI being in the books
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/accounting/period-close.ts	the close never asks for the census: a month closes with CFDI the SAT lists and the books lack
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/cli/mnemosine.ts	el escritor se queda de capacidad huérfana: el INSERT existe, typechecka y no lo alcanza ningún camino, que es exactamente el estado que este criterio existe para prohibir — y el criterio del literal seguiría verde
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	el llamador vuelve a afirmar un hecho DERIVADO: el disparador de la 077 sobrescribe `tenant_id` con el del empleado, así que la columna en la lista no cambia lo guardado y sí publica una propiedad que el escritor no decide
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	`is_active` es NULABLE y la 085 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar
@@ -995,6 +1001,7 @@ anchor	src/plan/criteria/e2-1.ts	de: "import { censarRutas, VERBOS_QUE_MUTAN, al
 anchor	src/plan/criteria/e2-1.ts	de: ' AND d.next_retry_at <= NOW()',
 anchor	src/plan/criteria/e2-1.ts	de: ' if (resumen.malColocadas.length > 0) {',
 anchor	src/plan/criteria/e2-1.ts	de: ' if (!Array.isArray(raiz)) {',
+anchor	src/plan/criteria/e2-1.ts	de: ' if (salida.length === 0 && mounted > 0) {',
 anchor	src/plan/criteria/e2-1.ts	de: ' const censo = auditarRiesgoDeRutas(app);',
 anchor	src/plan/criteria/e2-1.ts	de: 'LANGUAGE sql STABLE\nAS $fn$',
 anchor	src/plan/criteria/e2-1.ts	de: 'LANGUAGE sql STABLE\nAS $fn$',
@@ -1103,6 +1110,11 @@ anchor	src/plan/criteria/e3-2.ts	de: 'await withCredential(',
 anchor	src/plan/criteria/e3-2.ts	de: "purpose: 'sat_auth'",
 anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'success');",
 anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'error',",
+anchor	src/plan/criteria/e3-2.ts	de: "if (policyValue === 'issued_blocks' && direction === 'issued') return 'blocking';",
+anchor	src/plan/criteria/e3-2.ts	de: 'out.surplus = surplus.rows.filter((s) => covered[s.direction]);',
+anchor	src/plan/criteria/e3-2.ts	de: 'else (fetched ? out.toPost : out.toFetch).push(item);',
+anchor	src/plan/criteria/e3-2.ts	de: "AND i.cfdi_uuid IS NOT NULL AND i.status NOT IN ('void', 'cancelled')",
+anchor	src/plan/criteria/e3-2.ts	de: 'if (census.hasLoads) {',
 anchor	src/plan/criteria/e4-1.ts	de: 'registerGarnishmentCommand(program, { palette: c, shutdown, reportError });',
 anchor	src/plan/criteria/e4-1.ts	de: ' employee_id, garnishment_type, priority, amount_type, amount_value,',
 anchor	src/plan/criteria/e4-1.ts	de: ' case_number, issuing_authority, payee_name, start_date, is_active, metadata',

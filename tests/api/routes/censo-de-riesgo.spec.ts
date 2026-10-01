@@ -131,22 +131,47 @@ describe('censo de riesgo de rutas', () => {
   it('an app without a router stack makes the census throw instead of returning an empty list', () => {
     // Simulates a Express whose app no longer exposes `_router` / `stack`.
     const appWithoutStack = { use: () => undefined } as unknown as Express;
-    expect(() => censarRutas(appWithoutStack)).toThrow(/no encontró la pila del router/);
-    expect(() => resumirCenso(appWithoutStack)).toThrow(/no encontró la pila del router/);
-    expect(() => auditarRiesgoDeRutas(appWithoutStack)).toThrow(/no encontró la pila del router/);
+    expect(() => censarRutas(appWithoutStack)).toThrow(/found no router stack/);
+    expect(() => resumirCenso(appWithoutStack)).toThrow(/found no router stack/);
+    expect(() => auditarRiesgoDeRutas(appWithoutStack)).toThrow(/found no router stack/);
   });
 
-  it('an empty census with mounted routes makes the census throw', () => {
+  it('a top-level stackless router layer makes the census throw', () => {
     // A mounted router layer that no longer exposes handle.stack, as another Express shapes it.
     const unreadableStack = {
       stack: [{ name: 'router' }],
     } as unknown as Express;
-    expect(() => censarRutas(unreadableStack)).toThrow(/salió vacío/);
+    expect(() => censarRutas(unreadableStack)).toThrow(/nested router layer/);
   });
 
-  it('a real app with nothing mounted yet still censuses as empty', () => {
+  it('an app with only middleware, or a bare express(), censuses as empty', () => {
     expect(censarRutas(Router())).toEqual([]);
     expect(censarRutas(express().use((_q, _s, next) => next()))).toEqual([]);
+    // Express 4 creates app._router lazily: nothing mounted means nothing to census.
+    expect(censarRutas(express())).toEqual([]);
+  });
+
+  it('a stackless nested router in an otherwise non-empty census throws', () => {
+    const outer = Router();
+    outer.post('/real', (_q, res) => res.json({}));
+    outer.stack.push({ name: 'router' } as never);
+    expect(() => censarRutas(outer)).toThrow(/nested router layer/);
+  });
+
+  it('a mounted sub-app makes an otherwise empty census throw', () => {
+    const app = express();
+    app.use('/sub', express());
+    expect(() => censarRutas(app)).toThrow(/nested mounted_app layer/);
+  });
+
+  it('route layers that yield no rows make the census throw, but an _all-only route does not', () => {
+    const noRows = {
+      stack: [{ route: { path: [], methods: { get: true }, stack: [] } }],
+    } as unknown as Express;
+    expect(() => censarRutas(noRows)).toThrow(/came out empty/);
+    const allOnly = Router();
+    allOnly.route('/x').all((_q, _s, next) => next());
+    expect(censarRutas(allOnly)).toEqual([]);
   });
 
   it('un GET sin declarar no rompe nada: un GET es una lectura', () => {

@@ -466,6 +466,39 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 40,
   },
 
+  {
+    // MNE-001-119 (#312): how a CFDI the SAT lists and the books do not carry
+    // weighs at close. Read by `severityOfCensusGap`
+    // (src/services/sat-census/reconcile.ts) for the `sat-census-missing` box.
+    key: 'census_missing_at_close',
+    textKey: 'census_missing_at_close',
+    category: 'contable',
+    question: 'A CFDI the SAT lists is missing from the books at close: which direction stops the close?',
+    impact:
+      'The SAT census is read against what was posted. A CFDI you issued that is not posted understates ' +
+      'income and the IVA you owe; a CFDI you received that is not posted understates a deduction and the ' +
+      'IVA you can credit. This decides whether each direction stops the close or only warns.',
+    options: [
+      { value: 'issued_blocks', label: 'Issued stops the close; received warns' },
+      { value: 'both_block', label: 'Both directions stop the close' },
+      { value: 'both_warn', label: 'Both directions only warn' },
+    ],
+    defaultValue: 'issued_blocks',
+    defaultRationale:
+      'An issued CFDI is income the entity already stamped and the SAT already holds: leaving it unposted ' +
+      'understates the ISR base and the IVA trasladado of the month (LISR art. 17; LIVA arts. 1-B and 17), ' +
+      'and the books must record every operation (CFF art. 28 fr. I). A received CFDI that is not posted ' +
+      'is a right not yet exercised: the deduction and the IVA acreditable can still be claimed in a later ' +
+      'period (LISR art. 27 fr. III; LIVA art. 5), so it warns. A firm that wants the books to match the SAT ' +
+      'both ways before any close chooses both_block.',
+    whyAsking:
+      'Missing an issued CFDI and missing a received one do not cost the same, and firms differ on how much of that they accept at close.',
+    whatIDo:
+      'I list what the SAT has and the books lack in the close checklist, and stop the close only for the directions you choose.',
+    ifSkipped: 'A missing issued CFDI stops the close and a missing received one warns.',
+    priority: 40,
+  },
+
   // ── Received CFDI → vendor bill, when a person approves the AI draft (#318) ──
   //
   // The CFDI rules the amounts (the liability and the creditable taxes come

@@ -1205,12 +1205,20 @@ export const E2_1: Criterio[] = [
         porque: 'una declaración escrita DETRÁS del manejador vuelve a contar como declaración: el manejador ya respondió cuando al marcador le tocaría correr, así que la ruta se queda sin llave de idempotencia y sin el renglón de auditoría, y el censo la cuenta como cerrada — medido, el acto irreversible se ejecuta DOS veces con la misma llave',
       },
       {
-        // Que el censo vuelva a devolver [] en silencio cuando no encuentra
-        // la pila del router.
+        // The census must not go back to returning [] silently when it
+        // cannot find the router stack.
         archivo: 'src/api/rest/risk.ts',
         de: '  if (!Array.isArray(raiz)) {',
         a: '  if (false) {',
         porque: 'un Express que ya no expone la pila vuelve a producir un censo vacío sin error: el arranque contesta «ninguna ruta sin declarar» sobre una API que nunca miró',
+      },
+      {
+        // The census must not go back to returning [] silently when route
+        // layers are mounted but yielded no rows.
+        archivo: 'src/api/rest/risk.ts',
+        de: '  if (salida.length === 0 && mounted > 0) {',
+        a: '  if (false) {',
+        porque: 'un recorrido que ya no entiende la pila y devuelve cero renglones con rutas montadas vuelve a pasar el arranque como «ninguna ruta sin declarar» sin haber censado nada',
       },
       {
         archivo: 'src/index.ts',
@@ -1246,6 +1254,9 @@ export const E2_1: Criterio[] = [
       //    certifica sin proteger, y el censo la contaba como cerrada.
       if (!/if \(!Array\.isArray\(raiz\)\) \{\s*throw/.test(risk)) {
         return falla('el censo volvió a devolver [] en silencio cuando no encuentra la pila del router: un instrumento que no miró contesta que no hay nada que declarar');
+      }
+      if (!/if \(salida\.length === 0 && mounted > 0\) \{\s*throw/.test(risk)) {
+        return falla('el censo volvió a aceptar un censo vacío con rutas montadas: un instrumento que no miró contesta que no hay nada que declarar');
       }
       const posicion = /resumen\.malColocadas\.length > 0/.test(risk);
       return posicion

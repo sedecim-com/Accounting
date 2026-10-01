@@ -234,6 +234,9 @@ export interface RutaCensada {
 // La alternativa, si Express dejara de exponer `_router`, es envolver
 // `Router()` y quedarse con lo que se registra. Es más invasivo y hoy no
 // hace falta.
+// NOTE: if Express stops exposing the stack, `censarRutas` now THROWS at
+// startup instead of returning `[]` (MNE-001-383); wrapping `Router()` is
+// tracked in MNE-001-384.
 // ============================================================
 
 const PREFIJO_NO_LITERAL = '(prefijo no literal)';
@@ -286,43 +289,62 @@ function recorrer(pila: CapaExpress[], prefijo: string, salida: RutaCensada[]): 
       }
     } else if (capa.handle?.stack) {
       recorrer(capa.handle.stack, prefijo + prefijoDeCapa(capa), salida);
+    } else if (capa.name === 'router' || capa.name === 'mounted_app') {
+      // A router or sub-app that hides its stack cannot be censused: skipping
+      // it would hide its routes, so fail loudly at any depth.
+      throw new Error(
+        `The route census cannot read the stack of a nested ${capa.name} layer at ` +
+          `"${prefijo || '/'}": skipping it would hide its routes; update the traversal.`
+      );
     }
   }
 }
 
 /**
- * Cuántas capas de la pila son un router o una ruta que SÍ debió producir
- * renglones: una ruta, o un router montado con pila no vacía, o una capa que
- * se llama `router` pero ya no expone `handle.stack` (la forma de otra
- * versión de Express). Un router montado y vacío no cuenta: no tiene nada
- * que censar.
+ * Counts the layers that must have produced census rows: a route with at
+ * least one real verb (an `_all`-only route yields no rows by design) or a
+ * mounted router with a non-empty stack. A stackless router or sub-app is
+ * not counted here: `recorrer` throws on it at any depth.
  */
 function countCensusLayers(pila: CapaExpress[]): number {
   return pila.filter(
     (c) =>
-      c.route !== undefined ||
-      (c.handle?.stack?.length ?? 0) > 0 ||
-      (c.name === 'router' && c.handle?.stack === undefined)
+      (c.route !== undefined && Object.keys(c.route.methods).some((m) => m !== '_all')) ||
+      (c.handle?.stack?.length ?? 0) > 0
   ).length;
 }
 
 /**
- * Recorre una app o un router y devuelve TODAS sus rutas con lo que declararon.
+ * Walks an app or router and returns ALL its routes with what they declared.
  *
- * LANZA en vez de devolver `[]` cuando no puede mirar: sin pila de router
- * (otra versión de Express, o un objeto que no es app ni router) o con un
- * censo vacío habiendo rutas montadas. Un `[]` silencioso hace que el
- * arranque conteste «ninguna ruta sin declarar» sobre una API que nunca miró.
+ * THROWS instead of returning `[]` when it cannot look: no router stack
+ * (another Express version, or an object that is neither app nor router), a
+ * router or sub-app layer at any depth that hides its stack, or an empty
+ * census although route layers are mounted. A silent `[]` makes startup
+ * answer "no undeclared route" about an API it never inspected.
+ *
+ * A bare Express 4 `express()` that has had no `.use`/`.get` has no
+ * `_router` yet (it is created lazily) and nothing mounted: that is a
+ * legitimately empty census.
  */
 export function censarRutas(destino: Express | Router): RutaCensada[] {
-  const raiz =
-    (destino as unknown as { _router?: { stack?: CapaExpress[] } })._router?.stack ??
-    (destino as unknown as { stack?: CapaExpress[] }).stack;
+  const candidate = destino as unknown as {
+    _router?: { stack?: CapaExpress[] };
+    stack?: CapaExpress[];
+    handle?: unknown;
+    lazyrouter?: unknown;
+  };
+  const raiz = candidate._router?.stack ?? candidate.stack;
   if (!Array.isArray(raiz)) {
+    const lazyBareApp =
+      candidate._router === undefined &&
+      typeof candidate.handle === 'function' &&
+      typeof candidate.lazyrouter === 'function';
+    if (lazyBareApp) return [];
     throw new Error(
-      'El censo de rutas no encontró la pila del router (ni app._router.stack ni router.stack): ' +
-        'esta versión de Express ya no la expone con esa forma. Devolver un censo vacío haría ' +
-        'pasar el arranque sin haber mirado ninguna ruta; hay que actualizar el recorrido.'
+      'The route census found no router stack (neither app._router.stack nor router.stack): ' +
+        'this Express version no longer exposes it in that shape. Returning an empty census ' +
+        'would let startup pass without having looked at any route; update the traversal.'
     );
   }
   const salida: RutaCensada[] = [];
@@ -330,9 +352,9 @@ export function censarRutas(destino: Express | Router): RutaCensada[] {
   const mounted = countCensusLayers(raiz);
   if (salida.length === 0 && mounted > 0) {
     throw new Error(
-      `El censo de rutas salió vacío con ${mounted} capa(s) de ruta o router montadas: el ` +
-        'recorrido ya no entiende la forma de la pila. Un censo vacío no absuelve a nadie; ' +
-        'hay que actualizar el recorrido.'
+      `The route census came out empty with ${mounted} mounted route or router layer(s): the ` +
+        'traversal no longer understands the shape of the stack. An empty census absolves ' +
+        'nobody; update the traversal.'
     );
   }
   return salida;
