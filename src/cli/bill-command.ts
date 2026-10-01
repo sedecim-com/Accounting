@@ -63,6 +63,7 @@ import {
   type LineGrammar,
 } from './kernel/line-spec.js';
 import { registerBillRuleCommands } from './bill-rule-command.js';
+import { todayFor } from '../services/policy/today.js';
 
 // ============================================================
 // mnemosine bill
@@ -688,7 +689,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
 
         const billDate = opts.billDate
           ? requireDate('--bill-date', opts.billDate)
-          : ((fromFile.bill_date as string | undefined) ?? dateOnly(new Date()));
+          : ((fromFile.bill_date as string | undefined) ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId })));
         const terms = opts.terms ?? (fromFile.terms as string | undefined) ?? vendorRow.payment_terms;
         const dueDate =
           (opts.dueDate ? requireDate('--due-date', opts.dueDate) : undefined) ??

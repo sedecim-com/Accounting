@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 238 of 369 subcommands
+  spelling is `-T` at the root and `-t` on the 239 of 379 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -53,7 +53,7 @@ Commands:
   onboard|alta [options]                 Imports a client's accounting from an external system (chart of accounts + opening balances)
   outbox|envio [options]                 Operations queued for external accounting systems: list, review and execute
   question|duda [options]                The agent's pending questions: list, answer (saved as a precedent) or dismiss
-  sat                                    SAT services (e.firma credentials; the CFDI bulk download is not built yet)
+  sat                                    SAT services (e.firma credentials and the CFDI bulk download)
   pending|pendientes [options]           What you need to do: work to resolve and policy decisions to define
   login|entrar [options]                 Signs in with your identity provider (OIDC)
   logout|salir [options]                 Deletes the stored credential
@@ -547,14 +547,18 @@ Examples:
 ```
 Usage: mnemosine sat [options] [command]
 
-SAT services (e.firma credentials; the CFDI bulk download is not built yet)
+SAT services (e.firma credentials and the CFDI bulk download)
 
 Options:
-  -h, --help      display help for command
+  -h, --help         display help for command
 
 Commands:
-  cred            Fiscal credentials (e.firma)
-  help [command]  display help for command
+  cred               Fiscal credentials (e.firma)
+  download|descarga  Bulk download of CFDI from the SAT, and the census against
+                     the books
+  package|paquete    Packages of a finished download request
+  quota|cuota        The SAT's lifetime limit on identical XML requests
+  help [command]     display help for command
 ```
 
 ### `mnemosine sat cred`
@@ -601,6 +605,12 @@ Options:
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
+
+Examples:
+  # Validate the e.firma locally, without asking for the passphrase or storing anything.
+  mnemosine sat cred add --cer firma.cer --key firma.key --dry-run
+  # Store it in the vault for the entity (asks for the passphrase and the typed consent).
+  mnemosine sat cred add --cer firma.cer --key firma.key --entity "Demo Corp" --live
 ```
 
 #### `mnemosine sat cred status` (alias: estado)
@@ -645,6 +655,276 @@ Options:
                            state it writes; accepted and ignored
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
+
+Examples:
+  # See what a revocation would do, without touching the vault.
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --dry-run
+  # Revoke it and destroy the material (irreversible).
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --yes
+```
+
+### `mnemosine sat download` (alias: descarga)
+
+```
+Usage: mnemosine sat download|descarga [options] [command]
+
+Bulk download of CFDI from the SAT, and the census against the books
+
+Options:
+  -h, --help                      display help for command
+
+Commands:
+  reconcile|conciliar [options]   Read the SAT census of a month against what is
+                                  posted: what is still to fetch, what is
+                                  fetched and not posted, what the SAT cancelled
+                                  and the books still carry, and what the books
+                                  carry that the SAT does not list. Reads the
+                                  census that `ingest --kind zip|metadata`
+                                  loaded; it does not go to the SAT. Exits 4
+                                  when the month cannot be called complete
+  create|crear [options]          Asks the SAT for a period's CFDI (refuses
+                                  before calling when the lifetime XML limit is
+                                  spent)
+  check|verificar [options] <id>  Asks the SAT for the state of a request and
+                                  records it and its package ids (5004 is
+                                  success with zero rows)
+  status|estado [options] <id>    Last known state of a request, read from the
+                                  local mirror (does not call the SAT)
+  list|listar [options]           The entity's download requests with their
+                                  state, CFDI count and packages
+  help [command]                  display help for command
+```
+
+#### `mnemosine sat download reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine sat download reconcile|conciliar [options]
+
+Read the SAT census of a month against what is posted: what is still to fetch,
+what is fetched and not posted, what the SAT cancelled and the books still
+carry, and what the books carry that the SAT does not list. Reads the census
+that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4
+when the month cannot be called complete
+
+Options:
+  --period <YYYY-MM>                       month to reconcile, as YYYY-MM
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # What August's SAT census has that the books do not (exit 4 if the month is not complete).
+  mnemosine sat download reconcile --period 2026-08
+  # The same, as data, for a script.
+  mnemosine sat download reconcile --period 2026-08 --json
+```
+
+#### `mnemosine sat download create` (alias: crear)
+
+```
+Usage: mnemosine sat download create|crear [options]
+
+Asks the SAT for a period's CFDI (refuses before calling when the lifetime XML
+limit is spent)
+
+Options:
+  --since <date>           First day, YYYY-MM-DD
+  --until <date>           Last day, YYYY-MM-DD
+  --direction <direction>  issued or received
+  --kind <kind>            metadata or xml (xml spends one of the 2 lifetime
+                           requests of the period) (default: "metadata")
+  -e, --entity <idOrName>  Legal entity
+  -u, --user <email>       Who acts (default: the sole active user)
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+
+Examples:
+  # What a metadata request for last August's received CFDI would do (metadata is not limited).
+  mnemosine sat download create --since 2026-08-01 --until 2026-08-31 --direction received --dry-run
+  # Ask for the XML of the same period: spends one of its 2 lifetime requests.
+  mnemosine sat download create --since 2026-08-01 --until 2026-08-31 --direction received --kind xml --live --idempotency-key aug-received-xml
+```
+
+#### `mnemosine sat download check` (alias: verificar)
+
+```
+Usage: mnemosine sat download check|verificar [options] <id>
+
+Asks the SAT for the state of a request and records it and its package ids (5004
+is success with zero rows)
+
+Arguments:
+  id                       Download request: its local id or the id the SAT gave
+                           it
+
+Options:
+  --wait                   Keep asking until the request is no longer open
+  --timeout <seconds>      Give up waiting after this many seconds (default:
+                           900)
+  --strict                 Exit non-zero unless the request finished with
+                           packages
+  --json                   Machine-readable output
+  --format <format>        Output format: table or json
+  -e, --entity <idOrName>  Legal entity
+  -u, --user <email>       Who acts (default: the sole active user)
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -h, --help               display help for command
+
+Examples:
+  # Ask the SAT once, or wait up to 10 minutes for the packages to be ready.
+  mnemosine sat download check 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11 --live
+  mnemosine sat download check 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11 --wait --timeout 600 --live
+```
+
+#### `mnemosine sat download status` (alias: estado)
+
+```
+Usage: mnemosine sat download status|estado [options] <id>
+
+Last known state of a request, read from the local mirror (does not call the
+SAT)
+
+Arguments:
+  id                       Download request: its local id or the id the SAT gave
+                           it
+
+Options:
+  --json                   Machine-readable output
+  --format <format>        Output format: table or json
+  -e, --entity <idOrName>  Legal entity
+  -h, --help               display help for command
+
+Examples:
+  # The last state we recorded; never calls the SAT.
+  mnemosine sat download status 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11
+```
+
+#### `mnemosine sat download list` (alias: listar)
+
+```
+Usage: mnemosine sat download list|listar [options]
+
+The entity's download requests with their state, CFDI count and packages
+
+Options:
+  -s, --status <status>    Only this state
+  --since <date>           Only requests whose period ends on or after this day,
+                           YYYY-MM-DD
+  -n, --limit <n>          How many to show (default: 30)
+  --json                   Machine-readable output
+  --format <format>        Output format: table or json
+  -e, --entity <idOrName>  Legal entity
+  -h, --help               display help for command
+
+Examples:
+  # Finished requests, as JSON.
+  mnemosine sat download list --status finished --format json
+```
+
+### `mnemosine sat package` (alias: paquete)
+
+```
+Usage: mnemosine sat package|paquete [options] [command]
+
+Packages of a finished download request
+
+Options:
+  -h, --help                         display help for command
+
+Commands:
+  download|descargar [options] <id>  Downloads the packages of a finished
+                                     request, archives each ZIP by bytes, and
+                                     with --import loads them
+  help [command]                     display help for command
+```
+
+#### `mnemosine sat package download` (alias: descargar)
+
+```
+Usage: mnemosine sat package download|descargar [options] <id>
+
+Downloads the packages of a finished request, archives each ZIP by bytes, and
+with --import loads them
+
+Arguments:
+  id                       Download request: its local id or the id the SAT gave
+                           it
+
+Options:
+  -o, --output <dir>       Also write each ZIP into this directory
+  --package <packageId>    Only this package of the request
+  --import                 Load the census and run the XML through the regular
+                           ingestion (import_source sat_download)
+  -e, --entity <idOrName>  Legal entity
+  -u, --user <email>       Who acts (default: the sole active user)
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -h, --help               display help for command
+
+Examples:
+  # See what would be downloaded, then archive the ZIPs and load them through the ingestion.
+  mnemosine sat package download 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11 --import --dry-run
+  mnemosine sat package download 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11 --import --live
+```
+
+### `mnemosine sat quota` (alias: cuota)
+
+```
+Usage: mnemosine sat quota|cuota [options] [command]
+
+The SAT's lifetime limit on identical XML requests
+
+Options:
+  -h, --help          display help for command
+
+Commands:
+  show|ver [options]  Which periods have their 2 lifetime XML requests spent and
+                      which have some left (reads the local counter)
+  help [command]      display help for command
+```
+
+#### `mnemosine sat quota show` (alias: ver)
+
+```
+Usage: mnemosine sat quota show|ver [options]
+
+Which periods have their 2 lifetime XML requests spent and which have some left
+(reads the local counter)
+
+Options:
+  --since <date>           Periods ending on or after this day, YYYY-MM-DD
+  --until <date>           Periods starting on or before this day, YYYY-MM-DD
+  --json                   Machine-readable output
+  --format <format>        Output format: table or json
+  -e, --entity <idOrName>  Legal entity
+  -h, --help               display help for command
+
+Examples:
+  # Which periods of 2026 have no lifetime XML request left.
+  mnemosine sat quota show --since 2026-01-01 --until 2026-12-31
 ```
 
 ## `mnemosine pending` (alias: pendientes)
@@ -6780,7 +7060,7 @@ Print the offending rows of one check (ids, amounts, dates) and the exact
 command that fixes it
 
 Arguments:
-  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, fees-without-withholding, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, fees-without-withholding, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout, sat-census-missing
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -10191,6 +10471,9 @@ Options:
   --model <model>        Provider model
   -u, --user <email>     Email of the user to create
   -h, --help             display help for command
+
+.env: ./.env wins over ~/.mnemosine/.env. With neither, init asks (default ./.env in a checkout,
+~/.mnemosine/.env elsewhere); without a terminal it applies the same rule.
 ```
 
 ## `mnemosine close` (alias: cierre)

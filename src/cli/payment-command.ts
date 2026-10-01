@@ -31,10 +31,10 @@ import {
   abortedByUser,
   usageError,
   exitCodeFor,
-  dateOnly,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
+import { todayFor } from '../services/policy/today.js';
 
 // ============================================================
 // mnemosine payment
@@ -287,7 +287,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       const entrada: EntradaPago = {
         entityId: ctx.entityId,
         paymentAmount: opts.amount,
-        paymentDate: opts.date ?? hoy(),
+        paymentDate: opts.date ?? (await hoy(ctx)),
         paymentMethod: opts.method,
         bankAccountId: bank?.id ?? null,
         memo: opts.memo ?? null,
@@ -633,8 +633,9 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   );
 }
 
-// El dia LOCAL del despacho, no el de Greenwich: de noche ya era "manana" en UTC.
-const hoy = (): string => dateOnly(new Date());
+// Today in the entity's zona_horaria, never the process clock (a UTC server reads tomorrow at night).
+const hoy = (ctx: { tenantId: string; entityId: string }): Promise<string> =>
+  todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId });
 
 /**
  * El camino común de los dos comandos: ensayo, confirmación, escritura.
