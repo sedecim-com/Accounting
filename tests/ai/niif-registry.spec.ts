@@ -17,6 +17,7 @@ interface RegistryEntry {
   topic: string;
   confidence: string;
   sources: string[];
+  amendments?: string[];
 }
 
 const registry = JSON.parse(fs.readFileSync(path.join(DOCS, 'ifrs-registry.json'), 'utf-8')) as {
@@ -56,6 +57,48 @@ describe('ifrs-registry.json — la fuente de verdad del corpus NIIF', () => {
     // IAS 1 must carry its replacement marker (IFRS 18, 2027)
     const ias1 = registry.standards.find((s) => s.code === 'NIC 1 / IAS 1');
     expect(ias1?.status).toBe('sustituida_pendiente');
+  });
+
+  it('the 2026 agenda-decision updates are reflected on the affected cards, backed by official sources', () => {
+    const card = (code: string) => registry.standards.find((s) => s.code === code);
+    const official = (code: string) =>
+      (card(code)?.sources ?? []).filter((u: string) => u.startsWith('https://www.ifrs.org/'));
+    const affected = [
+      'NIIF 18 / IFRS 18',
+      'NIC 7 / IAS 7',
+      'NIIF 9 / IFRS 9',
+      'NIC 12 / IAS 12',
+      'NIIF 20 / IFRS 20',
+      'AD: Depósitos a la vista con restricciones de uso (IAS 7)',
+    ];
+    for (const code of affected) {
+      expect(card(code), code).toBeDefined();
+      expect(official(code).length, code).toBeGreaterThanOrEqual(1);
+    }
+    // NIIF 20 left its single weak listing source behind and is now high confidence.
+    expect(card('NIIF 20 / IFRS 20')?.confidence).toBe('high');
+    expect(card('NIIF 20 / IFRS 20')?.sources).not.toContain('https://www.ifrs.org/news-and-events/news/2026/05/');
+    // The Vol. 14 compilation (May 2026) is cited by every card it touches.
+    const vol14 = 'https://www.ifrs.org/news-and-events/news/2026/05/compilation-of-agenda-decisions-volume-14-published/';
+    for (const code of ['NIIF 18 / IFRS 18', 'NIC 7 / IAS 7', 'NIIF 9 / IFRS 9', affected[5]!]) {
+      expect(card(code)?.sources, code).toContain(vol14);
+    }
+    // The IFRS 18 / IAS 12 substitute-tax project is cited by both cards.
+    const taxProject =
+      'https://www.ifrs.org/projects/work-plan/presentation-taxes-other-changes-not-income-taxes-scope-ias-12-ifrs-18/';
+    for (const code of ['NIIF 18 / IFRS 18', 'NIC 12 / IAS 12']) {
+      expect(card(code)?.sources, code).toContain(taxProject);
+    }
+    // The new amendments entries are counted, not matched by prose.
+    const amendmentCount = (code: string) => card(code)?.amendments?.length ?? 0;
+    expect(amendmentCount('NIIF 18 / IFRS 18')).toBeGreaterThanOrEqual(5);
+    expect(amendmentCount('NIC 7 / IAS 7')).toBeGreaterThanOrEqual(5);
+    expect(amendmentCount('NIIF 9 / IFRS 9')).toBeGreaterThanOrEqual(6);
+    expect(amendmentCount('NIC 12 / IAS 12')).toBeGreaterThanOrEqual(6);
+    // The IAS 7 withdrawal of the reverse-factoring decision is sourced to the July 2026 IASB Update.
+    expect(card('NIC 7 / IAS 7')?.sources).toContain(
+      'https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-july-2026/',
+    );
   });
 
   it('niif-indice.md is in sync with the registry (regenerating changes nothing)', () => {
