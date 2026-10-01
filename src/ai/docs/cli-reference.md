@@ -10190,6 +10190,9 @@ Options:
   --model <model>        Provider model
   -u, --user <email>     Email of the user to create
   -h, --help             display help for command
+
+.env: ./.env wins over ~/.mnemosine/.env. With neither, init asks (default ./.env in a checkout,
+~/.mnemosine/.env elsewhere); without a terminal it applies the same rule.
 ```
 
 ## `mnemosine close` (alias: cierre)
