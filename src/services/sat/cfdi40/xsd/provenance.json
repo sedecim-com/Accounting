@@ -1,0 +1,23 @@
+{
+  "note": "The SAT official CFDI 4.0 schemas (Anexo 20), byte for byte as published: CRLF line endings. Never edit one: download it again from its url, then update downloaded and sha256. .gitattributes keeps git from normalizing them. catCFDI.xsd is the SAT's own 6 MB catalog of enumerations; it is vendored whole so the validator never reaches the network.",
+  "files": [
+    {
+      "path": "cfd/4/cfdv40.xsd",
+      "url": "http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd",
+      "downloaded": "2026-09-30",
+      "sha256": "2489b5b535f5cbc6a6c2db6132620de1833f85372512d01deea62880e700e276"
+    },
+    {
+      "path": "cfd/catalogos/catCFDI.xsd",
+      "url": "http://www.sat.gob.mx/sitio_internet/cfd/catalogos/catCFDI.xsd",
+      "downloaded": "2026-09-30",
+      "sha256": "6c58936cb77576f839a4d7915953ceaf252b9eb9319f9458fe5bb67ae2bb0bb1"
+    },
+    {
+      "path": "cfd/tipoDatos/tdCFDI/tdCFDI.xsd",
+      "url": "http://www.sat.gob.mx/sitio_internet/cfd/tipoDatos/tdCFDI/tdCFDI.xsd",
+      "downloaded": "2026-09-30",
+      "sha256": "b3b81fe4017b95d5477f23a32f47e8b0571683cfddfff1330508c75e02b504cd"
+    }
+  ]
+}
