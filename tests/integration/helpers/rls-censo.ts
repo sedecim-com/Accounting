@@ -56,7 +56,10 @@ export interface PoliticaHija {
   padreRls: boolean | null;
   padreForce: boolean | null;
   padreAislado: boolean | null;
+  /** The USING half (polqual). */
   predicado: string;
+  /** The WITH CHECK half (polwithcheck). null = absent: Postgres applies the USING. */
+  check: string | null;
 }
 
 /**
@@ -75,23 +78,48 @@ export const SQL_POLITICAS_DIRECTAS = `
   LEFT JOIN pg_attribute at ON at.attrelid = d.refobjid AND at.attnum = d.refobjsubid
   WHERE p.polname = 'tenant_isolation' ORDER BY 1`;
 
-/** Igual, para las políticas de hijos, que alcanzan al inquilino por su padre. */
+/**
+ * Same, for the child policies, which reach the tenant through their parent.
+ *
+ * The two halves (USING and WITH CHECK) come out apart: `pg_depend` mixes them
+ * (a policy has ONE dependency list), so `fk` and `padre` are whatever either
+ * half mentions, and which half does is judged by running them (see
+ * `childPolicyShape`). Both are picked with LATERAL ... LIMIT 1 so a policy
+ * that reads two columns or mentions two tables still yields ONE row: `fk` is
+ * the lowest-attnum column other than `tenant_id`, and `padre` is the table
+ * that `fk` references through its foreign key when the policy mentions it,
+ * otherwise the first table the policy mentions.
+ */
 export const SQL_POLITICAS_HIJAS = `
   SELECT hijo.relname AS hijo, col.attname AS fk, col.attnotnull AS "fkNotNull",
          padre.relname AS padre, padre.relrowsecurity AS "padreRls",
          padre.relforcerowsecurity AS "padreForce",
          EXISTS (SELECT 1 FROM pg_policy pp WHERE pp.polrelid = padre.oid
                    AND pp.polname LIKE 'tenant_isolation%') AS "padreAislado",
-         pg_get_expr(p.polqual, p.polrelid) AS predicado
+         pg_get_expr(p.polqual, p.polrelid) AS predicado,
+         pg_get_expr(p.polwithcheck, p.polrelid) AS check
   FROM pg_policy p
   JOIN pg_class hijo ON hijo.oid = p.polrelid
   JOIN pg_namespace n ON n.oid = hijo.relnamespace AND n.nspname = 'public'
-  LEFT JOIN pg_depend dcol ON dcol.objid = p.oid AND dcol.classid = 'pg_policy'::regclass
-                          AND dcol.refobjid = p.polrelid AND dcol.refobjsubid > 0
-  LEFT JOIN pg_attribute col ON col.attrelid = dcol.refobjid AND col.attnum = dcol.refobjsubid
-  LEFT JOIN pg_depend dpar ON dpar.objid = p.oid AND dpar.classid = 'pg_policy'::regclass
-                          AND dpar.refclassid = 'pg_class'::regclass AND dpar.refobjid <> p.polrelid
-  LEFT JOIN pg_class padre ON padre.oid = dpar.refobjid
+  LEFT JOIN LATERAL (
+    SELECT at.attname, at.attnotnull
+    FROM pg_depend dcol
+    JOIN pg_attribute at ON at.attrelid = dcol.refobjid AND at.attnum = dcol.refobjsubid
+    WHERE dcol.objid = p.oid AND dcol.classid = 'pg_policy'::regclass
+      AND dcol.refobjid = p.polrelid AND dcol.refobjsubid > 0 AND at.attname <> 'tenant_id'
+    ORDER BY at.attnum LIMIT 1) col ON true
+  LEFT JOIN LATERAL (
+    SELECT dpar.refobjid
+    FROM pg_depend dpar
+    WHERE dpar.objid = p.oid AND dpar.classid = 'pg_policy'::regclass
+      AND dpar.refclassid = 'pg_class'::regclass AND dpar.refobjid <> p.polrelid
+    ORDER BY EXISTS (
+      SELECT 1 FROM pg_constraint k JOIN pg_attribute fa ON fa.attrelid = k.conrelid
+        AND fa.attnum = ANY (k.conkey) AND fa.attname = col.attname
+      WHERE k.contype = 'f' AND k.conrelid = p.polrelid AND k.confrelid = dpar.refobjid) DESC,
+      dpar.refobjid
+    LIMIT 1) dp ON true
+  LEFT JOIN pg_class padre ON padre.oid = dp.refobjid
   WHERE p.polname = 'tenant_isolation_child' ORDER BY 1`;
 
 /**
@@ -121,3 +149,24 @@ export interface HijaAnclada extends PoliticaHija {
  */
 export const hijaAnclada = (h: PoliticaHija): h is HijaAnclada =>
   h.fk !== null && h.padre !== null;
+
+/**
+ * What each child policy promises.
+ *
+ *  - `delegated`: no WITH CHECK, so the USING doubles as the check and hangs
+ *    from the parent (today's shape: `USING (EXISTS parent)`).
+ *  - `split`: has a WITH CHECK. The USING promises the tenant
+ *    (`tenant_id = app_current_tenant()`) and the WITH CHECK promises a
+ *    visible parent on top of the tenant.
+ *  - `loose`: neither, by SHAPE. An absent WITH CHECK over a USING that does
+ *    not hang from the parent lands here (the INSERT would not check the
+ *    parent), and so does a WITH CHECK with no parent (the merged dependencies
+ *    only carry a parent if some half mentions it, and in the split shape the
+ *    USING does not).
+ */
+export type ChildPolicyShape = 'delegated' | 'split' | 'loose';
+
+export const childPolicyShape = (h: PoliticaHija): ChildPolicyShape => {
+  if (h.check === null) return hijaAnclada(h) ? 'delegated' : 'loose';
+  return hijaAnclada(h) ? 'split' : 'loose';
+};

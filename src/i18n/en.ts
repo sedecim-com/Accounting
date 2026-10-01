@@ -888,6 +888,25 @@ export const EN = {
   'policy.census_cfdi_types.option.all_types':
     'Every type, transfers included (I, E, P, N, T)',
 
+  'policy.census_missing_at_close.question':
+    'A CFDI the SAT lists is missing from the books at close: which direction stops the close?',
+  'policy.census_missing_at_close.impact':
+    'The SAT census is read against what was posted. A CFDI you issued that is not posted understates income and the IVA you owe; a CFDI you received that is not posted understates a deduction and the IVA you can credit. This decides whether each direction stops the close or only warns.',
+  'policy.census_missing_at_close.rationale':
+    'An issued CFDI is income the entity already stamped and the SAT already holds: leaving it unposted understates the ISR base and the IVA trasladado of the month (LISR art. 17; LIVA arts. 1-B and 17), and the books must record every operation (CFF art. 28 fr. I). A received CFDI that is not posted is a right not yet exercised: the deduction and the IVA acreditable can still be claimed in a later period (LISR art. 27 fr. III; LIVA art. 5), so it warns. A firm that wants the books to match the SAT both ways before any close chooses both_block.',
+  'policy.census_missing_at_close.why':
+    'Missing an issued CFDI and missing a received one do not cost the same, and firms differ on how much of that they accept at close.',
+  'policy.census_missing_at_close.what':
+    'I list what the SAT has and the books lack in the close checklist, and stop the close only for the directions you choose.',
+  'policy.census_missing_at_close.if_skipped':
+    'A missing issued CFDI stops the close and a missing received one warns.',
+  'policy.census_missing_at_close.option.issued_blocks':
+    'Issued stops the close; received warns',
+  'policy.census_missing_at_close.option.both_block':
+    'Both directions stop the close',
+  'policy.census_missing_at_close.option.both_warn':
+    'Both directions only warn',
+
   'policy.opening_payable_iva.question':
     'When a migrated vendor invoice does not say the IVA rate inside its open balance, what does the opening load do?',
   'policy.opening_payable_iva.impact':
@@ -1537,6 +1556,120 @@ export const EN = {
   'policy.time_zone.option.america_hermosillo':
     'Sonora (UTC−7 all year)',
   // ==== end of policy.* ===============================================
+  // ==== pending.* and policy_preview.* — the `pending` screen by key (I10 · #152, MNE-001-091) ====
+  'pending.board.empty':
+    'Nothing pending. All caught up.',
+  'pending.board.work':
+    '{count, plural, one {# thing to resolve} other {# things to resolve}}',
+  'pending.board.warnings_only':
+    'warnings only',
+  'pending.board.draft':
+    '{count, plural, one {# draft awaits} other {# drafts await}} your approval',
+  'pending.board.question':
+    '{count, plural, one {# unanswered question} other {# unanswered questions}} from the AI',
+  'pending.board.outbox':
+    '{count, plural, one {# queued write} other {# queued writes}} to {providers}',
+  'pending.board.credential_expired':
+    'your {kind, select, efirma {e.firma} other {CSD}} has ALREADY EXPIRED — renew it at the SAT',
+  'pending.board.credential_expires':
+    'your {label} expires in {days, plural, one {# day} other {# days}}',
+  'pending.board.period_close':
+    '{count, plural, one {# ended period remains} other {# ended periods remain}} unclosed',
+  'pending.board.period_example':
+    '{period} (ended {date})',
+  'pending.policies.none':
+    'No pending definitions.',
+  'pending.policies.operating_with':
+    ' — operating with: {value}',
+  'pending.policies.no_default':
+    ' — no default',
+  'pending.policies.heading':
+    'To define ({count})',
+  'pending.policies.heading_note':
+    ' — operating with defaults meanwhile',
+  'pending.policies.define_hint':
+    '→  mnemosine pending define <key> <value>',
+  'pending.policies.label.impact':
+    'impact',
+  'pending.policies.label.why':
+    'why I ask',
+  'pending.policies.label.what':
+    'what I do',
+  'pending.policies.label.if_skipped':
+    'if you skip it',
+  'pending.policies.label.in_your_data':
+    'in your data:',
+  'pending.policies.label.why_default':
+    'why that default',
+  'pending.policies.already_defined':
+    'Already defined',
+  'pending.policies.dismissed_value':
+    '(dismissed)',
+  'pending.define.not_found':
+    'There is no pending decision with key "{key}". List the open ones with: mnemosine pending',
+  'pending.define.input_hint':
+    '(number, free-form value, or empty to cancel)',
+  'pending.define.cancelled':
+    'Cancelled; still pending.',
+  'pending.define.ambiguous':
+    '"{typed}" is both option {typed} ({byPosition}) and the value {byValue}. Type p for option {typed}, v for the value {byValue}, or leave it empty to cancel.',
+  'pending.define.done':
+    '✔ {key} = {value}',
+  'pending.define.remaining':
+    '{count, plural, one {# definition} other {# definitions}} still pending.',
+  'pending.dismiss.done':
+    '✘ {key} dismissed.',
+  'pending.reopen.done':
+    '↻ {key} is pending again.',
+  'policy_preview.threshold.intro':
+    'Of your {count, plural, one {# received invoice} other {# received invoices}}:',
+  'policy_preview.threshold.line':
+    '  · with {threshold} → I would ask you {asked, plural, one {# time} other {# times}} ({pct})',
+  'policy_preview.auto_post.intro':
+    'Of the {total, plural, one {# draft} other {# drafts}} I have proposed so far:',
+  'policy_preview.auto_post.counts':
+    '  · {approved} you approved, {rejected} you rejected',
+  'policy_preview.auto_post.rejected':
+    '  · a rejection rate above zero is a reason to keep this off until it settles',
+  'policy_preview.auto_post.track_record':
+    '  · no rejections yet — a track record that supports turning it on',
+  'policy_preview.auto_post.too_few':
+    '  · too few yet to tell how often I would be right',
+  'policy_preview.auto_post.shadow_some':
+    '  · shadow: {verdicts, plural, one {# verdict} other {# verdicts}} over {days, plural, one {# day} other {# days}}, {decided} human-decided, agreement {agreement} (turning "on" requires at least {minDays} days, {minDecided} decided and {minAgreement} agreement)',
+  'policy_preview.auto_post.shadow_none':
+    '  · no shadow history yet: answer "shadow" first — "on" requires that evidence',
+  'policy_preview.amounts.intro':
+    'Your received invoices, by amount:',
+  'policy_preview.amounts.half':
+    '  · half are under {amount}',
+  'policy_preview.amounts.nine_of_ten':
+    '  · 9 out of 10 are under {amount}',
+  'policy_preview.amounts.largest':
+    '  · the largest was {amount}',
+  'policy_preview.amounts.cap':
+    '  · a cap of {cap} would cover {pct} of them',
+  'policy_preview.inventory.some':
+    'I see {count, plural, one {# posted movement} other {# posted movements}} in inventory accounts — you seem to keep them.',
+  'policy_preview.inventory.none':
+    'I see no movements in inventory accounts yet.',
+  'policy_preview.restaurants.none':
+    'No restaurant invoices in your history yet.',
+  'policy_preview.restaurants.intro':
+    '{count, plural, one {# restaurant invoice} other {# restaurant invoices}} for {total}:',
+  'policy_preview.restaurants.deductible':
+    '  · deductible ({rate}): {amount}',
+  'policy_preview.restaurants.non_deductible':
+    '  · non-deductible: {amount}',
+  'policy_preview.efirma.none':
+    'No e.firma accesses recorded yet.',
+  'policy_preview.efirma.summary':
+    '{count, plural, one {# access} other {# accesses}} counted toward the cap over {days, plural, one {# day} other {# days}} (~{perDay} per day).',
+  'policy_preview.closed_period.some':
+    '{count, plural, one {# invoice} other {# invoices}} in your history fall in already-closed periods.',
+  'policy_preview.closed_period.none':
+    'No invoices from closed periods so far.',
+  // ==== end of pending.* and policy_preview.* ====================================
 
   // --- El kernel: confirmación y salida --------------------------------
   /** `src/cli/kernel/confirmacion.ts:76` (`noEntendi`, que ya la llama). El «y/s» del español
@@ -2520,6 +2653,15 @@ export const EN = {
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
   'help.receipt.apply.option.withholding':
     'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
+  'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
+  'help.sat.download.reconcile.description':
+    'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
+  'help.sat.download.reconcile.option.period': 'month to reconcile, as YYYY-MM',
+  'sat.reconcile.bad_period': 'The period must be a month as YYYY-MM, and "{value}" is not.',
+  'sat.reconcile.summary':
+    '{period}: {matched} agree · {fetch} to fetch · {post} to post · {cancelled} cancelled at the SAT but posted · {surplus} posted but not in the census ({cancelledUnbooked} cancelled and never posted: not a gap).',
+  'sat.reconcile.not_loaded':
+    'No census of {direction} CFDI covers this month: it is not loaded, which is not the same as nothing having been {direction}. Load it with `ingest --kind metadata`.',
   'help.closing.fx.description': 'Foreign currency at the close',
   'help.closing.fx.revalue.description':
     'Revalue the foreign-currency receivables, payables and banks at the closing rate, and reverse it on day 1 of the next period. It belongs after the soft close; a later run posts only what moved since',
