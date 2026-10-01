@@ -390,9 +390,9 @@ export function verificarNaturCoherente(ctx: ContextoDeVerificacion): HallazgoBa
  *
  * Con el criterio por omisión —`nunca_sellar_en_el_sistema`— un archivo sin
  * sello es exactamente el producto: construir el XML y firmarlo son actos
- * distintos y de manos distintas, y aquí no se emite hallazgo ninguno. El
- * despacho que eligió `sellar_con_custodia` pidió otra cosa, y este tramo no
- * la da: se le dice, en vez de entregarle un archivo que no puede presentar.
+ * distintos y de manos distintas, y aquí no se emite hallazgo ninguno. The
+ * firm that chose `sellar_con_custodia` is warned until the balance has a
+ * sealed copy (`balance seal`, EFIRMA-4 #442); `sellada` says it has one.
  */
 export function verificarSello(ctx: ContextoDeVerificacion): HallazgoBalanza[] {
   if (ctx.sellada) return [];
@@ -404,8 +404,8 @@ export function verificarSello(ctx: ContextoDeVerificacion): HallazgoBalanza[] {
       referencia: '',
       detalle:
         `el criterio 'efirma_sellado_contabilidad_electronica' está en '${ctx.criterio_sellado}' y ` +
-        `este archivo sale SIN Sello, noCertificado ni Certificado: la generación no carga ninguna ` +
-        `llave privada. Séllelo y transmítalo aparte.`,
+        `este archivo no tiene copia sellada: la generación no carga ninguna llave privada. ` +
+        `Séllelo con \`e-accounting balance seal\`; la carga ante el SAT se hace en su portal.`,
     },
   ];
 }

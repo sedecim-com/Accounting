@@ -302,14 +302,15 @@ export const E1_3: Criterio[] = [
     evaluar: () => {
       const cli = codigoDe('src/cli/pending-command.ts');
       // The wording comes from the CATALOG through `policyWording` (I10 ·
-      // #152); the explanatory fields below still come from the spec. That
-      // the row's copy is never read is judged by
+      // #152); the explanatory fields below come from the same catalog by
+      // key, through `specWording`, in the active language. That the row's
+      // copy is never read is judged by
       // `policy-wording-comes-from-the-catalog`, next to this criterion.
       if (!/policyWording\(/.test(cli) || !/getPolicySpec\(/.test(cli)) {
         return falla('pending dejó de leer el catálogo: imprimiría el texto congelado al sembrar, que caduca sin avisar');
       }
       for (const campo of ['whyAsking', 'whatIDo', 'ifSkipped']) {
-        if (!new RegExp(`spec\\??\\.${campo}`).test(cli)) {
+        if (!new RegExp(`wording\\??\\.${campo}`).test(cli) || !/specWording\(/.test(cli)) {
           return falla(
             `pending dejó de imprimir ${campo}: la capa explicativa volvería a existir sólo en el alta, el único momento en que no tiene datos que enseñar`
           );
@@ -356,8 +357,8 @@ export const E1_3: Criterio[] = [
     mutantes: [
       {
         archivo: 'src/cli/pending-command.ts',
-        de: "      out.push(...field('impact', wording.impact, c));",
-        a: "      out.push(...field('impact', p.impact, c));",
+        de: "      out.push(...field(t('pending.policies.label.impact'), wording.impact, c));",
+        a: "      out.push(...field(t('pending.policies.label.impact'), p.impact, c));",
         porque:
           'texto-del-dia-de-siembra: `pending -v` volvería a pintar el impacto copiado al sembrar, que para un inquilino antiguo es el catálogo de aquel día y no el de hoy',
       },
@@ -434,6 +435,94 @@ export const E1_3: Criterio[] = [
         return falla('memory-service volvió a tomar el vocabulario de opciones de la fila: la detección de contradicciones depende otra vez del día de siembra');
       }
       return ok(`las ${screens.length} pantallas del panel y la memoria del agente piden el texto a la costura, que es su único lector`);
+    },
+  },
+  {
+    paquete: 'E1.3',
+    id: 'policy-panel-paints-through-the-active-language',
+    // I10 · issue #152, MNE-001-091 review fixes. `src/services` renders nothing
+    // in a language of its own, so each EDGE that paints the panel builds the
+    // translator (`panelTranslator`) and the preview text (`previewText`) and
+    // hands them in. A site that forgets, or pins the wrong language, paints
+    // Spanish beside English labels (or the reverse) and no type error says so.
+    // The behaviour is pinned by tests/cli/pending-locale-readers.spec.ts; this
+    // criterion keeps the four sites on the seam.
+    enunciado:
+      'The four places that paint the policy panel (pending, the agent panel, the init wizard and the work board) ask the active language through panelTranslator/previewText, and the wizard keeps one language for text and chrome',
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/policy-tools.ts',
+        de: 'const wording = policyWording(fila, panelTranslator());',
+        a: "const wording = policyWording(fila, panelTranslator('en'));",
+        porque:
+          'agent-panel-pinned-to-english: leerPanel would hand the agent English wording while `pending` paints the accountant in Spanish',
+      },
+      {
+        archivo: 'src/cli/pending-command.ts',
+        de: 'text: previewText(),',
+        a: "text: previewText('en'),",
+        porque:
+          'preview-pinned-to-english: the "in your data" lines of the listing would come out English under es-MX',
+      },
+      {
+        archivo: 'src/cli/pending-command.ts',
+        de: 'policyWording(p, panelTranslator())',
+        a: "policyWording(p, panelTranslator('en'))",
+        porque:
+          'wording-pinned-to-english: the listing or the `define` prompt would paint the question and options in English under es-MX',
+      },
+      {
+        archivo: 'src/cli/init/s4-policies.ts',
+        de: "const WIZARD_LANGUAGE = 'en' as const;",
+        a: "const WIZARD_LANGUAGE = 'es' as const;",
+        porque:
+          "half-translated-wizard: the catalog text would come out Spanish beside the wizard's hand-written English labels",
+      },
+      {
+        archivo: 'src/ai/pending-service.ts',
+        de: "summary: t('pending.board.draft', { count: r.rows.length }),",
+        a: 'summary: `${r.rows.length} drafts await your approval`,',
+        porque:
+          'board-summary-in-english: the work board would keep its hand-written English plural under es-MX',
+      },
+      {
+        archivo: 'src/i18n/panel-text.ts',
+        de: 'const locale = FORMAT_LOCALE[language];',
+        a: 'const locale = FORMAT_LOCALE.en;',
+        porque:
+          'words-and-separators-disagree: a preview in Spanish would carry en-US separators',
+      },
+    ],
+    evaluar: () => {
+      const count = (src: string, re: RegExp): number => (src.match(re) ?? []).length;
+      const tools = codigoDe('src/ai/tools/policy-tools.ts');
+      if (!/policyWording\(fila, panelTranslator\(\)\)/.test(tools)) {
+        return falla('leerPanel dejó de pedir el texto a panelTranslator(): el agente vería otro idioma que el contador');
+      }
+      const cli = codigoDe('src/cli/pending-command.ts');
+      if (count(cli, /policyWording\(p, panelTranslator\(\)\)/g) < 2) {
+        return falla('pending dejó de pintar la pregunta y las opciones con panelTranslator() en el listado o en el prompt de define');
+      }
+      if (count(cli, /text: previewText\(\)/g) < 2) {
+        return falla('pending dejó de pasar previewText() al preview en el listado o en el prompt de define');
+      }
+      const wizard = codigoDe('src/cli/init/s4-policies.ts');
+      if (
+        !/const WIZARD_LANGUAGE = 'en' as const;/.test(wizard) ||
+        !/panelTranslator\(WIZARD_LANGUAGE\)/.test(wizard) ||
+        !/previewText\(WIZARD_LANGUAGE\)/.test(wizard)
+      ) {
+        return falla('el asistente de init mezcla idiomas: su texto y sus etiquetas deben hablar el mismo hasta que I8 lo traduzca');
+      }
+      const board = codigoDe('src/ai/pending-service.ts');
+      if (count(board, /\bt\('pending\.board\./g) < 7) {
+        return falla('el tablero de pending volvió a armar texto a mano: debe salir del catálogo en el idioma activo');
+      }
+      const edge = codigoDe('src/i18n/panel-text.ts');
+      if (!/const locale = FORMAT_LOCALE\[language\];/.test(edge)) {
+        return falla('previewText ya no deriva el formato del mismo idioma que las palabras');
+      }
+      return ok('los cuatro sitios que pintan el panel piden el idioma activo y el asistente conserva uno solo');
     },
   },
   {

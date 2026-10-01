@@ -10,6 +10,7 @@ vi.mock('../../src/services/policy/today.js', () => ({
   todayFor: vi.fn(async () => '2026-10-31'),
   todayForEntity: vi.fn(async () => '2026-10-31'),
   todayForCustomer: vi.fn(async () => '2026-10-31'),
+  zoneForEntity: vi.fn(async () => 'America/Mexico_City'),
 }));
 
 import { buildSystemBlocks } from '../../src/ai/system-prompt.js';
@@ -96,7 +97,7 @@ describe('buildSystemBlocks — firm memory digest', () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{
         topic: 'clasificacion:X', question: 'q', answer: '5205 Honorarios',
-        answered_by: 'admin@demo.com', answered_at: new Date('2026-08-01'),
+        answered_by: 'admin@demo.com', answered_at: new Date('2026-08-01T18:00:00Z'),
       }],
     });
     const [stable, volatile_] = await buildSystemBlocks(CTX);
@@ -134,7 +135,7 @@ describe('buildSystemBlocks — precedents never compete by date (T17a, #303)', 
     mockQuery.mockResolvedValueOnce({
       rows: [{
         topic: 'clasificacion:X', question: 'q', answer: '5205 Honorarios',
-        answered_by: 'admin@demo.com', answered_at: new Date('2026-08-01'),
+        answered_by: 'admin@demo.com', answered_at: new Date('2026-08-01T18:00:00Z'),
       }],
     });
   });

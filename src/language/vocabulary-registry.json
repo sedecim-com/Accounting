@@ -2346,6 +2346,14 @@
     },
     {
       "class": "policy-key",
+      "where": "census_missing_at_close",
+      "es": "census_missing_at_close",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-119): how a CFDI the SAT lists and the books lack weighs at close, by direction. Read by `severityOfCensusGap` (sat-census/reconcile.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "census_cfdi_types",
       "es": "census_cfdi_types",
       "en": null,
@@ -2923,6 +2931,30 @@
       "es": "contabilizar",
       "en": "post",
       "why": "`post` es el verbo del árbol para llevar un asiento al mayor (`postJournalEntry`, `autoPost`, `entry post`), y el informe ya lo nombra así (`loadMode: 'post'`)."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_missing_at_close/issued_blocks",
+      "es": "issued_blocks",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-119): the literal `severityOfCensusGap` (sat-census/reconcile.ts) blocks the close for an issued gap and warns for a received one."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_missing_at_close/both_block",
+      "es": "both_block",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-119): the literal `severityOfCensusGap` (sat-census/reconcile.ts) blocks the close for a gap in either direction."
+    },
+    {
+      "class": "policy-value",
+      "where": "census_missing_at_close/both_warn",
+      "es": "both_warn",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-119): the literal `severityOfCensusGap` (sat-census/reconcile.ts) only warns, in either direction."
     },
     {
       "class": "policy-value",
@@ -5813,6 +5845,38 @@
     },
     {
       "class": "policy-key",
+      "where": "withholding_mismatch",
+      "es": "withholding_mismatch",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-057): what happens to a received CFDI whose declared withholding differs from the one the law requires of the payer."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_mismatch/request_substitute_cfdi",
+      "es": "request_substitute_cfdi",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI is held, nothing is written, and the vendor is asked for a substitute CFDI."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_mismatch/withhold_by_law",
+      "es": "withhold_by_law",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the law's withholding is proposed and the entry is held for review."
+    },
+    {
+      "class": "policy-value",
+      "where": "withholding_mismatch/record_as_issued",
+      "es": "record_as_issued",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the CFDI posts with its declared withholding, and the close checklist lists it."
+    },
+    {
+      "class": "policy-key",
       "where": "withholding_accounts_layout",
       "es": "withholding_accounts_layout",
       "en": null,
@@ -5826,6 +5890,38 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-147): what happens to an entity whose withholding roles do not follow withholding_accounts_layout."
+    },
+    {
+      "class": "policy-key",
+      "where": "cash_over_limit_outside_ingestion",
+      "es": "cash_over_limit_outside_ingestion",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-345): what to do with cash above the LISR art. 27 fr. III limit outside the CFDI ingestion."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/signal",
+      "es": "signal",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the finding is returned and nothing changes."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/draft_reclassification",
+      "es": "draft_reclassification",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the finding is returned and the non-deductible reclassification is proposed as a draft."
+    },
+    {
+      "class": "policy-value",
+      "where": "cash_over_limit_outside_ingestion/ignore",
+      "es": "ignore",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the cash above the limit is not reported."
     },
     {
       "class": "policy-key",
@@ -5973,6 +6069,30 @@
     },
     {
       "class": "policy-key",
+      "where": "provisional_isr_sales_returns",
+      "es": "provisional_isr_sales_returns",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-059): whether sales returns lower the nominal income of the provisional ISR or wait for the annual return as a deduction (LISR arts. 14 fr. I and 25 fr. I)."
+    },
+    {
+      "class": "policy-value",
+      "where": "provisional_isr_sales_returns/deduction",
+      "es": "deduction",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the nominal income is gross; returns are a deduction of the annual return (LISR art. 25 fr. I)."
+    },
+    {
+      "class": "policy-value",
+      "where": "provisional_isr_sales_returns/net_of_income",
+      "es": "net_of_income",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the returns of the year are subtracted from the nominal income."
+    },
+    {
+      "class": "policy-key",
       "where": "overtime_isr_exemption",
       "es": "overtime_isr_exemption",
       "en": null,
@@ -6018,6 +6138,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: only the whole weeks in the period."
+    },
+    {
+      "class": "policy-key",
+      "where": "employment_subsidy_separate_run",
+      "es": "employment_subsidy_separate_run",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-398): the employment subsidy of a later paycheck of the same pay period."
+    },
+    {
+      "class": "policy-value",
+      "where": "employment_subsidy_separate_run/recompute_on_combined_income",
+      "es": "recompute_on_combined_income",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the subsidy is recomputed once on the income of the whole period and the later paycheck credits the difference."
+    },
+    {
+      "class": "policy-value",
+      "where": "employment_subsidy_separate_run/none_on_separate_paycheck",
+      "es": "none_on_separate_paycheck",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the separate paycheck of the period (a run other than the regular one, or one that pays only aguinaldo) carries no subsidy."
     }
   ]
 }

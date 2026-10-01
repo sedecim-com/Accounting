@@ -220,6 +220,25 @@ export const EN = {
   'policy.fees_without_withholding.option.record_as_issued':
     'Record it as issued, with a warning in the close checklist',
 
+  'policy.withholding_mismatch.question':
+    "A received CFDI declares a withholding (ISR or VAT) other than the one the law requires of your company as payer. What happens?",
+  'policy.withholding_mismatch.impact':
+    "Governs received CFDIs on which a legal entity withholds by law (an individual's fees or lease, land freight, an individual in RESICO) and whose declared withholding differs from the law's beyond rounding; professional fees under regime 612 that declare no ISR withheld follow fees_without_withholding instead. \"request_substitute_cfdi\" holds the CFDI in the inbox, writes nothing to the ledger and says to ask the vendor for a substitute CFDI. \"withhold_by_law\" proposes the entry with the law's withholding and holds it for review. \"record_as_issued\" posts the CFDI with its declared withholding, and the close checklist lists it under fees-without-withholding.",
+  'policy.withholding_mismatch.rationale':
+    "The payer is jointly liable for the tax it should have withheld (CFF 26-I) and the expense is deductible only if the withholding was made and paid (LISR 27-V). The CFDI belongs to a third party: the clean remedy is a substitute from the vendor, and nothing is booked on a figure that will change.",
+  'policy.withholding_mismatch.why':
+    "When your company withholds by law, the invoice has to show the same withholding the law requires. If it shows another, either the vendor made a mistake or the case is not the one the law describes. Whether to wait for a corrected invoice, withhold the law's amount anyway or book it as it came is a call for your firm.",
+  'policy.withholding_mismatch.what':
+    "By default I hold the invoice and tell you to ask the vendor for a substitute. With \"withhold_by_law\" I propose the entry with the law's withholding and leave it for you to review. With \"record_as_issued\" I post it as it came and list it in the close checklist.",
+  'policy.withholding_mismatch.if_skipped':
+    "I hold those invoices and ask you about each one: nothing reaches your books until a substitute arrives or you answer.",
+  'policy.withholding_mismatch.option.request_substitute_cfdi':
+    "Hold it and ask the vendor for a substitute CFDI",
+  'policy.withholding_mismatch.option.withhold_by_law':
+    "Book the law's withholding and hold the entry for review",
+  'policy.withholding_mismatch.option.record_as_issued':
+    "Record it as declared, with a warning in the close checklist",
+
   'policy.inventory_method.question':
     'Does the company keep perpetual inventories?',
   'policy.inventory_method.impact':
@@ -869,6 +888,25 @@ export const EN = {
   'policy.census_cfdi_types.option.all_types':
     'Every type, transfers included (I, E, P, N, T)',
 
+  'policy.census_missing_at_close.question':
+    'A CFDI the SAT lists is missing from the books at close: which direction stops the close?',
+  'policy.census_missing_at_close.impact':
+    'The SAT census is read against what was posted. A CFDI you issued that is not posted understates income and the IVA you owe; a CFDI you received that is not posted understates a deduction and the IVA you can credit. This decides whether each direction stops the close or only warns.',
+  'policy.census_missing_at_close.rationale':
+    'An issued CFDI is income the entity already stamped and the SAT already holds: leaving it unposted understates the ISR base and the IVA trasladado of the month (LISR art. 17; LIVA arts. 1-B and 17), and the books must record every operation (CFF art. 28 fr. I). A received CFDI that is not posted is a right not yet exercised: the deduction and the IVA acreditable can still be claimed in a later period (LISR art. 27 fr. III; LIVA art. 5), so it warns. A firm that wants the books to match the SAT both ways before any close chooses both_block.',
+  'policy.census_missing_at_close.why':
+    'Missing an issued CFDI and missing a received one do not cost the same, and firms differ on how much of that they accept at close.',
+  'policy.census_missing_at_close.what':
+    'I list what the SAT has and the books lack in the close checklist, and stop the close only for the directions you choose.',
+  'policy.census_missing_at_close.if_skipped':
+    'A missing issued CFDI stops the close and a missing received one warns.',
+  'policy.census_missing_at_close.option.issued_blocks':
+    'Issued stops the close; received warns',
+  'policy.census_missing_at_close.option.both_block':
+    'Both directions stop the close',
+  'policy.census_missing_at_close.option.both_warn':
+    'Both directions only warn',
+
   'policy.opening_payable_iva.question':
     'When a migrated vendor invoice does not say the IVA rate inside its open balance, what does the opening load do?',
   'policy.opening_payable_iva.impact':
@@ -1307,6 +1345,23 @@ export const EN = {
   'policy.employment_subsidy_rounding.option.diario_al_centavo':
     'The daily amount first: monthly / 30.4 to the cent, then × the days of the period',
 
+  'policy.employment_subsidy_separate_run.question':
+    'When a worker gets a second paycheck in the same pay period (an aguinaldo paid in its own run, for example), how much employment subsidy does it carry?',
+  'policy.employment_subsidy_separate_run.impact':
+    'It decides the subsidy, the ISR withheld, the cash handed to the worker and the payroll CFDI of each paycheck of the period. Either way the period never receives the subsidy twice; with the recomputation it follows the income of the whole period, and with "none" it stays on the regular paycheck.',
+  'policy.employment_subsidy_separate_run.rationale':
+    'The decree that governs the subsidy (DOF 31-12-2025) grants one amount per period to whoever earns no more than a monthly cap, so both the amount and the cap are measured on the income of the period, not of each payslip. Recomputing on the combined income applies that cap to the whole period, and a later paycheck credits only what the earlier ones did not. When the combined income is over the cap, the subsidy an earlier paycheck already caused was not due: the later paycheck credits nothing more, but that subsidy is not recovered, so the result then differs from paying the aguinaldo with the salary, which would give no subsidy at all.',
+  'policy.employment_subsidy_separate_run.why':
+    'The decree measures the subsidy and its income cap per pay period, not per payslip, and paying the aguinaldo in its own run is common. Without a rule the second paycheck of the period received the subsidy again and handed the part over its ISR to the worker as cash.',
+  'policy.employment_subsidy_separate_run.what':
+    'Before crediting the subsidy on a paycheck, I read the other calculated, approved or paid paychecks of the same worker and period. With "recompute_on_combined_income" I compute the subsidy on their income plus this one and credit the difference, never below zero. With "none_on_separate_paycheck" a paycheck of a run other than the regular one, or one that pays only aguinaldo, carries none, and the regular paycheck keeps its own whichever was calculated first.',
+  'policy.employment_subsidy_separate_run.if_skipped':
+    'I recompute on the combined income of the period and credit only the difference.',
+  'policy.employment_subsidy_separate_run.option.recompute_on_combined_income':
+    'Recompute it once on the income of both paychecks, and credit on the second only the difference',
+  'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
+    'None on the separate paycheck: a run other than the regular one, or a paycheck that pays only aguinaldo, carries no subsidy; the regular paycheck keeps its own',
+
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
   'policy.filing_rounding_to_pesos.impact':
@@ -1339,6 +1394,22 @@ export const EN = {
     'The month\'s proportion, over all the IVA paid (LIVA art. 5 fr. V inc. c)',
   'policy.iva_creditable_proration.option.annual':
     'The prior calendar year\'s proportion, over all the IVA paid (LIVA art. 5-B)',
+  'policy.provisional_isr_sales_returns.question':
+    'In the provisional ISR, do sales returns, discounts and allowances lower the nominal income, or are they left to the annual return as a deduction?',
+  'policy.provisional_isr_sales_returns.impact':
+    'It moves the nominal income of every monthly ISR payment by the returns of the year, and the estimated profit by that amount times the coefficient.',
+  'policy.provisional_isr_sales_returns.rationale':
+    'LISR art. 14 fr. I takes as nominal income the accumulable income, less only the accumulable inflation adjustment, and LISR art. 25 fr. I makes the returns, discounts and allowances of the year a deduction, not a smaller income. The coefficient of the annual return divides the tax profit by that gross nominal income, so a monthly base built the same way is the one the coefficient was measured against. Unverified assumption: that the annual return the coefficient comes from declared the returns as a deduction; a firm whose return netted them picks the other option.',
+  'policy.provisional_isr_sales_returns.why':
+    'The law calls the returns a deduction, but firms that net them in their annual return also net them every month. The coefficient and the monthly nominal income have to be built the same way.',
+  'policy.provisional_isr_sales_returns.what':
+    'The workpaper lists the revenue accounts that carry the sales-returns role apart from the nominal income, and adds them to it or not as you choose here.',
+  'policy.provisional_isr_sales_returns.if_skipped':
+    'I leave the returns out of the nominal income, as a deduction of the annual return.',
+  'policy.provisional_isr_sales_returns.option.deduction':
+    'A deduction: the nominal income is gross, and the returns wait for the annual return',
+  'policy.provisional_isr_sales_returns.option.net_of_income':
+    'Net of income: the returns of the year are subtracted from the nominal income',
   'policy.overtime_isr_exemption.question':
     'Do you apply the ISR exemption of LISR art. 93 fr. I to the overtime you pay?',
   'policy.overtime_isr_exemption.impact':
@@ -1461,7 +1532,7 @@ export const EN = {
   'policy.withholding_accounts_layout.question':
     'On which accounts does the ISR and VAT this entity withholds from its suppliers accumulate?',
   'policy.withholding_accounts_layout.impact':
-    'Decides where fees and lease withholdings are booked until the 17th pays them. Payroll ISR stays on 2140 in every layout. One account per tax gives the two lines of the monthly payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything that is not a lease is booked as professional services. With one account per tax, 2141 holds lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can only be one of the two. One account needs the working paper to split ISR from VAT, and the approval of a draft can only check their sum.',
+    'Decides where fees and lease withholdings are booked until the 17th pays them. Payroll ISR stays on 2140 in every layout. One account per tax gives the two lines of the monthly payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything that is not a lease, the 1.25 % of RESICO (LISR 113-J) on goods, services or freight included, is booked as professional services; a RESICO real-estate lease is booked as a lease. With one account per tax, 2141 holds lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can only be one of the two. One account needs the working paper to split ISR from VAT, and the approval of a draft can only check their sum.',
   'policy.withholding_accounts_layout.rationale':
     'The withholder pays the ISR (LISR 106, 116) and the VAT (LIVA 1-A, 5-D) it withheld with the monthly return due on the 17th, as separate taxes, and the DIOT reports the VAT withheld per supplier (LIVA 32-VIII): a balance per tax is what both read without any split. It is what entities are seeded with.',
   'policy.withholding_accounts_layout.why':
@@ -1496,6 +1567,32 @@ export const EN = {
   'policy.withholding_accounts_existing.option.keep':
     'Leave them as they are, without warning',
 
+  'policy.cash_over_limit_outside_ingestion.question':
+    'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
+  'policy.cash_over_limit_outside_ingestion.impact':
+    'Governs `bill approve` (for a bill whose CFDI says FormaPago 01) and `payment create --method cash`. With "signal" the operation returns a deductibility-at-risk finding and changes nothing. With "draft_reclassification" it also proposes, as a draft a person approves, moving the bill\'s expense and IVA to the non-deductible account. With "ignore" it says nothing. A bill the ingestion created is never judged again: its answer to `efectivo_no_deducible` stands.',
+  'policy.cash_over_limit_outside_ingestion.rationale':
+    'LISR art. 27 fr. III denies the deduction of what is paid in cash above the limit, and LIVA art. 5 fr. I denies the IVA credit with it; but the law keys on how the payment was really made, which a bill alone does not prove (the CFDI method may be the wrong one, the same exception the ingestion offers). The books keep what was posted (NIF A-1, faithful representation) and a person is told, with the figures, before the return is filed.',
+  'policy.cash_over_limit_outside_ingestion.why':
+    'Cash above the limit makes the expense non-deductible, but only if it really was paid in cash. Some firms want a draft ready, others only the warning.',
+  'policy.cash_over_limit_outside_ingestion.what':
+    'I compare the cash against the limit in force on the payment date and report it; with "draft_reclassification" I leave a draft in the review queue.',
+  'policy.cash_over_limit_outside_ingestion.if_skipped': 'I signal it and change nothing.',
+  'policy.cash_over_limit_outside_ingestion.option.signal': 'Signal it and change nothing: a person decides',
+  'policy.cash_over_limit_outside_ingestion.option.draft_reclassification':
+    'Signal it and propose the non-deductible reclassification as a draft',
+  'policy.cash_over_limit_outside_ingestion.option.ignore': 'Say nothing',
+
+  // MNE-001-345 · the finding text of LISR art. 27 fr. III cash above the limit.
+  'cash_limit.finding.at_approve':
+    '{bill}: the CFDI declares payment in cash for {amount} MXN (dated {date}), above the {limit} limit of LISR art. 27 fr. III: the deduction and the IVA credit (LIVA art. 5 fr. I) are at risk if it was really paid in cash. Nothing was reclassified.',
+  'cash_limit.finding.at_payment':
+    '{bill}: {amount} MXN paid in cash on {date} exceeds the {limit} limit of LISR art. 27 fr. III: the deduction and the IVA credit (LIVA art. 5 fr. I) are at risk. Nothing was reclassified.',
+  'cash_limit.finding.unavailable':
+    '{bill}: paid in cash on {date}, but no vigencia of the LISR art. 27 fr. III limit covers that date, so it could not be judged. Seed the legal parameter and review it.',
+  'cash_limit.finding.draft_proposed': 'A reclassification draft was left in the review queue ({count}).',
+  'cash_limit.finding.draft_failed': 'The reclassification draft could not be proposed: {reason}.',
+
   'policy.time_zone.question':
     'In which time zone does "today" fall for these books?',
   'policy.time_zone.impact':
@@ -1517,6 +1614,120 @@ export const EN = {
   'policy.time_zone.option.america_hermosillo':
     'Sonora (UTC−7 all year)',
   // ==== end of policy.* ===============================================
+  // ==== pending.* and policy_preview.* — the `pending` screen by key (I10 · #152, MNE-001-091) ====
+  'pending.board.empty':
+    'Nothing pending. All caught up.',
+  'pending.board.work':
+    '{count, plural, one {# thing to resolve} other {# things to resolve}}',
+  'pending.board.warnings_only':
+    'warnings only',
+  'pending.board.draft':
+    '{count, plural, one {# draft awaits} other {# drafts await}} your approval',
+  'pending.board.question':
+    '{count, plural, one {# unanswered question} other {# unanswered questions}} from the AI',
+  'pending.board.outbox':
+    '{count, plural, one {# queued write} other {# queued writes}} to {providers}',
+  'pending.board.credential_expired':
+    'your {kind, select, efirma {e.firma} other {CSD}} has ALREADY EXPIRED — renew it at the SAT',
+  'pending.board.credential_expires':
+    'your {label} expires in {days, plural, one {# day} other {# days}}',
+  'pending.board.period_close':
+    '{count, plural, one {# ended period remains} other {# ended periods remain}} unclosed',
+  'pending.board.period_example':
+    '{period} (ended {date})',
+  'pending.policies.none':
+    'No pending definitions.',
+  'pending.policies.operating_with':
+    ' — operating with: {value}',
+  'pending.policies.no_default':
+    ' — no default',
+  'pending.policies.heading':
+    'To define ({count})',
+  'pending.policies.heading_note':
+    ' — operating with defaults meanwhile',
+  'pending.policies.define_hint':
+    '→  mnemosine pending define <key> <value>',
+  'pending.policies.label.impact':
+    'impact',
+  'pending.policies.label.why':
+    'why I ask',
+  'pending.policies.label.what':
+    'what I do',
+  'pending.policies.label.if_skipped':
+    'if you skip it',
+  'pending.policies.label.in_your_data':
+    'in your data:',
+  'pending.policies.label.why_default':
+    'why that default',
+  'pending.policies.already_defined':
+    'Already defined',
+  'pending.policies.dismissed_value':
+    '(dismissed)',
+  'pending.define.not_found':
+    'There is no pending decision with key "{key}". List the open ones with: mnemosine pending',
+  'pending.define.input_hint':
+    '(number, free-form value, or empty to cancel)',
+  'pending.define.cancelled':
+    'Cancelled; still pending.',
+  'pending.define.ambiguous':
+    '"{typed}" is both option {typed} ({byPosition}) and the value {byValue}. Type p for option {typed}, v for the value {byValue}, or leave it empty to cancel.',
+  'pending.define.done':
+    '✔ {key} = {value}',
+  'pending.define.remaining':
+    '{count, plural, one {# definition} other {# definitions}} still pending.',
+  'pending.dismiss.done':
+    '✘ {key} dismissed.',
+  'pending.reopen.done':
+    '↻ {key} is pending again.',
+  'policy_preview.threshold.intro':
+    'Of your {count, plural, one {# received invoice} other {# received invoices}}:',
+  'policy_preview.threshold.line':
+    '  · with {threshold} → I would ask you {asked, plural, one {# time} other {# times}} ({pct})',
+  'policy_preview.auto_post.intro':
+    'Of the {total, plural, one {# draft} other {# drafts}} I have proposed so far:',
+  'policy_preview.auto_post.counts':
+    '  · {approved} you approved, {rejected} you rejected',
+  'policy_preview.auto_post.rejected':
+    '  · a rejection rate above zero is a reason to keep this off until it settles',
+  'policy_preview.auto_post.track_record':
+    '  · no rejections yet — a track record that supports turning it on',
+  'policy_preview.auto_post.too_few':
+    '  · too few yet to tell how often I would be right',
+  'policy_preview.auto_post.shadow_some':
+    '  · shadow: {verdicts, plural, one {# verdict} other {# verdicts}} over {days, plural, one {# day} other {# days}}, {decided} human-decided, agreement {agreement} (turning "on" requires at least {minDays} days, {minDecided} decided and {minAgreement} agreement)',
+  'policy_preview.auto_post.shadow_none':
+    '  · no shadow history yet: answer "shadow" first — "on" requires that evidence',
+  'policy_preview.amounts.intro':
+    'Your received invoices, by amount:',
+  'policy_preview.amounts.half':
+    '  · half are under {amount}',
+  'policy_preview.amounts.nine_of_ten':
+    '  · 9 out of 10 are under {amount}',
+  'policy_preview.amounts.largest':
+    '  · the largest was {amount}',
+  'policy_preview.amounts.cap':
+    '  · a cap of {cap} would cover {pct} of them',
+  'policy_preview.inventory.some':
+    'I see {count, plural, one {# posted movement} other {# posted movements}} in inventory accounts — you seem to keep them.',
+  'policy_preview.inventory.none':
+    'I see no movements in inventory accounts yet.',
+  'policy_preview.restaurants.none':
+    'No restaurant invoices in your history yet.',
+  'policy_preview.restaurants.intro':
+    '{count, plural, one {# restaurant invoice} other {# restaurant invoices}} for {total}:',
+  'policy_preview.restaurants.deductible':
+    '  · deductible ({rate}): {amount}',
+  'policy_preview.restaurants.non_deductible':
+    '  · non-deductible: {amount}',
+  'policy_preview.efirma.none':
+    'No e.firma accesses recorded yet.',
+  'policy_preview.efirma.summary':
+    '{count, plural, one {# access} other {# accesses}} counted toward the cap over {days, plural, one {# day} other {# days}} (~{perDay} per day).',
+  'policy_preview.closed_period.some':
+    '{count, plural, one {# invoice} other {# invoices}} in your history fall in already-closed periods.',
+  'policy_preview.closed_period.none':
+    'No invoices from closed periods so far.',
+  // ==== end of pending.* and policy_preview.* ====================================
 
   // --- El kernel: confirmación y salida --------------------------------
   /** `src/cli/kernel/confirmacion.ts:76` (`noEntendi`, que ya la llama). El «y/s» del español
@@ -1805,6 +2016,153 @@ export const EN = {
   'help.ingest.option.kind':
     'What the files are: xml (CFDI one by one), zip (a SAT package of CFDI XML: loads the census and ingests ' +
     'each XML) or metadata (the SAT `~` metadata file, bare or zipped: loads the census only)',
+  // MNE-001-143 (#440): `src/cli/sat-download-commands.ts`, the bulk download of CFDI from the SAT.
+  'help.sat.download.option.entity': 'Legal entity',
+  'help.sat.download.option.user': 'Who acts (default: the sole active user)',
+  'help.sat.download.option.json': 'Machine-readable output',
+  'help.sat.download.option.format': 'Output format: table or json',
+  'help.sat.download.argument.id': 'Download request: its local id or the id the SAT gave it',
+  'help.sat.download.create.description':
+    "Asks the SAT for a period's CFDI (refuses before calling when the lifetime XML limit is spent)",
+  'help.sat.download.create.option.since': 'First day, YYYY-MM-DD',
+  'help.sat.download.create.option.until': 'Last day, YYYY-MM-DD',
+  'help.sat.download.create.option.direction': 'issued or received',
+  'help.sat.download.create.option.kind':
+    'metadata or xml (xml spends one of the 2 lifetime requests of the period)',
+  'help.sat.download.check.description':
+    'Asks the SAT for the state of a request and records it and its package ids (5004 is success with zero rows)',
+  'help.sat.download.check.option.wait': 'Keep asking until the request is no longer open',
+  'help.sat.download.check.option.timeout': 'Give up waiting after this many seconds',
+  'help.sat.download.check.option.strict': 'Exit non-zero unless the request finished with packages',
+  'help.sat.download.status.description':
+    'Last known state of a request, read from the local mirror (does not call the SAT)',
+  'help.sat.download.list.description': "The entity's download requests with their state, CFDI count and packages",
+  'help.sat.download.list.option.status': 'Only this state',
+  'help.sat.download.list.option.since': 'Only requests whose period ends on or after this day, YYYY-MM-DD',
+  'help.sat.download.list.option.limit': 'How many to show',
+  'help.sat.package.description': 'Packages of a finished download request',
+  'help.sat.package.download.description':
+    'Downloads the packages of a finished request, archives each ZIP by bytes, and with --import loads them',
+  'help.sat.package.download.option.output': 'Also write each ZIP into this directory',
+  'help.sat.package.download.option.package': 'Only this package of the request',
+  'help.sat.package.download.option.import':
+    'Load the census and run the XML through the regular ingestion (import_source sat_download)',
+  'help.sat.quota.description': "The SAT's lifetime limit on identical XML requests",
+  'help.sat.quota.show.description':
+    'Which periods have their 2 lifetime XML requests spent and which have some left (reads the local counter)',
+  'help.sat.quota.show.option.since': 'Periods ending on or after this day, YYYY-MM-DD',
+  'help.sat.quota.show.option.until': 'Periods starting on or before this day, YYYY-MM-DD',
+  // MNE-001-143 (#440): the runtime messages of `src/cli/sat-download-commands.ts`, by key.
+  'sat.dl.bad_day':
+    '{flag} must be a day, YYYY-MM-DD (got "{value}")',
+  'sat.dl.bad_format':
+    '--format must be table or json (got "{value}")',
+  'sat.dl.bad_positive':
+    '{flag} must be a whole number greater than 0 (got "{value}")',
+  'sat.dl.bad_direction':
+    '--direction must be issued or received (got "{value}")',
+  'sat.dl.bad_kind':
+    '--kind must be metadata or xml (got "{value}")',
+  'sat.dl.since_after_until':
+    '--since must be before --until',
+  'sat.dl.request_not_found':
+    'Download request {id} not found for this entity',
+  'sat.dl.describe':
+    '{id} · {direction} {kind} {from}..{to} · {status}{count}{packages}{error}',
+  'sat.dl.describe.count':
+    ' · {n} CFDI',
+  'sat.dl.describe.packages':
+    ' · {archived}/{total} package(s) archived',
+  'sat.dl.create.plan':
+    '{direction} {kind} {start}..{end} for {entity} ({rfc})',
+  'sat.dl.create.plan_left':
+    ' · lifetime XML requests left for this period by this entity\'s own counter: {n} (the SAT counts per RFC and parameters: another entity or firm may already have spent it)',
+  'sat.dl.create.would':
+    'Would ask the SAT for {plan}',
+  'sat.dl.create.not_sent':
+    'Not sent: {plan}',
+  'sat.dl.create.spent':
+    'The lifetime limit of this period is spent: a real run refuses before calling the SAT.',
+  'sat.dl.create.dry_note':
+    '(dry-run: nothing was written and the SAT was not called)',
+  'sat.dl.create.live_note':
+    'Asking the SAT uses the e.firma and is opt-in: re-run with --live.',
+  'sat.dl.create.confirm':
+    'This spends one of the {limit} lifetime XML requests of the period ({plan}). Type "yes": ',
+  'sat.dl.create.cancelled':
+    'Cancelled. Nothing was requested.',
+  'sat.dl.create.done':
+    '{repeat}{mark} request {id} · {status}{error}',
+  'sat.dl.create.repeat':
+    'Already requested with this key: ',
+  'sat.dl.create.follow':
+    'Follow it with: mnemosine sat download check {id} --live',
+  'sat.dl.check.would':
+    'Would ask the SAT about {request}',
+  'sat.dl.check.not_asked':
+    'Not asked: the SAT about {request}',
+  'sat.dl.check.dry_note':
+    '(dry-run: the SAT was not called)',
+  'sat.dl.check.live_note':
+    'Asking the SAT uses the e.firma: re-run with --live.',
+  'sat.dl.check.rate_limit':
+    'Stopped after {polls} ask(s): the daily limit of e.firma accesses is reached (0 left in this 24 h window). Every ask uses one, and downloading the packages needs some too: wait for the window to free up and run check --live again (packages expire 72 h after they are ready).',
+  'sat.dl.check.budget':
+    'Stopped after {polls} ask(s) to keep e.firma accesses for the package download. Run check --live again later.',
+  'sat.dl.check.timeout':
+    'Gave up waiting after {polls} ask(s); the request is still open. Run check --live again later.',
+  'sat.dl.list.empty':
+    'No download requests.',
+  'sat.dl.quota.empty':
+    'No XML requests counted. Metadata requests are not limited.',
+  'sat.dl.quota.spent':
+    '✘ spent (unrecoverable)',
+  'sat.dl.quota.left':
+    '· {n} left',
+  'sat.dl.quota.line':
+    '{state} · {direction} {from}..{to} · {made}/{limit} used',
+  'sat.dl.package.no_data':
+    'The SAT answered that this request has no data: there is nothing to download.',
+  'sat.dl.package.rejected':
+    'The SAT rejected this request: there are no packages. Fix the parameters and request again.',
+  'sat.dl.package.expired':
+    'This request expired at the SAT (packages last 72 h): request it again.',
+  'sat.dl.package.open':
+    'Request {id} is {status}: it has no packages yet. Run: mnemosine sat download check {id} --live',
+  'sat.dl.package.failed':
+    'Request {id} is {status}: it has no packages; see its state with `sat download status`.',
+  'sat.dl.package.no_such':
+    'Request {id} has no package {package}',
+  'sat.dl.package.would':
+    '{lead} {missing} of {total} package(s); {kept} already archived{import}.',
+  'sat.dl.package.would_lead':
+    'Would download',
+  'sat.dl.package.not_lead':
+    'Not downloaded:',
+  'sat.dl.package.then_import':
+    '; then load them with the ingestion',
+  'sat.dl.package.dry_note':
+    '(dry-run: the SAT was not called and nothing was written)',
+  'sat.dl.package.live_note':
+    'Downloading uses the e.firma and is opt-in: re-run with --live. Packages expire at the SAT 72 h after they are ready.',
+  'sat.dl.package.archived':
+    '✔ {id} · {bytes} bytes · sha256 {sha} · {where}',
+  'sat.dl.package.where_archive':
+    'already archived',
+  'sat.dl.package.where_new':
+    'archived',
+  'sat.dl.package.output_written':
+    '  wrote {file}',
+  'sat.dl.package.output_same':
+    '  {file} already holds these bytes',
+  'sat.dl.package.output_differs':
+    '{file} already exists with other bytes: it was not overwritten',
+  'sat.dl.ingest.line':
+    '  ingest: {counts}',
+  'sat.dl.ingest.nothing':
+    'nothing',
+  'sat.dl.ingest.to_code':
+    '{n} left in the inbox to code (no model provider, or it needs a decision)',
   // MNE-001-096 (#312): `src/cli/ingest-census.ts`, the SAT census loaded by `ingest --kind zip|metadata`.
   'ingest.census.bad_kind': 'expected one of {valid}',
   'ingest.census.flag_not_for_metadata':
@@ -2500,6 +2858,15 @@ export const EN = {
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
   'help.receipt.apply.option.withholding':
     'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
+  'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
+  'help.sat.download.reconcile.description':
+    'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
+  'help.sat.download.reconcile.option.period': 'month to reconcile, as YYYY-MM',
+  'sat.reconcile.bad_period': 'The period must be a month as YYYY-MM, and "{value}" is not.',
+  'sat.reconcile.summary':
+    '{period}: {matched} agree · {fetch} to fetch · {post} to post · {cancelled} cancelled at the SAT but posted · {surplus} posted but not in the census ({cancelledUnbooked} cancelled and never posted: not a gap).',
+  'sat.reconcile.not_loaded':
+    'No census of {direction} CFDI covers this month: it is not loaded, which is not the same as nothing having been {direction}. Load it with `ingest --kind metadata`.',
   'help.closing.fx.description': 'Foreign currency at the close',
   'help.closing.fx.revalue.description':
     'Revalue the foreign-currency receivables, payables and banks at the closing rate, and reverse it on day 1 of the next period. It belongs after the soft close; a later run posts only what moved since',
@@ -2567,6 +2934,125 @@ export const EN = {
   'help.imss.sua.export.option.output': 'write the SUA file to this path (without it, the file goes to stdout)',
   'help.imss.sua.export.option.yes': 'overwrite the file named by -o if it already exists',
   'help.imss.sua.export.option.dry_run': 'build and check the file without writing it or recording the filing',
+  // ==== MNE-001-092 · help by key, the close and control families (issue #314) ====
+  //
+  // Same format as `period`: help.<cmd>[.<sub>…].description, .option.<flag>
+  // and .argument.<name>, in snake_case (`opening-balance` → `opening_balance`).
+  // Families: close, closing, year, chart, opening-balance, ar, ap, cashflow,
+  // depreciation, diot. The English is the prose these commands already showed.
+  'help.close.description': 'Month-end close: checks what is missing and closes the period',
+  'help.close.option.period':
+    'Period to close: 2026-08, its id, or an unambiguous part of its name (default: the oldest open one)',
+  'help.close.option.list': 'List closable periods and exit',
+  'help.close.option.check': 'Only check readiness, never close',
+  'help.close.option.hard': 'Hard close (irreversible) instead of soft close',
+  'help.close.option.reason': 'why this close happens now; recorded in the audit trail',
+  'help.close.option.json': 'JSON output for scripts',
+  'help.closing.description': 'The close as a process: conduct it, read it, and hand over the dossier that proves it',
+  'help.closing.preview.description':
+    'Read-only twin of closing start: says whether the period can enter close and what is missing',
+  'help.closing.preview.argument.period':
+    'open period: 2026-07, its id, or part of its name (default: the oldest open one)',
+  'help.closing.check.description':
+    'Run the close verification catalog, or only the named checks; bare --check lists the names',
+  'help.closing.check.option.check': 'comma-separated check codes; with no value, prints the available ones',
+  'help.closing.check.option.period':
+    'period to check: 2026-07, its id, or part of its name (default: the oldest open one)',
+  'help.closing.explain.description':
+    'Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it',
+  'help.closing.explain.argument.code': 'check code, one of: {codes}',
+  'help.closing.explain.option.limit': 'maximum offending rows to print',
+  'help.closing.explain.option.period':
+    'period to explain: 2026-07, its id, or part of its name (default: the oldest open one)',
+  'help.closing.run.description':
+    'Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order',
+  'help.closing.run.argument.period':
+    'open period: 2026-07, its id, or part of its name (default: the oldest open one)',
+  'help.closing.run.option.stop_at': 'stop BEFORE this step: {steps}',
+  'help.closing.run.option.resume':
+    'continue the open run of this period; every step runs again, posting only what is missing',
+  'help.closing.pack.description': 'The dossier of a close: generate it, and verify that its figures still reproduce',
+  'help.closing.pack.generate.description': 'Seal the period figures into a dossier a third party can re-run',
+  'help.closing.pack.generate.argument.period':
+    'period name, YYYY-MM or id, in any status (default: the most recently closed one)',
+  'help.closing.pack.generate.option.output': 'write the dossier to this path (closing_packs keeps its own copy)',
+  'help.closing.pack.verify.description':
+    'Re-run a dossier against the books: was it issued here, do its figures still reproduce, and exactly what moved',
+  'help.closing.pack.verify.argument.file': 'the dossier to verify',
+  'help.year.description': 'Fiscal years: the calendar an entity keeps its books in',
+  'help.year.list.description': 'List the fiscal years of the entity with their state and close progress',
+  'help.year.show.description': 'Show a fiscal year with each of its periods and their states',
+  'help.year.show.argument.year': 'four-digit year, e.g. 2026',
+  'help.year.create.description':
+    'Create a fiscal year: its twelve monthly periods and the year-end adjustment period (13)',
+  'help.year.create.argument.year': 'four-digit year, e.g. 2027',
+  'help.year.create.option.dry_run': 'show the calendar that would be created; write nothing',
+  'help.year.create.option.json': 'JSON output',
+  'help.chart.description': 'Chart of accounts: bring a firm catalog in',
+  'help.chart.import.description': 'Import an Anexo 24 CatalogoCuentas XML, keeping the firm codes and hierarchy',
+  'help.chart.import.option.partial': 'write even if some rows are left out (default: all or nothing)',
+  'help.chart.import.option.reason': 'why the chart is imported; goes to the audit log',
+  'help.opening_balance.description':
+    'Opening balances migrated from the Anexo 24 trial balance of the previous system',
+  'help.opening_balance.import.description':
+    'Post the opening entry from an Anexo 24 BalanzaComprobacion XML, on the day after its cutoff -- irreversible',
+  'help.opening_balance.import.option.subledger':
+    'JSON array with the open documents of the receivable and payable control accounts',
+  'help.opening_balance.import.option.reason': 'why the opening is loaded; goes to the audit log',
+  'help.opening_balance.check.description':
+    'Compare the source trial balance against the ledger on the opening day, to the peso; exits 4 if they differ',
+  'help.ar.description':
+    'Receivables controls: reconcile the subledger against the control account, run named diagnostics',
+  'help.ar.reconcile.description':
+    'Subledger (open invoices − unapplied credit notes) vs the cxc control account, naming manual entries',
+  'help.ar.reconcile.option.strict': 'exit 4 on any delta, however small the list of suspects',
+  'help.ar.check.description':
+    'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
+  'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
+  'help.ar.check.option.strict': 'exit 4 on warnings too, not only blocking findings',
+  'help.ap.description': 'Payables controls: reconcile the vendor subledger against the control account',
+  'help.ap.reconcile.description':
+    'Vendor subledger (open bills) vs the cxp control account, naming the reconciling items',
+  'help.ap.reconcile.option.as_of': 'cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)',
+  'help.ap.reconcile.option.explain': 'spell out every reconciling item in prose, not just the table',
+  'help.cashflow.description': 'Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash',
+  'help.cashflow.generate.description': 'Build the statement of cash flows for a period, with the tie-out to real cash',
+  'help.cashflow.generate.option.method':
+    'method to build the statement with (default: the `flujo_efectivo_metodo` policy)',
+  'help.cashflow.generate.option.gross':
+    'present gross receipts and payments instead of net (NIF B-2 §40 / ASC 230-10-45-7); refused with a reason — these books cannot support it',
+  'help.cashflow.reconcile.description':
+    'Reconcile the derived statement of cash flows against the real movement of cash and equivalents, and print the residue instead of absorbing it',
+  'help.cashflow.reconcile.option.show_candidates':
+    'list the journal lines that most likely explain the residue (suspects, not a verdict)',
+  'help.depreciation.description': 'The monthly depreciation run: compute it, look at it, then post it',
+  'help.depreciation.run.description':
+    'Compute the period run and show it asset by asset — writes nothing, posts nothing',
+  'help.depreciation.run.option.period': 'period to compute: 2026-08, or any unambiguous part of its name',
+  'help.depreciation.run.option.book': 'the depreciation book you believe you are running; checked against the panel',
+  'help.depreciation.run.option.by': 'detail or summary: {dimensions} (asset is the per-asset detail)',
+  'help.depreciation.post.description': 'Post the period run to the ledger — one journal entry per asset, irreversible',
+  'help.depreciation.post.option.period': 'period to post: 2026-08, or any unambiguous part of its name',
+  'help.depreciation.post.option.book': 'the depreciation book you believe you are posting; checked against the panel',
+  'help.depreciation.post.option.file':
+    'the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved',
+  'help.diot.description':
+    'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
+  'help.diot.generate.description':
+    "Build the month's DIOT from paid transactions, broken down by third party and by rate",
+  'help.diot.generate.option.period': 'month to declare (the DIOT is monthly; no month 13)',
+  'help.diot.check.description':
+    'Run the DIOT invariants by name: the paid fact, the rate breakdown, the exempt base, the third party and its operation type',
+  'help.diot.check.option.period': 'month to check (the DIOT is monthly; no month 13)',
+  'help.diot.check.option.check': 'comma-separated check names; with no value, prints the available ones',
+  'help.diot.export.description':
+    'Emit the DIOT file, byte-stable for diffing: the working paper, or the SAT batch file to upload',
+  'help.diot.export.option.period': 'month to export (the DIOT is monthly; no month 13)',
+  'help.diot.export.option.layout':
+    'file layout: working-paper is the per-third-party reconciliation; sat is the authority batch file',
+  'help.diot.export.option.yes': 'skip the overwrite prompt when -o names an existing file',
+  'help.diot.export.option.output':
+    'write the exported file to this path (without it, the file goes to stdout so it can be diffed)',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
@@ -2726,4 +3212,36 @@ export const EN = {
   'payslip.status_invalid': '--status {status}: use one of {states}.',
   'imss.sua.not_filed':
     'SUA file of {count} employee(s) built and recorded as a draft filing. Nothing was sent: load it into the SUA and pay.',
+  // --- e-accounting catalog|balance seal · sellar (EFIRMA-4, #442) --------
+  'anexo24.seal.refused_by_policy':
+    'Sealing is refused: the policy {policy} is "{value}", and the system seals with the e.firma only ' +
+    'under "{optIn}". Nothing was decrypted and the access log has no row for this.',
+  'anexo24.seal.done':
+    'Sealed with the e.firma (certificate {certificate}): Sello, noCertificado and Certificado are set, ' +
+    'and the file validates against the SAT XSD.',
+  'anexo24.seal.nothing_filed':
+    'NOTHING WAS FILED WITH THE SAT. The SAT has no web service to receive this file: upload it ' +
+    'yourself in the SAT portal (Contabilidad electrónica) and keep the acknowledgement of receipt.',
+  'help.e_accounting.catalog.seal.description':
+    'Seal the archived CtaCatalogo of a month with the entity e.firma (only under sellar_con_custodia); files nothing',
+  'help.e_accounting.balance.seal.description':
+    'Seal the archived trial balance of a period with the entity e.firma (only under sellar_con_custodia); files nothing',
+  'help.e_accounting.seal.option.period': 'month of the archived file: YYYY-MM (the fiscal year with --closing)',
+  'help.e_accounting.catalog.seal.option.period': 'month of the archived catalog: YYYY-MM',
+  'help.e_accounting.balance.check.option.type': 'envelope type to check: N normal, C amended (needs --modified)',
+  'help.e_accounting.balance.check.option.modified': 'FechaModBal of the amended balance; required with --type C',
+  'anexo24.seal.not_archived':
+    'There is no archived, unsealed {document} for {period}: generate it first, review it, then seal it.',
+  'anexo24.seal.rfc_mismatch':
+    'The e.firma belongs to {certificateRfc} and the document declares {documentRfc}: it is not sealed.',
+  'anexo24.seal.not_sat_serial':
+    'The certificate serial {serial} is not a SAT certificate number (20 digits): it cannot go in noCertificado.',
+  'anexo24.seal.separator_in_attribute':
+    'It is not sealed: {element} (account {account}) has "|" in {attribute} ("{value}"). The Anexo 24 forbids "|" in ' +
+    'any attribute because it separates the fields of the cadena original. Fix the value and generate again.',
+  'anexo24.seal.source_invalid':
+    'It is not sealed: the archived file does not validate against the SAT XSD ({errors}). Nothing was decrypted.',
+  'help.e_accounting.seal.option.type': 'envelope type of the archived balance: N normal, C amended',
+  'help.e_accounting.seal.option.closing': 'the year-end balance, archived as month 13',
+  'help.e_accounting.seal.option.output': 'also write the sealed XML to this path',
 } as const;

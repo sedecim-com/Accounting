@@ -32,6 +32,8 @@ import {
   withContext,
   withOutput,
   withStrict,
+  describeCommand,
+  optionByKey,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -301,10 +303,11 @@ export function registerDepreciationCommand(
   program: Command,
   deps: DepreciationCommandDeps
 ): void {
-  const depreciation = program
-    .command('depreciation')
-    .alias('depreciacion')
-    .description('The monthly depreciation run: compute it, look at it, then post it');
+  // Help by key (#314): help.depreciation.<leaf>.{description,option.<flag>}.
+  const depreciation = describeCommand(
+    program.command('depreciation').alias('depreciacion'),
+    'help.depreciation.description'
+  );
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -428,23 +431,16 @@ export function registerDepreciationCommand(
   };
 
   // ---- depreciation run ----------------------------------------------
-  const correr = depreciation
-    .command('run')
-    .alias('ejecutar')
-    .description(
-      'Compute the period run and show it asset by asset — writes nothing, posts nothing'
-    );
+  const correr = describeCommand(depreciation.command('run').alias('ejecutar'), 'help.depreciation.run.description');
   withContext(correr);
   withOutput(correr);
   withStrict(correr);
-  correr
-    .option('--period <expr>', 'period to compute: 2026-08, or any unambiguous part of its name')
-    .option('--book <book|tax>', 'the depreciation book you believe you are running; checked against the panel')
-    .option(
-      '--by <dimension>',
-      `detail or summary: ${DIMENSIONES.join(', ')} (asset is the per-asset detail)`,
-      'asset'
-    );
+  optionByKey(correr, '--period <expr>', 'help.depreciation.run.option.period');
+  optionByKey(correr, '--book <book|tax>', 'help.depreciation.run.option.book');
+  optionByKey(correr, '--by <dimension>', 'help.depreciation.run.option.by', {
+    params: { dimensions: DIMENSIONES.join(', ') },
+    defaultValue: 'asset',
+  });
   // LECTURA. El catálogo escribe «escritura» en su columna de riesgo porque
   // imaginaba una hoja que dejara el asiento como borrador; el motor no
   // produce borradores y esta hoja no escribe ni una fila. Declararla
@@ -499,19 +495,15 @@ export function registerDepreciationCommand(
   );
 
   // ---- depreciation post ----------------------------------------------
-  const contabilizar = depreciation
-    .command('post')
-    .alias('contabilizar')
-    .description('Post the period run to the ledger — one journal entry per asset, irreversible');
+  const contabilizar = describeCommand(
+    depreciation.command('post').alias('contabilizar'),
+    'help.depreciation.post.description'
+  );
   withContext(contabilizar);
   withOutput(contabilizar);
-  contabilizar
-    .option('--period <expr>', 'period to post: 2026-08, or any unambiguous part of its name')
-    .option('--book <book|tax>', 'the depreciation book you believe you are posting; checked against the panel')
-    .option(
-      '--file <path>',
-      'the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved'
-    );
+  optionByKey(contabilizar, '--period <expr>', 'help.depreciation.post.option.period');
+  optionByKey(contabilizar, '--book <book|tax>', 'help.depreciation.post.option.book');
+  optionByKey(contabilizar, '--file <path>', 'help.depreciation.post.option.file');
   // IRREVERSIBLE: postea al mayor inmutable de la 041, donde un asiento no se
   // edita ni se borra. El núcleo inyecta --dry-run, --yes y --idempotency-key,
   // y `declareRisk` REHÚSA arrancar si alguien intenta darle acceso al agente.

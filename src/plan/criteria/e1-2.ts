@@ -642,7 +642,7 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/policy/today.ts',
-        de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value',
+        de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, client)).value',
         a: 'defaultTimeZone()',
         porque: "the policy stops being read: an entity in Tijuana or Cancún gets Mexico City's day whatever it answered",
       },
@@ -700,7 +700,7 @@ export const E1_2: Criterio[] = [
       if (!/new Intl\.DateTimeFormat\([^)]*\{\s*timeZone,/.test(u) || !u.includes("field('day')")) {
         return falla('calendarDateIn no longer takes the day in the zone it was given');
       }
-      if (!codigoDe(resolver).includes('await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)')) {
+      if (!codigoDe(resolver).includes('await getPolicy(ctx, TIME_ZONE_POLICY_KEY, client)') || !codigoDe(resolver).includes('calendarDateIn(await zoneFor(ctx, opts.client), opts.now)')) {
         return falla('todayFor no longer reads the zona_horaria policy: the entity\'s answer is ignored');
       }
       if (!codigoDe('src/services/policy/pending-catalog.ts').includes("TIME_ZONE_POLICY_KEY = 'zona_horaria'")) {
@@ -780,8 +780,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/policy/today.ts',
-        de: 'return todayFor(tenantId ? { tenantId, entityId } : null, opts);',
-        a: 'return todayFor(null, opts);',
+        de: 'return zoneFor(tenantId ? { tenantId, entityId } : null);',
+        a: 'return zoneFor(null);',
         porque: "the entity's own zona_horaria row stops being read: an entity in Tokyo gets Mexico City's day",
       },
     ],
@@ -839,7 +839,12 @@ export const E1_2: Criterio[] = [
         return falla("the agent's prompt no longer states the resolved day");
       }
       const r = codigoDe(resolver);
-      if (!r.includes('return todayFor(tenantId ? { tenantId, entityId } : null, opts);')) {
+      // The zone of an entity held by id is resolved in `zoneForEntity` (MNE-001-290 split it out of
+      // `todayForEntity` so the renderers of instants share it), and "today" is that zone's calendar day.
+      if (
+        !r.includes('return zoneFor(tenantId ? { tenantId, entityId } : null);') ||
+        !r.includes('calendarDateIn(await zoneForEntity(entityId), opts.now)')
+      ) {
         return falla("todayForEntity no longer reads the entity's zona_horaria row");
       }
       if (!r.includes('return todayFor(row ? { tenantId: row.tenant_id, entityId: row.entity_id } : null, opts);')) {
@@ -972,7 +977,7 @@ export const E1_2: Criterio[] = [
       if (!(resolvesVendor < checksVendor && checksVendor < writesVendor)) {
         return falla('la guarda del anticipo a proveedor quedó fuera de orden respecto a su INSERT');
       }
-      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos)')) {
+      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod')) {
         return falla('el INSERT del pago a proveedor volvió a tomar la moneda del respaldo literal en vez de la resuelta');
       }
 
@@ -3507,8 +3512,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/period-close.ts',
-        de: "AND cc.facts->>'feesWithoutWithholding' = 'record_as_issued'",
-        a: "AND cc.facts->>'feesWithoutWithholding' = 'recorded'",
+        de: "AND 'record_as_issued' IN (cc.facts->>'feesWithoutWithholding', cc.facts->>'withholdingMismatch')",
+        a: "AND 'recorded' IN (cc.facts->>'feesWithoutWithholding', cc.facts->>'withholdingMismatch')",
         porque: 'the fees recorded as issued never reach the close checklist: the LISR 27-V warning is promised and not shown',
       },
     ],
@@ -3530,7 +3535,8 @@ export const E1_2: Criterio[] = [
           !/unwithheldFees: unwithheldFees\.value,/.test(preReg)) {
         return falla('ingestion does not pass the fees_without_withholding answer to the classifier');
       }
-      if (!/cc\.facts->>'feesWithoutWithholding' = 'record_as_issued'/.test(codigoDe('src/services/accounting/period-close.ts'))) {
+      if (!/'record_as_issued' IN \(cc\.facts->>'feesWithoutWithholding', cc\.facts->>'withholdingMismatch'\)/
+        .test(codigoDe('src/services/accounting/period-close.ts'))) {
         return falla('the close checklist does not look for the fees recorded as issued');
       }
       return existe('tests/integration/mne-001-148-fees-without-withholding.int.spec.ts') &&
@@ -3593,6 +3599,82 @@ export const E1_2: Criterio[] = [
       return existe('tests/integration/mne-001-385-iva-proration.int.spec.ts')
         ? ok('the IVA paid is credited by the month or prior-year proportion, and only that share is subtracted')
         : falla('no test RUNS the proration against a month of mixed activities');
+    },
+  },
+  {
+    paquete: 'E1.2',
+    id: 'freight-and-resico-withholdings-come-from-the-law',
+    enunciado:
+      "A legal entity withholds 4 % VAT on land freight and 1.25 % ISR from a RESICO individual, with the rates of legal_parameters, and a CFDI whose declared withholding differs from the law's is held with a question to the accountant (#309, MNE-001-057)",
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: "if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return isBorderRateFreight(f) ? null : 'freight';",
+        a: '',
+        porque: 'freight is booked with whatever VAT the carrier declares, and one declaring none is booked with none',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: "if (f.issuerRegime === RESICO_REGIME) return 'resico';",
+        a: '',
+        porque: 'a RESICO individual is paid with no 1.25 % ISR withheld unless the CFDI happens to declare it',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-classifier.ts',
+        de: 'mismatchQuestion = withholdingMismatchQuestion(facts, settled.mismatch);',
+        a: '',
+        porque: 'a discrepancy only shows up as an entry that does not balance: nobody is asked about the CFDI',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'if (withholdingMismatch.defined) answers.withholding_mismatch = withholdingMismatch.value;',
+        a: '',
+        porque: 'the firm answers withholding_mismatch and every discrepancy stays held: the answer never reaches the question',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: 'const taxed = Decimal.max(0, base.minus(f.ivaTasaCero).minus(f.importeExento));',
+        a: 'const taxed = base;',
+        porque: 'zero-rated freight legs enter the base: more VAT is withheld than the carrier charged on them',
+      },
+      {
+        archivo: 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql',
+        de: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0125', 'rate',",
+        a: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0100', 'rate',",
+        porque: 'RESICO is withheld 1 % instead of the 1.25 % of LISR 113-J',
+      },
+    ],
+    evaluar: () => {
+      const law = codigoDe('src/services/xml-ingestion/withholding-law.ts');
+      if (!/if \(allConceptsIn\(f, \[LAND_FREIGHT_PREFIX\]\)\) return isBorderRateFreight\(f\) \? null : 'freight';/.test(law)) {
+        return falla('land freight is no longer told from the CFDI: its 4 % VAT is not withheld by law');
+      }
+      if (!/if \(f\.issuerRegime === RESICO_REGIME\) return 'resico';/.test(law)) {
+        return falla('a RESICO issuer is no longer told from the CFDI: its 1.25 % ISR is not withheld by law');
+      }
+      const classifier = codigoDe('src/services/xml-ingestion/cfdi-classifier.ts');
+      if (!/heldForReview = settled\.mismatch;/.test(classifier) ||
+          !/mismatchQuestion = withholdingMismatchQuestion\(facts, settled\.mismatch\);/.test(classifier)) {
+        return falla('a withholding discrepancy is no longer the reason of the hold and a question to the accountant');
+      }
+      if (!/answers\.withholding_mismatch = withholdingMismatch\.value;/.test(codigoDe('src/services/xml-ingestion/pre-registration-service.ts'))) {
+        return falla('ingestion does not pass the withholding_mismatch answer to the classifier');
+      }
+      if (!/const taxed = Decimal\.max\(0, base\.minus\(/.test(law)) {
+        return falla('the freight VAT withholding is no longer computed only on the concepts that carry VAT');
+      }
+      const mig = 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql';
+      const rows = existe(mig) ? crudoDe(mig) : '';
+      for (const row of [
+        /'vat\.withholding\.freight_rate', '2006-12-05', '0\.0400', 'rate',/,
+        /'income_tax\.withholding\.resico_rate', '2022-01-01', '0\.0125', 'rate',/,
+      ]) {
+        if (!row.test(rows)) return falla(`migration 175 no longer seeds ${row.source} as the law says`);
+      }
+      return existe('tests/integration/mne-001-057-withholdings-freight-resico.int.spec.ts') &&
+        existe('tests/xml-ingestion/withholding-freight-resico.spec.ts')
+        ? ok('freight 4 % VAT and RESICO 1.25 % ISR come from legal_parameters, and a discrepancy is asked')
+        : falla('no test RUNS freight, RESICO and the discrepancy against the law and a migrated database');
     },
   },
 ];

@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { envFileCandidates } from './env-file.js';
 
 // `quiet` NO es cosmética: desde dotenv 17 la carga IMPRIME en stdout
 // —«injected env (N) from .env // tip: … dotenv[x].com»—, y la salida de este
@@ -6,7 +7,7 @@ import dotenv from 'dotenv';
 // `tests/cli/codigos-de-salida.spec.ts` genera ejecutando el binario, porque el
 // anuncio salía mezclado con el bash. Un CLI cuya salida es su producto no
 // puede llevar publicidad dentro.
-dotenv.config({ quiet: true });
+dotenv.config({ path: envFileCandidates(process.cwd()), quiet: true });
 
 // ============================================================
 // DEVELOPMENT DEFAULTS FOR SECRETS
