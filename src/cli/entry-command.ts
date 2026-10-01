@@ -1,4 +1,5 @@
 import * as readline from 'node:readline/promises';
+import { todayFor } from '../services/policy/today.js';
 import { readFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { JournalEntryStatus } from '../types/index.js';
@@ -653,7 +654,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         );
       }
 
-      const entryDate = date ?? day(new Date());
+      const entryDate = date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
       const input = {
         entityId: ctx.entityId,
         createdBy: (await resolveReviewer(ctx.tenantId, opts.user)).userId,
@@ -1053,7 +1054,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         const p = deps.palette;
         process.stdout.write(
           `\n${p.bold('Would create the mirror of ' + target.entry_number)} ` +
-            `${p.dim(`dated ${opts.date ?? day(new Date())}, posted immediately`)}\n\n`
+            `${p.dim(`dated ${opts.date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }))}, posted immediately`)}\n\n`
         );
         render(
           detail.lines.map((line) => ({

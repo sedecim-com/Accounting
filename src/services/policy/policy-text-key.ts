@@ -1,3 +1,5 @@
+import type { PolicyOption, PolicySpec } from './pending-catalog.js';
+
 // ============================================================
 // THE I18N KEYS OF THE POLICY PANEL (#152, owner decision 2026-09-26)
 //
@@ -61,4 +63,48 @@ export function optionSegmentCollisions(values: readonly string[]): string[] {
   return [...bySegment.entries()]
     .filter(([, vs]) => vs.length > 1)
     .map(([segment, vs]) => `${vs.join(' / ')} → ${segment}`);
+}
+
+/**
+ * Looks a message up by key, already bound to a language. Built at the EDGE
+ * (`panelTranslator` in src/i18n/panel-text.ts): no file under `src/services`
+ * imports the language catalog, because a service can only resolve the
+ * language of the PROCESS and the API negotiates it per request.
+ */
+export type PanelTranslate = (key: string) => string;
+
+/** The wording of one catalog policy in one language, read by key. */
+export interface SpecWording {
+  question: string;
+  impact: string;
+  defaultRationale: string;
+  whyAsking?: string;
+  whatIDo?: string;
+  ifSkipped?: string;
+  options: PolicyOption[];
+}
+
+/**
+ * The text of a catalog policy, read by key through `translate`.
+ *
+ * The spec's own prose stays as the English source the `en` catalog was
+ * extracted from. Every reader that PAINTS a policy goes through here, so the
+ * accountant reads the panel in their language while `policy_decisions`
+ * (state, not wording) is never touched. An optional field the spec does not
+ * carry stays absent instead of becoming a blank line.
+ */
+export function specWording(spec: PolicySpec, translate: PanelTranslate): SpecWording {
+  const text = (field: PolicyTextField): string => translate(policyTextKey(spec.textKey, field));
+  return {
+    question: text('question'),
+    impact: text('impact'),
+    defaultRationale: text('rationale'),
+    whyAsking: spec.whyAsking === undefined ? undefined : text('why'),
+    whatIDo: spec.whatIDo === undefined ? undefined : text('what'),
+    ifSkipped: spec.ifSkipped === undefined ? undefined : text('if_skipped'),
+    options: spec.options.map((o) => ({
+      value: o.value,
+      label: translate(policyOptionKey(spec.textKey, o.value)),
+    })),
+  };
 }
