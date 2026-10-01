@@ -1521,7 +1521,7 @@ export const EN = {
   'policy.cash_over_limit_outside_ingestion.impact':
     'Governs `bill approve` (for a bill whose CFDI says FormaPago 01) and `payment create --method cash`. With "signal" the operation returns a deductibility-at-risk finding and changes nothing. With "draft_reclassification" it also proposes, as a draft a person approves, moving the bill\'s expense and IVA to the non-deductible account. With "ignore" it says nothing. A bill the ingestion created is never judged again: its answer to `efectivo_no_deducible` stands.',
   'policy.cash_over_limit_outside_ingestion.rationale':
-    'LISR art. 27 fr. III denies the deduction of what is paid in cash above the limit, and LIVA art. 5 fr. I denies the IVA credit with it; but the law keys on how the payment was really made, which a bill alone does not prove (the CFDI method may be the wrong one, the same exception the ingestion offers). The books keep what was posted (NIF A-2, faithful representation) and a person is told, with the figures, before the return is filed.',
+    'LISR art. 27 fr. III denies the deduction of what is paid in cash above the limit, and LIVA art. 5 fr. I denies the IVA credit with it; but the law keys on how the payment was really made, which a bill alone does not prove (the CFDI method may be the wrong one, the same exception the ingestion offers). The books keep what was posted (NIF A-1, faithful representation) and a person is told, with the figures, before the return is filed.',
   'policy.cash_over_limit_outside_ingestion.why':
     'Cash above the limit makes the expense non-deductible, but only if it really was paid in cash. Some firms want a draft ready, others only the warning.',
   'policy.cash_over_limit_outside_ingestion.what':

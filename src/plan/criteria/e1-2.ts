@@ -972,7 +972,7 @@ export const E1_2: Criterio[] = [
       if (!(resolvesVendor < checksVendor && checksVendor < writesVendor)) {
         return falla('la guarda del anticipo a proveedor quedó fuera de orden respecto a su INSERT');
       }
-      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos)')) {
+      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod')) {
         return falla('el INSERT del pago a proveedor volvió a tomar la moneda del respaldo literal en vez de la resuelta');
       }
 

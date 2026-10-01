@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { withCashFindingMessage } from '../../../i18n/cash-finding-text.js';
 import { z } from 'zod';
 import { boundedString, uuidString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
@@ -163,7 +164,7 @@ router.post('/:id/approve', declararRiesgoRuta({ riesgo: 'irreversible', escribe
   }
 
   // MNE-001-345: the bill stays the data; the LISR 27-III signal rides in meta.
-  res.json({ data: bill, meta: { ...meta(req), deductibility_findings: deductibilityFindings } });
+  res.json({ data: bill, meta: { ...meta(req), deductibility_findings: deductibilityFindings.map(withCashFindingMessage) } });
 }));
 
 // POST /v1/bills/:id/schedule-payment — WITHDRAWN
@@ -225,7 +226,7 @@ router.post('/payments', declararRiesgoRuta({ riesgo: 'irreversible', escribe: '
       payment_number: result.paymentNumber,
       journal_entry_id: result.journalEntry?.id ?? null,
       applied: result.documentos,
-      deductibility_findings: result.deductibilityFindings ?? [],
+      deductibility_findings: (result.deductibilityFindings ?? []).map(withCashFindingMessage),
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });

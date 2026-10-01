@@ -1,4 +1,5 @@
 import { describe, it as vitestIt, expect, beforeAll, afterAll } from 'vitest';
+import { cashFindingMessage } from '../../src/i18n/cash-finding-text.js';
 import { Command } from 'commander';
 import { v4 as uuidv4 } from 'uuid';
 import { query, closeDatabase, withTransaction, enterTenant } from '../../src/database/connection.js';
@@ -166,7 +167,7 @@ describe('payment --method cash', () => {
     expect(r.deductibilityFindings![0]).toMatchObject({
       code: 'cash_over_limit_deductibility_at_risk', amount: '2500.00', limit: '2000.00', onDate: DAY, source: 'vendor_payment',
     });
-    expect(r.deductibilityFindings![0].message).toContain('LISR art. 27 fr. III');
+    expect(cashFindingMessage(r.deductibilityFindings![0])).toContain('LISR art. 27 fr. III');
     expect(r.journalEntry).not.toBeNull();
     // The audit trail carries the signal under its English key.
     const audit = await query<{ v: string[] | null }>(
@@ -242,7 +243,7 @@ describe('bill approve', () => {
     const r = await approveBill(b.billId, f.userId, { entityId: f.entityId });
     expect(r.deductibilityFindings).toHaveLength(1);
     expect(r.deductibilityFindings[0]).toMatchObject({ amount: '4000.00', limit: '2000.00', onDate: DAY, source: 'bill_approve' });
-    expect(r.deductibilityFindings[0].message).toContain('CFDI declares');
+    expect(cashFindingMessage(r.deductibilityFindings[0])).toContain('CFDI declares');
     expect(r.entry).not.toBeNull();
   });
 

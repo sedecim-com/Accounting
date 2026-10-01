@@ -1,4 +1,5 @@
 import * as readline from 'node:readline/promises';
+import { cashFindingMessage, withCashFindingMessage } from '../i18n/cash-finding-text.js';
 import type { Command } from 'commander';
 import { BillStatus } from '../types/index.js';
 import { query } from '../database/connection.js';
@@ -698,7 +699,7 @@ async function ejecutar(a: {
   }
 
   // Before the question, not only after the posting (MNE-001-345).
-  for (const w of previo.deductibilityFindings ?? []) process.stderr.write(p.yellow(`${w.message}\n`));
+  for (const w of previo.deductibilityFindings ?? []) process.stderr.write(p.yellow(`${cashFindingMessage(w)}\n`));
   await a.confirmOrAbort(a.opts, a.pregunta(doc));
 
   // ============================================================
@@ -789,7 +790,7 @@ function imprimir(
   // LISR 27-III (MNE-001-345): shown in both modes and in the dry run, on stderr
   // so the --json on stdout stays a machine contract.
   const findings = result.deductibilityFindings ?? [];
-  for (const w of findings) process.stderr.write(p.yellow(`${w.message}\n`));
+  for (const w of findings) process.stderr.write(p.yellow(`${cashFindingMessage(w)}\n`));
   if (json) {
     render(
       [
@@ -802,7 +803,7 @@ function imprimir(
           document_status: doc?.estado ?? null,
           journal_entry: result.journalEntry?.entry_number ?? null,
           dry_run: ensayo,
-          deductibility_findings: findings,
+          deductibility_findings: findings.map(withCashFindingMessage),
         },
       ],
       { json: true }

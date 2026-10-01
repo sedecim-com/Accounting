@@ -5,7 +5,6 @@ import { jurisdictionOf } from '../jurisdiction/jurisdiction.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { tenantDe } from '../audit/audit-log.js';
 import { createDraft, DraftValidationError, type DraftLine } from '../../ai/draft-service.js';
-import { t } from '../../i18n/index.js';
 
 /** LISR art. 27 fr. III, read by the date of the payment and never hard-coded. */
 export const CASH_LIMIT_KEY = 'income_tax.cash_payment_deduction_limit';
@@ -42,7 +41,16 @@ export interface CashDeductibilityFinding {
   source: CashFindingSource;
   /** The reclassification drafts proposed under `draft_reclassification`, for a person to review. */
   draftIds: string[];
-  message: string;
+  /**
+   * What the person reads, as a catalog key and its parameters: a service never
+   * resolves the language (it would answer in the process's, ignoring
+   * Accept-Language). The edge renders it with `cashFindingMessage`.
+   */
+  messageKey: string;
+  messageParams: Record<string, string>;
+  /** The reclassification draft outcome, appended after the message when present. */
+  noteKey?: string;
+  noteParams?: Record<string, string>;
 }
 
 export interface CashLimitArgs {
@@ -103,14 +111,15 @@ export async function cashLimitFinding(
       code: 'cash_limit_unavailable',
       limit: null,
       sourceUrl: null,
-      message: t('cash_limit.finding.unavailable', { bill: args.billNumber, date: args.onDate }),
+      messageKey: 'cash_limit.finding.unavailable',
+      messageParams: { bill: args.billNumber, date: args.onDate },
     }];
   }
   if (!amount.greaterThan(limit.value)) return [];
   const limitText = new Decimal(limit.value).toFixed(2);
 
   const draftIds: string[] = [];
-  let draftNote = '';
+  let note: { key: string; params: Record<string, string> } | null = null;
   if (policy.value === 'draft_reclassification' && args.proposeDrafts !== false) {
     try {
       for (const billId of args.billIds ?? []) {
@@ -118,11 +127,11 @@ export async function cashLimitFinding(
         if (id) draftIds.push(id);
       }
       if (draftIds.length > 0) {
-        draftNote = ' ' + t('cash_limit.finding.draft_proposed', { count: String(draftIds.length) });
+        note = { key: 'cash_limit.finding.draft_proposed', params: { count: String(draftIds.length) } };
       }
     } catch (err) {
       if (!(err instanceof DraftValidationError)) throw err;
-      draftNote = ' ' + t('cash_limit.finding.draft_failed', { reason: err.errors.join('; ') });
+      note = { key: 'cash_limit.finding.draft_failed', params: { reason: err.errors.join('; ') } };
     }
   }
 
@@ -132,13 +141,9 @@ export async function cashLimitFinding(
     limit: limitText,
     sourceUrl: limit.sourceUrl,
     draftIds,
-    message:
-      t(args.source === 'bill_approve' ? 'cash_limit.finding.at_approve' : 'cash_limit.finding.at_payment', {
-        bill: args.billNumber,
-        amount: amount.toFixed(2),
-        date: args.onDate,
-        limit: limitText,
-      }) + draftNote,
+    messageKey: args.source === 'bill_approve' ? 'cash_limit.finding.at_approve' : 'cash_limit.finding.at_payment',
+    messageParams: { bill: args.billNumber, amount: amount.toFixed(2), date: args.onDate, limit: limitText },
+    ...(note ? { noteKey: note.key, noteParams: note.params } : {}),
   }];
 }
 

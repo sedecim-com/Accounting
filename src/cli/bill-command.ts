@@ -1,4 +1,5 @@
 import * as readline from 'node:readline/promises';
+import { cashFindingMessage, withCashFindingMessage } from '../i18n/cash-finding-text.js';
 import { readFileSync } from 'node:fs';
 import { stdin, stdout } from 'node:process';
 import type { Command } from 'commander';
@@ -829,12 +830,12 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         printEntry(preview, deps.palette, target.bill_number);
         // The signal comes BEFORE the question: once posted, the entry cannot be
         // reclassified from here (`bill reverse` has no backend yet).
-        for (const w of preview.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${w.message}\n`));
+        for (const w of preview.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${cashFindingMessage(w)}\n`));
 
         if (opts.dryRun) {
           process.stderr.write(deps.palette.dim('Dry run: nothing was written.\n'));
           if (opts.json) {
-            render([{ bill: target.bill_number, dry_run: true, deductibility_findings: preview.deductibilityFindings }], { json: true });
+            render([{ bill: target.bill_number, dry_run: true, deductibility_findings: preview.deductibilityFindings.map(withCashFindingMessage) }], { json: true });
           }
           return;
         }
@@ -864,7 +865,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
               bill: target.bill_number,
               dry_run: false,
               journal_entry: result.entry?.entry_number ?? null,
-              deductibility_findings: result.deductibilityFindings,
+              deductibility_findings: result.deductibilityFindings.map(withCashFindingMessage),
             }],
             { json: true }
           );
@@ -877,7 +878,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
               '\n'
           );
         }
-        for (const w of result.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${w.message}\n`));
+        for (const w of result.deductibilityFindings) process.stderr.write(deps.palette.yellow(`${cashFindingMessage(w)}\n`));
         if (opts.idempotencyKey) {
           process.stderr.write(
             deps.palette.dim(

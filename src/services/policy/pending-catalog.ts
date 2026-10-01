@@ -2558,7 +2558,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'LISR art. 27 fr. III denies the deduction of what is paid in cash above the limit, and LIVA art. 5 fr. I ' +
       'denies the IVA credit with it; but the law keys on how the payment was really made, which a bill alone ' +
       'does not prove (the CFDI method may be the wrong one, the same exception the ingestion offers). The ' +
-      'books keep what was posted (NIF A-2, faithful representation) and a person is told, with the figures, ' +
+      'books keep what was posted (NIF A-1, faithful representation) and a person is told, with the figures, ' +
       'before the return is filed.',
     whyAsking:
       'Cash above the limit makes the expense non-deductible, but only if it really was paid in cash. Some firms want a draft ready, others only the warning.',
