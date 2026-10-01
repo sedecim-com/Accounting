@@ -1,12 +1,26 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
+import { Command } from 'commander';
+
+// The `define` path resolves who is asking from the session; this spec names
+// the tenant's entity and user directly so the REAL command runs on the REAL rows.
+const held = vi.hoisted(() => ({ ctx: null as unknown, reviewer: null as unknown }));
+vi.mock('../../src/ai/context.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/ai/context.js')>()),
+  resolveEntity: vi.fn(async () => held.ctx),
+}));
+vi.mock('../../src/ai/draft-service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/ai/draft-service.js')>()),
+  resolveReviewer: vi.fn(async () => held.reviewer),
+}));
+
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { seedPolicies, listPending, getPolicy } from '../../src/services/policy/policy-service.js';
 import { getPolicySpec, type PolicySpec } from '../../src/services/policy/pending-catalog.js';
-import { renderPolicies } from '../../src/cli/pending-command.js';
+import { renderPolicies, registerPendingCommands } from '../../src/cli/pending-command.js';
 import { leerPanel } from '../../src/ai/tools/policy-tools.js';
 import type { AgentContext } from '../../src/ai/context.js';
-import { CATALOGS, LANGUAGES } from '../../src/i18n/index.js';
+import { CATALOGS, LANGUAGES, resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 import { policyOptionKey, policyTextKey } from '../../src/services/policy/policy-text-key.js';
 
 /**
@@ -88,6 +102,9 @@ beforeAll(async () => {
     currency: 'MXN', country: 'MX', accountingStandard: 'mx_nif', taxId: 'XAXX010101000',
   };
 
+  held.ctx = ctx;
+  held.reviewer = { userId: f.userId, email: 'i10@example.com' };
+
   // Tenant scope (entity_id NULL), which is what `pending` and the init wizard seed.
   await seedPolicies({ tenantId: f.tenantId });
   seeded = await fingerprint(f.tenantId);
@@ -122,6 +139,8 @@ beforeAll(async () => {
   );
   aged = await fingerprint(f.tenantId);
 }, 180_000);
+
+afterEach(() => resetLanguage());
 
 afterAll(async () => {
   await closeDatabase();
@@ -226,6 +245,51 @@ describe('I10 · the panel paints the catalog and leaves policy_decisions untouc
     }
     expect(missing).toEqual([]);
 
+    expect(await fingerprint(f.tenantId)).toEqual(aged);
+  }, 60_000);
+
+  it('under es: pending -v, leerPanel and a CANCELLED `define` paint Spanish and leave the rows byte-identical', async () => {
+    setLanguage('es');
+    const esText = (key: string) => t(key as never, {}, 'es');
+
+    const pending = await listPending({ tenantId: f.tenantId });
+    const listing = flat(renderPolicies(pending, plain, { verbose: true }));
+    expect(listing).toContain('impacto:');
+    expect(listing).not.toContain(STALE);
+    for (const key of AGED_KEYS) {
+      expect(listing).toContain(oneLine(esText(policyTextKey(specOf(key).textKey, 'question'))));
+    }
+
+    const panel = await leerPanel(ctx);
+    for (const key of AGED_KEYS) {
+      const p = panel.policies.find((x) => x.key === key)!;
+      expect(p.question).toBe(esText(policyTextKey(specOf(key).textKey, 'question')));
+    }
+
+    // The REAL `define` command, answered with an empty line = cancel.
+    const out: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => void out.push(a.map(String).join(' ')));
+    class Stop extends Error {}
+    const program = new Command();
+    program.exitOverride();
+    registerPendingCommands(program, {
+      color: plain,
+      colorErr: { dim: (x: string) => x, red: (x: string) => x },
+      shutdown: async () => { throw new Stop(); },
+      reportError: (err: unknown) => { if (!(err instanceof Stop)) throw err; throw err; },
+      ask: async () => '',
+    });
+    try {
+      await program.parseAsync(['pending', 'define', AGED_KEYS[0]], { from: 'user' });
+    } catch (err) {
+      if (!(err instanceof Stop)) throw err;
+    } finally {
+      log.mockRestore();
+    }
+    expect(flat(out)).toContain('Cancelado; sigue pendiente.');
+    expect(flat(out)).toContain('por qué lo pregunto:');
+
+    // Spanish rendering and a cancelled prompt did not touch one byte, nor one row version.
     expect(await fingerprint(f.tenantId)).toEqual(aged);
   }, 60_000);
 

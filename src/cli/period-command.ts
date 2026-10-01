@@ -569,19 +569,14 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
 }
 
 export function registerYearCommand(program: Command, deps: PeriodCommandDeps): void {
-  const year = program
-    .command('year')
-    .alias('ejercicio')
-    .description('Fiscal years: the calendar an entity keeps its books in');
+  // Help by key (#314): help.year.<leaf>.{description,option.<flag>,argument.<name>}.
+  const year = describeCommand(program.command('year').alias('ejercicio'), 'help.year.description');
 
   const run = makeRunner(deps);
   const entityOf = makeEntityResolver(deps);
 
   // ---- year list ---------------------------------------------------
-  const list = year
-    .command('list')
-    .alias('listar')
-    .description('List the fiscal years of the entity with their state and close progress');
+  const list = describeCommand(year.command('list').alias('listar'), 'help.year.list.description');
   withOutput(withSelection(withContext(list)));
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.yearList);
@@ -607,11 +602,10 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
   );
 
   // ---- year show ---------------------------------------------------
-  const show = year
-    .command('show')
-    .alias('ver')
-    .argument('<year>', 'four-digit year, e.g. 2026')
-    .description('Show a fiscal year with each of its periods and their states');
+  const show = describeCommand(
+    argumentByKey(year.command('show').alias('ver'), '<year>', 'help.year.show.argument.year'),
+    'help.year.show.description'
+  );
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.yearShow);
@@ -652,15 +646,13 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
   );
 
   // ---- year create -------------------------------------------------
-  const create = year
-    .command('create')
-    .alias('crear')
-    .argument('<year>', 'four-digit year, e.g. 2027')
-    .description('Create a fiscal year: its twelve monthly periods and the year-end adjustment period (13)');
+  const create = describeCommand(
+    argumentByKey(year.command('create').alias('crear'), '<year>', 'help.year.create.argument.year'),
+    'help.year.create.description'
+  );
   withContext(create);
-  create
-    .option('--dry-run', 'show the calendar that would be created; write nothing')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--dry-run', 'help.year.create.option.dry_run');
+  optionByKey(create, '--json', 'help.year.create.option.json');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'fiscal_years + fiscal_periods' });
   create.addHelpText('after', EJEMPLOS.yearCreate);
   create.action((yearArg: string, opts: CommonOpts & { dryRun?: boolean }) =>

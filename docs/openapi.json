@@ -3591,12 +3591,14 @@
                       {
                         "type": "number"
                       }
-                    ]
+                    ],
+                    "x-validacion-adicional": true
                   }
                 },
                 "required": [
                   "matched_entity_type",
-                  "matched_entity_id"
+                  "matched_entity_id",
+                  "matched_amount"
                 ],
                 "additionalProperties": true,
                 "x-claves-desconocidas": "descartadas"

@@ -359,6 +359,34 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 31,
   },
   {
+    // MNE-001-057 (#309) · A declared withholding that differs from the law's.
+    // Reader: pre-registration-service.ts, which passes the answer to the
+    // classifier's `withholding_mismatch` question; the close checklist lists
+    // what was recorded as issued (period-close.ts).
+    key: 'withholding_mismatch',
+    textKey: 'withholding_mismatch',
+    category: 'fiscal',
+    question:
+      "A received CFDI declares a withholding (ISR or VAT) other than the one the law requires of your company as payer. What happens?",
+    impact:
+      "Governs received CFDIs on which a legal entity withholds by law (an individual's fees or lease, land freight, an individual in RESICO) and whose declared withholding differs from the law's beyond rounding; professional fees under regime 612 that declare no ISR withheld follow fees_without_withholding instead. \"request_substitute_cfdi\" holds the CFDI in the inbox, writes nothing to the ledger and says to ask the vendor for a substitute CFDI. \"withhold_by_law\" proposes the entry with the law's withholding and holds it for review. \"record_as_issued\" posts the CFDI with its declared withholding, and the close checklist lists it under fees-without-withholding.",
+    options: [
+      { value: 'request_substitute_cfdi', label: "Hold it and ask the vendor for a substitute CFDI" },
+      { value: 'withhold_by_law', label: "Book the law's withholding and hold the entry for review" },
+      { value: 'record_as_issued', label: "Record it as declared, with a warning in the close checklist" },
+    ],
+    defaultValue: 'request_substitute_cfdi',
+    defaultRationale:
+      "The payer is jointly liable for the tax it should have withheld (CFF 26-I) and the expense is deductible only if the withholding was made and paid (LISR 27-V). The CFDI belongs to a third party: the clean remedy is a substitute from the vendor, and nothing is booked on a figure that will change.",
+    whyAsking:
+      "When your company withholds by law, the invoice has to show the same withholding the law requires. If it shows another, either the vendor made a mistake or the case is not the one the law describes. Whether to wait for a corrected invoice, withhold the law's amount anyway or book it as it came is a call for your firm.",
+    whatIDo:
+      "By default I hold the invoice and tell you to ask the vendor for a substitute. With \"withhold_by_law\" I propose the entry with the law's withholding and leave it for you to review. With \"record_as_issued\" I post it as it came and list it in the close checklist.",
+    ifSkipped:
+      "I hold those invoices and ask you about each one: nothing reaches your books until a substitute arrives or you answer.",
+    priority: 32,
+  },
+  {
     key: 'lleva_inventarios',
     textKey: 'inventory_method',
     category: 'contable',
@@ -435,6 +463,39 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whatIDo:
       'I count the CFDI of the types you choose when I tell you what is missing from the books; the rest stay in the census.',
     ifSkipped: 'I count income, credit notes and payment receipts, and leave payroll and transfers out.',
+    priority: 40,
+  },
+
+  {
+    // MNE-001-119 (#312): how a CFDI the SAT lists and the books do not carry
+    // weighs at close. Read by `severityOfCensusGap`
+    // (src/services/sat-census/reconcile.ts) for the `sat-census-missing` box.
+    key: 'census_missing_at_close',
+    textKey: 'census_missing_at_close',
+    category: 'contable',
+    question: 'A CFDI the SAT lists is missing from the books at close: which direction stops the close?',
+    impact:
+      'The SAT census is read against what was posted. A CFDI you issued that is not posted understates ' +
+      'income and the IVA you owe; a CFDI you received that is not posted understates a deduction and the ' +
+      'IVA you can credit. This decides whether each direction stops the close or only warns.',
+    options: [
+      { value: 'issued_blocks', label: 'Issued stops the close; received warns' },
+      { value: 'both_block', label: 'Both directions stop the close' },
+      { value: 'both_warn', label: 'Both directions only warn' },
+    ],
+    defaultValue: 'issued_blocks',
+    defaultRationale:
+      'An issued CFDI is income the entity already stamped and the SAT already holds: leaving it unposted ' +
+      'understates the ISR base and the IVA trasladado of the month (LISR art. 17; LIVA arts. 1-B and 17), ' +
+      'and the books must record every operation (CFF art. 28 fr. I). A received CFDI that is not posted ' +
+      'is a right not yet exercised: the deduction and the IVA acreditable can still be claimed in a later ' +
+      'period (LISR art. 27 fr. III; LIVA art. 5), so it warns. A firm that wants the books to match the SAT ' +
+      'both ways before any close chooses both_block.',
+    whyAsking:
+      'Missing an issued CFDI and missing a received one do not cost the same, and firms differ on how much of that they accept at close.',
+    whatIDo:
+      'I list what the SAT has and the books lack in the close checklist, and stop the close only for the directions you choose.',
+    ifSkipped: 'A missing issued CFDI stops the close and a missing received one warns.',
     priority: 40,
   },
 
@@ -2117,6 +2178,53 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I round once, on the period amount. From February to December the two options give the same figures.',
     priority: 42,
   },
+  // #430 · MNE-001-398. Decided by the owner in MNE-001-397. Read by
+  // `readEmploymentSubsidySeparateRun` (payroll/mx/employment-subsidy.ts) when
+  // the employee has another paycheck in the same pay period, or when this
+  // paycheck is itself the separate one (a run other than the regular one, or
+  // a paycheck that pays only aguinaldo).
+  {
+    key: 'employment_subsidy_separate_run',
+    textKey: 'employment_subsidy_separate_run',
+    category: 'fiscal',
+    question:
+      'When a worker gets a second paycheck in the same pay period (an aguinaldo paid in its own run, for example), how much employment subsidy does it carry?',
+    impact:
+      'It decides the subsidy, the ISR withheld, the cash handed to the worker and the payroll CFDI of each paycheck of the period. ' +
+      'Either way the period never receives the subsidy twice; with the recomputation it follows the income of the whole period, ' +
+      'and with "none" it stays on the regular paycheck.',
+    options: [
+      {
+        value: 'recompute_on_combined_income',
+        label: 'Recompute it once on the income of both paychecks, and credit on the second only the difference',
+      },
+      {
+        value: 'none_on_separate_paycheck',
+        label:
+          'None on the separate paycheck: a run other than the regular one, or a paycheck that pays only aguinaldo, carries no subsidy; the regular paycheck keeps its own',
+      },
+    ],
+    defaultValue: 'recompute_on_combined_income',
+    defaultRationale:
+      'The decree that governs the subsidy (DOF 31-12-2025) grants one amount per period to whoever earns no more than a ' +
+      'monthly cap, so both the amount and the cap are measured on the income of the period, not of each payslip. ' +
+      'Recomputing on the combined income applies that cap to the whole period, and a later paycheck credits only what the ' +
+      'earlier ones did not. When the combined income is over the cap, the subsidy an earlier paycheck already caused was not ' +
+      'due: the later paycheck credits nothing more, but that subsidy is not recovered, so the result then differs from paying ' +
+      'the aguinaldo with the salary, which would give no subsidy at all.',
+    whyAsking:
+      'The decree measures the subsidy and its income cap per pay period, not per payslip, and paying the aguinaldo in its own ' +
+      'run is common. Without a rule the second paycheck of the period received the subsidy again and handed the part over its ' +
+      'ISR to the worker as cash.',
+    whatIDo:
+      'Before crediting the subsidy on a paycheck, I read the other calculated, approved or paid paychecks of the same worker ' +
+      'and period. With "recompute_on_combined_income" I compute the subsidy on their income plus this one and credit the ' +
+      'difference, never below zero. With "none_on_separate_paycheck" a paycheck of a run other than the regular one, or one ' +
+      'that pays only aguinaldo, carries none, and the regular paycheck keeps its own whichever was calculated first.',
+    ifSkipped:
+      'I recompute on the combined income of the period and credit only the difference.',
+    priority: 42,
+  },
   // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
   // `readFilingRounding` (fiscal/iva-workpaper.ts). The adjustment itself is
   // not an option: CFF art. 20 fixes it (1–50 cents down, 51–99 up).
@@ -2438,7 +2546,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'stays on 2140 in every layout. One account per tax gives the two lines of the monthly ' +
       'payment and of the DIOT without splitting a balance. Three accounts follow the SAT grouping ' +
       'code (216.03 leases, 216.04 professional services, 216.10 VAT); ISR withheld on anything ' +
-      'that is not a lease is booked as professional services. With one account per tax, 2141 holds ' +
+      'that is not a lease, the 1.25 % of RESICO (LISR 113-J) on goods, services or freight included, is ' +
+      'booked as professional services; a RESICO real-estate lease is booked as a lease. With one ' +
+      'account per tax, 2141 holds ' +
       'lease and fees ISR together, so its grouping code in the Anexo 24 trial balance (CFF 28-IV) can ' +
       'only be one of the two. One account needs the working paper to split ISR from VAT, and the ' +
       'approval of a draft can only check their sum.',
@@ -2494,6 +2604,41 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whatIDo: 'I warn and name `account role sync`; with "repoint" I run it myself when the layout is set.',
     ifSkipped: 'I warn, and change nothing.',
     priority: 41,
+  },
+  {
+    // MNE-001-345 · LISR art. 27 fr. III. The CFDI ingestion already asks this
+    // fork as the decision `efectivo_no_deducible` (non-deductible, or the CFDI
+    // method is wrong). This key says what to do when cash above the limit shows
+    // up OUTSIDE the ingestion: a bill approved from its CFDI (FormaPago 01) or a
+    // vendor payment recorded with --method cash. Reader: cash-deductibility.ts.
+    key: 'cash_over_limit_outside_ingestion',
+    textKey: 'cash_over_limit_outside_ingestion',
+    category: 'fiscal',
+    question: 'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
+    impact:
+      'Governs `bill approve` (for a bill whose CFDI says FormaPago 01) and `payment create --method cash`. ' +
+      'With "signal" the operation returns a deductibility-at-risk finding and changes nothing. With ' +
+      '"draft_reclassification" it also proposes, as a draft a person approves, moving the bill\'s expense and ' +
+      'IVA to the non-deductible account. With "ignore" it says nothing. A bill the ingestion created is never ' +
+      'judged again: its answer to `efectivo_no_deducible` stands.',
+    options: [
+      { value: 'signal', label: 'Signal it and change nothing: a person decides' },
+      { value: 'draft_reclassification', label: 'Signal it and propose the non-deductible reclassification as a draft' },
+      { value: 'ignore', label: 'Say nothing' },
+    ],
+    defaultValue: 'signal',
+    defaultRationale:
+      'LISR art. 27 fr. III denies the deduction of what is paid in cash above the limit, and LIVA art. 5 fr. I ' +
+      'denies the IVA credit with it; but the law keys on how the payment was really made, which a bill alone ' +
+      'does not prove (the CFDI method may be the wrong one, the same exception the ingestion offers). The ' +
+      'books keep what was posted (NIF A-1, faithful representation) and a person is told, with the figures, ' +
+      'before the return is filed.',
+    whyAsking:
+      'Cash above the limit makes the expense non-deductible, but only if it really was paid in cash. Some firms want a draft ready, others only the warning.',
+    whatIDo:
+      'I compare the cash against the limit in force on the payment date and report it; with "draft_reclassification" I leave a draft in the review queue.',
+    ifSkipped: 'I signal it and change nothing.',
+    priority: 42,
   },
   {
     // #242. "Today" was the UTC day: from 18:00 to midnight in Mexico City it

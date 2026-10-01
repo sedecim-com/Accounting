@@ -207,7 +207,8 @@ export async function storeCredential(input: StoreCredentialInput): Promise<Cred
 // ============================================================
 
 export interface AccessOptions {
-  purpose: 'sat_auth' | 'validation' | 'healthcheck' | 'export';
+  /** 'seal_anexo24': sealing the Anexo 24 catalog or trial balance (EFIRMA-4, #442). */
+  purpose: 'sat_auth' | 'seal_anexo24' | 'validation' | 'healthcheck' | 'export';
   actor: string;
   /** true = no human present (scheduler). Subject to policy. */
   unattended: boolean;

@@ -156,7 +156,7 @@ export class PreRegistrationService {
   async processXMLUpload(
     entityId: string,
     xmlContent: string,
-    source: 'manual_upload' | 'email' | 'api' | 'sftp',
+    source: 'manual_upload' | 'email' | 'api' | 'sftp' | 'sat_download',
     uploadedBy: string
   ): Promise<{
     xmlDocument: Record<string, unknown>;
@@ -903,7 +903,9 @@ export class PreRegistrationService {
     // kept the 5,000 constant whatever the firm answered. The accrual
     // service reads the same policy when a schedule is created
     // (prepaid-service.ts), so the question and its answer now agree.
-    const [umbralCap, polRestaurantes, polIeps, polInventarios, prepaidThreshold, unwithheldFees] = await Promise.all([
+    const [
+      umbralCap, polRestaurantes, polIeps, polInventarios, prepaidThreshold, unwithheldFees, withholdingMismatch,
+    ] = await Promise.all([
       getPolicyNumber(ctx, 'umbral_capitalizacion_mxn'),
       getPolicy(ctx, 'politica_restaurantes'),
       getPolicy(ctx, 'tratamiento_ieps'),
@@ -911,10 +913,13 @@ export class PreRegistrationService {
       getPolicyNumber(ctx, 'umbral_anticipado_mxn'),
       // MNE-001-148: professional fees that declare no ISR withheld.
       getPolicy(ctx, 'fees_without_withholding'),
+      // MNE-001-057: any other declared withholding that differs from the law's.
+      getPolicy(ctx, 'withholding_mismatch'),
     ]);
     const answers: Record<string, string> = {};
     if (polRestaurantes.defined) answers.consumo_restaurante = polRestaurantes.value;
     if (polIeps.defined) answers.ieps_acreditable = polIeps.value;
+    if (withholdingMismatch.defined) answers.withholding_mismatch = withholdingMismatch.value;
 
     // cfdi_periodo_cerrado: solo el literal 'periodo_actual' registra solo;
     // 'preguntar', 'reabrir' o un valor desconocido escalan como siempre.
