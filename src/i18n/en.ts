@@ -1959,7 +1959,6 @@ export const EN = {
     'What the files are: xml (CFDI one by one), zip (a SAT package of CFDI XML: loads the census and ingests ' +
     'each XML) or metadata (the SAT `~` metadata file, bare or zipped: loads the census only)',
   // MNE-001-143 (#440): `src/cli/sat-download-commands.ts`, the bulk download of CFDI from the SAT.
-  'help.sat.download.description': 'Bulk download of CFDI from the SAT (e.firma)',
   'help.sat.download.option.entity': 'Legal entity',
   'help.sat.download.option.user': 'Who acts (default: the sole active user)',
   'help.sat.download.option.json': 'Machine-readable output',

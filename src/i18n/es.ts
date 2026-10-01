@@ -1844,7 +1844,6 @@ export const ES: Record<keyof typeof EN, string> = {
     'Qué son los archivos: xml (CFDI uno por uno), zip (paquete del SAT con XML: carga el censo e ingiere ' +
     'cada XML) o metadata (archivo de metadatos del SAT separado por `~`, suelto o en ZIP: sólo carga el censo)',
   // MNE-001-143 (#440): `src/cli/sat-download-commands.ts`, la descarga masiva de CFDI del SAT.
-  'help.sat.download.description': 'Descarga masiva de CFDI del SAT (e.firma)',
   'help.sat.download.option.entity': 'Entidad legal',
   'help.sat.download.option.user': 'Quién actúa (por omisión: el único usuario activo)',
   'help.sat.download.option.json': 'Salida legible por máquina',

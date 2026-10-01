@@ -611,13 +611,6 @@ Examples:
   mnemosine sat cred add --cer firma.cer --key firma.key --dry-run
   # Store it in the vault for the entity (asks for the passphrase and the typed consent).
   mnemosine sat cred add --cer firma.cer --key firma.key --entity "Demo Corp" --live
-
-
-Examples:
-  # Validate a certificate and key pair locally; nothing is stored and no password is asked.
-  mnemosine sat cred add --cer fiel.cer --key fiel.key --dry-run
-  # Store it in the vault (asks for the key password and the typed consent).
-  mnemosine sat cred add --cer fiel.cer --key fiel.key --live
 ```
 
 #### `mnemosine sat cred status` (alias: estado)
@@ -668,13 +661,6 @@ Examples:
   mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --dry-run
   # Revoke it and destroy the material (irreversible).
   mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --yes
-
-
-Examples:
-  # See which credential would be destroyed; nothing is revoked.
-  mnemosine sat cred revoke --dry-run
-  # Revoke it, with the reason recorded in the audit trail.
-  mnemosine sat cred revoke --reason "certificate replaced" --yes
 ```
 
 ### `mnemosine sat download` (alias: descarga)

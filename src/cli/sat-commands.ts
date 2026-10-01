@@ -105,13 +105,6 @@ Examples:
     agent: false,
     writes: 'fiscal_credentials + el material en la bóveda; valida el certificado localmente antes',
   });
-  add.addHelpText('after', `
-Examples:
-  # Validate a certificate and key pair locally; nothing is stored and no password is asked.
-  mnemosine sat cred add --cer fiel.cer --key fiel.key --dry-run
-  # Store it in the vault (asks for the key password and the typed consent).
-  mnemosine sat cred add --cer fiel.cer --key fiel.key --live
-`);
   add.action(async (opts: {
       cer: string; key: string; entity?: string; user?: string;
       unattended: boolean; maxDiario?: number;
@@ -325,13 +318,6 @@ Examples:
     agent: false,
     writes: 'fiscal_credentials + destrucción criptográfica del material en la bóveda',
   });
-  revoke.addHelpText('after', `
-Examples:
-  # See which credential would be destroyed; nothing is revoked.
-  mnemosine sat cred revoke --dry-run
-  # Revoke it, with the reason recorded in the audit trail.
-  mnemosine sat cred revoke --reason "certificate replaced" --yes
-`);
   revoke.action(async (opts: {
       entity?: string; user?: string;
       dryRun?: boolean; yes?: boolean; reason?: string; idempotencyKey?: string;
