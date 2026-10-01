@@ -158,12 +158,12 @@ El 2026-09-26 el dueño abrió él mismo una sesión para contestar las de S1 de
 | PR #249, PR #283 | La lectura de §5.3 del tablero y la revisión de seguridad; si se juzga el título del PR | Los dos se fusionaron el 2026-09-26; desde #283 el asunto de cada commit y el título del PR se juzgan en inglés |
 | #367 | La migración a zod 4: ¿qué se conserva del contrato? | El cuerpo del 422 y la aceptación de UUID, byte a byte (2026-09-26). Dos endurecimientos aprobados en #380 (2026-09-26): ±Infinity y los enteros fuera de ±(2^53 − 1) se rechazan. Entregado en #401 y #402 (2026-09-27) |
 | #323 | Cómo se prueba la validez del XML del Anexo 24 | Contra el XSD oficial del SAT guardado en el repositorio; la relectura estructural no basta (2026-09-27). El trabajo es MNE-001-136 (#397) |
+| #378 | Los dos criterios rojos de E5.1, ¿entran al MVP o se enmienda la meta de RNF-01? | Se enmienda RNF-01 (2026-09-30, MNE-001-132): las herramientas del agente derivadas del registro de riesgo y la rehidratación de `--continue` quedan después del MVP (MNE-001-391, MNE-001-392); ningún criterio verde retrocede. PRD-001 §RNF-01 enmendado en MNE-001-390 |
 
 **Pendientes.** Al cruzar el backlog con las issues, el 2026-09-26, salieron preguntas que nadie había hecho. Cada una es una decisión en el backlog (`docs/backlog/PRD-001.md`) y bloquea tareas concretas:
 
 | Issue | Pregunta | Decisión | Bloquea |
 |---|---|---|---|
-| #378 | Los dos criterios rojos de E5.1, ¿entran al MVP o se enmienda la meta de RNF-01? | MNE-001-132 | La meta de RNF-01 |
 | #308 | El prorrateo del IVA de actividades mixtas (art. 5 fr. V) y dónde se capturan el coeficiente de utilidad y las pérdidas | MNE-001-114 | El ISR provisional (059), y con él el papel de trabajo (060), en la ruta crítica del MVP |
 | #297 | Las horas extra (art. 93 fr. I): ¿qué trato declara el panel, o quedan fuera del MVP? | MNE-001-109 | 110 |
 | #371 | La identidad de plataforma | MNE-001-106 | El despliegue (107) |
