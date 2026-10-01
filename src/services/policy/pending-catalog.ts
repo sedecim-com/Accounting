@@ -170,10 +170,13 @@ export const POLICY_CATALOG: PolicySpec[] = [
     impact:
       'Governs `depreciation run`. With "vida_util_nif" the monthly expense follows the useful ' +
       'life you set per asset (NIF C-6). With "tasa_lisr" it follows the tax rate stored on each ' +
-      'asset, at most the maximum of its class (arts. 34-35 LISR), which is what most Mexican SMEs ' +
-      'book so that the accounting and the deduction do not diverge. Only ONE schedule is computed ' +
+      'asset, at most the maximum of its class (arts. 34-35 LISR), applied to the original investment ' +
+      'with no salvage value subtracted (art. 31 LISR), which is what most Mexican SMEs ' +
+      'book so that the accounting and the deduction do not diverge; "vida_util_nif" spreads the ' +
+      'cost less the salvage value. Only ONE schedule is computed ' +
       'and posted: the other basis is not kept in parallel. An asset without a stored ' +
-      'tax rate (registered before the rates existed) keeps running on its useful life under either ' +
+      'tax rate (registered before the rates existed) keeps running on its useful life, on cost less the ' +
+      'salvage value, under either ' +
       'answer. An asset that already posted rows never switches basis: if you change this answer, ' +
       'the run refuses that asset with the reason instead of depreciating it on the other basis.',
     options: [
