@@ -139,7 +139,7 @@
     "src/services/fiscal-credentials/service.ts": "602b5f265c680ad0f8fe53d83d97706fac218997",
     "src/services/reporting/report-service.ts": "3e8bbb06980b863afdc828aa36ec360f557314a0",
     "src/services/ar/invoice-service.ts": "079564627b50e57cfdfc2f6ee5c7f54c8c42cfbd",
-    "src/services/ar/customer-service.ts": "48789714b21f1cb384a82662eadf8415ac185e65",
+    "src/services/ar/customer-service.ts": "52d478e9855861ee7f8001ab422c51ddc66c4a72",
     "src/services/ar/credit-note-service.ts": "2dbab14d6c03cddf7e785e2291098f480bfe360c",
     "src/services/ar/ar-controls.ts": "ec8d8c257b17d590802e5372a9982b34c5869ec5",
     "src/services/accounting/ar-ap-posting.ts": "4edb1902e9191f10132a25b49f0635b2182b047a",
