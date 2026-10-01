@@ -15,6 +15,7 @@ import {
 } from '../services/fiscal-credentials/service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import { exitCodeFor, notFound, ExitCode } from './kernel/index.js';
+import { registerSatDownloadCommands } from './sat-download-commands.js';
 import { calendarDateIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
 import { registerSatCensus } from './sat-census-command.js';
@@ -66,12 +67,9 @@ async function askHidden(prompt: string): Promise<string> {
 
 export function registerSatCommands(program: Command, deps: SatCommandDeps): void {
   const { color: c, colorErr: ce, shutdown, reportError, ask } = deps;
-  // La descripción decía «credentials and CFDI download» y la descarga masiva
-  // no existe (es E3.2 del tablero): sobre esa promesa se entregaban e.firmas
-  // que hoy no sirven para bajar nada. La ayuda dice lo que hay.
   const sat = program
     .command('sat')
-    .description('SAT services (e.firma credentials; the CFDI bulk download is not built yet)');
+    .description('SAT services (e.firma credentials and the CFDI bulk download)');
   const cred = sat.command('cred').description('Fiscal credentials (e.firma)');
   registerSatCensus(sat, { shutdown, reportError });
 
@@ -376,4 +374,6 @@ Examples:
         await shutdown(exitCodeFor(err));
       }
     });
+
+  registerSatDownloadCommands(sat, deps);
 }

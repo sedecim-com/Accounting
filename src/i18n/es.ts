@@ -1843,6 +1843,153 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ingest.option.kind':
     'Qué son los archivos: xml (CFDI uno por uno), zip (paquete del SAT con XML: carga el censo e ingiere ' +
     'cada XML) o metadata (archivo de metadatos del SAT separado por `~`, suelto o en ZIP: sólo carga el censo)',
+  // MNE-001-143 (#440): `src/cli/sat-download-commands.ts`, la descarga masiva de CFDI del SAT.
+  'help.sat.download.option.entity': 'Entidad legal',
+  'help.sat.download.option.user': 'Quién actúa (por omisión: el único usuario activo)',
+  'help.sat.download.option.json': 'Salida legible por máquina',
+  'help.sat.download.option.format': 'Formato de salida: table o json',
+  'help.sat.download.argument.id': 'Solicitud de descarga: su id local o el id que le dio el SAT',
+  'help.sat.download.create.description':
+    'Pide al SAT los CFDI de un periodo (se niega antes de llamar si el tope de por vida de XML está agotado)',
+  'help.sat.download.create.option.since': 'Primer día, AAAA-MM-DD',
+  'help.sat.download.create.option.until': 'Último día, AAAA-MM-DD',
+  'help.sat.download.create.option.direction': 'issued (emitidos) o received (recibidos)',
+  'help.sat.download.create.option.kind':
+    'metadata o xml (xml gasta una de las 2 solicitudes de por vida del periodo)',
+  'help.sat.download.check.description':
+    'Pregunta al SAT el estado de una solicitud y lo guarda junto con los ids de sus paquetes (el 5004 es éxito con cero filas)',
+  'help.sat.download.check.option.wait': 'Seguir preguntando hasta que la solicitud deje de estar abierta',
+  'help.sat.download.check.option.timeout': 'Dejar de esperar tras estos segundos',
+  'help.sat.download.check.option.strict': 'Salir con error salvo que la solicitud haya terminado con paquetes',
+  'help.sat.download.status.description':
+    'Último estado conocido de una solicitud, leído del espejo local (no llama al SAT)',
+  'help.sat.download.list.description': 'Las solicitudes de descarga de la entidad con su estado, número de CFDI y paquetes',
+  'help.sat.download.list.option.status': 'Sólo este estado',
+  'help.sat.download.list.option.since': 'Sólo solicitudes cuyo periodo termina en este día o después, AAAA-MM-DD',
+  'help.sat.download.list.option.limit': 'Cuántas mostrar',
+  'help.sat.package.description': 'Paquetes de una solicitud de descarga terminada',
+  'help.sat.package.download.description':
+    'Baja los paquetes de una solicitud terminada, archiva cada ZIP por bytes y con --import los carga',
+  'help.sat.package.download.option.output': 'Escribe además cada ZIP en este directorio',
+  'help.sat.package.download.option.package': 'Sólo este paquete de la solicitud',
+  'help.sat.package.download.option.import':
+    'Carga el censo y pasa los XML por la ingesta de siempre (import_source sat_download)',
+  'help.sat.quota.description': 'El tope de por vida del SAT para solicitudes de XML idénticas',
+  'help.sat.quota.show.description':
+    'Qué periodos tienen agotadas sus 2 solicitudes de XML de por vida y a cuáles les quedan (lee el contador local)',
+  'help.sat.quota.show.option.since': 'Periodos que terminan en este día o después, AAAA-MM-DD',
+  'help.sat.quota.show.option.until': 'Periodos que empiezan en este día o antes, AAAA-MM-DD',
+  // MNE-001-143 (#440): the runtime messages of `src/cli/sat-download-commands.ts`, by key.
+  'sat.dl.bad_day':
+    '{flag} debe ser un día, AAAA-MM-DD (se recibió "{value}")',
+  'sat.dl.bad_format':
+    '--format debe ser table o json (se recibió "{value}")',
+  'sat.dl.bad_positive':
+    '{flag} debe ser un entero mayor que 0 (se recibió "{value}")',
+  'sat.dl.bad_direction':
+    '--direction debe ser issued o received (se recibió "{value}")',
+  'sat.dl.bad_kind':
+    '--kind debe ser metadata o xml (se recibió "{value}")',
+  'sat.dl.since_after_until':
+    '--since debe ser anterior a --until',
+  'sat.dl.request_not_found':
+    'La solicitud de descarga {id} no existe para esta entidad',
+  'sat.dl.describe':
+    '{id} · {direction} {kind} del {from} al {to} · {status}{count}{packages}{error}',
+  'sat.dl.describe.count':
+    ' · {n} comprobante(s)',
+  'sat.dl.describe.packages':
+    ' · {archived}/{total} paquete(s) archivado(s)',
+  'sat.dl.create.plan':
+    '{direction} {kind} {start}..{end} para {entity} ({rfc})',
+  'sat.dl.create.plan_left':
+    ' · solicitudes XML de por vida que quedan para este periodo según el contador propio de esta entidad: {n} (el SAT cuenta por RFC y parámetros: otra entidad u otro despacho pudo gastarlas)',
+  'sat.dl.create.would':
+    'Se pediría al SAT {plan}',
+  'sat.dl.create.not_sent':
+    'No se envió: {plan}',
+  'sat.dl.create.spent':
+    'El tope de por vida de este periodo está agotado: una corrida real se niega antes de llamar al SAT.',
+  'sat.dl.create.dry_note':
+    '(simulacro: no se escribió nada y no se llamó al SAT)',
+  'sat.dl.create.live_note':
+    'Pedir al SAT usa la e.firma y es opt-in: vuelve a correr con --live.',
+  'sat.dl.create.confirm':
+    'Esto gasta una de las {limit} solicitudes XML de por vida del periodo ({plan}). Escribe "yes": ',
+  'sat.dl.create.cancelled':
+    'Cancelado. No se pidió nada.',
+  'sat.dl.create.done':
+    '{repeat}{mark} solicitud {id} · {status}{error}',
+  'sat.dl.create.repeat':
+    'Ya se pidió con esta llave: ',
+  'sat.dl.create.follow':
+    'Síguela con: mnemosine sat download check {id} --live',
+  'sat.dl.check.would':
+    'Se preguntaría al SAT por {request}',
+  'sat.dl.check.not_asked':
+    'No se preguntó al SAT por {request}',
+  'sat.dl.check.dry_note':
+    '(simulacro: no se llamó al SAT)',
+  'sat.dl.check.live_note':
+    'Preguntar al SAT usa la e.firma: vuelve a correr con --live.',
+  'sat.dl.check.rate_limit':
+    'Se detuvo tras {polls} consulta(s): se alcanzó el tope diario de accesos a la e.firma (quedan 0 en esta ventana de 24 h). Cada consulta usa uno y bajar los paquetes también necesita: espera a que se libere la ventana y corre check --live otra vez (los paquetes caducan 72 h después de estar listos).',
+  'sat.dl.check.budget':
+    'Se detuvo tras {polls} consulta(s) para reservar accesos de la e.firma para bajar los paquetes. Vuelve a correr check --live más tarde.',
+  'sat.dl.check.timeout':
+    'Se dejó de esperar tras {polls} consulta(s); la solicitud sigue abierta. Vuelve a correr check --live más tarde.',
+  'sat.dl.list.empty':
+    'No hay solicitudes de descarga.',
+  'sat.dl.quota.empty':
+    'No hay solicitudes XML contadas. Las de metadata no tienen tope.',
+  'sat.dl.quota.spent':
+    '✘ agotado (irrecuperable)',
+  'sat.dl.quota.left':
+    '· quedan {n}',
+  'sat.dl.quota.line':
+    '{state} · {direction} {from}..{to} · {made}/{limit} usadas',
+  'sat.dl.package.no_data':
+    'El SAT respondió que esta solicitud no tiene datos: no hay nada que bajar.',
+  'sat.dl.package.rejected':
+    'El SAT rechazó esta solicitud: no hay paquetes. Corrige los parámetros y pide de nuevo.',
+  'sat.dl.package.expired':
+    'Esta solicitud caducó en el SAT (los paquetes duran 72 h): pídela de nuevo.',
+  'sat.dl.package.open':
+    'La solicitud {id} está {status}: aún no tiene paquetes. Corre: mnemosine sat download check {id} --live',
+  'sat.dl.package.failed':
+    'La solicitud {id} está {status}: no tiene paquetes; revisa su estado con `sat download status`.',
+  'sat.dl.package.no_such':
+    'La solicitud {id} no tiene el paquete {package}',
+  'sat.dl.package.would':
+    '{lead} {missing} de {total} paquete(s); {kept} ya archivado(s){import}.',
+  'sat.dl.package.would_lead':
+    'Se bajarían',
+  'sat.dl.package.not_lead':
+    'No se bajaron:',
+  'sat.dl.package.then_import':
+    '; luego se cargarían con la ingesta',
+  'sat.dl.package.dry_note':
+    '(simulacro: no se llamó al SAT y no se escribió nada)',
+  'sat.dl.package.live_note':
+    'Bajar usa la e.firma y es opt-in: vuelve a correr con --live. Los paquetes caducan en el SAT 72 h después de estar listos.',
+  'sat.dl.package.archived':
+    '✔ {id} · {bytes} bytes · huella sha256 {sha} · {where}',
+  'sat.dl.package.where_archive':
+    'ya estaba archivado',
+  'sat.dl.package.where_new':
+    'archivado',
+  'sat.dl.package.output_written':
+    '  se escribió {file}',
+  'sat.dl.package.output_same':
+    '  {file} ya tiene estos bytes',
+  'sat.dl.package.output_differs':
+    '{file} ya existe con otros bytes: no se sobrescribió',
+  'sat.dl.ingest.line':
+    '  ingesta: {counts}',
+  'sat.dl.ingest.nothing':
+    'nada',
+  'sat.dl.ingest.to_code':
+    '{n} quedaron en la bandeja para codificar (sin proveedor de modelo, o requieren una decisión)',
   // MNE-001-096 (#312): `src/cli/ingest-census.ts`, el censo del SAT que carga `ingest --kind zip|metadata`.
   'ingest.census.bad_kind': 'se esperaba uno de {valid}',
   'ingest.census.flag_not_for_metadata':

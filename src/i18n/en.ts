@@ -1958,6 +1958,153 @@ export const EN = {
   'help.ingest.option.kind':
     'What the files are: xml (CFDI one by one), zip (a SAT package of CFDI XML: loads the census and ingests ' +
     'each XML) or metadata (the SAT `~` metadata file, bare or zipped: loads the census only)',
+  // MNE-001-143 (#440): `src/cli/sat-download-commands.ts`, the bulk download of CFDI from the SAT.
+  'help.sat.download.option.entity': 'Legal entity',
+  'help.sat.download.option.user': 'Who acts (default: the sole active user)',
+  'help.sat.download.option.json': 'Machine-readable output',
+  'help.sat.download.option.format': 'Output format: table or json',
+  'help.sat.download.argument.id': 'Download request: its local id or the id the SAT gave it',
+  'help.sat.download.create.description':
+    "Asks the SAT for a period's CFDI (refuses before calling when the lifetime XML limit is spent)",
+  'help.sat.download.create.option.since': 'First day, YYYY-MM-DD',
+  'help.sat.download.create.option.until': 'Last day, YYYY-MM-DD',
+  'help.sat.download.create.option.direction': 'issued or received',
+  'help.sat.download.create.option.kind':
+    'metadata or xml (xml spends one of the 2 lifetime requests of the period)',
+  'help.sat.download.check.description':
+    'Asks the SAT for the state of a request and records it and its package ids (5004 is success with zero rows)',
+  'help.sat.download.check.option.wait': 'Keep asking until the request is no longer open',
+  'help.sat.download.check.option.timeout': 'Give up waiting after this many seconds',
+  'help.sat.download.check.option.strict': 'Exit non-zero unless the request finished with packages',
+  'help.sat.download.status.description':
+    'Last known state of a request, read from the local mirror (does not call the SAT)',
+  'help.sat.download.list.description': "The entity's download requests with their state, CFDI count and packages",
+  'help.sat.download.list.option.status': 'Only this state',
+  'help.sat.download.list.option.since': 'Only requests whose period ends on or after this day, YYYY-MM-DD',
+  'help.sat.download.list.option.limit': 'How many to show',
+  'help.sat.package.description': 'Packages of a finished download request',
+  'help.sat.package.download.description':
+    'Downloads the packages of a finished request, archives each ZIP by bytes, and with --import loads them',
+  'help.sat.package.download.option.output': 'Also write each ZIP into this directory',
+  'help.sat.package.download.option.package': 'Only this package of the request',
+  'help.sat.package.download.option.import':
+    'Load the census and run the XML through the regular ingestion (import_source sat_download)',
+  'help.sat.quota.description': "The SAT's lifetime limit on identical XML requests",
+  'help.sat.quota.show.description':
+    'Which periods have their 2 lifetime XML requests spent and which have some left (reads the local counter)',
+  'help.sat.quota.show.option.since': 'Periods ending on or after this day, YYYY-MM-DD',
+  'help.sat.quota.show.option.until': 'Periods starting on or before this day, YYYY-MM-DD',
+  // MNE-001-143 (#440): the runtime messages of `src/cli/sat-download-commands.ts`, by key.
+  'sat.dl.bad_day':
+    '{flag} must be a day, YYYY-MM-DD (got "{value}")',
+  'sat.dl.bad_format':
+    '--format must be table or json (got "{value}")',
+  'sat.dl.bad_positive':
+    '{flag} must be a whole number greater than 0 (got "{value}")',
+  'sat.dl.bad_direction':
+    '--direction must be issued or received (got "{value}")',
+  'sat.dl.bad_kind':
+    '--kind must be metadata or xml (got "{value}")',
+  'sat.dl.since_after_until':
+    '--since must be before --until',
+  'sat.dl.request_not_found':
+    'Download request {id} not found for this entity',
+  'sat.dl.describe':
+    '{id} · {direction} {kind} {from}..{to} · {status}{count}{packages}{error}',
+  'sat.dl.describe.count':
+    ' · {n} CFDI',
+  'sat.dl.describe.packages':
+    ' · {archived}/{total} package(s) archived',
+  'sat.dl.create.plan':
+    '{direction} {kind} {start}..{end} for {entity} ({rfc})',
+  'sat.dl.create.plan_left':
+    ' · lifetime XML requests left for this period by this entity\'s own counter: {n} (the SAT counts per RFC and parameters: another entity or firm may already have spent it)',
+  'sat.dl.create.would':
+    'Would ask the SAT for {plan}',
+  'sat.dl.create.not_sent':
+    'Not sent: {plan}',
+  'sat.dl.create.spent':
+    'The lifetime limit of this period is spent: a real run refuses before calling the SAT.',
+  'sat.dl.create.dry_note':
+    '(dry-run: nothing was written and the SAT was not called)',
+  'sat.dl.create.live_note':
+    'Asking the SAT uses the e.firma and is opt-in: re-run with --live.',
+  'sat.dl.create.confirm':
+    'This spends one of the {limit} lifetime XML requests of the period ({plan}). Type "yes": ',
+  'sat.dl.create.cancelled':
+    'Cancelled. Nothing was requested.',
+  'sat.dl.create.done':
+    '{repeat}{mark} request {id} · {status}{error}',
+  'sat.dl.create.repeat':
+    'Already requested with this key: ',
+  'sat.dl.create.follow':
+    'Follow it with: mnemosine sat download check {id} --live',
+  'sat.dl.check.would':
+    'Would ask the SAT about {request}',
+  'sat.dl.check.not_asked':
+    'Not asked: the SAT about {request}',
+  'sat.dl.check.dry_note':
+    '(dry-run: the SAT was not called)',
+  'sat.dl.check.live_note':
+    'Asking the SAT uses the e.firma: re-run with --live.',
+  'sat.dl.check.rate_limit':
+    'Stopped after {polls} ask(s): the daily limit of e.firma accesses is reached (0 left in this 24 h window). Every ask uses one, and downloading the packages needs some too: wait for the window to free up and run check --live again (packages expire 72 h after they are ready).',
+  'sat.dl.check.budget':
+    'Stopped after {polls} ask(s) to keep e.firma accesses for the package download. Run check --live again later.',
+  'sat.dl.check.timeout':
+    'Gave up waiting after {polls} ask(s); the request is still open. Run check --live again later.',
+  'sat.dl.list.empty':
+    'No download requests.',
+  'sat.dl.quota.empty':
+    'No XML requests counted. Metadata requests are not limited.',
+  'sat.dl.quota.spent':
+    '✘ spent (unrecoverable)',
+  'sat.dl.quota.left':
+    '· {n} left',
+  'sat.dl.quota.line':
+    '{state} · {direction} {from}..{to} · {made}/{limit} used',
+  'sat.dl.package.no_data':
+    'The SAT answered that this request has no data: there is nothing to download.',
+  'sat.dl.package.rejected':
+    'The SAT rejected this request: there are no packages. Fix the parameters and request again.',
+  'sat.dl.package.expired':
+    'This request expired at the SAT (packages last 72 h): request it again.',
+  'sat.dl.package.open':
+    'Request {id} is {status}: it has no packages yet. Run: mnemosine sat download check {id} --live',
+  'sat.dl.package.failed':
+    'Request {id} is {status}: it has no packages; see its state with `sat download status`.',
+  'sat.dl.package.no_such':
+    'Request {id} has no package {package}',
+  'sat.dl.package.would':
+    '{lead} {missing} of {total} package(s); {kept} already archived{import}.',
+  'sat.dl.package.would_lead':
+    'Would download',
+  'sat.dl.package.not_lead':
+    'Not downloaded:',
+  'sat.dl.package.then_import':
+    '; then load them with the ingestion',
+  'sat.dl.package.dry_note':
+    '(dry-run: the SAT was not called and nothing was written)',
+  'sat.dl.package.live_note':
+    'Downloading uses the e.firma and is opt-in: re-run with --live. Packages expire at the SAT 72 h after they are ready.',
+  'sat.dl.package.archived':
+    '✔ {id} · {bytes} bytes · sha256 {sha} · {where}',
+  'sat.dl.package.where_archive':
+    'already archived',
+  'sat.dl.package.where_new':
+    'archived',
+  'sat.dl.package.output_written':
+    '  wrote {file}',
+  'sat.dl.package.output_same':
+    '  {file} already holds these bytes',
+  'sat.dl.package.output_differs':
+    '{file} already exists with other bytes: it was not overwritten',
+  'sat.dl.ingest.line':
+    '  ingest: {counts}',
+  'sat.dl.ingest.nothing':
+    'nothing',
+  'sat.dl.ingest.to_code':
+    '{n} left in the inbox to code (no model provider, or it needs a decision)',
   // MNE-001-096 (#312): `src/cli/ingest-census.ts`, the SAT census loaded by `ingest --kind zip|metadata`.
   'ingest.census.bad_kind': 'expected one of {valid}',
   'ingest.census.flag_not_for_metadata':
