@@ -139,7 +139,7 @@ guía NO obligatoria y solo se listan aquí.
 | SIC 32 / SIC-32 | Activos intangibles — costos de sitios web | vigente | Periodos anuales iniciados a partir del 25 de marzo de 2002; vigente a agosto 2026 |
 | AD: Criptoactivos (Holdings of Cryptocurrencies — IAS 2 / IAS 38) | Decisión de agenda: tenencias de criptomonedas | vigente | Publicada en junio de 2019 (las decisiones de agenda no tienen fecha de vigencia formal: explican requerimi… |
 | AD: SaaS y costos de configuración en la nube (IAS 38) | Decisión de agenda: costos de configuración o personalización en un acuerdo de cómputo en la nube | vigente | Finalizada en marzo de 2021 (el IASB no objetó en abril de 2021); complementa la decisión de 2019 que concl… |
-| AD: Depósitos a la vista con restricciones de uso (IAS 7) | Decisión de agenda: depósitos a la vista con restricciones de uso pactadas con un tercero | vigente | Finalizada en marzo de 2022 (el IASB no objetó en abril de 2022) |
+| AD: Depósitos a la vista con restricciones de uso (IAS 7) | Decisión de agenda: depósitos a la vista con restricciones de uso pactadas con un tercero | vigente | Finalizada en marzo de 2022 (el IASB no objetó en abril de 2022); actualizada para NIIF 18 en la Compilació… |
 
 ### PyMEs y convergencia NIF → doc `niif-pymes-convergencia`
 

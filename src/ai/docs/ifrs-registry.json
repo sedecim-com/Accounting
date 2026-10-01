@@ -60,11 +60,21 @@
         "https://viewpoint.pwc.com/gx/en/IFRS_18_Presentation.html",
         "https://assets.kpmg.com/content/dam/kpmgsites/xx/pdf/ifrg/2024/isg-first-impressions-presentation-and-disclosure-ifrs-18.pdf",
         "https://www.ey.com/en_gl/technical/ifrs-technical-resources/applying-ifrs-a-closer-look-at-ifrs-18-updated-april-2026",
-        "https://kpmg.com/us/en/articles/2026/ifrs-18-changes-statement-cash-flows.html"
+        "https://kpmg.com/us/en/articles/2026/ifrs-18-changes-statement-cash-flows.html",
+        "https://www.ifrs.org/news-and-events/news/2026/06/iasb-issues-amendments-clarifying-fair-value-option-ias-28/",
+        "https://www.ifrs.org/projects/work-plan/presentation-taxes-other-changes-not-income-taxes-scope-ias-12-ifrs-18/",
+        "https://www.ifrs.org/news-and-events/news/2026/05/compilation-of-agenda-decisions-volume-14-published/",
+        "https://www.ifrs.org/projects/work-plan/updates-to-committees-agenda-decisions-for-ifrs-18/",
+        "https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-june-2026/",
+        "https://www.ifrs.org/projects/completed-projects/2025/climate-related-risks-in-the-financial-statements/"
       ],
       "replaces": "NIC 1 / IAS 1",
       "amendments": [
-        "Emisión original: 9-abr-2024, vigente 1-ene-2027 (sin diferimientos a agosto 2026; reguladores como ESMA ya emitieron expectativas de implementación 2026)."
+        "Emisión original: 9-abr-2024, vigente 1-ene-2027 (sin diferimientos a agosto 2026; reguladores como ESMA ya emitieron expectativas de implementación 2026).",
+        "Enmienda a la opción de valor razonable de inversiones en asociadas y negocios conjuntos (NIC 28, emitida 26-jun-2026): se alinea la referencia al párrafo 49(a) de NIIF 18; vigente al aplicar NIIF 18 (1-ene-2027), retrospectiva y anticipable junto con NIIF 18.",
+        "Proyecto de alcance estrecho NIIF 18 / NIC 12 'Presentation of Taxes or Other Charges that Are Not Tax Expense': un cargo que sustituye directamente al impuesto a la utilidad se clasificaría en la categoría de impuestos. Exposure Draft esperado en T4-2026; en junio-2026 cinco miembros del IASB anunciaron voto en contra y se buscan alternativas, por lo que no es requisito vigente ni asegurado.",
+        "Decisiones de agenda del Comité de Interpretaciones sobre NIIF 18: cuatro nuevas en la Compilación Vol. 14 (abr-2026: actividad principal especificada en estados separados de la controladora, diferencia cambiaria de una partida monetaria intragrupo, derivado que gestiona exposición cambiaria, alcance de la revelación de gastos por naturaleza), seis decisiones antiguas actualizadas para NIIF 18 y siete decisiones tentativas en el IFRIC Update de jun-2026 (no definitivas).",
+        "Ejemplos ilustrativos 'Disclosures about Uncertainties in the Financial Statements' (nov-2025): acompañan a NIIF 7, NIIF 18, NIC 1, NIC 8, NIC 36 y NIC 37; no cambian requisitos."
       ]
     },
     {
@@ -89,19 +99,24 @@
       "title_es": "Estado de Flujos de Efectivo",
       "title_en": "Statement of Cash Flows",
       "status": "vigente",
-      "effective": "Vigente desde el 1-ene-1994 (revisión 1992); enmiendas recientes en vigor: financiamiento de proveedores desde 1-ene-2024 y Mejoras Anuales Vol. 11 desde 1-ene-2026; enmiendas consecuenciales de NIIF 18 pendientes para 1-ene-2027.",
+      "effective": "Vigente desde el 1-ene-1994 (revisión 1992); enmiendas recientes en vigor: financiamiento de proveedores desde 1-ene-2024 y Mejoras Anuales Vol. 11 desde 1-ene-2026; enmiendas consecuenciales de NIIF 18 pendientes para 1-ene-2027. La decisión de agenda de factoraje inverso (dic-2020) fue retirada el 21-jul-2026 por el IASB, al quedar absorbida por las enmiendas de 2023; las decisiones de agenda de NIC 7 (depósitos a la vista restringidos, abr-2022; pasivos de financiamiento, sep-2019) se actualizaron para NIIF 18 en la Compilación Vol. 14 (abr-2026).",
       "topic": "niif-marco-presentacion",
       "confidence": "high",
       "sources": [
         "https://www.ifrs.org/news-and-events/news/2023/05/iasb-increases-transparency-of-companies-supplier-finance/",
         "https://www.ifrs.org/news-and-events/news/2024/07/iasb-issues-annual-improvements-ifrs-accounting-standards/",
         "https://kpmg.com/us/en/articles/2026/ifrs-18-changes-statement-cash-flows.html",
-        "https://www.ifrs.org/issued-standards/list-of-standards/ias-7-statement-of-cash-flows/"
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-7-statement-of-cash-flows/",
+        "https://www.ifrs.org/news-and-events/news/2026/05/compilation-of-agenda-decisions-volume-14-published/",
+        "https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-july-2026/",
+        "https://www.ifrs.org/projects/work-plan/updates-to-committees-agenda-decisions-for-ifrs-18/"
       ],
       "amendments": [
         "Acuerdos de Financiamiento de Proveedores (enmiendas a NIC 7 y NIIF 7, emitidas mayo 2023) — vigentes desde el 1-ene-2024.",
         "Mejoras Anuales a las NIIF Volumen 11 (julio 2024): sustituye en el párrafo 37 el término 'método de costo' por 'al costo' — vigente desde el 1-ene-2026.",
-        "Enmiendas consecuenciales de NIIF 18 (abril 2024): punto de partida único del método indirecto (utilidad de operación) y eliminación de opciones de clasificación de intereses y dividendos — vigentes el 1-ene-2027."
+        "Enmiendas consecuenciales de NIIF 18 (abril 2024): punto de partida único del método indirecto (utilidad de operación) y eliminación de opciones de clasificación de intereses y dividendos — vigentes el 1-ene-2027.",
+        "Retiro (21-jul-2026) de la decisión de agenda 'Supply Chain Financing Arrangements—Reverse Factoring' (dic-2020), absorbida por las enmiendas de 2023 a NIC 7 y NIIF 7; el tratamiento vigente es el de esas enmiendas.",
+        "Compilación de decisiones de agenda Vol. 14 (publicada may-2026): actualiza para NIIF 18 las decisiones de NIC 7 sobre depósitos a la vista con restricciones de uso (abr-2022) y pasivos que surgen de actividades de financiamiento (sep-2019)."
       ]
     },
     {
@@ -406,14 +421,18 @@
         "https://www.ifrs.org/projects/completed-projects/2024/ai-lessee-derecognition-of-lease-liabilities/",
         "https://viewpoint.pwc.com/dt/gx/en/iasb-amendments/amd/iasb-amendments/effective-01-jan-2026/amendments-to-ifrs-9.html",
         "https://www.ey.com/en_gl/technical/ifrs-technical-resources/amendments-to-classification-and-measurement-of-financial-instruments",
-        "https://www.bdo.global/en-gb/news/ifrs-news/iasb-issues-contracts-referencing-nature-dependent-electricity-amendments-to-ifrs-9-and-ifrs-7"
+        "https://www.bdo.global/en-gb/news/ifrs-news/iasb-issues-contracts-referencing-nature-dependent-electricity-amendments-to-ifrs-9-and-ifrs-7",
+        "https://www.ifrs.org/news-and-events/news/2026/05/compilation-of-agenda-decisions-volume-14-published/",
+        "https://www.ifrs.org/projects/work-plan/post-implementation-review-of-ifrs-9-hedge-accounting/"
       ],
       "replaces": "NIC 39 / IAS 39 Instrumentos Financieros: Reconocimiento y Medición (permanece solo la opción de aplicar sus requisitos de macrocobertura de valor razonable de tasa de interés)",
       "amendments": [
         "Enmiendas a la Clasificación y Medición de Instrumentos Financieros (IFRS 9 e IFRS 7, emitidas el 30 de mayo de 2024): baja de pasivos liquidados por sistemas electrónicos de pago (fecha de liquidación + opción de baja anticipada), clarificación de SPPI para características contingentes incluidas las ligadas a ESG, activos sin recurso e instrumentos ligados contractualmente, y nuevas revelaciones; vigentes para periodos anuales iniciados el 1 de enero de 2026, con adopción anticipada permitida (separable la parte de clasificación de activos).",
         "Mejoras Anuales a las Normas NIIF — Volumen 11 (emitidas el 18 de julio de 2024): en IFRS 9, aclaración de la baja de pasivos por arrendamiento del arrendatario (remisión al párrafo 3.3.3, ganancia o pérdida a resultados) y ajuste de la redacción sobre 'precio de transacción' para alinear con NIIF 15; vigentes el 1 de enero de 2026.",
         "Contratos que Referencian Electricidad Dependiente de la Naturaleza (IFRS 9 e IFRS 7, emitidas el 18 de diciembre de 2024): ajuste de la excepción de 'uso propio' y habilitación de estos PPAs como instrumentos/partidas en coberturas de flujo de efectivo; vigentes el 1 de enero de 2026, con adopción anticipada permitida.",
-        "Enmiendas consecuenciales por IFRS 18, vigentes el 1 de enero de 2027 (referencias de presentación; sin cambio en reconocimiento y medición)."
+        "Enmiendas consecuenciales por IFRS 18, vigentes el 1 de enero de 2027 (referencias de presentación; sin cambio en reconocimiento y medición).",
+        "Decisiones de agenda de ene-2026 (Compilación Vol. 14): 'Determining and Accounting for Transaction Costs' y 'Embedded Prepayment Option'; además se actualizó para NIIF 18 la de liquidación física de contratos (mar-2019).",
+        "Revisión post-implementación de la contabilidad de coberturas: la solicitud de información aún no se había publicado al 6-sep-2026 (se espera en la segunda mitad de 2026); sin cambio de requisitos."
       ]
     },
     {
@@ -563,13 +582,18 @@
         "https://www.ifrs.org/news-and-events/news/2023/04/iasb-confirms-temporary-relief-from-deferred-tax-accounting-following-oecd-pillar-two-tax-reform/",
         "https://viewpoint.pwc.com/dt/gx/en/pwc/in_depths/in_depths_INT/in_depths_INT/global-implementation-of-pillar-two-impact-on-deferred-taxes-and-financial-statement-disclosures.html",
         "https://www.ey.com/en_gl/technical/ifrs-technical-resources/amendments-to-ias-12-international-tax-reform-pillar-two-model-rules",
-        "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html"
+        "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+        "https://www.ifrs.org/projects/work-plan/presentation-taxes-other-changes-not-income-taxes-scope-ias-12-ifrs-18/",
+        "https://www.ifrs.org/projects/work-plan/updates-to-committees-agenda-decisions-for-ifrs-18/",
+        "https://www.ifrs.org/news-and-events/updates/ifric/2026/ifric-update-march-2026/"
       ],
       "amendments": [
         "Mayo 2021 — 'Deferred Tax related to Assets and Liabilities arising from a Single Transaction': restringe la excepción por reconocimiento inicial; vigente desde el 1 de enero de 2023.",
         "Mayo 2023 — 'International Tax Reform—Pillar Two Model Rules': excepción temporal obligatoria al reconocimiento de diferidos por impuestos GloBE, vigente de inmediato; revelaciones para ejercicios iniciados el 1-ene-2023; sin fecha de expiración fijada por el IASB a agosto 2026.",
         "Abril 2024 — IFRS 18: enmiendas consecuenciales de presentación a IAS 12 (y a CINIIF 23), vigentes desde el 1 de enero de 2027.",
-        "Sin otras enmiendas emitidas 2024-2028 ni proyecto activo de reemplazo a agosto 2026."
+        "Sin otras enmiendas emitidas 2024-2028 ni proyecto de reemplazo a agosto 2026.",
+        "Proyecto de alcance estrecho NIIF 18 / NIC 12 'Presentation of Taxes or Other Charges that Are Not Tax Expense': un cargo sustituto directo del impuesto a la utilidad se clasificaría en la categoría de impuestos. Exposure Draft esperado en T4-2026 (cinco miembros del IASB anunciaron voto en contra en junio); aún no es requisito.",
+        "Decisiones de agenda finalizadas en mar-2026 dentro del proyecto de actualización por NIIF 18, pendientes de ratificación del IASB: pagos de impuestos distintos al impuesto a la utilidad (NIC 1 / NIC 12) y 'tonnage taxes' (NIC 12)."
       ]
     },
     {
@@ -1120,12 +1144,13 @@
       "title_es": "Decisión de agenda: depósitos a la vista con restricciones de uso pactadas con un tercero",
       "title_en": "Agenda Decision: Demand Deposits with Restrictions on Use arising from a Contract with a Third Party (March/April 2022)",
       "status": "vigente",
-      "effective": "Finalizada en marzo de 2022 (el IASB no objetó en abril de 2022)",
+      "effective": "Finalizada en marzo de 2022 (el IASB no objetó en abril de 2022); actualizada para NIIF 18 en la Compilación de decisiones de agenda Vol. 14 (abr-2026)",
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
         "https://www.ifrs.org/projects/completed-projects/2022/demand-deposits-with-restrictions-on-use-ias-7/",
-        "https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2022/demand-deposits-with-restrictions-on-use-arising-from-a-contract-with-a-third-party-apr-2022.pdf"
+        "https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2022/demand-deposits-with-restrictions-on-use-arising-from-a-contract-with-a-third-party-apr-2022.pdf",
+        "https://www.ifrs.org/news-and-events/news/2026/05/compilation-of-agenda-decisions-volume-14-published/"
       ]
     },
     {
@@ -1199,11 +1224,14 @@
       "title_es": "Activos Regulatorios y Pasivos Regulatorios",
       "title_en": "Regulatory Assets and Regulatory Liabilities",
       "status": "futura",
-      "effective": "Emitida por el IASB el 27 de mayo de 2026; obligatoria para periodos anuales que inicien el 1 de enero de 2029, con adopción anticipada permitida. Sustituirá a la NIIF 14 desde su vigencia.",
+      "effective": "Emitida por el IASB el 27 de mayo de 2026; obligatoria para periodos anuales que inicien el 1 de enero de 2029, con adopción anticipada permitida. Sustituirá a la NIIF 14 desde su vigencia. Complementa a la NIIF 15 (texto oficial). No tiene página en la lista de normas emitidas de ifrs.org: las fuentes son la noticia de emisión, la página del proyecto concluido y los materiales de apoyo.",
       "topic": "niif-moneda-seguros-adopcion",
-      "confidence": "medium",
+      "confidence": "high",
       "sources": [
-        "https://www.ifrs.org/news-and-events/news/2026/05/"
+        "https://www.ifrs.org/news-and-events/news/2026/05/iasb-issues-ifrs-20/",
+        "https://www.ifrs.org/projects/completed-projects/2026/rate-regulated-activities/",
+        "https://www.ifrs.org/supporting-implementation/supporting-materials-by-ifrs-standards/ifrs-20/",
+        "https://www.ifrs.org/content/dam/ifrs/project/rate-regulated-activities/standard/iasb-ifrs20-projectsummary.pdf"
       ],
       "replaces": "NIIF 14 / IFRS 14"
     },
