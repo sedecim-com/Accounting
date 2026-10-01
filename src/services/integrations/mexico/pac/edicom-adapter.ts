@@ -22,6 +22,9 @@ export class EdicomAdapter implements IPacAdapter {
   readonly datasheet: PacDatasheet = {
     provider: 'Edicom',
     satAuthorization: { number: null, verified: false },
+    // NOT a verified flow: docs/pac-proveedores.md rates EDICOM low confidence (no public
+    // spec). `true` is the vault rule (section 1) that any integration must meet, not a
+    // finding about EDICOM. Owner point 5 of MNE-001-309: revisit when a spec is obtained.
     // language-allow: field name fixed by the backlog acceptance (MNE-001-309)
     timbradoPresellado: true,
     sandbox: { url: null },

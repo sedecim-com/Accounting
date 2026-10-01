@@ -23,6 +23,8 @@ export class SWSapienAdapter implements IPacAdapter {
   readonly datasheet: PacDatasheet = {
     provider: 'SW Sapien',
     satAuthorization: { number: null, verified: false },
+    // Evidence: docs/pac-proveedores.md section 1 and the SW sapien entry (pre-sealed XML
+    // endpoint). Declared, not verified against a live sandbox.
     // language-allow: field name fixed by the backlog acceptance (MNE-001-309)
     timbradoPresellado: true,
     sandbox: { url: 'https://services.test.sw.com.mx' },

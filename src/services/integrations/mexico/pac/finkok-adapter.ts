@@ -23,6 +23,8 @@ export class FinkokAdapter implements IPacAdapter {
   readonly datasheet: PacDatasheet = {
     provider: 'Finkok',
     satAuthorization: { number: null, verified: false },
+    // Evidence: docs/pac-proveedores.md section 1 (vault rule) and the Finkok entry; the
+    // pre-sealed method is the one to call. Declared, not verified against a live sandbox.
     // language-allow: field name fixed by the backlog acceptance (MNE-001-309)
     timbradoPresellado: true,
     sandbox: { url: 'https://demo-facturacion.finkok.com' },

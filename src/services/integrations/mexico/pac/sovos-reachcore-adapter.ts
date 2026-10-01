@@ -120,6 +120,8 @@ export class SovosReachcoreAdapter implements IPacAdapter {
   readonly datasheet: PacDatasheet = {
     provider: 'Sovos Reachcore',
     satAuthorization: { number: '55267', verified: false },
+    // Evidence: docs/pac-proveedores.md section 1 and the Sovos entry (pre-sealed stamping
+    // method; SAT authorization number from the same doc). Declared, not verified live.
     // language-allow: field name fixed by the backlog acceptance (MNE-001-309)
     timbradoPresellado: true,
     sandbox: { url: 'https://oat.reachcore.com' },
