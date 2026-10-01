@@ -1,6 +1,6 @@
-import { writeFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
+import { t } from '../i18n/index.js';
 import {
   generateFilingWorkpaper,
   type FilingForm,
@@ -10,6 +10,7 @@ import type { Palette } from './palette.js';
 import {
   ExitCode,
   declareRisk,
+  emit,
   describeCommand,
   optionByKey,
   exitCodeFor,
@@ -58,12 +59,15 @@ interface Opts {
   priorProvisional?: string;
 }
 
+/** Entries a table cell lists before it says how many more there are. */
+const ENTRIES_IN_A_CELL = 8;
+
 const PERIOD = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 /** `--period YYYY-MM`: the filing is monthly, so no other shape is accepted. */
 export function parsePeriod(expr: string | undefined): { year: number; month: number } {
   const m = PERIOD.exec((expr ?? '').trim());
-  if (!m) throw usageError(`--period "${expr ?? ''}" is not a month: use YYYY-MM (for example 2026-05).`);
+  if (!m) throw usageError({ key: 'filing.workpaper.period_invalid', params: { value: expr ?? '' } });
   return { year: Number(m[1]), month: Number(m[2]) };
 }
 
@@ -72,35 +76,40 @@ export function parseForms(expr: string | undefined): FilingForm[] {
   const v = (expr ?? 'all').trim().toLowerCase();
   if (v === 'all') return ['iva', 'isr'];
   if (v === 'iva' || v === 'isr') return [v];
-  throw usageError(`--form "${expr ?? ''}" is not known: use iva, isr or all.`);
+  throw usageError({ key: 'filing.workpaper.form_invalid', params: { value: expr ?? '' } });
 }
 
-/** One row per line: both columns, and the pólizas it rests on by number. */
-export function workpaperRows(wp: FilingWorkpaper): Row[] {
+/** Entry numbers of a cell, capped in the TABLE only: `--json` keeps every entry. */
+function entriesCell(numbers: string[], cap: number | undefined): string {
+  if (cap === undefined || numbers.length <= cap) return numbers.join(' ');
+  return `${numbers.slice(0, cap).join(' ')} ${t('filing.workpaper.more_entries', { count: numbers.length - cap })}`;
+}
+
+/**
+ * One row per line: both columns, and the pólizas it rests on by number. The
+ * `line` column is `<form>.<key>` and is unique across forms, so `--quiet`
+ * prints an id that names one line (a bare key repeats across the two forms).
+ */
+export function workpaperRows(wp: FilingWorkpaper, cap?: number): Row[] {
   return wp.sections.flatMap((s) => [
     ...s.lines.map((l) => ({
-      form: s.form,
-      line: l.key,
+      line: `${s.form}.${l.key}`,
       cents: l.cents,
       whole: l.whole,
-      source: l.source.kind === 'accounts' ? l.source.accounts.join('+') : l.source.kind,
-      entries: l.source.entries.map((e) => e.entryNumber).join(' '),
+      source:
+        l.source.kind === 'accounts' ? l.source.accounts.join('+')
+        : l.source.kind === 'documents' ? `documents(${l.source.accounts.join('+')})`
+        : l.source.ref ? `${l.source.kind}:${l.source.ref}` : l.source.kind,
+      entries: entriesCell(l.source.entries.map((e) => e.entryNumber), cap),
     })),
     ...(s.resultCents === null
-      ? [{ form: s.form, line: 'BLOCKED', cents: '', whole: '', source: s.blockedBy.join(' '), entries: '' }]
-      : [{ form: s.form, line: 'result', cents: s.resultCents, whole: s.resultWhole ?? '', source: 'derived', entries: '' }]),
+      ? [{ line: `${s.form}.blocked`, cents: '', whole: '', source: s.blockedBy.join(' '), entries: '' }]
+      : [{ line: `${s.form}.result`, cents: s.resultCents, whole: s.resultWhole ?? '', source: 'derived', entries: '' }]),
   ]);
 }
 
-const EXAMPLES = `
-Examples:
-  # The month's IVA and ISR with their two columns and the entries behind each line.
-  mnemosine filing workpaper generate --period 2026-05
-  # Only the IVA, the whole paper (with the entries) as JSON to a file.
-  mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json
-  # The ISR with the PTU paid in the year and the provisional payments already made.
-  mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
-`;
+/** The usage text: the intro and the examples, keyed, resolved when the help is shown. */
+const helpFooter = (): string => `\n${t('help.filing.workpaper.generate.footer')}\n`;
 
 export function registerFilingWorkpaperCommand(program: Command, deps: FilingWorkpaperDeps): void {
   const family =
@@ -121,10 +130,7 @@ export function registerFilingWorkpaperCommand(program: Command, deps: FilingWor
   optionByKey(generate, '--ptu-paid <amount>', 'help.filing.workpaper.generate.option.ptu_paid');
   optionByKey(generate, '--prior-provisional <amount>', 'help.filing.workpaper.generate.option.prior_provisional');
   declareRisk(generate, { risk: 'lectura', agent: true });
-  generate.addHelpText(
-    'after',
-    '\nThis computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.\n' + EXAMPLES
-  );
+  generate.addHelpText('after', helpFooter);
   generate.action(async (opts: Opts) => {
     try {
       const { year, month } = parsePeriod(opts.period);
@@ -136,18 +142,17 @@ export function registerFilingWorkpaperCommand(program: Command, deps: FilingWor
         ptuPaidInYear: opts.ptuPaid, priorProvisionalPayments: opts.priorProvisional,
       });
       if (opts.json || opts.format === 'json') {
-        const text = JSON.stringify(wp, null, 2) + '\n';
-        if (opts.output) writeFileSync(opts.output, text);
-        else process.stdout.write(text);
+        emit(JSON.stringify(wp, null, 2) + '\n', opts);
       } else {
-        render(workpaperRows(wp), { ...opts, idField: 'line' });
+        const tableCell = (opts.format ?? 'table') === 'table' && !opts.quiet;
+        render(workpaperRows(wp, tableCell ? ENTRIES_IN_A_CELL : undefined), { ...opts, idField: 'line' });
       }
       for (const s of wp.sections) {
         for (const h of s.findings) {
-          process.stderr.write(`${h.severidad === 'bloqueante' ? deps.palette.red('BLOCKS') : 'warning'} [${s.form}] ${h.codigo}: ${h.mensaje}\n`);
+          process.stderr.write(`${h.severidad === 'bloqueante' ? deps.palette.red(t('filing.workpaper.label_blocks')) : t('filing.workpaper.label_warning')} [${s.form}] ${h.codigo}: ${h.mensaje}\n`);
         }
       }
-      process.stderr.write(deps.palette.dim('This paper is not a filing: nothing was sent to the SAT.\n'));
+      process.stderr.write(deps.palette.dim(`${t('filing.workpaper.not_a_filing')}\n`));
       await deps.shutdown(wp.sections.some((s) => s.blockedBy.length > 0) ? ExitCode.VALIDATION : ExitCode.OK);
     } catch (err) {
       deps.reportError(err);

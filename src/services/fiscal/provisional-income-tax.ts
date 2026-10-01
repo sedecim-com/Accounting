@@ -207,6 +207,14 @@ export interface ProvisionalIncomeTaxWorkpaper {
   /** Customer advances collected in the year (anticipo_clientes credits), which the paper does not add. */
   advancesCollected: Array<{ code: string; amount: string }>;
   withholdingAccounts: Array<{ code: string; amount: string }>;
+  /** The entries `withheldInRange` COUNTED in the withheld figure: the line's trace, not every movement. */
+  withholdingEntryIds: string[];
+  /**
+   * Every revenue account that enters the nominal income, BEFORE the zero-net
+   * filter: a sale and its full reversal net to zero in the year but both
+   * entries moved the account, and a trace over `incomeAccounts` would lose them.
+   */
+  incomeTraceAccounts: Array<{ id: string; code: string }>;
   figures: ProvisionalIncomeTaxFigures;
   settlement: ProvisionalIncomeTaxSettlement | null;
   blockedBy: string[];
@@ -332,13 +340,17 @@ export async function buildProvisionalIncomeTaxWorkpaper(
     const advanceIds = withRole('anticipo_clientes');
 
     const treatment = await readSalesReturnsTreatment(ctx, client);
-    const revenue = balance
+    const revenueMoved = balance
       .filter((b) => b.account_type === 'revenue')
       .map((b) => ({
         id: b.account_id, code: b.account_code, name: b.account_name,
         amount: new Decimal(b.credit_total).minus(b.debit_total),
-      }))
-      .filter((b) => !b.amount.isZero());
+        moved: !new Decimal(b.credit_total).isZero() || !new Decimal(b.debit_total).isZero(),
+      }));
+    const revenue = revenueMoved.filter((b) => !b.amount.isZero());
+    const incomeTraceAccounts = revenueMoved
+      .filter((b) => b.moved && (treatment === 'net_of_income' || !returnIds.has(b.id)))
+      .map((b) => ({ id: b.id, code: b.code }));
     const returns = revenue.filter((b) => returnIds.has(b.id));
     const incomeAccounts = revenue.filter((b) => treatment === 'net_of_income' || !returnIds.has(b.id));
     const nominalIncome = incomeAccounts.reduce((acc, b) => acc.plus(b.amount), new Decimal(0));
@@ -353,7 +365,7 @@ export async function buildProvisionalIncomeTaxWorkpaper(
           `nominales, y LISR art. 17 fr. I los acumula al cobrarse. Súmalos sin IVA al declarar, menos los ya facturados.` });
     }
 
-    const withholdingAccounts = await withheldInRange(
+    const { accounts: withholdingAccounts, entryIds: withholdingEntryIds } = await withheldInRange(
       client, entityId, [...withRole('isr_retenido_a_favor')], from, through);
     const withheld = withholdingAccounts.reduce((acc, b) => acc.plus(b.amount), new Decimal(0));
 
@@ -380,6 +392,8 @@ export async function buildProvisionalIncomeTaxWorkpaper(
       },
       advancesCollected,
       withholdingAccounts: withholdingAccounts.map((b) => ({ ...b, amount: b.amount.toFixed(4) })),
+      withholdingEntryIds,
+      incomeTraceAccounts,
       figures,
       settlement: blockedBy.length > 0 ? null : settleProvisionalIncomeTax(figures, rounding),
       blockedBy,
@@ -402,8 +416,8 @@ async function withheldInRange(
   accountIds: string[],
   from: string,
   through: string
-): Promise<Array<{ code: string; amount: Decimal }>> {
-  if (accountIds.length === 0) return [];
+): Promise<{ accounts: Array<{ code: string; amount: Decimal }>; entryIds: string[] }> {
+  if (accountIds.length === 0) return { accounts: [], entryIds: [] };
   const { rows } = await client.query<{
     entry_id: string; source_type: string | null; reverses_entry_id: string | null; code: string; net: string;
   }>(
@@ -430,10 +444,17 @@ async function withheldInRange(
     e !== undefined && e.source_type !== 'opening_balance' && e.reverses_entry_id === null &&
     (entryNet.get(e.entry_id) as Decimal).greaterThan(0);
   const byAccount = new Map<string, Decimal>();
+  const counted = new Set<string>();
   for (const r of rows) {
     const counts = withholds(r) || r.source_type === 'receipt_unapplication' ||
       (r.reverses_entry_id !== null && withholds(entry.get(r.reverses_entry_id)));
-    if (counts) byAccount.set(r.code, (byAccount.get(r.code) ?? new Decimal(0)).plus(r.net));
+    if (counts) {
+      byAccount.set(r.code, (byAccount.get(r.code) ?? new Decimal(0)).plus(r.net));
+      counted.add(r.entry_id);
+    }
   }
-  return [...byAccount].filter(([, amount]) => !amount.isZero()).map(([code, amount]) => ({ code, amount }));
+  return {
+    accounts: [...byAccount].filter(([, amount]) => !amount.isZero()).map(([code, amount]) => ({ code, amount })),
+    entryIds: [...counted],
+  };
 }
