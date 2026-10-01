@@ -438,6 +438,11 @@ mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-downlo
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a successful use of the e.firma leaves no row in the log
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a refusal from the SAT leaves no error row in the log
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	the weights are swapped: a missing received CFDI stops the close and a missing issued one only warns
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	a direction nobody loaded reads as «everything the books carry is surplus»
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	a CFDI already brought in but not posted is asked for again instead of being posted
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	a voided invoice still counts as the CFDI being in the books
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/accounting/period-close.ts	the close never asks for the census: a month closes with CFDI the SAT lists and the books lack
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/cli/mnemosine.ts	el escritor se queda de capacidad huérfana: el INSERT existe, typechecka y no lo alcanza ningún camino, que es exactamente el estado que este criterio existe para prohibir — y el criterio del literal seguiría verde
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	el llamador vuelve a afirmar un hecho DERIVADO: el disparador de la 077 sobrescribe `tenant_id` con el del empleado, así que la columna en la lista no cambia lo guardado y sí publica una propiedad que el escritor no decide
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	`is_active` es NULABLE y la 085 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar
@@ -1113,6 +1118,11 @@ anchor	src/plan/criteria/e3-2.ts	de: 'await withCredential(',
 anchor	src/plan/criteria/e3-2.ts	de: "purpose: 'sat_auth'",
 anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'success');",
 anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'error',",
+anchor	src/plan/criteria/e3-2.ts	de: "if (policyValue === 'issued_blocks' && direction === 'issued') return 'blocking';",
+anchor	src/plan/criteria/e3-2.ts	de: 'out.surplus = surplus.rows.filter((s) => covered[s.direction]);',
+anchor	src/plan/criteria/e3-2.ts	de: 'else (fetched ? out.toPost : out.toFetch).push(item);',
+anchor	src/plan/criteria/e3-2.ts	de: "AND i.cfdi_uuid IS NOT NULL AND i.status NOT IN ('void', 'cancelled')",
+anchor	src/plan/criteria/e3-2.ts	de: 'if (census.hasLoads) {',
 anchor	src/plan/criteria/e4-1.ts	de: 'registerGarnishmentCommand(program, { palette: c, shutdown, reportError });',
 anchor	src/plan/criteria/e4-1.ts	de: ' employee_id, garnishment_type, priority, amount_type, amount_value,',
 anchor	src/plan/criteria/e4-1.ts	de: ' case_number, issuing_authority, payee_name, start_date, is_active, metadata',

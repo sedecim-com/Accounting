@@ -854,6 +854,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.census_cfdi_types.option.all_types':
     'Todos los tipos, traslados incluidos (I, E, P, N, T)',
 
+  'policy.census_missing_at_close.question':
+    'Al cierre falta en los libros un CFDI que el SAT lista: ¿qué dirección detiene el cierre?',
+  'policy.census_missing_at_close.impact':
+    'El censo del SAT se lee contra lo contabilizado. Un CFDI emitido sin contabilizar subestima el ingreso y el IVA a cargo; un CFDI recibido sin contabilizar subestima una deducción y el IVA acreditable. Esto decide si cada dirección detiene el cierre o sólo avisa.',
+  'policy.census_missing_at_close.rationale':
+    'Un CFDI emitido es un ingreso que la entidad ya timbró y que el SAT ya tiene: dejarlo sin contabilizar subestima la base del ISR y el IVA trasladado del mes (LISR art. 17; LIVA arts. 1-B y 17), y la contabilidad debe registrar todas las operaciones (CFF art. 28 fr. I). Un CFDI recibido sin contabilizar es un derecho aún no ejercido: la deducción y el IVA acreditable se pueden reclamar en un periodo posterior (LISR art. 27 fr. III; LIVA art. 5), así que sólo avisa. Un despacho que quiere los libros cuadrados con el SAT en ambas direcciones antes de cualquier cierre elige both_block.',
+  'policy.census_missing_at_close.why':
+    'Que falte un CFDI emitido y que falte uno recibido no cuesta lo mismo, y los despachos difieren en cuánto de eso aceptan al cierre.',
+  'policy.census_missing_at_close.what':
+    'Listo en el checklist del cierre lo que el SAT tiene y los libros no, y detengo el cierre sólo por las direcciones que elijas.',
+  'policy.census_missing_at_close.if_skipped':
+    'Un CFDI emitido faltante detiene el cierre y uno recibido faltante sólo avisa.',
+  'policy.census_missing_at_close.option.issued_blocks':
+    'Lo emitido detiene el cierre; lo recibido avisa',
+  'policy.census_missing_at_close.option.both_block':
+    'Ambas direcciones detienen el cierre',
+  'policy.census_missing_at_close.option.both_warn':
+    'Ambas direcciones sólo avisan',
+
   'policy.opening_payable_iva.question':
     'Cuando una factura de proveedor migrada no dice la tasa de IVA dentro de su saldo pendiente, ¿qué hace la carga de apertura?',
   'policy.opening_payable_iva.impact':
@@ -2479,6 +2498,15 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
   'help.receipt.apply.option.withholding':
     'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
+  'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
+  'help.sat.download.reconcile.description':
+    'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',
+  'help.sat.download.reconcile.option.period': 'mes a conciliar, como AAAA-MM',
+  'sat.reconcile.bad_period': 'El periodo debe ser un mes como AAAA-MM, y "{value}" no lo es.',
+  'sat.reconcile.summary':
+    '{period}: {matched} cuadran · {fetch} por traer · {post} por contabilizar · {cancelled} cancelados en el SAT pero contabilizados · {surplus} contabilizados que no están en el censo ({cancelledUnbooked} cancelados y nunca contabilizados: no son faltante).',
+  'sat.reconcile.not_loaded':
+    'Ningún censo de CFDI {direction} cubre este mes: no está cargado, que no es lo mismo que no haber nada {direction}. Cárgalo con `ingest --kind metadata`.',
   'help.closing.fx.description': 'La moneda extranjera en el cierre',
   'help.closing.fx.revalue.description':
     'Revalúa las cuentas por cobrar, por pagar y los bancos en moneda extranjera al tipo de cierre, y lo revierte el día 1 del periodo siguiente. Va después del cierre suave; una corrida posterior postea sólo lo que se movió desde entonces',
