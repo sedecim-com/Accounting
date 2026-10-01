@@ -64,6 +64,7 @@ import {
   optionByKey,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
+import { todayFor } from '../services/policy/today.js';
 
 // ============================================================
 // mnemosine account
@@ -738,7 +739,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
         if (opts.scheme === 'sat-agrupador' && valor !== null) {
           const ctxVal = await prepararValidacionAgrupador(
             { tenantId: ctx.tenantId, entityId: ctx.entityId },
-            fecha ?? new Date().toISOString().slice(0, 10)
+            fecha ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }))
           );
           // Revienta igual que reventaría la escritura: un ensayo que sale 0
           // sobre un código que el sistema va a rechazar es peor que no tenerlo.

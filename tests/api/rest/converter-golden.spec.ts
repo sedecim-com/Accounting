@@ -144,7 +144,7 @@ describe('the census of every published request body', () => {
       descartadas: 57,
       conservadas: 15,
       strict: 1,
-      refined: 11,
+      refined: 12,
       maxItems: 9,
       uuid: 59,
       email: 10,

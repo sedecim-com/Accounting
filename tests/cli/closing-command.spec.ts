@@ -683,6 +683,7 @@ describe('A6 · el orden de los pasos es contrato', () => {
       'accrue-benefits',
       'amortize-prepaids',
       'depreciate-assets',
+      'revalue-fx',
       'verify-checklist',
       'soft-close',
       'hard-close',

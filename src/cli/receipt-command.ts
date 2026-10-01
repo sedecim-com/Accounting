@@ -39,6 +39,7 @@ import {
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
+import { todayFor } from '../services/policy/today.js';
 
 // ============================================================
 // mnemosine receipt · cobro
@@ -101,8 +102,9 @@ const COBRABLES = ['sent', 'viewed', 'partially_paid', 'overdue'] as const;
 
 const MONEY = ['payment_amount', 'applied_amount', 'unapplied_amount', 'amount_applied'];
 
-// El dia LOCAL: a las 20:00 en CDMX, toISOString ya cobraba con fecha de manana.
-const hoy = (): string => dateOnly(new Date());
+// Today in the entity's zona_horaria, never the process clock (a UTC server reads tomorrow at night).
+const hoy = (ctx: { tenantId: string; entityId: string }): Promise<string> =>
+  todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId });
 
 // ============================================================
 // EJEMPLOS · invocaciones copiables, con datos mexicanos
@@ -337,7 +339,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         // abajo. Dos recetas del mismo hash es cómo se rompe una idempotencia
         // sin que nadie lo note.
         // ============================================================
-        const fechaDelCobro = opts.date ?? hoy();
+        const fechaDelCobro = opts.date ?? (await hoy(ctx));
         // Todo lo que tecleó el operador, no una lista a mano: enumerar campos
         // deja fuera el que nadie recuerde, y un campo persistido fuera del
         // hash hace que dos actos distintos compartan llave. La fecha se pasa

@@ -1,4 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+
+// Zone lookups read the policy panel; these specs mock the DB, so they get the default zone.
+vi.mock('../../../src/services/policy/today.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/services/policy/today.js')>()),
+  zoneFor: vi.fn(async () => 'America/Mexico_City'),
+  zoneForEntity: vi.fn(async () => 'America/Mexico_City'),
+  todayFor: vi.fn(async () => '2026-10-31'),
+  todayForEntity: vi.fn(async () => '2026-10-31'),
+}));
 import type { MockInstance } from 'vitest';
 import { Command } from 'commander';
 
