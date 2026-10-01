@@ -17,6 +17,7 @@ import { declareRisk, gateMutation } from './kernel/risk.js';
 import { exitCodeFor, notFound, ExitCode } from './kernel/index.js';
 import { calendarDateIn } from '../utils/calendar-date.js';
 import { zoneFor } from '../services/policy/today.js';
+import { registerSatCensus } from './sat-census-command.js';
 
 // ============================================================
 // `mnemosine sat cred …` COMMANDS
@@ -72,6 +73,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
     .command('sat')
     .description('SAT services (e.firma credentials; the CFDI bulk download is not built yet)');
   const cred = sat.command('cred').description('Fiscal credentials (e.firma)');
+  registerSatCensus(sat, { shutdown, reportError });
 
   const add = cred
     .command('add')
@@ -89,6 +91,16 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
   // valida el certificado sin pedir la contraseña ni guardar nada, y el
   // depósito real exige --live. El consentimiento tecleado NO lo salta --yes:
   // la custodia de una e.firma se autoriza escribiendo "accept", siempre.
+  add.addHelpText(
+    'after',
+    `
+Examples:
+  # Validate the e.firma locally, without asking for the passphrase or storing anything.
+  mnemosine sat cred add --cer firma.cer --key firma.key --dry-run
+  # Store it in the vault for the entity (asks for the passphrase and the typed consent).
+  mnemosine sat cred add --cer firma.cer --key firma.key --entity "Demo Corp" --live
+`
+  );
   declareRisk(add, {
     risk: 'externo',
     llave: { innecesaria: 'la custodia la guardan el consentimiento tipeado y el estado de la credencial' },
@@ -292,6 +304,16 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
   // material en la bóveda es criptográfica. El kernel añade --dry-run, --yes,
   // --idempotency-key y —por ser un verbo que deshace— --reason obligatoria,
   // que aterriza en audit_log vía revokeCredential.
+  revoke.addHelpText(
+    'after',
+    `
+Examples:
+  # See what a revocation would do, without touching the vault.
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --dry-run
+  # Revoke it and destroy the material (irreversible).
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --yes
+`
+  );
   declareRisk(revoke, {
     risk: 'irreversible',
     llave: { innecesaria: 'una segunda revocación se rechaza porque ya no queda credencial activa' },

@@ -276,6 +276,12 @@ mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/cli/pending-command
 mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/ai/tools/policy-tools.ts	el-agente-ve-otro-panel: la herramienta del agente entregaría la pregunta sembrada mientras `pending` enseña la del catálogo, y los dos contestarían sobre textos distintos
 mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/services/policy/policy-service.ts	lectura-fuera-de-la-costura: getPolicy leería la copia de la fila por su cuenta y la costura dejaría de ser el único sitio que decide de dónde sale el texto
 mirror	memory	E1.3 policy-wording-comes-from-the-catalog	src/ai/memory-service.ts	vocabulario-del-dia-de-siembra: el mismo precedente seria contradicción para un inquilino sembrado después de que `ingest_auto_post` ganara `shadow`, y silencio para uno sembrado antes
+mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/ai/tools/policy-tools.ts	agent-panel-pinned-to-english: leerPanel would hand the agent English wording while `pending` paints the accountant in Spanish
+mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/pending-command.ts	preview-pinned-to-english: the "in your data" lines of the listing would come out English under es-MX
+mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/pending-command.ts	wording-pinned-to-english: the listing or the `define` prompt would paint the question and options in English under es-MX
+mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/cli/init/s4-policies.ts	half-translated-wizard: the catalog text would come out Spanish beside the wizard's hand-written English labels
+mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/ai/pending-service.ts	board-summary-in-english: the work board would keep its hand-written English plural under es-MX
+mirror	memory	E1.3 policy-panel-paints-through-the-active-language	src/i18n/panel-text.ts	words-and-separators-disagree: a preview in Spanish would carry en-US separators
 mirror	memory	E1.3 policy-text-key-matches-vocabulary-registry	src/services/policy/pending-catalog.ts	text-key-born-spanish: the panel texts of the time zone would be keyed by the persisted Spanish name, and I23 would have to rename them too
 mirror	memory	E1.3 policy-text-key-matches-vocabulary-registry	src/language/vocabulary-registry.json	unregistered-option-value: a persisted option value has no English name decided, so I23 would rename it without a map
 mirror	memory	E1.3 policy-panel-reaches-deciding-turn	src/ai/ingest-service.ts	la-herramienta-que-nadie-pide: la pieza correcta a una llamada de función de donde hace falta — el panel existe, la herramienta existe, y el turno que clasifica el CFDI decide sin mirarlo
@@ -432,6 +438,11 @@ mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-downlo
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a successful use of the e.firma leaves no row in the log
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/fiscal-credentials/service.ts	a refusal from the SAT leaves no error row in the log
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	the weights are swapped: a missing received CFDI stops the close and a missing issued one only warns
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	a direction nobody loaded reads as «everything the books carry is surplus»
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	a CFDI already brought in but not posted is asked for again instead of being posted
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/sat-census/reconcile.ts	a voided invoice still counts as the CFDI being in the books
+mirror	memory	E3.2 sat-census-reconcile-weighs-by-direction	src/services/accounting/period-close.ts	the close never asks for the census: a month closes with CFDI the SAT lists and the books lack
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/cli/mnemosine.ts	el escritor se queda de capacidad huérfana: el INSERT existe, typechecka y no lo alcanza ningún camino, que es exactamente el estado que este criterio existe para prohibir — y el criterio del literal seguiría verde
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	el llamador vuelve a afirmar un hecho DERIVADO: el disparador de la 077 sobrescribe `tenant_id` con el del empleado, así que la columna en la lista no cambia lo guardado y sí publica una propiedad que el escritor no decide
 mirror	memory	E4.1 garnishment-order-has-a-reachable-writer	src/services/payroll/common/garnishment-service.ts	`is_active` es NULABLE y la 085 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar
@@ -946,10 +957,16 @@ anchor	src/plan/criteria/e1-3.ts	de: 'wouldAutoPost: habriaPosteado',
 anchor	src/plan/criteria/e1-3.ts	de: "if (residual && !opts.shortPayReason?.trim()) {",
 anchor	src/plan/criteria/e1-3.ts	de: " ? await getPolicy({ tenantId, entityId }, 'pago_corto_residual')",
 anchor	src/plan/criteria/e1-3.ts	de: " out.push(...wrapLines(' ', ' ', wording.question));",
-anchor	src/plan/criteria/e1-3.ts	de: " out.push(...field('impact', wording.impact, c));",
+anchor	src/plan/criteria/e1-3.ts	de: " out.push(...field(t('pending.policies.label.impact'), wording.impact, c));",
 anchor	src/plan/criteria/e1-3.ts	de: ' question: wording.question,',
 anchor	src/plan/criteria/e1-3.ts	de: ' question: policyWording(row).question,',
 anchor	src/plan/criteria/e1-3.ts	de: ' const valores = policyOptions(row.policy_key, seeded)',
+anchor	src/plan/criteria/e1-3.ts	de: 'const wording = policyWording(fila, panelTranslator());',
+anchor	src/plan/criteria/e1-3.ts	de: 'text: previewText(),',
+anchor	src/plan/criteria/e1-3.ts	de: 'policyWording(p, panelTranslator())',
+anchor	src/plan/criteria/e1-3.ts	de: "const WIZARD_LANGUAGE = 'en' as const;",
+anchor	src/plan/criteria/e1-3.ts	de: "summary: t('pending.board.draft', { count: r.rows.length }),",
+anchor	src/plan/criteria/e1-3.ts	de: 'const locale = FORMAT_LOCALE[language];',
 anchor	src/plan/criteria/e1-3.ts	de: " textKey: 'time_zone',",
 anchor	src/plan/criteria/e1-3.ts	de: '"es": "sin_regla",',
 anchor	src/plan/criteria/e1-3.ts	de: "2. READ YOUR FIRM'S POLICY PANEL with get_accounting_policies BEFORE deciding the treatment.",
@@ -1101,6 +1118,11 @@ anchor	src/plan/criteria/e3-2.ts	de: 'await withCredential(',
 anchor	src/plan/criteria/e3-2.ts	de: "purpose: 'sat_auth'",
 anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'success');",
 anchor	src/plan/criteria/e3-2.ts	de: "await logAccess(row, opts, 'error',",
+anchor	src/plan/criteria/e3-2.ts	de: "if (policyValue === 'issued_blocks' && direction === 'issued') return 'blocking';",
+anchor	src/plan/criteria/e3-2.ts	de: 'out.surplus = surplus.rows.filter((s) => covered[s.direction]);',
+anchor	src/plan/criteria/e3-2.ts	de: 'else (fetched ? out.toPost : out.toFetch).push(item);',
+anchor	src/plan/criteria/e3-2.ts	de: "AND i.cfdi_uuid IS NOT NULL AND i.status NOT IN ('void', 'cancelled')",
+anchor	src/plan/criteria/e3-2.ts	de: 'if (census.hasLoads) {',
 anchor	src/plan/criteria/e4-1.ts	de: 'registerGarnishmentCommand(program, { palette: c, shutdown, reportError });',
 anchor	src/plan/criteria/e4-1.ts	de: ' employee_id, garnishment_type, priority, amount_type, amount_value,',
 anchor	src/plan/criteria/e4-1.ts	de: ' case_number, issuing_authority, payee_name, start_date, is_active, metadata',
