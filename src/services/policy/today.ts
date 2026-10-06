@@ -35,6 +35,16 @@ export async function zoneFor(ctx: PolicyContext | null, client?: pg.PoolClient)
 }
 
 /**
+ * The day a caller named, or else the entity's day (#242, MNE-001-379). The
+ * single SAT grouping mapping, the bulk mapping and the dry-run of
+ * `account map set` all default their validation day through here, so the
+ * three cannot disagree. The resolver is not asked when the day is given.
+ */
+export async function dayOrToday(ctx: PolicyContext, day?: string): Promise<string> {
+  return day ?? (await todayFor(ctx));
+}
+
+/**
  * "Today" for a reader that holds an entity id but not its tenant (#242,
  * MNE-001-111): the aging reports, `invoice list` and `customer list`.
  *

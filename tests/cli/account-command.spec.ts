@@ -77,6 +77,10 @@ vi.mock('../../src/services/accounting/account-service.js', async (importOrigina
   },
 }));
 
+vi.mock('../../src/services/policy/today.js', () => ({
+  dayOrToday: (_ctx: unknown, day?: string) => Promise.resolve(day ?? '2026-06-30'),
+}));
+
 vi.mock('../../src/services/accounting/sat-agrupadores.js', () => ({
   prepararValidacionAgrupador: (_ctx: unknown, fecha: string) => {
     mundo.validaciones += 1;

@@ -361,6 +361,20 @@ describe('setAccountMapping — la validación va ANTES del UPDATE', () => {
 
       expect(mockQuery.mock.calls[1][1]).toEqual(['2026-12-31']);
     });
+
+    it('with a batch context it does not resolve the day again (no policy read per row)', async () => {
+      mockGetPolicy.mockClear();
+      mockGetPolicy.mockResolvedValue(politica('rechazar'));
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ entity_id: ENTIDAD, tenant_id: TENANT }] })
+        .mockResolvedValueOnce({ rows: [{ codigo: '102.01', nombre: 'Bancos nacionales', nivel: 2 }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'cuenta-1' }] });
+      const batch = { politica: 'rechazar', hayCatalogo: true, fecha: '2026-06-30' };
+
+      await setAccountMapping('cuenta-1', 'sat-agrupador', '102.01', 'u1', { validacion: batch });
+
+      expect(mockGetPolicy.mock.calls.map((c) => c[1])).not.toContain('zona_horaria');
+    });
   });
 
   it('limpiar el mapeo (null) no se valida: borrar no puede estar fuera de catálogo', async () => {

@@ -603,7 +603,7 @@ export const E1_2: Criterio[] = [
   {
     paquete: 'E1.2',
     id: 'today-is-the-day-in-zona-horaria',
-    // #242 · MNE-001-065. "Today" was `new Date().toISOString().slice(0, 10)`,
+    // #242 · MNE-001-065 and MNE-001-379. "Today" was `new Date().toISOString().slice(0, 10)`,
     // the UTC day: from 18:00 to midnight in Mexico City it is already
     // tomorrow. A credit note created without --date at 20:00 on the 31st was
     // persisted on the 1st — date, folio series and period. The owner decided
@@ -614,7 +614,12 @@ export const E1_2: Criterio[] = [
     // Three ways back to the wrong day, and the census names all three: the
     // UTC day, the process's local fields (the server runs in UTC) and a bare
     // CURRENT_DATE (the database session's day).
-    enunciado: 'El «hoy» de una nota de crédito sin fecha es el día de zona_horaria, no el día UTC',
+    //
+    // MNE-001-379 carries the same rule to the day the SAT grouping code is
+    // validated on (single mapping, bulk mapping, dry-run of `account map set`):
+    // one helper, `dayOrToday`, resolves it.
+    enunciado:
+      'El «hoy» de una nota de crédito sin fecha, y el día contra el que se valida el agrupador SAT, es el día de zona_horaria, no el día UTC',
     mutantes: [
       {
         archivo: 'src/services/ar/credit-note-service.ts',
@@ -652,6 +657,38 @@ export const E1_2: Criterio[] = [
         a: 'const today = new Date().toISOString().slice(0, 10);',
         porque: 'the fallback of the legal parameters goes back to the UTC day and picks the row of the next day',
       },
+      // MNE-001-379: the SAT grouping code is validated against the catalogue
+      // in force on the entity's day; the three sites default it through one helper.
+      {
+        archivo: 'src/services/policy/today.ts',
+        de: 'return day ?? (await todayFor(ctx));',
+        a: 'return day ?? new Date().toISOString().slice(0, 10);',
+        porque: "the shared default goes back to the UTC day: at 20:00 on the 31st the next year's SAT catalogue judges the code, in all three sites at once",
+      },
+      {
+        archivo: 'src/services/accounting/account-service.ts',
+        de: 'await dayOrToday(ctxPol, opts.fecha)',
+        a: 'opts.fecha ?? new Date().toISOString().slice(0, 10)',
+        porque: 'a single mapping bypasses the shared default and takes the UTC day',
+      },
+      {
+        archivo: 'src/services/accounting/account-service.ts',
+        de: 'await dayOrToday({ tenantId, entityId }, opts.fecha)',
+        a: 'opts.fecha ?? new Date().toISOString().slice(0, 10)',
+        porque: 'the bulk mapping bypasses the shared default and takes the UTC day for all its rows',
+      },
+      {
+        archivo: 'src/cli/account-command.ts',
+        de: 'await dayOrToday({ tenantId: ctx.tenantId, entityId: ctx.entityId }, fecha)',
+        a: 'fecha ?? new Date().toISOString().slice(0, 10)',
+        porque: "the dry-run of `account map set` validates against another year's catalogue than the write does",
+      },
+      {
+        archivo: 'tests/integration/sat-grouping-today-in-zone.int.spec.ts',
+        de: "process.env.TZ = 'UTC';",
+        a: "process.env.TZ = process.env.TZ;",
+        porque: 'the SAT grouping reproduction stops pinning the process zone, so its verdict no longer proves the zone is read from the policy',
+      },
       {
         archivo: 'tests/utils/today-in-zone.spec.ts',
         de: 'process.env.TZ = tz;',
@@ -678,10 +715,20 @@ export const E1_2: Criterio[] = [
         [/\bCURRENT_DATE\b/, 'a bare CURRENT_DATE'],
       ];
       const offenders: string[] = [];
+      const groupingSites = ['src/services/accounting/account-service.ts', 'src/cli/account-command.ts'];
       for (const rel of [util, resolver, creditNotes, taxTables]) {
+        if (!existe(rel)) return falla(`${rel} is gone`);
         const code = codigoDe(rel);
         for (const [pattern, what] of WRONG_DAYS) {
           if (pattern.test(code)) offenders.push(`${rel} (${what})`);
+        }
+      }
+      // The two big files only fill in a day in the grouping default, so only
+      // that expression is censused: an audit timestamp elsewhere is legitimate.
+      for (const rel of groupingSites) {
+        if (!existe(rel)) return falla(`${rel} is gone`);
+        if (/\bfecha\s*\?\?\s*(?:\(\s*)?new Date\(/.test(codigoDe(rel))) {
+          offenders.push(`${rel} (a grouping default day that bypasses dayOrToday)`);
         }
       }
       if (offenders.length > 0) {
@@ -707,12 +754,47 @@ export const E1_2: Criterio[] = [
         return falla('the zona_horaria key left the panel');
       }
 
-      // 3. THE TWO CALLERS go through it.
+      // 3. THE TWO CALLERS go through it (the SAT grouping sites are in 3b).
       if (!codigoDe(creditNotes).includes('input.credit_date ?? (await todayFor(')) {
         return falla('a credit note without a date no longer asks todayFor for its day');
       }
       if (!codigoDe(taxTables).includes('const today = await todayFor(null);')) {
         return falla('the "today" fallback of getTaxParameters no longer goes through the resolver');
+      }
+
+      // 3b. THE THREE SITES where the SAT grouping code takes its default day
+      //     all go through the one helper, which asks the resolver.
+      if (!codigoDe(resolver).includes('return day ?? (await todayFor(ctx));')) {
+        return falla('dayOrToday no longer asks todayFor for the SAT grouping day');
+      }
+      const grouping = codigoDe(groupingSites[0]);
+      if (
+        !grouping.includes('await dayOrToday(ctxPol, opts.fecha)') ||
+        !grouping.includes('await dayOrToday({ tenantId, entityId }, opts.fecha)')
+      ) {
+        return falla('the SAT grouping mapping (single or bulk) no longer validates on the zona_horaria day');
+      }
+      if (!codigoDe(groupingSites[1]).includes('await dayOrToday({ tenantId: ctx.tenantId, entityId: ctx.entityId }, fecha)')) {
+        return falla('the dry-run of `account map set` no longer validates on the zona_horaria day');
+      }
+      const groupingSpec = 'tests/integration/sat-grouping-today-in-zone.int.spec.ts';
+      if (!existe(groupingSpec)) {
+        return falla('there is no reproduction of the SAT grouping day with a fixed clock');
+      }
+      const g = codigoDe(groupingSpec);
+      for (const [pattern, what] of [
+        [/2027-01-01T02:00:00Z/, 'fix the clock at 20:00 on Dec 31st in Mexico City'],
+        [/process\.env\.TZ = 'UTC'/, 'pin the process zone to UTC'],
+        [/setAccountMapping\(/, 'measure the single mapping'],
+        [/importAccountMappings\(/, 'measure the bulk mapping'],
+        [/'account', 'map', 'set'/, 'measure the dry-run of `account map set`'],
+        [/vigente_hasta/, 'seed a catalogue generation that ends on the 31st'],
+        [/const OLD = .*\n.*const NEW = /, 'judge the code against the OLD and the NEW generations'],
+        [/account map set: the catalogue/, 'name the single-mapping case'],
+        [/bulk mapping: the same verdicts/, 'name the bulk-mapping case'],
+        [/the dry-run of `account map set` answers/, 'name the dry-run case'],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(g)) return falla(`the SAT grouping reproduction no longer does: ${what}`);
       }
 
       // 4. AND BEHAVIOUR with the clock fixed and the process zone moved.
@@ -733,7 +815,7 @@ export const E1_2: Criterio[] = [
       }
 
       return ok(
-        'no UTC day, process-local day or bare CURRENT_DATE where "today" is filled in; the resolver checks the zone and reads zona_horaria; credit notes and the tax-parameter fallback go through it; and a fixed-clock reproduction measures it'
+        'no UTC day, process-local day or bare CURRENT_DATE where "today" is filled in; the resolver checks the zone and reads zona_horaria; credit notes, the tax-parameter fallback and the SAT grouping validation day (one helper, three sites) go through it; and fixed-clock reproductions measure it'
       );
     },
   },
