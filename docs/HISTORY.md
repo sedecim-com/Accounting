@@ -14,8 +14,8 @@ Este documento reconstruye, **verificado contra `git log` y contra `gh pr view` 
 
 **Censo, medido sobre el árbol** (`npm run historial:estado`):
 
-- **169** PRs registrados aquí.
-- El más alto registrado es el **#406**.
+- **315** PRs registrados aquí.
+- El más alto registrado es el **#568**.
 - **13** commits directos a `main`, de antes del flujo por PR (la fila «—» del Sprint 1).
 
 CI lo verifica con `--check`, que falla cuando un PR lleva más de **7 días** fusionado sin aparecer aquí. La gracia existe para que una fusión no ponga en rojo los demás PRs abiertos; el techo, para que el documento no pueda pudrirse.
@@ -305,6 +305,170 @@ Fuente: **verificado** contra `git log --first-parent` de `main`. Fecha de fusi�
 | [#393](https://github.com/sedecim-com/Accounting/pull/393) | FW-5: one command readies the environment, integration suite included | 2026-09-27 | FW-5 | squash `ee626e7`, 2 commits. FW-5: un comando prepara el entorno, suite de integración incluida. |
 | [#388](https://github.com/sedecim-com/Accounting/pull/388) | E1.4: the closed package joins --exigir, which the commit that closed it skipped | 2026-09-27 | E1.4 | squash `398cbd9`, 3 commits. E1.4 entra a `--exigir`. |
 | [#406](https://github.com/sedecim-com/Accounting/pull/406) | Bump @aws-sdk/client-secrets-manager in the menores-y-parches group | 2026-09-27 | — | squash `8971653`, 2 commits. Dependabot. |
+
+## 27 y 28 de septiembre — S2: las filas que faltaban
+Fuente: **verificado** contra `git log --first-parent` de `develop`. Fecha de fusión en UTC. Filas generadas del mensaje del squash de cada PR: nombran el PR, el tramo que declara su título y el commit; el juicio de sprint y las notas de contenido de cada uno están en el PR y en su issue, y no se reescriben aquí. Una sola sesión, sin escéptico independiente.
+
+| PR | Título | Merge | Tramos que incluye | Notas |
+|---|---|---|---|---|
+| [#405](https://github.com/sedecim-com/Accounting/pull/405) | F07x: the Anexo 24 XML validates against the SAT's official XSD, vendored in the tree | 2026-09-27 | F07x | squash `a42b181`. |
+| [#410](https://github.com/sedecim-com/Accounting/pull/410) | PLAT-1: the backlog tracks what the zod and TypeScript work left open | 2026-09-27 | PLAT-1 | squash `ad122f2`. |
+| [#411](https://github.com/sedecim-com/Accounting/pull/411) | ING-1: the REP links the approved bill and moves its VAT from 1135 to 1130 | 2026-09-27 | ING-1 | squash `144da00`. |
+| [#412](https://github.com/sedecim-com/Accounting/pull/412) | History: the rows of the 35 PRs merged on September 26 and 27 | 2026-09-27 | History | squash `cdd676a`. |
+| [#396](https://github.com/sedecim-com/Accounting/pull/396) | FW-4: the repository map and the comment tags, both checked in CI | 2026-09-28 | FW-4 | squash `3136eda`. |
+| [#413](https://github.com/sedecim-com/Accounting/pull/413) | ACT-2: the close checklist flags fixed assets on the books with none registered | 2026-09-28 | ACT-2 | squash `508c8b9`. |
+| [#414](https://github.com/sedecim-com/Accounting/pull/414) | ING-1 · PR1b: an unknown CFDI issuer is refused or, on a yes, registered at approval | 2026-09-28 | ING-1 · PR1b | squash `1c55e11`. |
+| [#415](https://github.com/sedecim-com/Accounting/pull/415) | MIG-2: memorandum accounts stay out of the migration by doctrine, and the check names them | 2026-09-28 | MIG-2 | squash `b947aea`. |
+| [#416](https://github.com/sedecim-com/Accounting/pull/416) | DEV-3: the mutation floors become a generated census (#356) | 2026-09-28 | DEV-3 | squash `8614411`. |
+| [#417](https://github.com/sedecim-com/Accounting/pull/417) | TZ-3: a credit note without a date takes the day of zona_horaria | 2026-09-28 | TZ-3 | squash `47c9245`. |
+| [#418](https://github.com/sedecim-com/Accounting/pull/418) | F07: the DIOT can declare an exempt purchase | 2026-09-28 | F07 | squash `c86cfcb`. |
+| [#419](https://github.com/sedecim-com/Accounting/pull/419) | T4d: the 2026 employment subsidy is a share of the UMA, rounded by policy | 2026-09-28 | T4d | squash `b869fae`. |
+| [#420](https://github.com/sedecim-com/Accounting/pull/420) | T5a: the aguinaldo is taxed only above 30 UMA a year, and each earning stores its exempt part | 2026-09-28 | T5a | squash `5fffa20`. |
+| [#421](https://github.com/sedecim-com/Accounting/pull/421) | PLAT-1: the backlog is planned stage by stage, and its status follows GitHub | 2026-09-28 | PLAT-1 | squash `74c45bc`. |
+| [#422](https://github.com/sedecim-com/Accounting/pull/422) | MNE-001-040: bank fees and interest are classified on import, and a line can be reclassified | 2026-09-28 | MNE-001-040 | squash `01c039f`. |
+| [#423](https://github.com/sedecim-com/Accounting/pull/423) | T6: the policy panel answers, dismisses and reopens per entity | 2026-09-28 | T6 | squash `460356f`. |
+| [#424](https://github.com/sedecim-com/Accounting/pull/424) | DEP-1: the 422 adapter's cost is measured in turns, like its neighbour | 2026-09-28 | DEP-1 | squash `6221ddc`. |
+| [#425](https://github.com/sedecim-com/Accounting/pull/425) | T11: the fixtures post outside the control accounts, ahead of the subledger check | 2026-09-28 | T11 | squash `769a09c`. |
+| [#426](https://github.com/sedecim-com/Accounting/pull/426) | ING-2: a failed CFDI is reprocessed with ingest --retry, and ingest without a model leaves the rest to code | 2026-09-28 | ING-2 | squash `05ac849`. |
+| [#427](https://github.com/sedecim-com/Accounting/pull/427) | DEP-1: the issue-list step is bounded at 0.4 of the parse, below the regression it guards | 2026-09-28 | DEP-1 | squash `891b39e`. |
+| [#428](https://github.com/sedecim-com/Accounting/pull/428) | PLAT-1: the backlog marks done the six S2 tasks merged on September 28 | 2026-09-28 | PLAT-1 | squash `fd3f1d0`. |
+| [#431](https://github.com/sedecim-com/Accounting/pull/431) | PLAT-1: decision MNE-001-135 points at #429, since #322 closed with #413 | 2026-09-28 | PLAT-1 | squash `1254b2b`. |
+| [#433](https://github.com/sedecim-com/Accounting/pull/433) | MNE-001-104: the API accepts Cognito access tokens by client_id and token_use, and the web gateway refuses that mode | 2026-09-28 | MNE-001-104 | squash `2421fa3`. |
+| [#434](https://github.com/sedecim-com/Accounting/pull/434) | BAN-1: cash is anchored on a non-posting `efectivo` role, ahead of moving `banco` to its leaf | 2026-09-28 | BAN-1 | squash `79ac9ce`. |
+| [#435](https://github.com/sedecim-com/Accounting/pull/435) | MNE-001-105: the S3 stub is retired, and the AWS keys it kept are deleted | 2026-09-28 | MNE-001-105 | squash `262b028`. |
+| [#436](https://github.com/sedecim-com/Accounting/pull/436) | T17a: stored questions and answers reach the agent as untrusted data, and its prompt stops letting the newest precedent win | 2026-09-28 | T17a | squash `5711edc`. |
+| [#437](https://github.com/sedecim-com/Accounting/pull/437) | BAN-1: the bank role posts to its leaf 1111, and a criterion keeps every posting role off parent accounts | 2026-09-28 | BAN-1 | squash `8061f64`. |
+| [#438](https://github.com/sedecim-com/Accounting/pull/438) | T11: a subledger that disagrees with its control blocks the close | 2026-09-28 | T11 | squash `080d836`. |
+| [#443](https://github.com/sedecim-com/Accounting/pull/443) | PLAT-1: the e.firma downloads from the SAT and seals, in scope by the owner's decision of September 28 | 2026-09-28 | PLAT-1 | squash `44f3fa4`. |
+| [#444](https://github.com/sedecim-com/Accounting/pull/444) | E0.3: a credential is redacted from audit_log whatever the spelling of its name | 2026-09-28 | — | squash `681b53f`. |
+| [#445](https://github.com/sedecim-com/Accounting/pull/445) | PLAT-1: the backlog marks done the five S2 tasks merged on September 28 afternoon, and opens the S3-copies decision on #370 | 2026-09-28 | PLAT-1 | squash `f3d85de`. |
+| [#446](https://github.com/sedecim-com/Accounting/pull/446) | ING-2: a CFDI stranded without a model is coded with bill inbox edit and posted by bill inbox run | 2026-09-28 | ING-2 | squash `490177c`. |
+| [#447](https://github.com/sedecim-com/Accounting/pull/447) | PLAT-1: the backlog marks done MNE-001-027 and MNE-001-030, merged on September 28 | 2026-09-28 | PLAT-1 | squash `48b9134`. |
+| [#448](https://github.com/sedecim-com/Accounting/pull/448) | ING-3: an issued PUE or PPD CFDI becomes an AR invoice at approval, and its REP settles it | 2026-09-28 | ING-3 | squash `11d1f1e`. |
+| [#449](https://github.com/sedecim-com/Accounting/pull/449) | MNE-001-063: the vacation premium is exempt up to 15 UMA a year, and the payroll CFDI declares the exempt part the ISR used | 2026-09-28 | MNE-001-063 | squash `bd9f623`. |
+| [#450](https://github.com/sedecim-com/Accounting/pull/450) | MNE-001-038: the first bank reconciliation starts from a declared baseline | 2026-09-28 | MNE-001-038 | squash `ec0cb88`. |
+| [#451](https://github.com/sedecim-com/Accounting/pull/451) | T25: an overlapping bank statement no longer doubles movements, and the importer names every line that did not enter | 2026-09-28 | T25 | squash `0fd60ea`. |
+| [#452](https://github.com/sedecim-com/Accounting/pull/452) | MNE-001-045: the prepaid threshold reaches the CFDI classifier from the panel | 2026-09-28 | MNE-001-045 | squash `878f1b7`. |
+| [#453](https://github.com/sedecim-com/Accounting/pull/453) | T11: a vendor payment applied to the wrong bill can be unapplied, dated (#98) | 2026-09-28 | T11 | squash `747bfae`. |
+| [#454](https://github.com/sedecim-com/Accounting/pull/454) | MNE-001-033: a hotel CFDI with ISH reaches the ledger, and the tax profile accepts every current SAT code | 2026-09-28 | MNE-001-033 | squash `8fc35d8`. |
+
+## 29 y 30 de septiembre — S2: la tanda E y la revisión de las 105 issues
+Fuente: **verificado** contra `git log --first-parent` de `develop`. Fecha de fusión en UTC. Filas generadas del mensaje del squash de cada PR: nombran el PR, el tramo que declara su título y el commit; el juicio de sprint y las notas de contenido de cada uno están en el PR y en su issue, y no se reescriben aquí. Una sola sesión, sin escéptico independiente.
+
+| PR | Título | Merge | Tramos que incluye | Notas |
+|---|---|---|---|---|
+| [#455](https://github.com/sedecim-com/Accounting/pull/455) | MNE-001-050: the trial balance by level rolls its subaccounts up, and REST no longer trims by default | 2026-09-29 | MNE-001-050 | squash `09c6ddb`. |
+| [#456](https://github.com/sedecim-com/Accounting/pull/456) | D1b: every fiscal year has its period 13, the annual close books into it, and the closing balance can be generated | 2026-09-29 | D1b | squash `701803d`. |
+| [#457](https://github.com/sedecim-com/Accounting/pull/457) | MNE-001-073: the panel texts of dias_aguinaldo, base_depreciacion and umbral_anticipado_mxn say what the code does | 2026-09-29 | MNE-001-073 | squash `8bb31b8`. |
+| [#458](https://github.com/sedecim-com/Accounting/pull/458) | MNE-001-072: no message sends the accountant to a command the binary does not have | 2026-09-29 | MNE-001-072 | squash `50afa0c`. |
+| [#459](https://github.com/sedecim-com/Accounting/pull/459) | MNE-001-044: an approved bank reconciliation can be reopened from the terminal | 2026-09-29 | MNE-001-044 | squash `71aff59`. |
+| [#460](https://github.com/sedecim-com/Accounting/pull/460) | T11: a vendor payment that came back can be reversed, dated, with a dry run (#98) | 2026-09-29 | T11 | squash `c197826`. |
+| [#461](https://github.com/sedecim-com/Accounting/pull/461) | MNE-001-099: the opening load can leave a locked draft under apertura_modo_de_carga | 2026-09-29 | MNE-001-099 | squash `46b3f30`. |
+| [#462](https://github.com/sedecim-com/Accounting/pull/462) | PLAT-1: the backlog schedules without stages, adds MNE-001-147/148 and marks done the tasks merged on September 28 and 29 | 2026-09-29 | PLAT-1 | squash `b2147da`. |
+| [#463](https://github.com/sedecim-com/Accounting/pull/463) | MNE-001-048: re-closing a period carries the correction down every hard-closed month, and never rewrites a locked one | 2026-09-29 | MNE-001-048 | squash `b09544d`. |
+| [#464](https://github.com/sedecim-com/Accounting/pull/464) | MNE-001-129: the close checklist follows the depreciation and prepaid policies | 2026-09-29 | MNE-001-129 | squash `1a48efb`. |
+| [#465](https://github.com/sedecim-com/Accounting/pull/465) | MNE-001-134: retire totalesDeclarados, which counted rolled-up balanza rows twice | 2026-09-29 | MNE-001-134 | squash `84dcee0`. |
+| [#466](https://github.com/sedecim-com/Accounting/pull/466) | MNE-001-043: bank match preview, run and apply read the cotejo_* gates from the panel | 2026-09-29 | MNE-001-043 | squash `ba5af11`. |
+| [#467](https://github.com/sedecim-com/Accounting/pull/467) | MNE-001-117: the received PPD circuit runs end to end, and a plan criterion runs it against a real database | 2026-09-29 | MNE-001-117 | squash `e896544`. |
+| [#468](https://github.com/sedecim-com/Accounting/pull/468) | MNE-001-041: bank fee post leaves 1135 at 0, and the PPD reclass rounds at scale 4 | 2026-09-29 | MNE-001-041 | squash `524e0c8`. |
+| [#469](https://github.com/sedecim-com/Accounting/pull/469) | MNE-001-066: employees can be registered, shown and listed from the terminal | 2026-09-29 | MNE-001-066 | squash `965ea4d`. |
+| [#470](https://github.com/sedecim-com/Accounting/pull/470) | MNE-001-130: reopening a posted bank reconciliation reverses its entries | 2026-09-29 | MNE-001-130 | squash `f77ef2f`. |
+| [#471](https://github.com/sedecim-com/Accounting/pull/471) | MNE-001-031: CFDI keys keep their leading zeros and accents, through one shared XML reader | 2026-09-29 | MNE-001-031 | squash `40ee386`. |
+| [#472](https://github.com/sedecim-com/Accounting/pull/472) | MNE-001-076: truthful e.firma consent and SAT cancellation reaches the invoice | 2026-09-29 | MNE-001-076 | squash `72795b2`. |
+| [#473](https://github.com/sedecim-com/Accounting/pull/473) | MNE-001-032: the firm's processing rules are created and listed from the terminal | 2026-09-29 | MNE-001-032 | squash `aaa6ea2`. |
+| [#474](https://github.com/sedecim-com/Accounting/pull/474) | MNE-001-111: reports, lists and the agent read today in zona_horaria | 2026-09-29 | MNE-001-111 | squash `b259322`. |
+| [#475](https://github.com/sedecim-com/Accounting/pull/475) | MNE-001-017: the entity gains its tax regime and fiscal postal code | 2026-09-29 | MNE-001-017 | squash `4675d9c`. |
+| [#476](https://github.com/sedecim-com/Accounting/pull/476) | MNE-001-081: a USD invoice posts converted at the fuente_tipo_cambio rate | 2026-09-29 | MNE-001-081 | squash `98d32a7`. |
+| [#477](https://github.com/sedecim-com/Accounting/pull/477) | MNE-001-068: a fortnight pay run is created, calculated and approved from the terminal | 2026-09-29 | MNE-001-068 | squash `55336ba`. |
+| [#478](https://github.com/sedecim-com/Accounting/pull/478) | MNE-001-056: withhold fees and leases by law, on accounts of their own | 2026-09-29 | MNE-001-056 | squash `4e69c92`. |
+| [#479](https://github.com/sedecim-com/Accounting/pull/479) | MNE-001-022: the open receivables of a migration come in as invoices, and ar reconcile ties at 0 | 2026-09-29 | MNE-001-022 | squash `a7cf5d9`. |
+| [#480](https://github.com/sedecim-com/Accounting/pull/480) | MNE-001-049: the close tells the truth about itself: stale openings block, the year closes and closing run seals | 2026-09-29 | MNE-001-049 | squash `62f8068`. |
+| [#481](https://github.com/sedecim-com/Accounting/pull/481) | MNE-001-148: fees from an individual with no ISR withheld follow the panel | 2026-09-29 | MNE-001-148 | squash `58be653`. |
+| [#482](https://github.com/sedecim-com/Accounting/pull/482) | DOC-1: ADR-0006 keeps forks configurable, with best accounting practice as the default | 2026-09-29 | DOC-1 | squash `aba5241`. |
+| [#483](https://github.com/sedecim-com/Accounting/pull/483) | MNE-001-147: the withholding accounts follow the policy panel, and entities on 2140 are warned, repointed or kept | 2026-09-29 | MNE-001-147 | squash `f3c65e9`. |
+| [#484](https://github.com/sedecim-com/Accounting/pull/484) | MNE-001-108: npm run migrate takes an advisory lock | 2026-09-29 | MNE-001-108 | squash `496e9ff`. |
+| [#485](https://github.com/sedecim-com/Accounting/pull/485) | MNE-001-085: tenant create and list, so a second firm needs no SQL | 2026-09-29 | MNE-001-085 | squash `960f9cb`. |
+| [#486](https://github.com/sedecim-com/Accounting/pull/486) | MNE-001-084: the wiki manuals stop denying commands the binary has | 2026-09-29 | MNE-001-084 | squash `2b5dccc`. |
+| [#487](https://github.com/sedecim-com/Accounting/pull/487) | MNE-001-125: the close checklist counts only payments that await a REP | 2026-09-29 | MNE-001-125 | squash `f3706e1`. |
+| [#488](https://github.com/sedecim-com/Accounting/pull/488) | MNE-001-055: the DIOT batch file the SAT receives | 2026-09-29 | MNE-001-055 | squash `9475739`. |
+| [#489](https://github.com/sedecim-com/Accounting/pull/489) | MNE-001-138: openapi.ts --stdout hands the whole contract to a pipe | 2026-09-29 | MNE-001-138 | squash `2c8ec13`. |
+| [#491](https://github.com/sedecim-com/Accounting/pull/491) | MNE-001-122: every policy declares its textKey, the registry covers the whole panel, and option keys never collide | 2026-09-29 | MNE-001-122 | squash `c1d65de`. |
+| [#492](https://github.com/sedecim-com/Accounting/pull/492) | MNE-001-139: the Anexo 24 rule validator says what the official XSD says | 2026-09-29 | MNE-001-139 | squash `6a278bc`. |
+| [#493](https://github.com/sedecim-com/Accounting/pull/493) | MNE-001-079: /ready keeps the Postgres error out of its body, and /ai answers bad input with a 4xx in the error envelope | 2026-09-29 | MNE-001-079 | squash `466edce`. |
+| [#494](https://github.com/sedecim-com/Accounting/pull/494) | MNE-001-080: the two E2.1 startup criteria run the real bootstrap() | 2026-09-29 | MNE-001-080 | squash `23a486b`. |
+| [#495](https://github.com/sedecim-com/Accounting/pull/495) | Bump the menores-y-parches group with 5 updates | 2026-09-29 | — | squash `fec03d0`. Dependabot. |
+| [#496](https://github.com/sedecim-com/Accounting/pull/496) | MNE-001-069: pay-run post leaves the run entry as a draft for review, --post posts it | 2026-09-29 | MNE-001-069 | squash `e8679a4`. |
+| [#497](https://github.com/sedecim-com/Accounting/pull/497) | MNE-001-023: the open payables of a migration come in as bills, and the stop says what is missing | 2026-09-29 | MNE-001-023 | squash `7591a04`. |
+| [#499](https://github.com/sedecim-com/Accounting/pull/499) | MNE-001-141: the SAT authentication signs with the vault e.firma, through withCredential | 2026-09-29 | MNE-001-141 | squash `cb947d4`. |
+| [#500](https://github.com/sedecim-com/Accounting/pull/500) | MNE-001-082: collecting a USD invoice realises its exchange difference | 2026-09-29 | MNE-001-082 | squash `75ccd26`. |
+| [#501](https://github.com/sedecim-com/Accounting/pull/501) | MNE-001-087: close and closing take --period 2026-08 and honour entity use | 2026-09-29 | MNE-001-087 | squash `1a2ae25`. |
+| [#502](https://github.com/sedecim-com/Accounting/pull/502) | AP: a CFDI held for a decision leaves no bill, because the bill and its entry are one transaction (#498) | 2026-09-29 | AP | squash `8581118`. |
+| [#503](https://github.com/sedecim-com/Accounting/pull/503) | MNE-001-053: prepaid run looks up its idempotency key before working | 2026-09-29 | MNE-001-053 | squash `ab88e69`. |
+| [#490](https://github.com/sedecim-com/Accounting/pull/490) | MNE-001-093: help by key for positional arguments, a language lane for unkeyed help, and the period family in es-MX | 2026-09-30 | MNE-001-093 | squash `591cfbb`. |
+| [#504](https://github.com/sedecim-com/Accounting/pull/504) | PLAT-1: the backlog marks done the ten tasks merged on September 29 and 30 | 2026-09-30 | PLAT-1 | squash `70acac8`. |
+| [#505](https://github.com/sedecim-com/Accounting/pull/505) | MNE-001-118: camt053 and catalogoDesdeXml read through the shared XML reader | 2026-09-30 | MNE-001-118 | squash `9ebdbb3`. |
+| [#506](https://github.com/sedecim-com/Accounting/pull/506) | MNE-001-126: report labels stop naming a figure what it is not | 2026-09-30 | MNE-001-126 | squash `0ab7df7`. |
+| [#507](https://github.com/sedecim-com/Accounting/pull/507) | MNE-001-090: the policy panel's texts live by key in es and en | 2026-09-30 | MNE-001-090 | squash `49defc4`. |
+| [#508](https://github.com/sedecim-com/Accounting/pull/508) | MNE-001-088: --yes on every mutation, and --bank resolves by name | 2026-09-30 | MNE-001-088 | squash `406430b`. |
+| [#509](https://github.com/sedecim-com/Accounting/pull/509) | MNE-001-089: CLI warnings honour NO_COLOR and print once per command | 2026-09-30 | MNE-001-089 | squash `9d81725`. |
+| [#510](https://github.com/sedecim-com/Accounting/pull/510) | MNE-001-011: the SCOPE is signed, and branches flow develop → release → main | 2026-09-30 | MNE-001-011 | squash `ebc3c6c`. |
+| [#511](https://github.com/sedecim-com/Accounting/pull/511) | PLAT-1: the backlog marks done 118, 126, 090, 088, the SCOPE and the ten owner decisions of September 30 | 2026-09-30 | PLAT-1 | squash `711ad88`. |
+| [#512](https://github.com/sedecim-com/Accounting/pull/512) | MNE-001-058: the month's definitive IVA by rate, adjusted to pesos by CFF art. 20 | 2026-09-30 | MNE-001-058 | squash `3e798a9`. |
+| [#513](https://github.com/sedecim-com/Accounting/pull/513) | MNE-001-070: the paycheck and the month's SUA file are read and exported from the terminal | 2026-09-30 | MNE-001-070 | squash `03bed85`. |
+| [#514](https://github.com/sedecim-com/Accounting/pull/514) | MNE-001-110: overtime is exempt by half up to 5 UMA a week (LISR art. 93 fr. I), as the panel says | 2026-09-30 | MNE-001-110 | squash `018760f`. |
+| [#515](https://github.com/sedecim-com/Accounting/pull/515) | MNE-001-115: the profit coefficient and pending losses are captured with their return, and the corporate ISR rate is law with a date of entry | 2026-09-30 | MNE-001-115 | squash `8b9a967`. |
+| [#516](https://github.com/sedecim-com/Accounting/pull/516) | MNE-001-113: a collection with the customer's withholding is applied, and the withholding lands on its role accounts | 2026-09-30 | MNE-001-113 | squash `d15ce4e`. |
+| [#517](https://github.com/sedecim-com/Accounting/pull/517) | MNE-001-142: the Descarga Masiva engine requests, verifies and downloads packages | 2026-09-30 | MNE-001-142 | squash `1b675d7`. |
+| [#518](https://github.com/sedecim-com/Accounting/pull/518) | MNE-001-083: the close revalues foreign receivables, payables and banks, and reverses it on day 1 | 2026-09-30 | MNE-001-083 | squash `1e8d03d`. |
+| [#519](https://github.com/sedecim-com/Accounting/pull/519) | MNE-001-086: user create, list and archive without a TTY, and a once-per-session RLS notice | 2026-09-30 | MNE-001-086 | squash `8be08bc`. |
+| [#520](https://github.com/sedecim-com/Accounting/pull/520) | MNE-001-092 (slice 1/N, proposal): help by key for the close and control families in es-MX | 2026-09-30 | MNE-001-092 | squash `63b5fa5`. |
+| [#521](https://github.com/sedecim-com/Accounting/pull/521) | MNE-001-121: bind the Contalink key to its entity and its RFC | 2026-09-30 | MNE-001-121 | squash `55e5a59`. |
+| [#522](https://github.com/sedecim-com/Accounting/pull/522) | MNE-001-051: AR reconcile, prepaid backing and the external diff read balances from report-service | 2026-09-30 | MNE-001-051 | squash `fb7e6e4`. |
+| [#523](https://github.com/sedecim-com/Accounting/pull/523) | MNE-001-077: cite the NIF postulates as NIF A-1 chapter 20, not NIF A-2 | 2026-09-30 | MNE-001-077 | squash `40a6bb3`. |
+| [#524](https://github.com/sedecim-com/Accounting/pull/524) | MNE-001-145: under sellar_con_custodia, the Anexo 24 catalog and trial balance leave sealed with the e.firma | 2026-09-30 | MNE-001-145 | squash `8b184bc`. |
+| [#525](https://github.com/sedecim-com/Accounting/pull/525) | MNE-001-057: withhold freight and RESICO by law, and ask about a CFDI that withholds otherwise | 2026-09-30 | MNE-001-057 | squash `58cf611`. |
+| [#526](https://github.com/sedecim-com/Accounting/pull/526) | MNE-001-100: one --line grammar for entry, bill and invoice | 2026-09-30 | MNE-001-100 | squash `a0d099e`. |
+| [#527](https://github.com/sedecim-com/Accounting/pull/527) | MNE-001-054: vouchers and auxiliary XML of the Anexo 24 by command | 2026-09-30 | MNE-001-054 | squash `d4b8505`. |
+| [#528](https://github.com/sedecim-com/Accounting/pull/528) | MNE-001-071: a pay period that straddles two months is split by contribution days in the SUA and the liability | 2026-09-30 | MNE-001-071 | squash `957579c`. |
+| [#529](https://github.com/sedecim-com/Accounting/pull/529) | MNE-001-096: ingest --kind zip\|metadata loads the SAT census of the period | 2026-09-30 | MNE-001-096 | squash `12661ca`. |
+| [#533](https://github.com/sedecim-com/Accounting/pull/533) | plan: every open issue is either closed as delivered or has tasks in the backlog | 2026-09-30 | plan | squash `81e14e3`. |
+| [#536](https://github.com/sedecim-com/Accounting/pull/536) | MNE-001-398: a separate aguinaldo run no longer gets a second employment subsidy (#430) | 2026-09-30 | MNE-001-398 | squash `def981a`. |
+| [#540](https://github.com/sedecim-com/Accounting/pull/540) | plan: the backlog marks done what develop already holds | 2026-09-30 | plan | squash `5e9f0a9`. |
+| [#544](https://github.com/sedecim-com/Accounting/pull/544) | MNE-001-157: the rename codemod and its verifier | 2026-09-30 | MNE-001-157 | squash `7fe84bf`. |
+
+## 1 al 6 de octubre — S2: R1 y R2 casi completos, y la cola de uno en uno
+Fuente: **verificado** contra `git log --first-parent` de `develop`. Fecha de fusión en UTC. Filas generadas del mensaje del squash de cada PR: nombran el PR, el tramo que declara su título y el commit; el juicio de sprint y las notas de contenido de cada uno están en el PR y en su issue, y no se reescriben aquí. Una sola sesión, sin escéptico independiente.
+
+| PR | Título | Merge | Tramos que incluye | Notas |
+|---|---|---|---|---|
+| [#535](https://github.com/sedecim-com/Accounting/pull/535) | MNE-001-059: the provisional ISR of a legal entity, by LISR art. 14, adjusted to pesos line by line | 2026-10-01 | MNE-001-059 | squash `ec7c17d`. |
+| [#537](https://github.com/sedecim-com/Accounting/pull/537) | MNE-001-385: the IVA workpaper credits mixed activities by the LIVA art. 5 fr. V proportion, month or prior year | 2026-10-01 | MNE-001-385 | squash `f8aa226`. |
+| [#538](https://github.com/sedecim-com/Accounting/pull/538) | MNE-001-396: under tasa_lisr depreciate the original investment (art. 31 LISR) | 2026-10-01 | MNE-001-396 | squash `e99d51b`. |
+| [#539](https://github.com/sedecim-com/Accounting/pull/539) | MNE-001-112: the close conductor revalues foreign balances, and ar/ap reconcile read them | 2026-10-01 | MNE-001-112 | squash `1f5a296`. |
+| [#541](https://github.com/sedecim-com/Accounting/pull/541) | MNE-001-263: write ADR-0007 on platform identity | 2026-10-01 | MNE-001-263 | squash `5087ecf`. |
+| [#542](https://github.com/sedecim-com/Accounting/pull/542) | MNE-001-295: the CFDI 4.0 ingreso is built whole from the invoice and checked against the SAT's XSD | 2026-10-01 | MNE-001-295 | squash `55db6ce`. |
+| [#543](https://github.com/sedecim-com/Accounting/pull/543) | MNE-001-078: index the new NIF A-2 and ONIF 7, and fail CI when verified_at is older than 6 months | 2026-10-01 | MNE-001-078 | squash `81f9578`. |
+| [#545](https://github.com/sedecim-com/Accounting/pull/545) | MNE-001-119: read the SAT census against what is posted, and weigh issued and received gaps differently at close | 2026-10-01 | MNE-001-119 | squash `374c07d`. |
+| [#546](https://github.com/sedecim-com/Accounting/pull/546) | MNE-001-277: payroll CFDI header reads run, schedule and hire date | 2026-10-01 | MNE-001-277 | squash `ac57455`. |
+| [#547](https://github.com/sedecim-com/Accounting/pull/547) | MNE-001-371: the RLS census reads the USING and WITH CHECK halves apart | 2026-10-01 | MNE-001-371 | squash `345da35`. |
+| [#548](https://github.com/sedecim-com/Accounting/pull/548) | MNE-001-143: sat download, package download and quota show; the packages enter by ingest | 2026-10-01 | MNE-001-143 | squash `24d70cd`. |
+| [#549](https://github.com/sedecim-com/Accounting/pull/549) | MNE-001-124: init no longer writes .env silently | 2026-10-01 | MNE-001-124 | squash `cf73997`. |
+| [#550](https://github.com/sedecim-com/Accounting/pull/550) | MNE-001-284: the shared auto-match vetoes the opposite direction | 2026-10-01 | MNE-001-284 | squash `37137ad`. |
+| [#551](https://github.com/sedecim-com/Accounting/pull/551) | MNE-001-091: pending --locale es-MX comes out entirely in Spanish | 2026-10-01 | MNE-001-091 | squash `b7009c4`. |
+| [#552](https://github.com/sedecim-com/Accounting/pull/552) | MNE-001-285: REST manual match requires matched_amount and checks the document entity | 2026-10-01 | MNE-001-285 | squash `1095846`. |
+| [#553](https://github.com/sedecim-com/Accounting/pull/553) | MNE-001-332: 1099-NEC from what was paid to 1099 vendors, with TIN and backup withholding | 2026-10-01 | MNE-001-332 | squash `cfcc877`. |
+| [#554](https://github.com/sedecim-com/Accounting/pull/554) | MNE-001-290: CLI dates come out in the entity's zone, not UTC | 2026-10-01 | MNE-001-290 | squash `bca9b29`. |
+| [#555](https://github.com/sedecim-com/Accounting/pull/555) | MNE-001-345: signal LISR 27-III cash above the limit at bill approve and at payment | 2026-10-01 | MNE-001-345 | squash `cec525f`. |
+| [#556](https://github.com/sedecim-com/Accounting/pull/556) | MNE-001-366: bring the IFRS 18, IAS 7, IFRS 20, IFRS 9 and IAS 12 cards up to date with the 2026 agenda decisions | 2026-10-01 | MNE-001-366 | squash `79a16fc`. |
+| [#557](https://github.com/sedecim-com/Accounting/pull/557) | MNE-001-390: amend RNF-01 so no green E5.1 criterion regresses | 2026-10-01 | MNE-001-390 | squash `0cfa31b`. |
+| [#559](https://github.com/sedecim-com/Accounting/pull/559) | MNE-001-399: number inbox bills and vendors with the entity counter | 2026-10-01 | MNE-001-399 | squash `c519b1b`. |
+| [#560](https://github.com/sedecim-com/Accounting/pull/560) | MNE-001-395: refuse an array past its cap before validating its elements | 2026-10-01 | MNE-001-395 | squash `961e1ce`. |
+| [#563](https://github.com/sedecim-com/Accounting/pull/563) | MNE-001-353 FIT and SIT with no bracket table throw instead of withholding zero | 2026-10-01 | — | squash `ff69ed0`. |
+| [#564](https://github.com/sedecim-com/Accounting/pull/564) | MNE-001-309: PAC datasheet with timbradoPresellado as a type invariant | 2026-10-01 | MNE-001-309 | squash `f68348e`. |
+| [#565](https://github.com/sedecim-com/Accounting/pull/565) | MNE-001-383: make an empty route census stop startup | 2026-10-01 | MNE-001-383 | squash `a268a32`. |
+| [#566](https://github.com/sedecim-com/Accounting/pull/566) | MNE-001-191: Spanish twins for cli-command-registry and harness-best-practices | 2026-10-01 | MNE-001-191 | squash `6f3e52f`. |
+| [#568](https://github.com/sedecim-com/Accounting/pull/568) | MNE-001-060: filing workpaper generate, with every line traced to its entries | 2026-10-01 | MNE-001-060 | squash `25d2fc3`. |
+| [#558](https://github.com/sedecim-com/Accounting/pull/558) | MNE-001-379: SAT grouping code is validated on the zona_horaria day | 2026-10-06 | MNE-001-379 | squash `ba752f4`. |
 
 ## Sin sprint / no clasificado
 
