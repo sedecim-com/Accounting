@@ -672,6 +672,7 @@ export async function recordVendorPayment(
     // quedaba auditado, y «quién registró el pago» no estaba en el rastro.
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entrada.entityId),
+      legalEntityId: entrada.entityId,
       userId,
       action: 'create',
       entityType: 'vendor_payments',
@@ -925,6 +926,7 @@ export async function recordCustomerPayment(
     // R1: mismo rastro que el pago a proveedor, del lado del cobro.
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entrada.entityId),
+      legalEntityId: entrada.entityId,
       userId,
       action: 'create',
       entityType: 'customer_payments',
@@ -1299,6 +1301,7 @@ export async function applyCustomerPayment(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'update',
       entityType: 'customer_payments',
@@ -1455,6 +1458,7 @@ export async function unapplyCustomerPayment(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'update',
       entityType: 'customer_payments',
@@ -1792,6 +1796,7 @@ export async function reverseCustomerPayment(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'update',
       entityType: 'customer_payments',
@@ -2127,6 +2132,7 @@ export async function applyVendorPayment(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'update',
       entityType: 'vendor_payments',
@@ -2350,6 +2356,7 @@ export async function unapplyVendorPayment(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'update',
       entityType: 'vendor_payments',
@@ -2516,6 +2523,7 @@ export async function reverseVendorPayment(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'update',
       entityType: 'vendor_payments',

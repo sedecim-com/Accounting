@@ -228,7 +228,7 @@ export async function applyWithholdingLayout(
   const run = async (c: pg.PoolClient): Promise<void> => {
     const audit = (action: AccionAuditada, entityType: string, id: string, oldValues: object | null, newValues: object) =>
       registrarAuditoria(c, {
-        tenantId: plan.tenantId, userId: actorId, action, entityType, entityId: id,
+        tenantId: plan.tenantId, legalEntityId: plan.entityId, userId: actorId, action, entityType, entityId: id,
         oldValues: oldValues as Record<string, unknown> | null,
         newValues: { ...newValues, withholding_layout: plan.layout },
         reason: `MNE-001-147 (#309): withholding roles follow ${LAYOUT_KEY} = ${plan.layout}`,

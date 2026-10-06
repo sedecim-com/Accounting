@@ -586,6 +586,7 @@ export async function checkBatch(
     );
     await registrarAuditoria(client, {
       tenantId: ctx.tenantId,
+      legalEntityId: ctx.entityId,
       userId,
       action: 'update',
       entityType: 'journal_entry_import_batches',
@@ -775,6 +776,7 @@ export async function postBatch(
 
     await registrarAuditoria(client, {
       tenantId: ctx.tenantId,
+      legalEntityId: ctx.entityId,
       userId,
       action: 'post',
       entityType: 'journal_entry_import_batches',
@@ -909,6 +911,7 @@ export async function reverseBatch(
 
     await registrarAuditoria(client, {
       tenantId: ctx.tenantId,
+      legalEntityId: ctx.entityId,
       userId,
       action: 'update',
       entityType: 'journal_entry_import_batches',

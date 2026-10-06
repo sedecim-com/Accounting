@@ -217,6 +217,7 @@ export async function updateEntityTaxProfile(
 
     await registrarAuditoria(client, {
       tenantId: audit.tenantId,
+      legalEntityId: entityId,
       userId: audit.userId,
       action: 'update',
       entityType: 'legal_entities',

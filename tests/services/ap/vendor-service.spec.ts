@@ -384,10 +384,11 @@ describe('createVendor', () => {
     const p = params(2);
     expect(p[1]).toBe(USER);          // user_id
     expect(p[2]).toBe('tenant-1');    // tenant_id, del contexto
-    expect(p[3]).toBe('create');      // action
-    expect(p[4]).toBe('vendor');      // entity_type
-    expect(p[5]).toBe('v1');          // entity_id
-    const nuevos = String(p[7]);
+    expect(p[3]).toBe(ENTITY);         // legal_entity_id
+    expect(p[4]).toBe('create');      // action
+    expect(p[5]).toBe('vendor');      // entity_type
+    expect(p[6]).toBe('v1');          // entity_id
+    const nuevos = String(p[8]);
     expect(nuevos).not.toContain('012345678901234567');
     expect(nuevos).not.toContain('ENC');
     expect(nuevos).toContain('bank_details_on_file');
@@ -444,12 +445,13 @@ describe('updateVendor', () => {
 
   it('writes an audit row with before and after when a tenant is known', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', email: 'old@x' }] });
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', entity_id: 'e-1' }] });
     await updateVendor('v1', SCOPE, { email: 'new@x' }, { userId: USER, tenantId: TENANT, reason: 'por telefono' });
     expect(sql(2)).toMatch(/INSERT INTO audit_log/);
-    expect(params(2)[4]).toBe('{"email":"old@x"}');
-    expect(params(2)[5]).toBe('{"email":"new@x"}');
-    expect(params(2)[6]).toBe('por telefono');
+    expect(params(2)[3]).toBe('e-1'); // legal_entity_id
+    expect(params(2)[5]).toBe('{"email":"old@x"}');
+    expect(params(2)[6]).toBe('{"email":"new@x"}');
+    expect(params(2)[7]).toBe('por telefono');
   });
 
   it('skips the audit row when there is no tenant to attribute it to', async () => {

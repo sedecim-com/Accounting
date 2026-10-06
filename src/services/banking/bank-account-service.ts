@@ -945,6 +945,7 @@ export async function createBankAccount(
       // lo que la tabla cifra no viaje en claro al rastro.
       await registrarAuditoria(client, {
         tenantId: await tenantDe(client, entityId),
+        legalEntityId: entityId,
         userId: ctx.userId,
         action: 'create',
         entityType: 'bank_accounts',
@@ -1207,6 +1208,7 @@ export async function updateBankAccount(
 
       await registrarAuditoria(client, {
         tenantId: await tenantDe(client, entityId),
+        legalEntityId: entityId,
         userId: ctx.userId,
         action: 'update',
         entityType: 'bank_accounts',
@@ -1343,6 +1345,7 @@ export async function setBankGlMapping(
 
       await registrarAuditoria(client, {
         tenantId: await tenantDe(client, entityId),
+        legalEntityId: entityId,
         userId: ctx.userId,
         action: 'update',
         entityType: 'bank_accounts',

@@ -1199,6 +1199,7 @@ export async function importOpeningBalance(
     // se posteó, éste de qué archivo salió y con cuánto detalle de auxiliar.
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: opts.entityId,
       userId: opts.userId,
       action: 'create',
       entityType: 'opening_balance',
