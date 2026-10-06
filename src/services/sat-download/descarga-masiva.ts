@@ -40,7 +40,9 @@ export const SOLICITA_OPERATIONS: Readonly<Record<Direction, string>> = {
 const VERIFY_OPERATION = 'VerificaSolicitudDescarga';
 const DOWNLOAD_OPERATION = 'PeticionDescargaMasivaTercerosEntrada';
 const REQUEST_TIMEOUT_MS = 60_000;
-const OPEN_STATES = ['accepted', 'in_process'];
+export const OPEN_STATES = ['accepted', 'in_process'];
+/** The SAT answers 5002 to the third identical XML request of a period; migration 167 holds the same number in its CHECK. */
+export const LIFETIME_XML_LIMIT = 2;
 
 export interface BulkDownloadDeps extends SatAuthDeps {
   requestUrl?: string;
@@ -169,7 +171,7 @@ async function reserveXmlRequest(client: pg.PoolClient, ctx: SatAuthContext, k: 
 async function settleQuota(ctx: SatAuthContext, k: QuotaKey, action: 'release' | 'exhaust'): Promise<void> {
   const exhausted = action === 'exhaust';
   const r = await query(
-    `UPDATE sat_download_quota SET requests_made = ${exhausted ? '2' : 'requests_made - 1'}, last_at = NOW()
+    `UPDATE sat_download_quota SET requests_made = ${exhausted ? String(LIFETIME_XML_LIMIT) : 'requests_made - 1'}, last_at = NOW()
       WHERE ${QUOTA_WHERE} AND requests_made > 0`,
     quotaParams(ctx, k)
   );

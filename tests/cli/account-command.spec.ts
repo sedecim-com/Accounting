@@ -1,4 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Zone lookups read the policy panel; these specs mock the DB, so they get the default zone.
+vi.mock('../../src/services/policy/today.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/policy/today.js')>()),
+  zoneFor: vi.fn(async () => 'America/Mexico_City'),
+  zoneForEntity: vi.fn(async () => 'America/Mexico_City'),
+  todayFor: vi.fn(async () => '2026-10-31'),
+  todayForEntity: vi.fn(async () => '2026-10-31'),
+}));
 import { Command } from 'commander';
 import { registerAccountCommand, fechaDeCatalogo } from '../../src/cli/account-command.js';
 import { ExitCode } from '../../src/cli/kernel/index.js';
@@ -66,6 +75,10 @@ vi.mock('../../src/services/accounting/account-service.js', async (importOrigina
     mundo.ultimoMapeo = { id, scheme, value, userId, opts };
     return Promise.resolve({ id, code: 'A1' });
   },
+}));
+
+vi.mock('../../src/services/policy/today.js', () => ({
+  dayOrToday: (_ctx: unknown, day?: string) => Promise.resolve(day ?? '2026-06-30'),
 }));
 
 vi.mock('../../src/services/accounting/sat-agrupadores.js', () => ({

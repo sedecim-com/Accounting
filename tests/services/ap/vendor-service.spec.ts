@@ -349,19 +349,19 @@ describe('createVendor', () => {
   const base = { entity_id: ENTITY, company_name: 'Proveedor Uno', created_by: USER };
 
   it('keeps the route defaults: Net 30, USD, not a 1099 vendor', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ value: '1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [] }); // G3: el INSERT del rastro
     await createVendor(base);
     const p = params(1);
-    expect(p[2]).toBe('V-2026-00001'); // vendor_number, drawn from COUNT(*)
+    expect(p[2]).toBe('V-2026-00001'); // vendor_number, drawn from the entity counter
     expect(p[7]).toBe(false); // is_1099_vendor
     expect(p[10]).toBe('Net 30');
     expect(p[12]).toBe('USD');
   });
 
   it('encrypts bank details rather than storing them in the clear', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ value: '1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await createVendor({ ...base, clabe: '012345678901234567' });
@@ -372,7 +372,7 @@ describe('createVendor', () => {
   // G3: el alta deja rastro, en la MISMA transacción, y sin llevarse los
   // secretos bancarios a una tabla de sólo agregar.
   it('writes an audit row in the same transaction, without the bank secrets', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ value: '1' }] });
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: 'v1', company_name: 'Proveedor Uno', clabe_encrypted: 'ENC' }],
     });
@@ -394,8 +394,8 @@ describe('createVendor', () => {
     expect(nuevos).toContain('bank_details_on_file');
   });
 
-  it('turns the unique-violation the COUNT(*) numbering can cause into a named conflict', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ count: '4' }] });
+  it('turns a unique-violation on a hand-set vendor number into a named conflict', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ value: '5' }] });
     mockQuery.mockRejectedValueOnce(Object.assign(new Error('duplicate key'), { code: '23505' }));
     const error = await createVendor(base).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ConflictError);
@@ -404,13 +404,13 @@ describe('createVendor', () => {
   });
 
   it('lets any other database error through untranslated', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ value: '1' }] });
     mockQuery.mockRejectedValueOnce(Object.assign(new Error('connection lost'), { code: '08006' }));
     await expect(createVendor(base)).rejects.toThrow(/connection lost/);
   });
 
   it('redacts the bank blobs from what it returns, unless asked', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ value: '1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', clabe_encrypted: 'ENC' }] });
     mockQuery.mockResolvedValueOnce({ rows: [] });
     expect(await createVendor(base)).not.toHaveProperty('clabe_encrypted');

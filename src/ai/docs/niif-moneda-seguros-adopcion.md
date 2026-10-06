@@ -145,7 +145,7 @@ Norma provisional que permite, solo a los adoptantes por primera vez de las NIIF
 
 ## NIIF 20 / IFRS 20 — Activos Regulatorios y Pasivos Regulatorios
 
-**Vigencia:** emitida por el IASB el 27-may-2026; obligatoria para periodos anuales que inicien el 1-ene-2029, con adopción anticipada permitida; sustituirá a la NIIF 14 desde su vigencia.
+**Vigencia:** emitida por el IASB el 27-may-2026; obligatoria para periodos anuales que inicien el 1-ene-2029, con adopción anticipada permitida; sustituirá a la NIIF 14 desde su vigencia. Complementa a la NIIF 15; fuentes oficiales: noticia de emisión, página del proyecto concluido y materiales de apoyo de ifrs.org (la norma aún no tiene página en la lista de normas emitidas).
 
 Obliga a las entidades sujetas a regulación tarifaria a reconocer activos regulatorios y pasivos regulatorios por las diferencias temporales entre la contraprestación permitida por el regulador y el ingreso reconocido bajo NIIF 15, corrigiendo la asimetría que la NIIF 14 (limitada a adoptantes por primera vez) dejaba abierta.
 

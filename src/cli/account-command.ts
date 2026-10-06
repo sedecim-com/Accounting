@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { dayOrToday } from '../services/policy/today.js';
 import { bootstrapTenant } from '../ai/context.js';
 import * as fs from 'node:fs';
 import {
@@ -738,7 +739,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
         if (opts.scheme === 'sat-agrupador' && valor !== null) {
           const ctxVal = await prepararValidacionAgrupador(
             { tenantId: ctx.tenantId, entityId: ctx.entityId },
-            fecha ?? new Date().toISOString().slice(0, 10)
+            await dayOrToday({ tenantId: ctx.tenantId, entityId: ctx.entityId }, fecha)
           );
           // Revienta igual que reventaría la escritura: un ensayo que sale 0
           // sobre un código que el sistema va a rechazar es peor que no tenerlo.

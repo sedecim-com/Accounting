@@ -3,7 +3,7 @@ import { query, withTransaction } from '../../database/connection.js';
 import { findByIdInScope, requireByIdInScope, type Scope } from '../../database/scope.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
 import { encrypt } from '../../utils/encryption.js';
-import { generateEntryNumber } from '../../utils/sequence.js';
+import { nextVendorNumber } from '../../utils/sequence.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import type { Vendor } from '../../types/index.js';
 
@@ -17,9 +17,9 @@ import type { Vendor } from '../../types/index.js';
 // only express as a raw constraint failure or not at all:
 //
 //   - UNIQUE(vendor_number, entity_id) becomes a named conflict.
-//     It is reachable: vendor_number is drawn from COUNT(*)
-//     (generateEntryNumber, deprecated for exactly this reason),
-//     so two concurrent creates draw the same number.
+//     It was reachable while vendor_number was drawn from COUNT(*);
+//     the number now comes from the entity counter (nextVendorNumber),
+//     so the conflict is only a defence for a hand-set number.
 //   - THE TAX ID IS VALIDATED BY COUNTRY. An RFC and an EIN are
 //     not interchangeable strings: the RFC is what matches a
 //     received CFDI to this vendor and what the DIOT is filed
@@ -442,11 +442,7 @@ export async function createVendor(
   // de alta sin dejar quién lo hizo es el hueco que el argumento de venta de
   // mnemosine no puede permitirse.
   const row = await withTransaction(async (client) => {
-    const countResult = await client.query<{ count: string }>(
-      'SELECT COUNT(*) as count FROM vendors WHERE entity_id = $1',
-      [input.entity_id]
-    );
-    const vendorNumber = generateEntryNumber('V', parseInt(countResult.rows[0].count, 10));
+    const vendorNumber = await nextVendorNumber(client, input.entity_id);
 
     let result;
     try {

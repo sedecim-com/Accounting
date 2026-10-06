@@ -4,7 +4,14 @@ vi.mock('../../src/database/connection.js', () => ({ query: vi.fn(), currentTena
 vi.mock('../../src/ai/shadow-verdicts.js', () => ({ concordanciaSombra: vi.fn() }));
 
 import { calendarDateIn, assertTimeZone } from '../../src/utils/calendar-date.js';
-import { todayFor, todayForEntity, todayForCustomer } from '../../src/services/policy/today.js';
+import {
+  todayFor,
+  dayOrToday,
+  todayForEntity,
+  todayForCustomer,
+  zoneFor,
+  zoneForEntity,
+} from '../../src/services/policy/today.js';
 import { resolvePolicy } from '../../src/services/policy/policy-service.js';
 import { getPolicySpec } from '../../src/services/policy/pending-catalog.js';
 import { getTaxParameters } from '../../src/services/payroll/tax-engine/tax-tables.js';
@@ -119,6 +126,18 @@ describe('todayFor: the one resolver reads zona_horaria', () => {
     ).rejects.toThrow(/not a time zone/);
   });
 
+  it('dayOrToday: a named day wins without asking the resolver; otherwise the entity day (MNE-001-379)', async () => {
+    process.env.TZ = 'UTC';
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(EVENING_IN_MEXICO_CITY);
+    const ctx = { tenantId: 't1', entityId: 'e1' };
+    await expect(dayOrToday(ctx, '2025-12-31')).resolves.toBe('2025-12-31');
+    expect(mockQuery).not.toHaveBeenCalled();
+    await expect(dayOrToday(ctx)).resolves.toBe('2026-10-31');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
   it('with no entity in hand it answers with the panel\'s declared default', async () => {
     await expect(todayFor(null, { now: EVENING_IN_MEXICO_CITY })).resolves.toBe('2026-10-31');
     expect(mockQuery).not.toHaveBeenCalled();
@@ -201,5 +220,57 @@ describe('the "today" fallback of getTaxParameters goes through the resolver', (
     await getTaxParameters('MX-TZ-TEST', 2026);
     const [, params] = mockQuery.mock.calls[0] as [string, unknown[]];
     expect(params).toEqual(['MX-TZ-TEST', '2026-10-31']);
+  });
+});
+
+describe('zoneFor and zoneForEntity: the zone itself, for renderers (MNE-001-290)', () => {
+  const mockTenant = currentTenant as unknown as Mock;
+  const answer = (value: string, entityId: string | null) => ({
+    rows: [{
+      key: 'zona_horaria', status: 'resolved', resolved_value: value,
+      question: '', impact: '', options: [], default_rationale: null,
+      resolution_notes: null, entity_id: entityId, jurisdiction: null,
+    }],
+    rowCount: 1,
+  });
+  const ctx = { tenantId: 't1', entityId: 'e1' };
+
+  beforeEach(() => mockTenant.mockReset());
+
+  it('the entity row, the firm row and no row give three different zones', async () => {
+    mockQuery.mockResolvedValueOnce(answer('Asia/Tokyo', 'e1'));
+    await expect(zoneFor(ctx)).resolves.toBe('Asia/Tokyo');
+    mockQuery.mockResolvedValueOnce(answer('America/Tijuana', null));
+    await expect(zoneFor(ctx)).resolves.toBe('America/Tijuana');
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await expect(zoneFor(ctx)).resolves.toBe('America/Mexico_City');
+  });
+
+  it('with no context it is the panel default and reads nothing', async () => {
+    await expect(zoneFor(null)).resolves.toBe('America/Mexico_City');
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it("reads inside the caller's transaction when given its client", async () => {
+    const client = { query: vi.fn().mockResolvedValue(answer('Asia/Tokyo', 'e1')) };
+    await expect(zoneFor(ctx, client as never)).resolves.toBe('Asia/Tokyo');
+    expect(client.query).toHaveBeenCalledTimes(1);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it("zoneForEntity uses the request's tenant and returns the entity's own zone", async () => {
+    mockTenant.mockReturnValue('t-ctx');
+    mockQuery.mockResolvedValueOnce(answer('Asia/Tokyo', 'e1'));
+    await expect(zoneForEntity('e1')).resolves.toBe('Asia/Tokyo');
+    expect((mockQuery.mock.calls[0] as [string, unknown[]])[1]).toEqual(['t-ctx', 'zona_horaria', 'e1', null]);
+  });
+
+  it('zoneForEntity finds the tenant from the entity row, and falls back to the default for a ghost', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ tenant_id: 't-row' }], rowCount: 1 })
+      .mockResolvedValueOnce(answer('America/Tijuana', null));
+    await expect(zoneForEntity('e1')).resolves.toBe('America/Tijuana');
+    mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+    await expect(zoneForEntity('ghost')).resolves.toBe('America/Mexico_City');
   });
 });

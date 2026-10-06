@@ -26,6 +26,7 @@ import { ivaToReclassify, entityUsesCashBasisIva } from '../accounting/iva-cash-
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
+import { billsDecidedByIngestion, cashLimitFinding, type CashDeductibilityFinding } from '../ap/cash-deductibility.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
 
@@ -233,6 +234,11 @@ export interface ResultadoPago {
    * diferencia cambiaria REALIZADA que el pago asentó, y con qué tasa.
    */
   diferenciaCambiaria?: (DiferenciaCambiaria & { tasaPago: string; fuente: string }) | null;
+  /**
+   * MNE-001-345 · vendor side: LISR art. 27 fr. III signals (cash above the
+   * limit in force on the payment date). Informative; the entry is unchanged.
+   */
+  deductibilityFindings?: CashDeductibilityFinding[];
 }
 
 export interface OpcionesPago {
@@ -639,6 +645,29 @@ export async function recordVendorPayment(
       ? { ...entry.realisedFx, tasaPago: fx.tasaPago, fuente: fx.fuenteTasa }
       : null;
 
+    // MNE-001-345 · LISR 27-III: cash above the limit IN FORCE ON THE PAYMENT
+    // DATE. Only when the method is cash, so other payments never read the law.
+    // A pure advance (no applications) is a cash payment on a payment date too:
+    // it is judged in the vendor's currency. A bill the ingestion already asked
+    // the cash question for is left out: that answer is the human decision.
+    let deductibilityFindings: CashDeductibilityFinding[] = [];
+    if (entrada.paymentMethod === 'cash') {
+      const decided = await billsDecidedByIngestion(client, entrada.entityId, documentos.map((d) => d.id));
+      const judged = documentos.filter((d) => !decided.has(d.id));
+      if (documentos.length === 0 || judged.length > 0) {
+        deductibilityFindings = await cashLimitFinding(client, {
+          entityId: entrada.entityId,
+          billNumber: documentos.length === 0 ? paymentNumber : judged.map((d) => d.numero).join(', '),
+          amount: entrada.paymentAmount,
+          currency: vendorAdvanceCurrency ?? currencyOf(documentos),
+          onDate: toCalendarDate(entrada.paymentDate),
+          source: 'vendor_payment',
+          billIds: judged.map((d) => d.id),
+          proposeDrafts: !opts.dryRun,
+        });
+      }
+    }
+
     // R1: el pago deja su rastro propio — antes sólo el asiento derivado
     // quedaba auditado, y «quién registró el pago» no estaba en el rastro.
     await registrarAuditoria(client, {
@@ -653,6 +682,7 @@ export async function recordVendorPayment(
         payment_amount: entrada.paymentAmount,
         journal_entry_id: entry?.id ?? null,
         documentos: documentos.length,
+        ...(deductibilityFindings.length > 0 ? { cash_over_limit_findings: deductibilityFindings.map((x) => x.code) } : {}),
         // R4 · el pago en extranjera deja en su rastro la diferencia que
         // realizó y la tasa con la que la midió: es la única huella de por
         // qué el efectivo en funcional no coincide con el pasivo extinguido.
@@ -674,6 +704,7 @@ export async function recordVendorPayment(
         attestation: entry ? { entityId: entrada.entityId, entryId: entry.id } : null,
         documentos,
         diferenciaCambiaria: diferencia,
+        deductibilityFindings,
       });
     }
 
@@ -682,6 +713,7 @@ export async function recordVendorPayment(
       attestation: entry ? { entityId: entrada.entityId, entryId: entry.id } : null,
       documentos,
       diferenciaCambiaria: diferencia,
+      deductibilityFindings,
     };
   };
 

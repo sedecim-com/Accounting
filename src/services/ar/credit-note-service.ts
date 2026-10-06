@@ -5,7 +5,8 @@ import { query, withTransaction } from '../../database/connection.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { postCreditNoteEntry } from '../accounting/ar-ap-posting.js';
 import { resolveInvoiceMetodoPago, entityUsesCashBasisIva } from '../accounting/iva-cash-basis.js';
-import { NotFoundError, ValidationError } from '../../utils/errors.js';
+import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { functionalCurrencyOf } from '../accounting/moneda-origen.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import type { JournalEntry } from '../../types/index.js';
 import { CREDIT_NOTE_TYPES } from '../../database/enums.js';
@@ -368,6 +369,20 @@ export async function issueCreditNote(
       );
     }
 
+    // MNE-001-112 · FAIL CLOSED: postCreditNoteEntry does not convert yet, so
+    // a USD 100 note would credit receivables with MXN 100 while applying it
+    // lowers the invoice's book value at its rate (USD 100 × 17.50). Until the
+    // note converts at birth, as the invoice does, it is refused rather than
+    // posted wrong: the same stance as FX_AR_NOT_WIRED before MNE-001-081.
+    const functional = await functionalCurrencyOf(client, entityId);
+    if (nota.currency_code !== functional) {
+      throw new AccountingError(
+        'FX_CREDIT_NOTE_NOT_WIRED',
+        `Credit note ${nota.credit_note_number} is in ${nota.currency_code} and the functional currency is ` +
+          `${functional}: a foreign-currency note is not converted when issued yet, and posting it ` +
+          `unconverted would unbalance receivables. Nothing was posted.`
+      );
+    }
     const entry = await postCreditNoteEntry(client, nota, userId);
     await client.query(
       `UPDATE credit_notes SET status = 'issued', updated_at = NOW() WHERE id = $1`,
