@@ -903,6 +903,7 @@ export async function importSatChart(
       // por otra conexión y un fallo entre ambos dejaría uno sin el otro.
       await registrarAuditoria(client, {
         tenantId,
+        legalEntityId: opts.entityId,
         userId: opts.userId,
         action: 'create',
         entityType: 'account',

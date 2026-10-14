@@ -299,6 +299,7 @@ export async function createAccount(input: CreateAccountInput): Promise<Account>
     const cuenta = result.rows[0];
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, input.entity_id),
+      legalEntityId: input.entity_id,
       userId: input.created_by,
       action: 'create',
       entityType: 'account',
@@ -398,6 +399,7 @@ export async function updateAccount(
     // haría ilegible la pregunta que el rastro contesta: qué cambió.
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, previa.entity_id as string),
+      legalEntityId: previa.entity_id as string,
       userId,
       action: 'update',
       entityType: 'account',
@@ -523,6 +525,7 @@ export async function deactivateAccount(
     // por la vía de `--force`, sin recalcular nada seis meses después.
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, previa.entity_id),
+      legalEntityId: previa.entity_id,
       userId,
       action: 'update',
       entityType: 'account',
@@ -629,6 +632,7 @@ export async function setAccountGovernance(
     const despues = result.rows[0] as unknown as Record<string, unknown>;
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, cuenta.entity_id),
+      legalEntityId: cuenta.entity_id,
       userId,
       action: 'update',
       entityType: 'account',

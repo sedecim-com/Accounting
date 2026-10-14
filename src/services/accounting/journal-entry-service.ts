@@ -831,6 +831,7 @@ export async function updateDraftEntry(
     );
     await registrarAuditoria(client, {
       tenantId: tenantRow.rows[0].tenant_id,
+      legalEntityId: entityId,
       userId,
       action: 'update',
       entityType: 'journal_entries',

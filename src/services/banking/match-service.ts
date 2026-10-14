@@ -1439,6 +1439,7 @@ async function escribirCotejos(
     if (aplicados.length > 0) {
       await registrarAuditoria(client, {
         tenantId: await tenantDe(client, entityId),
+        legalEntityId: entityId,
         userId: ctx.userId,
         action: 'create',
         entityType: 'reconciliation_matches',
@@ -1692,6 +1693,7 @@ export async function crearGrupoDeCotejo(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId: ctx.userId,
       action: 'create',
       entityType: 'reconciliation_match_groups',
@@ -1860,6 +1862,7 @@ export async function desaplicarCotejo(
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
       userId: ctx.userId,
       action: 'update',
       entityType: 'reconciliation_matches',

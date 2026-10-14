@@ -130,6 +130,7 @@ export async function createTenant(input: CreateTenantInput): Promise<CreateTena
     const createdBy = await ensureSystemUser(client, tenantId);
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: null,
       userId: createdBy,
       action: 'create',
       entityType: 'tenants',

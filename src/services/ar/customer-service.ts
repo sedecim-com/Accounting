@@ -534,6 +534,7 @@ export async function updateCustomer(
     if (r.rows.length === 0) throw new NotFoundError('Customer', id);
     await registrarAuditoria(client, {
       tenantId: audit.tenantId,
+      legalEntityId: r.rows[0].entity_id,
       userId: audit.userId,
       action: audit.action ?? 'update',
       entityType: 'customers',
@@ -741,12 +742,12 @@ export async function setCustomerTaxProfile(
   const alcance = await condicionDeAlcance('customers', scope, 2);
   return withTransaction(async (client) => {
     const previo = await client.query<{
-      id: string; customer_number: string; company_name: string | null;
+      id: string; entity_id: string; customer_number: string; company_name: string | null;
       first_name: string | null; last_name: string | null;
       tax_id: string | null; tax_id_type: string | null; tax_regime: string | null;
       tax_postal_code: string | null; uso_cfdi: string | null;
     }>(
-      `SELECT id, customer_number, company_name, first_name, last_name,
+      `SELECT id, entity_id, customer_number, company_name, first_name, last_name,
               tax_id, tax_id_type, tax_regime, tax_postal_code, uso_cfdi
          FROM customers WHERE id = $1 AND ${alcance.sql} FOR UPDATE`,
       [id, alcance.valor]
@@ -764,6 +765,7 @@ export async function setCustomerTaxProfile(
 
     await registrarAuditoria(client, {
       tenantId: audit.tenantId,
+      legalEntityId: antes.entity_id,
       userId: audit.userId,
       action: 'update',
       entityType: 'customers',

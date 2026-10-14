@@ -289,6 +289,7 @@ export async function reopenClosedPeriod(
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'reopen',
       entityType: 'fiscal_period',
@@ -356,6 +357,7 @@ export async function restorePeriodStatus(
 
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
+      legalEntityId: entityId,
       userId,
       action: 'close',
       entityType: 'fiscal_period',
@@ -424,9 +426,10 @@ export async function openPeriod(
     );
 
     await client.query(
-      `INSERT INTO audit_log (id, user_id, tenant_id, action, entity_type, entity_id, old_values, new_values, reason)
+      `INSERT INTO audit_log (id, user_id, tenant_id, legal_entity_id, action, entity_type, entity_id, old_values, new_values, reason)
        VALUES (uuid_generate_v4(), $1,
                COALESCE($2::uuid, (SELECT tenant_id FROM legal_entities WHERE id = $3)),
+               $3,
                'update', 'fiscal_period', $4, $5, $6, $7)`,
       [
         userId,

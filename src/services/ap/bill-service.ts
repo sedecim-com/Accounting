@@ -577,6 +577,7 @@ export async function approveBill(
       // sólo el asiento derivado quedaba auditado.
       await registrarAuditoria(client, {
         tenantId: await tenantDe(client, approved.entity_id),
+        legalEntityId: approved.entity_id,
         userId,
         action: 'approve',
         entityType: 'bills',

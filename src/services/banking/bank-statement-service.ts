@@ -684,6 +684,7 @@ export async function importarEstadoDeCuenta(
 
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entrada.entityId,
       userId: entrada.userId,
       action: 'create',
       entityType: 'bank_statements',
