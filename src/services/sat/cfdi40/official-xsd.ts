@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
+import { xsdVerdictOf, type XsdVerdict } from '../xsd-verdict.js';
 
 // ============================================================
 // Validation against the SAT's official CFDI 4.0 XSD (#105 · MNE-001-295).
@@ -19,15 +20,8 @@ export const CFDI40_XSD_ROOT = path.join(__dirname, 'xsd');
 export const CFDI40_XSD_CATALOG = path.join(CFDI40_XSD_ROOT, 'catalog.xml');
 export const CFDI40_SCHEMA = path.join(CFDI40_XSD_ROOT, 'cfd', '4', 'cfdv40.xsd');
 
-export interface Cfdi40Verdict {
-  valid: boolean;
-  /** xmllint's own lines, one per violation, with the stdin marker removed. */
-  errors: string[];
-}
-
-// 0 valid, 1 not well-formed, 3 does not validate. Anything else (5: a schema
-// failed to compile) is a broken setup, not a verdict on the document.
-const VERDICT_EXIT_CODES = new Set([0, 1, 3]);
+/** The verdict of the shared reader of xmllint's exit code (../xsd-verdict.ts). */
+export type Cfdi40Verdict = XsdVerdict;
 
 export function validateAgainstCfdi40Xsd(xml: string): Cfdi40Verdict {
   const run = spawnSync('xmllint', ['--nonet', '--noout', '--schema', CFDI40_SCHEMA, '-'], {
@@ -42,12 +36,5 @@ export function validateAgainstCfdi40Xsd(xml: string): Cfdi40Verdict {
         `(Homebrew): the CFDI is checked against the SAT's official XSD.`
     );
   }
-  if (run.status === null || !VERDICT_EXIT_CODES.has(run.status)) {
-    throw new Error(`xmllint exited with ${String(run.status)}; this is a setup problem:\n${run.stderr}`);
-  }
-  const errors = run.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('-:'))
-    .map((line) => line.replace(/^-:/, 'line '));
-  return { valid: run.status === 0, errors };
+  return xsdVerdictOf(run);
 }
