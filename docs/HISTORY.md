@@ -14,8 +14,8 @@ Este documento reconstruye, **verificado contra `git log` y contra `gh pr view` 
 
 **Censo, medido sobre el árbol** (`npm run historial:estado`):
 
-- **315** PRs registrados aquí.
-- El más alto registrado es el **#568**.
+- **317** PRs registrados aquí.
+- El más alto registrado es el **#571**.
 - **13** commits directos a `main`, de antes del flujo por PR (la fila «—» del Sprint 1).
 
 CI lo verifica con `--check`, que falla cuando un PR lleva más de **7 días** fusionado sin aparecer aquí. La gracia existe para que una fusión no ponga en rojo los demás PRs abiertos; el techo, para que el documento no pueda pudrirse.
@@ -469,6 +469,14 @@ Fuente: **verificado** contra `git log --first-parent` de `develop`. Fecha de fu
 | [#566](https://github.com/sedecim-com/Accounting/pull/566) | MNE-001-191: Spanish twins for cli-command-registry and harness-best-practices | 2026-10-01 | MNE-001-191 | squash `6f3e52f`. |
 | [#568](https://github.com/sedecim-com/Accounting/pull/568) | MNE-001-060: filing workpaper generate, with every line traced to its entries | 2026-10-01 | MNE-001-060 | squash `25d2fc3`. |
 | [#558](https://github.com/sedecim-com/Accounting/pull/558) | MNE-001-379: SAT grouping code is validated on the zona_horaria day | 2026-10-06 | MNE-001-379 | squash `ba752f4`. |
+
+## 6 al 14 de octubre — el historial se pone al día, y la bitácora sabe de qué entidad habla
+Fuente: **verificado** contra `git log --first-parent` de `develop`. Fecha de fusión en UTC. Filas escritas por la sesión que fusionó los dos PRs, sin escéptico independiente.
+
+| PR | Título | Merge | Tramos que incluye | Notas |
+|---|---|---|---|---|
+| [#571](https://github.com/sedecim-com/Accounting/pull/571) | History: the rows of the 146 PRs merged from September 27 to October 6 | 2026-10-06 | — | squash `66e71f6`. Las filas mecánicas de 146 PRs, generadas de `git log --first-parent`; `Estado del plan` llevaba en rojo en todo PR desde que 40 de ellos cumplieron siete días sin fila. |
+| [#567](https://github.com/sedecim-com/Accounting/pull/567) | MNE-001-287: audit_log records the legal entity and invoice series check scopes by it | 2026-10-14 | MNE-001-287 | squash `6650ec4`. Parte de #103. La migración 324 añade `audit_log.legal_entity_id` (nullable, sin backfill: la tabla es de sólo anexar) y cada llamada a `registrarAuditoria` la declara; `invoice series check` sólo explica un hueco de folio con un borrado de la misma entidad, y las filas anteriores a la 324 se atribuyen por el cliente del documento. |
 
 ## Sin sprint / no clasificado
 
