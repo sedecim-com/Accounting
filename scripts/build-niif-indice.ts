@@ -44,6 +44,8 @@ const GROUP_ORDER = [
   ['niif-interpretaciones', 'Interpretaciones CINIIF/SIC'],
   ['niif-pymes-convergencia', 'PyMEs y convergencia NIF'],
   ['niif-indice', 'Guía no obligatoria (Practice Statements)'],
+  ['nif-marco', 'NIF mexicanas de la serie A'],
+  ['nif-registro', 'Orientaciones a las NIF (ONIF)'],
 ] as const;
 
 /** First sentence-ish fragment, capped, pipe-safe for the table cell. */
@@ -51,6 +53,31 @@ function effectiveSummary(effective: string): string {
   const firstSentence = effective.split(/(?<=\.)\s/)[0] ?? effective;
   const capped = firstSentence.length > 110 ? `${firstSentence.slice(0, 107)}…` : firstSentence;
   return capped.replace(/\|/g, '/');
+}
+
+/**
+ * Whole calendar months from `verifiedAt` (YYYY-MM-DD) to `now`. A day not yet
+ * reached in the current month does not count as a full month.
+ */
+export function monthsSince(verifiedAt: string, now: Date): number {
+  const [y, m, d] = verifiedAt.split('-').map(Number) as [number, number, number];
+  let months = (now.getUTCFullYear() - y) * 12 + (now.getUTCMonth() + 1 - m);
+  if (now.getUTCDate() < d) months -= 1;
+  return months;
+}
+
+/**
+ * Freshness guard for the registry's verified_at: null when it is fresh, else
+ * the reason it is not. Rejects a malformed or future date (a future date would
+ * otherwise read as negative months and pass forever).
+ */
+export function freshnessProblem(verifiedAt: string, now: Date, maxMonths: number): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(verifiedAt) || Number.isNaN(Date.parse(verifiedAt))) {
+    return `verified_at "${verifiedAt}" is not a YYYY-MM-DD date`;
+  }
+  if (Date.parse(verifiedAt) > now.getTime()) return `verified_at ${verifiedAt} is in the future`;
+  const age = monthsSince(verifiedAt, now);
+  return age > maxMonths ? `verified_at ${verifiedAt} is ${age} months old; max ${maxMonths}` : null;
 }
 
 export function buildRegistryBlock(registry: Registry): string {

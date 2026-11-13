@@ -43,6 +43,7 @@ function paycheckWith(earnings: EarningRow[]): void {
           emp_nss: null, emp_number: 'E1', tipo_regimen_sat: '02', tipo_contrato_sat: '01',
           tipo_jornada_sat: '01', riesgo_puesto: '01', puesto: null, hire_date: '2024-01-01',
           entity_tax_id: 'AAA010101AAA', entity_name: 'Empresa',
+          run_type: 'regular', pay_frequency: 'quincenal',
         }],
       };
     }

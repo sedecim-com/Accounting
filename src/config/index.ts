@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { envFileCandidates } from './env-file.js';
 
 // `quiet` NO es cosmética: desde dotenv 17 la carga IMPRIME en stdout
 // —«injected env (N) from .env // tip: … dotenv[x].com»—, y la salida de este
@@ -6,7 +7,7 @@ import dotenv from 'dotenv';
 // `tests/cli/codigos-de-salida.spec.ts` genera ejecutando el binario, porque el
 // anuncio salía mezclado con el bash. Un CLI cuya salida es su producto no
 // puede llevar publicidad dentro.
-dotenv.config({ quiet: true });
+dotenv.config({ path: envFileCandidates(process.cwd()), quiet: true });
 
 // ============================================================
 // DEVELOPMENT DEFAULTS FOR SECRETS
@@ -175,6 +176,17 @@ export const config = {
     descargaMasivaAuthUrl:
       process.env.SAT_DESCARGA_AUTH_URL ||
       'https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/Autenticacion/Autenticacion.svc',
+    // EFIRMA-2 (#440): request, verification and download. In config because
+    // the SAT has moved them before (v1.5 moved them to clouda.sat.gob.mx).
+    descargaMasivaSolicitaUrl:
+      process.env.SAT_DESCARGA_SOLICITA_URL ||
+      'https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/SolicitaDescargaService.svc',
+    descargaMasivaVerificaUrl:
+      process.env.SAT_DESCARGA_VERIFICA_URL ||
+      'https://cfdidescargamasivasolicitud.clouda.sat.gob.mx/VerificaSolicitudDescargaService.svc',
+    descargaMasivaDescargaUrl:
+      process.env.SAT_DESCARGA_DESCARGA_URL ||
+      'https://cfdidescargamasiva.clouda.sat.gob.mx/DescargaMasivaService.svc',
   },
 } as const;
 

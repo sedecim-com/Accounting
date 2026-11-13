@@ -29,6 +29,9 @@ import {
   withContext,
   withOutput,
   withStrict,
+  describeCommand,
+  describeOption,
+  optionByKey,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -478,11 +481,8 @@ export function registerDiotCommand(program: Command, deps: DiotCommandDeps): vo
   // Sin `.alias()`: `diot` es la misma palabra en los dos idiomas y el
   // registro la conserva sin traducir, como `cfdi`, `rep` y `sat`. Los
   // VERBOS sí llevan su alias español.
-  const familia = program
-    .command('diot')
-    .description(
-      'Mexican DIOT: build the month from paid transactions, check it, and export the working paper'
-    );
+  // Help by key (#314): help.diot.<leaf>.{description,option.<flag>}.
+  const familia = describeCommand(program.command('diot'), 'help.diot.description');
 
   const run = async (fn: () => Promise<ExitCodeValue | void>): Promise<void> => {
     try {
@@ -610,15 +610,10 @@ Examples:
   // ==========================================================
   // diot generate · diot generar
   // ==========================================================
-  const generar = familia
-    .command('generate')
-    .alias('generar')
-    .description(
-      "Build the month's DIOT from paid transactions, broken down by third party and by rate"
-    );
+  const generar = describeCommand(familia.command('generate').alias('generar'), 'help.diot.generate.description');
   withContext(generar);
   withOutput(generar);
-  generar.option('--period <YYYY-MM>', 'month to declare (the DIOT is monthly; no month 13)');
+  optionByKey(generar, '--period <YYYY-MM>', 'help.diot.generate.option.period');
   avisoDeAyuda(generar);
   // LECTURA, y la fila del catálogo dice `escritura`: ver la primera decisión
   // de la cabecera. Con lo que hay hoy esta hoja no escribe una sola fila.
@@ -672,21 +667,12 @@ Examples:
   // ==========================================================
   // diot check · diot verificar
   // ==========================================================
-  const verificar = familia
-    .command('check')
-    .alias('verificar')
-    .description(
-      'Run the DIOT invariants by name: the paid fact, the rate breakdown, the exempt base, the third party and its operation type'
-    );
+  const verificar = describeCommand(familia.command('check').alias('verificar'), 'help.diot.check.description');
   withContext(verificar);
   withOutput(verificar);
   withStrict(verificar);
-  verificar
-    .option('--period <YYYY-MM>', 'month to check (the DIOT is monthly; no month 13)')
-    .option(
-      '--check [names]',
-      'comma-separated check names; with no value, prints the available ones'
-    );
+  optionByKey(verificar, '--period <YYYY-MM>', 'help.diot.check.option.period');
+  optionByKey(verificar, '--check [names]', 'help.diot.check.option.check');
   verificar.addHelpText(
     'after',
     '\nWhat this does NOT check, and why it is not silently missing:\n' +
@@ -775,22 +761,14 @@ Examples:
   // ==========================================================
   // diot export · diot exportar
   // ==========================================================
-  const exportar = familia
-    .command('export')
-    .alias('exportar')
-    .description(
-      'Emit the DIOT file, byte-stable for diffing: the working paper, or the SAT batch file to upload'
-    );
+  const exportar = describeCommand(familia.command('export').alias('exportar'), 'help.diot.export.description');
   withContext(exportar);
   withOutput(exportar);
-  exportar
-    .option('--period <YYYY-MM>', 'month to export (the DIOT is monthly; no month 13)')
-    .option(
-      `--layout <${Object.keys(LAYOUTS).join('|')}>`,
-      'file layout: working-paper is the per-third-party reconciliation; sat is the authority batch file',
-      LAYOUT_POR_OMISION
-    )
-    .option('-y, --yes', 'skip the overwrite prompt when -o names an existing file');
+  optionByKey(exportar, '--period <YYYY-MM>', 'help.diot.export.option.period');
+  optionByKey(exportar, `--layout <${Object.keys(LAYOUTS).join('|')}>`, 'help.diot.export.option.layout', {
+    defaultValue: LAYOUT_POR_OMISION,
+  });
+  optionByKey(exportar, '-y, --yes', 'help.diot.export.option.yes');
   // `-o` aquí nombra el ARCHIVO EXPORTADO, no la salida renderizada. La
   // descripción que inyecta `withOutput` dice lo contrario, y una ayuda que
   // promete algo distinto de lo que el código hace es la clase de mentira que
@@ -798,10 +776,7 @@ Examples:
   // grafía y la forma corta las sigue gobernando el diccionario.
   {
     const opcion = exportar.options.find((o) => o.long === '--output');
-    if (opcion) {
-      opcion.description =
-        'write the exported file to this path (without it, the file goes to stdout so it can be diffed)';
-    }
+    if (opcion) describeOption(opcion, 'help.diot.export.option.output');
   }
   avisoDeAyuda(exportar);
   // LECTURA: arma la declaración y la escribe DONDE EL USUARIO PIDIÓ. No

@@ -198,11 +198,12 @@ describe('createAccount', () => {
     const p = params(2);
     expect(p[1]).toBe(USER);
     expect(p[2]).toBe('tenant-1');
-    expect(p[3]).toBe('create');
-    expect(p[4]).toBe('account');
-    expect(p[5]).toBe('new');
-    expect(p[6]).toBeNull();                 // old_values: no había antes
-    expect(String(p[7])).toContain('"code":"5100"');
+    expect(p[3]).toBe(ENTITY);               // legal_entity_id
+    expect(p[4]).toBe('create');
+    expect(p[5]).toBe('account');
+    expect(p[6]).toBe('new');
+    expect(p[7]).toBeNull();                 // old_values: no había antes
+    expect(String(p[8])).toContain('"code":"5100"');
   });
 });
 
@@ -271,9 +272,9 @@ describe('updateAccount', () => {
 
     expect(sql(2)).toMatch(/INSERT INTO audit_log/);
     const p = params(2);
-    expect(JSON.parse(String(p[6]))).toEqual({ name: 'Viejo' });
-    expect(JSON.parse(String(p[7]))).toEqual({ name: 'Nuevo' });
-    expect(p[8]).toBe('error de captura');
+    expect(JSON.parse(String(p[7]))).toEqual({ name: 'Viejo' });
+    expect(JSON.parse(String(p[8]))).toEqual({ name: 'Nuevo' });
+    expect(p[9]).toBe('error de captura');
   });
 });
 
@@ -348,7 +349,7 @@ describe('deactivateAccount — retiring is not deleting', () => {
     expect(sql(4)).not.toMatch(/DELETE/i);
     // Y el rastro llama al acto 'update', no 'delete': archivar no borra, y
     // un lector que filtre por acción no puede leer una cosa por la otra.
-    expect(params(5)[3]).toBe('update');
+    expect(params(5)[4]).toBe('update');
   });
 
   it('throws NotFound when the account is gone', async () => {
@@ -372,12 +373,12 @@ describe('deactivateAccount — retiring is not deleting', () => {
     await deactivateAccount(ENTITY, 'a1', USER, { allowWithHistory: true, reason: 'cierre' });
 
     expect(sql(5)).toMatch(/INSERT INTO audit_log/);
-    const nuevos = JSON.parse(String(params(5)[7])) as Record<string, unknown>;
+    const nuevos = JSON.parse(String(params(5)[8])) as Record<string, unknown>;
     expect(nuevos.is_active).toBe(false);
     expect(nuevos.had_history).toBe(true);
     expect(nuevos.balance_at_archive).toBe('150.0000');
     expect(nuevos.forced_with_balance).toBe(true);
-    expect(params(5)[8]).toBe('cierre');
+    expect(params(5)[9]).toBe('cierre');
   });
 
   it('F01: la regla del archivado — saldo vivo bloquea salvo fuerza, y dry-run no escribe', async () => {

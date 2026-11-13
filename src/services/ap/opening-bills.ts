@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { query } from '../../database/connection.js';
 import { ConflictError } from '../../utils/errors.js';
-import { generateEntryNumber, nextEntityNumber } from '../../utils/sequence.js';
+import { nextEntityNumber, nextVendorNumber } from '../../utils/sequence.js';
 import type { OpeningFinding, OpeningPlan } from '../accounting/opening-balance.js';
 import { reclassRoles } from '../accounting/iva-cash-basis.js';
 import { controlDocuments, identityRfc } from '../ar/opening-invoices.js';
@@ -487,16 +487,12 @@ export async function writeOpeningBills(
       );
       vendorId = found.rows[0]?.id;
       if (vendorId === undefined) {
-        const count = await client.query<{ n: string }>(
-          `SELECT COUNT(*)::text AS n FROM vendors WHERE entity_id = $1`,
-          [entityId]
-        );
         const created = await client.query<{ id: string }>(
           `INSERT INTO vendors (entity_id, vendor_number, company_name, tax_id, tax_id_type,
                                 currency_code, notes, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, 'Migrated with the opening balance', $7)
            RETURNING id`,
-          [entityId, generateEntryNumber('V', Number(count.rows[0].n)), d.vendorName,
+          [entityId, await nextVendorNumber(client, entityId), d.vendorName,
            d.vendorRfc, d.vendorRfc === null ? null : 'rfc', d.currency, userId]
         );
         vendorId = created.rows[0].id;

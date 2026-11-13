@@ -44,7 +44,7 @@ El 2026-09-26 se revisaron los 129 repos de `sedecim-com` visibles (75 activos y
 ### Los demás
 
 - **`Cobranza`** — cobranza por descuento de nómina (SEP). Es el candidato natural a productor de un evento de pago aplicado que este repo podría contabilizar; hoy no hay integración ni contrato.
-- **`acceso-*`** (contratos, backend, organizaciones, RBAC) — la plataforma de crédito. Sin relación directa hoy. La identidad de la plataforma es el user pool de **Cognito** de Acceso, no `authentication-server-api`: ese servicio es el forward-auth del gateway y pasa un `x-jwt-payload` sin firma. El bloque `AUTH_OIDC_*` de este repo acepta los access tokens de Cognito con `AUTH_OIDC_PROVIDER=cognito` (#369); el gateway web queda fuera de ese modo, y la decisión de identidad está en #371.
+- **`acceso-*`** (contratos, backend, organizaciones, RBAC) — la plataforma de crédito. Sin relación directa hoy. La identidad de la plataforma es el user pool de **Cognito** de Acceso, no `authentication-server-api`: ese servicio es el forward-auth del gateway y pasa un `x-jwt-payload` sin firma. El bloque `AUTH_OIDC_*` de este repo acepta los access tokens de Cognito con `AUTH_OIDC_PROVIDER=cognito` (#369); el gateway web queda fuera de ese modo, y la decisión de identidad está en #371 y escrita en el [ADR-0007](../adr/0007-platform-identity.md).
 - **`PIIS`** — no se le delegan RFC, CURP ni NSS mientras su cifrado siga siendo AES-CBC sin MAC con KDF MD5 (`harmony-review.md` §2).
 
 ## Dependencias huérfanas y configuración muerta

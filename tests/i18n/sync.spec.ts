@@ -113,6 +113,8 @@ const IDENTICAL_BY_DESIGN = new Set<TranslationKey>([
   'policy.vacation_premium_pct.option.1_00',
   'policy.ingest_auto_post_max_amount.option.10000',
   'policy.ingest_auto_post_max_amount.option.50000',
+  // `pending define` confirmation: a tick, the key and the value, no words.
+  'pending.define.done',
 ]);
 
 // ---- §1 · Las claves -------------------------------------------------

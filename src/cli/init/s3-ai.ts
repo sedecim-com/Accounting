@@ -5,7 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { listProfiles, resolveProfile, writeConfigPatch } from '../../ai/providers/config.js';
 import { checkModelProvider } from '../../ai/doctor-service.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
-import { upsertEnvVar } from './s0-infra.js';
+import { resolveEnvTarget, upsertEnvVar } from './s0-infra.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -71,6 +71,8 @@ export function categorizeProbeError(detail: string): ProbeErrorCategory {
 
 export interface IaDeps {
   cwd?: string;
+  /** Home directory for ~/.mnemosine/.env; default os.homedir(). */
+  home?: string;
   /** Injectable: in tests no model is ever called. */
   probe?: (profileName: string) => Promise<ProbeResult>;
   listOllamaModels?: () => Promise<string[]>;
@@ -172,9 +174,10 @@ export class IaSection implements SetupSection {
         if (where) ctx.print(`  Get the credential at: ${where}`);
         const key = await ctx.askSecret(`  ${row.profile.api_key_env} (Enter to skip): `);
         if (key) {
-          upsertEnvVar(path.join(this.cwd, '.env'), row.profile.api_key_env, key);
+          const envPath = await resolveEnvTarget(ctx, this.cwd, this.deps.home);
+          upsertEnvVar(envPath, row.profile.api_key_env, key, ctx.print);
           process.env[row.profile.api_key_env] = key;
-          ctx.print(`  ✔ Saved ${row.profile.api_key_env} to .env`);
+          ctx.print(`  ✔ Saved ${row.profile.api_key_env} to ${envPath}`);
         } else {
           ctx.print(`  ○ Without a credential, ${chosen} cannot be used yet.`);
         }

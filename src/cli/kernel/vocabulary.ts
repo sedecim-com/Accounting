@@ -86,11 +86,20 @@ export const VERBS: Readonly<Record<string, string>> = Object.freeze({
   // vencieron. Dos actos distintos merecen dos verbos distintos, y la lista
   // es cerrada precisamente para que esa distinción se tome a propósito.
   'sweep'      : 'barrer',
+  // Deliberate amendment (2026-09-30, MNE-001-083 · #305): `closing fx
+  // revalue` measures a balance again at a new rate and posts the gap. `run`
+  // would name the engine, not the act; `correct` amends a record, and a
+  // revaluation corrects nothing. The owner's /confirmar on #305 names the leaf.
+  'revalue'    : 'revaluar',
   'reverse'    : 'reversar',
   'review'     : 'revisar',
   'revoke'     : 'revocar',
   'rotate'     : 'rotar',
   'run'        : 'ejecutar',
+  // EFIRMA-4 (#442): the e.firma seal on an Anexo 24 file. Not `stamp` (a
+  // PAC or authority seal) and not `file` (a transmission): it is the
+  // taxpayer's own signature, and nothing leaves the firm.
+  'seal'       : 'sellar',
   'search'     : 'buscar',
   'seed'       : 'sembrar',
   'send'       : 'entregar',

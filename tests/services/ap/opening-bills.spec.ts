@@ -356,7 +356,6 @@ describe('writeOpeningBills', () => {
   const empty = () =>
     client.query.mockImplementation(async (text: string) => {
       if (/^SELECT id FROM vendors/.test(text)) return { rows: [] };
-      if (/COUNT/.test(text)) return { rows: [{ n: '2' }] };
       if (/INSERT INTO vendors/.test(text)) return { rows: [{ id: `ven-${calls(/INSERT INTO vendors/).length}` }] };
       if (/entity_sequences/.test(text)) return { rows: [{ value: '7' }] };
       if (/INSERT INTO bills/.test(text)) return { rows: [{ id: 'bill-new' }], rowCount: 1 };
@@ -378,10 +377,11 @@ describe('writeOpeningBills', () => {
     expect(n).toBe(2);
     expect(calls(/INSERT INTO vendors/)).toHaveLength(1);
     expect(client.query.mock.calls[0][0]).toMatch(/UPPER\(tax_id\)/);
-    const vendor = client.query.mock.calls[2][1] as unknown[];
-    expect(vendor).toEqual(['ent-1', expect.stringMatching(/^V-\d{4}-0*3$/), 'Papelera del Centro', 'PCE010101AAA', 'rfc', 'MXN', 'user-1']);
-    // The BILL series is drawn from the document's year, inside the transaction.
-    expect(calls(/entity_sequences/)[0][1]).toEqual(['ent-1', 'bill_2025']);
+    const vendor = calls(/INSERT INTO vendors/)[0][1] as unknown[];
+    expect(vendor).toEqual(['ent-1', expect.stringMatching(/^V-\d{4}-0*7$/), 'Papelera del Centro', 'PCE010101AAA', 'rfc', 'MXN', 'user-1']);
+    // The vendor draws from the shared counter; the BILL series from the document's year.
+    expect(calls(/entity_sequences/)[0][1]).toEqual(['ent-1', `vendor_${new Date().getFullYear()}`]);
+    expect(calls(/entity_sequences/)[1][1]).toEqual(['ent-1', 'bill_2025']);
     const bills = calls(/INSERT INTO bills/);
     expect(bills).toHaveLength(2);
     expect(bills[0][0]).toMatch(/'approved', \$13, NOW\(\)/);

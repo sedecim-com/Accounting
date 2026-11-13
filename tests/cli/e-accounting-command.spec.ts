@@ -19,6 +19,7 @@ import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, ExitCode } from '../../src/cli/kernel/index.js';
 import { BALANZA_CHECK_NAMES } from '../../src/services/sat/anexo24/balanza-invariantes.js';
 import { ValidationError } from '../../src/utils/errors.js';
+import { t } from '../../src/i18n/index.js';
 
 // ============================================================
 // F07b · `e-accounting` · `contabilidad-electronica` contra su fila del
@@ -52,6 +53,21 @@ const mundo = vi.hoisted(() => ({
   llamadas: 0,
   /** Lo que `generarBalanza` debe lanzar en vez de devolver. */
   balanzaLanza: undefined as Error | undefined,
+  /** What the CLI handed to sealArchivedDocument (EFIRMA-4). */
+  ultimoSello: undefined as unknown,
+}));
+
+vi.mock('../../src/services/sat/anexo24/seal.js', () => ({
+  sealArchivedDocument: (req: unknown) => {
+    mundo.ultimoSello = req;
+    return Promise.resolve({
+      xml: '<sealed/>',
+      sealedFrom: 'art-unsealed',
+      sourceHash: 's'.repeat(64),
+      certificateNumber: '00001000000000000145',
+      artifact: { id: 'art-sealed', hash_sha256: 'h'.repeat(64), bytes: 9, generado_en: '', yaExistia: false },
+    });
+  },
 }));
 
 vi.mock('../../src/ai/context.js', () => ({
@@ -91,6 +107,8 @@ vi.mock('../../src/services/sat/anexo24/balanza-service.js', () => ({
     if (mundo.balanzaLanza) return Promise.reject(mundo.balanzaLanza);
     return Promise.resolve(mundo.balanza);
   },
+  resolverPeriodoDeBalanza: (_entityId: string, opts: Record<string, unknown>) =>
+    Promise.resolve({ anio: 2026, mes: opts.cierre === true ? '13' : '07', cierre: opts.cierre === true }),
   verificarBalanza: (entityId: string, opts: unknown) => {
     mundo.llamadas += 1;
     mundo.ultimaVerificacion = { entityId, opts };
@@ -343,12 +361,27 @@ describe('registro de la familia e-accounting', () => {
     ]);
   });
 
-  it('exactamente las TRES filas de fase 1, con sus alias españoles', () => {
-    expect(grupo('catalog')?.commands.map((c) => c.name())).toEqual(['generate']);
-    expect(grupo('balance')?.commands.map((c) => c.name()).sort()).toEqual(['check', 'generate']);
+  it('the phase-1 rows, with their Spanish aliases (seal since EFIRMA-4, #442)', () => {
+    expect(grupo('catalog')?.commands.map((c) => c.name()).sort()).toEqual(['generate', 'seal']);
+    expect(grupo('balance')?.commands.map((c) => c.name()).sort()).toEqual(['check', 'generate', 'seal']);
+    for (const g of ['catalog', 'balance']) {
+      expect(hoja(g, 'seal')?.aliases(), g).toContain('sellar');
+      // The taxpayer's signature: a write the agent may not invoke, whatever the flags.
+      const r = riskOf(hoja(g, 'seal') as Command);
+      expect(r?.risk, g).toBe('escritura');
+      expect(r?.agentAllowed, g).toBe(false);
+      expect(r?.writes, g).toMatch(/nothing is sent to the SAT/);
+    }
     expect(hoja('catalog', 'generate')?.aliases()).toContain('generar');
     expect(hoja('balance', 'generate')?.aliases()).toContain('generar');
     expect(hoja('balance', 'check')?.aliases()).toContain('verificar');
+  });
+
+  it('the catalog seal --period help names no --closing, which that leaf does not have', () => {
+    const period = hoja('catalog', 'seal')?.options.find((o) => o.long === '--period');
+    expect(period?.description).toBe(t('help.e_accounting.catalog.seal.option.period'));
+    expect(period?.description).not.toMatch(/--closing/);
+    expect(hoja('catalog', 'seal')?.options.some((o) => o.long === '--closing')).toBe(false);
   });
 
   it('lo que NO entra en este tramo sigue sin existir: file, diff, match, apply', () => {
@@ -861,8 +894,42 @@ describe('balance check · el contrato de salida §4', () => {
     expect(r.out).toMatch(/Balanza 02\/2026/);
   });
 
+  it('--type C and --modified reach the check: an amended balance is sealed as its own bytes', async () => {
+    await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', '--type', 'c', '--modified', '2026-03-15', ...E]);
+    expect(mundo.ultimaVerificacion).toMatchObject({ opts: { periodo: '2026-02', tipo: 'C', fechaModBal: '2026-03-15' } });
+  });
+
   it('check NO archiva ni escribe: el motor de generación no se llama nunca', async () => {
     await correr(['e-accounting', 'balance', 'check', '--period', '2026-02', ...E]);
     expect((mundo.ultimaBalanza as unknown) ?? null).toBe(null);
+  });
+});
+
+describe('catalog seal · balance seal (EFIRMA-4, #442)', () => {
+  it('catalog seal hands the month and the reviewer to the sealer, and says nothing was filed', async () => {
+    const r = await correr(['e-accounting', 'catalog', 'seal', '--period', '2026-07', '--json', ...E]);
+    expect(r.errs).toEqual([]);
+    expect(r.exitCode).toBe(ExitCode.OK);
+    expect(mundo.ultimoSello).toMatchObject({
+      tenantId: 'T1', entityId: 'E1', document: 'catalogo', year: 2026, month: 7, envelopeType: 'N',
+      actor: 'contador@despacho.mx', userId: 'U-1',
+    });
+    const receipt = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
+    expect(receipt.rows[0]).toMatchObject({
+      sealed_from: 'art-unsealed',
+      sealed_from_hash: 's'.repeat(64),
+      certificate_number: '00001000000000000145',
+      filed_with_sat: false,
+    });
+    expect(r.err).toContain(t('anexo24.seal.nothing_filed'));
+  });
+
+  it('balance seal resolves the year-end balance as month 13, with its envelope type', async () => {
+    const r = await correr([
+      'contabilidad-electronica', 'balanza', 'sellar', '--period', '2026', '--closing', '--type', 'C', ...E,
+    ]);
+    expect(r.exitCode).toBe(ExitCode.OK);
+    expect(mundo.ultimoSello).toMatchObject({ document: 'balanza', year: 2026, month: 13, envelopeType: 'C' });
+    expect(r.err).toContain(t('anexo24.seal.nothing_filed'));
   });
 });

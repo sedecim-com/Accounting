@@ -46,9 +46,32 @@ export interface IIntegrationAdapter<TConfig = unknown> {
 // CATEGORY-SPECIFIC EXTENSIONS
 // ============================================================
 
+/**
+ * Datasheet of a PAC provider. `timbradoPresellado: true` is a LITERAL type:
+ * the vault rule (the CSD private key never leaves our vault, see
+ * docs/pac-proveedores.md section 1) is enforced by the compiler. An adapter
+ * that omits the field or says `false` does not compile.
+ */
+export interface PacDatasheet {
+  readonly provider: string;
+  /** SAT authorization number. Null until someone checks it by hand in the SAT portal (it is not machine-verifiable). */
+  readonly satAuthorization: {
+    readonly number: string | null;
+    readonly verified: boolean;
+  };
+  /** The provider only receives XML already sealed by us. */
+  // language-allow: field name fixed by the backlog acceptance (MNE-001-309) and the vault rule's wording
+  readonly timbradoPresellado: true;
+  /** Self-service sandbox base URL, or null when the provider has none we know of. */
+  readonly sandbox: { readonly url: string | null };
+}
+
 export interface IPacAdapter extends IIntegrationAdapter {
   readonly category: 'pac';
   readonly regions: readonly ['MX'];
+
+  /** Provider datasheet (the "ficha" of the plan); see {@link PacDatasheet}. */
+  readonly datasheet: PacDatasheet;
 
   /**
    * true cuando el adaptador FABRICA el timbre en vez de pedirlo a un PAC.

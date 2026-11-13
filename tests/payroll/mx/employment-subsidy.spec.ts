@@ -12,8 +12,13 @@ import { getPolicy } from '../../../src/services/policy/policy-service.js';
 import { MexicoSubsidioEmpleoCalculator } from '../../../src/services/payroll/mx/isr-calculator.js';
 import {
   EMPLOYMENT_SUBSIDY_ROUNDING_POLICY,
+  EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY,
   employmentSubsidyForPeriod,
   readEmploymentSubsidyRounding,
+  readEmploymentSubsidySeparateRun,
+  isSeparatePaycheck,
+  subsidyOfPaycheckInPeriod,
+  subsidyOfOtherRunsInPeriod,
   subsidyDaysInPeriod,
   type EmploymentSubsidyRounding,
 } from '../../../src/services/payroll/mx/employment-subsidy.js';
@@ -207,5 +212,65 @@ describe('the policy and its reader', () => {
   it('an unknown value is named, not replaced by the first option', async () => {
     mockGetPolicy.mockResolvedValue({ key: EMPLOYMENT_SUBSIDY_ROUNDING_POLICY, value: 'truncar', defined: true });
     await expect(readEmploymentSubsidyRounding({ tenantId: 't' })).rejects.toThrow(/truncar/);
+  });
+});
+
+// #430 · MNE-001-398: one subsidy per pay period, whatever the number of runs.
+describe('the subsidy of a later paycheck of the same period', () => {
+  it('the catalog declares the key with its two values and the recomputation as default', () => {
+    const spec = POLICY_CATALOG.find((p) => p.key === EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY);
+    expect(spec?.options.map((o) => o.value)).toEqual(['recompute_on_combined_income', 'none_on_separate_paycheck']);
+    expect(spec?.defaultValue).toBe('recompute_on_combined_income');
+  });
+
+  it('reads the value of the entity, and names a value it does not know', async () => {
+    mockGetPolicy.mockResolvedValue({ key: EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY, value: 'none_on_separate_paycheck' });
+    await expect(readEmploymentSubsidySeparateRun({ tenantId: 't', entityId: 'e' })).resolves.toBe('none_on_separate_paycheck');
+    expect(mockGetPolicy).toHaveBeenCalledWith({ tenantId: 't', entityId: 'e' }, EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY, undefined);
+    mockGetPolicy.mockResolvedValue({ key: EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY, value: 'twice' });
+    await expect(readEmploymentSubsidySeparateRun({ tenantId: 't' })).rejects.toThrow(/twice/);
+  });
+
+  it('recomputing credits only the difference, never a second subsidy and never below zero', () => {
+    const later = (onCombinedIncome: string, alreadyCaused: string): string =>
+      subsidyOfPaycheckInPeriod({
+        treatment: 'recompute_on_combined_income', separate: true, own: '264.30', onCombinedIncome, alreadyCaused,
+      }).toFixed(2);
+    expect(later('264.30', '264.30')).toBe('0.00');
+    expect(later('264.30', '0')).toBe('264.30');
+    expect(later('0', '264.30')).toBe('0.00');
+  });
+
+  it('"none_on_separate_paycheck" zeroes the separate paycheck and leaves the regular one its own subsidy', () => {
+    const none = (separate: boolean, alreadyCaused: string): string =>
+      subsidyOfPaycheckInPeriod({
+        treatment: 'none_on_separate_paycheck', separate, own: '264.30', onCombinedIncome: '0', alreadyCaused,
+      }).toFixed(2);
+    expect(none(true, '0')).toBe('0.00');
+    // The regular fortnight calculated AFTER the aguinaldo run keeps its own.
+    expect(none(false, '0')).toBe('264.30');
+    // A second regular paycheck of the period still does not get it twice.
+    expect(none(false, '264.30')).toBe('0.00');
+  });
+
+  it('the separate paycheck is told by what it is, not by when it was calculated', () => {
+    const yearEndBonus = { earning_type: 'aguinaldo' };
+    const salary = { earning_type: 'salary' };
+    expect(isSeparatePaycheck('bonus', [yearEndBonus])).toBe(true);
+    expect(isSeparatePaycheck('off_cycle', [salary])).toBe(true);
+    expect(isSeparatePaycheck('regular', [yearEndBonus])).toBe(true);
+    expect(isSeparatePaycheck('regular', [salary, yearEndBonus])).toBe(false);
+    expect(isSeparatePaycheck('regular', [])).toBe(false);
+  });
+
+  it('reads the other runs of the period inside the tenant, leaving out the run being calculated', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ paychecks: 1, taxable: '1500.00', subsidy: '264.30' }] });
+    const r = await subsidyOfOtherRunsInPeriod({ tenantId: 't', employeeId: 'emp', payRunId: 'run', payPeriodId: 'per' });
+    expect([r.paychecks, r.taxableIsr.toFixed(2), r.subsidy.toFixed(2)]).toEqual([1, '1500.00', '264.30']);
+    const [sql, args] = mockQuery.mock.calls.at(-1) as [string, unknown[]];
+    expect(sql).toMatch(/p\.tenant_id = \$1/);
+    expect(sql).toMatch(/pr\.id <> \$4/);
+    expect(sql).toMatch(/pr\.status IN \('calculated', 'approved', 'paid'\)/);
+    expect(args).toEqual(['t', 'emp', 'per', 'run']);
   });
 });

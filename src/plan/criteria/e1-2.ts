@@ -603,7 +603,7 @@ export const E1_2: Criterio[] = [
   {
     paquete: 'E1.2',
     id: 'today-is-the-day-in-zona-horaria',
-    // #242 · MNE-001-065. "Today" was `new Date().toISOString().slice(0, 10)`,
+    // #242 · MNE-001-065 and MNE-001-379. "Today" was `new Date().toISOString().slice(0, 10)`,
     // the UTC day: from 18:00 to midnight in Mexico City it is already
     // tomorrow. A credit note created without --date at 20:00 on the 31st was
     // persisted on the 1st — date, folio series and period. The owner decided
@@ -614,7 +614,12 @@ export const E1_2: Criterio[] = [
     // Three ways back to the wrong day, and the census names all three: the
     // UTC day, the process's local fields (the server runs in UTC) and a bare
     // CURRENT_DATE (the database session's day).
-    enunciado: 'El «hoy» de una nota de crédito sin fecha es el día de zona_horaria, no el día UTC',
+    //
+    // MNE-001-379 carries the same rule to the day the SAT grouping code is
+    // validated on (single mapping, bulk mapping, dry-run of `account map set`):
+    // one helper, `dayOrToday`, resolves it.
+    enunciado:
+      'El «hoy» de una nota de crédito sin fecha, y el día contra el que se valida el agrupador SAT, es el día de zona_horaria, no el día UTC',
     mutantes: [
       {
         archivo: 'src/services/ar/credit-note-service.ts',
@@ -642,7 +647,7 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/policy/today.ts',
-        de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)).value',
+        de: '(await getPolicy(ctx, TIME_ZONE_POLICY_KEY, client)).value',
         a: 'defaultTimeZone()',
         porque: "the policy stops being read: an entity in Tijuana or Cancún gets Mexico City's day whatever it answered",
       },
@@ -651,6 +656,38 @@ export const E1_2: Criterio[] = [
         de: 'const today = await todayFor(null);',
         a: 'const today = new Date().toISOString().slice(0, 10);',
         porque: 'the fallback of the legal parameters goes back to the UTC day and picks the row of the next day',
+      },
+      // MNE-001-379: the SAT grouping code is validated against the catalogue
+      // in force on the entity's day; the three sites default it through one helper.
+      {
+        archivo: 'src/services/policy/today.ts',
+        de: 'return day ?? (await todayFor(ctx));',
+        a: 'return day ?? new Date().toISOString().slice(0, 10);',
+        porque: "the shared default goes back to the UTC day: at 20:00 on the 31st the next year's SAT catalogue judges the code, in all three sites at once",
+      },
+      {
+        archivo: 'src/services/accounting/account-service.ts',
+        de: 'await dayOrToday(ctxPol, opts.fecha)',
+        a: 'opts.fecha ?? new Date().toISOString().slice(0, 10)',
+        porque: 'a single mapping bypasses the shared default and takes the UTC day',
+      },
+      {
+        archivo: 'src/services/accounting/account-service.ts',
+        de: 'await dayOrToday({ tenantId, entityId }, opts.fecha)',
+        a: 'opts.fecha ?? new Date().toISOString().slice(0, 10)',
+        porque: 'the bulk mapping bypasses the shared default and takes the UTC day for all its rows',
+      },
+      {
+        archivo: 'src/cli/account-command.ts',
+        de: 'await dayOrToday({ tenantId: ctx.tenantId, entityId: ctx.entityId }, fecha)',
+        a: 'fecha ?? new Date().toISOString().slice(0, 10)',
+        porque: "the dry-run of `account map set` validates against another year's catalogue than the write does",
+      },
+      {
+        archivo: 'tests/integration/sat-grouping-today-in-zone.int.spec.ts',
+        de: "process.env.TZ = 'UTC';",
+        a: "process.env.TZ = process.env.TZ;",
+        porque: 'the SAT grouping reproduction stops pinning the process zone, so its verdict no longer proves the zone is read from the policy',
       },
       {
         archivo: 'tests/utils/today-in-zone.spec.ts',
@@ -678,10 +715,20 @@ export const E1_2: Criterio[] = [
         [/\bCURRENT_DATE\b/, 'a bare CURRENT_DATE'],
       ];
       const offenders: string[] = [];
+      const groupingSites = ['src/services/accounting/account-service.ts', 'src/cli/account-command.ts'];
       for (const rel of [util, resolver, creditNotes, taxTables]) {
+        if (!existe(rel)) return falla(`${rel} is gone`);
         const code = codigoDe(rel);
         for (const [pattern, what] of WRONG_DAYS) {
           if (pattern.test(code)) offenders.push(`${rel} (${what})`);
+        }
+      }
+      // The two big files only fill in a day in the grouping default, so only
+      // that expression is censused: an audit timestamp elsewhere is legitimate.
+      for (const rel of groupingSites) {
+        if (!existe(rel)) return falla(`${rel} is gone`);
+        if (/\bfecha\s*\?\?\s*(?:\(\s*)?new Date\(/.test(codigoDe(rel))) {
+          offenders.push(`${rel} (a grouping default day that bypasses dayOrToday)`);
         }
       }
       if (offenders.length > 0) {
@@ -700,19 +747,54 @@ export const E1_2: Criterio[] = [
       if (!/new Intl\.DateTimeFormat\([^)]*\{\s*timeZone,/.test(u) || !u.includes("field('day')")) {
         return falla('calendarDateIn no longer takes the day in the zone it was given');
       }
-      if (!codigoDe(resolver).includes('await getPolicy(ctx, TIME_ZONE_POLICY_KEY, opts.client)')) {
+      if (!codigoDe(resolver).includes('await getPolicy(ctx, TIME_ZONE_POLICY_KEY, client)') || !codigoDe(resolver).includes('calendarDateIn(await zoneFor(ctx, opts.client), opts.now)')) {
         return falla('todayFor no longer reads the zona_horaria policy: the entity\'s answer is ignored');
       }
       if (!codigoDe('src/services/policy/pending-catalog.ts').includes("TIME_ZONE_POLICY_KEY = 'zona_horaria'")) {
         return falla('the zona_horaria key left the panel');
       }
 
-      // 3. THE TWO CALLERS go through it.
+      // 3. THE TWO CALLERS go through it (the SAT grouping sites are in 3b).
       if (!codigoDe(creditNotes).includes('input.credit_date ?? (await todayFor(')) {
         return falla('a credit note without a date no longer asks todayFor for its day');
       }
       if (!codigoDe(taxTables).includes('const today = await todayFor(null);')) {
         return falla('the "today" fallback of getTaxParameters no longer goes through the resolver');
+      }
+
+      // 3b. THE THREE SITES where the SAT grouping code takes its default day
+      //     all go through the one helper, which asks the resolver.
+      if (!codigoDe(resolver).includes('return day ?? (await todayFor(ctx));')) {
+        return falla('dayOrToday no longer asks todayFor for the SAT grouping day');
+      }
+      const grouping = codigoDe(groupingSites[0]);
+      if (
+        !grouping.includes('await dayOrToday(ctxPol, opts.fecha)') ||
+        !grouping.includes('await dayOrToday({ tenantId, entityId }, opts.fecha)')
+      ) {
+        return falla('the SAT grouping mapping (single or bulk) no longer validates on the zona_horaria day');
+      }
+      if (!codigoDe(groupingSites[1]).includes('await dayOrToday({ tenantId: ctx.tenantId, entityId: ctx.entityId }, fecha)')) {
+        return falla('the dry-run of `account map set` no longer validates on the zona_horaria day');
+      }
+      const groupingSpec = 'tests/integration/sat-grouping-today-in-zone.int.spec.ts';
+      if (!existe(groupingSpec)) {
+        return falla('there is no reproduction of the SAT grouping day with a fixed clock');
+      }
+      const g = codigoDe(groupingSpec);
+      for (const [pattern, what] of [
+        [/2027-01-01T02:00:00Z/, 'fix the clock at 20:00 on Dec 31st in Mexico City'],
+        [/process\.env\.TZ = 'UTC'/, 'pin the process zone to UTC'],
+        [/setAccountMapping\(/, 'measure the single mapping'],
+        [/importAccountMappings\(/, 'measure the bulk mapping'],
+        [/'account', 'map', 'set'/, 'measure the dry-run of `account map set`'],
+        [/vigente_hasta/, 'seed a catalogue generation that ends on the 31st'],
+        [/const OLD = .*\n.*const NEW = /, 'judge the code against the OLD and the NEW generations'],
+        [/account map set: the catalogue/, 'name the single-mapping case'],
+        [/bulk mapping: the same verdicts/, 'name the bulk-mapping case'],
+        [/the dry-run of `account map set` answers/, 'name the dry-run case'],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(g)) return falla(`the SAT grouping reproduction no longer does: ${what}`);
       }
 
       // 4. AND BEHAVIOUR with the clock fixed and the process zone moved.
@@ -733,7 +815,7 @@ export const E1_2: Criterio[] = [
       }
 
       return ok(
-        'no UTC day, process-local day or bare CURRENT_DATE where "today" is filled in; the resolver checks the zone and reads zona_horaria; credit notes and the tax-parameter fallback go through it; and a fixed-clock reproduction measures it'
+        'no UTC day, process-local day or bare CURRENT_DATE where "today" is filled in; the resolver checks the zone and reads zona_horaria; credit notes, the tax-parameter fallback and the SAT grouping validation day (one helper, three sites) go through it; and fixed-clock reproductions measure it'
       );
     },
   },
@@ -780,8 +862,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/policy/today.ts',
-        de: 'return todayFor(tenantId ? { tenantId, entityId } : null, opts);',
-        a: 'return todayFor(null, opts);',
+        de: 'return zoneFor(tenantId ? { tenantId, entityId } : null);',
+        a: 'return zoneFor(null);',
         porque: "the entity's own zona_horaria row stops being read: an entity in Tokyo gets Mexico City's day",
       },
     ],
@@ -839,7 +921,12 @@ export const E1_2: Criterio[] = [
         return falla("the agent's prompt no longer states the resolved day");
       }
       const r = codigoDe(resolver);
-      if (!r.includes('return todayFor(tenantId ? { tenantId, entityId } : null, opts);')) {
+      // The zone of an entity held by id is resolved in `zoneForEntity` (MNE-001-290 split it out of
+      // `todayForEntity` so the renderers of instants share it), and "today" is that zone's calendar day.
+      if (
+        !r.includes('return zoneFor(tenantId ? { tenantId, entityId } : null);') ||
+        !r.includes('calendarDateIn(await zoneForEntity(entityId), opts.now)')
+      ) {
         return falla("todayForEntity no longer reads the entity's zona_horaria row");
       }
       if (!r.includes('return todayFor(row ? { tenantId: row.tenant_id, entityId: row.entity_id } : null, opts);')) {
@@ -972,7 +1059,7 @@ export const E1_2: Criterio[] = [
       if (!(resolvesVendor < checksVendor && checksVendor < writesVendor)) {
         return falla('la guarda del anticipo a proveedor quedó fuera de orden respecto a su INSERT');
       }
-      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos)')) {
+      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod')) {
         return falla('el INSERT del pago a proveedor volvió a tomar la moneda del respaldo literal en vez de la resuelta');
       }
 
@@ -2771,6 +2858,70 @@ export const E1_2: Criterio[] = [
         : falla('registerFxCommand no está en el binario: R4 quedó verificada y no entregada');
     },
   },
+  {
+    paquete: 'E1.2',
+    id: 'foreign-balances-revalued-at-close',
+    enunciado:
+      'A USD invoice posts, and closing fx revalue revalues the foreign receivables, payables and banks at the rate of the last calendar day in an adjusting entry of its own source, reversed on day 1 of the open next period, once (#305, MNE-001-083)',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: '  const fx = rate;',
+        a: "  if (rate) throw new AccountingError('FX_AR_NOT_WIRED', 'income waits for the engine'); const fx = rate;",
+        porque: 'THE DEFECT OF #305: a USD invoice refuses to post, and the month of a firm that bills one service in dollars cannot be kept',
+      },
+      {
+        archivo: 'src/services/accounting/fx-revaluation.ts',
+        de: 'sourceType: FX_REVALUATION_SOURCE,',
+        a: "sourceType: 'closing',",
+        porque: 'the revaluation posts as a closing entry: the year-end close and the conductor would take it for their own',
+      },
+      {
+        archivo: 'src/services/accounting/fx-revaluation.ts',
+        de: 'AND start_date = $2::date + 1`,',
+        a: 'AND start_date > $2::date`,',
+        porque: 'the mirror lands on whatever later period comes first, not on day 1 of the next one',
+      },
+      {
+        archivo: 'src/services/accounting/fx-revaluation.ts',
+        de: 'revalue(b.foreign, b.book, rate, b.posted);',
+        a: 'revalue(b.foreign, b.book, rate);',
+        porque: 'the marker is written and never subtracted: a second run posts the whole revaluation again',
+      },
+    ],
+    evaluar: () => {
+      if (/FX_AR_NOT_WIRED/.test(codigoDe('src/services/accounting/ar-ap-posting.ts'))) {
+        return falla('a foreign-currency invoice refuses to post again (FX_AR_NOT_WIRED): the income side of R4 is gone');
+      }
+      const rev = 'src/services/accounting/fx-revaluation.ts';
+      if (!existe(rev)) return falla('there is no closing revaluation engine');
+      const code = codigoDe(rev);
+      if (!/export const FX_REVALUATION_SOURCE = 'fx_revaluation';/.test(code) ||
+          !/JournalEntryType\.ADJUSTING,/.test(code) || !/sourceType: FX_REVALUATION_SOURCE,/.test(code)) {
+        return falla('the revaluation is no longer an adjusting entry with its own source_type');
+      }
+      if (!/reverseWithinTransaction\(/.test(code) || !/AND start_date = \$2::date \+ 1`,/.test(code) ||
+          !/next\.status !== 'open'/.test(code)) {
+        return falla('the revaluation is no longer reversed on day 1 of an open next period');
+      }
+      if (!/revalue\(b\.foreign, b\.book, rate, b\.posted\);/.test(code) || !/INSERT INTO fx_revaluation_runs/.test(code)) {
+        return falla('the revaluation has no idempotency marker: a resumed run posts it twice');
+      }
+      if (!/getPolicy\(ctx, 'fx_revaluation_reversal', client\)/.test(code)) {
+        return falla('whether the revaluation is reversed is no longer read from fx_revaluation_reversal');
+      }
+      if (!/getPolicy\(ctx, 'closing_exchange_rate_source', client\)/.test(code)) {
+        return falla('the closing rate no longer follows closing_exchange_rate_source');
+      }
+      if (!/registerClosingFx\(closing, /.test(codigoDe('src/cli/closing-command.ts'))) {
+        return falla('closing fx revalue is not in the binary: the engine is verified and not delivered');
+      }
+      return existe('tests/integration/mne-001-083-fx-closing-revaluation.int.spec.ts') &&
+        existe('tests/services/accounting/fx-revaluation.spec.ts')
+        ? ok('USD invoices post, and the close revalues foreign balances once, adjusting, reversed on day 1')
+        : falla('no test RUNS the revaluation against a migrated database');
+    },
+  },
 
   // ---- F06a · El activo y su corrida ----
 
@@ -3443,8 +3594,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/period-close.ts',
-        de: "AND cc.facts->>'feesWithoutWithholding' = 'record_as_issued'",
-        a: "AND cc.facts->>'feesWithoutWithholding' = 'recorded'",
+        de: "AND 'record_as_issued' IN (cc.facts->>'feesWithoutWithholding', cc.facts->>'withholdingMismatch')",
+        a: "AND 'recorded' IN (cc.facts->>'feesWithoutWithholding', cc.facts->>'withholdingMismatch')",
         porque: 'the fees recorded as issued never reach the close checklist: the LISR 27-V warning is promised and not shown',
       },
     ],
@@ -3466,13 +3617,146 @@ export const E1_2: Criterio[] = [
           !/unwithheldFees: unwithheldFees\.value,/.test(preReg)) {
         return falla('ingestion does not pass the fees_without_withholding answer to the classifier');
       }
-      if (!/cc\.facts->>'feesWithoutWithholding' = 'record_as_issued'/.test(codigoDe('src/services/accounting/period-close.ts'))) {
+      if (!/'record_as_issued' IN \(cc\.facts->>'feesWithoutWithholding', cc\.facts->>'withholdingMismatch'\)/
+        .test(codigoDe('src/services/accounting/period-close.ts'))) {
         return falla('the close checklist does not look for the fees recorded as issued');
       }
       return existe('tests/integration/mne-001-148-fees-without-withholding.int.spec.ts') &&
         existe('tests/xml-ingestion/fees-without-withholding.spec.ts')
         ? ok('612 fees with no ISR withheld follow the panel, and goods are not taken for fees')
         : falla('no test RUNS the three answers of fees_without_withholding');
+    },
+  },
+  {
+    paquete: 'E1.2',
+    id: 'iva-workpaper-prorates-mixed-activities',
+    enunciado:
+      'The monthly IVA workpaper credits the IVA paid in the proportion of LIVA art. 5 fr. V, the month by default and the prior year when the panel says so (#308, MNE-001-385)',
+    mutantes: [
+      {
+        archivo: 'src/services/fiscal/iva-workpaper.ts',
+        de: 'creditable: q4(new Decimal(paid).times(acts.taxed).dividedBy(total)),',
+        a: 'creditable: q4(paid),',
+        porque: 'the IVA paid is credited whole next to exempt acts: the creditable IVA is overstated',
+      },
+      {
+        archivo: 'src/services/fiscal/iva-workpaper.ts',
+        de: "...rateLines('creditable', f.creditable, f.proration ? 0 : -1),",
+        a: "...rateLines('creditable', f.creditable, -1),",
+        porque: 'the settlement subtracts the IVA paid and its credited share: the IVA is credited twice',
+      },
+      {
+        archivo: 'src/services/fiscal/iva-workpaper.ts',
+        de: "method === 'monthly' ? range : { desde: `${year - 1}-01-01`, hasta: `${year - 1}-12-31` }",
+        a: "method === 'monthly' ? range : { desde: `${year}-01-01`, hasta: `${year}-12-31` }",
+        porque: 'the annual option reads the current year instead of the prior one (LIVA art. 5-B)',
+      },
+      {
+        archivo: 'src/services/policy/pending-catalog.ts',
+        de: "defaultValue: 'monthly',",
+        a: "defaultValue: 'annual',",
+        porque: 'an unanswered panel binds the entity to the prior-year option, which art. 5-B holds for sixty months',
+      },
+    ],
+    evaluar: () => {
+      const wp = codigoDe('src/services/fiscal/iva-workpaper.ts');
+      if (!/creditable: q4\(new Decimal\(paid\)\.times\(acts\.taxed\)\.dividedBy\(total\)\),/.test(wp)) {
+        return falla('the credited IVA is no longer the IVA paid times the taxed acts over all the acts');
+      }
+      if (!/rateLines\('creditable', f\.creditable, f\.proration \? 0 : -1\)/.test(wp) ||
+          !/\['creditable\.prorated', f\.proration\.creditable, -1\]/.test(wp)) {
+        return falla('the prorated settlement does not subtract only the credited share');
+      }
+      if (!/\{ desde: `\$\{year - 1\}-01-01`, hasta: `\$\{year - 1\}-12-31` \}/.test(wp)) {
+        return falla('the annual option no longer reads the prior calendar year (LIVA art. 5-B)');
+      }
+      if (/IVA-WP-PRORATION-NOT-APPLIED/.test(wp)) {
+        return falla('the workpaper still warns that the proration is not applied');
+      }
+      const catalog = codigoDe('src/services/policy/pending-catalog.ts');
+      const spec = /key: 'iva_creditable_proration',[\s\S]*?priority:/.exec(catalog)?.[0] ?? '';
+      if (!/defaultValue: 'monthly',/.test(spec)) {
+        return falla('iva_creditable_proration no longer defaults to the month proportion (LIVA art. 5 fr. V inc. c)');
+      }
+      return existe('tests/integration/mne-001-385-iva-proration.int.spec.ts')
+        ? ok('the IVA paid is credited by the month or prior-year proportion, and only that share is subtracted')
+        : falla('no test RUNS the proration against a month of mixed activities');
+    },
+  },
+  {
+    paquete: 'E1.2',
+    id: 'freight-and-resico-withholdings-come-from-the-law',
+    enunciado:
+      "A legal entity withholds 4 % VAT on land freight and 1.25 % ISR from a RESICO individual, with the rates of legal_parameters, and a CFDI whose declared withholding differs from the law's is held with a question to the accountant (#309, MNE-001-057)",
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: "if (allConceptsIn(f, [LAND_FREIGHT_PREFIX])) return isBorderRateFreight(f) ? null : 'freight';",
+        a: '',
+        porque: 'freight is booked with whatever VAT the carrier declares, and one declaring none is booked with none',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: "if (f.issuerRegime === RESICO_REGIME) return 'resico';",
+        a: '',
+        porque: 'a RESICO individual is paid with no 1.25 % ISR withheld unless the CFDI happens to declare it',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-classifier.ts',
+        de: 'mismatchQuestion = withholdingMismatchQuestion(facts, settled.mismatch);',
+        a: '',
+        porque: 'a discrepancy only shows up as an entry that does not balance: nobody is asked about the CFDI',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'if (withholdingMismatch.defined) answers.withholding_mismatch = withholdingMismatch.value;',
+        a: '',
+        porque: 'the firm answers withholding_mismatch and every discrepancy stays held: the answer never reaches the question',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/withholding-law.ts',
+        de: 'const taxed = Decimal.max(0, base.minus(f.ivaTasaCero).minus(f.importeExento));',
+        a: 'const taxed = base;',
+        porque: 'zero-rated freight legs enter the base: more VAT is withheld than the carrier charged on them',
+      },
+      {
+        archivo: 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql',
+        de: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0125', 'rate',",
+        a: "'income_tax.withholding.resico_rate', '2022-01-01', '0.0100', 'rate',",
+        porque: 'RESICO is withheld 1 % instead of the 1.25 % of LISR 113-J',
+      },
+    ],
+    evaluar: () => {
+      const law = codigoDe('src/services/xml-ingestion/withholding-law.ts');
+      if (!/if \(allConceptsIn\(f, \[LAND_FREIGHT_PREFIX\]\)\) return isBorderRateFreight\(f\) \? null : 'freight';/.test(law)) {
+        return falla('land freight is no longer told from the CFDI: its 4 % VAT is not withheld by law');
+      }
+      if (!/if \(f\.issuerRegime === RESICO_REGIME\) return 'resico';/.test(law)) {
+        return falla('a RESICO issuer is no longer told from the CFDI: its 1.25 % ISR is not withheld by law');
+      }
+      const classifier = codigoDe('src/services/xml-ingestion/cfdi-classifier.ts');
+      if (!/heldForReview = settled\.mismatch;/.test(classifier) ||
+          !/mismatchQuestion = withholdingMismatchQuestion\(facts, settled\.mismatch\);/.test(classifier)) {
+        return falla('a withholding discrepancy is no longer the reason of the hold and a question to the accountant');
+      }
+      if (!/answers\.withholding_mismatch = withholdingMismatch\.value;/.test(codigoDe('src/services/xml-ingestion/pre-registration-service.ts'))) {
+        return falla('ingestion does not pass the withholding_mismatch answer to the classifier');
+      }
+      if (!/const taxed = Decimal\.max\(0, base\.minus\(/.test(law)) {
+        return falla('the freight VAT withholding is no longer computed only on the concepts that carry VAT');
+      }
+      const mig = 'src/database/migrations/175_withholdings_on_freight_and_resico_come_from_the_law.sql';
+      const rows = existe(mig) ? crudoDe(mig) : '';
+      for (const row of [
+        /'vat\.withholding\.freight_rate', '2006-12-05', '0\.0400', 'rate',/,
+        /'income_tax\.withholding\.resico_rate', '2022-01-01', '0\.0125', 'rate',/,
+      ]) {
+        if (!row.test(rows)) return falla(`migration 175 no longer seeds ${row.source} as the law says`);
+      }
+      return existe('tests/integration/mne-001-057-withholdings-freight-resico.int.spec.ts') &&
+        existe('tests/xml-ingestion/withholding-freight-resico.spec.ts')
+        ? ok('freight 4 % VAT and RESICO 1.25 % ISR come from legal_parameters, and a discrepancy is asked')
+        : falla('no test RUNS freight, RESICO and the discrepancy against the law and a migrated database');
     },
   },
 ];

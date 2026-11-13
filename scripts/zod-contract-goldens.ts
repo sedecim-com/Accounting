@@ -8,8 +8,11 @@
  * parsed body) of every REST request-body probe; tests/ai/tools/
  * tool-schemas.golden.json is the input schema every agent tool sends to the
  * model. Both were recorded on zod 3.25.76 before the Zod 4 migration (#367),
- * and that migration must pass against them WITHOUT regenerating them: a diff
+ * and that migration must pass against them WITHOUT regenerating them (bar the
+ * over-cap 422 noted below): a diff
  * here is a client-visible change, and it goes through its own CONTRACT PR.
+ *
+ * CONTRACT: the over-cap 422 diverges from the zod 3 recording by design since #407 / MNE-001-395, and the `overCapWithViolations` probes are post-migration additions.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';

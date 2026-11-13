@@ -24,6 +24,7 @@ import {
   declareRisk,
   exitCodeFor,
   gateMutation,
+  describeCommand,
   optionByKey,
   requireExplicitEntity,
   resolveActiveEntity,
@@ -182,17 +183,15 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
   };
 
   // ---- chart import ------------------------------------------------------
-  const chart = program
-    .command('chart')
-    .alias('catalogo')
-    .description('Chart of accounts: bring a firm catalog in');
-  const chartImport = chart
-    .command('import <file>')
-    .alias('importar')
-    .description('Import an Anexo 24 CatalogoCuentas XML, keeping the firm codes and hierarchy');
+  // Help by key (#314): help.chart.* and help.opening_balance.*.
+  const chart = describeCommand(program.command('chart').alias('catalogo'), 'help.chart.description');
+  const chartImport = describeCommand(
+    chart.command('import <file>').alias('importar'),
+    'help.chart.import.description'
+  );
   withContext(chartImport);
-  chartImport.option('--partial', 'write even if some rows are left out (default: all or nothing)');
-  chartImport.option('--reason <text>', 'why the chart is imported; goes to the audit log');
+  optionByKey(chartImport, '--partial', 'help.chart.import.option.partial');
+  optionByKey(chartImport, '--reason <text>', 'help.chart.import.option.reason');
   optionByKey(chartImport, '--dry-run', 'cli.flag.dry_run');
   optionByKey(chartImport, '-y, --yes', 'cli.flag.yes');
   withOutput(chartImport);
@@ -224,23 +223,18 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
   );
 
   // ---- opening-balance import | check ------------------------------------
-  const opening = program
-    .command('opening-balance')
-    .alias('saldo-inicial')
-    .description('Opening balances migrated from the Anexo 24 trial balance of the previous system');
-
-  const openingImport = opening
-    .command('import <file>')
-    .alias('importar')
-    .description(
-      'Post the opening entry from an Anexo 24 BalanzaComprobacion XML, on the day after its cutoff -- irreversible'
-    );
-  withContext(openingImport);
-  openingImport.option(
-    '--subledger <file>',
-    'JSON array with the open documents of the receivable and payable control accounts'
+  const opening = describeCommand(
+    program.command('opening-balance').alias('saldo-inicial'),
+    'help.opening_balance.description'
   );
-  openingImport.option('--reason <text>', 'why the opening is loaded; goes to the audit log');
+
+  const openingImport = describeCommand(
+    opening.command('import <file>').alias('importar'),
+    'help.opening_balance.import.description'
+  );
+  withContext(openingImport);
+  optionByKey(openingImport, '--subledger <file>', 'help.opening_balance.import.option.subledger');
+  optionByKey(openingImport, '--reason <text>', 'help.opening_balance.import.option.reason');
   withOutput(openingImport);
   openingImport.addHelpText('after', EXAMPLES.openingImport);
   // IRREVERSIBLE: it posts to the ledger of 041, where an entry is corrected
@@ -296,12 +290,10 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
     })
   );
 
-  const openingCheck = opening
-    .command('check <file>')
-    .alias('verificar')
-    .description(
-      'Compare the source trial balance against the ledger on the opening day, to the peso; exits 4 if they differ'
-    );
+  const openingCheck = describeCommand(
+    opening.command('check <file>').alias('verificar'),
+    'help.opening_balance.check.description'
+  );
   withContext(openingCheck);
   withOutput(openingCheck);
   openingCheck.addHelpText('after', EXAMPLES.openingCheck);

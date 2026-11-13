@@ -50,7 +50,7 @@ Los demás repos (seguros, cotizadores, información pública, pro99, DeFi, etc.
 |---|---|---|
 | Must | El OIDC acepta los access tokens de Cognito: `client_id`, `token_use` y `cognito:groups` en vez de `aud` | #369 · MNE-001-104 |
 | Must | El adaptador S3 stub deja de responder «sano» y de guardar llaves de AWS del cliente | #370 · MNE-001-105 |
-| Decisión | Identidad de plataforma: issuer Cognito, no confiar en `x-jwt-payload`, tenant y entidad por RFC, prefijo `/mnemosine/` | #371 · MNE-001-106 |
+| Decisión | Identidad de plataforma: issuer Cognito, no confiar en `x-jwt-payload`, tenant y entidad por RFC, prefijo `/mnemosine/` | #371 · MNE-001-106 · [ADR-0007](../adr/0007-platform-identity.md) |
 | Should | Imagen y workflows desplegables como los demás: `deployments`, entrypoint con `/env/.env`, puerto, blob de secretos propio, ramas `dev`/`uat` | #372 · MNE-001-107 |
 | Should | `migrate` con advisory lock | #373 · MNE-001-108 |
 | Could | Constancia NOM-151 vía `hash-stamper` | #374 (post-MVP; no entra a PRD-001) |

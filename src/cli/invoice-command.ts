@@ -43,6 +43,8 @@ import {
   dateOnly as day,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { addCalendarDays, calendarDateIn } from '../utils/calendar-date.js';
+import { todayFor, zoneFor } from '../services/policy/today.js';
 import {
   LEGACY_LINE_FORMS_RETIRE_IN,
   lineKeysHelp,
@@ -242,9 +244,7 @@ async function invoiceLinesFrom(
 export function dueDateFromTerms(terms: string | null | undefined, invoiceDate: string): string | null {
   const match = /^\s*(?:net|neto)\s*[- ]?\s*(\d{1,3})\s*$/i.exec(terms ?? '');
   if (!match) return null;
-  const base = new Date(`${invoiceDate}T00:00:00Z`);
-  base.setUTCDate(base.getUTCDate() + Number(match[1]));
-  return base.toISOString().slice(0, 10);
+  return addCalendarDays(invoiceDate, Number(match[1]));
 }
 
 // ============================================================
@@ -623,8 +623,9 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
           );
         }
 
-        // Hoy es el dia LOCAL del despacho: a las 20:00 en CDMX toISOString ya decia manana.
-        const invoiceDate = opts.date ?? day(new Date());
+        // Today is the day in the entity's zona_horaria, not the process clock (a UTC server
+        // reads tomorrow from 18:00 in Mexico City).
+        const invoiceDate = opts.date ?? (await todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId }));
         const dueDate = opts.dueDate ?? dueDateFromTerms(customer.payment_terms, invoiceDate);
         if (!dueDate) {
           throw usageError(
@@ -1045,6 +1046,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       const series = await checkInvoiceSeries(ctx.entityId, { year });
       const p = deps.palette;
 
+      const zone = await zoneFor(ctx);
       const rows = series.flatMap((s) => {
         const explicadosPorFolio = new Map(s.explained.map((e) => [e.folio, e]));
         return s.missing.map((folio) => {
@@ -1054,7 +1056,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
             year: s.year,
             explained: e ? 'yes' : 'NO',
             reason: e?.reason ?? '',
-            deleted_at: e ? new Date(e.deleted_at).toISOString().slice(0, 10) : '',
+            deleted_at: e ? calendarDateIn(zone, new Date(e.deleted_at)) : '',
           };
         });
       });

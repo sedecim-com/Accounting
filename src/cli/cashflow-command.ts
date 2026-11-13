@@ -29,6 +29,8 @@ import {
   usageError,
   exitCodeFor,
   ExitCode,
+  describeCommand,
+  optionByKey,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -303,10 +305,8 @@ function rechazarGross(): never {
 }
 
 export function registerCashFlowCommand(program: Command, deps: CashFlowCommandDeps): void {
-  const cashflow = program
-    .command('cashflow')
-    .alias('flujo')
-    .description('Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash');
+  // Help by key (#314): help.cashflow.<leaf>.{description,option.<flag>}.
+  const cashflow = describeCommand(program.command('cashflow').alias('flujo'), 'help.cashflow.description');
 
   const p = deps.palette;
   const note = (message: string) => process.stderr.write(p.dim(`${message}\n`));
@@ -331,20 +331,10 @@ export function registerCashFlowCommand(program: Command, deps: CashFlowCommandD
   };
 
   // ---- cashflow generate -------------------------------------------
-  const generate = cashflow
-    .command('generate')
-    .alias('generar')
-    .description('Build the statement of cash flows for a period, with the tie-out to real cash');
+  const generate = describeCommand(cashflow.command('generate').alias('generar'), 'help.cashflow.generate.description');
   withOutput(withTime(withContext(generate)));
-  generate
-    .option(
-      '--method <indirect|direct>',
-      'method to build the statement with (default: the `flujo_efectivo_metodo` policy)'
-    )
-    .option(
-      '--gross',
-      'present gross receipts and payments instead of net (NIF B-2 §40 / ASC 230-10-45-7); refused with a reason — these books cannot support it'
-    );
+  optionByKey(generate, '--method <indirect|direct>', 'help.cashflow.generate.option.method');
+  optionByKey(generate, '--gross', 'help.cashflow.generate.option.gross');
   declareRisk(generate, { risk: 'lectura', agent: true });
 
   generate.addHelpText(

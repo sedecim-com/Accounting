@@ -6,6 +6,7 @@ import { runMonthlyProvisions } from '../accruals/provisions-run.js';
 import { runMonthlyAmortization } from '../accruals/amortization-run.js';
 import { runMonthlyDepreciation } from '../assets/depreciation.js';
 import { hardClosePeriod, softClosePeriod } from './period-close.js';
+import { FX_REVALUATION_SOURCE, revalueForeignBalances, revaluationEntriesOf } from './fx-revaluation.js';
 import { AccountingError, AppError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 
@@ -32,7 +33,7 @@ import { logger } from '../../utils/logger.js';
 //
 // ── WHY THIS ORDER ──────────────────────────────────────────────────────
 //
-// The three engines post BEFORE the checklist so the checklist judges the
+// The engines post BEFORE the checklist so the checklist judges the
 // month as it will be closed, not as it was before the adjusting entries:
 // its trial-balance and ledger-integrity boxes read the entries the engines
 // just posted, and its `depreciation-posted` box stops warning about a month
@@ -51,6 +52,18 @@ import { logger } from '../../utils/logger.js';
 // It is irreversible and, on the year's last period, posts the closing
 // entries; it re-reads the checklist under its own lock, and
 // `--stop-at hard-close` is the way to leave the seal to a person.
+//
+// ── THE FOREIGN-CURRENCY REVALUATION IS AN ENGINE STEP (MNE-001-112) ────
+//
+// `revalue-fx` runs `closing fx revalue`'s engine after the other engines and
+// before the checklist, so the balance sheet the checklist judges is at the
+// closing rate (NIF B-15). It is the one engine whose work the ledger cannot
+// name: every revaluation is reversed on day 1, and a reversed original reads
+// as "not done". So the step's entries come from the engine's own marker
+// (`fx_revaluation_runs`), which is also what keeps a resumed run from
+// posting it again: the engine subtracts what earlier runs posted. An entity
+// with nothing in a foreign currency skips it without asking for a rate or an
+// open next period.
 //
 // ── EVERY ATTEMPT RUNS EVERY STEP ───────────────────────────────────────
 //
@@ -74,6 +87,7 @@ export const CLOSING_STEPS = [
   'accrue-benefits',
   'amortize-prepaids',
   'depreciate-assets',
+  'revalue-fx',
   'verify-checklist',
   'soft-close',
   'hard-close',
@@ -96,6 +110,7 @@ const SOURCE_OF_STEP: Partial<Record<ClosingStep, string>> = {
   'accrue-benefits': 'benefit_provision',
   'amortize-prepaids': 'prepaid_amortization',
   'depreciate-assets': 'depreciation',
+  'revalue-fx': FX_REVALUATION_SOURCE,
 };
 
 export interface ClosingStepOutcome {
@@ -700,6 +715,8 @@ async function postedBy(
 ): Promise<string[]> {
   const source = SOURCE_OF_STEP[step];
   if (!source) return [];
+  // Reversed on day 1 by design: the marker, not the ledger, says what it posted.
+  if (step === 'revalue-fx') return revaluationEntriesOf(entityId, periodId);
   const r = await query<{ id: string }>(
     `SELECT je.id FROM journal_entries je
       WHERE je.entity_id = $1 AND je.fiscal_period_id = $2
@@ -896,6 +913,25 @@ async function takeStep(
           r.errors.length > 0
             ? `${r.errors.length} asset(s) could not be depreciated: ${r.errors.join('; ')}`
             : `${r.processed} asset(s) depreciated`,
+      };
+    }
+    case 'revalue-fx': {
+      // No expected plan: like the other engines, the conductor posts what the
+      // engine computes, and the run itself is the human's confirmation.
+      const r = await revalueForeignBalances(ctx, period.id, opts.userId);
+      return {
+        ...base,
+        status: r.entry ? 'done' : 'skipped',
+        processed: r.entry ? 1 : 0,
+        // Gain and loss are two figures, and the conductor adds none: they
+        // travel in the detail, and the entries in the step's record.
+        amount: null,
+        detail: r.entry
+          ? `revaluation ${r.sequence} posted at the ${r.closingDate} rate: gain ${r.gain}, loss ${r.loss}; ` +
+            `reversed on ${r.reversalDate}`
+          : r.alreadyRun
+            ? `already revalued (run ${r.alreadyRun.sequence}); nothing moved since`
+            : 'no foreign-currency balance to revalue',
       };
     }
     case 'verify-checklist': {

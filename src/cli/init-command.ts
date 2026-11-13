@@ -33,15 +33,15 @@ export interface InitCliDeps {
  * Reads a line WITHOUT echo: for passwords and API keys. In raw mode we must
  * manejar a mano el retorno, el borrado y Ctrl+C.
  */
-export function readSecretFromTty(prompt: string): Promise<string | null> {
+export function readSecretFromTty(prompt: string, out: NodeJS.WritableStream = stdout): Promise<string | null> {
   return new Promise((resolve) => {
     if (!stdin.isTTY) {
       // Sin terminal no hay forma de ocultar el eco: no se pide el secreto.
-      stdout.write(prompt + '(skipped: no interactive terminal)\n');
+      out.write(prompt + '(skipped: no interactive terminal)\n');
       resolve(null);
       return;
     }
-    stdout.write(prompt);
+    out.write(prompt);
     const wasRaw = stdin.isRaw;
     stdin.setRawMode(true);
     stdin.resume();
@@ -56,13 +56,13 @@ export function readSecretFromTty(prompt: string): Promise<string | null> {
       for (const ch of chunk.toString('utf-8')) {
         if (ch === '\r' || ch === '\n') {
           cleanup();
-          stdout.write('\n');
+          out.write('\n');
           resolve(buf);
           return;
         }
         if (ch === CTRL_C) {
           cleanup();
-          stdout.write('\n');
+          out.write('\n');
           resolve(null);
           return;
         }
@@ -293,6 +293,7 @@ export function registerInitCommand(program: Command, deps: InitCliDeps): void {
     .command('init')
     .alias('configurar')
     .description('Guided setup: infrastructure, entity, users, AI provider, and your books')
+    .addHelpText('after', '\n.env: ./.env wins over ~/.mnemosine/.env. With neither, init asks (default ./.env in a checkout,\n~/.mnemosine/.env elsewhere); without a terminal it applies the same rule.')
     .option('--status', 'Only show the status, configure nothing')
     .option('--section <id>', 'Configure a single section (infra|identity|users|ai|policies|import)')
     .option('-y, --yes', 'Non-interactive: use defaults and flags, ask nothing')

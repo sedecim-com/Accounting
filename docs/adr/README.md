@@ -11,6 +11,7 @@ Una decisión que no es obvia y que alguien va a querer deshacer sin saber por q
 | [0004](0004-coexistence-with-accounting-manager.md) | `accounting-manager` y este repo conviven: un solo escritor por compañía de Contalink, identificada por RFC | Aceptada (2026-09-26) |
 | [0005](0005-typescript-6-until-typescript-eslint-supports-7.md) | TypeScript 6, and 7 once typescript-eslint supports it | Proposed (2026-09-26) |
 | [0006](0006-configurable-options-best-practice-default.md) | Opciones configurables, con la mejor práctica contable por omisión; lo de sistemas no se configura | Aceptada (2026-09-29) |
+| [0007](0007-platform-identity.md) | Identidad de plataforma: issuer Cognito, Accounting autentica él mismo (no confía en `x-jwt-payload`), tenant por `external_ref`, entidad por RFC, prefijo `/mnemosine/` | Aceptada (2026-09-30) |
 | [0008](0008-develop-release-branches.md) | Las ramas `develop` y `release`: `feature → develop → release → main`, con tag en `main` | Aceptada (2026-09-30) |
 
 Cada ADR tiene esta forma:

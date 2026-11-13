@@ -40,6 +40,7 @@ import {
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
+import { calendarDateOf, isRealCalendarDate } from '../utils/calendar-date.js';
 
 // ============================================================
 // mnemosine isn · mnemosine tax-deposit — LA PUERTA DEL IMPUESTO QUE NO
@@ -264,8 +265,7 @@ export function exigirFechaIsn(bandera: string, valor: string | undefined): stri
   }
   // `new Date('2026-02-30')` NO es inválida: se desborda al 2 de marzo. Se
   // compara el ida y vuelta, que es lo único que caza el día que no existe.
-  const d = new Date(`${fecha}T00:00:00Z`);
-  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== fecha) {
+  if (!isRealCalendarDate(fecha)) {
     throw usageError(`${bandera} "${fecha}" is not a real date.`);
   }
   return fecha;
@@ -365,9 +365,7 @@ export function exigirMesDeNomina(expr: string | undefined): { anio: number; mes
 
 /** El primer y el último día de un mes, sin tabla de meses ni bisiestos. */
 export function rangoDelMes(anio: number, mes: number): { desde: string; hasta: string } {
-  const iso = (a: number, m: number, d: number) =>
-    new Date(Date.UTC(a, m - 1, d)).toISOString().slice(0, 10);
-  return { desde: iso(anio, mes, 1), hasta: iso(anio, mes + 1, 0) };
+  return { desde: calendarDateOf(anio, mes, 1), hasta: calendarDateOf(anio, mes + 1, 0) };
 }
 
 /**

@@ -613,3 +613,19 @@ export function formatNumber(value: string | number, options: NumericFormatOptio
   if (!withinFormattableRange(value)) return value;
   return formatExact(formatter, value);
 }
+
+/**
+ * Una proporción como porcentaje según el locale: `formatPercent(0.75)` da
+ * «75%» (medido en es-MX y en en-US: sin espacio) y
+ * `formatPercent(0.085, { maximumFractionDigits: 1 })` da «8.5%». El argumento
+ * es la PROPORCIÓN (0.75), no el porcentaje (75). Como `formatNumber`, es para
+ * prosa y tablas de humanos, no para nada que vaya a una autoridad.
+ */
+export function formatPercent(ratio: number, options: NumericFormatOptions = {}): string {
+  const locale = resolveFormatLocale(options);
+  return numberFormatter(locale, {
+    style: 'percent',
+    minimumFractionDigits: options.minimumFractionDigits,
+    maximumFractionDigits: options.maximumFractionDigits ?? 0,
+  }).format(ratio);
+}

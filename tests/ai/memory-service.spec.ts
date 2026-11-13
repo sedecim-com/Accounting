@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
+// Zone lookups read the policy panel; these specs mock the DB, so they get the default zone.
+vi.mock('../../src/services/policy/today.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/policy/today.js')>()),
+  zoneFor: vi.fn(async () => 'America/Mexico_City'),
+  zoneForEntity: vi.fn(async () => 'America/Mexico_City'),
+  todayFor: vi.fn(async () => '2026-10-31'),
+  todayForEntity: vi.fn(async () => '2026-10-31'),
+}));
+
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(), enterTenant: vi.fn(), currentTenant: vi.fn(),
 }));
@@ -9,6 +18,7 @@ import {
   teachMemory, memoryStats, buildMemoryDigest,
 } from '../../src/ai/memory-service.js';
 import { query } from '../../src/database/connection.js';
+import { todayForEntity } from '../../src/services/policy/today.js';
 import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE } from '../../src/ai/untrusted.js';
 import type { AgentContext } from '../../src/ai/context.js';
 
@@ -69,6 +79,16 @@ describe('correctMemory', () => {
     expect(params[0]).toBe('6130 Servicios');
     expect(String(params[1])).toMatch(/previously said: 5205 Honorarios/);
     expect(String(params[1])).toMatch(/by jefe@demo\.com/);
+  });
+
+  it("dates the persisted trail with the entity's day, asked for this entity (MNE-001-290)", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [ENTRY] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ ...ENTRY, answer: '6130' }], rowCount: 1 });
+    vi.mocked(todayForEntity).mockResolvedValueOnce('2026-01-31');
+    await correctMemory(CTX, 'mem-1', '6130 Servicios', 'jefe@demo.com');
+    expect(todayForEntity).toHaveBeenCalledWith(CTX.entityId);
+    const params = (mockQuery.mock.calls[1] as [string, string[]])[1];
+    expect(params[1]).toContain('[corrected 2026-01-31 by jefe@demo.com]');
   });
 
   it('accumulates on top of the previous context without losing it', async () => {
@@ -143,7 +163,7 @@ describe('teachMemory', () => {
 describe('buildMemoryDigest', () => {
   const row = (i: number, over: Partial<Record<string, unknown>> = {}) => ({
     topic: `topic-${i}`, question: `question-${i}`, answer: `answer-${i}`,
-    answered_by: 'admin@demo.com', answered_at: new Date('2026-08-10'), ...over,
+    answered_by: 'admin@demo.com', answered_at: new Date('2026-08-10T18:00:00Z'), ...over,
   });
 
   it('queries only active precedents of the entity, newest first', async () => {
@@ -166,6 +186,13 @@ describe('buildMemoryDigest', () => {
       'topic-2: answer-2 (admin@demo.com, 2026-08-10)',
       UNTRUSTED_CLOSE,
     ]);
+  });
+
+  it('dates a precedent on the entity clock: 19:00 CDMX on 31 Jan is 31 Jan, not 1 Feb (MNE-001-290)', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [row(1, { answered_at: new Date('2026-02-01T01:00:00Z') })],
+    });
+    expect(await buildMemoryDigest(CTX)).toContain('(admin@demo.com, 2026-01-31)');
   });
 
   it('falls back to the question when topic is null', async () => {
@@ -214,7 +241,7 @@ describe('buildMemoryDigest', () => {
 describe('el digest de memoria se envuelve como dato de tercero', () => {
   const row = (over: Partial<Record<string, unknown>> = {}) => ({
     topic: 'topic-1', question: 'question-1', answer: 'answer-1',
-    answered_by: 'admin@demo.com', answered_at: new Date('2026-08-10'), ...over,
+    answered_by: 'admin@demo.com', answered_at: new Date('2026-08-10T18:00:00Z'), ...over,
   });
 
   it('el bloque entero viaja entre los marcadores que el prompt ya declara', async () => {

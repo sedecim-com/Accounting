@@ -13,8 +13,9 @@ import { edicomAdapter } from './edicom-adapter.js';
 // ============================================================
 // MULTI-PAC ROUTER
 // Selects a healthy PAC based on tenant preferences and
-// circuit breaker state. Auto-failover:
-//   primary → secondary → tertiary
+// circuit breaker state. Auto-failover walks the candidate list in order:
+//   saved preferences: primary → secondary → tertiary
+//   no saved row: DEFAULT_PAC_ORDER (four entries; ids without an adapter are skipped)
 // ============================================================
 
 /**
@@ -46,6 +47,23 @@ for (const adaptador of Object.values(PAC_ADAPTERS)) {
   integrationRegistry.register(adaptador);
 }
 
+/**
+ * Default failover order for a tenant with no saved preferences. Evidence-based
+ * (docs/pac-proveedores.md): SW Sapien first (pre-sealed XML + customId that
+ * dedupes retries), Prodigia second (cfdiPorUUID recovers a lost stamp),
+ * Solucion Factible as reserve, Finkok last. Ids with no registered adapter yet
+ * (prodigia, solucion_factible) are skipped by the router until their adapters
+ * land (MNE-001-311/312). These code defaults win over the column defaults of
+ * migration 007 (finkok, sw_sapien, edicom): savePreferences supplies every
+ * slot of a new row, so the column defaults never apply.
+ */
+export const DEFAULT_PAC_ORDER: readonly string[] = [
+  'sw_sapien',
+  'prodigia',
+  'solucion_factible',
+  'finkok',
+];
+
 interface PacPreferences {
   pac_primary: string;
   pac_secondary: string | null;
@@ -58,6 +76,13 @@ export class PacRouter {
    * Get tenant's PAC preferences (or defaults)
    */
   async getPreferences(tenantId: string): Promise<PacPreferences> {
+    return (await this.resolvePreferences(tenantId)).prefs;
+  }
+
+  /** Preferences plus the full ordered candidate list (the default order has four entries, the table three columns). */
+  private async resolvePreferences(
+    tenantId: string
+  ): Promise<{ prefs: PacPreferences; order: string[] }> {
     const result = await query<PacPreferences>(
       `SELECT pac_primary, pac_secondary, pac_tertiary, auto_failover
        FROM pac_preferences WHERE tenant_id = $1`,
@@ -66,34 +91,51 @@ export class PacRouter {
 
     if (result.rows.length === 0) {
       return {
-        pac_primary: 'finkok',
-        pac_secondary: 'sw_sapien',
-        pac_tertiary: 'edicom',
-        auto_failover: true,
+        prefs: {
+          pac_primary: DEFAULT_PAC_ORDER[0],
+          pac_secondary: DEFAULT_PAC_ORDER[1],
+          pac_tertiary: DEFAULT_PAC_ORDER[2],
+          auto_failover: true,
+        },
+        order: [...DEFAULT_PAC_ORDER],
       };
     }
-    return result.rows[0];
+    const prefs = result.rows[0];
+    return {
+      prefs,
+      order: [prefs.pac_primary, prefs.pac_secondary, prefs.pac_tertiary].filter(
+        (x): x is string => !!x
+      ),
+    };
   }
 
   /**
    * Save tenant's PAC preferences
    */
   async savePreferences(tenantId: string, prefs: Partial<PacPreferences>): Promise<void> {
+    // A missing slot is passed as NULL so the upsert keeps the stored value
+    // (COALESCE on the parameter). A brand-new row falls back to the routable
+    // defaults only: ids with no adapter are never persisted.
+    const routable = DEFAULT_PAC_ORDER.filter((id) => id in PAC_ADAPTERS);
     await query(
       `INSERT INTO pac_preferences (tenant_id, pac_primary, pac_secondary, pac_tertiary, auto_failover)
-       VALUES ($1, $2, $3, $4, $5)
+       VALUES ($1, COALESCE($2::varchar, $6::varchar), COALESCE($3::varchar, $7::varchar),
+               COALESCE($4::varchar, $8::varchar), COALESCE($5::boolean, true))
        ON CONFLICT (tenant_id) DO UPDATE SET
-         pac_primary = COALESCE(EXCLUDED.pac_primary, pac_preferences.pac_primary),
-         pac_secondary = COALESCE(EXCLUDED.pac_secondary, pac_preferences.pac_secondary),
-         pac_tertiary = COALESCE(EXCLUDED.pac_tertiary, pac_preferences.pac_tertiary),
-         auto_failover = COALESCE(EXCLUDED.auto_failover, pac_preferences.auto_failover),
+         pac_primary = COALESCE($2::varchar, pac_preferences.pac_primary),
+         pac_secondary = COALESCE($3::varchar, pac_preferences.pac_secondary),
+         pac_tertiary = COALESCE($4::varchar, pac_preferences.pac_tertiary),
+         auto_failover = COALESCE($5::boolean, pac_preferences.auto_failover),
          updated_at = NOW()`,
       [
         tenantId,
-        prefs.pac_primary || 'finkok',
-        prefs.pac_secondary || 'sw_sapien',
-        prefs.pac_tertiary || 'edicom',
-        prefs.auto_failover ?? true,
+        prefs.pac_primary || null,
+        prefs.pac_secondary || null,
+        prefs.pac_tertiary || null,
+        prefs.auto_failover ?? null,
+        routable[0],
+        routable[1] ?? null,
+        routable[2] ?? null,
       ]
     );
   }
@@ -103,13 +145,9 @@ export class PacRouter {
    * Returns the adapter + selected provider ID.
    */
   async selectPac(ctx: AdapterContext): Promise<{ adapter: IPacAdapter; providerId: string }> {
-    const prefs = await this.getPreferences(ctx.tenantId);
+    const { prefs, order: candidates } = await this.resolvePreferences(ctx.tenantId);
     const tried: string[] = [];
     const errors: string[] = [];
-
-    const candidates = [prefs.pac_primary, prefs.pac_secondary, prefs.pac_tertiary]
-      .filter((x): x is string => !!x);
-
     for (const providerId of candidates) {
       const adapter = PAC_ADAPTERS[providerId];
       if (!adapter) continue;
@@ -156,10 +194,7 @@ export class PacRouter {
      *  producción y con CFDI_PERMITIR_SIMULACION=true). */
     simulado: boolean;
   }> {
-    const prefs = await this.getPreferences(ctx.tenantId);
-    const candidates = [prefs.pac_primary, prefs.pac_secondary, prefs.pac_tertiary]
-      .filter((x): x is string => !!x);
-
+    const { prefs, order: candidates } = await this.resolvePreferences(ctx.tenantId);
     const errors: Array<{ provider: string; error: string }> = [];
 
     for (let i = 0; i < candidates.length; i++) {

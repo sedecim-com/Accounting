@@ -145,18 +145,18 @@ describe('main — la compuerta de CI', () => {
 
   it('rompe cuando se exige cerrado un paquete que está abierto', async () => {
     callar();
-    // F02 puso E1.3 en verde (todas las políticas ganaron lector): el rojo
-    // de guardia pasa a E3.2 — la descarga masiva del SAT, bloqueada por la
-    // e.firma real, el rojo más longevo del tablero.
-    expect(await main(['--exigir=E3.2'], board)).toBe(1);
+    // MNE-001-142 puso E3.2 en verde (el motor de descarga masiva): el rojo
+    // de guardia pasa a E5.1, que sigue abierto por decisión del dueño (#378:
+    // sus dos criterios rojos son posteriores al MVP).
+    expect(await main(['--exigir=E5.1'], board)).toBe(1);
   });
 
   it('el filtro no puede blanquear lo exigido', async () => {
-    // `plan:status E0 --exigir=E3.2` miraba sólo E0, no encontraba E3.2 entre
+    // `plan:status E0 --exigir=E5.1` miraba sólo E0, no encontraba E5.1 entre
     // lo abierto, y pasaba. Un trinquete que se apaga con un argumento no es
     // un trinquete.
     callar();
-    expect(await main(['E0', '--exigir=E3.2'], board)).toBe(1);
+    expect(await main(['E0', '--exigir=E5.1'], board)).toBe(1);
   });
 
   it('un paquete exigido que NO EXISTE rompe, en vez de pasar en silencio', async () => {

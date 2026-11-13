@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
-import { calculatePaycheck, checkOvertimeLines, type EarningLine, type DeductionLine } from './paycheck-service.js';
+import { calculatePaycheck, checkOvertimeLines, checkUsTaxTables, type EarningLine, type DeductionLine } from './paycheck-service.js';
 import {
   acumularPasivoPatronal,
   hallazgosQueBloquean,
@@ -11,7 +11,7 @@ import { dispatchEvent } from '../../webhooks/webhook-service.js';
 import { payRunStateTransitions } from '../../../api/rest/middleware/metrics.js';
 import type { Scope } from '../../../database/scope.js';
 import { alcanceDeCorrida, periodoEnEntidad } from './alcance-nomina.js';
-import { ConflictError, NotFoundError } from '../../../utils/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../../utils/errors.js';
 
 // ============================================================
 // PAY RUN ORCHESTRATOR
@@ -115,6 +115,24 @@ export async function calculatePayRun(
       employee_id: emp.employee_id,
       earnings: emp.earnings,
     });
+  }
+
+  // The same for the US bracket tables (MNE-001-353): every employee and every
+  // missing table is named in ONE error, before any paycheck exists.
+  const missingTables: string[] = [];
+  for (const emp of input.employee_inputs) {
+    missingTables.push(...await checkUsTaxTables({
+      tenant_id: input.tenant_id,
+      pay_run_id: payRunId,
+      employee_id: emp.employee_id,
+      earnings: emp.earnings,
+    }));
+  }
+  if (missingTables.length > 0) {
+    throw new ValidationError(
+      `The run cannot be calculated, no paycheck was written:\n${missingTables.join('\n')}`,
+      'employee_inputs'
+    );
   }
 
   for (const emp of input.employee_inputs) {

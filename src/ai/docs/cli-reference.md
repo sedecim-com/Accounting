@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 232 of 361 subcommands
+  spelling is `-T` at the root and `-t` on the 240 of 382 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -53,7 +53,7 @@ Commands:
   onboard|alta [options]                 Imports a client's accounting from an external system (chart of accounts + opening balances)
   outbox|envio [options]                 Operations queued for external accounting systems: list, review and execute
   question|duda [options]                The agent's pending questions: list, answer (saved as a precedent) or dismiss
-  sat                                    SAT services (e.firma credentials; the CFDI bulk download is not built yet)
+  sat                                    SAT services (e.firma credentials and the CFDI bulk download)
   pending|pendientes [options]           What you need to do: work to resolve and policy decisions to define
   login|entrar [options]                 Signs in with your identity provider (OIDC)
   logout|salir [options]                 Deletes the stored credential
@@ -65,6 +65,7 @@ Commands:
   approvals|aprobaciones                 Graduated approval policies for staged writes (once / session / always)
   entity|entidad                         Select and inspect the legal entity commands operate on
   tenant|despacho                        Create and list the firms (tenants) of this installation
+  user|usuario                           Create, list and archive the logins of a firm, without a terminal
   payment|pago                           Vendor payments: record cash that already left the bank and settle the bill it pays
   account|cuenta                         Chart of accounts: inspect, create and retire accounts
   chart|catalogo                         Chart of accounts: bring a firm catalog in
@@ -91,6 +92,7 @@ Commands:
   pay-run|corrida                        Payroll runs of a pay period: create, calculate gross to net, approve, post the entry
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
+  filing|declaracion                     Tax returns of the entity: the working papers behind them
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
   tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
   garnishment|embargo                    Court-ordered wage withholding: file an order, see the cascade, stop it
@@ -546,14 +548,18 @@ Examples:
 ```
 Usage: mnemosine sat [options] [command]
 
-SAT services (e.firma credentials; the CFDI bulk download is not built yet)
+SAT services (e.firma credentials and the CFDI bulk download)
 
 Options:
-  -h, --help      display help for command
+  -h, --help         display help for command
 
 Commands:
-  cred            Fiscal credentials (e.firma)
-  help [command]  display help for command
+  cred               Fiscal credentials (e.firma)
+  download|descarga  Bulk download of CFDI from the SAT, and the census against
+                     the books
+  package|paquete    Packages of a finished download request
+  quota|cuota        The SAT's lifetime limit on identical XML requests
+  help [command]     display help for command
 ```
 
 ### `mnemosine sat cred`
@@ -600,6 +606,12 @@ Options:
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
+
+Examples:
+  # Validate the e.firma locally, without asking for the passphrase or storing anything.
+  mnemosine sat cred add --cer firma.cer --key firma.key --dry-run
+  # Store it in the vault for the entity (asks for the passphrase and the typed consent).
+  mnemosine sat cred add --cer firma.cer --key firma.key --entity "Demo Corp" --live
 ```
 
 #### `mnemosine sat cred status` (alias: estado)
@@ -644,6 +656,276 @@ Options:
                            state it writes; accepted and ignored
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
+
+Examples:
+  # See what a revocation would do, without touching the vault.
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --dry-run
+  # Revoke it and destroy the material (irreversible).
+  mnemosine sat cred revoke --entity "Demo Corp" --reason "e.firma renewed" --yes
+```
+
+### `mnemosine sat download` (alias: descarga)
+
+```
+Usage: mnemosine sat download|descarga [options] [command]
+
+Bulk download of CFDI from the SAT, and the census against the books
+
+Options:
+  -h, --help                      display help for command
+
+Commands:
+  reconcile|conciliar [options]   Read the SAT census of a month against what is
+                                  posted: what is still to fetch, what is
+                                  fetched and not posted, what the SAT cancelled
+                                  and the books still carry, and what the books
+                                  carry that the SAT does not list. Reads the
+                                  census that `ingest --kind zip|metadata`
+                                  loaded; it does not go to the SAT. Exits 4
+                                  when the month cannot be called complete
+  create|crear [options]          Asks the SAT for a period's CFDI (refuses
+                                  before calling when the lifetime XML limit is
+                                  spent)
+  check|verificar [options] <id>  Asks the SAT for the state of a request and
+                                  records it and its package ids (5004 is
+                                  success with zero rows)
+  status|estado [options] <id>    Last known state of a request, read from the
+                                  local mirror (does not call the SAT)
+  list|listar [options]           The entity's download requests with their
+                                  state, CFDI count and packages
+  help [command]                  display help for command
+```
+
+#### `mnemosine sat download reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine sat download reconcile|conciliar [options]
+
+Read the SAT census of a month against what is posted: what is still to fetch,
+what is fetched and not posted, what the SAT cancelled and the books still
+carry, and what the books carry that the SAT does not list. Reads the census
+that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4
+when the month cannot be called complete
+
+Options:
+  --period <YYYY-MM>                       month to reconcile, as YYYY-MM
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # What August's SAT census has that the books do not (exit 4 if the month is not complete).
+  mnemosine sat download reconcile --period 2026-08
+  # The same, as data, for a script.
+  mnemosine sat download reconcile --period 2026-08 --json
+```
+
+#### `mnemosine sat download create` (alias: crear)
+
+```
+Usage: mnemosine sat download create|crear [options]
+
+Asks the SAT for a period's CFDI (refuses before calling when the lifetime XML
+limit is spent)
+
+Options:
+  --since <date>           First day, YYYY-MM-DD
+  --until <date>           Last day, YYYY-MM-DD
+  --direction <direction>  issued or received
+  --kind <kind>            metadata or xml (xml spends one of the 2 lifetime
+                           requests of the period) (default: "metadata")
+  -e, --entity <idOrName>  Legal entity
+  -u, --user <email>       Who acts (default: the sole active user)
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+
+Examples:
+  # What a metadata request for last August's received CFDI would do (metadata is not limited).
+  mnemosine sat download create --since 2026-08-01 --until 2026-08-31 --direction received --dry-run
+  # Ask for the XML of the same period: spends one of its 2 lifetime requests.
+  mnemosine sat download create --since 2026-08-01 --until 2026-08-31 --direction received --kind xml --live --idempotency-key aug-received-xml
+```
+
+#### `mnemosine sat download check` (alias: verificar)
+
+```
+Usage: mnemosine sat download check|verificar [options] <id>
+
+Asks the SAT for the state of a request and records it and its package ids (5004
+is success with zero rows)
+
+Arguments:
+  id                       Download request: its local id or the id the SAT gave
+                           it
+
+Options:
+  --wait                   Keep asking until the request is no longer open
+  --timeout <seconds>      Give up waiting after this many seconds (default:
+                           900)
+  --strict                 Exit non-zero unless the request finished with
+                           packages
+  --json                   Machine-readable output
+  --format <format>        Output format: table or json
+  -e, --entity <idOrName>  Legal entity
+  -u, --user <email>       Who acts (default: the sole active user)
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -h, --help               display help for command
+
+Examples:
+  # Ask the SAT once, or wait up to 10 minutes for the packages to be ready.
+  mnemosine sat download check 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11 --live
+  mnemosine sat download check 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11 --wait --timeout 600 --live
+```
+
+#### `mnemosine sat download status` (alias: estado)
+
+```
+Usage: mnemosine sat download status|estado [options] <id>
+
+Last known state of a request, read from the local mirror (does not call the
+SAT)
+
+Arguments:
+  id                       Download request: its local id or the id the SAT gave
+                           it
+
+Options:
+  --json                   Machine-readable output
+  --format <format>        Output format: table or json
+  -e, --entity <idOrName>  Legal entity
+  -h, --help               display help for command
+
+Examples:
+  # The last state we recorded; never calls the SAT.
+  mnemosine sat download status 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11
+```
+
+#### `mnemosine sat download list` (alias: listar)
+
+```
+Usage: mnemosine sat download list|listar [options]
+
+The entity's download requests with their state, CFDI count and packages
+
+Options:
+  -s, --status <status>    Only this state
+  --since <date>           Only requests whose period ends on or after this day,
+                           YYYY-MM-DD
+  -n, --limit <n>          How many to show (default: 30)
+  --json                   Machine-readable output
+  --format <format>        Output format: table or json
+  -e, --entity <idOrName>  Legal entity
+  -h, --help               display help for command
+
+Examples:
+  # Finished requests, as JSON.
+  mnemosine sat download list --status finished --format json
+```
+
+### `mnemosine sat package` (alias: paquete)
+
+```
+Usage: mnemosine sat package|paquete [options] [command]
+
+Packages of a finished download request
+
+Options:
+  -h, --help                         display help for command
+
+Commands:
+  download|descargar [options] <id>  Downloads the packages of a finished
+                                     request, archives each ZIP by bytes, and
+                                     with --import loads them
+  help [command]                     display help for command
+```
+
+#### `mnemosine sat package download` (alias: descargar)
+
+```
+Usage: mnemosine sat package download|descargar [options] <id>
+
+Downloads the packages of a finished request, archives each ZIP by bytes, and
+with --import loads them
+
+Arguments:
+  id                       Download request: its local id or the id the SAT gave
+                           it
+
+Options:
+  -o, --output <dir>       Also write each ZIP into this directory
+  --package <packageId>    Only this package of the request
+  --import                 Load the census and run the XML through the regular
+                           ingestion (import_source sat_download)
+  -e, --entity <idOrName>  Legal entity
+  -u, --user <email>       Who acts (default: the sole active user)
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -h, --help               display help for command
+
+Examples:
+  # See what would be downloaded, then archive the ZIPs and load them through the ingestion.
+  mnemosine sat package download 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11 --import --dry-run
+  mnemosine sat package download 3f6c1c52-0a9d-4c58-a6de-7b0f2f1f8a11 --import --live
+```
+
+### `mnemosine sat quota` (alias: cuota)
+
+```
+Usage: mnemosine sat quota|cuota [options] [command]
+
+The SAT's lifetime limit on identical XML requests
+
+Options:
+  -h, --help          display help for command
+
+Commands:
+  show|ver [options]  Which periods have their 2 lifetime XML requests spent and
+                      which have some left (reads the local counter)
+  help [command]      display help for command
+```
+
+#### `mnemosine sat quota show` (alias: ver)
+
+```
+Usage: mnemosine sat quota show|ver [options]
+
+Which periods have their 2 lifetime XML requests spent and which have some left
+(reads the local counter)
+
+Options:
+  --since <date>           Periods ending on or after this day, YYYY-MM-DD
+  --until <date>           Periods starting on or before this day, YYYY-MM-DD
+  --json                   Machine-readable output
+  --format <format>        Output format: table or json
+  -e, --entity <idOrName>  Legal entity
+  -h, --help               display help for command
+
+Examples:
+  # Which periods of 2026 have no lifetime XML request left.
+  mnemosine sat quota show --since 2026-01-01 --until 2026-12-31
 ```
 
 ## `mnemosine pending` (alias: pendientes)
@@ -1239,6 +1521,97 @@ Examples:
   mnemosine tenant create "Despacho Alameda"
   # Name the handle yourself when the derived one is taken.
   mnemosine tenant create "Despacho Alameda" --subdomain alameda-norte --json
+```
+
+## `mnemosine user` (alias: usuario)
+
+```
+Usage: mnemosine user|usuario [options] [command]
+
+Create, list and archive the logins of a firm, without a terminal
+
+Options:
+  -h, --help                          display help for command
+
+Commands:
+  list|listar [options]               List the users of the firm, archived ones
+                                      included
+  create|crear [options]              Create a user with one role of the
+                                      catalog; the password comes from stdin,
+                                      the environment or a hidden prompt
+  archive|archivar [options] <email>  Archive a user: it can no longer sign in,
+                                      and nothing it did is erased
+  help [command]                      display help for command
+```
+
+### `mnemosine user list` (alias: listar)
+
+```
+Usage: mnemosine user list|listar [options]
+
+List the users of the firm, archived ones included
+
+Options:
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  mnemosine user list
+  mnemosine user list --status archived --json
+```
+
+### `mnemosine user create` (alias: crear)
+
+```
+Usage: mnemosine user create|crear [options]
+
+Create a user with one role of the catalog; the password comes from stdin, the
+environment or a hidden prompt
+
+Options:
+  -t, --tenant <id>  tenant (firm) whose data to scope to
+  --email <address>  email address the user signs in with
+  --role <name>      role of src/auth/roles.ts (owner, admin, controller,
+                     contador, revisor, auditor, viewer) or its alias
+  --password-stdin   read the password from stdin (never pass it as an argument)
+  --json             JSON output
+  -y, --yes          skip the confirmation prompt
+  -h, --help         display help for command
+
+Examples:
+  # From a script, the password piped on stdin: printf '%s' "$PASSWORD" | …
+  mnemosine user create --email ana@example.com --role contador --password-stdin
+  # Or with MNEMOSINE_USER_PASSWORD set in the environment.
+  mnemosine user create --email ana@example.com --role viewer
+```
+
+### `mnemosine user archive` (alias: archivar, disable, desactivar)
+
+```
+Usage: mnemosine user archive|archivar [options] <email>
+
+Archive a user: it can no longer sign in, and nothing it did is erased
+
+Arguments:
+  email              email of the user to archive
+
+Options:
+  -t, --tenant <id>  tenant (firm) whose data to scope to
+  -y, --yes          skip the confirmation prompt
+  --reason <text>    justification recorded in the audit trail (required)
+  -h, --help         display help for command
+
+Examples:
+  mnemosine user archive ana@example.com --reason "left the firm"
 ```
 
 ## `mnemosine payment` (alias: pago)
@@ -3209,6 +3582,7 @@ Arguments:
   bill                     bill number, vendor invoice number or id
 
 Options:
+  --json                   shorthand for --format json
   -e, --entity <idOrName>  legal entity to operate on (defaults to the active
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
@@ -6607,7 +6981,8 @@ Commands:
   preview|previsualizar [options] [period]  Read-only twin of closing start: says whether the period can enter close and what is missing
   check|verificar [options]                 Run the close verification catalog, or only the named checks; bare --check lists the names
   explain|explicar [options] <code>         Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it
-  run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, verify the checklist, soft-close and hard-close, in that order
+  run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, revalue foreign balances, verify the checklist, soft-close and hard-close, in that order
+  fx|cambio                                 Foreign currency at the close
   pack|paquete                              The dossier of a close: generate it, and verify that its figures still reproduce
   help [command]                            display help for command
 ```
@@ -6686,7 +7061,7 @@ Print the offending rows of one check (ids, amounts, dates) and the exact
 command that fixes it
 
 Arguments:
-  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, fees-without-withholding, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, fees-without-withholding, depreciation-posted, prepaid-amortized, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing, ar-subledger-delta, ap-subledger-delta, withholding-accounts-layout, sat-census-missing
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -6716,8 +7091,8 @@ Examples:
 ```
 Usage: mnemosine closing run|ejecutar [options] [period]
 
-Conduct the close: accrue, amortize, depreciate, verify the checklist,
-soft-close and hard-close, in that order
+Conduct the close: accrue, amortize, depreciate, revalue foreign balances,
+verify the checklist, soft-close and hard-close, in that order
 
 Arguments:
   period                                   open period: 2026-07, its id, or part of its name (default: the oldest open one)
@@ -6731,7 +7106,7 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, verify-checklist, soft-close, hard-close
+  --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, revalue-fx, verify-checklist, soft-close, hard-close
   --resume                                 continue the open run of this period; every step runs again, posting only what is missing
   -y, --yes                                skip the confirmation prompt
   --dry-run                                compute and show the full effect; write nothing and call nothing external
@@ -6742,7 +7117,7 @@ Examples:
   # ALWAYS this one first: it says what is pending WITHOUT writing, and it
   # really evaluates the checklist -- the one step that can be asked for free.
   mnemosine closing run --dry-run
-  # Conduct the whole month. Three of its steps post to the ledger.
+  # Conduct the whole month. Four of its steps post to the ledger.
   mnemosine closing run 2026-07 --entity "Acme SA de CV" --yes
   # Do the month but leave the period open: --stop-at stops BEFORE the step.
   mnemosine closing run --stop-at soft-close --yes
@@ -6753,6 +7128,58 @@ Examples:
   # stops being a claim anybody can stand behind. Every step runs again; the
   # engines post only what is still missing.
   mnemosine closing run --resume --yes
+```
+
+### `mnemosine closing fx` (alias: cambio)
+
+```
+Usage: mnemosine closing fx|cambio [options] [command]
+
+Foreign currency at the close
+
+Options:
+  -h, --help                           display help for command
+
+Commands:
+  revalue|revaluar [options] <period>  Revalue the foreign-currency receivables,
+                                       payables and banks at the closing rate,
+                                       and reverse it on day 1 of the next
+                                       period. It belongs after the soft close;
+                                       a later run posts only what moved since
+  help [command]                       display help for command
+```
+
+#### `mnemosine closing fx revalue` (alias: revaluar)
+
+```
+Usage: mnemosine closing fx revalue|revaluar [options] <period>
+
+Revalue the foreign-currency receivables, payables and banks at the closing
+rate, and reverse it on day 1 of the next period. It belongs after the soft
+close; a later run posts only what moved since
+
+Arguments:
+  period                                   period to revalue: 2026-08, its id, or part of its name
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
+  -h, --help                               display help for command
+
+Examples:
+  # What August's revaluation would post, at the rate of August 31st, writing nothing.
+  mnemosine closing fx revalue 2026-08 --dry-run
+  # Post it: one adjusting entry on August 31st and its mirror on September 1st.
+  mnemosine closing fx revalue 2026-08 --yes
 ```
 
 ### `mnemosine closing pack` (alias: paquete)
@@ -7402,6 +7829,9 @@ Commands:
   generate|generar [options]  Build and archive the CtaCatalogo 1.3 XML (NumCta,
                               Desc, SubCtaDe, Nivel, Natur, CodAgrup) with its
                               hash
+  seal|sellar [options]       Seal the archived CtaCatalogo of a month with the
+                              entity e.firma (only under sellar_con_custodia);
+                              files nothing
   help [command]              display help for command
 ```
 
@@ -7428,9 +7858,10 @@ Options:
   -h, --help                               display help for command
 
 This builds the file. It does NOT seal it and does NOT file it.
-The XML comes out with no Sello, noCertificado or Certificado: sealing with the
-e.firma and transmitting through the Buzón Tributario are your acts, outside this
-system. This binary never asks for an e.firma and never loads a private key.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
 
 
 Examples:
@@ -7439,6 +7870,33 @@ Examples:
   mnemosine e-accounting catalog generate --period 2026-07 --dry-run
   # The real run, with a copy of the XML next to the archived one.
   mnemosine e-accounting catalog generate --period 2026-07 -o catalogo-2026-07.xml --yes
+```
+
+#### `mnemosine e-accounting catalog seal` (alias: sellar)
+
+```
+Usage: mnemosine e-accounting catalog seal|sellar [options]
+
+Seal the archived CtaCatalogo of a month with the entity e.firma (only under
+sellar_con_custodia); files nothing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          month of the archived catalog: YYYY-MM
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      also write the sealed XML to this path
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+Examples:
+  # Seal the catalog you generated and reviewed for July, and keep a copy of it.
+  # Only under efirma_sellado_contabilidad_electronica = sellar_con_custodia.
+  mnemosine e-accounting catalog seal --period 2026-07 -o catalogo-2026-07-sellado.xml
 ```
 
 ### `mnemosine e-accounting balance` (alias: balanza)
@@ -7457,6 +7915,9 @@ Commands:
   check|verificar [options]   Run the invariants the SAT re-runs: SaldoIni +
                               Debe − Haber = SaldoFin honouring Natur, and every
                               account in the catalog
+  seal|sellar [options]       Seal the archived trial balance of a period with
+                              the entity e.firma (only under
+                              sellar_con_custodia); files nothing
   help [command]              display help for command
 ```
 
@@ -7486,9 +7947,10 @@ Options:
   -h, --help                               display help for command
 
 This builds the file. It does NOT seal it and does NOT file it.
-The XML comes out with no Sello, noCertificado or Certificado: sealing with the
-e.firma and transmitting through the Buzón Tributario are your acts, outside this
-system. This binary never asks for an e.firma and never loads a private key.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
 
 
 Examples:
@@ -7522,6 +7984,8 @@ Options:
   --period <expr>                          period to check: 2026-02, its name, or the fiscal period id
   --closing                                check the year-end balance (month 13) instead of a month
   --check [names]                          comma-separated check names; with no value, prints the available ones
+  --type <N|C>                             envelope type to check: N normal, C amended (needs --modified) (default: "N")
+  --modified <date>                        FechaModBal of the amended balance; required with --type C
   -h, --help                               display help for command
 
 Examples:
@@ -7529,6 +7993,36 @@ Examples:
   mnemosine e-accounting balance check --period 2026-07
   # The year-end balance, with warnings made blocking so cron stops on them (exit 4).
   mnemosine e-accounting balance check --period 2026 --closing --strict
+```
+
+#### `mnemosine e-accounting balance seal` (alias: sellar)
+
+```
+Usage: mnemosine e-accounting balance seal|sellar [options]
+
+Seal the archived trial balance of a period with the entity e.firma (only under
+sellar_con_custodia); files nothing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          month of the archived file: YYYY-MM (the fiscal year with --closing)
+  --type <N|C>                             envelope type of the archived balance: N normal, C amended
+  --closing                                the year-end balance, archived as month 13
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      also write the sealed XML to this path
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+Examples:
+  # Seal the archived July balance. Nothing is filed: upload it in the SAT portal.
+  mnemosine e-accounting balance seal --period 2026-07
+  # The year-end balance (month 13) of fiscal year 2026.
+  mnemosine e-accounting balance seal --period 2026 --closing
 ```
 
 ### `mnemosine e-accounting voucher` (alias: poliza)
@@ -7576,9 +8070,10 @@ Options:
   -h, --help                               display help for command
 
 This builds the file. It does NOT seal it and does NOT file it.
-The XML comes out with no Sello, noCertificado or Certificado: sealing with the
-e.firma and transmitting through the Buzón Tributario are your acts, outside this
-system. This binary never asks for an e.firma and never loads a private key.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
 
 
 Examples:
@@ -7636,9 +8131,10 @@ Options:
   -h, --help                               display help for command
 
 This builds the file. It does NOT seal it and does NOT file it.
-The XML comes out with no Sello, noCertificado or Certificado: sealing with the
-e.firma and transmitting through the Buzón Tributario are your acts, outside this
-system. This binary never asks for an e.firma and never loads a private key.
+The XML comes out with no Sello, noCertificado or Certificado.
+generate never loads a private key. Sealing is yours, or `seal` under
+sellar_con_custodia; uploading
+through the Buzón Tributario in the SAT portal is always yours.
 
 
 Examples:
@@ -7777,6 +8273,73 @@ Examples:
   mnemosine diot export --period 2026-07 -o diot-2026-07.txt
   # The batch file to upload in the SAT portal (it is not filed by this command).
   mnemosine diot export --period 2026-07 --layout sat -o diot-sat-2026-07.txt
+```
+
+## `mnemosine filing` (alias: declaracion)
+
+```
+Usage: mnemosine filing|declaracion [options] [command]
+
+Tax returns of the entity: the working papers behind them
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  workpaper|papel-trabajo  The auditable working paper of the month, line by
+                           line
+  help [command]           display help for command
+```
+
+### `mnemosine filing workpaper` (alias: papel-trabajo)
+
+```
+Usage: mnemosine filing workpaper|papel-trabajo [options] [command]
+
+The auditable working paper of the month, line by line
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Generate the month workpaper: IVA and provisional
+                              ISR, cents and pesos, with the entries behind each
+                              line
+  help [command]              display help for command
+```
+
+#### `mnemosine filing workpaper generate` (alias: generar)
+
+```
+Usage: mnemosine filing workpaper generate|generar [options]
+
+Generate the month workpaper: IVA and provisional ISR, cents and pesos, with the
+entries behind each line
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <YYYY-MM>                       month to settle (the filing is monthly)
+  --form <iva|isr|all>                     which settlement to include (default: "all")
+  --ptu-paid <amount>                      PTU paid in the year (ISR), captured by a person
+  --prior-provisional <amount>             provisional ISR already paid this year (ISR), captured by a person
+  -h, --help                               display help for command
+
+This computes the paper. It does NOT file anything: a person reviews it and declares in the SAT portal.
+
+Examples:
+  The month IVA and ISR with their two columns and the entries behind each line:
+    mnemosine filing workpaper generate --period 2026-05
+  Only the IVA, the whole paper (with the entries) as JSON to a file:
+    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json
+  The ISR with the PTU paid in the year and the provisional payments already made:
+    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
 ```
 
 ## `mnemosine isn`
@@ -9976,6 +10539,9 @@ Options:
   --model <model>        Provider model
   -u, --user <email>     Email of the user to create
   -h, --help             display help for command
+
+.env: ./.env wins over ~/.mnemosine/.env. With neither, init asks (default ./.env in a checkout,
+~/.mnemosine/.env elsewhere); without a terminal it applies the same rule.
 ```
 
 ## `mnemosine close` (alias: cierre)
@@ -9986,9 +10552,10 @@ Usage: mnemosine close|cierre [options]
 Month-end close: checks what is missing and closes the period
 
 Options:
-  -e, --entity <idOrName>  Legal entity
-  -t, --tenant <id>        Tenant
-  -u, --user <email>       Who performs the close
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
   --period <expr>          Period to close: 2026-08, its id, or an unambiguous
                            part of its name (default: the oldest open one)
   -l, --list               List closable periods and exit

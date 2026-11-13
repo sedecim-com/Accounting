@@ -210,8 +210,8 @@ export function construirCatalogoCuentas(entrada: EntradaCatalogo): CatalogoCons
   const notaDeSellado =
     entrada.politicas.sellado === 'sellar_con_custodia'
       ? 'El despacho tiene declarado el sellado con custodia, pero `catalog generate` NO SELLA: ' +
-        'construir el archivo y firmarlo son actos distintos. El sellado y la transmisión viven en ' +
-        '`catalog file`. Este archivo sale SIN SELLAR.'
+        'construir el archivo y firmarlo son actos distintos. Revísalo y séllalo con ' +
+        '`e-accounting catalog seal`; la carga ante el SAT es tuya, en su portal. Este archivo sale SIN SELLAR.'
       : 'El archivo sale SIN SELLAR: la e.firma no entra en este proceso. Sellarlo y transmitirlo ' +
         'son actos tuyos (política efirma_sellado_contabilidad_electronica = nunca_sellar_en_el_sistema).';
 

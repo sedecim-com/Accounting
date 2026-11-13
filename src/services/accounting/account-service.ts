@@ -1,3 +1,4 @@
+import { dayOrToday } from '../policy/today.js';
 import { v4 as uuidv4 } from 'uuid';
 import { breachOfEdge, breachMessage, coherenceCriterion } from './parent-child-coherence.js';
 import { query, withTransaction } from '../../database/connection.js';
@@ -298,6 +299,7 @@ export async function createAccount(input: CreateAccountInput): Promise<Account>
     const cuenta = result.rows[0];
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, input.entity_id),
+      legalEntityId: input.entity_id,
       userId: input.created_by,
       action: 'create',
       entityType: 'account',
@@ -397,6 +399,7 @@ export async function updateAccount(
     // haría ilegible la pregunta que el rastro contesta: qué cambió.
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, previa.entity_id as string),
+      legalEntityId: previa.entity_id as string,
       userId,
       action: 'update',
       entityType: 'account',
@@ -522,6 +525,7 @@ export async function deactivateAccount(
     // por la vía de `--force`, sin recalcular nada seis meses después.
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, previa.entity_id),
+      legalEntityId: previa.entity_id,
       userId,
       action: 'update',
       entityType: 'account',
@@ -628,6 +632,7 @@ export async function setAccountGovernance(
     const despues = result.rows[0] as unknown as Record<string, unknown>;
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, cuenta.entity_id),
+      legalEntityId: cuenta.entity_id,
       userId,
       action: 'update',
       entityType: 'account',
@@ -800,8 +805,11 @@ export async function setAccountMapping(
   if (scheme === 'sat-agrupador' && value !== null) {
     const ctxPol = await contextoDePoliticaDeCuenta(id);
     if (ctxPol === null) throw new NotFoundError('Account', id);
-    const fecha = opts.fecha ?? new Date().toISOString().slice(0, 10);
-    const ctxVal = opts.validacion ?? (await prepararValidacionAgrupador(ctxPol, fecha));
+    // The day is resolved lazily: a caller that brings its batch context
+    // (the bulk import) must not cost a policy read per row.
+    const ctxVal =
+      opts.validacion ??
+      (await prepararValidacionAgrupador(ctxPol, await dayOrToday(ctxPol, opts.fecha)));
     // Revienta si la política dice rechazar; devuelve el veredicto si no.
     const veredicto = await exigirAgrupadorValido(ctxVal, value);
     // Un aviso que nadie recoge es un aviso perdido, así que va al log
@@ -886,7 +894,7 @@ export async function importAccountMappings(
     if (tenantId) {
       ctxVal = await prepararValidacionAgrupador(
         { tenantId, entityId },
-        opts.fecha ?? new Date().toISOString().slice(0, 10)
+        await dayOrToday({ tenantId, entityId }, opts.fecha)
       );
     }
   }

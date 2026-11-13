@@ -158,6 +158,7 @@ export async function setAccountRole(
     // valores porque el id de la fila, solo, no dice qué se reapuntó.
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entityId,
       userId: opts.userId,
       action: previo ? 'update' : 'create',
       entityType: 'account_role',
