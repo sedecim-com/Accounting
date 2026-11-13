@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import * as path from 'node:path';
+import { xsdVerdictOf, type XsdVerdict } from '../xsd-verdict.js';
 
 // ============================================================
 // Validation against the SAT's official Anexo 24 XSDs (#397).
@@ -34,16 +35,10 @@ export const OFFICIAL_SCHEMAS = {
 
 export type OfficialSchema = keyof typeof OFFICIAL_SCHEMAS;
 
-export interface XsdVerdict {
-  valid: boolean;
-  /** xmllint's own lines, one per violation, with the stdin marker removed. */
-  errors: string[];
-}
+export type { XsdVerdict };
 
-// xmllint's exit codes: 0 valid, 1 the document is not well-formed, 3 it does
-// not validate. Anything else (5: a schema failed to compile) is a broken
-// setup, not a verdict on the document, so it throws.
-const VERDICT_EXIT_CODES = new Set([0, 1, 3]);
+// What each xmllint exit code means, and why a document that is not
+// well-formed can come back as 1 or as 4, is in ../xsd-verdict.ts.
 
 export function validateAgainstOfficialXsd(xml: string, schema: OfficialSchema): XsdVerdict {
   const run = spawnSync(
@@ -61,12 +56,5 @@ export function validateAgainstOfficialXsd(xml: string, schema: OfficialSchema):
         `(Homebrew): the Anexo 24 XML is checked against the SAT's official XSD.`
     );
   }
-  if (run.status === null || !VERDICT_EXIT_CODES.has(run.status)) {
-    throw new Error(`xmllint exited with ${String(run.status)}; this is a setup problem:\n${run.stderr}`);
-  }
-  const errors = run.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('-:'))
-    .map((line) => line.replace(/^-:/, 'line '));
-  return { valid: run.status === 0, errors };
+  return xsdVerdictOf(run);
 }
