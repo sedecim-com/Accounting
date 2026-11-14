@@ -4,9 +4,6 @@ import { query } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-service.js';
 import { calculatePaycheck } from '../../src/services/payroll/common/paycheck-service.js';
-// Las calculadoras se registran por efecto de importación; sin esto el
-// registro está vacío y `getRequired('MX','isr')` truena.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // F08a · EL SUBSIDIO QUE EL TRABAJADOR NO RECIBÍA, Y EL DESGLOSE QUE SE TIRABA
