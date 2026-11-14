@@ -228,6 +228,8 @@ describe('pay-run create · calculate · approve from the terminal', () => {
     const secondRun = String(rowsOf(created)[0].id);
 
     const root = resolve(__dirname, '..', '..');
+    // The source entry, not dist/cli/mnemosine.js: the package bin is compiled
+    // from this same module, and a spec must not depend on a prior build.
     const r = spawnSync('npx', ['tsx', join(root, 'src', 'cli', 'mnemosine.ts'),
       'pay-run', 'calculate', secondRun, '--file', inputsFile, '--json',
       '-e', f.entityId, '-t', f.tenantId, '-u', email], {
