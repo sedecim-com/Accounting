@@ -136,10 +136,36 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
     expect(f.text).not.toContain('payment create');
   });
 
-  it('a destination bank not captured keeps the payment remedy: there it is true', () => {
+  it('a foreign bank name reaches the finding on one line, as the account name does', () => {
+    const f = finding(
+      payment({ banco_destino_sat: null, banco_destino_extranjero: 'Bank of\nNowhere\t ' }),
+      'sale',
+      account()
+    );
+    expect(f.text).toContain('«Bank of Nowhere»');
+    expect(f.text).not.toMatch(/[\n\t]/);
+  });
+
+  it('a customer transfer with no account that received it gets no payment remedy either', () => {
+    const f = finding(
+      payment({ payment_number: 'CPMT-2026-00001', bank_account_id: null, cuenta_destino: null, banco_destino_sat: null }),
+      'entra',
+      undefined
+    );
+    expect(f.node).toBe(false);
+    expect(f.text).toContain('no se pudo resolver la cuenta que lo recibió');
+    expect(f.text).not.toContain('payment create');
+    expect(f.text).toContain('ningún comando');
+  });
+
+  it('a destination bank not captured: it is only captured when the payment is registered', () => {
+    // The payment is already registered and no command adds `--to-bank` to it;
+    // reversing and paying again leaves the reversed entry untraced.
     const f = finding(payment({ banco_destino_sat: null }), 'sale', account());
     expect(f.text).toContain('el nodo Transferencia exige BancoDestNal');
-    expect(f.text).toContain(PAYMENT_REMEDY);
+    expect(f.text).toContain('payment create --to-bank');
+    expect(f.text).toContain('ningún comando');
+    expect(f.text).not.toContain(PAYMENT_REMEDY);
   });
 
   it('no finding cites a tracker number', () => {

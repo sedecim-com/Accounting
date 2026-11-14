@@ -443,6 +443,12 @@ type Saneador = (crudo: string, numUnIdenPol: string, campo: string) => string;
 /** Cuando no hay a quién denunciarle nada (el auxiliar de folios). */
 const SANEADOR_MUDO: Saneador = (crudo) => limpiar(crudo).texto;
 
+// Every customer transfer lacks the payer's bank, whatever else it lacks, so
+// each receipt cause shares this remedy and none sends the reader to a payment.
+const RECEIPT_ORIGIN_UNCAPTURED =
+  '`receipt record` no tiene dónde capturar el banco del cliente que ordenó la ' +
+  'transferencia, y nada lo completa en un cobro ya registrado';
+
 /**
  * DE UN PAGO REGISTRADO AL NODO QUE EL ANEXO 24 DECLARA.
  *
@@ -548,9 +554,10 @@ export function rastroDePago(
   const cuentaCapturada = (p.cuenta_destino ?? '').replace(/\s+/g, '') || undefined;
   const bancoCapturadoNal = (p.banco_destino_sat ?? '').trim() || undefined;
   // A foreign bank's name reaches only the motive, never the file (see
-  // `bankGap`), so it does not go through the sanitizer. TODO(#532): once the
-  // file declares it again as `BancoDestExt`, it is free text (VARCHAR(150))
-  // and goes through `sanear` like the beneficiary.
+  // `bankGap`), so it goes through `limpiar` like the account name and not
+  // through `sanear`. TODO(#532): once the file declares it again as
+  // `BancoDestExt`, it is free text (VARCHAR(150)) and goes through `sanear`
+  // like the beneficiary.
   const bancoCapturadoExt = (p.banco_destino_extranjero ?? '').trim() || undefined;
 
   // THE BANK CODES ARE REQUIRED TOO (#532). PolizasPeriodo 1.3 declares
@@ -631,13 +638,20 @@ export function rastroDePago(
     const gap = payeeGap('Transferencia', `de la transferencia ${p.payment_number}`);
     if (gap !== undefined) return gap;
     if (ctaDest === undefined) {
+      if (sentido === 'sale') {
+        return {
+          motivo:
+            `el pago ${p.payment_number} es una transferencia y no tiene cuenta destino capturada ` +
+            `(\`payment create --to-account\`); es el dato obligatorio del nodo Transferencia`,
+        };
+      }
+      // Completing the receiving account would not trace a receipt: its
+      // origin bank (below) stays uncaptured. So no remedy is true today.
       return {
         motivo:
-          sentido === 'sale'
-            ? `el pago ${p.payment_number} es una transferencia y no tiene cuenta destino capturada ` +
-              `(\`payment create --to-account\`); es el dato obligatorio del nodo Transferencia`
-            : `el cobro ${p.payment_number} entró por transferencia y no se pudo resolver la cuenta ` +
-              `que lo recibió: ni está capturada ni la cuenta bancaria del cobro tiene número`,
+          `el cobro ${p.payment_number} entró por transferencia y no se pudo resolver la cuenta ` +
+          `que lo recibió: ni está capturada ni la cuenta bancaria del cobro tiene número`,
+        noCommandFixes: RECEIPT_ORIGIN_UNCAPTURED,
       };
     }
     // In a receipt the origin bank is the payer's, and nothing captures it:
@@ -652,9 +666,7 @@ export function rastroDePago(
           `el cobro ${p.payment_number} entró por transferencia y el banco del cliente que la ` +
             `ordenó no está capturado`
         ),
-        noCommandFixes:
-          '`receipt record` no tiene dónde capturar el banco del cliente que ordenó la ' +
-          'transferencia, y nada lo completa en un cobro ya registrado',
+        noCommandFixes: RECEIPT_ORIGIN_UNCAPTURED,
       };
     }
     const who = `la transferencia ${p.payment_number}`;
@@ -667,18 +679,18 @@ export function rastroDePago(
             motivo: bankGap(
               'Transferencia',
               'BancoDestNal',
-              `el banco destino de ${who} es extranjero («${bancoCapturadoExt}»)`
+              `el banco destino de ${who} es extranjero («${limpiar(bancoCapturadoExt).texto}»)`
             ),
             noCommandFixes:
               'el esquema exige una clave c_Banco también para un banco extranjero, y qué clave ' +
               'lo declara es una decisión del dueño del sistema que sigue sin tomarse',
           }
         : {
-            motivo: bankGap(
-              'Transferencia',
-              'BancoDestNal',
-              `${who} no tiene banco destino capturado (\`payment create --to-bank\`)`
-            ),
+            motivo: bankGap('Transferencia', 'BancoDestNal', `${who} no tiene banco destino capturado`),
+            noCommandFixes:
+              'el banco destino sólo se captura al registrar el pago (`payment create --to-bank`) ' +
+              'y ningún comando lo añade a un pago ya registrado; reversarlo y registrarlo otra vez ' +
+              'tampoco lo arregla, porque el asiento original y su espejo se quedan sin rastro',
           };
     }
     const nodo: NodoDePago = {

@@ -708,7 +708,7 @@ describe('a payment node without its c_Banco code is left out and its entry is n
       'Hoy ningún comando lo completa', 'bank account edit',
       () => vendorPayment('spei', 'none', { cuentaDestino: '002180009876543210', bancoDestinoSat: '002' })],
     ['a vendor transfer with no destination bank captured', 'Transferencia', 'BancoDestNal',
-      PAYMENT_REMEDY, 'bank account edit',
+      'Hoy ningún comando lo completa', PAYMENT_REMEDY,
       () => vendorPayment('spei', 'with code', { cuentaDestino: '002180009876543210' })],
     ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal',
       'decisión del dueño', 'payment create',
