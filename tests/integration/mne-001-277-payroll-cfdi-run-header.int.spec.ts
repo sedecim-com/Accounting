@@ -7,7 +7,6 @@ import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { calculatePaycheck } from '../../src/services/payroll/common/paycheck-service.js';
 import { pacRouter } from '../../src/services/integrations/mexico/pac/pac-router.js';
 import { generateAndStampCfdiNomina } from '../../src/services/payroll/mx/cfdi-nomina-generator.js';
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // MNE-001-277: the payroll CFDI header is read from the run and the schedule

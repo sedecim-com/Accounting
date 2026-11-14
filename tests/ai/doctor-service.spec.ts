@@ -415,7 +415,7 @@ const EVERY_IDENTITY: CheckIdentity[] = [
 describe('the identity of every check', () => {
   it('every CheckResult in the report carries a non-empty id', async () => {
     mockDb();
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     // The whole report, not a sample: with a healthy database all of them run.
     expect(r.checks.length).toBeGreaterThanOrEqual(EVERY_IDENTITY.length);
     for (const c of r.checks) {
@@ -429,7 +429,7 @@ describe('the identity of every check', () => {
 
   it('no two ids are alike, and it is checked rather than eyeballed', async () => {
     mockDb();
-    const r = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const r = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     const seen = new Map<string, string>();
     for (const c of r.checks) {
       const earlier = seen.get(c.id);
@@ -444,7 +444,7 @@ describe('the identity of every check', () => {
 
   it('doctor --json publishes the id NEXT TO the name', async () => {
     mockDb();
-    const report = await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir });
+    const report = await runDoctor({ ...shared, migrationsDir: tmpDir, cwd: tmpDir });
     // This is literally what `mnemosine doctor --json` prints:
     // JSON.stringify(report). If anyone starts picking fields there, or the id
     // leaves the type, this test goes red.
