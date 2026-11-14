@@ -877,17 +877,25 @@ router.get('/xml-documents', requirePermission('bills:read'), requireEntityAcces
 }));
 
 // GET /v1/xml-documents/:id
-router.get('/xml-documents/:id', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {
-  const doc = await query('SELECT * FROM xml_documents WHERE id = $1', [req.params.id]);
-  if (doc.rows.length === 0) throw new NotFoundError('XML Document', req.params.id);
+router.get('/xml-documents/:id', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  // #588: RLS bounds by tenant only, so `WHERE id = $1` handed out the CFDI of
+  // a sibling entity of the same firm. The entity goes inside the SQL, so a
+  // foreign id and a nonexistent one leave by the same 404.
+  const doc = await requireByIdInScope<Record<string, unknown>>('xml_documents', req.params.id, alcance(req));
 
+  // xml_document_lines has no entity_id: it reaches its entity through the
+  // parent. The join keeps the scope in this query too, instead of trusting
+  // that the read above ran first.
   const lines = await query(
-    'SELECT * FROM xml_document_lines WHERE xml_document_id = $1 ORDER BY line_number',
-    [req.params.id]
+    `SELECT l.* FROM xml_document_lines l
+       JOIN xml_documents d ON d.id = l.xml_document_id
+      WHERE l.xml_document_id = $1 AND d.entity_id = $2
+      ORDER BY l.line_number`,
+    [req.params.id, req.entityId]
   );
 
   res.json({
-    data: { ...doc.rows[0], lines: lines.rows },
+    data: { ...doc, lines: lines.rows },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
 }));
