@@ -82,6 +82,8 @@ El PRD dice *qué* y *por qué*, nunca *cómo*. No se aprueba con una pregunta a
 
 **El primero es el del MVP:** [PRD-001](PRD-001-mvp.md) → [`docs/backlog/PRD-001.md`](../backlog/PRD-001.md).
 
+**El segundo está en revisión:** [PRD-003](PRD-003-producto-completo.md), el producto completo. Todavía no tiene backlog: se escribe cuando el PRD y su diseño de sistema estén aprobados. El número 002 queda reservado para la integración con la plataforma (#379).
+
 - **Qué se edita:** `docs/backlog/PRD-<nnn>.json`. El framework lo llama `.yaml`; aquí es JSON porque el repo no declara un parser de YAML.
 - **Qué se regenera:** `npx tsx scripts/backlog.ts` valida el backlog, **calcula el sprint sugerido** —por dependencias, prioridad y capacidad— y escribe la vista.
 - **Qué lo vigila:** `tests/scripts/backlog.spec.ts`, dentro de `npm test`, falla si la vista quedó vieja o si una tarea deja de ser atómica.
