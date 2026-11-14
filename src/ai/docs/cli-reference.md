@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 242 of 385 subcommands
+  spelling is `-T` at the root and `-t` on the 244 of 388 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -91,6 +91,7 @@ Commands:
   payroll|nomina                         Payroll accounting: the benefit liability that is born on the day worked
   pay-run|corrida                        Payroll runs of a pay period: create, calculate gross to net, approve, post the entry
   pay-schedule|calendario-nomina         Pay schedules of the entity: the frequency and dates its pay periods follow
+  pay-period|periodo-nomina              Pay periods of the entity: create the next ones of a schedule, list them
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   filing|declaracion                     Tax returns of the entity: the working papers behind them
@@ -7864,6 +7865,76 @@ Options:
 
 Examples:
   mnemosine pay-schedule list --all --json
+```
+
+## `mnemosine pay-period` (alias: periodo-nomina)
+
+```
+Usage: mnemosine pay-period|periodo-nomina [options] [command]
+
+Pay periods of the entity: create the next ones of a schedule, list them
+
+Options:
+  -h, --help              display help for command
+
+Commands:
+  create|crear [options]  Create the next periods of a schedule, after its last
+                          one; a period already there is not written again
+  list|listar [options]   List the pay periods of the entity with status, pay
+                          date and tax year
+  help [command]          display help for command
+```
+
+### `mnemosine pay-period create` (alias: crear)
+
+```
+Usage: mnemosine pay-period create|crear [options]
+
+Create the next periods of a schedule, after its last one; a period already
+there is not written again
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --schedule <id>                          pay schedule of the entity (its id)
+  --count <n>                              how many periods to create, 1 to 208
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+Examples:
+  mnemosine pay-period create --schedule 3f0c2a1e-5b7d-4c89-a1e2-6d4f8b9c0a17 --count 2 --dry-run
+```
+
+### `mnemosine pay-period list` (alias: listar)
+
+```
+Usage: mnemosine pay-period list|listar [options]
+
+List the pay periods of the entity with status, pay date and tax year
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -s, --status <state>                     only periods in this state: draft | calculated | approved | paid | closed
+  --year <yyyy>                            only periods of this tax year (the year of the pay date)
+  -n, --limit <n>                          maximum rows to return
+  -h, --help                               display help for command
+
+Examples:
+  mnemosine pay-period list --year 2026 --status draft --json
 ```
 
 ## `mnemosine e-accounting` (alias: contabilidad-electronica)

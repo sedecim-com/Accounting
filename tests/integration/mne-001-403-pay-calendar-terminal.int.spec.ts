@@ -1,16 +1,20 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Command } from 'commander';
+import { randomUUID } from 'node:crypto';
 import { query, closeDatabase } from '../../src/database/connection.js';
+import { entityScope } from '../../src/database/scope.js';
 import { registerPayCalendarCommand } from '../../src/cli/pay-schedule-command.js';
+import { planPayPeriods, writePayPeriods } from '../../src/services/payroll/common/pay-period-service.js';
 import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 
 // ============================================================
-// MNE-001-403 (#587) · THE PAY CALENDAR FROM THE TERMINAL
+// MNE-001-403 (#587) · MNE-001-404 (#613) · THE PAY CALENDAR FROM THE TERMINAL
 //
-// pay-schedule create · list, driven through the CLI leaves against a
-// migrated Postgres. What this pins: a pay run no longer needs REST or SQL to
-// have a schedule, and a sibling company's schedule never shows in the list.
-// The periods are still created over REST (#613).
+// pay-schedule create · list and pay-period create · list, driven through the
+// CLI leaves against a migrated Postgres. What this pins: a pay run no longer
+// needs REST or SQL to have a period to run over, a period range written twice
+// is written once, and a sibling company's schedule is as absent as a missing
+// one.
 // ============================================================
 
 let f: Fixture;
@@ -51,6 +55,13 @@ async function cli(argv: string[], fx: Fixture = f): Promise<CliResult> {
 
 const rowsOf = (r: CliResult): Array<Record<string, unknown>> =>
   (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows;
+
+const periodsOf = async (schedule: string): Promise<string[]> =>
+  (await query<{ span: string }>(
+    `SELECT period_start::text || '..' || period_end::text AS span
+       FROM pay_periods WHERE pay_schedule_id = $1 ORDER BY period_start`,
+    [schedule]
+  )).rows.map((r) => r.span);
 
 const scheduleArgs = ['--name', 'Quincenal', '--frequency', 'quincenal', '--country', 'MX', '--first-start', '2026-07-01'];
 
@@ -111,21 +122,89 @@ describe('pay-schedule create · list', () => {
   });
 });
 
+describe('pay-period create · list', () => {
+  it('create --dry-run shows the periods it would write and writes none', async () => {
+    const r = await cli(['pay-period', 'create', '--schedule', scheduleId, '--count', '2', '--dry-run', '--json']);
+    expect(r.exitCode, String(r.errs[0])).toBe(0);
+    expect(rowsOf(r).map((x) => `${String(x.start)}..${String(x.end)}`)).toEqual(['2026-07-01..2026-07-15', '2026-07-16..2026-07-31']);
+    expect(await periodsOf(scheduleId)).toEqual([]);
+  });
+
+  it('create writes the periods of the schedule, and list shows them', async () => {
+    const r = await cli(['pay-period', 'create', '--schedule', scheduleId, '--count', '2', '--json']);
+    expect(r.exitCode, String(r.errs[0])).toBe(0);
+    expect(rowsOf(r)).toHaveLength(2);
+    expect(await periodsOf(scheduleId)).toEqual(['2026-07-01..2026-07-15', '2026-07-16..2026-07-31']);
+    const listed = await cli(['pay-period', 'list', '--year', '2026', '--json']);
+    expect(rowsOf(listed).map((x) => x.id).sort()).toEqual(rowsOf(r).map((x) => x.id).sort());
+  });
+
+  it('create again continues after the last period: no period is repeated', async () => {
+    const r = await cli(['pay-period', 'create', '--schedule', scheduleId, '--count', '1', '--json']);
+    expect(r.exitCode, String(r.errs[0])).toBe(0);
+    expect(await periodsOf(scheduleId)).toEqual([
+      '2026-07-01..2026-07-15', '2026-07-16..2026-07-31', '2026-08-01..2026-08-15',
+    ]);
+  });
+
+  // Number() reads `1e1` as ten: a count must be written as digits.
+  it('a count in scientific notation is a usage error and writes nothing', async () => {
+    const r = await cli(['pay-period', 'create', '--schedule', scheduleId, '--count', '1e1', '--json']);
+    expect(r.exitCode).toBe(2);
+    expect(await periodsOf(scheduleId)).toHaveLength(3);
+  });
+
+  it('the same range written twice is written once, and the second write reports nothing created', async () => {
+    const scope = entityScope(f.tenantId, f.entityId);
+    const plan = await planPayPeriods(scope, scheduleId, 2);
+    expect(await writePayPeriods(scope, scheduleId, plan)).toHaveLength(2);
+    expect(await writePayPeriods(scope, scheduleId, plan)).toEqual([]);
+    expect(await periodsOf(scheduleId)).toHaveLength(5);
+  });
+});
+
 describe('the entity boundary', () => {
   beforeAll(async () => {
     const r = await cli(['pay-schedule', 'create', ...scheduleArgs, '--json'], sibling);
     expect(r.exitCode, String(r.errs[0])).toBe(0);
     siblingSchedule = String(rowsOf(r)[0].id);
+    expect((await cli(['pay-period', 'create', '--schedule', siblingSchedule, '--count', '1', '--json'], sibling)).exitCode).toBe(0);
   });
 
-  it('the list of one company never shows the other company schedules', async () => {
+  it('a sibling company schedule is not found, like a missing one, and gets no period', async () => {
+    const foreign = await cli(['pay-period', 'create', '--schedule', siblingSchedule, '--count', '2', '--json']);
+    const missing = await cli(['pay-period', 'create', '--schedule', randomUUID(), '--count', '2', '--json']);
+    expect(foreign.exitCode, String(foreign.errs[0])).toBe(3);
+    expect(missing.exitCode).toBe(3);
+    expect(await periodsOf(siblingSchedule)).toEqual(['2026-07-01..2026-07-15']);
+    const scope = entityScope(f.tenantId, f.entityId);
+    await expect(writePayPeriods(scope, siblingSchedule, await planPayPeriods(entityScope(sibling.tenantId, sibling.entityId), siblingSchedule, 1)))
+      .rejects.toThrow(/not found/i);
+    expect(await periodsOf(siblingSchedule)).toEqual(['2026-07-01..2026-07-15']);
+  });
+
+  it('a schedule id that is not a UUID is not found, not an internal error', async () => {
+    const r = await cli(['pay-period', 'create', '--schedule', 'not-a-uuid', '--count', '1', '--json']);
+    expect(r.exitCode, String(r.errs[0])).toBe(3);
+  });
+
+  it('the lists of one company never show the other company schedules or periods', async () => {
     const schedules = rowsOf(await cli(['pay-schedule', 'list', '--json'])).map((x) => x.id);
-    expect(schedules).not.toContain(siblingSchedule);
     expect(schedules).toEqual([scheduleId]);
+    const periods = rowsOf(await cli(['pay-period', 'list', '--json']));
+    expect(periods).toHaveLength(5);
+    expect(periods.every((x) => x.schedule_id === scheduleId)).toBe(true);
   });
 });
 
 describe('the list filters', () => {
+  it('pay-period list --year and --status keep only the matching periods', async () => {
+    expect(rowsOf(await cli(['pay-period', 'list', '--year', '2026', '--json']))).toHaveLength(5);
+    expect(rowsOf(await cli(['pay-period', 'list', '--year', '2027', '--json']))).toEqual([]);
+    expect(rowsOf(await cli(['pay-period', 'list', '--status', 'draft', '--json']))).toHaveLength(5);
+    expect(rowsOf(await cli(['pay-period', 'list', '--status', 'calculated', '--json']))).toEqual([]);
+  });
+
   it('pay-schedule list hides an inactive schedule unless --all', async () => {
     const r = await cli(['pay-schedule', 'create', ...scheduleArgs.slice(0, 1), 'Semanal', '--frequency', 'weekly',
       '--country', 'MX', '--first-start', '2026-07-06', '--json']);
