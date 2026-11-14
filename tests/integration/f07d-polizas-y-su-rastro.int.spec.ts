@@ -693,4 +693,41 @@ describe('a payment node the XSD would reject is left out and its entry is named
     expect(untraced[0].detalle).not.toContain('payment create');
     expect(r.puedeEntregarse).toBe(false);
   });
+
+  it('a name that needs cleaning is not reported as emitted when its node is left out', async () => {
+    const g = await gastoAprobado(f.entityId, f.userId, '100.00', '16.00', {
+      name: 'Aceros del\nNorte',
+      taxId: '',
+      month: TRACE_MONTH,
+    });
+    const payment = await recordVendorPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: g.total,
+        paymentDate: fechaEnPeriodo(TRACE_MONTH),
+        paymentMethod: 'cash',
+        bankAccountId: bancoId,
+        applications: [{ documentId: g.billId, amountApplied: g.total }],
+      },
+      f.userId
+    );
+    const entry = payment.journalEntry?.entry_number;
+    expect(entry, 'the payment must have posted').toBeTruthy();
+
+    const r = await generarPolizas(f.entityId, {
+      periodo: `2026-0${TRACE_MONTH}`,
+      solicitud: SOLICITUD,
+    });
+
+    const untraced = r.hallazgos.filter(
+      (h) => h.check === 'poliza-con-dinero-sin-rastro' && h.referencia === entry
+    );
+    expect(untraced).toHaveLength(1);
+    // There is no Benef in the file, so no notice may say it «se emite como».
+    const benefNotices = r.hallazgos.filter(
+      (h) =>
+        h.check === 'texto-normalizado' && h.referencia === entry && h.detalle.includes('Benef del pago')
+    );
+    expect(benefNotices).toEqual([]);
+  });
 });

@@ -475,10 +475,12 @@ function rastroDePago(
   // A blank name does not go through the sanitizer: `limpiar('')` returns
   // '-', and a «-» declared as the beneficiary is a value nobody captured.
   // It stays blank, and `payeeGap` below turns it into the entry's motive.
-  const benef =
-    crudoBenef.trim() === ''
-      ? ''
-      : sanear(crudoBenef, numUnIdenPol, `Benef del pago ${p.payment_number}`);
+  const blankBenef = crudoBenef.trim() === '';
+  // Sanitizing records a notice that the Benef «se emite como» the cleaned
+  // text, so it runs only once the node is certain to be emitted: a node left
+  // out for a payee gap has no Benef to report.
+  const emittedBenef = (): string =>
+    sanear(crudoBenef, numUnIdenPol, `Benef del pago ${p.payment_number}`);
   // El RFC no se «limpia», se compacta: un espacio interior no se sustituye
   // por otro espacio, se quita. Es la misma normalización que `normalizarRfc`
   // en la DIOT, y por el mismo motivo — un RFC con un espacio guardado no es
@@ -499,7 +501,7 @@ function rastroDePago(
   // The datum lives on the payee's record, not on the payment, so the motive
   // names that record: the vendor in a payment, our entity in a collection.
   // Its id goes along because a blank name is one of the causes.
-  const shownName = crudoBenef.trim() === '' ? '' : ` «${limpiar(crudoBenef).texto}»`;
+  const shownName = blankBenef ? '' : ` «${limpiar(crudoBenef).texto}»`;
   const payee =
     sentido === 'sale'
       ? { who: 'el proveedor', record: 'del proveedor', id: ` (id ${p.contraparte_id})` }
@@ -507,7 +509,7 @@ function rastroDePago(
   const named = `${shownName}${payee.id}`;
   const payeeGap = (node: string, which: string): RastroResuelto | undefined => {
     let said: string | undefined;
-    if (benef === '') {
+    if (blankBenef) {
       said = `no tiene nombre (el nombre ${payee.record} está vacío)`;
     } else if (rfcDeclarable(rfcBenef) === null) {
       said =
@@ -561,7 +563,7 @@ function rastroDePago(
         ...(nuestroBanco !== undefined ? { banEmisNal: nuestroBanco } : {}),
         ctaOri: nuestraCuenta,
         fecha: p.payment_date,
-        benef,
+        benef: emittedBenef(),
         rfc: rfcBenef,
         monto,
         moneda,
@@ -615,7 +617,7 @@ function rastroDePago(
           }),
       ctaDest,
       fecha: p.payment_date,
-      benef,
+      benef: emittedBenef(),
       rfc: rfcBenef,
       monto,
       moneda,
@@ -635,7 +637,7 @@ function rastroDePago(
       clase: 'otro',
       metPagoPol: METODO_A_SAT[p.payment_method] ?? '99',
       fecha: p.payment_date,
-      benef,
+      benef: emittedBenef(),
       rfc: rfcBenef,
       monto,
       moneda,
