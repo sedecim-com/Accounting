@@ -106,7 +106,11 @@ export const E4_2: Criterio[] = [
     enunciado: 'Las superficies de reportes consumen una sola capa de consulta',
     evaluar: () => {
       const cons = consumidoresDe('getTrialBalance', 'report-service.ts');
-      const copias = dondeAparece(/SUM\(\s*COALESCE\(jel\.debit_amount/i, ['src'], true).filter(
+      // Both sign orders (T14 · #101 review): a credit-normal copy —
+      // Σ(credit − debit), the AP control and the DIOT — is the same second
+      // layer written the other way round, and a debit-only pattern let it
+      // stay while this criterion turned green.
+      const copias = dondeAparece(/SUM\(\s*COALESCE\(jel\.(debit|credit)_amount/i, ['src'], true).filter(
         (f) => !f.includes('report-service')
       );
       if (copias.length > 0) {

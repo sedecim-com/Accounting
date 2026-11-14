@@ -2574,13 +2574,16 @@
                 "type": "object",
                 "properties": {
                   "pac_primary": {
-                    "type": "string"
+                    "type": "string",
+                    "x-validacion-adicional": true
                   },
                   "pac_secondary": {
-                    "type": "string"
+                    "type": "string",
+                    "x-validacion-adicional": true
                   },
                   "pac_tertiary": {
-                    "type": "string"
+                    "type": "string",
+                    "x-validacion-adicional": true
                   },
                   "auto_failover": {
                     "type": "boolean"
@@ -3591,12 +3594,14 @@
                       {
                         "type": "number"
                       }
-                    ]
+                    ],
+                    "x-validacion-adicional": true
                   }
                 },
                 "required": [
                   "matched_entity_type",
-                  "matched_entity_id"
+                  "matched_entity_id",
+                  "matched_amount"
                 ],
                 "additionalProperties": true,
                 "x-claves-desconocidas": "descartadas"

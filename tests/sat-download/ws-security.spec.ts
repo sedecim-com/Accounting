@@ -5,10 +5,13 @@ import { verify, X509Certificate } from 'node:crypto';
 import forge from 'node-forge';
 import {
   buildSignedAutentica,
+  buildSignedRequest,
   wipeRsaPrivateKey,
   AUTENTICA_SOAP_ACTION,
 } from '../../src/services/sat-download/ws-security.js';
 import { decryptPrivateKey } from '../../src/services/fiscal-credentials/certificate.js';
+import { satCode } from '../../src/services/sat-download/sat-codes.js';
+import { satAcceptsSigned, SIMULATED_TOKEN } from './sat-simulator.js';
 
 // Synthetic self-signed fixtures (tests/fixtures/certs/README.md); never a real e.firma.
 const DIR = path.join(__dirname, '../fixtures/certs');
@@ -111,5 +114,40 @@ describe('wipeRsaPrivateKey', () => {
     for (const part of [key.d, key.p, key.q, key.dP, key.dQ, key.qInv]) {
       expect(part.toString(16)).toBe('0');
     }
+  });
+});
+
+describe('buildSignedRequest (EFIRMA-2)', () => {
+  const body = buildSignedRequest(MATERIAL, 'SolicitaDescargaEmitidos', 'solicitud', {
+    TipoSolicitud: 'CFDI',
+    RfcSolicitante: 'AAA010101AAA',
+    RfcEmisor: 'AAA010101AAA',
+    FechaInicial: '2026-01-01T00:00:00',
+    FechaFinal: '2026-01-31T23:59:59',
+    EstadoComprobante: undefined,
+  });
+  const envelope = (b: string) => `<s:Envelope><s:Body>${b}</s:Body></s:Envelope>`;
+  const token = `WRAP access_token="${SIMULATED_TOKEN}"`;
+
+  it('writes the attributes in alphabetical order and leaves out the empty ones, as the SAT requires', () => {
+    expect(body).toContain(
+      '<des:solicitud FechaFinal="2026-01-31T23:59:59" FechaInicial="2026-01-01T00:00:00" ' +
+        'RfcEmisor="AAA010101AAA" RfcSolicitante="AAA010101AAA" TipoSolicitud="CFDI"><Signature '
+    );
+  });
+
+  it('carries an enveloped signature the SAT verifies, with the certificate serial in decimal', () => {
+    expect(satAcceptsSigned(envelope(body), token)).toBe(true);
+    expect(inner(body, 'X509SerialNumber')).toBe(BigInt(`0x${new X509Certificate(MATERIAL.cer).serialNumber}`).toString());
+    expect(satAcceptsSigned(envelope(body.replace('TipoSolicitud="CFDI"', 'TipoSolicitud="Metadata"')), token)).toBe(false);
+    expect(satAcceptsSigned(envelope(body), 'WRAP access_token="other"')).toBe(false);
+  });
+});
+
+describe('satCode', () => {
+  it('reads 5004 as success with zero rows and an unknown code as ambiguous', () => {
+    expect(satCode('5004')).toMatchObject({ outcome: 'empty' });
+    expect(satCode('5002')).toMatchObject({ outcome: 'error', retry: 'permanent_quota' });
+    expect(satCode('9999')).toMatchObject({ key: 'sat_download.unknown_code', retry: 'ambiguous' });
   });
 });

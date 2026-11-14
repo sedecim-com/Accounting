@@ -518,6 +518,9 @@ function planDeEntidad(a: Acotada, entityId: string): Plan | TablaFuera {
   // sitio donde el código escribe su propio predicado en vez de dejar filtrar a
   // RLS. Se detecta por la FORMA de la tabla —columna de tipo al lado, sin FK a
   // legal_entities— y no por una lista de nombres, que envejecería.
+  // CONTRACT: audit_log gained `legal_entity_id` (migration 324), so an entity-scope export
+  // COULD be scoped by it. It is not yet (pre-324 rows are NULL and would need the customer
+  // derivation); until a follow-up does it, the table still travels whole in tenant scope.
   if (a.tieneEntidad && a.entidadEsPolimorfica) {
     return {
       tabla: a.tabla,

@@ -11,7 +11,7 @@
     "mnemosine": "tsx src/cli/mnemosine.ts",
     "build": "npm run build:web && npm run build:api",
     "build:web": "tsc -p tsconfig.web.json && node -e \"require('node:fs').cpSync('src/gateway/public', 'dist/gateway/public', { recursive: true })\"",
-    "build:api": "tsc && mkdir -p dist/services/sat/anexo24 && cp -R src/services/sat/anexo24/xsd dist/services/sat/anexo24/ && test -f dist/services/sat/anexo24/xsd/ContabilidadE/1_3/CatalogosParaEsqContE/CatalogosParaEsqContE.xsd && (mkdir -p dist/ai/docs dist/database/migrations && cp src/ai/docs/*.md dist/ai/docs/ && cp src/ai/docs/*.json dist/ai/docs/ 2>/dev/null && cp src/database/migrations/*.sql dist/database/migrations/ && cp src/database/*.sql dist/database/ 2>/dev/null || true)",
+    "build:api": "tsc && mkdir -p dist/services/sat/anexo24 && cp -R src/services/sat/anexo24/xsd dist/services/sat/anexo24/ && mkdir -p dist/services/sat/cfdi40 && cp -R src/services/sat/cfdi40/xsd dist/services/sat/cfdi40/ && test -f dist/services/sat/anexo24/xsd/ContabilidadE/1_3/CatalogosParaEsqContE/CatalogosParaEsqContE.xsd && (mkdir -p dist/ai/docs dist/database/migrations && cp src/ai/docs/*.md dist/ai/docs/ && cp src/ai/docs/*.json dist/ai/docs/ 2>/dev/null && cp src/database/migrations/*.sql dist/database/migrations/ && cp src/database/*.sql dist/database/ 2>/dev/null || true)",
     "start": "node dist/index.js",
     "migrate": "tsx src/database/migrate.ts",
     "seed": "tsx src/database/seed.ts",
@@ -49,8 +49,8 @@
     "cors": "^2.8.5",
     "decimal.js": "^10.4.3",
     "dotenv": "^18.0.4",
-    "express": "^4.22.2",
-    "fast-xml-parser": "^5.11.1",
+    "express": "^4.22.3",
+    "fast-xml-parser": "^5.12.0",
     "helmet": "^8.3.0",
     "ioredis": "^6.0.0",
     "jose": "^6.2.12",
@@ -58,14 +58,14 @@
     "kysely": "^0.29.6",
     "merkletreejs": "^0.6.0",
     "morgan": "^1.12.1",
-    "node-forge": "^1.4.0",
+    "node-forge": "^1.4.3",
     "openai": "^7.23.0",
     "pg": "^8.23.0",
     "prom-client": "^15.1.3",
     "soap": "^1.13.1",
     "uuid": "^14.0.2",
     "winston": "^3.11.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
@@ -79,6 +79,7 @@
     "@vitest/coverage-v8": "^5.0.2",
     "eslint": "^10.11.0",
     "globals": "^17.12.0",
+    "ts-morph": "^28.0.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.70.1",
@@ -86,9 +87,5 @@
   },
   "engines": {
     "node": ">=22.12"
-  },
-  "_overrides_por_que": "qs 6.16.0 se fuerza porque express 4.22.2 y body-parser 1.20.6 —las ULTIMAS de sus lineas— pinan `qs ~6.15.1`, que excluye la version parcheada de GHSA-x5fp-wj9c-mxmx (CVE-2026-82562, bypass de arrayLimit con comma:true). No hay arreglo aguas arriba para Express 4; express@5 si admite ^6.14.0, pero seguimos en 4 a proposito (ver @as-integrations/express4 en src/index.ts). El fallo NO es alcanzable aqui —exige comma:true y express solo pasa allowPrototypes, body-parser no lo activa y este codigo nunca llama a qs.parse— asi que esto es higiene, no urgencia. Se quita cuando express 4 admita 6.16 o cuando migremos a express 5.",
-  "overrides": {
-    "qs": "6.16.0"
   }
 }

@@ -1673,6 +1673,7 @@ export async function conciliarCheque(
 
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entityId,
       userId: opts.userId,
       action: 'update',
       entityType: 'vendor_payments',

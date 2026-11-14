@@ -68,6 +68,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
+import { isRealCalendarDate } from '../utils/calendar-date.js';
 
 // ============================================================
 // mnemosine prepaid · pago-anticipado
@@ -171,8 +172,7 @@ const IMPORTE_RE = /^\d+(\.\d+)?$/;
  * acaba empezando un día que nadie tecleó.
  */
 export function exigirFecha(flag: string, valor: string): string {
-  const d = new Date(`${valor}T00:00:00Z`);
-  if (!FECHA_RE.test(valor) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== valor) {
+  if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
     throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
   }
   return valor;

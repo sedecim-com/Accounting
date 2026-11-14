@@ -14,6 +14,7 @@ import { assertTimeZone } from '../../utils/calendar-date.js';
 import type { JurisdictionCode } from '../jurisdiction/jurisdiction.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
 import Decimal from 'decimal.js';
+import { specWording, type PanelTranslate } from './policy-text-key.js';
 
 // ============================================================
 // POLICY SERVICE
@@ -47,6 +48,9 @@ export interface PolicyRow {
    */
   jurisdiction: string | null;
 }
+
+/** The panel keys `closing fx revalue` reads: the owner's transition rule on #305 guards them (MNE-001-112). */
+export const FX_REVALUATION_POLICY_KEYS: ReadonlySet<string> = new Set(['closing_exchange_rate_source', 'fx_revaluation_reversal']);
 
 const COLUMNS = `id, key, category, question, impact, options, default_value, default_rationale,
   status, resolved_value, resolved_by, resolved_at, resolution_notes, priority, entity_id,
@@ -210,16 +214,26 @@ export interface PolicyWording {
 /** The seeded text columns of a row: all the wording a row can offer. */
 export type SeededWording = Pick<PolicyRow, 'key' | 'question' | 'impact' | 'options' | 'default_rationale'>;
 
-export function policyWording(row: SeededWording): PolicyWording {
+export function policyWording(row: SeededWording, translate?: PanelTranslate): PolicyWording {
   const spec = getPolicySpec(row.key);
   if (spec === undefined) return seedSnapshotWording(row);
+  // By key, in the language `translate` is bound to (the edge passes it).
+  // Without one the spec's own English prose answers, which is the source the
+  // `en` catalog was extracted from. The options are a fresh list, so a caller
+  // that reorders or trims it must not reach into the catalog.
+  const wording = translate
+    ? specWording(spec, translate)
+    : {
+        question: spec.question,
+        impact: spec.impact,
+        defaultRationale: spec.defaultRationale,
+        options: spec.options.map(({ value, label }) => ({ value, label })),
+      };
   return {
-    question: spec.question,
-    impact: spec.impact,
-    // Copied, not shared: a caller that reorders or trims its list must not
-    // reach into the catalog.
-    options: spec.options.map(({ value, label }) => ({ value, label })),
-    defaultRationale: spec.defaultRationale,
+    question: wording.question,
+    impact: wording.impact,
+    options: wording.options,
+    defaultRationale: wording.defaultRationale,
     source: 'catalog',
   };
 }
@@ -577,6 +591,15 @@ export async function resolvePolicy(
     }
   }
 
+  // MNE-001-112 · #305: a key the closing revaluation reads does not change
+  // under a live revaluation. Here, for the reason of the evidence gate: two
+  // callers. Answering with the value already in force is not a change.
+  // Loaded lazily because that module reads the panel through this one.
+  if (FX_REVALUATION_POLICY_KEYS.has(key) && (await getPolicy(ctx, key)).value !== value) {
+    const { assertNoLiveRevaluation } = await import('../accounting/fx-revaluation.js');
+    await assertNoLiveRevaluation(ctx, key);
+  }
+
   // A free-form value is accepted (catalogs don't cover everything), but a
   // note is added when it is not among the options so it doesn't go unnoticed.
   const known = spec?.options.some((o) => o.value === value) ?? true;
@@ -653,6 +676,12 @@ export async function dismissPolicy(
  */
 export async function reopenPolicy(ctx: PolicyContext, key: string): Promise<void> {
   if (ctx.entityId) await ownRowForEntity({ ...ctx, entityId: ctx.entityId }, key);
+  // Reopening drops the firm's answer back to the default, which is a change
+  // too (MNE-001-112): the same transition rule as `resolvePolicy`.
+  if (FX_REVALUATION_POLICY_KEYS.has(key)) {
+    const { assertNoLiveRevaluation } = await import('../accounting/fx-revaluation.js');
+    await assertNoLiveRevaluation(ctx, key);
+  }
   const r = await query(
     `UPDATE policy_decisions
      SET status = 'pending', resolved_value = NULL, resolved_by = NULL,

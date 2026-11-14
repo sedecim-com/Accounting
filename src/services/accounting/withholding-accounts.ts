@@ -49,7 +49,9 @@ export const WITHHOLDING_LAYOUTS: Readonly<Record<WithholdingLayout, readonly Ta
     { role: VAT, qualifier: null, code: '2143' },
   ],
   // The SAT grouping code (c_CodAgrup) names these three lines; ISR withheld
-  // on anything that is not a lease is booked as professional services.
+  // on anything that is not a lease is booked as professional services, the
+  // RESICO 1.25 % (LISR 113-J) included; a RESICO real-estate lease is a lease
+  // (withholdingQualifierOf).
   by_concept: [
     { role: ISR, qualifier: null, code: '2145', groupingCode: '216.04' },
     { role: ISR, qualifier: LEASE_QUALIFIER, code: '2144', groupingCode: '216.03' },
@@ -226,7 +228,7 @@ export async function applyWithholdingLayout(
   const run = async (c: pg.PoolClient): Promise<void> => {
     const audit = (action: AccionAuditada, entityType: string, id: string, oldValues: object | null, newValues: object) =>
       registrarAuditoria(c, {
-        tenantId: plan.tenantId, userId: actorId, action, entityType, entityId: id,
+        tenantId: plan.tenantId, legalEntityId: plan.entityId, userId: actorId, action, entityType, entityId: id,
         oldValues: oldValues as Record<string, unknown> | null,
         newValues: { ...newValues, withholding_layout: plan.layout },
         reason: `MNE-001-147 (#309): withholding roles follow ${LAYOUT_KEY} = ${plan.layout}`,

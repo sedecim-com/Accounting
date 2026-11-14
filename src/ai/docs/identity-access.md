@@ -55,8 +55,9 @@ entity is resolved, its tenant becomes the context automatically.
   only, no DDL, no ownership, NOBYPASSRLS. All CLI/API traffic. With one
   exception, on the APPEND-ONLY tables — `audit_log`,
   `fiscal_credential_access_log`, `closing_packs` (the sealed close
-  dossier) and `income_tax_annual_inputs` (the annual-return figures of the
-  provisional ISR) —, where UPDATE, DELETE and TRUNCATE are revoked and a trigger
+  dossier), `income_tax_annual_inputs` (the annual-return figures of the
+  provisional ISR) and `sat_download_packages` (the SAT packages exactly as
+  delivered, the only copy once they expire) —, where UPDATE, DELETE and TRUNCATE are revoked and a trigger
   refuses them anyway, reaching the schema owner too. A correction there is a
   new row, never a rewrite. The two layers live in different places: the
   trigger is created by the table's migration and nothing re-creates it if
@@ -145,7 +146,11 @@ metadata, and seals the Anexo 24 files only when the firm sets
 `efirma_sellado_contabilidad_electronica = sellar_con_custodia`; submitting the
 files and filing any return stays manual in the SAT portal. A consent given
 under an earlier version keeps that version on its row. Do not describe the
-e.firma as doing more than this.
+e.firma as doing more than this. The seal is `e-accounting catalog seal |
+balance seal`, over the file already generated and archived; under any other
+policy value it refuses before touching the key. Each seal is a logged use
+with purpose `seal_anexo24`, the agent may not invoke either leaf, and nothing
+is filed: the SAT has no web service for these files.
 
 Never ask the human to paste keys or passwords into chat — point them to
 `sat cred add`, which takes certificate and key as FILES (`--cer`, `--key`, in

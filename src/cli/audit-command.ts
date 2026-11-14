@@ -14,6 +14,7 @@ import {
   blockedByState,
   type Row,
 } from './kernel/index.js';
+import { isRealCalendarDate } from '../utils/calendar-date.js';
 
 // ============================================================
 // mnemosine audit · auditoria
@@ -144,8 +145,7 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
  * `--until 2026-02-31` recortaría el rastro dos días más allá de lo pedido.
  */
 function exigirFecha(flag: string, valor: string): string {
-  const d = new Date(`${valor}T00:00:00Z`);
-  if (!FECHA_RE.test(valor) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== valor) {
+  if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
     throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
   }
   return valor;

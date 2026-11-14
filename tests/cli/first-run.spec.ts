@@ -54,6 +54,18 @@ describe('detectSetupState — fresh', () => {
   });
 });
 
+describe('detectSetupState — per-user .env', () => {
+  it('a ~/.mnemosine/.env alone counts as configured', async () => {
+    const state = await detectSetupState(
+      healthyDeps({
+        home: '/fake/home',
+        fileExists: (p: string) => p === path.join('/fake/home', '.mnemosine', '.env'),
+      })
+    );
+    expect(state.state).toBe('ready');
+  });
+});
+
 describe('detectSetupState — broken', () => {
   it('reports the database unreachable when the probe rejects', async () => {
     const state = await detectSetupState(

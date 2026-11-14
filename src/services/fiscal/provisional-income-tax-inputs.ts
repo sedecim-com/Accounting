@@ -14,8 +14,10 @@ import { legalParameterAt, type LegalParameterInForce } from '../jurisdiction/le
 //     with that return (its year, filing date and identification), in a table
 //     by the return's fiscal year (owner decision MNE-001-114). Append-only,
 //     enforced by a trigger: a correction is a new row (migration 166).
-//   · the CORPORATE RATE, which is law: it is read from legal_parameters on
-//     the date of the payment, never from a constant.
+//   · the CORPORATE RATE, which is law: it is read from legal_parameters in
+//     force on the last day of the month the payment covers (CFF art. 6: a
+//     tax is caused by the law in force when its facts happen, not when it
+//     is paid), never from a constant.
 //
 // WHICH RETURN A PAYMENT USES is the law's, not the latest capture's: the
 // last return filed, or due, by the payment's due date (art. 14 fr. I). So
@@ -177,8 +179,9 @@ export function provisionalPaymentDueOn(p: ProvisionalPayment): string {
 }
 
 /**
- * The corporate ISR rate in force on the date of the payment, with its date
- * of entry and its source. Fails closed (LegalParameterUnavailableError) when
+ * The corporate ISR rate in force on `onDate`, with its date of entry and its
+ * source. A provisional payment passes the last day of the month it covers
+ * (CFF art. 6), not the day it is paid. Fails closed (LegalParameterUnavailableError) when
  * the law has no row for that date.
  */
 export function corporateIncomeTaxRateAt(

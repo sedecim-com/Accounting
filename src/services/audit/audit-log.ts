@@ -30,6 +30,14 @@ export type AccionAuditada =
 
 export interface EntradaAuditoria {
   tenantId: string;
+  /**
+   * CONTRACT: the legal entity the audited fact belongs to (migration 324).
+   * Required so a forgotten call does not compile: tenant-level facts (users,
+   * the tenant itself, the HTTP middleware row) write an explicit `null`.
+   * Queries that scope by entity (e.g. `invoice series check`) do not count
+   * NULL rows directly.
+   */
+  legalEntityId: string | null;
   /** Quién. Es NOT NULL en la tabla: un hecho sin autor no se registra. */
   userId: string;
   action: AccionAuditada;
@@ -69,13 +77,14 @@ export async function registrarAuditoria(
 ): Promise<void> {
   await client.query(
     `INSERT INTO audit_log (
-       id, user_id, tenant_id, action, entity_type, entity_id,
+       id, user_id, tenant_id, legal_entity_id, action, entity_type, entity_id,
        old_values, new_values, reason
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       uuidv4(),
       entrada.userId,
       entrada.tenantId,
+      entrada.legalEntityId,
       entrada.action,
       entrada.entityType,
       entrada.entityId,

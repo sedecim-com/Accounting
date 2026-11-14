@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { integrationRegistry } from '../../base/registry.js';
-import type { IPacAdapter, AdapterContext, AdapterHealthCheck } from '../../base/adapter.interface.js';
+import type { IPacAdapter, PacDatasheet, AdapterContext, AdapterHealthCheck } from '../../base/adapter.interface.js';
 import { AccountingError } from '../../../../utils/errors.js';
 
 interface SWSapienCredentials {
@@ -20,6 +20,15 @@ export class SWSapienAdapter implements IPacAdapter {
   readonly providerId = 'sw_sapien';
   readonly displayName = 'SW Sapien';
   readonly regions = ['MX'] as const;
+  readonly datasheet: PacDatasheet = {
+    provider: 'SW Sapien',
+    satAuthorization: { number: null, verified: false },
+    // Evidence: docs/pac-proveedores.md section 1 and the SW sapien entry (pre-sealed XML
+    // endpoint). Declared, not verified against a live sandbox.
+    // language-allow: field name fixed by the backlog acceptance (MNE-001-309)
+    timbradoPresellado: true,
+    sandbox: { url: 'https://services.test.sw.com.mx' },
+  };
 
   // Fabrica el UUID y el sello con crypto.randomBytes: no habla con 
   // SW sapien. Mientras siga así, el cerrojo impide que su folio se guarde

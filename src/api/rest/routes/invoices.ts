@@ -15,6 +15,7 @@ import {
   issueInvoice,
   voidInvoice,
 } from '../../../services/ar/invoice-service.js';
+import { buildInvoiceCfdiXml } from '../../../services/sat/cfdi40/income-cfdi-service.js';
 import { estadoParaPersistir } from '../../../services/integrations/mexico/pac/simulacion.js';
 import type { Invoice } from '../../../types/index.js';
 import { declararRiesgoRuta } from '../risk.js';
@@ -274,12 +275,10 @@ router.post('/:id/cfdi/stamp', declararRiesgoRuta({ riesgo: 'externo', escribe: 
   const alcance = entityScope(req.tenantId!, req.entityId!);
   const factura = await requireByIdInScope<Invoice>('invoices', req.params.id, alcance);
 
-  // Build minimal CFDI XML for stamping (real implementation would use cfdi.ts generateCfdiXml)
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0"
-  Folio="${factura.invoice_number}" Total="${factura.total_amount}"
-  SubTotal="${factura.subtotal}" Moneda="${factura.currency_code}">
-</cfdi:Comprobante>`;
+  // The whole CFDI 4.0 ingreso (Emisor, Receptor, Conceptos, Impuestos), valid
+  // against the SAT's XSD. It carries no Sello yet: sealing is MNE-001-296, and
+  // until then a PAC that requires a sealed document rejects it.
+  const xml = await buildInvoiceCfdiXml(factura.id, req.entityId!);
 
   // Stamp via multi-PAC router with automatic failover
   const result = await pacRouter.stamp(xml, {

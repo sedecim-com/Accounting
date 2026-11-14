@@ -89,10 +89,10 @@ describe('setAccountGovernance — el CHECK de la 001, antes del UPDATE', () => 
     const [sqlRastro, paramsRastro] = mockQuery.mock.calls[2] as [string, unknown[]];
     expect(sqlRastro).toMatch(/INSERT INTO audit_log/);
     expect(paramsRastro[1]).toBe('u1');
-    expect(paramsRastro[4]).toBe('account');
-    expect(JSON.parse(String(paramsRastro[6]))).toEqual({ allow_manual_entries: true });
-    expect(JSON.parse(String(paramsRastro[7]))).toEqual({ allow_manual_entries: false });
-    expect(paramsRastro[8]).toBe('se postea sólo por regla');
+    expect(paramsRastro[5]).toBe('account');
+    expect(JSON.parse(String(paramsRastro[7]))).toEqual({ allow_manual_entries: true });
+    expect(JSON.parse(String(paramsRastro[8]))).toEqual({ allow_manual_entries: false });
+    expect(paramsRastro[9]).toBe('se postea sólo por regla');
   });
 
   // La validación cae DENTRO de la transacción: ni la cuenta cambia ni la

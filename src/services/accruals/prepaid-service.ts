@@ -12,6 +12,7 @@ import {
   type ConvencionAmortizacion,
 } from './amortization-math.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
+import { queryAccountBalance, queryEntryMovementsOnAccount } from '../reporting/report-service.js';
 
 // ============================================================
 // EL ALTA DEL PAGO ANTICIPADO, Y EL HUECO QUE YA EXISTE (D1a)
@@ -495,7 +496,10 @@ export async function respaldoDisponible(
   const ejecutar = client
     ? <T extends pg.QueryResultRow>(sql: string, params: unknown[]) => client.query<T>(sql, params)
     : query;
-  const r = await ejecutar<{ saldo: string; adoptado: string }>(
+  // The posted balance comes from the report layer (T14 · #101), on the
+  // caller's connection so it is read under the caller's FOR UPDATE.
+  const postedBalance = await queryAccountBalance(entityId, prepaidAccountId, client);
+  const r = await ejecutar<{ adoptado: string }>(
     // LAS DOS MITADES SE MIDEN CONTRA EL MAYOR, no una contra el mayor y otra
     // contra una columna guardada.
     //
@@ -508,14 +512,6 @@ export async function respaldoDisponible(
     // el saldo: preguntándole al mayor.
     `SELECT
        COALESCE((
-         SELECT SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))
-           FROM journal_entry_lines jel
-           JOIN journal_entries je ON je.id = jel.journal_entry_id
-          WHERE jel.account_id = $2
-            AND je.entity_id = $1
-            AND je.status = 'posted'
-       ), 0)::text AS saldo,
-       COALESCE((
          SELECT SUM(pe.total_amount - ${DEVENGADO_VIGENTE})
            FROM prepaid_expenses pe
           WHERE pe.entity_id = $1
@@ -524,13 +520,11 @@ export async function respaldoDisponible(
        ), 0)::text AS adoptado`,
     [entityId, prepaidAccountId]
   );
-  const fila = r.rows[0];
-  const saldo = new Decimal(fila?.saldo ?? '0');
-  const adoptado = new Decimal(fila?.adoptado ?? '0');
+  const adoptado = new Decimal(r.rows[0]?.adoptado ?? '0');
   return {
-    saldoPosteado: saldo.toFixed(4),
+    saldoPosteado: postedBalance.toFixed(4),
     yaAdoptado: adoptado.toFixed(4),
-    disponible: saldo.minus(adoptado).toFixed(4),
+    disponible: postedBalance.minus(adoptado).toFixed(4),
   };
 }
 
@@ -579,31 +573,29 @@ export async function huecoDeAnticipados(
 
   const respaldo = await respaldoDisponible(entityId, prepaidAccountId);
 
-  // Los asientos que cargaron la cuenta y que NINGUNA cabecera reclama. El
-  // NOT EXISTS mira también la entidad: un anticipo de otra entidad no puede
-  // "explicar" un cargo de ésta.
-  const r = await query<AsientoSinCalendario>(
-    `SELECT je.id            AS journal_entry_id,
-            je.entry_number  AS entry_number,
-            je.entry_date    AS entry_date,
-            je.description   AS description,
-            SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS cargo
-       FROM journal_entry_lines jel
-       JOIN journal_entries je ON je.id = jel.journal_entry_id
-      WHERE jel.account_id = $2
-        AND je.entity_id = $1
-        AND je.status = 'posted'
-        AND NOT EXISTS (
-              SELECT 1 FROM prepaid_expenses pe
-               WHERE pe.source_journal_entry_id = je.id
-                 AND pe.entity_id = $1
-                 AND pe.status <> 'cancelled'
-            )
-      GROUP BY je.id, je.entry_number, je.entry_date, je.description
-     HAVING SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) > 0
-      ORDER BY je.entry_date ASC, je.entry_number ASC`,
+  // The entries that debited the account and that NO schedule claims. The
+  // claims are read scoped to the entity: a prepaid of another entity cannot
+  // "explain" a debit of this one. The per-entry movement itself comes from
+  // the report layer (T14 · #101), not from a copy of its SQL.
+  // Only the claimed entries that touch THIS account: every non-cancelled
+  // schedule of the entity's life (completed ones included) would grow the
+  // list without bound, and an entry with no line here cannot be excluded
+  // from this account's movements anyway.
+  const claimed = await query<{ id: string }>(
+    `SELECT DISTINCT pe.source_journal_entry_id AS id
+       FROM prepaid_expenses pe
+       JOIN journal_entry_lines jel
+         ON jel.journal_entry_id = pe.source_journal_entry_id
+        AND jel.account_id = $2
+      WHERE pe.entity_id = $1
+        AND pe.status <> 'cancelled'`,
     [entityId, prepaidAccountId]
   );
+  const movements = await queryEntryMovementsOnAccount(entityId, prepaidAccountId, {
+    excludeEntryIds: claimed.rows.map((c) => c.id),
+    netDebitsOnly: true,
+    order: 'oldest',
+  });
 
   const hueco = new Decimal(respaldo.disponible);
   return {
@@ -612,7 +604,13 @@ export async function huecoDeAnticipados(
     yaAdoptado: respaldo.yaAdoptado,
     hueco: hueco.toFixed(4),
     hayHueco: hueco.greaterThan(0),
-    asientos: r.rows,
+    asientos: movements.map((m) => ({
+      journal_entry_id: m.journal_entry_id,
+      entry_number: m.entry_number,
+      entry_date: m.entry_date,
+      description: m.description,
+      cargo: m.amount,
+    })),
   };
 }
 

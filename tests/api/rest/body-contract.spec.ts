@@ -6,8 +6,9 @@ import { z } from 'zod';
 
 // ============================================================
 // CONTRACT: the REST 422 body, and the parsed body behind it (#367).
+// CONTRACT: the over-cap 422 diverges from the zod 3 recording by design since #407 / MNE-001-395, and the `overCapWithViolations` probes are post-migration additions.
 //
-// This file must pass UNCHANGED on zod 3.25.76 and on zod 4: the owner's
+// Except for the over-cap 422 (#407), this file must pass UNCHANGED on zod 3.25.76 and on zod 4: the owner's
 // decision on #367 is that the Zod 4 migration keeps every 422 byte-identical
 // (code, prose, field paths, issue order) and every parsed body identical.
 // The only exceptions are the tightenings listed in TIGHTENINGS below, which
@@ -62,7 +63,7 @@ const movement = (extra: Record<string, unknown> = {}) => ({
 const CAP_EXIT = 'Parte el extracto, o cárgalo con `mnemosine bank statement import`, que inserta por lotes.';
 const INVALID = 'Invalid request body: ';
 
-describe('G1 · every REST body probe answers exactly what zod 3 answered', () => {
+describe('G1 · every REST body probe answers what zod 3 answered (bar the #407 over-cap 422)', () => {
   it('matches tests/api/golden/rest-body.golden.json entry by entry', () => {
     const golden = JSON.parse(fs.readFileSync(REST_BODY_GOLDEN, 'utf8')) as Record<string, string>;
     const actual = recordRestBodyGolden();
@@ -131,11 +132,13 @@ describe('G2 · targeted rows on real routes', () => {
       `422 VALIDATION_ERROR ${INVALID}transactions: llegaron 5001 movimientos y caben 5000 por petición. ${CAP_EXIT}`,
     ],
     [
-      'the array cap comes AFTER the element issues',
+      // CONTRACT (#407, MNE-001-395; frozen by #367 until then): a body past the
+      // cap is refused before its elements are validated, so the element issue
+      // that used to precede the cap line is no longer listed.
+      'the array cap is reported alone, before the element issues',
       'POST /v1/bank-accounts/:account_id/import',
       { transactions: [movement({ bank_transaction_id: '' }), ...Array.from({ length: 5000 }, () => movement())] },
-      `422 VALIDATION_ERROR ${INVALID}transactions.0.bank_transaction_id: String must contain at least 1 character(s); ` +
-        `transactions: llegaron 5001 movimientos y caben 5000 por petición. ${CAP_EXIT}`,
+      `422 VALIDATION_ERROR ${INVALID}transactions: llegaron 5001 movimientos y caben 5000 por petición. ${CAP_EXIT}`,
     ],
     [
       'passthrough keeps an unknown key',

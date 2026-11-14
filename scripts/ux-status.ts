@@ -234,7 +234,7 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  * día que alguien registre una hoja grave por fuera del núcleo.
  */
 export const LINEAS_BASE: Readonly<Record<Clave, number>> = Object.freeze({
-  'hojas-sin-ejemplo': 41,
+  'hojas-sin-ejemplo': 39,
   'hojas-sin-contrato-de-salida': 21,
   'hojas-sin-alias-castellano': 17,
   'nodos-fuera-del-idioma-canonico': 7,

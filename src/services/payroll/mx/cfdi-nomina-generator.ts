@@ -2,9 +2,11 @@ import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { daysBetween } from '../../../utils/calendar-date.js';
 import type { Scope } from '../../../database/scope.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
 import { estadoParaPersistir } from '../../integrations/mexico/pac/simulacion.js';
+import { PAY_RUN_TYPES } from '../../../database/enums.js';
+import type { PayFrequency } from '../tax-engine/tax-engine.interface.js';
 import { storedIsrParts } from './isr-exemption.js';
 
 // ============================================================
@@ -75,6 +77,8 @@ export async function generateAndStampCfdiNomina(
     hire_date: string;
     entity_tax_id: string;
     entity_name: string;
+    run_type: PayRunType;
+    pay_frequency: Exclude<PayFrequency, 'annual'>;
   }>(
     `SELECT p.id AS paycheck_id, p.tenant_id,
             p.gross_earnings, p.net_pay,
@@ -86,10 +90,12 @@ export async function generateAndStampCfdiNomina(
             e.employee_number AS emp_number,
             e.tipo_regimen_sat, e.tipo_contrato_sat, e.tipo_jornada_sat,
             e.riesgo_puesto, e.puesto, e.hire_date,
-            ent.tax_id AS entity_tax_id, ent.name AS entity_name
+            ent.tax_id AS entity_tax_id, ent.name AS entity_name,
+            pr.run_type, ps.frequency AS pay_frequency
      FROM paychecks p
      JOIN pay_runs pr ON pr.id = p.pay_run_id
      JOIN pay_periods pp ON pp.id = pr.pay_period_id
+     JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
      JOIN employees e ON e.id = p.employee_id
      JOIN legal_entities ent ON ent.id = e.entity_id
      WHERE p.id = $1 AND p.tenant_id = $2 AND ${predicadoEntidad.sql}`,
@@ -164,6 +170,10 @@ export async function generateAndStampCfdiNomina(
   const percepcionesXml = earnings.rows.map((e, i) => `    <nomina12:Percepcion TipoPercepcion="${e.cfdi_clave_sat || '001'}" Clave="${e.earning_type}" Concepto="${escapeXml(e.description || e.earning_type)}" ImporteGravado="${isrParts[i].taxable.toFixed(2)}" ImporteExento="${isrParts[i].exempt.toFixed(2)}"/>`).join('\n');
   const deduccionesXml = deductions.rows.map((d) => `    <nomina12:Deduccion TipoDeduccion="${d.cfdi_clave_sat || '004'}" Clave="${d.deduction_type}" Concepto="${escapeXml(d.description || d.deduction_type)}" Importe="${parseFloat(d.amount).toFixed(2)}"/>`).join('\n');
 
+  const payrollType = payrollTypeForRunType(r.run_type);
+  const paymentPeriodicity = paymentPeriodicityFor(payrollType, r.pay_frequency);
+  const seniority = seniorityWeeks(r.hire_date, r.period_end);
+
   // Build minimal CFDI 4.0 payroll (Nomina) XML
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:nomina12="http://www.sat.gob.mx/nomina12"
@@ -179,17 +189,17 @@ export async function generateAndStampCfdiNomina(
       ValorUnitario="${totalPercepciones.toFixed(2)}" Importe="${totalPercepciones.toFixed(2)}" Descuento="${totalDeducciones.toFixed(2)}" ObjetoImp="01"/>
   </cfdi:Conceptos>
   <cfdi:Complemento>
-    <nomina12:Nomina Version="1.2" TipoNomina="${r.emp_second_last === 'EXTRAORDINARIA' ? 'E' : 'O'}"
+    <nomina12:Nomina Version="1.2" TipoNomina="${payrollType}"
       FechaPago="${r.pay_date}" FechaInicialPago="${r.period_start}" FechaFinalPago="${r.period_end}"
       NumDiasPagados="${days}" TotalPercepciones="${totalPercepciones.toFixed(2)}"
       TotalDeducciones="${totalDeducciones.toFixed(2)}"${subsidioEntregado > 0 ? ` TotalOtrosPagos="${subsidioEntregado.toFixed(2)}"` : ''}>
       <nomina12:Emisor RegistroPatronal="B0000000000"/>
       <nomina12:Receptor Curp="${r.emp_curp || 'XAXX010101HDFNNN00'}" NumSeguridadSocial="${r.emp_nss || ''}"
-        FechaInicioRelLaboral="${r.hire_date}" Antiguedad="P0W"
+        FechaInicioRelLaboral="${r.hire_date}" Antiguedad="${seniority}"
         TipoContrato="${r.tipo_contrato_sat || '01'}" TipoJornada="${r.tipo_jornada_sat || '01'}"
         TipoRegimen="${r.tipo_regimen_sat || '02'}" NumEmpleado="${r.emp_number}"
         Puesto="${escapeXml(r.puesto || 'Empleado')}" RiesgoPuesto="${r.riesgo_puesto || '01'}"
-        PeriodicidadPago="04" ClaveEntFed="MEX"/>
+        PeriodicidadPago="${paymentPeriodicity}" ClaveEntFed="MEX"/>
       <nomina12:Percepciones TotalGravado="${totalTaxable.toFixed(2)}" TotalExento="${totalExempt.toFixed(2)}" TotalSueldos="${totalPercepciones.toFixed(2)}">
 ${percepcionesXml}
       </nomina12:Percepciones>
@@ -224,6 +234,86 @@ ${otrosPagosXml}    </nomina12:Nomina>
     fecha_timbrado: stamp.fecha_timbrado,
     no_certificado_sat: stamp.no_certificado_sat,
   };
+}
+
+type PayRunType = (typeof PAY_RUN_TYPES)[number];
+
+/**
+ * TipoNomina comes from the run, not from the employee's surname. SAT payroll
+ * complement guide: E (extraordinaria) is for a payment outside the ordinary
+ * cadence (bonus, final settlement, off-cycle), O for the ordinary one.
+ * A correction is refused: it may re-issue an ordinary run (O) or a bonus,
+ * final or off-cycle one (E), and pay_runs holds no pointer to the corrected
+ * run, so the type cannot be derived.
+ */
+export function payrollTypeForRunType(runType: PayRunType): 'O' | 'E' {
+  switch (runType) {
+    case 'regular':
+      return 'O';
+    case 'bonus':
+    case 'final':
+    case 'off_cycle':
+      return 'E';
+    case 'correction':
+      throw new ValidationError(
+        'A correction run cannot be stamped as a payroll CFDI: its TipoNomina depends on the run it corrects, which is not recorded',
+        'run_type'
+      );
+    default: {
+      const unreachable: never = runType;
+      throw new ValidationError(`Unknown pay run type for CFDI TipoNomina: ${String(unreachable)}`, 'run_type');
+    }
+  }
+}
+
+/**
+ * PeriodicidadPago from the pay schedule, per c_PeriodicidadPago (02 weekly,
+ * 03 biweekly, 04 semimonthly, 05 monthly). SAT payroll complement guide: when
+ * TipoNomina is E the value is 99, an extraordinary payment has no periodicity.
+ */
+export function paymentPeriodicityFor(
+  kind: 'O' | 'E',
+  frequency: Exclude<PayFrequency, 'annual'>
+): string {
+  if (kind === 'E') return '99';
+  switch (frequency) {
+    case 'weekly': return '02';
+    case 'biweekly': return '03';
+    case 'semimonthly':
+    case 'quincenal': return '04';
+    case 'monthly': return '05';
+    default: {
+      const unreachable: never = frequency;
+      throw new ValidationError(
+        `Unknown pay schedule frequency for CFDI PeriodicidadPago: ${String(unreachable)}`,
+        'frequency'
+      );
+    }
+  }
+}
+
+/**
+ * Antiguedad as P{n}W: whole weeks from hire date to the end of the paid
+ * period, both days counted. A hire date after the period end, or less than a
+ * full week of seniority, is refused by naming the dates: a stamped CFDI cannot
+ * be taken back, so no week is invented.
+ */
+export function seniorityWeeks(hireDate: string | Date, periodEnd: string | Date): string {
+  const days = daysBetween(hireDate, periodEnd) + 1;
+  if (days < 1) {
+    throw new ValidationError(
+      `Hire date ${String(hireDate)} is after the period end ${String(periodEnd)}`,
+      'hire_date'
+    );
+  }
+  const weeks = Math.floor(days / 7);
+  if (weeks < 1) {
+    throw new ValidationError(
+      `Seniority from hire date ${String(hireDate)} to period end ${String(periodEnd)} is under one week, which Antiguedad P{n}W cannot state`,
+      'hire_date'
+    );
+  }
+  return `P${weeks}W`;
 }
 
 function escapeXml(s: string): string {

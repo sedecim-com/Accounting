@@ -5,6 +5,8 @@ import {
   type MemoryEntry, type MemoryConflict, type DigestCoverage,
 } from '../ai/memory-service.js';
 import { resolveEntity, bootstrapTenant } from '../ai/context.js';
+import { calendarDateIn } from '../utils/calendar-date.js';
+import { zoneFor } from '../services/policy/today.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { exitCodeFor } from './kernel/index.js';
 
@@ -33,7 +35,8 @@ export interface MemoryCliDeps {
 export function renderMemory(
   entries: MemoryEntry[],
   stats: { active: number; retired: number; taught: number },
-  c: MemoryCliDeps['palette']
+  c: MemoryCliDeps['palette'],
+  zone: string
 ): string[] {
   const out: string[] = ['', c.bold('Firm memory'), ''];
 
@@ -46,7 +49,7 @@ export function renderMemory(
   }
 
   for (const e of entries) {
-    const date = new Date(e.answered_at).toISOString().split('T')[0];
+    const date = calendarDateIn(zone, new Date(e.answered_at));
     const mark = e.is_precedent ? '' : c.dim(' [retired]');
     out.push(`  ${c.bold(e.answer)}${mark}`);
     out.push(c.dim(`    ← ${e.question}`));
@@ -82,7 +85,8 @@ export function renderMemory(
 export function renderConflicts(
   conflicts: MemoryConflict[],
   scanned: number,
-  c: MemoryCliDeps['palette']
+  c: MemoryCliDeps['palette'],
+  zone: string
 ): string[] {
   const out: string[] = ['', c.bold('Precedents in conflict'), ''];
 
@@ -100,7 +104,7 @@ export function renderConflicts(
     const via = k.scope === 'topic' ? 'topic' : 'same question';
     out.push(`  ${c.bold(k.key)}  ${c.dim(`(${via} · ${k.entityName})`)}`);
     for (const e of k.entries) {
-      const date = new Date(e.answered_at).toISOString().split('T')[0];
+      const date = calendarDateIn(zone, new Date(e.answered_at));
       out.push(`    ${c.cyan(e.answer)}`);
       out.push(c.dim(`      ${date} · ${e.answered_by} · id: ${e.id}`));
       out.push(
@@ -178,7 +182,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
           if (opts.json) {
             console.log(JSON.stringify(report, null, 2));
           } else {
-            for (const l of renderConflicts(report.conflicts, report.scanned, deps.palette)) {
+            for (const l of renderConflicts(report.conflicts, report.scanned, deps.palette, await zoneFor(ctx))) {
               console.log(l);
             }
           }
@@ -197,7 +201,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
         if (opts.json) {
           console.log(JSON.stringify({ stats, digest: coverage, conflicts, entries }, null, 2));
         } else {
-          for (const l of renderMemory(entries, stats, deps.palette)) console.log(l);
+          for (const l of renderMemory(entries, stats, deps.palette, await zoneFor(ctx))) console.log(l);
           // La higiene se dice donde el humano ya está mirando, no sólo en
           // `doctor`: un aviso al que hay que ir a buscar no avisa.
           for (const l of renderDigestCoverage(coverage, deps.palette)) console.log(l);

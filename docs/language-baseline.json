@@ -3,25 +3,25 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10578,
+    "spanish-identifiers-src": 10579,
     "spanish-identifiers-tests": 5774,
     "spanish-identifiers-scripts": 461,
-    "spanish-filenames-src": 50,
+    "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
     "spanish-user-strings-cli": 466,
     "plan-criteria-grepping-spanish-identifiers": 121,
     "plan-criteria-pinned-to-spanish-paths": 38,
-    "plan-mutants-anchored-to-spanish-files": 26,
+    "plan-mutants-anchored-to-spanish-files": 29,
     "coverage-thresholds-keyed-by-spanish-paths": 9,
     "agent-corpus-sources-with-spanish-names": 1,
     "test-mocks-of-spanish-modules": 11,
     "docs-dead-path-citations": 341,
     "src-spanish-comment-lines": 27780,
-    "docs-english-pages-untwinned": 2,
+    "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 1246
+    "help-descriptions-without-key": 1163
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -232,7 +232,7 @@
       "src/services/fx/rate-service.ts": 52,
       "src/services/idempotency/idempotency-store.ts": 24,
       "src/services/integrations/accounting/contalink-adapter.ts": 2,
-      "src/services/integrations/base/adapter.interface.ts": 2,
+      "src/services/integrations/base/adapter.interface.ts": 3,
       "src/services/integrations/mexico/pac/edicom-adapter.ts": 4,
       "src/services/integrations/mexico/pac/finkok-adapter.ts": 4,
       "src/services/integrations/mexico/pac/pac-router.ts": 3,
@@ -658,6 +658,7 @@
       "src/services/payroll/mx/subsidio-entregado.ts": 1,
       "src/services/reporting/criterio-archivadas.ts": 1,
       "src/services/reporting/criterio-cierre.ts": 1,
+      "src/services/sat-download/descarga-masiva.ts": 1,
       "src/services/sat/anexo24/balanza-invariantes.ts": 1,
       "src/services/sat/anexo24/balanza-service.ts": 1,
       "src/services/sat/anexo24/balanza-xml.ts": 1,
@@ -991,6 +992,7 @@
       "src/services/payroll/mx/finiquito-calculator.ts": 2,
       "src/services/payroll/mx/finiquito-math.ts": 4,
       "src/services/reporting/criterio-archivadas.ts": 1,
+      "src/services/sat-download/descarga-masiva.ts": 3,
       "src/services/sat/anexo24/balanza-invariantes.ts": 1,
       "src/services/sat/anexo24/balanza-service.ts": 1,
       "src/services/sat/anexo24/polizas-service.ts": 1,
@@ -1438,19 +1440,14 @@
       "src/utils/strip-comments.ts": 35,
       "src/utils/zod-client-errors.ts": 1
     },
-    "docs-english-pages-untwinned": {
-      "docs/cli-command-registry.md": 1,
-      "docs/harness-best-practices.md": 1
-    },
+    "docs-english-pages-untwinned": {},
     "untagged-comment-markers": {
       "src/services/accounting/validation.ts": 1
     },
     "help-descriptions-without-key": {
       "account": 72,
       "ai": 2,
-      "ap": 4,
       "approvals": 21,
-      "ar": 6,
       "ask": 4,
       "asset": 26,
       "audit": 14,
@@ -1458,18 +1455,12 @@
       "bank": 243,
       "batch": 17,
       "bill": 56,
-      "cashflow": 6,
       "cfdi": 15,
-      "chart": 4,
       "chat": 6,
-      "close": 10,
-      "closing": 20,
       "compact": 6,
       "completion": 2,
       "credit-note": 26,
       "customer": 47,
-      "depreciation": 9,
-      "diot": 11,
       "doctor": 2,
       "drafts": 2,
       "e-accounting": 20,
@@ -1488,7 +1479,6 @@
       "login": 1,
       "memory": 22,
       "onboard": 8,
-      "opening-balance": 5,
       "outbox": 6,
       "payment": 33,
       "payroll": 3,
@@ -1508,8 +1498,7 @@
       "tax-deposit": 7,
       "usage": 6,
       "vendor": 35,
-      "webhooks": 17,
-      "year": 8
+      "webhooks": 17
     }
   }
 }

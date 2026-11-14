@@ -1,6 +1,20 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// The real route module is imported for its schemas; keep it off the database.
+vi.mock('../../src/database/connection.js', () => ({
+  query: vi.fn(),
+  withTransaction: vi.fn(),
+  withTenant: vi.fn(),
+  enterTenant: vi.fn(),
+  currentTenant: vi.fn(),
+  getClient: vi.fn(),
+  setTenantSchema: vi.fn(),
+  initDatabase: vi.fn(),
+  closeDatabase: vi.fn(),
+  getPool: vi.fn(),
+}));
 import { z } from 'zod';
 import type { Request, Response } from 'express';
 import { validateBody } from '../../src/api/rest/middleware/async-handler.js';
@@ -10,6 +24,7 @@ import {
   parseForClient,
   type ClientIssue,
 } from '../../src/utils/zod-client-errors.js';
+import { bulkPreRegSchema, uploadXmlSchema } from '../../src/api/rest/routes/xml-ingestion.js';
 import { boundedString, emailString, integerNumber, urlString, uuidString } from '../../src/utils/zod-compat.js';
 
 // CONTRACT: src/utils/zod-client-errors.ts is the only place where a Zod
@@ -256,17 +271,24 @@ describe('parseForClient stays linear in the number of issues', () => {
 
 describe('the 422 adapter costs little next to zod itself on a body full of issues', () => {
   // A body at express.json's 10 MB limit, {"xml_contents":[1,1,…]}, is five
-  // million element issues, all built before the array cap runs. zod's own
-  // parse of it is the floor. The issue-list step once built a trie node and
-  // a tuple per issue: about half the parse again, and with the rest of the
-  // adapter a 3 GB heap ran out where zod 3 did not (#367). Ratios to zod's
-  // own parse, the fastest of seven runs each taken in turns, hold on a slow
-  // machine too.
+  // million element issues. zod's own parse of it is the floor. The
+  // issue-list step once built a trie node and a tuple per issue: about half
+  // the parse again, and with the rest of the adapter a 3 GB heap ran out
+  // where zod 3 did not (#367). Ratios to zod's own parse, the fastest of
+  // seven runs each taken in turns, hold on a slow machine too.
+  //
+  // The array here is too SHORT for its floor, not too long for a cap: since
+  // zod 4.6.6 (GHSA-mrhx-c7xc-m3w5) an array past its `.max()` answers with
+  // the cap alone and its elements are never read, so a capped array no
+  // longer fills a body with issues. One under its `.min()` still does, and
+  // so does an array with no bound at all (src/api/rest/topes.ts lists them);
+  // the size issue is kept in the picture because moving it in front of its
+  // element issues is the step that once cost a node per issue.
   // Six parses of this body take longer than vitest's 5 s default on a CI
   // runner, and the ratio, not the wall clock, is what is judged here.
   const TIMEOUT_MS = 120_000;
   const N = 250_000;
-  const schema = z.object({ xml_contents: z.array(z.string()).max(100) });
+  const schema = z.object({ xml_contents: z.array(z.string()).min(N + 1) });
   const body: unknown = JSON.parse(`{"xml_contents":[${Array<string>(N).fill('1').join(',')}]}`);
   // The fastest of seven runs of each, taken in turns, so a collection of
   // this body's garbage lands on both sides of the ratio alike. One run at a
@@ -320,13 +342,74 @@ describe('the 422 adapter costs little next to zod itself on a body full of issu
         if (!parsed.success) void parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
       }
     );
-    expect(message.slice(0, 129)).toBe(
-      'Invalid request body: xml_contents: Array must contain at most 100 element(s); xml_contents.0: Expected string, received number; '
-    );
+    const head = `Invalid request body: xml_contents: Array must contain at least ${N + 1} element(s); xml_contents.0: Expected string, received number; `;
+    expect(message.slice(0, head.length)).toBe(head);
     expect(message.split('; ')).toHaveLength(N + 1);
     // Measured at 1.0 to 1.6 in turns. The regression this guards against,
     // a step per issue that grows with the issue count, lands orders of
     // magnitude above 3 at this size, so 3 leaves room for a noisy runner.
     expect(adapter / floor).toBeLessThan(3);
   }, TIMEOUT_MS);
+});
+
+describe('an array past its cap answers with the cap alone', () => {
+  // zod 3 reported the cap and then every element; so did zod 4 up to 4.6.5,
+  // after the elements. From 4.6.6 (GHSA-mrhx-c7xc-m3w5) the elements of an
+  // array past its `.max()` are not validated at all: the 422 names the cap
+  // and nothing under it. That is the one place the client contract moved
+  // with the upgrade, and it is pinned here so a later zod cannot move it
+  // back, or further, in silence.
+  it.each([
+    ['at the top level', z.array(z.string()).max(1), [1, 2], [issue('', 'Array must contain at most 1 element(s)')]],
+    [
+      'under a field, next to another field that still reports',
+      z.object({ tags: z.array(z.string()).max(1), name: z.string() }),
+      { tags: [1, 2], name: 3 },
+      [issue('tags', 'Array must contain at most 1 element(s)'), issue('name', 'Expected string, received number')],
+    ],
+    [
+      'while an array within its cap still reports its elements',
+      z.array(z.string()).max(2),
+      [1, 2],
+      [issue('0', 'Expected string, received number'), issue('1', 'Expected string, received number')],
+    ],
+  ] as Array<[string, z.ZodType, unknown, ClientIssue[]]>)('%s', (_label, schema, input, issues) => {
+    expect(parseForClient(schema, input)).toEqual({ success: false, issues });
+  });
+});
+
+describe('a body far past an array cap is refused at once (#407)', () => {
+  // express.json's 10 MB limit holds ~5.2 million `1,` elements. Zod used to
+  // build an issue per element before the cap applied: ~11-24 s for the 422.
+  const ELEMENTS = 5_200_000;
+  const ones = Array<string>(ELEMENTS).fill('1').join(',');
+
+  it('answers the 10 MB xml_contents body of invalid elements, on the real upload schema, in under a second', () => {
+    const text = `{"xml_contents":[${ones}]}`;
+    expect(text.length).toBeGreaterThan(10_000_000);
+    const body: unknown = JSON.parse(text);
+    const started = performance.now();
+    const parsed = parseForClient(uploadXmlSchema, body);
+    const elapsed = performance.now() - started;
+    expect(parsed).toEqual({
+      success: false,
+      issues: [
+        {
+          path: 'xml_contents',
+          message: expect.stringContaining(`llegaron ${ELEMENTS} documentos y caben 100 por petición.`) as string,
+        },
+      ],
+    });
+    expect(elapsed).toBeLessThan(1000);
+  }, 120_000);
+
+  it('does the same for the bulk pre-registration ids', () => {
+    const body: unknown = JSON.parse(`{"action":"approve","ids":[${ones}]}`);
+    const started = performance.now();
+    const parsed = parseForClient(bulkPreRegSchema, body);
+    const elapsed = performance.now() - started;
+    expect(parsed.success).toBe(false);
+    expect(!parsed.success && parsed.issues.map((i) => i.path)).toEqual(['ids']);
+    expect(elapsed).toBeLessThan(1000);
+  }, 120_000);
 });

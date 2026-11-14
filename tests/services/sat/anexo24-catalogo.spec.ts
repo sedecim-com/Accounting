@@ -134,7 +134,7 @@ describe('CtaCatalogo 1.3', () => {
 
     it('aunque el despacho haya declarado sellar con custodia, generate NO sella', () => {
       // Construir el archivo y firmarlo son actos distintos y de manos
-      // distintas. Sellar vive en `catalog file`, y no está construido.
+      // distintas. Sealing is `catalog seal`, over the archived file (#442).
       const r = construirCatalogoCuentas(entrada(TRES_CUENTAS, { sellado: 'sellar_con_custodia' }));
       expect(r.sellado).toBe(false);
       expect(r.notaDeSellado).toContain('NO SELLA');
@@ -437,7 +437,9 @@ describe('generarCatalogoCuentas (la envoltura de E/S)', () => {
     expect(r.artefacto?.yaExistia).toBe(false);
     const [sqlInsert, paramsInsert] = mockQuery.mock.calls[3] as [string, unknown[]];
     expect(sqlInsert).toContain('INSERT INTO sat_anexo24_artefactos');
-    expect(sqlInsert).toContain('false');
+    // `sellado` is true only with a sealed_from ($15), which generate never passes.
+    expect(sqlInsert).toContain('$15::uuid IS NOT NULL');
+    expect(paramsInsert[14]).toBeNull();
     expect(paramsInsert).toContain('nunca_sellar_en_el_sistema');
     expect(paramsInsert[9]).toBe(r.hash);
   });

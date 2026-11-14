@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
+import { envFileCandidates } from '../config/env-file.js';
 import { configFilePaths, resolveProfile } from '../ai/providers/config.js';
 
 // ============================================================
@@ -26,6 +26,8 @@ export type SetupState = {
 
 export interface DetectDeps {
   cwd?: string;
+  /** Home directory that holds ~/.mnemosine/.env; default os.homedir(). */
+  home?: string;
   env?: NodeJS.ProcessEnv;
   fileExists?: (p: string) => boolean;
   /** Cheap liveness probe; default: lazy-imported query('SELECT 1'). */
@@ -72,7 +74,7 @@ async function detect(deps: DetectDeps): Promise<SetupState> {
     });
 
   // ─── fresh: never configured ───
-  const hasEnvFile = fileExists(path.join(cwd, '.env'));
+  const hasEnvFile = envFileCandidates(cwd, deps.home).some(fileExists);
   const hasConfigFile = configFilePaths(cwd).some(fileExists);
   if (!hasEnvFile && !hasConfigFile) {
     return { state: 'fresh', reasons: ['no .env file (never configured)'] };

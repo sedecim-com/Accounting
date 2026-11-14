@@ -245,6 +245,7 @@ export async function addMissingRoles(
       if (!ins.rows[0]) return false;
       await registrarAuditoria(client, {
         tenantId: row.tenantId,
+        legalEntityId: row.entityId,
         userId: actor,
         action: 'create',
         entityType: 'account_role',
@@ -388,6 +389,7 @@ export async function repointRolesToLeaves(
       if (u.rowCount !== 1) return false;
       await registrarAuditoria(client, {
         tenantId: row.tenantId,
+        legalEntityId: row.entityId,
         userId: actor,
         action: 'update',
         entityType: 'account_role',

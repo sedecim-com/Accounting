@@ -3,6 +3,7 @@ import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { query } from '../../database/connection.js';
 import { neutralizarMarcadores } from '../untrusted.js';
 import { listAccountRoles, rolesValidos } from '../../services/accounting/account-roles-service.js';
+import { panelTranslator } from '../../i18n/panel-text.js';
 import { policyWording, type SeededWording } from '../../services/policy/policy-service.js';
 import type { AgentContext } from '../context.js';
 import type { ToolDeps } from './observer.js';
@@ -240,7 +241,7 @@ export async function leerPanel(
     // columns are: `resolved_value` is typed by a person, and
     // `resolution_notes` mixes a person's note with system annotations such as
     // `[value outside the catalog]` or `Defined during setup`.
-    const wording = policyWording(fila);
+    const wording = policyWording(fila, panelTranslator());
     return {
       key: fila.key,
       category: fila.category,

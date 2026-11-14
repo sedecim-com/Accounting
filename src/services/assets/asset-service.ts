@@ -773,6 +773,7 @@ export async function crearActivo(
 
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entityId,
       userId,
       action: 'create',
       entityType: 'fixed_assets',

@@ -113,6 +113,12 @@ export interface CfdiFacts {
    * checklist reads 'record_as_issued' from the stored facts.
    */
   feesWithoutWithholding?: UnwithheldFeesPolicy;
+  /**
+   * 'record_as_issued' when `withholding_mismatch` booked a CFDI whose
+   * withholding differs from the law's as declared (MNE-001-057); the close
+   * checklist reads it from the stored facts.
+   */
+  withholdingMismatch?: 'record_as_issued';
 
   // Complements and relations
   complementos: string[];
