@@ -626,7 +626,7 @@ describe('a payment node without its c_Banco code is left out and its entry is n
 
   async function vendorPayment(
     method: 'check' | 'spei',
-    bank: 'with code' | 'without code',
+    bank: 'with code' | 'without code' | 'none',
     captured: Captured
   ): Promise<string | undefined> {
     const g = await gastoAprobado(f.entityId, f.userId, '100.00', '16.00');
@@ -636,7 +636,8 @@ describe('a payment node without its c_Banco code is left out and its entry is n
         paymentAmount: g.total,
         paymentDate: fechaEnPeriodo(TRACE_MONTH),
         paymentMethod: method,
-        bankAccountId: bank === 'with code' ? bancoId : noCodeBankId,
+        // `--bank` is optional in `payment create`: 'none' is what it leaves.
+        ...(bank === 'none' ? {} : { bankAccountId: bank === 'with code' ? bancoId : noCodeBankId }),
         ...captured,
         applications: [{ documentId: g.billId, amountApplied: g.total }],
       },
@@ -689,19 +690,33 @@ describe('a payment node without its c_Banco code is left out and its entry is n
 
   // Each case captures everything else its node needs, payee included, so the
   // only gap left is one bank code: with the fix reverted, the node leaves
-  // without it and the XSD rejects the whole file.
+  // without it and the XSD rejects the whole file. The last two columns are
+  // the remedy: what the accountant must read, and a remedy that would fix
+  // nothing for that cause, which must not appear.
+  const PAYMENT_REMEDY = 'payment create --check-number/--to-account/--to-bank';
   it.each([
-    ['a cheque from a bank account with no SAT bank code', 'Cheque', 'BanEmisNal', '--sat-bank-code',
+    ['a cheque from a bank account with no SAT bank code', 'Cheque', 'BanEmisNal',
+      'bank account edit <cuenta> --sat-bank-code', 'payment create',
       () => vendorPayment('check', 'without code', { checkNumber: '30001' })],
-    ['a vendor transfer from a bank account with no SAT bank code', 'Transferencia', 'BancoOriNal', '--sat-bank-code',
+    ['a cheque with no bank account linked', 'Cheque', 'BanEmisNal',
+      'se registró sin cuenta bancaria', 'bank account edit',
+      () => vendorPayment('check', 'none', { checkNumber: '30002' })],
+    ['a vendor transfer from a bank account with no SAT bank code', 'Transferencia', 'BancoOriNal',
+      '«Cuenta sin clave SAT»', PAYMENT_REMEDY,
       () => vendorPayment('spei', 'without code', { cuentaDestino: '002180009876543210', bancoDestinoSat: '002' })],
-    ['a vendor transfer with no destination bank captured', 'Transferencia', 'BancoDestNal', '--to-bank',
+    ['a vendor transfer with no bank account linked', 'Transferencia', 'BancoOriNal',
+      'Hoy ningún comando lo completa', 'bank account edit',
+      () => vendorPayment('spei', 'none', { cuentaDestino: '002180009876543210', bancoDestinoSat: '002' })],
+    ['a vendor transfer with no destination bank captured', 'Transferencia', 'BancoDestNal',
+      PAYMENT_REMEDY, 'bank account edit',
       () => vendorPayment('spei', 'with code', { cuentaDestino: '002180009876543210' })],
-    ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal', '#532',
+    ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal',
+      'decisión del dueño', 'payment create',
       () => vendorPayment('spei', 'with code', { cuentaDestino: 'GB29NWBK60161331926819', bancoDestinoExtranjero: 'Bank of Nowhere' })],
-    ['a customer transfer', 'Transferencia', 'BancoOriNal', 'el banco del cliente',
+    ['a customer transfer', 'Transferencia', 'BancoOriNal',
+      '`receipt record` no tiene dónde capturar el banco del cliente', 'payment create',
       () => customerTransfer()],
-  ] as const)('%s', async (_label, node, attribute, reason, record) => {
+  ] as const)('%s', async (_label, node, attribute, remedy, wrongRemedy, record) => {
     const entry = await record();
     expect(entry, 'the payment must have posted').toBeTruthy();
 
@@ -722,7 +737,10 @@ describe('a payment node without its c_Banco code is left out and its entry is n
     expect(untraced).toHaveLength(1);
     expect(untraced[0].severity).toBe('blocking');
     expect(untraced[0].detalle).toContain(`el nodo ${node} exige ${attribute}`);
-    expect(untraced[0].detalle).toContain(reason);
+    expect(untraced[0].detalle).toContain(remedy);
+    expect(untraced[0].detalle).not.toContain(wrongRemedy);
+    // The open questions are said in words, not by a tracker number.
+    expect(untraced[0].detalle).not.toMatch(/#\d/);
     expect(r.puedeEntregarse).toBe(false);
   });
 });

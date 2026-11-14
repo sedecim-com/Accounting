@@ -121,6 +121,28 @@ describe('la póliza que mueve dinero y no dice por dónde', () => {
     expect(onRecord.detalle).toContain('falta en el registro del proveedor «Fletes del Norte» (id v-1)');
   });
 
+  it('the remedy follows the cause: a bank account without its code, or a datum no command completes', () => {
+    const [onAccount, noCommand] = polizaConDineroSinRastro([
+      {
+        numUnIdenPol: 'JE-ACC',
+        motivo: 'el cheque 30001 sale de una cuenta sin clave c_Banco, y el nodo Cheque exige BanEmisNal',
+        missingOnBankAccount: 'la cuenta bancaria «Operativa» (id ba-1)',
+      },
+      {
+        numUnIdenPol: 'JE-RCP',
+        motivo: 'el banco del cliente no está capturado, y el nodo Transferencia exige BancoOriNal',
+        noCommandFixes: '`receipt record` no tiene dónde capturarlo',
+      },
+    ]);
+    expect(onAccount.severity).toBe('blocking');
+    expect(onAccount.detalle).toContain('falta en la cuenta bancaria «Operativa» (id ba-1)');
+    expect(onAccount.detalle).toContain('bank account edit <cuenta> --sat-bank-code');
+    expect(onAccount.detalle).not.toContain('payment create');
+    expect(noCommand.severity).toBe('blocking');
+    expect(noCommand.detalle).toContain('Hoy ningún comando lo completa: `receipt record` no tiene dónde capturarlo');
+    expect(noCommand.detalle).not.toContain('payment create');
+  });
+
   it('sin nada que denunciar, no denuncia', () => {
     expect(polizaConDineroSinRastro([])).toEqual([]);
   });
