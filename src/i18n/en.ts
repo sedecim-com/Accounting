@@ -2931,6 +2931,14 @@ export const EN = {
   'help.pay_schedule.create.option.pay_day_offset': 'days after the end of each period that it is paid (default 0)',
   'help.pay_schedule.list.description': 'List the pay schedules of the entity with their frequency and employees',
   'help.pay_schedule.list.option.all': 'include inactive schedules',
+  'help.pay_period.description': 'Pay periods of the entity: create the next ones of a schedule, list them',
+  'help.pay_period.create.description':
+    'Create the next periods of a schedule, after its last one; a period already there is not written again',
+  'help.pay_period.create.option.schedule': 'pay schedule of the entity (its id)',
+  'help.pay_period.create.option.count': 'how many periods to create, 1 to {max}',
+  'help.pay_period.list.description': 'List the pay periods of the entity with status, pay date and tax year',
+  'help.pay_period.list.option.status': 'only periods in this state: {states}',
+  'help.pay_period.list.option.year': 'only periods of this tax year (the year of the pay date)',
   'help.payslip.description': 'Paychecks of a pay run: list them, show one with its lines',
   'help.payslip.list.description': 'List the paychecks of a run with gross, net and stamp status; no tax identifiers',
   'help.payslip.list.option.run': 'pay run whose paychecks are listed (required)',
@@ -3143,7 +3151,7 @@ export const EN = {
   'payrun.approve.done': 'Run {id} approved · {status}',
   'payrun.approve.repeated': 'Run {id} was already approved under this key: the recorded result is shown · {status}',
   'payrun.approve.dry_run': 'Dry run: run {id} was approved and rolled back; it is still {status}.',
-  // --- pay-schedule (MNE-001-403, #587) -----------------------------------
+  // --- pay-schedule (MNE-001-403, #587) · pay-period (MNE-001-404, #613) --
   'paycalendar.value_invalid': '{flag} {value} is not valid: use one of {allowed}. Nothing was written.',
   'paycalendar.number_invalid': '{flag} {value} is not valid: use a whole number from {min} to {max}.',
   'paycalendar.schedule.name_required': 'Missing --name: a pay schedule needs a name the accountant recognises.',
@@ -3151,9 +3159,15 @@ export const EN = {
   'paycalendar.schedule.first_start_invalid':
     '--first-start {value} is not a date (YYYY-MM-DD): it is the first day of the first period. Nothing was written.',
   'paycalendar.schedule.dry_run': 'Dry run: the schedule is valid; nothing was written.',
-  'paycalendar.schedule.next':
-    'Next: its pay periods are created over REST, `POST /v1/payroll/pay-schedules/{id}/generate-periods`; the terminal has no command for them yet.',
+  'paycalendar.schedule.next': 'Next: `mnemosine pay-period create --schedule {id} --count <n> --dry-run`.',
   'paycalendar.schedule.empty': 'No pay schedule in this entity.',
+  'paycalendar.period.schedule_required': 'Missing --schedule: periods belong to one pay schedule of the entity.',
+  'paycalendar.period.count_required': 'Missing --count: how many periods to create, from 1 to {max}.',
+  'paycalendar.period.dry_run':
+    'Dry run: {count, plural, one {# period} other {# periods}} would be created; nothing was written.',
+  'paycalendar.period.done':
+    '{count, plural, =0 {No period created: they were already there.} one {# period created.} other {# periods created.}}',
+  'paycalendar.period.empty': 'No pay period in this entity.',
 
   // --- `prepaid run` and its idempotency key (MNE-001-053, #317) ---------
   'prepaid.run.key_replayed':

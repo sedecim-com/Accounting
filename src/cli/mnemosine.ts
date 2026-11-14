@@ -3549,8 +3549,8 @@ registerPayrollCommand(program, { palette: c, shutdown, reportError });
 // MNE-001-068: the run of a pay period (create, calculate, approve) over the
 // same services the REST routes call.
 registerPayRunCommand(program, { palette: c, shutdown, reportError });
-// MNE-001-403 (#587): the pay schedule the run above needs; its periods are
-// still created over REST (#613).
+// MNE-001-403 (#587) and MNE-001-404 (#613): the pay schedule and its
+// periods, which the run above needs.
 registerPayCalendarCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
