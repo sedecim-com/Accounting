@@ -122,6 +122,12 @@ export interface UntracedMoney {
    * always blocks, because the fix is to complete that payment.
    */
   withoutRegisteredPayment?: boolean;
+  /**
+   * The record that lacks the datum when it is not the payment (the payee's
+   * name or RFC lives on the vendor, the customer or the entity), named so the
+   * reader can find it. Absent: the datum belongs on the payment itself.
+   */
+  missingOnRecord?: string;
 }
 
 /** Lo que una verificación necesita saber y no puede deducir del árbol. */
@@ -230,14 +236,23 @@ export function polizaConDineroSinRastro(
           `cuentas propias; si ésta lo es, captúralo como pago y vuelve a generar.`
       );
     }
+    // A payee datum lives on the counterparty record, so sending the reader
+    // to the payment would be a remedy that fixes nothing: reversing it and
+    // paying again leaves two blocking entries where there was one.
+    const remedy =
+      s.missingOnRecord !== undefined
+        ? `El dato falta en ${s.missingOnRecord}, no en el pago: corregir, reversar o volver a ` +
+          `capturar el pago no lo arregla, y un pago nuevo a la misma contraparte saldría igual. ` +
+          `Corrige ese registro y vuelve a generar.`
+        : `Captúralo en el pago (\`payment create --check-number/--to-account/--to-bank\`) ` +
+          `y vuelve a generar.`;
     return hallazgo(
       'poliza-con-dinero-sin-rastro',
       'blocking',
       s.numUnIdenPol,
       `Mueve dinero y no lleva el nodo de pago que el Anexo 24 exige: ${s.motivo}. Sin ese nodo la ` +
         `autoridad no puede seguir el movimiento hasta el banco, que es exactamente para lo que ` +
-        `pidió las pólizas. Captúralo en el pago (\`payment create --check-number/--to-account/--to-bank\`) ` +
-        `y vuelve a generar.` +
+        `pidió las pólizas. ${remedy}` +
         (s.withoutRegisteredPayment === true
           ? ` Si ningún instrumento de pago lo movió (una comisión que el banco cargó), el ` +
             `tratamiento es de la política anexo24_voucher_money_without_trace.`

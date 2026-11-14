@@ -327,6 +327,8 @@ interface FilaDePago {
   cfdi_uuid: string | null;
   /** Nombre y RFC de la contraparte, ya resueltos por el JOIN. */
   contraparte: string;
+  /** The vendor's or customer's id, to name it when its name is blank. */
+  contraparte_id: string;
   contraparte_rfc: string | null;
 }
 
@@ -350,7 +352,8 @@ async function pagosAProveedores(
             vp.payment_date::text AS payment_date, vp.payment_method, vp.currency_code,
             vp.exchange_rate::text AS exchange_rate, vp.bank_account_id::text AS bank_account_id,
             vp.check_number, vp.cuenta_destino, vp.banco_destino_sat, vp.banco_destino_extranjero,
-            vp.cfdi_uuid, v.company_name AS contraparte, v.tax_id AS contraparte_rfc
+            vp.cfdi_uuid, v.id::text AS contraparte_id, v.company_name AS contraparte,
+            v.tax_id AS contraparte_rfc
        FROM vendor_payments vp
        JOIN vendors v ON v.id = vp.vendor_id AND v.entity_id = $1
       WHERE vp.id = ANY($2::uuid[]) AND vp.entity_id = $1`,
@@ -370,7 +373,7 @@ async function cobrosDeClientes(
             cp.payment_date::text AS payment_date, cp.payment_method, cp.currency_code,
             cp.exchange_rate::text AS exchange_rate, cp.bank_account_id::text AS bank_account_id,
             cp.check_number, cp.cuenta_destino, cp.banco_destino_sat, cp.banco_destino_extranjero,
-            cp.cfdi_uuid,
+            cp.cfdi_uuid, c.id::text AS contraparte_id,
             COALESCE(c.company_name, TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))) AS contraparte,
             c.tax_id AS contraparte_rfc
        FROM customer_payments cp
@@ -409,6 +412,8 @@ interface RastroResuelto {
   pago?: NodoDePago;
   /** Por qué no se pudo construir el nodo, cuando `pago` es undefined. */
   motivo?: string;
+  /** The record that lacks the datum, when it is not the payment. */
+  missingOnRecord?: string;
 }
 
 /**
@@ -490,19 +495,31 @@ function rastroDePago(
   // file, and an RFC without the shape of one fails the XSD and matches no one
   // in the authority's cross-check. So the node is left out and the entry is
   // named.
-  const payeeGap = (node: string, which: string): string | undefined => {
+  //
+  // The datum lives on the payee's record, not on the payment, so the motive
+  // names that record: the vendor in a payment, our entity in a collection.
+  // Its id goes along because a blank name is one of the causes.
+  const shownName = crudoBenef.trim() === '' ? '' : ` «${limpiar(crudoBenef).texto}»`;
+  const payee =
+    sentido === 'sale'
+      ? { who: 'el proveedor', record: 'del proveedor', id: ` (id ${p.contraparte_id})` }
+      : { who: 'la entidad', record: 'de la entidad', id: '' };
+  const named = `${shownName}${payee.id}`;
+  const payeeGap = (node: string, which: string): RastroResuelto | undefined => {
+    let said: string | undefined;
     if (benef === '') {
-      const whose = sentido === 'sale' ? 'del proveedor' : 'de la entidad';
-      return `el beneficiario ${which} no tiene nombre (el nombre ${whose} está vacío), y el nodo ${node} lo exige`;
-    }
-    if (rfcDeclarable(rfcBenef) === null) {
-      const said =
+      said = `no tiene nombre (el nombre ${payee.record} está vacío)`;
+    } else if (rfcDeclarable(rfcBenef) === null) {
+      said =
         rfcBenef === ''
           ? 'no tiene RFC capturado'
           : `tiene «${rfcBenef}» como RFC, que no tiene forma de RFC (12 caracteres persona moral o 13 física)`;
-      return `el beneficiario ${which} ${said}, y el nodo ${node} lo exige`;
     }
-    return undefined;
+    if (said === undefined) return undefined;
+    return {
+      motivo: `el beneficiario ${which}, ${payee.who}${named}, ${said}, y el nodo ${node} lo exige`,
+      missingOnRecord: `el registro ${payee.record}${named}`,
+    };
   };
 
   const crudoCuenta = numeroDeCuenta(banco);
@@ -536,7 +553,7 @@ function rastroDePago(
       };
     }
     const gap = payeeGap('Cheque', `del cheque ${num}`);
-    if (gap !== undefined) return { motivo: gap };
+    if (gap !== undefined) return gap;
     return {
       pago: {
         clase: 'cheque',
@@ -569,7 +586,7 @@ function rastroDePago(
       };
     }
     const gap = payeeGap('Transferencia', `de la transferencia ${p.payment_number}`);
-    if (gap !== undefined) return { motivo: gap };
+    if (gap !== undefined) return gap;
     const nodo: NodoDePago = {
       clase: 'transferencia',
       ...(sentido === 'sale'
@@ -612,7 +629,7 @@ function rastroDePago(
   // pago que no fue ni cheque ni transferencia, y llevar un pago en efectivo
   // al nodo Transferencia sería una afirmación falsa sobre cómo se movió.
   const gap = payeeGap('OtrMetodoPago', `del pago ${p.payment_number}`);
-  if (gap !== undefined) return { motivo: gap };
+  if (gap !== undefined) return gap;
   return {
     pago: {
       clase: 'otro',
@@ -801,6 +818,8 @@ interface Soporte {
   comprobantes: Comprobante[];
   pago?: NodoDePago;
   motivoSinRastro?: string;
+  /** The record that lacks the datum behind `motivoSinRastro`, when not the payment. */
+  missingOnRecord?: string;
   /**
    * El CFDI existe y su RFC de contraparte NO SIRVE para declararlo, así que
    * el nodo de comprobante se queda fuera. Es la explicación, para que la
@@ -915,6 +934,7 @@ function soporteDe(f: FilaDePoliza, L: Lectura, sanear: Saneador = SANEADOR_MUDO
       comprobantes,
       ...(rastro.pago !== undefined ? { pago: rastro.pago } : {}),
       ...(rastro.motivo !== undefined ? { motivoSinRastro: rastro.motivo } : {}),
+      ...(rastro.missingOnRecord !== undefined ? { missingOnRecord: rastro.missingOnRecord } : {}),
       ...(motivoSinComprobante !== undefined ? { motivoSinComprobante } : {}),
     };
   }
@@ -1021,6 +1041,9 @@ export async function generarPolizas(
         sinRastro.push({
           numUnIdenPol: f.entry_number,
           ...(withoutRegisteredPayment ? { withoutRegisteredPayment: true } : {}),
+          ...(soporte.missingOnRecord !== undefined
+            ? { missingOnRecord: soporte.missingOnRecord }
+            : {}),
           motivo:
             soporte.motivoSinRastro ??
             `el asiento toca una cuenta de banco y no viene de ningún pago registrado ` +

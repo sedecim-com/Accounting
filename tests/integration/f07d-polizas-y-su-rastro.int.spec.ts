@@ -684,6 +684,13 @@ describe('a payment node the XSD would reject is left out and its entry is named
     expect(untraced[0].severity).toBe('blocking');
     expect(untraced[0].detalle).toContain(reason);
     expect(untraced[0].detalle).toContain(`el nodo ${node} lo exige`);
+    // The motive names the vendor whose record lacks the datum, and the
+    // remedy does not send anyone to the payment: reversing it and paying
+    // again leaves two blocking entries where there was one.
+    expect(untraced[0].detalle).toContain(g.vendorId);
+    if (vendor.name.trim() !== '') expect(untraced[0].detalle).toContain(`«${vendor.name}»`);
+    expect(untraced[0].detalle).toContain('falta en el registro del proveedor');
+    expect(untraced[0].detalle).not.toContain('payment create');
     expect(r.puedeEntregarse).toBe(false);
   });
 });

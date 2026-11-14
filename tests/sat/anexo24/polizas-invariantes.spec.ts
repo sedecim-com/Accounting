@@ -104,6 +104,23 @@ describe('la póliza que mueve dinero y no dice por dónde', () => {
     ]);
   });
 
+  it('the remedy follows the cause: a datum on the payment, or one on the counterparty record', () => {
+    const [onPayment, onRecord] = polizaConDineroSinRastro([
+      { numUnIdenPol: 'JE-PAY', motivo: 'el pago VPMT-3 no tiene cuenta destino capturada' },
+      {
+        numUnIdenPol: 'JE-VND',
+        motivo: 'el beneficiario del pago VPMT-4 no tiene RFC capturado',
+        missingOnRecord: 'el registro del proveedor «Fletes del Norte» (id v-1)',
+      },
+    ]);
+    expect(onPayment.detalle).toContain('payment create --check-number/--to-account/--to-bank');
+    // Reversing and paying again leaves the record as it was: two blocking
+    // entries where there was one. The remedy must not send anyone there.
+    expect(onRecord.severity).toBe('blocking');
+    expect(onRecord.detalle).not.toContain('payment create');
+    expect(onRecord.detalle).toContain('falta en el registro del proveedor «Fletes del Norte» (id v-1)');
+  });
+
   it('sin nada que denunciar, no denuncia', () => {
     expect(polizaConDineroSinRastro([])).toEqual([]);
   });
