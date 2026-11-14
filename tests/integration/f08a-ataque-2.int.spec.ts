@@ -9,9 +9,6 @@ import { calculatePaycheck } from '../../src/services/payroll/common/paycheck-se
 import { acumularPasivoPatronal } from '../../src/services/payroll/common/employer-liability-service.js';
 import { approvePayRun } from '../../src/services/payroll/common/pay-run-service.js';
 import { registerPayrollIsnCommands } from '../../src/cli/payroll-isn-command.js';
-// Las calculadoras se registran por efecto de importación: sin esto el
-// registro está vacío y `getRequired('MX','isr')` truena.
-import '../../src/services/payroll/tax-engine/register-all.js';
 import { entityScope } from '../../src/database/scope.js';
 
 // ============================================================

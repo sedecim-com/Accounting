@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Command } from 'commander';
+import { spawnSync } from 'node:child_process';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, closeDatabase } from '../../src/database/connection.js';
@@ -11,8 +12,6 @@ import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { registerPayRunCommand } from '../../src/cli/pay-run-command.js';
 import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { apartarCatalogos } from './helpers/catalogos-globales.js';
-// The calculators register on import; without it the MX engine is empty.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // MNE-001-068 (#306, part 2/4) · A FORTNIGHT RUN FROM THE TERMINAL
@@ -34,6 +33,7 @@ let siblingPeriodId: string;
 let employees: string[];
 let runId: string;
 let inputsFile: string;
+let ownSchedule: string;
 
 const plain = {
   dim: (x: string) => x, bold: (x: string) => x, cyan: (x: string) => x,
@@ -122,6 +122,7 @@ beforeAll(async () => {
      VALUES ('JA', '2026-01-01', NULL, 0.03, 'tasa_plana', NULL, 'Ley de Hacienda del Estado de Jalisco, art. 39')`
   );
   const own = await schedule(f);
+  ownSchedule = own;
   periodId = await period(f, own);
   siblingPeriodId = await period(sibling, await schedule(sibling));
   employees = [await employee(own, 'Q-001', '400.0000'), await employee(own, 'Q-002', '650.0000')];
@@ -210,4 +211,43 @@ describe('pay-run create · calculate · approve from the terminal', () => {
     expect(r.exitCode).toBe(5);
     expect(await runStatus(runId)).toBe('approved');
   });
+
+  // #586: the leaves above run in this process, whose module graph is the
+  // spec's. Only a spawned binary proves that `mnemosine` itself loads the
+  // calculators: before the fix this exited with `No tax calculator
+  // registered for MX:isr`.
+  it('the real binary calculates a second fortnight, with ISR, IMSS and INFONAVIT', async () => {
+    const second = uuidv4();
+    await query(
+      `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year, status)
+       VALUES ($1, $2, $3, '2026-07-16', '2026-07-31', '2026-07-31', 2026, 'draft')`,
+      [second, f.tenantId, ownSchedule]
+    );
+    const created = await cli(['create', '--period', second, '--json']);
+    expect(created.exitCode, String(created.errs[0])).toBe(0);
+    const secondRun = String(rowsOf(created)[0].id);
+
+    const root = resolve(__dirname, '..', '..');
+    // The source entry, not dist/cli/mnemosine.js: the package bin is compiled
+    // from this same module, and a spec must not depend on a prior build.
+    const r = spawnSync('npx', ['tsx', join(root, 'src', 'cli', 'mnemosine.ts'),
+      'pay-run', 'calculate', secondRun, '--file', inputsFile, '--json',
+      '-e', f.entityId, '-t', f.tenantId, '-u', email], {
+      cwd: root,
+      encoding: 'utf-8',
+      timeout: 120_000,
+      env: { ...process.env, HOME: mkdtempSync(join(tmpdir(), 'mne068-home-')), NO_COLOR: '1', MNEMOSINE_LOCALE: 'en-US' },
+    });
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+    expect(await runStatus(secondRun)).toBe('calculated');
+
+    const { rows } = await query<{ tax_type: string }>(
+      `SELECT DISTINCT t.tax_type FROM paycheck_taxes t
+         JOIN paychecks p ON p.id = t.paycheck_id
+        WHERE p.pay_run_id = $1`,
+      [secondRun]
+    );
+    const taxes = rows.map((x) => x.tax_type);
+    for (const tax of ['isr', 'imss', 'infonavit']) expect(taxes).toContain(tax);
+  }, 180_000);
 });

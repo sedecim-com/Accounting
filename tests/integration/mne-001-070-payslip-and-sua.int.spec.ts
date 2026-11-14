@@ -15,8 +15,6 @@ import { registerPayslipCommand } from '../../src/cli/payslip-command.js';
 import { registerImssCommand } from '../../src/cli/imss-command.js';
 import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { apartarCatalogos } from './helpers/catalogos-globales.js';
-// The calculators register on import; without it the MX engine is empty.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // MNE-001-070 (#306, part 4/4) · A FORTNIGHT FROM THE TERMINAL, END TO END

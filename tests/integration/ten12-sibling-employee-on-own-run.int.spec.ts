@@ -6,9 +6,6 @@ import { crearInquilino, crearEntidadHermana, type Fixture } from './helpers/ten
 import { levantar, pedir, sesionDe, type Servidor } from './helpers/servidor.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import payrollRouter from '../../src/api/rest/routes/payroll.js';
-// The tax calculators register at app startup; mounting only the router needs
-// them registered explicitly, or every paycheck is a 500 that proves nothing.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // TEN-12 · EL EMPLEADO DE LA HERMANA, COLGADO DE LA CORRIDA PROPIA

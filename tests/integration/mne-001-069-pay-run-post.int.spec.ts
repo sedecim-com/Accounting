@@ -15,8 +15,6 @@ import { resolveEntity } from '../../src/ai/context.js';
 import { registerPayRunCommand } from '../../src/cli/pay-run-command.js';
 import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { apartarCatalogos } from './helpers/catalogos-globales.js';
-// The calculators register on import; without it the MX engine is empty.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // MNE-001-069 (#306, part 3/4) · THE ENTRY OF A RUN FROM THE TERMINAL
