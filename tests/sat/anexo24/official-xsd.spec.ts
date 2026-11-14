@@ -26,8 +26,9 @@ import {
   parseEnumerations,
   OFFICIAL_ENUMERATIONS_XSD,
 } from '../../../src/services/sat/anexo24/official-enumerations.js';
-import { METODO_A_SAT, rfcDeclarable } from '../../../src/services/sat/anexo24/polizas-service.js';
+import { METODO_A_SAT, rastroDePago, rfcDeclarable } from '../../../src/services/sat/anexo24/polizas-service.js';
 import { ValidationError } from '../../../src/utils/errors.js';
+import { encrypt } from '../../../src/utils/encryption.js';
 import {
   OFFICIAL_SCHEMAS,
   XSD_ROOT,
@@ -599,6 +600,77 @@ describe('a payment node without its payee is refused by name, and the XSD agree
     const verdict = validateAgainstOfficialXsd(xml, 'journal');
     expect(verdict.valid).toBe(false);
     expect(verdict.errors.join('\n')).toContain(`attribute '${attribute}'`);
+  });
+});
+
+describe('a payment node without its c_Banco code is refused by name, and the XSD agrees (#532)', () => {
+  const bankCodeCases = [
+    ['Cheque', 'BanEmisNal', 0, 'banEmisNal'],
+    ['Transferencia', 'BancoOriNal', 1, 'bancoOriNal'],
+    ['Transferencia', 'BancoDestNal', 1, 'bancoDestNal'],
+  ] as const;
+
+  it.each(bankCodeCases)('PLZ:%s/@%s absent', (node, attribute, i, field) => {
+    // The types require the code; a cast is how a caller gets past them.
+    const data = journal();
+    delete (payment(data, i) as Record<string, unknown>)[field];
+    expect(() => construirPolizasXml(data)).toThrow(ValidationError);
+    expect(() => construirPolizasXml(data)).toThrow(`PLZ:${node}/@${attribute}`);
+    // Even for a caller that already reported its off-list values.
+    expect(() => construirPolizasXml(data, { allowOffList: true })).toThrow(`PLZ:${node}/@${attribute}`);
+
+    const without = new RegExp(`(<PLZ:${node} [^>]*?) ${attribute}="[^"]*"`);
+    const valid = construirPolizasXml(journal());
+    const xml = valid.replace(without, '$1');
+    expect(xml).not.toBe(valid);
+    expect(validateAgainstOfficialXsd(xml, 'journal').errors.join('\n')).toContain(
+      `The attribute '${attribute}' is required but missing`
+    );
+  });
+});
+
+describe("the service's bank-code checks keep it away from the builder's guard (#532)", () => {
+  // The guard throws the whole month's file, so every node the service emits
+  // must pass it, and every input that lacks a code must leave the node out
+  // with a motive. Each combination is judged by both.
+  const ours = { nombre: 'Entidad de Prueba SA', rfc: 'EPR010101AB1' };
+  const row = (method: string, checkNumber: string | null, destCode: string | null, destForeign: string | null) => ({
+    payment_number: 'VPMT-1', payment_amount: '1160.0000', payment_date: '2026-02-10',
+    payment_method: method, currency_code: 'MXN', exchange_rate: '1', bank_account_id: 'ba-1',
+    check_number: checkNumber, cuenta_destino: '002180009876543210', banco_destino_sat: destCode,
+    banco_destino_extranjero: destForeign, cfdi_uuid: null, contraparte: 'Proveedor SA',
+    contraparte_id: 'v-1', contraparte_rfc: 'PSA010101AA1',
+  });
+  const account = (code: string | null) => ({
+    id: 'ba-1', account_name: 'Operativa', gl_account_id: 'gl-1', sat_bank_code: code,
+    bank_name: 'BBVA México', clabe_encrypted: encrypt('012180001234567895'), clabe_last4: '7895',
+    account_number_encrypted: null, account_number_last4: null,
+  });
+  const codes = ['012', ' 012 ', '', '   ', null] as const;
+  const combos = ['check', 'spei'].flatMap((method) =>
+    (['none', ...codes] as const).flatMap((ourCode) =>
+      [...codes, 'foreign'].map((dest) => [method, ourCode, dest] as const)
+    )
+  );
+
+  it.each(combos)('%s, our code %j, destination %j', (method, ourCode, dest) => {
+    for (const direction of ['sale', 'entra'] as const) {
+      const r = rastroDePago(
+        row(method, '10042', dest === 'foreign' ? null : dest, dest === 'foreign' ? 'Bank of Nowhere' : null),
+        direction,
+        ourCode === 'none' ? undefined : account(ourCode),
+        ours,
+        (raw) => raw,
+        'JE-2026-0001'
+      );
+      if (r.pago === undefined) {
+        expect(r.motivo).toMatch(/exige (BanEmisNal|BancoOriNal|BancoDestNal)/);
+        continue;
+      }
+      const data = journal();
+      data.polizas[0]!.transacciones[1]!.pagos = [r.pago];
+      expect(() => construirPolizasXml(data)).not.toThrow();
+    }
   });
 });
 

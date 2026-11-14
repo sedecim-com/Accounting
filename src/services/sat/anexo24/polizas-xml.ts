@@ -64,7 +64,9 @@ import {
 //     Transferencia and OtrMetodoPago alike. OtrMetodoPago used to leave
 //     without them when the vendor had no usable name or RFC, and the file
 //     failed the XSD (#530). The service now leaves such a node out and names
-//     its entry, and `requirePayee` refuses a caller that does not.
+//     its entry, and `requirePayee` refuses a caller that does not. The
+//     c_Banco codes of Cheque and Transferencia are required too (#532), and
+//     `requireBankCode` refuses a node without them the same way.
 //   · `Sello`, `noCertificado` y `Certificado` EXISTEN en el esquema y este
 //     módulo NO los emite ni tiene por dónde: no hay una sola rama que cargue
 //     una llave privada, y no debe haberla. La e.firma es el contribuyente
@@ -423,6 +425,25 @@ function requirePayee(node: string, payment: { benef: string; rfc: string }): vo
   }
 }
 
+/**
+ * THE c_Banco CODE OF A PAYMENT NODE. `Cheque/@BanEmisNal`,
+ * `Transferencia/@BancoOriNal` and `Transferencia/@BancoDestNal` are
+ * use="required", foreign bank or not (#532). The types require them, but a
+ * cast gets past the types, and the serializer drops an undefined attribute
+ * without a word: the file then fails the XSD. The service leaves such a node
+ * out and names its entry before it gets here; this refusal keeps any other
+ * caller from building that file. An empty code is not this guard's: it is
+ * off c_Banco, and the off-list check names it.
+ */
+function requireBankCode(node: string, attribute: string, code: string | undefined): void {
+  if (code === undefined) {
+    throw new ValidationError(
+      `${node}/@${attribute} falta. El esquema exige la clave c_Banco en el nodo, también para un ` +
+        `banco extranjero: sin ella el SAT rechaza el archivo entero.`
+    );
+  }
+}
+
 /** `CFD_CBB_Serie` in PolizasPeriodo and AuxiliarFolios 1.3: pattern [A-Z]+, length 1 to 10. */
 const CFD_CBB_SERIES_RE = /^[A-Z]{1,10}$/;
 
@@ -645,6 +666,7 @@ function nodoDePago(p: NodoDePago): NodoXml {
   switch (p.clase) {
     case 'cheque': {
       const nombre = `${PREFIJO_POLIZAS}:Cheque`;
+      requireBankCode(nombre, 'BanEmisNal', p.banEmisNal);
       exigirBancoUnico(nombre, p.banEmisNal, p.banEmisExt, 'emisor');
       requirePayee(nombre, p);
       return {
@@ -665,6 +687,8 @@ function nodoDePago(p: NodoDePago): NodoXml {
     }
     case 'transferencia': {
       const nombre = `${PREFIJO_POLIZAS}:Transferencia`;
+      requireBankCode(nombre, 'BancoOriNal', p.bancoOriNal);
+      requireBankCode(nombre, 'BancoDestNal', p.bancoDestNal);
       exigirBancoUnico(nombre, p.bancoOriNal, p.bancoOriExt, 'de origen');
       exigirBancoUnico(nombre, p.bancoDestNal, p.bancoDestExt, 'de destino');
       requirePayee(nombre, p);
