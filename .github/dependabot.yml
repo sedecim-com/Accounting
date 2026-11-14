@@ -18,6 +18,14 @@ updates:
         patterns: ['vitest', '@vitest/*']
       menores-y-parches:
         update-types: [minor, patch]
+      # Security fixes, together. A group without `applies-to` only groups
+      # version updates, so every advisory opened its own pull request: six at
+      # once in November 2026 (#573 to #582). They always target the default
+      # branch, which is why this entry carries no `target-branch`: with one,
+      # its groups and exclusions would stop applying to security fixes (#584).
+      seguridad:
+        applies-to: security-updates
+        patterns: ['*']
     # Mayores que no son una subida sino una migración. Cada una se hace en su
     # propia issue, no en el PR de Dependabot, que sólo cambia el lockfile:
     #   · typescript 7 queda fuera del peer de typescript-eslint (<6.1) y
