@@ -14,8 +14,8 @@ Este documento reconstruye, **verificado contra `git log` y contra `gh pr view` 
 
 **Censo, medido sobre el árbol** (`npm run historial:estado`):
 
-- **324** PRs registrados aquí.
-- El más alto registrado es el **#610**.
+- **325** PRs registrados aquí.
+- El más alto registrado es el **#614**.
 - **13** commits directos a `main`, de antes del flujo por PR (la fila «—» del Sprint 1).
 
 CI lo verifica con `--check`, que falla cuando un PR lleva más de **7 días** fusionado sin aparecer aquí. La gracia existe para que una fusión no ponga en rojo los demás PRs abiertos; el techo, para que el documento no pueda pudrirse.
@@ -490,6 +490,7 @@ Fuente: **verificado** contra `git log --first-parent` de `develop`. Fecha de fu
 | [#610](https://github.com/sedecim-com/Accounting/pull/610) | Payroll: the service that calculates registers its tax calculators | 2026-11-14 | MNE-001-402 | squash `e6bc0c8`. Cierra #586. El binario arrancaba con el registro de calculadores vacío y `pay-run calculate` moría con «No tax calculator registered for MX:isr»: sólo los registraba la entrada REST. Ahora los registra `paycheck-service.ts`, que es quien los lee, y trece pruebas de integración dejan de importarlos a mano. |
 | [#609](https://github.com/sedecim-com/Accounting/pull/609) | REST: an XML document read by id is scoped to the caller's entities | 2026-11-14 | — | squash `88130ac`. Cierra #588. `GET /v1/xml-documents/:id` responde 404 para un documento de una entidad a la que quien llama no tiene acceso, igual que para uno que no existe. El criterio `route-entity-access-verified` (E2.1) ahora también falla ante una lectura por id sin alcance en su SQL, con tres mutantes. |
 | [#534](https://github.com/sedecim-com/Accounting/pull/534) | F07d: a payment node without its c_Banco code is left out and its entry is named | 2026-11-14 | MNE-001-401 | squash `ab953ff`. No cierra #532: sigue abierta la pregunta de cómo se declara un banco extranjero. PolizasPeriodo 1.3 exige la clave c_Banco en `Cheque` y `Transferencia`: cuando falta, el nodo se queda fuera y la póliza queda nombrada con el atributo y la causa. El remedio sigue a la causa: editar la cuenta bancaria cuando la clave falta ahí, y «hoy ningún comando lo completa» cuando ésa es la verdad. Toda transferencia de cliente queda nombrada hasta que se capture el banco de quien la ordenó (#611); completar el rastro de un pago ya registrado es #612. |
+| [#614](https://github.com/sedecim-com/Accounting/pull/614) | History and backlog: the six PRs merged on November 14, and the pay calendar task split in two | 2026-11-14 | — | Las filas de #585, #604, #531, #610, #609 y #534, y la de este mismo PR. El backlog marca hechas las tareas de #531 y de #610, dice qué le falta a la de #532 después de #534, y parte en dos la del calendario de nómina: los calendarios se quedan en #587 y los periodos pasan a #613. |
 
 ## Sin sprint / no clasificado
 
