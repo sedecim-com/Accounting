@@ -248,8 +248,15 @@ export interface DatosDePolizas {
 
 // ── LAS COMPROBACIONES DE FORMA ─────────────────────────────────────────
 
-/** El RFC de una persona moral son 12 caracteres y el de una física 13. */
-const RFC_RE = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
+/**
+ * El RFC de una persona moral son 12 caracteres y el de una física 13.
+ *
+ * Exported because the service checks a payee's RFC with this same pattern
+ * before it builds a node, and `requirePayee` throws on all three payment
+ * nodes: two copies that drift apart would throw the whole month's file over
+ * one vendor's RFC again.
+ */
+export const RFC_PATTERN =/^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Dos decimales exactos, con signo o sin él. Lo que `importeAnexo24` produce. */
 const IMPORTE_RE = /^-?\d+\.\d{2}$/;
@@ -340,7 +347,7 @@ export function atributosDeCabecera(
   mes: string,
   opciones: { mes13: boolean }
 ): Atributo[] {
-  if (!RFC_RE.test(rfc)) {
+  if (!RFC_PATTERN.test(rfc)) {
     throw new ValidationError(
       `«${rfc}» no tiene forma de RFC. Los archivos del Anexo 24 los entrega un contribuyente ` +
         `mexicano ante el SAT; una entidad identificada con EIN u otro número no puede entregarlos.`
@@ -398,7 +405,7 @@ function requirePayee(node: string, payment: { benef: string; rfc: string }): vo
         `carácter: sin él el SAT rechaza el archivo entero.`
     );
   }
-  if (!RFC_RE.test(payment.rfc)) {
+  if (!RFC_PATTERN.test(payment.rfc)) {
     throw new ValidationError(
       `${node}/@RFC = «${payment.rfc}»: el esquema lo exige en los tres nodos de pago con forma de ` +
         `RFC, y el que se emita es el que la autoridad cruza contra las declaraciones del tercero.`
@@ -561,7 +568,7 @@ export function nodoDeComprobante(
   switch (c.clase) {
     case 'nacional': {
       const nombre = `${prefijo}:${nombres.nacional}`;
-      if (!RFC_RE.test(c.rfc)) {
+      if (!RFC_PATTERN.test(c.rfc)) {
         throw new ValidationError(
           `${nombre}/@RFC = «${c.rfc}»: el comprobante nacional identifica a la contraparte por su ` +
             `RFC, y el que se emita es el que la autoridad cruza contra las declaraciones del tercero.`
@@ -583,7 +590,7 @@ export function nodoDeComprobante(
       // PolizasPeriodo and AuxiliarFolios 1.3 both declare RFC required on
       // this node; the generator had no field for it, so every file with a
       // pre-CFDI voucher was invalid. The official XSD found it (#397).
-      if (!RFC_RE.test(c.rfc)) {
+      if (!RFC_PATTERN.test(c.rfc)) {
         throw new ValidationError(
           `${nombre}/@RFC = «${c.rfc}»: el comprobante nacional anterior al CFDI también identifica ` +
             `a la contraparte por su RFC, y el esquema del SAT lo exige.`

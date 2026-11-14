@@ -26,7 +26,7 @@ import {
   parseEnumerations,
   OFFICIAL_ENUMERATIONS_XSD,
 } from '../../../src/services/sat/anexo24/official-enumerations.js';
-import { METODO_A_SAT } from '../../../src/services/sat/anexo24/polizas-service.js';
+import { METODO_A_SAT, rfcDeclarable } from '../../../src/services/sat/anexo24/polizas-service.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 import {
   OFFICIAL_SCHEMAS,
@@ -595,5 +595,28 @@ describe('a payment node without its payee is refused by name, and the XSD agree
     const verdict = validateAgainstOfficialXsd(xml, 'journal');
     expect(verdict.valid).toBe(false);
     expect(verdict.errors.join('\n')).toContain(`attribute '${attribute}'`);
+  });
+});
+
+describe("the service's RFC gate and the builder's guard are one rule (#530)", () => {
+  // requirePayee throws on all three payment nodes, so an RFC the service
+  // lets through and the builder refuses throws the whole month's file. Each
+  // sample is judged by both, and they must agree in both directions.
+  const samples = [
+    'AAA010101AAA', 'ABCD010101AB1', 'aaa010101aaa', ' ABC 010101 AB1 ', 'ÑAB010101AB1',
+    '&AB010101AB1', 'ABC992099XY1', 'XAXX010101000', 'XEXX010101000', 'ABC010101AB',
+    'ABCDE010101AB1', 'AB-010101AB1', 'ABC0101011AB', 'PSA0101', '',
+  ];
+
+  it.each(samples)('«%s»', (sample) => {
+    const declared = rfcDeclarable(sample);
+    const normalized = sample.toUpperCase().replace(/\s+/g, '');
+    for (const i of [0, 1, 2]) {
+      const data = journal();
+      Object.assign(payment(data, i), { rfc: declared ?? normalized });
+      const build = (): string => construirPolizasXml(data);
+      if (declared === null) expect(build).toThrow(ValidationError);
+      else expect(build).not.toThrow();
+    }
   });
 });

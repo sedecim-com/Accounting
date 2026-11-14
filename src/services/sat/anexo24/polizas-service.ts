@@ -11,6 +11,7 @@ import { importeAnexo24 } from './xml.js';
 import {
   construirPolizasXml,
   nombreDelArchivoDePolizas,
+  RFC_PATTERN,
   VERSION_POLIZAS,
   type Comprobante,
   type NodoDePago,
@@ -843,12 +844,14 @@ interface Soporte {
  *
  * La comparación con la DIOT no es retórica: con el mismo dato, la DIOT emite
  * `DIOT-SIN-RFC` nombrando al proveedor y sigue con los demás.
+ *
+ * The pattern is the builder's own `RFC_PATTERN`, imported and not copied:
+ * what this gate lets through is what the builder's guards accept, and
+ * official-xsd.spec.ts ties the two. Exported for that test.
  */
-const RFC_DE_COMPROBANTE = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
-
-function rfcDeclarable(crudo: string | null): string | null {
+export function rfcDeclarable(crudo: string | null): string | null {
   const rfc = (crudo ?? '').toUpperCase().replace(/\s+/g, '');
-  return RFC_DE_COMPROBANTE.test(rfc) ? rfc : null;
+  return RFC_PATTERN.test(rfc) ? rfc : null;
 }
 
 function soporteDe(f: FilaDePoliza, L: Lectura, sanear: Saneador = SANEADOR_MUDO): Soporte {
