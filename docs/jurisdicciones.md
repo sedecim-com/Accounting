@@ -142,6 +142,8 @@ export interface PaqueteDeJurisdiccion {
 export const JURISDICCIONES: Record<JurisdictionCode, PaqueteDeJurisdiccion>;
 ```
 
+> **Lo que ya existe (MNE-001-177, #159).** De este paquete sólo vive hoy el idioma de los nombres legales, y no donde aquí se propone: la tabla congelada `JURISDICTIONS` está en `src/services/jurisdiction/jurisdiction.ts:317`, con un solo campo de sólo lectura, `statutoryLanguage` (`jurisdiction.ts:313`; etiqueta BCP 47 completa: `es-MX` para MX, `en-US` para US), que hace las veces de `informes.idioma`. Aún no la lee nadie: su primer lector llega con MNE-001-178, y la regla que asigna idioma a una entidad cuya autoridad fiscal y cuya norma apuntan a países distintos sigue sin decidir. Cuando J0.3 cree `src/jurisdictions/`, la tabla se muda con el paquete.
+
 Añadir una tercera jurisdicción es añadir una carpeta, una migración con sus parámetros legales y su corpus para el agente — y ninguna línea en el motor común. Es el patrón de las localizaciones de Odoo (`l10n_*`) y de las regionales de ERPNext; el informe [`practicas/arquitectura.md`](investigacion/2026-09-06-normas-y-motores/practicas/arquitectura.md) recoge lo que la industria hace y lo que no conviene copiar.
 
 ### 3.3 El panel gana la dimensión

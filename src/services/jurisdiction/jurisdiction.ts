@@ -31,6 +31,8 @@
 // más a una que no las usa se manifiesta como cuatro renglones en cero.
 // ============================================================
 
+import type { Locale } from '../../i18n/locale.js';
+
 /** Autoridad fiscal que gobierna a la entidad. El producto arranca con dos. */
 export type JurisdictionCode = 'MX' | 'US';
 
@@ -287,3 +289,32 @@ export function sqlKeepsMexicanBooks(alias: string): string {
     ` OR coalesce(upper(btrim(${alias}.incorporation_country)), '') IN ('', 'MX'))`
   );
 }
+
+// ============================================================
+// PER-JURISDICTION PACKAGE DATA
+//
+// MNE-001-177 (issue #159). `statutoryLanguage` is the BCP 47 tag of the
+// language a fiscal authority's statutory names (its chart of accounts) are
+// written in. It is not the viewer's UI language, which stays per user.
+//
+// The table has no reader yet: the first one arrives with MNE-001-178, when
+// the chart seed renders its names. Which language a given entity gets is
+// deliberately not decided here: for an entity whose fiscal authority and
+// books point to different countries the owner has not chosen between the
+// two, and that rule is settled together with its first reader.
+// ============================================================
+
+/** A statutory language is one of the product's locales (owner decision D12). */
+export type StatutoryLanguage = Locale;
+
+/** Partial J0 package: only what MNE-001-177 declares so far. */
+export interface JurisdictionPackage {
+  /** Language the statutory names of this fiscal authority are written in. */
+  readonly statutoryLanguage: StatutoryLanguage;
+}
+
+/** One package per fiscal authority; exhaustive over `JurisdictionCode`. */
+export const JURISDICTIONS: Readonly<Record<JurisdictionCode, JurisdictionPackage>> = Object.freeze({
+  MX: Object.freeze({ statutoryLanguage: 'es-MX' }),
+  US: Object.freeze({ statutoryLanguage: 'en-US' }),
+});
