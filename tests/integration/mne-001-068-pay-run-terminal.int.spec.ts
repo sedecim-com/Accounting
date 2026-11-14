@@ -73,8 +73,8 @@ async function cli(argv: string[], fx: Fixture = f, family = 'pay-run'): Promise
 const rowsOf = (r: CliResult): Array<Record<string, unknown>> =>
   (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows;
 
-// #587: the schedule is created with the terminal leaf, not with SQL; its
-// periods are still seeded with SQL until they have a leaf (#613).
+// #587, #613: the calendar is created with the terminal leaves, not with SQL, so
+// this spec runs a fortnight with nothing but the commands an accountant has.
 async function schedule(fx: Fixture): Promise<string> {
   const r = await cli(['create', '--name', 'Quincenal', '--frequency', 'quincenal', '--country', 'MX',
     '--first-start', '2026-07-01', '--json'], fx, 'pay-schedule');
@@ -82,14 +82,11 @@ async function schedule(fx: Fixture): Promise<string> {
   return String(rowsOf(r)[0].id);
 }
 
+/** The next fortnight of the schedule: July 1-15 first, then July 16-31. */
 async function period(fx: Fixture, scheduleId: string): Promise<string> {
-  const id = uuidv4();
-  await query(
-    `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year, status)
-     VALUES ($1, $2, $3, '2026-07-01', '2026-07-15', '2026-07-15', 2026, 'draft')`,
-    [id, fx.tenantId, scheduleId]
-  );
-  return id;
+  const r = await cli(['create', '--schedule', scheduleId, '--count', '1', '--json'], fx, 'pay-period');
+  expect(r.exitCode, String(r.errs[0])).toBe(0);
+  return String(rowsOf(r)[0].id);
 }
 
 async function employee(scheduleId: string, number: string, sbc: string): Promise<string> {
@@ -219,12 +216,7 @@ describe('pay-run create · calculate · approve from the terminal', () => {
   // calculators: before the fix this exited with `No tax calculator
   // registered for MX:isr`.
   it('the real binary calculates a second fortnight, with ISR, IMSS and INFONAVIT', async () => {
-    const second = uuidv4();
-    await query(
-      `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year, status)
-       VALUES ($1, $2, $3, '2026-07-16', '2026-07-31', '2026-07-31', 2026, 'draft')`,
-      [second, f.tenantId, ownSchedule]
-    );
+    const second = await period(f, ownSchedule);
     const created = await cli(['create', '--period', second, '--json']);
     expect(created.exitCode, String(created.errs[0])).toBe(0);
     const secondRun = String(rowsOf(created)[0].id);

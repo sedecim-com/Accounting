@@ -33,8 +33,8 @@ the user through them (read the "playbooks" doc for the full protocols):
 - Customers, vendors, invoices, bills and bank statement import each have their own CLI
   command now: `mnemosine customer|vendor|invoice|bill`, `mnemosine bank statement import`.
   Stamping (PAC) has NO CLI: that is the module's REST endpoints (see its doc). Payroll has a
-  partial one: `mnemosine employee create|show|list`, the pay schedule with
-  `mnemosine pay-schedule create|list` (its pay periods are still created over REST only),
+  partial one: `mnemosine employee create|show|list`, the pay calendar with
+  `mnemosine pay-schedule create|list` and `mnemosine pay-period create|list`,
   `mnemosine pay-run create|calculate|approve|post`,
   `mnemosine payslip list|show` and `mnemosine imss sua export`
   (`pay-run post` leaves the run's entry as a draft for `mnemosine review`; `--post` posts it);
