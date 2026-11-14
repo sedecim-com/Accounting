@@ -140,12 +140,14 @@ export async function ingestCfdiFiles(opts: {
   /** ING-2 (#319): a CFDI already registered whose processing failed is reprocessed, not «duplicate». */
   retry?: boolean;
   onProgress?: (message: string) => void;
+  /** Where the XML came from, as xml_documents.import_source records it (default 'api'). */
+  importSource?: 'api' | 'sat_download';
   deps?: IngestDeps;
 }): Promise<IngestReport> {
   const { ctx, reviewer, files, thresholds, session, capture, onProgress } = opts;
   const processUpload =
     opts.deps?.processUpload ??
-    ((entityId, xml, uploadedBy) => defaultService.processXMLUpload(entityId, xml, 'api', uploadedBy));
+    ((entityId, xml, uploadedBy) => defaultService.processXMLUpload(entityId, xml, opts.importSource ?? 'api', uploadedBy));
   const approve = opts.deps?.approve ?? approveDraft;
   const readFile = opts.deps?.readFile ?? ((file: string) => fs.readFileSync(file, 'utf-8'));
   const reprocess =

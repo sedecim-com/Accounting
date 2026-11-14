@@ -91,14 +91,33 @@ describe('the array cap travels on its check', () => {
     expect(cotaDeArreglo(z.array(z.string()).superRefine(() => undefined))).toBeUndefined();
   });
 
-  it('reports after the element issues, and only when nothing aborted', () => {
+  it('refuses an array past its cap before reading any element (#407)', () => {
     const rows = z.object({ rows: capped });
     const tooMany = rows.safeParse({ rows: ['a', 'b', 'c', 1] });
-    expect(tooMany.error?.issues.map((i) => [i.path.join('.'), i.code])).toEqual([['rows.3', 'invalid_type']]);
+    expect(tooMany.error?.issues.map((i) => [i.path.join('.'), i.code])).toEqual([['rows', 'custom']]);
     const valid = rows.safeParse({ rows: ['a', 'b', 'c', 'd'] });
     expect(valid.error?.issues.map((i) => [i.path.join('.'), i.message])).toEqual([
       ['rows', 'llegaron 4 filas y caben 3 por petición. Parte el lote.'],
     ]);
+    // Within the cap the elements are still validated, issues and all.
+    expect(rows.safeParse({ rows: ['a', 1] }).error?.issues.map((i) => i.path.join('.'))).toEqual(['rows.1']);
+  });
+
+  it('never calls the element schema for a body past the cap, and survives chaining', () => {
+    let calls = 0;
+    const counted = arregloAcotado(
+      z.string().refine(() => {
+        calls++;
+        return true;
+      }),
+      { tope: 2, plural: 'filas', salida: 'Parte el lote.' }
+    );
+    for (const schema of [counted, counted.describe('rows'), counted.refine(() => true), counted.min(1)]) {
+      expect(schema.safeParse(['a', 'b', 'c']).error?.issues).toHaveLength(1);
+    }
+    expect(calls).toBe(0);
+    expect(counted.safeParse(['a']).success).toBe(true);
+    expect(calls).toBe(1);
   });
 });
 

@@ -2,6 +2,12 @@ import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { AccountingError } from '../../utils/errors.js';
 import { queryAccountBalance, queryEntryMovementsOnAccount } from '../reporting/report-service.js';
+import {
+  FX_REVALUATION_SOURCE,
+  bookAmountDueSql,
+  revaluationOnAccount,
+  type ForeignOpen,
+} from '../accounting/fx-revaluation.js';
 
 // ============================================================
 // LOS CONTROLES DE CxC (F03)
@@ -31,11 +37,20 @@ const ENGINE_SOURCE_TYPES = [
   'invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication',
 ] as const;
 
+/** Also not manual: the closing revaluation (and its mirror) has its own line (MNE-001-112). */
+const NOT_MANUAL_SOURCE_TYPES = [...ENGINE_SOURCE_TYPES, FX_REVALUATION_SOURCE] as const;
+
 export interface ArReconcileResult {
   control_account: { code: string; name: string } | null;
   control_balance: string;
   open_invoices: string;
   unapplied_credit_notes: string;
+  /** The closing revaluation live on the control (MNE-001-112): part of the subledger's book value. */
+  fx_revaluation: string;
+  /** Open invoices in a foreign currency, per currency, with their book value (already in open_invoices). */
+  foreign_open: ForeignOpen[];
+  /** Unapplied credit notes in a foreign currency, per currency, with their book value (already in unapplied_credit_notes). */
+  foreign_unapplied: ForeignOpen[];
   subledger_net: string;
   delta: string;
   balanced: boolean;
@@ -62,23 +77,49 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
   // ledger sum the trial balance publishes, not a private copy of it.
   const controlBal = await queryAccountBalance(entityId, cuenta.account_id);
 
-  const abiertas = await query<{ total: string }>(
-    `SELECT COALESCE(SUM(amount_due), 0)::text AS total
-       FROM invoices
-      WHERE entity_id = $1 AND status = ANY($2) AND amount_due > 0`,
+  // MNE-001-112: in the functional currency, per currency. A foreign invoice
+  // weighs its book value, amount_due at the rate it was posted at.
+  const abiertas = await query<{ currency: string | null; functional: boolean; foreign: string; book: string }>(
+    `SELECT i.currency_code AS currency,
+            (i.currency_code IS NULL OR i.currency_code = le.functional_currency) AS functional,
+            SUM(i.amount_due)::text AS foreign,
+            SUM(${bookAmountDueSql('i', '$1')})::text AS book
+       FROM invoices i
+       JOIN legal_entities le ON le.id = i.entity_id
+      WHERE i.entity_id = $1 AND i.status = ANY($2) AND i.amount_due > 0
+      GROUP BY 1, 2
+      ORDER BY 1`,
     [entityId, [...ABIERTAS]]
   );
 
-  const notas = await query<{ total: string }>(
-    `SELECT COALESCE(SUM(total_amount - amount_applied), 0)::text AS total
-       FROM credit_notes
-      WHERE entity_id = $1 AND status = 'issued'`,
+  // MNE-001-112: the unapplied notes, per currency, at book value like the
+  // invoices they will be applied to. A foreign note weighs its unapplied
+  // balance at its invoice's rate: applying it lowers that invoice's book
+  // value at that rate, so the note must hold the same figure until then. A
+  // foreign note without an invoice has no rate to read and stays at face:
+  // issuing one is refused (FX_CREDIT_NOTE_NOT_WIRED), so only a note issued
+  // before that refusal can be here, and it was posted at face.
+  const notas = await query<{ currency: string; functional: boolean; foreign: string; book: string }>(
+    `SELECT cn.currency_code AS currency,
+            (cn.currency_code = le.functional_currency) AS functional,
+            SUM(cn.total_amount - cn.amount_applied)::text AS foreign,
+            SUM(CASE WHEN cn.currency_code = le.functional_currency OR i.id IS NULL
+                     THEN cn.total_amount - cn.amount_applied
+                     ELSE ROUND((cn.total_amount - cn.amount_applied) * i.exchange_rate, 4) END)::text AS book
+       FROM credit_notes cn
+       JOIN legal_entities le ON le.id = cn.entity_id
+       LEFT JOIN invoices i ON i.id = cn.invoice_id AND i.entity_id = cn.entity_id
+      WHERE cn.entity_id = $1 AND cn.status = 'issued'
+      GROUP BY 1, 2
+      ORDER BY 1`,
     [entityId]
   );
 
-  const auxiliar = new Decimal(abiertas.rows[0].total);
-  const porAplicar = new Decimal(notas.rows[0].total);
-  const neto = auxiliar.minus(porAplicar);
+  const revaluation = await revaluationOnAccount(entityId, cuenta.account_id);
+
+  const auxiliar = abiertas.rows.reduce((sum, row) => sum.plus(row.book), new Decimal(0));
+  const porAplicar = notas.rows.reduce((sum, row) => sum.plus(row.book), new Decimal(0));
+  const neto = auxiliar.minus(porAplicar).plus(revaluation);
   const delta = controlBal.minus(neto);
 
   // Los asientos que tocaron el control SIN venir de un documento: la causa
@@ -92,7 +133,7 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
   // the reversal of a manual entry still lists, because its original was
   // manual too.
   const manuales = await queryEntryMovementsOnAccount(entityId, cuenta.account_id, {
-    excludeSourceTypes: ENGINE_SOURCE_TYPES,
+    excludeSourceTypes: NOT_MANUAL_SOURCE_TYPES,
     order: 'newest',
     limit: 50,
   });
@@ -102,6 +143,21 @@ export async function arReconcile(entityId: string): Promise<ArReconcileResult> 
     control_balance: controlBal.toFixed(2),
     open_invoices: auxiliar.toFixed(2),
     unapplied_credit_notes: porAplicar.toFixed(2),
+    fx_revaluation: revaluation.toFixed(2),
+    foreign_open: abiertas.rows
+      .filter((row) => !row.functional)
+      .map((row) => ({
+        currency: row.currency ?? '',
+        foreign: new Decimal(row.foreign).toFixed(2),
+        book: new Decimal(row.book).toFixed(2),
+      })),
+    foreign_unapplied: notas.rows
+      .filter((row) => !row.functional)
+      .map((row) => ({
+        currency: row.currency,
+        foreign: new Decimal(row.foreign).toFixed(2),
+        book: new Decimal(row.book).toFixed(2),
+      })),
     subledger_net: neto.toFixed(2),
     delta: delta.toFixed(2),
     balanced: delta.abs().lessThan('0.01'),

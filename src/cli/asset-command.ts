@@ -31,6 +31,7 @@ import {
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
+import { isRealCalendarDate } from '../utils/calendar-date.js';
 
 // ============================================================
 // mnemosine asset · activo
@@ -131,8 +132,7 @@ const IMPORTE_RE = /^\d+(\.\d+)?$/;
  * como un activo acaba con una fecha de adquisición que nadie tecleó.
  */
 export function exigirFecha(flag: string, valor: string): string {
-  const d = new Date(`${valor}T00:00:00Z`);
-  if (!FECHA_RE.test(valor) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== valor) {
+  if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
     throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
   }
   return valor;

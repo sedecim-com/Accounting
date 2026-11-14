@@ -6,7 +6,7 @@ import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
+import { ConflictError, NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
 import { autoMatchUnreconciled } from '../../../services/banking/matching.js';
 import { entityScope } from '../../../database/scope.js';
 import type { BankTransaction, ReconciliationSession } from '../../../types/index.js';
@@ -50,7 +50,19 @@ const matchTransactionSchema = z.object({
   // 'journal_entry_line' —el caso más común— ni los dos tipos de pago.
   matched_entity_type: z.enum(MATCHED_ENTITY_TYPES),
   matched_entity_id: uuidString(),
-  matched_amount: z.union([z.string(), z.number()]).optional(),
+  // CONTRACT: matched_amount is required (422 when absent or not a positive
+  // decimal). This changes the published contract: the field was optional and a
+  // missing one was stored as 0 (openapi and the body golden are regenerated).
+  // The amount is the money the match covers, never a default. The column is
+  // an unsigned magnitude DECIMAL(19,4): only a plain positive decimal with at
+  // most 15 integer and 4 fractional digits gets through (no NaN, exponent,
+  // empty string, zero or negative), so the database never answers 500 to it.
+  matched_amount: z.union([z.string(), z.number()], {
+    error: (issue) => (issue.input === undefined ? 'Required' : 'matched_amount must be a positive decimal'),
+  }).refine(
+    (v) => /^\d{1,15}(\.\d{1,4})?$/.test(String(v)) && new Decimal(String(v)).gt(0),
+    'matched_amount must be a positive decimal with at most 4 fractional digits'
+  ),
 });
 
 const createReconciliationSchema = z.object({
@@ -110,6 +122,24 @@ async function movimientoDelLlamador(req: Request, txId: string): Promise<BankTr
   );
   if (r.rows.length === 0) throw new NotFoundError('Bank Transaction', txId);
   return r.rows[0];
+}
+
+// SECURITY: the table that holds each matchable document kind, and how it reaches its
+// legal entity (the matched document must belong to the caller's entity; 404 and
+// not 403, see the banner above). Fixed literals: the type comes from a closed enum, never SQL.
+const DOCUMENT_ENTITY_SQL: Record<(typeof MATCHED_ENTITY_TYPES)[number], string> = {
+  invoice: 'SELECT 1 FROM invoices WHERE id = $1 AND entity_id = $2',
+  bill: 'SELECT 1 FROM bills WHERE id = $1 AND entity_id = $2',
+  customer_payment: 'SELECT 1 FROM customer_payments WHERE id = $1 AND entity_id = $2',
+  vendor_payment: 'SELECT 1 FROM vendor_payments WHERE id = $1 AND entity_id = $2',
+  journal_entry_line:
+    'SELECT 1 FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id WHERE l.id = $1 AND je.entity_id = $2',
+};
+
+/** 404 unless the matched document belongs to the caller's entity (same answer as a missing one). */
+async function callerOwnedDocument(req: Request, kind: (typeof MATCHED_ENTITY_TYPES)[number], id: string): Promise<void> {
+  const r = await query(DOCUMENT_ENTITY_SQL[kind], [id, req.entityId]);
+  if (r.rows.length === 0) throw new NotFoundError('Matched document', id);
 }
 
 // POST /v1/bank-accounts/:account_id/import
@@ -232,21 +262,40 @@ router.get('/transactions/:id/suggestions', requirePermission('journal_entries:r
 
 // POST /v1/bank-transactions/:id/match
 router.post('/transactions/:id/match', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'reconciliation_matches + bank_transactions.is_matched' }), requirePermission('journal_entries:create'), requireEntityAccess, validateBody(matchTransactionSchema), asyncHandler(async (req: Request, res: Response) => {
-  const { matched_entity_type, matched_entity_id, matched_amount } = req.body;
-  await movimientoDelLlamador(req, req.params.id);
+  const { matched_entity_type, matched_entity_id, matched_amount } = req.body as z.infer<typeof matchTransactionSchema>;
+  const tx = await movimientoDelLlamador(req, req.params.id);
+  await callerOwnedDocument(req, matched_entity_type, matched_entity_id);
+
+  // A match never books more than the bank movement (systems rule, not a policy
+  // fork: no treatment covers a match larger than the movement it settles).
+  // Covering less is a legitimate partial match and is flagged as such.
+  const amount = new Decimal(String(matched_amount));
+  const movement = new Decimal(String(tx.amount)).abs();
+  if (amount.gt(movement)) {
+    throw new ValidationError('matched_amount cannot exceed the bank transaction amount', 'matched_amount');
+  }
 
   await withTransaction(async (client) => {
+    // Seal first: the guarded UPDATE is what makes a second match of the same
+    // movement impossible. Entity scope is re-stated in the same statement.
+    const sealed = await client.query(
+      `UPDATE bank_transactions bt
+          SET is_matched = true, matched_at = NOW(), matched_by = $1
+         FROM bank_accounts ba
+        WHERE bt.id = $2 AND bt.is_matched = false
+          AND ba.id = bt.bank_account_id AND ba.entity_id = $3`,
+      [req.user!.user_id, req.params.id, req.entityId]
+    );
+    if (sealed.rowCount !== 1) {
+      throw new ConflictError(`Bank transaction ${req.params.id} is already matched`);
+    }
+
     await client.query(
       `INSERT INTO reconciliation_matches (
         id, bank_transaction_id, match_type, matched_entity_type,
-        matched_entity_id, matched_amount, matched_by
-      ) VALUES ($1, $2, 'manual', $3, $4, $5, $6)`,
-      [uuidv4(), req.params.id, matched_entity_type, matched_entity_id, matched_amount || 0, req.user!.user_id]
-    );
-
-    await client.query(
-      `UPDATE bank_transactions SET is_matched = true, matched_at = NOW(), matched_by = $1 WHERE id = $2`,
-      [req.user!.user_id, req.params.id]
+        matched_entity_id, matched_amount, is_partial, matched_by
+      ) VALUES ($1, $2, 'manual', $3, $4, $5, $6, $7)`,
+      [uuidv4(), req.params.id, matched_entity_type, matched_entity_id, amount.toFixed(4), amount.lt(movement), req.user!.user_id]
     );
   });
 

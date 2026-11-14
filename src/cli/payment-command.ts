@@ -1,4 +1,5 @@
 import * as readline from 'node:readline/promises';
+import { cashFindingMessage, withCashFindingMessage } from '../i18n/cash-finding-text.js';
 import type { Command } from 'commander';
 import { BillStatus } from '../types/index.js';
 import { query } from '../database/connection.js';
@@ -30,10 +31,10 @@ import {
   abortedByUser,
   usageError,
   exitCodeFor,
-  dateOnly,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
+import { todayFor } from '../services/policy/today.js';
 
 // ============================================================
 // mnemosine payment
@@ -286,7 +287,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       const entrada: EntradaPago = {
         entityId: ctx.entityId,
         paymentAmount: opts.amount,
-        paymentDate: opts.date ?? hoy(),
+        paymentDate: opts.date ?? (await hoy(ctx)),
         paymentMethod: opts.method,
         bankAccountId: bank?.id ?? null,
         memo: opts.memo ?? null,
@@ -632,8 +633,9 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   );
 }
 
-// El dia LOCAL del despacho, no el de Greenwich: de noche ya era "manana" en UTC.
-const hoy = (): string => dateOnly(new Date());
+// Today in the entity's zona_horaria, never the process clock (a UTC server reads tomorrow at night).
+const hoy = (ctx: { tenantId: string; entityId: string }): Promise<string> =>
+  todayFor({ tenantId: ctx.tenantId, entityId: ctx.entityId });
 
 /**
  * El camino común de los dos comandos: ensayo, confirmación, escritura.
@@ -697,6 +699,8 @@ async function ejecutar(a: {
     return;
   }
 
+  // Before the question, not only after the posting (MNE-001-345).
+  for (const w of previo.deductibilityFindings ?? []) process.stderr.write(p.yellow(`${cashFindingMessage(w)}\n`));
   await a.confirmOrAbort(a.opts, a.pregunta(doc));
 
   // ============================================================
@@ -784,17 +788,23 @@ function imprimir(
   json: boolean
 ): void {
   const doc = result.documentos[0];
+  // LISR 27-III (MNE-001-345): shown in both modes and in the dry run, on stderr
+  // so the --json on stdout stays a machine contract.
+  const findings = result.deductibilityFindings ?? [];
+  for (const w of findings) process.stderr.write(p.yellow(`${cashFindingMessage(w)}\n`));
   if (json) {
     render(
       [
         {
           payment_number: result.paymentNumber,
-          document: doc.numero,
-          amount_due_before: doc.saldoAnterior,
-          amount_due_after: doc.saldoNuevo,
-          document_status: doc.estado,
+          // A pure advance settles no document.
+          document: doc?.numero ?? null,
+          amount_due_before: doc?.saldoAnterior ?? null,
+          amount_due_after: doc?.saldoNuevo ?? null,
+          document_status: doc?.estado ?? null,
           journal_entry: result.journalEntry?.entry_number ?? null,
           dry_run: ensayo,
+          deductibility_findings: findings.map(withCashFindingMessage),
         },
       ],
       { json: true }

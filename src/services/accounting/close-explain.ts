@@ -15,6 +15,8 @@ import { MAPPING_SCHEMES } from './account-service.js';
 import { censusWithholdingLayout, describeWithholdingPlan, needsSync } from './withholding-accounts.js';
 import { revisionDeAmortizacionAlCierre } from '../accruals/prepaid-service.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { reconcileCensus } from '../sat-census/reconcile.js';
+import { entityScope } from '../../database/scope.js';
 import { listPaymentsAwaitingRep, watchedAtClose } from './rep-expected.js';
 
 // ============================================================
@@ -73,6 +75,7 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'ar-subledger-delta': 'mnemosine ar reconcile  (lists the manual entries on the control account)',
   'ap-subledger-delta': 'mnemosine ap reconcile --explain  (splits the delta into named items)',
   'withholding-accounts-layout': 'mnemosine account role sync --dry-run  (then without --dry-run to apply it)',
+  'sat-census-missing': 'mnemosine sat download reconcile --period <YYYY-MM>',
 };
 
 export interface OpcionesDeExplicacion {
@@ -403,6 +406,27 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
         LIMIT $3`,
       [entityId, periodId, limit]
     ),
+
+  // Mirror of the census box (MNE-001-119): the CFDI the SAT lists or cancelled
+  // that the books do not carry, each tagged with what it needs.
+  'sat-census-missing': async (entityId, periodId, limit) => {
+    const period = await query<{ tenant_id: string; start_date: string; end_date: string }>(
+      `SELECT le.tenant_id, to_char(fp.start_date, 'YYYY-MM-DD') AS start_date,
+              to_char(fp.end_date, 'YYYY-MM-DD') AS end_date
+         FROM fiscal_periods fp JOIN legal_entities le ON le.id = fp.entity_id
+        WHERE fp.id = $2 AND fp.entity_id = $1`,
+      [entityId, periodId]
+    );
+    if (period.rows.length === 0) return { total: 0, renglones: [] };
+    const p = period.rows[0];
+    const rec = await reconcileCensus(entityScope(p.tenant_id, entityId), p.start_date, p.end_date);
+    const all = [
+      ...rec.toFetch.map((i) => ({ needs: 'fetch', ...i })),
+      ...rec.toPost.map((i) => ({ needs: 'post', ...i })),
+      ...rec.cancelledBooked.map((i) => ({ needs: 'reverse', ...i })),
+    ];
+    return { total: all.length, renglones: all.slice(0, limit) };
+  },
 
   'ar-subledger-delta': (entityId) => subledgerRows(entityId, 'ar-subledger-delta'),
   'ap-subledger-delta': (entityId) => subledgerRows(entityId, 'ap-subledger-delta'),

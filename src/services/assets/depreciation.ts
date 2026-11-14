@@ -12,12 +12,14 @@ import {
   TIPO_DE_CALENDARIO,
   baseDeLaVida,
   calculateDepreciation,
+  effectiveInvestmentBase,
   esImporteCero,
   indiceDeCalendario,
   metadatosDeCalculo,
   type BaseDepreciacion,
   type ConvencionPrimerMes,
   type DepreciationInput,
+  type InvestmentBase,
 } from './depreciation-math.js';
 import {
   periodoDeLaCorrida,
@@ -85,6 +87,7 @@ export {
   type ConvencionPrimerMes,
   type DepreciationInput,
   type DepreciationResult,
+  type InvestmentBase,
 } from './depreciation-math.js';
 
 /**
@@ -235,6 +238,54 @@ export function taxRateForBasis(asset: FixedAsset, base: BaseDepreciacion): stri
 }
 
 /**
+ * The base the tax schedule applies its rate to.
+ *
+ * Under `tasa_lisr` it is the original investment, with no salvage value
+ * subtracted: LISR art. 31 applies the maximum percentages to the *monto
+ * original de la inversión* (owner decision MNE-001-135, #429). Under
+ * `vida_util_nif` it stays cost less salvage, NIF C-6's depreciable amount.
+ * This is the base asked for: an asset that does not run on the rate (no
+ * stored rate, or not straight line) still subtracts salvage, and
+ * `effectiveInvestmentBase` decides that and is what the row records.
+ *
+ * An asset that already posted tax rows keeps the base it started with, for
+ * the same reason as `basisLock`: moving the base under posted months would
+ * post a schedule whose earlier rows were computed on another amount.
+ */
+export function investmentBaseFor(
+  base: BaseDepreciacion,
+  started: InvestmentBase | undefined
+): InvestmentBase {
+  if (base !== 'tasa_lisr') return 'cost_less_salvage';
+  return started ?? 'original_investment';
+}
+
+/**
+ * The investment base each asset's EARLIEST posted tax row was computed on.
+ *
+ * A row posted before MNE-001-396 does not record `investment_base`, and every
+ * such row was computed on cost less salvage (MACRS ran on the cost, where the
+ * two bases give the same schedule). Read once per run and once per plan.
+ */
+export async function taxBasesStarted(entityId: string): Promise<Map<string, InvestmentBase>> {
+  const r = await query<{ asset_id: string; investment_base: string | null }>(
+    `SELECT DISTINCT ON (ds.asset_id)
+            ds.asset_id, ds.calculation_metadata->>'investment_base' AS investment_base
+       FROM depreciation_schedules ds
+       JOIN fixed_assets fa ON fa.id = ds.asset_id
+      WHERE fa.entity_id = $1 AND ds.is_posted = true AND ds.schedule_type = 'tax'
+      ORDER BY ds.asset_id, ds.depreciation_date, ds.created_at`,
+    [entityId]
+  );
+  return new Map(
+    r.rows.map((row) => [
+      row.asset_id,
+      row.investment_base === 'original_investment' ? 'original_investment' : 'cost_less_salvage',
+    ])
+  );
+}
+
+/**
  * The books each asset of the entity has already POSTED rows under, any month.
  *
  * Read once per run (and once per plan, which must say what the run does).
@@ -309,6 +360,7 @@ export async function runMonthlyDepreciation(
   const criterios = await criteriosDeLaCorrida(tenantId, entityId);
   const tipoDeCalendario = TIPO_DE_CALENDARIO[criterios.base];
   const posted = await postedBooks(entityId);
+  const startedBases = await taxBasesStarted(entityId);
 
   const assets = await query<FixedAsset>(
     `SELECT * FROM fixed_assets WHERE entity_id = $1 AND status = 'active'`,
@@ -376,6 +428,7 @@ export async function runMonthlyDepreciation(
         macrs_class: asset.macrs_class ?? undefined,
         convencion: criterios.convencion,
         annual_rate: taxRateForBasis(asset, criterios.base),
+        investment_base: investmentBaseFor(criterios.base, startedBases.get(asset.id)),
       };
       const calendario = calculateDepreciation(entrada);
 
@@ -401,6 +454,7 @@ export async function runMonthlyDepreciation(
         periodos: calendario.length,
         vidaUtilMeses: asset.useful_life_months,
         baseDepreciable: baseDeLaVida(entrada),
+        investmentBase: effectiveInvestmentBase(entrada),
         baseDefinida: criterios.baseDefinida,
         convencionDefinida: criterios.convencionDefinida,
       });

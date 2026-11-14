@@ -337,6 +337,7 @@ export async function createJournalEntry(
     const tenantId = await tenantParaAuditoria(client, entityId);
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entityId,
       userId: createdBy,
       action: 'create',
       entityType: 'journal_entries',
@@ -378,6 +379,7 @@ export async function createJournalEntry(
       // mismo instante: el libro los distingue y el rastro también.
       await registrarAuditoria(client, {
         tenantId,
+        legalEntityId: entityId,
         userId: createdBy,
         action: 'post',
         entityType: 'journal_entries',
@@ -519,6 +521,7 @@ export async function postJournalEntry(
 
     await registrarAuditoria(client, {
       tenantId,
+      legalEntityId: entry.entity_id,
       userId,
       action: 'post',
       entityType: 'journal_entries',
@@ -738,6 +741,7 @@ export async function reverseWithinTransaction(
   // espejo, y eso es lo que registra el rastro.
   await registrarAuditoria(client, {
     tenantId: await tenantParaAuditoria(client, entry.entity_id),
+    legalEntityId: entry.entity_id,
     userId,
     action: 'update',
     entityType: 'journal_entries',
@@ -855,6 +859,7 @@ export async function voidJournalEntryInTx(
 
   await registrarAuditoria(client, {
     tenantId: await tenantParaAuditoria(client, entry.entity_id),
+    legalEntityId: entry.entity_id,
     userId,
     action: 'void',
     entityType: 'journal_entries',

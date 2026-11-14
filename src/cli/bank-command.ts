@@ -141,6 +141,7 @@ import {
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { t } from '../i18n/index.js';
+import { isRealCalendarDate } from '../utils/calendar-date.js';
 
 // ============================================================
 // mnemosine bank · banco
@@ -355,8 +356,7 @@ const IMPORTE_RE = /^-?\d+(\.\d+)?$/;
  * que no existen — JS acepta `2026-02-31` y lo desplaza al 3 de marzo.
  */
 function exigirFecha(flag: string, valor: string): string {
-  const d = new Date(`${valor}T00:00:00Z`);
-  if (!FECHA_RE.test(valor) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== valor) {
+  if (!FECHA_RE.test(valor) || !isRealCalendarDate(valor)) {
     throw usageError(t('bank.parse.date_invalid', { flag, value: valor }));
   }
   return valor;

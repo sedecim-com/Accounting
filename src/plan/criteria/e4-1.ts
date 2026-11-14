@@ -888,6 +888,9 @@ export const E4_1: Criterio[] = [
         'accrue-benefits',
         'amortize-prepaids',
         'depreciate-assets',
+        // MNE-001-112: the revaluation is an engine too, and the checklist
+        // judges the balance sheet at the closing rate.
+        'revalue-fx',
         'verify-checklist',
         'soft-close',
         'hard-close',
@@ -920,6 +923,7 @@ export const E4_1: Criterio[] = [
         'await runMonthlyProvisions(ctx.entityId, period.id, opts.userId)',
         'await runMonthlyAmortization(ctx.entityId, period.id, opts.userId)',
         'await runMonthlyDepreciation(ctx.entityId, period.id, opts.userId)',
+        'await revalueForeignBalances(ctx, period.id, opts.userId)',
         'await getCloseReadiness(ctx, period)',
         'await softClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason)',
         'await hardClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason)',
@@ -971,7 +975,7 @@ export const E4_1: Criterio[] = [
       }
 
       return ok(
-        `los seis pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
+        `los siete pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
           'todos corridos en cada intento, y sin calcular ninguna cifra de los libros'
       );
     },
@@ -979,9 +983,9 @@ export const E4_1: Criterio[] = [
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
         de:
-          "  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'verify-checklist',",
+          "  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'revalue-fx',\n  'verify-checklist',",
         a:
-          "  'verify-checklist',\n  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',",
+          "  'verify-checklist',\n  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'revalue-fx',",
         porque:
           'el checklist pasa a correr ANTES de los motores: su veredicto describe un mes al que ' +
           'todavía le faltan los asientos de ajuste que se van a postear',
@@ -2605,6 +2609,34 @@ export const E4_1: Criterio[] = [
           'el estado civil deja de validarse y un valor fuera de catálogo vuelve a caer en una tabla vacía: FIT de 0.00 todo el año, con el patrón como retenedor omiso ante el IRS',
       },
       {
+        archivo: 'src/services/payroll/usa/federal/fit-calculator.ts',
+        de: "const brackets = requireBrackets(\n      await getBrackets(this.jurisdiction, 'fit'",
+        a: "const brackets = (\n      await getBrackets(this.jurisdiction, 'fit'",
+        porque:
+          'an empty FIT table (married_separately has no seeded rows) goes back to withholding 0.00 in silence (MNE-001-353)',
+      },
+      {
+        archivo: 'src/services/payroll/usa/state/state-tax-calculator.ts',
+        de: "const brackets = requireBrackets(\n      await getBrackets(this.jurisdiction, 'sit'",
+        a: "const brackets = (\n      await getBrackets(this.jurisdiction, 'sit'",
+        porque:
+          'an empty SIT table goes back to a silent 0.00 instead of naming the missing filing status (MNE-001-353)',
+      },
+      {
+        archivo: 'src/services/payroll/usa/state/state-tax-calculator.ts',
+        de: 'const fs = validFilingStatus(declaredStatus);',
+        a: "const fs = declaredStatus || 'single';",
+        porque:
+          'the SIT falls back to single for any unrecognised status again, instead of validating it (MNE-001-353)',
+      },
+      {
+        archivo: 'src/services/payroll/tax-engine/tax-tables.ts',
+        de: 'if (brackets.length > 0) bracketCache.set(key, brackets);',
+        a: 'bracketCache.set(key, brackets);',
+        porque:
+          'an empty table is cached again: a gap seeded later keeps throwing until the process restarts (MNE-001-353)',
+      },
+      {
         archivo: 'src/services/payroll/common/gl-posting-service.ts',
         de: 'n(b.sit) + n(b.sdi) + n(b.local_tax)',
         a: 'n(b.sit) + n(b.sdi)',
@@ -2669,12 +2701,31 @@ export const E4_1: Criterio[] = [
         return falla('el filing_status del W-4 dejó de validarse: un valor fuera de catálogo cae en una tabla vacía y retiene 0.00 todo el año');
       }
 
+      // 2b. AN EMPTY TABLE IS NOT A ZERO (MNE-001-353).
+      if (!/requireBrackets\(\s*await getBrackets\(this\.jurisdiction, 'fit'/.test(codigoDe(fit))) {
+        return falla('the FIT lookup no longer fails on an empty table: married_separately withholds 0.00 in silence');
+      }
+      if (!/requireBrackets\(\s*await getBrackets\(this\.jurisdiction, 'sit'/.test(codigoDe('src/services/payroll/usa/state/state-tax-calculator.ts'))) {
+        return falla('the SIT lookup no longer fails on an empty table: the state withholds 0.00 in silence');
+      }
+
+      const sitSrc = codigoDe('src/services/payroll/usa/state/state-tax-calculator.ts');
+      if (!/validFilingStatus\(/.test(sitSrc) || /\|\|\s*'single'/.test(sitSrc)) {
+        return falla('the SIT no longer validates the filing status: an unrecognised one falls back to single in silence');
+      }
+      if (!/if \(brackets\.length > 0\) bracketCache\.set\(/.test(codigoDe('src/services/payroll/tax-engine/tax-tables.ts'))) {
+        return falla('getBrackets caches an empty table again: a gap seeded later keeps throwing until restart');
+      }
+      if (!/checkUsTaxTables\(/.test(codigoDe('src/services/payroll/common/pay-run-service.ts'))) {
+        return falla('the run no longer checks the tax tables of every US employee before the first paycheck: a gap leaves a half-written run');
+      }
+
       // 3. Y EL IMPUESTO LOCAL ENTRA AL ASIENTO.
       if (!/n\(b\.local_tax\)/.test(codigoDe(gl))) {
         return falla('el impuesto local volvió a quedarse fuera del asiento de nómina: la corrida no se puede postear y el mayor se queda sin la nómina entera');
       }
 
-      return existe('tests/payroll/fallar-cerrado.spec.ts')
+      return existe('tests/payroll/fallar-cerrado.spec.ts') && existe('tests/payroll/empty-bracket-table.spec.ts')
         ? ok('los motores se niegan ante un parámetro ausente, el estado civil se valida y el impuesto local entra al asiento')
         : falla('no hay prueba del principio de fallar cerrado: es lo único que distingue el cero por no saber del cero legítimo');
     },

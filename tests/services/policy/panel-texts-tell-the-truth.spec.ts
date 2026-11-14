@@ -5,10 +5,12 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
 
 import { getPolicySpec, type PolicySpec } from '../../../src/services/policy/policy-service.js';
-import { basisLock, taxRateForBasis } from '../../../src/services/assets/depreciation.js';
+import { basisLock, investmentBaseFor, taxRateForBasis } from '../../../src/services/assets/depreciation.js';
 import { DECISIONS, DEFAULT_THRESHOLDS, PREPAID_THRESHOLD_MXN } from '../../../src/services/xml-ingestion/cfdi-decisions.js';
 import type { CfdiFacts } from '../../../src/services/xml-ingestion/cfdi-facts.js';
 import type { FixedAsset } from '../../../src/types/index.js';
+import { DepreciationMethod } from '../../../src/types/index.js';
+import { effectiveInvestmentBase } from '../../../src/services/assets/depreciation-math.js';
 
 // ============================================================
 // THE PANEL TEXT SAYS WHAT THE CODE DOES (T21b · #301, MNE-001-073)
@@ -104,6 +106,25 @@ describe('base_depreciacion — the text promises one schedule and the lock the 
     expect(s.impact).toMatch(/without a stored (tax )?rate/i);
     expect(taxRateForBasis(asset({ tax_rate: null }), 'tasa_lisr')).toBeUndefined();
     expect(taxRateForBasis(asset({ tax_rate: '0.35' } as Partial<FixedAsset>), 'tasa_lisr')).toBe('0.35');
+  });
+
+  it('says tasa_lisr runs on the original investment (art. 31 LISR), which is what investmentBaseFor does', () => {
+    expect(s.impact).toMatch(/original investment with no salvage value subtracted \(art\. 31 LISR\)/);
+    expect(investmentBaseFor('tasa_lisr', undefined)).toBe('original_investment');
+    expect(investmentBaseFor('vida_util_nif', undefined)).toBe('cost_less_salvage');
+  });
+
+  it('says a rate-less asset runs on its life on cost less salvage, which is what effectiveInvestmentBase does', () => {
+    expect(s.impact).toMatch(/without a stored tax rate .* useful life, on cost less the salvage value, under either answer/);
+    const rateless = {
+      acquisition_cost: '100000',
+      salvage_value: '10000',
+      useful_life_months: 60,
+      depreciation_start_date: new Date(2026, 0, 1),
+      method: DepreciationMethod.STRAIGHT_LINE,
+      investment_base: investmentBaseFor('tasa_lisr', undefined),
+    };
+    expect(effectiveInvestmentBase(rateless)).toBe('cost_less_salvage');
   });
 });
 

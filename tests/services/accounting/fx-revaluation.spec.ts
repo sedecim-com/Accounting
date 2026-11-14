@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { gainAndLoss, postedSoFar, revalue } from '../../../src/services/accounting/fx-revaluation.js';
+import { gainAndLoss, postedSoFar, revalue, sourcesFixedBy } from '../../../src/services/accounting/fx-revaluation.js';
 import { POLICY_CATALOG } from '../../../src/services/policy/pending-catalog.js';
 import { revaluationRows } from '../../../src/cli/closing-fx-command.js';
 
@@ -66,5 +66,23 @@ describe('MNE-001-083 · the closing revaluation arithmetic (NIF B-15)', () => {
       account: '1150', currency: 'USD', foreign_balance: '1000.0000', book_balance: '17500.0000',
       rate: '18.2', revalued_balance: '18200.0000', already_posted: '0.0000', difference: '700.0000',
     }]);
+  });
+});
+
+describe('MNE-001-112 · a supplement measures at the source the period was first revalued with', () => {
+  const run = (rates: Record<string, string>) => ({
+    rates: Object.fromEntries(Object.entries(rates).map(([c, source]) => [c, { rate: '18.2', source }])),
+  });
+
+  it('keeps each currency at the source an earlier run recorded for it', () => {
+    const fixed = sourcesFixedBy([run({ USD: 'dof' }), run({ USD: 'banco_mexico', EUR: 'ecb' })]);
+    expect(fixed('USD')).toBe('dof');
+    expect(fixed('EUR')).toBe('ecb');
+  });
+
+  it('holds a new currency to the one source the earlier runs used, and leaves it to the panel otherwise', () => {
+    expect(sourcesFixedBy([run({ USD: 'dof' })])('EUR')).toBe('dof');
+    expect(sourcesFixedBy([run({ USD: 'dof', EUR: 'ecb' })])('GBP')).toBeUndefined();
+    expect(sourcesFixedBy([])('USD')).toBeUndefined();
   });
 });

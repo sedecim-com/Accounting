@@ -4,3 +4,5 @@
 src/services/sat/anexo24/xsd/**/*.xsd -text linguist-generated=true
 # The cadena original stylesheets vendored in the same tree follow the same rule.
 src/services/sat/anexo24/xsd/**/*.xslt -text linguist-generated=true
+# The SAT's CFDI 4.0 schemas follow the same rule (hashes in cfdi40/xsd/provenance.json).
+src/services/sat/cfdi40/xsd/**/*.xsd -text linguist-generated=true

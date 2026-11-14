@@ -129,6 +129,9 @@ describe('sat --help ya no promete la descarga de CFDI que no existe', () => {
     // tablero, no software.
     expect(sat.description()).not.toMatch(/credentials and CFDI download/i);
     expect(sat.description()).toMatch(/e\.firma/);
-    expect(sat.description()).toMatch(/not built yet/i);
+    expect(sat.description()).not.toMatch(/not built/i);
+    expect(sat.description()).toMatch(/bulk download/);
+    expect(find(program, 'sat download create').description()).toMatch(/lifetime XML limit/);
+    expect(find(program, 'sat package download').description()).toMatch(/archives each ZIP/);
   });
 });

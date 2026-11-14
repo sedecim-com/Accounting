@@ -314,7 +314,7 @@ describe('updateCustomer', () => {
 
   it('records the reason and the previous values when an audit context is given', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: CUSTOMER, phone: null }] }); // read before
-    clienteTx.query.mockResolvedValueOnce({ rows: [{ id: CUSTOMER, phone: '555' }] }); // update
+    clienteTx.query.mockResolvedValueOnce({ rows: [{ id: CUSTOMER, phone: '555', entity_id: 'e-1' }] }); // update
     clienteTx.query.mockResolvedValueOnce({ rows: [] }); // audit insert
     await updateCustomer(CUSTOMER, SCOPE, { phone: '555' }, {
       audit: { userId: USER, tenantId: TENANT, reason: 'confirmed by the customer' },
@@ -324,14 +324,15 @@ describe('updateCustomer', () => {
     // cambio no queda.
     const tx = clienteTx.query.mock.calls;
     expect(String(tx[0][0])).toMatch(/UPDATE customers/);
-    const rastro = tx[1];
-    expect(String(rastro[0]).replace(/\s+/g, ' ')).toMatch(/INSERT INTO audit_log/);
-    expect(rastro[1][3]).toBe('update');
-    expect(rastro[1][4]).toBe('customers');
-    expect(rastro[1][5]).toBe(CUSTOMER);
-    expect(rastro[1][6]).toBe('{"phone":null}');
-    expect(rastro[1][7]).toBe('{"phone":"555"}');
-    expect(rastro[1][8]).toBe('confirmed by the customer');
+    const [sql, params] = tx[1] as [string, unknown[]];
+    expect(String(sql).replace(/\s+/g, ' ')).toMatch(/INSERT INTO audit_log/);
+    expect(params[3]).toBe('e-1'); // legal_entity_id
+    expect(params[4]).toBe('update');
+    expect(params[5]).toBe('customers');
+    expect(params[6]).toBe(CUSTOMER);
+    expect(params[7]).toBe('{"phone":null}');
+    expect(params[8]).toBe('{"phone":"555"}');
+    expect(params[9]).toBe('confirmed by the customer');
   });
 
   it('throws NotFound when the row does not exist', async () => {

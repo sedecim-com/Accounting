@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DOC_TOPICS } from '../../src/ai/tools/docs-tools.js';
-import { regenerateIndice } from '../../scripts/build-niif-indice.js';
+import { freshnessProblem, monthsSince, regenerateIndice } from '../../scripts/build-niif-indice.js';
 
 // __dirname instead of import.meta.url: the test project compiles as CommonJS,
 // where import.meta is a syntax error. Same directory either way, and it is what
@@ -17,6 +17,7 @@ interface RegistryEntry {
   topic: string;
   confidence: string;
   sources: string[];
+  amendments?: string[];
 }
 
 const registry = JSON.parse(fs.readFileSync(path.join(DOCS, 'ifrs-registry.json'), 'utf-8')) as {
@@ -58,6 +59,48 @@ describe('ifrs-registry.json — la fuente de verdad del corpus NIIF', () => {
     expect(ias1?.status).toBe('sustituida_pendiente');
   });
 
+  it('the 2026 agenda-decision updates are reflected on the affected cards, backed by official sources', () => {
+    const card = (code: string) => registry.standards.find((s) => s.code === code);
+    const official = (code: string) =>
+      (card(code)?.sources ?? []).filter((u: string) => u.startsWith('https://www.ifrs.org/'));
+    const affected = [
+      'NIIF 18 / IFRS 18',
+      'NIC 7 / IAS 7',
+      'NIIF 9 / IFRS 9',
+      'NIC 12 / IAS 12',
+      'NIIF 20 / IFRS 20',
+      'AD: Depósitos a la vista con restricciones de uso (IAS 7)',
+    ];
+    for (const code of affected) {
+      expect(card(code), code).toBeDefined();
+      expect(official(code).length, code).toBeGreaterThanOrEqual(1);
+    }
+    // NIIF 20 left its single weak listing source behind and is now high confidence.
+    expect(card('NIIF 20 / IFRS 20')?.confidence).toBe('high');
+    expect(card('NIIF 20 / IFRS 20')?.sources).not.toContain('https://www.ifrs.org/news-and-events/news/2026/05/');
+    // The Vol. 14 compilation (May 2026) is cited by every card it touches.
+    const vol14 = 'https://www.ifrs.org/news-and-events/news/2026/05/compilation-of-agenda-decisions-volume-14-published/';
+    for (const code of ['NIIF 18 / IFRS 18', 'NIC 7 / IAS 7', 'NIIF 9 / IFRS 9', affected[5]!]) {
+      expect(card(code)?.sources, code).toContain(vol14);
+    }
+    // The IFRS 18 / IAS 12 substitute-tax project is cited by both cards.
+    const taxProject =
+      'https://www.ifrs.org/projects/work-plan/presentation-taxes-other-changes-not-income-taxes-scope-ias-12-ifrs-18/';
+    for (const code of ['NIIF 18 / IFRS 18', 'NIC 12 / IAS 12']) {
+      expect(card(code)?.sources, code).toContain(taxProject);
+    }
+    // The new amendments entries are counted, not matched by prose.
+    const amendmentCount = (code: string) => card(code)?.amendments?.length ?? 0;
+    expect(amendmentCount('NIIF 18 / IFRS 18')).toBeGreaterThanOrEqual(5);
+    expect(amendmentCount('NIC 7 / IAS 7')).toBeGreaterThanOrEqual(5);
+    expect(amendmentCount('NIIF 9 / IFRS 9')).toBeGreaterThanOrEqual(6);
+    expect(amendmentCount('NIC 12 / IAS 12')).toBeGreaterThanOrEqual(6);
+    // The IAS 7 withdrawal of the reverse-factoring decision is sourced to the July 2026 IASB Update.
+    expect(card('NIC 7 / IAS 7')?.sources).toContain(
+      'https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-july-2026/',
+    );
+  });
+
   it('niif-indice.md is in sync with the registry (regenerating changes nothing)', () => {
     const { changed } = regenerateIndice();
     expect(changed, 'corre: npx tsx scripts/build-niif-indice.ts').toBe(false);
@@ -73,5 +116,47 @@ describe('ifrs-registry.json — la fuente de verdad del corpus NIIF', () => {
       expect(content.length, `${topic}.md muy corto`).toBeGreaterThan(1500);
       expect(content.startsWith('# NIIF'), `${topic}.md sin título NIIF`).toBe(true);
     }
+  });
+});
+
+describe('freshness of the normative corpus (docs/PROCESS.md)', () => {
+  const processMd = fs.readFileSync(path.join(DOCS, '..', '..', '..', 'docs', 'PROCESS.md'), 'utf-8');
+  const maxMonths = Number(/^FRESHNESS_MAX_MONTHS:\s*(\d+)\s*$/m.exec(processMd)?.[1]);
+
+  it('PROCESS.md declares N as a positive whole number of months', () => {
+    expect(Number.isInteger(maxMonths) && maxMonths > 0).toBe(true);
+  });
+
+  it('counts whole months from verified_at', () => {
+    const now = new Date('2026-09-30T12:00:00Z');
+    expect(monthsSince('2026-09-30', now)).toBe(0);
+    expect(monthsSince('2026-03-30', now)).toBe(6);
+    expect(monthsSince('2026-03-31', now)).toBe(5);
+    expect(monthsSince('2025-09-30', now)).toBe(12);
+  });
+
+  it('the guard fails at N+1 months, passes at N, and rejects a future or malformed date', () => {
+    const now = new Date('2026-09-30T12:00:00Z');
+    expect(freshnessProblem('2026-03-30', now, 6)).toBeNull(); // exactly N
+    expect(freshnessProblem('2026-02-28', now, 6)).toMatch(/7 months old; max 6/); // N+1
+    expect(freshnessProblem('2026-10-01', now, 6)).toMatch(/future/);
+    expect(freshnessProblem('2026-9-1', now, 6)).toMatch(/not a YYYY-MM-DD/);
+    expect(freshnessProblem('2026-13-45', now, 6)).toMatch(/not a YYYY-MM-DD/);
+  });
+
+  // Intended to go red on its own as the calendar advances (for the current
+  // verified_at, around 2027-03-06): renew the corpus, then bump the date.
+  it('verified_at is no older than N months (renew the corpus, then bump the date)', () => {
+    expect(freshnessProblem(registry.verified_at, new Date(), maxMonths)).toBeNull();
+  });
+
+  it('indexes the new NIF A-2 and ONIF 7 (MNE-001-078)', () => {
+    const indexDoc = fs.readFileSync(path.join(DOCS, 'niif-indice.md'), 'utf-8');
+    for (const code of ['NIF A-2', 'ONIF 7']) {
+      expect(registry.standards.map((s) => s.code), code).toContain(code);
+      expect(indexDoc, code).toContain(`| ${code} |`);
+    }
+    const frameworkDoc = fs.readFileSync(path.join(DOCS, 'nif-marco.md'), 'utf-8');
+    expect(frameworkDoc).toContain('Incertidumbres sobre negocio en marcha');
   });
 });

@@ -105,7 +105,42 @@ export const MAX_APLICACIONES_POR_PAGO = 500;
 // ============================================================
 const MARCA_COTA = Symbol('cota-de-arreglo');
 
-type CappedCheck = z.core.$ZodCheck & { [MARCA_COTA]?: number };
+const REFUSAL_MARK = Symbol('cota-de-arreglo-refusal');
+
+type CappedCheck = z.core.$ZodCheck & {
+  [MARCA_COTA]?: number;
+  /** The refusal message for an array of `length` elements, shared by the check and the early exit. */
+  [REFUSAL_MARK]?: (length: number) => string;
+};
+
+/**
+ * A ZodArray that refuses an array past its cap BEFORE it validates a single
+ * element (#407). Without it zod built an issue per element first, and a 10 MB
+ * body of `1,1,1…` (~5.2 million elements) held the API ~24 s to answer its
+ * 422. The refusal is the same `custom` issue the cap check reports, so the
+ * 422 only loses the element issues of a body that was over the cap anyway.
+ *
+ * It subclasses ZodArray, like ZodV3Record does for records, so the converter
+ * and every chained method (`.describe()`, `.refine()`, `.min()`; `.optional()` wraps it)
+ * see an ordinary array: zod clones through `_zod.constr`, which is this class.
+ */
+const ZodCappedArray = z.core.$constructor('ZodCappedArray', (inst: z.ZodArray, def: z.core.$ZodArrayDef) => {
+  z.ZodArray.init(inst, def);
+  const cap = (def.checks ?? []).find((check): check is CappedCheck => MARCA_COTA in check);
+  const ceiling = cap?.[MARCA_COTA];
+  const reject = cap?.[REFUSAL_MARK];
+  const parse = inst._zod.parse.bind(inst._zod);
+  inst._zod.parse = (payload, ctx) => {
+    const input: unknown = payload.value;
+    if (ceiling === undefined || reject === undefined || !Array.isArray(input) || input.length <= ceiling) {
+      return parse(payload, ctx);
+    }
+    // No `continue: true`: the issue aborts the node, so the check that
+    // enforces the same cap afterwards does not report it a second time.
+    payload.issues.push({ code: 'custom', input, inst, message: reject(input.length), params: { maximum: ceiling } });
+    return payload;
+  };
+});
 
 /**
  * El techo que `arregloAcotado` puso, si el esquema salió de ahí.
@@ -130,12 +165,12 @@ export function cotaDeArreglo(esquema: z.core.$ZodType): number | undefined {
  * `z.array(...).max(n)` ya nombra el tope («at most 5000 element(s)»), pero
  * no dice cuántos llegaron ni a dónde ir con el resto, y quien recibe ese
  * 422 con un extracto de veinte mil líneas necesita las dos cosas para
- * partirlo. El mensaje se arma aquí para que los cuatro topes suenen igual.
+ * partirlo. El mensaje se arma aquí para que todos los topes suenen igual.
  *
  * The minimum is an option rather than a chained `.min()` for a reason zod 3
  * had (its refinement wrapper had no `.min()`); on zod 4 chaining would work,
- * since the cap travels on its check, and the option stays so the four call
- * sites keep one shape.
+ * since the cap travels on its check, and the option stays so every call
+ * site keeps one shape.
  */
 export function arregloAcotado<T extends z.ZodType>(
   elemento: T,
@@ -152,17 +187,19 @@ export function arregloAcotado<T extends z.ZodType>(
   const { tope, plural, salida, minimo, mensajeMinimo } = opciones;
   const base =
     minimo === undefined ? z.array(elemento) : z.array(elemento).min(minimo, mensajeMinimo);
-  // A `custom` issue and not a built-in `too_big`: it runs after the
-  // elements, where zod 3 reported it, and src/utils/zod-client-errors.ts
-  // moves only built-in array sizes ahead of the elements.
+  // A `custom` issue and not a built-in `too_big`: src/utils/zod-client-errors.ts
+  // moves built-in array sizes ahead of the elements, and this one is raised
+  // by ZodCappedArray before any element is read. The check below stays as the
+  // carrier of the published cap and as the net for a schema rebuilt without
+  // the subclass.
+  const refusal = (length: number): string =>
+    `llegaron ${length} ${plural} y caben ${tope} por petición. ${salida}`;
   const cap: CappedCheck = z.superRefine((valor: z.output<T>[], ctx) => {
     if (valor.length <= tope) return;
-    ctx.addIssue({
-      code: 'custom',
-      message: `llegaron ${valor.length} ${plural} y caben ${tope} por petición. ${salida}`,
-      params: { maximum: tope },
-    });
+    ctx.addIssue({ code: 'custom', message: refusal(valor.length), params: { maximum: tope } });
   });
   cap[MARCA_COTA] = tope;
-  return base.check(cap);
+  cap[REFUSAL_MARK] = refusal;
+  const { type, element, checks } = base._zod.def;
+  return new ZodCappedArray({ type, element, checks: [...(checks ?? []), cap] }) as unknown as z.ZodArray<T>;
 }

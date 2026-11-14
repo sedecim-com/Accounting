@@ -7,6 +7,8 @@ import {
 import { runDueJobs, type RunAgentTurn } from '../ai/jobs/runner.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import { exitCodeFor } from './kernel/index.js';
+import { calendarDateTimeIn } from '../utils/calendar-date.js';
+import { zoneFor } from '../services/policy/today.js';
 
 // ============================================================
 // mnemosine jobs — persisted scheduled agent tasks.
@@ -38,9 +40,9 @@ interface CommonOpts {
 }
 
 const pad = (s: string, w: number): string => (s.length >= w ? s : s + ' '.repeat(w - s.length));
-const fmtDate = (d: Date | null): string => (d ? new Date(d).toISOString().replace('T', ' ').slice(0, 16) : '—');
+const fmtDate = (d: Date | null, zone: string): string => (d ? calendarDateTimeIn(zone, d) : '—');
 
-function formatJobsTable(jobs: JobRow[], c: JobsDeps['palette']): string[] {
+function formatJobsTable(jobs: JobRow[], c: JobsDeps['palette'], zone: string): string[] {
   if (jobs.length === 0) return ['No jobs configured. Create one with `mnemosine jobs create`.'];
   const out = [
     c.bold(
@@ -52,13 +54,13 @@ function formatJobsTable(jobs: JobRow[], c: JobsDeps['palette']): string[] {
     out.push(
       `  ${pad(j.id, 36)}  ${pad(j.name.slice(0, 24), 24)}  ${pad(j.kind, 20)}  ` +
         `${pad(j.schedule, 14)}  ${pad(j.enabled ? 'yes' : 'no', 8)}  ` +
-        `${pad(`${j.consecutive_failures}/${j.max_failures}`, 6)}  ${pad(fmtDate(j.next_run_at), 16)}`
+        `${pad(`${j.consecutive_failures}/${j.max_failures}`, 6)}  ${pad(fmtDate(j.next_run_at, zone), 16)}`
     );
   }
   return out;
 }
 
-function formatRunsTable(runs: JobRunRow[], c: JobsDeps['palette']): string[] {
+function formatRunsTable(runs: JobRunRow[], c: JobsDeps['palette'], zone: string): string[] {
   if (runs.length === 0) return ['No runs recorded yet.'];
   const out = [
     c.bold(
@@ -72,7 +74,7 @@ function formatRunsTable(runs: JobRunRow[], c: JobsDeps['palette']): string[] {
             (r.detail as { error?: unknown }).error ?? '')
         : '';
     out.push(
-      `  ${pad(fmtDate(r.started_at), 16)}  ${pad((r.job_name ?? r.job_id).slice(0, 24), 24)}  ` +
+      `  ${pad(fmtDate(r.started_at, zone), 16)}  ${pad((r.job_name ?? r.job_id).slice(0, 24), 24)}  ` +
         `${pad(r.status, 16)}  ${pad(String(r.drafts_created), 6)}  ${c.dim(detail.slice(0, 80))}`
     );
   }
@@ -111,7 +113,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
   withCommon(jobs.command('list'))
     .description('List the scheduled jobs of this entity')
     .action(run(async (ctx) => {
-      for (const line of formatJobsTable(await listJobs(ctx), c)) console.log(line);
+      for (const line of formatJobsTable(await listJobs(ctx), c, await zoneFor(ctx))) console.log(line);
     }));
 
   withCommon(jobs.command('create'))
@@ -131,7 +133,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
           createdBy: opts.user,
         });
         console.log(c.bold(`Job created: ${job.id}`));
-        console.log(`  ${job.name} (${job.kind}) · schedule ${c.cyan(job.schedule)} · next run ${fmtDate(job.next_run_at)}`);
+        console.log(`  ${job.name} (${job.kind}) · schedule ${c.cyan(job.schedule)} · next run ${fmtDate(job.next_run_at, await zoneFor(ctx))}`);
         console.log(c.dim('  Wire the tick: schedule `mnemosine jobs run-due` in cron/launchd.'));
       })
     );
@@ -143,7 +145,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       try {
         const ctx = await resolve(opts);
         const job = await setEnabled(ctx, jobId, true);
-        console.log(`Job "${job.name}" enabled · next run ${fmtDate(job.next_run_at)}`);
+        console.log(`Job "${job.name}" enabled · next run ${fmtDate(job.next_run_at, await zoneFor(ctx))}`);
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
@@ -190,6 +192,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       if (dryRun) {
         // Puro censo: qué correría, sin reclamar ni despertar al modelo.
         const ahora = new Date();
+        const zone = await zoneFor(ctx);
         const vencidos = (await listJobs(ctx)).filter(
           (j) => j.enabled && j.next_run_at && new Date(j.next_run_at) <= ahora
         );
@@ -198,7 +201,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
           return;
         }
         for (const j of vencidos) {
-          console.log(`  would run: ${pad(j.name.slice(0, 24), 24)}  ${j.kind}  ${c.dim(`next_run ${fmtDate(j.next_run_at)}`)}`);
+          console.log(`  would run: ${pad(j.name.slice(0, 24), 24)}  ${j.kind}  ${c.dim(`next_run ${fmtDate(j.next_run_at, zone)}`)}`);
         }
         console.log(c.dim(`\n(dry-run: ${vencidos.length} job(s) due; nothing was claimed or run)`));
         return;
@@ -242,6 +245,6 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
         jobId: opts.job,
         limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
       });
-      for (const line of formatRunsTable(runs, c)) console.log(line);
+      for (const line of formatRunsTable(runs, c, await zoneFor(ctx))) console.log(line);
     }));
 }

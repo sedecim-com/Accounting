@@ -243,6 +243,14 @@ describe('queryTrialBalanceRows', () => {
     expect(sql(0)).not.toMatch(/is_active/);
   });
 
+  it('leaves the closing entries out for a tax figure, even when the panel keeps them (MNE-001-059)', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    await queryTrialBalanceRows(ENTITY, { sinceDate: '2026-01-01', untilDate: '2026-12-31' });
+    expect(sql(0)).not.toMatch(/entry_type = 'closing'/);
+    await queryTrialBalanceRows(ENTITY, { sinceDate: '2026-01-01', untilDate: '2026-12-31', excludeClosingEntries: true });
+    expect(sql(1)).toMatch(/AND NOT \(je\.entry_type = 'closing'/);
+  });
+
   it('keeps zero-activity accounts: a missing row is not a zero balance', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await queryTrialBalanceRows(ENTITY);

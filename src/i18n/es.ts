@@ -41,6 +41,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
   'error.FX_REVALUATION_MARKER_MISMATCH':
     'El registro de la revaluación de {period} no coincide con el mayor: el mayor tiene {ledger} pólizas de revaluación para él y el registro {marker}, o sus importes difieren. Volver a correrla podría postear la revaluación dos veces, así que no se posteó nada; hay que revisar el registro.',
+  'error.FX_REVALUATION_KEY_LOCKED':
+    '{policy} no puede cambiar ahora: {entity} revaluó {period}, que aún no tiene cierre definitivo, y los meses de su ejercicio que faltan por revaluar se medirían con el valor nuevo. Cambia cuando los meses revaluados estén sellados, o al inicio de un ejercicio: cuando el ejercicio siguiente esté abierto, sin revaluación todavía, y cada mes anterior esté revaluado o con cierre definitivo.',
   'error.FX_RATE_MISSING':
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ==== fin de error.* ================================================
@@ -66,7 +68,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.depreciation_basis.question':
     '¿Qué depreciación mueve el gasto que contabilizas: la vida útil contable o la tasa fiscal?',
   'policy.depreciation_basis.impact':
-    'Gobierna `depreciation run`. Con «vida_util_nif» el gasto mensual sigue la vida útil que fijas para cada activo (NIF C-6). Con «tasa_lisr» sigue la tasa fiscal guardada en cada activo, como máximo la de su clase (arts. 34-35 LISR), que es lo que registran la mayoría de las pymes mexicanas para que la contabilidad y la deducción no se separen. Se calcula y se contabiliza UN solo calendario: la otra base no se lleva en paralelo. Un activo sin tasa fiscal guardada (dado de alta antes de que existieran las tasas) sigue corriendo con su vida útil con cualquiera de las dos respuestas. Un activo que ya contabilizó renglones nunca cambia de base: si cambias esta respuesta, la corrida rechaza ese activo y dice por qué, en vez de depreciarlo con la otra base.',
+    'Gobierna `depreciation run`. Con «vida_util_nif» el gasto mensual sigue la vida útil que fijas para cada activo (NIF C-6). Con «tasa_lisr» sigue la tasa fiscal guardada en cada activo, como máximo la de su clase (arts. 34-35 LISR), aplicada al monto original de la inversión sin restar el valor de desecho (art. 31 LISR), que es lo que registran la mayoría de las pymes mexicanas para que la contabilidad y la deducción no se separen; «vida_util_nif» reparte el costo menos el valor de desecho. Se calcula y se contabiliza UN solo calendario: la otra base no se lleva en paralelo. Un activo sin tasa fiscal guardada (dado de alta antes de que existieran las tasas) sigue corriendo con su vida útil, sobre el costo menos el valor de desecho, con cualquiera de las dos respuestas. Un activo que ya contabilizó renglones nunca cambia de base: si cambias esta respuesta, la corrida rechaza ese activo y dice por qué, en vez de depreciarlo con la otra base.',
   'policy.depreciation_basis.rationale':
     'Es lo que se supone que muestran los estados financieros, y es la columna que el motor ya usaba. Elegir la tasa fiscal es una simplificación legítima, pero hay que elegirla.',
   'policy.depreciation_basis.why':
@@ -854,6 +856,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.census_cfdi_types.option.all_types':
     'Todos los tipos, traslados incluidos (I, E, P, N, T)',
 
+  'policy.census_missing_at_close.question':
+    'Al cierre falta en los libros un CFDI que el SAT lista: ¿qué dirección detiene el cierre?',
+  'policy.census_missing_at_close.impact':
+    'El censo del SAT se lee contra lo contabilizado. Un CFDI emitido sin contabilizar subestima el ingreso y el IVA a cargo; un CFDI recibido sin contabilizar subestima una deducción y el IVA acreditable. Esto decide si cada dirección detiene el cierre o sólo avisa.',
+  'policy.census_missing_at_close.rationale':
+    'Un CFDI emitido es un ingreso que la entidad ya timbró y que el SAT ya tiene: dejarlo sin contabilizar subestima la base del ISR y el IVA trasladado del mes (LISR art. 17; LIVA arts. 1-B y 17), y la contabilidad debe registrar todas las operaciones (CFF art. 28 fr. I). Un CFDI recibido sin contabilizar es un derecho aún no ejercido: la deducción y el IVA acreditable se pueden reclamar en un periodo posterior (LISR art. 27 fr. III; LIVA art. 5), así que sólo avisa. Un despacho que quiere los libros cuadrados con el SAT en ambas direcciones antes de cualquier cierre elige both_block.',
+  'policy.census_missing_at_close.why':
+    'Que falte un CFDI emitido y que falte uno recibido no cuesta lo mismo, y los despachos difieren en cuánto de eso aceptan al cierre.',
+  'policy.census_missing_at_close.what':
+    'Listo en el checklist del cierre lo que el SAT tiene y los libros no, y detengo el cierre sólo por las direcciones que elijas.',
+  'policy.census_missing_at_close.if_skipped':
+    'Un CFDI emitido faltante detiene el cierre y uno recibido faltante sólo avisa.',
+  'policy.census_missing_at_close.option.issued_blocks':
+    'Lo emitido detiene el cierre; lo recibido avisa',
+  'policy.census_missing_at_close.option.both_block':
+    'Ambas direcciones detienen el cierre',
+  'policy.census_missing_at_close.option.both_warn':
+    'Ambas direcciones sólo avisan',
+
   'policy.opening_payable_iva.question':
     'Cuando una factura de proveedor migrada no dice la tasa de IVA dentro de su saldo pendiente, ¿qué hace la carga de apertura?',
   'policy.opening_payable_iva.impact':
@@ -1325,6 +1346,38 @@ export const ES: Record<keyof typeof EN, string> = {
     'Cada renglón: cada cifra capturada se ajusta a pesos y el cálculo sigue en pesos enteros',
   'policy.filing_rounding_to_pesos.option.solo_el_pago':
     'Sólo el pago: el cálculo corre en centavos y sólo el resultado se ajusta a pesos',
+  'policy.iva_creditable_proration.question':
+    'Cuando la entidad cobra actos exentos o no objeto junto a gravados, ¿qué proporción acredita el IVA que pagó: la del mes o la del año anterior?',
+  'policy.iva_creditable_proration.impact':
+    'Mueve el IVA acreditable de cada mes con actividades mixtas, y con él el IVA a pagar. "monthly" divide los actos gravados cobrados en el mes entre todos los actos cobrados en él; "annual" usa esa proporción sobre el año de calendario anterior. En los dos casos la proporción multiplica todo el IVA pagado del mes.',
+  'policy.iva_creditable_proration.rationale':
+    'El art. 5 fr. V inc. c de la LIVA (inc. d num. 3 para inversiones) acredita el IVA de lo que sirve a actos gravados y exentos en la proporción que los actos gravados representan en el total de actos del mes: es la regla de la ley, y sigue a la actividad de la entidad conforme cambia. El art. 5-B, vigente desde su última reforma (DOF 12-11-2021), permite aplicar en su lugar la proporción del año de calendario anterior y obliga a mantener la opción sesenta meses, así que es una elección que se toma a propósito, no un valor por omisión. El mayor no dice qué gasto sirve sólo a actos gravados (inc. a, acreditable completo) o sólo a exentos (inc. b, no acreditable), así que la proporción del mes se aplica a todo el IVA pagado: sobrestima el acreditable de un gasto sólo de exentos y subestima el de uno sólo de gravados, y el papel de trabajo lo avisa siempre. Premisa sin verificar: la proporción se usa como cociente exacto; si el formulario de Declaraciones y Pagos la captura con un número fijo de decimales, el acreditable puede diferir en centavos.',
+  'policy.iva_creditable_proration.why':
+    'La ley da las dos proporciones y la elección es del contribuyente. La anual suaviza los meses, y una vez elegida se mantiene sesenta meses.',
+  'policy.iva_creditable_proration.what':
+    'El papel de trabajo mensual del IVA acredita todo el IVA pagado en el mes por la proporción que elijas aquí, muestra la proporción y sus actos, y resta sólo la parte acreditable. Con "annual", un año anterior sin ningún acto cobrado, o uno que el mayor no tiene desde enero, detiene el papel de trabajo en vez de suponer una proporción. No hago cumplir el candado de sesenta meses del art. 5-B: cambiar esta respuesta queda bajo tu responsabilidad.',
+  'policy.iva_creditable_proration.if_skipped':
+    'Uso la proporción del mes.',
+  'policy.iva_creditable_proration.option.monthly':
+    'La proporción del mes, sobre todo el IVA pagado (art. 5 fr. V inc. c LIVA)',
+  'policy.iva_creditable_proration.option.annual':
+    'La proporción del año de calendario anterior, sobre todo el IVA pagado (art. 5-B LIVA)',
+  'policy.provisional_isr_sales_returns.question':
+    'En el ISR provisional, ¿las devoluciones, descuentos y bonificaciones sobre ventas disminuyen los ingresos nominales, o se dejan a la declaración anual como deducción?',
+  'policy.provisional_isr_sales_returns.impact':
+    'Mueve los ingresos nominales de cada pago provisional de ISR por las devoluciones del ejercicio, y la utilidad estimada por ese importe por el coeficiente.',
+  'policy.provisional_isr_sales_returns.rationale':
+    'El art. 14 fr. I de la LISR toma como ingresos nominales los ingresos acumulables, menos sólo el ajuste anual por inflación acumulable, y el art. 25 fr. I hace de las devoluciones, descuentos y bonificaciones del ejercicio una deducción, no un ingreso menor. El coeficiente de la declaración anual divide la utilidad fiscal entre esos ingresos nominales brutos, así que una base mensual armada igual es aquella contra la que se midió el coeficiente. Premisa sin verificar: que la declaración anual de la que sale el coeficiente declaró las devoluciones como deducción; un despacho cuya declaración las restó al ingreso elige la otra opción.',
+  'policy.provisional_isr_sales_returns.why':
+    'La ley llama deducción a las devoluciones, pero los despachos que las restan al ingreso en la anual también las restan cada mes. El coeficiente y los ingresos nominales del mes tienen que armarse igual.',
+  'policy.provisional_isr_sales_returns.what':
+    'El papel de trabajo lista aparte de los ingresos nominales las cuentas de ingreso con el rol de devoluciones sobre ventas, y las suma o no según elijas aquí.',
+  'policy.provisional_isr_sales_returns.if_skipped':
+    'Dejo las devoluciones fuera de los ingresos nominales, como deducción de la declaración anual.',
+  'policy.provisional_isr_sales_returns.option.deduction':
+    'Deducción: los ingresos nominales son brutos y las devoluciones esperan a la declaración anual',
+  'policy.provisional_isr_sales_returns.option.net_of_income':
+    'Netas del ingreso: las devoluciones del ejercicio se restan de los ingresos nominales',
   'policy.overtime_isr_exemption.question':
     '¿Aplicas a las horas extra que pagas la exención de ISR del art. 93 fr. I de la LISR?',
   'policy.overtime_isr_exemption.impact':
@@ -1482,6 +1535,32 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.withholding_accounts_existing.option.keep':
     'Dejarlos como están, sin aviso',
 
+  'policy.cash_over_limit_outside_ingestion.question':
+    'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
+  'policy.cash_over_limit_outside_ingestion.impact':
+    'Gobierna `bill approve` (para una factura cuyo CFDI dice FormaPago 01) y `payment create --method cash`. Con "signal" la operación devuelve un hallazgo de deducibilidad en riesgo y no cambia nada. Con "draft_reclassification" además propone, como borrador que una persona aprueba, pasar el gasto y el IVA de la factura a la cuenta no deducible. Con "ignore" no dice nada. Una factura que creó la ingesta nunca se vuelve a juzgar: su respuesta a `efectivo_no_deducible` prevalece.',
+  'policy.cash_over_limit_outside_ingestion.rationale':
+    'La LISR art. 27 fr. III niega la deducción de lo pagado en efectivo por encima del límite, y la LIVA art. 5 fr. I niega con ella el acreditamiento del IVA; pero la ley atiende a cómo se pagó de verdad, y una factura sola no lo prueba (el método del CFDI puede ser el equivocado, la misma excepción que ofrece la ingesta). Los libros conservan lo asentado (NIF A-1, representación fiel) y se avisa a una persona, con las cifras, antes de presentar la declaración.',
+  'policy.cash_over_limit_outside_ingestion.why':
+    'El efectivo por encima del límite vuelve no deducible el gasto, pero sólo si de verdad se pagó en efectivo. Algunos despachos quieren un borrador listo, otros sólo el aviso.',
+  'policy.cash_over_limit_outside_ingestion.what':
+    'Comparo el efectivo con el límite vigente en la fecha del pago y lo informo; con "draft_reclassification" dejo un borrador en la cola de revisión.',
+  'policy.cash_over_limit_outside_ingestion.if_skipped': 'Lo señalo y no cambio nada.',
+  'policy.cash_over_limit_outside_ingestion.option.signal': 'Señalarlo y no cambiar nada: decide una persona',
+  'policy.cash_over_limit_outside_ingestion.option.draft_reclassification':
+    'Señalarlo y proponer la reclasificación a no deducible como borrador',
+  'policy.cash_over_limit_outside_ingestion.option.ignore': 'No decir nada',
+
+  // MNE-001-345 · el texto del hallazgo de efectivo sobre el límite (LISR art. 27 fr. III).
+  'cash_limit.finding.at_approve':
+    '{bill}: el CFDI declara pago en efectivo por {amount} MXN (con fecha {date}), por encima del límite de {limit} de la LISR art. 27 fr. III: la deducción y el acreditamiento del IVA (LIVA art. 5 fr. I) están en riesgo si de verdad se pagó en efectivo. No se reclasificó nada.',
+  'cash_limit.finding.at_payment':
+    '{bill}: {amount} MXN pagados en efectivo el {date} superan el límite de {limit} de la LISR art. 27 fr. III: la deducción y el acreditamiento del IVA (LIVA art. 5 fr. I) están en riesgo. No se reclasificó nada.',
+  'cash_limit.finding.unavailable':
+    '{bill}: pagado en efectivo el {date}, pero ninguna vigencia del límite de la LISR art. 27 fr. III cubre esa fecha, así que no se pudo juzgar. Siembra el parámetro legal y revísalo.',
+  'cash_limit.finding.draft_proposed': 'Se dejó un borrador de reclasificación en la cola de revisión ({count}).',
+  'cash_limit.finding.draft_failed': 'No se pudo proponer el borrador de reclasificación: {reason}.',
+
   'policy.time_zone.question':
     '¿En qué zona horaria cae el «hoy» de estos libros?',
   'policy.time_zone.impact':
@@ -1503,6 +1582,120 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.time_zone.option.america_hermosillo':
     'Sonora (UTC−7 todo el año)',
   // ==== end of policy.* ===============================================
+  // ==== pending.* and policy_preview.* — the `pending` screen by key (I10 · #152, MNE-001-091) ====
+  'pending.board.empty':
+    'Nada pendiente. Estás al corriente.',
+  'pending.board.work':
+    '{count, plural, one {# cosa por resolver} other {# cosas por resolver}}',
+  'pending.board.warnings_only':
+    'sólo avisos',
+  'pending.board.draft':
+    '{count, plural, one {# borrador espera} other {# borradores esperan}} tu aprobación',
+  'pending.board.question':
+    '{count, plural, one {# pregunta sin responder} other {# preguntas sin responder}} de la IA',
+  'pending.board.outbox':
+    '{count, plural, one {# escritura en cola} other {# escrituras en cola}} hacia {providers}',
+  'pending.board.credential_expired':
+    '{kind, select, efirma {tu e.firma YA VENCIÓ: renuévala} other {tu CSD YA VENCIÓ: renuévalo}} en el SAT',
+  'pending.board.credential_expires':
+    'tu {label} vence en {days, plural, one {# día} other {# días}}',
+  'pending.board.period_close':
+    '{count, plural, one {# periodo terminado sigue} other {# periodos terminados siguen}} sin cerrar',
+  'pending.board.period_example':
+    '{period} (terminó el {date})',
+  'pending.policies.none':
+    'No hay definiciones pendientes.',
+  'pending.policies.operating_with':
+    ' — operando con: {value}',
+  'pending.policies.no_default':
+    ' — sin valor por omisión',
+  'pending.policies.heading':
+    'Por definir ({count})',
+  'pending.policies.heading_note':
+    ' — mientras tanto se opera con los valores por omisión',
+  'pending.policies.define_hint':
+    '→  mnemosine pending define <clave> <valor>',
+  'pending.policies.label.impact':
+    'impacto',
+  'pending.policies.label.why':
+    'por qué lo pregunto',
+  'pending.policies.label.what':
+    'qué hago con tu respuesta',
+  'pending.policies.label.if_skipped':
+    'si lo omites',
+  'pending.policies.label.in_your_data':
+    'en tus datos:',
+  'pending.policies.label.why_default':
+    'por qué ese valor por omisión',
+  'pending.policies.already_defined':
+    'Ya definidas',
+  'pending.policies.dismissed_value':
+    '(descartada)',
+  'pending.define.not_found':
+    'No hay una decisión pendiente con la clave "{key}". Consulta las abiertas con: mnemosine pending',
+  'pending.define.input_hint':
+    '(número, valor libre, o vacío para cancelar)',
+  'pending.define.cancelled':
+    'Cancelado; sigue pendiente.',
+  'pending.define.ambiguous':
+    '"{typed}" es a la vez la opción {typed} ({byPosition}) y el valor {byValue}. Escribe p para la opción {typed}, v para el valor {byValue}, o déjalo vacío para cancelar.',
+  'pending.define.done':
+    '✔ {key} = {value}',
+  'pending.define.remaining':
+    '{count, plural, one {# definición sigue pendiente} other {# definiciones siguen pendientes}}.',
+  'pending.dismiss.done':
+    '✘ {key} descartada.',
+  'pending.reopen.done':
+    '↻ {key} vuelve a estar pendiente.',
+  'policy_preview.threshold.intro':
+    'De {count, plural, one {tu # factura recibida} other {tus # facturas recibidas}}:',
+  'policy_preview.threshold.line':
+    '  · con {threshold} → te preguntaría {asked, plural, one {# vez} other {# veces}} ({pct})',
+  'policy_preview.auto_post.intro':
+    'De {total, plural, one {el # borrador} other {los # borradores}} que he propuesto hasta ahora:',
+  'policy_preview.auto_post.counts':
+    '  · aprobaste {approved} y rechazaste {rejected}',
+  'policy_preview.auto_post.rejected':
+    '  · una tasa de rechazo mayor que cero es motivo para mantenerlo apagado hasta que se asiente',
+  'policy_preview.auto_post.track_record':
+    '  · aún sin rechazos: un historial que respalda encenderlo',
+  'policy_preview.auto_post.too_few':
+    '  · todavía son muy pocos para saber cuántas veces acertaría',
+  'policy_preview.auto_post.shadow_some':
+    '  · sombra: {verdicts, plural, one {# veredicto} other {# veredictos}} en {days, plural, one {# día} other {# días}}, {decided, plural, one {# decidido} other {# decididos}} por una persona, acuerdo {agreement} (encender "on" exige al menos {minDays} días, {minDecided} decididos y {minAgreement} de acuerdo)',
+  'policy_preview.auto_post.shadow_none':
+    '  · aún sin historial de sombra: responde "shadow" primero; "on" exige esa evidencia',
+  'policy_preview.amounts.intro':
+    'Tus facturas recibidas, por importe:',
+  'policy_preview.amounts.half':
+    '  · la mitad está por debajo de {amount}',
+  'policy_preview.amounts.nine_of_ten':
+    '  · 9 de cada 10 están por debajo de {amount}',
+  'policy_preview.amounts.largest':
+    '  · la mayor fue de {amount}',
+  'policy_preview.amounts.cap':
+    '  · un tope de {cap} cubriría el {pct} de ellas',
+  'policy_preview.inventory.some':
+    'Veo {count, plural, one {# movimiento contabilizado} other {# movimientos contabilizados}} en cuentas de inventario: parece que los llevas.',
+  'policy_preview.inventory.none':
+    'Aún no veo movimientos en cuentas de inventario.',
+  'policy_preview.restaurants.none':
+    'Aún no hay facturas de restaurantes en tu historial.',
+  'policy_preview.restaurants.intro':
+    '{count, plural, one {# factura de restaurante} other {# facturas de restaurantes}} por {total}:',
+  'policy_preview.restaurants.deductible':
+    '  · deducible ({rate}): {amount}',
+  'policy_preview.restaurants.non_deductible':
+    '  · no deducible: {amount}',
+  'policy_preview.efirma.none':
+    'Aún no hay accesos a la e.firma registrados.',
+  'policy_preview.efirma.summary':
+    '{count, plural, one {# acceso cuenta} other {# accesos cuentan}} para el tope en {days, plural, one {# día} other {# días}} (~{perDay} por día).',
+  'policy_preview.closed_period.some':
+    '{count, plural, one {# factura de tu historial cae} other {# facturas de tu historial caen}} en periodos ya cerrados.',
+  'policy_preview.closed_period.none':
+    'Hasta ahora no hay facturas de periodos cerrados.',
+  // ==== end of pending.* and policy_preview.* ====================================
 
   // --- El kernel: confirmación y salida --------------------------------
   confirm_answer_not_understood:
@@ -1710,6 +1903,153 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ingest.option.kind':
     'Qué son los archivos: xml (CFDI uno por uno), zip (paquete del SAT con XML: carga el censo e ingiere ' +
     'cada XML) o metadata (archivo de metadatos del SAT separado por `~`, suelto o en ZIP: sólo carga el censo)',
+  // MNE-001-143 (#440): `src/cli/sat-download-commands.ts`, la descarga masiva de CFDI del SAT.
+  'help.sat.download.option.entity': 'Entidad legal',
+  'help.sat.download.option.user': 'Quién actúa (por omisión: el único usuario activo)',
+  'help.sat.download.option.json': 'Salida legible por máquina',
+  'help.sat.download.option.format': 'Formato de salida: table o json',
+  'help.sat.download.argument.id': 'Solicitud de descarga: su id local o el id que le dio el SAT',
+  'help.sat.download.create.description':
+    'Pide al SAT los CFDI de un periodo (se niega antes de llamar si el tope de por vida de XML está agotado)',
+  'help.sat.download.create.option.since': 'Primer día, AAAA-MM-DD',
+  'help.sat.download.create.option.until': 'Último día, AAAA-MM-DD',
+  'help.sat.download.create.option.direction': 'issued (emitidos) o received (recibidos)',
+  'help.sat.download.create.option.kind':
+    'metadata o xml (xml gasta una de las 2 solicitudes de por vida del periodo)',
+  'help.sat.download.check.description':
+    'Pregunta al SAT el estado de una solicitud y lo guarda junto con los ids de sus paquetes (el 5004 es éxito con cero filas)',
+  'help.sat.download.check.option.wait': 'Seguir preguntando hasta que la solicitud deje de estar abierta',
+  'help.sat.download.check.option.timeout': 'Dejar de esperar tras estos segundos',
+  'help.sat.download.check.option.strict': 'Salir con error salvo que la solicitud haya terminado con paquetes',
+  'help.sat.download.status.description':
+    'Último estado conocido de una solicitud, leído del espejo local (no llama al SAT)',
+  'help.sat.download.list.description': 'Las solicitudes de descarga de la entidad con su estado, número de CFDI y paquetes',
+  'help.sat.download.list.option.status': 'Sólo este estado',
+  'help.sat.download.list.option.since': 'Sólo solicitudes cuyo periodo termina en este día o después, AAAA-MM-DD',
+  'help.sat.download.list.option.limit': 'Cuántas mostrar',
+  'help.sat.package.description': 'Paquetes de una solicitud de descarga terminada',
+  'help.sat.package.download.description':
+    'Baja los paquetes de una solicitud terminada, archiva cada ZIP por bytes y con --import los carga',
+  'help.sat.package.download.option.output': 'Escribe además cada ZIP en este directorio',
+  'help.sat.package.download.option.package': 'Sólo este paquete de la solicitud',
+  'help.sat.package.download.option.import':
+    'Carga el censo y pasa los XML por la ingesta de siempre (import_source sat_download)',
+  'help.sat.quota.description': 'El tope de por vida del SAT para solicitudes de XML idénticas',
+  'help.sat.quota.show.description':
+    'Qué periodos tienen agotadas sus 2 solicitudes de XML de por vida y a cuáles les quedan (lee el contador local)',
+  'help.sat.quota.show.option.since': 'Periodos que terminan en este día o después, AAAA-MM-DD',
+  'help.sat.quota.show.option.until': 'Periodos que empiezan en este día o antes, AAAA-MM-DD',
+  // MNE-001-143 (#440): the runtime messages of `src/cli/sat-download-commands.ts`, by key.
+  'sat.dl.bad_day':
+    '{flag} debe ser un día, AAAA-MM-DD (se recibió "{value}")',
+  'sat.dl.bad_format':
+    '--format debe ser table o json (se recibió "{value}")',
+  'sat.dl.bad_positive':
+    '{flag} debe ser un entero mayor que 0 (se recibió "{value}")',
+  'sat.dl.bad_direction':
+    '--direction debe ser issued o received (se recibió "{value}")',
+  'sat.dl.bad_kind':
+    '--kind debe ser metadata o xml (se recibió "{value}")',
+  'sat.dl.since_after_until':
+    '--since debe ser anterior a --until',
+  'sat.dl.request_not_found':
+    'La solicitud de descarga {id} no existe para esta entidad',
+  'sat.dl.describe':
+    '{id} · {direction} {kind} del {from} al {to} · {status}{count}{packages}{error}',
+  'sat.dl.describe.count':
+    ' · {n} comprobante(s)',
+  'sat.dl.describe.packages':
+    ' · {archived}/{total} paquete(s) archivado(s)',
+  'sat.dl.create.plan':
+    '{direction} {kind} {start}..{end} para {entity} ({rfc})',
+  'sat.dl.create.plan_left':
+    ' · solicitudes XML de por vida que quedan para este periodo según el contador propio de esta entidad: {n} (el SAT cuenta por RFC y parámetros: otra entidad u otro despacho pudo gastarlas)',
+  'sat.dl.create.would':
+    'Se pediría al SAT {plan}',
+  'sat.dl.create.not_sent':
+    'No se envió: {plan}',
+  'sat.dl.create.spent':
+    'El tope de por vida de este periodo está agotado: una corrida real se niega antes de llamar al SAT.',
+  'sat.dl.create.dry_note':
+    '(simulacro: no se escribió nada y no se llamó al SAT)',
+  'sat.dl.create.live_note':
+    'Pedir al SAT usa la e.firma y es opt-in: vuelve a correr con --live.',
+  'sat.dl.create.confirm':
+    'Esto gasta una de las {limit} solicitudes XML de por vida del periodo ({plan}). Escribe "yes": ',
+  'sat.dl.create.cancelled':
+    'Cancelado. No se pidió nada.',
+  'sat.dl.create.done':
+    '{repeat}{mark} solicitud {id} · {status}{error}',
+  'sat.dl.create.repeat':
+    'Ya se pidió con esta llave: ',
+  'sat.dl.create.follow':
+    'Síguela con: mnemosine sat download check {id} --live',
+  'sat.dl.check.would':
+    'Se preguntaría al SAT por {request}',
+  'sat.dl.check.not_asked':
+    'No se preguntó al SAT por {request}',
+  'sat.dl.check.dry_note':
+    '(simulacro: no se llamó al SAT)',
+  'sat.dl.check.live_note':
+    'Preguntar al SAT usa la e.firma: vuelve a correr con --live.',
+  'sat.dl.check.rate_limit':
+    'Se detuvo tras {polls} consulta(s): se alcanzó el tope diario de accesos a la e.firma (quedan 0 en esta ventana de 24 h). Cada consulta usa uno y bajar los paquetes también necesita: espera a que se libere la ventana y corre check --live otra vez (los paquetes caducan 72 h después de estar listos).',
+  'sat.dl.check.budget':
+    'Se detuvo tras {polls} consulta(s) para reservar accesos de la e.firma para bajar los paquetes. Vuelve a correr check --live más tarde.',
+  'sat.dl.check.timeout':
+    'Se dejó de esperar tras {polls} consulta(s); la solicitud sigue abierta. Vuelve a correr check --live más tarde.',
+  'sat.dl.list.empty':
+    'No hay solicitudes de descarga.',
+  'sat.dl.quota.empty':
+    'No hay solicitudes XML contadas. Las de metadata no tienen tope.',
+  'sat.dl.quota.spent':
+    '✘ agotado (irrecuperable)',
+  'sat.dl.quota.left':
+    '· quedan {n}',
+  'sat.dl.quota.line':
+    '{state} · {direction} {from}..{to} · {made}/{limit} usadas',
+  'sat.dl.package.no_data':
+    'El SAT respondió que esta solicitud no tiene datos: no hay nada que bajar.',
+  'sat.dl.package.rejected':
+    'El SAT rechazó esta solicitud: no hay paquetes. Corrige los parámetros y pide de nuevo.',
+  'sat.dl.package.expired':
+    'Esta solicitud caducó en el SAT (los paquetes duran 72 h): pídela de nuevo.',
+  'sat.dl.package.open':
+    'La solicitud {id} está {status}: aún no tiene paquetes. Corre: mnemosine sat download check {id} --live',
+  'sat.dl.package.failed':
+    'La solicitud {id} está {status}: no tiene paquetes; revisa su estado con `sat download status`.',
+  'sat.dl.package.no_such':
+    'La solicitud {id} no tiene el paquete {package}',
+  'sat.dl.package.would':
+    '{lead} {missing} de {total} paquete(s); {kept} ya archivado(s){import}.',
+  'sat.dl.package.would_lead':
+    'Se bajarían',
+  'sat.dl.package.not_lead':
+    'No se bajaron:',
+  'sat.dl.package.then_import':
+    '; luego se cargarían con la ingesta',
+  'sat.dl.package.dry_note':
+    '(simulacro: no se llamó al SAT y no se escribió nada)',
+  'sat.dl.package.live_note':
+    'Bajar usa la e.firma y es opt-in: vuelve a correr con --live. Los paquetes caducan en el SAT 72 h después de estar listos.',
+  'sat.dl.package.archived':
+    '✔ {id} · {bytes} bytes · huella sha256 {sha} · {where}',
+  'sat.dl.package.where_archive':
+    'ya estaba archivado',
+  'sat.dl.package.where_new':
+    'archivado',
+  'sat.dl.package.output_written':
+    '  se escribió {file}',
+  'sat.dl.package.output_same':
+    '  {file} ya tiene estos bytes',
+  'sat.dl.package.output_differs':
+    '{file} ya existe con otros bytes: no se sobrescribió',
+  'sat.dl.ingest.line':
+    '  ingesta: {counts}',
+  'sat.dl.ingest.nothing':
+    'nada',
+  'sat.dl.ingest.to_code':
+    '{n} quedaron en la bandeja para codificar (sin proveedor de modelo, o requieren una decisión)',
   // MNE-001-096 (#312): `src/cli/ingest-census.ts`, el censo del SAT que carga `ingest --kind zip|metadata`.
   'ingest.census.bad_kind': 'se esperaba uno de {valid}',
   'ingest.census.flag_not_for_metadata':
@@ -2365,6 +2705,15 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
   'help.receipt.apply.option.withholding':
     'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
+  'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
+  'help.sat.download.reconcile.description':
+    'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',
+  'help.sat.download.reconcile.option.period': 'mes a conciliar, como AAAA-MM',
+  'sat.reconcile.bad_period': 'El periodo debe ser un mes como AAAA-MM, y "{value}" no lo es.',
+  'sat.reconcile.summary':
+    '{period}: {matched} cuadran · {fetch} por traer · {post} por contabilizar · {cancelled} cancelados en el SAT pero contabilizados · {surplus} contabilizados que no están en el censo ({cancelledUnbooked} cancelados y nunca contabilizados: no son faltante).',
+  'sat.reconcile.not_loaded':
+    'Ningún censo de CFDI {direction} cubre este mes: no está cargado, que no es lo mismo que no haber nada {direction}. Cárgalo con `ingest --kind metadata`.',
   'help.closing.fx.description': 'La moneda extranjera en el cierre',
   'help.closing.fx.revalue.description':
     'Revalúa las cuentas por cobrar, por pagar y los bancos en moneda extranjera al tipo de cierre, y lo revierte el día 1 del periodo siguiente. Va después del cierre suave; una corrida posterior postea sólo lo que se movió desde entonces',
@@ -2462,7 +2811,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.closing.explain.option.period':
     'periodo a explicar: 2026-07, su id o parte de su nombre (por omisión, el abierto más antiguo)',
   'help.closing.run.description':
-    'Conduce el cierre: provisiona, amortiza, deprecia, verifica la lista de cierre, hace el cierre blando y el definitivo, en ese orden',
+    'Conduce el cierre: provisiona, amortiza, deprecia, revalúa los saldos en moneda extranjera, verifica la lista de cierre, hace el cierre blando y el definitivo, en ese orden',
   'help.closing.run.argument.period':
     'periodo abierto: 2026-07, su id o parte de su nombre (por omisión, el abierto más antiguo)',
   'help.closing.run.option.stop_at': 'se detiene ANTES de este paso: {steps}',
@@ -2542,6 +2891,30 @@ export const ES: Record<keyof typeof EN, string> = {
     'el libro de depreciación que crees estar contabilizando; se contrasta con el panel',
   'help.depreciation.post.option.file':
     'el plan aprobado (JSON de `depreciation run --format json`); se niega si las cifras cambiaron',
+  'help.filing.description': 'Declaraciones de la entidad: los papeles de trabajo que las respaldan',
+  'help.filing.workpaper.description': 'El papel de trabajo auditable del mes, renglón por renglón',
+  'help.filing.workpaper.generate.description':
+    'Genera el papel de trabajo del mes: IVA e ISR provisional, centavos y pesos, con las pólizas de cada renglón',
+  'help.filing.workpaper.generate.option.period': 'mes a calcular (la declaración es mensual)',
+  'help.filing.workpaper.generate.option.form': 'qué cálculo incluir',
+  'help.filing.workpaper.generate.option.ptu_paid': 'PTU pagada en el ejercicio (ISR), la captura una persona',
+  'help.filing.workpaper.generate.option.prior_provisional':
+    'ISR provisional ya pagado en el ejercicio (ISR), lo captura una persona',
+  'help.filing.workpaper.generate.footer':
+    'Esto calcula el papel. NO presenta nada: una persona lo revisa y declara en el portal del SAT.\n' +
+    '\nEjemplos:\n' +
+    '  El IVA y el ISR del mes con sus dos columnas y las pólizas de cada renglón:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05\n' +
+    '  Sólo el IVA, el papel completo (con las pólizas) como JSON en un archivo:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json\n' +
+    '  El ISR con la PTU pagada en el ejercicio y los pagos provisionales ya hechos:\n' +
+    '    mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40',
+  'filing.workpaper.period_invalid': '--period "{value}" no es un mes: usa AAAA-MM (por ejemplo 2026-05).',
+  'filing.workpaper.form_invalid': '--form "{value}" no se conoce: usa iva, isr o all.',
+  'filing.workpaper.label_blocks': 'BLOQUEA',
+  'filing.workpaper.label_warning': 'aviso',
+  'filing.workpaper.not_a_filing': 'Este papel no es una declaración: no se envió nada al SAT.',
+  'filing.workpaper.more_entries': '+{count} más',
   'help.diot.description':
     'DIOT de México: armar el mes a partir de operaciones pagadas, verificarlo y exportar el papel de trabajo',
   'help.diot.generate.description':

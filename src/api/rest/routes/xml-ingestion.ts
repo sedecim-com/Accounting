@@ -9,6 +9,7 @@ import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '.
 import { PreRegistrationService, DuplicateError } from '../../../services/xml-ingestion/pre-registration-service.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 import { declararRiesgoRuta } from '../risk.js';
+import { arregloAcotado } from '../topes.js';
 import { createProcessingRuleSchema } from '../../../services/xml-ingestion/processing-rules.js';
 
 const router = Router();
@@ -41,7 +42,7 @@ const alcance = (req: Request) => entityScope(req.tenantId!, req.entityId!);
 const MAX_XML_POR_LOTE = 100;
 
 // ─── Schemas ───
-const uploadXmlSchema = z.object({
+export const uploadXmlSchema = z.object({
   entity_id: uuidString().optional(),
   xml_content: boundedString({ min: 1 }).optional(),
   // TOPE DURO AL LOTE.
@@ -54,7 +55,11 @@ const uploadXmlSchema = z.object({
   //
   // 100 es el lote grande razonable de un despacho; más que eso es un trabajo
   // por lotes, no una petición HTTP, y para eso está `mnemosine ingest`.
-  xml_contents: z.array(boundedString({ min: 1 })).max(MAX_XML_POR_LOTE).optional(),
+  xml_contents: arregloAcotado(boundedString({ min: 1 }), {
+    tope: MAX_XML_POR_LOTE,
+    plural: 'documentos',
+    salida: 'Parte el lote, o cárgalo con `mnemosine ingest`, que procesa por archivo.',
+  }).optional(),
   source: z.string().optional(),
 }).refine((o) => !!(o.xml_content || (o.xml_contents && o.xml_contents.length > 0)), {
   message: 'xml_content or xml_contents array is required',
@@ -78,7 +83,7 @@ const approvePreRegSchema = z.object({
   notes: z.string().optional(),
 });
 
-const bulkPreRegSchema = z.object({
+export const bulkPreRegSchema = z.object({
   action: z.enum(['process', 'approve', 'reject', 'set_batch']),
   // EL MISMO TOPE DURO, por la misma razón y con más motivo. El manejador
   // recorre `ids` con al menos un viaje a la base por elemento, y con
@@ -87,7 +92,12 @@ const bulkPreRegSchema = z.object({
   // el pool de conexiones durante cientos de miles de operaciones en serie: el
   // freno por petición no ve esa amplificación. `xml_contents` ya se acotó aquí
   // arriba por esto mismo; que este quedara sin acotar era el descuido.
-  ids: z.array(uuidString()).min(1).max(MAX_XML_POR_LOTE),
+  ids: arregloAcotado(uuidString(), {
+    tope: MAX_XML_POR_LOTE,
+    plural: 'ids',
+    salida: 'Parte el lote en varias peticiones.',
+    minimo: 1,
+  }),
   params: z.record(z.string(), z.unknown()).optional(),
 });
 

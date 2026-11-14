@@ -185,6 +185,8 @@ const TOP_LEVEL: Record<string, string> = {
   sat: '',
   // F07c: la DIOT no se traduce, como sat y cfdi: es el nombre del trámite.
   diot: '',
+  // MNE-001-060: the filing family (catalog §5.21); its Spanish alias is the registry's.
+  filing: 'declaracion',
   // F08a: el ISN tampoco — es la sigla del impuesto, igual en los dos idiomas.
   isn: '',
   'tax-deposit': 'entero',
