@@ -89,7 +89,7 @@ En este documento, **libro** es el conjunto de asientos que se lee bajo una norm
 
 | ID | Requisito | Prioridad | Criterio de aceptación |
 |---|---|---|---|
-| RF-16 | La nómina corre de punta a punta desde el binario | Must | Dada una entidad con empleados, cuando una prueba ejecuta el binario —no el servicio, y sin importar por su cuenta el registro de calculadores— con sólo comandos del CLI, entonces quedan hechos el calendario, el periodo, la corrida, el cálculo, la aprobación, la póliza y los recibos, y el paso de nómina de `tests/integration/mvp-month-end-to-end.int.spec.ts` deja de ser `it.todo`. Hoy trece pruebas de integración importan ese registro ellas mismas: por eso el backlog da por entregadas MNE-001-066 a 070 con un binario que no calcula. Lo cubren MNE-001-402 (#586) y MNE-001-403 (#587). |
+| RF-16 | La nómina corre de punta a punta desde el binario | Must | Dada una entidad con empleados, cuando una prueba ejecuta el binario —no el servicio, y sin importar por su cuenta el registro de calculadores— con sólo comandos del CLI, entonces quedan hechos el calendario, el periodo, la corrida, el cálculo, la aprobación, la póliza y los recibos, y el paso de nómina de `tests/integration/mvp-month-end-to-end.int.spec.ts` deja de ser `it.todo`. Hasta el 14 de noviembre de 2026 trece pruebas de integración importaban ese registro ellas mismas: por eso el backlog daba por entregadas MNE-001-066 a 070 con un binario que no calculaba. MNE-001-402 (#586) lo corrigió con #610; el calendario (MNE-001-403, #587) llegó con #615 y los periodos (MNE-001-404, #613) con #616. Falta MNE-001-098: el paso de nómina de la prueba del mes. |
 | RF-17 | El contrato del módulo de nómina | Must | Dada una corrida calculada y sin aprobar, cuando se recalcula, entonces los recibos se rehacen y los totales de la corrida son la suma de sus recibos; dada una falla a media corrida, entonces no queda ningún recibo escrito (#601); y dado el paquete de prueba de RF-10 con su nómina, cuando se añade, entonces el orquestador no cambia. |
 | RF-18 | México calcula las percepciones y cotiza lo que la ley dice | Must | Dados un empleado con su compensación, sus días trabajados y sus incidencias, cuando se calcula el periodo, entonces el sueldo, el salario base de cotización y las cuotas obreras y patronales coinciden con un caso calculado a mano contra la cédula del SUA; dos corridas del mismo periodo no cotizan dos veces (#601); y el subsidio al empleo sigue lo que el decreto vigente a la fecha de pago diga (#600). |
 | RF-47 | La póliza de nómina reconoce lo devengado y sus pasivos | Should | Dada una corrida aprobada, cuando se postea, entonces el impuesto estatal sobre nómina queda en gasto y en su pasivo, los sueldos se reconocen por pagar al devengarse y se cancelan al pagar, y cada entero a la autoridad se registra contra su pasivo. |
@@ -234,7 +234,7 @@ Al aprobarse, estos textos se corrigen en el mismo PR o con su ADR. Hasta entonc
 Defectos confirmados y desbloqueos, que van directo por `docs/PROCESS.md` como issues con su Definition of Ready:
 
 1. La prueba de aceptación del MVP (#311, MNE-001-098).
-2. El binario registra los calculadores de nómina y tiene hojas para calendario y periodos: #586 y #587 (RF-16).
+2. El binario registra los calculadores de nómina y tiene hojas para calendario y periodos: #586, #587 y #613 (RF-16).
 3. Los cuatro caminos de RF-03 (#592 a #595) y lo que RF-21 pide de timbrado, alcance y W-2 (#590, #591).
 4. La lectura de un XML por id y el archivado de una entidad llevan alcance: #588 y #589 (RNF-01).
 5. Los respaldos salen cifrados: #598 (RNF-04). Las tablas de ley dejan de ser editables por cualquier inquilino: #599.
@@ -254,7 +254,7 @@ Tareas abiertas de `docs/backlog/PRD-001.json` que ya cubren parte de un requisi
 | RF-10, RF-31 | MNE-001-324, 325 (J0.3), MNE-001-331 | Should, Could |
 | RF-11 | MNE-001-329 (J0.5), MNE-001-330 (J0.6) | Could |
 | RF-12 | MNE-001-326, 327, 328 (J0.4) | Should, Could |
-| RF-16 | MNE-001-402, MNE-001-403, MNE-001-098 | Must |
+| RF-16 | MNE-001-402, MNE-001-403, MNE-001-404, MNE-001-098 | Must |
 | RF-19 | MNE-001-298, 374, 375; decisión MNE-001-373 | Should |
 | RF-20 | MNE-001-278, 279, 296 | Should |
 | RF-21 | MNE-001-282 | Should |

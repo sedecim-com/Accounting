@@ -1,18 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Command } from 'commander';
+import { spawnSync } from 'node:child_process';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { registerPayRunCommand } from '../../src/cli/pay-run-command.js';
+import { registerPayCalendarCommand } from '../../src/cli/pay-schedule-command.js';
 import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { apartarCatalogos } from './helpers/catalogos-globales.js';
-// The calculators register on import; without it the MX engine is empty.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // MNE-001-068 (#306, part 2/4) · A FORTNIGHT RUN FROM THE TERMINAL
@@ -34,6 +34,7 @@ let siblingPeriodId: string;
 let employees: string[];
 let runId: string;
 let inputsFile: string;
+let ownSchedule: string;
 
 const plain = {
   dim: (x: string) => x, bold: (x: string) => x, cyan: (x: string) => x,
@@ -42,7 +43,7 @@ const plain = {
 
 interface CliResult { exitCode?: number; out: string; err: string; errs: unknown[] }
 
-async function cli(argv: string[]): Promise<CliResult> {
+async function cli(argv: string[], fx: Fixture = f, family = 'pay-run'): Promise<CliResult> {
   let exitCode: number | undefined;
   const out: string[] = [];
   const err: string[] = [];
@@ -53,13 +54,15 @@ async function cli(argv: string[]): Promise<CliResult> {
   process.stderr.write = ((c: string | Uint8Array) => { err.push(String(c)); return true; }) as typeof process.stderr.write;
   try {
     const p = new Command('mnemosine');
-    registerPayRunCommand(p, {
+    const deps = {
       palette: plain,
       shutdown: (c: number) => { exitCode = c; },
       reportError: (e: unknown) => { errs.push(e); },
       confirm: async () => true,
-    });
-    await p.parseAsync(['node', 'mnemosine', 'pay-run', ...argv, '-e', f.entityId, '-t', f.tenantId, '-u', email]);
+    };
+    registerPayRunCommand(p, deps);
+    registerPayCalendarCommand(p, deps);
+    await p.parseAsync(['node', 'mnemosine', family, ...argv, '-e', fx.entityId, '-t', fx.tenantId, '-u', email]);
   } finally {
     process.stdout.write = write;
     process.stderr.write = writeErr;
@@ -70,24 +73,20 @@ async function cli(argv: string[]): Promise<CliResult> {
 const rowsOf = (r: CliResult): Array<Record<string, unknown>> =>
   (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows;
 
+// #587, #613: the calendar is created with the terminal leaves, not with SQL, so
+// this spec runs a fortnight with nothing but the commands an accountant has.
 async function schedule(fx: Fixture): Promise<string> {
-  const id = uuidv4();
-  await query(
-    `INSERT INTO pay_schedules (id, tenant_id, entity_id, name, frequency, country_code, first_period_start, is_active)
-     VALUES ($1, $2, $3, 'Quincenal', 'quincenal', 'MX', '2026-01-01', true)`,
-    [id, fx.tenantId, fx.entityId]
-  );
-  return id;
+  const r = await cli(['create', '--name', 'Quincenal', '--frequency', 'quincenal', '--country', 'MX',
+    '--first-start', '2026-07-01', '--json'], fx, 'pay-schedule');
+  expect(r.exitCode, String(r.errs[0])).toBe(0);
+  return String(rowsOf(r)[0].id);
 }
 
+/** The next fortnight of the schedule: July 1-15 first, then July 16-31. */
 async function period(fx: Fixture, scheduleId: string): Promise<string> {
-  const id = uuidv4();
-  await query(
-    `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year, status)
-     VALUES ($1, $2, $3, '2026-07-01', '2026-07-15', '2026-07-15', 2026, 'draft')`,
-    [id, fx.tenantId, scheduleId]
-  );
-  return id;
+  const r = await cli(['create', '--schedule', scheduleId, '--count', '1', '--json'], fx, 'pay-period');
+  expect(r.exitCode, String(r.errs[0])).toBe(0);
+  return String(rowsOf(r)[0].id);
 }
 
 async function employee(scheduleId: string, number: string, sbc: string): Promise<string> {
@@ -122,6 +121,7 @@ beforeAll(async () => {
      VALUES ('JA', '2026-01-01', NULL, 0.03, 'tasa_plana', NULL, 'Ley de Hacienda del Estado de Jalisco, art. 39')`
   );
   const own = await schedule(f);
+  ownSchedule = own;
   periodId = await period(f, own);
   siblingPeriodId = await period(sibling, await schedule(sibling));
   employees = [await employee(own, 'Q-001', '400.0000'), await employee(own, 'Q-002', '650.0000')];
@@ -210,4 +210,38 @@ describe('pay-run create · calculate · approve from the terminal', () => {
     expect(r.exitCode).toBe(5);
     expect(await runStatus(runId)).toBe('approved');
   });
+
+  // #586: the leaves above run in this process, whose module graph is the
+  // spec's. Only a spawned binary proves that `mnemosine` itself loads the
+  // calculators: before the fix this exited with `No tax calculator
+  // registered for MX:isr`.
+  it('the real binary calculates a second fortnight, with ISR, IMSS and INFONAVIT', async () => {
+    const second = await period(f, ownSchedule);
+    const created = await cli(['create', '--period', second, '--json']);
+    expect(created.exitCode, String(created.errs[0])).toBe(0);
+    const secondRun = String(rowsOf(created)[0].id);
+
+    const root = resolve(__dirname, '..', '..');
+    // The source entry, not dist/cli/mnemosine.js: the package bin is compiled
+    // from this same module, and a spec must not depend on a prior build.
+    const r = spawnSync('npx', ['tsx', join(root, 'src', 'cli', 'mnemosine.ts'),
+      'pay-run', 'calculate', secondRun, '--file', inputsFile, '--json',
+      '-e', f.entityId, '-t', f.tenantId, '-u', email], {
+      cwd: root,
+      encoding: 'utf-8',
+      timeout: 120_000,
+      env: { ...process.env, HOME: mkdtempSync(join(tmpdir(), 'mne068-home-')), NO_COLOR: '1', MNEMOSINE_LOCALE: 'en-US' },
+    });
+    expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
+    expect(await runStatus(secondRun)).toBe('calculated');
+
+    const { rows } = await query<{ tax_type: string }>(
+      `SELECT DISTINCT t.tax_type FROM paycheck_taxes t
+         JOIN paychecks p ON p.id = t.paycheck_id
+        WHERE p.pay_run_id = $1`,
+      [secondRun]
+    );
+    const taxes = rows.map((x) => x.tax_type);
+    for (const tax of ['isr', 'imss', 'infonavit']) expect(taxes).toContain(tax);
+  }, 180_000);
 });

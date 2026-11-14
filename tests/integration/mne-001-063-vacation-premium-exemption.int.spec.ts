@@ -9,8 +9,6 @@ import { legalParameterAt } from '../../src/services/jurisdiction/legal-paramete
 import { VACATION_PREMIUM_EXEMPT_CAP_KEY } from '../../src/services/payroll/mx/isr-exemption.js';
 import { pacRouter } from '../../src/services/integrations/mexico/pac/pac-router.js';
 import { generateAndStampCfdiNomina } from '../../src/services/payroll/mx/cfdi-nomina-generator.js';
-// The calculators register on import; without it `getRequired('MX','isr')` throws.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // THE VACATION PREMIUM IS EXEMPT UP TO 15 UMA, AND THE CFDI SAYS SO

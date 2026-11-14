@@ -26,7 +26,6 @@ import { auditarRiesgoDeRutas } from './api/rest/risk.js';
 import publicVerificationRouter from './api/rest/routes/public-verification.js';
 import aiWebhooksRouter from './api/rest/routes/ai-webhooks.js';
 import './services/integrations/index.js'; // Register all adapters
-import './services/payroll/tax-engine/register-all.js'; // Register all tax calculators
 
 /**
  * Builds the API exactly as it is served — database init, the RLS role guard,

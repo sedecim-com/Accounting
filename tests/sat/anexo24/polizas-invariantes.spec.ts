@@ -104,6 +104,45 @@ describe('la póliza que mueve dinero y no dice por dónde', () => {
     ]);
   });
 
+  it('the remedy follows the cause: a datum on the payment, or one on the counterparty record', () => {
+    const [onPayment, onRecord] = polizaConDineroSinRastro([
+      { numUnIdenPol: 'JE-PAY', motivo: 'el pago VPMT-3 no tiene cuenta destino capturada' },
+      {
+        numUnIdenPol: 'JE-VND',
+        motivo: 'el beneficiario del pago VPMT-4 no tiene RFC capturado',
+        missingOnRecord: 'el registro del proveedor «Fletes del Norte» (id v-1)',
+      },
+    ]);
+    expect(onPayment.detalle).toContain('payment create --check-number/--to-account/--to-bank');
+    // Reversing and paying again leaves the record as it was: two blocking
+    // entries where there was one. The remedy must not send anyone there.
+    expect(onRecord.severity).toBe('blocking');
+    expect(onRecord.detalle).not.toContain('payment create');
+    expect(onRecord.detalle).toContain('falta en el registro del proveedor «Fletes del Norte» (id v-1)');
+  });
+
+  it('the remedy follows the cause: a bank account without its code, or a datum no command completes', () => {
+    const [onAccount, noCommand] = polizaConDineroSinRastro([
+      {
+        numUnIdenPol: 'JE-ACC',
+        motivo: 'el cheque 30001 sale de una cuenta sin clave c_Banco, y el nodo Cheque exige BanEmisNal',
+        missingOnBankAccount: 'la cuenta bancaria «Operativa» (id ba-1)',
+      },
+      {
+        numUnIdenPol: 'JE-RCP',
+        motivo: 'el banco del cliente no está capturado, y el nodo Transferencia exige BancoOriNal',
+        noCommandFixes: '`receipt record` no tiene dónde capturarlo',
+      },
+    ]);
+    expect(onAccount.severity).toBe('blocking');
+    expect(onAccount.detalle).toContain('falta en la cuenta bancaria «Operativa» (id ba-1)');
+    expect(onAccount.detalle).toContain('bank account edit <cuenta> --sat-bank-code');
+    expect(onAccount.detalle).not.toContain('payment create');
+    expect(noCommand.severity).toBe('blocking');
+    expect(noCommand.detalle).toContain('Hoy ningún comando lo completa: `receipt record` no tiene dónde capturarlo');
+    expect(noCommand.detalle).not.toContain('payment create');
+  });
+
   it('sin nada que denunciar, no denuncia', () => {
     expect(polizaConDineroSinRastro([])).toEqual([]);
   });
@@ -117,6 +156,7 @@ describe('la clave de banco contra el c_Banco', () => {
           pagos: [
             {
               clase: 'transferencia',
+              bancoOriNal: '012',
               ctaDest: '002180009876543210',
               bancoDestNal: clave,
               fecha: '2026-02-10',
@@ -160,11 +200,14 @@ describe('la clave de banco contra el c_Banco', () => {
 
   it('a code off the XSD c_Banco blocks and names the entry, even with no seeded catalog', () => {
     const hs = bancoEnCatalogo([p({ ...conPago('003'), numUnIdenPol: 'JE-7' })], SIN_CATALOGO);
-    expect(hs).toHaveLength(1);
-    expect(hs[0].severity).toBe('blocking');
-    expect(hs[0].referencia).toBe('JE-7');
-    expect(hs[0].detalle).toContain('PLZ:Transferencia/@BancoDestNal = «003»');
-    expect(hs[0].detalle).toContain('CatalogosParaEsqContE.xsd');
+    // The origin code is on the XSD list, so it gets the one «not checked
+    // against sat_bancos» warning; the off-list destination is the block.
+    expect(hs.filter((h) => h.severity === 'warning')).toHaveLength(1);
+    const blocking = hs.filter((h) => h.severity === 'blocking');
+    expect(blocking).toHaveLength(1);
+    expect(blocking[0].referencia).toBe('JE-7');
+    expect(blocking[0].detalle).toContain('PLZ:Transferencia/@BancoDestNal = «003»');
+    expect(blocking[0].detalle).toContain('CatalogosParaEsqContE.xsd');
   });
 
   it('a code off both the XSD and the seeded list is reported once, for the XSD', () => {
@@ -195,7 +238,7 @@ describe('the other closed lists of the XSD', () => {
           { clase: 'nacional_otro', serie: 'ABCDEFGHIJK', numFolio: '1', rfc: 'AAA010101AAA', montoTotal: '1.00' },
         ],
         pagos: [
-          { clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', monto: '1.00', moneda: 'BYN' },
+          { clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '1.00', moneda: 'BYN' },
           // Bank codes are banco-en-catalogo's, not this check's.
           { clase: 'cheque', num: '1', banEmisNal: '003', ctaOri: '1', fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '1.00' },
         ],
@@ -217,7 +260,7 @@ describe('the other closed lists of the XSD', () => {
       codeInOfficialList([
         withNodes({
           comprobantes: [{ clase: 'nacional_otro', serie: 'ABCDEFGHIJ', numFolio: '1', rfc: 'AAA010101AAA', montoTotal: '1.00', moneda: 'USD' }],
-          pagos: [{ clase: 'otro', metPagoPol: '99', fecha: '2026-02-10', monto: '1.00', moneda: 'MXN' }],
+          pagos: [{ clase: 'otro', metPagoPol: '99', fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '1.00', moneda: 'MXN' }],
         }),
       ])
     ).toEqual([]);
@@ -225,7 +268,7 @@ describe('the other closed lists of the XSD', () => {
 
   it('runs by default in the orchestrator', () => {
     const hs = correrVerificaciones({
-      polizas: [withNodes({ pagos: [{ clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', monto: '1.00' }] })],
+      polizas: [withNodes({ pagos: [{ clase: 'otro', metPagoPol: '28', fecha: '2026-02-10', benef: 'X', rfc: 'AAA010101AAA', monto: '1.00' }] })],
       sinRastro: [],
       sinComprobante: [],
       bancos: CON_CATALOGO,

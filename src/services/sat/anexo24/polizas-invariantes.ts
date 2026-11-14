@@ -122,6 +122,23 @@ export interface UntracedMoney {
    * always blocks, because the fix is to complete that payment.
    */
   withoutRegisteredPayment?: boolean;
+  /**
+   * The record that lacks the datum when it is not the payment (the payee's
+   * name or RFC lives on the vendor, the customer or the entity), named so the
+   * reader can find it. Absent: the datum belongs on the payment itself.
+   */
+  missingOnRecord?: string;
+  /**
+   * The bank account that lacks its c_Banco code, named so the reader can
+   * complete it. The code is read from that account when the file is
+   * generated, so editing the account fixes a payment already registered.
+   */
+  missingOnBankAccount?: string;
+  /**
+   * Why no command completes the datum today, when that is the truth. The
+   * finding then says so instead of prescribing a remedy that fixes nothing.
+   */
+  noCommandFixes?: string;
 }
 
 /** Lo que una verificación necesita saber y no puede deducir del árbol. */
@@ -230,14 +247,30 @@ export function polizaConDineroSinRastro(
           `cuentas propias; si ésta lo es, captúralo como pago y vuelve a generar.`
       );
     }
+    // A payee datum lives on the counterparty record and a bank code on the
+    // bank account, so sending the reader to the payment would be a remedy
+    // that fixes nothing: reversing it and paying again leaves two blocking
+    // entries where there was one. Where no command completes the datum, the
+    // finding says so rather than send the reader anywhere.
+    const remedy =
+      s.missingOnRecord !== undefined
+        ? `El dato falta en ${s.missingOnRecord}, no en el pago: corregir, reversar o volver a ` +
+          `capturar el pago no lo arregla, y un pago nuevo a la misma contraparte saldría igual. ` +
+          `Corrige ese registro y vuelve a generar.`
+        : s.missingOnBankAccount !== undefined
+          ? `El dato falta en ${s.missingOnBankAccount}, no en el pago: captura su clave ` +
+            `(\`bank account edit <cuenta> --sat-bank-code <clave>\`) y vuelve a generar.`
+          : s.noCommandFixes !== undefined
+            ? `Hoy ningún comando lo completa: ${s.noCommandFixes}.`
+            : `Captúralo en el pago (\`payment create --check-number/--to-account/--to-bank\`) ` +
+              `y vuelve a generar.`;
     return hallazgo(
       'poliza-con-dinero-sin-rastro',
       'blocking',
       s.numUnIdenPol,
       `Mueve dinero y no lleva el nodo de pago que el Anexo 24 exige: ${s.motivo}. Sin ese nodo la ` +
         `autoridad no puede seguir el movimiento hasta el banco, que es exactamente para lo que ` +
-        `pidió las pólizas. Captúralo en el pago (\`payment create --check-number/--to-account/--to-bank\`) ` +
-        `y vuelve a generar.` +
+        `pidió las pólizas. ${remedy}` +
         (s.withoutRegisteredPayment === true
           ? ` Si ningún instrumento de pago lo movió (una comisión que el banco cargó), el ` +
             `tratamiento es de la política anexo24_voucher_money_without_trace.`

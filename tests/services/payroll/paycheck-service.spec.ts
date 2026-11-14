@@ -40,6 +40,10 @@ vi.mock('../../../src/services/payroll/tax-engine/tax-registry.js', () => ({
   },
 }));
 
+// The service registers the real calculators on import (#586); here the
+// doubles above stand in for them, so that registration is switched off.
+vi.mock('../../../src/services/payroll/tax-engine/register-all.js', () => ({}));
+
 vi.mock('../../../src/services/policy/policy-service.js', () => ({
   getPolicy: vi.fn(),
 }));

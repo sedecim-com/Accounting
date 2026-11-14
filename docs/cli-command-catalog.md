@@ -49,7 +49,7 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **278 comandos** repartidos en **76 familias** de primer nivel. De las **1640** filas del catálogo, **263** (16.0 %) ya se pueden invocar.
+El binario ejecuta hoy **282 comandos** repartidos en **78 familias** de primer nivel. De las **1640** filas del catálogo, **267** (16.3 %) ya se pueden invocar.
 
 Del motor que cada comando necesita, **301** filas lo declaran completo, **384** a medias y **955** inexistente.
 

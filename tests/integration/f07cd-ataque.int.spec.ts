@@ -723,9 +723,9 @@ describe('el RFC del proveedor, que las pólizas validan en un nodo y no en el o
   const MES = 7;
 
   it('un RFC malformado deja la póliza sin comprobante y sin rastro, nombrada, en vez de tirar el archivo', async () => {
-    // El mismo dato que la DIOT clasifica y nombra. Aquí:
-    //   · `nodoDeComprobante` exige RFC_RE y LANZA (polizas-xml.ts:340);
-    //   · `nodoDePago` emite @RFC sin comprobar nada.
+    // The same datum the DIOT classifies and names. Here both builders throw
+    // on an RFC without the shape of one: `nodoDeComprobante` and, since #530,
+    // `nodoDePago` through `requirePayee`. So the service filters it first.
     const uuid = uuidv4();
     const v = await sembrarProveedor(f.entityId, f.userId, 'RFC Corto SA', {
       rfc: 'RCO01010AA', tipoTercero: '04', tipoOperacion: '85',
@@ -783,10 +783,10 @@ describe('el banco de destino de un COBRO', () => {
   it('un banco destino EXTRANJERO ya no choca con el relleno del nuestro', async () => {
     // El CHECK de la 064 impide la clave nacional Y el nombre extranjero EN LA
     // MISMA FILA, y `assertRastroDePago` lo repite con mensaje. Lo que ninguno
-    // de los dos ve es que en un COBRO el generador RELLENA el banco destino
-    // nacional con el nuestro cuando no viene capturado
-    // (polizas-service.ts:493-497) y deja el extranjero capturado en su sitio:
-    // los dos atributos salen a la vez y `exigirBancoUnico` lanza.
+    // de los dos veía es que en un COBRO el generador RELLENABA el banco destino
+    // nacional con el nuestro cuando no venía capturado
+    // (`rastroDePago`, «the fill-in») y dejaba el extranjero capturado en su sitio:
+    // los dos atributos salían a la vez y `exigirBancoUnico` lanzaba.
     const clienteId = uuidv4();
     await query(
       `INSERT INTO customers (id, entity_id, customer_number, company_name, currency_code, created_by)
@@ -813,7 +813,7 @@ describe('el banco de destino de un COBRO', () => {
     const emitida = await issueInvoice(draft.id, f.userId, { entityId: f.entityId });
 
     // La fila pasa el CHECK: sólo lleva el banco EXTRANJERO.
-    await recordCustomerPayment(
+    const cobro = await recordCustomerPayment(
       {
         entityId: f.entityId,
         paymentAmount: '1160.00',
@@ -836,15 +836,26 @@ describe('el banco de destino de un COBRO', () => {
       solicitud: SOLICITUD,
     });
 
-    // Manda lo CAPTURADO: el banco destino que se declaró es el extranjero, y
-    // el nuestro no se le añade encima.
-    expect(r.xml).toContain('BancoDestExt="Bank of Nowhere"');
-    const transferencia = r.xml
-      .split('\n')
-      .find((l) => l.includes('BancoDestExt="Bank of Nowhere"'));
-    expect(transferencia).toBeDefined();
-    expect(transferencia, 'nacional y extranjero no conviven').not.toContain('BancoDestNal=');
-    expect(r.xml).toContain('CtaDest="GB29NWBK60161331926819"');
+    // The month still builds, and the receipt is named instead. A node with
+    // `BancoDestExt` and no `BancoDestNal` was what this test used to expect,
+    // and the XSD rejects it: the code is required even for a foreign bank.
+    // A receipt has no payer's bank (`BancoOriNal`) to declare, so it gets no
+    // node, and the generator no longer fills a destination bank in for a
+    // receipt at all: the collision this test was written for cannot happen.
+    // What it still guards is the original harm: a receipt with a captured
+    // foreign bank must not kill the month's file.
+    const entry = cobro.journalEntry?.entry_number;
+    expect(entry, 'the receipt must have posted').toBeTruthy();
+    expect(r.xml).not.toContain('BancoDestExt=');
+    expect(r.xml).not.toContain('CtaDest="GB29NWBK60161331926819"');
+    const untraced = r.hallazgos.filter(
+      (h) => h.check === 'poliza-con-dinero-sin-rastro' && h.referencia === entry
+    );
+    expect(untraced).toHaveLength(1);
+    expect(untraced[0].detalle).toContain('el nodo Transferencia exige BancoOriNal');
+    // A receipt is recorded with `receipt record`, which captures no trace:
+    // the payment remedy would send the reader to a command that fixes nothing.
+    expect(untraced[0].detalle).not.toContain('payment create');
 
     // Y el auxiliar de cuentas del mismo mes, que no toca nodos de pago, sale
     // igual: la prueba de que el dato que mataba no era el de los libros.

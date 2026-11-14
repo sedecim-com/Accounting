@@ -298,13 +298,54 @@ export const E2_1: Criterio[] = [
       // La cadena de middlewares vive al principio; el manejador, detrás.
       const ROUTER = /router\.(get|post|patch|put|delete)\(\s*'([^']*)'([\s\S]*?)(?=\nrouter\.|\nexport default)/g;
       const desprotegidas: string[] = [];
+      const unscopedById: string[] = [];
       let revisadas = 0;
+      // Every string literal of the block, in any of the three quotes: SQL is
+      // looked for only inside them, so `entity_id` in a response object does
+      // not count as a scope.
+      const LITERAL = /(['"`])(?:\\[^]|(?!\1)[^\\])*\1/g;
+      // A statement that filters by an id column — the row's own `id` or a
+      // foreign key such as `xml_document_id` — bound to any placeholder. A
+      // natural key such as `bitcoin_txid` is not an id column.
+      const BY_ID = /\bWHERE\b[^]*?\b(?:\w+\.)?(?:\w+_)?id\s*=\s*\$\d+/i;
+      const SCOPE_COLUMN = /\b(?:\w+\.)?(entity_id|tenant_id)\b/;
+      // A scope column named only in an SQL `--` comment filters nothing.
+      const scopesInSql = (literal: string) => SCOPE_COLUMN.test(literal.replace(/--[^\n]*/g, ''));
 
       for (const f of archivos) {
         const texto = sinComentarios(leer(f));
+        // File-local ownership checks: a function taking the request first
+        // whose own SQL carries the scope (bank reconciliation's account and
+        // transaction lookups). Matched by shape, not by name.
+        const scopedHelpers = [...texto.matchAll(/function\s+(\w+)\s*\(\s*req\s*:\s*Request\b([\s\S]*?)\n\}/g)]
+          .filter((h) => [...h[2].matchAll(LITERAL)].some((l) => scopesInSql(l[0])))
+          .map((h) => h[1]);
         for (const m of texto.matchAll(ROUTER)) {
           revisadas += 1;
           const cuerpo = m[3];
+          // #588: the check below only looks at routes that NAME an entity, so
+          // a route that never mentions one was skipped — and that is exactly
+          // the shape of a by-id read that crosses the entity boundary:
+          // `GET /xml-documents/:id` ran `WHERE id = $1` and nothing else. A
+          // route taking an id from its path that never mentions any scope
+          // (header entity, a scope helper or a file-local ownership check,
+          // entity_id or tenant_id in its SQL) and runs an
+          // id-only statement is flagged on its own. A route that scopes
+          // somewhere else in its block is left to the per-route specs: the
+          // re-read after a scoped write (payroll's `/pay-runs/:id/calculate`)
+          // is not a leak. Known blind spots: SQL built outside the block (a
+          // service) and SQL assembled by concatenation are not seen;
+          // `req.entityId` anywhere in the block counts as a scope, even when it
+          // only reaches the response and not the query's parameters.
+          // MNE-001-283 (#96) asks each by-id read to scope its own SQL.
+          const literals = [...cuerpo.matchAll(LITERAL)].map((l) => l[0]);
+          const namesAScope =
+            /req\.entityId|req\.tenantId|entityScope\s*\(|alcance\s*\(|ByIdInScope/.test(cuerpo) ||
+            scopedHelpers.some((h) => new RegExp(`\\b${h}\\s*\\(\\s*req\\b`).test(cuerpo)) ||
+            literals.some(scopesInSql);
+          if (/\/:\w+/.test(m[2]) && !namesAScope && literals.some((l) => BY_ID.test(l))) {
+            unscopedById.push(`${path.basename(f)} ${m[1].toUpperCase()} ${m[2]}`);
+          }
           // La entidad la trae la petición: la cabecera ya resuelta en
           // req.entityId, o la query, o el cuerpo, o el parámetro de ruta.
           const derivaDeLaPeticion =
@@ -365,6 +406,14 @@ export const E2_1: Criterio[] = [
         );
       }
 
+      if (unscopedById.length > 0) {
+        return falla(
+          `${unscopedById.length} of ${revisadas} routes read or write a row by the id in their path with no ` +
+            `entity or tenant scope in the SQL: ${unscopedById.slice(0, 6).join(' · ')}. RLS bounds by tenant ` +
+            'only, so a sibling entity of the same tenant is readable by id (#588)'
+        );
+      }
+
       return desprotegidas.length === 0
         ? ok(`${revisadas} rutas revisadas; todas las que derivan su entidad de la petición montan la guarda`)
         : falla(
@@ -374,6 +423,41 @@ export const E2_1: Criterio[] = [
               '. Basta la cabecera x-entity-id para trabajar sobre otra entidad del mismo inquilino'
           );
     },
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/xml-ingestion.ts',
+        de: 'export default router;',
+        a:
+          "router.get('/xml-documents/:id/copy', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {\n" +
+          "  const doc = await query('SELECT * FROM xml_documents WHERE id = $1', [req.params.id]);\n" +
+          '  res.json({ data: doc.rows[0] });\n' +
+          '}));\n\nexport default router;',
+        porque:
+          '#588: a by-id read that names no entity comes back, the shape that read a sibling entity CFDI inside the same tenant while this criterion skipped it for not naming an entity',
+      },
+      {
+        archivo: 'src/api/rest/routes/xml-ingestion.ts',
+        de: 'export default router;',
+        a:
+          "router.get('/xml-documents/:id/lines', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {\n" +
+          '  const r = await query("SELECT * FROM xml_document_lines WHERE xml_document_id = $1", [req.params.id]);\n' +
+          '  res.json({ data: r.rows, entity_id: null });\n' +
+          '}));\n\nexport default router;',
+        porque:
+          '#588, the other half: the lines read by their foreign key, in double quotes, with `entity_id` named only in the response; any of the three used to pass for scoped',
+      },
+      {
+        archivo: 'src/api/rest/routes/xml-ingestion.ts',
+        de: 'export default router;',
+        a:
+          "router.get('/xml-documents/:id/raw', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {\n" +
+          "  const r = await query('SELECT * FROM xml_documents WHERE id = $1 -- entity_id', [req.params.id]);\n" +
+          '  res.json({ data: r.rows[0] });\n' +
+          '}));\n\nexport default router;',
+        porque:
+          '#588: the scope column named only inside an SQL comment; the statement still filters by id alone and reads the sibling entity document',
+      },
+    ],
   },
   {
     paquete: 'E2.1',

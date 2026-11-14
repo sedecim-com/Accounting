@@ -1,6 +1,7 @@
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { query } from '../../../database/connection.js';
 import { requireByIdInScope, type EntityScope } from '../../../database/scope.js';
+import { NotFoundError } from '../../../utils/errors.js';
 
 // ============================================================
 // PAY PERIOD SERVICE
@@ -119,32 +120,48 @@ export function computeNextPeriod(
   };
 }
 
-export async function generatePayPeriods(
+interface ScheduleInScope {
+  tenant_id: string;
+  frequency: PayScheduleInput['frequency'];
+  first_period_start: Date | string;
+  pay_day_offset: number;
+}
+
+/**
+ * TEN-11 (#235): the schedule used to be read by `WHERE id = $1` alone. The
+ * route was broken for everyone (see `toUtcMidnight`), so it leaked nothing
+ * — but fixing that bug without this boundary would have opened it.
+ *
+ * Here the generic helper IS right, unlike for `pay_runs`: `pay_schedules`
+ * has its own `entity_id`, so the scope becomes `entity_id = $2`. It throws
+ * NotFoundError — the same 404 for a foreign schedule and a missing one,
+ * where it used to be a plain Error (500). Checking first and writing after
+ * is sound here: nothing in `src/` ever updates `pay_schedules.entity_id`.
+ */
+async function scheduleInScope(scope: EntityScope, payScheduleId: string): Promise<ScheduleInScope> {
+  // An id that cannot be a UUID names no schedule: the same 404 as a missing
+  // one, instead of Postgres's cast error surfacing as a 500.
+  if (!isUuid(payScheduleId)) throw new NotFoundError('Pay schedule', payScheduleId);
+  return requireByIdInScope<ScheduleInScope>('pay_schedules', payScheduleId, scope, {
+    columns: 'tenant_id, frequency, first_period_start, pay_day_offset',
+  });
+}
+
+/** The next `count` periods of the schedule after its last one, computed and not written. */
+export async function planPayPeriods(
   scope: EntityScope,
   payScheduleId: string,
   count: number
-): Promise<string[]> {
-  // TEN-11 (#235): the schedule used to be read by `WHERE id = $1` alone. The
-  // route was broken for everyone (see `toUtcMidnight`), so it leaked nothing
-  // — but fixing that bug without this boundary would have opened it.
-  //
-  // Here the generic helper IS right, unlike for `pay_runs`: `pay_schedules`
-  // has its own `entity_id`, so the scope becomes `entity_id = $2`. It throws
-  // NotFoundError — the same 404 for a foreign schedule and a missing one,
-  // where it used to be a plain Error (500). Checking first and writing after
-  // is sound here: nothing in `src/` ever updates `pay_schedules.entity_id`.
-  const s = await requireByIdInScope<{
-    tenant_id: string;
-    frequency: PayScheduleInput['frequency'];
-    first_period_start: Date | string;
-    pay_day_offset: number;
-  }>('pay_schedules', payScheduleId, scope, {
-    columns: 'tenant_id, frequency, first_period_start, pay_day_offset',
-  });
-
+): Promise<GeneratedPeriod[]> {
+  const s = await scheduleInScope(scope, payScheduleId);
+  // `pay_periods` has no `entity_id`: its boundary is its schedule's, joined
+  // inside this statement instead of trusted from the check above.
   const lastResult = await query<{ period_end: Date | string }>(
-    `SELECT period_end FROM pay_periods WHERE pay_schedule_id = $1 ORDER BY period_end DESC LIMIT 1`,
-    [payScheduleId]
+    `SELECT pp.period_end FROM pay_periods pp
+       JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
+      WHERE pp.pay_schedule_id = $1 AND ps.tenant_id = $2 AND ps.entity_id = $3
+      ORDER BY pp.period_end DESC LIMIT 1`,
+    [payScheduleId, scope.tenantId, scope.entityId]
   );
 
   let cursor: Date;
@@ -154,18 +171,109 @@ export async function generatePayPeriods(
     cursor = addDays(toUtcMidnight(s.first_period_start), -1);
   }
 
-  const ids: string[] = [];
+  const periods: GeneratedPeriod[] = [];
   for (let i = 0; i < count; i++) {
     const next = computeNextPeriod(s.frequency, cursor, s.pay_day_offset);
-    const id = uuidv4();
-    await query(
-      `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (pay_schedule_id, period_start) DO NOTHING`,
-      [id, s.tenant_id, payScheduleId, next.period_start, next.period_end, next.pay_date, next.tax_year]
-    );
-    ids.push(id);
+    periods.push(next);
     cursor = new Date(next.period_end + 'T00:00:00Z');
   }
-  return ids;
+  return periods;
+}
+
+/**
+ * Writes planned periods of a schedule of the entity and returns the ones it
+ * created, with their ids.
+ *
+ * Idempotent on UNIQUE(pay_schedule_id, period_start) (008_payroll.sql): two
+ * runs that planned the same range — a retry, or two operators at once —
+ * write it once. Only the ids `RETURNING` hands back are reported; this used
+ * to report the id of every attempted insert, so a replay announced periods
+ * it never wrote.
+ */
+export async function writePayPeriods(
+  scope: EntityScope,
+  payScheduleId: string,
+  periods: GeneratedPeriod[]
+): Promise<Array<GeneratedPeriod & { id: string }>> {
+  const s = await scheduleInScope(scope, payScheduleId);
+  const written: Array<GeneratedPeriod & { id: string }> = [];
+  for (const next of periods) {
+    const inserted = await query<{ id: string }>(
+      `INSERT INTO pay_periods (id, tenant_id, pay_schedule_id, period_start, period_end, pay_date, tax_year)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (pay_schedule_id, period_start) DO NOTHING
+       RETURNING id`,
+      [uuidv4(), s.tenant_id, payScheduleId, next.period_start, next.period_end, next.pay_date, next.tax_year]
+    );
+    for (const r of inserted.rows) written.push({ ...next, id: r.id });
+  }
+  return written;
+}
+
+export async function generatePayPeriods(
+  scope: EntityScope,
+  payScheduleId: string,
+  count: number
+): Promise<string[]> {
+  const written = await writePayPeriods(scope, payScheduleId, await planPayPeriods(scope, payScheduleId, count));
+  return written.map((p) => p.id);
+}
+
+export interface PayScheduleRow {
+  id: string;
+  name: string;
+  frequency: string;
+  country_code: string;
+  first_period_start: Date | string;
+  pay_day_offset: number;
+  is_active: boolean;
+  employees: number;
+}
+
+/** The schedules of the entity, active ones unless `all`, with how many employees each one pays. */
+export async function listPaySchedules(
+  scope: EntityScope,
+  options: { all?: boolean; limit?: number; offset?: number } = {}
+): Promise<PayScheduleRow[]> {
+  const result = await query<PayScheduleRow>(
+    `SELECT ps.id, ps.name, ps.frequency, ps.country_code, ps.first_period_start, ps.pay_day_offset, ps.is_active,
+            (SELECT COUNT(*)::int FROM employees e
+              WHERE e.pay_schedule_id = ps.id AND e.tenant_id = $1 AND e.entity_id = $2) AS employees
+       FROM pay_schedules ps
+      WHERE ps.tenant_id = $1 AND ps.entity_id = $2 AND ($3::boolean OR ps.is_active)
+      ORDER BY ps.created_at, ps.id
+      LIMIT $4 OFFSET $5`,
+    [scope.tenantId, scope.entityId, options.all === true, options.limit ?? null, options.offset ?? 0]
+  );
+  return result.rows;
+}
+
+export interface PayPeriodRow {
+  id: string;
+  pay_schedule_id: string;
+  schedule_name: string;
+  period_start: Date | string;
+  period_end: Date | string;
+  pay_date: Date | string;
+  status: string;
+  tax_year: number;
+}
+
+/** The periods of the entity's schedules, newest first; the boundary is the schedule's, joined in the SQL. */
+export async function listPayPeriods(
+  scope: EntityScope,
+  options: { status?: string; year?: number; limit?: number; offset?: number } = {}
+): Promise<PayPeriodRow[]> {
+  const result = await query<PayPeriodRow>(
+    `SELECT pp.id, pp.pay_schedule_id, ps.name AS schedule_name, pp.period_start, pp.period_end,
+            pp.pay_date, pp.status, pp.tax_year
+       FROM pay_periods pp
+       JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
+      WHERE ps.tenant_id = $1 AND ps.entity_id = $2 AND pp.tenant_id = $1
+        AND ($3::text IS NULL OR pp.status = $3) AND ($4::int IS NULL OR pp.tax_year = $4)
+      ORDER BY pp.period_start DESC, ps.name
+      LIMIT $5 OFFSET $6`,
+    [scope.tenantId, scope.entityId, options.status ?? null, options.year ?? null, options.limit ?? null, options.offset ?? 0]
+  );
+  return result.rows;
 }

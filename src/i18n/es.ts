@@ -2769,6 +2769,25 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.pay_run.post.argument.id': 'corrida aprobada cuya póliza se arma',
   'help.pay_run.post.option.post':
     'contabiliza la póliza en el mayor de inmediato, en lugar de dejarla en borrador para revisión',
+  'help.pay_schedule.description':
+    'Calendarios de nómina de la entidad: la frecuencia y las fechas que siguen sus periodos de pago',
+  'help.pay_schedule.create.description':
+    'Crea un calendario de nómina con su frecuencia, el inicio del primer periodo y la regla del día de pago',
+  'help.pay_schedule.create.option.name': 'nombre del calendario, como lo conoce el contador',
+  'help.pay_schedule.create.option.frequency': 'cada cuánto paga: {frequencies}',
+  'help.pay_schedule.create.option.country': 'país de la nómina del calendario',
+  'help.pay_schedule.create.option.first_start': 'primer día del primer periodo (AAAA-MM-DD)',
+  'help.pay_schedule.create.option.pay_day_offset': 'días después del fin de cada periodo en que se paga (0 por omisión)',
+  'help.pay_schedule.list.description': 'Lista los calendarios de nómina de la entidad con su frecuencia y sus empleados',
+  'help.pay_schedule.list.option.all': 'incluye los calendarios inactivos',
+  'help.pay_period.description': 'Periodos de nómina de la entidad: crear los siguientes de un calendario y listarlos',
+  'help.pay_period.create.description':
+    'Crea los siguientes periodos de un calendario, después del último; un periodo que ya existe no se vuelve a escribir',
+  'help.pay_period.create.option.schedule': 'calendario de nómina de la entidad (su id)',
+  'help.pay_period.create.option.count': 'cuántos periodos crear, de 1 a {max}',
+  'help.pay_period.list.description': 'Lista los periodos de nómina de la entidad con estatus, fecha de pago y ejercicio',
+  'help.pay_period.list.option.status': 'sólo los periodos en este estatus: {states}',
+  'help.pay_period.list.option.year': 'sólo los periodos de este ejercicio (el año de la fecha de pago)',
   'help.payslip.description': 'Recibos de una corrida: listarlos y ver uno con sus renglones',
   'help.payslip.list.description':
     'Lista los recibos de una corrida con bruto, neto y estatus de timbre; sin identificadores fiscales',
@@ -2980,6 +2999,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.approve.done': 'Corrida {id} aprobada · {status}',
   'payrun.approve.repeated': 'La corrida {id} ya se aprobó con esta llave: se muestra el resultado grabado · {status}',
   'payrun.approve.dry_run': 'Ensayo: la corrida {id} se aprobó y se deshizo; sigue en {status}.',
+  // --- pay-schedule (MNE-001-403, #587) · pay-period (MNE-001-404, #613) --
+  'paycalendar.value_invalid': '{flag} {value} no es válido: usa uno de {allowed}. No se escribió nada.',
+  'paycalendar.number_invalid': '{flag} {value} no es válido: usa un número entero de {min} a {max}.',
+  'paycalendar.schedule.name_required': 'Falta --name: un calendario de nómina necesita un nombre que el contador reconozca.',
+  'paycalendar.schedule.name_too_long': '--name pasa de {max} caracteres: acórtalo. No se escribió nada.',
+  'paycalendar.schedule.first_start_invalid':
+    '--first-start {value} no es una fecha (AAAA-MM-DD): es el primer día del primer periodo. No se escribió nada.',
+  'paycalendar.schedule.dry_run': 'Ensayo: el calendario es válido; no se escribió nada.',
+  'paycalendar.schedule.next': 'Siguiente: `mnemosine pay-period create --schedule {id} --count <n> --dry-run`.',
+  'paycalendar.schedule.empty': 'No hay calendarios de nómina en esta entidad.',
+  'paycalendar.period.schedule_required': 'Falta --schedule: los periodos pertenecen a un calendario de nómina de la entidad.',
+  'paycalendar.period.count_required': 'Falta --count: cuántos periodos crear, de 1 a {max}.',
+  'paycalendar.period.dry_run':
+    'Ensayo: se crearían {count, plural, one {# periodo} other {# periodos}}; no se escribió nada.',
+  'paycalendar.period.done':
+    '{count, plural, =0 {No se creó ningún periodo: ya existían.} one {Se creó # periodo.} other {Se crearon # periodos.}}',
+  'paycalendar.period.empty': 'No hay periodos de nómina en esta entidad.',
 
   'prepaid.run.key_replayed':
     'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió a devengar.',

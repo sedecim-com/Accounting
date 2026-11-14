@@ -6,8 +6,6 @@ import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { calculatePaycheck } from '../../src/services/payroll/common/paycheck-service.js';
 import { legalParameterAt } from '../../src/services/jurisdiction/legal-parameters.js';
 import { YEAR_END_BONUS_EXEMPT_CAP_KEY } from '../../src/services/payroll/mx/isr-exemption.js';
-// The calculators register on import; without it `getRequired('MX','isr')` throws.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // T5a · THE AGUINALDO IS EXEMPT UP TO 30 UMA (#297, MNE-001-062)
