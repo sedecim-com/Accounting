@@ -234,7 +234,7 @@ Al aprobarse, estos textos se corrigen en el mismo PR o con su ADR. Hasta entonc
 Defectos confirmados y desbloqueos, que van directo por `docs/PROCESS.md` como issues con su Definition of Ready:
 
 1. La prueba de aceptación del MVP (#311, MNE-001-098).
-2. El binario registra los calculadores de nómina y tiene hojas para calendario y periodos: #586 y #587 (RF-16).
+2. El binario registra los calculadores de nómina y tiene hojas para calendario y periodos: #586, #587 y #613 (RF-16).
 3. Los cuatro caminos de RF-03 (#592 a #595) y lo que RF-21 pide de timbrado, alcance y W-2 (#590, #591).
 4. La lectura de un XML por id y el archivado de una entidad llevan alcance: #588 y #589 (RNF-01).
 5. Los respaldos salen cifrados: #598 (RNF-04). Las tablas de ley dejan de ser editables por cualquier inquilino: #599.
