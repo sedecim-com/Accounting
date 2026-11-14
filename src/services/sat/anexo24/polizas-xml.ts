@@ -53,6 +53,12 @@ import {
 //     a blocking finding that names its entry, and the XML is still built so
 //     it can be looked at. The builder refuses them only as a last resort,
 //     when no one ran those checks, and then it names every entry at once.
+//   · The payee is required on all three payment nodes: `Benef` (minLength
+//     1) and `RFC` (the RFC pattern) are use="required" on Cheque,
+//     Transferencia and OtrMetodoPago alike. OtrMetodoPago used to leave
+//     without them when the vendor had no usable name or RFC, and the file
+//     failed the XSD (#530). The service now leaves such a node out and names
+//     its entry, and `requirePayee` refuses a caller that does not.
 //   · `Sello`, `noCertificado` y `Certificado` EXISTEN en el esquema y este
 //     módulo NO los emite ni tiene por dónde: no hay una sola rama que cargue
 //     una llave privada, y no debe haberla. La e.firma es el contribuyente
@@ -193,8 +199,13 @@ export interface PagoPorOtroMetodo {
   /** Método con el que se pagó, en las grafías del catálogo del SAT. */
   metPagoPol: string;
   fecha: string;
-  benef?: string;
-  rfc?: string;
+  /**
+   * Required, as on Cheque and Transferencia: PolizasPeriodo_1_3.xsd declares
+   * `Benef` and `RFC` use="required" on all three payment nodes (#530). A
+   * payment without them gets no node; its entry is named instead.
+   */
+  benef: string;
+  rfc: string;
   monto: string;
   moneda?: string;
   tipCamb?: string;
@@ -237,8 +248,15 @@ export interface DatosDePolizas {
 
 // ── LAS COMPROBACIONES DE FORMA ─────────────────────────────────────────
 
-/** El RFC de una persona moral son 12 caracteres y el de una física 13. */
-const RFC_RE = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
+/**
+ * El RFC de una persona moral son 12 caracteres y el de una física 13.
+ *
+ * Exported because the service checks a payee's RFC with this same pattern
+ * before it builds a node, and `requirePayee` throws on all three payment
+ * nodes: two copies that drift apart would throw the whole month's file over
+ * one vendor's RFC again.
+ */
+export const RFC_PATTERN = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Dos decimales exactos, con signo o sin él. Lo que `importeAnexo24` produce. */
 const IMPORTE_RE = /^-?\d+\.\d{2}$/;
@@ -329,7 +347,7 @@ export function atributosDeCabecera(
   mes: string,
   opciones: { mes13: boolean }
 ): Atributo[] {
-  if (!RFC_RE.test(rfc)) {
+  if (!RFC_PATTERN.test(rfc)) {
     throw new ValidationError(
       `«${rfc}» no tiene forma de RFC. Los archivos del Anexo 24 los entrega un contribuyente ` +
         `mexicano ante el SAT; una entidad identificada con EIN u otro número no puede entregarlos.`
@@ -371,6 +389,28 @@ function exigirFecha(donde: string, atributo: string, valor: string): string {
     throw new ValidationError(`${donde}/@${atributo} = «${valor}» no tiene forma YYYY-MM-DD.`);
   }
   return valor;
+}
+
+/**
+ * THE PAYEE OF A PAYMENT NODE. `Benef` (minLength 1) and `RFC` (the RFC
+ * pattern) are use="required" on Cheque, Transferencia and OtrMetodoPago
+ * alike, and a node without them makes the SAT reject the whole file (#530).
+ * The service leaves such a node out and names its entry before it gets here;
+ * this refusal keeps any other caller from building that file.
+ */
+function requirePayee(node: string, payment: { benef: string; rfc: string }): void {
+  if (payment.benef.trim() === '') {
+    throw new ValidationError(
+      `${node}/@Benef está vacío. El esquema lo exige en los tres nodos de pago, con al menos un ` +
+        `carácter: sin él el SAT rechaza el archivo entero.`
+    );
+  }
+  if (!RFC_PATTERN.test(payment.rfc)) {
+    throw new ValidationError(
+      `${node}/@RFC = «${payment.rfc}»: el esquema lo exige en los tres nodos de pago con forma de ` +
+        `RFC, y el que se emita es el que la autoridad cruza contra las declaraciones del tercero.`
+    );
+  }
 }
 
 /** `CFD_CBB_Serie` in PolizasPeriodo and AuxiliarFolios 1.3: pattern [A-Z]+, length 1 to 10. */
@@ -528,7 +568,7 @@ export function nodoDeComprobante(
   switch (c.clase) {
     case 'nacional': {
       const nombre = `${prefijo}:${nombres.nacional}`;
-      if (!RFC_RE.test(c.rfc)) {
+      if (!RFC_PATTERN.test(c.rfc)) {
         throw new ValidationError(
           `${nombre}/@RFC = «${c.rfc}»: el comprobante nacional identifica a la contraparte por su ` +
             `RFC, y el que se emita es el que la autoridad cruza contra las declaraciones del tercero.`
@@ -550,7 +590,7 @@ export function nodoDeComprobante(
       // PolizasPeriodo and AuxiliarFolios 1.3 both declare RFC required on
       // this node; the generator had no field for it, so every file with a
       // pre-CFDI voucher was invalid. The official XSD found it (#397).
-      if (!RFC_RE.test(c.rfc)) {
+      if (!RFC_PATTERN.test(c.rfc)) {
         throw new ValidationError(
           `${nombre}/@RFC = «${c.rfc}»: el comprobante nacional anterior al CFDI también identifica ` +
             `a la contraparte por su RFC, y el esquema del SAT lo exige.`
@@ -596,6 +636,7 @@ function nodoDePago(p: NodoDePago): NodoXml {
     case 'cheque': {
       const nombre = `${PREFIJO_POLIZAS}:Cheque`;
       exigirBancoUnico(nombre, p.banEmisNal, p.banEmisExt, 'emisor');
+      requirePayee(nombre, p);
       return {
         nombre,
         atributos: [
@@ -616,6 +657,7 @@ function nodoDePago(p: NodoDePago): NodoXml {
       const nombre = `${PREFIJO_POLIZAS}:Transferencia`;
       exigirBancoUnico(nombre, p.bancoOriNal, p.bancoOriExt, 'de origen');
       exigirBancoUnico(nombre, p.bancoDestNal, p.bancoDestExt, 'de destino');
+      requirePayee(nombre, p);
       if (p.ctaDest.trim() === '') {
         throw new ValidationError(
           `${nombre}/@CtaDest está vacío. La cuenta que RECIBIÓ el dinero es lo obligatorio de este ` +
@@ -642,6 +684,7 @@ function nodoDePago(p: NodoDePago): NodoXml {
     }
     case 'otro': {
       const nombre = `${PREFIJO_POLIZAS}:OtrMetodoPago`;
+      requirePayee(nombre, p);
       return {
         nombre,
         atributos: [
