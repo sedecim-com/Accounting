@@ -229,4 +229,16 @@ describe('the name bound', () => {
     const { rows } = await query('SELECT 1 FROM pay_schedules WHERE entity_id = $1 AND name = $2', [f.entityId, name]);
     expect(rows).toHaveLength(1);
   });
+
+  // VARCHAR(100) counts characters. A character outside the BMP is one
+  // character and two UTF-16 units, so a bound on `name.length` would refuse
+  // a name Postgres accepts.
+  it('the bound counts characters, not UTF-16 units', async () => {
+    const name = '\u{1F4C5}'.repeat(100);
+    expect(name.length).toBe(200);
+    const r = await cli(['pay-schedule', 'create', '--name', name, ...scheduleArgs.slice(2), '--json']);
+    expect(r.exitCode, String(r.errs[0])).toBe(0);
+    const { rows } = await query('SELECT 1 FROM pay_schedules WHERE entity_id = $1 AND name = $2', [f.entityId, name]);
+    expect(rows).toHaveLength(1);
+  });
 });
