@@ -4,8 +4,6 @@ import { query } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { calculatePayRun } from '../../src/services/payroll/common/pay-run-service.js';
 import { entityScope } from '../../src/database/scope.js';
-// The calculators register on import.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // A MISSING BRACKET TABLE STOPS THE RUN BEFORE ITS FIRST PAYCHECK

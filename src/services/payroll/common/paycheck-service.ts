@@ -4,6 +4,10 @@ import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
 import { NotFoundError } from '../../../utils/errors.js';
 import { taxRegistry } from '../tax-engine/tax-registry.js';
+// This module is what reads the registry, so it owns filling it: every entry
+// point that calculates (the CLI, REST, a spec) gets the calculators without
+// remembering a side-effect import of its own (#586).
+import '../tax-engine/register-all.js';
 import { getEmployeeYtd, getEmployeeSutaYtd } from '../tax-engine/ytd-service.js';
 import { calculateGarnishments } from '../usa/garnishments/garnishment-engine.js';
 import {

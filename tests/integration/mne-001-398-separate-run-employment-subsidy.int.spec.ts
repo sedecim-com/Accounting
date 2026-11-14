@@ -9,8 +9,6 @@ import { createPayRun, calculatePayRun } from '../../src/services/payroll/common
 import { previewPayRunEntry } from '../../src/services/payroll/common/gl-posting-service.js';
 import { seedPayrollAccountMapping } from '../../src/services/payroll/common/payroll-account-mapping-seed.js';
 import { EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY } from '../../src/services/payroll/mx/employment-subsidy.js';
-// The calculators register on import; without it `getRequired('MX','isr')` throws.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // MNE-001-398 (#430) · ONE EMPLOYMENT SUBSIDY PER PAY PERIOD

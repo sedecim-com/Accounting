@@ -12,8 +12,6 @@ import {
   OVERTIME_POLICY_KEY,
   OVERTIME_WEEKLY_HOURS_KEY,
 } from '../../src/services/payroll/mx/isr-exemption.js';
-// The calculators register on import; without it `getRequired('MX','isr')` throws.
-import '../../src/services/payroll/tax-engine/register-all.js';
 
 // ============================================================
 // OVERTIME IS EXEMPT BY LISR ART. 93 FR. I (#297, MNE-001-110)

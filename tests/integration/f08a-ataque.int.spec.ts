@@ -9,8 +9,6 @@ import { calculatePaycheck } from '../../src/services/payroll/common/paycheck-se
 import { acumularPasivoPatronal } from '../../src/services/payroll/common/employer-liability-service.js';
 import { postPayRunToGL } from '../../src/services/payroll/common/gl-posting-service.js';
 import { seedPayrollAccountMapping } from '../../src/services/payroll/common/payroll-account-mapping-seed.js';
-// Las calculadoras se registran por efecto de importación.
-import '../../src/services/payroll/tax-engine/register-all.js';
 import { entityScope } from '../../src/database/scope.js';
 
 // ============================================================
