@@ -67,6 +67,19 @@ describe('#588 · an XML document read by id stays inside the caller entity', ()
     expect(withoutId(r.body.errors, foreign)).toBe(withoutId(ghost.body.errors, ghostId));
   });
 
+  it("answers 404 for another tenant's document, the same 404 as a nonexistent id", async () => {
+    const other = await crearInquilino('588 another tenant');
+    const foreign = await documentOf(other);
+
+    const r = await pedir(s, 'GET', `/v1/xml-documents/${foreign}`);
+    expect(r.status, JSON.stringify(r.body)).toBe(404);
+
+    const ghostId = randomUUID();
+    const ghost = await pedir(s, 'GET', `/v1/xml-documents/${ghostId}`);
+    const withoutId = (b: unknown, id: string): string => JSON.stringify(b).split(id).join('<id>');
+    expect(withoutId(r.body.errors, foreign)).toBe(withoutId(ghost.body.errors, ghostId));
+  });
+
   it('COUNTERWEIGHT: the own document answers 200 with its lines', async () => {
     const own = await documentOf(f);
 

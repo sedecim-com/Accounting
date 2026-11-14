@@ -300,9 +300,15 @@ export const E2_1: Criterio[] = [
       const desprotegidas: string[] = [];
       const unscopedById: string[] = [];
       let revisadas = 0;
-      // A literal that reads or writes a row by id with no scope predicate in
-      // the same statement.
-      const BY_ID_WITHOUT_SCOPE = /(['`])(?:(?!\1)[^])*?\bWHERE\s+(?:\w+\.)?id\s*=\s*\$1\b(?:(?!\1)[^])*\1/g;
+      // Every string literal of the block, in any of the three quotes: SQL is
+      // looked for only inside them, so `entity_id` in a response object does
+      // not count as a scope.
+      const LITERAL = /(['"`])(?:\\[^]|(?!\1)[^\\])*\1/g;
+      // A statement that filters by an id column — the row's own `id` or a
+      // foreign key such as `xml_document_id` — bound to any placeholder. A
+      // natural key such as `bitcoin_txid` is not an id column.
+      const BY_ID = /\bWHERE\b[^]*?\b(?:\w+\.)?(?:\w+_)?id\s*=\s*\$\d+/i;
+      const SCOPE_COLUMN = /\b(?:\w+\.)?(entity_id|tenant_id)\b/;
 
       for (const f of archivos) {
         const texto = sinComentarios(leer(f));
@@ -314,17 +320,20 @@ export const E2_1: Criterio[] = [
           // the shape of a by-id read that crosses the entity boundary:
           // `GET /xml-documents/:id` ran `WHERE id = $1` and nothing else. A
           // route taking an id from its path that never mentions any scope
-          // (header entity, scope helper, entity_id or tenant_id) and runs an
+          // (header entity, a scope helper or a file-local `*DelLlamador(req`
+          // ownership check, entity_id or tenant_id in its SQL) and runs an
           // id-only statement is flagged on its own. A route that scopes
           // somewhere else in its block is left to the per-route specs: the
           // re-read after a scoped write (payroll's `/pay-runs/:id/calculate`)
-          // is not a leak.
-          const namesAScope = /req\.entityId|req\.tenantId|entityScope\s*\(|alcance\s*\(|ByIdInScope|entity_id|tenant_id/.test(cuerpo);
-          if (/\/:\w+/.test(m[2]) && !namesAScope) {
-            const statements = [...cuerpo.matchAll(BY_ID_WITHOUT_SCOPE)].map((s) => s[0]);
-            if (statements.some((s) => !/\b(entity_id|tenant_id)\b/.test(s))) {
-              unscopedById.push(`${path.basename(f)} ${m[1].toUpperCase()} ${m[2]}`);
-            }
+          // is not a leak. Known blind spots: SQL built outside the block (a
+          // service) and SQL assembled by concatenation are not seen;
+          // MNE-001-283 (#96) asks each by-id read to scope its own SQL.
+          const literals = [...cuerpo.matchAll(LITERAL)].map((l) => l[0]);
+          const namesAScope =
+            /req\.entityId|req\.tenantId|entityScope\s*\(|alcance\s*\(|ByIdInScope|DelLlamador\s*\(\s*req\b/.test(cuerpo) ||
+            literals.some((l) => SCOPE_COLUMN.test(l));
+          if (/\/:\w+/.test(m[2]) && !namesAScope && literals.some((l) => BY_ID.test(l))) {
+            unscopedById.push(`${path.basename(f)} ${m[1].toUpperCase()} ${m[2]}`);
           }
           // La entidad la trae la petición: la cabecera ya resuelta en
           // req.entityId, o la query, o el cuerpo, o el parámetro de ruta.
@@ -414,6 +423,17 @@ export const E2_1: Criterio[] = [
           '}));\n\nexport default router;',
         porque:
           '#588: a by-id read that names no entity comes back, the shape that read a sibling entity CFDI inside the same tenant while this criterion skipped it for not naming an entity',
+      },
+      {
+        archivo: 'src/api/rest/routes/xml-ingestion.ts',
+        de: 'export default router;',
+        a:
+          "router.get('/xml-documents/:id/lines', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {\n" +
+          '  const r = await query("SELECT * FROM xml_document_lines WHERE xml_document_id = $1", [req.params.id]);\n' +
+          '  res.json({ data: r.rows, entity_id: null });\n' +
+          '}));\n\nexport default router;',
+        porque:
+          '#588, the other half: the lines read by their foreign key, in double quotes, with `entity_id` named only in the response; any of the three used to pass for scoped',
       },
     ],
   },
