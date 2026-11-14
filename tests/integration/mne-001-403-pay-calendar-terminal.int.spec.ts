@@ -138,3 +138,16 @@ describe('the list filters', () => {
       .toEqual([scheduleId, inactive].sort());
   });
 });
+
+// Last, because it adds an active schedule the list cases above would see.
+// The edge of the VARCHAR(100) bound: a refusal that starts below 100
+// characters would reject names Postgres accepts.
+describe('the name bound', () => {
+  it('a name of exactly 100 characters is written', async () => {
+    const name = 'Ñ'.repeat(100);
+    const r = await cli(['pay-schedule', 'create', '--name', name, ...scheduleArgs.slice(2), '--json']);
+    expect(r.exitCode, String(r.errs[0])).toBe(0);
+    const { rows } = await query('SELECT 1 FROM pay_schedules WHERE entity_id = $1 AND name = $2', [f.entityId, name]);
+    expect(rows).toHaveLength(1);
+  });
+});
