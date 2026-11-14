@@ -541,6 +541,11 @@ function rastroDePago(
 
   if (p.payment_method === 'check') {
     const num = (p.check_number ?? '').trim();
+    // The payee's record goes first. Its gap survives a new payment, so naming
+    // the payment's gap first would have the reader pay again and find the
+    // new entry blocked by the same record: two blocking entries for one.
+    const gap = payeeGap('Cheque', num === '' ? `del pago ${p.payment_number}` : `del cheque ${num}`);
+    if (gap !== undefined) return gap;
     if (num === '') {
       return {
         motivo:
@@ -555,8 +560,6 @@ function rastroDePago(
           `la cuenta bancaria del pago no tiene número guardado o no descifra`,
       };
     }
-    const gap = payeeGap('Cheque', `del cheque ${num}`);
-    if (gap !== undefined) return gap;
     return {
       pago: {
         clase: 'cheque',
@@ -578,6 +581,9 @@ function rastroDePago(
     // cobro la destino es la NUESTRA y la del tercero no se conoce — y no se
     // inventa: `CtaOri` se omite, que el esquema permite.
     const ctaDest = sentido === 'sale' ? cuentaCapturada : (cuentaCapturada ?? nuestraCuenta);
+    // The payee's record first, for the same reason as in the check above.
+    const gap = payeeGap('Transferencia', `de la transferencia ${p.payment_number}`);
+    if (gap !== undefined) return gap;
     if (ctaDest === undefined) {
       return {
         motivo:
@@ -588,8 +594,6 @@ function rastroDePago(
               `que lo recibió: ni está capturada ni la cuenta bancaria del cobro tiene número`,
       };
     }
-    const gap = payeeGap('Transferencia', `de la transferencia ${p.payment_number}`);
-    if (gap !== undefined) return gap;
     const nodo: NodoDePago = {
       clase: 'transferencia',
       ...(sentido === 'sale'

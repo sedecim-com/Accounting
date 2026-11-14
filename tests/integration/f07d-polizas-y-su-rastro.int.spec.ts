@@ -704,6 +704,46 @@ describe('a payment node the XSD would reject is left out and its entry is named
     expect(r.puedeEntregarse).toBe(false);
   });
 
+  // Both gaps at once. The payee's gap survives a new payment, so naming the
+  // payment's gap first would have the reader pay again and block twice.
+  it.each([
+    ['check', 'its number', {}],
+    ['spei', 'its destination account', {}],
+  ] as const)('a %s without %s to a vendor without RFC names the vendor record first', async (method, _label, trace) => {
+    const g = await gastoAprobado(f.entityId, f.userId, '100.00', '16.00', {
+      name: 'Tornillos del Bajío',
+      taxId: '',
+      month: TRACE_MONTH,
+    });
+    const payment = await recordVendorPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: g.total,
+        paymentDate: fechaEnPeriodo(TRACE_MONTH),
+        paymentMethod: method,
+        bankAccountId: bancoId,
+        ...trace,
+        applications: [{ documentId: g.billId, amountApplied: g.total }],
+      },
+      f.userId
+    );
+    const entry = payment.journalEntry?.entry_number;
+    expect(entry, 'the payment must have posted').toBeTruthy();
+
+    const r = await generarPolizas(f.entityId, {
+      periodo: `2026-0${TRACE_MONTH}`,
+      solicitud: SOLICITUD,
+    });
+
+    const untraced = r.hallazgos.filter(
+      (h) => h.check === 'poliza-con-dinero-sin-rastro' && h.referencia === entry
+    );
+    expect(untraced).toHaveLength(1);
+    expect(untraced[0].detalle).toContain('no tiene RFC capturado');
+    expect(untraced[0].detalle).toContain('falta en el registro del proveedor');
+    expect(untraced[0].detalle).not.toContain('payment create');
+  });
+
   it('a name that needs cleaning is not reported as emitted when its node is left out', async () => {
     const g = await gastoAprobado(f.entityId, f.userId, '100.00', '16.00', {
       name: 'Aceros del\nNorte',
