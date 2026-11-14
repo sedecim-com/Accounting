@@ -248,6 +248,9 @@ async function cuentasDeControl(entityId: string): Promise<Set<string>> {
 }
 
 interface FilaDeCuentaBancaria {
+  id: string;
+  /** How `bank account edit` and the reader know the account. */
+  account_name: string;
   gl_account_id: string;
   sat_bank_code: string | null;
   bank_name: string;
@@ -277,8 +280,8 @@ interface FilaDeCuentaBancaria {
  * XML. Quien quiera verlo, abre el archivo que va a firmar.
  */
 async function cuentasBancarias(entityId: string): Promise<Map<string, FilaDeCuentaBancaria>> {
-  const r = await query<FilaDeCuentaBancaria & { id: string }>(
-    `SELECT id::text AS id, gl_account_id::text AS gl_account_id, sat_bank_code, bank_name,
+  const r = await query<FilaDeCuentaBancaria>(
+    `SELECT id::text AS id, account_name, gl_account_id::text AS gl_account_id, sat_bank_code, bank_name,
             clabe_encrypted, clabe_last4, account_number_encrypted, account_number_last4
        FROM bank_accounts WHERE entity_id = $1`,
     [entityId]
@@ -409,12 +412,22 @@ export const METODO_A_SAT: Readonly<Record<string, string>> = {
   other: '99',
 };
 
-interface RastroResuelto {
+/** Where the missing datum lives, which decides the remedy the finding prescribes. */
+type RemedyCause = Pick<UntracedMoney, 'missingOnRecord' | 'missingOnBankAccount' | 'noCommandFixes'>;
+
+/** The defined fields of a cause only: `exactOptionalPropertyTypes` refuses an undefined one. */
+function remedyCause(c: RemedyCause): RemedyCause {
+  return {
+    ...(c.missingOnRecord !== undefined ? { missingOnRecord: c.missingOnRecord } : {}),
+    ...(c.missingOnBankAccount !== undefined ? { missingOnBankAccount: c.missingOnBankAccount } : {}),
+    ...(c.noCommandFixes !== undefined ? { noCommandFixes: c.noCommandFixes } : {}),
+  };
+}
+
+interface RastroResuelto extends RemedyCause {
   pago?: NodoDePago;
   /** Por qué no se pudo construir el nodo, cuando `pago` es undefined. */
   motivo?: string;
-  /** The record that lacks the datum, when it is not the payment. */
-  missingOnRecord?: string;
 }
 
 /**
@@ -429,6 +442,12 @@ type Saneador = (crudo: string, numUnIdenPol: string, campo: string) => string;
 
 /** Cuando no hay a quién denunciarle nada (el auxiliar de folios). */
 const SANEADOR_MUDO: Saneador = (crudo) => limpiar(crudo).texto;
+
+// Every customer transfer lacks the payer's bank, whatever else it lacks, so
+// each receipt cause shares this remedy and none sends the reader to a payment.
+const RECEIPT_ORIGIN_UNCAPTURED =
+  '`receipt record` no tiene dónde capturar el banco del cliente que ordenó la ' +
+  'transferencia, y nada lo completa en un cobro ya registrado';
 
 /**
  * DE UN PAGO REGISTRADO AL NODO QUE EL ANEXO 24 DECLARA.
@@ -453,8 +472,11 @@ const SANEADOR_MUDO: Saneador = (crudo) => limpiar(crudo).texto;
  * un mensaje que nombra `@Benef` y no la póliza ni al proveedor. Un archivo
  * que se cae por un dato de UNA póliza no deja ni la lista de lo que hay que
  * arreglar, que es justamente el producto de este comando.
+ *
+ * Exported for the unit spec that ties its bank-code checks to the builder's
+ * guard, and the cause of each gap to the remedy the accountant reads.
  */
-function rastroDePago(
+export function rastroDePago(
   p: FilaDePago,
   sentido: 'sale' | 'entra',
   banco: FilaDeCuentaBancaria | undefined,
@@ -531,13 +553,43 @@ function rastroDePago(
   const nuestroBanco = (banco?.sat_bank_code ?? '').trim() || undefined;
   const cuentaCapturada = (p.cuenta_destino ?? '').replace(/\s+/g, '') || undefined;
   const bancoCapturadoNal = (p.banco_destino_sat ?? '').trim() || undefined;
-  // El nombre del banco extranjero SÍ es texto libre (VARCHAR(150)) y sí
-  // admite espacios interiores: va por el saneador como el beneficiario.
-  const crudoBancoExt = (p.banco_destino_extranjero ?? '').trim();
-  const bancoCapturadoExt =
-    crudoBancoExt === ''
-      ? undefined
-      : sanear(crudoBancoExt, numUnIdenPol, `BancoDestExt del pago ${p.payment_number}`);
+  // A foreign bank's name reaches only the motive, never the file (see
+  // `bankGap`), so it goes through `limpiar` like the account name and not
+  // through `sanear`. TODO(#532): once the file declares it again as
+  // `BancoDestExt`, it is free text (VARCHAR(150)) and goes through `sanear`
+  // like the beneficiary.
+  const bancoCapturadoExt = (p.banco_destino_extranjero ?? '').trim() || undefined;
+
+  // THE BANK CODES ARE REQUIRED TOO (#532). PolizasPeriodo 1.3 declares
+  // Cheque/@BanEmisNal, Transferencia/@BancoOriNal and Transferencia/@BancoDestNal
+  // use="required", type c_Banco. A foreign bank's name (`*Ext`) goes on top of
+  // the code, never instead of it. A node without the code makes the SAT
+  // reject the whole file, so the node is left out and the entry is named.
+  const bankGap = (node: string, attribute: string, why: string): string =>
+    `${why}, y el nodo ${node} exige ${attribute}`;
+  // Our bank's code comes from the bank account the payment names, read when
+  // the file is generated. Two causes, two remedies: with an account linked,
+  // editing it fixes even a payment already registered; with none linked
+  // (`--bank` is optional), no command links one afterwards, and reversing and
+  // registering again leaves the original entry and its mirror untraced.
+  const register = sentido === 'sale' ? 'payment create --bank' : 'receipt record --bank';
+  const ourBankGap = (node: string, attribute: string, what: string): RastroResuelto => {
+    if (banco === undefined) {
+      return {
+        motivo: bankGap(node, attribute, `${what} se registró sin cuenta bancaria, así que no hay de ` +
+          `dónde tomar la clave c_Banco de nuestro banco`),
+        noCommandFixes:
+          `la cuenta bancaria sólo se captura al registrar el pago (\`${register}\`) y ningún ` +
+          `comando se la liga a un pago ya registrado; reversarlo y registrarlo otra vez tampoco ` +
+          `lo arregla, porque el asiento original y su espejo se quedan sin rastro`,
+      };
+    }
+    const account = `la cuenta bancaria «${limpiar(banco.account_name).texto}» (id ${banco.id})`;
+    return {
+      motivo: bankGap(node, attribute, `${what} sale de ${account}, que no tiene clave c_Banco`),
+      missingOnBankAccount: account,
+    };
+  };
 
   if (p.payment_method === 'check') {
     const num = (p.check_number ?? '').trim();
@@ -553,6 +605,7 @@ function rastroDePago(
           `(\`payment create --check-number\`); el nodo Cheque lo exige`,
       };
     }
+    if (nuestroBanco === undefined) return ourBankGap('Cheque', 'BanEmisNal', `el cheque ${num}`);
     if (nuestraCuenta === undefined) {
       return {
         motivo:
@@ -564,7 +617,7 @@ function rastroDePago(
       pago: {
         clase: 'cheque',
         num,
-        ...(nuestroBanco !== undefined ? { banEmisNal: nuestroBanco } : {}),
+        banEmisNal: nuestroBanco,
         ctaOri: nuestraCuenta,
         fecha: p.payment_date,
         benef: emittedBenef(),
@@ -585,41 +638,66 @@ function rastroDePago(
     const gap = payeeGap('Transferencia', `de la transferencia ${p.payment_number}`);
     if (gap !== undefined) return gap;
     if (ctaDest === undefined) {
+      if (sentido === 'sale') {
+        return {
+          motivo:
+            `el pago ${p.payment_number} es una transferencia y no tiene cuenta destino capturada ` +
+            `(\`payment create --to-account\`); es el dato obligatorio del nodo Transferencia`,
+        };
+      }
+      // Completing the receiving account would not trace a receipt: its
+      // origin bank (below) stays uncaptured. So no remedy is true today.
       return {
         motivo:
-          sentido === 'sale'
-            ? `el pago ${p.payment_number} es una transferencia y no tiene cuenta destino capturada ` +
-              `(\`payment create --to-account\`); es el dato obligatorio del nodo Transferencia`
-            : `el cobro ${p.payment_number} entró por transferencia y no se pudo resolver la cuenta ` +
-              `que lo recibió: ni está capturada ni la cuenta bancaria del cobro tiene número`,
+          `el cobro ${p.payment_number} entró por transferencia y no se pudo resolver la cuenta ` +
+          `que lo recibió: ni está capturada ni la cuenta bancaria del cobro tiene número`,
+        noCommandFixes: RECEIPT_ORIGIN_UNCAPTURED,
       };
+    }
+    // In a receipt the origin bank is the payer's, and nothing captures it:
+    // `customer_payments` has no column for it and `receipt record` no flag
+    // (TODO(#532)). So every customer transfer is named here, and what
+    // follows is for a payment only.
+    if (sentido === 'entra') {
+      return {
+        motivo: bankGap(
+          'Transferencia',
+          'BancoOriNal',
+          `el cobro ${p.payment_number} entró por transferencia y el banco del cliente que la ` +
+            `ordenó no está capturado`
+        ),
+        noCommandFixes: RECEIPT_ORIGIN_UNCAPTURED,
+      };
+    }
+    const who = `la transferencia ${p.payment_number}`;
+    if (nuestroBanco === undefined) return ourBankGap('Transferencia', 'BancoOriNal', who);
+    if (bancoCapturadoNal === undefined) {
+      // TODO(#532): which c_Banco code declares a foreign bank, with its name
+      // in BancoDestExt, is the owner's call. Until then, no node.
+      return bancoCapturadoExt !== undefined
+        ? {
+            motivo: bankGap(
+              'Transferencia',
+              'BancoDestNal',
+              `el banco destino de ${who} es extranjero («${limpiar(bancoCapturadoExt).texto}»)`
+            ),
+            noCommandFixes:
+              'el esquema exige una clave c_Banco también para un banco extranjero, y qué clave ' +
+              'lo declara es una decisión del dueño del sistema que sigue sin tomarse',
+          }
+        : {
+            motivo: bankGap('Transferencia', 'BancoDestNal', `${who} no tiene banco destino capturado`),
+            noCommandFixes:
+              'el banco destino sólo se captura al registrar el pago (`payment create --to-bank`) ' +
+              'y ningún comando lo añade a un pago ya registrado; reversarlo y registrarlo otra vez ' +
+              'tampoco lo arregla, porque el asiento original y su espejo se quedan sin rastro',
+          };
     }
     const nodo: NodoDePago = {
       clase: 'transferencia',
-      ...(sentido === 'sale'
-        ? {
-            ...(nuestraCuenta !== undefined ? { ctaOri: nuestraCuenta } : {}),
-            ...(nuestroBanco !== undefined ? { bancoOriNal: nuestroBanco } : {}),
-            ...(bancoCapturadoNal !== undefined ? { bancoDestNal: bancoCapturadoNal } : {}),
-            ...(bancoCapturadoExt !== undefined ? { bancoDestExt: bancoCapturadoExt } : {}),
-          }
-        : {
-            // EL RELLENO NO PISA AL DATO CAPTURADO. En un cobro la cuenta que
-            // recibe suele ser la nuestra, así que cuando nadie capturó banco
-            // destino se pone el de nuestra cuenta. Lo que NO puede hacer ese
-            // relleno es convivir con un banco destino EXTRANJERO capturado:
-            // `exigirBancoUnico` lanza con los dos puestos y MATABA la
-            // generación del mes entera. Medido con un cobro cuyo destino se
-            // capturó como banco extranjero mientras nuestra cuenta tiene
-            // `sat_bank_code`; el CHECK de la 064 no lo ve porque en la FILA
-            // sólo hay uno de los dos — los dos se juntan aquí.
-            ...(bancoCapturadoNal !== undefined
-              ? { bancoDestNal: bancoCapturadoNal }
-              : bancoCapturadoExt === undefined && nuestroBanco !== undefined
-                ? { bancoDestNal: nuestroBanco }
-                : {}),
-            ...(bancoCapturadoExt !== undefined ? { bancoDestExt: bancoCapturadoExt } : {}),
-          }),
+      ...(nuestraCuenta !== undefined ? { ctaOri: nuestraCuenta } : {}),
+      bancoOriNal: nuestroBanco,
+      bancoDestNal: bancoCapturadoNal,
       ctaDest,
       fecha: p.payment_date,
       benef: emittedBenef(),
@@ -821,12 +899,10 @@ async function leer(entityId: string, opts: OpcionesDePolizas): Promise<Lectura>
 }
 
 /** El comprobante y el rastro de una póliza, resueltos por su origen. */
-interface Soporte {
+interface Soporte extends RemedyCause {
   comprobantes: Comprobante[];
   pago?: NodoDePago;
   motivoSinRastro?: string;
-  /** The record that lacks the datum behind `motivoSinRastro`, when not the payment. */
-  missingOnRecord?: string;
   /**
    * El CFDI existe y su RFC de contraparte NO SIRVE para declararlo, así que
    * el nodo de comprobante se queda fuera. Es la explicación, para que la
@@ -943,7 +1019,7 @@ function soporteDe(f: FilaDePoliza, L: Lectura, sanear: Saneador = SANEADOR_MUDO
       comprobantes,
       ...(rastro.pago !== undefined ? { pago: rastro.pago } : {}),
       ...(rastro.motivo !== undefined ? { motivoSinRastro: rastro.motivo } : {}),
-      ...(rastro.missingOnRecord !== undefined ? { missingOnRecord: rastro.missingOnRecord } : {}),
+      ...remedyCause(rastro),
       ...(motivoSinComprobante !== undefined ? { motivoSinComprobante } : {}),
     };
   }
@@ -1050,9 +1126,7 @@ export async function generarPolizas(
         sinRastro.push({
           numUnIdenPol: f.entry_number,
           ...(withoutRegisteredPayment ? { withoutRegisteredPayment: true } : {}),
-          ...(soporte.missingOnRecord !== undefined
-            ? { missingOnRecord: soporte.missingOnRecord }
-            : {}),
+          ...remedyCause(soporte),
           motivo:
             soporte.motivoSinRastro ??
             `el asiento toca una cuenta de banco y no viene de ningún pago registrado ` +

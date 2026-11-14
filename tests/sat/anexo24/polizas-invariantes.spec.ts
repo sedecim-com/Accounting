@@ -121,6 +121,28 @@ describe('la póliza que mueve dinero y no dice por dónde', () => {
     expect(onRecord.detalle).toContain('falta en el registro del proveedor «Fletes del Norte» (id v-1)');
   });
 
+  it('the remedy follows the cause: a bank account without its code, or a datum no command completes', () => {
+    const [onAccount, noCommand] = polizaConDineroSinRastro([
+      {
+        numUnIdenPol: 'JE-ACC',
+        motivo: 'el cheque 30001 sale de una cuenta sin clave c_Banco, y el nodo Cheque exige BanEmisNal',
+        missingOnBankAccount: 'la cuenta bancaria «Operativa» (id ba-1)',
+      },
+      {
+        numUnIdenPol: 'JE-RCP',
+        motivo: 'el banco del cliente no está capturado, y el nodo Transferencia exige BancoOriNal',
+        noCommandFixes: '`receipt record` no tiene dónde capturarlo',
+      },
+    ]);
+    expect(onAccount.severity).toBe('blocking');
+    expect(onAccount.detalle).toContain('falta en la cuenta bancaria «Operativa» (id ba-1)');
+    expect(onAccount.detalle).toContain('bank account edit <cuenta> --sat-bank-code');
+    expect(onAccount.detalle).not.toContain('payment create');
+    expect(noCommand.severity).toBe('blocking');
+    expect(noCommand.detalle).toContain('Hoy ningún comando lo completa: `receipt record` no tiene dónde capturarlo');
+    expect(noCommand.detalle).not.toContain('payment create');
+  });
+
   it('sin nada que denunciar, no denuncia', () => {
     expect(polizaConDineroSinRastro([])).toEqual([]);
   });
@@ -134,6 +156,7 @@ describe('la clave de banco contra el c_Banco', () => {
           pagos: [
             {
               clase: 'transferencia',
+              bancoOriNal: '012',
               ctaDest: '002180009876543210',
               bancoDestNal: clave,
               fecha: '2026-02-10',
@@ -177,11 +200,14 @@ describe('la clave de banco contra el c_Banco', () => {
 
   it('a code off the XSD c_Banco blocks and names the entry, even with no seeded catalog', () => {
     const hs = bancoEnCatalogo([p({ ...conPago('003'), numUnIdenPol: 'JE-7' })], SIN_CATALOGO);
-    expect(hs).toHaveLength(1);
-    expect(hs[0].severity).toBe('blocking');
-    expect(hs[0].referencia).toBe('JE-7');
-    expect(hs[0].detalle).toContain('PLZ:Transferencia/@BancoDestNal = «003»');
-    expect(hs[0].detalle).toContain('CatalogosParaEsqContE.xsd');
+    // The origin code is on the XSD list, so it gets the one «not checked
+    // against sat_bancos» warning; the off-list destination is the block.
+    expect(hs.filter((h) => h.severity === 'warning')).toHaveLength(1);
+    const blocking = hs.filter((h) => h.severity === 'blocking');
+    expect(blocking).toHaveLength(1);
+    expect(blocking[0].referencia).toBe('JE-7');
+    expect(blocking[0].detalle).toContain('PLZ:Transferencia/@BancoDestNal = «003»');
+    expect(blocking[0].detalle).toContain('CatalogosParaEsqContE.xsd');
   });
 
   it('a code off both the XSD and the seeded list is reported once, for the XSD', () => {

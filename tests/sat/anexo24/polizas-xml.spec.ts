@@ -247,7 +247,9 @@ describe('el rastro de pago', () => {
                   pagos: [
                     {
                       clase: 'transferencia',
+                      bancoOriNal: '012',
                       ctaDest: '  ',
+                      bancoDestNal: '002',
                       fecha: '2026-02-10',
                       benef: 'X',
                       rfc: 'AAA010101AAA',
@@ -274,6 +276,7 @@ describe('el rastro de pago', () => {
                   pagos: [
                     {
                       clase: 'transferencia',
+                      bancoOriNal: '012',
                       ctaDest: '002180009876543210',
                       bancoDestNal: '002',
                       bancoDestExt: 'Bank of Nowhere',

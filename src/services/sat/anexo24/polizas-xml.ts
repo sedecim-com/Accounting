@@ -43,6 +43,12 @@ import {
 //     attribute names, including the transfer's destination: the schema says
 //     `CtaDest` and `BancoDestNal`, not the «CtaDes» and «BancoDesNal» this
 //     tranche's brief used.
+//   · The bank codes are required: `Cheque/@BanEmisNal`,
+//     `Transferencia/@BancoOriNal` and `@BancoDestNal` are use="required",
+//     type c_Banco, and a foreign bank's name (`*Ext`) goes on top of the
+//     code, never instead of it. The service leaves a node without its code
+//     out and names its entry (#532); an empty code is off c_Banco and is
+//     refused like any other.
 //   · The XSD found two defects on its first run, both fixed in #397: request
 //     numbers were not checked against its patterns, and the pre-CFDI voucher
 //     had no RFC.
@@ -58,7 +64,9 @@ import {
 //     Transferencia and OtrMetodoPago alike. OtrMetodoPago used to leave
 //     without them when the vendor had no usable name or RFC, and the file
 //     failed the XSD (#530). The service now leaves such a node out and names
-//     its entry, and `requirePayee` refuses a caller that does not.
+//     its entry, and `requirePayee` refuses a caller that does not. The
+//     c_Banco codes of Cheque and Transferencia are required too (#532), and
+//     `requireBankCode` refuses a node without them the same way.
 //   · `Sello`, `noCertificado` y `Certificado` EXISTEN en el esquema y este
 //     módulo NO los emite ni tiene por dónde: no hay una sola rama que cargue
 //     una llave privada, y no debe haberla. La e.firma es el contribuyente
@@ -159,8 +167,8 @@ export interface PagoConCheque {
   clase: 'cheque';
   /** El número del cheque. `vendor_payments.check_number`, por fin escrito. */
   num: string;
-  /** Clave c_Banco del banco EMISOR nacional. */
-  banEmisNal?: string;
+  /** c_Banco code of the ISSUING bank. Required by the XSD, foreign bank or not (#532). */
+  banEmisNal: string;
   /** Nombre del banco emisor extranjero. Excluyente con el anterior. */
   banEmisExt?: string;
   /** Cuenta de la que salió el dinero. */
@@ -179,12 +187,16 @@ export interface PagoConCheque {
 export interface PagoPorTransferencia {
   clase: 'transferencia';
   ctaOri?: string;
-  /** Clave c_Banco del banco de ORIGEN. Sale de bank_accounts.sat_bank_code. */
-  bancoOriNal?: string;
+  /**
+   * c_Banco code of the ORIGIN bank. Required by the XSD, foreign bank or not
+   * (#532). In a payment it comes from bank_accounts.sat_bank_code.
+   */
+  bancoOriNal: string;
   bancoOriExt?: string;
   /** La cuenta que RECIBIÓ el dinero. Es el dato obligatorio del nodo. */
   ctaDest: string;
-  bancoDestNal?: string;
+  /** c_Banco code of the DESTINATION bank. Required by the XSD, foreign bank or not (#532). */
+  bancoDestNal: string;
   bancoDestExt?: string;
   fecha: string;
   benef: string;
@@ -413,6 +425,25 @@ function requirePayee(node: string, payment: { benef: string; rfc: string }): vo
   }
 }
 
+/**
+ * THE c_Banco CODE OF A PAYMENT NODE. `Cheque/@BanEmisNal`,
+ * `Transferencia/@BancoOriNal` and `Transferencia/@BancoDestNal` are
+ * use="required", foreign bank or not (#532). The types require them, but a
+ * cast gets past the types, and the serializer drops an undefined attribute
+ * without a word: the file then fails the XSD. The service leaves such a node
+ * out and names its entry before it gets here; this refusal keeps any other
+ * caller from building that file. An empty code is not this guard's: it is
+ * off c_Banco, and the off-list check names it.
+ */
+function requireBankCode(node: string, attribute: string, code: string | undefined): void {
+  if (code === undefined) {
+    throw new ValidationError(
+      `${node}/@${attribute} falta. El esquema exige la clave c_Banco en el nodo, también para un ` +
+        `banco extranjero: sin ella el SAT rechaza el archivo entero.`
+    );
+  }
+}
+
 /** `CFD_CBB_Serie` in PolizasPeriodo and AuxiliarFolios 1.3: pattern [A-Z]+, length 1 to 10. */
 const CFD_CBB_SERIES_RE = /^[A-Z]{1,10}$/;
 
@@ -635,6 +666,7 @@ function nodoDePago(p: NodoDePago): NodoXml {
   switch (p.clase) {
     case 'cheque': {
       const nombre = `${PREFIJO_POLIZAS}:Cheque`;
+      requireBankCode(nombre, 'BanEmisNal', p.banEmisNal);
       exigirBancoUnico(nombre, p.banEmisNal, p.banEmisExt, 'emisor');
       requirePayee(nombre, p);
       return {
@@ -655,6 +687,8 @@ function nodoDePago(p: NodoDePago): NodoXml {
     }
     case 'transferencia': {
       const nombre = `${PREFIJO_POLIZAS}:Transferencia`;
+      requireBankCode(nombre, 'BancoOriNal', p.bancoOriNal);
+      requireBankCode(nombre, 'BancoDestNal', p.bancoDestNal);
       exigirBancoUnico(nombre, p.bancoOriNal, p.bancoOriExt, 'de origen');
       exigirBancoUnico(nombre, p.bancoDestNal, p.bancoDestExt, 'de destino');
       requirePayee(nombre, p);
@@ -701,7 +735,15 @@ function nodoDePago(p: NodoDePago): NodoXml {
   }
 }
 
-/** Nacional o extranjero, no los dos: el mismo criterio que el CHECK de la 064. */
+/**
+ * Nacional o extranjero, no los dos: el mismo criterio que el CHECK de la 064.
+ *
+ * TODO(#532): with the code now required, no valid node carries a `*Ext`: a
+ * real code next to it is refused here, and an empty one is off c_Banco. So
+ * no foreign bank reaches the file; the service names its entry instead. Which
+ * c_Banco code goes with a foreign name, and whether this and the 064 CHECK
+ * change, is the owner's call on #532.
+ */
 function exigirBancoUnico(
   nodo: string,
   nacional: string | undefined,
