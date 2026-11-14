@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 240 of 382 subcommands
+  spelling is `-T` at the root and `-t` on the 242 of 385 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -90,6 +90,7 @@ Commands:
   prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
   payroll|nomina                         Payroll accounting: the benefit liability that is born on the day worked
   pay-run|corrida                        Payroll runs of a pay period: create, calculate gross to net, approve, post the entry
+  pay-schedule|calendario-nomina         Pay schedules of the entity: the frequency and dates its pay periods follow
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   filing|declaracion                     Tax returns of the entity: the working papers behind them
@@ -7792,6 +7793,77 @@ Examples:
   mnemosine pay-run post 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d
   # The escape: post it directly, with a key so a retry does not post twice.
   mnemosine pay-run post 9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d --post --yes --idempotency-key poliza-2026-07-1
+```
+
+## `mnemosine pay-schedule` (alias: calendario-nomina)
+
+```
+Usage: mnemosine pay-schedule|calendario-nomina [options] [command]
+
+Pay schedules of the entity: the frequency and dates its pay periods follow
+
+Options:
+  -h, --help              display help for command
+
+Commands:
+  create|crear [options]  Create a pay schedule with its frequency, first period
+                          start and pay day rule
+  list|listar [options]   List the pay schedules of the entity with their
+                          frequency and employees
+  help [command]          display help for command
+```
+
+### `mnemosine pay-schedule create` (alias: crear)
+
+```
+Usage: mnemosine pay-schedule create|crear [options]
+
+Create a pay schedule with its frequency, first period start and pay day rule
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --name <name>                            name of the schedule, as the accountant knows it
+  --frequency <frequency>                  how often it pays: weekly | biweekly | semimonthly | monthly | quincenal
+  --country <MX|US>                        payroll country of the schedule
+  --first-start <date>                     first day of the first period (YYYY-MM-DD)
+  --pay-day-offset <days>                  days after the end of each period that it is paid (default 0)
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+Examples:
+  mnemosine pay-schedule create --name Quincenal --frequency quincenal --country MX --first-start 2026-07-01 --dry-run
+```
+
+### `mnemosine pay-schedule list` (alias: listar)
+
+```
+Usage: mnemosine pay-schedule list|listar [options]
+
+List the pay schedules of the entity with their frequency and employees
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -a, --all                                include inactive schedules
+  -n, --limit <n>                          maximum rows to return
+  -h, --help                               display help for command
+
+Examples:
+  mnemosine pay-schedule list --all --json
 ```
 
 ## `mnemosine e-accounting` (alias: contabilidad-electronica)

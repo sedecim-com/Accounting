@@ -10,6 +10,7 @@ import { query, closeDatabase } from '../../src/database/connection.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { registerPayRunCommand } from '../../src/cli/pay-run-command.js';
+import { registerPayCalendarCommand } from '../../src/cli/pay-schedule-command.js';
 import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { apartarCatalogos } from './helpers/catalogos-globales.js';
 
@@ -42,7 +43,7 @@ const plain = {
 
 interface CliResult { exitCode?: number; out: string; err: string; errs: unknown[] }
 
-async function cli(argv: string[]): Promise<CliResult> {
+async function cli(argv: string[], fx: Fixture = f, family = 'pay-run'): Promise<CliResult> {
   let exitCode: number | undefined;
   const out: string[] = [];
   const err: string[] = [];
@@ -53,13 +54,15 @@ async function cli(argv: string[]): Promise<CliResult> {
   process.stderr.write = ((c: string | Uint8Array) => { err.push(String(c)); return true; }) as typeof process.stderr.write;
   try {
     const p = new Command('mnemosine');
-    registerPayRunCommand(p, {
+    const deps = {
       palette: plain,
       shutdown: (c: number) => { exitCode = c; },
       reportError: (e: unknown) => { errs.push(e); },
       confirm: async () => true,
-    });
-    await p.parseAsync(['node', 'mnemosine', 'pay-run', ...argv, '-e', f.entityId, '-t', f.tenantId, '-u', email]);
+    };
+    registerPayRunCommand(p, deps);
+    registerPayCalendarCommand(p, deps);
+    await p.parseAsync(['node', 'mnemosine', family, ...argv, '-e', fx.entityId, '-t', fx.tenantId, '-u', email]);
   } finally {
     process.stdout.write = write;
     process.stderr.write = writeErr;
@@ -70,14 +73,13 @@ async function cli(argv: string[]): Promise<CliResult> {
 const rowsOf = (r: CliResult): Array<Record<string, unknown>> =>
   (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows;
 
+// #587: the schedule is created with the terminal leaf, not with SQL; its
+// periods are still seeded with SQL until they have a leaf (#613).
 async function schedule(fx: Fixture): Promise<string> {
-  const id = uuidv4();
-  await query(
-    `INSERT INTO pay_schedules (id, tenant_id, entity_id, name, frequency, country_code, first_period_start, is_active)
-     VALUES ($1, $2, $3, 'Quincenal', 'quincenal', 'MX', '2026-01-01', true)`,
-    [id, fx.tenantId, fx.entityId]
-  );
-  return id;
+  const r = await cli(['create', '--name', 'Quincenal', '--frequency', 'quincenal', '--country', 'MX',
+    '--first-start', '2026-07-01', '--json'], fx, 'pay-schedule');
+  expect(r.exitCode, String(r.errs[0])).toBe(0);
+  return String(rowsOf(r)[0].id);
 }
 
 async function period(fx: Fixture, scheduleId: string): Promise<string> {
