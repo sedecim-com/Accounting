@@ -256,7 +256,7 @@ export interface DatosDePolizas {
  * nodes: two copies that drift apart would throw the whole month's file over
  * one vendor's RFC again.
  */
-export const RFC_PATTERN =/^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
+export const RFC_PATTERN = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Dos decimales exactos, con signo o sin él. Lo que `importeAnexo24` produce. */
 const IMPORTE_RE = /^-?\d+\.\d{2}$/;

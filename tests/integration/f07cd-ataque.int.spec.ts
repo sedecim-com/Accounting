@@ -724,7 +724,7 @@ describe('el RFC del proveedor, que las pólizas validan en un nodo y no en el o
 
   it('un RFC malformado deja la póliza sin comprobante y sin rastro, nombrada, en vez de tirar el archivo', async () => {
     // El mismo dato que la DIOT clasifica y nombra. Aquí:
-    //   · `nodoDeComprobante` exige RFC_RE y LANZA (polizas-xml.ts:340);
+    //   · `nodoDeComprobante` exige RFC_PATTERN y LANZA (polizas-xml.ts:340);
     //   · `nodoDePago` emite @RFC sin comprobar nada.
     const uuid = uuidv4();
     const v = await sembrarProveedor(f.entityId, f.userId, 'RFC Corto SA', {
