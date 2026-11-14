@@ -344,6 +344,10 @@ describe('una póliza que mueve dinero y no trae el rastro', () => {
     expect(sinRastro.length).toBeGreaterThan(0);
     expect(sinRastro.map((h) => h.referencia)).toContain(numero);
     expect(sinRastro[0].detalle).toContain('cuenta destino');
+    // The datum belongs on the payment here, so the remedy sends the reader
+    // there, unlike a payee gap that lives on the counterparty record.
+    expect(sinRastro[0].detalle).toContain('payment create --check-number/--to-account/--to-bank');
+    expect(sinRastro[0].detalle).not.toContain('falta en el registro');
     expect(r.puedeEntregarse).toBe(false);
     // Y NO se archiva: un artefacto es lo que se entrega, y esto no se entrega.
     expect(r.artefacto).toBeNull();
@@ -687,8 +691,14 @@ describe('a payment node the XSD would reject is left out and its entry is named
     // The motive names the vendor whose record lacks the datum, and the
     // remedy does not send anyone to the payment: reversing it and paying
     // again leaves two blocking entries where there was one.
-    expect(untraced[0].detalle).toContain(g.vendorId);
-    if (vendor.name.trim() !== '') expect(untraced[0].detalle).toContain(`«${vendor.name}»`);
+    // The motive names the vendor on its own. The remedy repeats the name
+    // after «el registro del», so the leading comma pins the motive's
+    // wording: without it «del proveedor» would satisfy the substring.
+    const namedVendor =
+      vendor.name.trim() === ''
+        ? `, el proveedor (id ${g.vendorId}), `
+        : `, el proveedor «${vendor.name}» (id ${g.vendorId}), `;
+    expect(untraced[0].detalle).toContain(namedVendor);
     expect(untraced[0].detalle).toContain('falta en el registro del proveedor');
     expect(untraced[0].detalle).not.toContain('payment create');
     expect(r.puedeEntregarse).toBe(false);
