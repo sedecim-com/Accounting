@@ -14,8 +14,8 @@ Este documento reconstruye, **verificado contra `git log` y contra `gh pr view` 
 
 **Censo, medido sobre el árbol** (`npm run historial:estado`):
 
-- **327** PRs registrados aquí.
-- El más alto registrado es el **#616**.
+- **328** PRs registrados aquí.
+- El más alto registrado es el **#617**.
 - **13** commits directos a `main`, de antes del flujo por PR (la fila «—» del Sprint 1).
 
 CI lo verifica con `--check`, que falla cuando un PR lleva más de **7 días** fusionado sin aparecer aquí. La gracia existe para que una fusión no ponga en rojo los demás PRs abiertos; el techo, para que el documento no pueda pudrirse.
@@ -493,6 +493,7 @@ Fuente: **verificado** contra `git log --first-parent` de `develop`. Fecha de fu
 | [#614](https://github.com/sedecim-com/Accounting/pull/614) | History and backlog: the six PRs merged on November 14, and the pay calendar task split in two | 2026-11-14 | — | squash `7df4e0d`. Las filas de #585, #604, #531, #610, #609 y #534, y la de este mismo PR. El backlog marca hechas las tareas de #531 y de #610, dice qué le falta a la de #532 después de #534, y parte en dos la del calendario de nómina: los calendarios se quedan en #587 y los periodos pasan a #613. |
 | [#615](https://github.com/sedecim-com/Accounting/pull/615) | Payroll: pay schedules are created and listed from the terminal | 2026-11-14 | MNE-001-403 | squash `88337d0`. Cierra #587. `mnemosine pay-schedule create` y `list`: el calendario de nómina se crea y se lista desde la terminal, y la prueba de la corrida deja de sembrarlo con SQL. Es la primera mitad del plan de #587, que se partió por tamaño; los periodos son #613. |
 | [#616](https://github.com/sedecim-com/Accounting/pull/616) | Payroll: pay periods are created and listed from the terminal | 2026-11-14 | MNE-001-404 | squash `f5cb29e`. Cierra #613. `mnemosine pay-period create --schedule --count` y `list`: los periodos de un calendario se crean y se listan desde la terminal, y la prueba de la corrida ya no siembra nada con SQL. De paso corrige tres defectos del servicio: una repetición reportaba periodos que no había escrito, la lectura del último periodo no llevaba alcance de entidad, y un id que no es UUID salía como error interno (la ruta REST responde ahora 404). |
+| [#617](https://github.com/sedecim-com/Accounting/pull/617) | History and backlog: the two payroll calendar PRs, and their tasks marked done | 2026-11-14 | — | Las filas de #615 y #616, y la de este mismo PR. El backlog marca hechas las tareas del calendario y de los periodos de nómina (#587 y #613). La fila de #614 gana su hash, y la nota de #585 dice lo que dice su propio commit sobre los siete PRs de Dependabot. |
 
 ## Sin sprint / no clasificado
 
