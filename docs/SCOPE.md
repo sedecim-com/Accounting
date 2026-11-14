@@ -19,7 +19,7 @@
 
 Un sistema contable **internacional, AI-first y operado desde la terminal**, con un agente de IA que **propone y nunca dispone**. Lleva partida doble sobre PostgreSQL — catálogo, pólizas, clientes y proveedores, bancos, periodos, reportes — y opera de forma automática al recibir la información de las fuentes definidas para cada jurisdicción (CFDI del SAT, estados de cuenta, nómina), cumpliendo las normas contables generales (NIF, US GAAP, IFRS/NIIF) y las particulares de cada país **dentro del motor, no encima de él**.
 
-Empieza por **México y Estados Unidos**. México es la jurisdicción de origen y la más completa (CFDI 4.0, catálogos del SAT, IVA sobre base de flujo, nómina LFT/LSS); Estados Unidos tiene hoy la nómina federal y estatal —con tablas por corregir— y poco más. Cada jurisdicción es un **paquete configurable** sobre un motor común, con un panel que permite ajustar sus diferencias — el diseño está en [`docs/jurisdicciones.md`](jurisdicciones.md) y el inventario verificado de qué motor existe para cada país en [`docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md`](investigacion/2026-09-06-normas-y-motores/motores-inventario.md).
+Empieza por **México y Estados Unidos**. México es la jurisdicción de origen y la más completa (CFDI 4.0, catálogos del SAT, IVA sobre base de flujo, nómina LFT/LSS); Estados Unidos tiene hoy la nómina federal y estatal —con tablas por corregir— y poco más. El diseño hace de cada jurisdicción un **paquete configurable** sobre un motor común, con un panel que permite ajustar sus diferencias ([`docs/jurisdicciones.md`](jurisdicciones.md)); en el código esa frontera todavía no existe (ver «El objetivo»). El inventario verificado de qué motor existe para cada país está en [`docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md`](investigacion/2026-09-06-normas-y-motores/motores-inventario.md).
 
 ## El problema
 
@@ -101,7 +101,7 @@ Son siete dimensiones: núcleo contable, multijurisdicción, nómina, NIF, NIIF,
 Lo que esa revisión deja dicho, para no confundir la visión con el estado:
 
 - **Multijurisdicción todavía no es una propiedad del motor.** El código conoce dos países (`JurisdictionCode = 'MX' | 'US'`), y el paquete por país de [`docs/jurisdicciones.md`](jurisdicciones.md) no existe como frontera.
-- **NIIF es hoy conocimiento del agente, no comportamiento.** Ninguna puerta crea una entidad `ifrs` y ningún motor lee la norma de la entidad.
+- **NIIF es hoy conocimiento del agente, no comportamiento.** Ninguna puerta crea una entidad `ifrs`, y ningún motor de medición ni de presentación lee la norma de la entidad: hoy la norma sólo decide, junto con el país, si la entidad recibe el estrato fiscal mexicano.
 - **NIF vive dentro de los motores, sin módulo.** Faltan el estado de cambios en el capital, la estructura del estado de resultado integral, los impuestos a la utilidad y las revelaciones.
 - **La nómina calcula impuestos sobre importes tecleados** y no corre de punta a punta desde el binario.
 
@@ -173,7 +173,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 ## Operación
 
 - **Despliegue:** no hay un entorno de producción declarado en el repo. Hoy se instala en el equipo del despacho y se opera con el CLI ([`docs/wiki/Puesta-en-marcha.md`](wiki/Puesta-en-marcha.md)).
-- **Ramas:** `feature → develop → release → main`, con un tag en cada fusión a `main` ([ADR-0008](adr/0008-develop-release-branches.md), #333). Al 2026-11-13 ese flujo no existe entero: `release` no está en `origin`, `main` no recibe nada desde el 2026-09-29 y no hay tags (`git ls-remote origin`). Qué se hace con ello es la decisión D-06 de [PRD-003](prd/PRD-003-producto-completo.md).
+- **Ramas:** `feature → develop → release → main`, con un tag en cada fusión a `main` ([ADR-0008](adr/0008-develop-release-branches.md), #333). Al 2026-11-13 ese flujo no existe entero: `release` no está en `origin`, `main` no recibe nada desde el 2026-09-29 y no hay tags (`git ls-remote origin`). Ejecutarlo no es una decisión abierta, es una acción del owner: hacer de `develop` la rama por omisión, protegerla y crear `release` en el primer corte ([PRD-003](prd/PRD-003-producto-completo.md) §8). Lo que sí sigue abierto es cómo se concilian esas ramas con el despliegue de la plataforma (#372).
 - **Salud:** `mnemosine doctor`, y en REST `/health` y `/ready`.
 - **Respaldo:** `mnemosine backup create|verify --restore|restore`. CI ensaya la restauración en cada corrida.
 - **Rollback de código:** revertir el PR. Para el esquema, una migración nueva; nunca se edita una aplicada.
@@ -195,7 +195,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 | Pregunta | Dueño | Fecha |
 |---|---|---|
 | Las decisiones pendientes de la ruta al MVP (`status:needs-clarification`) | @vic2099 | ver #329 |
-| Las nueve decisiones del producto completo: libros por norma, tercera jurisdicción, Estados Unidos, superficies ajenas al objetivo, renombrado interno, ramas, agentes externos, plataforma y alcance de la nómina | @vic2099 | ver [PRD-003](prd/PRD-003-producto-completo.md) §8 |
+| Las diez decisiones del producto completo: libros por norma, tercera jurisdicción, Estados Unidos, superficies ajenas al objetivo, renombrado interno, bóveda de producción, agentes externos, plataforma, alcance de la nómina y capacidad de revisión | @vic2099 | ver [PRD-003](prd/PRD-003-producto-completo.md) §8 y #603 |
 
 ## Preguntas contestadas
 
@@ -204,7 +204,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 | ¿Qué SLO de disponibilidad y latencia tiene una instalación de despacho? | 99.5 % en horario laboral (L–S, 8–20 h, CDMX); CLI de lectura p95 < 2 s; API `/v1` p95 < 500 ms; cierre de mes sin límite. Ver «Operación» | @vic2099 | 2026-09-30 |
 | ¿Qué retención y qué cifrado en reposo se exigen por dato (CFF, LFPDPPP)? | Contabilidad y CFDI, 5 años desde la última declaración relacionada (CFF art. 30), sin borrado antes; credenciales fiscales y PII de nómina cifradas en reposo; la PII se suprime al terminar la relación y su plazo legal (LFPDPPP); respaldos cifrados. Ver «Datos y clasificación» | @vic2099 | 2026-09-30 |
 | ¿Qué carpetas no debe tocar nunca un agente, además de las de `CODEOWNERS`? | Ninguna. Las de `CODEOWNERS` tampoco están prohibidas: piden la revisión del owner | @vic2099 | 2026-09-30 |
-| ¿Se adelantan `develop` y `release` (#333) para llegar a N1, o la plataforma registra una excepción para repos sin despliegue? | Se crean: existen en `origin` desde el 2026-09-30, creadas desde `main` en `70acac8`. El flujo es [ADR-0008](adr/0008-develop-release-branches.md) | @vic2099 | 2026-09-30 |
+| ¿Se adelantan `develop` y `release` (#333) para llegar a N1, o la plataforma registra una excepción para repos sin despliegue? | Se crean: existen en `origin` desde el 2026-09-30, creadas desde `main` en `70acac8`. El flujo es [ADR-0008](adr/0008-develop-release-branches.md). **Al 2026-11-13 la respuesta ya no describe el repositorio:** `develop` recibe el trabajo, pero `release` no está en `origin` (ver «Operación», Ramas) | @vic2099 | 2026-09-30 |
 
 ## Riesgos conocidos
 
@@ -231,7 +231,7 @@ Las cinco que un cambio no debe romper jamás. Cada una tiene criterios en `src/
 
 | Fecha | Cambio | PR |
 |---|---|---|
-| 2026-11-14 | El objetivo del producto, dictado por el owner el 2026-11-13, con su PRD en revisión (PRD-003) y la revisión del árbol contra él. Se corrigen tres afirmaciones que el árbol ya no sostiene: los paquetes de jurisdicción, las ramas y lo que sigue abierto en nómina | este |
+| 2026-11-14 | El objetivo del producto, dictado por el owner el 2026-11-13, con su PRD en revisión (PRD-003) y la revisión del árbol contra él. Se corrigen las afirmaciones que el árbol ya no sostiene: los paquetes de jurisdicción, también en la Visión; las ramas, con la respuesta del 2026-09-30 anotada; y lo que sigue abierto en nómina | este |
 | 2026-09-30 | Firmado por el owner (#337): sin marcas `[inferido]`, la regulación con LFT y NIF, las preguntas de SLO, retención, carpetas y ramas contestadas, y el flujo `develop → release → main` (ADR-0008, #333) | este |
 | 2026-09-26 | Corregida la relación con `accounting-manager`: conviven, con un solo escritor por compañía de Contalink (ADR-0004 sustituye al 0003, #342) | este |
 | 2026-09-26 | Resuelta la fuente de verdad frente a `accounting-manager`: este repo (ADR-0003, #342) | #347 |

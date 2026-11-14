@@ -48,7 +48,7 @@ Ninguna dimensión del objetivo está por encima de «parcial», y las dos que e
 
 ## Lo que atraviesa todas las áreas
 
-1. **La norma contable no gobierna nada.** La entidad guarda su norma y ningún motor, validación, informe ni clave del panel la lee: decide el país. Mientras eso siga así, NIF y NIIF no se separan y un motor nuevo nace atado a México.
+1. **La norma contable no gobierna la contabilidad.** La entidad guarda su norma, y ningún reconocimiento, validación, informe ni clave del panel cambia por ella: decide el país. Lo único que la norma decide hoy es fiscal —con `mx_nif` la entidad recibe el estrato fiscal mexicano—, la fuga inversa. Mientras eso siga así, NIF y NIIF no se separan y un motor nuevo nace atado a México.
 2. **El paquete de jurisdicción es diseño.** El contrato está bien pensado en `docs/jurisdicciones.md`; en el código hay dos países cableados y reglas mexicanas dentro del cierre, la validación y el posteo comunes.
 3. **REST va por delante del CLI.** Hay motores que sólo se alcanzan por la API —el calendario y los periodos de nómina, el finiquito, los formularios de Estados Unidos—, y el binario ni siquiera registra los calculadores de nómina.
 4. **Los instrumentos miden el MVP, no el objetivo.** El plan tiene 13 de 15 paquetes en verde y ningún criterio sobre NIF, NIIF o un tercer país; el catálogo de comandos da un porcentaje global que no distingue dimensiones.
@@ -533,13 +533,13 @@ Dos clases de cosas en una misma lista. Las **fugas**: código mexicano que vive
 
 ## Los pull requests abiertos
 
-| PR | Qué es | Primer revisor | Contra-revisor | Disposición |
+| PR | Qué es | Primer revisor | Contra-revisor | Disposición propuesta |
 |---|---|---|---|---|
-| #531 | Anexo 24: el nodo de pago sin beneficiario o RFC se omite y se nombra su póliza | Actualizar y fusionar | De acuerdo | Se actualiza con `develop` y con cuatro correcciones pequeñas: el remedio según la causa, el tercero nombrado, un aviso falso y una sola expresión de RFC |
-| #534 | Anexo 24: el nodo de pago sin clave de banco | Actualizar y fusionar, después de #531 | De acuerdo, con condiciones | Después de #531, con textos que no receten lo imposible |
-| #561 | Migración 318: diez columnas de clave sin escritor ni lector | Cerrar | De acuerdo | Cerrado; las columnas llegan con su escritor (checkpoint en #158) |
-| #562 | `statutoryLanguage` en el paquete de jurisdicción | Rehacer | Actualizar y fusionar | Se conserva la tabla y se retira el resolutor por entidad, que no tiene lector; espera el plan aprobado en #159 |
-| #573 a #582 | Siete PRs de Dependabot contra `main` | Cerrar y aplicar a mano contra `develop` | — | Sustituidos por #585 |
+| #531 | Anexo 24: el nodo de pago sin beneficiario o RFC se omite y se nombra su póliza | Actualizar y fusionar | De acuerdo | Propuesta: actualizarlo con `develop` y con cuatro correcciones pequeñas —el remedio según la causa, el tercero nombrado, un aviso falso y una sola expresión de RFC— y fusionarlo |
+| #534 | Anexo 24: el nodo de pago sin clave de banco | Actualizar y fusionar, después de #531 | De acuerdo, con condiciones | Propuesta: después de #531, con textos que no receten lo imposible |
+| #561 | Migración 318: diez columnas de clave sin escritor ni lector | Cerrar | De acuerdo | Cerrado el 2026-11-13: es lo único de esta columna que ya ocurrió. Las columnas llegan con su escritor (checkpoint en #158) |
+| #562 | `statutoryLanguage` en el paquete de jurisdicción | Rehacer | Actualizar y fusionar | Propuesta: conservar la tabla y retirar el resolutor por entidad, que no tiene lector; espera el plan aprobado en #159 |
+| #573 a #582 | Siete PRs de Dependabot contra `main` | Cerrar y aplicar a mano contra `develop` | — | Propuesta: sustituirlos por #585, contra `develop`, y cerrarlos cuando se fusione |
 
 El detalle de cada revisión, con sus defectos y su evidencia, está en `hallazgos.json`, bajo `prs`.
 
@@ -551,6 +551,6 @@ De 96: 30 se mantienen, 23 hay que reescribirlas porque su cuerpo describe traba
 
 - Tipos y lint en verde: 1 096 avisos, con el trinquete en 1 106.
 - 9 190 pruebas unitarias en verde.
-- Plan: 13 de 15 paquetes. En rojo, E4.2 (siete copias del SQL de saldos fuera de la capa de informes) y E5.1 (las herramientas del agente no se derivan del registro de riesgo; `--continue` no rehidrata).
-- `npm audit --omit=dev`: 8 vulnerabilidades, una crítica. Las corrige #585.
+- Plan: 13 de 15 paquetes. Sin cerrar, E4.2 en 4 de 5 (siete copias del SQL de saldos fuera de la capa de informes) y E5.1 en 24 de 26 (las herramientas del agente no se derivan del registro de riesgo; `--continue` no rehidrata).
+- `npm audit --omit=dev`: 8 vulnerabilidades, una crítica. #585 propone corregirlas.
 - El historial quedó corto dos veces en seis semanas y puso en rojo a todos los PRs; lo corrigieron #571 y #583.
