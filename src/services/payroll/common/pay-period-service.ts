@@ -169,3 +169,32 @@ export async function generatePayPeriods(
   }
   return ids;
 }
+
+export interface PayScheduleRow {
+  id: string;
+  name: string;
+  frequency: string;
+  country_code: string;
+  first_period_start: Date | string;
+  pay_day_offset: number;
+  is_active: boolean;
+  employees: number;
+}
+
+/** The schedules of the entity, active ones unless `all`, with how many employees each one pays. */
+export async function listPaySchedules(
+  scope: EntityScope,
+  options: { all?: boolean; limit?: number; offset?: number } = {}
+): Promise<PayScheduleRow[]> {
+  const result = await query<PayScheduleRow>(
+    `SELECT ps.id, ps.name, ps.frequency, ps.country_code, ps.first_period_start, ps.pay_day_offset, ps.is_active,
+            (SELECT COUNT(*)::int FROM employees e
+              WHERE e.pay_schedule_id = ps.id AND e.tenant_id = $1 AND e.entity_id = $2) AS employees
+       FROM pay_schedules ps
+      WHERE ps.tenant_id = $1 AND ps.entity_id = $2 AND ($3::boolean OR ps.is_active)
+      ORDER BY ps.created_at, ps.id
+      LIMIT $4 OFFSET $5`,
+    [scope.tenantId, scope.entityId, options.all === true, options.limit ?? null, options.offset ?? 0]
+  );
+  return result.rows;
+}
