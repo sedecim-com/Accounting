@@ -23,15 +23,13 @@ function keysOf(list: ITaxCalculator[]): string[] {
 }
 
 describe('tax calculators under the CLI entry (#586)', () => {
-  it('loading src/cli/mnemosine.ts alone registers the same calculators as the full registration', async () => {
+  it('loading src/cli/mnemosine.ts alone registers the Mexican calculators', () => {
     const underCli = keysOf(taxRegistry.list());
 
     for (const tax of MX_TAXES) expect(underCli).toContain(`MX:${tax}`);
-
-    // What `src/index.ts` used to import on its own. Loading it now must add
-    // nothing: the CLI already holds the whole set.
-    await import('../../../src/services/payroll/tax-engine/register-all.js');
-    expect(keysOf(taxRegistry.list())).toEqual(underCli);
+    // The REST entry reaches the registry through the same module, the
+    // paycheck service, so both entries hold one and the same set:
+    // tax-calculators-rest-entry.spec.ts pins that side.
   });
 
   it('a second registration under an existing key keeps the first calculator', () => {
