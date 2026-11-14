@@ -298,13 +298,34 @@ export const E2_1: Criterio[] = [
       // La cadena de middlewares vive al principio; el manejador, detrás.
       const ROUTER = /router\.(get|post|patch|put|delete)\(\s*'([^']*)'([\s\S]*?)(?=\nrouter\.|\nexport default)/g;
       const desprotegidas: string[] = [];
+      const unscopedById: string[] = [];
       let revisadas = 0;
+      // A literal that reads or writes a row by id with no scope predicate in
+      // the same statement.
+      const BY_ID_WITHOUT_SCOPE = /(['`])(?:(?!\1)[^])*?\bWHERE\s+(?:\w+\.)?id\s*=\s*\$1\b(?:(?!\1)[^])*\1/g;
 
       for (const f of archivos) {
         const texto = sinComentarios(leer(f));
         for (const m of texto.matchAll(ROUTER)) {
           revisadas += 1;
           const cuerpo = m[3];
+          // #588: the check below only looks at routes that NAME an entity, so
+          // a route that never mentions one was skipped — and that is exactly
+          // the shape of a by-id read that crosses the entity boundary:
+          // `GET /xml-documents/:id` ran `WHERE id = $1` and nothing else. A
+          // route taking an id from its path that never mentions any scope
+          // (header entity, scope helper, entity_id or tenant_id) and runs an
+          // id-only statement is flagged on its own. A route that scopes
+          // somewhere else in its block is left to the per-route specs: the
+          // re-read after a scoped write (payroll's `/pay-runs/:id/calculate`)
+          // is not a leak.
+          const namesAScope = /req\.entityId|req\.tenantId|entityScope\s*\(|alcance\s*\(|ByIdInScope|entity_id|tenant_id/.test(cuerpo);
+          if (/\/:\w+/.test(m[2]) && !namesAScope) {
+            const statements = [...cuerpo.matchAll(BY_ID_WITHOUT_SCOPE)].map((s) => s[0]);
+            if (statements.some((s) => !/\b(entity_id|tenant_id)\b/.test(s))) {
+              unscopedById.push(`${path.basename(f)} ${m[1].toUpperCase()} ${m[2]}`);
+            }
+          }
           // La entidad la trae la petición: la cabecera ya resuelta en
           // req.entityId, o la query, o el cuerpo, o el parámetro de ruta.
           const derivaDeLaPeticion =
@@ -365,6 +386,14 @@ export const E2_1: Criterio[] = [
         );
       }
 
+      if (unscopedById.length > 0) {
+        return falla(
+          `${unscopedById.length} of ${revisadas} routes read or write a row by the id in their path with no ` +
+            `entity or tenant scope in the SQL: ${unscopedById.slice(0, 6).join(' · ')}. RLS bounds by tenant ` +
+            'only, so a sibling entity of the same tenant is readable by id (#588)'
+        );
+      }
+
       return desprotegidas.length === 0
         ? ok(`${revisadas} rutas revisadas; todas las que derivan su entidad de la petición montan la guarda`)
         : falla(
@@ -374,6 +403,19 @@ export const E2_1: Criterio[] = [
               '. Basta la cabecera x-entity-id para trabajar sobre otra entidad del mismo inquilino'
           );
     },
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/xml-ingestion.ts',
+        de: 'export default router;',
+        a:
+          "router.get('/xml-documents/:id/copy', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {\n" +
+          "  const doc = await query('SELECT * FROM xml_documents WHERE id = $1', [req.params.id]);\n" +
+          '  res.json({ data: doc.rows[0] });\n' +
+          '}));\n\nexport default router;',
+        porque:
+          '#588: a by-id read that names no entity comes back, the shape that read a sibling entity CFDI inside the same tenant while this criterion skipped it for not naming an entity',
+      },
+    ],
   },
   {
     paquete: 'E2.1',

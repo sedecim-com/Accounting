@@ -304,6 +304,7 @@ mirror	memory	E2.1 graphql-surface-withdrawn	package.json	el paquete vuelve: es 
 mirror	memory	E2.1 graphql-surface-withdrawn	package-lock.json	el censo del lock se queda a oscuras: sin contar antes de absolver, «no encontré Apollo» y «no miré» darían el mismo verde — que es exactamente cómo se cegaba el criterio anterior
 mirror	memory	E2.1 graphql-surface-withdrawn	src/index.ts	un fuente vuelve a importar la puerta retirada: el barrido tiene que verlo aunque el paquete no esté declarado
 mirror	memory	E2.1 graphql-surface-withdrawn	src/index.ts	algo vuelve a montarse en /graphql — y el censo de rutas NO lo ve, que es exactamente lo que cegaba al criterio anterior
+mirror	memory	E2.1 route-entity-access-verified	src/api/rest/routes/xml-ingestion.ts	#588: a by-id read that names no entity comes back, the shape that read a sibling entity CFDI inside the same tenant while this criterion skipped it for not naming an entity
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/common/paycheck-service.ts	TEN-12: el recibo vuelve a aceptar al empleado de la sociedad hermana en la corrida propia — su sueldo entra en la póliza de nómina de quien calcula y sus cuotas patronales salen del pasivo de la suya
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/common/paycheck-service.ts	TEN-12: el periodo vuelve a salir del cuerpo y no de la corrida — medido, el IMSS del mismo trabajador pasaba de 71.25 a 133.00 con un periodo de 28 días nombrado en la petición
 mirror	memory	E2.1 payroll-run-scope-is-a-path-not-a-column	src/services/payroll/common/paycheck-service.ts	TEN-12: el empleado se acota contra un valor que no es la entidad de la corrida — la columna sigue escrita en el SQL, pero la llave que la alimenta ya no es la del camino
@@ -1004,6 +1005,7 @@ anchor	src/plan/criteria/e2-1.ts	de: '"express":',
 anchor	src/plan/criteria/e2-1.ts	de: '"packages": {',
 anchor	src/plan/criteria/e2-1.ts	de: "import express from 'express';",
 anchor	src/plan/criteria/e2-1.ts	de: 'app.use(helmet());',
+anchor	src/plan/criteria/e2-1.ts	de: 'export default router;',
 anchor	src/plan/criteria/e2-1.ts	de: 'FROM employees WHERE id = $1 AND tenant_id = $2 AND entity_id = $3',
 anchor	src/plan/criteria/e2-1.ts	de: '[run.pay_period_id, input.tenant_id]',
 anchor	src/plan/criteria/e2-1.ts	de: '[input.employee_id, input.tenant_id, run.entity_id]',
