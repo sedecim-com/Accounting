@@ -185,13 +185,15 @@ el corte). Para actualizar:
 2. Actualiza `ifrs-registry.json` (estados, vigencias, enmiendas, normas
    nuevas) y el documento `niif-*.md` afectado.
 3. Regenera esta tabla: `npx tsx scripts/build-niif-indice.ts`.
-4. Actualiza `verified_at` y corre la suite — el test de sincronía
-   (tests/ai/niif-registry.spec.ts) falla si el índice, el registro y los
-   documentos divergen.
+4. Sube `verified_at` sólo cuando también se revisaron las leyes, regenera la
+   tabla otra vez y corre la suite: el test de sincronía falla si el índice,
+   el registro y los documentos divergen (tests/ai/niif-registry.spec.ts).
 
-Cadencia sugerida: semestral, y siempre que el IASB emita una norma o gran
-enmienda (el work plan lista lo que viene). Última verificación: **2026-08-24**
-(69 fichas verificadas contra fuentes primarias; 3 verificadores adversariales).
+Cadencia: semestral, y siempre que el IASB emita una norma o gran enmienda (el
+work plan lista lo que viene). La renovación semestral, con sus pasos para
+normas y leyes y la fecha en que la prueba de frescura se pone en rojo, está en
+`docs/RUNBOOK.md` («Renovación semestral del corpus normativo»). El corte
+vigente es el que dice la última línea de la tabla de arriba.
 
 ## Cuándo consultar este documento
 

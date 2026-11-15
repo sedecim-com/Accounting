@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DOC_TOPICS } from '../../src/ai/tools/docs-tools.js';
-import { freshnessProblem, monthsSince, regenerateIndice } from '../../scripts/build-niif-indice.js';
+import {
+  freshnessProblem, monthsSince, parseFreshnessMaxMonths, readFreshnessMaxMonths, regenerateIndice,
+} from '../../scripts/build-niif-indice.js';
 
 // __dirname instead of import.meta.url: the test project compiles as CommonJS,
 // where import.meta is a syntax error. Same directory either way, and it is what
@@ -286,11 +288,18 @@ describe('an official page on every card (MNE-001-367)', () => {
 });
 
 describe('freshness of the normative corpus (docs/PROCESS.md)', () => {
-  const processMd = fs.readFileSync(path.join(DOCS, '..', '..', '..', 'docs', 'PROCESS.md'), 'utf-8');
-  const maxMonths = Number(/^FRESHNESS_MAX_MONTHS:\s*(\d+)\s*$/m.exec(processMd)?.[1]);
-
   it('PROCESS.md declares N as a positive whole number of months', () => {
+    // Throws when the line is missing or malformed: there is no default N.
+    const maxMonths = readFreshnessMaxMonths();
     expect(Number.isInteger(maxMonths) && maxMonths > 0).toBe(true);
+  });
+
+  it('reads N from exactly one FRESHNESS_MAX_MONTHS line, and anything else is an error', () => {
+    expect(parseFreshnessMaxMonths('## Frescura\n\nFRESHNESS_MAX_MONTHS: 6\n')).toBe(6);
+    expect(parseFreshnessMaxMonths('FRESHNESS_MAX_MONTHS:12')).toBe(12);
+    const invalid = ['', '- **Plazo máximo (N): 6 meses.**', 'see `FRESHNESS_MAX_MONTHS: 6`', 'FRESHNESS_MAX_MONTHS: 0',
+      'FRESHNESS_MAX_MONTHS: -6', 'FRESHNESS_MAX_MONTHS: 6.5', 'FRESHNESS_MAX_MONTHS: 6\nFRESHNESS_MAX_MONTHS: 12'];
+    for (const text of invalid) expect(() => parseFreshnessMaxMonths(text), JSON.stringify(text)).toThrow(/FRESHNESS_MAX_MONTHS/);
   });
 
   it('counts whole months from verified_at', () => {
@@ -308,12 +317,14 @@ describe('freshness of the normative corpus (docs/PROCESS.md)', () => {
     expect(freshnessProblem('2026-10-01', now, 6)).toMatch(/future/);
     expect(freshnessProblem('2026-9-1', now, 6)).toMatch(/not a YYYY-MM-DD/);
     expect(freshnessProblem('2026-13-45', now, 6)).toMatch(/not a YYYY-MM-DD/);
+    expect(freshnessProblem('2026-02-29', now, 6)).toMatch(/not a YYYY-MM-DD/); // 2026 has no 29 February
   });
 
-  // Intended to go red on its own as the calendar advances (for the current
-  // verified_at, around 2027-03-06): renew the corpus, then bump the date.
+  // Goes red on its own: for verified_at 2026-09-06 and N = 6 on 2027-04-06 (UTC),
+  // the date scripts/corpus-renewal.ts prints (on 2027-03-06, exactly six months
+  // old, it still passes). Renew as docs/RUNBOOK.md says, then bump the date.
   it('verified_at is no older than N months (renew the corpus, then bump the date)', () => {
-    expect(freshnessProblem(registry.verified_at, new Date(), maxMonths)).toBeNull();
+    expect(freshnessProblem(registry.verified_at, new Date(), readFreshnessMaxMonths())).toBeNull();
   });
 
   it('indexes the new NIF A-2 and ONIF 7 (MNE-001-078)', () => {
