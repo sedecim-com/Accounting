@@ -3446,6 +3446,142 @@ export const EN = {
     'the clearing date you assert (YYYY-MM-DD); it is CONTRASTED against the movement, never ' +
     'imposed — the bank dates the clearing',
   'help.bank.check.reconcile.option.json': 'JSON output',
+  // ==== MNE-001-233 · help by key, bank reconciliation, reconciling-item and adjustment (issue #314) ====
+  //
+  // The last of the three bank tasks: these three groups, with the English
+  // they already showed, so no bank help is left without a key. Every generic
+  // flag a leaf declares is worded for it and keeps its own key; what the kernel
+  // injects stays on cli.flag.*. The lists travel as the house's messages name
+  // them: item types {types}, escalation states {values}, unseeded types {types}.
+  'help.bank.reconciliation.description':
+    'The reconciliation session: the two-sided arithmetic that makes `balanced` mean something',
+  'help.bank.reconciliation.run.description':
+    'Guided monthly pass over one account: statement, matching engine, session and reconciling ' +
+    'items; it ALWAYS stops before approve and post, and prints what is missing',
+  'help.bank.reconciliation.run.argument.account': 'bank account to reconcile (name or id)',
+  'help.bank.reconciliation.run.option.period': 'period to reconcile; or give --since and --until together',
+  'help.bank.reconciliation.run.option.since': 'first day of the period (YYYY-MM-DD)',
+  'help.bank.reconciliation.run.option.until': 'last day of the period (YYYY-MM-DD)',
+  'help.bank.reconciliation.run.option.file':
+    'statement to import first; without it, the one already imported for the period is used',
+  'help.bank.reconciliation.run.option.format':
+    'format of the FILE given in --file (not of the output; use --json for that), as in `bank statement import`',
+  'help.bank.reconciliation.run.option.profile': 'CSV column profile to read --file with',
+  'help.bank.reconciliation.run.option.min_confidence':
+    'raise the engine confidence a proposal needs to be applied (0..1); ' +
+    'never below the panel (cotejo_umbral_confianza)',
+  'help.bank.reconciliation.run.option.max_amount':
+    'lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win',
+  'help.bank.reconciliation.run.option.stop_at':
+    'stop after this step; it never goes past `estado`, and never reaches approve or post',
+  'help.bank.reconciliation.run.option.resume':
+    'continue the session already open for this period instead of refusing',
+  'help.bank.reconciliation.run.option.dry_run': 'walk the real path and roll it back',
+  'help.bank.reconciliation.run.option.json': 'JSON output',
+  'help.bank.reconciliation.open.description':
+    'Open the period session, asserting the opening balance equals the previous session closing ' +
+    'and refusing date gaps and overlaps',
+  'help.bank.reconciliation.open.argument.account': 'bank account to open the session on (name or id)',
+  'help.bank.reconciliation.open.option.period': 'period of the session; or give --since and --until together',
+  'help.bank.reconciliation.open.option.since': 'first day of the period (YYYY-MM-DD)',
+  'help.bank.reconciliation.open.option.until': 'last day of the period (YYYY-MM-DD)',
+  'help.bank.reconciliation.open.option.closing_balance':
+    'closing balance you assert; it is COMPARED against the statement, never substituted for it',
+  'help.bank.reconciliation.open.option.statement':
+    'the statement to tie the session to, when the period has more than one',
+  'help.bank.reconciliation.open.option.baseline':
+    'first session only: the reconciled balance the account starts from; ' +
+    'refused unless it equals the books at --baseline-date',
+  'help.bank.reconciliation.open.option.baseline_date':
+    'date of --baseline (YYYY-MM-DD); by default the day before the period',
+  'help.bank.reconciliation.open.option.dry_run': 'do the whole thing and roll it back',
+  'help.bank.reconciliation.open.option.json': 'JSON output',
+  'help.bank.reconciliation.list.description':
+    'List sessions by account, state and period, with the FROZEN variance and how many items are still open',
+  'help.bank.reconciliation.list.option.account': 'only sessions of this bank account (name or id)',
+  'help.bank.reconciliation.list.option.period': 'sessions that overlap this period',
+  'help.bank.reconciliation.list.option.since': 'sessions ending on or after this date (YYYY-MM-DD)',
+  'help.bank.reconciliation.list.option.until': 'sessions starting on or before this date (YYYY-MM-DD)',
+  'help.bank.reconciliation.list.option.all_entities':
+    "every entity of the tenant, for a firm's overview; still bounded inside the SQL",
+  'help.bank.reconciliation.status.description':
+    'Recompute the variance LIVE and print the two-sided breakdown: bank balance, its items one ' +
+    'by one, adjusted; books balance, its items, adjusted; and the difference',
+  'help.bank.reconciliation.status.argument.session': 'session id; without it, the one in progress for --account',
+  'help.bank.reconciliation.status.option.account': 'bank account whose in-progress session to read (name or id)',
+  'help.bank.reconciliation.status.option.tolerance':
+    'residual the close may absorb; only valid where the tolerance policy admits one',
+  'help.bank.reconciliation.close.description':
+    'Recompute the whole arithmetic and move the session to `balanced` ONLY if the variance is ' +
+    'exactly zero (or within the policy tolerance) and every item is classified and dated',
+  'help.bank.reconciliation.close.argument.session': 'session to close',
+  'help.bank.reconciliation.close.option.tolerance':
+    'residual this close may absorb; refused unless the tolerance policy admits one',
+  'help.bank.reconciliation.close.option.dry_run': 'do the whole thing and roll it back',
+  'help.bank.reconciliation.close.option.yes': 'skip the confirmation',
+  'help.bank.reconciliation.close.option.json': 'JSON output',
+  'help.bank.reconciliation.approve.description':
+    'Sign the session, requiring that the approver is not the preparer, and freeze an immutable ' +
+    'snapshot with a hash of its members and its balances',
+  'help.bank.reconciliation.approve.argument.session': 'balanced session to sign',
+  'help.bank.reconciliation.approve.option.reason':
+    'why it is being signed; stored on the session and in the audit trail',
+  'help.bank.reconciliation.approve.option.json': 'JSON output',
+  'help.bank.reconciliation.reopen.description':
+    'Reopen an approved or posted session to in_progress, withdrawing its signature (kept in ' +
+    'the audit trail) and reversing the entries a post booked; refused under a closed ' +
+    'fiscal period',
+  'help.bank.reconciliation.reopen.argument.session': 'approved or posted session to reopen',
+  'help.bank.reconciliation.reopen.option.json': 'JSON output',
+  'help.bank.reconciliation.post.description':
+    'Post the approved adjustment entries and seal the session’s book lines as reconciled, ' +
+    'blocking their edit, their void and their date change',
+  'help.bank.reconciliation.post.argument.session': 'approved session to post',
+  'help.bank.reconciliation.post.option.json': 'JSON output',
+  'help.bank.reconciliation.generate.description':
+    'Produce the two-sided bank reconciliation statement for the audit file: json for the whole ' +
+    'document, md/csv/tsv for the line-by-line statement, plain text to print',
+  'help.bank.reconciliation.generate.argument.session': 'session to write the statement for',
+  'help.bank.reconciling_item.description':
+    'Reconciling items as rows: what explains the difference, with age, owner, due date and escalation',
+  'help.bank.reconciling_item.list.description':
+    'List the typed reconciling items of a session — outstanding checks, deposits in transit, ' +
+    'bank charges, errors — with age, owner, expected settlement date and escalation',
+  'help.bank.reconciling_item.list.argument.session': 'reconciliation session id',
+  'help.bank.reconciling_item.list.option.type': 'only items of this type: {types}',
+  'help.bank.reconciling_item.list.option.over_days':
+    'only what has gone MORE than this many days since its date',
+  'help.bank.reconciling_item.assign.description':
+    'Give a reconciling item an owner, an expected settlement date and notes',
+  'help.bank.reconciling_item.assign.argument.session': 'reconciliation session id',
+  'help.bank.reconciling_item.assign.argument.item': 'reconciling item id',
+  'help.bank.reconciling_item.assign.option.owner': 'who is chasing this item',
+  'help.bank.reconciling_item.assign.option.expected': 'expected settlement date (YYYY-MM-DD)',
+  'help.bank.reconciling_item.assign.option.clear_expected': 'remove the expected date instead of setting one',
+  'help.bank.reconciling_item.assign.option.escalation': 'escalation state: {values}',
+  'help.bank.reconciling_item.assign.option.note': 'note stored with the item',
+  'help.bank.reconciling_item.assign.option.json': 'JSON output',
+  'help.bank.reconciling_item.correct.description':
+    'Say what a reconciling item really was, when the automatic proposal got it wrong',
+  'help.bank.reconciling_item.correct.argument.session': 'reconciliation session id',
+  'help.bank.reconciling_item.correct.argument.item': 'reconciling item id',
+  'help.bank.reconciling_item.correct.option.type': 'what it really is: {types}',
+  'help.bank.reconciling_item.correct.option.amount':
+    'its new contribution to the reconciliation; required when the type changes side',
+  'help.bank.reconciling_item.correct.option.json': 'JSON output',
+  'help.bank.adjustment.description':
+    'The fees, VAT, interest and withholdings a reconciliation uncovers, created as DRAFTS',
+  'help.bank.adjustment.create.description':
+    'Create the fee, VAT, interest, ISR withholding or error correction found in the session AS A ' +
+    'DRAFT waiting for `mnemosine review`; it never posts anything itself',
+  'help.bank.adjustment.create.argument.session': 'reconciliation session the adjustment belongs to',
+  'help.bank.adjustment.create.option.type': 'what the adjustment is',
+  'help.bank.adjustment.create.option.amount':
+    'SIGNED by its effect on the bank account: negative leaves the account, positive enters it',
+  'help.bank.adjustment.create.option.gl_account':
+    'counterparty GL account; required for the types whose accounting role is not seeded yet ({types})',
+  'help.bank.adjustment.create.option.item': 'the reconciling item this adjustment explains',
+  'help.bank.adjustment.create.option.json': 'JSON output',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and

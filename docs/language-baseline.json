@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 910
+    "help-descriptions-without-key": 828
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1492,7 +1492,6 @@
       "asset": 26,
       "audit": 14,
       "backup": 21,
-      "bank": 82,
       "batch": 17,
       "bill": 56,
       "cfdi": 15,

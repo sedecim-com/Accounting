@@ -3314,6 +3314,142 @@ export const ES: Record<keyof typeof EN, string> = {
     'la fecha de cobro que afirmas (AAAA-MM-DD); se CONTRASTA contra el movimiento, nunca se impone — el ' +
     'cobro lo fecha el banco',
   'help.bank.check.reconcile.option.json': 'salida en JSON',
+  // ==== MNE-001-233 · help by key, bank reconciliation, reconciling-item and adjustment (issue #314) ====
+  'help.bank.reconciliation.description':
+    'La sesión de conciliación: la aritmética de dos lados que hace que `balanced` signifique algo',
+  'help.bank.reconciliation.run.description':
+    'Pase guiado del mes sobre una cuenta: estado de cuenta, motor de cotejo, sesión y partidas ' +
+    'conciliatorias; SIEMPRE se detiene antes de `approve` y `post`, e imprime lo que falta',
+  'help.bank.reconciliation.run.argument.account': 'cuenta bancaria a conciliar (nombre o id)',
+  'help.bank.reconciliation.run.option.period': 'periodo a conciliar; o pasa --since y --until juntas',
+  'help.bank.reconciliation.run.option.since': 'primer día del periodo (AAAA-MM-DD)',
+  'help.bank.reconciliation.run.option.until': 'último día del periodo (AAAA-MM-DD)',
+  'help.bank.reconciliation.run.option.file':
+    'estado de cuenta a importar primero; sin él, se usa el que ya está importado para el periodo',
+  'help.bank.reconciliation.run.option.format':
+    'formato del ARCHIVO de --file (no de la salida; para eso está --json), como en `bank statement import`',
+  'help.bank.reconciliation.run.option.profile': 'perfil de columnas CSV con el que se lee --file',
+  'help.bank.reconciliation.run.option.min_confidence':
+    'sube la confianza del motor que una propuesta necesita para aplicarse (0..1); ' +
+    'nunca por debajo del panel (cotejo_umbral_confianza)',
+  'help.bank.reconciliation.run.option.max_amount':
+    'baja el techo de un cotejo automático; el panel (cotejo_monto_maximo_auto) y el piso inquebrantable ' +
+    'siguen ganando',
+  'help.bank.reconciliation.run.option.stop_at':
+    'se detiene después de este paso; nunca pasa de `estado`, y nunca llega a `approve` ni a `post`',
+  'help.bank.reconciliation.run.option.resume':
+    'continúa la sesión ya abierta de este periodo en vez de rehusarse',
+  'help.bank.reconciliation.run.option.dry_run': 'recorre el camino real y luego lo deshace',
+  'help.bank.reconciliation.run.option.json': 'salida en JSON',
+  'help.bank.reconciliation.open.description':
+    'Abre la sesión del periodo aseverando que el saldo inicial es igual al cierre de la sesión anterior y ' +
+    'rechazando los huecos y los traslapes de fechas',
+  'help.bank.reconciliation.open.argument.account': 'cuenta bancaria sobre la que se abre la sesión (nombre o id)',
+  'help.bank.reconciliation.open.option.period': 'periodo de la sesión; o pasa --since y --until juntas',
+  'help.bank.reconciliation.open.option.since': 'primer día del periodo (AAAA-MM-DD)',
+  'help.bank.reconciliation.open.option.until': 'último día del periodo (AAAA-MM-DD)',
+  'help.bank.reconciliation.open.option.closing_balance':
+    'saldo final que afirmas; se COMPARA contra el estado de cuenta, nunca lo sustituye',
+  'help.bank.reconciliation.open.option.statement':
+    'el estado de cuenta al que se ata la sesión, cuando el periodo tiene más de uno',
+  'help.bank.reconciliation.open.option.baseline':
+    'sólo en la primera sesión: el saldo conciliado del que parte la cuenta; se rechaza si no coincide ' +
+    'con los libros a la fecha de --baseline-date',
+  'help.bank.reconciliation.open.option.baseline_date':
+    'fecha de --baseline (AAAA-MM-DD); por omisión, el día anterior al periodo',
+  'help.bank.reconciliation.open.option.dry_run': 'lo hace todo y luego lo deshace',
+  'help.bank.reconciliation.open.option.json': 'salida en JSON',
+  'help.bank.reconciliation.list.description':
+    'Lista las sesiones por cuenta, estado y periodo, con la variación CONGELADA y cuántas partidas siguen ' +
+    'abiertas',
+  'help.bank.reconciliation.list.option.account': 'sólo las sesiones de esta cuenta bancaria (nombre o id)',
+  'help.bank.reconciliation.list.option.period': 'sesiones que se traslapan con este periodo',
+  'help.bank.reconciliation.list.option.since': 'sesiones que terminan en esta fecha o después (AAAA-MM-DD)',
+  'help.bank.reconciliation.list.option.until': 'sesiones que empiezan en esta fecha o antes (AAAA-MM-DD)',
+  'help.bank.reconciliation.list.option.all_entities':
+    'todas las entidades del inquilino, para una vista de conjunto del despacho; el alcance sigue acotado dentro del SQL',
+  'help.bank.reconciliation.status.description':
+    'Recalcula la variación EN VIVO e imprime el desglose de los dos lados: saldo del banco, sus partidas una ' +
+    'por una, ajustado; saldo de libros, sus partidas, ajustado; y la diferencia',
+  'help.bank.reconciliation.status.argument.session': 'id de la sesión; sin él, la que está en curso en --account',
+  'help.bank.reconciliation.status.option.account': 'cuenta bancaria cuya sesión en curso se lee (nombre o id)',
+  'help.bank.reconciliation.status.option.tolerance':
+    'residuo que el cierre puede absorber; sólo vale donde la política de tolerancia admite uno',
+  'help.bank.reconciliation.close.description':
+    'Recalcula la aritmética completa y pasa la sesión a `balanced` SÓLO si la variación es exactamente cero ' +
+    '(o queda dentro de la tolerancia de la política) y toda partida está clasificada y fechada',
+  'help.bank.reconciliation.close.argument.session': 'sesión a cerrar',
+  'help.bank.reconciliation.close.option.tolerance':
+    'residuo que este cierre puede absorber; se rechaza si la política de tolerancia no admite uno',
+  'help.bank.reconciliation.close.option.dry_run': 'lo hace todo y luego lo deshace',
+  'help.bank.reconciliation.close.option.yes': 'omite la confirmación',
+  'help.bank.reconciliation.close.option.json': 'salida en JSON',
+  'help.bank.reconciliation.approve.description':
+    'Firma la sesión exigiendo que el aprobador no sea el preparador, y congela una instantánea inmutable con ' +
+    'un hash de sus miembros y de sus saldos',
+  'help.bank.reconciliation.approve.argument.session': 'sesión cuadrada a firmar',
+  'help.bank.reconciliation.approve.option.reason':
+    'por qué se firma; queda en la sesión y en el rastro de auditoría',
+  'help.bank.reconciliation.approve.option.json': 'salida en JSON',
+  'help.bank.reconciliation.reopen.description':
+    'Reabre una sesión aprobada o contabilizada y la regresa a in_progress, retira su firma (el rastro de ' +
+    'auditoría la conserva) y revierte los asientos que contabilizó un `post`; se rechaza si la cubre un ' +
+    'periodo fiscal cerrado',
+  'help.bank.reconciliation.reopen.argument.session': 'sesión aprobada o contabilizada a reabrir',
+  'help.bank.reconciliation.reopen.option.json': 'salida en JSON',
+  'help.bank.reconciliation.post.description':
+    'Contabiliza los asientos de ajuste aprobados y sella como conciliadas las líneas de libros de la sesión, ' +
+    'bloqueando su edición, su cancelación y su cambio de fecha',
+  'help.bank.reconciliation.post.argument.session': 'sesión aprobada a contabilizar',
+  'help.bank.reconciliation.post.option.json': 'salida en JSON',
+  'help.bank.reconciliation.generate.description':
+    'Genera el estado de conciliación bancaria de dos lados para el expediente de auditoría: json para el ' +
+    'documento entero, md/csv/tsv para el estado en renglones, texto plano para imprimir',
+  'help.bank.reconciliation.generate.argument.session': 'sesión de la que se escribe el estado de conciliación',
+  'help.bank.reconciling_item.description':
+    'Las partidas conciliatorias como renglones: lo que explica la diferencia, con antigüedad, responsable, ' +
+    'fecha esperada y escalamiento',
+  'help.bank.reconciling_item.list.description':
+    'Lista las partidas conciliatorias tipificadas de una sesión —cheques en circulación, depósitos en ' +
+    'tránsito, cargos del banco, errores— con antigüedad, responsable, fecha esperada de liquidación y ' +
+    'escalamiento',
+  'help.bank.reconciling_item.list.argument.session': 'id de la sesión de conciliación',
+  'help.bank.reconciling_item.list.option.type': 'sólo las partidas de este tipo: {types}',
+  'help.bank.reconciling_item.list.option.over_days': 'sólo lo que lleva MÁS de este número de días desde su fecha',
+  'help.bank.reconciling_item.assign.description':
+    'Asigna a una partida conciliatoria un responsable, una fecha esperada de liquidación y notas',
+  'help.bank.reconciling_item.assign.argument.session': 'id de la sesión de conciliación',
+  'help.bank.reconciling_item.assign.argument.item': 'id de la partida conciliatoria',
+  'help.bank.reconciling_item.assign.option.owner': 'quién persigue esta partida',
+  'help.bank.reconciling_item.assign.option.expected': 'fecha esperada de liquidación (AAAA-MM-DD)',
+  'help.bank.reconciling_item.assign.option.clear_expected': 'quita la fecha esperada en vez de fijar una',
+  'help.bank.reconciling_item.assign.option.escalation': 'estado de escalamiento: {values}',
+  'help.bank.reconciling_item.assign.option.note': 'nota que se guarda con la partida',
+  'help.bank.reconciling_item.assign.option.json': 'salida en JSON',
+  'help.bank.reconciling_item.correct.description':
+    'Dice qué era de verdad una partida conciliatoria, cuando la propuesta automática se equivocó',
+  'help.bank.reconciling_item.correct.argument.session': 'id de la sesión de conciliación',
+  'help.bank.reconciling_item.correct.argument.item': 'id de la partida conciliatoria',
+  'help.bank.reconciling_item.correct.option.type': 'lo que es en realidad: {types}',
+  'help.bank.reconciling_item.correct.option.amount':
+    'su nueva aportación a la conciliación; obligatoria cuando el tipo cambia de lado',
+  'help.bank.reconciling_item.correct.option.json': 'salida en JSON',
+  'help.bank.adjustment.description':
+    'Las comisiones, el IVA, los intereses y las retenciones que una conciliación descubre, creados como ' +
+    'BORRADORES',
+  'help.bank.adjustment.create.description':
+    'Crea la comisión, el IVA, los intereses, la retención de ISR o la corrección de un error que se encontró ' +
+    'en la sesión COMO BORRADOR en espera de `mnemosine review`; nunca contabiliza nada por su cuenta',
+  'help.bank.adjustment.create.argument.session': 'sesión de conciliación a la que pertenece el ajuste',
+  'help.bank.adjustment.create.option.type': 'qué es el ajuste',
+  'help.bank.adjustment.create.option.amount':
+    'CON SIGNO según su efecto en la cuenta bancaria: negativo es lo que sale de la cuenta, positivo lo que ' +
+    'entra',
+  'help.bank.adjustment.create.option.gl_account':
+    'cuenta de mayor de la contrapartida; obligatoria para los tipos cuyo rol contable todavía no está ' +
+    'sembrado ({types})',
+  'help.bank.adjustment.create.option.item': 'la partida conciliatoria que este ajuste explica',
+  'help.bank.adjustment.create.option.json': 'salida en JSON',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
