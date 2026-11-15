@@ -136,6 +136,9 @@ import {
   withSelection,
   withStrict,
   abortedByUser,
+  describeCommand,
+  optionByKey,
+  argumentByKey,
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
@@ -1906,10 +1909,8 @@ Examples:
 } as const;
 
 export function registerBankCommand(program: Command, deps: BankCommandDeps): void {
-  const bank = program
-    .command('bank')
-    .alias('banco')
-    .description('Bank accounts and bank statements: master data and imported statements');
+  // Help by key (#314): help.bank[.<group>.<leaf>].{description,option.<flag>,argument.<name>}.
+  const bank = describeCommand(program.command('bank').alias('banco'), 'help.bank.description');
 
   /**
    * El manejador DEVUELVE su código y `run` lo cierra UNA vez.
@@ -2103,45 +2104,35 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     );
   };
 
-  const account = bank
-    .command('account')
-    .alias('cuenta')
-    .description('Bank accounts as master data: identifiers, currency and the 1:1 GL mapping');
+  const account = describeCommand(bank.command('account').alias('cuenta'), 'help.bank.account.description');
 
-  const statement = bank
-    .command('statement')
-    .alias('estado-cuenta')
-    .description('Bank statements as documents: import, inspect and check their integrity');
+  const statement = describeCommand(
+    bank.command('statement').alias('estado-cuenta'),
+    'help.bank.statement.description'
+  );
 
   // ---- bank account create -----------------------------------------
-  const create = account
-    .command('create')
-    .alias('crear')
-    .argument('<name>', 'name this account is known by inside the books')
-    .description(
-      'Register a bank account, validating the CLABE check digit, the ABA routing checksum, ' +
-        'the currency against the GL account and the 1:1 mapping'
-    );
+  const create = describeCommand(
+    argumentByKey(account.command('create').alias('crear'), '<name>', 'help.bank.account.create.argument.name'),
+    'help.bank.account.create.description'
+  );
   withContext(create);
-  create
-    .requiredOption('--bank <name>', 'name of the institution')
-    .requiredOption('--gl-account <code>', 'GL account this bank account maps to, 1:1 (code or id)')
-    .requiredOption('--currency <code>', '3-letter ISO code; must equal the GL account currency')
-    .option(
-      `--type <${TIPOS_DE_CUENTA.join('|')}>`,
-      'account nature; credit-card is a LIABILITY and maps to a liability GL account',
-      'checking'
-    )
-    .option('--clabe <18 digits>', 'CLABE; stored encrypted, only the last 4 are ever shown')
-    .option('--account-number <number>', 'account number; stored encrypted')
-    .option('--routing-ach <9 digits>', 'ABA routing number for ACH')
-    .option('--routing-wire <9 digits>', 'ABA routing number for wires')
-    .option('--sat-bank-code <ccc>', 'SAT c_Banco key; derived from the CLABE when omitted')
-    .option('--branch <text>', 'branch')
-    .option('--swift <code>', 'SWIFT/BIC')
-    .option('--iban <code>', 'IBAN')
-    .option('--dry-run', 'run every validation and the insert, then roll it back')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--bank <name>', 'help.bank.account.create.option.bank', { mandatory: true });
+  optionByKey(create, '--gl-account <code>', 'help.bank.account.create.option.gl_account', { mandatory: true });
+  optionByKey(create, '--currency <code>', 'help.bank.account.create.option.currency', { mandatory: true });
+  optionByKey(create, `--type <${TIPOS_DE_CUENTA.join('|')}>`, 'help.bank.account.create.option.type', {
+    defaultValue: 'checking',
+  });
+  optionByKey(create, '--clabe <18 digits>', 'help.bank.account.create.option.clabe');
+  optionByKey(create, '--account-number <number>', 'help.bank.account.create.option.account_number');
+  optionByKey(create, '--routing-ach <9 digits>', 'help.bank.account.create.option.routing_ach');
+  optionByKey(create, '--routing-wire <9 digits>', 'help.bank.account.create.option.routing_wire');
+  optionByKey(create, '--sat-bank-code <ccc>', 'help.bank.account.create.option.sat_bank_code');
+  optionByKey(create, '--branch <text>', 'help.bank.account.create.option.branch');
+  optionByKey(create, '--swift <code>', 'help.bank.account.create.option.swift');
+  optionByKey(create, '--iban <code>', 'help.bank.account.create.option.iban');
+  optionByKey(create, '--dry-run', 'help.bank.account.create.option.dry_run');
+  optionByKey(create, '--json', 'help.bank.account.create.option.json');
   declareRisk(create, {
     risk: 'escritura',
     agent: false,
@@ -2206,21 +2197,14 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank account list -------------------------------------------
-  const list = account
-    .command('list')
-    .alias('listar')
-    .argument('[query]', 'match against the account name or the bank name')
-    .description(
-      'List the accounts with currency, type, GL account, book balance and the last approved reconciliation'
-    );
+  const list = describeCommand(
+    argumentByKey(account.command('list').alias('listar'), '[query]', 'help.bank.account.list.argument.query'),
+    'help.bank.account.list.description'
+  );
   withOutput(withSelection(withContext(list)));
-  list
-    .option(`--type <${TIPOS_DE_CUENTA.join('|')}>`, 'only accounts of this nature')
-    .option('--currency <code>', 'only accounts in this currency')
-    .option(
-      '--all-entities',
-      "every entity of the tenant, for a firm's overview; still bounded inside the SQL"
-    );
+  optionByKey(list, `--type <${TIPOS_DE_CUENTA.join('|')}>`, 'help.bank.account.list.option.type');
+  optionByKey(list, '--currency <code>', 'help.bank.account.list.option.currency');
+  optionByKey(list, '--all-entities', 'help.bank.account.list.option.all_entities');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.accountList);
   list.action(
@@ -2255,18 +2239,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank account show -------------------------------------------
-  const show = account
-    .command('show')
-    .alias('ver')
-    .argument('<account>', 'account name or id')
-    .description(
-      'Show one account: masked identifiers, SAT bank key, book vs bank balance and the reconciliation anchor'
-    );
-  withOutput(withContext(show));
-  show.option(
-    '--redacted',
-    'drop even the last 4 digits of the identifiers, for a shared screen'
+  const show = describeCommand(
+    argumentByKey(account.command('show').alias('ver'), '<account>', 'help.bank.account.show.argument.account'),
+    'help.bank.account.show.description'
   );
+  withOutput(withContext(show));
+  optionByKey(show, '--redacted', 'help.bank.account.show.option.redacted');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.accountShow);
   show.action((ref: string, opts: CommonOpts & { redacted?: boolean }) =>
@@ -2344,29 +2322,29 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank account edit -------------------------------------------
-  const edit = account
-    .command('edit')
-    .alias('editar')
-    .argument('<account>', 'account name or id')
-    .description('Change master data, recording the before and after field by field');
+  const edit = describeCommand(
+    argumentByKey(account.command('edit').alias('editar'), '<account>', 'help.bank.account.edit.argument.account'),
+    'help.bank.account.edit.description'
+  );
   withContext(edit);
-  edit
-    .option('--name <text>', 'new account name')
-    .option('--bank <name>', 'new institution name')
-    .option('--branch <text>', 'branch; empty clears it')
-    .option(`--type <${TIPOS_DE_CUENTA.join('|')}>`, 'account nature')
-    .option('--currency <code>', 'currency; re-checked against the GL account')
-    .option('--clabe <18 digits>', 'CLABE; requires --reason. Empty clears it')
-    .option('--account-number <number>', 'account number; requires --reason. Empty clears it')
-    .option('--routing-ach <9 digits>', 'ABA routing for ACH; requires --reason. Empty clears it')
-    .option('--routing-wire <9 digits>', 'ABA routing for wires; requires --reason. Empty clears it')
-    .option('--sat-bank-code <ccc>', 'SAT c_Banco key; empty clears it')
-    .option('--swift <code>', 'SWIFT/BIC; empty clears it')
-    .option('--iban <code>', 'IBAN; empty clears it')
-    .option('--reason <text>', 'justification recorded in the audit trail; required for identifiers')
-    .option('--dry-run', 'apply the change and roll it back, showing what would differ')
-    .option('-y, --yes', 'skip the confirmation prompt')
-    .option('--json', 'JSON output');
+  optionByKey(edit, '--name <text>', 'help.bank.account.edit.option.name');
+  optionByKey(edit, '--bank <name>', 'help.bank.account.edit.option.bank');
+  optionByKey(edit, '--branch <text>', 'help.bank.account.edit.option.branch');
+  optionByKey(edit, `--type <${TIPOS_DE_CUENTA.join('|')}>`, 'help.bank.account.edit.option.type');
+  optionByKey(edit, '--currency <code>', 'help.bank.account.edit.option.currency');
+  optionByKey(edit, '--clabe <18 digits>', 'help.bank.account.edit.option.clabe');
+  optionByKey(edit, '--account-number <number>', 'help.bank.account.edit.option.account_number');
+  optionByKey(edit, '--routing-ach <9 digits>', 'help.bank.account.edit.option.routing_ach');
+  optionByKey(edit, '--routing-wire <9 digits>', 'help.bank.account.edit.option.routing_wire');
+  optionByKey(edit, '--sat-bank-code <ccc>', 'help.bank.account.edit.option.sat_bank_code');
+  optionByKey(edit, '--swift <code>', 'help.bank.account.edit.option.swift');
+  optionByKey(edit, '--iban <code>', 'help.bank.account.edit.option.iban');
+  optionByKey(edit, '--reason <text>', 'help.bank.account.edit.option.reason');
+  optionByKey(edit, '--dry-run', 'help.bank.account.edit.option.dry_run');
+  // The one generic flag here worded as the kernel words it, and it does just
+  // that (it skips the confirmation the action asks), so it takes cli.flag.yes.
+  optionByKey(edit, '-y, --yes', 'cli.flag.yes');
+  optionByKey(edit, '--json', 'help.bank.account.edit.option.json');
   // El catálogo (fila 1140) clasifica esta hoja `irreversible` y pide además
   // `--idempotency-key` y una SEGUNDA APROBACIÓN de otro usuario. Se declara
   // `escritura` porque es lo que la orden de este tramo comete, y las dos
@@ -2481,18 +2459,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank account set --------------------------------------------
-  const set = account
-    .command('set')
-    .alias('fijar')
-    .argument('<account>', 'account name or id')
-    .description('Write the 1:1 GL mapping, refusing the change when the old account has posted entries');
+  const set = describeCommand(
+    argumentByKey(account.command('set').alias('fijar'), '<account>', 'help.bank.account.set.argument.account'),
+    'help.bank.account.set.description'
+  );
   withContext(set);
   withForce(set);
-  set
-    .requiredOption('--gl-account <code>', 'GL account to map to (code or id)')
-    .option('--reason <text>', 'justification recorded in the audit trail; required by --force')
-    .option('--dry-run', 'apply the remap and roll it back')
-    .option('--json', 'JSON output');
+  optionByKey(set, '--gl-account <code>', 'help.bank.account.set.option.gl_account', { mandatory: true });
+  optionByKey(set, '--reason <text>', 'help.bank.account.set.option.reason');
+  optionByKey(set, '--dry-run', 'help.bank.account.set.option.dry_run');
+  optionByKey(set, '--json', 'help.bank.account.set.option.json');
   declareRisk(set, {
     risk: 'escritura',
     agent: false,
@@ -2560,29 +2536,26 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank statement import ---------------------------------------
-  const importar = statement
-    .command('import')
-    .alias('importar')
-    .argument('<file...>', 'statement files; combine with --dir to take a whole folder')
-    .description(
-      'Parse, normalize and stage a bank statement, deduplicating by native id or content hash; ' +
-        'posts NOTHING to the ledger'
-    );
+  const importar = describeCommand(
+    argumentByKey(
+      statement.command('import').alias('importar'),
+      '<file...>',
+      'help.bank.statement.import.argument.file'
+    ),
+    'help.bank.statement.import.description'
+  );
   withContext(importar);
-  importar
-    .requiredOption('--account <ref>', 'bank account these statements belong to (name or id)')
-    .option(
-      `--format <${FORMATOS_DEL_CATALOGO.map((f) => f.nombre).join('|')}>`,
-      'format of the FILE (not of the output; use --json for that); sniffed from the content when omitted'
-    )
-    .option('--profile <name>', 'CSV column profile to read the file with')
-    .option('--dir <path>', 'import every file in this folder as well')
-    .option(
-      '--closing-balance <amount>',
-      'closing balance you assert, for a format that carries none (a CSV); refused if the file says otherwise'
-    )
-    .option('--dry-run', 'parse, run the seven checks and roll the write back')
-    .option('--json', 'JSON output');
+  optionByKey(importar, '--account <ref>', 'help.bank.statement.import.option.account', { mandatory: true });
+  optionByKey(
+    importar,
+    `--format <${FORMATOS_DEL_CATALOGO.map((f) => f.nombre).join('|')}>`,
+    'help.bank.statement.import.option.format'
+  );
+  optionByKey(importar, '--profile <name>', 'help.bank.statement.import.option.profile');
+  optionByKey(importar, '--dir <path>', 'help.bank.statement.import.option.dir');
+  optionByKey(importar, '--closing-balance <amount>', 'help.bank.statement.import.option.closing_balance');
+  optionByKey(importar, '--dry-run', 'help.bank.statement.import.option.dry_run');
+  optionByKey(importar, '--json', 'help.bank.statement.import.option.json');
   // ESCRITURA + IA ✓, y `declareRisk` sólo lo admite con `draftOnly`. Aquí es
   // HONESTO y no una concesión: todo lo que este comando escribe es staging
   // bancario (`bank_statements`, `bank_transactions`) y no hay camino desde
@@ -2712,12 +2685,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank statement list -----------------------------------------
-  const statementList = statement
-    .command('list')
-    .alias('listar')
-    .description(
-      'List imported statements by account and period, with opening and closing balance, line count and the balance chain'
-    );
+  const statementList = describeCommand(
+    statement.command('list').alias('listar'),
+    'help.bank.statement.list.description'
+  );
   withOutput(withSelection(withContext(statementList)));
   // `--since`/`--until` sueltas y no con `withTime()`: el grupo entero arrastra
   // `--period`, `--as-of` y `--date-basis`, y un estado de cuenta no tiene base
@@ -2725,10 +2696,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // rechazar tres es peor superficie que declarar dos; el diccionario gobierna
   // la grafía y la forma corta (ninguna), no el grupo. Mismo criterio que
   // `ap reconcile` con `--as-of`.
-  statementList
-    .option('--account <ref>', 'only this bank account (name or id)')
-    .option('--since <date>', 'statements whose period ENDS on or after this date (YYYY-MM-DD)')
-    .option('--until <date>', 'statements whose period STARTS on or before this date (YYYY-MM-DD)');
+  optionByKey(statementList, '--account <ref>', 'help.bank.statement.list.option.account');
+  optionByKey(statementList, '--since <date>', 'help.bank.statement.list.option.since');
+  optionByKey(statementList, '--until <date>', 'help.bank.statement.list.option.until');
   declareRisk(statementList, { risk: 'lectura', agent: true });
   statementList.addHelpText('after', EJEMPLOS.statementList);
   statementList.action((opts: CommonOpts & { account?: string; since?: string; until?: string }) =>
@@ -2769,17 +2739,15 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank statement show -----------------------------------------
-  const statementShow = statement
-    .command('show')
-    .alias('ver')
-    .argument('<id>', 'statement id')
-    .description(
-      'Show one statement: electronic sequence number, date range, hash of the original file and the profile applied'
-    );
+  const statementShow = describeCommand(
+    argumentByKey(statement.command('show').alias('ver'), '<id>', 'help.bank.statement.show.argument.id'),
+    'help.bank.statement.show.description'
+  );
   withOutput(withContext(statementShow));
-  statementShow
-    .option('--lines', 'include the statement lines')
-    .option('-n, --limit <n>', 'maximum lines to list with --lines (default 500)', enteroPositivo('--limit'));
+  optionByKey(statementShow, '--lines', 'help.bank.statement.show.option.lines');
+  optionByKey(statementShow, '-n, --limit <n>', 'help.bank.statement.show.option.limit', {
+    parser: enteroPositivo('--limit'),
+  });
   declareRisk(statementShow, { risk: 'lectura', agent: true });
   statementShow.addHelpText('after', EJEMPLOS.statementShow);
   statementShow.action((id: string, opts: CommonOpts & { lines?: boolean }) =>
@@ -2862,20 +2830,17 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank statement check ----------------------------------------
-  const check = statement
-    .command('check')
-    .alias('verificar')
-    .argument('[id]', 'one statement; without it, the latest of each account')
-    .description('Run the seven integrity checks and EXIT 4 naming which one broke');
+  const check = describeCommand(
+    argumentByKey(statement.command('check').alias('verificar'), '[id]', 'help.bank.statement.check.argument.id'),
+    'help.bank.statement.check.description'
+  );
   withStrict(withOutput(withContext(check)));
-  check
-    .option(
-      '--check [names]',
-      `comma-separated checks to run; bare --check lists them (${STATEMENT_CHECK_NAMES.join(', ')})`
-    )
-    .option('-a, --all', 'every statement of the entity, not just the latest per account')
-    .option('--account <ref>', 'every statement of this bank account (name or id)')
-    .option('--since <date>', 'only statements whose period ends on or after this date (YYYY-MM-DD)');
+  optionByKey(check, '--check [names]', 'help.bank.statement.check.option.check', {
+    params: { checks: STATEMENT_CHECK_NAMES.join(', ') },
+  });
+  optionByKey(check, '-a, --all', 'help.bank.statement.check.option.all');
+  optionByKey(check, '--account <ref>', 'help.bank.statement.check.option.account');
+  optionByKey(check, '--since <date>', 'help.bank.statement.check.option.since');
   declareRisk(check, { risk: 'lectura', agent: true });
   check.addHelpText('after', EJEMPLOS.statementCheck);
   check.action(
@@ -2951,10 +2916,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // F05b · LOS DOS LADOS Y EL COTEJO
   // ============================================================
 
-  const transaction = bank
-    .command('transaction')
-    .alias('movimiento')
-    .description('Bank transactions: what the bank says happened, before anyone explains it');
+  const transaction = describeCommand(
+    bank.command('transaction').alias('movimiento'),
+    'help.bank.transaction.description'
+  );
 
   const bookItem = bank
     .command('book-item')
@@ -2967,27 +2932,21 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .description('Matching a bank transaction to what the books already say about it');
 
   // ---- bank transaction list ---------------------------------------
-  const txList = transaction
-    .command('list')
-    .alias('listar')
-    .argument(
+  const txList = describeCommand(
+    argumentByKey(
+      transaction.command('list').alias('listar'),
       '[query]',
-      'hledger-style terms: desc:<text>, amt:[>|<|>=|<=]<amount>; a bare word means desc:'
-    )
-    .description(
-      'List bank transactions filtered by account, date range, direction, amount, text, type and match state'
-    );
+      'help.bank.transaction.list.argument.query'
+    ),
+    'help.bank.transaction.list.description'
+  );
   withOutput(withSelection(withContext(txList)));
-  txList
-    .option('--account <ref>', 'only this bank account (name or id)')
-    .option('--since <date>', 'transactions on or after this date (YYYY-MM-DD)')
-    .option('--until <date>', 'transactions on or before this date (YYYY-MM-DD)')
-    .option('--unmatched', 'only transactions with no live match; shorthand for -s unmatched')
-    .option('--direction <in|out>', 'money in (positive amount) or out (negative amount)')
-    .option(
-      `--type <${TIPOS_DE_MOVIMIENTO.join('|')}>`,
-      'transaction nature as the bank classified it (not its direction)'
-    );
+  optionByKey(txList, '--account <ref>', 'help.bank.transaction.list.option.account');
+  optionByKey(txList, '--since <date>', 'help.bank.transaction.list.option.since');
+  optionByKey(txList, '--until <date>', 'help.bank.transaction.list.option.until');
+  optionByKey(txList, '--unmatched', 'help.bank.transaction.list.option.unmatched');
+  optionByKey(txList, '--direction <in|out>', 'help.bank.transaction.list.option.direction');
+  optionByKey(txList, `--type <${TIPOS_DE_MOVIMIENTO.join('|')}>`, 'help.bank.transaction.list.option.type');
   declareRisk(txList, { risk: 'lectura', agent: true });
   txList.addHelpText('after', EJEMPLOS.txList);
   txList.action(
@@ -3028,18 +2987,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank transaction show ---------------------------------------
-  const txShow = transaction
-    .command('show')
-    .alias('ver')
-    .argument('<id>', 'transaction id')
-    .description(
-      'Show one transaction: the normalized line, the statement it came from and the live matches that explain it'
-    );
-  withOutput(withContext(txShow));
-  txShow.option(
-    '--raw',
-    'include raw_data exactly as the bank published it; it can carry the counterparty in the clear'
+  const txShow = describeCommand(
+    argumentByKey(transaction.command('show').alias('ver'), '<id>', 'help.bank.transaction.show.argument.id'),
+    'help.bank.transaction.show.description'
   );
+  withOutput(withContext(txShow));
+  optionByKey(txShow, '--raw', 'help.bank.transaction.show.option.raw');
   declareRisk(txShow, { risk: 'lectura', agent: true });
   txShow.addHelpText('after', EJEMPLOS.txShow);
   txShow.action((id: string, opts: CommonOpts & { raw?: boolean }) =>
@@ -3112,20 +3065,24 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // wrong. `transaction_type` is what `bank fee post` and `bank interest post`
   // read, so without this leaf a misclassified commission could only be fixed
   // with SQL (#95).
-  const txReclassify = transaction
-    .command('reclassify')
-    .alias('reclasificar')
-    .argument('<id>', 'transaction id')
-    .description(
-      'Correct what kind of line a bank transaction is (fee, interest, debit, credit, adjustment); ' +
-        'refused when the sign disagrees, the line is matched, or a treasury entry already posted it'
-    );
+  const txReclassify = describeCommand(
+    argumentByKey(
+      transaction.command('reclassify').alias('reclasificar'),
+      '<id>',
+      'help.bank.transaction.reclassify.argument.id'
+    ),
+    'help.bank.transaction.reclassify.description'
+  );
   withContext(txReclassify);
-  txReclassify
-    .requiredOption(`--type <${TIPOS_DE_MOVIMIENTO.join('|')}>`, 'what the line really is')
-    .option('--reason <text>', 'justification recorded in the audit trail')
-    .option('--dry-run', 'run every check and write nothing')
-    .option('--json', 'JSON output');
+  optionByKey(
+    txReclassify,
+    `--type <${TIPOS_DE_MOVIMIENTO.join('|')}>`,
+    'help.bank.transaction.reclassify.option.type',
+    { mandatory: true }
+  );
+  optionByKey(txReclassify, '--reason <text>', 'help.bank.transaction.reclassify.option.reason');
+  optionByKey(txReclassify, '--dry-run', 'help.bank.transaction.reclassify.option.dry_run');
+  optionByKey(txReclassify, '--json', 'help.bank.transaction.reclassify.option.json');
   // ✗: calling a charge a fee decides that `bank fee post` will book it as an
   // expense with creditable VAT. That is a fiscal treatment, and a person
   // chooses it.
