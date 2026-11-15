@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Command } from 'commander';
 import { program } from '../../src/cli/mnemosine.js';
-import { helpKeyOf } from '../../src/cli/kernel/help.js';
 import { resetLanguage, setLanguage, t } from '../../src/i18n/index.js';
 import type { TranslationKey } from '../../src/i18n/index.js';
-import { unkeyedDescriptions } from '../../scripts/language/lanes/help.js';
+import { describedIn, expectEveryKeyInFormat, flat, node, unkeyedInFamilies } from './helpers/help-by-key.js';
 
 // ============================================================
 // THE PILOT FAMILY OF #314: `mnemosine period --help` IN es-MX
@@ -18,51 +16,22 @@ import { unkeyedDescriptions } from '../../scripts/language/lanes/help.js';
 
 afterEach(() => resetLanguage());
 
-function family(name: string): Command {
-  const cmd = program.commands.find((c) => c.name() === name);
-  if (!cmd) throw new Error(`no family ${name}`);
-  return cmd;
-}
-
-/** Every description the help screens of this subtree show, with its key. */
-function describedIn(cmd: Command): Array<{ where: string; key: TranslationKey | null }> {
-  const out: Array<{ where: string; key: TranslationKey | null }> = [];
-  const walk = (node: Command, path: string): void => {
-    if (node.description()) out.push({ where: `${path} (command)`, key: helpKeyOf(node) });
-    for (const o of node.options) if (o.description) out.push({ where: `${path} ${o.flags}`, key: helpKeyOf(o) });
-    for (const a of node.registeredArguments) {
-      if (a.description) out.push({ where: `${path} <${a.name()}>`, key: helpKeyOf(a) });
-    }
-    for (const sub of node.commands) walk(sub, `${path} ${sub.name()}`);
-  };
-  walk(cmd, cmd.name());
-  return out;
-}
-
-const KEY_FORMAT = /^help\.period(\.[a-z][a-z0-9_]*)*\.(description|option\.[a-z][a-z0-9_]*|argument\.[a-z][a-z0-9_]*)$/;
-
 describe('mnemosine period, help by key (#314 pilot)', () => {
   it('the lane finds no description without key in the family', () => {
-    expect(unkeyedDescriptions(program).filter((hit) => hit.family === 'period')).toEqual([]);
+    expect(unkeyedInFamilies(['period'])).toEqual([]);
   });
 
   it('every description of the family has a key in the decided format, or a generic cli.* key', () => {
-    const described = describedIn(family('period'));
+    const described = describedIn(node('period'));
     expect(described.length).toBeGreaterThan(10);
-    for (const { where, key } of described) {
-      expect(key, where).not.toBeNull();
-      expect(key!.startsWith('cli.') || KEY_FORMAT.test(key!), `${where}: ${key}`).toBe(true);
-    }
+    expectEveryKeyInFormat(described, 'period');
   });
 
   it('each leaf prints its command, option and argument descriptions in Spanish', () => {
     setLanguage('es');
-    const period = family('period');
-    // Commander wraps long descriptions, so compare with whitespace collapsed.
-    const flat = (text: string): string => text.replace(/\s+/g, ' ');
-    const leaf = (name: string): string => flat(period.commands.find((c) => c.name() === name)!.helpInformation());
+    const leaf = (name: string): string => flat(node(`period ${name}`).helpInformation());
 
-    expect(flat(period.helpInformation())).toContain(t('help.period.description', {}, 'es'));
+    expect(flat(node('period').helpInformation())).toContain(t('help.period.description', {}, 'es'));
     expect(leaf('list')).toContain(t('help.period.list.option.year', {}, 'es'));
     expect(leaf('show')).toContain(t('help.period.show.argument.name', {}, 'es'));
     const open = leaf('open');
@@ -77,8 +46,7 @@ describe('mnemosine period, help by key (#314 pilot)', () => {
 
   it('the subcommand listing of `period --help` and the family row of `mnemosine --help` are in Spanish', () => {
     setLanguage('es');
-    const flat = (text: string): string => text.replace(/\s+/g, ' ');
-    const listing = flat(family('period').helpInformation());
+    const listing = flat(node('period').helpInformation());
     for (const name of ['list', 'show', 'open', 'reopen']) {
       expect(listing, name).toContain(t(`help.period.${name}.description` as TranslationKey, {}, 'es'));
     }
