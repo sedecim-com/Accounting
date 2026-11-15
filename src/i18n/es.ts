@@ -2964,7 +2964,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'cuenta de mayor a la que se mapea esta cuenta bancaria, 1:1 (código o id)',
   'help.bank.account.create.option.currency': 'código ISO de 3 letras; debe ser la moneda de la cuenta de mayor',
   'help.bank.account.create.option.type':
-    'naturaleza de la cuenta; credit-card es un PASIVO y se mapea a una cuenta de mayor de pasivo',
+    'tipo de cuenta; credit-card es un PASIVO y se mapea a una cuenta de mayor de pasivo',
   'help.bank.account.create.option.clabe': 'CLABE; se guarda cifrada y sólo se muestran sus últimos 4 dígitos',
   'help.bank.account.create.option.account_number': 'número de cuenta; se guarda cifrado',
   'help.bank.account.create.option.routing_ach': 'número de ruteo ABA para ACH',
@@ -2978,7 +2978,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bank.account.list.description':
     'Lista las cuentas con su moneda, tipo, cuenta de mayor, saldo en libros y la última conciliación aprobada',
   'help.bank.account.list.argument.query': 'texto que se busca en el nombre de la cuenta o en el del banco',
-  'help.bank.account.list.option.type': 'sólo las cuentas de esta naturaleza',
+  'help.bank.account.list.option.type': 'sólo las cuentas de este tipo',
   'help.bank.account.list.option.currency': 'sólo las cuentas en esta moneda',
   'help.bank.account.list.option.all_entities':
     'todas las entidades del inquilino, para una vista de conjunto del despacho; el alcance sigue acotado dentro del SQL',
@@ -2993,7 +2993,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bank.account.edit.option.name': 'nuevo nombre de la cuenta',
   'help.bank.account.edit.option.bank': 'nuevo nombre de la institución',
   'help.bank.account.edit.option.branch': 'sucursal; un valor vacío la borra',
-  'help.bank.account.edit.option.type': 'naturaleza de la cuenta',
+  'help.bank.account.edit.option.type': 'tipo de cuenta',
   'help.bank.account.edit.option.currency': 'moneda; se vuelve a verificar contra la cuenta de mayor',
   'help.bank.account.edit.option.clabe': 'CLABE; exige --reason. Un valor vacío la borra',
   'help.bank.account.edit.option.account_number': 'número de cuenta; exige --reason. Un valor vacío lo borra',
@@ -3068,8 +3068,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bank.transaction.list.option.until': 'movimientos en esta fecha o antes (AAAA-MM-DD)',
   'help.bank.transaction.list.option.unmatched': 'sólo los movimientos sin cotejo vigente; atajo de -s unmatched',
   'help.bank.transaction.list.option.direction': 'dinero que entra (importe positivo) o que sale (importe negativo)',
-  'help.bank.transaction.list.option.type':
-    'naturaleza del movimiento tal como la clasificó el banco (no su dirección)',
+  'help.bank.transaction.list.option.type': 'tipo de movimiento tal como lo clasificó el banco (no su dirección)',
   'help.bank.transaction.show.description':
     'Muestra un movimiento: la línea normalizada, el estado de cuenta del que vino y los cotejos vigentes que lo ' +
     'explican',
