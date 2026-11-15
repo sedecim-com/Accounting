@@ -2278,8 +2278,8 @@ Bulk-load a statutory scheme from CSV — the heaviest setup task of a Mexican
 firm
 
 Arguments:
-  file                     CSV: code,valor (una cuenta por línea; separador coma
-                           o punto y coma)
+  file                     CSV: code,value (one account per line; comma or
+                           semicolon separator)
 
 Options:
   -e, --entity <idOrName>  legal entity to operate on (defaults to the active

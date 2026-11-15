@@ -3107,8 +3107,9 @@ export const EN = {
   // kernel's retired-option marker, `retired: ` (RETIRED_OPTION_PREFIX), which
   // the tools read from `option.description`; each language writes its own
   // marker, so es.ts says `retirada: `. The English of `account map import
-  // <file>` was already Spanish prose; it is kept as it was, because this series
-  // does not change the English.
+  // <file>` was Spanish prose on develop; the owner chose on #314 (15 Nov 2026)
+  // to give the author-prose nodes real English, so it is the one English text
+  // this task changes.
   'help.account.description': 'Chart of accounts: inspect, create and retire accounts',
   'help.account.list.description': 'List accounts, filtered by type, state, parent or free text',
   'help.account.list.argument.search': 'match against code or name',
@@ -3174,7 +3175,7 @@ export const EN = {
   'help.account.map.list.option.scheme': 'project only this scheme',
   'help.account.map.import.description':
     'Bulk-load a statutory scheme from CSV — the heaviest setup task of a Mexican firm',
-  'help.account.map.import.argument.file': 'CSV: code,valor (una cuenta por línea; separador coma o punto y coma)',
+  'help.account.map.import.argument.file': 'CSV: code,value (one account per line; comma or semicolon separator)',
   'help.account.map.import.option.scheme': 'scheme: {schemes}',
   'help.account.map.import.option.dry_run': 'parse and resolve everything, write nothing',
   'help.account.map.import.option.idempotency_key':
