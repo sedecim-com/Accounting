@@ -3215,6 +3215,124 @@ export const EN = {
   'help.bank.transaction.reclassify.option.reason': 'justification recorded in the audit trail',
   'help.bank.transaction.reclassify.option.dry_run': 'run every check and write nothing',
   'help.bank.transaction.reclassify.option.json': 'JSON output',
+  // ==== MNE-001-232 · help by key, bank match, fee, interest, check and book-item (issue #314) ====
+  //
+  // The second of the three bank tasks: these five groups, with the English
+  // they already showed. Every generic flag a leaf declares here is worded for
+  // that leaf and keeps its own key; what declareRisk injects stays on
+  // cli.flag.*. The matchable types travel as {types}, the unapply codes as {codes}.
+  'help.bank.book_item.description':
+    'The other side: posted journal lines against the bank GL account, still unsealed',
+  'help.bank.book_item.list.description':
+    'List posted journal lines against the bank GL account that are still unsealed, oldest first, with their age',
+  'help.bank.book_item.list.argument.account':
+    'bank account whose GL account the entries were posted to (name or id)',
+  'help.bank.book_item.list.option.since': 'entries on or after this entry date (YYYY-MM-DD)',
+  'help.bank.book_item.list.option.until': 'entries on or before this entry date (YYYY-MM-DD)',
+  'help.bank.book_item.list.option.over_days':
+    'only what has gone MORE than this many days without showing up at the bank',
+  'help.bank.match.description': 'Matching a bank transaction to what the books already say about it',
+  'help.bank.match.preview.description':
+    'Show what the engine would propose, with the score broken into its signals and every gate’s verdict, ' +
+    'WITHOUT applying anything',
+  'help.bank.match.preview.argument.tx_id': 'one transaction; without it, every unmatched one of --account',
+  'help.bank.match.preview.option.account': 'bank account to sweep when no transaction id is given',
+  'help.bank.match.preview.option.since': 'transactions on or after this date (YYYY-MM-DD)',
+  'help.bank.match.preview.option.until': 'transactions on or before this date (YYYY-MM-DD)',
+  'help.bank.match.preview.option.top': 'maximum TRANSACTIONS to preview (not candidates per transaction)',
+  'help.bank.match.preview.option.min_confidence':
+    'raise the engine confidence a proposal needs before `run` would apply it (0..1); ' +
+    'never below the panel (cotejo_umbral_confianza)',
+  'help.bank.match.preview.option.max_amount':
+    'lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win',
+  'help.bank.match.preview.option.rules_only': 'a proposal outside the date window counts as not applicable',
+  'help.bank.match.run.description':
+    'Run the engine over one account and period, applying ONLY what clears the confidence threshold, ' +
+    'the amount floor, an open period and an exact-amount hard signal',
+  'help.bank.match.run.option.account': 'bank account to sweep (name or id)',
+  'help.bank.match.run.option.since': 'transactions on or after this date (YYYY-MM-DD)',
+  'help.bank.match.run.option.until': 'transactions on or before this date (YYYY-MM-DD)',
+  'help.bank.match.run.option.min_confidence':
+    'raise the engine confidence a proposal needs to be applied (0..1); ' +
+    'never below the panel (cotejo_umbral_confianza)',
+  'help.bank.match.run.option.max_amount':
+    'lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win',
+  'help.bank.match.run.option.rules_only': 'refuse a proposal outside the date window',
+  'help.bank.match.run.option.top': 'maximum transactions to evaluate in this run',
+  'help.bank.match.run.option.session': 'reconciliation session these matches belong to',
+  'help.bank.match.run.option.dry_run': 'do the whole thing and roll it back',
+  'help.bank.match.run.option.json': 'JSON output',
+  'help.bank.match.apply.description':
+    'Apply the engine’s proposal for the named transactions in ONE transaction, idempotently, ' +
+    'linked to the session',
+  'help.bank.match.apply.argument.id': 'bank transaction ids; or feed them through --stdin',
+  'help.bank.match.apply.option.stdin': 'read the ids from standard input, whitespace separated',
+  'help.bank.match.apply.option.session': 'reconciliation session these matches belong to',
+  'help.bank.match.apply.option.dry_run': 'do the whole thing and roll it back',
+  'help.bank.match.apply.option.yes': 'skip the grouped confirmation',
+  'help.bank.match.apply.option.json': 'JSON output',
+  'help.bank.match.create.description':
+    'Build an explicit match group of N bank transactions against M book items plus adjustments, ' +
+    'requiring Σbank = Σbooks + Σadjustments',
+  'help.bank.match.create.option.account': 'bank account the whole group belongs to (name or id)',
+  'help.bank.match.create.option.transaction': 'comma-separated bank transaction ids: the bank side',
+  'help.bank.match.create.option.book_item':
+    'comma-separated book side: <id> for a journal line, or <type>:<id> ({types})',
+  'help.bank.match.create.option.adjust': 'declared adjustment (bank fee, FX difference); repeatable',
+  'help.bank.match.create.option.residual':
+    'what happens to what is left over: keep it live, or write it off against an account',
+  'help.bank.match.create.option.write_off_account': 'GL account the residual is written off against',
+  'help.bank.match.create.option.session': 'reconciliation session this group belongs to',
+  'help.bank.match.create.option.dry_run': 'do the whole thing and roll it back',
+  'help.bank.match.create.option.json': 'JSON output',
+  'help.bank.match.unapply.description':
+    'Undo a match with a typed reason, releasing the book-item seal; refuses if the session is ' +
+    'already approved or posted, and touches no posted journal entry',
+  'help.bank.match.unapply.argument.match_id': 'the match to undo; its whole group goes with it',
+  'help.bank.match.unapply.option.reason': 'typed reason, required: {codes}',
+  'help.bank.match.unapply.option.dry_run': 'do the whole thing and roll it back',
+  'help.bank.match.unapply.option.yes': 'skip the confirmation',
+  'help.bank.match.unapply.option.json': 'JSON output',
+  'help.bank.fee.description':
+    'Bank fees as an accounting act: the charge as an expense and its VAT moved to ' +
+    'creditable in the month of the charge',
+  'help.bank.fee.post.description':
+    'Post the period’s bank fees from the statement, one entry per charge, and move their VAT ' +
+    'from pending-creditable to creditable',
+  'help.bank.fee.post.argument.account': 'bank account whose fees to post (name or id)',
+  'help.bank.fee.post.option.period': 'month whose fees to post',
+  'help.bank.fee.post.option.iva_rate':
+    'VAT rate the charge already carries INSIDE it, as a fraction (0.16 for 16%); 0 for an ' +
+    'exempt fee. No default: a default here is a tax decision nobody takes and nobody sees',
+  'help.bank.fee.post.option.max_amount':
+    'above this magnitude the charge is skipped and left for human eyes; it is a confidence ' +
+    'gate, not a validation',
+  'help.bank.fee.post.option.json': 'JSON output',
+  'help.bank.interest.description':
+    'Interest earned on bank balances: income at its GROSS amount and the tax the bank withheld ' +
+    'as a prepayment in the entity’s favour',
+  'help.bank.interest.post.description':
+    'Post the period’s interest as income and the ISR the bank withheld as a provisional ' +
+    'payment in the entity’s favour, never as an expense',
+  'help.bank.interest.post.argument.account': 'bank account whose interest to post (name or id)',
+  'help.bank.interest.post.option.period': 'month whose interest to post',
+  'help.bank.interest.post.option.rate':
+    'ISR WITHHOLDING rate the bank applied, as a fraction (0.0125 for 1.25%); 0 when it ' +
+    'withheld nothing. This is NOT the interest rate: the interest is what the statement says',
+  'help.bank.interest.post.option.json': 'JSON output',
+  'help.bank.check.description':
+    'Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law ' +
+    'is when the payment counts',
+  'help.bank.check.reconcile.description':
+    'Prove the check against the bank movement that cleared it and post the VAT ' +
+    'reclassification from pending to creditable IN THE MONTH IT CLEARED',
+  'help.bank.check.reconcile.argument.id': 'vendor payment made by check',
+  'help.bank.check.reconcile.option.transaction':
+    'the bank movement that paid it, named by hand; required when several charges match',
+  'help.bank.check.reconcile.option.as_of':
+    'the clearing date you assert (YYYY-MM-DD); it is CONTRASTED against the movement, never ' +
+    'imposed — the bank dates the clearing',
+  'help.bank.check.reconcile.option.json': 'JSON output',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
