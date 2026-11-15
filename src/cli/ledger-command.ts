@@ -22,6 +22,8 @@ import {
   usageError,
   exitCodeFor,
   checkExitCode,
+  describeCommand,
+  optionByKey,
   type Row,
 } from './kernel/index.js';
 
@@ -103,10 +105,7 @@ Examples:
 } as const;
 
 export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps): void {
-  const ledger = program
-    .command('ledger')
-    .alias('mayor')
-    .description('The general ledger itself: integrity checks, stale drafts, auxiliaries and balances');
+  const ledger = describeCommand(program.command('ledger').alias('mayor'), 'help.ledger.description');
 
   const note = (m: string) => process.stderr.write(deps.palette.dim(`${m}\n`));
 
@@ -130,15 +129,13 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   };
 
   // ---- ledger check ------------------------------------------------
-  const check = ledger
-    .command('check')
-    .alias('verificar')
-    .description('Named ledger checks; with no flag runs the blocking ones and exits 4 on findings');
+  const check = describeCommand(ledger.command('check').alias('verificar'), 'help.ledger.check.description');
   withOutput(withStrict(withContext(check)));
-  check
-    .option('--check <names>', `checks to run, comma-separated (available: ${LEDGER_CHECK_NAMES.join(', ')}; empty lists them)`)
-    .option('--account <code>', 'scope the balance check to one account')
-    .option('--period <expr>', 'scope the balance check to one fiscal period: 2026-07, its id, or part of its name');
+  optionByKey(check, '--check <names>', 'help.ledger.check.option.check', {
+    params: { checks: LEDGER_CHECK_NAMES.join(', ') },
+  });
+  optionByKey(check, '--account <code>', 'help.ledger.check.option.account');
+  optionByKey(check, '--period <expr>', 'help.ledger.check.option.period');
   declareRisk(check, { risk: 'lectura', agent: true });
   check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts & { check?: string; account?: string; period?: string; strict?: boolean }) =>
@@ -166,18 +163,17 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   );
 
   // ---- ledger stale-draft list ------------------------------------
-  const staleDraft = ledger
-    .command('stale-draft')
-    .alias('borrador-viejo')
-    .description('Draft journal entries that have sat unposted too long');
-  const staleList = staleDraft
-    .command('list')
-    .alias('listar')
-    .description('Drafts older than N days — the number-one blocker of every close checklist');
+  const staleDraft = describeCommand(
+    ledger.command('stale-draft').alias('borrador-viejo'),
+    'help.ledger.stale_draft.description'
+  );
+  const staleList = describeCommand(
+    staleDraft.command('list').alias('listar'),
+    'help.ledger.stale_draft.list.description'
+  );
   withOutput(withSelection(withContext(staleList)));
-  staleList
-    .option('--days <n>', 'minimum age in days', '30')
-    .option('--period <expr>', 'only drafts dated into this fiscal period: 2026-07, its id, or part of its name');
+  optionByKey(staleList, '--days <n>', 'help.ledger.stale_draft.list.option.days', { defaultValue: '30' });
+  optionByKey(staleList, '--period <expr>', 'help.ledger.stale_draft.list.option.period');
   declareRisk(staleList, { risk: 'lectura', agent: true });
   staleList.addHelpText('after', EJEMPLOS.staleDraftList);
   staleList.action((opts: CommonOpts & { days: string; period?: string }) =>
@@ -194,18 +190,11 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   );
 
   // ---- ledger auxiliary show --------------------------------------
-  const auxiliary = ledger
-    .command('auxiliary')
-    .alias('auxiliar')
-    .description('Account auxiliary: beginning balance, movements, ending — the SAT XC shape');
-  const auxShow = auxiliary
-    .command('show')
-    .alias('ver')
-    .description('One account, one period: beginning → every movement → ending');
+  const auxiliary = describeCommand(ledger.command('auxiliary').alias('auxiliar'), 'help.ledger.auxiliary.description');
+  const auxShow = describeCommand(auxiliary.command('show').alias('ver'), 'help.ledger.auxiliary.show.description');
   withOutput(withSelection(withContext(auxShow)));
-  auxShow
-    .requiredOption('--account <code>', 'account code')
-    .requiredOption('--period <expr>', 'fiscal period: 2026-07, its id, or an unambiguous part of its name');
+  optionByKey(auxShow, '--account <code>', 'help.ledger.auxiliary.show.option.account', { mandatory: true });
+  optionByKey(auxShow, '--period <expr>', 'help.ledger.auxiliary.show.option.period', { mandatory: true });
   declareRisk(auxShow, { risk: 'lectura', agent: true });
   auxShow.addHelpText('after', EJEMPLOS.auxiliaryShow);
   auxShow.action((opts: CommonOpts & { account: string; period: string }) =>
@@ -240,20 +229,13 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
   );
 
   // ---- ledger balance show ----------------------------------------
-  const balance = ledger
-    .command('balance')
-    .alias('saldo')
-    .description('One account balance decomposed by period, with the period status');
-  const balShow = balance
-    .command('show')
-    .alias('ver')
-    .description('Beginning, debits, credits and ending per period for one account');
+  const balance = describeCommand(ledger.command('balance').alias('saldo'), 'help.ledger.balance.description');
+  const balShow = describeCommand(balance.command('show').alias('ver'), 'help.ledger.balance.show.description');
   withOutput(withContext(balShow));
-  balShow
-    .requiredOption('--account <code>', 'account code or id')
-    .option('--as-of <date>', 'only the period containing this date (YYYY-MM-DD)')
-    .option('--period <expr>', 'only this period: 2026-07, its id, or part of its name')
-    .option('--dim <name>', 'per-dimension breakdown (not available: the dimension family does not exist yet)');
+  optionByKey(balShow, '--account <code>', 'help.ledger.balance.show.option.account', { mandatory: true });
+  optionByKey(balShow, '--as-of <date>', 'help.ledger.balance.show.option.as_of');
+  optionByKey(balShow, '--period <expr>', 'help.ledger.balance.show.option.period');
+  optionByKey(balShow, '--dim <name>', 'help.ledger.balance.show.option.dim');
   declareRisk(balShow, { risk: 'lectura', agent: true });
   balShow.addHelpText('after', EJEMPLOS.balanceShow);
   balShow.action((opts: CommonOpts & { account: string; asOf?: string; period?: string; dim?: string }) =>

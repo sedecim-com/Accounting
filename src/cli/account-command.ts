@@ -63,6 +63,7 @@ import {
   ExitCode,
   describeCommand,
   optionByKey,
+  argumentByKey,
 } from './kernel/index.js';
 import { changePolicyHint } from '../services/policy/policy-hint.js';
 
@@ -251,10 +252,7 @@ Examples:
 } as const;
 
 export function registerAccountCommand(program: Command, deps: AccountCommandDeps): void {
-  const account = program
-    .command('account')
-    .alias('cuenta')
-    .description('Chart of accounts: inspect, create and retire accounts');
+  const account = describeCommand(program.command('account').alias('cuenta'), 'help.account.description');
 
   // F01: fn puede DEVOLVER un código de salida (map check sale 4 con huecos
   // bloqueantes); void = 0. El patrón es el mismo run de entry-command.
@@ -278,16 +276,12 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   };
 
   // ---- account list ------------------------------------------------
-  const list = account
-    .command('list')
-    .alias('listar')
-    .argument('[search]', 'match against code or name')
-    .description('List accounts, filtered by type, state, parent or free text');
+  const list = describeCommand(account.command('list').alias('listar'), 'help.account.list.description');
+  argumentByKey(list, '[search]', 'help.account.list.argument.search');
   withOutput(withSelection(withContext(list)));
-  list
-    .option('--type <type>', `account type: ${ACCOUNT_TYPES.join(', ')}`)
-    .option('--parent <code>', 'only children of this account code')
-    .option('--inactive', 'show inactive accounts instead of active ones');
+  optionByKey(list, '--type <type>', 'help.account.list.option.type', { params: { types: ACCOUNT_TYPES.join(', ') } });
+  optionByKey(list, '--parent <code>', 'help.account.list.option.parent');
+  optionByKey(list, '--inactive', 'help.account.list.option.inactive');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action((search: string | undefined, opts: CommonOpts & { type?: string; parent?: string; inactive?: boolean; status?: string[] }) =>
@@ -320,13 +314,10 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   );
 
   // ---- account show ------------------------------------------------
-  const show = account
-    .command('show')
-    .alias('ver')
-    .argument('<code>', 'account code or id')
-    .description('Show one account with its parent, flags and lifetime activity');
+  const show = describeCommand(account.command('show').alias('ver'), 'help.account.show.description');
+  argumentByKey(show, '<code>', 'help.account.show.argument.code');
   withOutput(withContext(show));
-  show.option('--no-balance', 'skip the lifetime activity lookup');
+  optionByKey(show, '--no-balance', 'help.account.show.option.no_balance');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
   show.action((code: string, opts: CommonOpts & { balance?: boolean }) =>
@@ -343,23 +334,22 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   );
 
   // ---- account create ----------------------------------------------
-  const create = account
-    .command('create')
-    .alias('crear')
-    .argument('<code>', 'account code, unique within the entity')
-    .argument('<name>', 'account name')
-    .description('Create an account');
+  const create = describeCommand(account.command('create').alias('crear'), 'help.account.create.description');
+  argumentByKey(create, '<code>', 'help.account.create.argument.code');
+  argumentByKey(create, '<name>', 'help.account.create.argument.name');
   withContext(create);
-  create
-    .requiredOption('--type <type>', `account type: ${ACCOUNT_TYPES.join(', ')}`)
-    .option('--normal-balance <side>', `debit or credit (defaults from the type)`)
-    .option('--parent <code>', 'parent account code')
-    .option('--currency <code>', 'restrict the account to one currency (3 letters)')
-    .option('--subtype <name>', 'account subtype')
-    .option('--fs-category <name>', 'financial-statement caption')
-    .option('--description <text>', 'description')
-    .option('--header', 'a grouping node: it accepts no manual entries')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--type <type>', 'help.account.create.option.type', {
+    params: { types: ACCOUNT_TYPES.join(', ') },
+    mandatory: true,
+  });
+  optionByKey(create, '--normal-balance <side>', 'help.account.create.option.normal_balance');
+  optionByKey(create, '--parent <code>', 'help.account.create.option.parent');
+  optionByKey(create, '--currency <code>', 'help.account.create.option.currency');
+  optionByKey(create, '--subtype <name>', 'help.account.create.option.subtype');
+  optionByKey(create, '--fs-category <name>', 'help.account.create.option.fs_category');
+  optionByKey(create, '--description <text>', 'help.account.create.option.description');
+  optionByKey(create, '--header', 'help.account.create.option.header');
+  optionByKey(create, '--json', 'help.account.create.option.json');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'accounts' });
   create.addHelpText('after', EJEMPLOS.create);
   create.action(
@@ -415,17 +405,13 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   );
 
   // ---- account edit ------------------------------------------------
-  const edit = account
-    .command('edit')
-    .alias('editar')
-    .argument('<code>', 'account code or id')
-    .description('Change an account name, description, subtype or statement caption');
+  const edit = describeCommand(account.command('edit').alias('editar'), 'help.account.edit.description');
+  argumentByKey(edit, '<code>', 'help.account.edit.argument.code');
   withContext(edit);
-  edit
-    .option('--name <text>', 'new name')
-    .option('--description <text>', 'new description')
-    .option('--subtype <name>', 'new subtype')
-    .option('--fs-category <name>', 'new financial-statement caption');
+  optionByKey(edit, '--name <text>', 'help.account.edit.option.name');
+  optionByKey(edit, '--description <text>', 'help.account.edit.option.description');
+  optionByKey(edit, '--subtype <name>', 'help.account.edit.option.subtype');
+  optionByKey(edit, '--fs-category <name>', 'help.account.edit.option.fs_category');
   declareRisk(edit, { risk: 'escritura', agent: false, writes: 'accounts' });
   edit.addHelpText('after', EJEMPLOS.edit);
   edit.action(
@@ -453,14 +439,14 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   // nombres viejos quedan como alias para no romper a nadie. `archive` es
   // verbo de razón (kernel/risk.ts): gateMutation exige --reason SIEMPRE, no
   // solo con --force — un archivado sin motivo escrito no se puede auditar.
-  const archive = account
-    .command('archive')
-    .aliases(['archivar', 'deactivate', 'desactivar'])
-    .argument('<code>', 'account code or id')
-    .description('Retire an account from active use (never deletes; requires zero balance unless --force)');
+  const archive = describeCommand(
+    account.command('archive').aliases(['archivar', 'deactivate', 'desactivar']),
+    'help.account.archive.description'
+  );
+  argumentByKey(archive, '<code>', 'help.account.archive.argument.code');
   withContext(archive);
   withForce(archive);
-  archive.option('--dry-run', 'run the checks and report, without writing');
+  optionByKey(archive, '--dry-run', 'help.account.archive.option.dry_run');
   declareRisk(archive, { risk: 'escritura', agent: false, writes: 'accounts.is_active' });
   archive.addHelpText('after', EJEMPLOS.archive);
   archive.action((code: string, opts: CommonOpts & { force?: boolean; reason?: string; dryRun?: boolean }) =>
@@ -499,19 +485,15 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   );
 
   // ---- account set (F01: banderas de gobierno) ---------------------
-  const set = account
-    .command('set')
-    .alias('fijar')
-    .argument('<code>', 'account code or id')
-    .argument('<pairs...>', 'key=value: allow-manual, header, control-account, require-subsidiary, currency')
-    .description('Set the governance flags of an account (who may post to it, and how)');
+  const set = describeCommand(account.command('set').alias('fijar'), 'help.account.set.description');
+  argumentByKey(set, '<code>', 'help.account.set.argument.code');
+  argumentByKey(set, '<pairs...>', 'help.account.set.argument.pairs');
   withContext(set);
-  set
-    .option('--dry-run', 'validate and report, without writing')
-    // La fila del catálogo de `account set` lista `--reason` desde siempre y
-    // no estaba declarada: cambiar quién puede postear a una cuenta es
-    // exactamente el acto que alguien pregunta después.
-    .option('--reason <text>', 'why these flags change; recorded in the audit trail');
+  optionByKey(set, '--dry-run', 'help.account.set.option.dry_run');
+  // La fila del catálogo de `account set` lista `--reason` desde siempre y
+  // no estaba declarada: cambiar quién puede postear a una cuenta es
+  // exactamente el acto que alguien pregunta después.
+  optionByKey(set, '--reason <text>', 'help.account.set.option.reason');
   declareRisk(set, { risk: 'escritura', agent: false, writes: 'accounts (banderas de gobierno)' });
   set.addHelpText('after', EJEMPLOS.set);
   set.action((code: string, pairs: string[], opts: CommonOpts & { dryRun?: boolean; reason?: string }) =>
@@ -537,19 +519,12 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   );
 
   // ---- account balance show (F01) ----------------------------------
-  const balance = account
-    .command('balance')
-    .alias('saldo')
-    .description('Balances of one account, decomposed by fiscal period');
-  const balShow = balance
-    .command('show')
-    .alias('ver')
-    .argument('<code>', 'account code or id')
-    .description('Beginning, debits, credits and ending by period, with the period status');
+  const balance = describeCommand(account.command('balance').alias('saldo'), 'help.account.balance.description');
+  const balShow = describeCommand(balance.command('show').alias('ver'), 'help.account.balance.show.description');
+  argumentByKey(balShow, '<code>', 'help.account.balance.show.argument.code');
   withOutput(withContext(balShow));
-  balShow
-    .option('--period <expr>', 'only this period: 2026-07, its id, or part of its name')
-    .option('--as-of <date>', 'only the period containing this date (YYYY-MM-DD)');
+  optionByKey(balShow, '--period <expr>', 'help.account.balance.show.option.period');
+  optionByKey(balShow, '--as-of <date>', 'help.account.balance.show.option.as_of');
   declareRisk(balShow, { risk: 'lectura', agent: true });
   balShow.addHelpText('after', EJEMPLOS.balanceShow);
   balShow.action((code: string, opts: CommonOpts & { period?: string; asOf?: string }) =>
@@ -573,19 +548,12 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   );
 
   // ---- account role (F01: la capa semántica gana CRUD) -------------
-  const role = account
-    .command('role')
-    .alias('rol')
-    .description('Semantic account roles (cxc, banco, iva_acreditable…) that automatic posting reads');
+  const role = describeCommand(account.command('role').alias('rol'), 'help.account.role.description');
 
-  const roleList = role
-    .command('list')
-    .alias('listar')
-    .description('Each role and the account it points to, default and qualified variants');
+  const roleList = describeCommand(role.command('list').alias('listar'), 'help.account.role.list.description');
   withOutput(withSelection(withContext(roleList)));
-  roleList
-    .option('--role <name>', 'only this role')
-    .option('--qualifier <q>', 'only this qualified variant');
+  optionByKey(roleList, '--role <name>', 'help.account.role.list.option.role');
+  optionByKey(roleList, '--qualifier <q>', 'help.account.role.list.option.qualifier');
   declareRisk(roleList, { risk: 'lectura', agent: true });
   roleList.addHelpText('after', EJEMPLOS.roleList);
   roleList.action((opts: CommonOpts & { role?: string; qualifier?: string }) =>
@@ -596,22 +564,20 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     })
   );
 
-  const roleSet = role
-    .command('set')
-    .alias('fijar')
-    .argument('<role>', `one of: ${rolesValidos().slice(0, 6).join(', ')}… (see role list)`)
-    .argument('<code>', 'account code the role should point to')
-    .description('Repoint a role to another account, or create a qualified variant');
+  const roleSet = describeCommand(role.command('set').alias('fijar'), 'help.account.role.set.description');
+  argumentByKey(roleSet, '<role>', 'help.account.role.set.argument.role', {
+    params: { roles: rolesValidos().slice(0, 6).join(', ') },
+  });
+  argumentByKey(roleSet, '<code>', 'help.account.role.set.argument.code');
   withContext(roleSet);
-  roleSet
-    .option('--qualifier <q>', 'per-context variant (NULL = the default mapping)')
-    .option('--note <text>', 'why this role points here')
-    // NO se declara `--reason` aquí: la fila del catálogo de
-    // `account role set` lista exactamente `--qualifier`, `--note` y
-    // `--dry-run`, y una bandera que el catálogo no tiene no se inventa en el
-    // código. `setAccountRole` sí acepta razón —la ruta REST y el agente la
-    // van a necesitar— y la fila propuesta va en el informe de G3.
-    .option('--dry-run', 'validate and report, without writing');
+  optionByKey(roleSet, '--qualifier <q>', 'help.account.role.set.option.qualifier');
+  optionByKey(roleSet, '--note <text>', 'help.account.role.set.option.note');
+  // NO se declara `--reason` aquí: la fila del catálogo de
+  // `account role set` lista exactamente `--qualifier`, `--note` y
+  // `--dry-run`, y una bandera que el catálogo no tiene no se inventa en el
+  // código. `setAccountRole` sí acepta razón —la ruta REST y el agente la
+  // van a necesitar— y la fila propuesta va en el informe de G3.
+  optionByKey(roleSet, '--dry-run', 'help.account.role.set.option.dry_run');
   declareRisk(roleSet, { risk: 'escritura', agent: false, writes: 'account_roles' });
   roleSet.addHelpText('after', EJEMPLOS.roleSet);
   roleSet.action((roleName: string, code: string, opts: CommonOpts & { qualifier?: string; note?: string; dryRun?: boolean }) =>
@@ -641,10 +607,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     })
   );
 
-  const roleSeed = role
-    .command('seed')
-    .alias('sembrar')
-    .description('Create the missing base accounts and map every unmapped role (never overwrites a manual choice)');
+  const roleSeed = describeCommand(role.command('seed').alias('sembrar'), 'help.account.role.seed.description');
   withContext(roleSeed);
   declareRisk(roleSeed, { risk: 'escritura', agent: false, writes: 'accounts, account_roles (solo faltantes)' });
   roleSeed.addHelpText('after', EJEMPLOS.roleSeed);
@@ -693,26 +656,23 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   );
 
   // ---- account map (F01: mapeos estatutarios) ----------------------
-  const map = account
-    .command('map')
-    .alias('mapeo')
-    .description('Statutory mappings per account: SAT agrupador (Anexo 24), US tax line, IFRS');
+  const map = describeCommand(account.command('map').alias('mapeo'), 'help.account.map.description');
+  const schemes = Object.keys(MAPPING_SCHEMES).join(', ');
 
-  const mapSet = map
-    .command('set')
-    .alias('fijar')
-    .argument('<code>', 'account code or id')
-    .description('Map the account to a statutory scheme value');
+  const mapSet = describeCommand(map.command('set').alias('fijar'), 'help.account.map.set.description');
+  argumentByKey(mapSet, '<code>', 'help.account.map.set.argument.code');
   withContext(mapSet);
-  mapSet
-    .requiredOption('--scheme <name>', `scheme: ${Object.keys(MAPPING_SCHEMES).join(', ')}`)
-    .option('--value <v>', 'the code in that scheme; empty clears the mapping')
-    // F07a: la bandera existía y sólo sabía rechazarse — «el catálogo
-    // c_CodAgrup versionado no existe en el sistema», que era cierto hasta la
-    // 063. Ya existe y tiene vigencias, así que --year vuelve a significar lo
-    // que el catálogo de comandos siempre dijo: contra QUÉ ejercicio se valida.
-    .option('--year <y>', "fiscal year whose SAT catalog validates the code (default: today's)")
-    .option('--dry-run', 'validate and report, without writing');
+  optionByKey(mapSet, '--scheme <name>', 'help.account.map.set.option.scheme', {
+    params: { schemes },
+    mandatory: true,
+  });
+  optionByKey(mapSet, '--value <v>', 'help.account.map.set.option.value');
+  // F07a: la bandera existía y sólo sabía rechazarse — «el catálogo
+  // c_CodAgrup versionado no existe en el sistema», que era cierto hasta la
+  // 063. Ya existe y tiene vigencias, así que --year vuelve a significar lo
+  // que el catálogo de comandos siempre dijo: contra QUÉ ejercicio se valida.
+  optionByKey(mapSet, '--year <y>', 'help.account.map.set.option.year');
+  optionByKey(mapSet, '--dry-run', 'help.account.map.set.option.dry_run');
   declareRisk(mapSet, { risk: 'escritura', agent: false, writes: 'accounts (columnas estatutarias)' });
   mapSet.addHelpText('after', EJEMPLOS.mapSet);
   mapSet.action((code: string, opts: CommonOpts & { scheme: string; value?: string; year?: string; dryRun?: boolean }) =>
@@ -765,12 +725,9 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     })
   );
 
-  const mapList = map
-    .command('list')
-    .alias('listar')
-    .description('Every active account with its statutory mappings');
+  const mapList = describeCommand(map.command('list').alias('listar'), 'help.account.map.list.description');
   withOutput(withSelection(withContext(mapList)));
-  mapList.option('--scheme <name>', 'project only this scheme');
+  optionByKey(mapList, '--scheme <name>', 'help.account.map.list.option.scheme');
   declareRisk(mapList, { risk: 'lectura', agent: true });
   mapList.addHelpText('after', EJEMPLOS.mapList);
   mapList.action((opts: CommonOpts & { scheme?: string }) =>
@@ -788,16 +745,15 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     })
   );
 
-  const mapImport = map
-    .command('import')
-    .alias('importar')
-    .argument('<file>', 'CSV: code,valor (una cuenta por línea; separador coma o punto y coma)')
-    .description('Bulk-load a statutory scheme from CSV — the heaviest setup task of a Mexican firm');
+  const mapImport = describeCommand(map.command('import').alias('importar'), 'help.account.map.import.description');
+  argumentByKey(mapImport, '<file>', 'help.account.map.import.argument.file');
   withContext(mapImport);
-  mapImport
-    .requiredOption('--scheme <name>', `scheme: ${Object.keys(MAPPING_SCHEMES).join(', ')}`)
-    .option('--dry-run', 'parse and resolve everything, write nothing')
-    .option('--idempotency-key <key>', 'replay-safe key: the same key with the same file returns the first result');
+  optionByKey(mapImport, '--scheme <name>', 'help.account.map.import.option.scheme', {
+    params: { schemes },
+    mandatory: true,
+  });
+  optionByKey(mapImport, '--dry-run', 'help.account.map.import.option.dry_run');
+  optionByKey(mapImport, '--idempotency-key <key>', 'help.account.map.import.option.idempotency_key');
   declareRisk(mapImport, {
     risk: 'escritura',
     agent: false,
@@ -844,18 +800,16 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     })
   );
 
-  const mapCheck = map
-    .command('check')
-    .alias('verificar')
-    .description('Coverage gate before the Anexo 24 catalog XML: which accounts still lack a mapping');
+  const mapCheck = describeCommand(map.command('check').alias('verificar'), 'help.account.map.check.description');
   withOutput(withStrict(withContext(mapCheck)));
-  mapCheck
-    .option('--check <names>', 'named checks to run (available: coverage; empty lists them)', 'coverage')
-    .option('--scheme <name>', 'scheme to verify', 'sat-agrupador')
-    // SIN VALOR POR OMISIÓN, a propósito: la bandera ya no recorta nada y lo
-    // único honesto es decírselo a quien la escribe. Con un defecto, commander
-    // la daría por puesta siempre y el error saltaría sin que nadie la pidiera.
-    .option('--level <n>', `${RETIRED_OPTION_PREFIX}the gate no longer measures by account level`);
+  optionByKey(mapCheck, '--check <names>', 'help.account.map.check.option.check', { defaultValue: 'coverage' });
+  optionByKey(mapCheck, '--scheme <name>', 'help.account.map.check.option.scheme', { defaultValue: 'sat-agrupador' });
+  // SIN VALOR POR OMISIÓN, a propósito: la bandera ya no recorta nada y lo
+  // único honesto es decírselo a quien la escribe. Con un defecto, commander
+  // la daría por puesta siempre y el error saltaría sin que nadie la pidiera.
+  optionByKey(mapCheck, '--level <n>', 'help.account.map.check.option.level', {
+    params: { prefix: RETIRED_OPTION_PREFIX },
+  });
   declareRisk(mapCheck, { risk: 'lectura', agent: true });
   mapCheck.addHelpText('after', EJEMPLOS.mapCheck);
   mapCheck.action((opts: CommonOpts & { check?: string; scheme: string; level?: string; strict?: boolean }) =>
@@ -919,15 +873,12 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   );
 
   // ---- account restore ---------------------------------------------
-  const restore = account
-    .command('restore')
-    .alias('restaurar')
-    .argument('<code>', 'account code or id')
-    .description('Put a retired account back in service');
+  const restore = describeCommand(account.command('restore').alias('restaurar'), 'help.account.restore.description');
+  argumentByKey(restore, '<code>', 'help.account.restore.argument.code');
   withContext(restore);
   // La fila del catálogo listaba `--reason` con la nota «no tiene dónde
   // guardarse hoy». Ya lo tiene: `updateAccount` escribe en `audit_log`.
-  restore.option('--reason <text>', 'why the account comes back into service; recorded in the audit trail');
+  optionByKey(restore, '--reason <text>', 'help.account.restore.option.reason');
   declareRisk(restore, { risk: 'escritura', agent: false, writes: 'accounts.is_active' });
   restore.addHelpText('after', EJEMPLOS.restore);
   restore.action((code: string, opts: CommonOpts & { reason?: string }) =>

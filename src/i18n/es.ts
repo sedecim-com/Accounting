@@ -2951,6 +2951,120 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.diot.export.option.yes': 'omite la confirmación de sobrescritura cuando -o nombra un archivo existente',
   'help.diot.export.option.output':
     'escribe el archivo exportado en esta ruta (sin ella, va a la salida estándar para poder compararlo)',
+  // ==== MNE-001-234 · help by key, account and ledger (issue #314) ====
+  'help.account.description': 'Catálogo de cuentas: consultar, dar de alta y retirar cuentas',
+  'help.account.list.description': 'Lista las cuentas, filtradas por tipo, estado, cuenta padre o texto libre',
+  'help.account.list.argument.search': 'texto que se busca en el código o en el nombre de la cuenta',
+  'help.account.list.option.type': 'tipo de cuenta: {types}',
+  'help.account.list.option.parent': 'sólo las subcuentas de la cuenta con este código',
+  'help.account.list.option.inactive': 'muestra las cuentas inactivas en lugar de las activas',
+  'help.account.show.description':
+    'Muestra una cuenta con su cuenta padre, sus banderas de gobierno y su actividad de por vida',
+  'help.account.show.argument.code': 'código o id de la cuenta',
+  'help.account.show.option.no_balance': 'omite la consulta de la actividad de por vida',
+  'help.account.create.description': 'Da de alta una cuenta',
+  'help.account.create.argument.code': 'código de la cuenta, único dentro de la entidad',
+  'help.account.create.argument.name': 'nombre de la cuenta',
+  'help.account.create.option.type': 'tipo de cuenta: {types}',
+  'help.account.create.option.normal_balance':
+    'naturaleza de la cuenta: debit (deudora) o credit (acreedora); por omisión, la que corresponde al tipo',
+  'help.account.create.option.parent': 'código de la cuenta padre',
+  'help.account.create.option.currency': 'restringe la cuenta a una sola moneda (3 letras)',
+  'help.account.create.option.subtype': 'subtipo de la cuenta',
+  'help.account.create.option.fs_category': 'categoría de estado financiero',
+  'help.account.create.option.description': 'descripción',
+  'help.account.create.option.header': 'una cuenta agrupadora: no acepta pólizas manuales',
+  'help.account.create.option.json': 'salida en JSON',
+  'help.account.edit.description':
+    'Cambia el nombre, la descripción, el subtipo o la categoría de estado financiero de una cuenta',
+  'help.account.edit.argument.code': 'código o id de la cuenta',
+  'help.account.edit.option.name': 'nuevo nombre',
+  'help.account.edit.option.description': 'nueva descripción',
+  'help.account.edit.option.subtype': 'nuevo subtipo',
+  'help.account.edit.option.fs_category': 'nueva categoría de estado financiero',
+  'help.account.archive.description':
+    'Retira una cuenta del uso activo (nunca la borra; exige saldo cero salvo con --force)',
+  'help.account.archive.argument.code': 'código o id de la cuenta',
+  'help.account.archive.option.dry_run': 'corre las verificaciones e informa, sin escribir nada',
+  'help.account.set.description':
+    'Fija las banderas de gobierno de una cuenta (quién puede contabilizar en ella, y cómo)',
+  'help.account.set.argument.code': 'código o id de la cuenta',
+  'help.account.set.argument.pairs': 'clave=valor: allow-manual, header, control-account, require-subsidiary, currency',
+  'help.account.set.option.dry_run': 'valida e informa, sin escribir nada',
+  'help.account.set.option.reason': 'por qué cambian estas banderas; queda en el rastro de auditoría',
+  'help.account.balance.description': 'Saldos de una cuenta, descompuestos por periodo fiscal',
+  'help.account.balance.show.description':
+    'Saldo inicial, cargos, abonos y saldo final por periodo, con el estado del periodo',
+  'help.account.balance.show.argument.code': 'código o id de la cuenta',
+  'help.account.balance.show.option.period': 'sólo este periodo: 2026-07, su id o una parte de su nombre',
+  'help.account.balance.show.option.as_of': 'sólo el periodo que contiene esta fecha (AAAA-MM-DD)',
+  'help.account.role.description':
+    'Roles semánticos de cuentas (cxc, banco, iva_acreditable…) que lee la contabilización automática',
+  'help.account.role.list.description':
+    'Cada rol y la cuenta a la que apunta, con la variante por omisión y las variantes con calificador',
+  'help.account.role.list.option.role': 'sólo este rol',
+  'help.account.role.list.option.qualifier': 'sólo esta variante con calificador',
+  'help.account.role.set.description': 'Reapunta un rol a otra cuenta, o crea una variante con calificador',
+  'help.account.role.set.argument.role': 'uno de: {roles}… (ver role list)',
+  'help.account.role.set.argument.code': 'código de la cuenta a la que debe apuntar el rol',
+  'help.account.role.set.option.qualifier': 'variante por contexto (NULL = el mapeo por omisión)',
+  'help.account.role.set.option.note': 'por qué el rol apunta aquí',
+  'help.account.role.set.option.dry_run': 'valida e informa, sin escribir nada',
+  'help.account.role.seed.description':
+    'Crea las cuentas base que falten y mapea cada rol sin asignar (nunca pisa una decisión manual)',
+  'help.account.map.description':
+    'Mapeos estatutarios por cuenta: código agrupador del SAT (Anexo 24), línea fiscal de EE. UU., NIIF',
+  'help.account.map.set.description': 'Asocia la cuenta a un valor de un esquema estatutario',
+  'help.account.map.set.argument.code': 'código o id de la cuenta',
+  'help.account.map.set.option.scheme': 'esquema: {schemes}',
+  'help.account.map.set.option.value': 'el código en ese esquema; un valor vacío borra el mapeo',
+  'help.account.map.set.option.year': 'ejercicio cuyo catálogo del SAT valida el código (por omisión, el de hoy)',
+  'help.account.map.set.option.dry_run': 'valida e informa, sin escribir nada',
+  'help.account.map.list.description': 'Todas las cuentas activas con sus mapeos estatutarios',
+  'help.account.map.list.option.scheme': 'muestra sólo la columna de este esquema',
+  'help.account.map.import.description':
+    'Carga masiva de un esquema estatutario desde CSV — la tarea de alta más pesada de un despacho mexicano',
+  'help.account.map.import.argument.file': 'CSV: código,valor (una cuenta por línea; separador coma o punto y coma)',
+  'help.account.map.import.option.scheme': 'esquema: {schemes}',
+  'help.account.map.import.option.dry_run': 'lee y resuelve todo; no escribe nada',
+  'help.account.map.import.option.idempotency_key':
+    'llave para reintentar sin riesgo: la misma llave con el mismo archivo devuelve el primer resultado',
+  'help.account.map.check.description':
+    'Compuerta de cobertura previa al XML de catálogo del Anexo 24: qué cuentas todavía no tienen mapeo',
+  'help.account.map.check.option.check':
+    'verificaciones a correr, por nombre (disponible: coverage; un valor vacío las lista)',
+  'help.account.map.check.option.scheme': 'esquema a verificar',
+  'help.account.map.check.option.level': '{prefix}la compuerta ya no mide por nivel de cuenta',
+  'help.account.restore.description': 'Vuelve a poner en servicio una cuenta retirada',
+  'help.account.restore.argument.code': 'código o id de la cuenta',
+  'help.account.restore.option.reason':
+    'por qué la cuenta vuelve a estar en servicio; queda en el rastro de auditoría',
+  'help.ledger.description': 'El mayor en sí: verificaciones de integridad, borradores viejos, auxiliares y saldos',
+  'help.ledger.check.description':
+    'Verificaciones del mayor por nombre; sin bandera corre las bloqueantes y sale con 4 si hay hallazgos',
+  'help.ledger.check.option.check':
+    'verificaciones a correr, separadas por comas (disponibles: {checks}; un valor vacío las lista)',
+  'help.ledger.check.option.account': 'acota la verificación `balance` a una sola cuenta',
+  'help.ledger.check.option.period':
+    'acota la verificación `balance` a un periodo fiscal: 2026-07, su id o una parte de su nombre',
+  'help.ledger.stale_draft.description': 'Pólizas en borrador que llevan demasiado tiempo sin contabilizarse',
+  'help.ledger.stale_draft.list.description':
+    'Borradores con más de N días — el bloqueo número uno de toda lista de verificación del cierre',
+  'help.ledger.stale_draft.list.option.days': 'antigüedad mínima en días',
+  'help.ledger.stale_draft.list.option.period':
+    'sólo los borradores fechados en este periodo fiscal: 2026-07, su id o una parte de su nombre',
+  'help.ledger.auxiliary.description':
+    'Auxiliar de cuenta: saldo inicial, movimientos y saldo final — la forma XC del SAT',
+  'help.ledger.auxiliary.show.description': 'Una cuenta, un periodo: saldo inicial → cada movimiento → saldo final',
+  'help.ledger.auxiliary.show.option.account': 'código de la cuenta',
+  'help.ledger.auxiliary.show.option.period': 'periodo fiscal: 2026-07, su id o una parte inequívoca de su nombre',
+  'help.ledger.balance.description': 'El saldo de una cuenta, descompuesto por periodo, con el estado del periodo',
+  'help.ledger.balance.show.description': 'Saldo inicial, cargos, abonos y saldo final de una cuenta, por periodo',
+  'help.ledger.balance.show.option.account': 'código o id de la cuenta',
+  'help.ledger.balance.show.option.as_of': 'sólo el periodo que contiene esta fecha (AAAA-MM-DD)',
+  'help.ledger.balance.show.option.period': 'sólo este periodo: 2026-07, su id o una parte de su nombre',
+  'help.ledger.balance.show.option.dim':
+    'desglose por dimensión (no disponible: la familia dimension todavía no existe)',
   // ==== MNE-001-231 · help by key, bank account, statement and transaction (issue #314) ====
   'help.bank.description': 'Cuentas bancarias y estados de cuenta: los datos maestros y los estados importados',
   'help.bank.account.description':

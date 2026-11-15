@@ -9,7 +9,7 @@
     "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
-    "spanish-user-strings-cli": 465,
+    "spanish-user-strings-cli": 463,
     "plan-criteria-grepping-spanish-identifiers": 118,
     "plan-criteria-pinned-to-spanish-paths": 36,
     "plan-mutants-anchored-to-spanish-files": 29,
@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 1001
+    "help-descriptions-without-key": 910
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -845,7 +845,7 @@
       "scripts/rellenar-roles-de-cuenta.ts": 1
     },
     "spanish-user-strings-cli": {
-      "src/cli/account-command.ts": 31,
+      "src/cli/account-command.ts": 29,
       "src/cli/ai-command.ts": 10,
       "src/cli/ap-command.ts": 2,
       "src/cli/asset-command.ts": 9,
@@ -1486,7 +1486,6 @@
       "src/services/accounting/validation.ts": 1
     },
     "help-descriptions-without-key": {
-      "account": 72,
       "ai": 2,
       "approvals": 21,
       "ask": 4,
@@ -1516,7 +1515,6 @@
       "isn": 21,
       "jobs": 28,
       "lang": 1,
-      "ledger": 19,
       "login": 1,
       "memory": 22,
       "onboard": 8,
