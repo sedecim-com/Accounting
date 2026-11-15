@@ -2,7 +2,7 @@
   "name": "IFRS Accounting Standards — registro de vigencias para mnemosine",
   "scope": "NIIF/NIC, interpretaciones CINIIF/SIC y NIIF para PyMEs del IASB (IFRS ACCOUNTING Standards). Las normas de sostenibilidad del ISSB (IFRS S1/S2) quedan FUERA de alcance: son revelación de sostenibilidad, no registro contable.",
   "verified_at": "2026-09-06",
-  "verification": "Investigación con 9 agentes + 3 verificadores adversariales (completitud, vigencias, diferencias vs NIF). 69 fichas: 67 vigencias confirmadas contra ifrs.org/iasplus; 2 corregidas; 1 norma faltante agregada (IFRS 20); 8 afirmaciones NIF↔IFRS corregidas. Re-verificación 2026-09-06 (un investigador con web en vivo + verificador de ligas): las 72 vigencias de fondo se sostienen; corregidas la ficha de NIC 28 (enmienda FVO jun-2026 que la ficha negaba) y la de NIIF 16 (PIR concluida jul-2026); sustituidas dos ligas muertas (NIIF 5, NIC 1) por la página oficial; añadidas dos fuentes de verdad. Las fichas NIF A-2 (2026) y ONIF 7 se agregaron el 2026-09-30 con confianza media (A-2 desde el proyecto de auscultación y prensa gremial, sin texto promulgado; sus ligas no se verificaron). MNE-001-366 aplicó a cinco fichas (NIIF 18, NIC 7, NIIF 9, NIC 12, NIIF 20) y a la AD de depósitos a la vista de NIC 7 las decisiones de agenda de 2026 y las fuentes oficiales; queda para MNE-001-367 y MNE-001-368 el resto del delta (Mejoras 2026/2027, páginas oficiales de las demás fichas), en docs/investigacion/2026-09-06-normas-y-motores/normas/ifrs-nif-delta.md §4.",
+  "verification": "Investigación con 9 agentes + 3 verificadores adversariales (completitud, vigencias, diferencias vs NIF). 69 fichas: 67 vigencias confirmadas contra ifrs.org/iasplus; 2 corregidas; 1 norma faltante agregada (IFRS 20); 8 afirmaciones NIF↔IFRS corregidas. Re-verificación 2026-09-06 (un investigador con web en vivo + verificador de ligas): las 72 vigencias de fondo se sostienen; corregidas la ficha de NIC 28 (enmienda FVO jun-2026 que la ficha negaba) y la de NIIF 16 (PIR concluida jul-2026); sustituidas dos ligas muertas (NIIF 5, NIC 1) por la página oficial; añadidas dos fuentes de verdad. Las fichas NIF A-2 (2026) y ONIF 7 se agregaron el 2026-09-30 con confianza media (A-2 desde el proyecto de auscultación y prensa gremial, sin texto promulgado; sus ligas no se verificaron). MNE-001-366 aplicó a cinco fichas (NIIF 18, NIC 7, NIIF 9, NIC 12, NIIF 20) y a la AD de depósitos a la vista de NIC 7 las decisiones de agenda de 2026 y las fuentes oficiales; MNE-001-367 dio a 39 fichas su página oficial de la tabla §8.1 del informe (HTTP 200 el 2026-09-06, no comprobada de nuevo); NIIF 20, ONIF 7 y SUPLETORIEDAD quedan exentas, con su motivo en tests/ai/niif-registry.spec.ts. Queda el resto del delta (decisiones de agenda del Vol. 14 y de junio de 2026, MNE-001-368; Mejoras 2026/2027, MNE-001-365), en docs/investigacion/2026-09-06-normas-y-motores/normas/ifrs-nif-delta.md §4.",
   "sources_of_truth": [
     "https://www.ifrs.org/issued-standards/list-of-standards/",
     "https://www.ifrs.org/projects/work-plan/",
@@ -145,6 +145,7 @@
       "topic": "niif-marco-presentacion",
       "confidence": "medium",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-10-events-after-the-reporting-period/",
         "https://www.ifrs.org/issued-standards/list-of-standards/",
         "https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-july-2026/"
       ]
@@ -190,6 +191,7 @@
       "topic": "niif-marco-presentacion",
       "confidence": "medium",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-24-related-party-disclosures/",
         "https://www.ifrs.org/issued-standards/list-of-standards/",
         "https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-july-2026/"
       ]
@@ -220,6 +222,7 @@
       "topic": "niif-activos",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-2-inventories/",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
         "https://www.ifrs.org/news-and-events/news/2024/07/iasb-issues-annual-improvements-ifrs-accounting-standards/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/updated_ifrs_accounting_standards.html"
@@ -237,6 +240,7 @@
       "topic": "niif-activos",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-16-property-plant-and-equipment/",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/updated_ifrs_accounting_standards.html",
         "https://www.ifrs.org/issued-standards/list-of-standards/"
@@ -254,6 +258,7 @@
       "topic": "niif-activos",
       "confidence": "medium",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-23-borrowing-costs/",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/updated_ifrs_accounting_standards.html"
       ],
@@ -270,6 +275,7 @@
       "topic": "niif-activos",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-36-impairment-of-assets/",
         "https://www.ifrs.org/projects/work-plan/goodwill-and-impairment/",
         "https://www.iasplus.com/en/meeting-types/iasb/2026/may/bcdgi",
         "https://www.ey.com/en_gl/technical/ifrs-technical-resources/iasb-proposes-amendments-to-ifrs-3-and-ias-36",
@@ -307,6 +313,7 @@
       "topic": "niif-activos",
       "confidence": "medium",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-40-investment-property/",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
         "https://cpcongroup.mx/insights/nic-40-nif-c-17-propiedades-de-inversion",
         "https://vlex.com.mx/vid/nif-c-17-propiedades-857891386"
@@ -324,6 +331,7 @@
       "topic": "niif-activos",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-41-agriculture/",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
         "https://cpcongroup.mx/insights/nic-41-nif-e-1-actividades-agropecuarias",
         "https://www.grupocpcon.com/es-mx/nif-e-1-actividades-agropecuarias/"
@@ -358,6 +366,7 @@
       "topic": "niif-activos",
       "confidence": "medium",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-6-exploration-for-and-evaluation-of-mineral-resources/",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/updated_ifrs_accounting_standards.html",
         "https://www.ifrs.org/issued-standards/list-of-standards/"
@@ -394,6 +403,7 @@
       "topic": "niif-instrumentos-financieros",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-7-financial-instruments-disclosures/",
         "https://www.ifrs.org/news-and-events/news/2024/05/iasb-issues-amendments-cmfi-ifrs7-ifrs9/",
         "https://www.ifrs.org/news-and-events/news/2024/12/iasb-updates-accounting-standards-nature-dependent-electricity-contracts/",
         "https://www.endorsement-board.uk/projects/annual-improvements-to-ifrs-accounting-standards-volume-11-endorsement/",
@@ -416,6 +426,7 @@
       "topic": "niif-instrumentos-financieros",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-9-financial-instruments/",
         "https://www.ifrs.org/news-and-events/news/2024/05/iasb-issues-amendments-cmfi-ifrs7-ifrs9/",
         "https://www.ifrs.org/news-and-events/news/2024/12/iasb-updates-accounting-standards-nature-dependent-electricity-contracts/",
         "https://www.ifrs.org/projects/completed-projects/2024/ai-lessee-derecognition-of-lease-liabilities/",
@@ -663,6 +674,7 @@
       "topic": "niif-grupos",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-11-joint-arrangements/",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
         "https://viewpoint.pwc.com/gx/en/pwc/yearend_accounting/December_2025.html"
       ],
@@ -680,6 +692,7 @@
       "topic": "niif-grupos",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-12-disclosure-of-interests-in-other-entities/",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
         "https://www.ifrs.org/projects/work-plan/equity-method/",
         "https://www.iasplus.com/en/news/2024/09/ias-28"
@@ -700,6 +713,7 @@
       "topic": "niif-grupos",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-27-separate-financial-statements/",
         "https://www.icaew.com/technical/corporate-reporting/ifrs/ifrs-accounting-standards-tracker/ias-27-separate-financial-statements",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
         "https://www.iasplus.com/en/news/2024/09/ias-28"
@@ -719,6 +733,7 @@
       "topic": "niif-grupos",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-28-investments-in-associates-and-joint-ventures/",
         "https://www.ifrs.org/projects/work-plan/equity-method/",
         "https://www.ifrs.org/projects/work-plan/equity-method/ed-cl-equity-method/",
         "https://www.iasplus.com/en/news/2024/09/ias-28",
@@ -743,6 +758,7 @@
       "topic": "niif-moneda-seguros-adopcion",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ias-21-the-effects-of-changes-in-foreign-exchange-rates/",
         "https://www.ifrs.org/content/dam/ifrs/publications/pdf-standards/english/2024/issued/part-a/ias-21-the-effects-of-changes-in-foreign-exchange-rates.pdf",
         "https://viewpoint.pwc.com/dt/gx/en/iasb-amendments/amd/iasb-amendments/effective-01-jan-2025/lack-of-exchangeability.html",
         "https://www.ifrs.org/news-and-events/news/2025/11/iasb-to-issue-amendments-to-ias-21/",
@@ -823,6 +839,7 @@
       "topic": "niif-moneda-seguros-adopcion",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-14-regulatory-deferral-accounts/",
         "https://www.ifrs.org/projects/work-plan/rate-regulated-activities/",
         "https://www.iasplus.com/en-gb/news/2026/05/rra",
         "https://www.iasplus.com/en/projects/major/rate-regulated-activities",
@@ -842,6 +859,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-1-changes-in-existing-decommissioning-restoration-and-similar-liabilities/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric1",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -856,6 +874,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-2-members-shares-in-cooperative-entities-and-similar-instruments/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric2",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -870,6 +889,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-5-rights-to-interests-arising-from-decommissioning-restoration-and-environmental/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric5",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -884,6 +904,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-6-liabilities-arising-from-participating-in-a-specific-market-waste-electrical/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric6",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -898,6 +919,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-7-applying-the-restatement-approach-under-ias-29-financial-reporting/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric7",
         "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html"
@@ -912,6 +934,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-10-interim-financial-reporting-and-impairment/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric10",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -926,6 +949,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-12-service-concession-arrangements/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric12",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -940,6 +964,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-14-ias-19-the-limit-on-a-defined-benefit-asset-minimum-funding-requirements/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric14",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -954,6 +979,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-16-hedges-of-a-net-investment-in-a-foreign-operation/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric16",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -968,6 +994,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-17-distributions-of-non-cash-assets-to-owners/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric17",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -982,6 +1009,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "medium",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-19-extinguishing-financial-liabilities-with-equity-instruments/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric19",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -996,6 +1024,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-20-stripping-costs-in-the-production-phase-of-a-surface-mine/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric20",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -1010,6 +1039,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-21-levies/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric21",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -1024,6 +1054,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-22-foreign-currency-transactions-and-advance-consideration/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric22",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -1038,6 +1069,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/ifric-23-uncertainty-over-income-tax-treatments/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/ifric/ifric23",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -1052,6 +1084,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/sic-7-introduction-of-the-euro/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/sic/sic7",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -1066,6 +1099,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/sic-10-government-assistance-no-specific-relation-to-operating-activities/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/sic/sic10",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -1080,6 +1114,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/sic-25-income-taxes-changes-in-the-tax-status-of-an-entity-or-its-shareholders/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/sic/sic25",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -1094,6 +1129,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/sic-29-service-concession-arrangements-disclosures/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/sic/sic29",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -1108,6 +1144,7 @@
       "topic": "niif-interpretaciones",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/sic-32-intangible-assets-web-site-costs/",
         "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
         "https://www.iasplus.com/en/standards/sic/sic32",
         "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
@@ -1248,6 +1285,7 @@
       "topic": "niif-indice",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/management-commentary-practice-statement/",
         "https://www.ifrs.org/issued-standards/list-of-standards/"
       ]
     },
@@ -1260,6 +1298,7 @@
       "topic": "niif-indice",
       "confidence": "high",
       "sources": [
+        "https://www.ifrs.org/issued-standards/list-of-standards/materiality-practice-statement/",
         "https://www.ifrs.org/issued-standards/list-of-standards/"
       ]
     },

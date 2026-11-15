@@ -119,6 +119,172 @@ describe('ifrs-registry.json — la fuente de verdad del corpus NIIF', () => {
   });
 });
 
+// An official page on every card (MNE-001-367, #133; acceptance amended by its
+// /confirmar of 2026-11-15). What counts as official depends on the kind of card.
+// The bare list-of-standards/ index counts for no card, and the cinif.org.mx
+// homepage counts for no NIF card; nor do the ifrs.org homepage and the CINIF
+// pages behind a sign-up screen. The cards' pages come from table §8.1 of
+// docs/investigacion/2026-09-06-normas-y-motores/normas/ifrs-nif-delta.md, where
+// each one answered HTTP 200 on 2026-09-06.
+const IFRS_HOST = 'www.ifrs.org';
+const STANDARDS_INDEX = '/issued-standards/list-of-standards/';
+const SMES_PAGE = 'https://www.ifrs.org/issued-standards/ifrs-for-smes/';
+const CINIF_HOSTS = ['www.cinif.org.mx', 'cinif.org.mx'];
+/**
+ * cinif.org.mx paths that hold no document: the homepage under both of its
+ * paths, and the two pages that answer HTTP 200 with a sign-up screen (report §1
+ * and §8.2), so a reader without an account sees no standard there.
+ */
+const CINIF_NOT_DOCUMENTS = ['/', '/index.php', '/normatividad_listadonormas.php', '/normatividad_plandetrabajo.php'];
+
+interface OfficialRule {
+  /** What the card is missing, as the failure names it. */
+  readonly needs: string;
+  readonly accepts: (url: string) => boolean;
+}
+
+function parseUrl(url: string): URL | null {
+  try {
+    return new URL(url);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The card's own page under list-of-standards/. `slugStart` is `ias-10-` for a
+ * numbered standard, whose slug goes on with at least one word of its title, or
+ * `conceptual-framework/` for a page with a fixed slug. A slug is lowercase words
+ * joined by single hyphens, so neither the bare index nor the bare prefix
+ * (`ias-10-/`) matches.
+ */
+function ownStandardPage(slugStart: string): OfficialRule {
+  const base = `https://${IFRS_HOST}${STANDARDS_INDEX}`;
+  return {
+    needs: slugStart.endsWith('/') ? base + slugStart : `${base}${slugStart}…/`,
+    accepts: (url) => {
+      const u = parseUrl(url);
+      if (u?.protocol !== 'https:' || u.hostname !== IFRS_HOST) return false;
+      if (!u.pathname.startsWith(STANDARDS_INDEX)) return false;
+      const slug = u.pathname.slice(STANDARDS_INDEX.length);
+      return /^[a-z0-9]+(?:-[a-z0-9]+)*\/$/.test(slug) && slug.startsWith(slugStart);
+    },
+  };
+}
+
+const SMES_RULE: OfficialRule = { needs: SMES_PAGE, accepts: (url) => url === SMES_PAGE };
+
+const IFRS_SOURCE: OfficialRule = {
+  needs: 'a source on www.ifrs.org other than its homepage or the bare list-of-standards/ index',
+  accepts: (url) => {
+    const u = parseUrl(url);
+    if (u?.protocol !== 'https:' || u.hostname !== IFRS_HOST) return false;
+    const pathname = `${u.pathname.replace(/\/+$/, '')}/`;
+    return pathname !== '/' && pathname !== STANDARDS_INDEX;
+  },
+};
+
+const CINIF_DOCUMENT: OfficialRule = {
+  needs: 'a document on www.cinif.org.mx, not its homepage nor a page behind its sign-up screen',
+  accepts: (url) => {
+    const u = parseUrl(url);
+    if (u?.protocol !== 'https:' || !CINIF_HOSTS.includes(u.hostname)) return false;
+    const pathname = u.pathname.toLowerCase().replace(/\/+$/, '') || '/';
+    return !CINIF_NOT_DOCUMENTS.includes(pathname);
+  },
+};
+
+/** Cards whose page has a fixed slug instead of one derived from a number. */
+const FIXED_SLUGS: Record<string, string> = {
+  'Marco Conceptual / Conceptual Framework': 'conceptual-framework/',
+  'IFRS Practice Statement 1': 'management-commentary-practice-statement/',
+  'IFRS Practice Statement 2': 'materiality-practice-statement/',
+  // NOTE: MAPA is a NIF-IFRS map, not a standard. It is held to the IFRS 18 page
+  // it cites, by the ifrs.org rule and not the NIF one, because its only CINIF
+  // source is the homepage and its rewrite belongs to another task.
+  'MAPA NIF-IFRS': 'ifrs-18-',
+};
+
+/** The rule for a card, by what its code says it is; undefined for an unknown kind. */
+function officialRule(code: string): OfficialRule | undefined {
+  const numbered = /^(?:NIC|NIIF|CINIIF|SIC) \d+ \/ (IAS|IFRS|IFRIC|SIC)[ -](\d+)$/.exec(code);
+  if (numbered) return ownStandardPage(`${numbered[1]!.toLowerCase()}-${numbered[2]!}-`);
+  const fixedSlug = FIXED_SLUGS[code];
+  if (fixedSlug) return ownStandardPage(fixedSlug);
+  if (code.startsWith('NIIF para las PyMEs')) return SMES_RULE;
+  if (code.startsWith('AD: ')) return IFRS_SOURCE;
+  if (/^(?:NIF [A-E]-\d+|ONIF \d+|SUPLETORIEDAD)$/.test(code)) return CINIF_DOCUMENT;
+  return undefined;
+}
+
+/**
+ * Cards that cannot meet the rule of their kind today, each with its reason
+ * (#133, answer 3 of 2026-11-15). An exemption that stops being needed fails
+ * the test below, so it gets removed instead of hiding a card.
+ */
+const EXEMPT: Record<string, string> = {
+  'NIIF 20 / IFRS 20':
+    'ifrs.org has no list-of-standards page for it (the report records 404s); its four sources are ifrs.org pages',
+  'ONIF 7': "its text is only in CINIF's paid section, so there is no open cinif.org.mx document to cite",
+  SUPLETORIEDAD:
+    "its only cinif.org.mx source is the homepage (its other four are secondary) and the standard sits in CINIF's paid book",
+};
+
+describe('an official page on every card (MNE-001-367)', () => {
+  it('every card cites the official page its kind calls for', () => {
+    const missing: string[] = [];
+    for (const s of registry.standards) {
+      if (s.code in EXEMPT) continue;
+      const rule = officialRule(s.code);
+      if (!rule) missing.push(`${s.code}: no rule for this kind of card`);
+      else if (!s.sources.some(rule.accepts)) missing.push(`${s.code}: needs ${rule.needs}`);
+    }
+    expect(missing, `${missing.length} cards without their official page`).toEqual([]);
+  });
+
+  it('the bare list-of-standards index, both homepages and the CINIF pages behind sign-up count for no card', () => {
+    const notOfficial = [
+      'https://www.ifrs.org/issued-standards/list-of-standards/',
+      'https://www.ifrs.org/issued-standards/list-of-standards',
+      'https://www.ifrs.org/',
+      'https://www.ifrs.org',
+      'https://www.cinif.org.mx/',
+      'https://www.cinif.org.mx',
+      'https://www.cinif.org.mx/index.php',
+      'https://www.cinif.org.mx/normatividad_listadonormas.php',
+      'https://www.cinif.org.mx/normatividad_plandetrabajo.php',
+    ];
+    for (const s of registry.standards) {
+      const rule = officialRule(s.code);
+      expect(rule, s.code).toBeDefined();
+      for (const url of notOfficial) expect(rule?.accepts(url), `${s.code} ← ${url}`).toBe(false);
+    }
+  });
+
+  it("a standard's page has words after its number, and the number is the card's own", () => {
+    // Not in the list above: the AD rule takes any other ifrs.org page, these included.
+    const page = (slug: string) => `https://${IFRS_HOST}${STANDARDS_INDEX}${slug}/`;
+    const accepts = (code: string, slug: string) => officialRule(code)?.accepts(page(slug));
+    expect(accepts('NIC 10 / IAS 10', 'ias-10-events-after-the-reporting-period')).toBe(true);
+    expect(accepts('NIC 10 / IAS 10', 'ias-10-'), 'the bare prefix').toBe(false);
+    expect(accepts('NIC 10 / IAS 10', 'ias-10'), 'no title').toBe(false);
+    expect(accepts('NIC 1 / IAS 1', 'ias-10-events-after-the-reporting-period'), "IAS 10's page").toBe(false);
+    expect(accepts('MAPA NIF-IFRS', 'ifrs-18-'), 'the bare prefix').toBe(false);
+  });
+
+  it('each exemption names a real card that still lacks its official page', () => {
+    for (const [code, reason] of Object.entries(EXEMPT)) {
+      const card = registry.standards.find((s) => s.code === code);
+      expect(card, `${code} is not in the registry`).toBeDefined();
+      expect(reason.length, code).toBeGreaterThan(30);
+      const rule = officialRule(code);
+      expect(rule, code).toBeDefined();
+      const hasPage = card?.sources.some((url) => rule?.accepts(url) ?? false);
+      expect(hasPage, `${code} has its page now: drop the exemption`).toBe(false);
+    }
+  });
+});
+
 describe('freshness of the normative corpus (docs/PROCESS.md)', () => {
   const processMd = fs.readFileSync(path.join(DOCS, '..', '..', '..', 'docs', 'PROCESS.md'), 'utf-8');
   const maxMonths = Number(/^FRESHNESS_MAX_MONTHS:\s*(\d+)\s*$/m.exec(processMd)?.[1]);
