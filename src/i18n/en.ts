@@ -3583,6 +3583,114 @@ export const EN = {
     'counterparty GL account; required for the types whose accounting role is not seeded yet ({types})',
   'help.bank.adjustment.create.option.item': 'the reconciling item this adjustment explains',
   'help.bank.adjustment.create.option.json': 'JSON output',
+  // ==== MNE-001-236 · help by key, invoice and customer (issue #314) ====
+  //
+  // The first of the two receivables tasks: these two families whole, their
+  // roots included, with the English they already showed. Every generic flag
+  // a leaf declares is worded for it and keeps its own key; what the kernel
+  // injects stays on cli.flag.*. The tax id types travel as {types}, and the
+  // RFC mask as {shape}: the catalog check reads a literal # as an unfilled
+  // plural count.
+  'help.invoice.description': 'Customer invoices: draft, inspect, issue to the ledger and void (never stamped here)',
+  'help.invoice.list.description': 'List invoices by customer, state, period or days past due',
+  'help.invoice.list.argument.search': 'text to match in the invoice number or the customer name',
+  'help.invoice.list.option.customer': 'only this customer (number, name or id)',
+  'help.invoice.list.option.overdue_days': 'only open invoices at least this many days past due',
+  'help.invoice.show.description': 'Show one invoice with its lines, the cash applied and its ledger entry',
+  'help.invoice.show.argument.ref': 'invoice number (INV-2026-00042) or id',
+  'help.invoice.create.description':
+    'Create a DRAFT invoice from scratch: a local document, neither posted nor stamped',
+  'help.invoice.create.option.customer': 'customer number, name or id',
+  'help.invoice.create.option.line':
+    'a line: "account=4100;qty=2;price=1500;tax-rate=16;description=…". tax-rate= is a RATE in % (16 means 16%), ' +
+    'not an amount. See the key list below',
+  'help.invoice.create.option.from_file': 'JSON array of lines instead of repeated --line',
+  'help.invoice.create.option.date': 'invoice date (YYYY-MM-DD); defaults to today',
+  'help.invoice.create.option.due_date': "due date; defaults to the customer's payment terms",
+  'help.invoice.create.option.currency': "billing currency; defaults to the customer's",
+  'help.invoice.create.option.terms': 'payment terms printed on the document',
+  'help.invoice.create.option.memo': 'memo',
+  'help.invoice.create.option.po_number': 'the customer purchase order this bills against',
+  'help.invoice.create.option.json': 'JSON output',
+  'help.invoice.issue.description':
+    'Issue an invoice: post DR receivable / CR revenue / CR VAT. Does not stamp or send',
+  'help.invoice.issue.argument.ref': 'invoice number or id',
+  'help.invoice.issue.option.json': 'JSON output',
+  'help.invoice.void.description':
+    'Void a local invoice and reverse its ledger entry; refuses a stamped or paid one',
+  'help.invoice.void.argument.ref': 'invoice number or id',
+  'help.invoice.void.option.json': 'JSON output',
+  'help.invoice.edit.description':
+    'Edit a DRAFT invoice: dates, memo or its lines (issued ones are voided or credited, never edited)',
+  'help.invoice.edit.argument.ref': 'invoice number or id',
+  'help.invoice.edit.option.line':
+    'REPLACE all lines: "account=4100;qty=2;price=1500;tax-rate=16;…" (repeatable). Key list in invoice create --help',
+  'help.invoice.edit.option.from_file': 'JSON array of lines instead of repeated --line',
+  'help.invoice.edit.option.date': 'new invoice date (YYYY-MM-DD)',
+  'help.invoice.edit.option.due_date': 'new due date',
+  'help.invoice.edit.option.memo': 'new memo',
+  'help.invoice.edit.option.po_number': 'new purchase order reference',
+  'help.invoice.edit.option.json': 'JSON output',
+  'help.invoice.delete.description':
+    'Delete a DRAFT that never touched the ledger; its folio stays as a documented gap',
+  'help.invoice.delete.argument.ref': 'invoice number or id',
+  'help.invoice.delete.option.json': 'JSON output',
+  'help.invoice.series.description': 'Folio series: the counters this entity draws document numbers from',
+  'help.invoice.series.list.description': 'List the folio counters, the last number issued and the next one',
+  'help.invoice.series.check.description':
+    'Report gaps in the invoice folio series; a gap with an audit trail is explained, one without is a finding',
+  'help.invoice.series.check.option.year': 'only this fiscal year of the series',
+  'help.invoice.series.check.option.strict': 'exit 4 even when every gap is explained',
+  'help.customer.description': 'Customers: the AR master file, with the balance each one owes',
+  'help.customer.list.description': 'List customers with terms, credit state and the balance they owe',
+  'help.customer.list.argument.query': 'text to match in the customer name or number',
+  'help.customer.list.option.overdue': 'only customers with something past due',
+  'help.customer.list.option.balance_gt': 'only customers owing more than this',
+  'help.customer.list.option.inactive': 'show archived customers instead of active ones',
+  'help.customer.show.description': 'Show one customer: profile, tax id, credit, balance and open documents',
+  'help.customer.show.argument.ref': 'customer number, name or id',
+  'help.customer.create.description': 'Register a customer with its tax id, payment terms and currency',
+  'help.customer.create.option.name': 'company name',
+  'help.customer.create.option.first_name': 'given name, for an individual',
+  'help.customer.create.option.last_name': 'family name, for an individual',
+  'help.customer.create.option.tax_id': 'RFC (MX), EIN (US) or VAT number',
+  'help.customer.create.option.tax_id_type': "one of: {types}; inferred from the entity's country",
+  'help.customer.create.option.email': 'billing contact email',
+  'help.customer.create.option.phone': 'contact phone',
+  'help.customer.create.option.terms': 'payment terms, e.g. "Net 30"',
+  'help.customer.create.option.currency': 'billing currency (3 letters)',
+  'help.customer.create.option.json': 'JSON output',
+  'help.customer.edit.description': 'Change commercial and contact data; never the tax profile or credit',
+  'help.customer.edit.argument.ref': 'customer number, name or id',
+  'help.customer.edit.option.name': 'new company name',
+  'help.customer.edit.option.first_name': 'new given name',
+  'help.customer.edit.option.last_name': 'new family name',
+  'help.customer.edit.option.email': 'new billing email',
+  'help.customer.edit.option.phone': 'new phone',
+  'help.customer.edit.option.terms': 'new payment terms',
+  'help.customer.edit.option.notes': 'free notes stored on the customer',
+  'help.customer.edit.option.reason': 'justification recorded in the audit trail',
+  'help.customer.archive.description': 'Deactivate a customer; refused while they still owe something',
+  'help.customer.archive.argument.ref': 'customer number, name or id',
+  'help.customer.restore.description': 'Put an archived customer back in service',
+  'help.customer.restore.argument.ref': 'customer number, name or id',
+  'help.customer.restore.option.reason': 'justification recorded in the audit trail',
+  'help.customer.tax.description': 'The fiscal profile CFDI 4.0 stamps against: RFC, regime, postal code, UsoCFDI',
+  'help.customer.tax.show.description':
+    'Show the fiscal profile and what is missing before this customer can be stamped',
+  'help.customer.tax.show.argument.ref': 'customer number, name or id',
+  'help.customer.tax.set.description':
+    'Set RFC, regime, postal code or UsoCFDI, validated against the SAT catalogs before writing',
+  'help.customer.tax.set.argument.ref': 'customer number, name or id',
+  'help.customer.tax.set.option.rfc': 'the RFC (form-validated: {shape})',
+  'help.customer.tax.set.option.tax_regime': 'c_RegimenFiscal code: 601, 612, 626…',
+  'help.customer.tax.set.option.postal_code': 'fiscal address postal code (5 digits)',
+  'help.customer.tax.set.option.uso_cfdi': 'default c_UsoCFDI: G01, G03, P01…',
+  'help.customer.tax.set.option.reason': 'justification recorded in the audit trail',
+  'help.customer.tax.set.option.json': 'JSON output',
+  'help.customer.tax.list.description':
+    'The pre-billing control: customers whose fiscal profile is incomplete or malformed',
+  'help.customer.tax.list.option.missing': 'only customers that could NOT be stamped today',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and

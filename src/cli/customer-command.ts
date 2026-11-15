@@ -33,6 +33,9 @@ import {
   notFound,
   exitCodeFor,
   dateOnly as day,
+  describeCommand,
+  optionByKey,
+  argumentByKey,
 } from './kernel/index.js';
 
 // ============================================================
@@ -93,7 +96,7 @@ const LIST_COLUMNS = [
 
 const MONEY = ['open_balance', 'overdue_balance', 'credit_limit', 'open_documents'];
 
-const TAX_ID_TYPES = ['rfc', 'ein', 'vat'] as const;
+export const TAX_ID_TYPES = ['rfc', 'ein', 'vat'] as const;
 
 const CREDIT_STATUSES = ['approved', 'on_hold', 'suspended'] as const;
 
@@ -201,10 +204,7 @@ Examples:
 } as const;
 
 export function registerCustomerCommand(program: Command, deps: CustomerCommandDeps): void {
-  const customer = program
-    .command('customer')
-    .alias('cliente')
-    .description('Customers: the AR master file, with the balance each one owes');
+  const customer = describeCommand(program.command('customer').alias('cliente'), 'help.customer.description');
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -234,19 +234,15 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   };
 
   // ---- customer list -----------------------------------------------
-  const list = customer
-    .command('list')
-    .alias('listar')
-    // The text filter is the positional query, as the catalog specifies and as
-    // the sibling `invoice list [search]` already does. One concept, one
-    // spelling: a `--search` flag here would make the same idea look like two.
-    .argument('[query]', 'text to match in the customer name or number')
-    .description('List customers with terms, credit state and the balance they owe');
+  const list = describeCommand(customer.command('list').alias('listar'), 'help.customer.list.description');
+  // The text filter is the positional query, as the catalog specifies and as
+  // the sibling `invoice list [search]` already does. One concept, one
+  // spelling: a `--search` flag here would make the same idea look like two.
+  argumentByKey(list, '[query]', 'help.customer.list.argument.query');
   withOutput(withSelection(withContext(list)));
-  list
-    .option('--overdue', 'only customers with something past due')
-    .option('--balance-gt <amount>', 'only customers owing more than this')
-    .option('--inactive', 'show archived customers instead of active ones');
+  optionByKey(list, '--overdue', 'help.customer.list.option.overdue');
+  optionByKey(list, '--balance-gt <amount>', 'help.customer.list.option.balance_gt');
+  optionByKey(list, '--inactive', 'help.customer.list.option.inactive');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action((query: string | undefined, opts: CommonOpts & { overdue?: boolean; balanceGt?: string; inactive?: boolean }) =>
@@ -291,11 +287,8 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   );
 
   // ---- customer show -----------------------------------------------
-  const show = customer
-    .command('show')
-    .alias('ver')
-    .argument('<ref>', 'customer number, name or id')
-    .description('Show one customer: profile, tax id, credit, balance and open documents');
+  const show = describeCommand(customer.command('show').alias('ver'), 'help.customer.show.description');
+  argumentByKey(show, '<ref>', 'help.customer.show.argument.ref');
   withOutput(withTime(withContext(show)));
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
@@ -393,22 +386,20 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   );
 
   // ---- customer create ---------------------------------------------
-  const create = customer
-    .command('create')
-    .alias('crear')
-    .description('Register a customer with its tax id, payment terms and currency');
+  const create = describeCommand(customer.command('create').alias('crear'), 'help.customer.create.description');
   withContext(create);
-  create
-    .option('--name <text>', 'company name')
-    .option('--first-name <text>', 'given name, for an individual')
-    .option('--last-name <text>', 'family name, for an individual')
-    .option('--tax-id <id>', 'RFC (MX), EIN (US) or VAT number')
-    .option('--tax-id-type <type>', `one of: ${TAX_ID_TYPES.join(', ')}; inferred from the entity's country`)
-    .option('--email <address>', 'billing contact email')
-    .option('--phone <number>', 'contact phone')
-    .option('--terms <text>', 'payment terms, e.g. "Net 30"')
-    .option('--currency <code>', 'billing currency (3 letters)')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--name <text>', 'help.customer.create.option.name');
+  optionByKey(create, '--first-name <text>', 'help.customer.create.option.first_name');
+  optionByKey(create, '--last-name <text>', 'help.customer.create.option.last_name');
+  optionByKey(create, '--tax-id <id>', 'help.customer.create.option.tax_id');
+  optionByKey(create, '--tax-id-type <type>', 'help.customer.create.option.tax_id_type', {
+    params: { types: TAX_ID_TYPES.join(', ') },
+  });
+  optionByKey(create, '--email <address>', 'help.customer.create.option.email');
+  optionByKey(create, '--phone <number>', 'help.customer.create.option.phone');
+  optionByKey(create, '--terms <text>', 'help.customer.create.option.terms');
+  optionByKey(create, '--currency <code>', 'help.customer.create.option.currency');
+  optionByKey(create, '--json', 'help.customer.create.option.json');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'customers' });
   create.addHelpText('after', EJEMPLOS.create);
   create.action(
@@ -460,23 +451,19 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   );
 
   // ---- customer edit -----------------------------------------------
-  const edit = customer
-    .command('edit')
-    .alias('editar')
-    .argument('<ref>', 'customer number, name or id')
-    .description('Change commercial and contact data; never the tax profile or credit');
+  const edit = describeCommand(customer.command('edit').alias('editar'), 'help.customer.edit.description');
+  argumentByKey(edit, '<ref>', 'help.customer.edit.argument.ref');
   withContext(edit);
-  edit
-    .option('--name <text>', 'new company name')
-    .option('--first-name <text>', 'new given name')
-    .option('--last-name <text>', 'new family name')
-    .option('--email <address>', 'new billing email')
-    .option('--phone <number>', 'new phone')
-    .option('--terms <text>', 'new payment terms')
-    .option('--notes <text>', 'free notes stored on the customer')
-    // Same spelling declareRisk uses for the undo verbs; here it is optional,
-    // and supplying it is what writes the audit row with old and new values.
-    .option('--reason <text>', 'justification recorded in the audit trail');
+  optionByKey(edit, '--name <text>', 'help.customer.edit.option.name');
+  optionByKey(edit, '--first-name <text>', 'help.customer.edit.option.first_name');
+  optionByKey(edit, '--last-name <text>', 'help.customer.edit.option.last_name');
+  optionByKey(edit, '--email <address>', 'help.customer.edit.option.email');
+  optionByKey(edit, '--phone <number>', 'help.customer.edit.option.phone');
+  optionByKey(edit, '--terms <text>', 'help.customer.edit.option.terms');
+  optionByKey(edit, '--notes <text>', 'help.customer.edit.option.notes');
+  // Same spelling declareRisk uses for the undo verbs; here it is optional,
+  // and supplying it is what writes the audit row with old and new values.
+  optionByKey(edit, '--reason <text>', 'help.customer.edit.option.reason');
   declareRisk(edit, { risk: 'escritura', agent: false, writes: 'customers' });
   edit.addHelpText('after', EJEMPLOS.edit);
   edit.action(
@@ -518,11 +505,8 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   );
 
   // ---- customer archive --------------------------------------------
-  const archive = customer
-    .command('archive')
-    .alias('archivar')
-    .argument('<ref>', 'customer number, name or id')
-    .description('Deactivate a customer; refused while they still owe something');
+  const archive = describeCommand(customer.command('archive').alias('archivar'), 'help.customer.archive.description');
+  argumentByKey(archive, '<ref>', 'help.customer.archive.argument.ref');
   withContext(archive);
   withForce(archive);
   // 'archive' is an undo verb: declareRisk adds --reason and gateMutation requires it.
@@ -553,13 +537,10 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   );
 
   // ---- customer restore --------------------------------------------
-  const restore = customer
-    .command('restore')
-    .alias('restaurar')
-    .argument('<ref>', 'customer number, name or id')
-    .description('Put an archived customer back in service');
+  const restore = describeCommand(customer.command('restore').alias('restaurar'), 'help.customer.restore.description');
+  argumentByKey(restore, '<ref>', 'help.customer.restore.argument.ref');
   withContext(restore);
-  restore.option('--reason <text>', 'justification recorded in the audit trail');
+  optionByKey(restore, '--reason <text>', 'help.customer.restore.option.reason');
   declareRisk(restore, { risk: 'escritura', agent: false, writes: 'customers.is_active' });
   restore.addHelpText('after', EJEMPLOS.restore);
   restore.action((ref: string, opts: CommonOpts) =>
@@ -582,17 +563,11 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   // La validación contra el padrón VIVO (tax check, vía PAC) queda
   // fuera hasta la decisión §5.
   // ============================================================
-  const tax = customer
-    .command('tax')
-    .alias('fiscal')
-    .description('The fiscal profile CFDI 4.0 stamps against: RFC, regime, postal code, UsoCFDI');
+  const tax = describeCommand(customer.command('tax').alias('fiscal'), 'help.customer.tax.description');
 
   // ---- customer tax show -------------------------------------------
-  const taxShow = tax
-    .command('show')
-    .alias('ver')
-    .argument('<ref>', 'customer number, name or id')
-    .description('Show the fiscal profile and what is missing before this customer can be stamped');
+  const taxShow = describeCommand(tax.command('show').alias('ver'), 'help.customer.tax.show.description');
+  argumentByKey(taxShow, '<ref>', 'help.customer.tax.show.argument.ref');
   withOutput(withContext(taxShow));
   declareRisk(taxShow, { risk: 'lectura', agent: true });
   taxShow.addHelpText('after', EJEMPLOS.taxShow);
@@ -629,19 +604,16 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   );
 
   // ---- customer tax set --------------------------------------------
-  const taxSet = tax
-    .command('set')
-    .alias('fijar')
-    .argument('<ref>', 'customer number, name or id')
-    .description('Set RFC, regime, postal code or UsoCFDI, validated against the SAT catalogs before writing');
+  const taxSet = describeCommand(tax.command('set').alias('fijar'), 'help.customer.tax.set.description');
+  argumentByKey(taxSet, '<ref>', 'help.customer.tax.set.argument.ref');
   withContext(taxSet);
-  taxSet
-    .option('--rfc <rfc>', 'the RFC (form-validated: AAAA######XXX)')
-    .option('--tax-regime <code>', 'c_RegimenFiscal code: 601, 612, 626…')
-    .option('--postal-code <cp>', 'fiscal address postal code (5 digits)')
-    .option('--uso-cfdi <code>', 'default c_UsoCFDI: G01, G03, P01…')
-    .option('--reason <text>', 'justification recorded in the audit trail')
-    .option('--json', 'JSON output');
+  // The RFC mask goes in as a parameter: the catalog check reads a literal # as an unfilled plural count.
+  optionByKey(taxSet, '--rfc <rfc>', 'help.customer.tax.set.option.rfc', { params: { shape: 'AAAA######XXX' } });
+  optionByKey(taxSet, '--tax-regime <code>', 'help.customer.tax.set.option.tax_regime');
+  optionByKey(taxSet, '--postal-code <cp>', 'help.customer.tax.set.option.postal_code');
+  optionByKey(taxSet, '--uso-cfdi <code>', 'help.customer.tax.set.option.uso_cfdi');
+  optionByKey(taxSet, '--reason <text>', 'help.customer.tax.set.option.reason');
+  optionByKey(taxSet, '--json', 'help.customer.tax.set.option.json');
   declareRisk(taxSet, { risk: 'escritura', agent: false, writes: 'customers.tax_regime/tax_postal_code/uso_cfdi' });
   taxSet.addHelpText('after', EJEMPLOS.taxSet);
   taxSet.action(
@@ -679,12 +651,9 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   );
 
   // ---- customer tax list -------------------------------------------
-  const taxList = tax
-    .command('list')
-    .alias('listar')
-    .description('The pre-billing control: customers whose fiscal profile is incomplete or malformed');
+  const taxList = describeCommand(tax.command('list').alias('listar'), 'help.customer.tax.list.description');
   withOutput(withSelection(withContext(taxList)));
-  taxList.option('--missing', 'only customers that could NOT be stamped today');
+  optionByKey(taxList, '--missing', 'help.customer.tax.list.option.missing');
   declareRisk(taxList, { risk: 'lectura', agent: true });
   taxList.addHelpText('after', EJEMPLOS.taxList);
   taxList.action((opts: CommonOpts & { missing?: boolean }) =>
