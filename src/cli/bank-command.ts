@@ -3735,26 +3735,17 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // cuadra», que es el defecto que la 053 hizo imposible en el esquema.
   // ============================================================
 
-  const reconciliation = bank
-    .command('reconciliation')
-    .alias('conciliacion')
-    .description(
-      'The reconciliation session: the two-sided arithmetic that makes `balanced` mean something'
-    );
+  const reconciliation = describeCommand(
+    bank.command('reconciliation').alias('conciliacion'),
+    'help.bank.reconciliation.description'
+  );
 
-  const reconcilingItem = bank
-    .command('reconciling-item')
-    .alias('partida-conciliatoria')
-    .description(
-      'Reconciling items as rows: what explains the difference, with age, owner, due date and escalation'
-    );
+  const reconcilingItem = describeCommand(
+    bank.command('reconciling-item').alias('partida-conciliatoria'),
+    'help.bank.reconciling_item.description'
+  );
 
-  const adjustment = bank
-    .command('adjustment')
-    .alias('ajuste')
-    .description(
-      'The fees, VAT, interest and withholdings a reconciliation uncovers, created as DRAFTS'
-    );
+  const adjustment = describeCommand(bank.command('adjustment').alias('ajuste'), 'help.bank.adjustment.description');
 
   /**
    * Un lado que nadie observó NUNCA se imprime como cero.
@@ -3923,45 +3914,34 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   };
 
   // ---- bank reconciliation run -------------------------------------
-  const reconRun = reconciliation
-    .command('run')
-    .alias('ejecutar')
-    .argument('<account>', 'bank account to reconcile (name or id)')
-    .description(
-      'Guided monthly pass over one account: statement, matching engine, session and reconciling ' +
-        'items; it ALWAYS stops before approve and post, and prints what is missing'
-    );
+  const reconRun = describeCommand(
+    argumentByKey(
+      reconciliation.command('run').alias('ejecutar'),
+      '<account>',
+      'help.bank.reconciliation.run.argument.account'
+    ),
+    'help.bank.reconciliation.run.description'
+  );
   withContext(reconRun);
   withNote(reconRun);
-  reconRun
-    .option('--period <yyyy-mm>', 'period to reconcile; or give --since and --until together')
-    .option('--since <date>', 'first day of the period (YYYY-MM-DD)')
-    .option('--until <date>', 'last day of the period (YYYY-MM-DD)')
-    .option(
-      '--file <path>',
-      'statement to import first; without it, the one already imported for the period is used'
-    )
-    .option(
-      `--format <${FORMATOS_DEL_CATALOGO.map((f) => f.nombre).join('|')}>`,
-      'format of the FILE given in --file (not of the output; use --json for that), as in `bank statement import`'
-    )
-    .option('--profile <name>', 'CSV column profile to read --file with')
-    .option(
-      '--min-confidence <n>',
-      'raise the engine confidence a proposal needs to be applied (0..1); never below the panel (cotejo_umbral_confianza)',
-      confianzaCero1('--min-confidence')
-    )
-    .option(
-      '--max-amount <amount>',
-      'lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win'
-    )
-    .option(
-      `--stop-at <${PASOS_DE_CORRIDA.join('|')}>`,
-      'stop after this step; it never goes past `estado`, and never reaches approve or post'
-    )
-    .option('--resume', 'continue the session already open for this period instead of refusing')
-    .option('--dry-run', 'walk the real path and roll it back')
-    .option('--json', 'JSON output');
+  optionByKey(reconRun, '--period <yyyy-mm>', 'help.bank.reconciliation.run.option.period');
+  optionByKey(reconRun, '--since <date>', 'help.bank.reconciliation.run.option.since');
+  optionByKey(reconRun, '--until <date>', 'help.bank.reconciliation.run.option.until');
+  optionByKey(reconRun, '--file <path>', 'help.bank.reconciliation.run.option.file');
+  optionByKey(
+    reconRun,
+    `--format <${FORMATOS_DEL_CATALOGO.map((f) => f.nombre).join('|')}>`,
+    'help.bank.reconciliation.run.option.format'
+  );
+  optionByKey(reconRun, '--profile <name>', 'help.bank.reconciliation.run.option.profile');
+  optionByKey(reconRun, '--min-confidence <n>', 'help.bank.reconciliation.run.option.min_confidence', {
+    parser: confianzaCero1('--min-confidence'),
+  });
+  optionByKey(reconRun, '--max-amount <amount>', 'help.bank.reconciliation.run.option.max_amount');
+  optionByKey(reconRun, `--stop-at <${PASOS_DE_CORRIDA.join('|')}>`, 'help.bank.reconciliation.run.option.stop_at');
+  optionByKey(reconRun, '--resume', 'help.bank.reconciliation.run.option.resume');
+  optionByKey(reconRun, '--dry-run', 'help.bank.reconciliation.run.option.dry_run');
+  optionByKey(reconRun, '--json', 'help.bank.reconciliation.run.option.json');
   // ESCRITURA Y ✗, aunque cada uno de sus pasos ya tenga su propia
   // declaración: el pase encadena un import, un cotejo que sella líneas de
   // póliza y la apertura de una sesión, y el agente no invoca esa cadena. La
@@ -4060,32 +4040,25 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank reconciliation open ------------------------------------
-  const reconOpen = reconciliation
-    .command('open')
-    .alias('abrir')
-    .argument('<account>', 'bank account to open the session on (name or id)')
-    .description(
-      'Open the period session, asserting the opening balance equals the previous session closing ' +
-        'and refusing date gaps and overlaps'
-    );
+  const reconOpen = describeCommand(
+    argumentByKey(
+      reconciliation.command('open').alias('abrir'),
+      '<account>',
+      'help.bank.reconciliation.open.argument.account'
+    ),
+    'help.bank.reconciliation.open.description'
+  );
   withContext(reconOpen);
   withNote(reconOpen);
-  reconOpen
-    .option('--period <yyyy-mm>', 'period of the session; or give --since and --until together')
-    .option('--since <date>', 'first day of the period (YYYY-MM-DD)')
-    .option('--until <date>', 'last day of the period (YYYY-MM-DD)')
-    .option(
-      '--closing-balance <amount>',
-      'closing balance you assert; it is COMPARED against the statement, never substituted for it'
-    )
-    .option('--statement <id>', 'the statement to tie the session to, when the period has more than one')
-    .option(
-      '--baseline <amount>',
-      "first session only: the reconciled balance the account starts from; refused unless it equals the books at --baseline-date"
-    )
-    .option('--baseline-date <date>', 'date of --baseline (YYYY-MM-DD); by default the day before the period')
-    .option('--dry-run', 'do the whole thing and roll it back')
-    .option('--json', 'JSON output');
+  optionByKey(reconOpen, '--period <yyyy-mm>', 'help.bank.reconciliation.open.option.period');
+  optionByKey(reconOpen, '--since <date>', 'help.bank.reconciliation.open.option.since');
+  optionByKey(reconOpen, '--until <date>', 'help.bank.reconciliation.open.option.until');
+  optionByKey(reconOpen, '--closing-balance <amount>', 'help.bank.reconciliation.open.option.closing_balance');
+  optionByKey(reconOpen, '--statement <id>', 'help.bank.reconciliation.open.option.statement');
+  optionByKey(reconOpen, '--baseline <amount>', 'help.bank.reconciliation.open.option.baseline');
+  optionByKey(reconOpen, '--baseline-date <date>', 'help.bank.reconciliation.open.option.baseline_date');
+  optionByKey(reconOpen, '--dry-run', 'help.bank.reconciliation.open.option.dry_run');
+  optionByKey(reconOpen, '--json', 'help.bank.reconciliation.open.option.json');
   // ESCRITURA + IA ✓, y `declareRisk` sólo lo admite con `draftOnly`. Aquí es
   // HONESTO y no una concesión: lo único que esta hoja escribe es el
   // CONTENEDOR DE TRABAJO del mes. La sesión nace `in_progress` con
@@ -4211,22 +4184,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank reconciliation list ------------------------------------
-  const reconList = reconciliation
-    .command('list')
-    .alias('listar')
-    .description(
-      'List sessions by account, state and period, with the FROZEN variance and how many items are still open'
-    );
+  const reconList = describeCommand(
+    reconciliation.command('list').alias('listar'),
+    'help.bank.reconciliation.list.description'
+  );
   withOutput(withSelection(withContext(reconList)));
-  reconList
-    .option('--account <ref>', 'only sessions of this bank account (name or id)')
-    .option('--period <yyyy-mm>', 'sessions that overlap this period')
-    .option('--since <date>', 'sessions ending on or after this date (YYYY-MM-DD)')
-    .option('--until <date>', 'sessions starting on or before this date (YYYY-MM-DD)')
-    .option(
-      '--all-entities',
-      "every entity of the tenant, for a firm's overview; still bounded inside the SQL"
-    );
+  optionByKey(reconList, '--account <ref>', 'help.bank.reconciliation.list.option.account');
+  optionByKey(reconList, '--period <yyyy-mm>', 'help.bank.reconciliation.list.option.period');
+  optionByKey(reconList, '--since <date>', 'help.bank.reconciliation.list.option.since');
+  optionByKey(reconList, '--until <date>', 'help.bank.reconciliation.list.option.until');
+  optionByKey(reconList, '--all-entities', 'help.bank.reconciliation.list.option.all_entities');
   declareRisk(reconList, { risk: 'lectura', agent: true });
   reconList.addHelpText('after', EJEMPLOS.reconList);
   reconList.action(
@@ -4276,21 +4243,17 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank reconciliation status ----------------------------------
-  const reconStatus = reconciliation
-    .command('status')
-    .alias('estado')
-    .argument('[session]', 'session id; without it, the one in progress for --account')
-    .description(
-      'Recompute the variance LIVE and print the two-sided breakdown: bank balance, its items one ' +
-        'by one, adjusted; books balance, its items, adjusted; and the difference'
-    );
+  const reconStatus = describeCommand(
+    argumentByKey(
+      reconciliation.command('status').alias('estado'),
+      '[session]',
+      'help.bank.reconciliation.status.argument.session'
+    ),
+    'help.bank.reconciliation.status.description'
+  );
   withOutput(withContext(reconStatus));
-  reconStatus
-    .option('--account <ref>', 'bank account whose in-progress session to read (name or id)')
-    .option(
-      '--tolerance <amount>',
-      'residual the close may absorb; only valid where the tolerance policy admits one'
-    );
+  optionByKey(reconStatus, '--account <ref>', 'help.bank.reconciliation.status.option.account');
+  optionByKey(reconStatus, '--tolerance <amount>', 'help.bank.reconciliation.status.option.tolerance');
   declareRisk(reconStatus, { risk: 'lectura', agent: true });
   reconStatus.addHelpText('after', EJEMPLOS.reconStatus);
   reconStatus.action(
@@ -4370,25 +4333,24 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank reconciling-item list ----------------------------------
-  const itemList = reconcilingItem
-    .command('list')
-    .alias('listar')
-    .argument('<session>', 'reconciliation session id')
-    .description(
-      'List the typed reconciling items of a session — outstanding checks, deposits in transit, ' +
-        'bank charges, errors — with age, owner, expected settlement date and escalation'
-    );
+  const itemList = describeCommand(
+    argumentByKey(
+      reconcilingItem.command('list').alias('listar'),
+      '<session>',
+      'help.bank.reconciling_item.list.argument.session'
+    ),
+    'help.bank.reconciling_item.list.description'
+  );
   withOutput(withSelection(withContext(itemList)));
-  itemList
-    // Los seis tipos van en la DESCRIPCIÓN y no en el marcador: escritos ahí,
-    // el marcador mide 117 caracteres y descuadra la columna entera de la
-    // ayuda, que es la única superficie donde alguien los va a leer.
-    .option('--type <name>', `only items of this type: ${TIPOS_DE_PARTIDA.join(', ')}`)
-    .option(
-      '--over-days <n>',
-      'only what has gone MORE than this many days since its date',
-      enteroDesdeCero('--over-days')
-    );
+  // Los seis tipos van en la DESCRIPCIÓN y no en el marcador: escritos ahí,
+  // el marcador mide 117 caracteres y descuadra la columna entera de la
+  // ayuda, que es la única superficie donde alguien los va a leer.
+  optionByKey(itemList, '--type <name>', 'help.bank.reconciling_item.list.option.type', {
+    params: { types: TIPOS_DE_PARTIDA.join(', ') },
+  });
+  optionByKey(itemList, '--over-days <n>', 'help.bank.reconciling_item.list.option.over_days', {
+    parser: enteroDesdeCero('--over-days'),
+  });
   declareRisk(itemList, { risk: 'lectura', agent: true });
   itemList.addHelpText('after', EJEMPLOS.itemList);
   itemList.action(
@@ -4455,20 +4417,25 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // El catálogo tampoco tenía fila: publicaba «responsable, fecha esperada y
   // estado de escalamiento» en el listado y no daba forma de fijar ninguno de
   // los tres. La fila se añadió en F05c con ese motivo escrito en su celda.
+  //
+  // The leaf's name keeps a line of its own and its help is keyed below it:
+  // the E1.2 mutant of reconciling-item-datable-and-correctable anchors there,
+  // byte for byte. `correct` keeps the same shape.
   const itemAssign = reconcilingItem
     .command('assign')
-    .alias('asignar')
-    .argument('<session>', 'reconciliation session id')
-    .argument('<item>', 'reconciling item id')
-    .description('Give a reconciling item an owner, an expected settlement date and notes');
+    .alias('asignar');
+  argumentByKey(itemAssign, '<session>', 'help.bank.reconciling_item.assign.argument.session');
+  argumentByKey(itemAssign, '<item>', 'help.bank.reconciling_item.assign.argument.item');
+  describeCommand(itemAssign, 'help.bank.reconciling_item.assign.description');
   withContext(itemAssign);
-  itemAssign
-    .option('--owner <name>', 'who is chasing this item')
-    .option('--expected <date>', 'expected settlement date (YYYY-MM-DD)')
-    .option('--clear-expected', 'remove the expected date instead of setting one')
-    .option('--escalation <level>', `escalation state: ${ESCALAMIENTOS.join(', ')}`)
-    .option('--note <text>', 'note stored with the item')
-    .option('--json', 'JSON output');
+  optionByKey(itemAssign, '--owner <name>', 'help.bank.reconciling_item.assign.option.owner');
+  optionByKey(itemAssign, '--expected <date>', 'help.bank.reconciling_item.assign.option.expected');
+  optionByKey(itemAssign, '--clear-expected', 'help.bank.reconciling_item.assign.option.clear_expected');
+  optionByKey(itemAssign, '--escalation <level>', 'help.bank.reconciling_item.assign.option.escalation', {
+    params: { values: ESCALAMIENTOS.join(', ') },
+  });
+  optionByKey(itemAssign, '--note <text>', 'help.bank.reconciling_item.assign.option.note');
+  optionByKey(itemAssign, '--json', 'help.bank.reconciling_item.assign.option.json');
   // ✗ y no ✓: la fecha esperada es LA PROMESA DE ALGUIEN. Un agente que la
   // invente fabrica justo el patrón contra el que luego se mide si una partida
   // se está persiguiendo o envejeciendo sola.
@@ -4557,18 +4524,17 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // —los dos errores entre ellos— eran inalcanzables desde el binario.
   const itemCorrect = reconcilingItem
     .command('correct')
-    .alias('corregir')
-    .argument('<session>', 'reconciliation session id')
-    .argument('<item>', 'reconciling item id')
-    .description('Say what a reconciling item really was, when the automatic proposal got it wrong');
+    .alias('corregir');
+  argumentByKey(itemCorrect, '<session>', 'help.bank.reconciling_item.correct.argument.session');
+  argumentByKey(itemCorrect, '<item>', 'help.bank.reconciling_item.correct.argument.item');
+  describeCommand(itemCorrect, 'help.bank.reconciling_item.correct.description');
   withContext(itemCorrect);
-  itemCorrect
-    .requiredOption('--type <name>', `what it really is: ${TIPOS_DE_PARTIDA.join(', ')}`)
-    .option(
-      '--amount <amount>',
-      'its new contribution to the reconciliation; required when the type changes side'
-    )
-    .option('--json', 'JSON output');
+  optionByKey(itemCorrect, '--type <name>', 'help.bank.reconciling_item.correct.option.type', {
+    mandatory: true,
+    params: { types: TIPOS_DE_PARTIDA.join(', ') },
+  });
+  optionByKey(itemCorrect, '--amount <amount>', 'help.bank.reconciling_item.correct.option.amount');
+  optionByKey(itemCorrect, '--json', 'help.bank.reconciling_item.correct.option.json');
   // ✗: decidir que una diferencia fue error DEL BANCO y no DE LOS LIBROS
   // decide a quién se le reclama.
   declareRisk(itemCorrect, {
@@ -4604,29 +4570,25 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank adjustment create --------------------------------------
-  const adjCreate = adjustment
-    .command('create')
-    .alias('crear')
-    .argument('<session>', 'reconciliation session the adjustment belongs to')
-    .description(
-      'Create the fee, VAT, interest, ISR withholding or error correction found in the session AS A ' +
-        'DRAFT waiting for `mnemosine review`; it never posts anything itself'
-    );
+  const adjCreate = describeCommand(
+    argumentByKey(
+      adjustment.command('create').alias('crear'),
+      '<session>',
+      'help.bank.adjustment.create.argument.session'
+    ),
+    'help.bank.adjustment.create.description'
+  );
   withContext(adjCreate);
   withNote(adjCreate);
-  adjCreate
-    .requiredOption(`--type <${TIPOS_DE_AJUSTE.join('|')}>`, 'what the adjustment is')
-    .requiredOption(
-      '--amount <amount>',
-      'SIGNED by its effect on the bank account: negative leaves the account, positive enters it'
-    )
-    .option(
-      '--gl-account <code>',
-      'counterparty GL account; required for the types whose accounting role is not seeded yet ' +
-        `(${ROLES_QUE_FALTAN.map((r) => r.tipo).join(', ')})`
-    )
-    .option('--item <id>', 'the reconciling item this adjustment explains')
-    .option('--json', 'JSON output');
+  optionByKey(adjCreate, `--type <${TIPOS_DE_AJUSTE.join('|')}>`, 'help.bank.adjustment.create.option.type', {
+    mandatory: true,
+  });
+  optionByKey(adjCreate, '--amount <amount>', 'help.bank.adjustment.create.option.amount', { mandatory: true });
+  optionByKey(adjCreate, '--gl-account <code>', 'help.bank.adjustment.create.option.gl_account', {
+    params: { types: ROLES_QUE_FALTAN.map((r) => r.tipo).join(', ') },
+  });
+  optionByKey(adjCreate, '--item <id>', 'help.bank.adjustment.create.option.item');
+  optionByKey(adjCreate, '--json', 'help.bank.adjustment.create.option.json');
   // ESCRITURA + IA ✓ con `draftOnly`, y aquí también es literal: lo que se
   // escribe es una fila en `reconciliation_adjustments` con
   // `journal_entry_id` NULL y un BORRADOR en `ai_drafts` que espera a
@@ -4722,24 +4684,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank reconciliation close -----------------------------------
-  const reconClose = reconciliation
-    .command('close')
-    .alias('cerrar')
-    .argument('<session>', 'session to close')
-    .description(
-      'Recompute the whole arithmetic and move the session to `balanced` ONLY if the variance is ' +
-        'exactly zero (or within the policy tolerance) and every item is classified and dated'
-    );
+  const reconClose = describeCommand(
+    argumentByKey(
+      reconciliation.command('close').alias('cerrar'),
+      '<session>',
+      'help.bank.reconciliation.close.argument.session'
+    ),
+    'help.bank.reconciliation.close.description'
+  );
   withContext(reconClose);
   withNote(reconClose);
-  reconClose
-    .option(
-      '--tolerance <amount>',
-      'residual this close may absorb; refused unless the tolerance policy admits one'
-    )
-    .option('--dry-run', 'do the whole thing and roll it back')
-    .option('-y, --yes', 'skip the confirmation')
-    .option('--json', 'JSON output');
+  optionByKey(reconClose, '--tolerance <amount>', 'help.bank.reconciliation.close.option.tolerance');
+  optionByKey(reconClose, '--dry-run', 'help.bank.reconciliation.close.option.dry_run');
+  optionByKey(reconClose, '-y, --yes', 'help.bank.reconciliation.close.option.yes');
+  optionByKey(reconClose, '--json', 'help.bank.reconciliation.close.option.json');
   // ESCRITURA Y ✗, y es la hoja que el tramo entero existe para hacer
   // verdadera: mueve `status` a 'balanced', que es lo que `period-close.ts` lee
   // como la evidencia de que el efectivo de esta cuenta se verificó contra el
@@ -4908,18 +4866,17 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // se aprobó?» dejaría de tener una sola respuesta. El servicio lo rechaza; la
   // declaración lo dice. Retirarla es otro acto, `reopen` (MNE-001-044), que
   // exige motivo y deja la firma vieja en la bitácora.
-  const reconApprove = reconciliation
-    .command('approve')
-    .alias('aprobar')
-    .argument('<session>', 'balanced session to sign')
-    .description(
-      'Sign the session, requiring that the approver is not the preparer, and freeze an immutable ' +
-        'snapshot with a hash of its members and its balances'
-    );
+  const reconApprove = describeCommand(
+    argumentByKey(
+      reconciliation.command('approve').alias('aprobar'),
+      '<session>',
+      'help.bank.reconciliation.approve.argument.session'
+    ),
+    'help.bank.reconciliation.approve.description'
+  );
   withContext(reconApprove);
-  reconApprove
-    .option('--reason <text>', 'why it is being signed; stored on the session and in the audit trail')
-    .option('--json', 'JSON output');
+  optionByKey(reconApprove, '--reason <text>', 'help.bank.reconciliation.approve.option.reason');
+  optionByKey(reconApprove, '--json', 'help.bank.reconciliation.approve.option.json');
   declareRisk(reconApprove, {
     risk: 'irreversible',
     llave: { scope: 'bank reconciliation approve' },
@@ -5085,17 +5042,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // the signature it withdraws cannot be put back, only given again. The
   // kernel adds --dry-run, --yes and --idempotency-key, and --reason is
   // required because `reopen` is an undo verb.
-  const reconReopen = reconciliation
-    .command('reopen')
-    .alias('reabrir')
-    .argument('<session>', 'approved or posted session to reopen')
-    .description(
-      'Reopen an approved or posted session to in_progress, withdrawing its signature (kept in ' +
-        'the audit trail) and reversing the entries a post booked; refused under a closed ' +
-        'fiscal period'
-    );
+  const reconReopen = describeCommand(
+    argumentByKey(
+      reconciliation.command('reopen').alias('reabrir'),
+      '<session>',
+      'help.bank.reconciliation.reopen.argument.session'
+    ),
+    'help.bank.reconciliation.reopen.description'
+  );
   withContext(reconReopen);
-  reconReopen.option('--json', 'JSON output');
+  optionByKey(reconReopen, '--json', 'help.bank.reconciliation.reopen.option.json');
   declareRisk(reconReopen, {
     risk: 'irreversible',
     llave: { scope: 'bank reconciliation reopen' },
@@ -5231,17 +5187,17 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // 041 admite sobre una línea posteada—, escribe el cotejo contra el
   // movimiento del extracto que las explica y resuelve la partida que el ajuste
   // dejó sin objeto. Los cuatro caen juntos o no cae ninguno.
-  const reconPost = reconciliation
-    .command('post')
-    .alias('contabilizar')
-    .argument('<session>', 'approved session to post')
-    .description(
-      'Post the approved adjustment entries and seal the session’s book lines as reconciled, ' +
-        'blocking their edit, their void and their date change'
-    );
+  const reconPost = describeCommand(
+    argumentByKey(
+      reconciliation.command('post').alias('contabilizar'),
+      '<session>',
+      'help.bank.reconciliation.post.argument.session'
+    ),
+    'help.bank.reconciliation.post.description'
+  );
   withContext(reconPost);
   withNote(reconPost);
-  reconPost.option('--json', 'JSON output');
+  optionByKey(reconPost, '--json', 'help.bank.reconciliation.post.option.json');
   declareRisk(reconPost, {
     risk: 'irreversible',
     llave: { scope: 'bank reconciliation post' },
@@ -5399,14 +5355,14 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank reconciliation generate --------------------------------
-  const reconGenerate = reconciliation
-    .command('generate')
-    .alias('generar')
-    .argument('<session>', 'session to write the statement for')
-    .description(
-      'Produce the two-sided bank reconciliation statement for the audit file: json for the whole ' +
-        'document, md/csv/tsv for the line-by-line statement, plain text to print'
-    );
+  const reconGenerate = describeCommand(
+    argumentByKey(
+      reconciliation.command('generate').alias('generar'),
+      '<session>',
+      'help.bank.reconciliation.generate.argument.session'
+    ),
+    'help.bank.reconciliation.generate.description'
+  );
   withOutput(withContext(reconGenerate));
   declareRisk(reconGenerate, { risk: 'lectura', agent: true });
   reconGenerate.addHelpText('after', EJEMPLOS.reconGenerate);
