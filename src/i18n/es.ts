@@ -3456,14 +3456,14 @@ export const ES: Record<keyof typeof EN, string> = {
     'Lista las facturas de proveedor filtradas por proveedor, estado, fecha del documento, fecha contable ' +
     'o fecha de vencimiento',
   'help.bill.list.argument.search':
-    'texto que se busca en el folio de la factura, en el folio del proveedor o en el nombre del proveedor',
+    'texto que se busca en el número propio, en el folio del proveedor o en el nombre del proveedor',
   'help.bill.list.option.vendor': 'sólo este proveedor (número, nombre o id)',
   'help.bill.list.option.due_before': 'sólo las facturas que vencen en esta fecha o antes (AAAA-MM-DD)',
   'help.bill.list.option.open':
     'sólo las facturas con saldo por pagar (excluye las pagadas, las anuladas y las canceladas)',
   'help.bill.show.description':
     'Muestra una factura de proveedor con sus líneas, su póliza y el CFDI del que proviene',
-  'help.bill.show.argument.bill': 'folio de la factura, folio del proveedor o id',
+  'help.bill.show.argument.bill': 'número propio, folio del proveedor o id',
   'help.bill.show.option.no_lines': 'sólo el encabezado',
   'help.bill.show.option.journal': 'incluye la póliza que generó la aprobación',
   'help.bill.show.option.cfdi': 'incluye el CFDI del que proviene la factura, cuando proviene de uno',
@@ -3484,7 +3484,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bill.create.option.json': 'salida en JSON',
   'help.bill.line.description': 'Codificación de las líneas',
   'help.bill.line.set.description': 'Recodifica una línea de una factura que todavía no está aprobada',
-  'help.bill.line.set.argument.bill': 'folio de la factura, folio del proveedor o id',
+  'help.bill.line.set.argument.bill': 'número propio, folio del proveedor o id',
   'help.bill.line.set.option.line': 'número de la línea que se cambia',
   'help.bill.line.set.option.account': 'cuenta de gasto, por código',
   'help.bill.line.set.option.cost_center': 'id del centro de costo',
@@ -3493,7 +3493,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bill.approve.description':
     'Aprueba una factura de proveedor y reconoce el pasivo en el mayor (cargo a gasto e IVA / abono a ' +
     'cuentas por pagar)',
-  'help.bill.approve.argument.bill': 'folio de la factura, folio del proveedor o id',
+  'help.bill.approve.argument.bill': 'número propio, folio del proveedor o id',
   'help.bill.approve.option.json': 'salida en JSON',
   'help.bill.inbox.description':
     'Bandeja de CFDI recibidos: pre-registros que esperan convertirse en facturas de proveedor',
