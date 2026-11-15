@@ -5,6 +5,8 @@
  * prose is hand-maintained. Run: npx tsx scripts/build-niif-indice.ts
  * The sync test (tests/ai/niif-registry.spec.ts) fails when the file on
  * disk does not match what this generator produces.
+ * It also holds the freshness guard of the registry's verified_at and the N it
+ * reads from docs/PROCESS.md, shared by that test and scripts/corpus-renewal.ts.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,6 +14,7 @@ import path from 'node:path';
 // (tsconfig NodeNext sin "type": "module" en package.json), donde import.meta
 // es un error de sintaxis. Este módulo lo importa tests/ai/niif-registry.spec.ts.
 const DOCS = path.join(__dirname, '..', 'src', 'ai', 'docs');
+const PROCESS_MD = path.join(__dirname, '..', 'docs', 'PROCESS.md');
 
 interface RegistryEntry {
   code: string;
@@ -68,16 +71,37 @@ export function monthsSince(verifiedAt: string, now: Date): number {
 
 /**
  * Freshness guard for the registry's verified_at: null when it is fresh, else
- * the reason it is not. Rejects a malformed or future date (a future date would
- * otherwise read as negative months and pass forever).
+ * the reason it is not. Rejects a malformed, impossible or future date: Date.parse
+ * rolls 2027-02-29 over to 1 March, so the date must round-trip, and a future
+ * date would otherwise read as negative months and pass forever.
  */
 export function freshnessProblem(verifiedAt: string, now: Date, maxMonths: number): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(verifiedAt) || Number.isNaN(Date.parse(verifiedAt))) {
+  const parsed = Date.parse(verifiedAt);
+  const roundTrips = !Number.isNaN(parsed) && new Date(parsed).toISOString().slice(0, 10) === verifiedAt;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(verifiedAt) || !roundTrips) {
     return `verified_at "${verifiedAt}" is not a YYYY-MM-DD date`;
   }
-  if (Date.parse(verifiedAt) > now.getTime()) return `verified_at ${verifiedAt} is in the future`;
+  if (parsed > now.getTime()) return `verified_at ${verifiedAt} is in the future`;
   const age = monthsSince(verifiedAt, now);
   return age > maxMonths ? `verified_at ${verifiedAt} is ${age} months old; max ${maxMonths}` : null;
+}
+
+/**
+ * N, the freshness limit in months (MNE-001-123), from the one
+ * `FRESHNESS_MAX_MONTHS: <n>` line of docs/PROCESS.md. A missing, repeated or
+ * zero value throws: a default would be a limit nobody decided.
+ */
+export function parseFreshnessMaxMonths(processMd: string): number {
+  const [line, ...others] = processMd.matchAll(/^FRESHNESS_MAX_MONTHS:\s*(\d+)\s*$/gm);
+  const months = line && others.length === 0 ? Number(line[1]) : 0;
+  if (months < 1) {
+    throw new Error('docs/PROCESS.md needs exactly one line "FRESHNESS_MAX_MONTHS: <whole months, at least 1>"');
+  }
+  return months;
+}
+
+export function readFreshnessMaxMonths(): number {
+  return parseFreshnessMaxMonths(fs.readFileSync(PROCESS_MD, 'utf-8'));
 }
 
 export function buildRegistryBlock(registry: Registry): string {
