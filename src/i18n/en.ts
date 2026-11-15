@@ -3097,6 +3097,120 @@ export const EN = {
   'help.diot.export.option.yes': 'skip the overwrite prompt when -o names an existing file',
   'help.diot.export.option.output':
     'write the exported file to this path (without it, the file goes to stdout so it can be diffed)',
+  // ==== MNE-001-234 · help by key, account and ledger (issue #314) ====
+  //
+  // Same format as `period`. The ledger series is keyed in two tasks (234 and
+  // 235); this one takes `account` and `ledger`, with the English these
+  // commands already showed. Every generic flag here is worded for its leaf and
+  // keeps its own key. The lists travel as {types}, {roles}, {schemes} and
+  // {checks}. The English of `account map check --level` opens with the
+  // kernel's retired-option marker, `retired: ` (RETIRED_OPTION_PREFIX), which
+  // the tools read from `option.description`; each language writes its own
+  // marker, so es.ts says `retirada: `. The English of `account map import
+  // <file>` was Spanish prose on develop; the owner chose on #314 (15 Nov 2026)
+  // to give the author-prose nodes real English, so it is the one English text
+  // this task changes.
+  'help.account.description': 'Chart of accounts: inspect, create and retire accounts',
+  'help.account.list.description': 'List accounts, filtered by type, state, parent or free text',
+  'help.account.list.argument.search': 'match against code or name',
+  'help.account.list.option.type': 'account type: {types}',
+  'help.account.list.option.parent': 'only children of this account code',
+  'help.account.list.option.inactive': 'show inactive accounts instead of active ones',
+  'help.account.show.description': 'Show one account with its parent, flags and lifetime activity',
+  'help.account.show.argument.code': 'account code or id',
+  'help.account.show.option.no_balance': 'skip the lifetime activity lookup',
+  'help.account.create.description': 'Create an account',
+  'help.account.create.argument.code': 'account code, unique within the entity',
+  'help.account.create.argument.name': 'account name',
+  'help.account.create.option.type': 'account type: {types}',
+  'help.account.create.option.normal_balance': 'debit or credit (defaults from the type)',
+  'help.account.create.option.parent': 'parent account code',
+  'help.account.create.option.currency': 'restrict the account to one currency (3 letters)',
+  'help.account.create.option.subtype': 'account subtype',
+  'help.account.create.option.fs_category': 'financial-statement caption',
+  'help.account.create.option.description': 'description',
+  'help.account.create.option.header': 'a grouping node: it accepts no manual entries',
+  'help.account.create.option.json': 'JSON output',
+  'help.account.edit.description': 'Change an account name, description, subtype or statement caption',
+  'help.account.edit.argument.code': 'account code or id',
+  'help.account.edit.option.name': 'new name',
+  'help.account.edit.option.description': 'new description',
+  'help.account.edit.option.subtype': 'new subtype',
+  'help.account.edit.option.fs_category': 'new financial-statement caption',
+  'help.account.archive.description':
+    'Retire an account from active use (never deletes; requires zero balance unless --force)',
+  'help.account.archive.argument.code': 'account code or id',
+  'help.account.archive.option.dry_run': 'run the checks and report, without writing',
+  'help.account.set.description': 'Set the governance flags of an account (who may post to it, and how)',
+  'help.account.set.argument.code': 'account code or id',
+  'help.account.set.argument.pairs': 'key=value: allow-manual, header, control-account, require-subsidiary, currency',
+  'help.account.set.option.dry_run': 'validate and report, without writing',
+  'help.account.set.option.reason': 'why these flags change; recorded in the audit trail',
+  'help.account.balance.description': 'Balances of one account, decomposed by fiscal period',
+  'help.account.balance.show.description': 'Beginning, debits, credits and ending by period, with the period status',
+  'help.account.balance.show.argument.code': 'account code or id',
+  'help.account.balance.show.option.period': 'only this period: 2026-07, its id, or part of its name',
+  'help.account.balance.show.option.as_of': 'only the period containing this date (YYYY-MM-DD)',
+  'help.account.role.description':
+    'Semantic account roles (cxc, banco, iva_acreditable…) that automatic posting reads',
+  'help.account.role.list.description': 'Each role and the account it points to, default and qualified variants',
+  'help.account.role.list.option.role': 'only this role',
+  'help.account.role.list.option.qualifier': 'only this qualified variant',
+  'help.account.role.set.description': 'Repoint a role to another account, or create a qualified variant',
+  'help.account.role.set.argument.role': 'one of: {roles}… (see role list)',
+  'help.account.role.set.argument.code': 'account code the role should point to',
+  'help.account.role.set.option.qualifier': 'per-context variant (NULL = the default mapping)',
+  'help.account.role.set.option.note': 'why this role points here',
+  'help.account.role.set.option.dry_run': 'validate and report, without writing',
+  'help.account.role.seed.description':
+    'Create the missing base accounts and map every unmapped role (never overwrites a manual choice)',
+  'help.account.map.description': 'Statutory mappings per account: SAT agrupador (Anexo 24), US tax line, IFRS',
+  'help.account.map.set.description': 'Map the account to a statutory scheme value',
+  'help.account.map.set.argument.code': 'account code or id',
+  'help.account.map.set.option.scheme': 'scheme: {schemes}',
+  'help.account.map.set.option.value': 'the code in that scheme; empty clears the mapping',
+  'help.account.map.set.option.year': "fiscal year whose SAT catalog validates the code (default: today's)",
+  'help.account.map.set.option.dry_run': 'validate and report, without writing',
+  'help.account.map.list.description': 'Every active account with its statutory mappings',
+  'help.account.map.list.option.scheme': 'project only this scheme',
+  'help.account.map.import.description':
+    'Bulk-load a statutory scheme from CSV — the heaviest setup task of a Mexican firm',
+  'help.account.map.import.argument.file': 'CSV: code,value (one account per line; comma or semicolon separator)',
+  'help.account.map.import.option.scheme': 'scheme: {schemes}',
+  'help.account.map.import.option.dry_run': 'parse and resolve everything, write nothing',
+  'help.account.map.import.option.idempotency_key':
+    'replay-safe key: the same key with the same file returns the first result',
+  'help.account.map.check.description':
+    'Coverage gate before the Anexo 24 catalog XML: which accounts still lack a mapping',
+  'help.account.map.check.option.check': 'named checks to run (available: coverage; empty lists them)',
+  'help.account.map.check.option.scheme': 'scheme to verify',
+  'help.account.map.check.option.level': 'retired: the gate no longer measures by account level',
+  'help.account.restore.description': 'Put a retired account back in service',
+  'help.account.restore.argument.code': 'account code or id',
+  'help.account.restore.option.reason': 'why the account comes back into service; recorded in the audit trail',
+  'help.ledger.description': 'The general ledger itself: integrity checks, stale drafts, auxiliaries and balances',
+  'help.ledger.check.description': 'Named ledger checks; with no flag runs the blocking ones and exits 4 on findings',
+  'help.ledger.check.option.check': 'checks to run, comma-separated (available: {checks}; empty lists them)',
+  'help.ledger.check.option.account': 'scope the balance check to one account',
+  'help.ledger.check.option.period':
+    'scope the balance check to one fiscal period: 2026-07, its id, or part of its name',
+  'help.ledger.stale_draft.description': 'Draft journal entries that have sat unposted too long',
+  'help.ledger.stale_draft.list.description':
+    'Drafts older than N days — the number-one blocker of every close checklist',
+  'help.ledger.stale_draft.list.option.days': 'minimum age in days',
+  'help.ledger.stale_draft.list.option.period':
+    'only drafts dated into this fiscal period: 2026-07, its id, or part of its name',
+  'help.ledger.auxiliary.description': 'Account auxiliary: beginning balance, movements, ending — the SAT XC shape',
+  'help.ledger.auxiliary.show.description': 'One account, one period: beginning → every movement → ending',
+  'help.ledger.auxiliary.show.option.account': 'account code',
+  'help.ledger.auxiliary.show.option.period': 'fiscal period: 2026-07, its id, or an unambiguous part of its name',
+  'help.ledger.balance.description': 'One account balance decomposed by period, with the period status',
+  'help.ledger.balance.show.description': 'Beginning, debits, credits and ending per period for one account',
+  'help.ledger.balance.show.option.account': 'account code or id',
+  'help.ledger.balance.show.option.as_of': 'only the period containing this date (YYYY-MM-DD)',
+  'help.ledger.balance.show.option.period': 'only this period: 2026-07, its id, or part of its name',
+  'help.ledger.balance.show.option.dim':
+    'per-dimension breakdown (not available: the dimension family does not exist yet)',
   // ==== MNE-001-231 · help by key, bank account, statement and transaction (issue #314) ====
   //
   // Same format as `period`. The bank family is keyed by subcommand group in
