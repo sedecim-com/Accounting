@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   construirCatalogoCuentas,
@@ -102,11 +103,18 @@ describe('the vendored schemas', () => {
 
   it('the validation is offline: without the catalog, an import cannot be fetched and the schema does not compile', () => {
     const env: NodeJS.ProcessEnv = { ...process.env, XML_CATALOG_FILES: '' };
+    // The document goes in as a file, not through stdin: xmllint may exit on the
+    // compile failure without reading its input, and a write to stdin that lands
+    // after that exit fails with EPIPE (#628).
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xsd-offline-'));
+    const document = path.join(dir, 'document.xml');
+    fs.writeFileSync(document, '<x/>');
     const run = spawnSync(
       'xmllint',
-      ['--nonet', '--noout', '--schema', path.join(XSD_ROOT, OFFICIAL_SCHEMAS.chart), '-'],
-      { input: '<x/>', encoding: 'utf8', env }
+      ['--nonet', '--noout', '--schema', path.join(XSD_ROOT, OFFICIAL_SCHEMAS.chart), document],
+      { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', env }
     );
+    fs.rmSync(dir, { recursive: true, force: true });
     // Name the missing binary instead of failing on `status: null`.
     expect(run.error?.message, 'xmllint did not run: install libxml2-utils').toBeUndefined();
     expect(run.status).toBe(5);
