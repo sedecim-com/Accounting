@@ -57,7 +57,7 @@
     "kysely": "^0.29.6",
     "merkletreejs": "^0.6.0",
     "morgan": "^1.12.1",
-    "node-forge": "^1.4.0",
+    "node-forge": "^1.4.3",
     "openai": "^7.23.0",
     "pg": "^8.23.0",
     "prom-client": "^15.1.3",
