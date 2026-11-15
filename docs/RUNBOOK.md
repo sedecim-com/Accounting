@@ -69,18 +69,18 @@ Las NIF y NIIF que consulta el agente (`src/ai/docs/ifrs-registry.json`) y las l
 
 1. Revisa `sources_of_truth` y cada liga de las fichas contra su página vigente. Un 200 no basta: dos páginas del CINIF contestan 200 con una pantalla de registro. Cuenta lo que dice la fuente abierta.
 2. Corrige en la misma pasada lo que cambió: la ficha del registro y el `niif-*.md` o `nif-*.md` que la desarrolla; relee las fichas `confidence: medium`. Una norma cambiada que no se pueda corregir en esta pasada abre su issue, una por norma, con la plantilla `.github/ISSUE_TEMPLATE/ticket.md`.
-3. Regenera el índice con `npx tsx scripts/build-niif-indice.ts` y corre `npx vitest run tests/ai/niif-registry.spec.ts tests/scripts/corpus-renewal.spec.ts`.
+3. Regenera el índice con `npx tsx scripts/build-niif-indice.ts` y corre `npm test`: no basta `tests/ai/niif-registry.spec.ts`, porque otras pruebas leen los manuales y `tests/accounting/nif-citations.spec.ts` fija líneas exactas de `nif-marco.md` y `nif-validaciones.md`.
 
 **Leyes**, en la misma pasada y sin `verified_at` propio
 
-4. Cada fila de la semilla de parámetros legales (`src/services/jurisdiction/legal-parameters-seed.ts`) contra su `sourceUrl` y su `sourceNote`: el valor y la fecha de entrada en vigor siguen siendo los de la fuente.
-5. Las tablas de nómina (`tax_tables`, `tax_parameters`) y las filas de `legal_parameters` que siembran las migraciones. Las lista `rg -l "(INSERT INTO|UPDATE) (legal_parameters|tax_tables|tax_parameters)" src/database/migrations`.
+4. Cada fila de la semilla de parámetros legales (`src/services/jurisdiction/legal-parameters-seed.ts`) contra su `sourceUrl` y su `sourceNote`: el valor y la fecha de entrada en vigor siguen siendo los de la fuente. Busca también si ya salió un valor posterior: una nota fechada del DOF no cambia, y el valor nuevo sale en otra (la UMA, cada enero; los salarios mínimos, cada diciembre; el subsidio para el empleo, por decreto). La consulta toma la última fila en vigor, así que la que falta deja regir la anterior sin aviso. Un valor nuevo cuenta como ley cambiada (paso 7).
+5. Las tablas de nómina (`tax_tables`, `tax_parameters`) y las filas de `legal_parameters` que siembran las migraciones. Las lista `rg -l "(INSERT INTO|UPDATE) (legal_parameters|tax_tables|tax_parameters)" src/database/migrations`. Como en el paso 4, cada una contra su fuente, y buscando si ya salió una tabla o un valor posterior.
 6. Los manuales del agente que citan ley. Los lista `rg -l -w "LISR|LIVA|LIEPS|CFF|LFT|LSS|RMF|DOF" src/ai/docs`.
 7. Cada ley cambiada abre su issue, una por ley, con la misma plantilla. La renovación no toca la semilla ni las migraciones: el cambio lo hace el PR de esa issue.
 
 **Cerrar la renovación**
 
-8. `verified_at` sube sólo cuando se revisaron las dos cosas, NIF y leyes; subirlo sin revisar es la mentira que la prueba existe para evitar (`docs/PROCESS.md`). El PR que lo sube dice qué fuentes de ley revisó (filas de la semilla, tablas de nómina y manuales), qué issues abrió y qué contestó `--http`, y cambia la fecha de esta sección.
+8. `verified_at` sube sólo cuando se revisaron las dos cosas, NIF y leyes; subirlo sin revisar es la mentira que la prueba existe para evitar (`docs/PROCESS.md`). El PR que lo sube dice qué fuentes de ley revisó (filas de la semilla, tablas de nómina y manuales), qué issues abrió y qué contestó `--http`. Al subirlo, cambia en esta sección el `verified_at` y sus fechas (el script imprime la nueva), regenera el índice otra vez (`npx tsx scripts/build-niif-indice.ts`: su pie lleva `verified_at`) y corre `scripts/verify.sh` antes de abrir el PR.
 
 ## Pendiente para un despliegue compartido
 

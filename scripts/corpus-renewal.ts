@@ -72,7 +72,7 @@ export function renewalReport(
       : `  The freshness test turns red on ${due} (UTC), in ${(Date.parse(due) - todayStart) / DAY_MS} days. Renew before then.`,
     `  ${medium.length} cards with confidence: medium, to re-read against an open source:`,
     ...medium.map((card) => `    - ${card.code}: ${card.title_es}`),
-    `Laws, under the same verified_at: ${lawRows.length} rows of src/services/jurisdiction/legal-parameters-seed.ts to check against their sourceUrl:`,
+    `Laws, under the same verified_at: ${lawRows.length} rows of src/services/jurisdiction/legal-parameters-seed.ts to check against their sourceUrl, and for a newer value:`,
     ...lawRows.map((row) => `    - ${row.jurisdiction} ${row.key} = ${row.value} ${row.unit} from ${row.effectiveFrom}: ${row.sourceUrl}`),
     '  The payroll tables, the legal_parameters rows of the migrations and the manuals that cite law: see docs/RUNBOOK.md.',
   ];
