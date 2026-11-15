@@ -21,7 +21,7 @@
     "docs-english-pages-untwinned": 0,
     "docs-spanish-twins-stale": 0,
     "untagged-comment-markers": 1,
-    "help-descriptions-without-key": 919
+    "help-descriptions-without-key": 831
   },
   "perFile": {
     "spanish-identifiers-src": {
@@ -1500,7 +1500,6 @@
       "compact": 6,
       "completion": 2,
       "credit-note": 26,
-      "customer": 47,
       "doctor": 2,
       "drafts": 2,
       "e-accounting": 20,
@@ -1511,7 +1510,6 @@
       "garnishment": 22,
       "ingest": 9,
       "init": 12,
-      "invoice": 41,
       "isn": 21,
       "jobs": 28,
       "lang": 1,

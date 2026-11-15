@@ -41,6 +41,9 @@ import {
   abortedByUser,
   exitCodeFor,
   dateOnly as day,
+  describeCommand,
+  optionByKey,
+  argumentByKey,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { addCalendarDays, calendarDateIn } from '../utils/calendar-date.js';
@@ -327,10 +330,7 @@ Examples:
 } as const;
 
 export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDeps): void {
-  const invoice = program
-    .command('invoice')
-    .alias('factura')
-    .description('Customer invoices: draft, inspect, issue to the ledger and void (never stamped here)');
+  const invoice = describeCommand(program.command('invoice').alias('factura'), 'help.invoice.description');
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -393,15 +393,11 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   };
 
   // ---- invoice list ------------------------------------------------
-  const list = invoice
-    .command('list')
-    .alias('listar')
-    .argument('[search]', 'text to match in the invoice number or the customer name')
-    .description('List invoices by customer, state, period or days past due');
+  const list = describeCommand(invoice.command('list').alias('listar'), 'help.invoice.list.description');
+  argumentByKey(list, '[search]', 'help.invoice.list.argument.search');
   withOutput(withSelection(withTime(withContext(list))));
-  list
-    .option('--customer <ref>', 'only this customer (number, name or id)')
-    .option('--overdue-days <n>', 'only open invoices at least this many days past due');
+  optionByKey(list, '--customer <ref>', 'help.invoice.list.option.customer');
+  optionByKey(list, '--overdue-days <n>', 'help.invoice.list.option.overdue_days');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action((search: string | undefined, opts: CommonOpts & { customer?: string; overdueDays?: string }) =>
@@ -477,11 +473,8 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   );
 
   // ---- invoice show ------------------------------------------------
-  const show = invoice
-    .command('show')
-    .alias('ver')
-    .argument('<ref>', 'invoice number (INV-2026-00042) or id')
-    .description('Show one invoice with its lines, the cash applied and its ledger entry');
+  const show = describeCommand(invoice.command('show').alias('ver'), 'help.invoice.show.description');
+  argumentByKey(show, '<ref>', 'help.invoice.show.argument.ref');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
@@ -572,25 +565,18 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   );
 
   // ---- invoice create ----------------------------------------------
-  const create = invoice
-    .command('create')
-    .alias('crear')
-    .description('Create a DRAFT invoice from scratch: a local document, neither posted nor stamped');
+  const create = describeCommand(invoice.command('create').alias('crear'), 'help.invoice.create.description');
   withContext(create);
-  create
-    .requiredOption('--customer <ref>', 'customer number, name or id')
-    .option(
-      '--line <spec...>',
-      'a line: "account=4100;qty=2;price=1500;tax-rate=16;description=…". tax-rate= is a RATE in % (16 means 16%), not an amount. See the key list below'
-    )
-    .option('--from-file <path>', 'JSON array of lines instead of repeated --line')
-    .option('--date <date>', 'invoice date (YYYY-MM-DD); defaults to today')
-    .option('--due-date <date>', "due date; defaults to the customer's payment terms")
-    .option('--currency <code>', "billing currency; defaults to the customer's")
-    .option('--terms <text>', 'payment terms printed on the document')
-    .option('--memo <text>', 'memo')
-    .option('--po-number <text>', 'the customer purchase order this bills against')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--customer <ref>', 'help.invoice.create.option.customer', { mandatory: true });
+  optionByKey(create, '--line <spec...>', 'help.invoice.create.option.line');
+  optionByKey(create, '--from-file <path>', 'help.invoice.create.option.from_file');
+  optionByKey(create, '--date <date>', 'help.invoice.create.option.date');
+  optionByKey(create, '--due-date <date>', 'help.invoice.create.option.due_date');
+  optionByKey(create, '--currency <code>', 'help.invoice.create.option.currency');
+  optionByKey(create, '--terms <text>', 'help.invoice.create.option.terms');
+  optionByKey(create, '--memo <text>', 'help.invoice.create.option.memo');
+  optionByKey(create, '--po-number <text>', 'help.invoice.create.option.po_number');
+  optionByKey(create, '--json', 'help.invoice.create.option.json');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'invoices + invoice_lines (draft)' });
   create.addHelpText('after', INVOICE_LINE_KEYS_HELP);
   create.addHelpText('after', EJEMPLOS.create);
@@ -675,13 +661,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   );
 
   // ---- invoice issue -----------------------------------------------
-  const issue = invoice
-    .command('issue')
-    .alias('emitir')
-    .argument('<ref>', 'invoice number or id')
-    .description('Issue an invoice: post DR receivable / CR revenue / CR VAT. Does not stamp or send');
+  const issue = describeCommand(invoice.command('issue').alias('emitir'), 'help.invoice.issue.description');
+  argumentByKey(issue, '<ref>', 'help.invoice.issue.argument.ref');
   withContext(issue);
-  issue.option('--json', 'JSON output');
+  optionByKey(issue, '--json', 'help.invoice.issue.option.json');
   // Posting to the ledger is irreversible: declareRisk adds --dry-run, --yes
   // and --idempotency-key, and refuses to let the agent near this command.
   declareRisk(issue, {
@@ -775,13 +758,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   );
 
   // ---- invoice void ------------------------------------------------
-  const voidCmd = invoice
-    .command('void')
-    .alias('anular')
-    .argument('<ref>', 'invoice number or id')
-    .description('Void a local invoice and reverse its ledger entry; refuses a stamped or paid one');
+  const voidCmd = describeCommand(invoice.command('void').alias('anular'), 'help.invoice.void.description');
+  argumentByKey(voidCmd, '<ref>', 'help.invoice.void.argument.ref');
   withContext(voidCmd);
-  voidCmd.option('--json', 'JSON output');
+  optionByKey(voidCmd, '--json', 'help.invoice.void.option.json');
   // declareRisk adds --reason for an undo verb, and gateMutation requires it.
   declareRisk(voidCmd, {
     risk: 'irreversible',
@@ -849,23 +829,16 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   );
 
   // ---- invoice edit ------------------------------------------------
-  const edit = invoice
-    .command('edit')
-    .alias('editar')
-    .argument('<ref>', 'invoice number or id')
-    .description('Edit a DRAFT invoice: dates, memo or its lines (issued ones are voided or credited, never edited)');
+  const edit = describeCommand(invoice.command('edit').alias('editar'), 'help.invoice.edit.description');
+  argumentByKey(edit, '<ref>', 'help.invoice.edit.argument.ref');
   withContext(edit);
-  edit
-    .option(
-      '--line <spec...>',
-      'REPLACE all lines: "account=4100;qty=2;price=1500;tax-rate=16;…" (repeatable). Key list in invoice create --help'
-    )
-    .option('--from-file <path>', 'JSON array of lines instead of repeated --line')
-    .option('--date <date>', 'new invoice date (YYYY-MM-DD)')
-    .option('--due-date <date>', 'new due date')
-    .option('--memo <text>', 'new memo')
-    .option('--po-number <text>', 'new purchase order reference')
-    .option('--json', 'JSON output');
+  optionByKey(edit, '--line <spec...>', 'help.invoice.edit.option.line');
+  optionByKey(edit, '--from-file <path>', 'help.invoice.edit.option.from_file');
+  optionByKey(edit, '--date <date>', 'help.invoice.edit.option.date');
+  optionByKey(edit, '--due-date <date>', 'help.invoice.edit.option.due_date');
+  optionByKey(edit, '--memo <text>', 'help.invoice.edit.option.memo');
+  optionByKey(edit, '--po-number <text>', 'help.invoice.edit.option.po_number');
+  optionByKey(edit, '--json', 'help.invoice.edit.option.json');
   declareRisk(edit, { risk: 'escritura', agent: false, writes: 'invoices + invoice_lines (draft only)' });
   edit.addHelpText('after', EJEMPLOS.edit);
   edit.action(
@@ -923,13 +896,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   );
 
   // ---- invoice delete ----------------------------------------------
-  const del = invoice
-    .command('delete')
-    .alias('eliminar')
-    .argument('<ref>', 'invoice number or id')
-    .description('Delete a DRAFT that never touched the ledger; its folio stays as a documented gap');
+  const del = describeCommand(invoice.command('delete').alias('eliminar'), 'help.invoice.delete.description');
+  argumentByKey(del, '<ref>', 'help.invoice.delete.argument.ref');
   withContext(del);
-  del.option('--json', 'JSON output');
+  optionByKey(del, '--json', 'help.invoice.delete.option.json');
   // Un DELETE es el único acto sin espejo: irreversible por definición, con
   // --reason obligatorio (verbo de deshacer) y jamás del agente.
   declareRisk(del, {
@@ -985,15 +955,9 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   );
 
   // ---- invoice series list -----------------------------------------
-  const series = invoice
-    .command('series')
-    .alias('serie')
-    .description('Folio series: the counters this entity draws document numbers from');
+  const series = describeCommand(invoice.command('series').alias('serie'), 'help.invoice.series.description');
 
-  const seriesList = series
-    .command('list')
-    .alias('listar')
-    .description('List the folio counters, the last number issued and the next one');
+  const seriesList = describeCommand(series.command('list').alias('listar'), 'help.invoice.series.list.description');
   withOutput(withSelection(withContext(seriesList)));
   declareRisk(seriesList, { risk: 'lectura', agent: true });
   seriesList.addHelpText('after', EJEMPLOS.seriesList);
@@ -1023,14 +987,13 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   );
 
   // ---- invoice series check ----------------------------------------
-  const seriesCheck = series
-    .command('check')
-    .alias('verificar')
-    .description('Report gaps in the invoice folio series; a gap with an audit trail is explained, one without is a finding');
+  const seriesCheck = describeCommand(
+    series.command('check').alias('verificar'),
+    'help.invoice.series.check.description'
+  );
   withOutput(withContext(seriesCheck));
-  seriesCheck
-    .option('--year <year>', 'only this fiscal year of the series')
-    .option('--strict', 'exit 4 even when every gap is explained');
+  optionByKey(seriesCheck, '--year <year>', 'help.invoice.series.check.option.year');
+  optionByKey(seriesCheck, '--strict', 'help.invoice.series.check.option.strict');
   declareRisk(seriesCheck, { risk: 'lectura', agent: true });
   seriesCheck.addHelpText('after', EJEMPLOS.seriesCheck);
   seriesCheck.action((opts: CommonOpts & { year?: string; strict?: boolean }) =>
