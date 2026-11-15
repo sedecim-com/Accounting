@@ -33,7 +33,7 @@ Y una consecuencia que el delta NIIF/NIF hizo visible: **las citas normativas so
 
 ## Cómo se mantiene
 
-La fuente de verdad del corpus NIIF es `ifrs-registry.json` (`verified_at` dice el corte). El playbook vive en `niif-indice.md`: revisar ifrs.org, iasplus y el CINIF; corregir el registro y el `niif-*.md` afectado; regenerar la tabla con `npx tsx scripts/build-niif-indice.ts`; correr `tests/ai/niif-registry.spec.ts`, que falla si índice, registro y documentos divergen. Dos lecciones del delta: la cadencia semestral dejó pasar una NIF vigente en 2026, y dos páginas del CINIF (`normatividad_listadonormas.php`, `normatividad_plandetrabajo.php`) redirigen a login —la fuente abierta es la de auscultación y los PDF, que ahora están en `sources_of_truth`—. N3 propone una prueba de frescura para que el corte no pueda envejecer en silencio.
+La fuente de verdad del corpus NIIF es `ifrs-registry.json` (`verified_at` dice el corte). El playbook vive en `niif-indice.md`: revisar ifrs.org, iasplus y el CINIF; corregir el registro y el `niif-*.md` afectado; regenerar la tabla con `npx tsx scripts/build-niif-indice.ts`; correr `tests/ai/niif-registry.spec.ts`, que falla si índice, registro y documentos divergen. Dos lecciones del delta: la cadencia semestral dejó pasar una NIF vigente en 2026, y dos páginas del CINIF (`normatividad_listadonormas.php`, `normatividad_plandetrabajo.php`) redirigen a login —la fuente abierta es la de auscultación y los PDF, que ahora están en `sources_of_truth`—. Para que el corte no envejezca en silencio, la prueba de frescura (MNE-001-078) se pone en rojo cuando pasa de N meses (`docs/PROCESS.md`), y la renovación semestral, NIF y leyes con el mismo `verified_at`, sigue los pasos de `docs/RUNBOOK.md`.
 
 ## Para seguir
 
