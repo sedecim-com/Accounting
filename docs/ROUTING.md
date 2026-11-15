@@ -27,9 +27,9 @@ Cada dimensión se califica de 0 a 3 y se suman (0–15). El triage deja una lí
 
 | Nivel | Puntaje | Perfil típico | Modelo | Esfuerzo | Tokens por intento · intentos · tope | Al agotar el tope | Revisión |
 |---|---|---|---|---|---|---|---|
-| **D1** | 0–3 | Docs, tests faltantes, renombres, dependencias menores | Claude Haiku 4.5 | Bajo | 150 mil · 3 · 450 mil | Sube a D2 con el checkpoint | Agente revisor + 1 humano |
-| **D2** | 4–7 | Bugs acotados, hojas del CLI siguiendo un patrón, refactors locales | Claude Sonnet 5 | Medio | 600 mil · 3 · 1.8 millones | Sube a D3 con el checkpoint | Agente revisor + 1 humano |
-| **D3** | 8–11 | Motor contable, migraciones, varios módulos, bugs difíciles de reproducir | Claude Opus 5.5 | Alto, con plan aprobado | 2 millones · 3 · 6 millones | Pasa a un humano con resumen | Agente revisor + CODEOWNER |
+| **D1** | 0–3 | Docs, tests faltantes, renombres, dependencias menores | Claude Haiku 4.5 | Bajo | 150 mil · 3 · 450 mil | Sube a D2 con el checkpoint | 1 humano |
+| **D2** | 4–7 | Bugs acotados, hojas del CLI siguiendo un patrón, refactors locales | Claude Sonnet 5 | Medio | 600 mil · 3 · 1.8 millones | Sube a D3 con el checkpoint | 1 humano |
+| **D3** | 8–11 | Motor contable, migraciones, varios módulos, bugs difíciles de reproducir | Claude Opus 5.5 | Alto, con plan aprobado | 2 millones · 3 · 6 millones | Pasa a un humano con resumen | CODEOWNER |
 | **D4** | 12–15 | Contrato breaking, RLS, credenciales fiscales, arquitectura | El modelo más capaz, en modo investigación y propuesta | Máximo | 2 millones por fase, aprobación entre fases | El dueño decide | 2 humanos |
 
 Los presupuestos son valores iniciales y se recalibran con medición ([#336](https://github.com/sedecim-com/Accounting/issues/336)). Mientras no haya orquestador ([#332](https://github.com/sedecim-com/Accounting/issues/332)), los respeta el propio agente con el semáforo:
@@ -52,11 +52,11 @@ Toda ruta con dueño reforzado en [`.github/CODEOWNERS`](../.github/CODEOWNERS) 
 
 ## Quién revisa
 
-La revisión la hace **un modelo o CLI distinto** del que implementó. Además, y no en vez de, está la aprobación humana que exige `CONTRIBUTING.md`.
+No hay agente revisor obligatorio: desde el 2026-11-15 Witness ya no es requisito para fusionar (decisión del dueño, `PROCESS.md` §4).
 
-- En D1–D2, el agente revisor puede usar un modelo un nivel abajo del autor, con una lista de chequeo cerrada.
-- En D3–D4, el revisor usa el mismo nivel.
-- El revisor sólo corre con CI en verde: revisar lo que CI ya rechazó gasta tokens sin decidir nada.
+- La puerta es la CI: los cinco checks en verde y auto-merge, sin aprobaciones.
+- Donde la tabla de arriba o A2/A3 piden revisión humana, esa sigue igual.
+- Ningún agente espera la etiqueta `witness:*` ni un dictamen de Witness para avanzar.
 
 ## Nada de esto corre sin supervisión
 
