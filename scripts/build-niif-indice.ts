@@ -71,14 +71,17 @@ export function monthsSince(verifiedAt: string, now: Date): number {
 
 /**
  * Freshness guard for the registry's verified_at: null when it is fresh, else
- * the reason it is not. Rejects a malformed or future date (a future date would
- * otherwise read as negative months and pass forever).
+ * the reason it is not. Rejects a malformed, impossible or future date: Date.parse
+ * rolls 2027-02-29 over to 1 March, so the date must round-trip, and a future
+ * date would otherwise read as negative months and pass forever.
  */
 export function freshnessProblem(verifiedAt: string, now: Date, maxMonths: number): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(verifiedAt) || Number.isNaN(Date.parse(verifiedAt))) {
+  const parsed = Date.parse(verifiedAt);
+  const roundTrips = !Number.isNaN(parsed) && new Date(parsed).toISOString().slice(0, 10) === verifiedAt;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(verifiedAt) || !roundTrips) {
     return `verified_at "${verifiedAt}" is not a YYYY-MM-DD date`;
   }
-  if (Date.parse(verifiedAt) > now.getTime()) return `verified_at ${verifiedAt} is in the future`;
+  if (parsed > now.getTime()) return `verified_at ${verifiedAt} is in the future`;
   const age = monthsSince(verifiedAt, now);
   return age > maxMonths ? `verified_at ${verifiedAt} is ${age} months old; max ${maxMonths}` : null;
 }

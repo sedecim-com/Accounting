@@ -49,7 +49,7 @@ describe('the day the freshness test turns red (freshnessDueDate)', () => {
   });
 
   it('refuses a malformed verified_at and a limit that is not a positive whole number', () => {
-    for (const bad of ['2026-9-6', '2026-13-45']) expect(() => freshnessDueDate(bad, 6), bad).toThrow(/not a YYYY-MM-DD/);
+    for (const bad of ['2026-9-6', '2026-13-45', '2027-02-29', '2026-02-30']) expect(() => freshnessDueDate(bad, 6), bad).toThrow(/not a YYYY-MM-DD/);
     for (const n of [0, -1, 1.5, Number.NaN]) expect(() => freshnessDueDate('2026-09-06', n), String(n)).toThrow(/positive whole/);
   });
 
@@ -98,6 +98,7 @@ describe('the renewal report', () => {
   it('is read-only: the script writes no file and starts no process (no gh, no git)', () => {
     const source = fs.readFileSync(path.join(ROOT, 'scripts', 'corpus-renewal.ts'), 'utf8');
     expect(source).not.toMatch(/\b(?:writeFile|appendFile|mkdir|rmSync|unlink|rename)\w*\(/);
+    expect(new Set([...source.matchAll(/\bfs\.(\w+)/g)].map((m) => m[1]))).toEqual(new Set(['readFileSync']));
     expect(source).not.toMatch(/child_process|\bexecFile|\bspawn/);
   });
 });

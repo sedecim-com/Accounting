@@ -317,6 +317,7 @@ describe('freshness of the normative corpus (docs/PROCESS.md)', () => {
     expect(freshnessProblem('2026-10-01', now, 6)).toMatch(/future/);
     expect(freshnessProblem('2026-9-1', now, 6)).toMatch(/not a YYYY-MM-DD/);
     expect(freshnessProblem('2026-13-45', now, 6)).toMatch(/not a YYYY-MM-DD/);
+    expect(freshnessProblem('2026-02-29', now, 6)).toMatch(/not a YYYY-MM-DD/); // 2026 has no 29 February
   });
 
   // Goes red on its own: for verified_at 2026-09-06 and N = 6 on 2027-04-06 (UTC),

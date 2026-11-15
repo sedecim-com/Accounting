@@ -164,7 +164,7 @@ async function main(): Promise<void> {
   console.log(sourceStatusLines(await checkSources(collectSources(registry, LEGAL_PARAMETERS_SEED))).join('\n'));
 }
 
-if (process.argv[1] && __filename === path.resolve(process.argv[1])) {
+if (require.main === module) {
   main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
