@@ -3336,6 +3336,120 @@ export const ES: Record<keyof typeof EN, string> = {
     'sembrado ({types})',
   'help.bank.adjustment.create.option.item': 'la partida conciliatoria que este ajuste explica',
   'help.bank.adjustment.create.option.json': 'salida en JSON',
+  // ==== MNE-001-236 · help by key, invoice and customer (issue #314) ====
+  'help.invoice.description':
+    'Facturas de clientes: capturarlas en borrador, revisarlas, emitirlas al mayor y anularlas (aquí nunca se timbran)',
+  'help.invoice.list.description': 'Lista facturas por cliente, estado, periodo o días de atraso',
+  'help.invoice.list.argument.search': 'texto que se busca en el folio de la factura o en el nombre del cliente',
+  'help.invoice.list.option.customer': 'sólo este cliente (número, nombre o id)',
+  'help.invoice.list.option.overdue_days': 'sólo las facturas abiertas con al menos este número de días de atraso',
+  'help.invoice.show.description': 'Muestra una factura con sus líneas, el efectivo aplicado y su póliza',
+  'help.invoice.show.argument.ref': 'folio de la factura (INV-2026-00042) o id',
+  'help.invoice.create.description':
+    'Crea una factura en BORRADOR desde cero: un documento local, ni contabilizado ni timbrado',
+  'help.invoice.create.option.customer': 'número, nombre o id del cliente',
+  'help.invoice.create.option.line':
+    'una línea: "account=4100;qty=2;price=1500;tax-rate=16;description=…". tax-rate= es una TASA en % ' +
+    '(16 quiere decir 16%), no un importe. La lista de claves está abajo',
+  'help.invoice.create.option.from_file': 'arreglo JSON de líneas en vez de repetir --line',
+  'help.invoice.create.option.date': 'fecha de la factura (AAAA-MM-DD); por omisión, hoy',
+  'help.invoice.create.option.due_date':
+    'fecha de vencimiento; por omisión, la que resulta de las condiciones de pago del cliente',
+  'help.invoice.create.option.currency': 'moneda de facturación; por omisión, la del cliente',
+  'help.invoice.create.option.terms': 'condiciones de pago que se imprimen en el documento',
+  'help.invoice.create.option.memo': 'observaciones',
+  'help.invoice.create.option.po_number': 'la orden de compra del cliente contra la que se factura',
+  'help.invoice.create.option.json': 'salida en JSON',
+  'help.invoice.issue.description':
+    'Emite una factura: contabiliza cargo a cuentas por cobrar / abono a ingresos / abono a IVA trasladado. ' +
+    'No la timbra ni la entrega',
+  'help.invoice.issue.argument.ref': 'folio de la factura o id',
+  'help.invoice.issue.option.json': 'salida en JSON',
+  'help.invoice.void.description':
+    'Anula una factura local y revierte su póliza; se niega si está timbrada o cobrada',
+  'help.invoice.void.argument.ref': 'folio de la factura o id',
+  'help.invoice.void.option.json': 'salida en JSON',
+  'help.invoice.edit.description':
+    'Edita una factura en BORRADOR: fechas, observaciones o sus líneas (las emitidas se anulan o se corrigen ' +
+    'con una nota de crédito, nunca se editan)',
+  'help.invoice.edit.argument.ref': 'folio de la factura o id',
+  'help.invoice.edit.option.line':
+    'REEMPLAZA todas las líneas: "account=4100;qty=2;price=1500;tax-rate=16;…" (se puede repetir). ' +
+    'La lista de claves está en invoice create --help',
+  'help.invoice.edit.option.from_file': 'arreglo JSON de líneas en vez de repetir --line',
+  'help.invoice.edit.option.date': 'nueva fecha de la factura (AAAA-MM-DD)',
+  'help.invoice.edit.option.due_date': 'nueva fecha de vencimiento',
+  'help.invoice.edit.option.memo': 'nuevas observaciones',
+  'help.invoice.edit.option.po_number': 'nueva referencia de la orden de compra',
+  'help.invoice.edit.option.json': 'salida en JSON',
+  'help.invoice.delete.description':
+    'Elimina un BORRADOR que nunca tocó el mayor; su folio queda como un hueco documentado',
+  'help.invoice.delete.argument.ref': 'folio de la factura o id',
+  'help.invoice.delete.option.json': 'salida en JSON',
+  'help.invoice.series.description':
+    'Series de folios: los contadores de los que esta entidad toma el folio de cada documento',
+  'help.invoice.series.list.description': 'Lista los contadores de folios, el último folio emitido y el siguiente',
+  'help.invoice.series.check.description':
+    'Reporta los huecos de la serie de folios de las facturas; un hueco con rastro de auditoría está explicado, ' +
+    'uno sin él es un hallazgo',
+  'help.invoice.series.check.option.year': 'sólo este ejercicio fiscal de la serie',
+  'help.invoice.series.check.option.strict': 'sale con 4 aunque todos los huecos estén explicados',
+  'help.customer.description': 'Clientes: el archivo maestro de cuentas por cobrar, con el saldo que debe cada uno',
+  'help.customer.list.description':
+    'Lista los clientes con sus condiciones de pago, su estado de crédito y el saldo que deben',
+  'help.customer.list.argument.query': 'texto que se busca en el nombre o en el número del cliente',
+  'help.customer.list.option.overdue': 'sólo los clientes con algo vencido',
+  'help.customer.list.option.balance_gt': 'sólo los clientes que deben más de este importe',
+  'help.customer.list.option.inactive': 'muestra los clientes archivados en vez de los activos',
+  'help.customer.show.description':
+    'Muestra un cliente: perfil, identificador fiscal, crédito, saldo y documentos abiertos',
+  'help.customer.show.argument.ref': 'número, nombre o id del cliente',
+  'help.customer.create.description':
+    'Da de alta un cliente con su identificador fiscal, sus condiciones de pago y su moneda',
+  'help.customer.create.option.name': 'razón social',
+  'help.customer.create.option.first_name': 'nombre de pila, para una persona física',
+  'help.customer.create.option.last_name': 'apellidos, para una persona física',
+  'help.customer.create.option.tax_id': 'RFC (MX), EIN (EE. UU.) o número de IVA (VAT)',
+  'help.customer.create.option.tax_id_type': 'uno de: {types}; se infiere del país de la entidad',
+  'help.customer.create.option.email': 'correo del contacto de facturación',
+  'help.customer.create.option.phone': 'teléfono de contacto',
+  'help.customer.create.option.terms': 'condiciones de pago, p. ej. "Net 30"',
+  'help.customer.create.option.currency': 'moneda de facturación (3 letras)',
+  'help.customer.create.option.json': 'salida en JSON',
+  'help.customer.edit.description':
+    'Cambia los datos comerciales y de contacto; nunca el perfil fiscal ni los datos de crédito',
+  'help.customer.edit.argument.ref': 'número, nombre o id del cliente',
+  'help.customer.edit.option.name': 'nueva razón social',
+  'help.customer.edit.option.first_name': 'nuevo nombre de pila',
+  'help.customer.edit.option.last_name': 'nuevos apellidos',
+  'help.customer.edit.option.email': 'nuevo correo de facturación',
+  'help.customer.edit.option.phone': 'nuevo teléfono',
+  'help.customer.edit.option.terms': 'nuevas condiciones de pago',
+  'help.customer.edit.option.notes': 'notas libres que se guardan con el cliente',
+  'help.customer.edit.option.reason': 'justificación que queda en el rastro de auditoría',
+  'help.customer.archive.description': 'Desactiva un cliente; se rechaza mientras siga debiendo algo',
+  'help.customer.archive.argument.ref': 'número, nombre o id del cliente',
+  'help.customer.restore.description': 'Reactiva un cliente archivado',
+  'help.customer.restore.argument.ref': 'número, nombre o id del cliente',
+  'help.customer.restore.option.reason': 'justificación que queda en el rastro de auditoría',
+  'help.customer.tax.description':
+    'El perfil fiscal contra el que se timbra el CFDI 4.0: RFC, régimen fiscal, código postal y UsoCFDI',
+  'help.customer.tax.show.description':
+    'Muestra el perfil fiscal y lo que falta para poder timbrarle un CFDI a este cliente',
+  'help.customer.tax.show.argument.ref': 'número, nombre o id del cliente',
+  'help.customer.tax.set.description':
+    'Fija el RFC, el régimen fiscal, el código postal o el UsoCFDI y los valida contra los catálogos del SAT ' +
+    'antes de escribir',
+  'help.customer.tax.set.argument.ref': 'número, nombre o id del cliente',
+  'help.customer.tax.set.option.rfc': 'el RFC (se valida su forma: {shape})',
+  'help.customer.tax.set.option.tax_regime': 'código de c_RegimenFiscal: 601, 612, 626…',
+  'help.customer.tax.set.option.postal_code': 'código postal del domicilio fiscal (5 dígitos)',
+  'help.customer.tax.set.option.uso_cfdi': 'c_UsoCFDI por omisión: G01, G03, P01…',
+  'help.customer.tax.set.option.reason': 'justificación que queda en el rastro de auditoría',
+  'help.customer.tax.set.option.json': 'salida en JSON',
+  'help.customer.tax.list.description':
+    'El control previo a facturar: clientes cuyo perfil fiscal está incompleto o mal formado',
+  'help.customer.tax.list.option.missing': 'sólo los clientes a los que hoy NO se les podría timbrar un CFDI',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
