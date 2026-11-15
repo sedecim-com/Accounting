@@ -8,8 +8,8 @@ Este documento describe el flujo real, no uno aspiracional. Si algo aquí no coi
 plan (issues + criterios ejecutables)
   → un ejecutor toma UNA issue
   → implementa contra src/plan/criteria/<paquete>.ts (si cierra o reabre un paquete)
-  → PR contra develop, CI en verde, 1 aprobación
-  → review por otro vendor (ver docs/ROUTING.md)
+  → PR contra develop, con los cinco checks de CI en verde
+  → auto-merge en cuanto pasan (sin revisión de otro vendor, ver §4)
   → merge a develop
   → release se corta de develop y se fusiona a main con un tag (ADR-0008)
   → docs/HISTORY.md se actualiza si el PR cierra un sprint/hito
@@ -52,9 +52,9 @@ npm run test:integration     # necesita Postgres real; corre en CI aparte (aisla
 
 CI exige en verde: **Tipos**, **Pruebas unitarias**, **Integración contra Postgres**, **Aislamiento por inquilino**, **Estado del plan**. Un rojo se arregla, no se explica en un comentario (`CONTRIBUTING.md`).
 
-## 4. Review por otro vendor
+## 4. Sin review por otro vendor
 
-Ningún cambio se aprueba a sí mismo. La revisión la hace un modelo/CLI **distinto** del que implementó (ver `docs/ROUTING.md`) — el objetivo es una segunda mirada con sesgos distintos, no una firma ceremonial.
+Ya no hay revisión obligatoria de otro modelo o CLI: Witness (`witness-vic[bot]`) dejó de ser requisito el 2026-11-15, por decisión del dueño. La puerta es la CI: un PR con los cinco checks en verde se fusiona por auto-merge, sin aprobaciones. Ningún agente espera la etiqueta `witness:*` ni un dictamen de Witness para avanzar; donde A2 o A3 piden que el dueño revise el PR, eso sigue igual.
 
 ## 5. Si el plan está mal: comentar y PARAR
 
