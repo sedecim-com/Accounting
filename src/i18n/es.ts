@@ -2951,6 +2951,138 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.diot.export.option.yes': 'omite la confirmación de sobrescritura cuando -o nombra un archivo existente',
   'help.diot.export.option.output':
     'escribe el archivo exportado en esta ruta (sin ella, va a la salida estándar para poder compararlo)',
+  // ==== MNE-001-231 · help by key, bank account, statement and transaction (issue #314) ====
+  'help.bank.description': 'Cuentas bancarias y estados de cuenta: los datos maestros y los estados importados',
+  'help.bank.account.description':
+    'Las cuentas bancarias como datos maestros: identificadores, moneda y el mapeo 1:1 a la cuenta de mayor',
+  'help.bank.account.create.description':
+    'Da de alta una cuenta bancaria y valida el dígito verificador de la CLABE, la suma de control del ruteo ' +
+    'ABA, la moneda contra la cuenta de mayor y el mapeo 1:1',
+  'help.bank.account.create.argument.name': 'nombre con el que se conoce esta cuenta en los libros',
+  'help.bank.account.create.option.bank': 'nombre de la institución',
+  'help.bank.account.create.option.gl_account':
+    'cuenta de mayor a la que se mapea esta cuenta bancaria, 1:1 (código o id)',
+  'help.bank.account.create.option.currency': 'código ISO de 3 letras; debe ser la moneda de la cuenta de mayor',
+  'help.bank.account.create.option.type':
+    'tipo de cuenta; credit-card es un PASIVO y se mapea a una cuenta de mayor de pasivo',
+  'help.bank.account.create.option.clabe': 'CLABE; se guarda cifrada y sólo se muestran sus últimos 4 dígitos',
+  'help.bank.account.create.option.account_number': 'número de cuenta; se guarda cifrado',
+  'help.bank.account.create.option.routing_ach': 'número de ruteo ABA para ACH',
+  'help.bank.account.create.option.routing_wire': 'número de ruteo ABA para transferencias (wire)',
+  'help.bank.account.create.option.sat_bank_code': 'clave c_Banco del SAT; si se omite, se deriva de la CLABE',
+  'help.bank.account.create.option.branch': 'sucursal',
+  'help.bank.account.create.option.swift': 'código SWIFT/BIC',
+  'help.bank.account.create.option.iban': 'código IBAN',
+  'help.bank.account.create.option.dry_run': 'corre todas las validaciones y la inserción, y luego lo deshace todo',
+  'help.bank.account.create.option.json': 'salida en JSON',
+  'help.bank.account.list.description':
+    'Lista las cuentas con su moneda, tipo, cuenta de mayor, saldo en libros y la última conciliación aprobada',
+  'help.bank.account.list.argument.query': 'texto que se busca en el nombre de la cuenta o en el del banco',
+  'help.bank.account.list.option.type': 'sólo las cuentas de este tipo',
+  'help.bank.account.list.option.currency': 'sólo las cuentas en esta moneda',
+  'help.bank.account.list.option.all_entities':
+    'todas las entidades del inquilino, para una vista de conjunto del despacho; el alcance sigue acotado dentro del SQL',
+  'help.bank.account.show.description':
+    'Muestra una cuenta: identificadores enmascarados, clave de banco del SAT, saldo en libros contra saldo del ' +
+    'banco y el ancla de la conciliación',
+  'help.bank.account.show.argument.account': 'nombre o id de la cuenta',
+  'help.bank.account.show.option.redacted':
+    'oculta incluso los últimos 4 dígitos de los identificadores, para una pantalla compartida',
+  'help.bank.account.edit.description': 'Cambia los datos maestros y registra el antes y el después campo por campo',
+  'help.bank.account.edit.argument.account': 'nombre o id de la cuenta',
+  'help.bank.account.edit.option.name': 'nuevo nombre de la cuenta',
+  'help.bank.account.edit.option.bank': 'nuevo nombre de la institución',
+  'help.bank.account.edit.option.branch': 'sucursal; un valor vacío la borra',
+  'help.bank.account.edit.option.type': 'tipo de cuenta',
+  'help.bank.account.edit.option.currency': 'moneda; se vuelve a verificar contra la cuenta de mayor',
+  'help.bank.account.edit.option.clabe': 'CLABE; exige --reason. Un valor vacío la borra',
+  'help.bank.account.edit.option.account_number': 'número de cuenta; exige --reason. Un valor vacío lo borra',
+  'help.bank.account.edit.option.routing_ach': 'ruteo ABA para ACH; exige --reason. Un valor vacío lo borra',
+  'help.bank.account.edit.option.routing_wire':
+    'ruteo ABA para transferencias (wire); exige --reason. Un valor vacío lo borra',
+  'help.bank.account.edit.option.sat_bank_code': 'clave c_Banco del SAT; un valor vacío la borra',
+  'help.bank.account.edit.option.swift': 'código SWIFT/BIC; un valor vacío lo borra',
+  'help.bank.account.edit.option.iban': 'código IBAN; un valor vacío lo borra',
+  'help.bank.account.edit.option.reason':
+    'justificación que queda en el rastro de auditoría; obligatoria para los identificadores',
+  'help.bank.account.edit.option.dry_run': 'aplica el cambio y lo deshace, mostrando lo que cambiaría',
+  'help.bank.account.edit.option.json': 'salida en JSON',
+  'help.bank.account.set.description':
+    'Escribe el mapeo 1:1 a la cuenta de mayor y rechaza el cambio si la cuenta anterior tiene pólizas contabilizadas',
+  'help.bank.account.set.argument.account': 'nombre o id de la cuenta',
+  'help.bank.account.set.option.gl_account': 'cuenta de mayor a la que se mapea (código o id)',
+  'help.bank.account.set.option.reason': 'justificación que queda en el rastro de auditoría; la exige --force',
+  'help.bank.account.set.option.dry_run': 'aplica el nuevo mapeo y lo deshace',
+  'help.bank.account.set.option.json': 'salida en JSON',
+  'help.bank.statement.description':
+    'Los estados de cuenta como documentos: importarlos, revisarlos y verificar su integridad',
+  'help.bank.statement.import.description':
+    'Lee, normaliza y deja en el staging bancario un estado de cuenta, deduplicando por id nativo o por hash del ' +
+    'contenido; no contabiliza NADA en el mayor',
+  'help.bank.statement.import.argument.file':
+    'archivos de estados de cuenta; combínalos con --dir para tomar una carpeta entera',
+  'help.bank.statement.import.option.account':
+    'cuenta bancaria a la que pertenecen estos estados de cuenta (nombre o id)',
+  'help.bank.statement.import.option.format':
+    'formato del ARCHIVO (no de la salida; para eso está --json); si se omite, se detecta por el contenido',
+  'help.bank.statement.import.option.profile': 'perfil de columnas CSV con el que se lee el archivo',
+  'help.bank.statement.import.option.dir': 'importa también todos los archivos de esta carpeta',
+  'help.bank.statement.import.option.closing_balance':
+    'saldo final que afirmas, para un formato que no lo trae (un CSV); se rechaza si el archivo dice otro',
+  'help.bank.statement.import.option.dry_run':
+    'lee el archivo, corre las siete verificaciones y deshace la escritura',
+  'help.bank.statement.import.option.json': 'salida en JSON',
+  'help.bank.statement.list.description':
+    'Lista los estados de cuenta importados por cuenta y periodo, con saldo inicial y final, número de líneas y ' +
+    'la cadena de saldos',
+  'help.bank.statement.list.option.account': 'sólo esta cuenta bancaria (nombre o id)',
+  'help.bank.statement.list.option.since':
+    'estados de cuenta cuyo periodo TERMINA en esta fecha o después (AAAA-MM-DD)',
+  'help.bank.statement.list.option.until':
+    'estados de cuenta cuyo periodo EMPIEZA en esta fecha o antes (AAAA-MM-DD)',
+  'help.bank.statement.show.description':
+    'Muestra un estado de cuenta: número de secuencia electrónica, rango de fechas, hash del archivo original y ' +
+    'el perfil aplicado',
+  'help.bank.statement.show.argument.id': 'id del estado de cuenta',
+  'help.bank.statement.show.option.lines': 'incluye las líneas del estado de cuenta',
+  'help.bank.statement.show.option.limit': 'máximo de líneas a listar con --lines (por omisión, 500)',
+  'help.bank.statement.check.description':
+    'Corre las siete verificaciones de integridad y SALE CON 4 nombrando la que falló',
+  'help.bank.statement.check.argument.id': 'un estado de cuenta; sin él, el más reciente de cada cuenta',
+  'help.bank.statement.check.option.check':
+    'verificaciones a correr, separadas por comas; --check sin valor las lista ({checks})',
+  'help.bank.statement.check.option.all':
+    'todos los estados de cuenta de la entidad, no sólo el más reciente de cada cuenta',
+  'help.bank.statement.check.option.account': 'todos los estados de cuenta de esta cuenta bancaria (nombre o id)',
+  'help.bank.statement.check.option.since':
+    'sólo los estados de cuenta cuyo periodo termina en esta fecha o después (AAAA-MM-DD)',
+  'help.bank.transaction.description':
+    'Movimientos bancarios: lo que el banco dice que pasó, antes de que nadie lo explique',
+  'help.bank.transaction.list.description':
+    'Lista los movimientos bancarios filtrados por cuenta, rango de fechas, dirección, importe, texto, tipo y ' +
+    'estado de cotejo',
+  'help.bank.transaction.list.argument.query':
+    'términos al estilo de hledger: desc:<texto>, amt:[>|<|>=|<=]<importe>; una palabra sin prefijo equivale a desc:',
+  'help.bank.transaction.list.option.account': 'sólo esta cuenta bancaria (nombre o id)',
+  'help.bank.transaction.list.option.since': 'movimientos en esta fecha o después (AAAA-MM-DD)',
+  'help.bank.transaction.list.option.until': 'movimientos en esta fecha o antes (AAAA-MM-DD)',
+  'help.bank.transaction.list.option.unmatched': 'sólo los movimientos sin cotejo vigente; atajo de -s unmatched',
+  'help.bank.transaction.list.option.direction': 'dinero que entra (importe positivo) o que sale (importe negativo)',
+  'help.bank.transaction.list.option.type': 'tipo de movimiento tal como lo clasificó el banco (no su dirección)',
+  'help.bank.transaction.show.description':
+    'Muestra un movimiento: la línea normalizada, el estado de cuenta del que vino y los cotejos vigentes que lo ' +
+    'explican',
+  'help.bank.transaction.show.argument.id': 'id del movimiento',
+  'help.bank.transaction.show.option.raw':
+    'incluye raw_data tal como lo publicó el banco; puede mostrar la contraparte sin enmascarar',
+  'help.bank.transaction.reclassify.description':
+    'Corrige qué tipo de línea es un movimiento bancario (comisión, interés, cargo, abono, ajuste); se rechaza si ' +
+    'el signo no concuerda, si la línea está cotejada o si una póliza de tesorería ya la contabilizó',
+  'help.bank.transaction.reclassify.argument.id': 'id del movimiento',
+  'help.bank.transaction.reclassify.option.type': 'lo que la línea es en realidad',
+  'help.bank.transaction.reclassify.option.reason': 'justificación que queda en el rastro de auditoría',
+  'help.bank.transaction.reclassify.option.dry_run': 'corre todas las verificaciones y no escribe nada',
+  'help.bank.transaction.reclassify.option.json': 'salida en JSON',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT

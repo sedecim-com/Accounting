@@ -3097,6 +3097,124 @@ export const EN = {
   'help.diot.export.option.yes': 'skip the overwrite prompt when -o names an existing file',
   'help.diot.export.option.output':
     'write the exported file to this path (without it, the file goes to stdout so it can be diffed)',
+  // ==== MNE-001-231 · help by key, bank account, statement and transaction (issue #314) ====
+  //
+  // Same format as `period`. The bank family is keyed by subcommand group in
+  // three tasks (231 to 233); this one takes the root and these three groups,
+  // with the English these commands already showed. Every generic flag here is
+  // worded for its leaf and keeps its own key, except `bank account edit -y`,
+  // which already said what cli.flag.yes says. The check names travel as {checks}.
+  'help.bank.description': 'Bank accounts and bank statements: master data and imported statements',
+  'help.bank.account.description': 'Bank accounts as master data: identifiers, currency and the 1:1 GL mapping',
+  'help.bank.account.create.description':
+    'Register a bank account, validating the CLABE check digit, the ABA routing checksum, ' +
+    'the currency against the GL account and the 1:1 mapping',
+  'help.bank.account.create.argument.name': 'name this account is known by inside the books',
+  'help.bank.account.create.option.bank': 'name of the institution',
+  'help.bank.account.create.option.gl_account': 'GL account this bank account maps to, 1:1 (code or id)',
+  'help.bank.account.create.option.currency': '3-letter ISO code; must equal the GL account currency',
+  'help.bank.account.create.option.type':
+    'account nature; credit-card is a LIABILITY and maps to a liability GL account',
+  'help.bank.account.create.option.clabe': 'CLABE; stored encrypted, only the last 4 are ever shown',
+  'help.bank.account.create.option.account_number': 'account number; stored encrypted',
+  'help.bank.account.create.option.routing_ach': 'ABA routing number for ACH',
+  'help.bank.account.create.option.routing_wire': 'ABA routing number for wires',
+  'help.bank.account.create.option.sat_bank_code': 'SAT c_Banco key; derived from the CLABE when omitted',
+  'help.bank.account.create.option.branch': 'branch',
+  'help.bank.account.create.option.swift': 'SWIFT/BIC',
+  'help.bank.account.create.option.iban': 'IBAN',
+  'help.bank.account.create.option.dry_run': 'run every validation and the insert, then roll it back',
+  'help.bank.account.create.option.json': 'JSON output',
+  'help.bank.account.list.description':
+    'List the accounts with currency, type, GL account, book balance and the last approved reconciliation',
+  'help.bank.account.list.argument.query': 'match against the account name or the bank name',
+  'help.bank.account.list.option.type': 'only accounts of this nature',
+  'help.bank.account.list.option.currency': 'only accounts in this currency',
+  'help.bank.account.list.option.all_entities':
+    "every entity of the tenant, for a firm's overview; still bounded inside the SQL",
+  'help.bank.account.show.description':
+    'Show one account: masked identifiers, SAT bank key, book vs bank balance and the reconciliation anchor',
+  'help.bank.account.show.argument.account': 'account name or id',
+  'help.bank.account.show.option.redacted': 'drop even the last 4 digits of the identifiers, for a shared screen',
+  'help.bank.account.edit.description': 'Change master data, recording the before and after field by field',
+  'help.bank.account.edit.argument.account': 'account name or id',
+  'help.bank.account.edit.option.name': 'new account name',
+  'help.bank.account.edit.option.bank': 'new institution name',
+  'help.bank.account.edit.option.branch': 'branch; empty clears it',
+  'help.bank.account.edit.option.type': 'account nature',
+  'help.bank.account.edit.option.currency': 'currency; re-checked against the GL account',
+  'help.bank.account.edit.option.clabe': 'CLABE; requires --reason. Empty clears it',
+  'help.bank.account.edit.option.account_number': 'account number; requires --reason. Empty clears it',
+  'help.bank.account.edit.option.routing_ach': 'ABA routing for ACH; requires --reason. Empty clears it',
+  'help.bank.account.edit.option.routing_wire': 'ABA routing for wires; requires --reason. Empty clears it',
+  'help.bank.account.edit.option.sat_bank_code': 'SAT c_Banco key; empty clears it',
+  'help.bank.account.edit.option.swift': 'SWIFT/BIC; empty clears it',
+  'help.bank.account.edit.option.iban': 'IBAN; empty clears it',
+  'help.bank.account.edit.option.reason': 'justification recorded in the audit trail; required for identifiers',
+  'help.bank.account.edit.option.dry_run': 'apply the change and roll it back, showing what would differ',
+  'help.bank.account.edit.option.json': 'JSON output',
+  'help.bank.account.set.description':
+    'Write the 1:1 GL mapping, refusing the change when the old account has posted entries',
+  'help.bank.account.set.argument.account': 'account name or id',
+  'help.bank.account.set.option.gl_account': 'GL account to map to (code or id)',
+  'help.bank.account.set.option.reason': 'justification recorded in the audit trail; required by --force',
+  'help.bank.account.set.option.dry_run': 'apply the remap and roll it back',
+  'help.bank.account.set.option.json': 'JSON output',
+  'help.bank.statement.description': 'Bank statements as documents: import, inspect and check their integrity',
+  'help.bank.statement.import.description':
+    'Parse, normalize and stage a bank statement, deduplicating by native id or content hash; ' +
+    'posts NOTHING to the ledger',
+  'help.bank.statement.import.argument.file': 'statement files; combine with --dir to take a whole folder',
+  'help.bank.statement.import.option.account': 'bank account these statements belong to (name or id)',
+  'help.bank.statement.import.option.format':
+    'format of the FILE (not of the output; use --json for that); sniffed from the content when omitted',
+  'help.bank.statement.import.option.profile': 'CSV column profile to read the file with',
+  'help.bank.statement.import.option.dir': 'import every file in this folder as well',
+  'help.bank.statement.import.option.closing_balance':
+    'closing balance you assert, for a format that carries none (a CSV); refused if the file says otherwise',
+  'help.bank.statement.import.option.dry_run': 'parse, run the seven checks and roll the write back',
+  'help.bank.statement.import.option.json': 'JSON output',
+  'help.bank.statement.list.description':
+    'List imported statements by account and period, with opening and closing balance, line count and the balance chain',
+  'help.bank.statement.list.option.account': 'only this bank account (name or id)',
+  'help.bank.statement.list.option.since': 'statements whose period ENDS on or after this date (YYYY-MM-DD)',
+  'help.bank.statement.list.option.until': 'statements whose period STARTS on or before this date (YYYY-MM-DD)',
+  'help.bank.statement.show.description':
+    'Show one statement: electronic sequence number, date range, hash of the original file and the profile applied',
+  'help.bank.statement.show.argument.id': 'statement id',
+  'help.bank.statement.show.option.lines': 'include the statement lines',
+  'help.bank.statement.show.option.limit': 'maximum lines to list with --lines (default 500)',
+  'help.bank.statement.check.description': 'Run the seven integrity checks and EXIT 4 naming which one broke',
+  'help.bank.statement.check.argument.id': 'one statement; without it, the latest of each account',
+  'help.bank.statement.check.option.check': 'comma-separated checks to run; bare --check lists them ({checks})',
+  'help.bank.statement.check.option.all': 'every statement of the entity, not just the latest per account',
+  'help.bank.statement.check.option.account': 'every statement of this bank account (name or id)',
+  'help.bank.statement.check.option.since':
+    'only statements whose period ends on or after this date (YYYY-MM-DD)',
+  'help.bank.transaction.description': 'Bank transactions: what the bank says happened, before anyone explains it',
+  'help.bank.transaction.list.description':
+    'List bank transactions filtered by account, date range, direction, amount, text, type and match state',
+  'help.bank.transaction.list.argument.query':
+    'hledger-style terms: desc:<text>, amt:[>|<|>=|<=]<amount>; a bare word means desc:',
+  'help.bank.transaction.list.option.account': 'only this bank account (name or id)',
+  'help.bank.transaction.list.option.since': 'transactions on or after this date (YYYY-MM-DD)',
+  'help.bank.transaction.list.option.until': 'transactions on or before this date (YYYY-MM-DD)',
+  'help.bank.transaction.list.option.unmatched': 'only transactions with no live match; shorthand for -s unmatched',
+  'help.bank.transaction.list.option.direction': 'money in (positive amount) or out (negative amount)',
+  'help.bank.transaction.list.option.type': 'transaction nature as the bank classified it (not its direction)',
+  'help.bank.transaction.show.description':
+    'Show one transaction: the normalized line, the statement it came from and the live matches that explain it',
+  'help.bank.transaction.show.argument.id': 'transaction id',
+  'help.bank.transaction.show.option.raw':
+    'include raw_data exactly as the bank published it; it can carry the counterparty in the clear',
+  'help.bank.transaction.reclassify.description':
+    'Correct what kind of line a bank transaction is (fee, interest, debit, credit, adjustment); ' +
+    'refused when the sign disagrees, the line is matched, or a treasury entry already posted it',
+  'help.bank.transaction.reclassify.argument.id': 'transaction id',
+  'help.bank.transaction.reclassify.option.type': 'what the line really is',
+  'help.bank.transaction.reclassify.option.reason': 'justification recorded in the audit trail',
+  'help.bank.transaction.reclassify.option.dry_run': 'run every check and write nothing',
+  'help.bank.transaction.reclassify.option.json': 'JSON output',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
