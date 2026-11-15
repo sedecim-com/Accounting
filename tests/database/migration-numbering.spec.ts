@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { assertNumeracionUnica } from '../../src/database/migrate.js';
+import {
+  assertNextIsMaxPlusOne,
+  assertNumeracionUnica,
+  LAST_OUT_OF_SEQUENCE_MIGRATION,
+} from '../../src/database/migrate.js';
 
 const DIR = path.join(__dirname, '..', '..', 'src', 'database', 'migrations');
 
@@ -59,5 +63,61 @@ describe('numeración de migraciones', () => {
 
   it('rechaza un archivo sin prefijo numérico', () => {
     expect(() => assertNumeracionUnica(['fix_algo.sql'])).toThrow(/sin prefijo numérico/);
+  });
+});
+
+describe('the max + 1 rule (#158)', () => {
+  // The three jumps that happened before the rule had a guard, written out
+  // literally for the same reason HISTORICOS is: read from the tree, they
+  // would prove nothing.
+  const JUMPS = [
+    [176, 250],
+    [250, 310],
+    [310, 324],
+  ];
+
+  it('the current tree passes the guard', () => {
+    const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.sql')).sort();
+    expect(() => assertNextIsMaxPlusOne(files)).not.toThrow();
+  });
+
+  it('the three historical jumps are still in the tree, and 324 is the last one', () => {
+    const numbers = new Set(
+      fs.readdirSync(DIR).filter((f) => f.endsWith('.sql')).map((f) => Number(f.slice(0, 3)))
+    );
+    for (const [from, to] of JUMPS) {
+      expect(numbers.has(from), `${from} is gone from the tree`).toBe(true);
+      expect(numbers.has(to), `${to} is gone from the tree`).toBe(true);
+      for (let n = from + 1; n < to; n++) expect(numbers.has(n), `${n} filled the jump`).toBe(false);
+    }
+    expect(LAST_OUT_OF_SEQUENCE_MIGRATION).toBe(324);
+  });
+
+  it('no new migration takes a number of 324 or less, not even to fill an old gap', () => {
+    // 118 files, the four historical duplicates included, were numbered 324
+    // or less on 15 Nov 2026. The guard only judges what comes after 324, so
+    // this count is what stops a new file from slipping into an old gap.
+    const upTo324 = fs
+      .readdirSync(DIR)
+      .filter((f) => f.endsWith('.sql') && Number(f.slice(0, 3)) <= LAST_OUT_OF_SEQUENCE_MIGRATION);
+    expect(upTo324).toHaveLength(118);
+  });
+
+  it('accepts the next numbers in order', () => {
+    expect(() => assertNextIsMaxPlusOne(['324_a.sql', '325_b.sql', '326_c.sql'])).not.toThrow();
+  });
+
+  it('rejects a jump after 324 and names the number that was due', () => {
+    const files = ['324_a.sql', '325_b.sql', '327_c.sql'];
+    expect(() => assertNextIsMaxPlusOne(files)).toThrow(/Migration 327 breaks the max \+ 1 rule/);
+    expect(() => assertNextIsMaxPlusOne(files)).toThrow(/the next number is 326/);
+  });
+
+  it('rejects a first new migration that skips 325', () => {
+    expect(() => assertNextIsMaxPlusOne(['324_a.sql', '330_b.sql'])).toThrow(/the next number is 325/);
+  });
+
+  it('leaves the numbers up to 324 alone, gaps included', () => {
+    expect(() => assertNextIsMaxPlusOne(['095_a.sql', '102_b.sql', '250_c.sql', '324_d.sql'])).not.toThrow();
   });
 });

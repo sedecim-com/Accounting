@@ -50,6 +50,13 @@ La regla vigente es la simple:
 - **Secuencial estricto.** El siguiente número es `max + 1` sobre lo que hay
   en `src/database/migrations/`. Este número no se escribe aquí: se pregunta
   al directorio, que es el único que no se desincroniza.
+- **Los tres saltos son historia.** Antes de que esta regla tuviera guarda hubo
+  tres saltos: 176 → 250, 250 → 310 y 310 → 324. Están aplicados en bases
+  desplegadas y no se renumeran. El dueño decidió el 15 nov 2026 en #158 que
+  manda `max + 1` desde ahí: desde la 325, `assertNextIsMaxPlusOne` en
+  `src/database/migrate.ts` hace fallar `npm run migrate` ante cualquier número
+  que no sea el siguiente, y `tests/database/migration-numbering.spec.ts` lo
+  fija, junto con que ninguna migración nueva ocupe un número de 324 o menos.
 - **La guarda decide, no este documento.** `assertNumeracionUnica` falla ante
   cualquier duplicado nuevo; los cuatro históricos de arriba son los únicos
   tolerados.
