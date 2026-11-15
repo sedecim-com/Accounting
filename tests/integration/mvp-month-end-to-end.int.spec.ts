@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
-import { query, closeDatabase } from '../../src/database/connection.js';
+import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 
 // ============================================================
 // MVP-E2E · THE MONTH OF AN SME, END TO END (#311, MNE-001-097)
@@ -32,8 +32,13 @@ import { query, closeDatabase } from '../../src/database/connection.js';
 // generated from the system's own answer cannot fail. Each constant carries
 // its derivation from the six documents of the month.
 //
-// Only the firm (tenant) and its user are seeded with SQL: creating them
-// without a TTY is MNE-001-085/086, listed as a todo in step 1.
+// NOTHING IS SEEDED WITH SQL. The firm and its user come from `tenant create`
+// and `user create`, like every other row of the month (MNE-001-406).
+//
+// NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. The helper keeps every
+// provider credential and MNEMOSINE_PROVIDER out of the child (`childEnv`), so
+// a key in the shell or the .env of whoever runs the suite cannot turn the
+// manual path into a model's.
 //
 // NO POSTGRES, NO RUN: without TEST_ADMIN_DATABASE_URL (a role that can
 // CREATE DATABASE) the integration suite refuses to start, and
@@ -92,10 +97,29 @@ const OPERATING_CASH = '0.00';
 const INVESTING_CASH = '-36000.00'; // the computers
 const FINANCING_CASH = '100000.00';
 
-let tenantId: string;
-let userEmail: string;
+// The firm's handle, its owner's login and that login's password: synthetic,
+// and fresh on every run, so none of them can name a real account.
+const suffix = uuidv4().replace(/-/g, '').slice(0, 12);
+const userEmail = `month-${suffix}@example.test`;
+const password = `month-${uuidv4()}`;
+let tenantId = '';
 let entityId = '';
 let workDir: string;
+
+/**
+ * Every variable that hands the child a model provider by name: the three of
+ * MNE-001-406's acceptance, and the credential each built-in profile names
+ * (`api_key_env`), read from the profiles so that a provider added there is
+ * kept out the day it lands. `childEnv` strips them.
+ */
+const PROVIDER_ENV = [
+  ...new Set([
+    'MNEMOSINE_PROVIDER',
+    'ANTHROPIC_API_KEY',
+    'OPENAI_API_KEY',
+    ...Object.values(BUILTIN_PROFILES).flatMap((p) => (p.api_key_env ? [p.api_key_env] : [])),
+  ]),
+];
 
 interface Run {
   status: number | null;
@@ -103,23 +127,63 @@ interface Run {
   err: string;
 }
 
-/** The binary, as typed. `scoped` adds the firm, the entity and the user. */
-function mnemosine(args: string[], scoped = true): Run {
-  const context = scoped ? ['-t', tenantId, '-u', userEmail, ...(entityId ? ['-e', entityId] : [])] : [];
-  const r = spawnSync('npx', ['tsx', CLI, ...args, ...context], {
+/**
+ * The context flags of one call, typed the way an accountant types them:
+ *   'entity'  `-t <firm> -u <user>`, and `-e <entity>` once it exists (the default);
+ *   'ingest'  the same with the root's `-T`: `ingest` declares -e and -u, but no -t;
+ *   'tenant'  `-t <firm>` alone, for the leaves that declare nothing else (`user create`);
+ *   'none'    no flags, for what acts on the installation (`tenant create`, `backup`).
+ */
+type Scope = 'entity' | 'ingest' | 'tenant' | 'none';
+
+function contextOf(scope: Scope): string[] {
+  if (scope === 'none') return [];
+  if (scope === 'tenant') return ['-t', tenantId];
+  return [scope === 'ingest' ? '-T' : '-t', tenantId, '-u', userEmail, ...(entityId ? ['-e', entityId] : [])];
+}
+
+/**
+ * The child's environment: the suite's own, plus `extra` for this call, and
+ * then no model provider, whatever the shell or a .env of whoever runs the
+ * suite holds. PROVIDER_ENV goes, and so does every ANTHROPIC_* variable: with
+ * no key, the Anthropic SDK of the default profile authenticates on its own
+ * from them (auth token, profile, workload identity: see
+ * node_modules/@anthropic-ai/sdk/core/credentials.js) and from the profiles
+ * under XDG_CONFIG_HOME, which therefore points inside the throwaway HOME too.
+ *
+ * NOTE: blanked, not deleted. dotenv never overrides a variable that is set,
+ * so an empty one also keeps the child's own .env from bringing the key back.
+ */
+function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    // HOME points at a throwaway directory so no pinned entity, saved setting
+    // or login of whoever runs the suite can leak into the month.
+    HOME: workDir,
+    XDG_CONFIG_HOME: path.join(workDir, '.config'),
+    NO_COLOR: '1',
+    MNEMOSINE_LOCALE: 'en-US',
+    ...extra,
+  };
+  for (const name of Object.keys(env)) if (name.startsWith('ANTHROPIC_')) env[name] = '';
+  for (const name of PROVIDER_ENV) env[name] = '';
+  return env;
+}
+
+/** The binary, as typed: `args`, then the flags of `scope`, with `extra` in its environment. */
+function mnemosine(args: string[], scope: Scope = 'entity', extra: Record<string, string> = {}): Run {
+  const r = spawnSync('npx', ['tsx', CLI, ...args, ...contextOf(scope)], {
     cwd: ROOT,
     encoding: 'utf-8',
     timeout: 120_000,
-    // HOME points at a throwaway directory so no pinned entity or saved
-    // setting of whoever runs the suite can leak into the month.
-    env: { ...process.env, HOME: workDir, NO_COLOR: '1', MNEMOSINE_LOCALE: 'en-US' },
+    env: childEnv(extra),
   });
   return { status: r.status, out: r.stdout ?? '', err: r.stderr ?? '' };
 }
 
 /** Runs and demands exit 0, printing everything the CLI said when it is not. */
-function ok(args: string[], scoped = true): Run {
-  const r = mnemosine(args, scoped);
+function ok(args: string[], scope: Scope = 'entity', extra: Record<string, string> = {}): Run {
+  const r = mnemosine(args, scope, extra);
   expect(r.status, `mnemosine ${args.join(' ')}\n${r.out}\n${r.err}`).toBe(0);
   return r;
 }
@@ -144,35 +208,73 @@ interface StatementRow {
 const lineOf = (rows: StatementRow[], pred: (r: StatementRow) => boolean): string =>
   money(rows.find(pred)?.amount);
 
-beforeAll(async () => {
+beforeAll(() => {
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemosine-mvp-month-'));
-  tenantId = uuidv4();
-  const userId = uuidv4();
-  const suffix = tenantId.replace(/-/g, '').slice(0, 12);
-  userEmail = `month-${suffix}@example.test`;
-  await query(
-    `INSERT INTO tenants (id, name, subdomain, schema_name, plan, is_active)
-     VALUES ($1, 'Synthetic firm for the MVP month', $2, $3, 'enterprise', true)`,
-    [tenantId, `mvp-${suffix}`, `mvp_${suffix}`]
-  );
-  await query(
-    `INSERT INTO users (id, tenant_id, email, password_hash, first_name, last_name,
-       roles, permissions, accessible_entities, is_active)
-     VALUES ($1, $2, $3, 'x', 'Synthetic', 'Accountant', '["owner"]'::jsonb, '["*"]'::jsonb, '[]'::jsonb, true)`,
-    [userId, tenantId, userEmail]
-  );
-}, 60_000);
+});
 
-afterAll(async () => {
+afterAll(() => {
   fs.rmSync(workDir, { recursive: true, force: true });
-  await closeDatabase();
 });
 
 describe('MVP month end to end: December 2025 of a synthetic SME, through the CLI only', () => {
+  it('runs with no model provider: no provider credential and no MNEMOSINE_PROVIDER reach the binary', () => {
+    // Poisoned on both roads a credential takes into the child: the environment
+    // that runs the suite, and the .env the child loads from its own HOME. Each
+    // road names another provider, so the default printed says which one leaked.
+    const inherited: Record<string, string> = {
+      ...Object.fromEntries(PROVIDER_ENV.map((name) => [name, `leaked-${name}`])),
+      MNEMOSINE_PROVIDER: 'ollama',
+      ANTHROPIC_AUTH_TOKEN: 'leaked-token',
+    };
+    const saved = Object.fromEntries(Object.keys(inherited).map((name) => [name, process.env[name]]));
+    const childDotenv = path.join(workDir, '.mnemosine', '.env');
+    fs.mkdirSync(path.dirname(childDotenv), { recursive: true });
+    fs.writeFileSync(
+      childDotenv,
+      PROVIDER_ENV.map((name) => `${name}=${name === 'MNEMOSINE_PROVIDER' ? 'hermes' : 'leaked-from-dotenv'}\n`).join('')
+    );
+    Object.assign(process.env, inherited);
+    try {
+      const listed = ok(['providers'], 'none').out;
+      for (const { api_key_env: key } of Object.values(BUILTIN_PROFILES)) {
+        if (key) expect(listed, `${key} in:\n${listed}`).toContain(`${key} ✘ missing`);
+      }
+      expect(listed).not.toMatch(/^(ollama|hermes) ← default$/m);
+      // What `providers` cannot print: the Anthropic SDK's own credentials, and
+      // a key that one call's environment tries to hand in.
+      expect(childEnv().ANTHROPIC_AUTH_TOKEN).toBe('');
+      expect(childEnv({ OPENAI_API_KEY: 'leaked-by-a-call' }).OPENAI_API_KEY).toBe('');
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      fs.rmSync(childDotenv, { force: true });
+    }
+  }, STEP_TIMEOUT_MS);
+
   describe('1 · registration and migration', () => {
+    it('creates the firm and its user without a TTY (tenant create, user create) — MNE-001-085, MNE-001-086', () => {
+      const [firm] = rowsOf<{ tenantId: string; subdomain: string }>(
+        ok(['tenant', 'create', 'Synthetic firm for the MVP month', '--subdomain', `mvp-${suffix}`, '--json'], 'none')
+      );
+      expect(firm.subdomain).toBe(`mvp-${suffix}`);
+      tenantId = firm.tenantId;
+
+      // The password travels in MNEMOSINE_USER_PASSWORD, never in argv, and
+      // never comes back out.
+      const created = ok(['user', 'create', '--email', userEmail, '--role', 'owner', '--json'], 'tenant', {
+        MNEMOSINE_USER_PASSWORD: password,
+      });
+      expect(rowsOf<{ email: string; role: string; tenantId: string }>(created)[0])
+        .toMatchObject({ email: userEmail, role: 'owner', tenantId });
+      expect(created.out + created.err).not.toContain(password);
+    }, STEP_TIMEOUT_MS);
+
     it('creates the entity with its chart and the 2025 fiscal year, and posts the opening balance', () => {
       const created = rowsOf<{ entityId: string; taxId: string }>(
-        ok(['entity', 'create', 'Comercializadora Sintetica SA de CV', '--tax-id', COMPANY_RFC, '--json'])
+        ok(['entity', 'create', 'Comercializadora Sintetica SA de CV', '--tax-id', COMPANY_RFC,
+          '--tax-regime', '601', '--tax-postal-code', '01000', '--json'])
       );
       expect(created[0].taxId).toBe(COMPANY_RFC);
       entityId = created[0].entityId;
@@ -184,8 +286,18 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(ok(['entry', 'post', 'JE-2025-00001', '--yes']).out).toContain('JE-2025-00001 posted');
     }, STEP_TIMEOUT_MS);
 
-    it.todo('creates the firm and its user without a TTY (tenant create, user create) — MNE-001-085, MNE-001-086');
-    it.todo('records regime 601 and the fiscal address of the persona moral — MNE-001-017');
+    it('records regime 601 and the fiscal address of the persona moral — MNE-001-017', () => {
+      // 601 is c_RegimenFiscal's general regime of a persona moral; 01000 is
+      // the fiscal postal code typed at `entity create`.
+      expect(rowsOf<Record<string, string>>(ok(['entity', 'show', '--json']))[0]).toMatchObject({
+        id: entityId,
+        tax_id: COMPANY_RFC,
+        tax_regime: '601',
+        tax_regime_name: 'General de Ley Personas Morales',
+        tax_postal_code: '01000',
+      });
+    }, STEP_TIMEOUT_MS);
+
     it.todo('imports the chart and the opening trial balance from Anexo 24 XML, the 8xx memorandum accounts included and excluded from the footing — MNE-001-018, MNE-001-019, MNE-001-099');
     it.todo('imports the open receivables and payables with the migration, and stops when they do not tie — MNE-001-022, MNE-001-023');
   });
@@ -221,7 +333,28 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       ok(['credit-note', 'issue', 'CN-2025-00001', '--yes']);
     }, STEP_TIMEOUT_MS);
 
-    it.todo('applies the credit note without a TTY: `credit-note apply` asks for --yes and does not accept it — MNE-001-088');
+    it('applies the credit note without a TTY: `credit-note apply` asks for --yes, and with it the invoice owes 4,640.00 and no entry is posted — MNE-001-088', () => {
+      const owed = (): string =>
+        money(rowsOf<{ amount_due: string }>(ok(['invoice', 'show', 'INV-2025-00001', '--json']))[0].amount_due);
+      const entries = (): string[] =>
+        rowsOf<{ entry_number: string }>(ok(['entry', 'list', '--all', '--json'])).map((e) => e.entry_number);
+      const apply = ['credit-note', 'apply', 'CN-2025-00001', '--invoice', 'INV-2025-00001:1160.00'];
+      const posted = entries();
+
+      // A pipe is not a terminal: the binary asks for --yes, aborts (exit 10,
+      // the code of a declined confirmation) and writes nothing.
+      const refused = mnemosine(apply);
+      expect(refused.status, refused.out + refused.err).toBe(10);
+      expect(refused.err).toContain('Re-run with --yes');
+      expect(owed()).toBe('5800.00');
+
+      // 11,600 − 5,800 collected − 1,160 credited (1,000 + 160 IVA). The note
+      // posted its entry when it was issued; applying it moves the subledger only.
+      expect(ok([...apply, '--yes']).out).toContain('INV-2025-00001 5800.00 → 4640.00 (partially_paid)');
+      expect(owed()).toBe('4640.00');
+      expect(entries()).toEqual(posted);
+    }, STEP_TIMEOUT_MS);
+
     it.todo('records a customer advance and applies it to the next invoice — MNE-001-098');
     it.todo('ar reconcile and ap reconcile tie to 1120 and 2110 at 2025-12-31, and a mismatch blocks the close — MNE-001-034, MNE-001-035, MNE-001-036, MNE-001-037');
   });
@@ -355,9 +488,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       ok(['ledger', 'check']);
       const target = path.join(workDir, 'backups');
       // `backup --json` publishes its keys in Spanish; they are read as printed, never renamed.
-      const [dump] = rowsOf<Record<string, string>>(ok(['backup', 'create', '--target', target, '--json'], false));
+      const [dump] = rowsOf<Record<string, string>>(ok(['backup', 'create', '--target', target, '--json'], 'none'));
       const [verified] = rowsOf<Record<string, unknown>>(
-        ok(['backup', 'verify', dump['archivo'], '--restore', '--json'], false)
+        ok(['backup', 'verify', dump['archivo'], '--restore', '--json'], 'none')
       );
       // restored, intact, and no blocking ledger finding in the restored copy
       expect(verified).toMatchObject({ restauro: true, integro: true, bloqueantes: 0 });
