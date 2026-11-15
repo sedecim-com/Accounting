@@ -28,6 +28,9 @@ import {
   usageError,
   notFound,
   exitCodeFor,
+  describeCommand,
+  optionByKey,
+  argumentByKey,
 } from './kernel/index.js';
 
 // ============================================================
@@ -78,6 +81,9 @@ interface CommonOpts {
 const LIST_COLUMNS = [
   'vendor_number', 'company_name', 'tax_id', 'payment_terms', 'currency_code', 'is_active',
 ] as const;
+
+/** The sections `vendor show --include` can add. */
+export const INCLUDABLE = ['activity'] as const;
 
 function summarize(row: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -141,10 +147,7 @@ Examples:
 } as const;
 
 export function registerVendorCommand(program: Command, deps: VendorCommandDeps): void {
-  const vendor = program
-    .command('vendor')
-    .alias('proveedor')
-    .description('Vendor master: who we owe money to, on what terms, under which tax id');
+  const vendor = describeCommand(program.command('vendor').alias('proveedor'), 'help.vendor.description');
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -166,16 +169,13 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
   };
 
   // ---- vendor list -------------------------------------------------
-  const list = vendor
-    .command('list')
-    .alias('listar')
-    .argument('[search]', 'match against company name or vendor number')
-    .description('List vendors, filtered by state, 1099 flag or a missing tax id');
+  const list = describeCommand(vendor.command('list').alias('listar'), 'help.vendor.list.description');
+  argumentByKey(list, '[search]', 'help.vendor.list.argument.search');
   withOutput(withSelection(withContext(list)));
-  list
-    .option('--inactive', 'show archived vendors instead of active ones')
-    .option('--1099', 'only vendors flagged for a US information return')
-    .option('--no-tax-id', 'only vendors with no tax id on file (the DIOT/1099 blockers)');
+  optionByKey(list, '--inactive', 'help.vendor.list.option.inactive');
+  // A key segment cannot start with a digit, so --1099's keys are named after the column it reads.
+  optionByKey(list, '--1099', 'help.vendor.list.option.is_1099');
+  optionByKey(list, '--no-tax-id', 'help.vendor.list.option.no_tax_id');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action((search: string | undefined, opts: CommonOpts & { inactive?: boolean; taxId?: boolean }) =>
@@ -207,14 +207,12 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
   );
 
   // ---- vendor show -------------------------------------------------
-  const INCLUDABLE = ['activity'] as const;
-  const show = vendor
-    .command('show')
-    .alias('ver')
-    .argument('<vendor>', 'vendor number, name or id')
-    .description('Show one vendor: identity, terms, currency and flags');
+  const show = describeCommand(vendor.command('show').alias('ver'), 'help.vendor.show.description');
+  argumentByKey(show, '<vendor>', 'help.vendor.show.argument.vendor');
   withOutput(withContext(show));
-  show.option('--include <parts>', `extra sections, comma-separated: ${INCLUDABLE.join(', ')}`);
+  optionByKey(show, '--include <parts>', 'help.vendor.show.option.include', {
+    params: { parts: INCLUDABLE.join(', ') },
+  });
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
   show.action((ref: string, opts: CommonOpts & { include?: string }) =>
@@ -242,23 +240,21 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
   );
 
   // ---- vendor create -----------------------------------------------
-  const create = vendor
-    .command('create')
-    .alias('crear')
-    .argument('<name>', 'company name')
-    .description('Register a vendor with its tax id, terms, currency and default expense account');
+  const create = describeCommand(vendor.command('create').alias('crear'), 'help.vendor.create.description');
+  argumentByKey(create, '<name>', 'help.vendor.create.argument.name');
   withContext(create);
-  create
-    .option('--tax-id <id>', 'RFC (Mexico), EIN (USA) or VAT number')
-    .option('--tax-id-type <type>', `${TAX_ID_TYPES.join(' | ')} (defaults from the entity's country)`)
-    .option('--contact <name>', 'contact person')
-    .option('--email <address>', 'contact email')
-    .option('--phone <number>', 'contact phone')
-    .option('--terms <text>', 'payment terms: "Net 30", "2/10 Net 30", "Due on receipt"', 'Net 30')
-    .option('--currency <code>', "3-letter ISO code (defaults to the entity's functional currency)")
-    .option('--default-account <code>', 'default expense account, by code')
-    .option('--1099', 'flag the vendor for a US information return')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--tax-id <id>', 'help.vendor.create.option.tax_id');
+  optionByKey(create, '--tax-id-type <type>', 'help.vendor.create.option.tax_id_type', {
+    params: { types: TAX_ID_TYPES.join(' | ') },
+  });
+  optionByKey(create, '--contact <name>', 'help.vendor.create.option.contact');
+  optionByKey(create, '--email <address>', 'help.vendor.create.option.email');
+  optionByKey(create, '--phone <number>', 'help.vendor.create.option.phone');
+  optionByKey(create, '--terms <text>', 'help.vendor.create.option.terms', { defaultValue: 'Net 30' });
+  optionByKey(create, '--currency <code>', 'help.vendor.create.option.currency');
+  optionByKey(create, '--default-account <code>', 'help.vendor.create.option.default_account');
+  optionByKey(create, '--1099', 'help.vendor.create.option.is_1099');
+  optionByKey(create, '--json', 'help.vendor.create.option.json');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'vendors' });
   create.addHelpText('after', EJEMPLOS.create);
   create.action(
@@ -352,19 +348,15 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
   );
 
   // ---- vendor edit -------------------------------------------------
-  const edit = vendor
-    .command('edit')
-    .alias('editar')
-    .argument('<vendor>', 'vendor number, name or id')
-    .description('Change the non-banking, non-fiscal details of a vendor, leaving an audit row');
+  const edit = describeCommand(vendor.command('edit').alias('editar'), 'help.vendor.edit.description');
+  argumentByKey(edit, '<vendor>', 'help.vendor.edit.argument.vendor');
   withContext(edit);
-  edit
-    .option('--name <text>', 'new company name')
-    .option('--contact <name>', 'new contact person')
-    .option('--email <address>', 'new email')
-    .option('--phone <number>', 'new phone')
-    .option('--notes <text>', 'replace the notes')
-    .option('--reason <text>', 'why the change was made; recorded in the audit trail');
+  optionByKey(edit, '--name <text>', 'help.vendor.edit.option.name');
+  optionByKey(edit, '--contact <name>', 'help.vendor.edit.option.contact');
+  optionByKey(edit, '--email <address>', 'help.vendor.edit.option.email');
+  optionByKey(edit, '--phone <number>', 'help.vendor.edit.option.phone');
+  optionByKey(edit, '--notes <text>', 'help.vendor.edit.option.notes');
+  optionByKey(edit, '--reason <text>', 'help.vendor.edit.option.reason');
   declareRisk(edit, { risk: 'escritura', agent: false, writes: 'vendors' });
   edit.addHelpText('after', EJEMPLOS.edit);
   edit.action(
@@ -404,17 +396,13 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
   );
 
   // ---- vendor terms set --------------------------------------------
-  const terms = vendor.command('terms').alias('terminos').description('Payment terms');
-  const termsSet = terms
-    .command('set')
-    .alias('fijar')
-    .argument('<vendor>', 'vendor number, name or id')
-    .description('Set payment terms and settlement currency, validated so a due date can be computed');
+  const terms = describeCommand(vendor.command('terms').alias('terminos'), 'help.vendor.terms.description');
+  const termsSet = describeCommand(terms.command('set').alias('fijar'), 'help.vendor.terms.set.description');
+  argumentByKey(termsSet, '<vendor>', 'help.vendor.terms.set.argument.vendor');
   withContext(termsSet);
-  termsSet
-    .option('--terms <text>', '"Net 30", "2/10 Net 30", "Due on receipt"')
-    .option('--currency <code>', '3-letter ISO code')
-    .option('--reason <text>', 'why the change was made; recorded in the audit trail');
+  optionByKey(termsSet, '--terms <text>', 'help.vendor.terms.set.option.terms');
+  optionByKey(termsSet, '--currency <code>', 'help.vendor.terms.set.option.currency');
+  optionByKey(termsSet, '--reason <text>', 'help.vendor.terms.set.option.reason');
   declareRisk(termsSet, { risk: 'escritura', agent: false, writes: 'vendors.payment_terms' });
   termsSet.addHelpText('after', EJEMPLOS.termsSet);
   termsSet.action(

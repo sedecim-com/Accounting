@@ -37,6 +37,8 @@ import {
   declareRisk,
   gateMutation,
   optionByKey,
+  describeCommand,
+  argumentByKey,
   render,
   withContext,
   withOutput,
@@ -226,13 +228,13 @@ const ESTADOS_BANDEJA = [
 ] as const;
 
 /** pre_registrations.processing_mode (005_xml_ingestion.sql:188-190). */
-const MODOS_BANDEJA = ['auto', 'batch', 'manual', 'hold'] as const;
+export const MODOS_BANDEJA = ['auto', 'batch', 'manual', 'hold'] as const;
 
 const ACCIONES_BANDEJA = ['process', 'approve', 'reject', 'set-batch'] as const;
 type AccionBandeja = (typeof ACCIONES_BANDEJA)[number];
 
 /** Las claves que admite `--query`. Son las mismas del listado, a propósito. */
-const CLAVES_QUERY = ['status', 'mode', 'requires-approval', 'vendor', 'since', 'until', 'search'] as const;
+export const CLAVES_QUERY = ['status', 'mode', 'requires-approval', 'vendor', 'since', 'until', 'search'] as const;
 
 /**
  * Cuántos pre-registros admite una sola orden masiva.
@@ -393,10 +395,7 @@ Examples:
 } as const;
 
 export function registerBillCommand(program: Command, deps: BillCommandDeps): void {
-  const bill = program
-    .command('bill')
-    .alias('factura-proveedor')
-    .description('Vendor bills: capture, code, inspect and approve what we owe');
+  const bill = describeCommand(program.command('bill').alias('factura-proveedor'), 'help.bill.description');
 
   // Devuelve un código porque `bill inbox run` puede terminar a medias: parte
   // de un lote contabilizada y parte esperando a una persona no es ni éxito ni
@@ -441,11 +440,8 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   };
 
   // ---- bill list ---------------------------------------------------
-  const list = bill
-    .command('list')
-    .alias('listar')
-    .argument('[search]', 'match against bill number, the vendor invoice number or the vendor name')
-    .description('List vendor bills by vendor, state, document date, posting date or due date');
+  const list = describeCommand(bill.command('list').alias('listar'), 'help.bill.list.description');
+  argumentByKey(list, '[search]', 'help.bill.list.argument.search');
   withOutput(withSelection(withTime(withContext(list))));
   // A bill list must show bills that were never posted — they are the ones
   // somebody still has to act on — so the date flags mean the DOCUMENT date
@@ -462,10 +458,9 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     // on, disappears from a list that says nothing is wrong.
     list.setOptionValueWithSource('dateBasis', 'document', 'default');
   }
-  list
-    .option('--vendor <ref>', 'only this vendor (number, name or id)')
-    .option('--due-before <date>', 'only bills falling due on or before this date (YYYY-MM-DD)')
-    .option('--open', 'only bills that still owe money (excludes paid, void and cancelled)');
+  optionByKey(list, '--vendor <ref>', 'help.bill.list.option.vendor');
+  optionByKey(list, '--due-before <date>', 'help.bill.list.option.due_before');
+  optionByKey(list, '--open', 'help.bill.list.option.open');
   declareRisk(list, { risk: 'lectura', agent: true });
   list.addHelpText('after', EJEMPLOS.list);
   list.action(
@@ -524,16 +519,12 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   );
 
   // ---- bill show ---------------------------------------------------
-  const show = bill
-    .command('show')
-    .alias('ver')
-    .argument('<bill>', 'bill number, vendor invoice number or id')
-    .description('Show one bill with its lines, its journal entry and its source CFDI');
+  const show = describeCommand(bill.command('show').alias('ver'), 'help.bill.show.description');
+  argumentByKey(show, '<bill>', 'help.bill.show.argument.bill');
   withOutput(withContext(show));
-  show
-    .option('--no-lines', 'header only')
-    .option('--journal', 'include the journal entry approval produced')
-    .option('--cfdi', 'include the CFDI this bill came from, when it came from one');
+  optionByKey(show, '--no-lines', 'help.bill.show.option.no_lines');
+  optionByKey(show, '--journal', 'help.bill.show.option.journal');
+  optionByKey(show, '--cfdi', 'help.bill.show.option.cfdi');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
   show.action((ref: string, opts: CommonOpts & { lines?: boolean; journal?: boolean; cfdi?: boolean }) =>
@@ -599,27 +590,23 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   );
 
   // ---- bill create -------------------------------------------------
-  const create = bill
-    .command('create')
-    .alias('crear')
-    .argument('[vendor]', 'vendor number, name or id')
-    .description('Capture a vendor bill with its lines and their account coding');
+  const create = describeCommand(bill.command('create').alias('crear'), 'help.bill.create.description');
+  argumentByKey(create, '[vendor]', 'help.bill.create.argument.vendor');
   withContext(create);
-  create
-    .option('--vendor <ref>', 'vendor number, name or id (same as the positional argument)')
-    .option('--vendor-invoice-number <text>', "the vendor's own invoice number or folio")
-    .option('--bill-date <date>', 'document date (YYYY-MM-DD); defaults to today')
-    .option('--due-date <date>', "due date (YYYY-MM-DD); defaults to the vendor's terms")
-    .option(
-      '--line <spec...>',
-      'one line, repeatable: "account=5100;qty=1;price=1000;tax-amount=160". See the key list below'
-    )
-    .addHelpText('after', LINE_KEYS_HELP)
-    .option('--currency <code>', "3-letter ISO code; defaults to the vendor's currency")
-    .option('--terms <text>', 'payment terms recorded on the bill; defaults to the vendor terms')
-    .option('--description <text>', 'what this bill is for')
-    .option('--from-file <path>', 'read the bill as JSON instead: { lines: [...], ... }')
-    .option('--json', 'JSON output');
+  optionByKey(create, '--vendor <ref>', 'help.bill.create.option.vendor');
+  optionByKey(create, '--vendor-invoice-number <text>', 'help.bill.create.option.vendor_invoice_number');
+  optionByKey(create, '--bill-date <date>', 'help.bill.create.option.bill_date');
+  optionByKey(create, '--due-date <date>', 'help.bill.create.option.due_date');
+  optionByKey(create, '--line <spec...>', 'help.bill.create.option.line');
+  create.addHelpText('after', LINE_KEYS_HELP);
+  optionByKey(create, '--currency <code>', 'help.bill.create.option.currency');
+  optionByKey(create, '--terms <text>', 'help.bill.create.option.terms');
+  optionByKey(create, '--description <text>', 'help.bill.create.option.description');
+  // The shape is a parameter: a literal brace is a placeholder to t(), and these keys the code reads stay as typed.
+  optionByKey(create, '--from-file <path>', 'help.bill.create.option.from_file', {
+    params: { shape: '{ lines: [...], ... }' },
+  });
+  optionByKey(create, '--json', 'help.bill.create.option.json');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'bills, bill_lines' });
   create.addHelpText('after', EJEMPLOS.create);
   create.action(
@@ -739,19 +726,15 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   );
 
   // ---- bill line set -----------------------------------------------
-  const line = bill.command('line').alias('linea').description('Line coding');
-  const lineSet = line
-    .command('set')
-    .alias('fijar')
-    .argument('<bill>', 'bill number, vendor invoice number or id')
-    .description('Re-code one line of a bill that has not been approved yet');
+  const line = describeCommand(bill.command('line').alias('linea'), 'help.bill.line.description');
+  const lineSet = describeCommand(line.command('set').alias('fijar'), 'help.bill.line.set.description');
+  argumentByKey(lineSet, '<bill>', 'help.bill.line.set.argument.bill');
   withContext(lineSet);
-  lineSet
-    .requiredOption('--line <n>', 'line number to change')
-    .option('--account <code>', 'expense account, by code')
-    .option('--cost-center <id>', 'cost center id')
-    .option('--project <id>', 'project id')
-    .option('--description <text>', 'line description');
+  optionByKey(lineSet, '--line <n>', 'help.bill.line.set.option.line', { mandatory: true });
+  optionByKey(lineSet, '--account <code>', 'help.bill.line.set.option.account');
+  optionByKey(lineSet, '--cost-center <id>', 'help.bill.line.set.option.cost_center');
+  optionByKey(lineSet, '--project <id>', 'help.bill.line.set.option.project');
+  optionByKey(lineSet, '--description <text>', 'help.bill.line.set.option.description');
   declareRisk(lineSet, { risk: 'escritura', agent: false, writes: 'bill_lines' });
   lineSet.addHelpText('after', EJEMPLOS.lineSet);
   lineSet.action(
@@ -783,12 +766,10 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   );
 
   // ---- bill approve ------------------------------------------------
-  const approve = bill
-    .command('approve')
-    .alias('aprobar')
-    .argument('<bill>', 'bill number, vendor invoice number or id')
-    .description('Approve a bill and recognize the liability in the ledger (DR expense + IVA / CR payables)');
-  optionByKey(approve, '--json', 'cli.flag.json');
+  const approve = describeCommand(bill.command('approve').alias('aprobar'), 'help.bill.approve.description');
+  argumentByKey(approve, '<bill>', 'help.bill.approve.argument.bill');
+  // Its own key, not cli.flag.json: this leaf has no --format to be a shorthand for (#314, answer 3).
+  optionByKey(approve, '--json', 'help.bill.approve.option.json');
   withContext(approve);
   // irreversible ⇒ the kernel adds --dry-run, --yes and --idempotency-key,
   // and refuses at startup to let the agent invoke this.
@@ -912,21 +893,16 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   // —la IA no lo invoca—, la confirmación obligatoria de `process`, y que
   // `--allow-new-vendor` sea la única forma de que nazca una contraparte.
   // ============================================================
-  const inbox = bill
-    .command('inbox')
-    .alias('bandeja')
-    .description('CFDI inbox: pre-registrations waiting to become vendor bills');
+  const inbox = describeCommand(bill.command('inbox').alias('bandeja'), 'help.bill.inbox.description');
 
   // ---- bill inbox list ---------------------------------------------
-  const inboxList = inbox
-    .command('list')
-    .alias('listar')
-    .description('The CFDI queue: what arrived, whose it is, and what is holding it up');
+  const inboxList = describeCommand(inbox.command('list').alias('listar'), 'help.bill.inbox.list.description');
   withOutput(withSelection(withContext(inboxList)));
-  inboxList
-    .option('--processing-mode <mode>', `how it is meant to be processed: ${MODOS_BANDEJA.join(', ')}`)
-    .option('--requires-approval', 'only the ones held for a prior approval')
-    .option('--vendor <ref>', 'only this vendor (number, name or id)');
+  optionByKey(inboxList, '--processing-mode <mode>', 'help.bill.inbox.list.option.processing_mode', {
+    params: { modes: MODOS_BANDEJA.join(', ') },
+  });
+  optionByKey(inboxList, '--requires-approval', 'help.bill.inbox.list.option.requires_approval');
+  optionByKey(inboxList, '--vendor <ref>', 'help.bill.inbox.list.option.vendor');
   declareRisk(inboxList, { risk: 'lectura', agent: true });
   inboxList.addHelpText('after', EJEMPLOS.inboxList);
   inboxList.action(
@@ -990,16 +966,12 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   // ---- bill inbox edit ---------------------------------------------
   // ING-2 (#319): the way to code a CFDI the model never classified. It only
   // writes the pre-registration; the ledger is reached by `bill inbox run`.
-  const inboxEdit = inbox
-    .command('edit')
-    .alias('editar')
-    .argument('<id>', 'one pre-registration, by id')
-    .description('Code a pre-registration by hand: the account (and cost center) of a line, or its default account');
+  const inboxEdit = describeCommand(inbox.command('edit').alias('editar'), 'help.bill.inbox.edit.description');
+  argumentByKey(inboxEdit, '<id>', 'help.bill.inbox.edit.argument.id');
   withContext(inboxEdit);
-  inboxEdit
-    .option('--line <n>', 'line number to code; without it, --account is the default for every line with none')
-    .option('--account <code>', 'expense account, by code or id')
-    .option('--cost-center <id>', 'cost center id of the --line');
+  optionByKey(inboxEdit, '--line <n>', 'help.bill.inbox.edit.option.line');
+  optionByKey(inboxEdit, '--account <code>', 'help.bill.inbox.edit.option.account');
+  optionByKey(inboxEdit, '--cost-center <id>', 'help.bill.inbox.edit.option.cost_center');
   declareRisk(inboxEdit, { risk: 'escritura', agent: false, writes: 'pre_registrations.lines, default_account_id' });
   inboxEdit.addHelpText('after', EJEMPLOS.inboxEdit);
   inboxEdit.action(
@@ -1063,30 +1035,25 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   );
 
   // ---- bill inbox run ----------------------------------------------
-  const inboxRun = inbox
-    .command('run')
-    .alias('ejecutar')
-    .argument('[id]', 'one pre-registration, by id')
-    .description('Turn pre-registrations into vendor bills, or approve, reject and schedule them in bulk');
+  const inboxRun = describeCommand(inbox.command('run').alias('ejecutar'), 'help.bill.inbox.run.description');
+  argumentByKey(inboxRun, '[id]', 'help.bill.inbox.run.argument.id');
   withContext(inboxRun);
-  inboxRun
-    .option('--action <process|approve|reject|set-batch>', 'what to do with the selection', 'process')
-    .option('--bulk', 'act on everything --query selects, instead of a single id')
-    .option('--query <expr>', `selection for --bulk, comma-separated key=value: ${CLAVES_QUERY.join(', ')}`)
-    .option('--batch <ref>', 'processing batch to schedule into; required by --action set-batch')
-    .option(
-      '--allow-new-vendor',
-      "authorize creating the CFDI issuer as a vendor when the catalog does not have it; without it, those are refused"
-    )
-    .option('--reason <text>', 'why it is rejected; required by --action reject')
-    .option('--note <text>', 'annotation stored with the approval')
-    .option('--dry-run', 'compute and show the full effect; write nothing')
-    .option('-y, --yes', 'skip the confirmation prompt')
-    .option(
-      '--idempotency-key <key>',
-      'client dedupe key, stored on success: a retry with the same key and payload returns the recorded result'
-    )
-    .option('--json', 'JSON output');
+  optionByKey(inboxRun, '--action <process|approve|reject|set-batch>', 'help.bill.inbox.run.option.action', {
+    defaultValue: 'process',
+  });
+  optionByKey(inboxRun, '--bulk', 'help.bill.inbox.run.option.bulk');
+  optionByKey(inboxRun, '--query <expr>', 'help.bill.inbox.run.option.query', {
+    params: { keys: CLAVES_QUERY.join(', ') },
+  });
+  optionByKey(inboxRun, '--batch <ref>', 'help.bill.inbox.run.option.batch');
+  optionByKey(inboxRun, '--allow-new-vendor', 'help.bill.inbox.run.option.allow_new_vendor');
+  optionByKey(inboxRun, '--reason <text>', 'help.bill.inbox.run.option.reason');
+  optionByKey(inboxRun, '--note <text>', 'help.bill.inbox.run.option.note');
+  optionByKey(inboxRun, '--dry-run', 'help.bill.inbox.run.option.dry_run');
+  // These two already said the kernel's words, and do exactly what they say, so they take its keys.
+  optionByKey(inboxRun, '-y, --yes', 'cli.flag.yes');
+  optionByKey(inboxRun, '--idempotency-key <key>', 'cli.flag.idempotency_key');
+  optionByKey(inboxRun, '--json', 'help.bill.inbox.run.option.json');
   // `escritura` es lo que el catálogo comete; el porqué —y por qué no basta—
   // está en el bloque de arriba. `writes` nombra el camino más grave, que es
   // lo que va al rastro de auditoría.

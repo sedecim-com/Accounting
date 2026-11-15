@@ -3577,6 +3577,113 @@ export const EN = {
   'help.customer.tax.list.description':
     'The pre-billing control: customers whose fiscal profile is incomplete or malformed',
   'help.customer.tax.list.option.missing': 'only customers that could NOT be stamped today',
+  // ==== MNE-001-238 · help by key, bill and vendor (issue #314) ====
+  //
+  // The first payables task: both families whole, roots included, English as
+  // shown (`bill rule` was keyed before). `bill approve --json` leaves
+  // cli.flag.json (#314, answer 3: the leaf has no --format); the -y and
+  // --idempotency-key of `bill inbox run`, already the kernel's words, take
+  // cli.flag.*. Lists travel as {modes}, {keys}, {parts} and {types}, the JSON
+  // shape of `bill create --from-file` as {shape}; `--1099` cannot start a key
+  // segment, so its keys say is_1099, after the column it reads and writes.
+  'help.bill.description': 'Vendor bills: capture, code, inspect and approve what we owe',
+  'help.bill.list.description': 'List vendor bills by vendor, state, document date, posting date or due date',
+  'help.bill.list.argument.search': 'match against bill number, the vendor invoice number or the vendor name',
+  'help.bill.list.option.vendor': 'only this vendor (number, name or id)',
+  'help.bill.list.option.due_before': 'only bills falling due on or before this date (YYYY-MM-DD)',
+  'help.bill.list.option.open': 'only bills that still owe money (excludes paid, void and cancelled)',
+  'help.bill.show.description': 'Show one bill with its lines, its journal entry and its source CFDI',
+  'help.bill.show.argument.bill': 'bill number, vendor invoice number or id',
+  'help.bill.show.option.no_lines': 'header only',
+  'help.bill.show.option.journal': 'include the journal entry approval produced',
+  'help.bill.show.option.cfdi': 'include the CFDI this bill came from, when it came from one',
+  'help.bill.create.description': 'Capture a vendor bill with its lines and their account coding',
+  'help.bill.create.argument.vendor': 'vendor number, name or id',
+  'help.bill.create.option.vendor': 'vendor number, name or id (same as the positional argument)',
+  'help.bill.create.option.vendor_invoice_number': "the vendor's own invoice number or folio",
+  'help.bill.create.option.bill_date': 'document date (YYYY-MM-DD); defaults to today',
+  'help.bill.create.option.due_date': "due date (YYYY-MM-DD); defaults to the vendor's terms",
+  'help.bill.create.option.line':
+    'one line, repeatable: "account=5100;qty=1;price=1000;tax-amount=160". See the key list below',
+  'help.bill.create.option.currency': "3-letter ISO code; defaults to the vendor's currency",
+  'help.bill.create.option.terms': 'payment terms recorded on the bill; defaults to the vendor terms',
+  'help.bill.create.option.description': 'what this bill is for',
+  'help.bill.create.option.from_file': 'read the bill as JSON instead: {shape}',
+  'help.bill.create.option.json': 'JSON output',
+  'help.bill.line.description': 'Line coding',
+  'help.bill.line.set.description': 'Re-code one line of a bill that has not been approved yet',
+  'help.bill.line.set.argument.bill': 'bill number, vendor invoice number or id',
+  'help.bill.line.set.option.line': 'line number to change',
+  'help.bill.line.set.option.account': 'expense account, by code',
+  'help.bill.line.set.option.cost_center': 'cost center id',
+  'help.bill.line.set.option.project': 'project id',
+  'help.bill.line.set.option.description': 'line description',
+  'help.bill.approve.description':
+    'Approve a bill and recognize the liability in the ledger (DR expense + IVA / CR payables)',
+  'help.bill.approve.argument.bill': 'bill number, vendor invoice number or id',
+  'help.bill.approve.option.json': 'JSON output',
+  'help.bill.inbox.description': 'CFDI inbox: pre-registrations waiting to become vendor bills',
+  'help.bill.inbox.list.description': 'The CFDI queue: what arrived, whose it is, and what is holding it up',
+  'help.bill.inbox.list.option.processing_mode': 'how it is meant to be processed: {modes}',
+  'help.bill.inbox.list.option.requires_approval': 'only the ones held for a prior approval',
+  'help.bill.inbox.list.option.vendor': 'only this vendor (number, name or id)',
+  'help.bill.inbox.edit.description':
+    'Code a pre-registration by hand: the account (and cost center) of a line, or its default account',
+  'help.bill.inbox.edit.argument.id': 'one pre-registration, by id',
+  'help.bill.inbox.edit.option.line':
+    'line number to code; without it, --account is the default for every line with none',
+  'help.bill.inbox.edit.option.account': 'expense account, by code or id',
+  'help.bill.inbox.edit.option.cost_center': 'cost center id of the --line',
+  'help.bill.inbox.run.description':
+    'Turn pre-registrations into vendor bills, or approve, reject and schedule them in bulk',
+  'help.bill.inbox.run.argument.id': 'one pre-registration, by id',
+  'help.bill.inbox.run.option.action': 'what to do with the selection',
+  'help.bill.inbox.run.option.bulk': 'act on everything --query selects, instead of a single id',
+  'help.bill.inbox.run.option.query': 'selection for --bulk, comma-separated key=value: {keys}',
+  'help.bill.inbox.run.option.batch': 'processing batch to schedule into; required by --action set-batch',
+  'help.bill.inbox.run.option.allow_new_vendor':
+    'authorize creating the CFDI issuer as a vendor when the catalog does not have it; without it, those are refused',
+  'help.bill.inbox.run.option.reason': 'why it is rejected; required by --action reject',
+  'help.bill.inbox.run.option.note': 'annotation stored with the approval',
+  'help.bill.inbox.run.option.dry_run': 'compute and show the full effect; write nothing',
+  'help.bill.inbox.run.option.json': 'JSON output',
+  'help.vendor.description': 'Vendor master: who we owe money to, on what terms, under which tax id',
+  'help.vendor.list.description': 'List vendors, filtered by state, 1099 flag or a missing tax id',
+  'help.vendor.list.argument.search': 'match against company name or vendor number',
+  'help.vendor.list.option.inactive': 'show archived vendors instead of active ones',
+  'help.vendor.list.option.is_1099': 'only vendors flagged for a US information return',
+  'help.vendor.list.option.no_tax_id': 'only vendors with no tax id on file (the DIOT/1099 blockers)',
+  'help.vendor.show.description': 'Show one vendor: identity, terms, currency and flags',
+  'help.vendor.show.argument.vendor': 'vendor number, name or id',
+  'help.vendor.show.option.include': 'extra sections, comma-separated: {parts}',
+  'help.vendor.create.description':
+    'Register a vendor with its tax id, terms, currency and default expense account',
+  'help.vendor.create.argument.name': 'company name',
+  'help.vendor.create.option.tax_id': 'RFC (Mexico), EIN (USA) or VAT number',
+  'help.vendor.create.option.tax_id_type': "{types} (defaults from the entity's country)",
+  'help.vendor.create.option.contact': 'contact person',
+  'help.vendor.create.option.email': 'contact email',
+  'help.vendor.create.option.phone': 'contact phone',
+  'help.vendor.create.option.terms': 'payment terms: "Net 30", "2/10 Net 30", "Due on receipt"',
+  'help.vendor.create.option.currency': "3-letter ISO code (defaults to the entity's functional currency)",
+  'help.vendor.create.option.default_account': 'default expense account, by code',
+  'help.vendor.create.option.is_1099': 'flag the vendor for a US information return',
+  'help.vendor.create.option.json': 'JSON output',
+  'help.vendor.edit.description': 'Change the non-banking, non-fiscal details of a vendor, leaving an audit row',
+  'help.vendor.edit.argument.vendor': 'vendor number, name or id',
+  'help.vendor.edit.option.name': 'new company name',
+  'help.vendor.edit.option.contact': 'new contact person',
+  'help.vendor.edit.option.email': 'new email',
+  'help.vendor.edit.option.phone': 'new phone',
+  'help.vendor.edit.option.notes': 'replace the notes',
+  'help.vendor.edit.option.reason': 'why the change was made; recorded in the audit trail',
+  'help.vendor.terms.description': 'Payment terms',
+  'help.vendor.terms.set.description':
+    'Set payment terms and settlement currency, validated so a due date can be computed',
+  'help.vendor.terms.set.argument.vendor': 'vendor number, name or id',
+  'help.vendor.terms.set.option.terms': '"Net 30", "2/10 Net 30", "Due on receipt"',
+  'help.vendor.terms.set.option.currency': '3-letter ISO code',
+  'help.vendor.terms.set.option.reason': 'why the change was made; recorded in the audit trail',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The section is identified by `key` since #253; these are its labels, and
