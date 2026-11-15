@@ -186,7 +186,8 @@ describe('the bank family, help by key, group by group (#314, MNE-001-231 to 233
 
   it('every generic flag a 233 leaf declares is worded for it and keeps a key of its own', () => {
     const own: Record<string, string[]> = {
-      'bank reconciliation run': ['--period', '--since', '--until', '--dry-run', '--json'],
+      // --format here is the format of the FILE given in --file, not cli.flag.format («output format»).
+      'bank reconciliation run': ['--period', '--since', '--until', '--dry-run', '--json', '--format'],
       'bank reconciliation open': ['--period', '--since', '--until', '--dry-run', '--json'],
       'bank reconciliation list': ['--period', '--since', '--until'],
       'bank reconciliation close': ['--dry-run', '--yes', '--json'],
