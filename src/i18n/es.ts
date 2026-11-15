@@ -3083,6 +3083,123 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bank.transaction.reclassify.option.reason': 'justificación que queda en el rastro de auditoría',
   'help.bank.transaction.reclassify.option.dry_run': 'corre todas las verificaciones y no escribe nada',
   'help.bank.transaction.reclassify.option.json': 'salida en JSON',
+  // ==== MNE-001-232 · help by key, bank match, fee, interest, check and book-item (issue #314) ====
+  'help.bank.book_item.description':
+    'El otro lado: las líneas de póliza contabilizadas contra la cuenta de mayor del banco, todavía sin sellar',
+  'help.bank.book_item.list.description':
+    'Lista las líneas de póliza contabilizadas contra la cuenta de mayor del banco que siguen sin sellar, ' +
+    'primero la más antigua, con su antigüedad',
+  'help.bank.book_item.list.argument.account':
+    'cuenta bancaria a cuya cuenta de mayor se contabilizaron las pólizas (nombre o id)',
+  'help.bank.book_item.list.option.since': 'pólizas fechadas en este día o después (AAAA-MM-DD)',
+  'help.bank.book_item.list.option.until': 'pólizas fechadas en este día o antes (AAAA-MM-DD)',
+  'help.bank.book_item.list.option.over_days':
+    'sólo lo que lleva MÁS de este número de días sin aparecer en el banco',
+  'help.bank.match.description': 'El cotejo de un movimiento bancario contra lo que los libros ya dicen de él',
+  'help.bank.match.preview.description':
+    'Muestra lo que el motor propondría, con el puntaje desglosado en sus señales y el veredicto de cada ' +
+    'compuerta, SIN aplicar nada',
+  'help.bank.match.preview.argument.tx_id': 'un movimiento; sin él, todos los no cotejados de --account',
+  'help.bank.match.preview.option.account': 'cuenta bancaria a recorrer cuando no se da el id de un movimiento',
+  'help.bank.match.preview.option.since': 'movimientos en esta fecha o después (AAAA-MM-DD)',
+  'help.bank.match.preview.option.until': 'movimientos en esta fecha o antes (AAAA-MM-DD)',
+  'help.bank.match.preview.option.top': 'máximo de MOVIMIENTOS a previsualizar (no de candidatos por movimiento)',
+  'help.bank.match.preview.option.min_confidence':
+    'sube la confianza del motor que una propuesta necesita para que `run` la aplique (0..1); ' +
+    'nunca por debajo del panel (cotejo_umbral_confianza)',
+  'help.bank.match.preview.option.max_amount':
+    'baja el techo de un cotejo automático; el panel (cotejo_monto_maximo_auto) y el piso inquebrantable ' +
+    'siguen ganando',
+  'help.bank.match.preview.option.rules_only':
+    'una propuesta fuera de la ventana de fechas cuenta como no aplicable',
+  'help.bank.match.run.description':
+    'Corre el motor sobre una cuenta y un periodo, y aplica SÓLO lo que supera el umbral de confianza, ' +
+    'respeta el piso de importe, cae en un periodo abierto y trae una señal dura de importe exacto',
+  'help.bank.match.run.option.account': 'cuenta bancaria a recorrer (nombre o id)',
+  'help.bank.match.run.option.since': 'movimientos en esta fecha o después (AAAA-MM-DD)',
+  'help.bank.match.run.option.until': 'movimientos en esta fecha o antes (AAAA-MM-DD)',
+  'help.bank.match.run.option.min_confidence':
+    'sube la confianza del motor que una propuesta necesita para aplicarse (0..1); ' +
+    'nunca por debajo del panel (cotejo_umbral_confianza)',
+  'help.bank.match.run.option.max_amount':
+    'baja el techo de un cotejo automático; el panel (cotejo_monto_maximo_auto) y el piso inquebrantable ' +
+    'siguen ganando',
+  'help.bank.match.run.option.rules_only': 'rechaza una propuesta fuera de la ventana de fechas',
+  'help.bank.match.run.option.top': 'máximo de movimientos a evaluar en esta corrida',
+  'help.bank.match.run.option.session': 'sesión de conciliación a la que pertenecen estos cotejos',
+  'help.bank.match.run.option.dry_run': 'lo hace todo y luego lo deshace',
+  'help.bank.match.run.option.json': 'salida en JSON',
+  'help.bank.match.apply.description':
+    'Aplica la propuesta del motor para los movimientos nombrados en UNA sola transacción, de forma ' +
+    'idempotente y ligada a la sesión',
+  'help.bank.match.apply.argument.id': 'ids de movimientos bancarios; o pásalos por --stdin',
+  'help.bank.match.apply.option.stdin': 'lee los ids de la entrada estándar, separados por espacios en blanco',
+  'help.bank.match.apply.option.session': 'sesión de conciliación a la que pertenecen estos cotejos',
+  'help.bank.match.apply.option.dry_run': 'lo hace todo y luego lo deshace',
+  'help.bank.match.apply.option.yes': 'omite la confirmación agrupada',
+  'help.bank.match.apply.option.json': 'salida en JSON',
+  'help.bank.match.create.description':
+    'Construye un grupo de cotejo explícito de N movimientos bancarios contra M partidas de libros más ' +
+    'ajustes, y exige Σbanco = Σlibros + Σajustes',
+  'help.bank.match.create.option.account': 'cuenta bancaria a la que pertenece todo el grupo (nombre o id)',
+  'help.bank.match.create.option.transaction': 'ids de movimientos bancarios separados por comas: el lado del banco',
+  'help.bank.match.create.option.book_item':
+    'el lado de libros, separado por comas: <id> para una línea de póliza, o <tipo>:<id> ({types})',
+  'help.bank.match.create.option.adjust':
+    'ajuste declarado (comisión bancaria, diferencia cambiaria); se puede repetir',
+  'help.bank.match.create.option.residual': 'qué pasa con lo que sobra: dejarlo vivo, o cancelarlo contra una cuenta',
+  'help.bank.match.create.option.write_off_account': 'cuenta de mayor contra la que se cancela el residual',
+  'help.bank.match.create.option.session': 'sesión de conciliación a la que pertenece este grupo',
+  'help.bank.match.create.option.dry_run': 'lo hace todo y luego lo deshace',
+  'help.bank.match.create.option.json': 'salida en JSON',
+  'help.bank.match.unapply.description':
+    'Deshace un cotejo con un motivo tipificado y libera el sello de la partida de libros; se rehúsa si la ' +
+    'sesión ya está aprobada o contabilizada, y no toca ninguna póliza contabilizada',
+  'help.bank.match.unapply.argument.match_id': 'el cotejo a deshacer; todo su grupo se va con él',
+  'help.bank.match.unapply.option.reason': 'motivo tipificado, obligatorio: {codes}',
+  'help.bank.match.unapply.option.dry_run': 'lo hace todo y luego lo deshace',
+  'help.bank.match.unapply.option.yes': 'omite la confirmación',
+  'help.bank.match.unapply.option.json': 'salida en JSON',
+  'help.bank.fee.description':
+    'Las comisiones bancarias como acto contable: el cargo como gasto y su IVA pasado a acreditable en el mes ' +
+    'del cargo',
+  'help.bank.fee.post.description':
+    'Contabiliza las comisiones bancarias del periodo a partir del estado de cuenta, una póliza por cargo, y ' +
+    'pasa su IVA de pendiente de acreditar a acreditable',
+  'help.bank.fee.post.argument.account': 'cuenta bancaria cuyas comisiones se contabilizan (nombre o id)',
+  'help.bank.fee.post.option.period': 'mes cuyas comisiones se contabilizan',
+  'help.bank.fee.post.option.iva_rate':
+    'tasa de IVA que el cargo ya trae DENTRO, como fracción (0.16 para el 16%); 0 para una comisión exenta. ' +
+    'Sin valor por omisión: uno aquí sería una decisión fiscal que nadie toma y nadie ve',
+  'help.bank.fee.post.option.max_amount':
+    'por encima de esta magnitud el cargo se omite y se le deja a una persona; es una compuerta de ' +
+    'confianza, no una validación',
+  'help.bank.fee.post.option.json': 'salida en JSON',
+  'help.bank.interest.description':
+    'Los intereses ganados sobre saldos bancarios: el ingreso por su importe BRUTO y el impuesto que retuvo ' +
+    'el banco como pago provisional a favor de la entidad',
+  'help.bank.interest.post.description':
+    'Contabiliza los intereses del periodo como ingreso y el ISR que retuvo el banco como pago provisional ' +
+    'a favor de la entidad, nunca como gasto',
+  'help.bank.interest.post.argument.account': 'cuenta bancaria cuyos intereses se contabilizan (nombre o id)',
+  'help.bank.interest.post.option.period': 'mes cuyos intereses se contabilizan',
+  'help.bank.interest.post.option.rate':
+    'tasa de RETENCIÓN de ISR que aplicó el banco, como fracción (0.0125 para el 1.25%); 0 si no retuvo ' +
+    'nada. NO es la tasa de interés: el interés es el que dice el estado de cuenta',
+  'help.bank.interest.post.option.json': 'salida en JSON',
+  'help.bank.check.description':
+    'Los cheques en papel como hecho fiscal: cuándo el banco pagó de verdad un cheque, que bajo la LIVA es ' +
+    'cuando el pago se entiende efectuado',
+  'help.bank.check.reconcile.description':
+    'Prueba el cheque contra el movimiento bancario que lo cobró y contabiliza la reclasificación del IVA de ' +
+    'pendiente de acreditar a acreditable EN EL MES DEL COBRO',
+  'help.bank.check.reconcile.argument.id': 'pago a proveedor hecho con cheque',
+  'help.bank.check.reconcile.option.transaction':
+    'el movimiento bancario que lo pagó, nombrado a mano; obligatorio cuando coinciden varios cargos',
+  'help.bank.check.reconcile.option.as_of':
+    'la fecha de cobro que afirmas (AAAA-MM-DD); se CONTRASTA contra el movimiento, nunca se impone — el ' +
+    'cobro lo fecha el banco',
+  'help.bank.check.reconcile.option.json': 'salida en JSON',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT

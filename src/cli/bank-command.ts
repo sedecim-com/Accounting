@@ -2921,15 +2921,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     'help.bank.transaction.description'
   );
 
-  const bookItem = bank
-    .command('book-item')
-    .alias('partida-libros')
-    .description('The other side: posted journal lines against the bank GL account, still unsealed');
+  const bookItem = describeCommand(
+    bank.command('book-item').alias('partida-libros'),
+    'help.bank.book_item.description'
+  );
 
-  const match = bank
-    .command('match')
-    .alias('cotejo')
-    .description('Matching a bank transaction to what the books already say about it');
+  const match = describeCommand(bank.command('match').alias('cotejo'), 'help.bank.match.description');
 
   // ---- bank transaction list ---------------------------------------
   const txList = describeCommand(
@@ -3120,22 +3117,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank book-item list -----------------------------------------
-  const bookList = bookItem
-    .command('list')
-    .alias('listar')
-    .argument('<account>', 'bank account whose GL account the entries were posted to (name or id)')
-    .description(
-      'List posted journal lines against the bank GL account that are still unsealed, oldest first, with their age'
-    );
+  const bookList = describeCommand(
+    argumentByKey(bookItem.command('list').alias('listar'), '<account>', 'help.bank.book_item.list.argument.account'),
+    'help.bank.book_item.list.description'
+  );
   withOutput(withSelection(withContext(bookList)));
-  bookList
-    .option('--since <date>', 'entries on or after this entry date (YYYY-MM-DD)')
-    .option('--until <date>', 'entries on or before this entry date (YYYY-MM-DD)')
-    .option(
-      '--over-days <n>',
-      'only what has gone MORE than this many days without showing up at the bank',
-      enteroDesdeCero('--over-days')
-    );
+  optionByKey(bookList, '--since <date>', 'help.bank.book_item.list.option.since');
+  optionByKey(bookList, '--until <date>', 'help.bank.book_item.list.option.until');
+  optionByKey(bookList, '--over-days <n>', 'help.bank.book_item.list.option.over_days', {
+    parser: enteroDesdeCero('--over-days'),
+  });
   declareRisk(bookList, { risk: 'lectura', agent: true });
   bookList.addHelpText('after', EJEMPLOS.bookList);
   bookList.action(
@@ -3182,33 +3173,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank match preview ------------------------------------------
-  const preview = match
-    .command('preview')
-    .alias('previsualizar')
-    .argument('[tx-id]', 'one transaction; without it, every unmatched one of --account')
-    .description(
-      'Show what the engine would propose, with the score broken into its signals and every gate’s verdict, WITHOUT applying anything'
-    );
+  const preview = describeCommand(
+    argumentByKey(match.command('preview').alias('previsualizar'), '[tx-id]', 'help.bank.match.preview.argument.tx_id'),
+    'help.bank.match.preview.description'
+  );
   withOutput(withContext(preview));
-  preview
-    .option('--account <ref>', 'bank account to sweep when no transaction id is given')
-    .option('--since <date>', 'transactions on or after this date (YYYY-MM-DD)')
-    .option('--until <date>', 'transactions on or before this date (YYYY-MM-DD)')
-    .option(
-      '--top <n>',
-      'maximum TRANSACTIONS to preview (not candidates per transaction)',
-      enteroPositivo('--top')
-    )
-    .option(
-      '--min-confidence <n>',
-      'raise the engine confidence a proposal needs before `run` would apply it (0..1); never below the panel (cotejo_umbral_confianza)',
-      confianzaCero1('--min-confidence')
-    )
-    .option(
-      '--max-amount <amount>',
-      'lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win'
-    )
-    .option('--rules-only', 'a proposal outside the date window counts as not applicable');
+  optionByKey(preview, '--account <ref>', 'help.bank.match.preview.option.account');
+  optionByKey(preview, '--since <date>', 'help.bank.match.preview.option.since');
+  optionByKey(preview, '--until <date>', 'help.bank.match.preview.option.until');
+  optionByKey(preview, '--top <n>', 'help.bank.match.preview.option.top', { parser: enteroPositivo('--top') });
+  optionByKey(preview, '--min-confidence <n>', 'help.bank.match.preview.option.min_confidence', {
+    parser: confianzaCero1('--min-confidence'),
+  });
+  optionByKey(preview, '--max-amount <amount>', 'help.bank.match.preview.option.max_amount');
+  optionByKey(preview, '--rules-only', 'help.bank.match.preview.option.rules_only');
   // LA MITAD DE LECTURA. Es ✓ mientras `run` es ✗ y las dos hacen la misma
   // pregunta: por eso son dos hojas y no una con bandera (regla R11).
   declareRisk(preview, { risk: 'lectura', agent: true });
@@ -3345,32 +3323,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank match run ----------------------------------------------
-  const matchRun = match
-    .command('run')
-    .alias('ejecutar')
-    .description(
-      'Run the engine over one account and period, applying ONLY what clears the confidence threshold, ' +
-        'the amount floor, an open period and an exact-amount hard signal'
-    );
+  const matchRun = describeCommand(match.command('run').alias('ejecutar'), 'help.bank.match.run.description');
   withContext(matchRun);
-  matchRun
-    .requiredOption('--account <ref>', 'bank account to sweep (name or id)')
-    .option('--since <date>', 'transactions on or after this date (YYYY-MM-DD)')
-    .option('--until <date>', 'transactions on or before this date (YYYY-MM-DD)')
-    .option(
-      '--min-confidence <n>',
-      'raise the engine confidence a proposal needs to be applied (0..1); never below the panel (cotejo_umbral_confianza)',
-      confianzaCero1('--min-confidence')
-    )
-    .option(
-      '--max-amount <amount>',
-      'lower the ceiling for an automatic match; the panel (cotejo_monto_maximo_auto) and the hard floor still win'
-    )
-    .option('--rules-only', 'refuse a proposal outside the date window')
-    .option('--top <n>', 'maximum transactions to evaluate in this run', enteroPositivo('--top'))
-    .option('--session <id>', 'reconciliation session these matches belong to')
-    .option('--dry-run', 'do the whole thing and roll it back')
-    .option('--json', 'JSON output');
+  optionByKey(matchRun, '--account <ref>', 'help.bank.match.run.option.account', { mandatory: true });
+  optionByKey(matchRun, '--since <date>', 'help.bank.match.run.option.since');
+  optionByKey(matchRun, '--until <date>', 'help.bank.match.run.option.until');
+  optionByKey(matchRun, '--min-confidence <n>', 'help.bank.match.run.option.min_confidence', {
+    parser: confianzaCero1('--min-confidence'),
+  });
+  optionByKey(matchRun, '--max-amount <amount>', 'help.bank.match.run.option.max_amount');
+  optionByKey(matchRun, '--rules-only', 'help.bank.match.run.option.rules_only');
+  optionByKey(matchRun, '--top <n>', 'help.bank.match.run.option.top', { parser: enteroPositivo('--top') });
+  optionByKey(matchRun, '--session <id>', 'help.bank.match.run.option.session');
+  optionByKey(matchRun, '--dry-run', 'help.bank.match.run.option.dry_run');
+  optionByKey(matchRun, '--json', 'help.bank.match.run.option.json');
   // ESCRITURA Y ✗. Escribe una aseveración sobre el dinero de un tercero y
   // SELLA la línea de póliza, que es la única mutación que la 041 admite sobre
   // un asiento contabilizado. No es `irreversible` porque `bank match unapply`
@@ -3453,21 +3419,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank match apply --------------------------------------------
-  const matchApply = match
-    .command('apply')
-    .alias('aplicar')
-    .argument('[id...]', 'bank transaction ids; or feed them through --stdin')
-    .description(
-      'Apply the engine’s proposal for the named transactions in ONE transaction, idempotently, ' +
-        'linked to the session'
-    );
+  const matchApply = describeCommand(
+    argumentByKey(match.command('apply').alias('aplicar'), '[id...]', 'help.bank.match.apply.argument.id'),
+    'help.bank.match.apply.description'
+  );
   withContext(matchApply);
-  matchApply
-    .option('--stdin', 'read the ids from standard input, whitespace separated')
-    .option('--session <id>', 'reconciliation session these matches belong to')
-    .option('--dry-run', 'do the whole thing and roll it back')
-    .option('-y, --yes', 'skip the grouped confirmation')
-    .option('--json', 'JSON output');
+  optionByKey(matchApply, '--stdin', 'help.bank.match.apply.option.stdin');
+  optionByKey(matchApply, '--session <id>', 'help.bank.match.apply.option.session');
+  optionByKey(matchApply, '--dry-run', 'help.bank.match.apply.option.dry_run');
+  optionByKey(matchApply, '-y, --yes', 'help.bank.match.apply.option.yes');
+  optionByKey(matchApply, '--json', 'help.bank.match.apply.option.json');
   declareRisk(matchApply, {
     risk: 'escritura',
     agent: false,
@@ -3555,36 +3516,24 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank match create -------------------------------------------
-  const matchCreate = match
-    .command('create')
-    .alias('crear')
-    .description(
-      'Build an explicit match group of N bank transactions against M book items plus adjustments, ' +
-        'requiring Σbank = Σbooks + Σadjustments'
-    );
+  const matchCreate = describeCommand(match.command('create').alias('crear'), 'help.bank.match.create.description');
   withContext(matchCreate);
-  matchCreate
-    .requiredOption('--account <ref>', 'bank account the whole group belongs to (name or id)')
-    .requiredOption('--transaction <ids>', 'comma-separated bank transaction ids: the bank side')
-    .requiredOption(
-      '--book-item <ids>',
-      'comma-separated book side: <id> for a journal line, or <type>:<id> ' +
-        `(${MATCHED_ENTITY_TYPES.join(', ')})`
-    )
-    .option(
-      '--adjust <concept=amount>',
-      'declared adjustment (bank fee, FX difference); repeatable',
-      ajusteDeGrupo,
-      [] as AjusteDeGrupo[]
-    )
-    .option(
-      `--residual <${MODOS_RESIDUAL.join('|')}>`,
-      'what happens to what is left over: keep it live, or write it off against an account'
-    )
-    .option('--write-off-account <account>', 'GL account the residual is written off against')
-    .option('--session <id>', 'reconciliation session this group belongs to')
-    .option('--dry-run', 'do the whole thing and roll it back')
-    .option('--json', 'JSON output');
+  optionByKey(matchCreate, '--account <ref>', 'help.bank.match.create.option.account', { mandatory: true });
+  optionByKey(matchCreate, '--transaction <ids>', 'help.bank.match.create.option.transaction', { mandatory: true });
+  optionByKey(matchCreate, '--book-item <ids>', 'help.bank.match.create.option.book_item', {
+    mandatory: true,
+    params: { types: MATCHED_ENTITY_TYPES.join(', ') },
+  });
+  optionByKey(matchCreate, '--adjust <concept=amount>', 'help.bank.match.create.option.adjust', {
+    // Commander hands the parser what --adjust holds so far: the [] default, then the earlier values.
+    parser: (value, previous) => ajusteDeGrupo(value, previous as AjusteDeGrupo[]),
+    defaultValue: [] as AjusteDeGrupo[],
+  });
+  optionByKey(matchCreate, `--residual <${MODOS_RESIDUAL.join('|')}>`, 'help.bank.match.create.option.residual');
+  optionByKey(matchCreate, '--write-off-account <account>', 'help.bank.match.create.option.write_off_account');
+  optionByKey(matchCreate, '--session <id>', 'help.bank.match.create.option.session');
+  optionByKey(matchCreate, '--dry-run', 'help.bank.match.create.option.dry_run');
+  optionByKey(matchCreate, '--json', 'help.bank.match.create.option.json');
   // Sin `-y`: aquí no hay nada que confirmar que el operador no haya escrito ya
   // —los ids de los dos lados, los ajustes y qué hacer con el residual—, y
   // `--dry-run` enseña el cuadre antes de comprometerlo. La confirmación existe
@@ -3688,23 +3637,21 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank match unapply ------------------------------------------
-  const matchUnapply = match
-    .command('unapply')
-    .alias('desaplicar')
-    .argument('<match-id>', 'the match to undo; its whole group goes with it')
-    .description(
-      'Undo a match with a typed reason, releasing the book-item seal; refuses if the session is ' +
-        'already approved or posted, and touches no posted journal entry'
-    );
+  const matchUnapply = describeCommand(
+    argumentByKey(
+      match.command('unapply').alias('desaplicar'),
+      '<match-id>',
+      'help.bank.match.unapply.argument.match_id'
+    ),
+    'help.bank.match.unapply.description'
+  );
   withContext(matchUnapply);
-  matchUnapply
-    .option(
-      '--reason <code>',
-      `typed reason, required: ${MOTIVOS_DESAPLICACION.join(' | ')}`
-    )
-    .option('--dry-run', 'do the whole thing and roll it back')
-    .option('-y, --yes', 'skip the confirmation')
-    .option('--json', 'JSON output');
+  optionByKey(matchUnapply, '--reason <code>', 'help.bank.match.unapply.option.reason', {
+    params: { codes: MOTIVOS_DESAPLICACION.join(' | ') },
+  });
+  optionByKey(matchUnapply, '--dry-run', 'help.bank.match.unapply.option.dry_run');
+  optionByKey(matchUnapply, '-y, --yes', 'help.bank.match.unapply.option.yes');
+  optionByKey(matchUnapply, '--json', 'help.bank.match.unapply.option.json');
   declareRisk(matchUnapply, {
     risk: 'escritura',
     agent: false,
@@ -5591,40 +5538,21 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   };
 
   // ---- bank fee post -----------------------------------------------
-  const fee = bank
-    .command('fee')
-    .alias('comision')
-    .description(
-      'Bank fees as an accounting act: the charge as an expense and its VAT moved to ' +
-        'creditable in the month of the charge'
-    );
+  const fee = describeCommand(bank.command('fee').alias('comision'), 'help.bank.fee.description');
 
-  const feePost = fee
-    .command('post')
-    .alias('contabilizar')
-    .argument('<account>', 'bank account whose fees to post (name or id)')
-    .description(
-      'Post the period’s bank fees from the statement, one entry per charge, and move their VAT ' +
-        'from pending-creditable to creditable'
-    );
+  const feePost = describeCommand(
+    argumentByKey(fee.command('post').alias('contabilizar'), '<account>', 'help.bank.fee.post.argument.account'),
+    'help.bank.fee.post.description'
+  );
   withContext(feePost);
-  feePost
-    .requiredOption('--period <YYYY-MM>', 'month whose fees to post')
-    // OBLIGATORIA Y SIN VALOR POR OMISIÓN. Un 16% escrito en el código sería
-    // una decisión fiscal invisible aplicada a todos los cargos del periodo a
-    // la vez; hubo un 15%, hay una tasa de frontera del 8% y hay comisiones
-    // exentas. `0` es una respuesta legítima y hay que teclearla.
-    .requiredOption(
-      '--iva-rate <rate>',
-      'VAT rate the charge already carries INSIDE it, as a fraction (0.16 for 16%); 0 for an ' +
-        'exempt fee. No default: a default here is a tax decision nobody takes and nobody sees'
-    )
-    .option(
-      '--max-amount <amount>',
-      'above this magnitude the charge is skipped and left for human eyes; it is a confidence ' +
-        'gate, not a validation'
-    )
-    .option('--json', 'JSON output');
+  optionByKey(feePost, '--period <YYYY-MM>', 'help.bank.fee.post.option.period', { mandatory: true });
+  // OBLIGATORIA Y SIN VALOR POR OMISIÓN. Un 16% escrito en el código sería
+  // una decisión fiscal invisible aplicada a todos los cargos del periodo a
+  // la vez; hubo un 15%, hay una tasa de frontera del 8% y hay comisiones
+  // exentas. `0` es una respuesta legítima y hay que teclearla.
+  optionByKey(feePost, '--iva-rate <rate>', 'help.bank.fee.post.option.iva_rate', { mandatory: true });
+  optionByKey(feePost, '--max-amount <amount>', 'help.bank.fee.post.option.max_amount');
+  optionByKey(feePost, '--json', 'help.bank.fee.post.option.json');
   declareRisk(feePost, {
     risk: 'irreversible',
     llave: { scope: 'bank fee post' },
@@ -5771,34 +5699,23 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   );
 
   // ---- bank interest post ------------------------------------------
-  const interest = bank
-    .command('interest')
-    .alias('interes')
-    .description(
-      'Interest earned on bank balances: income at its GROSS amount and the tax the bank withheld ' +
-        'as a prepayment in the entity’s favour'
-    );
+  const interest = describeCommand(bank.command('interest').alias('interes'), 'help.bank.interest.description');
 
-  const interestPost = interest
-    .command('post')
-    .alias('contabilizar')
-    .argument('<account>', 'bank account whose interest to post (name or id)')
-    .description(
-      'Post the period’s interest as income and the ISR the bank withheld as a provisional ' +
-        'payment in the entity’s favour, never as an expense'
-    );
+  const interestPost = describeCommand(
+    argumentByKey(
+      interest.command('post').alias('contabilizar'),
+      '<account>',
+      'help.bank.interest.post.argument.account'
+    ),
+    'help.bank.interest.post.description'
+  );
   withContext(interestPost);
-  interestPost
-    .requiredOption('--period <YYYY-MM>', 'month whose interest to post')
-    // `--rate` ES LA TASA DE RETENCIÓN, NO LA DEL INTERÉS. El interés no se
-    // calcula aquí: lo calculó el banco y lo dice el extracto. Lo que se
-    // despeja es cuánto se quedó por el camino.
-    .requiredOption(
-      '--rate <rate>',
-      'ISR WITHHOLDING rate the bank applied, as a fraction (0.0125 for 1.25%); 0 when it ' +
-        'withheld nothing. This is NOT the interest rate: the interest is what the statement says'
-    )
-    .option('--json', 'JSON output');
+  optionByKey(interestPost, '--period <YYYY-MM>', 'help.bank.interest.post.option.period', { mandatory: true });
+  // `--rate` ES LA TASA DE RETENCIÓN, NO LA DEL INTERÉS. El interés no se
+  // calcula aquí: lo calculó el banco y lo dice el extracto. Lo que se
+  // despeja es cuánto se quedó por el camino.
+  optionByKey(interestPost, '--rate <rate>', 'help.bank.interest.post.option.rate', { mandatory: true });
+  optionByKey(interestPost, '--json', 'help.bank.interest.post.option.json');
   declareRisk(interestPost, {
     risk: 'irreversible',
     llave: { scope: 'bank interest post' },
@@ -5937,34 +5854,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // Del registro de cheques completo —`list|issue|void|lock|remit|export`— sólo
   // se adelanta `reconcile`, que es la única fila de fase 1: media máquina de
   // estados es una que miente sobre los estados que no modela.
-  const cheque = bank
-    .command('check')
-    .alias('cheque')
-    .description(
-      'Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law ' +
-        'is when the payment counts'
-    );
+  const cheque = describeCommand(bank.command('check').alias('cheque'), 'help.bank.check.description');
 
-  const checkReconcile = cheque
-    .command('reconcile')
-    .alias('conciliar')
-    .argument('<id>', 'vendor payment made by check')
-    .description(
-      'Prove the check against the bank movement that cleared it and post the VAT ' +
-        'reclassification from pending to creditable IN THE MONTH IT CLEARED'
-    );
+  const checkReconcile = describeCommand(
+    argumentByKey(cheque.command('reconcile').alias('conciliar'), '<id>', 'help.bank.check.reconcile.argument.id'),
+    'help.bank.check.reconcile.description'
+  );
   withContext(checkReconcile);
-  checkReconcile
-    .option(
-      '--transaction <id>',
-      'the bank movement that paid it, named by hand; required when several charges match'
-    )
-    .option(
-      '--as-of <date>',
-      'the clearing date you assert (YYYY-MM-DD); it is CONTRASTED against the movement, never ' +
-        'imposed — the bank dates the clearing'
-    )
-    .option('--json', 'JSON output');
+  optionByKey(checkReconcile, '--transaction <id>', 'help.bank.check.reconcile.option.transaction');
+  optionByKey(checkReconcile, '--as-of <date>', 'help.bank.check.reconcile.option.as_of');
+  optionByKey(checkReconcile, '--json', 'help.bank.check.reconcile.option.json');
   declareRisk(checkReconcile, {
     risk: 'irreversible',
     llave: { scope: 'bank check reconcile' },
