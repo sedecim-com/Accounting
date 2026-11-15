@@ -3564,6 +3564,122 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.customer.tax.list.description':
     'El control previo a facturar: clientes cuyo perfil fiscal está incompleto o mal formado',
   'help.customer.tax.list.option.missing': 'sólo los clientes a los que hoy NO se les podría timbrar un CFDI',
+  // ==== MNE-001-238 · help by key, bill and vendor (issue #314) ====
+  'help.bill.description': 'Facturas de proveedor: capturar, codificar, revisar y aprobar lo que debemos',
+  'help.bill.list.description':
+    'Lista las facturas de proveedor filtradas por proveedor, estado, fecha del documento, fecha contable ' +
+    'o fecha de vencimiento',
+  'help.bill.list.argument.search':
+    'texto que se busca en el número propio, en el folio del proveedor o en el nombre del proveedor',
+  'help.bill.list.option.vendor': 'sólo este proveedor (número, nombre o id)',
+  'help.bill.list.option.due_before': 'sólo las facturas que vencen en esta fecha o antes (AAAA-MM-DD)',
+  'help.bill.list.option.open':
+    'sólo las facturas con saldo por pagar (excluye las pagadas, las anuladas y las canceladas)',
+  'help.bill.show.description':
+    'Muestra una factura de proveedor con sus líneas, su póliza y el CFDI del que proviene',
+  'help.bill.show.argument.bill': 'número propio, folio del proveedor o id',
+  'help.bill.show.option.no_lines': 'sólo el encabezado',
+  'help.bill.show.option.journal': 'incluye la póliza que generó la aprobación',
+  'help.bill.show.option.cfdi': 'incluye el CFDI del que proviene la factura, cuando proviene de uno',
+  'help.bill.create.description': 'Captura una factura de proveedor con sus líneas y su codificación contable',
+  'help.bill.create.argument.vendor': 'número, nombre o id del proveedor',
+  'help.bill.create.option.vendor': 'número, nombre o id del proveedor (lo mismo que el argumento posicional)',
+  'help.bill.create.option.vendor_invoice_number': 'el número o folio que el propio proveedor le dio a su factura',
+  'help.bill.create.option.bill_date': 'fecha del documento (AAAA-MM-DD); por omisión, hoy',
+  'help.bill.create.option.due_date':
+    'fecha de vencimiento (AAAA-MM-DD); por omisión, la que resulta de las condiciones de pago del proveedor',
+  'help.bill.create.option.line':
+    'una línea, se puede repetir: "account=5100;qty=1;price=1000;tax-amount=160". La lista de claves está abajo',
+  'help.bill.create.option.currency': 'código ISO de 3 letras; por omisión, la moneda del proveedor',
+  'help.bill.create.option.terms':
+    'condiciones de pago que se registran en la factura; por omisión, las del proveedor',
+  'help.bill.create.option.description': 'a qué corresponde esta factura',
+  'help.bill.create.option.from_file': 'lee la factura de un archivo JSON en lugar de teclearla: {shape}',
+  'help.bill.create.option.json': 'salida en JSON',
+  'help.bill.line.description': 'Codificación de las líneas',
+  'help.bill.line.set.description': 'Recodifica una línea de una factura que todavía no está aprobada',
+  'help.bill.line.set.argument.bill': 'número propio, folio del proveedor o id',
+  'help.bill.line.set.option.line': 'número de la línea que se cambia',
+  'help.bill.line.set.option.account': 'cuenta de gasto, por código',
+  'help.bill.line.set.option.cost_center': 'id del centro de costo',
+  'help.bill.line.set.option.project': 'id del proyecto',
+  'help.bill.line.set.option.description': 'descripción de la línea',
+  'help.bill.approve.description':
+    'Aprueba una factura de proveedor y reconoce el pasivo en el mayor (cargo a gasto e IVA / abono a ' +
+    'cuentas por pagar)',
+  'help.bill.approve.argument.bill': 'número propio, folio del proveedor o id',
+  'help.bill.approve.option.json': 'salida en JSON',
+  'help.bill.inbox.description':
+    'Bandeja de CFDI recibidos: pre-registros que esperan convertirse en facturas de proveedor',
+  'help.bill.inbox.list.description': 'La cola de CFDI: qué llegó, de quién es y qué lo detiene',
+  'help.bill.inbox.list.option.processing_mode': 'cómo debe procesarse: {modes}',
+  'help.bill.inbox.list.option.requires_approval': 'sólo los que esperan una aprobación previa',
+  'help.bill.inbox.list.option.vendor': 'sólo este proveedor (número, nombre o id)',
+  'help.bill.inbox.edit.description':
+    'Codifica a mano un pre-registro: la cuenta (y el centro de costo) de una línea, o su cuenta por omisión',
+  'help.bill.inbox.edit.argument.id': 'un pre-registro, por su id',
+  'help.bill.inbox.edit.option.line':
+    'número de la línea que se codifica; sin él, --account es la cuenta por omisión de toda línea que no tenga una',
+  'help.bill.inbox.edit.option.account': 'cuenta de gasto, por código o id',
+  'help.bill.inbox.edit.option.cost_center': 'id del centro de costo de la línea de --line',
+  'help.bill.inbox.run.description':
+    'Convierte pre-registros en facturas de proveedor, o los aprueba, rechaza y programa en masa',
+  'help.bill.inbox.run.argument.id': 'un pre-registro, por su id',
+  'help.bill.inbox.run.option.action': 'qué hacer con la selección',
+  'help.bill.inbox.run.option.bulk': 'actúa sobre todo lo que selecciona --query, en vez de un solo id',
+  'help.bill.inbox.run.option.query': 'selección para --bulk, en pares clave=valor separados por comas: {keys}',
+  'help.bill.inbox.run.option.batch':
+    'lote de procesamiento en el que se programa; obligatorio con --action set-batch',
+  'help.bill.inbox.run.option.allow_new_vendor':
+    'autoriza dar de alta como proveedor al emisor del CFDI cuando no está en el catálogo; sin esta bandera, ' +
+    'esos CFDI se rechazan',
+  'help.bill.inbox.run.option.reason': 'por qué se rechaza; obligatorio con --action reject',
+  'help.bill.inbox.run.option.note': 'anotación que se guarda con la aprobación',
+  'help.bill.inbox.run.option.dry_run': 'calcula y muestra el efecto completo; no escribe nada',
+  'help.bill.inbox.run.option.json': 'salida en JSON',
+  'help.vendor.description':
+    'Catálogo de proveedores: a quién le debemos, en qué condiciones de pago y con qué identificador fiscal',
+  'help.vendor.list.description':
+    'Lista los proveedores, filtrados por estado, por la bandera 1099 o por la falta de identificador fiscal',
+  'help.vendor.list.argument.search': 'texto que se busca en la razón social o en el número del proveedor',
+  'help.vendor.list.option.inactive': 'muestra los proveedores archivados en vez de los activos',
+  'help.vendor.list.option.is_1099': 'sólo los proveedores marcados para una declaración informativa de EE. UU.',
+  'help.vendor.list.option.no_tax_id':
+    'sólo los proveedores sin identificador fiscal registrado (los que bloquean la DIOT y el 1099)',
+  'help.vendor.show.description': 'Muestra un proveedor: identidad, condiciones de pago, moneda y banderas',
+  'help.vendor.show.argument.vendor': 'número, nombre o id del proveedor',
+  'help.vendor.show.option.include': 'secciones adicionales, separadas por comas: {parts}',
+  'help.vendor.create.description':
+    'Da de alta un proveedor con su identificador fiscal, sus condiciones de pago, su moneda y su cuenta de ' +
+    'gasto por omisión',
+  'help.vendor.create.argument.name': 'razón social',
+  'help.vendor.create.option.tax_id': 'RFC (México), EIN (EE. UU.) o número de IVA (VAT)',
+  'help.vendor.create.option.tax_id_type': '{types} (por omisión, según el país de la entidad)',
+  'help.vendor.create.option.contact': 'persona de contacto',
+  'help.vendor.create.option.email': 'correo de contacto',
+  'help.vendor.create.option.phone': 'teléfono de contacto',
+  'help.vendor.create.option.terms': 'condiciones de pago: "Net 30", "2/10 Net 30", "Due on receipt"',
+  'help.vendor.create.option.currency': 'código ISO de 3 letras (por omisión, la moneda funcional de la entidad)',
+  'help.vendor.create.option.default_account': 'cuenta de gasto por omisión, por código',
+  'help.vendor.create.option.is_1099': 'marca al proveedor para una declaración informativa de EE. UU.',
+  'help.vendor.create.option.json': 'salida en JSON',
+  'help.vendor.edit.description':
+    'Cambia los datos no bancarios ni fiscales de un proveedor, y deja un registro de auditoría',
+  'help.vendor.edit.argument.vendor': 'número, nombre o id del proveedor',
+  'help.vendor.edit.option.name': 'nueva razón social',
+  'help.vendor.edit.option.contact': 'nueva persona de contacto',
+  'help.vendor.edit.option.email': 'nuevo correo',
+  'help.vendor.edit.option.phone': 'nuevo teléfono',
+  'help.vendor.edit.option.notes': 'reemplaza las notas',
+  'help.vendor.edit.option.reason': 'por qué se hizo el cambio; queda en el rastro de auditoría',
+  'help.vendor.terms.description': 'Condiciones de pago',
+  'help.vendor.terms.set.description':
+    'Fija las condiciones de pago y la moneda de liquidación, validadas para que se pueda calcular una fecha ' +
+    'de vencimiento',
+  'help.vendor.terms.set.argument.vendor': 'número, nombre o id del proveedor',
+  'help.vendor.terms.set.option.terms': 'condiciones de pago: "Net 30", "2/10 Net 30", "Due on receipt"',
+  'help.vendor.terms.set.option.currency': 'código ISO de 3 letras',
+  'help.vendor.terms.set.option.reason': 'por qué se hizo el cambio; queda en el rastro de auditoría',
   // ==== I11 · report labels (issue #153) ============================
   //
   // The names of the sections and of the twelve `fs_category` values are NOT
