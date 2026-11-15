@@ -137,9 +137,12 @@ describe('the ledger families, help by key (#314, MNE-001-234)', () => {
     for (const [path, key, params] of cases) expectSpanishHelp(path, key, params);
   });
 
-  it('the retired --level still opens with the kernel prefix, which travels as a parameter', () => {
+  it('the retired --level opens with the kernel marker in English, and with its own Spanish in es-MX', () => {
+    // The tools read the marker from `option.description`, which is always English.
     const level = node('account map check').options.find((o) => o.long === '--level');
     expect(level?.description.startsWith(RETIRED_OPTION_PREFIX)).toBe(true);
-    expectSpanishHelp('account map check', 'help.account.map.check.option.level', { prefix: RETIRED_OPTION_PREFIX });
+    setLanguage('es');
+    expect(flat(node('account map check').helpInformation())).not.toContain(RETIRED_OPTION_PREFIX);
+    expectSpanishHelp('account map check', 'help.account.map.check.option.level');
   });
 });

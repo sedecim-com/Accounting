@@ -57,7 +57,6 @@ import {
   requireExplicitEntity,
   usageError,
   notFound,
-  RETIRED_OPTION_PREFIX,
   exitCodeFor,
   checkExitCode,
   ExitCode,
@@ -807,9 +806,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   // SIN VALOR POR OMISIÓN, a propósito: la bandera ya no recorta nada y lo
   // único honesto es decírselo a quien la escribe. Con un defecto, commander
   // la daría por puesta siempre y el error saltaría sin que nadie la pidiera.
-  optionByKey(mapCheck, '--level <n>', 'help.account.map.check.option.level', {
-    params: { prefix: RETIRED_OPTION_PREFIX },
-  });
+  optionByKey(mapCheck, '--level <n>', 'help.account.map.check.option.level');
   declareRisk(mapCheck, { risk: 'lectura', agent: true });
   mapCheck.addHelpText('after', EJEMPLOS.mapCheck);
   mapCheck.action((opts: CommonOpts & { check?: string; scheme: string; level?: string; strict?: boolean }) =>

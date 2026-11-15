@@ -3103,9 +3103,12 @@ export const EN = {
   // 235); this one takes `account` and `ledger`, with the English these
   // commands already showed. Every generic flag here is worded for its leaf and
   // keeps its own key. The lists travel as {types}, {roles}, {schemes} and
-  // {checks}, and the retired-option marker of `account map check --level` as
-  // {prefix}. The English of `account map import <file>` was already Spanish
-  // prose; it is kept as it was, because this series does not change the English.
+  // {checks}. The English of `account map check --level` opens with the
+  // kernel's retired-option marker, `retired: ` (RETIRED_OPTION_PREFIX), which
+  // the tools read from `option.description`; each language writes its own
+  // marker, so es.ts says `retirada: `. The English of `account map import
+  // <file>` was already Spanish prose; it is kept as it was, because this series
+  // does not change the English.
   'help.account.description': 'Chart of accounts: inspect, create and retire accounts',
   'help.account.list.description': 'List accounts, filtered by type, state, parent or free text',
   'help.account.list.argument.search': 'match against code or name',
@@ -3180,7 +3183,7 @@ export const EN = {
     'Coverage gate before the Anexo 24 catalog XML: which accounts still lack a mapping',
   'help.account.map.check.option.check': 'named checks to run (available: coverage; empty lists them)',
   'help.account.map.check.option.scheme': 'scheme to verify',
-  'help.account.map.check.option.level': '{prefix}the gate no longer measures by account level',
+  'help.account.map.check.option.level': 'retired: the gate no longer measures by account level',
   'help.account.restore.description': 'Put a retired account back in service',
   'help.account.restore.argument.code': 'account code or id',
   'help.account.restore.option.reason': 'why the account comes back into service; recorded in the audit trail',

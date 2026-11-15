@@ -3034,7 +3034,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.account.map.check.option.check':
     'verificaciones a correr, por nombre (disponible: coverage; un valor vacío las lista)',
   'help.account.map.check.option.scheme': 'esquema a verificar',
-  'help.account.map.check.option.level': '{prefix}la compuerta ya no mide por nivel de cuenta',
+  'help.account.map.check.option.level': 'retirada: la compuerta ya no mide por nivel de cuenta',
   'help.account.restore.description': 'Vuelve a poner en servicio una cuenta retirada',
   'help.account.restore.argument.code': 'código o id de la cuenta',
   'help.account.restore.option.reason':
