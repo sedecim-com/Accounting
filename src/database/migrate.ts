@@ -67,6 +67,33 @@ export function assertNumeracionUnica(files: string[]): void {
   }
 }
 
+/**
+ * The last migration number that broke the max + 1 rule. Three jumps happened
+ * before the rule had a guard: 176 → 250, 250 → 310 and 310 → 324. They are
+ * applied in deployed databases, so they are history and are never renumbered.
+ * The owner decided on 15 Nov 2026 (#158) that max + 1 rules from here on.
+ */
+export const LAST_OUT_OF_SEQUENCE_MIGRATION = 324;
+
+/**
+ * Fails when a migration numbered above LAST_OUT_OF_SEQUENCE_MIGRATION does not
+ * take the next number. It runs after assertNumeracionUnica, which reports
+ * duplicates, so here every number is counted once.
+ */
+export function assertNextIsMaxPlusOne(files: string[]): void {
+  const numbers = [...new Set(files.map((f) => Number(f.slice(0, 3))))].sort((a, b) => a - b);
+  const pad = (n: number) => String(n).padStart(3, '0');
+  let previous = LAST_OUT_OF_SEQUENCE_MIGRATION;
+  for (const n of numbers.filter((x) => x > LAST_OUT_OF_SEQUENCE_MIGRATION)) {
+    if (n !== previous + 1) {
+      throw new Error(
+        `Migration ${pad(n)} breaks the max + 1 rule: after ${pad(previous)} the next number is ` +
+          `${pad(previous + 1)} (docs/migraciones.md, #158)`
+      );
+    }
+    previous = n;
+  }
+}
 
 /**
  * The advisory lock every run takes before it reads public.migrations.
@@ -169,6 +196,7 @@ export async function applyMigrations(
       .sort();
 
     assertNumeracionUnica(files);
+    assertNextIsMaxPlusOne(files);
 
     for (const file of files) {
       const existing = await client.query(
