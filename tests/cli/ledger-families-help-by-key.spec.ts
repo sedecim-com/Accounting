@@ -65,6 +65,8 @@ describe('the ledger families, help by key (#314, MNE-001-234)', () => {
     ['account balance show', 'help.account.balance.show.option.as_of'],
     ['account role list', 'help.account.role.list.option.qualifier'],
     ['account role set', 'help.account.role.set.option.qualifier'],
+    ['account role seed', 'help.account.role.seed.description'],
+    ['account role sync', 'help.account.role.sync.description'],
     ['account map set', 'help.account.map.set.option.year'],
     ['account map list', 'help.account.map.list.option.scheme'],
     ['account map import', 'help.account.map.import.argument.file'],
