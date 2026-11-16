@@ -38,7 +38,7 @@ const CONFIGURE_BODIES: Record<string, Decision> = {
   sw_sapien: { redacted: ['token'], kept: ['environment'] },
 };
 
-/** The S3 stub retired in #370: rows written while it was registered still carry its body. */
+/** The S3 stub retired in #370: rows written while it was registered keep its region and bucket; migration 325 purged its keys. */
 const RETIRED_S3: Decision = { redacted: ['accessKeyId', 'secretAccessKey'], kept: ['region', 'bucket'] };
 
 function expectDecision(provider: string, d: Decision): void {

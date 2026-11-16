@@ -222,8 +222,9 @@ export const E0_3: Criterio[] = [
     evaluar: () => {
       // S1: el middleware de auditoría escribía JSON.stringify(req.body)
       // entero en audit_log.new_values — un alta de empleado dejaba ssn y
-      // bank_account EN CLARO en la única tabla que, por diseño de la 033,
-      // no admite remediación. Lo que se exige: el stringify crudo no existe
+      // bank_account EN CLARO. That table is append-only (033): a copy only
+      // leaves it through a migration that records itself, as 325 did for the
+      // S3 keys (#370). Lo que se exige: el stringify crudo no existe
       // y la redacción cubre, como mínimo, los campos que los servicios
       // cifran hoy (ssn, clabe, bank_account*, password, key/cer).
       const m = codigoDe('src/api/rest/middleware/audit.ts');

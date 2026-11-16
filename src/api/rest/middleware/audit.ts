@@ -8,8 +8,9 @@ import { query } from '../../../database/connection.js';
 // Este middleware escribía `JSON.stringify(req.body)` entero en
 // audit_log.new_values. Un alta de empleado dejaba `ssn` y `bank_account` en
 // claro; un proveedor, su CLABE — mientras el servicio los cifraba en su
-// tabla. Y es la peor tabla posible para esa fuga: la 033 la hizo
-// append-only hasta para el dueño del esquema, así que no hay remediación.
+// tabla. It is the worst table for that leak: 033 made it append-only even
+// for the schema owner, so a copy only leaves it through a migration that
+// records itself, as 325 did for the S3 keys (#370).
 //
 // La lista es deliberadamente más ancha que lo que hoy se cifra: redactar de
 // más cuesta un dato menos en el rastro; redactar de menos deja un secreto
@@ -43,8 +44,9 @@ import { query } from '../../../database/connection.js';
 // for every adapter the registry exposes.
 //
 // The rule reads names, not values: a secret sent under a name with no stem
-// still reaches the table. Rows written before this change stay as they
-// are; 033 leaves any purge to a migration that records itself.
+// still reaches the table. Rows written before this change stay as they are,
+// except the S3 keys migration 325 purged (#370): 033 leaves any purge to a
+// migration that records itself.
 // ============================================================
 
 /**
