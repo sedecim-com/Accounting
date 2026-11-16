@@ -506,9 +506,10 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       );
       expect(check).toMatchObject({ asOf: '2025-01-01', comparison: { comparadas: 15, iguales: true } });
 
-      // Each month is soft-closed, then hard-closed, oldest first; the hard
-      // close carries its endings into the next month, so November's carries
-      // the opening into December.
+      // Each month is soft-closed, then hard-closed, oldest first. The hard
+      // close carries its endings into the next month and no further, since
+      // no later month is closed yet; November's carries the opening into
+      // December.
       const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
         'September', 'October', 'November', 'December'];
       months.slice(0, 11).forEach((month, i) => {
@@ -516,7 +517,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         expect(ok(['close', '--period', period, '--yes']).out).toContain(`✔ ${month} 2025 is now soft_close`);
         const sealed = ok(['close', '--period', period, '--hard', '--yes']).out;
         expect(sealed).toContain(`✔ ${month} 2025 is now hard_close`);
-        expect(sealed).toContain(`Beginning balances carried into: ${months[i + 1]} 2025`);
+        expect(sealed).toMatch(new RegExp(`Beginning balances carried into: ${months[i + 1]} 2025$`, 'm'));
       });
       const periods = rowsOf<{ period_name: string; status: string }>(ok(['period', 'list', '--json']));
       expect(months.map((m) => periods.find((p) => p.period_name === `${m} 2025`)?.status))
