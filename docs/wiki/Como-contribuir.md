@@ -16,11 +16,12 @@ puede tocar el dinero de alguien sin romperlo.
 - **Uno por idea.** Un PR que arregla tres cosas no se puede revisar ni revertir.
 - **Rama con nombre propio**: `fase-0-1-cli-y-cimientos`, `aud-7-bitacora`. No
   `patch-1`.
-- **Contra `main`**, con **una aprobación**. Un push nuevo **invalida las
-  aprobaciones anteriores**: la revisión es del árbol que se va a fusionar, no
-  del que se revisó.
+- **Contra `develop`.** La regla de las ramas no pide aprobaciones: la puerta
+  son los cinco checks de CI, y la revisión humana que pide cada issue la fija
+  `docs/ROUTING.md` («Quién revisa»).
 - **[`CODEOWNERS`](https://github.com/sedecim-com/Accounting/blob/main/.github/CODEOWNERS)
-  exige la aprobación del dueño de cada archivo tocado.** Hay rutas con dueño
+  nombra al dueño de cada archivo, y un PR que toca una ruta con dueño
+  reforzado espera su revisión y su fusión** (`docs/ROUTING.md`). Hay rutas con dueño
   explícito, y no porque valgan más: porque su falla es **silenciosa** y su daño,
   **retroactivo**. La custodia de credenciales fiscales y la bóveda que las
   cifra; las migraciones y `rls-policies.sql`, porque una migración mal hecha se
@@ -41,9 +42,11 @@ arregla; no se explica en un comentario.
 
 **Que un trabajo exista no es que BLOQUEE.** Lo que impide fusionar es la lista
 de comprobaciones obligatorias del repositorio, que es un ajuste fuera del árbol
-y hoy nombra **dos**: `Tipos` y `Pruebas unitarias`. Los demás salen rojos en la
-página del PR y dejan pasar el botón. Se dice aquí porque esta página afirmaba
-lo contrario, y una puerta que se cree cerrada es peor que una abierta.
+y al 2026-11-16 nombra **cinco**: `Tipos`, `Pruebas unitarias`,
+`Estado del plan`, `Integración contra Postgres` y `Aislamiento por inquilino`.
+`Lint` y `Commit subjects` salen rojos en la página del PR y dejan pasar el
+botón. Se dice aquí porque esta página afirmaba lo contrario, y una puerta que
+se cree cerrada es peor que una abierta.
 
 | Trabajo | Qué corre | Qué atrapa |
 |---|---|---|

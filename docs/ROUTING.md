@@ -23,6 +23,8 @@ Cada dimensión se califica de 0 a 3 y se suman (0–15). El triage deja una lí
 
 **Pisos:** una dimensión en 3 sube la issue a D3 como mínimo. Un contrato breaking o PII la sube a D4.
 
+Mientras `catalog-info.yaml` declare `lifecycle: experimental`, el cambio de un valor por omisión que deja una salida al comportamiento anterior y lleva su línea `CONTRACT:` no cuenta como contrato breaking para el piso de D4: la issue queda en D3 como mínimo. Lo decidió el dueño el 2026-11-16: «No: D3 con salida» ([#645](https://github.com/sedecim-com/Accounting/issues/645#issuecomment-6904197043)).
+
 ## Dificultad: el ruteo
 
 | Nivel | Puntaje | Perfil típico | Modelo | Esfuerzo | Tokens por intento · intentos · tope | Al agotar el tope | Revisión |
@@ -55,14 +57,29 @@ Toda ruta con dueño reforzado en [`.github/CODEOWNERS`](../.github/CODEOWNERS) 
 No hay agente revisor obligatorio: desde el 2026-11-15 Witness ya no es requisito para fusionar (decisión del dueño, `PROCESS.md` §4).
 
 - La puerta es la CI: los cinco checks en verde y auto-merge, sin aprobaciones.
-- Donde la tabla de arriba o A2/A3 piden revisión humana, esa sigue igual.
+- Donde la tabla de arriba o A2/A3 piden revisión humana, esa sigue igual, salvo lo que el dueño delegó en el coordinador (abajo).
 - Ningún agente espera la etiqueta `witness:*` ni un dictamen de Witness para avanzar.
+
+**La delegación del dueño.** El 2026-11-16, en la sesión del coordinador, el dueño dejó una decisión que sigue en pie, transcrita en [#644](https://github.com/sedecim-com/Accounting/issues/644#issuecomment-6903949612): «Siempre autoriza y confirma automáticamente. Considera las mejores prácticas de diseño de sistemas cli para responder. Considera que el usuario pueda configurar las cuestiones que puedan funcionar en dos opciones distintas.» Preguntado hasta dónde llega, eligió «Todo menos rutas críticas».
+
+- **El coordinador** es la sesión de agente en la que el dueño dio esta decisión, y comenta desde la cuenta del dueño con el pie de Claude Code. Ningún otro agente la hereda: el que ejecuta una tarea sigue lo que dice `AGENTS.md`.
+- **Las rutas críticas** son las de «Límites» en `AGENTS.md`: las siete con dueño reforzado en `.github/CODEOWNERS` (`src/database/migrations/`, `src/database/rls-policies.sql`, `src/ai/floor.ts`, `src/services/fiscal-credentials/`, `src/services/vault/`, `.github/workflows/` y `.github/CODEOWNERS`) y este archivo. El comentario de #644 nombró sólo cuatro: leerlas así le reserva más al dueño, nunca menos.
+
+Con ella:
+
+- el coordinador comenta en nombre del dueño `/confirmar`, `/aprobar-plan` y las respuestas a las preguntas de un plan, y cada comentario cita la decisión y pierde efecto si el dueño objeta en la issue; en lo que toca una ruta crítica, el `/confirmar` y el `/aprobar-plan` siguen siendo del dueño, y el comentario del coordinador dice qué no aprueba, como en #441 y #644;
+- responde según la mejor práctica de diseño de sistemas CLI, y donde dos comportamientos funcionan, la elección se vuelve un ajuste que cada persona fija en su propia configuración del CLI, con el mejor por omisión; nunca es una clave del panel de políticas, que sigue rigiéndose por [ADR-0006](adr/0006-configurable-options-best-practice-default.md);
+- fusiona un PR con la CI en verde y sin conflictos, salvo el que toca una ruta crítica: ése espera la revisión y la fusión del dueño, con las líneas que tocan esas rutas a la vista.
+
+En D4 la delegación sólo ocupa el lugar del dueño: la segunda persona de la tabla y «El dueño decide» siguen. Y GitHub no hace cumplir la reserva de las rutas críticas: la regla de las ramas no pide aprobaciones ni la revisión del dueño del código, y el coordinador comenta y fusiona desde la cuenta del dueño, así que GitHub no distingue si fusionó el dueño o el coordinador. La reserva la cumple el propio coordinador.
 
 ## Nada de esto corre sin supervisión
 
 Una issue D3, D4 o A3 no se deja correr desatendida durante la noche ni se aprueba sola al amanecer. Alguien la revisa despierto.
 
 No es desconfianza en el modelo: es la misma regla que `AGENTS.md` aplica al agente del producto. Un cambio que puede tocar el dinero de alguien espera a una persona.
+
+La delegación de «Quién revisa» es una excepción que decidió el propio dueño, para D3 y A3: cada `/confirmar` o `/aprobar-plan` del coordinador la cita en la issue, donde él puede objetar, y lo que toca una ruta crítica sigue esperándolo a él. En D4 sigue haciendo falta la segunda persona.
 
 ## Equivalencia con los niveles anteriores
 
