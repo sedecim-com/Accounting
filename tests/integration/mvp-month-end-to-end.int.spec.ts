@@ -333,6 +333,22 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       });
     }, STEP_TIMEOUT_MS);
 
+    it('reaches `ingest` with the root -T (the helper\'s ingest scope); its dry run writes nothing', () => {
+      // `ingest` declares -e and -u but no -t, so the firm goes in the root's -T.
+      // A fixture CFDI addressed to this company: --dry-run writes nothing and
+      // calls no one, so no figure of the month moves.
+      const xml = path.join(workDir, 'ingest-scope.xml');
+      fs.writeFileSync(
+        xml,
+        fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'cfdi', 'factura-limpieza-1001.xml'), 'utf-8')
+          .replace('Rfc="XAXX010101000"', `Rfc="${COMPANY_RFC}"`)
+      );
+      const dry = ok(['ingest', xml, '--dry-run'], 'ingest');
+      expect(dry.out).toContain('mnemosine ingest --dry-run · Comercializadora Sintetica SA de CV · 1 file(s)');
+      expect(dry.out).toContain('ingest-scope.xml  would_process · received');
+      expect(dry.out).toContain('dry-run: nothing was written');
+    }, STEP_TIMEOUT_MS);
+
     it.todo('imports the chart and the opening trial balance from Anexo 24 XML, the 8xx memorandum accounts included and excluded from the footing — MNE-001-018, MNE-001-019, MNE-001-099');
     it.todo('imports the open receivables and payables with the migration, and stops when they do not tie — MNE-001-022, MNE-001-023');
   });
