@@ -19,7 +19,9 @@ import { SYSTEM_USER_EMAIL } from '../../src/services/entity/entity-service.js';
  * same database seeds the rows and judges what 325 left.
  *
  * Two firms hold copies of PUT /v1/admin/integrations/s3, one with its system
- * user and one without. A Stripe row with its secretKey and a row of
+ * user and one without. A third firm, beyond the plan's two, never configured
+ * S3 and has no system user, as most firms: its trail must still record the
+ * purge, with 0. A Stripe row with its secretKey and a row of
  * POST /v1/admin/integrations/s3/test are controls that must not change by a
  * byte. Every key is synthetic, and none may appear in what 325 prints.
  */
@@ -37,6 +39,8 @@ const S3_KEYS = ['secretAccessKey', 'accessKeyId'];
 
 const TENANT_A = randomUUID();
 const TENANT_B = randomUUID();
+/** A firm that never configured S3: its trail still records the purge, with 0. */
+const TENANT_C = randomUUID();
 const ORPHAN_TENANT = randomUUID();
 const SYSTEM_USER_A = randomUUID();
 const STRIPE_SECRET = 'synthetic-stripe-secret-of-firm-a';
@@ -76,6 +80,7 @@ interface Constraint {
 
 interface RecordRow {
   tenant_id: string;
+  entity_id: string;
   user_id: string;
   action: string;
   legal_entity_id: string | null;
@@ -148,7 +153,7 @@ const constraintsOfAuditLog = async (): Promise<Constraint[]> => (await verifier
 
 /** The rows 325 writes to record itself, oldest first. */
 const records = async (): Promise<RecordRow[]> => (await verifier.query<RecordRow>(
-  `SELECT tenant_id, user_id, action, legal_entity_id, new_values, reason
+  `SELECT tenant_id, entity_id, user_id, action, legal_entity_id, new_values, reason
      FROM audit_log WHERE entity_type = 'audit_log' ORDER BY timestamp, tenant_id`
 )).rows;
 
@@ -186,22 +191,24 @@ beforeAll(async () => {
   );
   await db.query('SET row_security = off');
   for (const file of fs.readdirSync(DIR).filter((f) => f.endsWith('.sql') && Number(f.slice(0, 3)) < 325).sort()) {
+    // 071 ends with RESET ROLE: in production that returns to mnemosine_owner, here to the superuser.
+    await db.query(`SET ROLE ${MIGRATOR}`);
     await db.query('BEGIN');
     await db.query(sqlOf(file));
     await db.query('INSERT INTO public.migrations (filename) VALUES ($1)', [file]);
     await db.query('COMMIT');
   }
-  // THE HARDENING, which makes this an upgrade and not a fresh install. And
-  // the runner's role again, because 071 ends with RESET ROLE.
+  // THE HARDENING, as the runner, which makes this an upgrade and not a fresh install.
+  await db.query(`SET ROLE ${MIGRATOR}`);
   await db.query(fs.readFileSync(path.join(DIR, '..', 'rls-policies.sql'), 'utf-8'));
   await db.query(`SET ROLE ${MIGRATOR}`);
 
-  for (const [tenant, name] of [[TENANT_A, 'a'], [TENANT_B, 'b']]) {
+  for (const [tenant, name] of [[TENANT_A, 'a'], [TENANT_B, 'b'], [TENANT_C, 'c']]) {
     await verifier.query('INSERT INTO tenants (id, name, subdomain, schema_name) VALUES ($1, $2, $3, $4)', [
       tenant, `Firm ${name}`, `firm-${name}-${DATABASE}`, `s_${name}_${DATABASE}`,
     ]);
   }
-  // Firm A has the system user ensureSystemUser creates; firm B has none yet.
+  // Firm A has the system user ensureSystemUser creates; firms B and C have none yet.
   await verifier.query(
     `INSERT INTO users (id, tenant_id, email, password_hash, first_name, last_name, is_active, roles)
      VALUES ($1, $2, $3, $4, 'Mnemosine', 'Setup', false, '["system"]')`,
@@ -252,6 +259,22 @@ describe('the bench is the one where a purge went silent, and it is checked firs
   it('and under row_security = off a bare read of audit_log throws 42501 instead of reading zero rows', async () => {
     await db.query('SET row_security = off');
     await expect(db.query('SELECT count(*) FROM audit_log')).rejects.toMatchObject({ code: '42501' });
+  });
+});
+
+// The other cases see the triggers only after a COMMIT or a ROLLBACK, the same
+// for a suspension of every trigger or for a restore outside the DO block,
+// which psql with no BEGIN would commit apart. So the file itself is read.
+describe('the file suspends only audit_log_append_only, and only inside its DO block', () => {
+  it('one DISABLE and one ENABLE ALWAYS, both in the DO block, and no other trigger named', () => {
+    const code = sqlOf(FILE_325).replace(/--[^\n]*/g, '');
+    const block = code.slice(code.indexOf('DO $purge$'), code.indexOf('$purge$;'));
+    expect(code.match(/(DISABLE|ENABLE)\b[^;]*TRIGGER[^;]*;/g)).toEqual([
+      'DISABLE TRIGGER audit_log_append_only;',
+      'ENABLE ALWAYS TRIGGER audit_log_append_only;',
+    ]);
+    expect(block).toContain('DISABLE TRIGGER audit_log_append_only;');
+    expect(block).toContain('ENABLE ALWAYS TRIGGER audit_log_append_only;');
   });
 });
 
@@ -325,27 +348,34 @@ describe('with every key in a PUT /v1/admin/integrations/s3 row of a tenant, 325
     for (const id of controls) expect(after[id].text).toBe(before[id].text);
   });
 
-  it('each tenant has one record row with its count, under its system user', async () => {
+  it('each tenant has one record row with its count, zero included, under its system user', async () => {
     const rows = await records();
-    expect(rows, 'one record row per tenant').toHaveLength(2);
+    expect(rows, 'one record row per tenant').toHaveLength(3);
     const { rows: users } = await verifier.query<{ tenant_id: string; id: string; password_hash: string }>(
       'SELECT tenant_id, id, first_name, last_name, is_active, roles, password_hash FROM users WHERE email = $1',
       [SYSTEM_USER_EMAIL]
     );
     const systemUserOf = (tenant: string) => users.find((u) => u.tenant_id === tenant);
     expect(systemUserOf(TENANT_A)?.id).toBe(SYSTEM_USER_A);
-    // Firm B had none: 325 created it the way ensureSystemUser does.
-    expect(systemUserOf(TENANT_B)).toMatchObject({
-      first_name: 'Mnemosine', last_name: 'Setup', is_active: false, roles: ['system'],
-    });
-    expect(systemUserOf(TENANT_B)?.password_hash).toMatch(/^[0-9a-f]{64}$/);
-    for (const [tenant, purged] of [[TENANT_A, 2], [TENANT_B, 1]] as const) {
+    // Firms B and C had none: 325 created it the way ensureSystemUser does.
+    for (const tenant of [TENANT_B, TENANT_C]) {
+      expect(systemUserOf(tenant)).toMatchObject({
+        first_name: 'Mnemosine', last_name: 'Setup', is_active: false, roles: ['system'],
+      });
+      expect(systemUserOf(tenant)?.password_hash).toMatch(/^[0-9a-f]{64}$/);
+    }
+    for (const [tenant, purged] of [[TENANT_A, 2], [TENANT_B, 1], [TENANT_C, 0]] as const) {
       const r = rows.find((x) => x.tenant_id === tenant);
       expect(r).toMatchObject({ user_id: systemUserOf(tenant)?.id, action: 'update', legal_entity_id: null });
       expect(r?.new_values).toEqual({ migration: FILE_325, purged_rows: purged, removed_fields: S3_KEYS });
       expect(r?.reason).toMatch(/#370/);
       expect(r?.reason).toMatch(/MNE-001-146/);
     }
+    // A new entity_id: no tenant's, no author's, and no earlier row's.
+    const ids = rows.map((r) => r.entity_id);
+    const taken = [TENANT_A, TENANT_B, TENANT_C, ...users.map((u) => u.id),
+      ...Object.values(before).map((s) => (s.rest as { entity_id: string }).entity_id)];
+    expect(new Set([...ids, ...taken]).size, 'each record row has a new entity_id').toBe(ids.length + taken.length);
   });
 
   it('both triggers are sealed again with their comment, the probe is gone, and the table says what was purged', async () => {
@@ -372,15 +402,22 @@ describe('applied again by a superuser, as every CI job migrates, 325 still coun
     for (const label of ['b2', 'b3']) {
       await insertAudit(verifier, { tenant: TENANT_B, action: 'update', entityType: 's3', newValues: s3Body(label) });
     }
+    // What each firm holds now: 1, 2 and 0 after case 3; 3, 3 and 0 when this case runs alone.
+    const holding = async (tenant: string) => Number((await verifier.query<{ n: string }>(
+      'SELECT count(*) AS n FROM audit_log WHERE tenant_id = $1 AND new_values ?| $2::text[]', [tenant, S3_KEYS]
+    )).rows[0].n);
+    const expected = { a: await holding(TENANT_A), b: await holding(TENANT_B) };
+    const earlier = (await records()).length;
     // RLS filters nothing for a superuser: only the tenant_id predicate keeps
-    // the first tenant of the loop from taking every row. 325 is recorded
-    // already, so this run records nothing in public.migrations.
-    await apply325(verifier, { record: false });
+    // the first tenant of the loop from taking every row. Run alone, this is
+    // 325's first run, and it records 325 as migrate.ts would.
+    await apply325(verifier, { record: (await recorded325()) === 0 });
 
-    const rows = await records();
+    const rows = (await records()).slice(earlier);
     const countsOf = (tenant: string) => rows.filter((r) => r.tenant_id === tenant).map((r) => r.new_values.purged_rows);
-    expect(countsOf(TENANT_A), 'firm A: 2 in the first run, 1 now').toEqual([2, 1]);
-    expect(countsOf(TENANT_B), 'firm B: 1 in the first run, 2 now').toEqual([1, 2]);
+    expect(countsOf(TENANT_A), 'firm A: its own copies').toEqual([expected.a]);
+    expect(countsOf(TENANT_B), 'firm B: its own copies').toEqual([expected.b]);
+    expect(countsOf(TENANT_C), 'firm C: nothing to purge, recorded all the same').toEqual([0]);
     expect(await triggers()).toEqual(sealed);
   });
 });
