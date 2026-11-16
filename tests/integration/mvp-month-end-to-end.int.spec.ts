@@ -36,10 +36,11 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // and `user create`, like every other row of the month (MNE-001-406).
 //
 // THE OPENING IS MIGRATED, NOT TYPED (MNE-001-407). The company arrives from
-// another system with its 2024 books in Anexo 24 XML: `chart import` and
-// `opening-balance import` post them on 2025-01-01, the first day of the
-// fiscal year, and January to November, which hold nothing else, are
-// hard-closed in order so that their carry-forward opens December with them.
+// another system with its 2024 books in Anexo 24 XML: `chart import` adds the
+// one account the seeded chart lacks, `opening-balance import` posts the
+// balances on 2025-01-01, the first day of the fiscal year, and January to
+// November, which hold nothing else, are hard-closed in order so that their
+// carry-forward opens December with them.
 //
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
@@ -156,7 +157,7 @@ const ENDING = {
   '2120': '-1440.00', // −1,600 + 160, credit balance
   '2125': '-480.00', // the opening invoice's IVA, still uncollected
   '3100': '-100000.00',
-  '3200': '-5000.00',
+  '3200': '-5000.00', // the 2024 result, untouched since the opening
   '4100': '-10000.00',
   '4400': '1000.00',
   '6100': '5000.00',
@@ -169,7 +170,7 @@ const TOTAL_LIABILITIES = '4240.00'; // 2,320 + 1,440 + 480
 const TOTAL_EQUITY = '108100.00'; // 100,000 + 5,000 + 3,100
 // Indirect method: 3,100 + 900 (depreciation, no cash) − 4,640 (AR up) − 800
 // (IVA credit up) + 1,440 (IVA payable up) = 0, which is the 5,800 received
-// minus the 5,800 paid. 1135 and 2110 end December where they began it.
+// minus the 5,800 paid. 1135, 2110 and 2125 end December where they began it.
 const OPERATING_CASH = '0.00';
 const INVESTING_CASH = '-36000.00'; // the computers
 const FINANCING_CASH = '0.00'; // the capital came in with the opening, in January
@@ -433,6 +434,19 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       const [applied] = rowsOf<Record<string, unknown>>(ok(['chart', 'import', chart, '--yes', '--json']));
       expect(applied).toMatchObject({ dryRun: false, escrito: true, creadas: ['1320'] });
       expect(applied['yaExistian']).toHaveLength(14);
+
+      // A second dry run reads the accounts back. Nothing is left to create,
+      // 1320 is as the file describes it, and each seeded account still
+      // differs from the file in the SAT grouping code alone, which the seed
+      // never sets (the names and natures are the seed's): an import creates,
+      // and never rewrites what was there.
+      const [again] = rowsOf<Record<string, unknown>>(ok(['chart', 'import', chart, '--dry-run', '--json']));
+      expect(again['aCrear']).toEqual([]);
+      const found = (again['yaExistian'] as { code: string; divergencias: unknown[] }[])
+        .map((m): [string, unknown[]] => [m.code, m.divergencias]);
+      const expected = OPENING_2024.map(([code, , group]): [string, unknown[]] =>
+        [code, code === '1320' ? [] : [{ campo: 'codigo_agrupador_sat', enElArchivo: group, enElSistema: '' }]]);
+      expect(Object.fromEntries(found)).toEqual(Object.fromEntries(expected));
     }, STEP_TIMEOUT_MS);
 
     it('imports the open receivables and payables with the migration, and stops when they do not tie — MNE-001-022, MNE-001-023', () => {
@@ -447,8 +461,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       // The bill one peso short: 2,319.00 of documents against the 2,320.00
       // the trial balance declares on 2110. With --yes, only the refusal
-      // keeps it from writing: exit 4, and the ledger stays empty. The report
-      // keeps the service's Spanish keys, read as printed.
+      // keeps it from writing: exit 4. The report keeps the service's Spanish
+      // keys, read as printed. Being the preview's report, it says
+      // `escrito: false` by construction. What shows that nothing was written
+      // is that the ledger is empty, and so are the open documents and their
+      // parties, which the leaf also declares it writes.
       const short = OPEN_DOCUMENTS.map((d) => (d.cuenta === '2110' ? { ...d, importe: '2319.00' } : d));
       const refused = mnemosine(load(subledger('subledger-one-peso-short.json', short)));
       expect(refused.status, refused.out + refused.err).toBe(4);
@@ -458,6 +475,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(untied).toMatchObject({ numCta: '2110', severidad: 'bloquea' });
       expect(untied?.['mensaje']).toContain('faltan 1.00');
       expect(rowsOf(ok(['entry', 'list', '--all', '--json']))).toEqual([]);
+      for (const leaf of ['invoice', 'customer', 'bill', 'vendor']) {
+        expect(rowsOf(ok([leaf, 'list', '--all', '--json'])), `${leaf} list after the refusal`).toEqual([]);
+      }
 
       const [loaded] = rowsOf<Record<string, unknown>>(ok(load(subledger('subledger.json', OPEN_DOCUMENTS))));
       expect(loaded).toMatchObject({ escrito: true, loadMode: 'post', fecha: '2025-01-01', arInvoices: 1, apBills: 1 });
@@ -472,14 +492,17 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         invoice_number: 'A-2024-117', customer_name: 'Distribuidora del Bajio SA de CV', status: 'sent',
       })]);
       expect(money(invoices[0].amount_due)).toBe('3480.00');
+      expect(rowsOf(ok(['invoice', 'show', 'A-2024-117', '--json']))[0]).toMatchObject({ journal_entry_number: openingEntry });
       const bills = rowsOf<Record<string, string>>(ok(['bill', 'list', '--json']));
       expect(bills).toHaveLength(1);
       // The BILL series of its own document year, so section 3's bill is still BILL-2025-00001.
       expect(bills[0].bill_number).toMatch(/^BILL-2024-\d{5}$/);
       expect(money(bills[0].amount_due)).toBe('2320.00');
       // 2,320 / 1.16 = 2,000 of base and 320 of IVA: the 320 the trial balance parks in 1135.
-      const [bill] = rowsOf<Record<string, string>>(ok(['bill', 'show', bills[0].bill_number, '--json']));
-      expect(bill).toMatchObject({ vendor_invoice_number: 'F-2024-881', status: 'approved' });
+      const [bill] = rowsOf<Record<string, string>>(ok(['bill', 'show', bills[0].bill_number, '--journal', '--json']));
+      expect(bill).toMatchObject({
+        vendor_invoice_number: 'F-2024-881', status: 'approved', journal_entry: { entry_number: openingEntry },
+      });
       expect(money(bill.subtotal)).toBe('2000.00');
       expect(money(bill.tax_amount)).toBe('320.00');
 
