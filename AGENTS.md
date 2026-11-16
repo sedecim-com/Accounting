@@ -7,7 +7,7 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
 1. Lee la issue completa, **y su comentario de clasificación**:
    - su dificultad `difficulty:D*` decide tu modelo y tu presupuesto (`docs/ROUTING.md`);
    - su autonomía `autonomy:A*` decide si puedes implementar o sólo proponer;
-   - su `status:*` dice si puedes tomarla. Sólo `status:agent-ready` se toma; en D3 y D4, además, con `/confirmar` de un humano.
+   - su `status:*` dice si puedes tomarla. Sólo `status:agent-ready` se toma; en D3 y D4, además, con `/confirmar` de un humano o del coordinador en nombre del dueño (`docs/ROUTING.md`, «Quién revisa»).
 2. Lee [`docs/REPO_MAP.md`](docs/REPO_MAP.md) antes de abrir archivos:
    - ubica el módulo, busca el símbolo con `rg` y lee rangos de líneas;
    - un archivo de la lista de «1 000 líneas o más» no se lee completo; `src/plan/criteria/e1-2.ts`, por ejemplo, pasa de 2 800.
@@ -39,7 +39,7 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
 - **No añades dependencias** sin justificarlo en el PR.
 - **Datos:** nunca reales. Sólo `tests/fixtures/` y generadores sintéticos.
 - **Ambigüedad:** si la issue es ambigua, pregunta en la issue y pon `status:needs-clarification`. No adivines (ver «Si el plan está mal»).
-- **Fusiones:** no fusionas PRs y no apruebas tu propio trabajo. La revisión es de otro modelo y de una persona (`docs/ROUTING.md`).
+- **Fusiones:** no fusionas PRs y no apruebas tu propio trabajo. La puerta es la CI, sin revisión obligatoria de otro modelo, y la revisión humana que piden `docs/ROUTING.md` o A2/A3 sigue en pie. La única excepción es el coordinador, dentro de la delegación del dueño (`docs/ROUTING.md`, «Quién revisa»), que ningún otro agente hereda.
 
 ## Ciclo de trabajo, y cuidar los tokens
 

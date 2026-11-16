@@ -336,13 +336,14 @@ errores rompen la compilación; las advertencias llevan trinquete
 Lee [CONTRIBUTING.md](CONTRIBUTING.md): están ahí el flujo, los invariantes de la
 casa y por qué los mensajes de commit explican el *porqué* y no el diff.
 
-En corto: un PR por idea, contra `main`, con **1 aprobación** y la CI en verde
-—Tipos, Lint, Pruebas unitarias, Integración contra Postgres, Aislamiento por
-inquilino y Estado del plan—. Un push nuevo invalida las aprobaciones
-anteriores, y Copilot revisa cada PR automáticamente; su comentario es insumo,
-no la aprobación que exige la regla. Si tu cambio cierra un paquete del plan,
-añádelo a la lista `--exigir` de `.github/workflows/ci.yml` en el mismo commit;
-si lo reabre, quítalo ahí mismo y di por qué.
+En corto: un PR por idea, contra `develop`, con la CI en verde —Tipos, Lint,
+Pruebas unitarias, Integración contra Postgres, Aislamiento por inquilino y
+Estado del plan—. La regla de las ramas no pide aprobaciones; la revisión
+humana que pide cada issue la fija `docs/ROUTING.md`. Copilot revisa cada PR
+automáticamente; su comentario es insumo, no una aprobación. Si tu cambio
+cierra un paquete del plan, añádelo a la lista `--exigir` de
+`.github/workflows/ci.yml` en el mismo commit; si lo reabre, quítalo ahí mismo
+y di por qué.
 
 Los comentarios y la documentación **nacen en inglés** (epic
 [#141](https://github.com/sedecim-com/Accounting/issues/141)); la superficie que

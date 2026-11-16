@@ -54,7 +54,7 @@ CI exige en verde: **Tipos**, **Pruebas unitarias**, **Integración contra Postg
 
 ## 4. Sin review por otro vendor
 
-Ya no hay revisión obligatoria de otro modelo o CLI: Witness (`witness-vic[bot]`) dejó de ser requisito el 2026-11-15, por decisión del dueño. La puerta es la CI: un PR con los cinco checks en verde se fusiona por auto-merge, sin aprobaciones. Ningún agente espera la etiqueta `witness:*` ni un dictamen de Witness para avanzar; donde A2 o A3 piden que el dueño revise el PR, eso sigue igual.
+Ya no hay revisión obligatoria de otro modelo o CLI: Witness (`witness-vic[bot]`) dejó de ser requisito el 2026-11-15, por decisión del dueño. La puerta es la CI: un PR con los cinco checks en verde se fusiona por auto-merge, sin aprobaciones. Ningún agente espera la etiqueta `witness:*` ni un dictamen de Witness para avanzar; donde A2 o A3 piden que el dueño revise el PR, eso sigue igual, salvo lo que el dueño delegó en el coordinador (`docs/ROUTING.md`, «Quién revisa»).
 
 ## 5. Si el plan está mal: comentar y PARAR
 
@@ -79,6 +79,8 @@ Una issue está en **un solo** estado, que es su etiqueta `status:*`. Mientras n
 | Cambios pedidos | `status:changes-requested` | Quien revisa | El autor responde cada comentario con un commit o una justificación |
 | Escalada | `status:escalated` | El agente, al agotar su tope o tras 3 fallas (`docs/ROUTING.md`) | Un humano decide en un día hábil |
 | Bloqueada | `status:blocked` | Cualquiera, nombrando lo que bloquea | Se cierra lo que bloqueaba |
+
+Mientras rija la delegación del dueño del 2026-11-16, los `/confirmar` y `/aprobar-plan` de esta tabla los comenta el coordinador en nombre del dueño, salvo en lo que toca una ruta crítica: ahí siguen siendo del dueño, y el comentario del coordinador dice qué no aprueba, como en #441 y #644. Cuáles son esas rutas y qué PR sigue esperando al dueño lo dice «Quién revisa» en [`docs/ROUTING.md`](ROUTING.md).
 
 **Capacidad de revisión.** Los agentes producen PRs más rápido de lo que una persona los revisa. Sin límite, la cola crece y los PRs acaban aprobándose sin leerse. Por eso:
 

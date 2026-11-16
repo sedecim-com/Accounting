@@ -100,17 +100,18 @@ bash scripts/verify-isolation.sh
    `aud-7-bitacora`, no `patch-1`).
 2. Un PR por idea. Un PR que arregla tres cosas no se puede revisar ni revertir.
 3. PR contra `develop`: el flujo es `feature → develop → release → main`
-   (`docs/adr/0008-develop-release-branches.md`). En `main` se exige
-   **1 aprobación**, y los pushes nuevos invalidan las aprobaciones
-   anteriores; la misma protección para `develop` y `release` es un ajuste de
-   GitHub que el owner todavía no activa, y hasta entonces no se afirma.
+   (`docs/adr/0008-develop-release-branches.md`). Una misma regla de GitHub
+   protege `develop`, `release` y `main`: PR obligatorio, sin aprobaciones
+   requeridas, y ni borrado ni `push --force`; los administradores de la
+   organización pueden saltarla. La revisión humana que pide cada issue la
+   fija `docs/ROUTING.md` («Quién revisa»).
 4. La CI debe estar en verde: **Tipos**, **Pruebas unitarias**, **Integración
    contra Postgres**, **Aislamiento por inquilino**, **Estado del plan** y
    **Commit subjects**. Un rojo se arregla, no se explica en un comentario.
    Cuáles de ellos *bloquean* el botón de fusionar lo decide la lista de
-   comprobaciones obligatorias del repositorio —un ajuste fuera del árbol, que
-   este archivo no puede comprobar y por tanto no afirma—; al escribir esto
-   nombraba dos.
+   comprobaciones obligatorias del repositorio, un ajuste fuera del árbol: al
+   2026-11-16 nombra cinco, todos menos **Commit subjects**
+   (`docs/PROCESS.md` §3).
 5. Si el cambio cierra un paquete del plan, añádelo a la lista `--exigir` de
    `.github/workflows/ci.yml` **en el mismo commit que lo cierra**. Si reabre
    uno, quítalo de la lista ahí mismo y di por qué en el cuerpo: la reapertura
