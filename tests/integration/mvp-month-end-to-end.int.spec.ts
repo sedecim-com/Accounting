@@ -35,10 +35,16 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // NOTHING IS SEEDED WITH SQL. The firm and its user come from `tenant create`
 // and `user create`, like every other row of the month (MNE-001-406).
 //
-// NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. The helper keeps every
-// provider credential and MNEMOSINE_PROVIDER out of the child (`childEnv`), so
-// a key in the shell or the .env of whoever runs the suite cannot turn the
-// manual path into a model's.
+// NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
+// the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
+// credential each built-in profile names (`api_key_env` of BUILTIN_PROFILES)
+// and the two switches that would let a .env override those blanks
+// (DOTENV_OVERRIDE, DOTENV_CONFIG_OVERRIDE), and it points HOME and
+// XDG_CONFIG_HOME at a throwaway directory. So none of these variables, in the
+// shell or in a .env of whoever runs the suite, can turn the manual path into
+// a model's. A mnemosine.config.json in the checkout can declare providers of
+// its own (a key, an api_key_cmd, a default_provider) that no blank reaches,
+// so the first test fails when the child loads one; CI has none.
 //
 // NO POSTGRES, NO RUN: without TEST_ADMIN_DATABASE_URL (a role that can
 // CREATE DATABASE) the integration suite refuses to start, and
@@ -107,10 +113,12 @@ let entityId = '';
 let workDir: string;
 
 /**
- * Every variable that hands the child a model provider by name: the three of
+ * The variables that hand the child a model provider by name: the three of
  * MNE-001-406's acceptance, and the credential each built-in profile names
  * (`api_key_env`), read from the profiles so that a provider added there is
- * kept out the day it lands. `childEnv` strips them.
+ * kept out the day it lands. `childEnv` blanks them. A provider declared in a
+ * mnemosine.config.json names its own variables, so the first test catches
+ * that file instead.
  */
 const PROVIDER_ENV = [
   ...new Set([
@@ -144,15 +152,18 @@ function contextOf(scope: Scope): string[] {
 
 /**
  * The child's environment: the suite's own, plus `extra` for this call, and
- * then no model provider, whatever the shell or a .env of whoever runs the
- * suite holds. PROVIDER_ENV goes, and so does every ANTHROPIC_* variable: with
- * no key, the Anthropic SDK of the default profile authenticates on its own
- * from them (auth token, profile, workload identity: see
- * node_modules/@anthropic-ai/sdk/core/credentials.js) and from the profiles
- * under XDG_CONFIG_HOME, which therefore points inside the throwaway HOME too.
+ * then none of the variables that hand it a model provider, whatever the shell
+ * or a .env of whoever runs the suite holds. PROVIDER_ENV goes, and so does
+ * every ANTHROPIC_* variable: with no key, the Anthropic SDK of the default
+ * profile authenticates on its own from them (auth token, profile, workload
+ * identity: see node_modules/@anthropic-ai/sdk/core/credentials.js) and from
+ * the profiles under XDG_CONFIG_HOME, which therefore points inside the
+ * throwaway HOME too.
  *
- * NOTE: blanked, not deleted. dotenv never overrides a variable that is set,
- * so an empty one also keeps the child's own .env from bringing the key back.
+ * NOTE: blanked, not deleted. dotenv does not override a variable that is set
+ * unless DOTENV_OVERRIDE (or DOTENV_CONFIG_OVERRIDE) asks it to, so those two
+ * are blanked as well, and an empty key keeps the child's own .env from
+ * bringing it back.
  */
 function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
@@ -167,6 +178,9 @@ function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   };
   for (const name of Object.keys(env)) if (name.startsWith('ANTHROPIC_')) env[name] = '';
   for (const name of PROVIDER_ENV) env[name] = '';
+  // dotenv reads its options from the environment too, DOTENV_OVERRIDE first
+  // and DOTENV_CONFIG_OVERRIDE after it, and '' reads as false.
+  for (const name of ['DOTENV_OVERRIDE', 'DOTENV_CONFIG_OVERRIDE']) env[name] = '';
   return env;
 }
 
@@ -217,21 +231,37 @@ afterAll(() => {
 });
 
 describe('MVP month end to end: December 2025 of a synthetic SME, through the CLI only', () => {
-  it('runs with no model provider: no provider credential and no MNEMOSINE_PROVIDER reach the binary', () => {
-    // Poisoned on both roads a credential takes into the child: the environment
-    // that runs the suite, and the .env the child loads from its own HOME. Each
-    // road names another provider, so the default printed says which one leaked.
+  it('runs with no model provider: no built-in provider credential, no MNEMOSINE_PROVIDER and no mnemosine.config.json reach the binary', () => {
+    // A credential takes three roads into the child: the environment that runs
+    // the suite, and the two .env files that one dotenv call loads, the
+    // checkout's ./.env and the ~/.mnemosine/.env of the child's HOME
+    // (src/config/env-file.ts). Both files go through the same override rule,
+    // so the test poisons the environment and the HOME file, each naming
+    // another provider (the default printed says which one leaked), and leaves
+    // the checkout's .env, which belongs to whoever runs the suite, alone.
+    // The poisoned names come from the profiles, not from PROVIDER_ENV, the
+    // list under test: a name the helper forgets is still poisoned, and reads ✔.
+    const keys = [
+      ...new Set([
+        'ANTHROPIC_API_KEY',
+        'OPENAI_API_KEY',
+        ...Object.values(BUILTIN_PROFILES).flatMap((p) => (p.api_key_env ? [p.api_key_env] : [])),
+      ]),
+    ];
     const inherited: Record<string, string> = {
-      ...Object.fromEntries(PROVIDER_ENV.map((name) => [name, `leaked-${name}`])),
+      ...Object.fromEntries(keys.map((name) => [name, `leaked-${name}`])),
       MNEMOSINE_PROVIDER: 'ollama',
       ANTHROPIC_AUTH_TOKEN: 'leaked-token',
+      XDG_CONFIG_HOME: '/nonexistent/leaked-config',
+      DOTENV_OVERRIDE: 'true',
+      DOTENV_CONFIG_OVERRIDE: 'true',
     };
     const saved = Object.fromEntries(Object.keys(inherited).map((name) => [name, process.env[name]]));
     const childDotenv = path.join(workDir, '.mnemosine', '.env');
     fs.mkdirSync(path.dirname(childDotenv), { recursive: true });
     fs.writeFileSync(
       childDotenv,
-      PROVIDER_ENV.map((name) => `${name}=${name === 'MNEMOSINE_PROVIDER' ? 'hermes' : 'leaked-from-dotenv'}\n`).join('')
+      [...keys.map((name) => `${name}=leaked-from-dotenv\n`), 'MNEMOSINE_PROVIDER=hermes\n'].join('')
     );
     Object.assign(process.env, inherited);
     try {
@@ -240,9 +270,14 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         if (key) expect(listed, `${key} in:\n${listed}`).toContain(`${key} ✘ missing`);
       }
       expect(listed).not.toMatch(/^(ollama|hermes) ← default$/m);
-      // What `providers` cannot print: the Anthropic SDK's own credentials, and
-      // a key that one call's environment tries to hand in.
+      // A mnemosine.config.json can declare providers, keys and a default that
+      // no blank reaches, so the child must load none: `providers` prints this
+      // line only when it loads no config file.
+      expect(listed, `the child loaded a mnemosine.config.json:\n${listed}`).toContain('Using built-in profiles.');
+      // What `providers` cannot print: the Anthropic SDK's own credentials and
+      // config directory, and a key that one call's environment tries to hand in.
       expect(childEnv().ANTHROPIC_AUTH_TOKEN).toBe('');
+      expect(childEnv().XDG_CONFIG_HOME).toBe(path.join(workDir, '.config'));
       expect(childEnv({ OPENAI_API_KEY: 'leaked-by-a-call' }).OPENAI_API_KEY).toBe('');
     } finally {
       for (const [name, value] of Object.entries(saved)) {
