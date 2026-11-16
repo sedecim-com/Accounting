@@ -547,7 +547,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         .toEqual([...Array<string>(11).fill('hard_close'), 'open']);
     }, STEP_TIMEOUT_MS);
 
-    it.todo('imports the 8xx memorandum accounts with the chart and the opening trial balance, and leaves them out of the footing — MNE-001-019, MNE-001-419');
+    it.todo('imports the 8xx memorandum accounts with the chart and the opening trial balance, and leaves them out of the footing — MNE-001-019, MNE-001-484');
   });
 
   describe('2 · CFDI to the ledger', () => {
