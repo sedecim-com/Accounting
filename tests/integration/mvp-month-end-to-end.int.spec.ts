@@ -30,10 +30,16 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 //
 // THE FIGURES ARE WRITTEN BY HAND, never copied from the output: a test
 // generated from the system's own answer cannot fail. Each constant carries
-// its derivation from the six documents of the month.
+// its derivation from the opening and the six documents of the month.
 //
 // NOTHING IS SEEDED WITH SQL. The firm and its user come from `tenant create`
 // and `user create`, like every other row of the month (MNE-001-406).
+//
+// THE OPENING IS MIGRATED, NOT TYPED (MNE-001-407). The company arrives from
+// another system with its 2024 books in Anexo 24 XML: `chart import` and
+// `opening-balance import` post them on 2025-01-01, the first day of the
+// fiscal year, and January to November, which hold nothing else, are
+// hard-closed in order so that their carry-forward opens December with them.
 //
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
@@ -61,8 +67,67 @@ const COMPANY_RFC = 'EKU9003173C9';
 const CUSTOMER_RFC = 'SIN060101AB1';
 const VENDOR_RFC = 'PRV060101AB1';
 
+// ── THE OPENING, FROM THE PREVIOUS SYSTEM ──────────────────────────────
+// The books at 2024-12-31: the chart (CtaCatalogo) and the trial balance
+// (BalanzaComprobacion) of the migration are both written from these rows.
+// Every code but 1320, a rent deposit, is one the seeded chart already has,
+// so `chart import` creates 1320 alone; SubCtaDe and Nivel follow the seeded
+// tree, where the role accounts 1135 and 2125 hang from no parent. Eight
+// accounts carry a balance of their own:
+//   1120  3,480.00 is one open invoice, 3,000 + 480 of IVA: uncollected, so
+//         its 480 sits in 2125, IVA trasladado no cobrado
+//   2110  2,320.00 is one open bill, 2,000 + 320 of IVA: unpaid, so its 320
+//         waits in 1135 until it is paid (LIVA art. 5 fr. III)
+// Debits 100,000 + 3,480 + 320 + 4,000 = 107,800 = credits 2,320 + 480
+// + 100,000 + 5,000: the entry foots by itself, with no plug. As the Anexo 24
+// asks, the parents declare their subaccounts inside, so they carry nothing
+// of their own to post: 1000 = 103,480 + 4,000; 1100 = 100,000 + 3,480;
+// 2000 = 2100 = 2,320; 3000 = 100,000 + 5,000.
+const OPENING_2024 = [
+  // NumCta, Desc, CodAgrup, SubCtaDe, Nivel, Natur, SaldoFin
+  ['1000', 'Activo', '100', '', 1, 'D', '107480.00'],
+  ['1100', 'Activo Circulante', '100.01', '1000', 2, 'D', '103480.00'],
+  ['1110', 'Caja y Bancos', '102', '1100', 3, 'D', '100000.00'],
+  ['1111', 'Banco Nacional - MXN', '102.01', '1110', 4, 'D', '100000.00'],
+  ['1120', 'Cuentas por Cobrar', '105.01', '1100', 3, 'D', '3480.00'],
+  ['1135', 'IVA Pendiente de Acreditar', '119.01', '', 1, 'D', '320.00'],
+  ['1300', 'Activo Diferido', '100.02', '1000', 2, 'D', '4000.00'],
+  ['1320', 'Depósitos en Garantía', '184.02', '1300', 3, 'D', '4000.00'],
+  ['2000', 'Pasivo', '200', '', 1, 'A', '2320.00'],
+  ['2100', 'Pasivo Circulante', '200.01', '2000', 2, 'A', '2320.00'],
+  ['2110', 'Cuentas por Pagar', '201.01', '2100', 3, 'A', '2320.00'],
+  ['2125', 'IVA Trasladado No Cobrado', '209.01', '', 1, 'A', '480.00'],
+  ['3000', 'Capital Contable', '300', '', 1, 'A', '105000.00'],
+  ['3100', 'Capital Social', '301.01', '3000', 2, 'A', '100000.00'],
+  ['3200', 'Resultado de Ejercicios Anteriores', '304.01', '3000', 2, 'A', '5000.00'],
+] as const;
+const OPENING_DEBITS = '107800.00';
+const SAT_NS = 'http://www.sat.gob.mx/esquemas/ContabilidadE/1_3';
+const CHART_XML =
+  `<?xml version="1.0" encoding="UTF-8"?><catalogocuentas:Catalogo xmlns:catalogocuentas="${SAT_NS}/CatalogoCuentas" ` +
+  `Version="1.3" RFC="${COMPANY_RFC}" Mes="12" Anio="2024">` +
+  OPENING_2024.map(([num, desc, group, parent, level, nature]) =>
+    `<catalogocuentas:Ctas CodAgrup="${group}" NumCta="${num}" Desc="${desc}"` +
+    `${parent ? ` SubCtaDe="${parent}"` : ''} Nivel="${level}" Natur="${nature}"/>`).join('') +
+  '</catalogocuentas:Catalogo>';
+// No movement in December 2024, so SaldoIni is SaldoFin: the cutoff is what matters.
+const TRIAL_BALANCE_XML =
+  `<?xml version="1.0" encoding="UTF-8"?><BCE:Balanza xmlns:BCE="${SAT_NS}/BalanzaComprobacion" ` +
+  `Version="1.3" RFC="${COMPANY_RFC}" Mes="12" Anio="2024" TipoEnvio="N">` +
+  OPENING_2024.map(([num, , , , , , balance]) =>
+    `<BCE:Ctas NumCta="${num}" SaldoIni="${balance}" Debe="0.00" Haber="0.00" SaldoFin="${balance}"/>`).join('') +
+  '</BCE:Balanza>';
+// The documents behind 1120 and 2110, as the previous system's subledgers list
+// them. Parties of their own, so that section 3's 'Cliente Sintetico' and
+// 'Proveedor Sintetico' still name one each.
+const OPEN_DOCUMENTS = [
+  { cuenta: '1120', documento: 'A-2024-117', contraparte: 'Distribuidora del Bajio SA de CV', rfc: 'DBA060101AB1',
+    fecha: '2024-12-10', vencimiento: '2025-01-09', importe: '3480.00' },
+  { cuenta: '2110', documento: 'F-2024-881', contraparte: 'Servicios Logisticos del Norte SA de CV', rfc: 'SLN060101AB1',
+    fecha: '2024-12-12', vencimiento: '2025-01-11', importe: '2320.00', ivaRate: '0.16' },
+];
+
 // ── THE MONTH, BY HAND ──────────────────────────────────────────────────
-//   12-01 opening        1111 Dr 100,000.00 / 3100 Cr 100,000.00
 //   12-01 computers      1220 Dr 36,000.00 / 1111 Cr 36,000.00
 //   12-05 invoice        1120 Dr 11,600.00 / 4100 Cr 10,000.00, 2120 Cr 1,600.00
 //                        (16 % of 10,000; no MetodoPago on a typed invoice → PUE)
@@ -75,17 +140,23 @@ const VENDOR_RFC = 'PRV060101AB1';
 //   12-31 depreciation   6140 Dr 900.00 / 1290 Cr 900.00, posted by the close:
 //                        computer class, 30 % LISR maximum → 40-month book
 //                        life; whole-month convention, so 36,000 / 40
-// Debits of the month: 100,000 + 36,000 + 11,600 + 5,800 + 5,800 + 1,160
-// + 5,800 + 800 + 900
-const MONTH_DEBITS = '167860.00';
+// Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
+// + 900 = 67,860. The dossier seals the trial balance as of 12-31, so it
+// counts the opening of 01-01 too: 107,800 + 67,860.
+const SEALED_DEBITS = '175660.00';
 const ENDING = {
-  '1111': '64000.00', // 100,000 − 36,000 − 5,800 + 5,800 (see MNE-001-039 in step 4)
-  '1120': '4640.00', // 11,600 − 5,800 − 1,160
+  '1111': '64000.00', // 100,000 opening − 36,000 − 5,800 + 5,800 (see MNE-001-039 in step 4)
+  '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160
   '1130': '800.00',
+  '1135': '320.00', // the opening's; the 800 parked on 12-08 moved to 1130 on 12-20
   '1220': '36000.00',
   '1290': '-900.00', // accumulated depreciation, credit balance
+  '1320': '4000.00', // the deposit, untouched since the opening
+  '2110': '-2320.00', // the opening bill; −5,800 on 12-08 and +5,800 on 12-20 net to nothing
   '2120': '-1440.00', // −1,600 + 160, credit balance
+  '2125': '-480.00', // the opening invoice's IVA, still uncollected
   '3100': '-100000.00',
+  '3200': '-5000.00',
   '4100': '-10000.00',
   '4400': '1000.00',
   '6100': '5000.00',
@@ -93,15 +164,15 @@ const ENDING = {
 } as const;
 const NET_SALES = '9000.00'; // 10,000 − 1,000 returned
 const NET_INCOME = '3100.00'; // 9,000 − 5,000 − 900
-const TOTAL_ASSETS = '104540.00'; // 64,000 + 4,640 + 800 + 36,000 − 900
-const TOTAL_LIABILITIES = '1440.00';
-const TOTAL_EQUITY = '103100.00'; // 100,000 + 3,100
+const TOTAL_ASSETS = '112340.00'; // 64,000 + 8,120 + 800 + 320 + 36,000 − 900 + 4,000
+const TOTAL_LIABILITIES = '4240.00'; // 2,320 + 1,440 + 480
+const TOTAL_EQUITY = '108100.00'; // 100,000 + 5,000 + 3,100
 // Indirect method: 3,100 + 900 (depreciation, no cash) − 4,640 (AR up) − 800
 // (IVA credit up) + 1,440 (IVA payable up) = 0, which is the 5,800 received
-// minus the 5,800 paid.
+// minus the 5,800 paid. 1135 and 2110 end December where they began it.
 const OPERATING_CASH = '0.00';
 const INVESTING_CASH = '-36000.00'; // the computers
-const FINANCING_CASH = '100000.00';
+const FINANCING_CASH = '0.00'; // the capital came in with the opening, in January
 
 // The firm's handle, its owner's login and that login's password: synthetic,
 // and fresh on every run, so none of them can name a real account.
@@ -110,6 +181,8 @@ const userEmail = `month-${suffix}@example.test`;
 const password = `month-${uuidv4()}`;
 let tenantId = '';
 let entityId = '';
+/** The opening's entry number, as `opening-balance import --json` printed it. */
+let openingEntry = '';
 let workDir: string;
 
 /**
@@ -306,7 +379,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(created.out + created.err).not.toContain(password);
     }, STEP_TIMEOUT_MS);
 
-    it('creates the entity with its chart and the 2025 fiscal year, and posts the opening balance', () => {
+    it('creates the entity with its seeded chart and the 2025 fiscal year', () => {
       const created = rowsOf<{ entityId: string; taxId: string }>(
         ok(['entity', 'create', 'Comercializadora Sintetica SA de CV', '--tax-id', COMPANY_RFC,
           '--tax-regime', '601', '--tax-postal-code', '01000', '--json'])
@@ -315,10 +388,6 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       entityId = created[0].entityId;
 
       ok(['year', 'create', '2025']);
-      // The bridge until the Anexo 24 import exists: the same opening, typed.
-      ok(['entry', 'create', '--date', '2025-12-01', '--description', 'Opening balance',
-        '--line', '1111:debit:100000.00', '--line', '3100:credit:100000.00']);
-      expect(ok(['entry', 'post', 'JE-2025-00001', '--yes']).out).toContain('JE-2025-00001 posted');
     }, STEP_TIMEOUT_MS);
 
     it('records regime 601 and the fiscal address of the persona moral — MNE-001-017', () => {
@@ -349,8 +418,112 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(dry.out).toContain('dry-run: nothing was written');
     }, STEP_TIMEOUT_MS);
 
-    it.todo('imports the chart and the opening trial balance from Anexo 24 XML, the 8xx memorandum accounts included and excluded from the footing — MNE-001-018, MNE-001-019, MNE-001-099');
-    it.todo('imports the open receivables and payables with the migration, and stops when they do not tie — MNE-001-022, MNE-001-023');
+    it('imports the chart from Anexo 24 XML: the dry run writes nothing, and --yes creates the one account the seeded chart lacks — MNE-001-018', () => {
+      const chart = path.join(workDir, 'catalogo-2024-12.xml');
+      fs.writeFileSync(chart, CHART_XML);
+      // The report publishes the service's keys, in Spanish: read as printed, never renamed.
+      const [dry] = rowsOf<Record<string, unknown>>(ok(['chart', 'import', chart, '--dry-run', '--json']));
+      expect(dry).toMatchObject({
+        dryRun: true, escrito: false, creadas: [], omitidas: [], aCrear: [expect.objectContaining({ code: '1320' })],
+      });
+      // The other fourteen are seeded accounts: named, and left as they are.
+      expect(dry['yaExistian']).toHaveLength(14);
+
+      // Only the dry run came before: had it written 1320, this run would list it as existing.
+      const [applied] = rowsOf<Record<string, unknown>>(ok(['chart', 'import', chart, '--yes', '--json']));
+      expect(applied).toMatchObject({ dryRun: false, escrito: true, creadas: ['1320'] });
+      expect(applied['yaExistian']).toHaveLength(14);
+    }, STEP_TIMEOUT_MS);
+
+    it('imports the open receivables and payables with the migration, and stops when they do not tie — MNE-001-022, MNE-001-023', () => {
+      const trialBalance = path.join(workDir, 'balanza-2024-12.xml');
+      fs.writeFileSync(trialBalance, TRIAL_BALANCE_XML);
+      const subledger = (name: string, documents: object[]): string => {
+        const file = path.join(workDir, name);
+        fs.writeFileSync(file, JSON.stringify(documents));
+        return file;
+      };
+      const load = (file: string): string[] => ['opening-balance', 'import', trialBalance, '--subledger', file, '--yes', '--json'];
+
+      // The bill one peso short: 2,319.00 of documents against the 2,320.00
+      // the trial balance declares on 2110. With --yes, only the refusal
+      // keeps it from writing: exit 4, and the ledger stays empty. The report
+      // keeps the service's Spanish keys, read as printed.
+      const short = OPEN_DOCUMENTS.map((d) => (d.cuenta === '2110' ? { ...d, importe: '2319.00' } : d));
+      const refused = mnemosine(load(subledger('subledger-one-peso-short.json', short)));
+      expect(refused.status, refused.out + refused.err).toBe(4);
+      const [stopped] = rowsOf<Record<string, unknown>>(refused);
+      expect(stopped).toMatchObject({ escrito: false, asiento: null });
+      const untied = (stopped['findings'] as Record<string, string>[]).find((f) => f['regla'] === 'APE-DETALLE-NO-CUADRA');
+      expect(untied).toMatchObject({ numCta: '2110', severidad: 'bloquea' });
+      expect(untied?.['mensaje']).toContain('faltan 1.00');
+      expect(rowsOf(ok(['entry', 'list', '--all', '--json']))).toEqual([]);
+
+      const [loaded] = rowsOf<Record<string, unknown>>(ok(load(subledger('subledger.json', OPEN_DOCUMENTS))));
+      expect(loaded).toMatchObject({ escrito: true, loadMode: 'post', fecha: '2025-01-01', arInvoices: 1, apBills: 1 });
+      expect(money(loaded['totalDebe'] as string)).toBe(OPENING_DEBITS);
+      expect(money(loaded['totalHaber'] as string)).toBe(OPENING_DEBITS);
+      openingEntry = (loaded['asiento'] as { entry_number: string }).entry_number;
+
+      // Each document is the invoice or bill it was, hanging from the opening
+      // entry, which already carries its amount.
+      const invoices = rowsOf<Record<string, string>>(ok(['invoice', 'list', '--json']));
+      expect(invoices).toEqual([expect.objectContaining({
+        invoice_number: 'A-2024-117', customer_name: 'Distribuidora del Bajio SA de CV', status: 'sent',
+      })]);
+      expect(money(invoices[0].amount_due)).toBe('3480.00');
+      const bills = rowsOf<Record<string, string>>(ok(['bill', 'list', '--json']));
+      expect(bills).toHaveLength(1);
+      // The BILL series of its own document year, so section 3's bill is still BILL-2025-00001.
+      expect(bills[0].bill_number).toMatch(/^BILL-2024-\d{5}$/);
+      expect(money(bills[0].amount_due)).toBe('2320.00');
+      // 2,320 / 1.16 = 2,000 of base and 320 of IVA: the 320 the trial balance parks in 1135.
+      const [bill] = rowsOf<Record<string, string>>(ok(['bill', 'show', bills[0].bill_number, '--json']));
+      expect(bill).toMatchObject({ vendor_invoice_number: 'F-2024-881', status: 'approved' });
+      expect(money(bill.subtotal)).toBe('2000.00');
+      expect(money(bill.tax_amount)).toBe('320.00');
+
+      // The vendor subledger against 2110 on the day of the opening. --strict
+      // would exit 4 on any reconciling item, the opening entry included.
+      expect(rowsOf(ok(['ap', 'reconcile', '--as-of', '2025-01-01', '--strict', '--json']))[0]).toMatchObject({
+        subdiario: '2320.00', mayor: '2320.00', diferencia: '0.00', cuadra: true, partidas: [],
+      });
+    }, STEP_TIMEOUT_MS);
+
+    it('the opening, posted on 2025-01-01, is the only entry of the year so far and ties to the peso; January to November are hard-closed in order — MNE-001-018, MNE-001-099', () => {
+      // Posted and not left as a draft: apertura_modo_de_carga posts by
+      // default (MNE-001-099). No opening is typed in December any more.
+      const entries = rowsOf<Record<string, string>>(ok(['entry', 'list', '--all', '--json']));
+      expect(entries).toEqual([expect.objectContaining({
+        entry_number: openingEntry, entry_date: '2025-01-01', status: 'posted', source_type: 'opening_balance',
+      })]);
+      expect(money(entries[0].total_debits)).toBe(OPENING_DEBITS);
+
+      // The fifteen accounts of the source, parents included, against our
+      // ledger on 2025-01-01, rolled up the same way.
+      const [check] = rowsOf<Record<string, unknown>>(
+        ok(['opening-balance', 'check', path.join(workDir, 'balanza-2024-12.xml'), '--json'])
+      );
+      expect(check).toMatchObject({ asOf: '2025-01-01', comparison: { comparadas: 15, iguales: true } });
+
+      // Each month is soft-closed, then hard-closed, oldest first; the hard
+      // close carries its endings into the next month, so November's carries
+      // the opening into December.
+      const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+        'September', 'October', 'November', 'December'];
+      months.slice(0, 11).forEach((month, i) => {
+        const period = `2025-${String(i + 1).padStart(2, '0')}`;
+        expect(ok(['close', '--period', period, '--yes']).out).toContain(`✔ ${month} 2025 is now soft_close`);
+        const sealed = ok(['close', '--period', period, '--hard', '--yes']).out;
+        expect(sealed).toContain(`✔ ${month} 2025 is now hard_close`);
+        expect(sealed).toContain(`Beginning balances carried into: ${months[i + 1]} 2025`);
+      });
+      const periods = rowsOf<{ period_name: string; status: string }>(ok(['period', 'list', '--json']));
+      expect(months.map((m) => periods.find((p) => p.period_name === `${m} 2025`)?.status))
+        .toEqual([...Array<string>(11).fill('hard_close'), 'open']);
+    }, STEP_TIMEOUT_MS);
+
+    it.todo('imports the 8xx memorandum accounts with the chart and the opening trial balance, and leaves them out of the footing — MNE-001-019, MNE-001-419');
   });
 
   describe('2 · CFDI to the ledger', () => {
@@ -411,7 +584,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('4 · bank', () => {
-    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 105,800.00 and credits 5,800.00 — MNE-001-039');
+    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 5,800.00 and credits 5,800.00 — MNE-001-039');
     it.todo('imports the December statement, the first session with a baseline instead of the whole ledger history — MNE-001-038');
     it.todo('an overlapping statement does not duplicate movements — MNE-001-042');
     it.todo('reconciles, classifies the bank fee and its IVA, and closes the session — MNE-001-040, MNE-001-041, MNE-001-043');
@@ -459,8 +632,8 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       const pack = ok(['closing', 'pack', 'generate', 'December 2025', '--json']);
       const [sealed] = rowsOf<{ debit: string; credit: string; balanced: boolean }>(pack);
-      expect(money(sealed.debit)).toBe(MONTH_DEBITS);
-      expect(money(sealed.credit)).toBe(MONTH_DEBITS);
+      expect(money(sealed.debit)).toBe(SEALED_DEBITS);
+      expect(money(sealed.credit)).toBe(SEALED_DEBITS);
       expect(sealed.balanced).toBe(true);
     }, STEP_TIMEOUT_MS);
 
@@ -507,9 +680,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       // By hand: every cash movement of the month sits in the subtree of 1110,
       // whichever of its accounts it landed on (MNE-001-039). Debits: the
-      // 100,000 opening and the 5,800 receipt; credits: the 36,000 computers
-      // and the 5,800 payment.
-      expect(money(cash?.debit_total)).toBe('105800.00');
+      // 5,800 receipt, since the opening is January's; credits: the 36,000
+      // computers and the 5,800 payment.
+      expect(money(cash?.debit_total)).toBe('5800.00');
       expect(money(cash?.credit_total)).toBe('41800.00');
       expect(money(cash?.final_balance)).toBe(ENDING['1111']);
 
