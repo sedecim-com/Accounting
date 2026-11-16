@@ -16,11 +16,14 @@
 -- 'O'. The trigger is never dropped, so its garantia-sellada comment stays.
 -- The suspension, the purge, the record rows, the check and the restore are
 -- one DO block, a single statement, so they stay atomic where psql runs this
--- file with no BEGIN, as the postgres image's initdb does. If anything fails,
--- the whole file rolls back, the DISABLE included: the change commits only
+-- file with no BEGIN, as the postgres image's initdb does: if anything in the
+-- block fails, all of it rolls back, the DISABLE included, and it commits only
 -- with the ENABLE ALWAYS applied, so no other session ever sees the trigger
--- off. Writers to audit_log wait from the DISABLE to the COMMIT, and readers
--- too from the check on, which scans the whole table.
+-- off. The table comment after the block is a statement of its own. migrate.ts
+-- runs the whole file in one transaction, and initdb's ON_ERROR_STOP stops
+-- before the comment; only psql without ON_ERROR_STOP would still apply it
+-- after a refusal. Writers to audit_log wait from the DISABLE to the COMMIT,
+-- and readers too from the check on, which scans the whole table.
 --
 -- ONLY THE TWO KEY FIELDS, ONLY IN THOSE ROWS. The audit middleware stores
 -- PUT as `update`, the first path segment its router sees (`s3`) as
@@ -49,11 +52,12 @@
 -- removing it would mean suspending the trigger outside this migration, which
 -- the authorization does not cover.
 --
--- SECURITY: no value is selected, decrypted or printed; an error says where a
--- key is left, never what it holds. Out of reach: old row versions in the
--- table's files until VACUUM FULL rewrites it, replicas, base backups, WAL
--- archives and dumps made before this ran. Only revoking those keys in AWS IAM
--- makes those copies worthless, and no migration can do that.
+-- SECURITY: no value is selected, decrypted or printed; an error names the
+-- places this purge does not reach, never what a key holds. Out of reach: old
+-- row versions in the table's files until VACUUM FULL rewrites it, replicas,
+-- base backups, WAL archives and dumps made before this ran. Only revoking
+-- those keys, in AWS IAM or at the S3-compatible provider a row's endpoint
+-- names, makes those copies worthless, and no migration can do that.
 -- ============================================================
 
 SET LOCAL row_security = on;
@@ -91,9 +95,9 @@ BEGIN
               'migration', '325_the_s3_key_copies_in_audit_log_are_purged.sql',
               'purged_rows', purged,
               'removed_fields', jsonb_build_array('secretAccessKey', 'accessKeyId')),
-            'Migration 325 purged the S3 access keys PUT /v1/admin/integrations/s3 had copied into this '
-            || 'tenant''s new_values (purged_rows says how many rows), as the owner decided on 2026-09-30 '
-            || '(#370, MNE-001-146). Revoke those keys in AWS IAM.');
+            'Migration 325 removed secretAccessKey and accessKeyId from this tenant''s '
+            || 'PUT /v1/admin/integrations/s3 rows (purged_rows says how many, zero included), '
+            || 'as the owner decided on 2026-09-30 (#370, MNE-001-146).');
   END LOOP;
   PERFORM set_config('app.current_tenant', '', true);
 
@@ -115,4 +119,4 @@ END
 $purge$;
 
 COMMENT ON TABLE audit_log IS
-  'Audit trail: INSERT only. audit_log_append_only (033, sealed by 058) rejects UPDATE and DELETE, audit_log_no_truncate rejects TRUNCATE, and a wrong row is corrected by another row. One purge was made, by migration 325 (#370): with that trigger suspended only inside its own transaction, it removed the S3 access keys PUT /v1/admin/integrations/s3 had copied into new_values, and each tenant''s trail holds a row that records it.';
+  'Audit trail: INSERT only. audit_log_append_only (033, sealed by 058) rejects UPDATE and DELETE, audit_log_no_truncate rejects TRUNCATE, and a wrong row is corrected by another row. One purge was made, by migration 325 (#370): with that trigger suspended only inside its own transaction, it removed the S3 access keys PUT /v1/admin/integrations/s3 had copied into new_values, and wrote a row that records it, with its count, into the trail of each tenant that existed when it ran.';
