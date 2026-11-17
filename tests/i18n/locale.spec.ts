@@ -14,11 +14,8 @@ import {
   languageOfLocale,
   normalizeLocale,
   resolveLocale,
-  type EntityLocale,
-  type Locale,
-  type LocaleSourceKind,
-  type ResolveLocaleOptions,
 } from '../../src/i18n/locale.js';
+import type { EntityLocale, Locale, LocaleSourceKind, ResolveLocaleOptions } from '../../src/i18n/locale.js';
 
 // ============================================================
 // EL RESOLUTOR DE LOCALE (I6 · issue #148)
@@ -198,18 +195,11 @@ describe('resolveLocale — la precedencia, escalón por escalón', () => {
   });
 
   it("the entity's language is the last word before the default, and only if handed in", () => {
-    const acme: EntityLocale = { tag: 'en-US', label: 'Acme US' };
-    expect(describeLocale({ ...base(), entityLocale: acme })).toMatchObject({
-      locale: 'en-US',
-      kind: 'entity',
-      label: 'Acme US',
-    });
+    const withAcme = () => describeLocale({ ...base(), entityLocale: { tag: 'en-US', label: 'Acme US' } });
+    expect(withAcme()).toMatchObject({ locale: 'en-US', kind: 'entity', label: 'Acme US' });
     // And it loses to any file: the folder's is the rung above it.
     writeProjectConfig({ locale: 'es-MX' });
-    expect(describeLocale({ ...base(), entityLocale: acme })).toMatchObject({
-      locale: 'es-MX',
-      kind: 'project-config',
-    });
+    expect(withAcme()).toMatchObject({ locale: 'es-MX', kind: 'project-config' });
   });
 
   it('is synchronous and needs no database to answer', () => {
@@ -290,30 +280,23 @@ describe('resolveLocale — lo inservible avisa y cae al escalón siguiente', ()
 });
 
 // ============================================================
-// THE FIVE RUNGS (#653, MNE-001-465)
+// THE FIVE RUNGS (#653, MNE-001-465), top first: this run (`--locale`, then
+// the environment), the user's saved choice, the folder's file (the legacy
+// `language` key at its end), the entity's language, and `DEFAULT_LOCALE`.
 //
-// The owner's chain, top first: this run (`--locale`, then the environment),
-// the user's saved choice, the folder's file (the legacy `language` key at its
-// end), the entity's language, and `DEFAULT_LOCALE`.
-//
-// Every row is written relative to `DEFAULT_LOCALE`. The rung under test holds
-// OTHER and every rung below it holds the default, so a rung that is skipped
-// or moved down lets a lower rung answer the default under another kind, and
-// the row goes red. #657 moves the default without editing a row.
+// Every row is relative to `DEFAULT_LOCALE`: the rung under test holds OTHER
+// and every rung below it the default, so a rung skipped or moved down lets a
+// lower one answer the default under another kind. #657 edits no row.
 // ============================================================
 
 const OTHER: Locale = LOCALES.find((l) => l !== DEFAULT_LOCALE) ?? DEFAULT_LOCALE;
 const ENTITY = 'Acme';
 
-/** Each place a value can be put, in the resolver's order. */
+/** Each place a value can be put: this run, the user's file, the folder's file, the entity. */
 interface Arrangement {
-  flag?: string;
-  localeEnv?: string;
-  langEnv?: string;
-  userLocale?: unknown;
-  userLanguage?: unknown;
-  folderLocale?: unknown;
-  folderLanguage?: unknown;
+  flag?: string; localeEnv?: string; langEnv?: string;
+  userLocale?: unknown; userLanguage?: unknown;
+  folderLocale?: unknown; folderLanguage?: unknown;
   entity?: EntityLocale | null;
 }
 type Slot = keyof Arrangement;
@@ -329,30 +312,23 @@ function arrange(a: Arrangement): ResolveLocaleOptions {
   if (a.folderLocale !== undefined || a.folderLanguage !== undefined) {
     writeProjectConfig({ locale: a.folderLocale, language: a.folderLanguage });
   }
-  const env: NodeJS.ProcessEnv = {};
-  if (a.localeEnv !== undefined) env[LOCALE_ENV_VAR] = a.localeEnv;
-  if (a.langEnv !== undefined) env[LOCALE_ENV_VAR_ALIAS] = a.langEnv;
+  const env: NodeJS.ProcessEnv = { [LOCALE_ENV_VAR]: a.localeEnv, [LOCALE_ENV_VAR_ALIAS]: a.langEnv };
   const argv = a.flag === undefined ? NO_ARGV : [...NO_ARGV, LOCALE_FLAG, a.flag];
   return { ...base(), argv, env, entityLocale: a.entity };
 }
 
 /** One slot holding one locale. The legacy key holds the short form `lang` once wrote. */
 function holding(slot: Slot, locale: Locale): Arrangement {
-  const a: Arrangement = {};
-  if (slot === 'entity') a.entity = { tag: locale, label: ENTITY };
-  else if (slot === 'userLanguage' || slot === 'folderLanguage') a[slot] = languageOfLocale(locale);
-  else a[slot] = locale;
-  return a;
+  if (slot === 'entity') return { entity: { tag: locale, label: ENTITY } };
+  const legacy = slot === 'userLanguage' || slot === 'folderLanguage';
+  return { [slot]: legacy ? languageOfLocale(locale) : locale };
 }
 
+/** The label each source reports. A lambda, because the files' paths change with every test. */
 const LABEL: Record<Slot, () => string> = {
-  flag: () => LOCALE_FLAG,
-  localeEnv: () => LOCALE_ENV_VAR,
-  langEnv: () => LOCALE_ENV_VAR_ALIAS,
-  userLocale: () => `locale in ${userFile()}`,
-  userLanguage: () => `language in ${userFile()}`,
-  folderLocale: () => `locale in ${folderFile()}`,
-  folderLanguage: () => `language in ${folderFile()}`,
+  flag: () => LOCALE_FLAG, localeEnv: () => LOCALE_ENV_VAR, langEnv: () => LOCALE_ENV_VAR_ALIAS,
+  userLocale: () => `locale in ${userFile()}`, userLanguage: () => `language in ${userFile()}`,
+  folderLocale: () => `locale in ${folderFile()}`, folderLanguage: () => `language in ${folderFile()}`,
   entity: () => ENTITY,
 };
 
