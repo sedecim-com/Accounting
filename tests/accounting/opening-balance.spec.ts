@@ -804,6 +804,16 @@ describe('importOpeningBalance · la carrera que el índice de la 081 corta', ()
     await expect(importOpeningBalance(CTX, OPTS)).rejects.toThrow(/uq_je_entry_number/);
   });
 
+  it('a 23505 that names no index, by constraint or by message, also goes out', async () => {
+    // A wrapper can drop both fields. With no index named, nothing proves the
+    // clash was the opening's race, so the error is not swallowed.
+    const bare = { code: '23505' };
+    mockTx.mockImplementation(() => {
+      throw bare;
+    });
+    await expect(importOpeningBalance(CTX, OPTS)).rejects.toBe(bare);
+  });
+
   it('un error que no es de unicidad tampoco se disfraza', async () => {
     mockTx.mockImplementation(() => {
       throw new Error('la conexión se cayó');
