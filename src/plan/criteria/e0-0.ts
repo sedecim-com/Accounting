@@ -672,6 +672,22 @@ export const E0_0: Criterio[] = [
         porque:
           'segunda-puerta: un segundo archivo nombra la variable del idioma y la precedencia vuelve a implementarse dos veces',
       },
+      {
+        archivo: 'src/api/rest/middleware/locale.ts',
+        de: 'const OFFERED_TAGS = offeredTagsFor(DEFAULT_LOCALE);',
+        a: "const OFFERED_TAGS = ['es-MX', 'en-US', 'es', 'en'] as const;",
+        porque:
+          'hand-listed-tags: the REST edge lists its tags by hand again, so `Accept-Language: *` keeps ' +
+          'answering the old default the day `DEFAULT_LOCALE` moves',
+      },
+      {
+        archivo: 'src/api/rest/openapi.ts',
+        de: "`Every request negotiates a language from \\`Accept-Language\\` (${LOCALES.map((l) => `\\`${l}\\``).join(' or ')}; \\`${DEFAULT_LOCALE}\\` when `,",
+        a: "'Every request negotiates a language from `Accept-Language` (`es-MX` or `en-US`; `es-MX` when ',",
+        porque:
+          'hand-written-default: the Language section of the contract names `es-MX` by hand again, so ' +
+          'moving `DEFAULT_LOCALE` would leave the generated contract stating two defaults',
+      },
     ],
   },
   {

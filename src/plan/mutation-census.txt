@@ -19,6 +19,8 @@ mirror	memory	E0.0 language-has-a-meter-with-a-baseline	.github/workflows/ci.yml
 mirror	memory	E0.0 language-has-a-meter-with-a-baseline	.github/workflows/ci.yml	la puerta se apaga comentándola, y el ancla de subcadena de antes de T2 casaba dentro del propio comentario
 mirror	memory	E0.0 user-language-has-one-door	src/i18n/index.ts	el español deja de ser el primero, que es el pedido del dueño y una línea que se reordena sin querer
 mirror	memory	E0.0 user-language-has-one-door	src/ai/providers/config.ts	segunda-puerta: un segundo archivo nombra la variable del idioma y la precedencia vuelve a implementarse dos veces
+mirror	memory	E0.0 user-language-has-one-door	src/api/rest/middleware/locale.ts	hand-listed-tags: the REST edge lists its tags by hand again, so `Accept-Language: *` keeps answering the old default the day `DEFAULT_LOCALE` moves
+mirror	memory	E0.0 user-language-has-one-door	src/api/rest/openapi.ts	hand-written-default: the Language section of the contract names `es-MX` by hand again, so moving `DEFAULT_LOCALE` would leave the generated contract stating two defaults
 mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/cli/mnemosine.ts	escribir-por-debajo: el comando escribe en un escalón que ya pierde, así que imprime éxito sin cambiar nada y ninguna prueba de contenido lo nota
 mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/ai/providers/config.ts	clave-equivocada: el archivo correcto con la clave que se lee DEBAJO, así que un `locale` ya puesto sigue ganando
 mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/ai/providers/config.ts	archivo-equivocado: la clave correcta en el archivo del proyecto, que es el escalón que `describeLocale` lee DESPUÉS del del usuario
@@ -723,6 +725,8 @@ anchor	src/plan/criteria/e0-0.ts	de: 'npx tsx scripts/language-status.ts --check
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npx tsx scripts/language-status.ts --check',
 anchor	src/plan/criteria/e0-0.ts	de: 'export const LANGUAGES = [\'es\', \'en\'] as const;',
 anchor	src/plan/criteria/e0-0.ts	de: 'export function resolveLanguage(cwd = process.cwd()): AgentLanguage {',
+anchor	src/plan/criteria/e0-0.ts	de: 'const OFFERED_TAGS = offeredTagsFor(DEFAULT_LOCALE);',
+anchor	src/plan/criteria/e0-0.ts	de: "`Every request negotiates a language from \\`Accept-Language\\` (${LOCALES.map((l) => `\\`${l}\\``).join(' or ')}; \\`${DEFAULT_LOCALE}\\` when `,",
 anchor	src/plan/criteria/e0-0.ts	de: 'const { file, quarantined } = setUserLocale(locale);',
 anchor	src/plan/criteria/e0-0.ts	de: 'return { file: writeConfigPatch({ locale }, undefined, file), quarantined: null };',
 anchor	src/plan/criteria/e0-0.ts	de: 'const file = userConfigPath(home);',
