@@ -684,7 +684,7 @@ const DESCRIPCION = [
   'cannot express (for example "company_name or first_name", "debit or credit, not both"). ',
   'Validating against this schema alone is not enough to know the request will be accepted.\n',
   '\n## Language\n\n',
-  'Every request negotiates a language from `Accept-Language` (`es-MX` or `en-US`; `es-MX` when ',
+  `Every request negotiates a language from \`Accept-Language\` (${LOCALES.map((l) => `\`${l}\``).join(' or ')}; \`${DEFAULT_LOCALE}\` when `,
   'the header is absent). What a response DECLARES about it — `Content-Language` and ',
   '`meta.language` — depends on whether it has anything localized to declare, and the two ',
   'answers below are one rule, not two policies.\n\n',
