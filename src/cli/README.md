@@ -420,8 +420,8 @@ a later tranche, not something this section is describing as done.
   4. `language` in the first config file that exists. The legacy key keeps
      its legacy order — project before user — so migrating to the new key
      changes nobody's language behind their back.
-  5. `tenants.settings.locale`. The resolver accepts it as an argument, but
-     no caller in `src/` passes it today, so this rung never fires yet.
+  5. The entity's language, which the resolver takes already read; no caller
+     in `src/` passes it yet (#655), so this rung never fires yet.
   6. `es-MX`.
 
   An unsupported value is **not** replaced by the default: it warns on stderr

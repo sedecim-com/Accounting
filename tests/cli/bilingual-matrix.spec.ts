@@ -34,11 +34,11 @@ const CLI = path.join(process.cwd(), 'src/cli/mnemosine.ts');
 // `it` de abajo pasan con la bandera y sin ella. Se pone igual, y el párrafo
 // siguiente dice por qué depender de aquel renglón no basta.
 //
-// SIN FIJARLO, EL IDIOMA LO ELEGIRÍA EL ENTORNO DE QUIEN CORRE LA SUITE. El
-// hijo hereda `process.env` (ver el `env:` de abajo), y la precedencia del
-// resolutor es `--locale` > MNEMOSINE_LOCALE > MNEMOSINE_LANG >
-// ~/.mnemosine/config.json > ./mnemosine.config.json > el inquilino > es-MX.
-// Dos escalones de esa lista son ficheros de la máquina del contribuidor.
+// UNPINNED, THE LANGUAGE WOULD BE CHOSEN BY WHOEVER RUNS THE SUITE. The child
+// inherits `process.env` (see the `env:` below), and the resolver's order is
+// `--locale` > MNEMOSINE_LOCALE > MNEMOSINE_LANG > ~/.mnemosine/config.json >
+// ./mnemosine.config.json > the entity's language > `DEFAULT_LOCALE`. Two
+// rungs of that list are files on the contributor's machine.
 //
 // SE FIJA CON LA BANDERA, QUE ES EL ESCALÓN DE ARRIBA, Y NO CON LA VARIABLE.
 // La variable YA está puesta: vitest.config.ts arranca la suite unitaria con

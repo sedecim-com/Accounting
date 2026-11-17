@@ -921,10 +921,10 @@ Examples:
 // Es el llamador que el docstring de `getLanguage()` (src/i18n/index.ts) dejó
 // anunciado como I7.
 //
-// LO QUE NO ALCANZA: el escalón `tenants.settings.locale` no se recorre aquí
-// —exige una conexión que en este punto todavía no existe—, así que un
-// inquilino con locale propio NO cambia esta decisión. Está dicho igual en
-// `getLanguage()`; repetirlo aquí es más barato que un lector que lo suponga.
+// WHAT IT DOES NOT REACH: the entity's rung is not walked here (it needs a
+// connection that does not exist yet at this point), so an entity with its
+// own language does NOT change this decision. `getLanguage()` says the same;
+// repeating it here is cheaper than a reader who assumes otherwise.
 //
 // ── 2. EL CROMO, ANTES DE LA PRIMERA `.command()` ───────────────────────
 //

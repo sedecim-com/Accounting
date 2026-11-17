@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import type { Language } from './index.js'; // type only: index.ts imports this file
+
 // ============================================================
 // EL LOCALE — I6 · issue #148 · regla 5 del epic #141
 //
@@ -25,8 +27,8 @@ import path from 'node:path';
 // LOCALE. Si aparece un segundo `process.env.MNEMOSINE_LANG` en el árbol, el
 // criterio ejecutable de I6 se pone rojo, y con razón.
 //
-// SIN BASE DE DATOS Y SÍNCRONO. Ver `ResolveLocaleOptions.tenantLocale`, que es
-// donde está escrita la decisión de diseño que eso obliga.
+// NO DATABASE, AND SYNCHRONOUS. The `EntityLocale` docstring is where the
+// design decision this forces is written down.
 // ============================================================
 
 /**
@@ -93,7 +95,7 @@ export type LocaleSourceKind =
   | 'user-config'
   | 'project-config'
   | 'legacy-config'
-  | 'tenant'
+  | 'entity'
   | 'default';
 
 export interface LocaleDecision {
@@ -109,6 +111,40 @@ export interface LocaleDecision {
   raw: string | null;
 }
 
+/**
+ * Rung 4 as its caller hands it in: read where there is a connection, never here.
+ *
+ * This is the awkward rung, and this is why it has this shape. The resolver is
+ * SYNCHRONOUS (it is called from where a number is printed, in the middle of a
+ * table row) and the entity's language lives in Postgres. There were three ways
+ * out, and two are worse:
+ *
+ *  (a) MAKING THE RESOLVER ASYNCHRONOUS spreads `await` to every print site and
+ *      turns "format an amount" into an operation that can fail on the
+ *      network. A report does not fall over because the database is slow to
+ *      say which language to print it in.
+ *  (b) A GLOBAL CACHE filled at startup is shared mutable state: the server in
+ *      `src/api/` serves several tenants and their entities in one process, so
+ *      a later request would inherit an earlier request's entity language.
+ *      That is a cross-tenant defect dressed up as presentation.
+ *  (c) RECEIVING THE VALUE ALREADY READ leaves the query where there already
+ *      is a connection and a resolved entity, and makes it visible in the
+ *      signature that this rung does not come for free: a caller that does not
+ *      pass the value does not get it. That no caller passes it yet (#655 will)
+ *      is a fact in plain sight, not a promise the resolver pretends to keep.
+ *
+ * The code takes (c).
+ */
+export interface EntityLocale {
+  /** `entityLocaleOf(entity).tag` (#651): its own setting, else its jurisdiction's. */
+  readonly tag: string | null;
+  /**
+   * The entity's name as the caller shows it: the decision's `label`, and
+   * `entity <label>` in a warning.
+   */
+  readonly label: string;
+}
+
 export interface ResolveLocaleOptions {
   /** Por omisión `process.argv`. Se inyecta en pruebas y desde un servidor. */
   argv?: readonly string[];
@@ -118,29 +154,8 @@ export interface ResolveLocaleOptions {
   cwd?: string;
   /** Por omisión `os.homedir()`: dónde se busca `~/.mnemosine/config.json`. */
   home?: string;
-  /**
-   * `tenants.settings.locale` YA LEÍDO. Éste es el escalón incómodo y aquí está
-   * la razón de la forma que tiene.
-   *
-   * El resolutor es SÍNCRONO —se le llama desde donde se imprime un número, en
-   * medio de una fila de una tabla— y ese escalón vive en Postgres. Había tres
-   * salidas y dos son peores:
-   *
-   *  (a) VOLVERLO ASÍNCRONO contagia `await` a cada punto de impresión y
-   *      convierte «formatear un importe» en una operación que puede fallar por
-   *      la red. Un informe no se cae porque la base tarde en decir en qué
-   *      idioma imprimirlo.
-   *  (b) UN CACHÉ GLOBAL rellenado al arrancar es estado mutable compartido: el
-   *      servidor de `src/api/` atiende a VARIOS inquilinos en el mismo proceso,
-   *      y el segundo heredaría el locale del primero que entró. Ése es un
-   *      defecto de cruce de inquilino disfrazado de presentación.
-   *  (c) RECIBIR EL VALOR YA LEÍDO deja la consulta donde ya hay conexión e
-   *      inquilino resuelto, y hace visible en la firma que este escalón no se
-   *      paga solo: quien no pasa el valor no lo obtiene. Que hoy no lo pase
-   *      nadie —la columna tiene cero lectores— es un hecho a la vista en vez de
-   *      una promesa que el resolutor fingiría cumplir.
-   */
-  tenantLocale?: string | null;
+  /** Rung 4, the entity's language, already read: see `EntityLocale`. */
+  entityLocale?: EntityLocale | null;
   /**
    * A dónde van los avisos de valor inservible. Por omisión `console.warn`, que
    * es lo que hacía `resolveLanguage` antes de I6 y va a stderr: un aviso en
@@ -169,12 +184,16 @@ export function normalizeLocale(raw: string | null | undefined): Locale | null {
 }
 
 /**
- * El idioma del catálogo que le toca a un locale. Existe para que nadie vuelva a
- * escribir a mano el mapeo `es-MX → es`: era exactamente la clase de tabla
- * duplicada que dejó dos lectores de `MNEMOSINE_LANG` respondiendo distinto.
+ * The catalog language of each locale, written once, so that nobody writes the
+ * `es-MX → es` mapping by hand again: that was exactly the kind of duplicated
+ * table that left two readers of `MNEMOSINE_LANG` answering differently. A
+ * locale added to `LOCALES` without its row here does not compile.
  */
-export function languageOfLocale(locale: Locale): 'es' | 'en' {
-  return locale === 'es-MX' ? 'es' : 'en';
+const LANGUAGE_OF_LOCALE: Readonly<Record<Locale, Language>> = { 'es-MX': 'es', 'en-US': 'en' };
+
+/** The catalog language of a locale (`LANGUAGE_OF_LOCALE`). */
+export function languageOfLocale(locale: Locale): Language {
+  return LANGUAGE_OF_LOCALE[locale];
 }
 
 /**
@@ -252,27 +271,30 @@ function accept(
   raw: string,
   kind: LocaleSourceKind,
   label: string,
-  warn: (message: string) => void
+  warn: (message: string) => void,
+  shown = label
 ): LocaleDecision | null {
   const locale = normalizeLocale(raw);
   if (locale !== null) return { locale, kind, label, raw };
   // El valor inservible NO cae a la omisión: cae al SIGUIENTE escalón, que es lo
   // que hacía `resolveLanguage` antes de I6 con un MNEMOSINE_LANG inválido.
   warn(
-    `[mnemosine] ${label}="${raw}" is not supported ` +
-      `(use ${LOCALES.join('|')}, or es|en); ignoring it.`
+    `[mnemosine] ${shown}="${raw}" is not supported ` +
+      `(use ${LOCALES.join('|')}, or ${LOCALES.map(languageOfLocale).join('|')}); ignoring it.`
   );
   return null;
 }
 
 /**
- * El locale efectivo Y de dónde salió. `resolveLocale` es esto sin la
- * procedencia; ésta la necesita `mnemosine lang`, que tiene que decirle al
- * usuario QUÉ le está ganando a lo que acaba de configurar.
+ * The effective locale AND where it came from. `resolveLocale` is this without
+ * the provenance; `mnemosine lang` needs it, because it has to tell the user
+ * WHAT is outranking what they just configured.
  *
- * Precedencia (issue #148):
- *   `--locale` > MNEMOSINE_LOCALE (alias MNEMOSINE_LANG) > ~/.mnemosine/config.json
- *   > ./mnemosine.config.json > tenants.settings.locale > es-MX
+ * The owner's five rungs, top first (#653): (1) this run, `--locale` then
+ * MNEMOSINE_LOCALE (alias MNEMOSINE_LANG); (2) `locale` in
+ * ~/.mnemosine/config.json; (3) `locale` in ./mnemosine.config.json, then the
+ * legacy `language` key; (4) the entity's language, if the caller hands it in;
+ * (5) `DEFAULT_LOCALE`.
  */
 export function describeLocale(options: ResolveLocaleOptions = {}): LocaleDecision {
   const argv = options.argv ?? process.argv;
@@ -334,8 +356,9 @@ export function describeLocale(options: ResolveLocaleOptions = {}): LocaleDecisi
     }
   }
 
-  if (options.tenantLocale !== undefined && options.tenantLocale !== null) {
-    const hit = accept(options.tenantLocale, 'tenant', 'tenants.settings.locale', warn);
+  const entity = options.entityLocale;
+  if (entity?.tag !== undefined && entity.tag !== null) {
+    const hit = accept(entity.tag, 'entity', entity.label, warn, `entity ${entity.label}`);
     if (hit) return hit;
   }
 

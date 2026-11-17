@@ -24,10 +24,10 @@ import { choosePluralBranch, chooseSelectBranch } from './plural.js';
 // `vitest.config.ts`—: `resolveLocale()` decía `en-US` y `t()` imprimía en
 // español, en la misma corrida, con las cuarenta pruebas en verde.
 //
-// LA IMPORTACIÓN VA EN UN SOLO SENTIDO. `locale.ts` no importa nada de esta
-// carpeta —es hoja a propósito—, así que `index.ts → locale.ts` no cierra
-// ningún ciclo. El día que alguien quiera usar `isLanguage()` desde `locale.ts`,
-// la respuesta es no: ver su docstring, más abajo.
+// THE IMPORT RUNS ONE WAY. `locale.ts` imports nothing from this folder at run
+// time (it takes the `Language` type, which the compiler erases), so
+// `index.ts → locale.ts` closes no cycle. The day someone wants `isLanguage()`
+// in `locale.ts`, the answer is no: see its docstring, below.
 //
 // Y POR ESO EL NOMBRE DE LA VARIABLE NO SE ESCRIBE AQUÍ, ni en un comentario.
 // El criterio se defiende contando en cuántos archivos de `src/` APARECE, y un
@@ -149,14 +149,14 @@ function warnOnce(message: string): void {
  * llamadas, `t()` cambia; `tests/i18n/sync.spec.ts` §8b lo demuestra con la
  * misma clave y dos locales en una sola corrida.
  *
- * LO QUE NO ALCANZA, DICHO AQUÍ PARA QUE NO SE PROMETA DE MÁS: se llama a
- * `resolveLocale()` SIN opciones, así que este camino sólo recorre los escalones
- * que el resolutor saca del proceso —la bandera, el entorno, los dos archivos de
- * configuración— y NUNCA el de `tenants.settings.locale`, que exige un valor ya
- * leído de la base y no hay de dónde sacarlo desde una función que sólo tiene
- * una clave de catálogo delante. Quien atienda a un inquilino con locale propio
- * tiene que resolverlo donde ya tiene conexión y clavarlo con `setLanguage()`;
- * es la misma frontera que `locale.ts` describe en `tenantLocale`, salida (c).
+ * WHAT IT DOES NOT REACH, SAID HERE SO THAT IT IS NOT PROMISED: it calls
+ * `resolveLocale()` WITHOUT options, so this path walks only the rungs the
+ * resolver draws from the process (the flag, the environment, the two
+ * configuration files) and NEVER the entity's rung, which needs a value already
+ * read from the database, and a function with only a catalog key in front of
+ * it has nowhere to get one. Whoever serves an entity with its own language
+ * resolves it where there is a connection and pins it with `setLanguage()`:
+ * the same boundary that the `EntityLocale` docstring draws in `locale.ts`.
  *
  * LO QUE CUESTA, MEDIDO EN ESTE ÁRBOL (20 000 llamadas, Node 22, macOS): 21 µs
  * por llamada sin archivos de configuración presentes y 14 µs con
@@ -188,11 +188,11 @@ export function setLanguage(language: Language): void {
  * también los avisos ya dados, porque «vuelve a preguntar» incluye «vuelve a
  * quejarte si la respuesta sigue siendo mala».
  *
- * Hace falta fuera de las pruebas, y por eso es público: un proceso largo que
- * atiende a varios usuarios —el servidor de `src/api/`— no puede quedarse con el
- * idioma del primero que entró. Un `setLanguage()` sin vuelta atrás sería
- * exactamente el caché global que `locale.ts` rechaza por escrito en
- * `ResolveLocaleOptions.tenantLocale`, salida (b).
+ * It is needed outside the tests, which is why it is public: a long process
+ * that serves several users (the server in `src/api/`) cannot keep the
+ * language of the first one who came in. A `setLanguage()` with no way back
+ * would be exactly the global cache that the `EntityLocale` docstring in
+ * `locale.ts` rejects in writing.
  */
 export function resetLanguage(): void {
   pinnedLanguage = null;
