@@ -662,11 +662,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         { file: 'ppd-2025-12-10.xml', rfc: CONSULTANT_RFC, name: CONSULTANT_NAME, date: '2025-12-10', uuid: PPD_UUID });
       // No model: the CFDI is registered and left to code, with nothing posted.
       expect(ok(['ingest', ppd, '-y'], 'ingest').out).toContain('1 left to code');
-      const [row] = rowsOf<{ id: string; rfc: string; total: string }>(
+      const inbox = rowsOf<{ id: string; rfc: string; total: string }>(
         ok(['bill', 'inbox', 'list', '--fields', 'id,rfc,total', '--json'])
       );
-      expect(row.rfc).toBe(CONSULTANT_RFC);
-      expect(money(row.total)).toBe('9280.00');
+      expect(inbox.map((r) => `${r.rfc} ${money(r.total)}`)).toEqual([`${CONSULTANT_RFC} 9280.00`]);
+      const [row] = inbox;
 
       // The consultant is in no catalog: the inbox refuses to create a vendor
       // without --allow-new-vendor (exit 11, needs a human), and writes nothing.
