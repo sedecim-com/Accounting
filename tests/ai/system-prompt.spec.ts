@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -200,19 +203,49 @@ describe('buildSystemBlocks — firm skills index', () => {
 });
 
 describe('response language', () => {
+  // The developer's machine decides nothing here (#652). `resolveLanguage()`
+  // reads ~/.mnemosine/config.json through HOME and ./mnemosine.config.json
+  // through process.cwd(), and vitest.config.ts exports MNEMOSINE_LOCALE=en-US;
+  // so each case gets an empty HOME, an empty working directory and neither
+  // spelling of the variable, and all of it comes back afterwards.
+  const saved = {
+    HOME: process.env.HOME,
+    MNEMOSINE_LOCALE: process.env.MNEMOSINE_LOCALE,
+    MNEMOSINE_LANG: process.env.MNEMOSINE_LANG,
+  };
+  let home: string;
+  let cwd: string;
+
   beforeEach(() => {
     mockQuery.mockReset();
     mockQuery.mockResolvedValueOnce({ rows: COA_ROWS }); // chart of accounts
     mockQuery.mockResolvedValueOnce({ rows: [] });       // memory digest
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-home-'));
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-cwd-'));
+    process.env.HOME = home;
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+    delete process.env.MNEMOSINE_LOCALE;
+    delete process.env.MNEMOSINE_LANG;
   });
 
-  it('the Spanish directive reaches the prompt by default', async () => {
-    // Without this the agent answers a Mexican accountant in English: the
-    // whole UI can be in English, but the agent's prose must not be.
-    // Las DOS grafías: desde I6 el idioma del agente es una proyección del
-    // locale, y `vitest.config.ts` exporta MNEMOSINE_LOCALE=en-US a la suite.
-    delete process.env.MNEMOSINE_LANG;
-    delete process.env.MNEMOSINE_LOCALE;
+  afterEach(() => {
+    vi.mocked(process.cwd).mockRestore();
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('a Mexican entity whose user chose nothing reads Spanish', async () => {
+    // ABSOLUTE, never relative to DEFAULT_LOCALE. The owner's chain (16 Nov
+    // 2026, #141): «Cada usuario lo puede ajustar pero la entidad establece un
+    // valor predeterminado para sus usuarios», and for an entity nobody
+    // configured, «El de su jurisdicción». CTX is Acme MX, country MX, books
+    // mx_nif, so its jurisdiction says Spanish. Today the default gives it;
+    // after #655 the entity does. If the default flips before #655, this goes
+    // red: it is the tripwire for that order. The US case is #655's.
     const blocks = await buildSystemBlocks(CTX);
     const text = blocks.map((b) => b.text).join('\n');
     expect(text).toMatch(/Always respond in Spanish/);
@@ -220,19 +253,11 @@ describe('response language', () => {
   });
 
   it('MNEMOSINE_LANG=en switches it to English', async () => {
-    // Se borra MNEMOSINE_LOCALE para que esto pruebe el ALIAS y no el entorno
-    // de la suite: con en-US puesto por vitest.config.ts, la aserción pasaría
-    // en verde con MNEMOSINE_LANG completamente ignorado.
-    const suiteLocale = process.env.MNEMOSINE_LOCALE;
-    delete process.env.MNEMOSINE_LOCALE;
+    // MNEMOSINE_LOCALE is already gone (beforeEach), so this proves the ALIAS
+    // and not the suite's en-US, which would pass with the alias ignored.
     process.env.MNEMOSINE_LANG = 'en';
-    try {
-      const blocks = await buildSystemBlocks(CTX);
-      const text = blocks.map((b) => b.text).join('\n');
-      expect(text).toMatch(/Always respond in English/);
-    } finally {
-      delete process.env.MNEMOSINE_LANG;
-      if (suiteLocale !== undefined) process.env.MNEMOSINE_LOCALE = suiteLocale;
-    }
+    const blocks = await buildSystemBlocks(CTX);
+    const text = blocks.map((b) => b.text).join('\n');
+    expect(text).toMatch(/Always respond in English/);
   });
 });

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { parseDraftList, parsePeriodList, parseQuestionList } from '../../src/gateway/app/entity-model.js';
 import { pickLanguage, text, type WebMessageKey } from '../../src/gateway/app/messages.js';
 import { ageInMinutes, parsePortfolioResponse, sortRows, type PortfolioRow } from '../../src/gateway/app/portfolio-model.js';
@@ -6,6 +8,7 @@ import { toneOfCount, toneOfPeriodStatus } from '../../src/gateway/app/tone.js';
 import { EN } from '../../src/i18n/en.js';
 import { ES } from '../../src/i18n/es.js';
 import { messageParameters, t, type TranslationKey } from '../../src/i18n/index.js';
+import { DEFAULT_LOCALE, languageOfLocale } from '../../src/i18n/locale.js';
 
 // ============================================================
 // W1 · the browser program's DOM-free models: what it accepts from the API,
@@ -131,12 +134,16 @@ describe('the traffic light restates facts and never classifies', () => {
 });
 
 describe('the board speaks the house catalog', () => {
-  it('pickLanguage takes the first browser language it speaks, and falls back to Spanish', () => {
+  it('pickLanguage takes the first browser language it speaks, and falls back to the system default', () => {
     expect(pickLanguage(['en-US'])).toBe('en');
     expect(pickLanguage(['fr', 'es-MX'])).toBe('es');
     expect(pickLanguage(['EN_gb', 'es'])).toBe('en');
-    expect(pickLanguage(['de', 'pt-BR'])).toBe('es');
-    expect(pickLanguage([])).toBe('es');
+    expect(pickLanguage(['de', 'pt-BR'])).toBe(languageOfLocale(DEFAULT_LOCALE));
+    expect(pickLanguage([])).toBe(languageOfLocale(DEFAULT_LOCALE));
+    // Nothing ties the fallback or the shell's <html lang> to DEFAULT_LOCALE in
+    // src/; this does, so the board moves with the constant or turns red (#652).
+    const shell = fs.readFileSync(path.join(__dirname, '../../src/gateway/public/index.html'), 'utf-8');
+    expect(/<html lang="([^"]*)"/.exec(shell)?.[1]).toBe(languageOfLocale(DEFAULT_LOCALE));
   });
 
   const webKeys = (Object.keys(EN) as TranslationKey[]).filter((key): key is WebMessageKey => key.startsWith('web.'));

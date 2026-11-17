@@ -7,7 +7,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { setUserLocale, userConfigPath } from '../../src/ai/providers/config.js';
-import { describeLocale, type LocaleDecision } from '../../src/i18n/locale.js';
+import { DEFAULT_LOCALE, describeLocale, languageOfLocale, type LocaleDecision } from '../../src/i18n/locale.js';
+import { t } from '../../src/i18n/index.js';
 import { ExitCode } from '../../src/cli/kernel/exit.js';
 
 // ============================================================
@@ -351,6 +352,25 @@ describe('the `lang` command, launched as the binary', () => {
       // variable is all the warning asks for, and it has to be enough.
       expect(readUserConfig()).toEqual({ locale: 'es-MX' });
       expect(run(['lang']).stdout).toContain('Agent response language: es');
+    },
+    180_000
+  );
+});
+
+describe('with no entity in context, the binary reads the system default', () => {
+  it(
+    "`--help` opens with that language's usage word, and `lang` reports that language",
+    () => {
+      // Relative to DEFAULT_LOCALE on purpose (#652): no language or entity
+      // variable, an empty folder and an empty HOME, which also hides a
+      // ~/.mnemosine/state.json pinning an entity, the rung #655 adds.
+      const expected = languageOfLocale(DEFAULT_LOCALE);
+      const help = run(['--help']);
+      expect(help.status, help.stderr).toBe(ExitCode.OK);
+      expect(help.stdout.trimStart().split(/\s+/)[0]).toBe(t('cli.chrome.usage', {}, expected));
+      const shown = run(['lang']);
+      expect(shown.status, shown.stderr).toBe(ExitCode.OK);
+      expect(shown.stdout).toContain(`Agent response language: ${expected}`);
     },
     180_000
   );
