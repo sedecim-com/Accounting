@@ -30,7 +30,7 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 //
 // THE FIGURES ARE WRITTEN BY HAND, never copied from the output: a test
 // generated from the system's own answer cannot fail. Each constant carries
-// its derivation from the opening and the six documents of the month.
+// its derivation from the opening and the twelve documents of the month.
 //
 // NOTHING IS SEEDED WITH SQL. The firm and its user come from `tenant create`
 // and `user create`, like every other row of the month (MNE-001-406).
@@ -41,6 +41,16 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // balances on 2025-01-01, the first day of the fiscal year, and January to
 // November, which hold nothing else, are hard-closed in order so that their
 // carry-forward opens December with them.
+//
+// THE RECEIVED CFDI GO BY THE MANUAL PATH (MNE-001-408). A consultant's PPD
+// and a cleaner's two PUE come from tests/fixtures/cfdi, rewritten to this
+// company and December; the REP that pays the PPD is inline, since that
+// folder has none. With no model, `bill inbox edit` and `bill inbox run` post
+// the PPD and the first PUE, a rule posts the second on `ingest --retry`, and
+// `ingest` links the REP by itself. The child runs with SAT_STATUS_MODE=off,
+// so no synthetic UUID goes to the SAT. Each PUE is paid on its date: a PUE
+// declares one payment. The PPD is coded by its line (`--line 1`), because
+// the product suggests the opening bill's 2110 for an unknown issuer's line.
 //
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
@@ -65,6 +75,7 @@ const STEP_TIMEOUT_MS = 240_000;
 
 // SAT's published test RFC for the company; synthetic ones for its parties.
 const COMPANY_RFC = 'EKU9003173C9';
+const COMPANY_NAME = 'Comercializadora Sintetica SA de CV';
 const CUSTOMER_RFC = 'SIN060101AB1';
 const VENDOR_RFC = 'PRV060101AB1';
 
@@ -128,50 +139,111 @@ const OPEN_DOCUMENTS = [
     fecha: '2024-12-12', vencimiento: '2025-01-11', importe: '2320.00', ivaRate: '0.16' },
 ];
 
+// ── THE RECEIVED CFDI OF DECEMBER (MNE-001-408) ────────────────────────
+// Two vendors, personas morales like the company. Their names stay far from
+// every vendor name in the entity, the opening's included: `ingest` matches
+// an issuer by RFC, or by a name over 0.7 of trigram similarity. Neither name
+// holds section 3's 'Proveedor Sintetico'. The consultant issues the PPD and
+// its REP; the cleaner issues both PUE, so the rule of step 2·196 meets the
+// vendor's second CFDI.
+const CONSULTANT_RFC = 'CPA060101AB1';
+const CONSULTANT_NAME = 'Consultores Asociados del Pacifico SC';
+const CLEANER_RFC = 'LIM060101AB1';
+const CLEANER_NAME = 'Limpieza Integral Moderna SA de CV';
+const CLEANING_RULE = 'Cleaning goes to 6100';
+// Fixed, not uuidv4(): dedupe is per entity and every run has a fresh one, so
+// a later slice can name these CFDI by constant.
+const PPD_UUID = '5A1E0408-1210-4C0A-9D2E-000000002001';
+const CLEANER_PUE_UUIDS = ['5A1E0408-1212-4C0A-9D2E-000000001001', '5A1E0408-1219-4C0A-9D2E-000000001002'] as const;
+const REP_UUID = '5A1E0408-1222-4C0A-9D2E-00000000A001';
+// The REP of the PPD, inline because tests/fixtures/cfdi has none. It copies
+// the shape of tests/integration/helpers/rep-xml.ts, which this spec cannot
+// import: that helper reaches src/database, whose config loads a .env.
+const REP_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" TipoDeComprobante="P" Moneda="XXX" Total="0" SubTotal="0"
+  Fecha="2025-12-22T10:00:00" LugarExpedicion="06600" Exportacion="01">
+  <cfdi:Emisor Rfc="${CONSULTANT_RFC}" Nombre="${CONSULTANT_NAME}" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="${COMPANY_RFC}" Nombre="${COMPANY_NAME}" UsoCFDI="CP01"
+    DomicilioFiscalReceptor="01000" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT"
+      Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <pago20:Pagos Version="2.0">
+      <pago20:Pago FechaPago="2025-12-22T10:00:00" FormaDePagoP="03" MonedaP="MXN" Monto="9280.00" NumOperacion="OP-2212">
+        <pago20:DoctoRelacionado IdDocumento="${PPD_UUID}" MonedaDR="MXN" NumParcialidad="1"
+          ImpSaldoAnt="9280.00" ImpPagado="9280.00" ImpSaldoInsoluto="0" ObjetoImpDR="02">
+          <pago20:ImpuestosDR><pago20:TrasladosDR>
+            <pago20:TrasladoDR BaseDR="8000.00" ImpuestoDR="002"
+              TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="1280.00"/>
+          </pago20:TrasladosDR></pago20:ImpuestosDR>
+        </pago20:DoctoRelacionado>
+      </pago20:Pago>
+    </pago20:Pagos>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="${REP_UUID}"
+      FechaTimbrado="2025-12-22T10:05:00" SelloCFD="x" NoCertificadoSAT="1" SelloSAT="y"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+
 // ── THE MONTH, BY HAND ──────────────────────────────────────────────────
 //   12-01 computers      1220 Dr 36,000.00 / 1111 Cr 36,000.00
 //   12-05 invoice        1120 Dr 11,600.00 / 4100 Cr 10,000.00, 2120 Cr 1,600.00
 //                        (16 % of 10,000; no MetodoPago on a typed invoice → PUE)
 //   12-08 bill           6100 Dr 5,000.00, 1135 Dr 800.00 / 2110 Cr 5,800.00
 //                        (no MetodoPago on a typed bill → PPD, IVA parked in 1135)
+//   12-10 received PPD   6100 Dr 8,000.00, 1135 Dr 1,280.00 / 2110 Cr 9,280.00
+//                        (the consultant's CFDI: PPD, so its IVA waits in 1135)
+//   12-12 received PUE   6100 Dr 1,000.00, 1130 Dr 160.00 / 2110 Cr 1,160.00, and
+//                        paid that day: 2110 Dr 1,160.00 / bank Cr 1,160.00, with
+//                        no IVA moved (a PUE declares one payment, CFF 29-A fr. VII b)
 //   12-15 receipt        bank Dr 5,800.00 / 1120 Cr 5,800.00 (half the invoice)
 //   12-18 credit note    4400 Dr 1,000.00, 2120 Dr 160.00 / 1120 Cr 1,160.00
+//   12-19 received PUE   the same as on 12-12: the cleaner's second CFDI
 //   12-20 payment        2110 Dr 5,800.00 / bank Cr 5,800.00,
 //                        and the paid IVA moves 1135 → 1130: 800.00
+//   12-22 REP            2110 Dr 9,280.00 / bank Cr 9,280.00, and the PPD's
+//                        paid IVA moves 1135 → 1130: 1,280.00 (LIVA art. 5 fr. III)
 //   12-31 depreciation   6140 Dr 900.00 / 1290 Cr 900.00, posted by the close:
 //                        computer class, 30 % LISR maximum → 40-month book
 //                        life; whole-month convention, so 36,000 / 40
 // Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
-// + 900 = 67,860. The dossier seals the trial balance as of 12-31, so it
-// counts the opening of 01-01 too: 107,800 + 67,860.
-const SEALED_DEBITS = '175660.00';
+// + 900 = 67,860 typed, and 9,280 + 2 × 1,160 + 2 × 1,160 + (9,280 + 1,280)
+// = 24,480 received: 92,340. The dossier seals the trial balance as of 12-31,
+// so it counts the opening of 01-01 too: 107,800 + 92,340.
+const SEALED_DEBITS = '200140.00';
 const ENDING = {
-  '1111': '64000.00', // 100,000 opening − 36,000 − 5,800 + 5,800 (see MNE-001-039 in step 4)
+  // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
+  // (see MNE-001-039 in step 4)
+  '1111': '52400.00',
   '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160
-  '1130': '800.00',
-  '1135': '320.00', // the opening's; the 800 parked on 12-08 moved to 1130 on 12-20
+  '1130': '2400.00', // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE)
+  '1135': '320.00', // the opening's; the 800 and the 1,280 parked in December moved to 1130 when paid
   '1220': '36000.00',
   '1290': '-900.00', // accumulated depreciation, credit balance
   '1320': '4000.00', // the deposit, untouched since the opening
-  '2110': '-2320.00', // the opening bill; −5,800 on 12-08 and +5,800 on 12-20 net to nothing
+  '2110': '-2320.00', // the opening bill: every December bill was paid within the month
   '2120': '-1440.00', // −1,600 + 160, credit balance
   '2125': '-480.00', // the opening invoice's IVA, still uncollected
   '3100': '-100000.00',
   '3200': '-5000.00', // the 2024 result, untouched since the opening
   '4100': '-10000.00',
   '4400': '1000.00',
-  '6100': '5000.00',
+  '6100': '15000.00', // 5,000 typed + 8,000 (PPD) + 1,000 + 1,000 (the PUE)
   '6140': '900.00',
 } as const;
 const NET_SALES = '9000.00'; // 10,000 − 1,000 returned
-const NET_INCOME = '3100.00'; // 9,000 − 5,000 − 900
-const TOTAL_ASSETS = '112340.00'; // 64,000 + 8,120 + 800 + 320 + 36,000 − 900 + 4,000
+const NET_INCOME = '-6900.00'; // 9,000 − 15,000 − 900
+const TOTAL_ASSETS = '102340.00'; // 52,400 + 8,120 + 2,400 + 320 + 36,000 − 900 + 4,000
 const TOTAL_LIABILITIES = '4240.00'; // 2,320 + 1,440 + 480
-const TOTAL_EQUITY = '108100.00'; // 100,000 + 5,000 + 3,100
-// Indirect method: 3,100 + 900 (depreciation, no cash) − 4,640 (AR up) − 800
-// (IVA credit up) + 1,440 (IVA payable up) = 0, which is the 5,800 received
-// minus the 5,800 paid. 1135, 2110 and 2125 end December where they began it.
-const OPERATING_CASH = '0.00';
+const TOTAL_EQUITY = '98100.00'; // 100,000 + 5,000 − 6,900; and 102,340 = 4,240 + 98,100
+// Indirect method: −6,900 + 900 (depreciation, no cash) − 4,640 (AR up)
+// − 2,400 (IVA credit up) + 1,440 (IVA payable up) = −11,600, which is the
+// 5,800 received minus the 5,800 + 9,280 + 1,160 + 1,160 paid. 1135, 2110
+// and 2125 end December where they began it.
+const OPERATING_CASH = '-11600.00';
 const INVESTING_CASH = '-36000.00'; // the computers
 const FINANCING_CASH = '0.00'; // the capital came in with the opening, in January
 
@@ -247,6 +319,8 @@ function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
     HOME: workDir,
     XDG_CONFIG_HOME: path.join(workDir, '.config'),
     NO_COLOR: '1',
+    // `ingest` would ask the SAT about synthetic UUIDs; unvalidated, a CFDI only warns.
+    SAT_STATUS_MODE: 'off',
     MNEMOSINE_LOCALE: 'en-US',
     ...extra,
   };
@@ -285,6 +359,36 @@ function rowsOf<T>(r: Run): T[] {
 }
 
 const money = (v: string | undefined): string => new Decimal(v ?? 'NaN').toFixed(2);
+
+/** December's movement (`net_change`) of each account in `codes`; 0.00 for one that did not move. */
+function decemberMoves(codes: string[]): Record<string, string> {
+  const tb = rowsOf<{ account_code: string; net_change: string }>(
+    ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--json'])
+  );
+  return Object.fromEntries(codes.map((c) => [c, money(tb.find((r) => r.account_code === c)?.net_change ?? '0')]));
+}
+
+/**
+ * A received CFDI of tests/fixtures/cfdi, rewritten by string replacement:
+ * the issuer, this company as receiver (the fixtures' Rfc, Nombre and 06600),
+ * the date, the UUID and, if given, the `Folio`. Written to the run's directory.
+ */
+function receivedCfdi(
+  fixture: string,
+  o: { file: string; rfc: string; name: string; date: string; uuid: string; invoiceNumber?: string }
+): string {
+  let xml = fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'cfdi', fixture), 'utf-8')
+    .replace('Rfc="SIN060101AB1" Nombre="Servicios Integrales SA"', `Rfc="${o.rfc}" Nombre="${o.name}"`)
+    .replace('Rfc="XAXX010101000" Nombre="Demo Corp MX"', `Rfc="${COMPANY_RFC}" Nombre="${COMPANY_NAME}"`)
+    .replace('DomicilioFiscalReceptor="06600"', 'DomicilioFiscalReceptor="01000"')
+    .replace(/ Fecha="[^"]+"/, ` Fecha="${o.date}T10:00:00"`)
+    .replace(/FechaTimbrado="[^"]+"/, `FechaTimbrado="${o.date}T10:05:00"`)
+    .replace(/UUID="[^"]+"/, `UUID="${o.uuid}"`);
+  if (o.invoiceNumber) xml = xml.replace(/ Folio="[^"]+"/, ` Folio="${o.invoiceNumber}"`);
+  const file = path.join(workDir, o.file);
+  fs.writeFileSync(file, xml);
+  return file;
+}
 
 interface StatementRow {
   section: string;
@@ -382,7 +486,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
     it('creates the entity with its seeded chart and the 2025 fiscal year', () => {
       const created = rowsOf<{ entityId: string; taxId: string }>(
-        ok(['entity', 'create', 'Comercializadora Sintetica SA de CV', '--tax-id', COMPANY_RFC,
+        ok(['entity', 'create', COMPANY_NAME, '--tax-id', COMPANY_RFC,
           '--tax-regime', '601', '--tax-postal-code', '01000', '--json'])
       );
       expect(created[0].taxId).toBe(COMPANY_RFC);
@@ -414,7 +518,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
           .replace('Rfc="XAXX010101000"', `Rfc="${COMPANY_RFC}"`)
       );
       const dry = ok(['ingest', xml, '--dry-run'], 'ingest');
-      expect(dry.out).toContain('mnemosine ingest --dry-run · Comercializadora Sintetica SA de CV · 1 file(s)');
+      expect(dry.out).toContain(`mnemosine ingest --dry-run · ${COMPANY_NAME} · 1 file(s)`);
       expect(dry.out).toContain('ingest-scope.xml  would_process · received');
       expect(dry.out).toContain('dry-run: nothing was written');
     }, STEP_TIMEOUT_MS);
@@ -495,7 +599,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(rowsOf(ok(['invoice', 'show', 'A-2024-117', '--json']))[0]).toMatchObject({ journal_entry_number: openingEntry });
       const bills = rowsOf<Record<string, string>>(ok(['bill', 'list', '--json']));
       expect(bills).toHaveLength(1);
-      // The BILL series of its own document year, so section 3's bill is still BILL-2025-00001.
+      // The BILL series of its own document year, so December's bills start at BILL-2025-00001.
       expect(bills[0].bill_number).toMatch(/^BILL-2024-\d{5}$/);
       expect(money(bills[0].amount_due)).toBe('2320.00');
       // 2,320 / 1.16 = 2,000 of base and 320 of IVA: the 320 the trial balance parks in 1135.
@@ -552,8 +656,107 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
   describe('2 · CFDI to the ledger', () => {
     it.todo('ingests the issued PUE and PPD invoices from tests/fixtures into receivables, never as expense, and the issued REP settles the PPD — MNE-001-025, MNE-001-028');
-    it.todo('approving a received PPD creates the bill, and its REP moves the IVA from 1135 to 1130 — MNE-001-026, MNE-001-116, MNE-001-117');
-    it.todo('classifies the month by the manual path, with no model: reprocess, hand coding and processing rules — MNE-001-029, MNE-001-030, MNE-001-032');
+
+    it('approving a received PPD creates the bill, and its REP moves the IVA from 1135 to 1130 — MNE-001-026, MNE-001-116, MNE-001-117', () => {
+      const ppd = receivedCfdi('factura-consultoria-2001.xml',
+        { file: 'ppd-2025-12-10.xml', rfc: CONSULTANT_RFC, name: CONSULTANT_NAME, date: '2025-12-10', uuid: PPD_UUID });
+      // No model: the CFDI is registered and left to code, with nothing posted.
+      expect(ok(['ingest', ppd, '-y'], 'ingest').out).toContain('1 left to code');
+      const inbox = rowsOf<{ id: string; rfc: string; total: string }>(
+        ok(['bill', 'inbox', 'list', '--fields', 'id,rfc,total', '--json'])
+      );
+      expect(inbox.map((r) => `${r.rfc} ${money(r.total)}`)).toEqual([`${CONSULTANT_RFC} 9280.00`]);
+      const [row] = inbox;
+
+      // The consultant is in no catalog: the inbox refuses to create a vendor
+      // without --allow-new-vendor (exit 11, needs a human), and writes nothing.
+      const entries = rowsOf(ok(['entry', 'list', '--all', '--json']));
+      const refused = mnemosine(['bill', 'inbox', 'run', row.id, '--yes']);
+      expect(refused.status, refused.out + refused.err).toBe(11);
+      expect(rowsOf(ok(['entry', 'list', '--all', '--json']))).toEqual(entries);
+      expect(rowsOf<{ tax_id: string }>(ok(['vendor', 'list', '--json'])).map((v) => v.tax_id))
+        .not.toContain(CONSULTANT_RFC);
+
+      // FIXME(#684): a person registers the vendor and codes the line. The
+      // line's own account is needed: with no vendor at ingest, the product
+      // suggests the opening bill's 2110 for it, and the suggestion beats a
+      // default account.
+      ok(['vendor', 'create', CONSULTANT_NAME, '--tax-id', CONSULTANT_RFC]);
+      ok(['bill', 'inbox', 'edit', row.id, '--line', '1', '--account', '6100']);
+      ok(['bill', 'inbox', 'run', row.id, '--yes']);
+      const moves = ['6100', '1135', '1130', '2110', '1111'];
+      expect(decemberMoves(moves)).toEqual(
+        { '6100': '8000.00', '1135': '1280.00', '1130': '0.00', '2110': '-9280.00', '1111': '0.00' }
+      );
+
+      // The REP pays it on 12-22: the payment is created from the receipt, and
+      // the IVA it pays leaves 1135 for 1130 in the same entry (LIVA art. 5 fr. III).
+      const rep = path.join(workDir, 'rep-2025-12-22.xml');
+      fs.writeFileSync(rep, REP_XML);
+      expect(ok(['ingest', rep, '-y'], 'ingest').out).toContain('rep-2025-12-22.xml  rules · Payment receipt linked');
+      // An inbox bill takes the BILL series of its CFDI's year, and the refused
+      // run drew no number (its transaction rolled back): this is 2025's first.
+      const [paid] = rowsOf<{ status: string; total_amount: string; amount_due: string }>(
+        ok(['bill', 'show', 'BILL-2025-00001', '--json'])
+      );
+      expect(paid.status).toBe('paid');
+      expect([money(paid.total_amount), money(paid.amount_due)]).toEqual(['9280.00', '0.00']);
+      expect(decemberMoves(moves)).toEqual(
+        { '6100': '8000.00', '1135': '0.00', '1130': '1280.00', '2110': '0.00', '1111': '-9280.00' }
+      );
+    }, STEP_TIMEOUT_MS);
+
+    it('classifies the month by the manual path, with no model: reprocess, hand coding and processing rules — MNE-001-029, MNE-001-030, MNE-001-032', () => {
+      ok(['vendor', 'create', CLEANER_NAME, '--tax-id', CLEANER_RFC]);
+      const [pue12, pue19] = (['12', '19'] as const).map((day, i) => receivedCfdi('factura-limpieza-1001.xml', {
+        file: `pue-2025-12-${day}.xml`, rfc: CLEANER_RFC, name: CLEANER_NAME, date: `2025-12-${day}`,
+        uuid: CLEANER_PUE_UUIDS[i], invoiceNumber: String(1001 + i),
+      }));
+      expect(ok(['ingest', pue12, pue19, '-y'], 'ingest').out).toContain('2 left to code');
+      const ready = rowsOf<{ id: string; date: string; total: string }>(
+        ok(['bill', 'inbox', 'list', '--status', 'ready', '--json'])
+      );
+      expect(ready.map((r) => `${r.date} ${money(r.total)}`).sort()).toEqual(['2025-12-12 1160.00', '2025-12-19 1160.00']);
+      const first = ready.find((r) => r.date === '2025-12-12')?.id ?? '';
+
+      // MNE-001-030: the cleaner has no bills, so nothing suggests an account,
+      // and the single gate refuses the uncoded line (exit 1). Coded by hand, it posts.
+      const uncoded = mnemosine(['bill', 'inbox', 'run', first, '--yes']);
+      expect(uncoded.status, uncoded.out + uncoded.err).toBe(1);
+      ok(['bill', 'inbox', 'edit', first, '--account', '6100']);
+      ok(['bill', 'inbox', 'run', first, '--yes']);
+
+      // MNE-001-029 and MNE-001-032: a plain ingest calls the second CFDI a
+      // duplicate; a rule made in the terminal posts it on --retry, with no
+      // hand coding. The first one already has its bill and is not reprocessed.
+      expect(ok(['ingest', pue19, '-y'], 'ingest').out).toContain('pue-2025-12-19.xml  duplicate');
+      const [rule] = rowsOf<{ id: string }>(ok(['bill', 'rule', 'create', '--name', CLEANING_RULE,
+        '--when', `emisor_rfc equals ${CLEANER_RFC}`, '--then', 'set_account=6100', '--then', 'set_processing_mode=auto',
+        '--json']));
+      const retried = ok(['ingest', pue12, pue19, '--retry', '-y'], 'ingest').out;
+      expect(retried).toMatch(/pue-2025-12-12\.xml {2}duplicate · .*not reprocessable/);
+      expect(retried).toMatch(new RegExp(`pue-2025-12-19\\.xml {2}rules · .*«${CLEANING_RULE}»`));
+      expect(rowsOf<{ id: string; matched: unknown }>(ok(['bill', 'rule', 'list', '--json']))
+        .map((r) => [r.id, Number(r.matched)])).toEqual([[rule.id, 1]]);
+      expect(rowsOf(ok(['bill', 'inbox', 'list', '--status', 'ready', '--json']))).toEqual([]);
+
+      // A PUE declares that it was paid in one exhibition (CFF art. 29-A fr. VII b),
+      // which is why its IVA was credited when it posted: each is paid on its
+      // date, and the payment releases no IVA again. The numbers are derived:
+      // `bill inbox run --json` carries them only inside its Spanish prose.
+      for (const [bill, date] of [['BILL-2025-00002', '2025-12-12'], ['BILL-2025-00003', '2025-12-19']]) {
+        expect(ok(['payment', 'create', bill, '--amount', '1160.00', '--date', date, '--yes']).out)
+          .toContain('1160.00 → 0.00 (paid)');
+      }
+      expect(rowsOf<{ bill_number: string; bill_date: string; status: string }>(ok(['bill', 'list', '--json']))
+        .filter((b) => b.bill_number.startsWith('BILL-2025-')).map((b) => `${b.bill_number} ${b.bill_date} ${b.status}`)
+        .sort()).toEqual(['BILL-2025-00001 2025-12-10 paid', 'BILL-2025-00002 2025-12-12 paid', 'BILL-2025-00003 2025-12-19 paid']);
+      // A 1130 above 1,600.00 would be a second IVA release.
+      expect(decemberMoves(['6100', '1130', '1135', '2110', '1111'])).toEqual(
+        { '6100': '10000.00', '1130': '1600.00', '1135': '0.00', '2110': '0.00', '1111': '-11600.00' }
+      );
+    }, STEP_TIMEOUT_MS);
+
     it.todo('keeps leading zeros and accents of the parsed CFDI, including a 0 % and an exempt one — MNE-001-031, MNE-001-027');
     it.todo('posts a lodging CFDI with its local tax (ISH) in its own account — MNE-001-033');
     it.todo('posts a CFDI with withholdings, and the collection that carries them applies — MNE-001-056, MNE-001-057, MNE-001-113');
@@ -570,10 +773,13 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         .toContain('11600.00 → 5800.00 (partially_paid)');
 
       ok(['vendor', 'create', 'Proveedor Sintetico SA de CV', '--tax-id', VENDOR_RFC, '--terms', 'Net 30']);
-      ok(['bill', 'create', 'Proveedor Sintetico', '--vendor-invoice-number', 'F-100', '--bill-date', '2025-12-08',
-        '--line', 'account=6100;price=5000.00;tax-amount=800.00;description=Papeleria']);
-      ok(['bill', 'approve', 'BILL-2025-00001', '--yes']);
-      expect(ok(['payment', 'create', 'BILL-2025-00001', '--amount', '5800.00', '--date', '2025-12-20', '--yes']).out)
+      // The number is read, not written: section 2's inbox bills drew 2025's first ones.
+      const [bill] = rowsOf<{ bill_number: string }>(
+        ok(['bill', 'create', 'Proveedor Sintetico', '--vendor-invoice-number', 'F-100', '--bill-date', '2025-12-08',
+          '--line', 'account=6100;price=5000.00;tax-amount=800.00;description=Papeleria', '--json'])
+      );
+      ok(['bill', 'approve', bill.bill_number, '--yes']);
+      expect(ok(['payment', 'create', bill.bill_number, '--amount', '5800.00', '--date', '2025-12-20', '--yes']).out)
         .toContain('5800.00 → 0.00 (paid)');
 
       ok(['credit-note', 'create', '--type', 'devolucion', '--invoice', 'INV-2025-00001',
@@ -608,7 +814,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('4 · bank', () => {
-    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 5,800.00 and credits 5,800.00 — MNE-001-039');
+    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 5,800.00 and credits 17,400.00 — MNE-001-039');
     it.todo('imports the December statement, the first session with a baseline instead of the whole ledger history — MNE-001-038');
     it.todo('an overlapping statement does not duplicate movements — MNE-001-042');
     it.todo('reconciles, classifies the bank fee and its IVA, and closes the session — MNE-001-040, MNE-001-041, MNE-001-043');
@@ -705,9 +911,10 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // By hand: every cash movement of the month sits in the subtree of 1110,
       // whichever of its accounts it landed on (MNE-001-039). Debits: the
       // 5,800 receipt, since the opening is January's; credits: the 36,000
-      // computers and the 5,800 payment.
+      // computers, the 5,800 payment, the REP's 9,280 and the two PUE paid,
+      // 1,160 each. 100,000 + 5,800 − 53,400 = 52,400, the ending of 1111.
       expect(money(cash?.debit_total)).toBe('5800.00');
-      expect(money(cash?.credit_total)).toBe('41800.00');
+      expect(money(cash?.credit_total)).toBe('53400.00');
       expect(money(cash?.final_balance)).toBe(ENDING['1111']);
 
       // And against the detail balanza: 1110 is itself plus 1111, 1112 and
