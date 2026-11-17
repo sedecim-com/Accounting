@@ -7,6 +7,7 @@ import { resolveLanguage } from './providers/config.js';
 import { buildMemoryDigest } from './memory-service.js';
 import type { AgentContext } from './context.js';
 import { todayFor } from '../services/policy/today.js';
+import { keepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
 
 // ============================================================
 // SYSTEM PROMPT
@@ -19,6 +20,14 @@ import { todayFor } from '../services/policy/today.js';
 // construction: buildSystemBlocks runs once per session, so
 // the stable block never mutates mid-session and prompt-cache
 // hits are preserved (Hermes MEMORY.md pattern).
+//
+// CONTRACT: the drafting language follows the entity's books, not the reply
+// (#654). On books keepsMexicanBooks() accepts, every draft_journal_entry
+// description is asked for in Spanish: once approved it becomes the concept
+// field of the SAT's journal-entry XML (Anexo 24), which #158 keeps Spanish,
+// until the key of I16 renders that field instead. It is a prompt
+// instruction, not a check: a model can ignore it (catalog-info.yaml,
+// sat-anexo24).
 // ============================================================
 
 const MAX_COA_LINES = 400;
@@ -50,6 +59,7 @@ Rules:
 draft_journal_entry. Drafts do NOT touch the ledger: a human approves or rejects them with \
 \`mnemosine review\`. Never say something was "recorded" or "posted" — it is "a draft \
 pending review".
+__DRAFTING_LANGUAGE__
 - Before creating a draft: (1) verify each account with search_accounts, (2) look for precedents \
 with search_journal_entries and follow them unless they are wrong, (3) balance debits against credits. \
 Report honest confidence: <0.8 if you guessed the account or the accounting treatment, and explain the doubt.
@@ -185,6 +195,21 @@ const LANGUAGE_LINE = {
   en: 'Always respond in English',
 } as const;
 
+const DRAFTING_LANGUAGE_LINE = {
+  mexicanBooks:
+    "- Write the description of every draft_journal_entry, the entry's and each line's, in Spanish, " +
+    "whatever language you answer in: they become the Concepto of the SAT's Anexo 24.",
+  otherBooks:
+    "- Write the description of every draft_journal_entry, the entry's and each line's, in the language you answer in.",
+} as const;
+
+/** Only the books reach this: no locale, saved choice or entity language changes the drafting line. */
+function draftingLanguageLine(books: Pick<AgentContext, 'country' | 'accountingStandard'>): string {
+  return keepsMexicanBooks(books.country, books.accountingStandard)
+    ? DRAFTING_LANGUAGE_LINE.mexicanBooks
+    : DRAFTING_LANGUAGE_LINE.otherBooks;
+}
+
 export async function buildSystemBlocks(
   ctx: AgentContext
 ): Promise<Anthropic.Beta.BetaTextBlockParam[]> {
@@ -196,7 +221,8 @@ export async function buildSystemBlocks(
   const stable: Anthropic.Beta.BetaTextBlockParam = {
     type: 'text',
     text:
-      `${ROLE_INSTRUCTIONS.replace('__RESPONSE_LANGUAGE__', LANGUAGE_LINE[resolveLanguage()])}\n\n` +
+      `${ROLE_INSTRUCTIONS.replace('__RESPONSE_LANGUAGE__', LANGUAGE_LINE[resolveLanguage()])
+        .replace('__DRAFTING_LANGUAGE__', draftingLanguageLine(ctx))}\n\n` +
       memorySection(memoryDigest) +
       skillsSection() +
       `${DOCS_AND_COA}\n${coa}`,

@@ -260,4 +260,53 @@ describe('response language', () => {
     const text = blocks.map((b) => b.text).join('\n');
     expect(text).toMatch(/Always respond in English/);
   });
+
+  // MNE-001-466 · #654. The descriptions the agent drafts for an entity that
+  // keeps Mexican books become the Concepto of the Anexo 24, so they are
+  // Spanish whatever the reply language. The line follows `keepsMexicanBooks`
+  // and nothing else. One build per `it`: the outer beforeEach queues exactly
+  // the two query results a single build reads.
+  describe('drafting language', () => {
+    const MEXICAN_BOOKS_LINE =
+      "Write the description of every draft_journal_entry, the entry's and each line's, in Spanish, " +
+      "whatever language you answer in: they become the Concepto of the SAT's Anexo 24.";
+    const OTHER_BOOKS_LINE =
+      "Write the description of every draft_journal_entry, the entry's and each line's, in the language you answer in.";
+
+    const ENTITIES = [
+      { books: 'Acme MX (MX, mx_nif)', country: 'MX', accountingStandard: 'mx_nif', mexican: true },
+      { books: 'US with mx_nif', country: 'US', accountingStandard: 'mx_nif', mexican: true },
+      { books: 'a blank country with us_gaap', country: '', accountingStandard: 'us_gaap', mexican: true },
+      { books: 'US with us_gaap', country: 'US', accountingStandard: 'us_gaap', mexican: false },
+      { books: 'CA with us_gaap', country: 'CA', accountingStandard: 'us_gaap', mexican: false },
+    ];
+    const CASES = ENTITIES.flatMap((e) =>
+      [undefined, 'es-MX', 'en-US'].map((env) => ({ ...e, env, locale: env ?? 'unset' }))
+    );
+
+    it.each(CASES)('$books, MNEMOSINE_LOCALE $locale', async ({ country, accountingStandard, mexican, env }) => {
+      if (env !== undefined) process.env.MNEMOSINE_LOCALE = env;
+      const [stable, volatile_] = await buildSystemBlocks({ ...CTX, country, accountingStandard });
+      expect(stable.text).toContain(mexican ? MEXICAN_BOOKS_LINE : OTHER_BOOKS_LINE);
+      expect(stable.text).not.toContain(mexican ? OTHER_BOOKS_LINE : MEXICAN_BOOKS_LINE);
+      expect(volatile_.text).not.toContain(MEXICAN_BOOKS_LINE);
+      expect(volatile_.text).not.toContain(OTHER_BOOKS_LINE);
+      expect(`${stable.text}\n${volatile_.text}`).not.toContain('__DRAFTING_LANGUAGE__');
+    });
+
+    it('a Mexican-books entity answered in English still drafts in Spanish', async () => {
+      process.env.MNEMOSINE_LOCALE = 'en-US';
+      const [stable] = await buildSystemBlocks(CTX);
+      expect(stable.text).toContain('Always respond in English');
+      expect(stable.text).toContain(MEXICAN_BOOKS_LINE);
+    });
+
+    it('a saved choice of English changes the reply, not the drafts', async () => {
+      fs.mkdirSync(path.join(home, '.mnemosine'));
+      fs.writeFileSync(path.join(home, '.mnemosine', 'config.json'), JSON.stringify({ locale: 'en-US' }));
+      const [stable] = await buildSystemBlocks(CTX);
+      expect(stable.text).toContain('Always respond in English');
+      expect(stable.text).toContain(MEXICAN_BOOKS_LINE);
+    });
+  });
 });

@@ -3,6 +3,7 @@ import { withCashFindingMessage } from '../../../i18n/cash-finding-text.js';
 import { z } from 'zod';
 import { boundedString, uuidString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
+import { responseLanguage } from '../middleware/locale.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
 import { recordVendorPayment } from '../../../services/payments/payment-service.js';
@@ -163,8 +164,11 @@ router.post('/:id/approve', declararRiesgoRuta({ riesgo: 'irreversible', escribe
     attestEntryAsync(req.tenantId, attestation.entityId, attestation.entryId);
   }
 
-  // MNE-001-345: the bill stays the data; the LISR 27-III signal rides in meta.
-  res.json({ data: bill, meta: { ...meta(req), deductibility_findings: deductibilityFindings.map(withCashFindingMessage) } });
+  // CONTRACT: the bill stays the data; the LISR 27-III signal rides in meta
+  // (MNE-001-345). Each finding's `message` is rendered in the response's
+  // negotiated language, never the server's; messageKey and messageParams are
+  // its identity (catalog-info.yaml, #654).
+  res.json({ data: bill, meta: { ...meta(req), deductibility_findings: deductibilityFindings.map((f) => withCashFindingMessage(f, responseLanguage(res))) } });
 }));
 
 // POST /v1/bills/:id/schedule-payment — WITHDRAWN
@@ -226,7 +230,10 @@ router.post('/payments', declararRiesgoRuta({ riesgo: 'irreversible', escribe: '
       payment_number: result.paymentNumber,
       journal_entry_id: result.journalEntry?.id ?? null,
       applied: result.documentos,
-      deductibility_findings: (result.deductibilityFindings ?? []).map(withCashFindingMessage),
+      // CONTRACT: each finding's `message` is rendered in the response's
+      // negotiated language, never the server's; messageKey and messageParams
+      // (noteKey and noteParams when present) are its identity (catalog-info.yaml, #654).
+      deductibility_findings: (result.deductibilityFindings ?? []).map((f) => withCashFindingMessage(f, responseLanguage(res))),
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
