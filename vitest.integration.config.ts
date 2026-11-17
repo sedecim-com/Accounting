@@ -19,16 +19,16 @@ export default defineConfig({
     // ============================================================
     // EL LOCALE TAMBIÉN SE FIJA AQUÍ, NO LO PONE QUIEN LA CORRE (I6)
     //
-    // vitest.config.ts blindó la suite unitaria y ésta se quedó sin blindar,
-    // que es el orden equivocado: la unitaria mockea `query` y ésta corre
-    // contra un Postgres de verdad, así que es la que más caro paga que dos
-    // máquinas no ejecuten lo mismo. El resolutor cae, por orden, en
-    // `--locale` > MNEMOSINE_LOCALE (alias permanente MNEMOSINE_LANG) > la
-    // configuración del usuario > la del proyecto > la clave vieja
-    // `language` > el inquilino > es-MX. Las pruebas no pasan banderas, así
-    // que sin esta línea el segundo escalón lo decide el perfil de shell del
-    // que ejecuta. El caso feo no es el rojo: es el verde local que sólo
-    // falla en CI, o al revés.
+    // vitest.config.ts pinned the unit suite and this one was left unpinned,
+    // which is the wrong order: the unit suite mocks `query` and this one runs
+    // against a real Postgres, so it pays the most when two machines do not
+    // run the same thing. The resolver takes, in order, `--locale` >
+    // MNEMOSINE_LOCALE (permanent alias MNEMOSINE_LANG) > the user's
+    // configuration > the folder's > the legacy `language` key > the entity's
+    // language > `DEFAULT_LOCALE`. The tests pass no flags, so without this
+    // line MNEMOSINE_LOCALE is decided by the shell profile of whoever runs
+    // them. The ugly case is not the red: it is the local green that fails
+    // only in CI, or vice versa.
     //
     // LO QUE ESTA LÍNEA SÍ ARREGLA Y LO QUE NO — medido, no supuesto:
     //

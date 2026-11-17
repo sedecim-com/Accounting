@@ -14,14 +14,14 @@ export default defineConfig({
     // ============================================================
     // EL LOCALE DE LA SUITE SE FIJA AQUÍ, NO LO PONE QUIEN LA CORRE (I6)
     //
-    // El resolutor de locale cae, por orden, en `--locale` > MNEMOSINE_LOCALE
-    // > la configuración del usuario > `tenants.settings.locale` > es-MX. Las
-    // pruebas no pasan banderas, así que sin esta línea el segundo escalón lo
-    // decide el entorno del que ejecuta: una máquina con MNEMOSINE_LOCALE=pt-BR
-    // exportado en su perfil corre la misma suite con OTRO separador de miles
-    // y otro símbolo de moneda, y la falla no se parece en nada a su causa.
-    // El caso feo no es el rojo, es el verde: un aserto escrito contra la
-    // salida local pasa en esa máquina y sólo falla en CI, o al revés.
+    // The locale resolver takes, in order, `--locale` > MNEMOSINE_LOCALE >
+    // the user's configuration > the folder's > the entity's language >
+    // `DEFAULT_LOCALE`. The tests pass no flags, so without this line
+    // MNEMOSINE_LOCALE is whatever the profile of whoever runs them exports:
+    // two machines that export different values run the same suite in two
+    // languages, and the failure looks nothing like its cause.
+    // The ugly case is not the red, it is the green: an assertion written
+    // against local output passes there and fails only in CI, or vice versa.
     //
     // Y SE FIJA EN en-US, NO EN es-MX, a propósito: es-MX es el valor por
     // omisión del resolutor, así que fijarlo aquí haría indistinguibles «el

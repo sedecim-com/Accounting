@@ -65,11 +65,11 @@
 //
 // SE FIJA LA VARIABLE Y NO LA BANDERA, y la diferencia importa:
 //
-//  · La variable gana a TODO lo que es de la MÁQUINA: ~/.mnemosine/config.json,
-//    ./mnemosine.config.json, la clave vieja `language`, el inquilino y el
-//    último escalón es-MX (`DEFAULT_LOCALE`). Ésos son los escalones que hacen
-//    que dos contadores midan distinto el mismo árbol, y son los que este
-//    archivo calla.
+//  · The variable beats EVERYTHING below it that belongs to the MACHINE:
+//    ~/.mnemosine/config.json, ./mnemosine.config.json, the legacy `language`
+//    key, the entity's language and the last rung, `DEFAULT_LOCALE`. Those are
+//    the rungs that make two accountants measure the same tree differently,
+//    and they are the ones this file silences.
 //  · `--locale` en la línea de órdenes sigue por ENCIMA, y se deja a
 //    propósito. Pisar en silencio una bandera que un humano acaba de teclear
 //    es peor que el defecto. Y ninguno de los dos pasa callando, porque
