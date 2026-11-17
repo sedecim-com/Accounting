@@ -62,6 +62,12 @@ provides:
     # records, per the SAT instructivo of January 2025 cited in
     # src/services/sat/diot/sat-batch.ts (fiscal years 2025 onward; earlier periods are
     # refused). It generates only; a person uploads it (#307).
+    # CONTRACT: the agent is told to write the entry and line descriptions of an
+    # entity that keeps Mexican books in Spanish, whatever language it answers
+    # in, because they become the Concepto of the Anexo 24 Polizas XML (#654,
+    # #158). It is a prompt instruction, not a check: a person approves each
+    # draft unless ingest_auto_post is on, and system templates reach the
+    # Concepto in English until MNE-001-173.
 
 consumes: []                     # ningún contrato de otro repo de Sedecim hoy. Lo externo va en `external`
 
