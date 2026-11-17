@@ -230,7 +230,9 @@ router.post('/payments', declararRiesgoRuta({ riesgo: 'irreversible', escribe: '
       payment_number: result.paymentNumber,
       journal_entry_id: result.journalEntry?.id ?? null,
       applied: result.documentos,
-      // CONTRACT: `message` in the response's negotiated language, as on approve (#654).
+      // CONTRACT: each finding's `message` is rendered in the response's
+      // negotiated language, never the server's; messageKey and messageParams
+      // (noteKey and noteParams when present) are its identity (catalog-info.yaml, #654).
       deductibility_findings: (result.deductibilityFindings ?? []).map((f) => withCashFindingMessage(f, responseLanguage(res))),
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
