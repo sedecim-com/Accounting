@@ -677,9 +677,10 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(rowsOf<{ tax_id: string }>(ok(['vendor', 'list', '--json'])).map((v) => v.tax_id))
         .not.toContain(CONSULTANT_RFC);
 
-      // A person registers the vendor and codes the line. The line's own
-      // account is needed: with no vendor at ingest, the product suggests the
-      // opening bill's 2110 for it, and the suggestion beats a default account.
+      // FIXME(#684): a person registers the vendor and codes the line. The
+      // line's own account is needed: with no vendor at ingest, the product
+      // suggests the opening bill's 2110 for it, and the suggestion beats a
+      // default account.
       ok(['vendor', 'create', CONSULTANT_NAME, '--tax-id', CONSULTANT_RFC]);
       ok(['bill', 'inbox', 'edit', row.id, '--line', '1', '--account', '6100']);
       ok(['bill', 'inbox', 'run', row.id, '--yes']);
