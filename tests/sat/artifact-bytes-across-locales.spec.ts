@@ -46,7 +46,9 @@ const PARTY = {
 } as const;
 const CFDI_LINE = { quantity: '1.0000', taxCode: 'IVA16', taxRate: '16.00', productCode: '84111506', unitCode: 'E48' };
 
-// Amounts reach four digits, where a thousands separator would show.
+// NOTE: es-MX and en-US group digits and mark decimals the same way
+// ("11,600.00" in both), so a builder that formats an amount by locale is not
+// caught here; the XSD specs (tests/sat/anexo24/official-xsd.spec.ts) catch it.
 const BUILDERS: ReadonlyArray<readonly [string, () => string]> = [
   ['construirCatalogoCuentas', () => construirCatalogoCuentas({
     rfc: RFC, anio: 2026, mes: 1,

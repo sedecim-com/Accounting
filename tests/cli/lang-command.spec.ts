@@ -368,7 +368,9 @@ describe('with no entity in context, the binary reads the system default', () =>
       const help = run(['--help']);
       expect(help.status, help.stderr).toBe(ExitCode.OK);
       expect(help.stdout.trimStart().split(/\s+/)[0]).toBe(t('cli.chrome.usage', {}, expected));
-      expect(run(['lang']).stdout).toContain(`Agent response language: ${expected}`);
+      const shown = run(['lang']);
+      expect(shown.status, shown.stderr).toBe(ExitCode.OK);
+      expect(shown.stdout).toContain(`Agent response language: ${expected}`);
     },
     180_000
   );
