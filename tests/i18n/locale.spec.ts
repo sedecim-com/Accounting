@@ -434,14 +434,16 @@ describe('describeLocale — an unusable value warns once and the next rung deci
   });
 });
 
-/** The `./` imports and re-exports of a file that are not type-only: each one runs at load time. */
+/** A file's imports and re-exports that land in its own folder, however spelled, and are not type-only. */
 function runtimeSiblingImports(file: string): string[] {
+  const dir = path.dirname(file);
   const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
   return source.statements
     .filter((s): s is ts.ImportDeclaration | ts.ExportDeclaration =>
       ts.isImportDeclaration(s) || ts.isExportDeclaration(s))
     .filter((s) => s.moduleSpecifier !== undefined && ts.isStringLiteral(s.moduleSpecifier)
-      && s.moduleSpecifier.text.startsWith('./'))
+      && s.moduleSpecifier.text.startsWith('.') // a bare `node:fs` would resolve into the folder too
+      && path.dirname(path.resolve(dir, s.moduleSpecifier.text)) === dir)
     .filter((s) => (ts.isImportDeclaration(s) ? s.importClause?.isTypeOnly !== true : !s.isTypeOnly))
     .map((s) => s.getText(source));
 }
@@ -449,7 +451,7 @@ function runtimeSiblingImports(file: string): string[] {
 describe('locale.ts imports only types from its folder, because index.ts imports it', () => {
   const I18N = path.join(__dirname, '..', '..', 'src', 'i18n');
 
-  it('every ./ import of locale.ts is `import type`', () => {
+  it('every import of locale.ts from its own folder is `import type`', () => {
     expect(runtimeSiblingImports(path.join(I18N, 'locale.ts'))).toEqual([]);
   });
 
