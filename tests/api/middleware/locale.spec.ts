@@ -4,7 +4,8 @@ import { request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { negotiateLocale } from '../../../src/api/rest/middleware/locale.js';
+import { negotiateLocale, offeredTagsFor } from '../../../src/api/rest/middleware/locale.js';
+import { DEFAULT_LOCALE, languageOfLocale } from '../../../src/i18n/locale.js';
 import { authenticate } from '../../../src/api/rest/middleware/auth.js';
 import { preAuthRateLimiter } from '../../../src/api/rest/middleware/rate-limiter.js';
 import { errorHandler } from '../../../src/api/rest/middleware/error-handler.js';
@@ -114,6 +115,12 @@ describe('negotiateLocale on the wire', () => {
     expect(r.body).toEqual({ language: 'es', locale: 'es-MX' });
   });
 
+  it('Accept-Language: * is answered in DEFAULT_LOCALE, whichever locale that is', async () => {
+    // Written against the constant, so it holds the day the default moves.
+    const r = await get('/ok', '*');
+    expect(r.body).toEqual({ language: languageOfLocale(DEFAULT_LOCALE), locale: DEFAULT_LOCALE });
+  });
+
   it('en-GB is answered in en-US', async () => {
     const r = await get('/ok', 'en-GB');
     expect(r.body).toEqual({ language: 'en', locale: 'en-US' });
@@ -148,6 +155,16 @@ describe('negotiateLocale on the wire', () => {
     const body = r.body as { errors: Array<{ code: string }>; meta: Record<string, unknown> };
     expect(body.errors[0]?.code).toBe('UNAUTHORIZED');
     expect(body.meta.language).toBeUndefined();
+  });
+});
+
+describe('offeredTagsFor puts the default first, the tag that `*` takes', () => {
+  it('with es-MX as the default', () => {
+    expect(offeredTagsFor('es-MX')).toEqual(['es-MX', 'en-US', 'es', 'en']);
+  });
+
+  it('with en-US as the default', () => {
+    expect(offeredTagsFor('en-US')).toEqual(['en-US', 'es-MX', 'en', 'es']);
   });
 });
 
