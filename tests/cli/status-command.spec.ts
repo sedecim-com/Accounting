@@ -24,11 +24,14 @@ import {
   statusExitCode,
   type StatusReport,
 } from '../../src/cli/status-command.js';
+import { DEFAULT_LOCALE, languageOfLocale } from '../../src/i18n/locale.js';
 
 const mockQuery = query as unknown as Mock;
 
 const FAKE_KEY = 'sk-super-secret-status-key-42';
 let tmpDir: string;
+let home: string;
+const savedHome = process.env.HOME;
 
 const plainPalette = { dim: (s: string) => s, bold: (s: string) => s, cyan: (s: string) => s };
 
@@ -72,6 +75,10 @@ function mockDbUp(tenant: string | null = 'tenant-acme') {
 beforeEach(() => {
   mockQuery.mockReset();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'status-'));
+  // The language also reads ~/.mnemosine/config.json: an empty HOME keeps the
+  // developer's `mnemosine lang` (and, from #655, the pinned entity) out (#652).
+  home = fs.mkdtempSync(path.join(os.tmpdir(), 'status-home-'));
+  process.env.HOME = home;
   delete process.env.MNEMOSINE_PROVIDER;
   // Las DOS grafías del mismo dial. `MNEMOSINE_LANG` es alias permanente de
   // `MNEMOSINE_LOCALE` (I6/D10) y desde I6 las dos las lee el mismo resolutor,
@@ -83,6 +90,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(home, { recursive: true, force: true });
+  if (savedHome === undefined) delete process.env.HOME;
+  else process.env.HOME = savedHome;
 });
 
 const env = { FAKE_STATUS_KEY: FAKE_KEY } as NodeJS.ProcessEnv;
@@ -97,7 +107,8 @@ describe('buildStatusReport — config summary', () => {
     expect(r.config.thresholds.maxAmount).toBe(50000); // Math.min(999999, floor)
     expect(r.config.thresholds.floorCap).toBe(50000);
     expect(r.config.thresholds.autoPost).toBe(true);
-    expect(r.config.language).toBe('es');
+    // No entity in context: the system default, whichever it is.
+    expect(r.config.language).toBe(languageOfLocale(DEFAULT_LOCALE));
   });
 });
 
