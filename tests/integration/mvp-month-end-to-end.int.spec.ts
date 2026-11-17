@@ -30,7 +30,7 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 //
 // THE FIGURES ARE WRITTEN BY HAND, never copied from the output: a test
 // generated from the system's own answer cannot fail. Each constant carries
-// its derivation from the opening and the six documents of the month.
+// its derivation from the opening and the twelve documents of the month.
 //
 // NOTHING IS SEEDED WITH SQL. The firm and its user come from `tenant create`
 // and `user create`, like every other row of the month (MNE-001-406).
@@ -134,44 +134,56 @@ const OPEN_DOCUMENTS = [
 //                        (16 % of 10,000; no MetodoPago on a typed invoice → PUE)
 //   12-08 bill           6100 Dr 5,000.00, 1135 Dr 800.00 / 2110 Cr 5,800.00
 //                        (no MetodoPago on a typed bill → PPD, IVA parked in 1135)
+//   12-10 received PPD   6100 Dr 8,000.00, 1135 Dr 1,280.00 / 2110 Cr 9,280.00
+//                        (the consultant's CFDI: PPD, so its IVA waits in 1135)
+//   12-12 received PUE   6100 Dr 1,000.00, 1130 Dr 160.00 / 2110 Cr 1,160.00, and
+//                        paid that day: 2110 Dr 1,160.00 / bank Cr 1,160.00, with
+//                        no IVA moved (a PUE declares one payment, CFF 29-A fr. VII b)
 //   12-15 receipt        bank Dr 5,800.00 / 1120 Cr 5,800.00 (half the invoice)
 //   12-18 credit note    4400 Dr 1,000.00, 2120 Dr 160.00 / 1120 Cr 1,160.00
+//   12-19 received PUE   the same as on 12-12: the cleaner's second CFDI
 //   12-20 payment        2110 Dr 5,800.00 / bank Cr 5,800.00,
 //                        and the paid IVA moves 1135 → 1130: 800.00
+//   12-22 REP            2110 Dr 9,280.00 / bank Cr 9,280.00, and the PPD's
+//                        paid IVA moves 1135 → 1130: 1,280.00 (LIVA art. 5 fr. III)
 //   12-31 depreciation   6140 Dr 900.00 / 1290 Cr 900.00, posted by the close:
 //                        computer class, 30 % LISR maximum → 40-month book
 //                        life; whole-month convention, so 36,000 / 40
 // Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
-// + 900 = 67,860. The dossier seals the trial balance as of 12-31, so it
-// counts the opening of 01-01 too: 107,800 + 67,860.
-const SEALED_DEBITS = '175660.00';
+// + 900 = 67,860 typed, and 9,280 + 2 × 1,160 + 2 × 1,160 + (9,280 + 1,280)
+// = 24,480 received: 92,340. The dossier seals the trial balance as of 12-31,
+// so it counts the opening of 01-01 too: 107,800 + 92,340.
+const SEALED_DEBITS = '200140.00';
 const ENDING = {
-  '1111': '64000.00', // 100,000 opening − 36,000 − 5,800 + 5,800 (see MNE-001-039 in step 4)
+  // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
+  // (see MNE-001-039 in step 4)
+  '1111': '52400.00',
   '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160
-  '1130': '800.00',
-  '1135': '320.00', // the opening's; the 800 parked on 12-08 moved to 1130 on 12-20
+  '1130': '2400.00', // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE)
+  '1135': '320.00', // the opening's; the 800 and the 1,280 parked in December moved to 1130 when paid
   '1220': '36000.00',
   '1290': '-900.00', // accumulated depreciation, credit balance
   '1320': '4000.00', // the deposit, untouched since the opening
-  '2110': '-2320.00', // the opening bill; −5,800 on 12-08 and +5,800 on 12-20 net to nothing
+  '2110': '-2320.00', // the opening bill: every December bill was paid within the month
   '2120': '-1440.00', // −1,600 + 160, credit balance
   '2125': '-480.00', // the opening invoice's IVA, still uncollected
   '3100': '-100000.00',
   '3200': '-5000.00', // the 2024 result, untouched since the opening
   '4100': '-10000.00',
   '4400': '1000.00',
-  '6100': '5000.00',
+  '6100': '15000.00', // 5,000 typed + 8,000 (PPD) + 1,000 + 1,000 (the PUE)
   '6140': '900.00',
 } as const;
 const NET_SALES = '9000.00'; // 10,000 − 1,000 returned
-const NET_INCOME = '3100.00'; // 9,000 − 5,000 − 900
-const TOTAL_ASSETS = '112340.00'; // 64,000 + 8,120 + 800 + 320 + 36,000 − 900 + 4,000
+const NET_INCOME = '-6900.00'; // 9,000 − 15,000 − 900
+const TOTAL_ASSETS = '102340.00'; // 52,400 + 8,120 + 2,400 + 320 + 36,000 − 900 + 4,000
 const TOTAL_LIABILITIES = '4240.00'; // 2,320 + 1,440 + 480
-const TOTAL_EQUITY = '108100.00'; // 100,000 + 5,000 + 3,100
-// Indirect method: 3,100 + 900 (depreciation, no cash) − 4,640 (AR up) − 800
-// (IVA credit up) + 1,440 (IVA payable up) = 0, which is the 5,800 received
-// minus the 5,800 paid. 1135, 2110 and 2125 end December where they began it.
-const OPERATING_CASH = '0.00';
+const TOTAL_EQUITY = '98100.00'; // 100,000 + 5,000 − 6,900; and 102,340 = 4,240 + 98,100
+// Indirect method: −6,900 + 900 (depreciation, no cash) − 4,640 (AR up)
+// − 2,400 (IVA credit up) + 1,440 (IVA payable up) = −11,600, which is the
+// 5,800 received minus the 5,800 + 9,280 + 1,160 + 1,160 paid. 1135, 2110
+// and 2125 end December where they began it.
+const OPERATING_CASH = '-11600.00';
 const INVESTING_CASH = '-36000.00'; // the computers
 const FINANCING_CASH = '0.00'; // the capital came in with the opening, in January
 
@@ -608,7 +620,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('4 · bank', () => {
-    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 5,800.00 and credits 5,800.00 — MNE-001-039');
+    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 5,800.00 and credits 17,400.00 — MNE-001-039');
     it.todo('imports the December statement, the first session with a baseline instead of the whole ledger history — MNE-001-038');
     it.todo('an overlapping statement does not duplicate movements — MNE-001-042');
     it.todo('reconciles, classifies the bank fee and its IVA, and closes the session — MNE-001-040, MNE-001-041, MNE-001-043');
@@ -705,9 +717,10 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // By hand: every cash movement of the month sits in the subtree of 1110,
       // whichever of its accounts it landed on (MNE-001-039). Debits: the
       // 5,800 receipt, since the opening is January's; credits: the 36,000
-      // computers and the 5,800 payment.
+      // computers, the 5,800 payment, the REP's 9,280 and the two PUE paid,
+      // 1,160 each. 100,000 + 5,800 − 53,400 = 52,400, the ending of 1111.
       expect(money(cash?.debit_total)).toBe('5800.00');
-      expect(money(cash?.credit_total)).toBe('41800.00');
+      expect(money(cash?.credit_total)).toBe('53400.00');
       expect(money(cash?.final_balance)).toBe(ENDING['1111']);
 
       // And against the detail balanza: 1110 is itself plus 1111, 1112 and
