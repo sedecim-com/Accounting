@@ -75,6 +75,7 @@ const STEP_TIMEOUT_MS = 240_000;
 
 // SAT's published test RFC for the company; synthetic ones for its parties.
 const COMPANY_RFC = 'EKU9003173C9';
+const COMPANY_NAME = 'Comercializadora Sintetica SA de CV';
 const CUSTOMER_RFC = 'SIN060101AB1';
 const VENDOR_RFC = 'PRV060101AB1';
 
@@ -145,7 +146,6 @@ const OPEN_DOCUMENTS = [
 // holds section 3's 'Proveedor Sintetico'. The consultant issues the PPD and
 // its REP; the cleaner issues both PUE, so the rule of step 2·196 meets the
 // vendor's second CFDI.
-const COMPANY_NAME = 'Comercializadora Sintetica SA de CV';
 const CONSULTANT_RFC = 'CPA060101AB1';
 const CONSULTANT_NAME = 'Consultores Asociados del Pacifico SC';
 const CLEANER_RFC = 'LIM060101AB1';
@@ -486,7 +486,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
     it('creates the entity with its seeded chart and the 2025 fiscal year', () => {
       const created = rowsOf<{ entityId: string; taxId: string }>(
-        ok(['entity', 'create', 'Comercializadora Sintetica SA de CV', '--tax-id', COMPANY_RFC,
+        ok(['entity', 'create', COMPANY_NAME, '--tax-id', COMPANY_RFC,
           '--tax-regime', '601', '--tax-postal-code', '01000', '--json'])
       );
       expect(created[0].taxId).toBe(COMPANY_RFC);
@@ -518,7 +518,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
           .replace('Rfc="XAXX010101000"', `Rfc="${COMPANY_RFC}"`)
       );
       const dry = ok(['ingest', xml, '--dry-run'], 'ingest');
-      expect(dry.out).toContain('mnemosine ingest --dry-run · Comercializadora Sintetica SA de CV · 1 file(s)');
+      expect(dry.out).toContain(`mnemosine ingest --dry-run · ${COMPANY_NAME} · 1 file(s)`);
       expect(dry.out).toContain('ingest-scope.xml  would_process · received');
       expect(dry.out).toContain('dry-run: nothing was written');
     }, STEP_TIMEOUT_MS);
