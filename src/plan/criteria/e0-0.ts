@@ -9,8 +9,10 @@ import {
   crudoDe,
   existe,
   falla,
+  forEachGatewayNode,
   fuentes,
   leer,
+  literalText,
   noEvaluable,
   ok,
   RAIZ,
@@ -29,6 +31,7 @@ import {
   measureCensus,
   parseCensus,
 } from '../mutation-census.js';
+import { LOCALES, languageOfLocale } from '../../i18n/locale.js';
 
 // ============================================================
 // THE E0.0 CRITERIA
@@ -513,7 +516,7 @@ export const E0_0: Criterio[] = [
     //
     // NO VIGILA QUE LAS CADENAS ESTÉN TRADUCIDAS —de eso se encarga `tsc`, y
     // mejor: `ES` es `Record<keyof typeof EN, string>`, así que una clave sin
-    // traducir no compila—. Vigila las TRES cosas que sí se pueden perder en
+    // traducir no compila—. Vigila las CINCO cosas que sí se pueden perder en
     // silencio, y cada una se perdió de verdad durante la construcción de este
     // tramo:
     //
@@ -526,6 +529,13 @@ export const E0_0: Criterio[] = [
     //      estado ANTES de este tramo (config.ts y mnemosine.ts).
     //   3. Que el español siga siendo el primero. Es el pedido del dueño, y es
     //      una línea que cualquiera reordena sin querer al añadir un idioma.
+    //   4. That the REST edge builds the tags it offers from `DEFAULT_LOCALE`.
+    //      `Accept-Language: *` takes the first one, and the list was written by
+    //      hand: moving the constant left REST on the old default (MNE-001-465).
+    //   5. That the `## Language` section of the OpenAPI description names no
+    //      locale by hand. It wrote `es-MX` while four other places of the same
+    //      contract followed the constant, so moving it would have made the
+    //      generated contract contradict itself.
     enunciado:
       'El idioma del usuario se deriva del locale, y el nombre de su variable de entorno vive en un solo archivo',
     evaluar: () => {
@@ -576,6 +586,66 @@ export const E0_0: Criterio[] = [
         return falla('`LANGUAGES` ya no empieza por `es`: el español dejó de ser el primero');
       }
 
+      // 4 and 5 read string and template literals through the AST, so a comment
+      // that names `es-MX` is prose and never counts. The tag patterns come from
+      // `LOCALES` and their languages: a third locale is covered with no edit.
+      const MIDDLEWARE = 'src/api/rest/middleware/locale.ts';
+      const OPENAPI = 'src/api/rest/openapi.ts';
+      const gone = [MIDDLEWARE, OPENAPI].filter((f) => !existe(f));
+      if (gone.length) return falla(`the REST edge this criterion reads is gone: ${gone.join(', ')} is missing`);
+      const literalsOf = (rel: string): string[] => {
+        const texts: string[] = [];
+        const sf = ts.createSourceFile(path.basename(rel), crudoDe(rel), ts.ScriptTarget.Latest, true);
+        forEachGatewayNode(sf, (n) => {
+          const text = literalText(n);
+          if (text !== undefined) texts.push(text);
+        });
+        return texts;
+      };
+      const escaped = (tags: readonly string[]): string =>
+        tags.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+      const asToken = (tags: readonly string[], flags = ''): RegExp =>
+        new RegExp(`(?<![A-Za-z-])(?:${escaped(tags)})(?![A-Za-z-])`, flags);
+      const shortForms = LOCALES.map(languageOfLocale);
+
+      // 4 · THE REST EDGE OFFERS ITS TAGS FROM THE DEFAULT. The whole file is
+      // read, not only `OFFERED_TAGS`: a literal list handed straight to
+      // `acceptsLanguages` is the same defect.
+      const anyTag = asToken([...LOCALES, ...shortForms], 'i');
+      const handListed = literalsOf(MIDDLEWARE).filter((t) => anyTag.test(t));
+      if (handListed.length) {
+        return falla(
+          `${MIDDLEWARE} writes a locale or language tag by hand (${handListed.map((t) => JSON.stringify(t)).join(', ')}): ` +
+            '`Accept-Language: *` takes the first tag offered, so a hand-written list keeps answering the old ' +
+            'default the day `DEFAULT_LOCALE` moves. Build the tags with `offeredTagsFor(DEFAULT_LOCALE)`'
+        );
+      }
+
+      // 5 · THE CONTRACT'S LANGUAGE SECTION FOLLOWS THE CONSTANT. The section is
+      // found by its heading in the static text, not by the name of the array
+      // that holds it, and a missing heading fails closed.
+      const description = literalsOf(OPENAPI).join('\u0000');
+      const heading = description.indexOf('\n## Language\n');
+      if (heading === -1) {
+        return falla(
+          `${OPENAPI} has no \`## Language\` heading in its static text, so this criterion cannot see what ` +
+            'the contract says about the default language: it fails closed'
+        );
+      }
+      const fromHeading = description.slice(heading + 1);
+      const nextHeading = fromHeading.indexOf('\n## ');
+      const section = nextHeading === -1 ? fromHeading : fromHeading.slice(0, nextHeading);
+      const regionTag = asToken(LOCALES);
+      const bareLanguage = new RegExp(`\`(?:${escaped(shortForms)})\``);
+      const handWritten = section.split('\u0000').find((t) => regionTag.test(t) || bareLanguage.test(t));
+      if (handWritten !== undefined) {
+        return falla(
+          `the \`## Language\` section of ${OPENAPI} names a locale by hand (${JSON.stringify(handWritten.slice(0, 80))}): ` +
+            'the rest of the contract follows `DEFAULT_LOCALE`, so moving it would leave this sentence stating ' +
+            'the old default. Interpolate `LOCALES` and `DEFAULT_LOCALE`'
+        );
+      }
+
       return ok(
         'el idioma se deriva del locale en cada llamada, su variable de entorno se nombra en un ' +
           `solo archivo (${path.relative(RAIZ, doors[0])}) y el español sigue primero`
@@ -601,6 +671,22 @@ export const E0_0: Criterio[] = [
           '  void SEGUNDA_PUERTA;',
         porque:
           'segunda-puerta: un segundo archivo nombra la variable del idioma y la precedencia vuelve a implementarse dos veces',
+      },
+      {
+        archivo: 'src/api/rest/middleware/locale.ts',
+        de: 'const OFFERED_TAGS = offeredTagsFor(DEFAULT_LOCALE);',
+        a: "const OFFERED_TAGS = ['es-MX', 'en-US', 'es', 'en'] as const;",
+        porque:
+          'hand-listed-tags: the REST edge lists its tags by hand again, so `Accept-Language: *` keeps ' +
+          'answering the old default the day `DEFAULT_LOCALE` moves',
+      },
+      {
+        archivo: 'src/api/rest/openapi.ts',
+        de: "`Every request negotiates a language from \\`Accept-Language\\` (${LOCALES.map((l) => `\\`${l}\\``).join(' or ')}; \\`${DEFAULT_LOCALE}\\` when `,",
+        a: "'Every request negotiates a language from `Accept-Language` (`es-MX` or `en-US`; `es-MX` when ',",
+        porque:
+          'hand-written-default: the Language section of the contract names `es-MX` by hand again, so ' +
+          'moving `DEFAULT_LOCALE` would leave the generated contract stating two defaults',
       },
     ],
   },

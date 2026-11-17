@@ -1,16 +1,16 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { Language } from '../../../i18n/index.js';
-import { DEFAULT_LOCALE, languageOfLocale, normalizeLocale, type Locale } from '../../../i18n/locale.js';
+import { DEFAULT_LOCALE, LOCALES, languageOfLocale, normalizeLocale, type Locale } from '../../../i18n/locale.js';
 
 // ============================================================
 // THE LANGUAGE A REQUEST ASKS FOR (I9 · issue #151)
 //
 // Decided in the issue before the code (decision d): in this first slice the
 // language is negotiated ONLY from `Accept-Language`, and a request without it
-// gets `es-MX`, the product's default. The tenant's own setting
-// (`tenants.settings.locale`) comes later: no query reads that column today,
-// and the tenant context is mounted after `authenticate`, so a 401 could not
-// know it anyway.
+// gets `DEFAULT_LOCALE`, the product's default. The language of the entity in
+// context reaches REST later, on its own path (#656): nothing here reads it
+// today, and like the tenant context it is known only after `authenticate`, so
+// a 401 could not know it anyway.
 //
 // THIS MIDDLEWARE DECLARES NOTHING TO THE CLIENT. It only records the
 // negotiated language on `res.locals`. The `Content-Language` header and
@@ -30,18 +30,28 @@ export interface NegotiatedLocale {
 }
 
 /**
- * The tags offered to `req.acceptsLanguages`, most specific first. Express
- * matches `es-AR` to `es` and `en-GB` to `en`, and `normalizeLocale` maps each
- * of these four to one of the supported locales. `Accept-Language: *` resolves
- * to the FIRST tag of this list, so es-MX must stay first.
+ * The tags offered to `req.acceptsLanguages`: the default first, then the other
+ * locales, then their languages, so the specific tags come before the short
+ * ones. Express matches `es-AR` to `es` and `en-GB` to `en`, and
+ * `normalizeLocale` maps every tag back to a supported locale.
+ *
+ * `Accept-Language: *` resolves to the FIRST tag. That is why the list is built
+ * from the default and never written by hand: a literal list keeps answering
+ * the old default the day `DEFAULT_LOCALE` moves. E0.0
+ * `user-language-has-one-door` refuses a tag literal anywhere in this file.
  */
-const OFFERED_TAGS = ['es-MX', 'en-US', 'es', 'en'] as const;
+export function offeredTagsFor(defaultLocale: Locale, locales: readonly Locale[] = LOCALES): readonly string[] {
+  const ordered = [defaultLocale, ...locales.filter((l) => l !== defaultLocale)];
+  return [...ordered, ...ordered.map(languageOfLocale)];
+}
+
+const OFFERED_TAGS = offeredTagsFor(DEFAULT_LOCALE);
 
 export function negotiatedLocaleOf(req: Pick<Request, 'acceptsLanguages' | 'headers'>): NegotiatedLocale {
   const header = req.headers['accept-language'];
-  // An absent header is the product default by rule, not by the order of the
-  // list above: Express would answer the first offered tag, which is es-MX today
-  // only because of that order.
+  // An absent header gets the default by rule, not through the list above:
+  // Express would answer its first tag, which is the default only because
+  // `offeredTagsFor` puts it there.
   const match = header === undefined || header === '' ? false : req.acceptsLanguages(...OFFERED_TAGS);
   const locale = (typeof match === 'string' ? normalizeLocale(match) : null) ?? DEFAULT_LOCALE;
   return { locale, language: languageOfLocale(locale) };
