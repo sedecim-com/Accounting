@@ -45,9 +45,10 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // THE RECEIVED CFDI GO BY THE MANUAL PATH (MNE-001-408). A consultant's PPD
 // and a cleaner's two PUE come from tests/fixtures/cfdi, rewritten to this
 // company and December; the REP that pays the PPD is inline, since that
-// folder has none. With no model, `bill inbox edit` and `run` post them, or a
-// rule does on `ingest --retry`. The child runs with SAT_STATUS_MODE=off, so
-// no synthetic UUID goes to the SAT. Each PUE is paid on its date: a PUE
+// folder has none. With no model, `bill inbox edit` and `bill inbox run` post
+// the PPD and the first PUE, a rule posts the second on `ingest --retry`, and
+// `ingest` links the REP by itself. The child runs with SAT_STATUS_MODE=off,
+// so no synthetic UUID goes to the SAT. Each PUE is paid on its date: a PUE
 // declares one payment. The PPD is coded by its line (`--line 1`), because
 // the product suggests the opening bill's 2110 for an unknown issuer's line.
 //
@@ -147,9 +148,13 @@ const OPEN_DOCUMENTS = [
 const COMPANY_NAME = 'Comercializadora Sintetica SA de CV';
 const CONSULTANT_RFC = 'CPA060101AB1';
 const CONSULTANT_NAME = 'Consultores Asociados del Pacifico SC';
+const CLEANER_RFC = 'LIM060101AB1';
+const CLEANER_NAME = 'Limpieza Integral Moderna SA de CV';
+const CLEANING_RULE = 'Cleaning goes to 6100';
 // Fixed, not uuidv4(): dedupe is per entity and every run has a fresh one, so
 // a later slice can name these CFDI by constant.
 const PPD_UUID = '5A1E0408-1210-4C0A-9D2E-000000002001';
+const CLEANER_PUE_UUIDS = ['5A1E0408-1212-4C0A-9D2E-000000001001', '5A1E0408-1219-4C0A-9D2E-000000001002'] as const;
 const REP_UUID = '5A1E0408-1222-4C0A-9D2E-00000000A001';
 // The REP of the PPD, inline because tests/fixtures/cfdi has none. It copies
 // the shape of tests/integration/helpers/rep-xml.ts, which this spec cannot
@@ -651,6 +656,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
   describe('2 · CFDI to the ledger', () => {
     it.todo('ingests the issued PUE and PPD invoices from tests/fixtures into receivables, never as expense, and the issued REP settles the PPD — MNE-001-025, MNE-001-028');
+
     it('approving a received PPD creates the bill, and its REP moves the IVA from 1135 to 1130 — MNE-001-026, MNE-001-116, MNE-001-117', () => {
       const ppd = receivedCfdi('factura-consultoria-2001.xml',
         { file: 'ppd-2025-12-10.xml', rfc: CONSULTANT_RFC, name: CONSULTANT_NAME, date: '2025-12-10', uuid: PPD_UUID });
@@ -698,7 +704,58 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         { '6100': '8000.00', '1135': '0.00', '1130': '1280.00', '2110': '0.00', '1111': '-9280.00' }
       );
     }, STEP_TIMEOUT_MS);
-    it.todo('classifies the month by the manual path, with no model: reprocess, hand coding and processing rules — MNE-001-029, MNE-001-030, MNE-001-032');
+
+    it('classifies the month by the manual path, with no model: reprocess, hand coding and processing rules — MNE-001-029, MNE-001-030, MNE-001-032', () => {
+      ok(['vendor', 'create', CLEANER_NAME, '--tax-id', CLEANER_RFC]);
+      const [pue12, pue19] = (['12', '19'] as const).map((day, i) => receivedCfdi('factura-limpieza-1001.xml', {
+        file: `pue-2025-12-${day}.xml`, rfc: CLEANER_RFC, name: CLEANER_NAME, date: `2025-12-${day}`,
+        uuid: CLEANER_PUE_UUIDS[i], invoiceNumber: String(1001 + i),
+      }));
+      expect(ok(['ingest', pue12, pue19, '-y'], 'ingest').out).toContain('2 left to code');
+      const ready = rowsOf<{ id: string; date: string; total: string }>(
+        ok(['bill', 'inbox', 'list', '--status', 'ready', '--json'])
+      );
+      expect(ready.map((r) => `${r.date} ${money(r.total)}`).sort()).toEqual(['2025-12-12 1160.00', '2025-12-19 1160.00']);
+      const first = ready.find((r) => r.date === '2025-12-12')?.id ?? '';
+
+      // MNE-001-030: the cleaner has no bills, so nothing suggests an account,
+      // and the single gate refuses the uncoded line (exit 1). Coded by hand, it posts.
+      const uncoded = mnemosine(['bill', 'inbox', 'run', first, '--yes']);
+      expect(uncoded.status, uncoded.out + uncoded.err).toBe(1);
+      ok(['bill', 'inbox', 'edit', first, '--account', '6100']);
+      ok(['bill', 'inbox', 'run', first, '--yes']);
+
+      // MNE-001-029 and MNE-001-032: a plain ingest calls the second CFDI a
+      // duplicate; a rule made in the terminal posts it on --retry, with no
+      // hand coding. The first one already has its bill and is not reprocessed.
+      expect(ok(['ingest', pue19, '-y'], 'ingest').out).toContain('pue-2025-12-19.xml  duplicate');
+      const [rule] = rowsOf<{ id: string }>(ok(['bill', 'rule', 'create', '--name', CLEANING_RULE,
+        '--when', `emisor_rfc equals ${CLEANER_RFC}`, '--then', 'set_account=6100', '--then', 'set_processing_mode=auto',
+        '--json']));
+      const retried = ok(['ingest', pue12, pue19, '--retry', '-y'], 'ingest').out;
+      expect(retried).toMatch(/pue-2025-12-12\.xml {2}duplicate · .*not reprocessable/);
+      expect(retried).toMatch(new RegExp(`pue-2025-12-19\\.xml {2}rules · .*«${CLEANING_RULE}»`));
+      expect(rowsOf<{ id: string; matched: unknown }>(ok(['bill', 'rule', 'list', '--json']))
+        .map((r) => [r.id, Number(r.matched)])).toEqual([[rule.id, 1]]);
+      expect(rowsOf(ok(['bill', 'inbox', 'list', '--status', 'ready', '--json']))).toEqual([]);
+
+      // A PUE declares that it was paid in one exhibition (CFF art. 29-A fr. VII b),
+      // which is why its IVA was credited when it posted: each is paid on its
+      // date, and the payment releases no IVA again. The numbers are derived:
+      // `bill inbox run --json` carries them only inside its Spanish prose.
+      for (const [bill, date] of [['BILL-2025-00002', '2025-12-12'], ['BILL-2025-00003', '2025-12-19']]) {
+        expect(ok(['payment', 'create', bill, '--amount', '1160.00', '--date', date, '--yes']).out)
+          .toContain('1160.00 → 0.00 (paid)');
+      }
+      expect(rowsOf<{ bill_number: string; bill_date: string; status: string }>(ok(['bill', 'list', '--json']))
+        .filter((b) => b.bill_number.startsWith('BILL-2025-')).map((b) => `${b.bill_number} ${b.bill_date} ${b.status}`)
+        .sort()).toEqual(['BILL-2025-00001 2025-12-10 paid', 'BILL-2025-00002 2025-12-12 paid', 'BILL-2025-00003 2025-12-19 paid']);
+      // A 1130 above 1,600.00 would be a second IVA release.
+      expect(decemberMoves(['6100', '1130', '1135', '2110', '1111'])).toEqual(
+        { '6100': '10000.00', '1130': '1600.00', '1135': '0.00', '2110': '0.00', '1111': '-11600.00' }
+      );
+    }, STEP_TIMEOUT_MS);
+
     it.todo('keeps leading zeros and accents of the parsed CFDI, including a 0 % and an exempt one — MNE-001-031, MNE-001-027');
     it.todo('posts a lodging CFDI with its local tax (ISH) in its own account — MNE-001-033');
     it.todo('posts a CFDI with withholdings, and the collection that carries them applies — MNE-001-056, MNE-001-057, MNE-001-113');
