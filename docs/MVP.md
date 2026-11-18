@@ -22,12 +22,20 @@
 
 **La prueba de aceptación es una, y ejecutable:** [#311](https://github.com/sedecim-com/Accounting/issues/311). El mes de una PyME sintética recorre esos nueve pasos por el CLI, contra una base efímera y con cifras escritas a mano, como criterio ▶ del tablero. Mientras esa prueba no esté en verde en CI, el MVP no está entregado, diga lo que diga cualquier documento, este incluido. Se puede empezar ya, con un `it.todo` por cada issue abierta, y así la ruta se vacía sola.
 
+**El MVP sale en dos cortes.** Lo decidió el dueño el 2026-11-18 ([#644](https://github.com/sedecim-com/Accounting/issues/644), MNE-001-547): «Hagamos las 55 obligatorias para un MVP de pruebas y luego las 137 para el mvp final».
+
+- **MVP de pruebas:** las tareas Must de las olas 0 a 3, con la prueba de [#311](https://github.com/sedecim-com/Accounting/issues/311) en verde.
+- **MVP final:** todas las tareas de las olas 0 a 3. Es la entrega de la Ola 3.
+
+Las cifras 55 y 137 son las de aquel día, de la ruta escrita en [#329](https://github.com/sedecim-com/Accounting/issues/329); las de hoy se preguntan a [`docs/backlog/PRD-001.md`](backlog/PRD-001.md). **La v1.0 es el hito que sigue al MVP**: preguntado qué era «MVP2», el dueño contestó «es 1.0» ([#603](https://github.com/sedecim-com/Accounting/issues/603), MNE-001-548). Lo que lleva está en la sección 3, «Después del MVP: la v1.0».
+
 **Fuera del MVP, declarado:**
 
-- **Timbrado y cancelación con PAC** ([#105](https://github.com/sedecim-com/Accounting/issues/105), [#115](https://github.com/sedecim-com/Accounting/issues/115)). Depende de un contrato externo. En un despacho, los CFDI los emite el cliente en su sistema, y aquí se ingieren.
-- **Estados Unidos más allá de lo que ya existe** ([#124](https://github.com/sedecim-com/Accounting/issues/124), [#131](https://github.com/sedecim-com/Accounting/issues/131)).
-- **La interfaz gráfica** ([#117](https://github.com/sedecim-com/Accounting/issues/117), PR #249) y **los canales de mensajería** ([#116](https://github.com/sedecim-com/Accounting/issues/116)).
-- **El renombrado del código al inglés** (epic [#141](https://github.com/sedecim-com/Accounting/issues/141)): los tramos I12 a I26 quedan para después del MVP. Lo que lee una persona sí entra, en la Ola 3: el panel de políticas ([#152](https://github.com/sedecim-com/Accounting/issues/152)) y, desde que el dueño contestó «Las dos mitades (recomendada)» el 2026-11-16 (D14, «English first Spanish u otro lenguaje second», en #141), la secuencia de D14 (#651 a #659), la ayuda del CLI ([#314](https://github.com/sedecim-com/Accounting/issues/314)) con sus ejemplos, las hojas del CLI por clave (I8, #263 a #271) y las cadenas inglesas que el CLI imprime sin clave (I8b, [#150](https://github.com/sedecim-com/Accounting/issues/150)), los mensajes de servicio y de la API que llegan a quien hace la petición (I9, [#151](https://github.com/sedecim-com/Accounting/issues/151)), `doctor` y las líneas fijas del agente ([#153](https://github.com/sedecim-com/Accounting/issues/153)), con lo que necesitan antes: los carriles de #150 y #151 y el `[y/N]` del kernel ([#262](https://github.com/sedecim-com/Accounting/issues/262)).
+- **Timbrado y cancelación con PAC** ([#105](https://github.com/sedecim-com/Accounting/issues/105), con [#115](https://github.com/sedecim-com/Accounting/issues/115) plegada en ella). Es alcance de la v1.0. Ya no espera un contrato: lo hay con Sovos, y el dueño pidió que funcione con varios proveedores y que la llave de cada uno la agregue el administrador (2026-11-18, MNE-001-534). En un despacho, los CFDI los emite el cliente en su sistema, y aquí se ingieren.
+- **Estados Unidos más allá de lo que ya existe** ([#124](https://github.com/sedecim-com/Accounting/issues/124), [#131](https://github.com/sedecim-com/Accounting/issues/131)). Queda aparcado después del MVP, con los cinco estados sembrados (D-03 de PRD-003); ninguna de sus tareas se retira.
+- **La interfaz gráfica** ([#117](https://github.com/sedecim-com/Accounting/issues/117), PR #249) y **los canales de mensajería** ([#116](https://github.com/sedecim-com/Accounting/issues/116)). La API REST y el tablero web ya no están congelados: el dueño enmendó D-04 de PRD-003 el 2026-11-18 y los dos pueden volver a ganar funciones (MNE-001-544). [#116](https://github.com/sedecim-com/Accounting/issues/116) sigue después del MVP hasta que él la programe.
+- **El despliegue en la plataforma Sedecim** ([#372](https://github.com/sedecim-com/Accounting/issues/372)). Salió del MVP el 2026-11-18 («Después del MVP») y va en el carril de la plataforma, con PRD-002 ([#379](https://github.com/sedecim-com/Accounting/issues/379), D-08).
+- **El renombrado del código al inglés** (epic [#141](https://github.com/sedecim-com/Accounting/issues/141)): los tramos I12 a I26 quedan para después del MVP. El dueño lo confirmó el 2026-11-17 al contestar D-05 de PRD-003: los tramos internos se aparcan y ninguno se retira (MNE-001-538). Lo que lee una persona sí entra, en la Ola 3: el panel de políticas ([#152](https://github.com/sedecim-com/Accounting/issues/152)) y, desde que el dueño contestó «Las dos mitades (recomendada)» el 2026-11-16 (D14, «English first Spanish u otro lenguaje second», en #141), la secuencia de D14 (#651 a #659), la ayuda del CLI ([#314](https://github.com/sedecim-com/Accounting/issues/314)) con sus ejemplos, las hojas del CLI por clave (I8, #263 a #271) y las cadenas inglesas que el CLI imprime sin clave (I8b, [#150](https://github.com/sedecim-com/Accounting/issues/150)), los mensajes de servicio y de la API que llegan a quien hace la petición (I9, [#151](https://github.com/sedecim-com/Accounting/issues/151)), `doctor` y las líneas fijas del agente ([#153](https://github.com/sedecim-com/Accounting/issues/153)), con lo que necesitan antes: los carriles de #150 y #151 y el `[y/N]` del kernel ([#262](https://github.com/sedecim-com/Accounting/issues/262)).
 **Dentro del MVP desde el 2026-09-28: la e.firma descarga del SAT y sella.** El dueño decidió ([#312](https://github.com/sedecim-com/Accounting/issues/312), MNE-001-140): «para efectos de scope del proyecto considera que sí se va a usar [la e.firma] para descargar y firmar… revisa el proyecto y mejora lo que se pueda automatizar con esta posibilidad.» Eso reemplaza la decisión del 2026-09-26, que dejaba la descarga automática después del MVP.
 
 - **Descargar:** la autenticación con la e.firma ([#439](https://github.com/sedecim-com/Accounting/issues/439)), la descarga masiva de XML y metadatos con sus comandos ([#440](https://github.com/sedecim-com/Accounting/issues/440)) y la sincronización diaria de metadatos que detecta cancelaciones ([#441](https://github.com/sedecim-com/Accounting/issues/441)). El censo por ZIP o metadatos del portal (MNE-001-096 y 119) se queda, y la descarga lo alimenta por el mismo lector. E3.2 sigue en rojo mientras el motor no exista.
@@ -70,7 +78,9 @@ Cada ola es una **etapa** y marca una **entrega**: la entrega N sale cuando est�
 | 0 | Desbloquear | R0 · la entrega fluye |
 | 1 | Que el mes cuadre | R1 · MVP α: el mes cuadra en la terminal |
 | 2 | Lo que falta construir | R2 · MVP β: nómina, DIOT, papel de trabajo, retenciones y moneda extranjera |
-| 3 | El MVP se demuestra y se pule | v1.0 · el MVP demostrado de punta a punta |
+| 3 | El MVP se demuestra y se pule | MVP final · el MVP demostrado de punta a punta |
+
+La entrega de la Ola 3 se llamaba «v1.0» hasta el 2026-11-18. Desde ese día es el **MVP final**, y la v1.0 es el hito que le sigue. El backlog guarda en una ola más, la 4 («Después del MVP»), lo que es alcance de la v1.0 junto con lo aparcado; cada tarea de la v1.0 lo dice en su aceptación.
 
 Lo entregado hasta el 2026-09-27 es **S1**; el trabajo abierto empieza en **S2**, el 2026-09-28. Una tarea no puede depender de otra de una ola posterior, porque su entrega esperaría a una posterior: `scripts/backlog.ts` lo rechaza.
 
@@ -109,7 +119,9 @@ Los carriles C y E comparten `period-close.ts`: el checklist lo toca #98, y el a
 - las retenciones ([#309](https://github.com/sedecim-com/Accounting/issues/309));
 - los documentos abiertos en la migración ([#310](https://github.com/sedecim-com/Accounting/issues/310), después de #220);
 - la factura en moneda extranjera y la revaluación ([#305](https://github.com/sedecim-com/Accounting/issues/305));
-- el consentimiento de la e.firma que dice descarga y sellado ([#313](https://github.com/sedecim-com/Accounting/issues/313)) y la autenticación con el SAT ([#439](https://github.com/sedecim-com/Accounting/issues/439)).
+- el consentimiento de la e.firma que dice descarga y sellado ([#313](https://github.com/sedecim-com/Accounting/issues/313)) y la autenticación con el SAT ([#439](https://github.com/sedecim-com/Accounting/issues/439));
+- la zona de salario mínimo de la entidad ([#196](https://github.com/sedecim-com/Accounting/issues/196)) y el ISR de separación del finiquito ([#194](https://github.com/sedecim-com/Accounting/issues/194)): entran antes del MVP por las respuestas del dueño del 17 y del 18 de noviembre, junto a la cesantía y vejez por tramo ([#661](https://github.com/sedecim-com/Accounting/issues/661));
+- el registro de declaraciones presentadas, del que sale el saldo a favor del papel de trabajo ([#308](https://github.com/sedecim-com/Accounting/issues/308), MNE-001-533).
 
 ### Armonía con la plataforma (revisión del 2026-09-26)
 
@@ -118,7 +130,7 @@ La revisión de los repos de `sedecim-com` ([`platform/harmony-review.md`](platf
 - aceptar los access tokens de Cognito ([#369](https://github.com/sedecim-com/Accounting/issues/369)), Ola 1;
 - que el adaptador S3 deje de prometer lo que no hace ([#370](https://github.com/sedecim-com/Accounting/issues/370)), Ola 1;
 - la decisión de identidad de plataforma ([#371](https://github.com/sedecim-com/Accounting/issues/371));
-- la imagen y los workflows desplegables como los demás servicios ([#372](https://github.com/sedecim-com/Accounting/issues/372)), Ola 3;
+- la imagen y los workflows desplegables como los demás servicios ([#372](https://github.com/sedecim-com/Accounting/issues/372)), después del MVP desde el 2026-11-18;
 - `migrate` con candado ([#373](https://github.com/sedecim-com/Accounting/issues/373)), Ola 3.
 
 El despliegue mismo depende de la plataforma (Postgres gestionado, IAM y namespaces propios, `/mnemosine/` en el gateway) y no entra en la definición de terminado.
@@ -130,10 +142,24 @@ El despliegue mismo depende de la plataforma (Postgres gestionado, IAM y namespa
 - El sellado del Anexo 24 con la e.firma bajo `sellar_con_custodia` ([#442](https://github.com/sedecim-com/Accounting/issues/442)).
 - El español del panel y de la ayuda ([#152](https://github.com/sedecim-com/Accounting/issues/152), [#314](https://github.com/sedecim-com/Accounting/issues/314)).
 - Inglés primero (D14, epic [#141](https://github.com/sedecim-com/Accounting/issues/141)), en lo que lee una persona: la secuencia de #651 a #659, los ejemplos de la ayuda, las hojas I8 (#263 a #271), I8b ([#150](https://github.com/sedecim-com/Accounting/issues/150)), I9 ([#151](https://github.com/sedecim-com/Accounting/issues/151)), `doctor` y las líneas fijas del agente ([#153](https://github.com/sedecim-com/Accounting/issues/153)) y el `[y/N]` del kernel ([#262](https://github.com/sedecim-com/Accounting/issues/262)), como dice §1.
+- El traspaso acordado de saldo a cuenta entre clientes ([#695](https://github.com/sedecim-com/Accounting/issues/695)), que el dueño puso antes del MVP el 2026-11-17. Es una D4, y avanza sin segunda persona mientras el producto sea experimental ([`ROUTING.md`](ROUTING.md)).
+- El trinquete por archivo de los comentarios en español (MNE-001-187, [#162](https://github.com/sedecim-com/Accounting/issues/162)) y el README con fuente inglesa y gemela española (MNE-001-192, [#164](https://github.com/sedecim-com/Accounting/issues/164)), que siguen ahora por las respuestas del 2026-11-18.
 - Los manuales ([#325](https://github.com/sedecim-com/Accounting/issues/325)).
 - El alta de despacho y de usuarios sin TTY ([#326](https://github.com/sedecim-com/Accounting/issues/326)).
 - La gramática de la terminal ([#327](https://github.com/sedecim-com/Accounting/issues/327)).
 - Y lo deseable: #328, #315, #317, #100, #101, #215, #231, #133.
+
+### Después del MVP: la v1.0
+
+Lo que el dueño puso en la v1.0 el 2026-11-18 ([#603](https://github.com/sedecim-com/Accounting/issues/603), MNE-001-548). En el backlog son tareas de la ola 4 cuya aceptación dice «alcance de la v1.0»:
+
+- el devengo ([#111](https://github.com/sedecim-com/Accounting/issues/111)) y la jurisdicción como dimensión ([#123](https://github.com/sedecim-com/Accounting/issues/123)), con sus tareas en Must;
+- el timbrado y la cancelación con PAC, con Sovos primero ([#105](https://github.com/sedecim-com/Accounting/issues/105));
+- el publicador de cifras públicas ([#251](https://github.com/sedecim-com/Accounting/issues/251)) y el anclaje NOM-151 ([#374](https://github.com/sedecim-com/Accounting/issues/374)), que no se retiran con la atestación en blockchain;
+- la pensión alimenticia de la nómina mexicana ([#113](https://github.com/sedecim-com/Accounting/issues/113));
+- el `Concepto` de las pólizas del Anexo 24 siempre en español ([#158](https://github.com/sedecim-com/Accounting/issues/158)).
+
+Lo demás de la ola 4 sigue después del MVP, sin hito todavía. Queda aparcado, y nada se retira: el renombrado interno al inglés (D-05), lo que es sólo de Estados Unidos (D-03) y el carril de la plataforma (D-08).
 
 ## 4. Decisiones que sólo el dueño puede tomar
 
