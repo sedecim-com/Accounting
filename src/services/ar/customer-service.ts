@@ -125,8 +125,8 @@ export interface CustomerListPage {
  *
  *   - cash: allocations of payments dated on or before the reference date.
  *     Allocations carry no date of their own, so the payment's date counts.
- *     A `void` payment never happened. A `reversed` one (NSF) happened and
- *     bounced, so it counts only until its `reversed_at`; the reversal also
+ *     A `void` payment never happened. A `reversed` one happened and was
+ *     undone, so it counts only until its `reversed_at`; the reversal also
  *     closes its allocations, which the next rule reads.
  *   - `unapplied_at`: an allocation closed on or before the reference date
  *     no longer settles anything; one closed after it still did that day.

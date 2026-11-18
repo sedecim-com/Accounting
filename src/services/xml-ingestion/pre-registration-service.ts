@@ -1245,7 +1245,7 @@ export class PreRegistrationService {
         opciones,
         {
           subtotal: preReg.subtotal,
-          taxAmount: preReg.tax_amount,
+          taxAmount: billHeaderVat(preReg),
           totalAmount: preReg.total_amount,
           amountDue: preReg.total_amount,
           amountPaid: 0,
@@ -1259,7 +1259,8 @@ export class PreRegistrationService {
               throw new ValidationError(`Line ${line.line_number}: no account assigned`);
             }
             // Only the IVA transfer is `tax_amount`: taking the first transfer
-            // wrote an IEPS that came ahead of it as if it were VAT (#284).
+            // wrote an IEPS that came ahead of it as if it were VAT (#284). The
+            // header follows the same rule through `billHeaderVat` (#691).
             const { tax, ...vat } = vatColumnsOf(line.impuestos?.traslados);
             return {
               line_number: line.line_number,
@@ -1810,6 +1811,24 @@ const RECONCILED_ROLES: AccountRole[] = [
   'isr_retenido_por_pagar', 'iva_retenido_por_pagar',
 ];
 
+/**
+ * THE VAT A CFDI BILL STORES IN ITS HEADER (MNE-001-488 · #691).
+ *
+ * `bills.tax_amount` is read as VAT by the payment's release, the short
+ * payment, the REP's cross-check and the DIOT, so it holds the CFDI's IVA
+ * (002) transfers alone, as the lines do. `pre_registrations.tax_amount` stays
+ * the XML's total of transferred taxes, IEPS included: processing rules test it.
+ *
+ * NOTE: with no summary to read (a document with no CFDI, or a summary that
+ * lists no transfer) the stored total stands. Guessing a split there would
+ * invent a figure.
+ */
+export function billHeaderVat(preReg: { tax_amount?: unknown; tax_breakdown?: unknown }): unknown {
+  const transfers = (preReg.tax_breakdown as Partial<CFDIParsed['impuestos']> | null | undefined)?.traslados;
+  if (!Array.isArray(transfers) || transfers.length === 0) return preReg.tax_amount;
+  return sumTax(transfers, '002').toFixed(4);
+}
+
 /** What one bill line says about its VAT: the columns 066 added and the DIOT reads. */
 export interface BillLineVat {
   /** Sum of the concept's IVA (002) transfers, unrounded. Never IEPS or any other tax. */
@@ -2088,7 +2107,7 @@ export async function registrarFacturaDeBorradorAprobado(
       { permitirProveedorNuevo: unknownVendor === 'preguntar' && consentsTo(opts.newVendorTaxId, preReg) },
       {
         subtotal: preReg.x_subtotal,
-        taxAmount: preReg.tax_amount,
+        taxAmount: billHeaderVat(preReg),
         totalAmount: preReg.x_total,
         amountDue: paid ? 0 : preReg.x_total,
         amountPaid: paid ? preReg.x_total : 0,

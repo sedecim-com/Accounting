@@ -2167,6 +2167,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.advance.label': 'Anticipo',
   'receipt.advance.confirm':
     '¿Registrar {amount} recibidos de {customer} como anticipo sin factura{figures} en {entity}? Esto postea en el mayor.',
+  // MNE-001-509 (#701): a reversed receipt says what happened to the money.
+  'receipt.reverse.cause_unknown':
+    'La causa «{value}» de una reversa no se conoce: declara not_collected (el dinero nunca fue tuyo) o taken_back (llegó y te lo quitaron). No se escribió nada.',
+  'receipt.reverse.warning.card_not_collected':
+    'Este cobro se pagó con tarjeta, y una tarjeta se paga cuando se acepta (LIVA art. 1-B): not_collected dice que el dinero nunca fue tuyo. Si llegó y el banco te lo quitó, como en un contracargo, la causa es taken_back.',
+  'receipt.reverse.warning.cause_not_stated':
+    'No se declaró causa, y sólo un cheque tiene una por omisión: el IVA de este cobro se queda en el mes en que se cobró hasta que se declare una causa (not_collected o taken_back).',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
