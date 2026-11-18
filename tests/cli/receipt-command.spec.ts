@@ -34,6 +34,10 @@ vi.mock('../../src/services/payments/payment-service.js', async (importOriginal)
     remanenteAnterior: '0.00', remanenteNuevo: '0.00',
   })),
   getCustomerPayment: vi.fn(async () => ({ id: 'pay-1', payment_number: 'PMT-2026-00042' })),
+  reverseCustomerPayment: vi.fn(async () => ({
+    paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', reversals: [{ entryNumber: 'JE-2', of: 'JE-1' }],
+    attestations: [], documentosReabiertos: [], cause: 'taken_back', causeDefaulted: false, warnings: [],
+  })),
   applyCustomerPayment: vi.fn(async () => ({
     paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', journalEntry: null, attestation: null,
     documentos: [{
@@ -52,6 +56,7 @@ import { parseWithholding, registerReceiptCommand } from '../../src/cli/receipt-
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { exitCodeFor } from '../../src/cli/kernel/index.js';
 import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../src/cli/kernel/audit.js';
+import { t } from '../../src/i18n/index.js';
 
 // ============================================================
 // MNE-001-113 (#309) · `receipt apply --withholding`: the spec a person
@@ -277,5 +282,100 @@ describe('receipt record with no invoice (MNE-001-421)', () => {
     } finally {
       process.stdin.isTTY = tty;
     }
+  });
+});
+
+// ============================================================
+// MNE-001-509 (#701) · `receipt reverse --cause`: the terminal passes the
+// cause to the service and repeats what the service answered: the cause the
+// receipt keeps, whether it was a cheque's default, and the warnings.
+// ============================================================
+
+/** Runs a `receipt` leaf with the services mocked; returns what it printed, what it reported and the reversal calls. */
+async function receipt(args: string[]) {
+  resetDeclarations();
+  const service = vi.mocked(payments.reverseCustomerPayment);
+  service.mockClear();
+  vi.mocked(payments.getCustomerPayment).mockClear();
+  const errs: Error[] = [];
+  const program = new Command('mnemosine').exitOverride();
+  registerReceiptCommand(program, {
+    ...deps, home: '/tmp/mnemosine-tests-no-home', reportError: (e: unknown) => { errs.push(e as Error); },
+  } as never);
+  let out = '';
+  const write = (chunk: unknown) => { out += String(chunk); return true; };
+  const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation(write);
+  const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(write);
+  try {
+    await program.parseAsync(['node', 'mnemosine', 'receipt', ...args, '--entity', 'ent-1']);
+  } finally {
+    outSpy.mockRestore();
+    errSpy.mockRestore();
+  }
+  return { out, errs, calls: service.mock.calls };
+}
+
+describe('receipt reverse --cause (MNE-001-509)', () => {
+  const reversal = {
+    paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', reversals: [{ entryNumber: 'JE-2', of: 'JE-1' }],
+    attestations: [], documentosReabiertos: [],
+  };
+  const reverse = ['reverse', 'PMT-2026-00042', '--reason', 'chargeback 4853'];
+
+  it('T11 · refuses a cause that is neither of the two before anything is read', async () => {
+    const { errs, calls } = await receipt([...reverse, '--cause', 'bounced', '--yes']);
+    expect(errs).toHaveLength(1);
+    expect(errs[0].message).toMatch(/"bounced".*not_collected.*taken_back/);
+    expect(exitCodeFor(errs[0])).toBe(2);
+    expect(calls).toEqual([]);
+    expect(payments.getCustomerPayment).not.toHaveBeenCalled();
+  });
+
+  it('passes the cause to the service, and the dry run says it', async () => {
+    const { out, errs, calls } = await receipt([...reverse, '--cause', 'taken_back', '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls.map((c) => [c[2], c[4]])).toEqual([[{ reason: 'chargeback 4853', cause: 'taken_back', feeAmount: undefined }, { dryRun: true }]]);
+    expect(out).toContain(t('receipt.reverse.cause.stated', { cause: 'taken_back' }, 'en'));
+    expect(out).not.toContain('NSF');
+  });
+
+  it('with no --cause it says what the service decided: a cheque by default, or none with its warning', async () => {
+    vi.mocked(payments.reverseCustomerPayment).mockResolvedValueOnce(
+      { ...reversal, cause: 'not_collected', causeDefaulted: true, warnings: [] });
+    const byCheck = await receipt([...reverse, '--dry-run']);
+    expect(byCheck.calls[0][2].cause).toBeUndefined();
+    expect(byCheck.out).toContain(t('receipt.reverse.cause.defaulted', {}, 'en'));
+
+    vi.mocked(payments.reverseCustomerPayment).mockResolvedValueOnce(
+      { ...reversal, cause: null, causeDefaulted: false, warnings: ['receipt.reverse.warning.cause_not_stated'] });
+    const byTransfer = await receipt([...reverse, '--dry-run']);
+    expect(byTransfer.out).toContain(t('receipt.reverse.cause.none', {}, 'en'));
+    expect(byTransfer.out).toContain(t('receipt.reverse.warning.cause_not_stated', {}, 'en'));
+  });
+
+  it('--json carries the cause, whether it was the default, and the warnings', async () => {
+    vi.mocked(payments.reverseCustomerPayment).mockResolvedValue(
+      { ...reversal, cause: 'not_collected', causeDefaulted: false, warnings: ['receipt.reverse.warning.card_not_collected'] });
+    const { out, errs, calls } = await receipt([...reverse, '--cause', 'not_collected', '--yes', '--json']);
+    vi.mocked(payments.reverseCustomerPayment).mockReset();
+    expect(errs).toEqual([]);
+    expect(calls.map((c) => c[4])).toEqual([{ dryRun: true }, undefined]);
+    const { rows } = JSON.parse(out.slice(out.indexOf('{'))) as { rows: Record<string, unknown>[] };
+    expect(rows[0]).toMatchObject({
+      status: 'reversed', cause: 'not_collected', cause_defaulted: false,
+      warnings: t('receipt.reverse.warning.card_not_collected', {}, 'en'),
+    });
+  });
+
+  it('receipt show carries the cause of a reversed receipt', async () => {
+    vi.mocked(payments.getCustomerPayment).mockResolvedValueOnce({
+      id: 'pay-1', payment_number: 'PMT-2026-00042', status: 'reversed', payment_amount: '1160.00', currency_code: 'MXN',
+      payment_date: new Date('2026-05-20'), payment_method: 'credit_card', unapplied_amount: '0.00', aplicaciones: [],
+      reversed_at: new Date('2026-06-02T10:00:00Z'), reversal_cause: 'taken_back',
+    } as never);
+    const { out, errs } = await receipt(['show', 'PMT-2026-00042', '--json']);
+    expect(errs).toEqual([]);
+    const { rows } = JSON.parse(out) as { rows: Record<string, unknown>[] };
+    expect(rows[0]).toMatchObject({ status: 'reversed', reversal_cause: 'taken_back' });
   });
 });

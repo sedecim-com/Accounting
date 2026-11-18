@@ -153,6 +153,15 @@ describe('the receivables families, help by key, family by family (#314, MNE-001
     expectSpanishHelp('customer tax set', 'help.customer.tax.set.option.rfc', { shape: 'AAAA######XXX' });
   });
 
+  // MNE-001-509 (#701): the reversal states its cause, and its help no longer speaks of a bounced cheque only.
+  it.each<TranslationKey>(['help.receipt.reverse.description', 'help.receipt.reverse.option.cause'])(
+    '`receipt reverse --help` shows %s in Spanish, and neither language says NSF', (key) => {
+      expect(keyOf('receipt reverse', '--cause')).toBe('help.receipt.reverse.option.cause');
+      expect(flat(node('receipt reverse').helpInformation())).not.toContain('NSF');
+      expectSpanishHelp('receipt reverse', key);
+      expect(flat(node('receipt reverse').helpInformation())).not.toContain('NSF');
+    });
+
   it('`invoice create --customer` is still mandatory', () => {
     expect(node('invoice create').options.find((o) => o.long === '--customer')?.mandatory).toBe(true);
   });
