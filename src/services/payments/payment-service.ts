@@ -253,6 +253,12 @@ export interface ResultadoPago {
   deductibilityFindings?: CashDeductibilityFinding[];
   /** MNE-001-458 · customer side: the advance treatment the receipt was recorded with, and its split. */
   advance?: AdvanceSplit | null;
+  /**
+   * MNE-001-421 · open invoices of the advance's customer whose own entry
+   * credited `anticipo_clientes`: an advance CFDI already in the books, whose
+   * cash is recorded against it. Informative; a second advance is legitimate.
+   */
+  advanceInvoices?: string[];
 }
 
 export interface OpcionesPago {
@@ -873,6 +879,7 @@ export async function recordCustomerPayment(
     }
 
     const advance = await advanceSplitOf(client, entrada);
+    const advanceInvoices = advance ? await openAdvanceInvoices(client, entrada.entityId, customerId) : [];
 
     const paymentNumber = await nextEntityNumber(client, entrada.entityId, 'customer_payment', 'PMT', entrada.paymentDate);
     const paymentId = uuidv4();
@@ -976,6 +983,7 @@ export async function recordCustomerPayment(
       documentos,
       diferenciaCambiaria: fxDifference,
       advance,
+      ...(advanceInvoices.length > 0 ? { advanceInvoices } : {}),
     };
     if (opts.dryRun) throw new EnsayoTerminado(salida);
     return salida;
@@ -1006,6 +1014,28 @@ async function advanceSplitOf(client: pg.PoolClient, input: EntradaPago): Promis
     throw new AccountingError('ADVANCE_BY_CHEQUE_NOT_WIRED', { key: 'receipt.advance.cheque_not_wired' });
   }
   return splitAdvance(input.paymentAmount, treatment);
+}
+
+/**
+ * MNE-001-421 · The customer's open invoices whose own issuance entry
+ * credited the `anticipo_clientes` role, as an approved advance CFDI's does.
+ * Entity-scoped in the SQL, on the role account the entity itself points at.
+ */
+async function openAdvanceInvoices(client: pg.PoolClient, entityId: string, customerId: string): Promise<string[]> {
+  const r = await client.query<{ invoice_number: string }>(
+    `SELECT DISTINCT i.invoice_number
+       FROM invoices i
+       JOIN journal_entry_lines l ON l.journal_entry_id = i.journal_entry_id AND COALESCE(l.credit_amount, 0) > 0
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = i.entity_id
+                            AND ar.qualifier IS NULL
+                            AND ar.role = 'anticipo_clientes'
+      WHERE i.entity_id = $1 AND i.customer_id = $2 AND i.amount_due > 0
+        AND i.status IN ('sent', 'viewed', 'partially_paid', 'overdue')
+      ORDER BY i.invoice_number`,
+    [entityId, customerId]
+  );
+  return r.rows.map((x) => x.invoice_number);
 }
 
 // ── Ensayo ──
@@ -1806,6 +1836,8 @@ export async function listCustomerPayments(
   }
   if (filtro.needsRep) {
     where.push(`cp.cfdi_uuid IS NULL AND cp.status = 'completed'`);
+    // MNE-001-421: a receipt that is all advance owes the advance CFDI the client issues, never a REP.
+    where.push(`(cp.advance_base_amount IS NULL OR cp.advance_base_amount + cp.advance_iva_amount <> cp.payment_amount)`);
   }
   if (filtro.unapplied) {
     where.push(`cp.status = 'completed' AND cp.payment_amount > COALESCE(ap.aplicado, 0)`);

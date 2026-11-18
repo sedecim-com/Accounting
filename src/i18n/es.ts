@@ -2191,6 +2191,10 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.reverse.cause.defaulted':
     'causa not_collected, tomada por omisión: un cheque se paga el día que el banco lo cobra',
   'receipt.reverse.cause.none': 'sin causa declarada',
+  'receipt.advance.cfdi_owed':
+    'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
+  'receipt.advance.invoice_already_booked':
+    '{customer} tiene abierta {invoices}, y su propia póliza ya abonó anticipos de clientes: un CFDI de anticipo en libros. El dinero de ese anticipo se registra contra ella (receipt record {invoice}), no como un anticipo nuevo. Sigue sólo si éste es otro anticipo.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
