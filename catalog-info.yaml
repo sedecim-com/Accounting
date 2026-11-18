@@ -51,6 +51,11 @@ provides:
     # (T1), and an integer beyond 2^53 - 1 as compaction.threshold_tokens,
     # keep_recent_tokens or max_memory_flushes (T2). A file zod 3 loaded with such a
     # value is refused, and every command that reads the config reports why.
+    # CONTRACT: `receipt apply` refuses an invoice of another customer than the receipt's,
+    # and `payment apply` a bill of another vendor than the payment's, as the record path
+    # does (#664). The refusal names the document and both parties, covers --dry-run and
+    # --yes alike, and writes nothing: cash on account settles only its own party's
+    # documents, and no option lets the call through.
   - file: sat-anexo24            # XML de catálogo, balanza, pólizas y auxiliares (a requerimiento, MNE-001-054); DIOT, SUA, CFDI de nómina (los presenta el contribuyente, en el portal).
     # CONTRACT: under efirma_sellado_contabilidad_electronica = sellar_con_custodia,
     # `e-accounting catalog seal` and `balance seal` hand over the archived CtaCatalogo and

@@ -29,6 +29,7 @@ import {
   listCustomerTaxProfiles,
 } from '../../src/services/ar/customer-service.js';
 import { entityScope } from '../../src/database/scope.js';
+import { ValidationError } from '../../src/utils/errors.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 
@@ -60,10 +61,10 @@ const fecha = () => {
 };
 
 /** Factura emitida (posteada, status 'sent'): la materia prima de todo lo demás. */
-async function facturaEmitida(subtotal: string, tax: string): Promise<Invoice> {
+async function facturaEmitida(subtotal: string, tax: string, customerId = clienteId): Promise<Invoice> {
   const draft = await createInvoice({
     entity_id: f.entityId,
-    customer_id: clienteId,
+    customer_id: customerId,
     invoice_date: fecha(),
     due_date: fecha(),
     currency_code: 'MXN',
@@ -447,5 +448,130 @@ describe('el perfil fiscal del cliente', () => {
     const profile = await setCustomerTaxProfile(clienteId, scope, patch,
       { userId: f.userId, tenantId: f.tenantId, reason: 'MNE-001-033' });
     expect(profile[field]).toBe(name);
+  });
+});
+
+// MNE-001-516 (#664): cash on account settles only invoices of its own customer.
+describe('receipt apply stays within the receipt\'s own customer', () => {
+  const LABEL_A = 'C-F03-001 Cliente Cobrar SA';
+  const LABEL_B = 'C-F03-002 Otro Cliente SA';
+  let customerB: string;
+  let receiptId: string;
+  let receiptNumber: string;
+  let invoiceB: Invoice;
+
+  const invoiceRow = async (id: string) =>
+    (await query<{ amount_due: string; amount_paid: string; status: string }>(
+      `SELECT amount_due::text, amount_paid::text, status FROM invoices WHERE id = $1`, [id]
+    )).rows[0];
+  const liveAllocations = async () =>
+    (await query(
+      `SELECT 1 FROM payment_allocations WHERE payment_id = $1 AND unapplied_at IS NULL`, [receiptId]
+    )).rows.length;
+  const entriesOfReceipt = async () =>
+    (await query(
+      `SELECT 1 FROM journal_entries WHERE entity_id = $1 AND source_id = $2`, [f.entityId, receiptId]
+    )).rows.length;
+  const refusal = async (
+    apps: Parameters<typeof applyCustomerPayment>[2],
+    opts: Parameters<typeof applyCustomerPayment>[4] = {}
+  ): Promise<ValidationError> => {
+    const e = await applyCustomerPayment(f.entityId, receiptId, apps, f.userId, opts).then(
+      () => null, (err: unknown) => err
+    );
+    expect(e, 'the application must be refused').toBeInstanceOf(ValidationError);
+    return e as ValidationError;
+  };
+
+  beforeAll(async () => {
+    customerB = uuidv4();
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, currency_code, created_by)
+       VALUES ($1, $2, 'C-F03-002', 'Otro Cliente SA', 'MXN', $3)`,
+      [customerB, f.entityId, f.userId]
+    );
+    const r = await recordCustomerPayment(
+      {
+        entityId: f.entityId, counterpartyId: clienteId, paymentAmount: '1160.00',
+        paymentDate: fecha(), paymentMethod: 'spei', applications: [], onAccount: true,
+      },
+      f.userId
+    );
+    receiptId = r.paymentId;
+    receiptNumber = r.paymentNumber;
+    invoiceB = await facturaEmitida('1000.00', '160.00', customerB);
+  });
+
+  it('T1 · refuses an invoice of another customer, naming the invoice and both customers', async () => {
+    const e = await refusal([{ documentId: invoiceB.id, amountApplied: '1160.00' }]);
+    expect(e.messageKey?.key).toBe('receipt.apply.other_customer');
+    for (const text of [e.message, e.localized('es')]) {
+      for (const part of [invoiceB.invoice_number, receiptNumber, LABEL_A, LABEL_B]) {
+        expect(text).toContain(part);
+      }
+    }
+    expect(e.localized('es')).not.toBe(e.message);
+  });
+
+  it('T2 · a dry run is refused the same way', async () => {
+    const e = await refusal([{ documentId: invoiceB.id, amountApplied: '1160.00' }], { dryRun: true });
+    expect(e.messageKey?.key).toBe('receipt.apply.other_customer');
+  });
+
+  it('T3 · neither refusal wrote anything', async () => {
+    expect(await liveAllocations()).toBe(0);
+    expect(await invoiceRow(invoiceB.id)).toEqual({ amount_due: '1160.0000', amount_paid: '0.0000', status: 'sent' });
+    expect(await entriesOfReceipt(), 'only the entry of the receipt itself').toBe(1);
+    expect((await getCustomerPayment(f.entityId, receiptId)).unapplied_amount).toBe('1160.00');
+  });
+
+  it('T5 · one call naming an invoice of each customer is refused whole', async () => {
+    const invoiceA = await facturaEmitida('500.00', '80.00');
+    const e = await refusal([
+      { documentId: invoiceA.id, amountApplied: '580.00' },
+      { documentId: invoiceB.id, amountApplied: '580.00' },
+    ]);
+    expect(e.messageKey?.key).toBe('receipt.apply.other_customer');
+    expect(await liveAllocations(), 'the allocation of the own invoice is rolled back too').toBe(0);
+    expect(await invoiceRow(invoiceA.id)).toEqual({ amount_due: '580.0000', amount_paid: '0.0000', status: 'sent' });
+    expect(await invoiceRow(invoiceB.id)).toEqual({ amount_due: '1160.0000', amount_paid: '0.0000', status: 'sent' });
+    expect(await entriesOfReceipt()).toBe(1);
+  });
+
+  it('T6 · the party refusal speaks before the currency one', async () => {
+    // The row is set to USD by hand: issuing a USD invoice needs a published
+    // rate in `exchange_rates`, a global table other suites read. The locked
+    // read sees the same row either way.
+    const usd = await facturaEmitida('100.00', '16.00', customerB);
+    await query(`UPDATE invoices SET currency_code = 'USD' WHERE id = $1 AND entity_id = $2`, [usd.id, f.entityId]);
+    const e = await refusal([{ documentId: usd.id, amountApplied: '116.00' }]);
+    expect(e.messageKey?.key).toBe('receipt.apply.other_customer');
+  });
+
+  it('T7 · an application with withholdings is refused the same way', async () => {
+    const e = await refusal([
+      { documentId: invoiceB.id, amountApplied: '953.33', withholdingIsr: '100.00', withholdingIva: '106.67' },
+    ]);
+    expect(e.messageKey?.key).toBe('receipt.apply.other_customer');
+    expect(await liveAllocations()).toBe(0);
+  });
+
+  it('T4 · the same receipt applied to an invoice of its own customer posts DR 2150 / CR 1120', async () => {
+    const invoiceA = await facturaEmitida('1000.00', '160.00');
+    const r = await applyCustomerPayment(
+      f.entityId, receiptId, [{ documentId: invoiceA.id, amountApplied: '1160.00' }], f.userId
+    );
+    expect(r.remanenteNuevo).toBe('0.00');
+    const lines = await query<{ code: string; debit: string | null; credit: string | null }>(
+      `SELECT a.code, jel.debit_amount::text AS debit, jel.credit_amount::text AS credit
+         FROM journal_entry_lines jel JOIN accounts a ON a.id = jel.account_id
+        WHERE jel.journal_entry_id = $1`,
+      [r.journalEntry!.id]
+    );
+    const byCode = Object.fromEntries(lines.rows.map((l) => [l.code, l]));
+    expect(Number(byCode['2150'].debit)).toBeCloseTo(1160);
+    expect(Number(byCode['1120'].credit)).toBeCloseTo(1160);
+    expect((await invoiceRow(invoiceA.id)).status).toBe('paid');
+    expect(await invoiceRow(invoiceB.id)).toEqual({ amount_due: '1160.0000', amount_paid: '0.0000', status: 'sent' });
   });
 });
