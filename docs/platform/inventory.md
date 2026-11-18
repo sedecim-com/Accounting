@@ -7,7 +7,7 @@
 | Dato | Valor | Fuente |
 |---|---|---|
 | Lenguaje y runtime | TypeScript estricto, Node ≥ 22.12 | `package.json`, `tsconfig.json`, `.github/workflows/ci.yml` |
-| Framework | Express 4 (API REST), Commander (CLI), PostgreSQL con RLS | `package.json`, `docs/wiki/Arquitectura.md` |
+| Framework | Express 5 (API REST), Commander (CLI), PostgreSQL con RLS | `package.json`, `docs/wiki/Arquitectura.md` |
 | Actividad | Activo: 455 commits en 12 meses, el último el 2026-09-25 | `git log --since='12 months ago' origin/main` |
 | Autores principales | @vic2099; Dependabot; dos commits de otra persona de Sedecim | `git shortlog -sne` |
 | Qué expone | CLI `mnemosine`; API REST `/v1` (contrato v0: `docs/openapi.json`); `/public/v1` apagada por omisión; archivos para el SAT y el IMSS | `docs/SCOPE.md`, «Interacciones» |

@@ -1,9 +1,9 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, emailString, integerNumber, uuidString } from '../../../utils/zod-compat.js';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
-import { asyncHandler, validateBody } from '../middleware/async-handler.js';
+import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
 import { entityScope } from '../../../database/scope.js';
 import { corridaEnEntidad, periodoEnEntidad } from '../../../services/payroll/common/alcance-nomina.js';
