@@ -69,6 +69,16 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // of issued CFDI is loaded, and the command says so: a gap there would stop
 // the close by default (`census_missing_at_close`).
 //
+// THE SUBLEDGERS TIE TO THEIR CONTROL ACCOUNTS (MNE-001-411). `ar reconcile`
+// and `ap reconcile` read the open invoices and bills against 1120 and 2110.
+// The payables side is cut at 2025-12-31; `ar reconcile` takes no cut-off, so
+// receivables are read as they stand on the day of the run, which is where
+// December left them: the month posts nothing after the 31st. A sale typed as
+// a journal entry, with no invoice, then puts 2,000 on 1120 that no document
+// explains, and the close refuses the month until `entry reverse` mirrors it
+// with a date inside December. `entry void` would not do: its mirror takes
+// the date of the run, outside the month.
+//
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
 // credential each built-in profile names (`api_key_env` of BUILTIN_PROFILES)
@@ -1097,7 +1107,68 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     }, STEP_TIMEOUT_MS);
 
     it.todo('records a customer advance and applies it to the next invoice — MNE-001-098');
-    it.todo('ar reconcile and ap reconcile tie to 1120 and 2110 at 2025-12-31, and a mismatch blocks the close — MNE-001-034, MNE-001-035, MNE-001-036, MNE-001-037');
+    it('ar reconcile ties to 1120 as of the run and ap reconcile to 2110 at 2025-12-31, and an entry on 1120 blocks the close until it is reversed — MNE-001-034, MNE-001-035, MNE-001-036, MNE-001-037', () => {
+      type ArTie = { control_balance: string; subledger_net: string; delta: string; balanced: boolean;
+        manual_entries: { entry_number: string }[] };
+      const arTie = ['ar', 'reconcile', '--strict', '--json'];
+      const closeCheck = ['closing', 'check', '--period', 'December 2025', '--check', 'ar-subledger-delta', '--json'];
+      // By hand: the opening invoice, 3,480, and what INV-2025-00001 still owes
+      // after its receipt and its credit note, 11,600 − 5,800 − 1,160 = 4,640.
+      // No credit note waits to be applied. 1120 holds the same 8,120.
+      const tied = {
+        control_balance: '8120.00', open_invoices: '8120.00', unapplied_credit_notes: '0.00',
+        subledger_net: '8120.00', delta: '0.00', balanced: true,
+      };
+      // `ar reconcile` has no --as-of: it reads today's subledger against today's 1120.
+      expect(rowsOf<ArTie>(ok(arTie))[0]).toMatchObject(tied);
+      // Payables at the end of the month: every December bill was paid within
+      // it, so the opening bill, 2,320, is all the subledger and all of 2110.
+      // --strict would exit 4 on any reconciling item.
+      expect(rowsOf(ok(['ap', 'reconcile', '--as-of', '2025-12-31', '--strict', '--json']))[0]).toMatchObject({
+        asOf: '2025-12-31', subdiario: '2320.00', mayor: '2320.00', diferencia: '0.00', cuadra: true, partidas: [],
+      });
+      expect(rowsOf<{ is_complete: boolean }>(ok(closeCheck))[0].is_complete).toBe(true);
+
+      // A sale typed as a journal entry: 1120 rises by 2,000 with no invoice behind it.
+      const [stray] = rowsOf<{ entry_number: string }>(
+        ok(['entry', 'create', '--date', '2025-12-28', '--description', 'Sale booked without an invoice',
+          '--line', '1120:debit:2000.00', '--line', '4100:credit:2000.00', '--json'])
+      );
+      ok(['entry', 'post', stray.entry_number, '--yes']);
+
+      // 8,120 + 2,000 = 10,120 in the ledger against 8,120 of documents. The
+      // command names the entry and, under --strict, exits 4.
+      const untied = mnemosine(arTie);
+      expect(untied.status, untied.out + untied.err).toBe(4);
+      const [delta] = rowsOf<ArTie>(untied);
+      expect(delta).toMatchObject({ control_balance: '10120.00', subledger_net: '8120.00', delta: '2000.00', balanced: false });
+      expect(delta.manual_entries.map((m) => m.entry_number)).toContain(stray.entry_number);
+      // The close reads the same figure, and it blocks without --strict.
+      const blocked = mnemosine(closeCheck);
+      expect(blocked.status, blocked.out + blocked.err).toBe(4);
+      expect(rowsOf<{ is_complete: boolean; severity: string; details: string }>(blocked)[0]).toMatchObject({
+        is_complete: false,
+        severity: 'blocking',
+        details: 'control 10120.00 vs subledger 8120.00 · delta 2000.00 (ar reconcile lists the causes)',
+      });
+
+      // The correction is a mirror dated inside December (NIF B-1). `entry void`
+      // would date its mirror on the day of the run, outside the month.
+      const reversed = ok(['entry', 'reverse', stray.entry_number, '--date', '2025-12-31',
+        '--reason', 'Sale booked without an invoice', '--yes']).out;
+      const mirror = /(\S+) posted as the reversal of/.exec(reversed)?.[1] ?? '';
+      const [shown] = rowsOf<{ entry_date: string; reverses: string; is_reversal: boolean }>(
+        ok(['entry', 'show', mirror, '--no-lines', '--json'])
+      );
+      expect(shown).toMatchObject({ reverses: stray.entry_number, is_reversal: true });
+      expect(shown.entry_date.slice(0, 10)).toBe('2025-12-31');
+
+      expect(rowsOf<ArTie>(ok(arTie))[0]).toMatchObject(tied);
+      expect(rowsOf<{ is_complete: boolean }>(ok(closeCheck))[0].is_complete).toBe(true);
+      // December moved as if the entry had never been typed: 1120 by 11,600
+      // − 5,800 − 1,160, and 4100 by the one invoice.
+      expect(decemberMoves(['1120', '4100'])).toEqual({ '1120': '4640.00', '4100': '-10000.00' });
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('4 · bank', () => {
