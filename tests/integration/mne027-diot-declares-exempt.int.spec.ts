@@ -169,6 +169,9 @@ describe('the inbox (`bill inbox run`)', () => {
     expect(await linesOf(billId)).toEqual([
       { tipo_factor: 'tasa', tax_rate: '16.00', valor_actos: '1080.0000', tax_amount: '172.8000' },
     ]);
+    // The header says the same as its lines, never VAT plus IEPS (MNE-001-488).
+    const header = await query<{ tax_amount: string }>(`SELECT tax_amount::text FROM bills WHERE id = $1`, [billId]);
+    expect(header.rows[0].tax_amount).toBe('172.8000');
   }, 90_000);
 });
 

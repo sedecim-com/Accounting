@@ -258,16 +258,30 @@ describe('aplicar el anticipo a proveedor mueve el derecho, no el efectivo', () 
     cuadra();
   });
 
-  it('un gasto PUE no acredita nada aquí: su IVA se acreditó al recibirlo', async () => {
+  // MNE-001-491: the release asks where the VAT sits, not whether the bill is PUE.
+  it('a PUE bill with 160.00 parked in the pending account releases 160.00 on application', async () => {
     state.metodoPorGasto = { 'bill-1': 'PUE' };
     state.parked = { 'bill-1': '160.0000' };
 
     const { ivaPorGasto } = await postVendorApplicationEntry(fakeClient(), pago(), [aplicacion()], USER);
 
+    expect(lines()).toHaveLength(4);
+    expect(lineaDe('acct:iva_acreditable').debit_amount).toBe('160.0000');
+    expect(lineaDe('acct:iva_pendiente_acreditar').credit_amount).toBe('160.0000');
+    expect(ivaPorGasto.get('bill-1')).toBe('160.0000');
+    cuadra();
+  });
+
+  it('a PUE bill that parked nothing releases nothing: its VAT was credited when it was posted', async () => {
+    state.metodoPorGasto = { 'bill-1': 'PUE' };
+    state.parked = { 'bill-1': '0' };
+
+    const released = (await postVendorApplicationEntry(fakeClient(), pago(), [aplicacion()], USER)).ivaPorGasto;
+
     expect(lines()).toHaveLength(2);
     expect(lineaDe('acct:cxp').debit_amount).toBe('1160.0000');
     expect(lineaDe('acct:anticipo_proveedores').credit_amount).toBe('1160.0000');
-    expect(ivaPorGasto.size).toBe(0);
+    expect(released.size).toBe(0);
     expect(entryDescription()).toBe('Application of PMT-001');
     cuadra();
   });
