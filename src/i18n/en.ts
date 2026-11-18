@@ -3967,6 +3967,11 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+  // The law row of the employment subsidy's excess over the ISR (#600).
+  'payroll.employment_subsidy.excess_rule_unknown':
+    'The legal parameter {key} in force on the payment date {payDate} is {value} (row effective from {effectiveFrom}) ' +
+    'and only 0 or 1 is a rule: 1 hands the subsidy in excess of the ISR to the worker in cash, 0 hands over nothing. ' +
+    'Correct the row against its official source; no paycheck is calculated with a guessed share.',
 
   // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
   'help.e_accounting.voucher.description': 'The period vouchers the SAT asks for on request: PolizasPeriodo 1.3',

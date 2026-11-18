@@ -3832,6 +3832,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+  // The law row of the employment subsidy's excess over the ISR (#600).
+  'payroll.employment_subsidy.excess_rule_unknown':
+    'El parámetro legal {key} vigente en la fecha de pago {payDate} vale {value} (fila en vigor desde {effectiveFrom}) ' +
+    'y sólo 0 o 1 es una regla: con 1 el subsidio que excede al ISR se entrega al trabajador en efectivo, con 0 no se ' +
+    'entrega nada. Corrige la fila contra su fuente oficial; ningún recibo se calcula con una parte adivinada.',
 
   // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
   'help.e_accounting.voucher.description': 'Las pólizas del periodo que el SAT pide a requerimiento: PolizasPeriodo 1.3',
