@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import type pg from 'pg';
 import {
   NON_POSTING_ROLES,
   REQUIRED_ACCOUNTS,
   ROLE_MAP,
   rolesPara,
+  seedAccountRoles,
 } from '../../src/services/xml-ingestion/account-roles-seed.js';
-import { catalogoBasePara } from '../../src/services/accounting/chart-seed.js';
+import { BASE_CHART_MX, CATALOGO_UNIVERSAL, catalogoBasePara } from '../../src/services/accounting/chart-seed.js';
 import { CASES, type AccountRole } from '../../src/services/xml-ingestion/cfdi-taxonomy.js';
 
 describe('ROLE_MAP', () => {
@@ -121,5 +123,57 @@ describe('REQUIRED_ACCOUNTS', () => {
     for (const a of REQUIRED_ACCOUNTS) {
       expect(a.description.length, a.code).toBeGreaterThan(20);
     }
+  });
+});
+
+describe('where a role account hangs (MNE-001-482)', () => {
+  // Left at the root, a role account is outside Activo and Pasivo: a migrated
+  // trial balance that nests 1135 under 1100 then leaves 1135's balance on
+  // the header, and the opening refuses it.
+  it('U1 · names a parent on every entry, and that parent is a header of the universal chart', () => {
+    const headers = new Set(CATALOGO_UNIVERSAL.filter((a) => a.header === true).map((a) => a.code));
+    const offHeader = REQUIRED_ACCOUNTS.filter((a) => a.parent === undefined || !headers.has(a.parent));
+    // 6140 keeps the parent the base chart gives it, 6100, which takes entries.
+    expect(offHeader.map((a) => [a.code, a.parent])).toEqual([['6140', '6100']]);
+    expect(REQUIRED_ACCOUNTS.find((a) => a.code === '1290')?.parent).toBe('1200');
+  });
+
+  it('U2 · names the same parent as the base chart on the codes both lists seed', () => {
+    const inBase = new Map(BASE_CHART_MX.map((a) => [a.code, a.parent]));
+    const shared = REQUIRED_ACCOUNTS.filter((a) => inBase.has(a.code));
+    expect(shared.map((a) => a.code).sort()).toEqual(['1130', '1290', '2120', '4300', '6140']);
+    for (const a of shared) expect(a.parent, a.code).toBe(inBase.get(a.code));
+  });
+
+  /** A client that answers the seeder's three statements and keeps the account INSERTs. */
+  const seedOver = async (existing: Array<{ code: string; id: string; is_header: boolean }>) => {
+    const inserted = new Map<string, unknown>();
+    const client = {
+      query: async (sql: string, params: unknown[]) => {
+        if (sql.startsWith('SELECT')) return { rows: existing };
+        if (sql.includes('INSERT INTO accounts')) {
+          inserted.set(String(params[0]), params[8]);
+          return { rows: [{ id: `new-${String(params[0])}` }] };
+        }
+        return { rowCount: 1 };
+      },
+    } as unknown as pg.PoolClient;
+    await seedAccountRoles('entity', 'tenant', 'user', { client });
+    return inserted;
+  };
+
+  it('U3 · hangs 1135 from 1100 only when the entity has 1100 as a header', async () => {
+    const seeded = await seedOver([{ code: '1100', id: 'id-1100', is_header: true }]);
+    expect(seeded.get('1135')).toBe('id-1100');
+    // No 2100 here: the liabilities stay at the root.
+    expect(seeded.get('2125')).toBeNull();
+
+    // An imported chart where 1100 is an account that takes entries.
+    const posting = await seedOver([{ code: '1100', id: 'id-1100', is_header: false }]);
+    expect(posting.get('1135')).toBeNull();
+
+    const missing = await seedOver([]);
+    expect(missing.size).toBe(REQUIRED_ACCOUNTS.length);
+    expect([...missing.values()].every((parentId) => parentId === null)).toBe(true);
   });
 });
