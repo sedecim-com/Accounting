@@ -60,6 +60,25 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // takes the role. An individual's fees bring withholdings: the company pays
 // the net, and owes the SAT the ISR and the IVA it withheld.
 //
+// THE SAT CENSUS OF DECEMBER (MNE-001-410). The firm downloads the metadata
+// of what it received in December and loads it with `ingest --kind metadata`.
+// `sat download reconcile` then reads that census against the books: the
+// eight CFDI above agree, one that arrived and nobody coded is still to post,
+// and one the firm never brought in is still to fetch. Both gaps stay to the
+// end of the month, since a received gap only warns at the close. No census
+// of issued CFDI is loaded, and the command says so: a gap there would stop
+// the close by default (`census_missing_at_close`).
+//
+// THE SUBLEDGERS TIE TO THEIR CONTROL ACCOUNTS (MNE-001-411). `ar reconcile`
+// and `ap reconcile` read the open invoices and bills against 1120 and 2110.
+// The payables side is cut at 2025-12-31; `ar reconcile` takes no cut-off, so
+// receivables are read as they stand on the day of the run, which is where
+// December left them: the month posts nothing after the 31st. A sale typed as
+// a journal entry, with no invoice, then puts 2,000 on 1120 that no document
+// explains, and the close refuses the month until `entry reverse` mirrors it
+// with a date inside December. `entry void` would not do: its mirror takes
+// the date of the run, outside the month.
+//
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
 // credential each built-in profile names (`api_key_env` of BUILTIN_PROFILES)
@@ -239,6 +258,41 @@ const bookshopCfdi = (o: { date: string; uuid: string; invoiceNumber: string; am
 </cfdi:Comprobante>`;
 };
 
+// ── THE SAT CENSUS OF DECEMBER (MNE-001-410) ───────────────────────────
+// Two more received CFDI, neither of them in the books. A gardener's arrives
+// on 12-29 and is left in the inbox, uncoded: fetched, not posted. A phone
+// company's exists only in the SAT's list: the firm never got its XML. Their
+// issuers are in no catalog, and no rule names them.
+const GARDENER_RFC = 'JAR060101AB1';
+const GARDENER_NAME = 'Jardineria Ornamental de Occidente SC';
+const PHONE_COMPANY_RFC = 'TEL060101AB1';
+const UNPOSTED_UUID = '5A1E0410-1229-4C0A-9D2E-000000007741';
+const UNFETCHED_UUID = '5A1E0410-1230-4C0A-9D2E-000000000310';
+// What the SAT lists as received by the company in December, a row per CFDI,
+// each written by hand from its document: the date, the total and the type
+// (I an invoice, P a payment receipt, whose total is 0).
+const CENSUS_RECEIVED = [
+  // Uuid, RfcEmisor, NombreEmisor, date of FechaEmision, Monto, EfectoComprobante
+  [ZERO_RATE_UUID, BOOKSHOP_RFC, BOOKSHOP_NAME, '2025-12-03', '1200.00', 'I'],
+  [EXEMPT_UUID, BOOKSHOP_RFC, BOOKSHOP_NAME, '2025-12-04', '450.00', 'I'],
+  [LODGING_UUID, HOTEL_RFC, HOTEL_NAME, '2025-12-09', '1190.00', 'I'],
+  [PPD_UUID, CONSULTANT_RFC, CONSULTANT_NAME, '2025-12-10', '9280.00', 'I'],
+  [CLEANER_PUE_UUIDS[0], CLEANER_RFC, CLEANER_NAME, '2025-12-12', '1160.00', 'I'],
+  [FEES_UUID, FEES_RFC, FEES_NAME, '2025-12-16', '9533.33', 'I'],
+  [CLEANER_PUE_UUIDS[1], CLEANER_RFC, CLEANER_NAME, '2025-12-19', '1160.00', 'I'],
+  [REP_UUID, CONSULTANT_RFC, CONSULTANT_NAME, '2025-12-22', '0', 'P'],
+  [UNPOSTED_UUID, GARDENER_RFC, GARDENER_NAME, '2025-12-29', '1160.00', 'I'],
+  [UNFETCHED_UUID, PHONE_COMPANY_RFC, 'Telefonia Sintetica SA de CV', '2025-12-30', '580.00', 'I'],
+] as const;
+// The metadata file of the SAT's bulk download: `~` between fields, CRLF
+// between records, Estatus 1 for a CFDI in force (the contract is in
+// src/services/sat-census/census.ts).
+const CENSUS_METADATA = [
+  'Uuid~RfcEmisor~NombreEmisor~RfcReceptor~NombreReceptor~RfcPac~FechaEmision~FechaCertificacionSat~Monto~EfectoComprobante~Estatus~FechaCancelacion',
+  ...CENSUS_RECEIVED.map(([uuid, rfc, name, date, amount, type]) =>
+    `${uuid}~${rfc}~${name}~${COMPANY_RFC}~${COMPANY_NAME}~SAT970701NN3~${date} 10:00:00~${date} 10:05:00~${amount}~${type}~1~`),
+].join('\r\n');
+
 // ── THE MONTH, BY HAND ──────────────────────────────────────────────────
 //   12-01 computers      1220 Dr 36,000.00 / 1111 Cr 36,000.00
 //   12-03 received 0 %   6100 Dr 1,200.00 / 2110 Cr 1,200.00, and paid that day:
@@ -271,22 +325,28 @@ const bookshopCfdi = (o: { date: string; uuid: string; invoiceNumber: string; am
 //                        and the paid IVA moves 1135 → 1130: 800.00
 //   12-22 REP            2110 Dr 9,280.00 / bank Cr 9,280.00, and the PPD's
 //                        paid IVA moves 1135 → 1130: 1,280.00 (LIVA art. 5 fr. III)
+//   12-28 stray entry    1120 Dr 2,000.00 / 4100 Cr 2,000.00: a sale typed as a
+//                        journal entry, with no invoice behind it, so 1120 holds
+//                        2,000 that the receivables subledger does not
+//   12-31 its reversal   4100 Dr 2,000.00 / 1120 Cr 2,000.00: the mirror, dated
+//                        inside December, so both wash out within the month
 //   12-31 depreciation   6140 Dr 900.00 / 1290 Cr 900.00, posted by the close:
 //                        computer class, 30 % LISR maximum → 40-month book
 //                        life; whole-month convention, so 36,000 / 40
 // Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
 // + 900 = 67,860 typed, and 9,280 + 2 × 1,160 + 2 × 1,160 + (9,280 + 1,280)
 // = 24,480 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
-// + 2 × 1,190 + (11,600 + 9,533.33) = 26,813.33. In all 119,153.33. The
-// dossier seals the trial balance as of 12-31, so it counts the opening of
-// 01-01 too: 107,800 + 119,153.33.
-const SEALED_DEBITS = '226953.33';
+// + 2 × 1,190 + (11,600 + 9,533.33) = 26,813.33, and the stray entry and its
+// mirror, which move no balance but are debits all the same: 2 × 2,000
+// = 4,000. In all 123,153.33. The dossier seals the trial balance as of
+// 12-31, so it counts the opening of 01-01 too: 107,800 + 123,153.33.
+const SEALED_DEBITS = '230953.33';
 const ENDING = {
   // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
   // − 1,200 − 450 (the bookshop) − 1,190 (the hotel) − 9,533.33 (the fees, net)
   // (see MNE-001-039 in step 4)
   '1111': '40026.67',
-  '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160
+  '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160 (+ 2,000 − 2,000, the stray entry and its mirror)
   // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE) + 160 (the hotel) + 1,600 (the fees)
   '1130': '4160.00',
   '1135': '320.00', // the opening's; the 800 and the 1,280 parked in December moved to 1130 when paid
@@ -300,7 +360,7 @@ const ENDING = {
   '2125': '-480.00', // the opening invoice's IVA, still uncollected
   '3100': '-100000.00',
   '3200': '-5000.00', // the 2024 result, untouched since the opening
-  '4100': '-10000.00',
+  '4100': '-10000.00', // the invoice; the stray 2,000 was credited on 12-28 and debited back on 12-31
   '4400': '1000.00',
   // 5,000 typed + 8,000 (PPD) + 1,000 + 1,000 (the PUE) + 1,200 + 450 (the bookshop)
   // + 1,000 (the hotel) + 10,000 (the fees)
@@ -953,7 +1013,51 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         { '6100': '22650.00', '1130': '3360.00', '2141': '-1000.00', '2142': '-1066.67', '2110': '0.00', '1111': '-23973.33' }
       );
     }, STEP_TIMEOUT_MS);
-    it.todo('loads a synthetic SAT census for 2025-12 and `sat download reconcile --period` names each CFDI as missing, unposted or posted — MNE-001-096, MNE-001-119');
+
+    it('loads a synthetic SAT census for 2025-12 and `sat download reconcile --period` names each CFDI as missing, unposted or posted — MNE-001-096, MNE-001-119', () => {
+      // The gardener's CFDI arrives and stays in the inbox: with no model, no
+      // vendor and no rule, nothing codes it and nothing is posted.
+      const unposted = receivedCfdi('factura-limpieza-1001.xml', {
+        file: 'unposted-2025-12-29.xml', rfc: GARDENER_RFC, name: GARDENER_NAME, date: '2025-12-29',
+        uuid: UNPOSTED_UUID, invoiceNumber: '7741',
+      });
+      expect(ok(['ingest', unposted, '-y'], 'ingest').out).toContain('1 left to code');
+
+      // MNE-001-096: the metadata loads the census and stops. Ten rows, all
+      // received: the company is the receiver of every one.
+      const census = path.join(workDir, 'recibidos-2025-12.txt');
+      fs.writeFileSync(census, CENSUS_METADATA);
+      const loaded = ok(['ingest', census, '--kind', 'metadata', '-y'], 'ingest').out;
+      expect(loaded).toContain('10 CFDI (0 issued, 10 received)');
+      expect(loaded).toContain('Census loaded from recibidos-2025-12.txt: 10 new, 0 already known.');
+
+      // MNE-001-119: the month is not complete, so the command exits 4
+      // (validation) and its rows are the two gaps, the one to fetch first.
+      const reconciled = mnemosine(['sat', 'download', 'reconcile', '--period', '2025-12', '--json']);
+      expect(reconciled.status, reconciled.out + reconciled.err).toBe(4);
+      expect(
+        rowsOf<Record<string, string>>(reconciled)
+          .map((r) => [r.status, r.direction, r.type, r.uuid, r.date, money(r.amount)].join(' '))
+      ).toEqual([
+        `to_fetch received I ${UNFETCHED_UUID.toLowerCase()} 2025-12-30 10:00:00 580.00`,
+        `to_post received I ${UNPOSTED_UUID.toLowerCase()} 2025-12-29 10:00:00 1160.00`,
+      ]);
+      // The summary counts what agrees: the seven bills of steps 2·195 to
+      // 2·199 and the REP, which matches by the payment it created. Nothing
+      // is cancelled, and no posted CFDI is missing from the census.
+      expect(reconciled.err).toContain(
+        '2025-12: 8 agree · 1 to fetch · 1 to post · 0 cancelled at the SAT but posted · ' +
+        '0 posted but not in the census (0 cancelled and never posted: not a gap).'
+      );
+      // A direction nobody loaded is said apart: it is not «nothing issued».
+      expect(reconciled.err).toContain('No census of issued CFDI covers this month: it is not loaded');
+      expect(reconciled.err).not.toContain('No census of received CFDI');
+
+      // A census and an uncoded CFDI post nothing: December is where 2·199 left it.
+      expect(decemberMoves(['6100', '1130', '2141', '2142', '2110', '1111'])).toEqual(
+        { '6100': '22650.00', '1130': '3360.00', '2141': '-1000.00', '2142': '-1066.67', '2110': '0.00', '1111': '-23973.33' }
+      );
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('3 · receivables and payables', () => {
@@ -1003,7 +1107,68 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     }, STEP_TIMEOUT_MS);
 
     it.todo('records a customer advance and applies it to the next invoice — MNE-001-098');
-    it.todo('ar reconcile and ap reconcile tie to 1120 and 2110 at 2025-12-31, and a mismatch blocks the close — MNE-001-034, MNE-001-035, MNE-001-036, MNE-001-037');
+    it('ar reconcile ties to 1120 as of the run and ap reconcile to 2110 at 2025-12-31, and an entry on 1120 blocks the close until it is reversed — MNE-001-034, MNE-001-035, MNE-001-036, MNE-001-037', () => {
+      type ArTie = { control_balance: string; subledger_net: string; delta: string; balanced: boolean;
+        manual_entries: { entry_number: string }[] };
+      const arTie = ['ar', 'reconcile', '--strict', '--json'];
+      const closeCheck = ['closing', 'check', '--period', 'December 2025', '--check', 'ar-subledger-delta', '--json'];
+      // By hand: the opening invoice, 3,480, and what INV-2025-00001 still owes
+      // after its receipt and its credit note, 11,600 − 5,800 − 1,160 = 4,640.
+      // No credit note waits to be applied. 1120 holds the same 8,120.
+      const tied = {
+        control_balance: '8120.00', open_invoices: '8120.00', unapplied_credit_notes: '0.00',
+        subledger_net: '8120.00', delta: '0.00', balanced: true,
+      };
+      // `ar reconcile` has no --as-of: it reads today's subledger against today's 1120.
+      expect(rowsOf<ArTie>(ok(arTie))[0]).toMatchObject(tied);
+      // Payables at the end of the month: every December bill was paid within
+      // it, so the opening bill, 2,320, is all the subledger and all of 2110.
+      // --strict would exit 4 on any reconciling item.
+      expect(rowsOf(ok(['ap', 'reconcile', '--as-of', '2025-12-31', '--strict', '--json']))[0]).toMatchObject({
+        asOf: '2025-12-31', subdiario: '2320.00', mayor: '2320.00', diferencia: '0.00', cuadra: true, partidas: [],
+      });
+      expect(rowsOf<{ is_complete: boolean }>(ok(closeCheck))[0].is_complete).toBe(true);
+
+      // A sale typed as a journal entry: 1120 rises by 2,000 with no invoice behind it.
+      const [stray] = rowsOf<{ entry_number: string }>(
+        ok(['entry', 'create', '--date', '2025-12-28', '--description', 'Sale booked without an invoice',
+          '--line', '1120:debit:2000.00', '--line', '4100:credit:2000.00', '--json'])
+      );
+      ok(['entry', 'post', stray.entry_number, '--yes']);
+
+      // 8,120 + 2,000 = 10,120 in the ledger against 8,120 of documents. The
+      // command names the entry and, under --strict, exits 4.
+      const untied = mnemosine(arTie);
+      expect(untied.status, untied.out + untied.err).toBe(4);
+      const [delta] = rowsOf<ArTie>(untied);
+      expect(delta).toMatchObject({ control_balance: '10120.00', subledger_net: '8120.00', delta: '2000.00', balanced: false });
+      expect(delta.manual_entries.map((m) => m.entry_number)).toContain(stray.entry_number);
+      // The close reads the same figure, and it blocks without --strict.
+      const blocked = mnemosine(closeCheck);
+      expect(blocked.status, blocked.out + blocked.err).toBe(4);
+      expect(rowsOf<{ is_complete: boolean; severity: string; details: string }>(blocked)[0]).toMatchObject({
+        is_complete: false,
+        severity: 'blocking',
+        details: 'control 10120.00 vs subledger 8120.00 · delta 2000.00 (ar reconcile lists the causes)',
+      });
+
+      // The correction is a mirror dated inside December (NIF B-1). `entry void`
+      // would date its mirror on the day of the run, outside the month.
+      const reversed = ok(['entry', 'reverse', stray.entry_number, '--date', '2025-12-31',
+        '--reason', 'Sale booked without an invoice', '--yes']).out;
+      const mirror = /(\S+) posted as the reversal of/.exec(reversed)?.[1] ?? '';
+      const [shown] = rowsOf<{ entry_date: string; reverses: string; is_reversal: boolean }>(
+        ok(['entry', 'show', mirror, '--no-lines', '--json'])
+      );
+      expect(shown).toMatchObject({ reverses: stray.entry_number, is_reversal: true });
+      expect(shown.entry_date.slice(0, 10)).toBe('2025-12-31');
+
+      expect(rowsOf<ArTie>(ok(arTie))[0]).toMatchObject(tied);
+      expect(rowsOf<{ is_complete: boolean }>(ok(closeCheck))[0].is_complete).toBe(true);
+      // December moved as if the entry had never been typed: 1120 by 11,600
+      // − 5,800 − 1,160, and 4100 by the one invoice.
+      expect(decemberMoves(['1120', '4100'])).toEqual({ '1120': '4640.00', '4100': '-10000.00' });
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('4 · bank', () => {
