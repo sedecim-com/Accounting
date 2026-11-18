@@ -2248,6 +2248,10 @@ export const EN = {
   'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
+  'receipt.apply.other_customer':
+    '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
+  'payment.apply.other_vendor':
+    '{bill} belongs to vendor {billVendor}, and payment {payment} belongs to vendor {paymentVendor}: cash on account settles only bills of its own vendor. Record the payment under {billVendor}, or apply {payment} to a bill of {paymentVendor}.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
   'receipt.advance.treatment_unknown':
     'The IVA treatment "{value}" of an advance is not known: state one of {allowed}.',
