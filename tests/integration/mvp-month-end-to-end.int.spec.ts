@@ -60,6 +60,15 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // takes the role. An individual's fees bring withholdings: the company pays
 // the net, and owes the SAT the ISR and the IVA it withheld.
 //
+// THE SAT CENSUS OF DECEMBER (MNE-001-410). The firm downloads the metadata
+// of what it received in December and loads it with `ingest --kind metadata`.
+// `sat download reconcile` then reads that census against the books: the
+// eight CFDI above agree, one that arrived and nobody coded is still to post,
+// and one the firm never brought in is still to fetch. Both gaps stay to the
+// end of the month, since a received gap only warns at the close. No census
+// of issued CFDI is loaded, and the command says so: a gap there would stop
+// the close by default (`census_missing_at_close`).
+//
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
 // credential each built-in profile names (`api_key_env` of BUILTIN_PROFILES)
@@ -238,6 +247,41 @@ const bookshopCfdi = (o: { date: string; uuid: string; invoiceNumber: string; am
   </cfdi:Complemento>
 </cfdi:Comprobante>`;
 };
+
+// ── THE SAT CENSUS OF DECEMBER (MNE-001-410) ───────────────────────────
+// Two more received CFDI, neither of them in the books. A gardener's arrives
+// on 12-29 and is left in the inbox, uncoded: fetched, not posted. A phone
+// company's exists only in the SAT's list: the firm never got its XML. Their
+// issuers are in no catalog, and no rule names them.
+const GARDENER_RFC = 'JAR060101AB1';
+const GARDENER_NAME = 'Jardineria Ornamental de Occidente SC';
+const PHONE_COMPANY_RFC = 'TEL060101AB1';
+const UNPOSTED_UUID = '5A1E0410-1229-4C0A-9D2E-000000007741';
+const UNFETCHED_UUID = '5A1E0410-1230-4C0A-9D2E-000000000310';
+// What the SAT lists as received by the company in December, a row per CFDI,
+// each written by hand from its document: the date, the total and the type
+// (I an invoice, P a payment receipt, whose total is 0).
+const CENSUS_RECEIVED = [
+  // Uuid, RfcEmisor, NombreEmisor, date of FechaEmision, Monto, EfectoComprobante
+  [ZERO_RATE_UUID, BOOKSHOP_RFC, BOOKSHOP_NAME, '2025-12-03', '1200.00', 'I'],
+  [EXEMPT_UUID, BOOKSHOP_RFC, BOOKSHOP_NAME, '2025-12-04', '450.00', 'I'],
+  [LODGING_UUID, HOTEL_RFC, HOTEL_NAME, '2025-12-09', '1190.00', 'I'],
+  [PPD_UUID, CONSULTANT_RFC, CONSULTANT_NAME, '2025-12-10', '9280.00', 'I'],
+  [CLEANER_PUE_UUIDS[0], CLEANER_RFC, CLEANER_NAME, '2025-12-12', '1160.00', 'I'],
+  [FEES_UUID, FEES_RFC, FEES_NAME, '2025-12-16', '9533.33', 'I'],
+  [CLEANER_PUE_UUIDS[1], CLEANER_RFC, CLEANER_NAME, '2025-12-19', '1160.00', 'I'],
+  [REP_UUID, CONSULTANT_RFC, CONSULTANT_NAME, '2025-12-22', '0', 'P'],
+  [UNPOSTED_UUID, GARDENER_RFC, GARDENER_NAME, '2025-12-29', '1160.00', 'I'],
+  [UNFETCHED_UUID, PHONE_COMPANY_RFC, 'Telefonia Sintetica SA de CV', '2025-12-30', '580.00', 'I'],
+] as const;
+// The metadata file of the SAT's bulk download: `~` between fields, CRLF
+// between records, Estatus 1 for a CFDI in force (the contract is in
+// src/services/sat-census/census.ts).
+const CENSUS_METADATA = [
+  'Uuid~RfcEmisor~NombreEmisor~RfcReceptor~NombreReceptor~RfcPac~FechaEmision~FechaCertificacionSat~Monto~EfectoComprobante~Estatus~FechaCancelacion',
+  ...CENSUS_RECEIVED.map(([uuid, rfc, name, date, amount, type]) =>
+    `${uuid}~${rfc}~${name}~${COMPANY_RFC}~${COMPANY_NAME}~SAT970701NN3~${date} 10:00:00~${date} 10:05:00~${amount}~${type}~1~`),
+].join('\r\n');
 
 // ── THE MONTH, BY HAND ──────────────────────────────────────────────────
 //   12-01 computers      1220 Dr 36,000.00 / 1111 Cr 36,000.00
@@ -953,7 +997,51 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         { '6100': '22650.00', '1130': '3360.00', '2141': '-1000.00', '2142': '-1066.67', '2110': '0.00', '1111': '-23973.33' }
       );
     }, STEP_TIMEOUT_MS);
-    it.todo('loads a synthetic SAT census for 2025-12 and `sat download reconcile --period` names each CFDI as missing, unposted or posted — MNE-001-096, MNE-001-119');
+
+    it('loads a synthetic SAT census for 2025-12 and `sat download reconcile --period` names each CFDI as missing, unposted or posted — MNE-001-096, MNE-001-119', () => {
+      // The gardener's CFDI arrives and stays in the inbox: with no model, no
+      // vendor and no rule, nothing codes it and nothing is posted.
+      const unposted = receivedCfdi('factura-limpieza-1001.xml', {
+        file: 'unposted-2025-12-29.xml', rfc: GARDENER_RFC, name: GARDENER_NAME, date: '2025-12-29',
+        uuid: UNPOSTED_UUID, invoiceNumber: '7741',
+      });
+      expect(ok(['ingest', unposted, '-y'], 'ingest').out).toContain('1 left to code');
+
+      // MNE-001-096: the metadata loads the census and stops. Ten rows, all
+      // received: the company is the receiver of every one.
+      const census = path.join(workDir, 'recibidos-2025-12.txt');
+      fs.writeFileSync(census, CENSUS_METADATA);
+      const loaded = ok(['ingest', census, '--kind', 'metadata', '-y'], 'ingest').out;
+      expect(loaded).toContain('10 CFDI (0 issued, 10 received)');
+      expect(loaded).toContain('Census loaded from recibidos-2025-12.txt: 10 new, 0 already known.');
+
+      // MNE-001-119: the month is not complete, so the command exits 4
+      // (validation) and its rows are the two gaps, the one to fetch first.
+      const reconciled = mnemosine(['sat', 'download', 'reconcile', '--period', '2025-12', '--json']);
+      expect(reconciled.status, reconciled.out + reconciled.err).toBe(4);
+      expect(
+        rowsOf<Record<string, string>>(reconciled)
+          .map((r) => [r.status, r.direction, r.type, r.uuid, r.date, money(r.amount)].join(' '))
+      ).toEqual([
+        `to_fetch received I ${UNFETCHED_UUID.toLowerCase()} 2025-12-30 10:00:00 580.00`,
+        `to_post received I ${UNPOSTED_UUID.toLowerCase()} 2025-12-29 10:00:00 1160.00`,
+      ]);
+      // The summary counts what agrees: the seven bills of steps 2·195 to
+      // 2·199 and the REP, which matches by the payment it created. Nothing
+      // is cancelled, and no posted CFDI is missing from the census.
+      expect(reconciled.err).toContain(
+        '2025-12: 8 agree · 1 to fetch · 1 to post · 0 cancelled at the SAT but posted · ' +
+        '0 posted but not in the census (0 cancelled and never posted: not a gap).'
+      );
+      // A direction nobody loaded is said apart: it is not «nothing issued».
+      expect(reconciled.err).toContain('No census of issued CFDI covers this month: it is not loaded');
+      expect(reconciled.err).not.toContain('No census of received CFDI');
+
+      // A census and an uncoded CFDI post nothing: December is where 2·199 left it.
+      expect(decemberMoves(['6100', '1130', '2141', '2142', '2110', '1111'])).toEqual(
+        { '6100': '22650.00', '1130': '3360.00', '2141': '-1000.00', '2142': '-1066.67', '2110': '0.00', '1111': '-23973.33' }
+      );
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('3 · receivables and payables', () => {
