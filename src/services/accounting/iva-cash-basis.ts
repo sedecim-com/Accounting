@@ -547,13 +547,6 @@ async function billsAppliedBy(
 }
 
 /**
- * What a payment releases from the pending-IVA account, per document.
- *
- * Only PPD documents appear: a PUE document's IVA was already in the due
- * account, so its payment moves nothing. Documents whose share rounds to
- * zero are dropped so the entry stays readable.
- */
-/**
  * How much IVA is STILL PARKED in the pending account for one document.
  *
  * This is the cap on what a payment may release, and it exists because the
@@ -645,6 +638,16 @@ export async function ivaStillParked(
   return Decimal.max(parked, new Decimal(0)).toFixed(SCALE);
 }
 
+/**
+ * What a payment releases from the pending-IVA account, per document.
+ *
+ * Received: where the IVA sits decides, not the method (MNE-001-491). A bill
+ * that parked IVA in the pending account releases it in proportion, capped by
+ * `ivaStillParked`; one whose IVA went to the creditable account has a cap of
+ * zero and moves nothing, whether it says PUE or PPD. Issued: only PPD
+ * invoices appear. Documents whose share rounds to zero are dropped so the
+ * entry stays readable.
+ */
 export async function ivaReclassificationsFor(
   client: pg.PoolClient,
   side: DocumentSide,
@@ -685,7 +688,10 @@ export async function ivaReclassificationsFor(
             memo: row.memo,
           });
 
-    if (metodo.metodo !== 'PPD') continue;
+    // NOTE: the method test stays on the issued side only. An invoice read as
+    // PUE with its IVA in 2125 (#668) would start releasing on collection, and
+    // the issued PUE is outside MNE-001-491; a bill is decided by the cap below.
+    if (side === 'issued' && metodo.metodo !== 'PPD') continue;
 
     const appliedNow = new Decimal(row.applied_now || '0');
     const priorApplied = Decimal.max(
