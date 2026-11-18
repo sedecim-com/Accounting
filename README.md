@@ -29,7 +29,9 @@ jurisdicción completa, Estados Unidos es parcial y las NIIF son conocimiento
 del agente, no comportamiento del motor. Lo que falta, medido, está en
 [`docs/SCOPE.md`](docs/SCOPE.md) («El objetivo»); el primer hito, en
 [`docs/MVP.md`](docs/MVP.md); lo planeado, en
-[PRD-003](docs/prd/PRD-003-producto-completo.md), todavía en revisión.
+[PRD-003](docs/prd/PRD-003-producto-completo.md), todavía en revisión; sus
+decisiones D-01 a D-10, que este archivo cita, las respondió el dueño el
+2026-11-17 en [#603](https://github.com/sedecim-com/Accounting/issues/603).
 
 ---
 
