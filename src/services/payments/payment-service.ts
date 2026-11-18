@@ -23,7 +23,9 @@ import {
   type DiferenciaCambiaria,
 } from '../accounting/moneda-origen.js';
 import { ivaToReclassify, entityUsesCashBasisIva } from '../accounting/iva-cash-basis.js';
-import { ADVANCE_TREATMENTS, isAdvanceTreatment, splitAdvance, type AdvanceSplit } from './customer-advance.js';
+import {
+  ADVANCE_TREATMENTS, isAdvanceTreatment, splitAdvance, storedAdvanceTreatment, type AdvanceSplit,
+} from './customer-advance.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
@@ -1574,6 +1576,10 @@ export interface CobroDetalle {
   cfdi_pago_indice: number | null;
   reversed_at: Date | null;
   unapplied_amount: string;
+  /** MNE-001-421: the advance a receipt was recorded as: its base, its treatment ('16', 'exempt'…) and its IVA; nulls when none. */
+  advance_base: string | null;
+  advance_tax_rate: string | null;
+  advance_iva: string | null;
   aplicaciones: {
     invoice_number: string;
     amount_applied: string;
@@ -1597,11 +1603,14 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     payment_amount: string; currency_code: string; payment_date: Date; payment_method: string;
     reference_number: string | null; status: string; journal_entry_number: string | null;
     cfdi_uuid: string | null; cfdi_pago_indice: number | null; reversed_at: Date | null;
+    advance_factor_type: string | null; advance_tax_rate: string | null;
+    advance_base_amount: string | null; advance_iva_amount: string | null;
   }>(
     `SELECT cp.id, cp.payment_number, cp.customer_id, COALESCE(cu.company_name, NULLIF(TRIM(CONCAT(cu.first_name, ' ', cu.last_name)), '')) AS customer_name,
             cp.payment_amount::text, cp.currency_code, cp.payment_date, cp.payment_method,
             cp.reference_number, cp.status, je.entry_number AS journal_entry_number,
-            cp.cfdi_uuid, cp.cfdi_pago_indice, cp.reversed_at
+            cp.cfdi_uuid, cp.cfdi_pago_indice, cp.reversed_at,
+            cp.advance_factor_type, cp.advance_tax_rate::text, cp.advance_base_amount::text, cp.advance_iva_amount::text
        FROM customer_payments cp
        LEFT JOIN customers cu ON cu.id = cp.customer_id
        LEFT JOIN journal_entries je ON je.id = cp.journal_entry_id
@@ -1646,6 +1655,9 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     reversed_at: pago.reversed_at,
     unapplied_amount:
       pago.status === ESTADO ? new Decimal(pago.payment_amount).minus(aplicado).toFixed(2) : '0.00',
+    advance_base: pago.advance_base_amount === null ? null : new Decimal(pago.advance_base_amount).toFixed(2),
+    advance_tax_rate: storedAdvanceTreatment(pago.advance_factor_type, pago.advance_tax_rate),
+    advance_iva: pago.advance_iva_amount === null ? null : new Decimal(pago.advance_iva_amount).toFixed(2),
     aplicaciones: apps.rows.map((a) => ({
       invoice_number: a.invoice_number,
       amount_applied: new Decimal(a.amount_applied).toFixed(2),
