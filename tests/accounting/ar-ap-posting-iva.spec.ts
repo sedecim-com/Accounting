@@ -383,9 +383,12 @@ describe('customer payment applied to a PPD invoice', () => {
     expect(update).toMatch(/iva_reclass_amount IS NULL/);
   });
 
+  // MNE-001-491 keeps the method test on the issued side: even with its IVA
+  // sitting in 2125 (#668), an invoice read as PUE releases nothing.
   it('moves nothing for a PUE invoice: its IVA was already due', async () => {
     state.cfdiMetodo = { 'UUID-PPD': 'PUE' };
     state.applied = [appliedInvoice()];
+    state.parked = { 'inv-1': '160.0000' };
 
     await postCustomerPaymentEntry(fakeClient(), payment(), USER);
 
@@ -417,12 +420,24 @@ describe('vendor payment applied to a PPD bill', () => {
     expect(entryDescription()).toBe('Vendor payment VPMT-001 · IVA creditable on payment: BILL-001');
   });
 
-  it('moves nothing for a PUE bill', async () => {
+  it('moves nothing for a PUE bill that parked nothing: its IVA went to the creditable account', async () => {
     state.cfdiMetodo = { 'bill-1': 'PUE' };
     state.applied = [appliedBill()];
+    state.parked = { 'bill-1': '0' };
 
     await postVendorPaymentEntry(fakeClient(), payment({ payment_amount: '580.0000' }), USER);
     expect(lines()).toHaveLength(2);
+  });
+
+  // MNE-001-491: where the IVA sits decides the release, not the method.
+  it('releases the parked IVA of a PUE bill on payment', async () => {
+    state.cfdiMetodo = { 'bill-1': 'PUE' };
+    state.applied = [appliedBill()];
+    state.parked = { 'bill-1': '80.0000' };
+
+    await postVendorPaymentEntry(fakeClient(), payment({ payment_amount: '580.0000' }), USER);
+    expect(lineFor('acct:iva_acreditable')).toMatchObject({ debit_amount: '80.0000', credit_amount: null });
+    expect(lineFor('acct:iva_pendiente_acreditar')).toMatchObject({ debit_amount: null, credit_amount: '80.0000' });
   });
 
   it('does not touch the IVA of a US entity even when a bill was applied', async () => {
