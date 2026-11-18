@@ -27,6 +27,19 @@ import { MEMORANDUM_DOCTRINE } from './sat-agrupador-account-type.js';
 // account's own nature, which is where an accountant looks for it; the sum of
 // a credit child under a debit parent is now report-service's business.
 //
+// ── SURPLUS IS AN ACCOUNT'S OWN MONEY (MNE-001-483) ────────────────────
+//
+// A previous system may export only the accounts that carry a balance of
+// their own, with no header above them, and the load accepts that file. On
+// rolled-up rows an undeclared header's figure is mostly its subaccounts'
+// money, so calling the whole figure surplus made a file that declares every
+// peso fail its own check. For an account the source declares neither itself
+// nor through an ancestor, surplus is what it holds of its own: its rolled-up
+// figure minus its direct subaccounts' rolled-up figures. Those amounts are
+// disjoint, so each peso is named once, at the account that carries it.
+// CONTRACT: that subtraction needs `nuestra` ROLLED UP, as both production
+// callers hand it over; own balances would come out wrong for every header.
+//
 // ── MEMORANDUM ACCOUNTS STAY OUT OF THE FOOTING (#219) ─────────────────
 //
 // The 8xx (UFIN, CUFIN, CUCA…) do not migrate in this version: the owner
@@ -68,7 +81,10 @@ export interface BalanceComparison {
   diferencias: readonly BalanceDifference[];
   /** Cuentas que el origen declara y que no existen en nuestro plan. */
   faltantes: readonly string[];
-  /** Dinero nuestro que el origen no declara NI BAJO UN ANTEPASADO SUYO. */
+  /**
+   * Dinero propio de una cuenta nuestra que el origen no declara, NI BAJO UN
+   * ANTEPASADO SUYO ni en una subcuenta declarada.
+   */
   sobrantes: readonly { numCta: string; importe: string }[];
   /** Memorandum accounts of the source left out of the footing, with the figure it declares. */
   excluded: readonly { code: string; amount: string }[];
@@ -223,24 +239,35 @@ export function compareToSource(
     });
   }
 
-  // DINERO NUESTRO QUE EL ORIGEN NO DECLARA. Sólo cuenta si NO cuelga de una
-  // cuenta que el origen sí declare, ni de una nuestra que ya lo lleve dentro
-  // de su agregado: la diferencia —si la hay— se nombró allí. Enumerarlo
-  // también aquí llenaría el informe de ecos de un único defecto.
-  const cubren = new Set(declaradasPorElOrigen);
-  for (const [code, v] of propio) if (!v.isZero()) cubren.add(code);
+  // MONEY OF OURS THE SOURCE DOES NOT DECLARE, at the account that holds it.
+  // Under an account the source declares, any difference was already named
+  // there. Elsewhere an account answers for its OWN money alone: what its
+  // subaccounts carry is theirs to answer for, declared or not, which is what
+  // keeps a leaves-only source from seeing its headers as surplus.
+  const children = new Map<string, string[]>();
+  for (const s of shapes) {
+    // A self-parent, a `parent_id` fixed by hand, must not cancel its own money.
+    if (s.parentCode === null || s.parentCode === s.code) continue;
+    children.set(s.parentCode, [...(children.get(s.parentCode) ?? []), s.code]);
+  }
   const sobrantes: { numCta: string; importe: string }[] = [];
   for (const s of shapes) {
     const valor = propio.get(s.code);
-    if (valor === undefined || valor.isZero()) continue;
+    if (valor === undefined) continue;
     if (declaradasPorElOrigen.has(s.code)) continue;
+    let surplus = valor;
     // An excluded code is never covered by an ancestor: the source keeps that
     // money off the balance, so any of it in OUR ledger is its own finding,
-    // not an echo of a difference named further up (WIT-01, PR #415).
-    if (!memorandum.has(s.code) && tieneAntepasadoEn(s.code, padre, cubren)) continue;
+    // for its whole figure, not an echo of a difference named further up
+    // (WIT-01, PR #415).
+    if (!memorandum.has(s.code)) {
+      if (tieneAntepasadoEn(s.code, padre, declaradasPorElOrigen)) continue;
+      for (const child of children.get(s.code) ?? []) surplus = surplus.minus(propio.get(child) ?? 0);
+    }
+    if (surplus.isZero()) continue;
     sobrantes.push({
       numCta: s.code,
-      importe: alEjeDeLaSuma(valor.toString(), s.natur, columna).toFixed(ESCALA),
+      importe: alEjeDeLaSuma(surplus.toString(), s.natur, columna).toFixed(ESCALA),
     });
   }
 
