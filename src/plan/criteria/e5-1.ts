@@ -727,6 +727,12 @@ export const E5_1: Criterio[] = [
           'importing the receivables core must turn red by its MODULE: the name imported is on no list, ' +
           'so only the module fence can catch it (MNE-001-454)',
       },
+      {
+        archivo: 'src/ai/tools/ledger-tools.ts',
+        de: 'envolverDatosDeTerceros(',
+        a: 'envolverDatosDeTerceros(postIssuedCfdiByHand, ',
+        porque: 'the hand door of an issued CFDI posts an invoice and its entry: a tool that names it must turn red (MNE-001-417)',
+      },
     ],
     evaluar: () => {
       // ESTE CRITERIO ESTABA EN ROJO POR UNA AFIRMACIÓN FALSA.
@@ -772,6 +778,7 @@ export const E5_1: Criterio[] = [
         'ligarPagoREP',
         'procesarREP',
         'processToAccounting',
+        'postIssuedCfdiByHand',
         'createBankTransaction',
       ];
       // 2. MÓDULOS prohibidos: llamar a un servicio que a su vez postea es la
