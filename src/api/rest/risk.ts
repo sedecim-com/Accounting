@@ -220,18 +220,16 @@ export interface RutaCensada {
 //
 // Se recorre la pila REAL de Express: `stack → layer.route → route.stack`.
 // De ahí salen exactos el método, la ruta propia y el manejador marcado —
-// que es lo único que la comprobación necesita. Lo ÚNICO que hay que
-// reconstruir es el prefijo de montaje, porque Express 4 no lo guarda: lo
-// compila a la expresión regular de la capa y tira la cadena.
+// que es lo único que la comprobación necesita. The mount prefix comes from
+// `layer.rawPath`, where Express 5 keeps the path as it was written.
 //
-// Para los montajes de esta API —todos literales: '/v1/accounts',
-// '/v1/admin/blockchain'— la reconstrucción es exacta. Un montaje con
-// parámetro ('/v1/:algo') no lo sería, y por eso `prefijoDeCapa` devuelve
-// un marcador visible en vez de adivinar: si algún día aparece uno, el
-// censo lo enseña en vez de imprimir una ruta falsa. Nada de eso afecta a
-// la comprobación, que no mira la ruta: mira el verbo y la declaración.
+// Every mount of this API is a literal ('/v1/accounts',
+// '/v1/admin/blockchain'). For a mount with a parameter or wildcard
+// `prefijoDeCapa` returns a visible marker instead of guessing: the census
+// shows it rather than printing a false route. None of that affects the
+// check, which looks at the verb and the declaration, not at the path.
 //
-// La alternativa, si Express dejara de exponer `_router`, es envolver
+// La alternativa, si Express dejara de exponer `router`, es envolver
 // `Router()` y quedarse con lo que se registra. Es más invasivo y hoy no
 // hace falta.
 // NOTE: if Express stops exposing the stack, `censarRutas` now THROWS at
@@ -241,15 +239,12 @@ export interface RutaCensada {
 
 const PREFIJO_NO_LITERAL = '(prefijo no literal)';
 
-function prefijoDeCapa(capa: { regexp?: RegExp; keys?: unknown[] }): string {
-  if (!capa.regexp) return '';
-  if (Array.isArray(capa.keys) && capa.keys.length > 0) return PREFIJO_NO_LITERAL;
-  const fuente = capa.regexp.source;
-  // La forma que Express 4 genera para `app.use('/v1/xml', r)`:
-  //   ^\/v1\/xml\/?(?=\/|$)
-  if (fuente === '^\\/?(?=\\/|$)') return ''; // montaje en la raíz
-  const m = /^\^((?:\\\/[^\\^$*+?()[\]{}|]+)+)\\\/\?\(\?=\\\/\|\$\)$/.exec(fuente);
-  return m ? m[1].replace(/\\\//g, '/') : PREFIJO_NO_LITERAL;
+function prefijoDeCapa(capa: { rawPath?: unknown }): string {
+  // Express 5 (router 2) keeps the mount path as written in `rawPath`; the
+  // compiled regexp that Express 4 exposed is gone.
+  const montaje = capa.rawPath;
+  if (typeof montaje !== 'string' || /[:*{}()[\]?+!\\]/.test(montaje)) return PREFIJO_NO_LITERAL;
+  return montaje.replace(/\/+$/, ''); // a root mount ('/') adds no prefix
 }
 
 interface CapaExpress {
@@ -258,8 +253,7 @@ interface CapaExpress {
     methods: Record<string, boolean>;
     stack: Array<{ handle: unknown }>;
   };
-  regexp?: RegExp;
-  keys?: unknown[];
+  rawPath?: unknown;
   handle?: { stack?: CapaExpress[] };
   name?: string;
 }
@@ -323,26 +317,19 @@ function countCensusLayers(pila: CapaExpress[]): number {
  * census although route layers are mounted. A silent `[]` makes startup
  * answer "no undeclared route" about an API it never inspected.
  *
- * A bare Express 4 `express()` that has had no `.use`/`.get` has no
- * `_router` yet (it is created lazily) and nothing mounted: that is a
- * legitimately empty census.
+ * A bare `express()` that has had no `.use`/`.get` has an empty stack
+ * (Express 5 creates `app.router` on first access): that is a legitimately
+ * empty census.
  */
 export function censarRutas(destino: Express | Router): RutaCensada[] {
   const candidate = destino as unknown as {
-    _router?: { stack?: CapaExpress[] };
+    router?: { stack?: CapaExpress[] };
     stack?: CapaExpress[];
-    handle?: unknown;
-    lazyrouter?: unknown;
   };
-  const raiz = candidate._router?.stack ?? candidate.stack;
+  const raiz = candidate.router?.stack ?? candidate.stack;
   if (!Array.isArray(raiz)) {
-    const lazyBareApp =
-      candidate._router === undefined &&
-      typeof candidate.handle === 'function' &&
-      typeof candidate.lazyrouter === 'function';
-    if (lazyBareApp) return [];
     throw new Error(
-      'The route census found no router stack (neither app._router.stack nor router.stack): ' +
+      'The route census found no router stack (neither app.router.stack nor router.stack): ' +
         'this Express version no longer exposes it in that shape. Returning an empty census ' +
         'would let startup pass without having looked at any route; update the traversal.'
     );

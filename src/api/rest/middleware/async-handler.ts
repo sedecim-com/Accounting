@@ -4,10 +4,23 @@ import { ValidationError } from '../../../utils/errors.js';
 import { parseForClient } from '../../../utils/zod-client-errors.js';
 
 /**
+ * The request a route handler receives. @types/express 5 widens `req.params`
+ * values to `string | string[]` for wildcard segments (`*name`); every route of
+ * this API uses named segments (`:id`) only, which are always one string.
+ */
+export type RouteRequest = Request<Record<string, string>>;
+
+/**
  * Wrap an async route handler so unhandled rejections are forwarded to the
  * Express error pipeline (errorHandler) instead of crashing the process.
  *
  *   router.post('/x', asyncHandler(async (req, res) => { ... }))
+ *
+ * NOTE: Express 5 forwards a rejected promise from a handler by itself, so a
+ * bare `async` handler no longer hangs the request. The wrapper stays: it is
+ * what the routes are written with, and it behaves the same under both. The
+ * comments in the routes that say "Express 4 does not forward a rejection"
+ * describe the defect each one fixed at the time, not today's Express.
  */
 export function asyncHandler<
   Req extends Request = Request,
@@ -84,6 +97,19 @@ export function validateBody<S extends z.ZodType>(schema: S): RequestHandler {
   return validador;
 }
 
+/**
+ * Give a request that carried no parsed body the empty object it had under
+ * Express 4. body-parser 2 (Express 5) leaves `req.body` undefined when there
+ * is no body or the content type is not the parser's; body-parser 1 left `{}`.
+ * Mounted after the body parser, it keeps what a bodyless request answers: the
+ * same validation message from `validateBody`, and no TypeError (a 500) in a
+ * handler that reads a field straight out of `req.body`.
+ */
+export const emptyBodyAsObject: RequestHandler = (req, _res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+};
+
 // The query-string twin of the body mark above: the schema of one query
 // parameter hangs from the middleware that validates it, so the OpenAPI census
 // (src/api/rest/openapi.ts) publishes the parameters a route really checks.
@@ -120,7 +146,17 @@ export function validateQuery(name: string, schema: z.ZodType): RequestHandler {
       const details = parsed.issues.map((issue) => issue.message).join('; ');
       return next(new ValidationError(`Invalid query parameter: ${name}: ${details}`, name));
     }
-    if (parsed.data !== undefined) (req.query as Record<string, unknown>)[name] = parsed.data;
+    if (parsed.data !== undefined) {
+      // NOTE: Express 5 makes `req.query` a getter that parses the URL again on
+      // every read, so a write into the object it returns is lost. An own
+      // property keeps the parsed value for the handlers that follow.
+      Object.defineProperty(req, 'query', {
+        value: { ...req.query, [name]: parsed.data },
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    }
     next();
   };
   validator[QUERY_MARK] = { name, schema };

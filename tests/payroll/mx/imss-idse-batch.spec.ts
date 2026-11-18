@@ -126,7 +126,7 @@ describe('POST /v1/payroll/imss-idse/batch answers when the SBC is malformed', (
     });
     app.use('/v1/payroll', payrollRouter);
     app.use(errorHandler);
-    await new Promise<void>((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
+    await new Promise<void>((resolve) => { server = app.listen(0, '127.0.0.1', () => resolve()); });
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
 

@@ -1,8 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString } from '../../../utils/zod-compat.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
-import { asyncHandler, validateBody, validateQuery } from '../middleware/async-handler.js';
+import { asyncHandler, validateBody, validateQuery, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { withTenant } from '../../../database/connection.js';
 import { resolveEntity } from '../../../ai/context.js';

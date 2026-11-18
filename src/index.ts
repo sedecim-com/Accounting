@@ -12,6 +12,7 @@ import { readyHandler } from './api/rest/readiness.js';
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
 import { tenantContext } from './api/rest/middleware/tenant-context.js';
 import { errorHandler } from './api/rest/middleware/error-handler.js';
+import { emptyBodyAsObject } from './api/rest/middleware/async-handler.js';
 import { rateLimiter, preAuthRateLimiter } from './api/rest/middleware/rate-limiter.js';
 import { resolverTrustProxy } from './api/rest/trust-proxy.js';
 import { metricsMiddleware, metricsHandler } from './api/rest/middleware/metrics.js';
@@ -68,6 +69,11 @@ export async function bootstrap(): Promise<Express> {
   }
   if (trustProxy.aviso) logger.warn('trust_proxy', { detail: trustProxy.aviso });
 
+  // NOTE: Express 5 changed the default query parser from 'extended' (qs) to
+  // 'simple' (node:querystring). The API keeps the parser it has always had,
+  // so `?a[b]=c` and `?a[]=c` reach the handlers in the same shape as before.
+  app.set('query parser', 'extended');
+
   // ============================================================
   // Middleware
   // ============================================================
@@ -108,6 +114,8 @@ export async function bootstrap(): Promise<Express> {
   app.use((req, res, next) =>
     req.path.startsWith('/v1/ai/webhooks') ? next() : jsonParser(req, res, next)
   );
+  // Express 5: a request with no parsed body keeps the `{}` it had under Express 4.
+  app.use(emptyBodyAsObject);
 
   // Correlation ID — must come BEFORE anything that might log, so even
   // pre-auth errors surface with a request_id.
@@ -232,7 +240,11 @@ async function start(): Promise<void> {
   // ============================================================
   // Start Server
   // ============================================================
-  const server = app.listen(config.port, () => {
+  const server = app.listen(config.port, (err?: Error) => {
+    // Express 5 hands a failed bind (EADDRINUSE, EACCES) to this callback
+    // instead of leaving it as an unhandled 'error' event; rethrowing keeps the
+    // process dying on it rather than announcing a server that never listened.
+    if (err) throw err;
     logger.info('server_started', { port: config.port, env: config.env });
     console.log(`
 ╔══════════════════════════════════════════════════╗

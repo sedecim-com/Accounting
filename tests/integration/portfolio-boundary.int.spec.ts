@@ -132,7 +132,7 @@ beforeAll(async () => {
   app.use('/v1/portfolio', portfolioRouter);
   app.use(errorHandler);
   server = createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }, 180_000);
 

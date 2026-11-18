@@ -232,7 +232,10 @@ export async function startGateway(
   let server: Server;
   try {
     server = await new Promise<Server>((resolve, reject) => {
-      const listening = gateway.app.listen(config.port, config.host, () => resolve(listening));
+      // Express 5 also calls this callback with the error when the bind fails.
+      const listening = gateway.app.listen(config.port, config.host, (err?: Error) =>
+        err ? reject(err) : resolve(listening)
+      );
       listening.once('error', reject);
     });
   } catch (err) {
