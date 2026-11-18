@@ -16,6 +16,10 @@ vi.mock('../../src/services/ar/invoice-service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/services/ar/invoice-service.js')>()),
   resolveInvoice: vi.fn(async (_e: string, ref: string) => ({ id: `id-${ref}`, invoice_number: ref })),
 }));
+vi.mock('../../src/services/ar/customer-service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/ar/customer-service.js')>()),
+  resolveCustomer: vi.fn(async () => ({ id: 'cus-1', company_name: 'Grupo Alameda SA de CV', currency_code: 'MXN' })),
+}));
 vi.mock('../../src/services/policy/today.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/services/policy/today.js')>()),
   todayFor: vi.fn(async () => '2026-12-31'),
@@ -41,10 +45,12 @@ vi.mock('../../src/services/payments/payment-service.js', async (importOriginal)
 }));
 
 import * as payments from '../../src/services/payments/payment-service.js';
+import { resolveEntity } from '../../src/ai/context.js';
 import * as invoices from '../../src/services/ar/invoice-service.js';
 import { todayFor } from '../../src/services/policy/today.js';
 import { parseWithholding, registerReceiptCommand } from '../../src/cli/receipt-command.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
+import { exitCodeFor } from '../../src/cli/kernel/index.js';
 import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../src/cli/kernel/audit.js';
 
 // ============================================================
@@ -170,5 +176,106 @@ describe('receipt record without --date (MNE-001-290)', () => {
     }
     expect(todayFor).toHaveBeenCalledWith({ tenantId: 'ten-1', entityId: 'ent-1' });
     expect(vi.mocked(payments.recordCustomerPayment).mock.calls[0][0].paymentDate).toBe('2026-12-31');
+  });
+});
+
+// ============================================================
+// MNE-001-421 (#623, part 2/8) · `receipt record` with no invoice: what the
+// accountant types becomes the advance the service records, and what cannot
+// be an advance is refused before the service is called.
+// ============================================================
+
+/** Runs `receipt record` with the services mocked; returns what it reported and what reached the service. */
+async function record(args: string[]) {
+  resetDeclarations();
+  const service = vi.mocked(payments.recordCustomerPayment);
+  service.mockClear();
+  const errs: Error[] = [];
+  const program = new Command('mnemosine').exitOverride();
+  registerReceiptCommand(program, {
+    ...deps, home: '/tmp/mnemosine-tests-no-home', reportError: (e: unknown) => { errs.push(e as Error); },
+  } as never);
+  const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  try {
+    await program.parseAsync(['node', 'mnemosine', 'receipt', 'record', '--entity', 'ent-1', ...args]);
+  } finally {
+    outSpy.mockRestore();
+    errSpy.mockRestore();
+  }
+  return { errs, calls: service.mock.calls };
+}
+
+describe('receipt record with no invoice (MNE-001-421)', () => {
+  const advance = ['--customer', 'Grupo Alameda', '--amount', '1160.00'];
+
+  it('passes the resolved customer, no application and the treatment to the service', async () => {
+    const { errs, calls } = await record([...advance, '--tax-rate', '16', '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toMatchObject({
+      counterpartyId: 'cus-1', paymentAmount: '1160.00', applications: [], onAccount: true, advanceTreatment: '16',
+    });
+    expect(calls[0][2]).toEqual({ dryRun: true });
+  });
+
+  it.each([
+    ['exempt', 'exempt'], ['exento', 'exempt'], ['not-subject', 'not-subject'], ['no-objeto', 'not-subject'], ['8', '8'], ['0', '0'],
+  ])('reads --tax-rate %s as the treatment %s', async (typed, treatment) => {
+    const { errs, calls } = await record([...advance, '--tax-rate', typed, '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls[0][0].advanceTreatment).toBe(treatment);
+  });
+
+  it.each([
+    ['no rate on an entity that keeps Mexican books', advance, /--tax-rate/],
+    ['a rate outside the list', [...advance, '--tax-rate', '17'], /"17".*16, 8, 0, exempt/],
+    ['a rate written as a factor', [...advance, '--tax-rate', '1.6'], /"1\.6"/],
+    ['a rate that is not one', [...advance, '--tax-rate', 'abc'], /"abc"/],
+    ['neither an invoice nor --customer', ['--amount', '1160.00', '--tax-rate', '16'], /--customer/],
+    ['--tax-rate with an invoice', ['INV-1', '--amount', '100.00', '--tax-rate', '16'], /only for an advance with no invoice/],
+  ])('refuses %s before the service is called', async (_case, args, message) => {
+    const { errs, calls } = await record([...args, '--yes']);
+    expect(errs).toHaveLength(1);
+    expect(errs[0].message).toMatch(message);
+    expect(exitCodeFor(errs[0])).toBe(2);
+    expect(calls).toEqual([]);
+  });
+
+  it('asks no rate of an entity that does not keep Mexican books: the cash goes on account as before', async () => {
+    vi.mocked(resolveEntity).mockResolvedValueOnce({
+      entityId: 'ent-1', entityName: 'Demo Corp US', tenantId: 'ten-1',
+      currency: 'USD', country: 'US', accountingStandard: 'us_gaap', taxId: 'X',
+    });
+    const { errs, calls } = await record([...advance, '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls[0][0]).toMatchObject({ counterpartyId: 'cus-1', applications: [], onAccount: true });
+    expect(calls[0][0].advanceTreatment).toBeUndefined();
+  });
+
+  it('with an invoice and --customer, the resolved customer is what reaches the service', async () => {
+    vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '100.00', customer_id: 'c-of-the-invoice',
+    } as never);
+    const { errs, calls } = await record(['INV-1', '--customer', 'Grupo Alameda', '--amount', '100.00', '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls[0][0]).toMatchObject({
+      counterpartyId: 'cus-1', applications: [{ documentId: 'id-INV-1', amountApplied: '100.00' }], onAccount: false,
+    });
+    expect(calls[0][0].advanceTreatment).toBeUndefined();
+  });
+
+  it('with no --yes and no terminal it is refused after the rehearsal, and nothing is recorded', async () => {
+    const tty = process.stdin.isTTY;
+    process.stdin.isTTY = false;
+    try {
+      const { errs, calls } = await record([...advance, '--tax-rate', '16']);
+      expect(errs[0].message).toMatch(/no terminal to ask on.*--yes/);
+      expect(exitCodeFor(errs[0])).toBe(10);
+      // The only call is the dry run that feeds the confirmation.
+      expect(calls.map((c) => c[2])).toEqual([{ dryRun: true }]);
+    } finally {
+      process.stdin.isTTY = tty;
+    }
   });
 });

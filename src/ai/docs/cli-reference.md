@@ -4498,8 +4498,10 @@ Options:
   -h, --help                            display help for command
 
 Commands:
-  record|registrar [options] <invoice>  Record cash received against an invoice
-                                        and recognize the IVA it was holding
+  record|registrar [options] [invoice]  Record cash received: against an
+                                        invoice, releasing the IVA it was
+                                        holding, or with no invoice as a
+                                        customer advance
   show|ver [options] <ref>              Show one collection: its applications
                                         (live and history), REP status and
                                         ledger entry
@@ -4520,14 +4522,22 @@ Commands:
 ### `mnemosine receipt record` (alias: registrar)
 
 ```
-Usage: mnemosine receipt record|registrar [options] <invoice>
+Usage: mnemosine receipt record|registrar [options] [invoice]
 
-Record cash received against an invoice and recognize the IVA it was holding
+Record cash received: against an invoice, releasing the IVA it was holding, or
+with no invoice as a customer advance
 
 Arguments:
-  invoice                  invoice number or id
+  invoice                  invoice number or id; without it the cash is an
+                           advance, and --customer names who paid it
 
 Options:
+  --customer <ref>         the customer who paid (number, name or id); required
+                           with no invoice, and with one it must be the
+                           invoice's own
+  --tax-rate <rate>        IVA treatment of an advance with no invoice: 16, 8,
+                           0, exempt (exento) or not-subject (no-objeto); the
+                           IVA is caused on collection
   --amount <amount>        amount, in the document currency
   --date <date>            value date (YYYY-MM-DD); defaults to today
   --method <method>        cash, check, ach, wire, spei, credit_card or other
@@ -4556,6 +4566,8 @@ Examples:
   mnemosine receipt record INV-2026-00042 --amount 120000.00 --on-account
   # See the entry it would post, writing nothing.
   mnemosine receipt record INV-2026-00042 --amount 98600.00 --dry-run
+  # An advance with no invoice yet: 1,000.00 stays in customer advances and its 160.00 of IVA is caused today.
+  mnemosine receipt record --customer "Grupo Alameda" --amount 1160.00 --tax-rate 16
 ```
 
 ### `mnemosine receipt show` (alias: ver)
