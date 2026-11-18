@@ -176,6 +176,15 @@ describe('the note of a PPD bill whose VAT is parked', () => {
     expect(await parked()).toBe('0.00');
   }, 90_000);
 
+  it.each([false, true])('T9 · a note with 319.99 of VAT: the last 6,960.00 releases 960.01 and 1135 ends at zero (on account: %s)', async (onAccount) => {
+    const b = await bill();
+    const n = await note(b.uuid, (x) => x.replaceAll('2000.00', '2000.01').replaceAll('"320.00"', '"319.99"'));
+    await post(n);
+    expect(await linesOf(n.uuid)).toEqual(['1135 0/319.9900', '2110 2320.0000/0', '6100 0/2000.0100']);
+    expect(await pay(b.id, '6960.00', '2026-09-30', onAccount)).toEqual(['1130 960.0100/0', '1135 0/960.0100']);
+    expect(await parked()).toBe('0.00');
+  }, 90_000);
+
   it('a note for the whole balance leaves the bill paid with nothing paid; a last payment with a discount keeps its pro rata', async () => {
     const whole = await bill();
     await post(await note(whole.uuid, (x) => x.replaceAll('2320.00', '9280.00').replaceAll('2000.00', '8000.00').replaceAll('"320.00"', '"1280.00"')));

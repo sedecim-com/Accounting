@@ -12,6 +12,7 @@ import {
   ivaRoleFor,
   ivaToReclassify,
   ivaStillParked,
+  receivedReleaseAtSettlement,
   reclassRoles,
   describeMetodo,
   ivaTreatmentNote,
@@ -1172,12 +1173,12 @@ export async function postVendorApplicationEntry(
     for (const app of aplicaciones) {
       // MNE-001-491: no method test. What the bill still has parked decides:
       // a bill whose IVA went to the creditable account has a cap of zero.
-      const bruto = ivaToReclassify({
+      const bruto = await receivedReleaseAtSettlement(client, payment.entity_id, app.invoiceId, ivaToReclassify({
         ivaTotal: app.taxAmount,
         documentTotal: app.totalAmount,
         priorApplied: app.priorApplied,
         appliedNow: app.amount,
-      });
+      }));
       const parked = await ivaStillParked(client, 'received', payment.entity_id, app.invoiceId);
       const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
 
