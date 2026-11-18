@@ -45,6 +45,15 @@ export const ES: Record<keyof typeof EN, string> = {
     '{policy} no puede cambiar ahora: {entity} revaluó {period}, que aún no tiene cierre definitivo, y los meses de su ejercicio que faltan por revaluar se medirían con el valor nuevo. Cambia cuando los meses revaluados estén sellados, o al inicio de un ejercicio: cuando el ejercicio siguiente esté abierto, sin revaluación todavía, y cada mes anterior esté revaluado o con cierre definitivo.',
   'error.FX_RATE_MISSING':
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
+  // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
+  'error.ISSUED_CFDI_NOT_SUPPORTED':
+    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+  'error.ISSUED_CFDI_NOT_OPEN':
+    'El CFDI {uuid} no está abierto: su pre-registro está en {status}{invoice, select, none {} other {, como la factura de cliente {invoice}}}. No se posteó nada.',
+  'error.ISSUED_CFDI_DRAFT_IN_REVIEW':
+    'El CFDI {uuid} tiene un borrador de IA en revisión o aprobado: apruébalo o recházalo con: mnemosine review. No se posteó nada.',
+  'error.ISSUED_CFDI_HELD':
+    'El CFDI {uuid} queda detenido y no se posteó nada: {reason}',
   // ==== fin de error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152); see en.ts ====
