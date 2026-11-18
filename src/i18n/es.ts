@@ -2141,6 +2141,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'Un anticipo recibido con cheque causa su IVA el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo), no el día en que se recibe, y registrar ese cobro todavía no existe (issue 700). No se registró nada.',
   'receipt.advance.application_not_wired':
     '{receipt} es un anticipo cuyo IVA se causó al cobrarse. Aplicarlo a una factura tiene que cancelar ese IVA en vez de causarlo otra vez, y eso todavía no está cableado (issue 623, MNE-001-422). No se aplicó nada.',
+  // MNE-001-421 (#623): the advance from the terminal.
+  'receipt.advance.needs_customer':
+    'Indica la factura que este dinero liquida, o el cliente que lo pagó con --customer: sin factura se registra como anticipo.',
+  'receipt.advance.rate_required':
+    'Un anticipo sin factura causa su IVA al cobrarse (LIVA art. 1-B), y la tasa de una venta que aún no ocurre es un dato que tú declaras, nunca un valor por omisión: agrega --tax-rate 16, 8, 0, exempt o not-subject. No se registró nada.',
+  'receipt.advance.figures': 'base {base}, IVA {iva}, tasa {rate}',
+  'receipt.advance.label': 'Anticipo',
+  'receipt.advance.confirm':
+    '¿Registrar {amount} recibidos de {customer} como anticipo sin factura{figures} en {entity}? Esto postea en el mayor.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
@@ -2718,6 +2727,15 @@ export const ES: Record<keyof typeof EN, string> = {
   'cli.rls_bypass.notice': 'Aviso: el rol «{role}» ignora row level security ({reason}); en esta sesión el aislamiento entre despachos depende sólo del código. Conecta como mnemosine_app (scripts/provision-roles.sql).',
   'help.account.role.sync.description': 'Apunta los roles de retención a las cuentas que elige withholding_accounts_layout y crea las que falten',
   'help.account.role.sync.option.dry_run': 'muestra el plan, sin escribir nada',
+  // MNE-001-421 (#623): `receipt record` with no invoice records a customer advance.
+  'help.receipt.record.description':
+    'Registra dinero cobrado: contra una factura, liberando el IVA que retenía, o sin factura como anticipo de cliente',
+  'help.receipt.record.argument.invoice':
+    'folio o id de la factura; sin ella el dinero es un anticipo, y --customer dice quién lo pagó',
+  'help.receipt.record.option.customer':
+    'el cliente que pagó (número, nombre o id); obligatorio sin factura, y con ella debe ser el de la factura',
+  'help.receipt.record.option.tax_rate':
+    'tratamiento de IVA de un anticipo sin factura: 16, 8, 0, exempt (exento) o not-subject (no-objeto); el IVA se causa al cobro',
   'help.receipt.apply.option.withholding':
     'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',

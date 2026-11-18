@@ -40,3 +40,23 @@ export function splitAdvance(cash: string, treatment: AdvanceTreatment): Advance
   const base = amount.div(rate.div(100).plus(1)).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
   return { treatment, factorType: 'tasa', taxRate: rate.toFixed(2), base: base.toFixed(2), iva: amount.minus(base).toFixed(2) };
 }
+
+/** MNE-001-421 · The spellings a typed invoice line already uses for the two treatments with no rate. */
+const TYPED_AS: Record<string, AdvanceTreatment> = { exento: 'exempt', 'no-objeto': 'not-subject' };
+/** Everything `--tax-rate` reads, for the message that refuses anything else. */
+export const ADVANCE_TREATMENTS_AS_TYPED = [...ADVANCE_TREATMENTS, ...Object.keys(TYPED_AS)].join(', ');
+
+/** `--tax-rate` as the accountant types it; null for anything outside the list, which the caller refuses. */
+export function readAdvanceTreatment(typed: string): AdvanceTreatment | null {
+  const value = typed.trim().toLowerCase();
+  const treatment = TYPED_AS[value] ?? value;
+  return isAdvanceTreatment(treatment) ? treatment : null;
+}
+
+/** The treatment a stored receipt was recorded with, read back from its two columns; null when it carries none. */
+export function storedAdvanceTreatment(factorType: string | null, taxRate: string | null): AdvanceTreatment | null {
+  if (factorType === null) return null;
+  if (factorType === 'exento') return 'exempt';
+  if (factorType === 'no_objeto') return 'not-subject';
+  return new Decimal(taxRate ?? '0').toString() as AdvanceTreatment;
+}

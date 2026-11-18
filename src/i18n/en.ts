@@ -2263,6 +2263,15 @@ export const EN = {
     'An advance received by cheque causes its IVA on the day the bank cashes the cheque (LIVA art. 1-B, second paragraph), not on the day it is received, and recording that cashing does not exist yet (issue 700). Nothing was recorded.',
   'receipt.advance.application_not_wired':
     '{receipt} is an advance whose IVA was caused when it was collected. Applying it to an invoice has to cancel that IVA instead of causing it a second time, and that is not wired yet (issue 623, MNE-001-422). Nothing was applied.',
+  // MNE-001-421 (#623): the advance from the terminal.
+  'receipt.advance.needs_customer':
+    'Name the invoice this cash settles, or the customer who paid it with --customer: with no invoice it is recorded as an advance.',
+  'receipt.advance.rate_required':
+    'An advance with no invoice causes its IVA when it is collected (LIVA art. 1-B), and the rate of a sale that has not happened is a fact you state, never a default: add --tax-rate 16, 8, 0, exempt or not-subject. Nothing was recorded.',
+  'receipt.advance.figures': 'base {base}, IVA {iva}, rate {rate}',
+  'receipt.advance.label': 'Advance',
+  'receipt.advance.confirm':
+    'Record {amount} received from {customer} as an advance with no invoice{figures} in {entity}? This posts to the ledger.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
@@ -2874,6 +2883,15 @@ export const EN = {
   'cli.rls_bypass.notice': 'Warning: role "{role}" bypasses row level security ({reason}); isolation between firms depends on the code alone in this session. Connect as mnemosine_app (scripts/provision-roles.sql).',
   'help.account.role.sync.description': 'Point the withholding roles at the accounts withholding_accounts_layout chooses, creating the missing ones',
   'help.account.role.sync.option.dry_run': 'show the plan, without writing',
+  // MNE-001-421 (#623): `receipt record` with no invoice records a customer advance.
+  'help.receipt.record.description':
+    'Record cash received: against an invoice, releasing the IVA it was holding, or with no invoice as a customer advance',
+  'help.receipt.record.argument.invoice':
+    'invoice number or id; without it the cash is an advance, and --customer names who paid it',
+  'help.receipt.record.option.customer':
+    'the customer who paid (number, name or id); required with no invoice, and with one it must be the invoice\'s own',
+  'help.receipt.record.option.tax_rate':
+    'IVA treatment of an advance with no invoice: 16, 8, 0, exempt (exento) or not-subject (no-objeto); the IVA is caused on collection',
   'help.receipt.apply.option.withholding':
     'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
