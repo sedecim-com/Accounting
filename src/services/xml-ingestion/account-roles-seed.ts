@@ -9,6 +9,11 @@ import type { AccountRole } from './cfdi-taxonomy.js';
 // but a minimal seed usually lacks (IVA pending credit, advances,
 // withholdings receivable) are created here rather than silently
 // mapped to something close enough.
+//
+// Each account is born inside the seeded tree, under the header of its class
+// (MNE-001-482), as the base chart hangs 1130 from 1100. Left at the root,
+// a migrated trial balance that nests 1135 under 1100 put 1135's balance on
+// the header itself, and the opening refused it.
 // ============================================================
 
 export interface AccountSpec {
@@ -19,6 +24,13 @@ export interface AccountSpec {
     | 'contra_asset' | 'contra_liability' | 'contra_equity';
   normal_balance: 'debit' | 'credit';
   fs_category?: string;
+  /**
+   * Code of the account this one hangs from. Only headers of the universal
+   * stratum, never an account a role posts to (BAN-1, #324): 2141 goes under
+   * 2100, not under 2140. The five codes the base chart also seeds name the
+   * parent it gives them, 6140's posting parent 6100 included.
+   */
+  parent?: string;
   description: string;
 }
 
@@ -36,21 +48,21 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     // and every PPD release throw MISSING_ROLE_ACCOUNT. In Mexico the four
     // IVA accounts are not optional, so all four are seeded unconditionally.
     code: '1130', name: 'IVA Acreditable', account_type: 'asset',
-    normal_balance: 'debit', fs_category: 'current_assets',
+    normal_balance: 'debit', fs_category: 'current_assets', parent: '1100',
     description:
       'IVA efectivamente pagado y por tanto acreditable en el mes. Es el destino del ' +
       '1135 cuando llega el REP.',
   },
   {
     code: '1135', name: 'IVA Pendiente de Acreditar', account_type: 'asset',
-    normal_balance: 'debit', fs_category: 'current_assets',
+    normal_balance: 'debit', fs_category: 'current_assets', parent: '1100',
     description:
       'IVA de facturas PPD todavía no pagadas. En México el IVA se acredita al PAGAR ' +
       '(con el REP), no al recibir la factura: sin esta cuenta el acreditamiento del mes se infla.',
   },
   {
     code: '1145', name: 'ISR Retenido a Favor', account_type: 'asset',
-    normal_balance: 'debit', fs_category: 'current_assets',
+    normal_balance: 'debit', fs_category: 'current_assets', parent: '1100',
     description:
       'ISR que terceros retuvieron a la empresa —clientes sobre honorarios y arrendamiento, y el ' +
       'banco sobre los intereses que paga— y que se acredita contra el impuesto propio. La ' +
@@ -60,22 +72,22 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
   },
   {
     code: '1146', name: 'IVA Retenido a Favor', account_type: 'asset',
-    normal_balance: 'debit', fs_category: 'current_assets',
+    normal_balance: 'debit', fs_category: 'current_assets', parent: '1100',
     description: 'IVA que los clientes retuvieron a la empresa.',
   },
   {
     code: '1150', name: 'Anticipo a Proveedores', account_type: 'asset',
-    normal_balance: 'debit', fs_category: 'current_assets',
+    normal_balance: 'debit', fs_category: 'current_assets', parent: '1100',
     description: 'Anticipos pagados: es un derecho a recibir el bien o servicio, no un gasto.',
   },
   {
     code: '1160', name: 'Pagos Anticipados', account_type: 'asset',
-    normal_balance: 'debit', fs_category: 'current_assets',
+    normal_balance: 'debit', fs_category: 'current_assets', parent: '1100',
     description: 'Seguros, rentas y suscripciones que cubren periodos futuros; se devengan mes a mes.',
   },
   {
     code: '1165', name: 'IEPS Acreditable', account_type: 'asset',
-    normal_balance: 'debit', fs_category: 'current_assets',
+    normal_balance: 'debit', fs_category: 'current_assets', parent: '1100',
     description: 'Solo para contribuyentes de IEPS; si no lo es, el IEPS es parte del costo.',
   },
   // ── Liabilities ──
@@ -84,14 +96,14 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     // onboarded chart cannot be left with the pending account but not the
     // due one.
     code: '2120', name: 'IVA Trasladado', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description:
       'IVA efectivamente cobrado y por tanto causado en el mes. Es el destino del ' +
       '2125 cuando se cobra la factura.',
   },
   {
     code: '2125', name: 'IVA Trasladado No Cobrado', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description:
       'IVA de ventas PPD aún no cobradas. El IVA se causa al COBRAR: llevarlo directo a ' +
       'IVA Trasladado adelanta el entero del impuesto.',
@@ -102,52 +114,52 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     // much had been withheld from vendors, nor of which tax: the 17th pays
     // them on separate lines. One account per tax, each only these.
     code: '2141', name: 'ISR Retenido por Enterar', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description:
       'ISR retenido a personas físicas por honorarios (LISR 106) y arrendamiento (LISR 116), ' +
       'pendiente de enterar el día 17. Su saldo es la suma de lo retenido.',
   },
   {
     code: '2142', name: 'IVA Retenido por Enterar', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description:
       'IVA retenido a personas físicas —dos terceras partes del trasladado (RLIVA 3-I)—, ' +
       'pendiente de enterar el día 17. Su saldo es la suma de lo retenido.',
   },
   {
     code: '2150', name: 'Anticipos de Clientes', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description: 'Anticipos recibidos: pasivo hasta que se devenga el ingreso.',
   },
   {
     code: '2160', name: 'Sueldos por Pagar', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description: 'Neto de nómina pendiente de pagar al trabajador.',
   },
   {
     code: '2170', name: 'IMSS por Pagar', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description: 'Cuotas obrero-patronales pendientes de entero.',
   },
   {
     code: '2180', name: 'IEPS por Pagar', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description: 'IEPS trasladado a clientes, pendiente de entero.',
   },
   {
     code: '2190', name: 'Impuestos Locales por Pagar', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description: 'ISH y otros impuestos estatales; viven en su propio complemento del CFDI.',
   },
   // ── Results ──
   {
     code: '4400', name: 'Devoluciones y Descuentos sobre Ventas', account_type: 'revenue',
-    normal_balance: 'debit', fs_category: 'revenue',
+    normal_balance: 'debit', fs_category: 'revenue', parent: '4000',
     description: 'Contra-ingreso: reduce las ventas, no es un gasto.',
   },
   {
     code: '5200', name: 'Devoluciones y Descuentos sobre Compras', account_type: 'expense',
-    normal_balance: 'credit', fs_category: 'cogs',
+    normal_balance: 'credit', fs_category: 'cogs', parent: '5000',
     description: 'Contra-costo: reduce las compras.',
   },
   {
@@ -161,7 +173,7 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     // declara aquí ADEMÁS porque el catálogo base es condicional y sobre uno
     // importado la cuenta tiene que existir igual.
     code: '4300', name: 'Otros Ingresos', account_type: 'revenue',
-    normal_balance: 'credit', fs_category: 'other_income',
+    normal_balance: 'credit', fs_category: 'other_income', parent: '4000',
     description:
       'Ingresos que no provienen de una venta. Existe porque la política ' +
       '`pago_corto_residual` permite tratar como ganancia el saldo que deja de ' +
@@ -175,7 +187,7 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     // banco le está saliendo caro. (La pérdida cambiaria, que también vivió
     // en 6300, salió a su propia 6320 por el mismo argumento — R4.)
     code: '6310', name: 'Comisiones y Gastos Bancarios', account_type: 'expense',
-    normal_balance: 'debit', fs_category: 'other_expenses',
+    normal_balance: 'debit', fs_category: 'other_expenses', parent: '6000',
     description:
       'Comisiones de manejo de cuenta, transferencias y devoluciones que cobra el banco. ' +
       'Su IVA se aparca en 1135 hasta que llega el CFDI del banco: sin comprobante no hay ' +
@@ -186,7 +198,7 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     // que paga el banco es un producto financiero recurrente, y confundirlo con
     // lo esporádico esconde la única partida de ingreso que un tesorero mira.
     code: '4310', name: 'Productos Financieros', account_type: 'revenue',
-    normal_balance: 'credit', fs_category: 'other_income',
+    normal_balance: 'credit', fs_category: 'other_income', parent: '4000',
     description:
       'Intereses ganados sobre saldos e inversiones. El ISR que el banco retiene sobre ellos ' +
       'NO es gasto: es pago provisional a favor (1145), y tratarlo como gasto lo pierde.',
@@ -200,17 +212,17 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     // porque una cuenta sembrada que ningún rol nombra es exactamente la que
     // alguien cablea después a mano y por código.
     code: '1290', name: 'Depreciación Acumulada', account_type: 'contra_asset',
-    normal_balance: 'credit', fs_category: 'non_current_assets',
+    normal_balance: 'credit', fs_category: 'non_current_assets', parent: '1200',
     description: 'Contra-activo: el costo ya consumido de los activos fijos. La abona cada corrida mensual.',
   },
   {
     code: '6140', name: 'Depreciación', account_type: 'expense',
-    normal_balance: 'debit', fs_category: 'operating_expenses',
+    normal_balance: 'debit', fs_category: 'operating_expenses', parent: '6100',
     description: 'El gasto mensual por depreciación. Lo carga la corrida contra 1290.',
   },
   {
     code: '6900', name: 'Gastos No Deducibles', account_type: 'expense',
-    normal_balance: 'debit', fs_category: 'operating_expenses',
+    normal_balance: 'debit', fs_category: 'operating_expenses', parent: '6000',
     description:
       'Consumos no deducibles, pagos en efectivo sobre el límite y demás partidas que no ' +
       'cumplen requisitos fiscales. Separarlas simplifica la conciliación fiscal-contable.',
@@ -225,7 +237,7 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     // de resultados NO es el defecto — el neteo de la fluctuación que pide
     // B-3 es de la PRESENTACIÓN (lo hace el reporte), no de las cuentas.
     code: '4320', name: 'Utilidad Cambiaria', account_type: 'revenue',
-    normal_balance: 'credit', fs_category: 'other_income',
+    normal_balance: 'credit', fs_category: 'other_income', parent: '4000',
     description:
       'Fluctuación cambiaria a favor: la diferencia entre el tipo del origen y el del cobro, ' +
       'pago o cierre. Separada de 4300 porque NIF B-15 exige identificarla, y fundida con ' +
@@ -240,7 +252,7 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     // se queda como genérica del costo financiero y la fluctuación tiene
     // cuenta propia, igual que 6310 sacó de ahí las comisiones bancarias.
     code: '6320', name: 'Pérdida Cambiaria', account_type: 'expense',
-    normal_balance: 'debit', fs_category: 'other_expenses',
+    normal_balance: 'debit', fs_category: 'other_expenses', parent: '6000',
     description:
       'Fluctuación cambiaria en contra: el peso se movió entre el origen y el cobro, pago o ' +
       'cierre. No va dentro de 6300 «Gastos Financieros»: el costo de pedir dinero y el efecto ' +
@@ -432,6 +444,12 @@ export interface SeedResult {
 /**
  * Idempotent: creates only the missing accounts and maps only the roles that
  * have no mapping yet, so re-running it never overwrites a manual choice.
+ *
+ * A created account hangs from its spec's `parent` only when the entity has
+ * that code as a header. On a chart the entity imported, the code may be
+ * missing or may be an account that takes entries; the account is then
+ * created at the root. An account that already exists keeps its parent, NULL
+ * included: a root left by an older seed cannot be told from a chosen one.
  */
 export async function seedAccountRoles(
   entityId: string,
@@ -444,11 +462,12 @@ export async function seedAccountRoles(
 ): Promise<SeedResult> {
   const esMexicana = options?.esMexicana ?? true;
   const run = async (client: pg.PoolClient): Promise<SeedResult> => {
-    const existing = await client.query<{ code: string; id: string }>(
-      'SELECT code, id FROM accounts WHERE entity_id = $1',
+    const existing = await client.query<{ code: string; id: string; is_header: boolean }>(
+      'SELECT code, id, is_header FROM accounts WHERE entity_id = $1',
       [entityId]
     );
     const byCode = new Map(existing.rows.map((r) => [r.code, r.id]));
+    const headers = new Map(existing.rows.filter((r) => r.is_header).map((r) => [r.code, r.id]));
     const accountsCreated: string[] = [];
 
     for (const spec of cuentasRequeridasPara(esMexicana)) {
@@ -456,12 +475,13 @@ export async function seedAccountRoles(
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO accounts (
            code, name, account_type, normal_balance, fs_category, description,
-           entity_id, allow_manual_entries, is_header, created_by
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,true,false,$8)
+           entity_id, allow_manual_entries, is_header, created_by, parent_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,true,false,$8,$9)
          RETURNING id`,
         [
           spec.code, spec.name, spec.account_type, spec.normal_balance,
           spec.fs_category ?? null, spec.description, entityId, createdBy,
+          (spec.parent && headers.get(spec.parent)) ?? null,
         ]
       );
       byCode.set(spec.code, inserted.rows[0].id);

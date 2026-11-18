@@ -111,8 +111,9 @@ const VENDOR_RFC = 'PRV060101AB1';
 // (BalanzaComprobacion) of the migration are both written from these rows.
 // Every code but 1320, a rent deposit, is one the seeded chart already has,
 // so `chart import` creates 1320 alone; SubCtaDe and Nivel follow the seeded
-// tree, where the role accounts 1135 and 2125 hang from no parent. Eight
-// accounts carry a balance of their own:
+// tree, where the role accounts 1135 and 2125 hang from 1100 and 2100, the
+// headers of their class (MNE-001-482). Eight accounts carry a balance of
+// their own:
 //   1120  3,480.00 is one open invoice, 3,000 + 480 of IVA: uncollected, so
 //         its 480 sits in 2125, IVA trasladado no cobrado
 //   2110  2,320.00 is one open bill, 2,000 + 320 of IVA: unpaid, so its 320
@@ -120,22 +121,22 @@ const VENDOR_RFC = 'PRV060101AB1';
 // Debits 100,000 + 3,480 + 320 + 4,000 = 107,800 = credits 2,320 + 480
 // + 100,000 + 5,000: the entry foots by itself, with no plug. As the Anexo 24
 // asks, the parents declare their subaccounts inside, so they carry nothing
-// of their own to post: 1000 = 103,480 + 4,000; 1100 = 100,000 + 3,480;
-// 2000 = 2100 = 2,320; 3000 = 100,000 + 5,000.
+// of their own to post: 1000 = 103,800 + 4,000; 1100 = 100,000 + 3,480 + 320;
+// 2000 = 2100 = 2,320 + 480; 3000 = 100,000 + 5,000.
 const OPENING_2024 = [
   // NumCta, Desc, CodAgrup, SubCtaDe, Nivel, Natur, SaldoFin
-  ['1000', 'Activo', '100', '', 1, 'D', '107480.00'],
-  ['1100', 'Activo Circulante', '100.01', '1000', 2, 'D', '103480.00'],
+  ['1000', 'Activo', '100', '', 1, 'D', '107800.00'],
+  ['1100', 'Activo Circulante', '100.01', '1000', 2, 'D', '103800.00'],
   ['1110', 'Caja y Bancos', '102', '1100', 3, 'D', '100000.00'],
   ['1111', 'Banco Nacional - MXN', '102.01', '1110', 4, 'D', '100000.00'],
   ['1120', 'Cuentas por Cobrar', '105.01', '1100', 3, 'D', '3480.00'],
-  ['1135', 'IVA Pendiente de Acreditar', '119.01', '', 1, 'D', '320.00'],
+  ['1135', 'IVA Pendiente de Acreditar', '119.01', '1100', 3, 'D', '320.00'],
   ['1300', 'Activo Diferido', '100.02', '1000', 2, 'D', '4000.00'],
   ['1320', 'Depósitos en Garantía', '184.02', '1300', 3, 'D', '4000.00'],
-  ['2000', 'Pasivo', '200', '', 1, 'A', '2320.00'],
-  ['2100', 'Pasivo Circulante', '200.01', '2000', 2, 'A', '2320.00'],
+  ['2000', 'Pasivo', '200', '', 1, 'A', '2800.00'],
+  ['2100', 'Pasivo Circulante', '200.01', '2000', 2, 'A', '2800.00'],
   ['2110', 'Cuentas por Pagar', '201.01', '2100', 3, 'A', '2320.00'],
-  ['2125', 'IVA Trasladado No Cobrado', '209.01', '', 1, 'A', '480.00'],
+  ['2125', 'IVA Trasladado No Cobrado', '209.01', '2100', 3, 'A', '480.00'],
   ['3000', 'Capital Contable', '300', '', 1, 'A', '105000.00'],
   ['3100', 'Capital Social', '301.01', '3000', 2, 'A', '100000.00'],
   ['3200', 'Resultado de Ejercicios Anteriores', '304.01', '3000', 2, 'A', '5000.00'],
