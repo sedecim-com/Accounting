@@ -14,6 +14,7 @@ import {
 import type { AccountRole } from './cfdi-taxonomy.js';
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto, type CFDIImpuesto } from './cfdi-parser.js';
+import { money, satKey, sumTax } from './cfdi-amounts.js';
 import { extractPagosCompletos } from './cfdi-facts.js';
 import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
 import { SATValidationService } from './sat-validation.js';
@@ -1570,18 +1571,12 @@ export interface ApprovedDraftBill {
   close(journalEntryId: string): Promise<void>;
 }
 
+export { money, sumTax };
+
 const RECONCILED_ROLES: AccountRole[] = [
   'cxp', 'banco', 'iva_acreditable', 'iva_pendiente_acreditar',
   'isr_retenido_por_pagar', 'iva_retenido_por_pagar',
 ];
-
-/** SAT tax keys arrive as numbers from the parser ("002" -> 2): normalize the width. */
-const satKey = (v: unknown): string => String(v ?? '').padStart(3, '0');
-
-export const money = (v: unknown): Decimal => new Decimal((v as string | number | null) ?? 0).toDecimalPlaces(2);
-
-export const sumTax = (list: CFDIImpuesto[] | undefined, key: string): Decimal =>
-  (list ?? []).filter((t) => satKey(t.impuesto) === key).reduce((s, t) => s.plus(money(t.importe)), new Decimal(0));
 
 /** What one bill line says about its VAT: the columns 066 added and the DIOT reads. */
 export interface BillLineVat {

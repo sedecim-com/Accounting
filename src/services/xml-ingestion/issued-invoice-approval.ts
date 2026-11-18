@@ -6,7 +6,8 @@ import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
 import { decideMetodoPago } from '../accounting/iva-cash-basis.js';
 import type { CFDIParsed } from './cfdi-parser.js';
-import { money, sumTax, type ApprovedLine } from './pre-registration-service.js';
+import { money, sumTax } from './cfdi-amounts.js';
+import type { ApprovedLine } from './pre-registration-service.js';
 
 /** What approveDraftInternal needs back: the document the entry posts as, and how to close it. */
 export interface ApprovedDraftInvoice {
