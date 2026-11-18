@@ -28,6 +28,7 @@ import {
 } from './customer-advance.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
+import type { TranslationKey } from '../../i18n/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { billsDecidedByIngestion, cashLimitFinding, type CashDeductibilityFinding } from '../ap/cash-deductibility.js';
 import { getPolicy } from '../policy/policy-service.js';
@@ -1115,6 +1116,7 @@ interface PagoVivo {
   cfdi_uuid: string | null;
   /** MNE-001-458: non-null when the receipt was recorded as an advance with its treatment. */
   advance_factor_type: string | null;
+  payment_method: string;
 }
 
 /** El cobro, acotado por entidad y con candado: la base de los tres eventos. */
@@ -1125,7 +1127,7 @@ async function cobroParaEscribir(
 ): Promise<PagoVivo> {
   const r = await client.query<PagoVivo>(
     `SELECT id, payment_number, customer_id, payment_amount, currency_code,
-            payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid, advance_factor_type
+            payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid, advance_factor_type, payment_method
        FROM customer_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
     [paymentId, entityId]
   );
@@ -1611,6 +1613,31 @@ export interface ResultadoReversa {
   reversals: { entryNumber: string; of: string }[];
   attestations: { entityId: string; entryId: string }[];
   documentosReabiertos: DocumentoAplicado[];
+  /** MNE-001-509: the cause the receipt keeps; null when none was stated and the method has no default. */
+  cause: ReversalCause | null;
+  /** True when nobody stated the cause and the receipt took the one a cheque has. */
+  causeDefaulted: boolean;
+  /** Keys of what the accountant should read before confirming; the dry run returns the same. */
+  warnings: TranslationKey[];
+}
+
+/**
+ * MNE-001-509: what happened to the money of a reversed receipt. It never
+ * became the firm's, so it never caused the IVA (LIVA art. 1-B); or it
+ * arrived and was taken back, which leaves the IVA only by a restitution
+ * (LIVA art. 7). A fact of each receipt that a person states, so there is
+ * no policy key for it.
+ */
+export const REVERSAL_CAUSES = ['not_collected', 'taken_back'] as const;
+export type ReversalCause = (typeof REVERSAL_CAUSES)[number];
+
+/**
+ * What a reversal writes on each mirror and on each closed allocation. A
+ * ledger description and a stored value: English, and never translated.
+ */
+function reversalNote(cause: ReversalCause | null, reason: string): string {
+  const what = cause === null ? 'cause not stated' : cause.replace('_', ' ');
+  return `Reversed (${what}): ${reason}`;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1631,6 +1658,9 @@ export interface CobroDetalle {
   cfdi_uuid: string | null;
   cfdi_pago_indice: number | null;
   reversed_at: Date | null;
+  /** MNE-001-509: what happened to the money of a reversed receipt, and when that was stated. */
+  reversal_cause: string | null;
+  reversal_cause_stated_at: Date | null;
   unapplied_amount: string;
   /** MNE-001-421: the advance a receipt was recorded as: its base, its treatment ('16', 'exempt'…) and its IVA; nulls when none. */
   advance_base: string | null;
@@ -1659,13 +1689,14 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     payment_amount: string; currency_code: string; payment_date: Date; payment_method: string;
     reference_number: string | null; status: string; journal_entry_number: string | null;
     cfdi_uuid: string | null; cfdi_pago_indice: number | null; reversed_at: Date | null;
+    reversal_cause: string | null; reversal_cause_stated_at: Date | null;
     advance_factor_type: string | null; advance_tax_rate: string | null;
     advance_base_amount: string | null; advance_iva_amount: string | null;
   }>(
     `SELECT cp.id, cp.payment_number, cp.customer_id, COALESCE(cu.company_name, NULLIF(TRIM(CONCAT(cu.first_name, ' ', cu.last_name)), '')) AS customer_name,
             cp.payment_amount::text, cp.currency_code, cp.payment_date, cp.payment_method,
             cp.reference_number, cp.status, je.entry_number AS journal_entry_number,
-            cp.cfdi_uuid, cp.cfdi_pago_indice, cp.reversed_at,
+            cp.cfdi_uuid, cp.cfdi_pago_indice, cp.reversed_at, cp.reversal_cause, cp.reversal_cause_stated_at,
             cp.advance_factor_type, cp.advance_tax_rate::text, cp.advance_base_amount::text, cp.advance_iva_amount::text
        FROM customer_payments cp
        LEFT JOIN customers cu ON cu.id = cp.customer_id
@@ -1709,6 +1740,8 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     cfdi_uuid: pago.cfdi_uuid,
     cfdi_pago_indice: pago.cfdi_pago_indice,
     reversed_at: pago.reversed_at,
+    reversal_cause: pago.reversal_cause,
+    reversal_cause_stated_at: pago.reversal_cause_stated_at,
     unapplied_amount:
       pago.status === ESTADO ? new Decimal(pago.payment_amount).minus(aplicado).toFixed(2) : '0.00',
     advance_base: pago.advance_base_amount === null ? null : new Decimal(pago.advance_base_amount).toFixed(2),
@@ -1820,18 +1853,26 @@ export async function listCustomerPayments(
 }
 
 /**
- * Reversa de un cobro devuelto (NSF): cada asiento del cobro —el original y
- * los de aplicación/desaplicación posteriores— recibe su espejo NIF B-1, las
- * facturas reabren, las aplicaciones vivas se clausuran con el motivo, y el
- * cobro queda 'reversed': ocurrió y rebotó, que no es 'void'.
+ * Reversal of a receipt whose money did not stay: every entry of the receipt
+ * (the original and the later applications and unapplications) gets its NIF
+ * B-1 mirror, the invoices reopen, the live allocations are closed with the
+ * note, and the receipt ends 'reversed': it happened and was undone, which
+ * is not 'void'. The receipt keeps the cause (MNE-001-509): `not_collected`
+ * or `taken_back`, stated by the caller. With none stated, a cheque takes
+ * `not_collected`, because it is paid the day the bank cashes it (LIVA art.
+ * 1-B); any other method is reversed with no cause until a person states one.
  */
 export async function reverseCustomerPayment(
   entityId: string,
   paymentId: string,
-  args: { reason: string; feeAmount?: string },
+  args: { reason: string; cause?: string; feeAmount?: string },
   userId: string,
   opts: OpcionesPago = {}
 ): Promise<ResultadoReversa> {
+  const stated = args.cause;
+  if (stated !== undefined && !(REVERSAL_CAUSES as readonly string[]).includes(stated)) {
+    throw new ValidationError({ key: 'receipt.reverse.cause_unknown', params: { value: stated } });
+  }
   if (args.feeAmount !== undefined && new Decimal(args.feeAmount).greaterThan(0)) {
     // El mismo trato que el descuento por pronto pago: reconocer la comisión
     // exige una cuenta con rol que la capa semántica aún no tiene, y sin
@@ -1845,6 +1886,15 @@ export async function reverseCustomerPayment(
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoReversa> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
+    const causeDefaulted = stated === undefined && pago.payment_method === 'check';
+    const cause = causeDefaulted ? 'not_collected' : ((stated as ReversalCause | undefined) ?? null);
+    const warnings: TranslationKey[] = [];
+    // A card is paid when it is accepted (LIVA art. 1-B), not when it settles.
+    if (cause === 'not_collected' && ['credit_card', 'debit_card'].includes(pago.payment_method)) {
+      warnings.push('receipt.reverse.warning.card_not_collected');
+    }
+    if (cause === null) warnings.push('receipt.reverse.warning.cause_not_stated');
+    const note = reversalNote(cause, args.reason);
 
     // Todos los asientos posteados del cobro: el original y los eventos.
     const asientos = await client.query<{ id: string; entry_number: string; source_type: string }>(
@@ -1859,7 +1909,7 @@ export async function reverseCustomerPayment(
     const reversals: ResultadoReversa['reversals'] = [];
     const attestations: ResultadoReversa['attestations'] = [];
     for (const je of asientos.rows) {
-      const { reversal } = await voidJournalEntryInTx(client, je.id, userId, `NSF: ${args.reason}`);
+      const { reversal } = await voidJournalEntryInTx(client, je.id, userId, note);
       if (reversal) {
         reversals.push({ entryNumber: reversal.entry_number, of: je.entry_number });
         attestations.push({ entityId, entryId: reversal.id });
@@ -1906,13 +1956,20 @@ export async function reverseCustomerPayment(
       `UPDATE payment_allocations
           SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2
         WHERE payment_id = $3 AND unapplied_at IS NULL`,
-      [userId, `NSF: ${args.reason}`, paymentId]
+      [userId, note, paymentId]
     );
 
-    await client.query(
-      `UPDATE customer_payments SET status = 'reversed', reversed_at = NOW() WHERE id = $1`,
-      [paymentId]
+    // The write that carries the cause: entity, state and one row, or nothing (invariant 3).
+    const written = await client.query(
+      `UPDATE customer_payments SET status = 'reversed', reversed_at = NOW(),
+              reversal_cause = $3::varchar,
+              reversal_cause_stated_at = CASE WHEN $3::varchar IS NULL THEN NULL ELSE NOW() END
+        WHERE id = $1 AND entity_id = $2 AND status = '${ESTADO}'`,
+      [paymentId, entityId, cause]
     );
+    if (written.rowCount !== 1) {
+      throw new AccountingError('REVERSE_RACE', `${pago.payment_number} changed while it was being reversed; nothing was written.`);
+    }
 
     await registrarAuditoria(client, {
       tenantId: await tenantDe(client, entityId),
@@ -1925,6 +1982,7 @@ export async function reverseCustomerPayment(
       newValues: {
         evento: 'reverse',
         status: 'reversed',
+        reversal_cause: cause,
         asientos_reversados: reversals.length,
         facturas_reabiertas: documentosReabiertos.length,
       },
@@ -1933,6 +1991,7 @@ export async function reverseCustomerPayment(
 
     const salida: ResultadoReversa = {
       paymentId, paymentNumber: pago.payment_number, reversals, attestations, documentosReabiertos,
+      cause, causeDefaulted, warnings,
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;
