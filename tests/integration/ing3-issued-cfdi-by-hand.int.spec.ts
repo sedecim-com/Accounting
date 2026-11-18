@@ -263,12 +263,6 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     { name: 'a liability account with a credit balance', account: '2150', refusal: /2150 \(liability, credit.*cannot take the revenue/ },
     { name: 'a header account', account: '4000', refusal: /4000 \(revenue, credit.*cannot take the revenue/ },
     { name: 'a contra-revenue account (4400, debit balance)', account: '4400', refusal: /4400 \(revenue, debit.*cannot take the revenue/ },
-    {
-      // The concept nets 7,900.00 and the header says 7,900.00 − 100.00: ingestion takes it, the door does not.
-      name: 'concepts whose nets do not add up to SubTotal − Descuento',
-      edits: [swap(' ObjetoImp="02"/>', ' Descuento="100.00" ObjetoImp="02"/>'), total('SubTotal="7900.00" Descuento="100.00" Total="9080.00"')],
-      refusal: /7900\.00.*7800\.00/,
-    },
   ])('refuses $name, and writes nothing', async ({ edits, received, coding, account, refusal }) => {
     const { uuid, id } = await stranded(edits, received);
     if (coding) await code(id, ...coding);
@@ -276,6 +270,12 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     await expect(post(uuid, account)).rejects.toThrow(refusal);
     await expect(post(uuid, account, true)).rejects.toThrow(refusal);
     expect(await ledger()).toEqual(before);
+  });
+
+  it('a CFDI whose concepts do not add up to its SubTotal never reaches the door: the upload refuses it (#729)', async () => {
+    // The concept is 8,000.00 gross with 100.00 off, and the header says SubTotal 7,900.00 less 100.00.
+    const edits = [swap(' ObjetoImp="02"/>', ' Descuento="100.00" ObjetoImp="02"/>'), total('SubTotal="7900.00" Descuento="100.00" Total="9080.00"')];
+    await expect(stranded(edits)).rejects.toThrow(/Conceptos total 8000\.00.*does not match SubTotal 7900\.00/);
   });
 
   it('one CFDI gives one invoice: a repeat, a UUID already on a live invoice and a substitute of one are refused by name', async () => {
