@@ -54,6 +54,14 @@ export interface MetodoPagoDecision {
  *
  * - issued   → PUE: the output IVA is recognized NOW. Recognizing it late
  *              would defer the remittance, which is the expensive mistake.
+ *              The basis (decided on #668): IVA is caused when the
+ *              consideration is collected (LIVA arts. 1o.-B and 11), and
+ *              MetodoPago is where the CFDI states that fact (CFF art. 29-A
+ *              fr. VII). A stamped CFDI 4.0 of type I always carries it
+ *              (Anexo 20, I.F), so its absence is a defect of the XML, not a
+ *              statement of deferred payment. With nothing stated, PUE never
+ *              recognizes the IVA later than PPD would, and late IVA bears
+ *              updating and surcharges (CFF art. 21).
  * - received → PPD: the input IVA waits in 1135. Crediting it now would
  *              bring the credit forward on an invoice that may never be
  *              paid, which is the audit finding the SAT actually writes up.

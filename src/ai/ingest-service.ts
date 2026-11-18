@@ -725,7 +725,8 @@ const ISSUED_VAT_STEP = `3. Verify the accounts in the chart of accounts (search
      subtotal + credit "IVA Trasladado No Cobrado" (2125). The customer's payment receipt (REP)
      later moves it to 2120; the approval refuses a PPD whose VAT is not in 2125.
    - Withholdings by the customer: debit 1145 (ISR) / 1146 (VAT) and reduce the receivable.
-   - No Method declared: treat it as PPD.`;
+   - No Method declared: treat it as PUE, VAT in "IVA Trasladado" (2120). A stamped CFDI 4.0 always
+     declares it, and the approval refuses this VAT in 2125: no collection would release it.`;
 
 /** Structured CFDI summary for the agent's turn. */
 export function buildCfdiPrompt(upload: UploadOutcome): string {

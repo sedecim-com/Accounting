@@ -13,6 +13,8 @@ import { OpenAiCompatSession } from '../../src/ai/providers/openai-compat.js';
 import { approveDraft, canonicalDraftHash, getDraft, type DraftLine, type Reviewer } from '../../src/ai/draft-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
+import { recordCustomerPayment } from '../../src/services/payments/payment-service.js';
+import { buildIvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { repXml } from './helpers/rep-xml.js';
 import type { AgentContext } from '../../src/ai/context.js';
 import type { ResolvedProfile } from '../../src/ai/providers/types.js';
@@ -39,13 +41,17 @@ const PROFILE: ResolvedProfile = {
   base_url: 'http://localhost.invalid/v1', stream: false, apiKey: 'sk-test',
 };
 
-/** The fixture turned around: the entity issues it to the customer. */
-function issued(o: { method?: 'PUE' | 'PPD'; customerRfc?: string } = {}): { xml: string; uuid: string } {
+/**
+ * The fixture turned around: the entity issues it to the customer. `method` is
+ * written as given, so a test can state it in any case; `null` removes the
+ * attribute, which is the XML no PAC validated.
+ */
+function issued(o: { method?: string | null; customerRfc?: string } = {}): { xml: string; uuid: string } {
   const uuid = uuidv4().toUpperCase();
   const xml = FIXTURE.replace(FIXTURE_UUID, uuid)
     .replace(`<cfdi:Emisor Rfc="${CUSTOMER_RFC}"`, `<cfdi:Emisor Rfc="${OWN_RFC}"`)
     .replace(`<cfdi:Receptor Rfc="${OWN_RFC}"`, `<cfdi:Receptor Rfc="${o.customerRfc ?? CUSTOMER_RFC}"`)
-    .replace('MetodoPago="PPD"', `MetodoPago="${o.method ?? 'PPD'}"`);
+    .replace(' MetodoPago="PPD"', o.method === null ? '' : ` MetodoPago="${o.method ?? 'PPD'}"`);
   return { xml, uuid };
 }
 
@@ -60,6 +66,7 @@ const PUE_COLLECTED: DraftLine[] = [
   { account_code: '4100', credit: 8000 },
   { account_code: '2120', credit: 1280 },
 ];
+const PUE_ON_CREDIT: DraftLine[] = [PPD_SALE[0], PPD_SALE[1], { account_code: '2120', credit: 1280 }];
 
 let f: Fixture;
 let ctx: AgentContext;
@@ -128,8 +135,9 @@ async function balanceOf(code: string, entryId: string): Promise<number> {
   return Number(r.rows[0]?.s ?? 0);
 }
 
-beforeAll(async () => {
-  f = await crearInquilino('ING-3 issued CFDI to AR');
+/** A tenant of its own, with the customer in its catalog; the cases after it run on it. */
+async function useNewTenant(name: string): Promise<void> {
+  f = await crearInquilino(name);
   ctx = {
     entityId: f.entityId, entityName: 'ING-3 AR', tenantId: f.tenantId, currency: 'MXN',
     country: 'MX', accountingStandard: 'mx_nif', taxId: OWN_RFC,
@@ -143,7 +151,9 @@ beforeAll(async () => {
      VALUES ($1, $2, 'C-ING3', 'Servicios Integrales SA', $3, 'rfc', 'MXN', $4)`,
     [uuidv4(), f.entityId, CUSTOMER_RFC, f.userId]
   );
-});
+}
+
+beforeAll(() => useNewTenant('ING-3 issued CFDI to AR'));
 
 afterAll(async () => {
   await drainAttestations(3000);
@@ -212,5 +222,83 @@ describe('ING-3 · S3: approving the draft of an issued CFDI creates the AR invo
     await expect(approve(draftId)).rejects.toThrow(/transferred VAT \(iva_trasladado_no_cobrado, parked until the REP\) is 0.00 in the entry and 1280.00 in the CFDI/);
     expect(await invoicesOf(uuid)).toHaveLength(0);
     expect((await getDraft(ctx, draftId))!.status).toBe('pending_review');
+  });
+});
+
+// MNE-001-520 (#668): the approval asks the rule every other reader of the
+// ledger asks (decideMetodoPago), so the VAT lands where a collection, a credit
+// note and the IVA working paper already expect it.
+describe('an issued CFDI with no MetodoPago is a PUE sale', () => {
+  let sale: { invoiceId: string; entryId: string };
+
+  // Its own tenant: the working paper of the month must see these sales only.
+  beforeAll(() => useNewTenant('MNE-001-520 issued CFDI with no MetodoPago'));
+
+  it('VAT on 2120: the invoice is born sent with the whole total due, and the entry is its own', async () => {
+    const { xml, uuid } = issued({ method: null });
+    expect(xml).not.toMatch(/MetodoPago/);
+    const posted = await approve(await ingest(xml, PUE_ON_CREDIT));
+
+    const [inv] = await invoicesOf(uuid);
+    expect(inv).toMatchObject({ status: 'sent', amount_due: '9280.0000', journal_entry_id: posted.entryId });
+    const source = (await query<{ source_type: string; source_id: string }>(
+      `SELECT source_type, source_id FROM journal_entries WHERE id = $1`, [posted.entryId]
+    )).rows[0];
+    expect(source).toEqual({ source_type: 'invoice', source_id: inv.id });
+    sale = { invoiceId: inv.id, entryId: posted.entryId };
+  });
+
+  it('VAT on 2125 is refused, and the refusal says the method was assumed; nothing is written', async () => {
+    const { xml, uuid } = issued({ method: null });
+    const draftId = await ingest(xml, PPD_SALE);
+    const refusal = await approve(draftId).catch((e: unknown) => e);
+    expect(refusal).toMatchObject({ code: 'CFDI_RECONCILIATION_FAILED' });
+    expect((refusal as Error).message).toMatch(
+      /transferred VAT \(iva_trasladado; no MetodoPago, read as PUE\) is 0.00 in the entry and 1280.00 in the CFDI/
+    );
+    expect(await invoicesOf(uuid)).toHaveLength(0);
+    expect((await getDraft(ctx, draftId))!.status).toBe('pending_review');
+  });
+
+  it('a collection of the total pays the invoice and moves neither 2125 nor 2120', async () => {
+    const parkedBefore = await balanceOf('2125', sale.entryId);
+    const dueBefore = await balanceOf('2120', sale.entryId);
+    expect(dueBefore).toBeCloseTo(-1280, 2);
+
+    await recordCustomerPayment(
+      {
+        entityId: f.entityId, paymentAmount: '9280', paymentDate: '2026-08-25', paymentMethod: 'spei',
+        applications: [{ documentId: sale.invoiceId, amountApplied: '9280' }],
+      },
+      f.userId
+    );
+
+    const paid = (await query<{ status: string; amount_due: string }>(
+      `SELECT status, amount_due::text FROM invoices WHERE id = $1 AND entity_id = $2`, [sale.invoiceId, f.entityId]
+    )).rows[0];
+    expect(paid).toEqual({ status: 'paid', amount_due: '0.0000' });
+    expect(await balanceOf('2125', sale.entryId)).toBeCloseTo(parkedBefore, 2);
+    expect(await balanceOf('2120', sale.entryId)).toBeCloseTo(dueBefore, 2);
+  });
+
+  it('a draft that debits the bank is a collected PUE sale: the invoice is born paid', async () => {
+    const { xml, uuid } = issued({ method: null });
+    const posted = await approve(await ingest(xml, PUE_COLLECTED));
+    const [inv] = await invoicesOf(uuid);
+    expect(inv).toMatchObject({ status: 'paid', amount_due: '0.0000', journal_entry_id: posted.entryId });
+  });
+
+  it('MetodoPago="pue" in lower case is PUE here as it is for every other reader', async () => {
+    const { xml, uuid } = issued({ method: 'pue' });
+    expect(xml).toMatch(/MetodoPago="pue"/);
+    const posted = await approve(await ingest(xml, PUE_ON_CREDIT));
+    const [inv] = await invoicesOf(uuid);
+    expect(inv).toMatchObject({ status: 'sent', amount_due: '9280.0000', journal_entry_id: posted.entryId });
+  });
+
+  it("the month's IVA working paper ties its charged VAT to 2120: the three sales above, no finding", async () => {
+    const paper = await buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: 8 });
+    expect(paper.figures.charged.tasa16).toEqual({ base: '24000.0000', iva: '3840.0000' });
+    expect(paper.findings.map((h) => h.codigo)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
   });
 });
