@@ -87,7 +87,7 @@ BEGIN
     END IF;
 
     INSERT INTO audit_log (user_id, tenant_id, action, entity_type, entity_id, legal_entity_id, old_values, new_values, reason)
-    SELECT author, t.id, 'update', 'bill', f.id, f.entity_id,
+    SELECT author, t.id, 'update', 'bills', f.id, f.entity_id,
            jsonb_build_object('tax_amount', f.was), jsonb_build_object('tax_amount', f.now),
            '328_a_cfdi_bill_header_holds_vat_alone.sql'
       FROM jsonb_to_recordset(changes) AS f(id uuid, entity_id uuid, was text, now text);

@@ -86,7 +86,7 @@ const trail = async () => (await verifier.query<{
   old_values: unknown; new_values: unknown; reason: string;
 }>(
   `SELECT tenant_id, user_id, entity_id, legal_entity_id, old_values, new_values, reason
-     FROM audit_log WHERE action = 'update' AND entity_type = 'bill' ORDER BY tenant_id`
+     FROM audit_log WHERE action = 'update' AND entity_type = 'bills' ORDER BY tenant_id`
 )).rows;
 
 beforeAll(async () => {

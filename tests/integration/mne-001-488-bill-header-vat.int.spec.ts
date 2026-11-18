@@ -232,7 +232,7 @@ describe('a bill stored before the fix', () => {
     }
     expect(await headerOf(billId)).toBe('172.8000');
     // Run by a superuser, whom RLS does not filter: the row is still this firm's.
-    expect(await one(`SELECT tenant_id::text FROM audit_log WHERE entity_type = 'bill' AND entity_id = $1`, [billId])).toBe(f.tenantId);
+    expect(await one(`SELECT tenant_id::text FROM audit_log WHERE entity_type = 'bills' AND entity_id = $1`, [billId])).toBe(f.tenantId);
 
     expect(await releasedBy(await pay(billId, '626.40', 10, 20))).toBe('86.4000');
     // 172.80 parked, 126.40 + 86.40 released: the 40.00 over-credited before the
