@@ -476,9 +476,33 @@ interface StatementRow {
 /** The bill number of each of the vendor's invoice numbers: `bill inbox run --json` carries it only in prose. */
 function billNumbers(): Record<string, string> {
   return Object.fromEntries(
-    rowsOf<{ vendor_invoice_number: string; bill_number: string }>(ok(['bill', 'list', '--all', '--json']))
-      .map((b) => [b.vendor_invoice_number, b.bill_number])
+    rowsOf<{ vendor_invoice_number: string; bill_number: string }>(
+      ok(['bill', 'list', '--all', '--fields', 'vendor_invoice_number,bill_number', '--json'])
+    ).map((b) => [b.vendor_invoice_number, b.bill_number])
   );
+}
+
+/** A bill's own lines and the entry it posted, as `<account> Dr|Cr <amount>`, from one `bill show`. */
+function billPosting(billNumber: string): { lines: Record<string, string>[]; entry: string[] } {
+  type EntryLine = { account_code: string; debit_amount: string | null; credit_amount: string | null };
+  const [bill] = rowsOf<{ lines: Record<string, string>[]; journal_entry: { lines: EntryLine[] } }>(
+    ok(['bill', 'show', billNumber, '--journal', '--json'])
+  );
+  const side = (l: EntryLine): string =>
+    new Decimal(l.debit_amount ?? 0).isZero() ? `Cr ${money(l.credit_amount ?? '0')}` : `Dr ${money(l.debit_amount ?? '0')}`;
+  return { lines: bill.lines, entry: bill.journal_entry.lines.map((l) => `${l.account_code} ${side(l)}`) };
+}
+
+/** Ingests one received CFDI whose vendor exists, codes it to 6100 by hand, posts it and returns its bill number. */
+function postToExpense(file: string, invoiceNumber: string, total: string): string {
+  expect(ok(['ingest', file, '-y'], 'ingest').out).toContain('1 left to code');
+  const ready = rowsOf<{ id: string; document: string; total: string }>(
+    ok(['bill', 'inbox', 'list', '--status', 'ready', '--fields', 'id,document,total', '--json'])
+  );
+  expect(ready.map((r) => `${r.document} ${money(r.total)}`)).toEqual([`${invoiceNumber} ${total}`]);
+  ok(['bill', 'inbox', 'edit', ready[0].id, '--account', '6100']);
+  ok(['bill', 'inbox', 'run', ready[0].id, '--yes']);
+  return billNumbers()[invoiceNumber];
 }
 
 const lineOf = (rows: StatementRow[], pred: (r: StatementRow) => boolean): string =>
@@ -841,9 +865,94 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       );
     }, STEP_TIMEOUT_MS);
 
-    it.todo('keeps leading zeros and accents of the parsed CFDI, including a 0 % and an exempt one — MNE-001-031, MNE-001-027');
-    it.todo('posts a lodging CFDI with its local tax (ISH) in its own account — MNE-001-033');
-    it.todo('posts a CFDI with withholdings, and the collection that carries them applies — MNE-001-056, MNE-001-057, MNE-001-113');
+    it('keeps leading zeros and accents of the parsed CFDI, including a 0 % and an exempt one — MNE-001-031, MNE-001-027', () => {
+      ok(['vendor', 'create', BOOKSHOP_NAME, '--tax-id', BOOKSHOP_RFC]);
+      const received = [
+        { file: 'zero-rate-2025-12-03.xml', date: '2025-12-03', uuid: ZERO_RATE_UUID, invoiceNumber: '000123', amount: '1200.00', exempt: false },
+        { file: 'exempt-2025-12-04.xml', date: '2025-12-04', uuid: EXEMPT_UUID, invoiceNumber: '000124', amount: '450.00', exempt: true },
+      ].map((c) => ({ ...c, file: path.join(workDir, c.file) }));
+      for (const c of received) fs.writeFileSync(c.file, bookshopCfdi(c));
+      expect(ok(['ingest', ...received.map((c) => c.file), '-y'], 'ingest').out).toContain('2 left to code');
+
+      // MNE-001-031: a folio is a text, so its leading zeros reach the inbox,
+      // and the issuer's name comes out of its character references with its
+      // accents. The receiver's postal code is in no parsed field: only the
+      // bytes as they arrived keep it, zero included.
+      const ready = rowsOf<{ id: string; document: string; total: string }>(
+        ok(['bill', 'inbox', 'list', '--status', 'ready', '--fields', 'id,document,total', '--json'])
+      );
+      expect(ready.map((r) => `${r.document} ${money(r.total)}`).sort()).toEqual(['000123 1200.00', '000124 450.00']);
+      expect(rowsOf<Record<string, string>>(ok(['cfdi', 'show', ZERO_RATE_UUID, '--json']))[0])
+        .toMatchObject({ emisor_rfc: BOOKSHOP_RFC, emisor_nombre: BOOKSHOP_NAME, receptor_rfc: COMPANY_RFC });
+      expect(ok(['cfdi', 'show', ZERO_RATE_UUID, '--format', 'xml']).out).toContain('DomicilioFiscalReceptor="01000"');
+
+      for (const r of ready) {
+        ok(['bill', 'inbox', 'edit', r.id, '--account', '6100']);
+        ok(['bill', 'inbox', 'run', r.id, '--yes']);
+      }
+      // MNE-001-027: each enters as what it is, a rate of 0 % or no rate at
+      // all, which is what tells the two apart in the DIOT. Neither has an
+      // IVA line, and each is paid on its date, like every PUE of the month.
+      const bills = billNumbers();
+      const [zeroRate, exempt] = received.map((c) => billPosting(bills[c.invoiceNumber]));
+      expect(zeroRate.lines).toEqual([expect.objectContaining({ tipo_factor: 'tasa', account_code: '6100' })]);
+      expect(money(zeroRate.lines[0].tax_rate)).toBe('0.00');
+      expect(zeroRate.entry).toEqual(['6100 Dr 1200.00', '2110 Cr 1200.00']);
+      expect(exempt.lines).toEqual([expect.objectContaining({ tipo_factor: 'exento', tax_rate: null, account_code: '6100' })]);
+      expect(exempt.entry).toEqual(['6100 Dr 450.00', '2110 Cr 450.00']);
+      for (const c of received) {
+        expect(ok(['payment', 'create', bills[c.invoiceNumber], '--amount', c.amount, '--date', c.date, '--yes']).out)
+          .toContain(`${c.amount} → 0.00 (paid)`);
+      }
+      // 6100: 10,000 + 1,200 + 450; the bank: −11,600 − 1,200 − 450; no IVA moved.
+      expect(decemberMoves(['6100', '1130', '1135', '2110', '1111'])).toEqual(
+        { '6100': '11650.00', '1130': '1600.00', '1135': '0.00', '2110': '0.00', '1111': '-13250.00' }
+      );
+    }, STEP_TIMEOUT_MS);
+
+    it('posts a lodging CFDI with its local tax (ISH) in its own account — MNE-001-033', () => {
+      // The seeded chart sends local taxes to 6100, with the rest of the
+      // expense. The firm opens a leaf for them and points the role at it.
+      ok(['account', 'create', LODGING_TAX_ACCOUNT, 'Impuesto sobre Hospedaje', '--type', 'expense', '--parent', '6100']);
+      expect(ok(['account', 'role', 'set', 'impuestos_locales_gasto', LODGING_TAX_ACCOUNT]).out)
+        .toContain(`impuestos_locales_gasto → ${LODGING_TAX_ACCOUNT}`);
+      ok(['vendor', 'create', HOTEL_NAME, '--tax-id', HOTEL_RFC]);
+      const lodging = receivedCfdi('hospedaje-ish-4001.xml',
+        { file: 'lodging-2025-12-09.xml', date: '2025-12-09', uuid: LODGING_UUID });
+
+      // 1,000 + 160 of IVA + 30 of ISH (3 %, in the ImpuestosLocales complement)
+      // = 1,190: the IVA is credited, the ISH is a cost, and the bill owes both.
+      const bill = postToExpense(lodging, 'H4001', '1190.00');
+      expect(billPosting(bill).entry)
+        .toEqual(['6100 Dr 1000.00', `${LODGING_TAX_ACCOUNT} Dr 30.00`, '1130 Dr 160.00', '2110 Cr 1190.00']);
+      expect(ok(['payment', 'create', bill, '--amount', '1190.00', '--date', '2025-12-09', '--yes']).out)
+        .toContain('1190.00 → 0.00 (paid)');
+      // 6100: 11,650 + 1,000; 1130: 1,600 + 160; the bank: −13,250 − 1,190.
+      expect(decemberMoves(['6100', LODGING_TAX_ACCOUNT, '1130', '2110', '1111'])).toEqual(
+        { '6100': '12650.00', [LODGING_TAX_ACCOUNT]: '30.00', '1130': '1760.00', '2110': '0.00', '1111': '-14440.00' }
+      );
+    }, STEP_TIMEOUT_MS);
+
+    it('posts a CFDI with withholdings, and paying its net leaves the withheld ISR and IVA owed to the SAT — MNE-001-056', () => {
+      ok(['vendor', 'create', FEES_NAME, '--tax-id', FEES_RFC]);
+      const fees = receivedCfdi('honorarios-pf-612.xml', { file: 'fees-2025-12-16.xml', date: '2025-12-16', uuid: FEES_UUID });
+
+      // An individual's fees to a persona moral: 10,000 + 1,600 of IVA, less
+      // 1,000 of ISR (10 %) and 1,066.67 of IVA (two thirds of 1,600) withheld
+      // = 9,533.33, the CFDI's total and all the vendor is owed. The whole
+      // 1,600 is credited, as the product posts a PUE.
+      const bill = postToExpense(fees, 'H56', '9533.33');
+      expect(billPosting(bill).entry)
+        .toEqual(['6100 Dr 10000.00', '1130 Dr 1600.00', '2141 Cr 1000.00', '2142 Cr 1066.67', '2110 Cr 9533.33']);
+      // Paying the net settles the vendor and touches neither withholding:
+      // 2141 and 2142 stay owed to the SAT until the company remits them.
+      expect(ok(['payment', 'create', bill, '--amount', '9533.33', '--date', '2025-12-16', '--yes']).out)
+        .toContain('9533.33 → 0.00 (paid)');
+      // 6100: 12,650 + 10,000; 1130: 1,760 + 1,600; the bank: −14,440 − 9,533.33.
+      expect(decemberMoves(['6100', '1130', '2141', '2142', '2110', '1111'])).toEqual(
+        { '6100': '22650.00', '1130': '3360.00', '2141': '-1000.00', '2142': '-1066.67', '2110': '0.00', '1111': '-23973.33' }
+      );
+    }, STEP_TIMEOUT_MS);
     it.todo('loads a synthetic SAT census for 2025-12 and `sat download reconcile --period` names each CFDI as missing, unposted or posted — MNE-001-096, MNE-001-119');
   });
 
