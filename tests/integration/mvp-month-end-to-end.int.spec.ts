@@ -307,6 +307,9 @@ const CENSUS_METADATA = [
 //   12-09 lodging        6100 Dr 1,000.00, 6150 Dr 30.00, 1130 Dr 160.00 / 2110 Cr
 //                        1,190.00, and paid that day: the 3 % ISH on the 1,000 is
 //                        a cost, not a creditable tax, in a leaf of its own
+//   12-10 advance        bank Dr 1,160.00 / 2150 Cr 1,000.00, 2120 Cr 160.00: a
+//                        customer advance with no invoice causes its IVA the
+//                        day it is collected (LIVA art. 1-B); 1,160 / 1.16
 //   12-10 received PPD   6100 Dr 8,000.00, 1135 Dr 1,280.00 / 2110 Cr 9,280.00
 //                        (the consultant's CFDI: PPD, so its IVA waits in 1135)
 //   12-12 received PUE   6100 Dr 1,000.00, 1130 Dr 160.00 / 2110 Cr 1,160.00, and
@@ -334,18 +337,18 @@ const CENSUS_METADATA = [
 //                        computer class, 30 % LISR maximum → 40-month book
 //                        life; whole-month convention, so 36,000 / 40
 // Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
-// + 900 = 67,860 typed, and 9,280 + 2 × 1,160 + 2 × 1,160 + (9,280 + 1,280)
+// + 900 + 1,160 (the advance) = 69,020 typed, and 9,280 + 2 × 1,160 + 2 × 1,160 + (9,280 + 1,280)
 // = 24,480 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
 // + 2 × 1,190 + (11,600 + 9,533.33) = 26,813.33, and the stray entry and its
 // mirror, which move no balance but are debits all the same: 2 × 2,000
-// = 4,000. In all 123,153.33. The dossier seals the trial balance as of
-// 12-31, so it counts the opening of 01-01 too: 107,800 + 123,153.33.
-const SEALED_DEBITS = '230953.33';
+// = 4,000. In all 124,313.33. The dossier seals the trial balance as of
+// 12-31, so it counts the opening of 01-01 too: 107,800 + 124,313.33.
+const SEALED_DEBITS = '232113.33';
 const ENDING = {
   // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
   // − 1,200 − 450 (the bookshop) − 1,190 (the hotel) − 9,533.33 (the fees, net)
-  // (see MNE-001-039 in step 4)
-  '1111': '40026.67',
+  // + 1,160 (the customer advance) (see MNE-001-039 in step 4)
+  '1111': '41186.67',
   '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160 (+ 2,000 − 2,000, the stray entry and its mirror)
   // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE) + 160 (the hotel) + 1,600 (the fees)
   '1130': '4160.00',
@@ -354,10 +357,11 @@ const ENDING = {
   '1290': '-900.00', // accumulated depreciation, credit balance
   '1320': '4000.00', // the deposit, untouched since the opening
   '2110': '-2320.00', // the opening bill: every December bill was paid within the month
-  '2120': '-1440.00', // −1,600 + 160, credit balance
+  '2120': '-1600.00', // −1,600 + 160 − 160 (the advance's IVA), credit balance
   '2141': '-1000.00', // the ISR withheld from the fees, owed to the SAT
   '2142': '-1066.67', // the IVA withheld from the fees, owed to the SAT
   '2125': '-480.00', // the opening invoice's IVA, still uncollected
+  '2150': '-1000.00', // the advance's base, a liability until it meets its invoice
   '3100': '-100000.00',
   '3200': '-5000.00', // the 2024 result, untouched since the opening
   '4100': '-10000.00', // the invoice; the stray 2,000 was credited on 12-28 and debited back on 12-31
@@ -370,15 +374,15 @@ const ENDING = {
 } as const;
 const NET_SALES = '9000.00'; // 10,000 − 1,000 returned
 const NET_INCOME = '-19580.00'; // 9,000 − 27,650 − 30 − 900
-const TOTAL_ASSETS = '91726.67'; // 40,026.67 + 8,120 + 4,160 + 320 + 36,000 − 900 + 4,000
-const TOTAL_LIABILITIES = '6306.67'; // 2,320 + 1,440 + 480 + 1,000 + 1,066.67
-const TOTAL_EQUITY = '85420.00'; // 100,000 + 5,000 − 19,580; and 91,726.67 = 6,306.67 + 85,420
+const TOTAL_ASSETS = '92886.67'; // 41,186.67 + 8,120 + 4,160 + 320 + 36,000 − 900 + 4,000
+const TOTAL_LIABILITIES = '7466.67'; // 2,320 + 1,600 + 480 + 1,000 + 1,066.67 + 1,000 (the advance)
+const TOTAL_EQUITY = '85420.00'; // 100,000 + 5,000 − 19,580; and 92,886.67 = 7,466.67 + 85,420
 // Indirect method: −19,580 + 900 (depreciation, no cash) − 4,640 (AR up)
-// − 4,160 (IVA credit up) + 1,440 (IVA payable up) + 2,066.67 (withholdings
-// owed) = −23,973.33, which is the 5,800 received minus the 5,800 + 9,280
-// + 1,160 + 1,160 + 1,200 + 450 + 1,190 + 9,533.33 paid. 1135, 2110 and 2125
-// end December where they began it.
-const OPERATING_CASH = '-23973.33';
+// − 4,160 (IVA credit up) + 1,600 (IVA payable up) + 2,066.67 (withholdings
+// owed) + 1,000 (customer advances up) = −22,813.33, which is the 5,800
+// + 1,160 received minus the 5,800 + 9,280 + 1,160 + 1,160 + 1,200 + 450
+// + 1,190 + 9,533.33 paid. 1135, 2110 and 2125 end December where they began it.
+const OPERATING_CASH = '-22813.33';
 const INVESTING_CASH = '-36000.00'; // the computers
 const FINANCING_CASH = '0.00'; // the capital came in with the opening, in January
 
@@ -1106,7 +1110,23 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(entries()).toEqual(posted);
     }, STEP_TIMEOUT_MS);
 
-    it.todo('records a customer advance and applies it to the next invoice — MNE-001-098');
+    it('records a customer advance with no invoice from the terminal: its IVA is caused the day it is collected — MNE-001-421', () => {
+      // 1,160.00 at 16 %: the base is 1,160 / 1.16 = 1,000.00 and the IVA the other 160.00.
+      const [advance] = rowsOf<Record<string, string>>(
+        ok(['receipt', 'record', '--customer', 'Cliente Sintetico', '--amount', '1160.00', '--tax-rate', '16',
+          '--date', '2025-12-10', '--yes', '--json'])
+      );
+      expect(advance).toMatchObject({ document: null, advance_base: '1000.00', advance_tax_rate: '16', advance_iva: '160.00' });
+      const [entry] = rowsOf<{ lines: { account: string; debit: string; credit: string }[] }>(
+        ok(['entry', 'show', advance.journal_entry, '--json'])
+      );
+      // The bank, the liability and the IVA caused: no revenue account moves.
+      expect(entry.lines.map((l) => [l.account, l.debit && money(l.debit), l.credit && money(l.credit)])).toEqual([
+        ['1111', '1160.00', ''], ['2150', '', '1000.00'], ['2120', '', '160.00'],
+      ]);
+    }, STEP_TIMEOUT_MS);
+
+    it.todo('applies the customer advance to the next invoice — MNE-001-422');
     it('ar reconcile ties to 1120 as of the run and ap reconcile to 2110 at 2025-12-31, and an entry on 1120 blocks the close until it is reversed — MNE-001-034, MNE-001-035, MNE-001-036, MNE-001-037', () => {
       type ArTie = { control_balance: string; subledger_net: string; delta: string; balanced: boolean;
         manual_entries: { entry_number: string }[] };
@@ -1172,7 +1192,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('4 · bank', () => {
-    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 5,800.00 and credits 29,773.33 — MNE-001-039');
+    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 6,960.00 and credits 29,773.33 — MNE-001-039');
     it.todo('imports the December statement, the first session with a baseline instead of the whole ledger history — MNE-001-038');
     it.todo('an overlapping statement does not duplicate movements — MNE-001-042');
     it.todo('reconciles, classifies the bank fee and its IVA, and closes the session — MNE-001-040, MNE-001-041, MNE-001-043');
@@ -1268,11 +1288,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       // By hand: every cash movement of the month sits in the subtree of 1110,
       // whichever of its accounts it landed on (MNE-001-039). Debits: the
-      // 5,800 receipt, since the opening is January's; credits: the 36,000
+      // 5,800 receipt and the 1,160 advance, since the opening is January's; credits: the 36,000
       // computers, the 5,800 payment, the REP's 9,280, the two PUE paid,
       // 1,160 each, and the edge cases: 1,200 + 450 + 1,190 + 9,533.33.
-      // 100,000 + 5,800 − 65,773.33 = 40,026.67, the ending of 1111.
-      expect(money(cash?.debit_total)).toBe('5800.00');
+      // 100,000 + 6,960 − 65,773.33 = 41,186.67, the ending of 1111.
+      expect(money(cash?.debit_total)).toBe('6960.00');
       expect(money(cash?.credit_total)).toBe('65773.33');
       expect(money(cash?.final_balance)).toBe(ENDING['1111']);
 
