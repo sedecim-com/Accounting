@@ -30,7 +30,7 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 //
 // THE FIGURES ARE WRITTEN BY HAND, never copied from the output: a test
 // generated from the system's own answer cannot fail. Each constant carries
-// its derivation from the opening and the twelve documents of the month.
+// its derivation from the opening and the twenty documents of the month.
 //
 // NOTHING IS SEEDED WITH SQL. The firm and its user come from `tenant create`
 // and `user create`, like every other row of the month (MNE-001-406).
@@ -51,6 +51,14 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // so no synthetic UUID goes to the SAT. Each PUE is paid on its date: a PUE
 // declares one payment. The PPD is coded by its line (`--line 1`), because
 // the product suggests the opening bill's 2110 for an unknown issuer's line.
+//
+// THE EDGE CASES OF THE CFDI (MNE-001-409). Four more received CFDI, each a
+// PUE paid on its date. Two are written here, because every fixture carries
+// IVA at 16 %: a bookshop's own edition at 0 % and its resold magazines,
+// exempt. Its folio keeps its leading zeros and its name its accents. A hotel
+// night brings a local tax (ISH), posted to a leaf of its own once that leaf
+// takes the role. An individual's fees bring withholdings: the company pays
+// the net, and owes the SAT the ISR and the IVA it withheld.
 //
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
@@ -188,18 +196,75 @@ const REP_XML = `<?xml version="1.0" encoding="UTF-8"?>
   </cfdi:Complemento>
 </cfdi:Comprobante>`;
 
+// ── THE EDGE CASES OF THE RECEIVED CFDI (MNE-001-409) ──────────────────
+// The bookshop is created before its CFDI arrive, like the cleaner. In the
+// XML its name travels as character references (&#237; is í), so the accents
+// the binary prints were decoded by the parser, not copied from this file.
+const BOOKSHOP_RFC = 'LEB060101AB1';
+const BOOKSHOP_NAME = 'Librería y Editorial del Bajío SA de CV';
+// The hotel and the individual keep the issuers of their fixtures.
+const HOTEL_RFC = 'HOS060101AB1';
+const HOTEL_NAME = 'Hotel Sintetico SA de CV';
+const FEES_RFC = 'GOMJ800101HA5';
+const FEES_NAME = 'Julian Gomez Martinez';
+const ZERO_RATE_UUID = '5A1E0409-1203-4C0A-9D2E-000000000123';
+const EXEMPT_UUID = '5A1E0409-1204-4C0A-9D2E-000000000124';
+const LODGING_UUID = '5A1E0409-1209-4C0A-9D2E-000000004001';
+const FEES_UUID = '5A1E0409-1216-4C0A-9D2E-000000000056';
+/** The leaf the lodging tax is posted to, created in step 2·198. */
+const LODGING_TAX_ACCOUNT = '6150';
+/** A CFDI of the bookshop with one concept and one IVA transfer, at 0 % or exempt. */
+const bookshopCfdi = (o: { date: string; uuid: string; invoiceNumber: string; amount: string; exempt: boolean }): string => {
+  const transfer = o.exempt
+    ? `<cfdi:Traslado Base="${o.amount}" Impuesto="002" TipoFactor="Exento"/>`
+    : `<cfdi:Traslado Base="${o.amount}" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.000000" Importe="0.00"/>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" Folio="${o.invoiceNumber}" Fecha="${o.date}T10:00:00" FormaPago="03" MetodoPago="PUE"
+  TipoDeComprobante="I" Moneda="MXN" SubTotal="${o.amount}" Total="${o.amount}" LugarExpedicion="37000">
+  <cfdi:Emisor Rfc="${BOOKSHOP_RFC}" Nombre="${BOOKSHOP_NAME.replace(/í/g, '&#237;')}" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="${COMPANY_RFC}" Nombre="${COMPANY_NAME}" UsoCFDI="G03"
+    DomicilioFiscalReceptor="01000" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="55101500" ClaveUnidad="H87" Descripcion="Publicaciones" Cantidad="1"
+      ValorUnitario="${o.amount}" Importe="${o.amount}" ObjetoImp="02">
+      <cfdi:Impuestos><cfdi:Traslados>${transfer}</cfdi:Traslados></cfdi:Impuestos>
+    </cfdi:Concepto>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos${o.exempt ? '' : ' TotalImpuestosTrasladados="0.00"'}><cfdi:Traslados>${transfer}</cfdi:Traslados></cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="${o.uuid}" FechaTimbrado="${o.date}T10:05:00"
+      RfcProvCertif="SAT970701NN3" SelloCFD="x" NoCertificadoSAT="30001000000500000001" SelloSAT="y"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+};
+
 // ── THE MONTH, BY HAND ──────────────────────────────────────────────────
 //   12-01 computers      1220 Dr 36,000.00 / 1111 Cr 36,000.00
+//   12-03 received 0 %   6100 Dr 1,200.00 / 2110 Cr 1,200.00, and paid that day:
+//                        2110 Dr 1,200.00 / bank Cr 1,200.00 (the bookshop's own
+//                        edition, LIVA art. 2-A fr. I i: a rate of 0 %, no IVA line)
+//   12-04 received exempt 6100 Dr 450.00 / 2110 Cr 450.00, and paid that day
+//                        (magazines it resells, LIVA art. 9 fr. III: no IVA at all)
 //   12-05 invoice        1120 Dr 11,600.00 / 4100 Cr 10,000.00, 2120 Cr 1,600.00
 //                        (16 % of 10,000; no MetodoPago on a typed invoice → PUE)
 //   12-08 bill           6100 Dr 5,000.00, 1135 Dr 800.00 / 2110 Cr 5,800.00
 //                        (no MetodoPago on a typed bill → PPD, IVA parked in 1135)
+//   12-09 lodging        6100 Dr 1,000.00, 6150 Dr 30.00, 1130 Dr 160.00 / 2110 Cr
+//                        1,190.00, and paid that day: the 3 % ISH on the 1,000 is
+//                        a cost, not a creditable tax, in a leaf of its own
 //   12-10 received PPD   6100 Dr 8,000.00, 1135 Dr 1,280.00 / 2110 Cr 9,280.00
 //                        (the consultant's CFDI: PPD, so its IVA waits in 1135)
 //   12-12 received PUE   6100 Dr 1,000.00, 1130 Dr 160.00 / 2110 Cr 1,160.00, and
 //                        paid that day: 2110 Dr 1,160.00 / bank Cr 1,160.00, with
 //                        no IVA moved (a PUE declares one payment, CFF 29-A fr. VII b)
 //   12-15 receipt        bank Dr 5,800.00 / 1120 Cr 5,800.00 (half the invoice)
+//   12-16 fees           6100 Dr 10,000.00, 1130 Dr 1,600.00 / 2141 Cr 1,000.00,
+//                        2142 Cr 1,066.67, 2110 Cr 9,533.33: an individual's fees,
+//                        so the company withholds 10 % of ISR (LISR art. 106) and
+//                        two thirds of the 1,600 of IVA (LIVA art. 1-A fr. II a;
+//                        RLIVA art. 3), and that day pays the net alone:
+//                        2110 Dr 9,533.33 / bank Cr 9,533.33
 //   12-18 credit note    4400 Dr 1,000.00, 2120 Dr 160.00 / 1120 Cr 1,160.00
 //   12-19 received PUE   the same as on 12-12: the cleaner's second CFDI
 //   12-20 payment        2110 Dr 5,800.00 / bank Cr 5,800.00,
@@ -211,39 +276,49 @@ const REP_XML = `<?xml version="1.0" encoding="UTF-8"?>
 //                        life; whole-month convention, so 36,000 / 40
 // Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
 // + 900 = 67,860 typed, and 9,280 + 2 × 1,160 + 2 × 1,160 + (9,280 + 1,280)
-// = 24,480 received: 92,340. The dossier seals the trial balance as of 12-31,
-// so it counts the opening of 01-01 too: 107,800 + 92,340.
-const SEALED_DEBITS = '200140.00';
+// = 24,480 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
+// + 2 × 1,190 + (11,600 + 9,533.33) = 26,813.33. In all 119,153.33. The
+// dossier seals the trial balance as of 12-31, so it counts the opening of
+// 01-01 too: 107,800 + 119,153.33.
+const SEALED_DEBITS = '226953.33';
 const ENDING = {
   // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
+  // − 1,200 − 450 (the bookshop) − 1,190 (the hotel) − 9,533.33 (the fees, net)
   // (see MNE-001-039 in step 4)
-  '1111': '52400.00',
+  '1111': '40026.67',
   '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160
-  '1130': '2400.00', // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE)
+  // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE) + 160 (the hotel) + 1,600 (the fees)
+  '1130': '4160.00',
   '1135': '320.00', // the opening's; the 800 and the 1,280 parked in December moved to 1130 when paid
   '1220': '36000.00',
   '1290': '-900.00', // accumulated depreciation, credit balance
   '1320': '4000.00', // the deposit, untouched since the opening
   '2110': '-2320.00', // the opening bill: every December bill was paid within the month
   '2120': '-1440.00', // −1,600 + 160, credit balance
+  '2141': '-1000.00', // the ISR withheld from the fees, owed to the SAT
+  '2142': '-1066.67', // the IVA withheld from the fees, owed to the SAT
   '2125': '-480.00', // the opening invoice's IVA, still uncollected
   '3100': '-100000.00',
   '3200': '-5000.00', // the 2024 result, untouched since the opening
   '4100': '-10000.00',
   '4400': '1000.00',
-  '6100': '15000.00', // 5,000 typed + 8,000 (PPD) + 1,000 + 1,000 (the PUE)
+  // 5,000 typed + 8,000 (PPD) + 1,000 + 1,000 (the PUE) + 1,200 + 450 (the bookshop)
+  // + 1,000 (the hotel) + 10,000 (the fees)
+  '6100': '27650.00',
   '6140': '900.00',
+  [LODGING_TAX_ACCOUNT]: '30.00', // the ISH of the hotel night
 } as const;
 const NET_SALES = '9000.00'; // 10,000 − 1,000 returned
-const NET_INCOME = '-6900.00'; // 9,000 − 15,000 − 900
-const TOTAL_ASSETS = '102340.00'; // 52,400 + 8,120 + 2,400 + 320 + 36,000 − 900 + 4,000
-const TOTAL_LIABILITIES = '4240.00'; // 2,320 + 1,440 + 480
-const TOTAL_EQUITY = '98100.00'; // 100,000 + 5,000 − 6,900; and 102,340 = 4,240 + 98,100
-// Indirect method: −6,900 + 900 (depreciation, no cash) − 4,640 (AR up)
-// − 2,400 (IVA credit up) + 1,440 (IVA payable up) = −11,600, which is the
-// 5,800 received minus the 5,800 + 9,280 + 1,160 + 1,160 paid. 1135, 2110
-// and 2125 end December where they began it.
-const OPERATING_CASH = '-11600.00';
+const NET_INCOME = '-19580.00'; // 9,000 − 27,650 − 30 − 900
+const TOTAL_ASSETS = '91726.67'; // 40,026.67 + 8,120 + 4,160 + 320 + 36,000 − 900 + 4,000
+const TOTAL_LIABILITIES = '6306.67'; // 2,320 + 1,440 + 480 + 1,000 + 1,066.67
+const TOTAL_EQUITY = '85420.00'; // 100,000 + 5,000 − 19,580; and 91,726.67 = 6,306.67 + 85,420
+// Indirect method: −19,580 + 900 (depreciation, no cash) − 4,640 (AR up)
+// − 4,160 (IVA credit up) + 1,440 (IVA payable up) + 2,066.67 (withholdings
+// owed) = −23,973.33, which is the 5,800 received minus the 5,800 + 9,280
+// + 1,160 + 1,160 + 1,200 + 450 + 1,190 + 9,533.33 paid. 1135, 2110 and 2125
+// end December where they began it.
+const OPERATING_CASH = '-23973.33';
 const INVESTING_CASH = '-36000.00'; // the computers
 const FINANCING_CASH = '0.00'; // the capital came in with the opening, in January
 
@@ -370,16 +445,17 @@ function decemberMoves(codes: string[]): Record<string, string> {
 
 /**
  * A received CFDI of tests/fixtures/cfdi, rewritten by string replacement:
- * the issuer, this company as receiver (the fixtures' Rfc, Nombre and 06600),
- * the date, the UUID and, if given, the `Folio`. Written to the run's directory.
+ * the issuer, if given (else the fixture keeps its own), this company as
+ * receiver (the fixtures' Rfc, Nombre and 06600), the date, the UUID and, if
+ * given, the `Folio`. Written to the run's directory.
  */
 function receivedCfdi(
   fixture: string,
-  o: { file: string; rfc: string; name: string; date: string; uuid: string; invoiceNumber?: string }
+  o: { file: string; rfc?: string; name?: string; date: string; uuid: string; invoiceNumber?: string }
 ): string {
   let xml = fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'cfdi', fixture), 'utf-8')
-    .replace('Rfc="SIN060101AB1" Nombre="Servicios Integrales SA"', `Rfc="${o.rfc}" Nombre="${o.name}"`)
-    .replace('Rfc="XAXX010101000" Nombre="Demo Corp MX"', `Rfc="${COMPANY_RFC}" Nombre="${COMPANY_NAME}"`)
+    .replace('Rfc="SIN060101AB1" Nombre="Servicios Integrales SA"', o.rfc ? `Rfc="${o.rfc}" Nombre="${o.name}"` : '$&')
+    .replace(/<cfdi:Receptor Rfc="[^"]+" Nombre="[^"]+"/, `<cfdi:Receptor Rfc="${COMPANY_RFC}" Nombre="${COMPANY_NAME}"`)
     .replace('DomicilioFiscalReceptor="06600"', 'DomicilioFiscalReceptor="01000"')
     .replace(/ Fecha="[^"]+"/, ` Fecha="${o.date}T10:00:00"`)
     .replace(/FechaTimbrado="[^"]+"/, `FechaTimbrado="${o.date}T10:05:00"`)
@@ -397,6 +473,14 @@ interface StatementRow {
   name: string;
   amount: string;
 }
+/** The bill number of each of the vendor's invoice numbers: `bill inbox run --json` carries it only in prose. */
+function billNumbers(): Record<string, string> {
+  return Object.fromEntries(
+    rowsOf<{ vendor_invoice_number: string; bill_number: string }>(ok(['bill', 'list', '--all', '--json']))
+      .map((b) => [b.vendor_invoice_number, b.bill_number])
+  );
+}
+
 const lineOf = (rows: StatementRow[], pred: (r: StatementRow) => boolean): string =>
   money(rows.find(pred)?.amount);
 
@@ -814,7 +898,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('4 · bank', () => {
-    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 5,800.00 and credits 17,400.00 — MNE-001-039');
+    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 5,800.00 and credits 29,773.33 — MNE-001-039');
     it.todo('imports the December statement, the first session with a baseline instead of the whole ledger history — MNE-001-038');
     it.todo('an overlapping statement does not duplicate movements — MNE-001-042');
     it.todo('reconciles, classifies the bank fee and its IVA, and closes the session — MNE-001-040, MNE-001-041, MNE-001-043');
@@ -911,10 +995,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // By hand: every cash movement of the month sits in the subtree of 1110,
       // whichever of its accounts it landed on (MNE-001-039). Debits: the
       // 5,800 receipt, since the opening is January's; credits: the 36,000
-      // computers, the 5,800 payment, the REP's 9,280 and the two PUE paid,
-      // 1,160 each. 100,000 + 5,800 − 53,400 = 52,400, the ending of 1111.
+      // computers, the 5,800 payment, the REP's 9,280, the two PUE paid,
+      // 1,160 each, and the edge cases: 1,200 + 450 + 1,190 + 9,533.33.
+      // 100,000 + 5,800 − 65,773.33 = 40,026.67, the ending of 1111.
       expect(money(cash?.debit_total)).toBe('5800.00');
-      expect(money(cash?.credit_total)).toBe('53400.00');
+      expect(money(cash?.credit_total)).toBe('65773.33');
       expect(money(cash?.final_balance)).toBe(ENDING['1111']);
 
       // And against the detail balanza: 1110 is itself plus 1111, 1112 and
