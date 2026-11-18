@@ -374,6 +374,8 @@ interface CreditNoteRow {
   id: string;
   entity_id: string;
   credit_note_number: string;
+  /** One of CREDIT_NOTE_TYPES: it states which fact the note records. */
+  type: string;
   invoice_id: string | null;
   subtotal: string;
   tax_amount: string;
@@ -383,7 +385,12 @@ interface CreditNoteRow {
 }
 
 /**
- * DR devolucion_ventas (subtotal) · DR the IVA role · CR cxc (total).
+ * DR the base role (subtotal) · DR the IVA role · CR cxc (total).
+ *
+ * The base role follows the note's type (MNE-001-515). An `anticipo` note
+ * applies a customer advance, which is a liability until the sale exists:
+ * it debits anticipo_clientes and leaves revenue whole (TipoRelacion 07 is
+ * an application, not a return). Every other type debits devolucion_ventas.
  *
  * The IVA side mirrors the linked invoice's MetodoPago: a PUE invoice put
  * its IVA in iva_trasladado, so the note takes it back out of there; a PPD
@@ -419,11 +426,15 @@ export async function postCreditNoteEntry(
     }
   }
   const ivaRole = metodo ? ivaRoleFor('issued', metodo.metodo) : 'iva_trasladado';
-  const roles = await roleAccounts(client, note.entity_id, ['cxc', ivaRole, 'devolucion_ventas']);
+  const isAdvance = note.type === 'anticipo';
+  const roles = await roleAccounts(client, note.entity_id, [
+    'cxc', ivaRole, isAdvance ? 'anticipo_clientes' : 'devolucion_ventas',
+  ]);
 
   const jeLines: JeLine[] = [
     {
-      account_id: requireRole(roles, 'devolucion_ventas'),
+      // Each role is asked for by name: the plan's criteria read these calls.
+      account_id: isAdvance ? requireRole(roles, 'anticipo_clientes') : requireRole(roles, 'devolucion_ventas'),
       debit_amount: note.subtotal,
       credit_amount: null,
       description: `Credit note ${note.credit_note_number}`,
@@ -456,7 +467,17 @@ export async function postCreditNoteEntry(
     { autoPost: true, client, sourceType: 'credit_note', sourceId: note.id, reference: note.credit_note_number }
   );
 
-  await client.query('UPDATE credit_notes SET journal_entry_id = $1 WHERE id = $2', [entry.id, note.id]);
+  const linked = await client.query(
+    `UPDATE credit_notes SET journal_entry_id = $1
+      WHERE id = $2 AND entity_id = $3 AND journal_entry_id IS NULL`,
+    [entry.id, note.id, note.entity_id]
+  );
+  if (linked.rowCount !== 1) {
+    throw new AccountingError(
+      'CREDIT_NOTE_ALREADY_POSTED',
+      `${note.credit_note_number} already has an entry or is not this entity's: no second one is linked.`
+    );
+  }
   return entry;
 }
 
