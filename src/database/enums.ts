@@ -105,8 +105,9 @@ export const VENDOR_PAYMENT_STATUSES = [
 ] as const;
 
 /**
- * 'reversed' (049): el cobro OCURRIÓ y rebotó (NSF). Distinto de 'void' —
- * que nunca debió existir.
+ * 'reversed' (049): the receipt HAPPENED and was undone. `reversal_cause`
+ * (327) says how: the money was never collected, or it was taken back. Not
+ * 'void', which should never have existed.
  */
 export const CUSTOMER_PAYMENT_STATUSES = [
   'draft', 'pending', 'processing', 'completed', 'failed', 'void', 'reversed',
