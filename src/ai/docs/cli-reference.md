@@ -4513,9 +4513,9 @@ Commands:
   unapply|desaplicar [options] <ref>    Unapply a collection from an invoice as
                                         a NEW event: reopens it and re-parks the
                                         PPD IVA
-  reverse|reversar [options] <ref>      Reverse a bounced collection (NSF):
-                                        mirrors every entry, reopens invoices,
-                                        re-parks IVA
+  reverse|reversar [options] <ref>      Reverse a collection whose money did not
+                                        stay, saying why: mirrors every entry,
+                                        reopens invoices, re-parks IVA
   help [command]                        display help for command
 ```
 
@@ -4716,8 +4716,8 @@ Examples:
 ```
 Usage: mnemosine receipt reverse|reversar [options] <ref>
 
-Reverse a bounced collection (NSF): mirrors every entry, reopens invoices,
-re-parks IVA
+Reverse a collection whose money did not stay, saying why: mirrors every entry,
+reopens invoices, re-parks IVA
 
 Arguments:
   ref                      payment number or id
@@ -4727,6 +4727,10 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  --cause <cause>          what happened to the money: not_collected (it never
+                           became yours) or taken_back (it arrived and was taken
+                           back, as in a chargeback); with none, a cheque takes
+                           not_collected and any other method keeps no cause
   --fee <amount>           bank fee charged for the return (not yet supported:
                            needs a fee role account)
   --json                   JSON output
@@ -4739,7 +4743,9 @@ Options:
   -h, --help               display help for command
 
 Examples:
-  # A bounced collection (NSF): mirrors every entry, reopens invoices, re-parks IVA.
+  # A chargeback: the money arrived and the bank took it back.
+  mnemosine receipt reverse PMT-2026-00042 --cause taken_back --reason "Contracargo 4853"
+  # A cheque returned unpaid: with no --cause a cheque takes not_collected.
   mnemosine receipt reverse PMT-2026-00042 --reason "Devuelto por fondos insuficientes"
   # See the mirror it would post, writing nothing.
   mnemosine receipt reverse PMT-2026-00042 --dry-run

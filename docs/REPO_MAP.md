@@ -85,6 +85,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/cli/mnemosine.ts`
 - `src/cli/payroll-isn-command.ts`
 - `src/cli/prepaid-command.ts`
+- `src/cli/receipt-command.ts`
 - `src/i18n/en.ts`
 - `src/i18n/es.ts`
 - `src/plan/conducta.ts`
