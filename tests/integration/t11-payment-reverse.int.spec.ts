@@ -40,16 +40,21 @@ afterAll(async () => {
   await closeDatabase();
 });
 
-async function approvedBill(fx: Fixture, subtotal: string, iva: string): Promise<{ billId: string; vendorId: string }> {
+/** An approved PPD bill, of a new vendor unless `ofVendor` names an existing one. */
+async function approvedBill(
+  fx: Fixture, subtotal: string, iva: string, ofVendor?: string
+): Promise<{ billId: string; vendorId: string }> {
   const total = new Decimal(subtotal).plus(iva).toFixed(2);
   const billId = uuidv4();
-  const vendorId = uuidv4();
+  const vendorId = ofVendor ?? uuidv4();
   const tag = uuidv4().slice(0, 8);
-  await query(
-    `INSERT INTO vendors (id, entity_id, vendor_number, company_name, tax_id, tax_id_type, currency_code, created_by)
-     VALUES ($1,$2,$3,'Proveedor T11','CCC030303CC3','rfc','MXN',$4)`,
-    [vendorId, fx.entityId, `V-${tag}`, fx.userId]
-  );
+  if (!ofVendor) {
+    await query(
+      `INSERT INTO vendors (id, entity_id, vendor_number, company_name, tax_id, tax_id_type, currency_code, created_by)
+       VALUES ($1,$2,$3,'Proveedor T11','CCC030303CC3','rfc','MXN',$4)`,
+      [vendorId, fx.entityId, `V-${tag}`, fx.userId]
+    );
+  }
   await query(
     `INSERT INTO bills (
        id, entity_id, bill_number, vendor_id, vendor_invoice_number,
@@ -168,7 +173,8 @@ describe('payment reverse: the duplicated 80,000 transfer comes back', () => {
 
   it('mirrors every event of the payment and reopens only what is still applied, discount included', async () => {
     const { billId: first, vendorId } = await approvedBill(f, '1000.00', '160.00');
-    const { billId: second } = await approvedBill(f, '1000.00', '160.00');
+    // Both bills are of the payment's vendor: an application never crosses vendors (#664).
+    const { billId: second } = await approvedBill(f, '1000.00', '160.00', vendorId);
     const paymentId = await onAccount(f, vendorId, '1100.00');
     await applyVendorPayment(f.entityId, paymentId, [{ documentId: first, amountApplied: '1100.00' }], f.userId);
     await unapplyVendorPayment(f.entityId, paymentId, { billId: first, reason: 'Gasto equivocado' }, f.userId);

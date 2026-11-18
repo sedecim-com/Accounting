@@ -9,6 +9,7 @@ import {
   recordVendorPayment,
   applyVendorPayment,
 } from '../../src/services/payments/payment-service.js';
+import { ValidationError } from '../../src/utils/errors.js';
 import {
   resolvePolicy,
   seedPolicies,
@@ -389,6 +390,97 @@ describe('el pago corto: cerrar un gasto pagando de menos', () => {
     );
     expect(log.rows[0].new_values.short_pay_reason).toBe(motivo);
     expect(log.rows[0].new_values.condonado).toBe('80.00');
+  });
+});
+
+// MNE-001-516 (#664): a payment on account settles only bills of its own vendor.
+describe('payment apply stays within the payment\'s own vendor', () => {
+  const billRow = async (id: string) =>
+    (await query<{ amount_due: string; amount_paid: string; status: string }>(
+      `SELECT amount_due::text, amount_paid::text, status FROM bills WHERE id = $1`, [id]
+    )).rows[0];
+  const OPEN = { amount_due: '1160.0000', amount_paid: '0.0000', status: 'approved' };
+  /** What the payment left behind: its application rows and its journal entries. */
+  const tracesOf = async (paymentId: string) => ({
+    applications: (await query(`SELECT 1 FROM payment_applications WHERE payment_id = $1`, [paymentId])).rows.length,
+    entries: (await query(
+      `SELECT 1 FROM journal_entries WHERE entity_id = $1 AND source_id = $2`, [f.entityId, paymentId]
+    )).rows.length,
+  });
+  const refusal = async (
+    paymentId: string,
+    app: Parameters<typeof applyVendorPayment>[2][number],
+    opts: Parameters<typeof applyVendorPayment>[4] = {}
+  ): Promise<ValidationError> => {
+    const e = await applyVendorPayment(f.entityId, paymentId, [app], f.userId, opts).then(
+      () => null, (err: unknown) => err
+    );
+    expect(e, 'the application must be refused').toBeInstanceOf(ValidationError);
+    return e as ValidationError;
+  };
+  // Over every period: an application posts on today's date, not on the bill's.
+  const ledgerNet = async (accountId: string) =>
+    (await query<{ net: string }>(
+      `SELECT COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0)::text AS net
+         FROM journal_entry_lines jel JOIN journal_entries je ON je.id = jel.journal_entry_id
+        WHERE je.entity_id = $1 AND jel.account_id = $2`,
+      [f.entityId, accountId]
+    )).rows[0].net;
+  const vendorNumber = async (id: string) =>
+    (await query<{ vendor_number: string }>(`SELECT vendor_number FROM vendors WHERE id = $1`, [id])).rows[0].vendor_number;
+
+  it('T8 · refuses a bill of another vendor, naming the bill and both vendors, and writes nothing', async () => {
+    const ofV = await gastoAprobado('1000.00', '160.00');
+    const ofW = await gastoAprobado('1000.00', '160.00');
+    const paymentId = await pagoACuenta(ofV.vendorId, '1160.00');
+    const parked = await ledgerNet(cuentaPendiente);
+    const creditable = await ledgerNet(cuentaAcreditable);
+
+    const e = await refusal(paymentId, { documentId: ofW.billId, amountApplied: '1160.00' });
+    expect(e.messageKey?.key).toBe('payment.apply.other_vendor');
+    const payment = await query<{ payment_number: string }>(
+      `SELECT payment_number FROM vendor_payments WHERE id = $1`, [paymentId]
+    );
+    for (const text of [e.message, e.localized('es')]) {
+      for (const part of [
+        ofW.numero, payment.rows[0].payment_number,
+        `${await vendorNumber(ofV.vendorId)} Proveedor F04`, `${await vendorNumber(ofW.vendorId)} Proveedor F04`,
+      ]) {
+        expect(text).toContain(part);
+      }
+    }
+    expect(e.localized('es')).not.toBe(e.message);
+
+    expect(await tracesOf(paymentId)).toEqual({ applications: 0, entries: 1 });
+    expect(await billRow(ofW.billId)).toEqual(OPEN);
+    expect(await ledgerNet(cuentaPendiente), '1135 unchanged').toBe(parked);
+    expect(await ledgerNet(cuentaAcreditable), '1130 unchanged').toBe(creditable);
+  });
+
+  it('T9 · the party refusal speaks before the discount one', async () => {
+    const ofV = await gastoAprobado('1000.00', '160.00');
+    const ofW = await gastoAprobado('1000.00', '160.00');
+    // 2 % of 1,160.00 is 23.20: a discount of 60.00 is more than the terms grant.
+    await query(`UPDATE bills SET terms = '2/10 Net 30' WHERE id = $1 AND entity_id = $2`, [ofW.billId, f.entityId]);
+    const paymentId = await pagoACuenta(ofV.vendorId, '1100.00');
+
+    const e = await refusal(paymentId, { documentId: ofW.billId, amountApplied: '1100.00', discountAmount: '60.00' });
+    expect(e.messageKey?.key).toBe('payment.apply.other_vendor');
+    expect(await tracesOf(paymentId)).toEqual({ applications: 0, entries: 1 });
+  });
+
+  it('T10 · a short pay in residual mode is refused, and the bill stays open', async () => {
+    const ofV = await gastoAprobado('1000.00', '160.00');
+    const ofW = await gastoAprobado('1000.00', '160.00');
+    const paymentId = await pagoACuenta(ofV.vendorId, '1000.00');
+
+    const e = await refusal(
+      paymentId, { documentId: ofW.billId, amountApplied: '1000.00' },
+      { modo: 'residual', shortPayReason: 'Flete en disputa' }
+    );
+    expect(e.messageKey?.key).toBe('payment.apply.other_vendor');
+    expect(await billRow(ofW.billId)).toEqual(OPEN);
+    expect(await tracesOf(paymentId)).toEqual({ applications: 0, entries: 1 });
   });
 });
 

@@ -23,6 +23,7 @@ import {
   type DiferenciaCambiaria,
 } from '../accounting/moneda-origen.js';
 import { ivaToReclassify, entityUsesCashBasisIva } from '../accounting/iva-cash-basis.js';
+import { ADVANCE_TREATMENTS, isAdvanceTreatment, splitAdvance, type AdvanceSplit } from './customer-advance.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
@@ -112,6 +113,14 @@ export interface EntradaPago {
    * acepta: un pago nuestro sin aplicar es otra historia.
    */
   onAccount?: boolean;
+  /**
+   * MNE-001-458 · customer side only: the IVA treatment stated for an
+   * advance with no invoice ('16', '8', '0', 'exempt' or 'not-subject'). With
+   * it the receipt posts its base to anticipo_clientes and its IVA to
+   * iva_trasladado, and keeps both. Without it the cash goes on account as
+   * before: only the caller knows whether it is an advance.
+   */
+  advanceTreatment?: string;
 
   // ── EL RASTRO DE PAGO QUE LA PÓLIZA DECLARA (F07d) ────────────────────
   //
@@ -239,6 +248,8 @@ export interface ResultadoPago {
    * limit in force on the payment date). Informative; the entry is unchanged.
    */
   deductibilityFindings?: CashDeductibilityFinding[];
+  /** MNE-001-458 · customer side: the advance treatment the receipt was recorded with, and its split. */
+  advance?: AdvanceSplit | null;
 }
 
 export interface OpcionesPago {
@@ -858,6 +869,8 @@ export async function recordCustomerPayment(
       }
     }
 
+    const advance = await advanceSplitOf(client, entrada);
+
     const paymentNumber = await nextEntityNumber(client, entrada.entityId, 'customer_payment', 'PMT', entrada.paymentDate);
     const paymentId = uuidv4();
 
@@ -872,8 +885,9 @@ export async function recordCustomerPayment(
          id, entity_id, payment_number, customer_id, payment_amount, currency_code,
          payment_method, reference_number, bank_account_id, payment_date,
          status, created_by, cfdi_uuid, cfdi_pago_indice,
-         check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero, exchange_rate
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+         check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero, exchange_rate,
+         advance_factor_type, advance_tax_rate, advance_base_amount, advance_iva_amount
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
       [paymentId, entrada.entityId, paymentNumber, customerId, entrada.paymentAmount,
        advanceCurrency ?? currencyOf(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate, ESTADO, userId,
@@ -882,7 +896,9 @@ export async function recordCustomerPayment(
        oNulo(entrada.bancoDestinoSat), oNulo(entrada.bancoDestinoExtranjero),
        // The rate of the collection day in foreign currency, an explicit 1.0
        // in the functional one: the column's DEFAULT cannot tell the two apart.
-       fx?.tasaPago ?? '1.0']
+       fx?.tasaPago ?? '1.0',
+       // MNE-001-458: born with the row (four NULLs when none was stated).
+       advance?.factorType ?? null, advance?.taxRate ?? null, advance?.base ?? null, advance?.iva ?? null]
     );
 
     for (const app of entrada.applications) {
@@ -912,6 +928,8 @@ export async function recordCustomerPayment(
         payment_date: entrada.paymentDate,
         bank_account_id: entrada.bankAccountId ?? null,
         journal_entry_id: null,
+        advance_base_amount: advance?.base ?? null,
+        advance_iva_amount: advance?.iva ?? null,
       },
       userId,
       fx ?? undefined
@@ -936,6 +954,7 @@ export async function recordCustomerPayment(
         payment_amount: entrada.paymentAmount,
         journal_entry_id: entry?.id ?? null,
         documentos: documentos.length,
+        ...(advance ? { advance_treatment: advance.treatment, advance_base: advance.base, advance_iva: advance.iva } : {}),
         ...(fx && fxDifference
           ? {
               moneda: fx.moneda,
@@ -953,12 +972,37 @@ export async function recordCustomerPayment(
       attestation: entry ? { entityId: entrada.entityId, entryId: entry.id } : null,
       documentos,
       diferenciaCambiaria: fxDifference,
+      advance,
     };
     if (opts.dryRun) throw new EnsayoTerminado(salida);
     return salida;
   };
 
   return ejecutar(correr, opts);
+}
+
+/** MNE-001-458 · The advance treatment of a receipt, split into base and IVA; null when none was stated. */
+async function advanceSplitOf(client: pg.PoolClient, input: EntradaPago): Promise<AdvanceSplit | null> {
+  const treatment = input.advanceTreatment;
+  if (treatment === undefined) return null;
+  if (!isAdvanceTreatment(treatment)) {
+    const params = { value: treatment, allowed: ADVANCE_TREATMENTS.join(', ') };
+    throw new ValidationError({ key: 'receipt.advance.treatment_unknown', params });
+  }
+  // TODO(#623): MNE-001-462 gives the excess of a collection its own rate; until then a treatment is for a receipt with no invoice.
+  if (input.applications.length > 0) {
+    throw new ValidationError({ key: 'receipt.advance.only_without_invoice' });
+  }
+  if (!(await entityUsesCashBasisIva(client, input.entityId))) {
+    throw new ValidationError({ key: 'receipt.advance.not_mexican_books' });
+  }
+  // A price paid by cheque, and its IVA, is paid the day the bank cashes it
+  // (LIVA art. 1-B, second paragraph): the receipt's entry must not cause it.
+  // TODO(#700): post the advance's IVA on the recorded cashing, and lift this refusal.
+  if (input.paymentMethod === 'check') {
+    throw new AccountingError('ADVANCE_BY_CHEQUE_NOT_WIRED', { key: 'receipt.advance.cheque_not_wired' });
+  }
+  return splitAdvance(input.paymentAmount, treatment);
 }
 
 // ── Ensayo ──
@@ -1029,6 +1073,33 @@ async function ejecutarEvento<T>(
   }
 }
 
+/**
+ * The two parties of a refused application, each as «number name», to word the
+ * refusal. The decision is taken before, on the ids of the two locked rows:
+ * this read takes no lock and decides nothing.
+ */
+async function partyLabels(
+  client: pg.PoolClient,
+  entityId: string,
+  kind: 'customer' | 'vendor',
+  ids: [string, string]
+): Promise<[string, string]> {
+  const r = await client.query<{ id: string; number: string; name: string | null }>(
+    kind === 'customer'
+      ? `SELECT id, customer_number AS number,
+                COALESCE(company_name, NULLIF(TRIM(CONCAT(first_name, ' ', last_name)), '')) AS name
+           FROM customers WHERE entity_id = $1 AND id = ANY($2::uuid[])`
+      : `SELECT id, vendor_number AS number, company_name AS name
+           FROM vendors WHERE entity_id = $1 AND id = ANY($2::uuid[])`,
+    [entityId, ids]
+  );
+  const label = (id: string): string => {
+    const party = r.rows.find((row) => row.id === id);
+    return party ? [party.number, party.name].filter(Boolean).join(' ') : id;
+  };
+  return [label(ids[0]), label(ids[1])];
+}
+
 interface PagoVivo {
   id: string;
   payment_number: string;
@@ -1040,6 +1111,8 @@ interface PagoVivo {
   journal_entry_id: string | null;
   status: string;
   cfdi_uuid: string | null;
+  /** MNE-001-458: non-null when the receipt was recorded as an advance with its treatment. */
+  advance_factor_type: string | null;
 }
 
 /** El cobro, acotado por entidad y con candado: la base de los tres eventos. */
@@ -1050,7 +1123,7 @@ async function cobroParaEscribir(
 ): Promise<PagoVivo> {
   const r = await client.query<PagoVivo>(
     `SELECT id, payment_number, customer_id, payment_amount, currency_code,
-            payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid
+            payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid, advance_factor_type
        FROM customer_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
     [paymentId, entityId]
   );
@@ -1137,6 +1210,12 @@ export async function applyCustomerPayment(
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoAplicacion> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
+    // TODO(#623): MNE-001-422 stores what an application takes from an advance and cancels its IVA; until then
+    // applying one would cause the IVA twice (or, at 0 % and exempt, lose the base the IVA paper has to net).
+    if (pago.advance_factor_type !== null) {
+      const params = { receipt: pago.payment_number };
+      throw new AccountingError('ADVANCE_APPLICATION_NOT_WIRED', { key: 'receipt.advance.application_not_wired', params });
+    }
     const remanente = await remanenteDe(client, paymentId, pago.payment_amount);
     const total = aplicaciones.reduce((s, a) => s.plus(a.amountApplied), new Decimal(0));
     if (total.greaterThan(remanente)) {
@@ -1152,17 +1231,29 @@ export async function applyCustomerPayment(
 
     for (const app of aplicaciones) {
       const r = await client.query<{
-        id: string; invoice_number: string; amount_due: string; status: string;
+        id: string; invoice_number: string; customer_id: string; amount_due: string; status: string;
         currency_code: string; subtotal: string; tax_amount: string; total_amount: string;
         cfdi_uuid: string | null; terms: string | null; memo: string | null;
       }>(
-        `SELECT id, invoice_number, amount_due, status, currency_code,
+        `SELECT id, invoice_number, customer_id, amount_due, status, currency_code,
                 subtotal, tax_amount, total_amount, cfdi_uuid, terms, memo
            FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entityId]
       );
       if (r.rows.length === 0) throw new NotFoundError('Invoice', app.documentId);
       const inv = r.rows[0];
+      // NOTE: the party speaks before status and currency (#664). Those two say
+      // how to make the invoice applicable, and one of another customer never
+      // is: its sale is not collected with this cash (CCF art. 2185; LIVA art. 1o.-B).
+      if (inv.customer_id !== pago.customer_id) {
+        const [invoiceCustomer, receiptCustomer] = await partyLabels(
+          client, entityId, 'customer', [inv.customer_id, pago.customer_id]
+        );
+        throw new ValidationError({
+          key: 'receipt.apply.other_customer',
+          params: { invoice: inv.invoice_number, invoiceCustomer, receipt: pago.payment_number, receiptCustomer },
+        });
+      }
       if (!COBRABLES.includes(inv.status as (typeof COBRABLES)[number])) {
         throw new ValidationError(
           `${inv.invoice_number} está en "${inv.status}" y sólo se puede aplicar a una factura ` +
@@ -1994,18 +2085,30 @@ export async function applyVendorPayment(
 
     for (const app of aplicaciones) {
       const r = await client.query<{
-        id: string; bill_number: string; amount_due: string; status: string;
+        id: string; bill_number: string; vendor_id: string; amount_due: string; status: string;
         currency_code: string; tax_amount: string; total_amount: string;
         cfdi_uuid: string | null; terms: string | null; memo: string | null;
         bill_date: Date;
       }>(
-        `SELECT id, bill_number, amount_due, status, currency_code,
+        `SELECT id, bill_number, vendor_id, amount_due, status, currency_code,
                 tax_amount, total_amount, cfdi_uuid, terms, memo, bill_date
            FROM bills WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entityId]
       );
       if (r.rows.length === 0) throw new NotFoundError('Bill', app.documentId);
       const bill = r.rows[0];
+      // NOTE: the party speaks first, before status, currency and the discount
+      // (#664): the VAT of another vendor's bill is not paid with this cash
+      // (LIVA art. 5o. fr. III), and the DIOT reports by vendor.
+      if (bill.vendor_id !== pago.vendor_id) {
+        const [billVendor, paymentVendor] = await partyLabels(
+          client, entityId, 'vendor', [bill.vendor_id, pago.vendor_id]
+        );
+        throw new ValidationError({
+          key: 'payment.apply.other_vendor',
+          params: { bill: bill.bill_number, billVendor, payment: pago.payment_number, paymentVendor },
+        });
+      }
       if (!PAGABLES.includes(bill.status as (typeof PAGABLES)[number])) {
         throw new ValidationError(
           `${bill.bill_number} está en "${bill.status}" y sólo se puede aplicar a un gasto ` +
