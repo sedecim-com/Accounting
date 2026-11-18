@@ -13,6 +13,7 @@ import {
   ivaTreatmentNote,
 } from '../accounting/iva-cash-basis.js';
 import type { AccountRole } from './cfdi-taxonomy.js';
+import { LEGACY_ROLE_CODES, ELIGIBLE_EXPENSE_ACCOUNT_SQL, eligibleExpenseAccounts } from './expense-line-account.js';
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto, type CFDIImpuesto } from './cfdi-parser.js';
 import { money, satKey, sumTax } from './cfdi-amounts.js';
@@ -540,17 +541,24 @@ export class PreRegistrationService {
     descripcion: string,
     vendor: Record<string, unknown> | null
   ): Promise<{ accountId: string | null; confidence: number; reason: string }> {
+    // MNE-001-487 (#684): every step filters by ELIGIBLE_EXPENSE_ACCOUNT_SQL
+    // before it ranks, so a control account is never the answer and a refused
+    // candidate lets the next step speak.
+
     // 1. Vendor default
-    if (vendor?.default_expense_account_id) {
-      return { accountId: vendor.default_expense_account_id as string, confidence: 0.8, reason: 'vendor_default' };
+    const vendorDefault = vendor?.default_expense_account_id as string | undefined;
+    if (vendorDefault && (await eligibleExpenseAccounts({ query }, entityId, [vendorDefault])).has(vendorDefault)) {
+      return { accountId: vendorDefault, confidence: 0.8, reason: 'vendor_default' };
     }
 
     // 2. SAT code mapping
     const satMapping = await query<{ account_id: string; confidence: string }>(
-      `SELECT account_id, confidence FROM sat_code_mappings
-       WHERE entity_id = $1 AND is_active = true
-         AND (sat_code = $2 OR $2 LIKE sat_code_prefix || '%')
-       ORDER BY LENGTH(COALESCE(sat_code_prefix, sat_code)) DESC LIMIT 1`,
+      `SELECT m.account_id, m.confidence FROM sat_code_mappings m
+         JOIN accounts a ON a.id = m.account_id
+       WHERE m.entity_id = $1 AND m.is_active = true
+         AND (m.sat_code = $2 OR $2 LIKE m.sat_code_prefix || '%')
+         AND ${ELIGIBLE_EXPENSE_ACCOUNT_SQL}
+       ORDER BY LENGTH(COALESCE(m.sat_code_prefix, m.sat_code)) DESC, m.confidence DESC, a.code LIMIT 1`,
       [entityId, claveProdServ]
     );
     if (satMapping.rows.length > 0) {
@@ -561,15 +569,19 @@ export class PreRegistrationService {
       };
     }
 
-    // 3. Historical pattern (same vendor or similar description)
+    // 3. Historical pattern (same vendor or similar description). An issuer
+    // with no vendor has no history: it used to inherit every vendor's.
+    if (!vendor?.id) return { accountId: null, confidence: 0, reason: 'no_match' };
     const historical = await query<{ account_id: string; frequency: string }>(
       `SELECT bl.account_id, COUNT(*) as frequency
        FROM bill_lines bl
        JOIN bills b ON b.id = bl.bill_id
+       JOIN accounts a ON a.id = bl.account_id
        WHERE b.entity_id = $1
-         AND ($2::uuid IS NULL OR b.vendor_id = $2::uuid OR similarity(bl.description, $3) > 0.7)
-       GROUP BY bl.account_id ORDER BY frequency DESC LIMIT 1`,
-      [entityId, vendor?.id || null, descripcion]
+         AND (b.vendor_id = $2::uuid OR similarity(bl.description, $3) > 0.7)
+         AND ${ELIGIBLE_EXPENSE_ACCOUNT_SQL}
+       GROUP BY bl.account_id, a.code ORDER BY frequency DESC, a.code LIMIT 1`,
+      [entityId, vendor.id, descripcion]
     );
     if (historical.rows.length > 0) {
       const freq = Number(historical.rows[0].frequency);
@@ -2265,16 +2277,10 @@ function mapearEstadoSat(
 /**
  * Rol contable → id de cuenta, dentro de la entidad.
  *
- * El rol manda. El código heredado queda de red para las entidades sembradas
- * antes de que existiera la capa semántica, que todavía no han pasado por el
- * relleno de account_roles (E1.1).
+ * El rol manda. El código heredado (LEGACY_ROLE_CODES, expense-line-account.ts)
+ * queda de red para las entidades sembradas antes de que existiera la capa
+ * semántica, que todavía no han pasado por el relleno de account_roles (E1.1).
  */
-const CODIGO_HEREDADO: Partial<Record<AccountRole, string>> = {
-  cxp: '2110',
-  iva_acreditable: '1130',
-  iva_pendiente_acreditar: '1135',
-};
-
 async function cuentasPorRol(
   cliente: pg.PoolClient,
   entityId: string,
@@ -2292,7 +2298,7 @@ async function cuentasPorRol(
   const faltan = roles.filter((rol) => !porRol.has(rol));
   if (faltan.length === 0) return porRol;
 
-  const codigos = faltan.map((rol) => CODIGO_HEREDADO[rol]).filter((c): c is string => !!c);
+  const codigos = faltan.map((rol) => LEGACY_ROLE_CODES[rol]).filter((c): c is string => !!c);
   if (codigos.length === 0) return porRol;
 
   const c = await cliente.query<{ id: string; code: string }>(
@@ -2301,7 +2307,7 @@ async function cuentasPorRol(
   );
   const porCodigo = new Map(c.rows.map((x) => [x.code, x.id]));
   for (const rol of faltan) {
-    const id = porCodigo.get(CODIGO_HEREDADO[rol] as string);
+    const id = porCodigo.get(LEGACY_ROLE_CODES[rol] as string);
     if (id) porRol.set(rol, id);
   }
   return porRol;

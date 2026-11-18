@@ -2145,6 +2145,19 @@ export const ES: Record<keyof typeof EN, string> = {
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
   'credit_note.advance.exceeds_invoiced_advance':
     'La nota de crédito {note} aplica un anticipo de {requested}, y el cliente {customer} tiene {available} en facturas de anticipo sin aplicar. No se posteó nada. El saldo a cuenta se aplica con `receipt apply`; un anticipo registrado con una póliza se aplica con una póliza.',
+  // MNE-001-489 (#692): why a received credit note waits for a person.
+  'credit_note.received.refusal.not_received': 'El CFDI {note} es de {issuer} para {receiver}: la entidad no es su receptor. Sólo una nota de crédito que un proveedor le emitió a la entidad se contabiliza contra un gasto.',
+  'credit_note.received.refusal.not_credit_note': 'El CFDI {note} es tipo {type} con TipoRelacion {relation}. Sólo un tipo E con TipoRelacion 01 (nota de crédito) o 03 (devolución) se contabiliza contra un gasto.',
+  'credit_note.received.refusal.note_foreign_currency': 'La nota de crédito {note} está en {currency}. Una nota de crédito recibida se contabiliza sólo cuando ella y su gasto están en la moneda de la entidad; ésta espera a una persona.',
+  'credit_note.received.refusal.other_taxes': 'La nota de crédito {note} trae un impuesto distinto del IVA trasladado (IEPS, un impuesto local o una retención). Espera a una persona.',
+  'credit_note.received.refusal.related_bills': 'La nota de crédito {note} tiene que nombrar exactamente un gasto de esta entidad entre sus CFDI relacionados, y nombra {count}.',
+  'credit_note.received.refusal.bill_foreign_currency': 'El gasto {bill} está en {currency}. La nota de crédito {note} se contabiliza sólo cuando ella y su gasto están en la moneda de la entidad; espera a una persona.',
+  'credit_note.received.refusal.other_vendor': 'La nota de crédito {note} la emitió {issuer}, y el gasto {bill} es del proveedor {vendor}. Una nota de crédito sólo baja un gasto de su propio emisor.',
+  'credit_note.received.refusal.bill_not_payable': 'El gasto {bill} está en "{status}". La nota de crédito {note} se contabiliza sólo contra un gasto en {payable}.',
+  'credit_note.received.refusal.release_not_recorded': 'Un pago aplicado al gasto {bill} no guardó el IVA que liberó, así que no se puede saber cuánto IVA pendiente le queda al gasto. La nota de crédito {note} espera a una persona.',
+  'credit_note.received.refusal.exceeds_balance': 'La nota de crédito {note} es por {total} y el gasto {bill} debe {due}. Una nota de crédito mayor que el saldo de su gasto no se contabiliza.',
+  'credit_note.received.refusal.vat_out_of_proportion': 'La nota de crédito {note} trae {vat} de IVA, y en la proporción del gasto {bill} traería {expected}. Un gasto con más de una tasa de IVA no dice qué parte baja la nota; espera a una persona.',
+  'credit_note.received.refusal.capitalised_line': 'El gasto {bill} tiene un renglón en una cuenta con el rol {role}. La nota de crédito {note} bajaría un activo y no un gasto; espera a una persona.',
   'payment.apply.other_vendor':
     '{bill} es del proveedor {billVendor} y el pago {payment} es del proveedor {paymentVendor}: el saldo a cuenta sólo salda gastos de su propio proveedor. Registra el pago a nombre de {billVendor}, o aplica {payment} a un gasto de {paymentVendor}.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.

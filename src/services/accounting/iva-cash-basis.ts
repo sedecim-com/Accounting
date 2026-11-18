@@ -5,6 +5,7 @@ import { logger } from '../../utils/logger.js';
 import { matchCase, type AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import type { CfdiFacts } from '../xml-ingestion/cfdi-facts.js';
 import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
+import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
 
 // ============================================================
 // IVA ON CASH BASIS (LIVA art. 1-B and art. 5 frac. III)
@@ -571,7 +572,7 @@ export async function ivaStillParked(
   const { from } = reclassRoles(side);
   const sourceTypes = side === 'issued'
     ? ['invoice', 'customer_payment', 'iva_reclass']
-    : ['bill', 'vendor_payment', 'iva_reclass'];
+    : ['bill', 'vendor_payment', 'iva_reclass', VENDOR_CREDIT_NOTE_SOURCE];
 
   // MNE-001-023: a bill migrated with the opening parked its IVA inside the
   // opening entry, which carries the pending-IVA balance as ONE line for all
@@ -636,6 +637,32 @@ export async function ivaStillParked(
     }
   }
   return Decimal.max(parked, new Decimal(0)).toFixed(SCALE);
+}
+
+/**
+ * What a bill still has in the pending account, net of its payments.
+ *
+ * `ivaStillParked` does not reach a vendor payment's entry, whose source is
+ * the payment and not the bill, so on its own it reads a half-paid bill as
+ * fully parked. Each release is stored on its application, and an application
+ * undone or reversed stops being live, which puts its VAT back. A received
+ * credit note takes its pending-VAT share up to this figure (MNE-001-489).
+ */
+export async function receivedVatStillParked(
+  client: pg.PoolClient,
+  entityId: string,
+  billId: string
+): Promise<string> {
+  const cap = new Decimal(await ivaStillParked(client, 'received', entityId, billId));
+  const { rows } = await client.query<{ released: string }>(
+    `SELECT COALESCE(SUM(pa.iva_reclass_amount), 0)::text AS released
+       FROM payment_applications pa
+       JOIN bills b ON b.id = pa.bill_id
+      WHERE b.entity_id = $1 AND pa.bill_id = $2
+        AND pa.unapplied_at IS NULL`,
+    [entityId, billId]
+  );
+  return Decimal.max(cap.minus(rows[0]?.released ?? '0'), new Decimal(0)).toFixed(SCALE);
 }
 
 /**
