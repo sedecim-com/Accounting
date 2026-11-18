@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { query, getClient, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { repXml } from './helpers/rep-xml.js';
@@ -207,6 +209,41 @@ describe('the inbox door', () => {
     });
     expect(await headerOf(manual.id)).toBe('252.8000');
   }, 90_000);
+});
+
+// MNE-001-554: the bills the old writer stored are corrected by migration 328.
+describe('a bill stored before the fix', () => {
+  it('T8 · after the migration a payment releases the right VAT, and the earlier excess stays written', async () => {
+    const { billId } = await inbox(cfdi(10).xml);
+    await query(`UPDATE bills SET tax_amount = 252.80 WHERE id = $1 AND entity_id = $2`, [billId, f.entityId]);
+    expect(await releasedBy(await pay(billId, '626.40', 10, 18))).toBe('126.4000');
+
+    const file = path.join(__dirname, '..', '..', 'src', 'database', 'migrations', '328_a_cfdi_bill_header_holds_vat_alone.sql');
+    const client = await getClient();
+    try {
+      await client.query('BEGIN');
+      await client.query(fs.readFileSync(file, 'utf-8'));
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    expect(await headerOf(billId)).toBe('172.8000');
+    // Run by a superuser, whom RLS does not filter: the row is still this firm's.
+    expect(await one(`SELECT tenant_id::text FROM audit_log WHERE entity_type = 'bill' AND entity_id = $1`, [billId])).toBe(f.tenantId);
+
+    expect(await releasedBy(await pay(billId, '626.40', 10, 20))).toBe('86.4000');
+    // 172.80 parked, 126.40 + 86.40 released: the 40.00 over-credited before the
+    // correction stays in sight, and nothing was posted to hide it.
+    expect(await moved('1135', billId)).toBe('-40.0000');
+    expect(await one(
+      `SELECT count(*)::text FROM journal_entries WHERE entity_id = $1 AND status = 'posted'
+          AND source_id IN (SELECT $2::uuid UNION SELECT payment_id FROM payment_applications WHERE bill_id = $2)`,
+      [f.entityId, billId]
+    )).toBe('3');
+  }, 120_000);
 });
 
 describe('the draft door', () => {
