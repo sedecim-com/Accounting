@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 244 of 388 subcommands
+  spelling is `-T` at the root and `-t` on the 245 of 389 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -107,7 +107,7 @@ Commands:
   backup|respaldo                        Logical backups of the whole installation (create, list, verify by rehearsing the restore, restore) and per-tenant logical exports (export)
   report|reporte                         Financial statements, trial balance, general ledger and ageing
   ledger|mayor                           The general ledger itself: integrity checks, stale drafts, auxiliaries and balances
-  cfdi                                   The CFDI mirror: list, inspect, SAT status and the classifier trail
+  cfdi                                   The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an issued CFDI
   rep                                    Payment receipts (REP): what is missing one, and the parked ones to retry
   ai|ia                                  Métricas y calibración del agente contable
   usage|uso [options]                    Token usage and estimated cost from the local ledger (no API calls)
@@ -10059,21 +10059,26 @@ Examples:
 ```
 Usage: mnemosine cfdi [options] [command]
 
-The CFDI mirror: list, inspect, SAT status and the classifier trail
+The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an
+issued CFDI
 
 Options:
-  -h, --help                         display help for command
+  -h, --help                          display help for command
 
 Commands:
-  list|listar [options]              The mirror, filtered by direction, type,
-                                     status and date
-  show|ver [options] <uuid>          One CFDI: header, lines, taxes and SAT
-                                     status; --format xml prints the exact bytes
-  status|estatus                     SAT status of the mirror (public
-                                     ConsultaCFDIService; no e.firma involved)
-  explain|explicar [options] <uuid>  WHY it was recorded the way it was: case,
-                                     facts and decisions the classifier left
-  help [command]                     display help for command
+  list|listar [options]               The mirror, filtered by direction, type,
+                                      status and date
+  show|ver [options] <uuid>           One CFDI: header, lines, taxes and SAT
+                                      status; --format xml prints the exact
+                                      bytes
+  status|estatus                      SAT status of the mirror (public
+                                      ConsultaCFDIService; no e.firma involved)
+  explain|explicar [options] <uuid>   WHY it was recorded the way it was: case,
+                                      facts and decisions the classifier left
+  post|contabilizar [options] <uuid>  Post a CFDI this entity issued to
+                                      receivables: the customer invoice with its
+                                      UUID, and its entry
+  help [command]                      display help for command
 ```
 
 ### `mnemosine cfdi list` (alias: listar)
@@ -10246,6 +10251,41 @@ Examples:
   mnemosine cfdi explain 3F2504E0-4F89-11D3-9A0C-0305E82C3301
   # The same, as JSON, to attach to the working paper.
   mnemosine cfdi explain 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --json
+```
+
+### `mnemosine cfdi post` (alias: contabilizar)
+
+```
+Usage: mnemosine cfdi post|contabilizar [options] <uuid>
+
+Post a CFDI this entity issued to receivables: the customer invoice with its
+UUID, and its entry
+
+Arguments:
+  uuid                     UUID of a CFDI this entity issued, as cfdi list
+                           prints it
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --account <code>         revenue account, by code or id, of every concept with
+                           no account of its own
+  --json                   one row: invoice number, status, amount due, entry
+                           number and dry_run
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  -h, --help               display help for command
+
+Examples:
+  # The invoice and the entry it would write, writing nothing.
+  mnemosine cfdi post 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --dry-run
+  # Post it, with 4200 as the revenue account of every concept not coded on its own.
+  mnemosine cfdi post 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --account 4200 --yes
 ```
 
 ## `mnemosine rep`

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
+import { Command } from 'commander';
 
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
@@ -13,6 +14,7 @@ import { resolvePolicy, seedPolicies } from '../../src/services/policy/policy-se
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { codePreRegistration } from '../../src/services/xml-ingestion/pre-registration-coding.js';
 import type { AgentContext } from '../../src/ai/context.js';
+import { registerCfdiCommand } from '../../src/cli/cfdi-command.js';
 
 // ============================================================
 // MNE-001-417 (#620, part 2/4) — AN ISSUED CFDI CODED BY HAND GOES TO AR.
@@ -324,6 +326,46 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
       .catch((e: unknown) => e);
     expect(refusal).toMatchObject({ code: 'CFDI_ALREADY_INVOICED' });
     expect(await ledger()).toEqual(after);
+  });
+
+  // MNE-001-418: the terminal command over the door.
+  describe('cfdi post at the terminal, in process', () => {
+    /** One command line in process; `said` is everything it printed or reported. */
+    async function cli(...argv: string[]): Promise<{ exitCode?: number; said: string }> {
+      const program = new Command('mnemosine').exitOverride();
+      let exitCode: number | undefined;
+      let said = '';
+      const plain = (text: string) => text;
+      const say = (chunk: unknown) => { said += String((chunk as Error)?.message ?? chunk); return true; };
+      const deps = {
+        palette: { dim: plain, bold: plain, cyan: plain, red: plain, green: plain, yellow: plain } as never,
+        shutdown: (c: number) => { exitCode = c; }, reportError: say,
+      };
+      registerCfdiCommand(program, deps);
+      const streams = [vi.spyOn(process.stdout, 'write').mockImplementation(say), vi.spyOn(process.stderr, 'write').mockImplementation(say)];
+      await program.parseAsync(['node', 'mnemosine', ...argv, '--entity', f.entityId, '--tenant', f.tenantId])
+        .finally(() => streams.forEach((stream) => stream.mockRestore()));
+      return { exitCode, said };
+    }
+
+    it('--dry-run writes nothing and names the folio the real run then draws; --account reaches the entry by its code', async () => {
+      const { uuid, id } = await stranded([method('PUE')]);
+      const before = await ledger();
+      expect(await cli('cfdi', 'post', uuid)).toMatchObject({ exitCode: 10 });
+      const preview = await cli('cfdi', 'post', uuid, '--account', '4200', '--dry-run');
+      expect(preview.exitCode).toBe(0);
+      expect(preview.said).toContain(`bill inbox edit ${id} --line`);
+      expect(await ledger()).toEqual(before);
+
+      const posted = await cli('cfdi', 'post', uuid, '--account', '4200', '--yes');
+      expect(posted).toMatchObject({ exitCode: 0 });
+      const invoice = await born(uuid);
+      expect(invoice.lines).toEqual(['DR 1120 9280.00', 'CR 4200 8000.00', 'CR 2120 1280.00']);
+      expect(preview.said).toContain(invoice.invoice_number);
+      expect(posted.said).toContain(invoice.invoice_number);
+      expect(posted.said).toContain(`receipt record ${invoice.invoice_number}`);
+      expect(await cli('cfdi', 'post', uuid, '--yes')).toMatchObject({ exitCode: 5 });
+    });
   });
 
   // Last on purpose: it closes August, the month of every CFDI above.

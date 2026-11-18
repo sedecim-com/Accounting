@@ -71,7 +71,7 @@ exactly that, and every catalog use of `pull`/`push` was a one-way fetch or send
 
 | English | Spanish | Precise meaning | May apply to |
 |---|---|---|---|
-| `post` | `contabilizar` | Write the approved entry to the general ledger. | `entry`, `bill`, `invoice`, `payment`, `pay-run`, `depreciation`, `allocation`, `consolidation`, `bank reconciliation`, `inventory` |
+| `post` | `contabilizar` | Write the approved entry to the general ledger. | `entry`, `bill`, `invoice`, `cfdi`, `payment`, `pay-run`, `depreciation`, `allocation`, `consolidation`, `bank reconciliation`, `inventory` |
 | `void` | `anular` | Kill an **unposted** document. | `entry`, `bill`, `invoice`, `payment`, `payslip`, `pay-run`, `bank check` |
 | `reverse` | `reversar` | Write the contra-entry of a **posted** document. Absorbs `unpost`, `rollback`, `revert`. | `entry`, `bill`, `depreciation`, `accrual`, `inventory`, `pay-run`, `write-off`, `consolidation` |
 | `correct` | `corregir` | Issue a superseding document that replaces an earlier one, both preserved. | `entry`, `cfdi`, `1099`, `w2`, `filing`, `memory`, `payslip` |

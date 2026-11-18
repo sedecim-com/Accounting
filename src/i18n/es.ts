@@ -3945,4 +3945,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.e_accounting.seal.option.type': 'tipo de envío de la balanza archivada: N normal, C complementaria',
   'help.e_accounting.seal.option.closing': 'la balanza de cierre, archivada como mes 13',
   'help.e_accounting.seal.option.output': 'escribe además el XML sellado en esta ruta',
+
+  // ==== MNE-001-418 · help by key, cfdi post (issue #620) ====
+  'help.cfdi.post.description':
+    'Contabiliza en CxC un CFDI que emitió esta entidad: la factura de cliente con su UUID y su póliza',
+  'help.cfdi.post.argument.uuid': 'UUID de un CFDI que emitió esta entidad, como lo imprime cfdi list',
+  'help.cfdi.post.option.account': 'cuenta de ingresos, por código o id, de cada concepto sin cuenta propia',
+  'help.cfdi.post.option.json': 'un renglón: número de factura, estado, saldo por cobrar, número de póliza y dry_run',
+  'cfdi.post.bad_uuid':
+    '"{uuid}" no es el UUID de un CFDI. Lista los CFDI emitidos por contabilizar con: mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending',
+  'cfdi.post.confirm':
+    '¿Contabilizar en CxC el CFDI {uuid} ({rfc}, {total} {currency}, MetodoPago {method, select, none {ausente} other {{method}}})? No se puede deshacer.',
+  'cfdi.post.no_terminal':
+    '{question} No hay terminal donde preguntar: córrelo de nuevo con --yes cuando estés seguro, o con --dry-run para ver antes el efecto.',
+  'cfdi.post.would_post': 'Se contabilizaría el CFDI {uuid} como {invoice} para {rfc} · póliza {entry}',
+  'cfdi.post.posted': 'CFDI {uuid} contabilizado como {invoice} para {rfc} · póliza {entry} · {due} por cobrar',
+  'cfdi.post.nothing_written':
+    'No se escribió nada. Para codificar antes un concepto: mnemosine bill inbox edit {id} --line <n> --account <code>',
+  'cfdi.post.next':
+    '{method, select, PPD {Su IVA queda como no cobrado (2125 en el catálogo sembrado) hasta que llegue su complemento de pago (REP).{parked, select, yes { Hay complementos de pago aparcados: mnemosine rep reconcile liga el que pague esta factura.} other {}}} other {Registra su cobro con: mnemosine receipt record {invoice}}}',
 };
