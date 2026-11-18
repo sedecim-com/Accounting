@@ -8,6 +8,7 @@ import {
   revaluationOnAccount,
   type ForeignOpen,
 } from '../accounting/fx-revaluation.js';
+import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note.js';
 
 // ============================================================
 // EL CUADRE DE CxP (F04)
@@ -57,7 +58,9 @@ import {
  * ruido que nadie lee. Lo mismo vale para cualquier flujo nuevo que toque el
  * 2110 (nómina y depreciación hoy no lo tocan).
  */
-const ORIGENES_CXP = ['bill', 'vendor_payment', 'vendor_application', 'vendor_unapplication'] as const;
+export const ORIGENES_CXP = [
+  'bill', 'vendor_payment', 'vendor_application', 'vendor_unapplication', VENDOR_CREDIT_NOTE_SOURCE,
+] as const;
 
 /** Los orígenes que LIQUIDAN un pasivo ya reconocido (débito al control). */
 const ORIGENES_LIQUIDACION = ['vendor_payment', 'vendor_application'] as const;

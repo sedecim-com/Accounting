@@ -302,12 +302,17 @@ export const CASES: CfdiCase[] = [
     posting: [
       { role: 'cxp', side: 'debit', amount: A.total, description: 'Vendor credit note' },
       { role: 'devolucion_compras', side: 'credit', amount: A.subtotalNeto, description: 'Return/discount on purchases' },
-      { role: 'iva_acreditable', side: 'credit', amount: A.ivaTrasladado, description: 'Reversal of creditable VAT', omitIfZero: true },
+      {
+        role: 'iva_acreditable', side: 'credit', amount: A.ivaTrasladado, omitIfZero: true,
+        description: 'Reversal of VAT: out of pending crediting up to what the bill still has there, the rest out of creditable VAT',
+      },
     ],
     requiresLinkage: true,
     notes:
-      'Reduces the balance owed to the vendor. If the original invoice was PPD and its VAT sits in ' +
-      '"pending crediting", the reversal must go against that same account.',
+      'Reduces the balance owed to the vendor on the one bill it names. Its VAT leaves "pending ' +
+      'crediting" up to what that bill still has parked there, and creditable VAT for the rest (LIVA ' +
+      'arts. 5 fr. III and 7). This case only names the roles: the posting comes from ' +
+      'received-credit-note.ts, which splits the VAT and decides the cost side.',
     priority: 70,
   },
   {

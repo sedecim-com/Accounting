@@ -15,6 +15,7 @@ import {
   ivaToReclassify,
   CONSERVATIVE_METODO,
   ivaStillParked,
+  receivedVatStillParked,
   entityUsesCashBasisIva,
 } from '../../src/services/accounting/iva-cash-basis.js';
 
@@ -291,6 +292,52 @@ describe('ivaStillParked — you cannot release what was never parked', () => {
     expect(sql).toMatch(/je\.entity_id = \$1/);
     expect(sql).toMatch(/ar\.entity_id = \$1/);
     expect(params?.[0]).toBe(ENTITY);
+  });
+
+  it('counts a received credit note among the entries of a bill, and only on the received side', async () => {
+    // MNE-001-489: the note's entry carries the bill as source_id, so the cap nets what it took out of 1135.
+    const c = client('0');
+    await ivaStillParked(c as never, 'received', ENTITY, DOC);
+    expect(c.query.mock.calls[0][1]?.[3]).toContain('vendor_credit_note');
+    const c2 = client('0');
+    await ivaStillParked(c2 as never, 'issued', ENTITY, DOC);
+    expect(c2.query.mock.calls[0][1]?.[3]).not.toContain('vendor_credit_note');
+  });
+});
+
+// MNE-001-489: the cap does not reach a payment's entry, whose source is the
+// payment, so what a bill still has parked is the cap minus the releases its
+// live applications stored.
+describe('receivedVatStillParked: the cap minus what the live applications released', () => {
+  const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const BILL = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+  function client(parked: string, released: string) {
+    return {
+      query: vi.fn(async (sql: string, _params?: unknown[]) => ({
+        rows: /FROM payment_applications/.test(sql) ? [{ released }] : [{ parked }],
+      })),
+    };
+  }
+
+  it('subtracts the stored releases from the cap', async () => {
+    expect(await receivedVatStillParked(client('1280.0000', '640.0000') as never, ENTITY, BILL)).toBe('640.0000');
+    expect(await receivedVatStillParked(client('1280.0000', '0') as never, ENTITY, BILL)).toBe('1280.0000');
+  });
+
+  it('never goes below zero', async () => {
+    expect(await receivedVatStillParked(client('100.0000', '160.0000') as never, ENTITY, BILL)).toBe('0.0000');
+  });
+
+  it('sums only live applications of that bill, inside the entity', async () => {
+    const c = client('1280.0000', '0');
+    await receivedVatStillParked(c as never, ENTITY, BILL);
+    const call = c.query.mock.calls.find(([sql]) => /FROM payment_applications/.test(sql));
+    const sql = String(call?.[0]).replace(/\s+/g, ' ');
+    expect(sql).toContain('SUM(pa.iva_reclass_amount)');
+    expect(sql).toContain('pa.unapplied_at IS NULL');
+    expect(sql).toContain('b.entity_id = $1');
+    expect(call?.[1]).toEqual([ENTITY, BILL]);
   });
 });
 
