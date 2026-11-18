@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: 1fb18de99884c9972c8c8d240d9fe749393efa59
+> Gemela en español de [`language.md`](language.md) · source_sha: c7ca5b990af7e33f37e481b3235728d9e2b3e5e4
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -80,7 +80,7 @@ Como `catalogo:estado` y `ux:status`: recorre el árbol, escribe su bloque entre
 | Líneas de comentario en español en `src/` | 22 731 | trinquete desde I20 |
 
 
-La medición viva, escrita por el propio metro. **No se edita a mano**: `npm run language:status -- --write` sustituye todo lo que hay entre los marcadores, y vuelve a sellar esta gemela para que no quede caducada.
+Los topes del trinquete, escritos por el propio metro a partir de `docs/language-baseline.json`; los conteos vivos se leen con `npm run language:status`, así que un pull request que sólo mueve un conteo no toca esta página. **No se edita a mano**: `npm run language:status -- --write` sustituye todo lo que hay entre los marcadores, y vuelve a sellar esta gemela para que no quede caducada.
 
 <!-- LANGUAGE-STATUS:START -->
 
@@ -89,15 +89,16 @@ La medición viva, escrita por el propio metro. **No se edita a mano**: `npm run
   CI verifies it with --check, so a hand edit shows up red.
 -->
 
-### How much Spanish is left, and where
+### How much Spanish may be left, and where
 
 18 lanes under the ratchet and 1 measured but not yet required.
-The ratchet lives in `docs/language-baseline.json` and only goes down; raising a number is a
-manual act and its trace is the diff.
+This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline
+in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its
+trace is the diff. The live figures are read with `npm run language:status`.
 
-| Lane | What it counts | Today | Towards |
+| Lane | What it counts | Ceiling | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10507 (baseline 10512) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10512 | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5763 | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
@@ -114,8 +115,8 @@ manual act and its trace is the diff.
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 0 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `untagged-comment-markers` | TODO, FIXME, XXX and HACK comments with no issue under src/, tests/ and scripts/ | 1 | 0 |
-| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 647 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28755 | 0 |
+| `help-descriptions-without-key` | CLI help descriptions (commands, options, arguments) not rendered from a catalog key, by family | 646 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | — | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 

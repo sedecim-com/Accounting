@@ -47,13 +47,19 @@ export const ES: Record<keyof typeof EN, string> = {
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} ieps {traslada IEPS ({detail}), que este camino todavía no contabiliza} local_tax {traslada impuestos locales ({detail}), que este camino todavía no contabiliza} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
   'error.ISSUED_CFDI_NOT_OPEN':
     'El CFDI {uuid} no está abierto: su pre-registro está en {status}{invoice, select, none {} other {, como la factura de cliente {invoice}}}. No se posteó nada.',
   'error.ISSUED_CFDI_DRAFT_IN_REVIEW':
     'El CFDI {uuid} tiene un borrador de IA en revisión o aprobado: apruébalo o recházalo con: mnemosine review. No se posteó nada.',
   'error.ISSUED_CFDI_HELD':
-    'El CFDI {uuid} queda detenido y no se posteó nada: {reason}',
+    'El CFDI {uuid} queda detenido y no se posteó nada: {reason}{commands, select, none {} other {. Contéstalo con: {commands}, y vuelve a correr el comando}}',
+  'error.ISSUED_CFDI_SUBSTITUTES_INVOICE':
+    'El CFDI {uuid} sustituye a un CFDI que sigue siendo la factura de cliente {invoice} ({status}): anula primero esa factura. No se posteó nada.',
+  'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH':
+    'Los conceptos del CFDI {uuid} suman {lines} netos de sus descuentos, y su SubTotal − Descuento es {revenue}: el ingreso no se puede repartir por concepto. No se posteó nada.',
+  'error.ISSUED_CFDI_REVENUE_ACCOUNT':
+    'La cuenta {account} ({type}, saldo {balance}){line, select, none {} other {, codificada en el renglón {line},}} no puede recibir el ingreso del CFDI {uuid}: una venta abona una cuenta de ingresos activa y afectable, de saldo acreedor. No se posteó nada.',
   // ==== fin de error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152); see en.ts ====
@@ -2181,6 +2187,10 @@ export const ES: Record<keyof typeof EN, string> = {
     'Este cobro se pagó con tarjeta, y una tarjeta se paga cuando se acepta (LIVA art. 1-B): not_collected dice que el dinero nunca fue tuyo. Si llegó y el banco te lo quitó, como en un contracargo, la causa es taken_back.',
   'receipt.reverse.warning.cause_not_stated':
     'No se declaró causa, y sólo un cheque tiene una por omisión: el IVA de este cobro se queda en el mes en que se cobró hasta que se declare una causa (not_collected o taken_back).',
+  'receipt.reverse.cause.stated': 'causa {cause}',
+  'receipt.reverse.cause.defaulted':
+    'causa not_collected, tomada por omisión: un cheque se paga el día que el banco lo cobra',
+  'receipt.reverse.cause.none': 'sin causa declarada',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
@@ -2769,6 +2779,11 @@ export const ES: Record<keyof typeof EN, string> = {
     'tratamiento de IVA de un anticipo sin factura: 16, 8, 0, exempt (exento) o not-subject (no-objeto); el IVA se causa al cobro',
   'help.receipt.apply.option.withholding':
     'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
+  // MNE-001-509 (#701): the reversal states what happened to the money.
+  'help.receipt.reverse.description':
+    'Reversa un cobro cuyo dinero no se quedó, diciendo por qué: espeja cada asiento, reabre facturas y vuelve a aparcar el IVA',
+  'help.receipt.reverse.option.cause':
+    'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo); sin ella, un cheque toma not_collected y cualquier otro método queda sin causa',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',

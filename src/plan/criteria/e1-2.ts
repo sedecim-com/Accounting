@@ -125,7 +125,7 @@ export const E1_2: Criterio[] = [
         return falla("el cobro devuelto dejó de quedar 'reversed': se confundiría con 'void', que es otra afirmación ante un auditor");
       }
       // Conteo ×2: la clausura con motivo vive en DOS vías (desaplicar y
-      // reversa NSF); mutar una deja la otra y la presencia lo bendice.
+      // reversa del cobro); mutar una deja la otra y la presencia lo bendice.
       return (pagos.match(/SET unapplied_at = NOW\(\), unapplied_by = \$1, unapply_reason = \$2/g) ?? []).length >= 2
         ? ok('aplicaciones con clausura (nunca DELETE), IVA exacto por fila, remanente en anticipos y reversa por espejos')
         : falla('la desaplicación dejó de clausurar con rastro: borraría historia en lugar de cerrarla');

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { compare, staleBlocks, tighten, writeBlock } from '../../scripts/language-status.js';
+import { block, compare, staleBlocks, tighten, writeBlock } from '../../scripts/language-status.js';
+import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -271,7 +272,7 @@ describe('publicar el bloque en el rector y su gemela', () => {
     withTempDocs([withMarkers], ([p]) => {
       const stale = staleBlocks(`${OPEN}\nnuevo\n${CLOSE}`, [p]);
       expect(stale).toHaveLength(1);
-      expect(stale[0]).toContain('no es el que el árbol mide hoy');
+      expect(stale[0]).toContain('is not the one generated from');
     });
   });
 
@@ -312,5 +313,158 @@ describe('publicar el bloque en el rector y su gemela', () => {
       expect(failures).toHaveLength(1);
       expect(fs.readFileSync(ps[0], 'utf8')).toContain('nuevo');
     });
+  });
+});
+
+// ============================================================
+// THE BLOCK PUBLISHES THE RATCHET'S CEILINGS, NOT THE LIVE COUNTS (#734)
+//
+// The block used to print each lane's value measured on the tree, so almost
+// every code PR rewrote the same line of `docs/language.md` and its twin, and
+// each merge put every other open PR in conflict on those two files. It now
+// publishes each ratcheted lane's baseline; the live figures stay in the
+// command's output. These tests pin that the block is a function of the
+// baseline and the lane list, and that the ratchet did not move.
+// ============================================================
+describe('the published block — ceilings from the baseline, not counts from the tree', () => {
+  const observed = (id: string, value: number): Lane => ({ ...lane(id, value), informational: true });
+  const base = baselineOf({ identifiers: 10512, filenames: 51, comments: 27780 });
+  const tree = (identifiers: number, filenames: number, comments: number): Lane[] => [
+    lane('identifiers', identifiers),
+    lane('filenames', filenames),
+    observed('comments', comments),
+  ];
+
+  it('a count that goes down without the baseline changing leaves the block byte for byte the same', () => {
+    expect(block(tree(10507, 51, 28754), base)).toBe(block(tree(10512, 51, 27780), base));
+    expect(block(tree(3, 0, 0), base)).toBe(block(tree(10512, 51, 27780), base));
+    // And the ratchet has nothing to say about a count that went down.
+    expect(compare(tree(10507, 51, 28754), base)).toEqual([]);
+  });
+
+  it('each ratcheted lane shows its baseline, and no live value appears anywhere', () => {
+    const text = block(tree(7001, 49, 31337), base);
+    expect(text).toContain('| `identifiers` | identifiers | 10512 | 0 |');
+    expect(text).toContain('| `filenames` | filenames | 51 | 0 |');
+    for (const live of ['7001', '49', '31337']) expect(text).not.toContain(live);
+  });
+
+  it('an informational lane is listed with no figure, not even its seeded one', () => {
+    const text = block(tree(10512, 51, 31337), base);
+    expect(text).toContain('| `comments` | comments *(informational)* | — | 0 |');
+    expect(text).not.toContain('27780');
+    expect(text).not.toContain('31337');
+  });
+
+  it('the block says it publishes ceilings and where the live figures are read', () => {
+    const text = block(tree(1, 1, 1), base);
+    expect(text).toContain("publishes the ratchet's ceilings");
+    expect(text).toContain('`npm run language:status`');
+    expect(text).toContain('| Lane | What it counts | Ceiling | Towards |');
+  });
+
+  it('a changed baseline changes the block, so the page is stale until it is regenerated', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lang-ceil-'));
+    try {
+      const page = path.join(dir, 'page.md');
+      fs.writeFileSync(page, `# Page\n\n${block(tree(10507, 51, 1), base)}\n`);
+      expect(staleBlocks(block(tree(10507, 51, 1), base), [page])).toEqual([]);
+
+      const lowered = baselineOf({ ...base.lanes, identifiers: 10507 });
+      const stale = staleBlocks(block(tree(10507, 51, 1), lowered), [page]);
+      expect(stale).toHaveLength(1);
+
+      expect(writeBlock(block(tree(10507, 51, 1), lowered), [page])).toEqual([]);
+      expect(staleBlocks(block(tree(10507, 51, 1), lowered), [page])).toEqual([]);
+      expect(fs.readFileSync(page, 'utf8')).toContain('| `identifiers` | identifiers | 10507 | 0 |');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a lane above its baseline is still named with its value and its baseline, whatever the page says', () => {
+    const grown = tree(10513, 51, 1);
+    const h = compare(grown, base);
+    expect(h).toHaveLength(1);
+    expect(h[0].lane).toBe('identifiers');
+    expect(h[0].detail).toContain('10512 → 10513');
+    // The page is not what excuses or accuses a regression: it reads the same.
+    expect(block(grown, base)).toBe(block(tree(10512, 51, 1), base));
+  });
+
+  it('a lane with no baseline entry shows no figure, and the ratchet names it', () => {
+    const lanes = [...tree(1, 1, 1), lane('brand-new', 3)];
+    expect(block(lanes, base)).toContain('| `brand-new` | brand-new | — | 0 |');
+    expect(compare(lanes, base).map((f) => f.lane)).toEqual(['brand-new']);
+  });
+
+  // THE MERGE THE ISSUE IS ABOUT, WITH A REAL `git merge`.
+  //
+  // Two branches leave the same commit. Each lowers a count and does what a
+  // builder does before pushing: regenerates the block on both pages with what
+  // its own tree measures. One is merged, then the other merges the result.
+  // Before #734 both rewrote the same row of both pages with different numbers.
+  it('two branches that each lower a count merge with no conflict, and the merged pages need no regeneration', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lang-merge-'));
+    const git = (...args: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], {
+        cwd: dir,
+        encoding: 'utf8',
+      });
+    const pages = [path.join(dir, 'language.md'), path.join(dir, 'language.es.md')];
+    const publish = (lanes: Lane[]): void => {
+      expect(writeBlock(block(lanes, base), pages)).toEqual([]);
+    };
+    try {
+      git('init', '-q', '-b', 'develop');
+      const sealed = '0'.repeat(40);
+      fs.writeFileSync(pages[0], `# Language\n\n${block(tree(10512, 51, 100), base)}\n\nafter\n`);
+      fs.writeFileSync(
+        pages[1],
+        `# Idioma\n\n> source_sha: ${sealed}\n\n${block(tree(10512, 51, 100), base)}\n\ndespués\n`
+      );
+      publish(tree(10512, 51, 100));
+      fs.writeFileSync(path.join(dir, 'a.ts'), 'const importe = 1;\n');
+      fs.writeFileSync(path.join(dir, 'b.ts'), '// un comentario\n');
+      git('add', '-A');
+      git('commit', '-q', '-m', 'base');
+      const committed = pages.map((p) => fs.readFileSync(p, 'utf8'));
+
+      // Branch one deletes a Spanish identifier: 10512 → 10511.
+      git('checkout', '-q', '-b', 'one');
+      fs.writeFileSync(path.join(dir, 'a.ts'), 'const amount = 1;\n');
+      publish(tree(10511, 51, 100));
+      git('add', '-A');
+      git('commit', '-q', '-m', 'one');
+
+      // Branch two, from the same commit, lowers the same lane by two and a comment.
+      git('checkout', '-q', 'develop');
+      git('checkout', '-q', '-b', 'two');
+      fs.writeFileSync(path.join(dir, 'b.ts'), '// a comment\n');
+      publish(tree(10510, 51, 99));
+      git('add', '-A');
+      git('commit', '-q', '-m', 'two');
+
+      // `one` lands on develop; `two` merges develop.
+      git('checkout', '-q', 'develop');
+      git('merge', '-q', '--no-ff', '-m', 'merge one', 'one');
+      git('checkout', '-q', 'two');
+      const merge = spawnSync(
+        'git',
+        ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', 'merge', '--no-ff', '-m', 'merge develop', 'develop'],
+        { cwd: dir, encoding: 'utf8' }
+      );
+      expect(merge.status, merge.stdout + merge.stderr).toBe(0);
+      expect(git('status', '--porcelain')).toBe('');
+
+      // The merged tree measures both gains; the pages pass the block check as merged.
+      expect(staleBlocks(block(tree(10509, 51, 99), base), pages)).toEqual([]);
+      expect(compare(tree(10509, 51, 99), base)).toEqual([]);
+      // And neither page moved at all, so the twin's seal did not move either.
+      expect(pages.map((p) => fs.readFileSync(p, 'utf8'))).toEqual(committed);
+      expect(git('log', '--oneline', 'develop~1..two', '--', 'language.md', 'language.es.md')).toBe('');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
