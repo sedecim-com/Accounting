@@ -13,7 +13,10 @@ import {
   ivaTreatmentNote,
 } from '../accounting/iva-cash-basis.js';
 import type { AccountRole } from './cfdi-taxonomy.js';
-import { LEGACY_ROLE_CODES, ELIGIBLE_EXPENSE_ACCOUNT_SQL, eligibleExpenseAccounts } from './expense-line-account.js';
+import {
+  LEGACY_ROLE_CODES, ELIGIBLE_EXPENSE_ACCOUNT_SQL, NO_ELIGIBLE_SUGGESTION,
+  eligibleExpenseAccounts, eligibleSuggestions, pickLineAccount,
+} from './expense-line-account.js';
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto, type CFDIImpuesto } from './cfdi-parser.js';
 import { money, satKey, sumTax } from './cfdi-amounts.js';
@@ -1058,9 +1061,9 @@ export class PreRegistrationService {
       ];
 
       for (const line of lines) {
-        const accountId = line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
+        // The lines arrive resolved by createBillFromPreReg, which has refused one with no account.
         jeLines.push({
-          account_id: accountId,
+          account_id: pickLineAccount(line, preReg.default_account_id as string | null, NO_ELIGIBLE_SUGGESTION) as string,
           debit_amount: new Decimal(line.importe).toFixed(4),
           credit_amount: null,
           description: line.descripcion,
@@ -1240,16 +1243,27 @@ export class PreRegistrationService {
    * `cfdi_classifications` and the pre-registration's `validation_warnings` --
    * stay on the pool on purpose. They commit even when the hold rolls the bill
    * back: they are what the reviewer and the reprocess read.
+   *
+   * WHICH ACCOUNT A LINE POSTS TO (MNE-001-552, #684): its own, then the one a
+   * person gave the whole document, then its suggestion while it is eligible.
+   * The lines are resolved once, here, and the bill lines and the entry read
+   * the same resolved lines. A suggestion stored before #684 is rechecked on
+   * this read and the stored row is not rewritten.
    */
   private async createBillFromPreReg(
     preReg: Record<string, unknown>,
     userId: string,
     opciones: OpcionesDeProceso = {}
   ): Promise<{ bill: Record<string, unknown>; journalEntry: Record<string, unknown> }> {
-    const lines = preReg.lines as LineWithSuggestion[];
+    const stored = preReg.lines as LineWithSuggestion[];
     const entityId = preReg.entity_id as string;
 
     const result = await withTransaction(async (client) => {
+      const eligible = await eligibleSuggestions(client, entityId, stored);
+      const lines = stored.map((line) => ({
+        ...line,
+        account_id: pickLineAccount(line, preReg.default_account_id as string | null, eligible),
+      }));
       const { billId, billNumber } = await insertarFacturaDePreRegistro(
         client,
         preReg,
@@ -1265,8 +1279,7 @@ export class PreRegistrationService {
         },
         () =>
           lines.map((line) => {
-            const accountId =
-              line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
+            const accountId = line.account_id;
             if (!accountId) {
               throw new ValidationError(`Line ${line.line_number}: no account assigned`);
             }

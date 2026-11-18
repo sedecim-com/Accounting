@@ -29,6 +29,7 @@ import {
 } from '../services/ap/bill-service.js';
 import { resolveVendor, dueDateFrom } from '../services/ap/vendor-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
+import { eligibleSuggestions, uncodedLines, type CodableLine } from '../services/xml-ingestion/expense-line-account.js';
 import { attestEntryAsync } from '../services/accounting/posting.js';
 import { resolvePeriodRange } from '../services/reporting/report-service.js';
 import { resolveReviewer } from '../ai/draft-service.js';
@@ -1017,10 +1018,11 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           throw err;
         }
 
-        const lines = (coded.lines ?? []) as Array<{ account_id?: string; suggested_account_id?: string | null }>;
-        const uncoded = coded.default_account_id
-          ? 0
-          : lines.filter((l) => !l.account_id && !l.suggested_account_id).length;
+        // Counted as `bill inbox run` will pick: a suggestion that may not post is not an account.
+        const lines = (coded.lines ?? []) as CodableLine[];
+        const uncoded = uncodedLines(
+          lines, coded.default_account_id as string | null, await eligibleSuggestions({ query }, ctx.entityId, lines)
+        ).length;
         process.stdout.write(
           `${deps.palette.green('✔')} ${idArg.trim().slice(0, 8)} ` +
             (lineNumber === undefined ? 'default account set' : `line ${lineNumber} coded`) +

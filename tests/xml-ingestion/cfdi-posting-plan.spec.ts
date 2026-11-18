@@ -147,6 +147,18 @@ describe('el desglose por renglón y el clasificador se reparten el trabajo', ()
     expect(plan.desglose).toBe('generica');
     expect(plan.avisos.join(' ')).toMatch(/sin cuenta asignada/);
   });
+
+  it('a line with a suggestion and a default opens on the default (MNE-001-552)', async () => {
+    const plan = await planearAsiento({
+      entityId: ENTIDAD, entityRfc: RFC_RECEPTOR, xml: XML_PUE,
+      renglones: [{ line_number: 1, descripcion: 'Servicio', importe: 1000, suggested_account_id: 'acct-suggested' }],
+      cuentaGastoPorDefecto: 'acct-default',
+      referencia: 'BILL', vendorExists: true, periodOpen: true, satStatus: 'vigente',
+    });
+    expect(plan.desglose).toBe('abierta');
+    expect(lineaDe(plan, 'acct-default')?.debit_amount).toBe('1000.0000');
+    expect(lineaDe(plan, 'acct-suggested')).toBeUndefined();
+  });
 });
 
 describe('un plan incompleto no se contabiliza', () => {
