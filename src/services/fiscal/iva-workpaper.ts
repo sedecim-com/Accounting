@@ -584,26 +584,28 @@ async function chargedOfMonth(
 
 /**
  * The journal entries of each bill's cash event, for the bills the DIOT's facts
- * picked: the bill's own entry (PUE) or the vendor payments of the month (PPD).
- * The selection of bills stays `hechosDelMes`'s; this only looks the entries up.
+ * picked: the bill's own entry (a `bill` fact) or the vendor payments of the
+ * month (a `payment` fact). Both the selection of bills and which event each
+ * one has stay `hechosDelMes`'s (MNE-001-491: where the VAT sits, not the
+ * method); this only looks the entries up.
  */
 async function billEntryIds(
   client: pg.PoolClient,
   entityId: string,
-  facts: ReadonlyArray<Pick<HechoPagado, 'billId' | 'metodo'>>,
+  facts: ReadonlyArray<Pick<HechoPagado, 'billId' | 'event'>>,
   range: RangoDelMes
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
-  const pue = facts.filter((h) => h.metodo.metodo === 'PUE').map((h) => h.billId);
-  const ppd = facts.filter((h) => h.metodo.metodo === 'PPD').map((h) => h.billId);
-  if (pue.length > 0) {
+  const byBill = facts.filter((h) => h.event === 'bill').map((h) => h.billId);
+  const byPayment = facts.filter((h) => h.event === 'payment').map((h) => h.billId);
+  if (byBill.length > 0) {
     const { rows } = await client.query<{ id: string; entry: string | null }>(
       `SELECT id, journal_entry_id::text AS entry FROM bills WHERE entity_id = $1 AND id = ANY($2::uuid[])`,
-      [entityId, pue]
+      [entityId, byBill]
     );
     for (const r of rows) out.set(r.id, r.entry ? [r.entry] : []);
   }
-  if (ppd.length > 0) {
+  if (byPayment.length > 0) {
     // The bridge has no entity_id: both ends are scoped, as in the DIOT's reading.
     const { rows } = await client.query<{ id: string; entries: string[] }>(
       `SELECT pa.bill_id AS id, array_agg(DISTINCT vp.journal_entry_id::text) AS entries
@@ -614,7 +616,7 @@ async function billEntryIds(
           AND vp.journal_entry_id IS NOT NULL AND vp.status <> 'void'
           AND vp.payment_date >= $3::date AND vp.payment_date <= $4::date
         GROUP BY pa.bill_id`,
-      [entityId, ppd, range.desde, range.hasta]
+      [entityId, byPayment, range.desde, range.hasta]
     );
     for (const r of rows) out.set(r.id, r.entries);
   }

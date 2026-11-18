@@ -2288,6 +2288,13 @@ export const EN = {
   'receipt.advance.label': 'Advance',
   'receipt.advance.confirm':
     'Record {amount} received from {customer} as an advance with no invoice{figures} in {entity}? This posts to the ledger.',
+  // MNE-001-509 (#701): a reversed receipt says what happened to the money.
+  'receipt.reverse.cause_unknown':
+    'The cause "{value}" of a reversal is not known: state not_collected (the money never became yours) or taken_back (it arrived and was taken back). Nothing was written.',
+  'receipt.reverse.warning.card_not_collected':
+    'This receipt was paid by card, and a card is paid when it is accepted (LIVA art. 1-B): not_collected says the money never became yours. If it arrived and the bank took it back, as in a chargeback, the cause is taken_back.',
+  'receipt.reverse.warning.cause_not_stated':
+    'No cause is stated, and only a cheque has one by default: the IVA of this receipt stays in the month it was collected until a cause is stated (not_collected or taken_back).',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',

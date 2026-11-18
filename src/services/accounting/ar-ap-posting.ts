@@ -1122,7 +1122,8 @@ async function withholdingLines(
 /**
  * Aplicar el anticipo a proveedor a facturas, como evento posterior al pago
  * (F04): DR cxp · CR anticipo_proveedores por lo aplicado, más la
- * acreditación del IVA de cada gasto PPD por la parte que ESTE evento paga.
+ * acreditación del IVA que cada gasto tenga aparcado en 1135 —sea PUE o PPD
+ * (MNE-001-491)—, por la parte que ESTE evento paga.
  * El efectivo no se mueve — ya salió con el pago; lo que se mueve es el
  * derecho, del activo por anticipos al pasivo que extingue.
  *
@@ -1169,14 +1170,8 @@ export async function postVendorApplicationEntry(
     const { from, to } = reclassRoles('received');
     const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
     for (const app of aplicaciones) {
-      const metodo = await resolveBillMetodoPago(client, {
-        id: app.invoiceId,
-        entity_id: payment.entity_id,
-        bill_number: app.invoiceNumber,
-        terms: app.terms,
-        memo: app.memo,
-      });
-      if (metodo.metodo !== 'PPD') continue;
+      // MNE-001-491: no method test. What the bill still has parked decides:
+      // a bill whose IVA went to the creditable account has a cap of zero.
       const bruto = ivaToReclassify({
         ivaTotal: app.taxAmount,
         documentTotal: app.totalAmount,
@@ -1237,7 +1232,7 @@ export async function postVendorApplicationEntry(
         account_id: requireRole(ivaRoles, to),
         debit_amount: monto,
         credit_amount: null,
-        description: `IVA now in ${to} (PPD payment) - Bill ${app.invoiceNumber}`,
+        description: `IVA now in ${to} (on payment) - Bill ${app.invoiceNumber}`,
       });
       ivaLines.push({
         account_id: requireRole(ivaRoles, from),
