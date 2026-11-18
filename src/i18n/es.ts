@@ -2126,6 +2126,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.withholding.isr_cap': '{invoice} tiene un subtotal de {cap}: el ISR retenido no puede pasar de ahí.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} ya registró la retención del cliente ({amount}) al emitirse: su cuenta por cobrar es el neto que paga el cliente. Aplica sólo el efectivo; --withholding es para facturas cuya cuenta por cobrar se registró en bruto.',
+  // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
+  'receipt.advance.treatment_unknown':
+    'No conozco el tratamiento de IVA "{value}" para un anticipo: declara uno de {allowed}.',
+  'receipt.advance.only_without_invoice':
+    'El tratamiento de IVA sólo se declara para un anticipo sin factura. Este cobro aplica efectivo a una factura, y el efectivo que deja a cuenta todavía no lleva tasa (issue 623).',
+  'receipt.advance.not_mexican_books':
+    'Esta entidad no lleva libros mexicanos, así que un anticipo no lleva tratamiento de IVA: regístralo sin él y el importe completo va a su cuenta de anticipos de clientes.',
+  'receipt.advance.cheque_not_wired':
+    'Un anticipo recibido con cheque causa su IVA el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo), no el día en que se recibe, y registrar ese cobro todavía no existe (issue 700). No se registró nada.',
+  'receipt.advance.application_not_wired':
+    '{receipt} es un anticipo cuyo IVA se causó al cobrarse. Aplicarlo a una factura tiene que cancelar ese IVA en vez de causarlo otra vez, y eso todavía no está cableado (issue 623, MNE-001-422). No se aplicó nada.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',

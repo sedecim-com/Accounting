@@ -554,6 +554,9 @@ interface PaymentRow {
   payment_date: Date | string;
   bank_account_id: string | null;
   journal_entry_id: string | null;
+  /** MNE-001-458 · the base and IVA an advance's cash on account splits into; absent: credited whole. */
+  advance_base_amount?: string | null;
+  advance_iva_amount?: string | null;
 }
 
 /**
@@ -774,7 +777,21 @@ async function functionalReceiptLines(
   );
   const aplicado = new Decimal(alloc.rows[0]?.aplicado ?? '0');
   const remanente = new Decimal(payment.payment_amount).minus(aplicado);
-  const rolesPedidos = ['cxc', ...(remanente.greaterThan(0) ? ['anticipo_clientes'] : [])];
+  // MNE-001-458 · An advance recorded with its treatment causes its IVA the
+  // day it is collected (LIVA art. 1-B): the base stays in anticipo_clientes
+  // and the IVA goes to iva_trasladado. The split has to be the whole
+  // remainder, or the entry would not foot.
+  const advanceIva = new Decimal(payment.advance_iva_amount ?? '0');
+  const advanceBase = payment.advance_base_amount == null ? remanente : new Decimal(payment.advance_base_amount);
+  if (!advanceBase.plus(advanceIva).equals(remanente)) {
+    throw new AccountingError(
+      'ADVANCE_SPLIT_MISMATCH',
+      `${payment.payment_number}: the advance's base ${advanceBase.toFixed(2)} plus its IVA ${advanceIva.toFixed(2)} ` +
+        `is not the ${remanente.toFixed(2)} left on account.`
+    );
+  }
+  const rolesPedidos = ['cxc', ...(remanente.greaterThan(0) ? ['anticipo_clientes'] : []),
+    ...(advanceIva.greaterThan(0) ? ['iva_trasladado'] : [])];
   const roles = await roleAccounts(client, payment.entity_id, rolesPedidos);
 
   const jeLines: JeLine[] = [
@@ -792,8 +809,16 @@ async function functionalReceiptLines(
     jeLines.push({
       account_id: requireRole(roles, 'anticipo_clientes'),
       debit_amount: null,
-      credit_amount: remanente.toFixed(4),
+      credit_amount: advanceBase.toFixed(4),
       description: `On-account (unapplied) ${payment.payment_number}`,
+    });
+  }
+  if (advanceIva.greaterThan(0)) {
+    jeLines.push({
+      account_id: requireRole(roles, 'iva_trasladado'),
+      debit_amount: null,
+      credit_amount: advanceIva.toFixed(4),
+      description: `IVA caused on collection of advance ${payment.payment_number}`,
     });
   }
   jeLines.push(...iva.lines);
