@@ -5,7 +5,7 @@ import path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import type OpenAI from 'openai';
 
-import { query, closeDatabase } from '../../src/database/connection.js';
+import { query, closeDatabase, getClient } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { ingestCfdiFiles, type DraftCapture } from '../../src/ai/ingest-service.js';
@@ -13,6 +13,7 @@ import { OpenAiCompatSession } from '../../src/ai/providers/openai-compat.js';
 import { approveDraft, canonicalDraftHash, getDraft, type DraftLine, type Reviewer } from '../../src/ai/draft-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
+import { registerIssuedInvoice } from '../../src/services/xml-ingestion/issued-invoice-approval.js';
 import { recordCustomerPayment } from '../../src/services/payments/payment-service.js';
 import { buildIvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { repXml } from './helpers/rep-xml.js';
@@ -300,5 +301,87 @@ describe('an issued CFDI with no MetodoPago is a PUE sale', () => {
     const paper = await buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: 8 });
     expect(paper.figures.charged.tasa16).toEqual({ base: '24000.0000', iva: '3840.0000' });
     expect(paper.findings.map((h) => h.codigo)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
+  });
+});
+
+// MNE-001-454: the receivables core is shared by the draft door and the hand
+// door, and one CFDI gives one invoice whichever door wrote the first.
+describe('the shared receivables core: one CFDI, one invoice', () => {
+  beforeAll(() => useNewTenant('MNE-001-454 shared issued invoice core'));
+
+  it('the draft door refuses a CFDI already on a live invoice, in any letter case, and names it; a void one does not refuse', async () => {
+    const { xml, uuid } = issued();
+    await query(
+      `INSERT INTO invoices (id, entity_id, invoice_number, customer_id, subtotal, tax_amount, total_amount, amount_due,
+         currency_code, invoice_date, due_date, status, cfdi_uuid, created_by)
+       SELECT $1, $2, 'INV-OPENING-7', c.id, 8000, 1280, 9280, 9280, 'MXN', '2026-08-20', '2026-08-20', 'sent', $3, $4
+         FROM customers c WHERE c.entity_id = $2 AND c.tax_id = $5`,
+      [uuidv4(), f.entityId, uuid.toLowerCase(), f.userId, CUSTOMER_RFC]
+    );
+    const sameCfdi = async () => (await query<{ invoice_number: string }>(
+      `SELECT invoice_number FROM invoices WHERE entity_id = $1 AND lower(cfdi_uuid) = lower($2)`, [f.entityId, uuid]
+    )).rows;
+    const invoiceEntries = async () => Number((await query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM journal_entries WHERE entity_id = $1 AND source_type = 'invoice'`, [f.entityId]
+    )).rows[0].n);
+    const before = await invoiceEntries();
+
+    const draftId = await ingest(xml, PPD_SALE);
+    const refusal = await approve(draftId).catch((e: unknown) => e);
+    expect(refusal).toMatchObject({ code: 'CFDI_ALREADY_INVOICED' });
+    expect((refusal as Error).message).toMatch(/INV-OPENING-7.*sent/);
+    expect(await sameCfdi()).toEqual([{ invoice_number: 'INV-OPENING-7' }]);
+    expect(await invoiceEntries()).toBe(before);
+    expect((await getDraft(ctx, draftId))!.status).toBe('pending_review');
+
+    const voided = await query(
+      `UPDATE invoices SET status = 'void' WHERE entity_id = $1 AND invoice_number = 'INV-OPENING-7' AND status = 'sent'`,
+      [f.entityId]
+    );
+    expect(voided.rowCount).toBe(1);
+    const posted = await approve(draftId);
+    expect(await invoicesOf(uuid)).toEqual([expect.objectContaining({ status: 'sent', journal_entry_id: posted.entryId })]);
+  });
+
+  it('the hand door calls the core with lines already resolved: a CFDI with no MetodoPago is a PUE sale, born sent', async () => {
+    const { xml, uuid } = issued({ method: null });
+    const file = path.join(dir, `${uuid}.xml`);
+    fs.writeFileSync(file, xml);
+    const report = await ingestCfdiFiles({
+      ctx, reviewer, files: [file], session: null, capture: { drafts: [] },
+      thresholds: { autoPost: false, minConfidence: 0.95, maxAmount: 10000 },
+    });
+    expect(report.toCode, report.results[0].detail).toBe(1);
+    const preRegistrationId = (await query<{ id: string }>(
+      `SELECT p.id FROM pre_registrations p JOIN xml_documents x ON x.id = p.xml_document_id
+        WHERE p.entity_id = $1 AND x.cfdi_uuid = $2`,
+      [f.entityId, uuid]
+    )).rows[0].id;
+    const ids = new Map((await query<{ code: string; id: string }>(
+      `SELECT code, id FROM accounts WHERE entity_id = $1 AND code = ANY($2::text[])`, [f.entityId, ['1120', '4100', '2120']]
+    )).rows.map((a) => [a.code, a.id]));
+
+    const client = await getClient();
+    try {
+      await client.query('BEGIN');
+      const invoice = await registerIssuedInvoice(client, {
+        tenantId: f.tenantId, entityId: f.entityId, preRegistrationId, userId: f.userId,
+        description: 'Sale B2001', door: 'manual',
+        lines: [
+          { accountId: ids.get('1120')!, debit: 9280 },
+          { accountId: ids.get('4100')!, credit: 8000 },
+          { accountId: ids.get('2120')!, credit: 1280 },
+        ],
+      });
+      const born = (await client.query<{ status: string; amount_due: string; cfdi_uuid: string }>(
+        `SELECT status, amount_due::text, cfdi_uuid FROM invoices WHERE id = $1 AND entity_id = $2`,
+        [invoice.invoiceId, f.entityId]
+      )).rows[0];
+      expect(born).toEqual({ status: 'sent', amount_due: '9280.0000', cfdi_uuid: uuid });
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+    expect(await invoicesOf(uuid)).toHaveLength(0);
   });
 });

@@ -26,16 +26,61 @@ export function customerCreateCommand(name: string, rfc: string): string {
   return `mnemosine customer create --name ${q(name)} --tax-id ${q(rfc)}`;
 }
 
+/** One entry line as the core reads it: the account already resolved to its id. */
+export interface IssuedInvoiceLine {
+  accountId: string;
+  debit?: number | string | null;
+  credit?: number | string | null;
+  description?: string;
+}
+
+/** Who is registering: the approval of an AI draft, or a person coding the CFDI by hand. */
+export type IssuedInvoiceDoor = 'draft' | 'manual';
+
+/** What each door is told. The draft's sentences are matched by its callers' tests: do not reword them. */
+const WORDING: Record<IssuedInvoiceDoor, {
+  notOpen: (preRegistrationId: string) => string;
+  afterCustomer: string;
+  entry: string;
+  afterMismatch: string;
+  changed: string;
+}> = {
+  draft: {
+    notOpen: (id) =>
+      `The CFDI behind this draft (pre-registration ${id}) is no longer open: it was already ` +
+      'turned into a customer invoice. Nothing was posted; reject this draft.',
+    afterCustomer: 'and approve again; the draft stays pending and nothing was posted.',
+    entry: 'The approved entry',
+    afterMismatch: 'Nothing was posted; correct the draft and approve again.',
+    changed: 'changed while the draft was being approved; everything was rolled back.',
+  },
+  manual: {
+    notOpen: (id) =>
+      `The CFDI of pre-registration ${id} is no longer open: it was already turned into a customer invoice. ` +
+      'Nothing was posted.',
+    afterCustomer: 'and run the command again; nothing was posted.',
+    entry: 'The entry',
+    afterMismatch: 'Nothing was posted; correct the lines and run the command again.',
+    changed: 'changed while it was being registered; everything was rolled back.',
+  },
+};
+
 /**
- * THE CUSTOMER INVOICE BORN FROM AN APPROVED AI DRAFT (ING-3 · #320, S3).
+ * THE CUSTOMER INVOICE OF AN ISSUED CFDI (ING-3 · #320, S3; MNE-001-454).
  *
- * The receivables mirror of registrarFacturaDeBorradorAprobado: called inside
- * the approval's transaction, before the approved entry posts with
- * `sourceType: 'invoice'`, so any throw rolls the whole approval back and the
- * draft stays pending. It guarantees:
+ * The receivables mirror of registrarFacturaDeBorradorAprobado, shared by the
+ * two doors: the approval of an AI draft (registerInvoiceFromApprovedDraft
+ * below) and a person coding the CFDI by hand. Called inside the caller's
+ * transaction, before the entry posts with `sourceType: 'invoice'`, so any
+ * throw rolls the whole operation back; a draft stays pending. It guarantees:
  *   - the pre-registration is an open 'invoice' whose CFDI the entity itself
  *     issued, locked and entity-scoped; a second draft of it finds nothing;
  *   - the receiver is already in the customer catalog (never created here);
+ *   - one CFDI gives one invoice, whichever door or import wrote the first:
+ *     a UUID already on an invoice of the entity that is not void or
+ *     cancelled is refused, in any letter case, naming that invoice. It is a
+ *     read, not a constraint: a writer that does not take this
+ *     pre-registration's lock is not serialised by it;
  *   - the entry matches the CFDI figure by figure within
  *     `cfdi_tolerancia_cuadre`. The VAT must sit in the role the MetodoPago
  *     selects: a PPD parks it in iva_trasladado_no_cobrado, which is the
@@ -45,19 +90,20 @@ export function customerCreateCommand(name: string, rfc: string): string {
  *     collection, the credit note and the IVA working paper will read the
  *     invoice, so VAT parked for it would never be released (#668).
  */
-export async function registerInvoiceFromApprovedDraft(
+export async function registerIssuedInvoice(
   client: pg.PoolClient,
   opts: {
     tenantId: string;
     entityId: string;
     preRegistrationId: string;
-    approvedLines: ApprovedLine[];
-    approvedDescription: string;
-    accountIdByCode: Map<string, string>;
     userId: string;
+    description: string;
+    lines: IssuedInvoiceLine[];
+    door: IssuedInvoiceDoor;
   }
 ): Promise<ApprovedDraftInvoice> {
   const { entityId, preRegistrationId, userId } = opts;
+  const wording = WORDING[opts.door];
   const locked = await client.query<Record<string, unknown>>(
     `SELECT p.*, x.cfdi_uuid AS x_cfdi_uuid, x.subtotal AS x_subtotal, COALESCE(x.descuento, 0) AS x_descuento,
             x.total AS x_total, x.metodo_pago AS x_metodo_pago, x.receptor_rfc AS x_receptor_rfc,
@@ -74,8 +120,7 @@ export async function registerInvoiceFromApprovedDraft(
   if (!preReg) {
     throw new AccountingError(
       'CFDI_ALREADY_INVOICED',
-      `The CFDI behind this draft (pre-registration ${preRegistrationId}) is no longer open: it was already ` +
-        'turned into a customer invoice. Nothing was posted; reject this draft.'
+      wording.notOpen(preRegistrationId)
     );
   }
   const uuid = String(preReg.x_cfdi_uuid);
@@ -90,9 +135,23 @@ export async function registerInvoiceFromApprovedDraft(
     const name = typeof preReg.x_receptor_nombre === 'string' ? preReg.x_receptor_nombre : '';
     throw new ValidationError(
       `CFDI ${uuid} is issued to "${name}" (RFC ${receiverRfc}), who is not in this entity's customer catalog. ` +
-        `Register it with \`${customerCreateCommand(name, receiverRfc)}\` and approve again; the draft stays ` +
-        'pending and nothing was posted.',
+        `Register it with \`${customerCreateCommand(name, receiverRfc)}\` ${wording.afterCustomer}`,
       'customer_id'
+    );
+  }
+
+  const existing = await client.query<{ invoice_number: string; status: string }>(
+    `SELECT invoice_number, status FROM invoices
+      WHERE entity_id = $1 AND lower(cfdi_uuid) = lower($2) AND status NOT IN ('void', 'cancelled')
+      ORDER BY created_at LIMIT 1`,
+    [entityId, uuid]
+  );
+  if (existing.rows.length > 0) {
+    const { invoice_number: number, status } = existing.rows[0];
+    throw new AccountingError(
+      'CFDI_ALREADY_INVOICED',
+      `CFDI ${uuid} is already customer invoice ${number} (${status}). Nothing was posted.`,
+      { cfdi_uuid: uuid, invoice_number: number }
     );
   }
 
@@ -115,8 +174,8 @@ export async function registerInvoiceFromApprovedDraft(
   const vatRole = !pue
     ? 'iva_trasladado_no_cobrado, parked until the REP'
     : method.assumed ? 'iva_trasladado; no MetodoPago, read as PUE' : 'iva_trasladado';
-  const lines = opts.approvedLines.map((l) => ({
-    accountId: opts.accountIdByCode.get(l.account_code) as string,
+  const lines = opts.lines.map((l) => ({
+    accountId: l.accountId,
     description: l.description,
     dr: money(l.debit),
     cr: money(l.credit),
@@ -157,9 +216,9 @@ export async function registerInvoiceFromApprovedDraft(
   if (mismatches.length > 0) {
     throw new AccountingError(
       'CFDI_RECONCILIATION_FAILED',
-      `The approved entry does not match CFDI ${uuid}: ` +
+      `${wording.entry} does not match CFDI ${uuid}: ` +
         mismatches.map((c) => `${c.figure} is ${c.entry.toFixed(2)} in the entry and ${c.cfdi.toFixed(2)} in the CFDI`).join('; ') +
-        `. Tolerance per figure: ${tolerance.toFixed(2)} (cfdi_tolerancia_cuadre). Nothing was posted; correct the draft and approve again.`,
+        `. Tolerance per figure: ${tolerance.toFixed(2)} (cfdi_tolerancia_cuadre). ${wording.afterMismatch}`,
       { cfdi_uuid: uuid, figures: mismatches.map((c) => c.figure) }
     );
   }
@@ -179,7 +238,7 @@ export async function registerInvoiceFromApprovedDraft(
       paid ? '0.00' : total.toFixed(2), paid ? total.toFixed(2) : '0.00',
       preReg.currency_code ?? 'MXN', preReg.exchange_rate ?? 1,
       preReg.document_date, preReg.due_date ?? preReg.document_date,
-      paid ? 'paid' : 'sent', uuid, opts.approvedDescription, userId,
+      paid ? 'paid' : 'sent', uuid, opts.description, userId,
     ]
   );
   for (const [i, l] of revenue.entries()) {
@@ -187,7 +246,7 @@ export async function registerInvoiceFromApprovedDraft(
       `INSERT INTO invoice_lines (id, invoice_id, line_number, description, quantity, unit_price,
          revenue_account_id, line_amount, total_amount)
        VALUES ($1, $2, $3, $4, 1, $5, $6, $5, $5)`,
-      [uuidv4(), invoiceId, i + 1, l.description ?? opts.approvedDescription, l.cr.toFixed(2), l.accountId]
+      [uuidv4(), invoiceId, i + 1, l.description ?? opts.description, l.cr.toFixed(2), l.accountId]
     );
   }
 
@@ -218,9 +277,41 @@ export async function registerInvoiceFromApprovedDraft(
       if (linked.rowCount !== 1 || closed.rowCount !== 1 || processed.rowCount !== 1) {
         throw new AccountingError(
           'CFDI_ALREADY_INVOICED',
-          `CFDI ${uuid} changed while the draft was being approved; everything was rolled back.`
+          `CFDI ${uuid} ${wording.changed}`
         );
       }
     },
   };
+}
+
+/**
+ * The draft door of registerIssuedInvoice: the approval of an AI draft, whose
+ * lines name their accounts by code.
+ */
+export function registerInvoiceFromApprovedDraft(
+  client: pg.PoolClient,
+  opts: {
+    tenantId: string;
+    entityId: string;
+    preRegistrationId: string;
+    approvedLines: ApprovedLine[];
+    approvedDescription: string;
+    accountIdByCode: Map<string, string>;
+    userId: string;
+  }
+): Promise<ApprovedDraftInvoice> {
+  return registerIssuedInvoice(client, {
+    tenantId: opts.tenantId,
+    entityId: opts.entityId,
+    preRegistrationId: opts.preRegistrationId,
+    userId: opts.userId,
+    description: opts.approvedDescription,
+    lines: opts.approvedLines.map((l) => ({
+      accountId: opts.accountIdByCode.get(l.account_code) as string,
+      debit: l.debit,
+      credit: l.credit,
+      description: l.description,
+    })),
+    door: 'draft',
+  });
 }
