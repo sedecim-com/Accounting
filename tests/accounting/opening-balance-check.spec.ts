@@ -317,3 +317,102 @@ describe('compareToSource · memorandum accounts are excluded from the footing',
     expect(c.iguales).toBe(true);
   });
 });
+
+// MNE-001-483: a previous system's export may list only the accounts that
+// carry a balance of their own. The load accepts it, so the check must tie.
+describe('compareToSource · a source that declares only the accounts with a balance of their own', () => {
+  const tree = [
+    forma('1000', null),
+    forma('1100', '1000'),
+    forma('1110', '1100'),
+    forma('1111', '1110'),
+    forma('1120', '1100'),
+    forma('1140', '1100'),
+    forma('2000', null, 'A'),
+    forma('2100', '2000', 'A'),
+    forma('2110', '2100', 'A'),
+    forma('3000', null, 'A'),
+    forma('3100', '3000', 'A'),
+  ];
+  const leaves = () => [
+    fila('1111', '100000.00'),
+    fila('1120', '3480.00'),
+    fila('2110', '2320.00'),
+    fila('3100', '101160.00'),
+  ];
+  /** Ours, rolled up the tree as both callers hand it over; `assets` is what 1100 and 1000 carry. */
+  const ours = (assets = '103480.00') => [
+    fila('1000', assets),
+    fila('1100', assets),
+    fila('1110', '100000.00'),
+    fila('1111', '100000.00'),
+    fila('1120', '3480.00'),
+    fila('2000', '2320.00'),
+    fila('2100', '2320.00'),
+    fila('2110', '2320.00'),
+    fila('3000', '101160.00'),
+    fila('3100', '101160.00'),
+  ];
+
+  it('U1 · undeclared headers whose declared subaccounts carry all their money are not surplus', () => {
+    const c = compareToSource(leaves(), ours(), tree);
+    expect(c.sobrantes).toEqual([]);
+    expect(c.iguales).toBe(true);
+    expect(c.comparadas).toBe(4);
+  });
+
+  it('U2 · money on an undeclared leaf is surplus at the leaf, not at the headers above it', () => {
+    const c = compareToSource(leaves(), [...ours('103530.00'), fila('1140', '50.00')], tree);
+    expect(c.sobrantes).toEqual([{ numCta: '1140', importe: '50.0000' }]);
+    expect(c.iguales).toBe(false);
+  });
+
+  it('U3 · money an undeclared header carries of its own is surplus at that header', () => {
+    // 1100 holds 50.00 that none of its subaccounts carries.
+    const c = compareToSource(leaves(), ours('103530.00'), tree);
+    expect(c.sobrantes).toEqual([{ numCta: '1100', importe: '50.0000' }]);
+  });
+
+  it('U4 · two undeclared leaves that net to zero under an undeclared root are both listed', () => {
+    const c = compareToSource(
+      leaves(),
+      [...ours(), fila('9000', '0.00'), fila('9100', '5.00'), fila('9200', '-5.00')],
+      [...tree, forma('9000', null), forma('9100', '9000'), forma('9200', '9000')]
+    );
+    expect(c.sobrantes).toEqual([
+      { numCta: '9100', importe: '5.0000' },
+      { numCta: '9200', importe: '-5.0000' },
+    ]);
+  });
+
+  it('U5 · a source that stops at level 2 covers what is below it and ties what is above', () => {
+    const c = compareToSource(
+      [fila('1100', '103480.00'), fila('2100', '2320.00'), fila('3100', '101160.00')],
+      ours(),
+      tree
+    );
+    expect(c.sobrantes).toEqual([]);
+    expect(c.iguales).toBe(true);
+    expect(c.comparadas).toBe(3);
+  });
+
+  it('U6 · Debe and Haber, which are plain sums, tie against a leaves-only source too', () => {
+    const moved = (code: string, debit: string, credit: string) =>
+      fila(code, '0.00', { debe: debit, haber: credit });
+    const source = [moved('1111', '700.00', '200.00'), moved('2110', '200.00', '700.00')];
+    const rolled = [
+      moved('1000', '700.00', '200.00'),
+      moved('1100', '700.00', '200.00'),
+      moved('1110', '700.00', '200.00'),
+      moved('1111', '700.00', '200.00'),
+      moved('2000', '200.00', '700.00'),
+      moved('2100', '200.00', '700.00'),
+      moved('2110', '200.00', '700.00'),
+    ];
+    for (const column of ['Debe', 'Haber'] as const) {
+      const c = compareToSource(source, rolled, tree, column);
+      expect(c.sobrantes).toEqual([]);
+      expect(c.iguales).toBe(true);
+    }
+  });
+});
