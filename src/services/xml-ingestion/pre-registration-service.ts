@@ -3,7 +3,7 @@ import Decimal from 'decimal.js';
 import pg from 'pg';
 import { query, getClient, withTransaction } from '../../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
-import { planearAsiento, planContabilizable, type PlanDeAsiento } from './cfdi-posting-plan.js';
+import { planearAsiento, planContabilizable, type OpcionesPlan, type PlanDeAsiento } from './cfdi-posting-plan.js';
 import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
 import {
   decideMetodoPago,
@@ -15,6 +15,7 @@ import type { AccountRole } from './cfdi-taxonomy.js';
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto, type CFDIImpuesto } from './cfdi-parser.js';
 import { money, satKey, sumTax } from './cfdi-amounts.js';
+import { registerIssuedInvoice } from './issued-invoice-approval.js';
 import { extractPagosCompletos } from './cfdi-facts.js';
 import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
 import { SATValidationService } from './sat-validation.js';
@@ -145,6 +146,16 @@ export interface LineWithSuggestion {
   suggestion_reason: string;
   account_id?: string;
   cost_center_id?: string;
+}
+
+/** What the hand door of an issued CFDI wrote. */
+export interface IssuedCfdiPosting {
+  tenantId: string;
+  preRegistrationId: string;
+  invoice: { id: string; number: string };
+  entry: { id: string; number: string };
+  /** The classifier's warnings: this door stores none, so the caller prints them. */
+  warnings: string[];
 }
 
 export class PreRegistrationService {
@@ -866,7 +877,9 @@ export class PreRegistrationService {
   private async planDeAsiento(
     preReg: Record<string, unknown>,
     lines: LineWithSuggestion[],
-    billNumber: string
+    billNumber: string,
+    /** Only the hand door of an issued CFDI passes it: the revenue line opens by concept. */
+    revenueLines?: OpcionesPlan['revenueLines']
   ): Promise<PlanDeAsiento | null> {
     if (!preReg.xml_document_id) return null;
 
@@ -943,10 +956,12 @@ export class PreRegistrationService {
         line_number: l.line_number,
         descripcion: l.descripcion,
         importe: l.importe,
+        discount: l.descuento,
         account_id: l.account_id ?? null,
         suggested_account_id: l.suggested_account_id,
         cost_center_id: l.cost_center_id,
       })),
+      revenueLines,
       cuentaGastoPorDefecto: (preReg.default_account_id as string) ?? null,
       // El proveedor ya quedó resuelto o creado antes de llegar aquí.
       vendorExists: true,
@@ -1300,6 +1315,139 @@ export class PreRegistrationService {
     return {
       bill: result.bill,
       journalEntry: result.journalEntry as unknown as Record<string, unknown>,
+    };
+  }
+
+  /**
+   * THE HAND DOOR OF AN ISSUED CFDI (MNE-001-417, #620).
+   *
+   * Without a model, only the approval of an AI draft took a sale into
+   * receivables. Here the customer invoice, its entry and the close of the
+   * pre-registration are one transaction, as createBillFromPreReg is for a
+   * received CFDI, through the core the approval uses (registerIssuedInvoice),
+   * so both doors check the same figures. The entry is the classifier's; a
+   * person's coding only chooses each concept's revenue account: the line's
+   * own, then `revenueAccountId`, then the stored default, then `ingreso`.
+   *
+   * It is not a case of processToAccounting on purpose: that would open the
+   * REST routes, the scheduled batch and `bill inbox run` to issued rows.
+   *
+   * NOTE: it writes nothing on the pool: no classifier trail and no stored
+   * warning. A refusal leaves only its message; warnings go to the caller.
+   *
+   * TODO(#620): no command may call this door yet. The rest of MNE-001-417
+   * adds the dry run, the check that a coded account is a revenue account,
+   * and the refusals of a substitute of a live invoice, of concepts that do
+   * not add up, and of IEPS and local taxes by name (today the core refuses
+   * those two on its revenue figure).
+   */
+  async postIssuedCfdiByHand(opts: {
+    entityId: string;
+    cfdiUuid: string;
+    userId: string;
+    /** The revenue account of every concept with no account of its own. */
+    revenueAccountId?: string;
+  }): Promise<IssuedCfdiPosting> {
+    const posted = await withTransaction((client) => this.postIssuedCfdiInTransaction(client, opts));
+    attestEntryAsync(posted.tenantId, opts.entityId, posted.entry.id);
+    return posted;
+  }
+
+  private async postIssuedCfdiInTransaction(
+    client: pg.PoolClient,
+    opts: { entityId: string; cfdiUuid: string; userId: string; revenueAccountId?: string }
+  ): Promise<IssuedCfdiPosting> {
+    const { entityId, userId } = opts;
+    const found = await client.query<Record<string, unknown>>(
+      `SELECT p.*, x.cfdi_uuid AS x_cfdi_uuid, x.emisor_rfc AS x_emisor_rfc, x.receptor_rfc AS x_receptor_rfc,
+              x.metodo_pago AS x_metodo_pago, le.tax_id AS entity_rfc, le.tenant_id, le.functional_currency
+         FROM xml_documents x
+         JOIN pre_registrations p ON p.xml_document_id = x.id AND p.entity_id = x.entity_id
+         JOIN legal_entities le ON le.id = x.entity_id
+        WHERE x.entity_id = $1 AND lower(x.cfdi_uuid) = lower($2)
+        ORDER BY p.created_at DESC LIMIT 1
+        FOR UPDATE OF p`,
+      [entityId, opts.cfdiUuid]
+    );
+    const preReg = found.rows[0];
+    if (!preReg) throw new NotFoundError('CFDI', opts.cfdiUuid);
+    const uuid = String(preReg.x_cfdi_uuid);
+    const preRegistrationId = String(preReg.id);
+    const unsupported = (reason: string, detail = '') =>
+      new ValidationError({ key: 'error.ISSUED_CFDI_NOT_SUPPORTED', params: { uuid, reason, detail } });
+
+    if (cfdiDirection(String(preReg.entity_rfc), String(preReg.x_emisor_rfc), String(preReg.x_receptor_rfc)) !== 'issued') {
+      throw unsupported('received', preRegistrationId);
+    }
+    if (preReg.document_type !== 'invoice') throw unsupported('document_type', String(preReg.document_type));
+    if (preReg.result_id || !['ready', 'draft', 'error'].includes(String(preReg.status))) {
+      const invoice = await client.query<{ invoice_number: string }>(
+        `SELECT invoice_number FROM invoices WHERE id = $1 AND entity_id = $2`,
+        [preReg.result_type === 'invoice' ? preReg.result_id : null, entityId]
+      );
+      throw new AccountingError('ISSUED_CFDI_NOT_OPEN', {
+        key: 'error.ISSUED_CFDI_NOT_OPEN',
+        params: { uuid, status: String(preReg.status), invoice: invoice.rows[0]?.invoice_number ?? 'none' },
+      });
+    }
+    // Read without a lock: the approval locks its draft first and this pre-registration second, so
+    // locking the draft here, with the pre-registration already held, could deadlock with it.
+    const draft = await client.query(
+      `SELECT 1 FROM ai_drafts
+        WHERE pre_registration_id = $1 AND entity_id = $2 AND status IN ('pending_review', 'approved')`,
+      [preRegistrationId, entityId]
+    );
+    if (draft.rows.length > 0) {
+      throw new AccountingError('ISSUED_CFDI_DRAFT_IN_REVIEW', { key: 'error.ISSUED_CFDI_DRAFT_IN_REVIEW', params: { uuid } });
+    }
+    if (preReg.currency_code !== preReg.functional_currency) throw unsupported('currency', String(preReg.currency_code));
+
+    const reference = typeof preReg.external_reference === 'string' && preReg.external_reference ? preReg.external_reference : uuid;
+    const plan = await this.planDeAsiento(preReg, (preReg.lines ?? []) as LineWithSuggestion[], reference, {
+      callerAccountId: opts.revenueAccountId ?? null,
+      storedDefaultAccountId: (preReg.default_account_id as string | null) ?? null,
+    });
+    if (!plan) throw new NotFoundError('The XML of CFDI', uuid);
+    const postable = planContabilizable(plan);
+    if (!postable.ok) {
+      throw new AccountingError('CFDI_REQUIERE_DECISION', { key: 'error.ISSUED_CFDI_HELD', params: { uuid, reason: postable.motivo } });
+    }
+    const { facts } = plan.clasificacion;
+    const caseId = plan.clasificacion.case?.id;
+    if (caseId !== 'ingreso_emitido_ppd' && caseId !== 'ingreso_emitido_pue') {
+      throw facts.esAnticipo ? unsupported('advance') : unsupported('other', String(caseId));
+    }
+    // The sale cases do not read TipoRelacion: an invoice that applies an advance would post as a new sale.
+    if (facts.tipoRelacion === '07') throw unsupported('applies_advance');
+
+    const invoice = await registerIssuedInvoice(client, {
+      tenantId: String(preReg.tenant_id), entityId, preRegistrationId, userId,
+      description: `CFDI ${reference}`,
+      lines: plan.lineas.map((l) => ({
+        accountId: l.account_id, debit: l.debit_amount, credit: l.credit_amount, description: l.description,
+      })),
+      door: 'manual',
+    });
+    const method = decideMetodoPago('issued', { cfdiMetodoPago: preReg.x_metodo_pago });
+    const entry = await createJournalEntry(
+      entityId,
+      // The CFDI's date as pg returns it; under cfdi_periodo_cerrado=periodo_actual the entry goes to
+      // the open period and the invoice keeps its date, as a bill does.
+      plan.fechaContableHoy ? new Date() : (preReg.document_date as Date),
+      JournalEntryType.AUTO_INVOICE,
+      // The note postInvoiceEntry writes, so the assumption is legible in the ledger itself.
+      `Invoice ${invoice.invoiceNumber} - ${reference}` + (method.assumed ? ` · MetodoPago missing: ${method.metodo} assumed` : ''),
+      plan.lineas,
+      userId,
+      { sourceType: 'invoice', sourceId: invoice.invoiceId, autoPost: true, client }
+    );
+    await invoice.close(entry.id);
+    return {
+      tenantId: String(preReg.tenant_id),
+      preRegistrationId,
+      invoice: { id: invoice.invoiceId, number: invoice.invoiceNumber },
+      entry: { id: entry.id, number: entry.entry_number },
+      warnings: plan.avisos,
     };
   }
 
