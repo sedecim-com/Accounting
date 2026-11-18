@@ -204,9 +204,9 @@ describe('the revenue line of an issued sale opens by concept', () => {
     { line_number: 1, descripcion: 'First', importe: 5000, discount: 300, account_id: 'acct-4300' },
     { line_number: 2, descripcion: 'Second', importe: 3000, discount: secondDiscount, account_id: 'acct-4400' },
   ];
-  const plan = (xml: string, renglones: Parameters<typeof planearAsiento>[0]['renglones'], revenueLines?: object) =>
+  const plan = (xml: string, docLines: Parameters<typeof planearAsiento>[0]['renglones'], revenueLines?: object) =>
     planearAsiento({
-      entityId: ENTIDAD, entityRfc: ISSUER_RFC, xml, renglones, referencia: 'INV',
+      entityId: ENTIDAD, entityRfc: ISSUER_RFC, xml, renglones: docLines, referencia: 'INV',
       periodOpen: true, satStatus: 'vigente', ...(revenueLines ? { revenueLines } : {}),
     });
   const credits = (p: Awaited<ReturnType<typeof planearAsiento>>) =>
