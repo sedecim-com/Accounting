@@ -5,6 +5,7 @@ import { query, getClient, withTransaction } from '../../database/connection.js'
 import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
 import { planearAsiento, planContabilizable, type OpcionesPlan, type PlanDeAsiento } from './cfdi-posting-plan.js';
 import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
+import { getPolicySpec } from '../policy/pending-catalog.js';
 import {
   decideMetodoPago,
   entityUsesCashBasisIva,
@@ -149,14 +150,24 @@ export interface LineWithSuggestion {
   cost_center_id?: string;
 }
 
-/** What the hand door of an issued CFDI wrote. */
+/** What the hand door of an issued CFDI wrote, or would write under `dryRun`. */
 export interface IssuedCfdiPosting {
+  dryRun: boolean;
   tenantId: string;
   preRegistrationId: string;
-  invoice: { id: string; number: string };
+  invoice: { id: string; number: string; status: string; amountDue: string };
   entry: { id: string; number: string };
+  /** The entry's lines, read back inside the transaction: under `dryRun`, the rows that were rolled back. */
+  lines: Array<{ accountCode: string; accountName: string; debit: string | null; credit: string | null; description: string }>;
   /** The classifier's warnings: this door stores none, so the caller prints them. */
   warnings: string[];
+}
+
+/** Internal sentinel: unwinds the transaction after computing a dry run. */
+class IssuedCfdiDryRun extends Error {
+  constructor(readonly result: IssuedCfdiPosting) {
+    super('dry-run');
+  }
 }
 
 export class PreRegistrationService {
@@ -1347,11 +1358,8 @@ export class PreRegistrationService {
    * NOTE: it writes nothing on the pool: no classifier trail and no stored
    * warning. A refusal leaves only its message; warnings go to the caller.
    *
-   * TODO(#620): no command may call this door yet. The rest of MNE-001-417
-   * adds the dry run, the check that a coded account is a revenue account,
-   * and the refusals of a substitute of a live invoice, of concepts that do
-   * not add up, and of IEPS and local taxes by name (today the core refuses
-   * those two on its revenue figure).
+   * With `dryRun` the same act runs and is rolled back, so what it returns is
+   * what would be written, folio included.
    */
   async postIssuedCfdiByHand(opts: {
     entityId: string;
@@ -1359,15 +1367,25 @@ export class PreRegistrationService {
     userId: string;
     /** The revenue account of every concept with no account of its own. */
     revenueAccountId?: string;
+    dryRun?: boolean;
   }): Promise<IssuedCfdiPosting> {
-    const posted = await withTransaction((client) => this.postIssuedCfdiInTransaction(client, opts));
-    attestEntryAsync(posted.tenantId, opts.entityId, posted.entry.id);
-    return posted;
+    try {
+      const posted = await withTransaction(async (client) => {
+        const result = await this.postIssuedCfdiInTransaction(client, opts);
+        if (opts.dryRun) throw new IssuedCfdiDryRun(result);
+        return result;
+      });
+      attestEntryAsync(posted.tenantId, opts.entityId, posted.entry.id);
+      return posted;
+    } catch (err) {
+      if (err instanceof IssuedCfdiDryRun) return err.result;
+      throw err;
+    }
   }
 
   private async postIssuedCfdiInTransaction(
     client: pg.PoolClient,
-    opts: { entityId: string; cfdiUuid: string; userId: string; revenueAccountId?: string }
+    opts: { entityId: string; cfdiUuid: string; userId: string; revenueAccountId?: string; dryRun?: boolean }
   ): Promise<IssuedCfdiPosting> {
     const { entityId, userId } = opts;
     const found = await client.query<Record<string, unknown>>(
@@ -1415,22 +1433,72 @@ export class PreRegistrationService {
     if (preReg.currency_code !== preReg.functional_currency) throw unsupported('currency', String(preReg.currency_code));
 
     const reference = typeof preReg.external_reference === 'string' && preReg.external_reference ? preReg.external_reference : uuid;
-    const plan = await this.planDeAsiento(preReg, (preReg.lines ?? []) as LineWithSuggestion[], reference, {
+    const lines = (preReg.lines ?? []) as LineWithSuggestion[];
+    const storedDefault = (preReg.default_account_id as string | null) ?? null;
+    const plan = await this.planDeAsiento(preReg, lines, reference, {
       callerAccountId: opts.revenueAccountId ?? null,
-      storedDefaultAccountId: (preReg.default_account_id as string | null) ?? null,
+      storedDefaultAccountId: storedDefault,
     });
     if (!plan) throw new NotFoundError('The XML of CFDI', uuid);
+    const { facts, decisions } = plan.clasificacion;
     const postable = planContabilizable(plan);
     if (!postable.ok) {
-      throw new AccountingError('CFDI_REQUIERE_DECISION', { key: 'error.ISSUED_CFDI_HELD', params: { uuid, reason: postable.motivo } });
+      // No trail is written here, so the message is the only place that says how to answer.
+      const commands = decisions
+        .filter((d) => d.severity === 'blocking' && getPolicySpec(d.topic))
+        .map((d) => `mnemosine pending define ${d.topic}${d.id === 'periodo_cerrado' ? ' periodo_actual' : ''}`);
+      throw new AccountingError('CFDI_REQUIERE_DECISION', {
+        key: 'error.ISSUED_CFDI_HELD',
+        params: { uuid, reason: postable.motivo, commands: commands.join(' · ') || 'none' },
+      });
     }
-    const { facts } = plan.clasificacion;
     const caseId = plan.clasificacion.case?.id;
     if (caseId !== 'ingreso_emitido_ppd' && caseId !== 'ingreso_emitido_pue') {
       throw facts.esAnticipo ? unsupported('advance') : unsupported('other', String(caseId));
     }
     // The sale cases do not read TipoRelacion: an invoice that applies an advance would post as a new sale.
     if (facts.tipoRelacion === '07') throw unsupported('applies_advance');
+    // A substitute (TipoRelacion 04) of a CFDI that is still a live invoice would book the sale twice.
+    const replaced = await client.query<{ invoice_number: string; status: string }>(
+      `SELECT invoice_number, status FROM invoices
+        WHERE entity_id = $1 AND lower(cfdi_uuid) = ANY($2::text[]) AND status NOT IN ('void', 'cancelled')
+        ORDER BY created_at LIMIT 1`,
+      [entityId, facts.tipoRelacion === '04' ? facts.uuidsRelacionados.map((u) => u.toLowerCase()) : []]
+    );
+    if (replaced.rows.length > 0) {
+      throw new AccountingError('ISSUED_CFDI_SUBSTITUTES_INVOICE', {
+        key: 'error.ISSUED_CFDI_SUBSTITUTES_INVOICE',
+        params: { uuid, invoice: replaced.rows[0].invoice_number, status: replaced.rows[0].status },
+      });
+    }
+    // The core counts any credit outside its roles as revenue, so it cannot book these two yet (#620, question 2).
+    if (facts.iepsTrasladado > 0) throw unsupported('ieps', facts.iepsTrasladado.toFixed(2));
+    if (facts.impuestosLocalesTrasladados > 0) throw unsupported('local_tax', facts.impuestosLocalesTrasladados.toFixed(2));
+    if (plan.revenueLinesMismatch) {
+      throw new ValidationError({
+        key: 'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH',
+        params: { uuid, lines: plan.revenueLinesMismatch.linesTotal, revenue: plan.revenueLinesMismatch.revenueTotal },
+      });
+    }
+    // The case credits the `ingreso` role: another kind of account is another treatment, not a coding.
+    // `bill inbox edit` accepts any postable account, so the check is here. Same precedence as planearAsiento.
+    const coded = lines
+      .map((l) => ({ line: l.account_id ? String(l.line_number) : 'none', id: l.account_id || opts.revenueAccountId || storedDefault }))
+      .filter((c): c is { line: string; id: string } => !!c.id);
+    const accounts = await client.query<{ id: string; code: string; account_type: string; normal_balance: string; usable: boolean }>(
+      `SELECT id, code, account_type, normal_balance, (is_active AND NOT is_header) AS usable
+         FROM accounts WHERE id = ANY($1::uuid[]) AND entity_id = $2`,
+      [coded.map((c) => c.id), entityId]
+    );
+    for (const c of coded) {
+      const a = accounts.rows.find((row) => row.id === c.id);
+      if (!a || !a.usable || a.account_type !== 'revenue' || a.normal_balance !== 'credit') {
+        throw new ValidationError({
+          key: 'error.ISSUED_CFDI_REVENUE_ACCOUNT',
+          params: { uuid, account: a?.code ?? c.id, type: a?.account_type ?? 'unknown', balance: a?.normal_balance ?? 'unknown', line: c.line },
+        }, 'account');
+      }
+    }
 
     const invoice = await registerIssuedInvoice(client, {
       tenantId: String(preReg.tenant_id), entityId, preRegistrationId, userId,
@@ -1454,11 +1522,27 @@ export class PreRegistrationService {
       { sourceType: 'invoice', sourceId: invoice.invoiceId, autoPost: true, client }
     );
     await invoice.close(entry.id);
+
+    const born = await client.query<{ status: string; amountDue: string }>(
+      `SELECT status, amount_due::text AS "amountDue" FROM invoices WHERE id = $1 AND entity_id = $2`,
+      [invoice.invoiceId, entityId]
+    );
+    const entryLines = await client.query<IssuedCfdiPosting['lines'][number]>(
+      `SELECT a.code AS "accountCode", a.name AS "accountName", l.debit_amount::text AS debit,
+              l.credit_amount::text AS credit, l.description
+         FROM journal_entry_lines l
+         JOIN journal_entries je ON je.id = l.journal_entry_id AND je.entity_id = $2
+         JOIN accounts a ON a.id = l.account_id
+        WHERE l.journal_entry_id = $1 ORDER BY l.line_number`,
+      [entry.id, entityId]
+    );
     return {
+      dryRun: opts.dryRun === true,
       tenantId: String(preReg.tenant_id),
       preRegistrationId,
-      invoice: { id: invoice.invoiceId, number: invoice.invoiceNumber },
+      invoice: { id: invoice.invoiceId, number: invoice.invoiceNumber, ...born.rows[0] },
       entry: { id: entry.id, number: entry.entry_number },
+      lines: entryLines.rows,
       warnings: plan.avisos,
     };
   }
