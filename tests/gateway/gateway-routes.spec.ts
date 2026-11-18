@@ -15,7 +15,8 @@ import { createStaticRoot } from './helpers/static-root.js';
 
 interface Layer {
   name: string;
-  regexp: RegExp;
+  /** Express 5 (router 2): whether this layer serves the path. */
+  match(path: string): unknown;
   route?: { path: string; methods: Record<string, boolean>; stack: Array<{ name: string }> };
 }
 
@@ -25,20 +26,17 @@ afterAll(() => root.remove());
 function stackOf(): Layer[] {
   const gateway = createGatewayApp({ config: testConfig(), staticRoot: root.dir, logger: { event: () => undefined } });
   gateway.close();
-  return (gateway.app as unknown as { _router: { stack: Layer[] } })._router.stack;
+  return (gateway.app as unknown as { router: { stack: Layer[] } }).router.stack;
 }
 
 describe('the gateway router stack', () => {
-  it('is exactly: Express built-ins, host guard, headers, four routes, static files, the /v1 pipeline, not found, errors', () => {
+  it('is exactly: host guard, headers, four routes, static files, the /v1 pipeline, not found, errors', () => {
     const described = stackOf().map((layer) =>
       layer.route
         ? `route ${Object.keys(layer.route.methods).join(',').toUpperCase()} ${layer.route.path} [${layer.route.stack.map((s) => s.name).join(', ')}]`
         : layer.name
     );
     expect(described).toEqual([
-      // Express 4 always puts these two first (application.js lazyrouter).
-      'query',
-      'expressInit',
       'hostGuard',
       'securityHeaders',
       'route GET /healthz [health]',
@@ -62,11 +60,11 @@ describe('the gateway router stack', () => {
     );
     expect(pipeline).toHaveLength(5);
     for (const layer of pipeline) {
-      expect(layer.regexp.test('/v1/portfolio')).toBe(true);
-      expect(layer.regexp.test('/v1')).toBe(true);
-      expect(layer.regexp.test('/metrics')).toBe(false);
-      expect(layer.regexp.test('/public/v1/x')).toBe(false);
-      expect(layer.regexp.test('/v10/x')).toBe(false);
+      expect(Boolean(layer.match('/v1/portfolio'))).toBe(true);
+      expect(Boolean(layer.match('/v1'))).toBe(true);
+      expect(Boolean(layer.match('/metrics'))).toBe(false);
+      expect(Boolean(layer.match('/public/v1/x'))).toBe(false);
+      expect(Boolean(layer.match('/v10/x'))).toBe(false);
     }
   });
 
