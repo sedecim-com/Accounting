@@ -15,6 +15,7 @@ import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-reg
 import { codePreRegistration } from '../../src/services/xml-ingestion/pre-registration-coding.js';
 import type { AgentContext } from '../../src/ai/context.js';
 import { registerCfdiCommand } from '../../src/cli/cfdi-command.js';
+import { registerBillCommand } from '../../src/cli/bill-command.js';
 
 // ============================================================
 // MNE-001-417 (#620, part 2/4) — AN ISSUED CFDI CODED BY HAND GOES TO AR.
@@ -328,7 +329,7 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     expect(await ledger()).toEqual(after);
   });
 
-  // MNE-001-418: the terminal command over the door.
+  // MNE-001-418: the terminal command over the door, and the messages that send an issued CFDI to it.
   describe('cfdi post at the terminal, in process', () => {
     /** One command line in process; `said` is everything it printed or reported. */
     async function cli(...argv: string[]): Promise<{ exitCode?: number; said: string }> {
@@ -342,6 +343,7 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
         shutdown: (c: number) => { exitCode = c; }, reportError: say,
       };
       registerCfdiCommand(program, deps);
+      registerBillCommand(program, deps);
       const streams = [vi.spyOn(process.stdout, 'write').mockImplementation(say), vi.spyOn(process.stderr, 'write').mockImplementation(say)];
       await program.parseAsync(['node', 'mnemosine', ...argv, '--entity', f.entityId, '--tenant', f.tenantId])
         .finally(() => streams.forEach((stream) => stream.mockRestore()));
@@ -365,6 +367,19 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
       expect(posted.said).toContain(invoice.invoice_number);
       expect(posted.said).toContain(`receipt record ${invoice.invoice_number}`);
       expect(await cli('cfdi', 'post', uuid, '--yes')).toMatchObject({ exitCode: 5 });
+    });
+
+    it('bill inbox edit and bill inbox run send an issued CFDI to cfdi post, and the run still posts nothing', async () => {
+      const { uuid, id } = await stranded();
+      const coded = await cli('bill', 'inbox', 'edit', id, '--account', '4200');
+      expect(coded.exitCode).toBe(0);
+      expect(coded.said).toContain(`mnemosine cfdi post ${uuid}`);
+      expect(coded.said).not.toContain('bill inbox run');
+      const before = await ledger();
+      const run = await cli('bill', 'inbox', 'run', id, '--yes');
+      expect(run.exitCode).toBe(1);
+      expect(run.said).toContain(`mnemosine cfdi post ${uuid}`);
+      expect(await ledger()).toEqual(before);
     });
   });
 

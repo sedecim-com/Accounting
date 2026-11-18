@@ -1,6 +1,6 @@
 import * as readline from 'node:readline/promises';
 import { cashFindingMessage, withCashFindingMessage } from '../i18n/cash-finding-text.js';
-import { getLanguage } from '../i18n/index.js';
+import { getLanguage, t } from '../i18n/index.js';
 import { readFileSync } from 'node:fs';
 import { stdin, stdout } from 'node:process';
 import type { Command } from 'commander';
@@ -966,7 +966,8 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
 
   // ---- bill inbox edit ---------------------------------------------
   // ING-2 (#319): the way to code a CFDI the model never classified. It only
-  // writes the pre-registration; the ledger is reached by `bill inbox run`.
+  // writes the pre-registration; the ledger is reached by `bill inbox run`, or
+  // by `cfdi post` for a CFDI the entity issued (MNE-001-418).
   const inboxEdit = describeCommand(inbox.command('edit').alias('editar'), 'help.bill.inbox.edit.description');
   argumentByKey(inboxEdit, '<id>', 'help.bill.inbox.edit.argument.id');
   withContext(inboxEdit);
@@ -1027,7 +1028,10 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
             deps.palette.dim(` · ${uncoded} line(s) still without an account`) +
             '\n'
         );
-        if (uncoded === 0) {
+        const uuid = coded.document_type === 'invoice' ? await issuedCfdiUuid(ctx.entityId, coded.xml_document_id) : null;
+        if (uuid) {
+          process.stderr.write(deps.palette.dim(`  ${t('bill.inbox.edit.issued_post_with', { uuid })}\n`));
+        } else if (uncoded === 0) {
           process.stderr.write(
             deps.palette.dim(`  Post it with \`mnemosine bill inbox run ${idArg.trim()}\`.\n`)
           );
@@ -1611,6 +1615,15 @@ async function ejecutarBandeja(orden: {
   return { action: orden.accion, total: orden.filas.length, ok, skipped, failed, needsHuman, results };
 }
 
+/** The UUID `cfdi post` takes for an issued pre-registration, read by its XML within the entity. */
+async function issuedCfdiUuid(entityId: string, xmlDocumentId: unknown): Promise<string | null> {
+  const found = await query<{ cfdi_uuid: string | null }>(
+    `SELECT cfdi_uuid FROM xml_documents WHERE id = $1 AND entity_id = $2`,
+    [xmlDocumentId, entityId]
+  );
+  return found.rows[0]?.cfdi_uuid ?? null;
+}
+
 /** Una sola fila, una sola acción. Todo UPDATE lleva su `entity_id` dentro. */
 async function unActoDeBandeja(
   orden: {
@@ -1649,6 +1662,8 @@ async function unActoDeBandeja(
       //
       // Se rechaza en voz alta en vez de filtrarse en silencio: un documento
       // que el operador seleccionó y no se contabiliza tiene que decir por qué.
+      const uuid = cruda.document_type === 'invoice' ? await issuedCfdiUuid(orden.entityId, cruda.xml_document_id) : null;
+      if (uuid) throw blockedByState({ key: 'bill.inbox.run.issued_not_a_bill', params: { uuid } });
       if (cruda.document_type !== 'bill') {
         throw blockedByState(
           `es un pre-registro de tipo "${textoDe(cruda.document_type, 'desconocido')}", ` +

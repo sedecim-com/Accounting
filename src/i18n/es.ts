@@ -3690,7 +3690,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bill.inbox.edit.argument.id': 'un pre-registro, por su id',
   'help.bill.inbox.edit.option.line':
     'número de la línea que se codifica; sin él, --account es la cuenta por omisión de toda línea que no tenga una',
-  'help.bill.inbox.edit.option.account': 'cuenta de gasto, por código o id',
+  'help.bill.inbox.edit.option.account':
+    'cuenta de gasto, por código o id; para un CFDI que emitió esta entidad, la cuenta de ingresos',
   'help.bill.inbox.edit.option.cost_center': 'id del centro de costo de la línea de --line',
   'help.bill.inbox.run.description':
     'Convierte pre-registros en facturas de proveedor, o los aprueba, rechaza y programa en masa',
@@ -3964,4 +3965,11 @@ export const ES: Record<keyof typeof EN, string> = {
     'No se escribió nada. Para codificar antes un concepto: mnemosine bill inbox edit {id} --line <n> --account <code>',
   'cfdi.post.next':
     '{method, select, PPD {Su IVA queda como no cobrado (2125 en el catálogo sembrado) hasta que llegue su complemento de pago (REP).{parked, select, yes { Hay complementos de pago aparcados: mnemosine rep reconcile liga el que pague esta factura.} other {}}} other {Registra su cobro con: mnemosine receipt record {invoice}}}',
+  'ingest.issued_left_to_code':
+    'Queda por contabilizar a mano ({reason}): lo emitió esta entidad, así que es una venta. Contabilízalo en CxC con `mnemosine cfdi post {uuid}`; `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending` lista los que esperan',
+  'ingest.summary.issued_to_post':
+    '{count} de ellos los emitió esta entidad: contabiliza cada uno en CxC con `mnemosine cfdi post <uuid>`; lístalos con `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending`.',
+  'bill.inbox.edit.issued_post_with': 'Lo emitió esta entidad: contabilízalo en CxC con `mnemosine cfdi post {uuid}`.',
+  'bill.inbox.run.issued_not_a_bill':
+    'es un CFDI que emitió esta entidad, una venta y no una factura de proveedor: contabilízalo en CxC con `mnemosine cfdi post {uuid}`',
 };

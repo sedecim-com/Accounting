@@ -3673,7 +3673,8 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --line <n>               line number to code; without it, --account is the
                            default for every line with none
-  --account <code>         expense account, by code or id
+  --account <code>         expense account, by code or id; for a CFDI this
+                           entity issued, the revenue account
   --cost-center <id>       cost center id of the --line
   -y, --yes                skip the confirmation prompt
   -h, --help               display help for command

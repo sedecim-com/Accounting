@@ -3824,7 +3824,8 @@ export const EN = {
   'help.bill.inbox.edit.argument.id': 'one pre-registration, by id',
   'help.bill.inbox.edit.option.line':
     'line number to code; without it, --account is the default for every line with none',
-  'help.bill.inbox.edit.option.account': 'expense account, by code or id',
+  'help.bill.inbox.edit.option.account':
+    'expense account, by code or id; for a CFDI this entity issued, the revenue account',
   'help.bill.inbox.edit.option.cost_center': 'cost center id of the --line',
   'help.bill.inbox.run.description':
     'Turn pre-registrations into vendor bills, or approve, reject and schedule them in bulk',
@@ -4103,4 +4104,11 @@ export const EN = {
     'Nothing was written. To code one concept first: mnemosine bill inbox edit {id} --line <n> --account <code>',
   'cfdi.post.next':
     '{method, select, PPD {Its VAT waits as not yet collected (2125 in the seeded chart) until its payment receipt (REP) arrives.{parked, select, yes { There are parked payment receipts: mnemosine rep reconcile links any that pays this invoice.} other {}}} other {Record its collection with: mnemosine receipt record {invoice}}}',
+  'ingest.issued_left_to_code':
+    'Left to post by hand ({reason}): this entity issued it, so it is a sale. Post it to receivables with `mnemosine cfdi post {uuid}`; `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending` lists the ones waiting',
+  'ingest.summary.issued_to_post':
+    '{count} of them issued by this entity: post each to receivables with `mnemosine cfdi post <uuid>`; list them with `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending`.',
+  'bill.inbox.edit.issued_post_with': 'This entity issued it: post it to receivables with `mnemosine cfdi post {uuid}`.',
+  'bill.inbox.run.issued_not_a_bill':
+    'it is a CFDI this entity issued, a sale and not a vendor bill: post it to receivables with `mnemosine cfdi post {uuid}`',
 } as const;
