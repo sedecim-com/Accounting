@@ -29,6 +29,12 @@ import type { AccountRole } from './cfdi-taxonomy.js';
 // suma de los renglones no coincide con el importe que el clasificador
 // atribuyó al gasto, la apertura no se hace y queda constancia: preferimos
 // una cuenta genérica correcta a un desglose que descuadra.
+//
+// MNE-001-454: with `revenueLines`, the single revenue line of an issued sale
+// is opened the same way, one credit per concept net of its own discount, so
+// a person's coding of each line reaches the entry. Nets that do not add up
+// to the CFDI's revenue leave the line closed and say so in
+// `revenueLinesMismatch`; the caller decides whether to refuse.
 // ============================================================
 
 /** Roles cuyo importe se abre en los renglones del documento. */
@@ -44,6 +50,8 @@ export interface RenglonDocumento {
   line_number: number;
   descripcion: string;
   importe: number;
+  /** The concept's own Descuento; only the revenue opening reads it. */
+  discount?: number;
   account_id?: string | null;
   suggested_account_id?: string | null;
   cost_center_id?: string;
@@ -72,6 +80,12 @@ export interface PlanDeAsiento {
    * contable). Lo fija planDeAsiento; lo consume quien crea el asiento.
    */
   fechaContableHoy?: boolean;
+  /**
+   * Set when `revenueLines` was asked for and the concepts' nets differ from
+   * the CFDI's revenue (SubTotal − Descuento) by more than 0.01: the revenue
+   * line was left whole.
+   */
+  revenueLinesMismatch?: { linesTotal: string; revenueTotal: string };
 }
 
 export interface OpcionesPlan {
@@ -93,6 +107,13 @@ export interface OpcionesPlan {
    * contestaba umbral_capitalizacion_mxn y no cambiaba nada.
    */
   thresholds?: PolicyThresholds;
+  /**
+   * Opens the revenue line of an issued sale by concept. Each credit goes to
+   * the first account that exists: the line's `account_id`, `callerAccountId`,
+   * `storedDefaultAccountId`, the account of the `ingreso` role. A line's
+   * `suggested_account_id` is never read: a suggestion is an expense account.
+   */
+  revenueLines?: { callerAccountId?: string | null; storedDefaultAccountId?: string | null };
 }
 
 /** Códigos de cuenta → id, dentro de la entidad. */
@@ -168,8 +189,57 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
     }
   }
 
+  // ── The revenue line of an issued sale, opened by concept on request.
+  const revenue = clasificacion.lines.filter((l) => l.role === 'ingreso' && l.credit !== null);
+  let revenueNets: Decimal[] | null = null;
+  let revenueLinesMismatch: PlanDeAsiento['revenueLinesMismatch'];
+  if (opts.revenueLines && revenue.length === 1) {
+    const revenueTotal = new Decimal(revenue[0].credit ?? 0);
+    const nets = opts.renglones.map((r) => new Decimal(r.importe).minus(r.discount ?? 0));
+    const residual = revenueTotal.minus(nets.reduce((s, n) => s.plus(n), new Decimal(0)));
+    if (nets.length === 0 || residual.abs().greaterThan('0.01')) {
+      revenueLinesMismatch = { linesTotal: revenueTotal.minus(residual).toFixed(2), revenueTotal: revenueTotal.toFixed(2) };
+      avisos.push(
+        `The revenue lines add up to ${revenueLinesMismatch.linesTotal} and the CFDI's revenue ` +
+          `(SubTotal − Descuento) is ${revenueLinesMismatch.revenueTotal}: the revenue line was not opened by concept.`
+      );
+    } else {
+      // NOTE: the debit side comes from the CFDI's header and the entry must balance exactly, so a
+      // rounding residual of up to one cent stays inside revenue, on the last line.
+      if (!residual.isZero()) {
+        nets[nets.length - 1] = nets[nets.length - 1].plus(residual);
+        avisos.push(
+          `Revenue line ${opts.renglones[nets.length - 1].line_number} carries a rounding residual of ` +
+            `${residual.toFixed(2)} so the credits add up to the CFDI's SubTotal − Descuento.`
+        );
+      }
+      revenueNets = nets;
+    }
+  }
+
   const lineas: LineaAsiento[] = [];
   for (const propuesta of clasificacion.lines) {
+    if (revenueNets && propuesta === revenue[0]) {
+      const roleAccount = propuesta.accountCode ? porCodigo.get(propuesta.accountCode) : undefined;
+      for (const [i, r] of opts.renglones.entries()) {
+        const account =
+          r.account_id || opts.revenueLines?.callerAccountId || opts.revenueLines?.storedDefaultAccountId || roleAccount;
+        if (!account) {
+          if (!cuentasFaltantes.some((c) => c.role === propuesta.role)) {
+            cuentasFaltantes.push({ role: propuesta.role, code: propuesta.accountCode });
+          }
+          continue;
+        }
+        lineas.push({
+          account_id: account,
+          debit_amount: null,
+          credit_amount: revenueNets[i].toFixed(4),
+          description: r.descripcion,
+          ...(r.cost_center_id ? { cost_center_id: r.cost_center_id } : {}),
+        });
+      }
+      continue;
+    }
     if (desglose === 'abierta' && ROLES_DE_GASTO.has(propuesta.role)) {
       // La línea de gasto se abre en los renglones del documento; cada uno
       // conserva su cuenta y su centro de costo.
@@ -193,7 +263,10 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
     lineas.push(linea);
   }
 
-  return { clasificacion, lineas, cuentasFaltantes, desglose, avisos };
+  return {
+    clasificacion, lineas, cuentasFaltantes, desglose, avisos,
+    ...(revenueLinesMismatch ? { revenueLinesMismatch } : {}),
+  };
 }
 
 function aLineaDeAsiento(
