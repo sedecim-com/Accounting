@@ -1307,8 +1307,11 @@ export async function postVendorApplicationEntry(
  * Desaplicar, como evento nuevo: DR cxc · CR anticipo_clientes (el crédito
  * vuelve a estar a cuenta — desaplicar NO es devolver dinero) y el IVA que
  * aquella aplicación liberó se RE-APARCA (DR iva_trasladado · CR
- * iva_trasladado_no_cobrado). El importe sale de la fila de la aplicación;
- * una fila anterior a la 049 no lo guardó y se estima pro-rata, diciéndolo.
+ * iva_trasladado_no_cobrado). El importe sale de la fila de la aplicación.
+ *
+ * MNE-001-517: a row that stored none is estimated pro-rata, and the lines
+ * say so, only for a PPD invoice on cash-basis IVA books; the caller passes
+ * zero for any other, and then no IVA line is written and no IVA role read.
  */
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,

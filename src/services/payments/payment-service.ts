@@ -22,7 +22,7 @@ import {
   type ContextoCambiario,
   type DiferenciaCambiaria,
 } from '../accounting/moneda-origen.js';
-import { ivaToReclassify, entityUsesCashBasisIva } from '../accounting/iva-cash-basis.js';
+import { ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
 import {
   ADVANCE_TREATMENTS, isAdvanceTreatment, splitAdvance, storedAdvanceTreatment, type AdvanceSplit,
 } from './customer-advance.js';
@@ -1439,6 +1439,10 @@ export interface ResultadoDesaplicacion {
  * Desaplicar un cobro de una factura: la aplicación se CLAUSURA (nunca se
  * borra), la factura reabre y el crédito vuelve a estar a cuenta. El IVA que
  * la aplicación liberó se re-aparca por el importe exacto que guardó su fila.
+ *
+ * MNE-001-517: a row that stored no IVA is estimated pro-rata only when the
+ * invoice is PPD and the entity keeps cash-basis IVA books. A PUE invoice
+ * and an entity off Mexican books parked nothing, so nothing is re-parked.
  */
 export async function unapplyCustomerPayment(
   entityId: string,
@@ -1462,8 +1466,10 @@ export async function unapplyCustomerPayment(
     const inv = await client.query<{
       id: string; invoice_number: string; amount_due: string; amount_paid: string;
       currency_code: string; tax_amount: string; total_amount: string;
+      cfdi_uuid: string | null; terms: string | null; memo: string | null;
     }>(
-      `SELECT id, invoice_number, amount_due, amount_paid, currency_code, tax_amount, total_amount
+      `SELECT id, invoice_number, amount_due, amount_paid, currency_code, tax_amount, total_amount,
+              cfdi_uuid, terms, memo
          FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
       [args.invoiceId, entityId]
     );
@@ -1496,9 +1502,20 @@ export async function unapplyCustomerPayment(
     const conIva = vivas.rows.filter((r) => r.iva_reclass_amount !== null);
     const sinIva = vivas.rows.filter((r) => r.iva_reclass_amount === null);
     const ivaExacto = conIva.reduce((s, r) => s.plus(r.iva_reclass_amount as string), new Decimal(0));
-    // Filas pre-049 no guardaron su IVA: se estima pro-rata y el asiento lo dice.
+    // A row with no stored IVA (written before migration 049, or a PPD release
+    // capped to 0) is estimated pro-rata, and the entry says so. Only a PPD
+    // invoice on cash-basis books parked IVA (LIVA art. 1o.-B); the books are
+    // read first, so an entity off Mexican books never reads a MetodoPago.
+    // Stored IVA is a fact of the ledger and is never gated.
+    const parksIva =
+      sinIva.length > 0 &&
+      (await entityUsesCashBasisIva(client, entityId)) &&
+      (await resolveInvoiceMetodoPago(client, {
+        id: factura.id, entity_id: entityId, invoice_number: factura.invoice_number,
+        cfdi_uuid: factura.cfdi_uuid, terms: factura.terms, memo: factura.memo,
+      })).metodo === 'PPD';
     const montoSinIva = sinIva.reduce((s, r) => s.plus(r.amount_applied), new Decimal(0));
-    const ivaEstimadoParte = montoSinIva.greaterThan(0)
+    const ivaEstimadoParte = parksIva && montoSinIva.greaterThan(0)
       ? new Decimal(
           ivaToReclassify({
             ivaTotal: factura.tax_amount,
