@@ -683,6 +683,12 @@ describe('ING-3 · #320 — the direction of the CFDI', () => {
     expect(prompt).not.toMatch(/Vendor NOT registered|IVA Pendiente de Acreditar/);
   });
 
+  it('an issued CFDI with no method is a PUE sale, VAT in 2120; only a purchase waits as PPD (MNE-001-520)', () => {
+    const issued = buildCfdiPrompt({ ...makeUpload(), direction: 'issued' });
+    expect(issued).toMatch(/No Method declared: treat it as PUE[\s\S]*2120/);
+    expect(issued).not.toMatch(/treat it as PPD/);
+  });
+
   it('the prompt states the direction instead of assuming a received CFDI', () => {
     const received = buildCfdiPrompt({ ...makeUpload(), direction: 'received' });
     expect(received).toMatch(/- Direction: received \(the entity is the receiver/);
