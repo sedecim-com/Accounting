@@ -84,7 +84,9 @@ describe('la serie del folio por ejercicio', () => {
       f.userId
     );
     expect(Number(siguiente.entry_number.split('-')[2])).toBeGreaterThan(emitido);
-  });
+    // The seeding walks every tenant of the run's database, and the suite adds
+    // tenants with each spec: the default 30 s stopped being enough in CI.
+  }, 120_000);
 });
 
 describe('el refresco fuera del posteo', () => {
