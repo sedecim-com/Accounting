@@ -315,22 +315,28 @@ const CENSUS_METADATA = [
 //                        and the paid IVA moves 1135 → 1130: 800.00
 //   12-22 REP            2110 Dr 9,280.00 / bank Cr 9,280.00, and the PPD's
 //                        paid IVA moves 1135 → 1130: 1,280.00 (LIVA art. 5 fr. III)
+//   12-28 stray entry    1120 Dr 2,000.00 / 4100 Cr 2,000.00: a sale typed as a
+//                        journal entry, with no invoice behind it, so 1120 holds
+//                        2,000 that the receivables subledger does not
+//   12-31 its reversal   4100 Dr 2,000.00 / 1120 Cr 2,000.00: the mirror, dated
+//                        inside December, so both wash out within the month
 //   12-31 depreciation   6140 Dr 900.00 / 1290 Cr 900.00, posted by the close:
 //                        computer class, 30 % LISR maximum → 40-month book
 //                        life; whole-month convention, so 36,000 / 40
 // Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
 // + 900 = 67,860 typed, and 9,280 + 2 × 1,160 + 2 × 1,160 + (9,280 + 1,280)
 // = 24,480 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
-// + 2 × 1,190 + (11,600 + 9,533.33) = 26,813.33. In all 119,153.33. The
-// dossier seals the trial balance as of 12-31, so it counts the opening of
-// 01-01 too: 107,800 + 119,153.33.
-const SEALED_DEBITS = '226953.33';
+// + 2 × 1,190 + (11,600 + 9,533.33) = 26,813.33, and the stray entry and its
+// mirror, which move no balance but are debits all the same: 2 × 2,000
+// = 4,000. In all 123,153.33. The dossier seals the trial balance as of
+// 12-31, so it counts the opening of 01-01 too: 107,800 + 123,153.33.
+const SEALED_DEBITS = '230953.33';
 const ENDING = {
   // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
   // − 1,200 − 450 (the bookshop) − 1,190 (the hotel) − 9,533.33 (the fees, net)
   // (see MNE-001-039 in step 4)
   '1111': '40026.67',
-  '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160
+  '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160 (+ 2,000 − 2,000, the stray entry and its mirror)
   // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE) + 160 (the hotel) + 1,600 (the fees)
   '1130': '4160.00',
   '1135': '320.00', // the opening's; the 800 and the 1,280 parked in December moved to 1130 when paid
@@ -344,7 +350,7 @@ const ENDING = {
   '2125': '-480.00', // the opening invoice's IVA, still uncollected
   '3100': '-100000.00',
   '3200': '-5000.00', // the 2024 result, untouched since the opening
-  '4100': '-10000.00',
+  '4100': '-10000.00', // the invoice; the stray 2,000 was credited on 12-28 and debited back on 12-31
   '4400': '1000.00',
   // 5,000 typed + 8,000 (PPD) + 1,000 + 1,000 (the PUE) + 1,200 + 450 (the bookshop)
   // + 1,000 (the hotel) + 10,000 (the fees)
