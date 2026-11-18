@@ -24,10 +24,12 @@ import type { Hallazgo } from './hallazgos.js';
 //
 // LOS DOS SUCESOS SON LOS DEL MAYOR, Y ESO ES LA TESIS DEL MÓDULO. La
 // maquinaria de flujo (iva-cash-basis) ya decide cuándo el IVA de una compra
-// es acreditable, y sólo hay dos momentos:
+// es acreditable, y sólo hay dos momentos. Cuál le toca a un gasto lo decide
+// DÓNDE ESTÁ SU IVA, no su método (MNE-001-491):
 //
-//   · PUE  → al contabilizar el gasto. El IVA fue directo a 1130.
-//   · PPD  → al pagar. El IVA sale de 1135 y entra a 1130, en proporción.
+//   · el gasto  → un PUE cuyo IVA fue directo a 1130 al contabilizarlo.
+//   · el pago   → todo lo demás: el IVA aparcado sale de 1135 y entra a 1130,
+//                 en proporción a lo pagado, sea el gasto PPD o PUE.
 //
 // Construir la DIOT a partir de EXACTAMENTE esos dos sucesos hace que el
 // amarre contra el movimiento de 1130 del mes —el paso 6 de la lista de
@@ -77,6 +79,11 @@ export interface HechoPagado {
   billNumber: string;
   vendorId: string;
   metodo: MetodoPagoDecision;
+  /**
+   * Which event declares the bill: its own entry (`bill`, declared whole in
+   * its month) or its payments (`payment`, the month's increment).
+   */
+  event: 'bill' | 'payment';
   /** `bills.tax_amount` en moneda del documento: la cabecera. */
   ivaCabecera: string;
   /** El IVA acreditable que el mes reconoció, en moneda funcional. */
@@ -119,14 +126,14 @@ export function rangoDelMes(anio: number, mes: number): RangoDelMes {
 }
 
 /**
- * Los gastos PUE contabilizados en el mes.
+ * Los gastos contabilizados en el mes: los candidatos al suceso «gasto».
  *
  * `journal_entry_id IS NOT NULL` y no `status`: es la marca que
  * `postBillEntry` escribe y la llave de su idempotencia, así que es la única
  * que responde a la pregunta que importa —si este gasto movió el mayor— sin
  * depender de que alguien mantenga el `status` al día.
  */
-async function gastosPueDelMes(
+async function gastosDelMes(
   client: pg.PoolClient,
   entityId: string,
   rango: RangoDelMes
@@ -264,7 +271,7 @@ async function retencionesDe(
  * Todo lo que el mes declara, documento por documento.
  *
  * Los avisos que salen de aquí son los que sólo se ven con la base delante:
- * el PUE sin un peso aplicado y el gasto cuyo tope aparcado deja el IVA por
+ * el PUE acreditado al contabilizarse y sin un peso aplicado y el gasto cuyo tope aparcado deja el IVA por
  * debajo de lo que la proporción pedía.
  */
 export async function hechosDelMes(
@@ -277,11 +284,11 @@ export async function hechosDelMes(
   const hallazgos: Hallazgo[] = [];
   const hechos: HechoPagado[] = [];
 
-  const candidatosPue = await gastosPueDelMes(client, entityId, rango);
-  const candidatosPpd = await gastosPagadosEnElMes(client, entityId, rango);
+  const datedInMonth = await gastosDelMes(client, entityId, rango);
+  const paidInMonth = await gastosPagadosEnElMes(client, entityId, rango);
 
-  const pue: FilaGasto[] = [];
-  const ppd: FilaGasto[] = [];
+  const byBill: FilaGasto[] = [];
+  const byPayment: FilaGasto[] = [];
   const clasificado = new Map<string, MetodoPagoDecision>();
 
   const metodoDe = async (g: FilaGasto): Promise<MetodoPagoDecision> => {
@@ -298,27 +305,51 @@ export async function hechosDelMes(
     return d;
   };
 
-  for (const g of candidatosPue) {
-    if ((await metodoDe(g)).metodo === 'PUE') pue.push(g);
+  // What each bill parked in 1135, read once: the cap of a payment-month fact
+  // and, for a PUE, what decides its event.
+  const parked = new Map<string, Decimal>();
+  const parkedOf = async (g: FilaGasto): Promise<Decimal> => {
+    const known = parked.get(g.id);
+    if (known) return known;
+    const cap = new Decimal(await ivaStillParked(client, 'received', entityId, g.id));
+    parked.set(g.id, cap);
+    return cap;
+  };
+
+  // ONE EVENT PER BILL (MNE-001-491). A PUE with nothing parked (its IVA went
+  // to 1130, it was paid in its own entry, or it has no IVA) is declared whole
+  // in its bill month; every other bill by its payments, cap included. Both
+  // lists ask this one predicate, so a bill can never be declared twice.
+  // NOTE: a later release does not lower the cap (its entry carries the
+  // payment as source), so a parked bill stays a payment-month fact after it
+  // is paid. A source that DOES lower it (#692, a credit note) would send a
+  // parked PUE back to its bill month: MNE-001-492 has to ask what the bill
+  // parked gross, not what is left.
+  const eventOf = async (g: FilaGasto): Promise<HechoPagado['event']> =>
+    (await metodoDe(g)).metodo === 'PUE' && (await parkedOf(g)).isZero() ? 'bill' : 'payment';
+
+  for (const g of datedInMonth) {
+    if ((await eventOf(g)) === 'bill') byBill.push(g);
   }
-  for (const g of candidatosPpd) {
-    if ((await metodoDe(g)).metodo === 'PPD') ppd.push(g);
+  for (const g of paidInMonth) {
+    if ((await eventOf(g)) === 'payment') byPayment.push(g);
   }
 
-  const ids = [...pue.map((g) => g.id), ...ppd.map((g) => g.id)];
+  const ids = [...byBill.map((g) => g.id), ...byPayment.map((g) => g.id)];
   const renglones = await renglonesDe(client, entityId, ids);
   const retenciones = await retencionesDe(client, entityId, ids);
 
   const arma = (
     g: FilaGasto,
-    metodo: MetodoPagoDecision,
+    event: HechoPagado['event'],
     porcion: PorcionPagada,
     ivaPagado: string
   ): HechoPagado => ({
     billId: g.id,
     billNumber: g.bill_number,
     vendorId: g.vendor_id,
-    metodo,
+    metodo: clasificado.get(g.id)!,
+    event,
     ivaCabecera: g.tax_amount,
     ivaPagado,
     ivaRetenido: porcionDelDocumento(retenciones.get(g.id) ?? '0', porcion),
@@ -326,8 +357,8 @@ export async function hechosDelMes(
     renglones: renglones.get(g.id) ?? [],
   });
 
-  // ── PUE: el mes del gasto, entero ──────────────────────────────────────
-  for (const g of pue) {
+  // ── El gasto: un PUE sin IVA aparcado, entero en su mes ────────────────
+  for (const g of byBill) {
     const metodo = clasificado.get(g.id)!;
     const porcion: PorcionPagada = {
       aplicadoPrevio: '0',
@@ -344,8 +375,9 @@ export async function hechosDelMes(
 
     // El PUE declara «pagado en una sola exhibición», y el mayor le creyó:
     // el IVA fue directo a 1130 al contabilizar. Si además resulta que no se
-    // le ha aplicado un peso, la declaración y la caja dicen cosas distintas
-    // y quien firma tiene derecho a saberlo antes de firmar.
+    // le ha aplicado un peso, el IVA se acredita antes de pagarse, y quien
+    // firma tiene derecho a saberlo antes de firmar. El aviso dice lo que
+    // pasó; no supone que el método esté mal (MNE-001-491).
     if (new Decimal(g.amount_paid || '0').lessThanOrEqualTo(0)) {
       hallazgos.push({
         codigo: 'DIOT-PUE-SIN-PAGO',
@@ -353,17 +385,16 @@ export async function hechosDelMes(
         documentId: g.id,
         documentNumber: g.bill_number,
         mensaje:
-          `El gasto ${g.bill_number} se declara como PUE (método leído de: ${metodo.origin}) ` +
-          `y entra completo en la DIOT del mes, pero no tiene ningún pago aplicado. Si en ` +
-          `realidad se paga en parcialidades, su método está mal capturado y el IVA se está ` +
-          `acreditando antes de tiempo.`,
+          `El gasto ${g.bill_number} es PUE (método leído de: ${metodo.origin}) y su IVA fue a la ` +
+          `1130 al contabilizarlo, así que entra completo en la DIOT de este mes; pero no tiene ` +
+          `ningún pago aplicado: su IVA se está acreditando antes de pagarse.`,
       });
     }
-    hechos.push(arma(g, metodo, porcion, ivaPagado));
+    hechos.push(arma(g, 'bill', porcion, ivaPagado));
   }
 
-  // ── PPD: el incremento del mes, con el tope de lo aparcado ─────────────
-  for (const g of ppd) {
+  // ── El pago: el incremento del mes, con el tope de lo aparcado ─────────
+  for (const g of byPayment) {
     const hastaFin = g.aplicado_hasta_fin ?? '0';
     const hastaInicio = g.aplicado_hasta_inicio ?? '0';
     const porcion: PorcionPagada = {
@@ -376,7 +407,7 @@ export async function hechosDelMes(
     // El tope de lo que este documento APARCÓ. Un gasto contabilizado antes
     // de que existiera el IVA en flujo mandó su IVA directo a 1130 y no
     // aparcó nada: su tope es cero y su pago no acredita nada por segunda vez.
-    const aparcado = new Decimal(await ivaStillParked(client, 'received', entityId, g.id));
+    const aparcado = await parkedOf(g);
 
     // Se topan los ACUMULADOS y se restan después, no al revés: topar el
     // tramo dejaría que la suma de los meses superase lo aparcado.
@@ -407,7 +438,7 @@ export async function hechosDelMes(
       });
     }
 
-    hechos.push(arma(g, clasificado.get(g.id)!, porcion, q(ivaPagado)));
+    hechos.push(arma(g, 'payment', porcion, q(ivaPagado)));
   }
 
   return { hechos, hallazgos };
