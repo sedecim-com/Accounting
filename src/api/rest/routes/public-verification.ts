@@ -1,6 +1,6 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { consultaPublica } from '../../../database/consulta-publica.js';
-import { asyncHandler } from '../middleware/async-handler.js';
+import { asyncHandler, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { preAuthRateLimiter } from '../middleware/rate-limiter.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { bitcoinAnchorService } from '../../../services/blockchain/bitcoin-anchor.js';

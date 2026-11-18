@@ -39,7 +39,7 @@ export async function startStubApi(): Promise<StubApi> {
     req.resume();
     stub.respond(req, res);
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
   stub.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   stub.close = () =>
     new Promise<void>((resolve) => {

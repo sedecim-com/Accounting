@@ -23,7 +23,7 @@ Ningún otro repo de Sedecim llama a este ni es llamado por él (ver [`platform/
 | Contenedor | Tecnología | Responsabilidad |
 |---|---|---|
 | CLI `mnemosine` | Node 20, Commander | El producto: lo que el contador opera |
-| API REST `/v1` | Express 4 | La misma lógica para el tablero y las integraciones; contrato en `docs/openapi.json` |
+| API REST `/v1` | Express 5 | La misma lógica para el tablero y las integraciones; contrato en `docs/openapi.json` |
 | Base contable | PostgreSQL con RLS forzada | Dueño único del mayor; aislamiento por inquilino y por entidad |
 | Limitador | Redis | Sólo el rate limit de la API |
 | Bóveda | AWS Secrets Manager (`local-dev` en desarrollo) | e.firma y CSD cifrados, con consentimiento versionado |
