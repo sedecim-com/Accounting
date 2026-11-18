@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getPolicy } from '../policy/policy-service.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
+import { decideMetodoPago } from '../accounting/iva-cash-basis.js';
 import type { CFDIParsed } from './cfdi-parser.js';
 import { money, sumTax, type ApprovedLine } from './pre-registration-service.js';
 
@@ -38,7 +39,10 @@ export function customerCreateCommand(name: string, rfc: string): string {
  *     `cfdi_tolerancia_cuadre`. The VAT must sit in the role the MetodoPago
  *     selects: a PPD parks it in iva_trasladado_no_cobrado, which is the
  *     balance the issued REP releases through the payments gate
- *     (rep-linkage.ts resolves the invoice by its cfdi_uuid).
+ *     (rep-linkage.ts resolves the invoice by its cfdi_uuid). A CFDI with no
+ *     MetodoPago is a PUE sale, VAT in iva_trasladado: that is how the
+ *     collection, the credit note and the IVA working paper will read the
+ *     invoice, so VAT parked for it would never be released (#668).
  */
 export async function registerInvoiceFromApprovedDraft(
   client: pg.PoolClient,
@@ -103,8 +107,13 @@ export async function registerInvoiceFromApprovedDraft(
   const accountsOf = (...names: string[]) =>
     new Set(roles.rows.filter((r) => names.includes(r.role)).map((r) => r.account_id));
   const withRole = accountsOf(...AR_ROLES);
-  // No MetodoPago is treated as PPD, as the prompt tells the agent: it never overstates the VAT due.
-  const pue = preReg.x_metodo_pago === 'PUE';
+  // The ledger's one rule, not a copy of it. Only the CFDI is passed: the invoice born here has
+  // no terms and no memo, so it is the only signal a later reader of that invoice will have.
+  const method = decideMetodoPago('issued', { cfdiMetodoPago: preReg.x_metodo_pago });
+  const pue = method.metodo === 'PUE';
+  const vatRole = !pue
+    ? 'iva_trasladado_no_cobrado, parked until the REP'
+    : method.assumed ? 'iva_trasladado; no MetodoPago, read as PUE' : 'iva_trasladado';
   const lines = opts.approvedLines.map((l) => ({
     accountId: opts.accountIdByCode.get(l.account_code) as string,
     description: l.description,
@@ -128,7 +137,7 @@ export async function registerInvoiceFromApprovedDraft(
       cfdi: money(preReg.x_total),
     },
     {
-      figure: `transferred VAT (${pue ? 'iva_trasladado' : 'iva_trasladado_no_cobrado, parked until the REP'})`,
+      figure: `transferred VAT (${vatRole})`,
       entry: net(accountsOf(pue ? 'iva_trasladado' : 'iva_trasladado_no_cobrado'), 'credit'),
       cfdi: vat,
     },
