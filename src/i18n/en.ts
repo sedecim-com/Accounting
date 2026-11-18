@@ -2248,6 +2248,17 @@ export const EN = {
   'receipt.withholding.isr_cap': '{invoice} has a subtotal of {cap}: the ISR withheld cannot exceed it.',
   'receipt.withholding.booked_at_issuance':
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
+  // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
+  'receipt.advance.treatment_unknown':
+    'The IVA treatment "{value}" of an advance is not known: state one of {allowed}.',
+  'receipt.advance.only_without_invoice':
+    'An IVA treatment is stated only for an advance with no invoice. This receipt applies cash to an invoice, and the cash it leaves on account does not take a rate yet (issue 623).',
+  'receipt.advance.not_mexican_books':
+    'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
+  'receipt.advance.cheque_not_wired':
+    'An advance received by cheque causes its IVA on the day the bank cashes the cheque (LIVA art. 1-B, second paragraph), not on the day it is received, and recording that cashing does not exist yet (issue 700). Nothing was recorded.',
+  'receipt.advance.application_not_wired':
+    '{receipt} is an advance whose IVA was caused when it was collected. Applying it to an invoice has to cancel that IVA instead of causing it a second time, and that is not wired yet (issue 623, MNE-001-422). Nothing was applied.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
