@@ -160,14 +160,14 @@ describe('receipt reverse states its cause', () => {
   });
 
   it('T4 · T5 · T6 · with no cause a cheque takes not_collected and a transfer takes none; the dry run says the same and writes nothing', async () => {
-    const cheque = await collected('check');
-    const dryCheque = await reverseCustomerPayment(mx.entityId, cheque.id, { reason: 'returned unpaid' }, mx.userId, { dryRun: true });
-    expect(dryCheque).toMatchObject({ cause: 'not_collected', causeDefaulted: true, warnings: [] });
-    expect(await stored(cheque.id)).toMatchObject({ status: 'completed', cause: null });
-    const onCheque = await reverseCustomerPayment(mx.entityId, cheque.id, { reason: 'returned unpaid' }, mx.userId);
-    expect(onCheque).toMatchObject({ cause: 'not_collected', causeDefaulted: true, warnings: [] });
-    expect((await stored(cheque.id)).cause).toBe('not_collected');
-    expect((await notes(cheque.id, onCheque)).allocations).toEqual(['Reversed (not collected): returned unpaid']);
+    const byCheck = await collected('check');
+    const dryCheck = await reverseCustomerPayment(mx.entityId, byCheck.id, { reason: 'returned unpaid' }, mx.userId, { dryRun: true });
+    expect(dryCheck).toMatchObject({ cause: 'not_collected', causeDefaulted: true, warnings: [] });
+    expect(await stored(byCheck.id)).toMatchObject({ status: 'completed', cause: null });
+    const onCheck = await reverseCustomerPayment(mx.entityId, byCheck.id, { reason: 'returned unpaid' }, mx.userId);
+    expect(onCheck).toMatchObject({ cause: 'not_collected', causeDefaulted: true, warnings: [] });
+    expect((await stored(byCheck.id)).cause).toBe('not_collected');
+    expect((await notes(byCheck.id, onCheck)).allocations).toEqual(['Reversed (not collected): returned unpaid']);
 
     const ach = await collected('ach');
     const dryAch = await reverseCustomerPayment(mx.entityId, ach.id, { reason: 'recalled' }, mx.userId, { dryRun: true });
