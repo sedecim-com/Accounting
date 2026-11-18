@@ -2250,6 +2250,8 @@ export const EN = {
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
   'receipt.apply.other_customer':
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
+  'credit_note.advance.exceeds_invoiced_advance':
+    'Credit note {note} applies an advance of {requested}, and customer {customer} has {available} in advance invoices not yet applied. Nothing was posted. Cash on account is applied with `receipt apply`; an advance booked by a journal entry is applied by a journal entry.',
   'payment.apply.other_vendor':
     '{bill} belongs to vendor {billVendor}, and payment {payment} belongs to vendor {paymentVendor}: cash on account settles only bills of its own vendor. Record the payment under {billVendor}, or apply {payment} to a bill of {paymentVendor}.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
