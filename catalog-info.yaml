@@ -44,6 +44,12 @@ provides:
     # language, the one keyed error messages use, never the server's (#654).
     # messageKey and messageParams (noteKey and noteParams when present) are the
     # finding's identity and do not change with the language.
+    # CONTRACT: a received CFDI's line is no longer suggested a control account (payables,
+    # receivables, a bank, VAT, withholdings, one closed to manual entries), and an issuer
+    # with no vendor gets no suggestion at all, where it used to inherit the entity's most
+    # frequent bill-line account (#684). POST /v1/pre-registrations/{id}/process therefore
+    # refuses, with «Line N: no account assigned», a row it used to post; coding the line
+    # (PATCH /v1/pre-registrations/{id}) posts it. The shape of the row does not change.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings

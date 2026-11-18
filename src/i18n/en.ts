@@ -72,16 +72,25 @@ export const EN = {
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
+    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} ieps {it transfers IEPS ({detail}), which this path does not book yet} local_tax {it transfers local taxes ({detail}), which this path does not book yet} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
   /** `AccountingError('ISSUED_CFDI_NOT_OPEN')`: the pre-registration is completed, rejected or processing. */
   'error.ISSUED_CFDI_NOT_OPEN':
     'CFDI {uuid} is not open: its pre-registration is {status}{invoice, select, none {} other {, as customer invoice {invoice}}}. Nothing was posted.',
   /** `AccountingError('ISSUED_CFDI_DRAFT_IN_REVIEW')`: an AI draft of the same CFDI would book the sale twice. */
   'error.ISSUED_CFDI_DRAFT_IN_REVIEW':
     'CFDI {uuid} has an AI draft in review or approved: approve or reject it with: mnemosine review. Nothing was posted.',
-  /** `AccountingError('CFDI_REQUIERE_DECISION')` at the hand door: `reason` is the classifier's. */
+  /** `AccountingError('CFDI_REQUIERE_DECISION')` at the hand door: `reason` is the classifier's, `commands` the panel keys that answer it. */
   'error.ISSUED_CFDI_HELD':
-    'CFDI {uuid} is held and nothing was posted: {reason}',
+    'CFDI {uuid} is held and nothing was posted: {reason}{commands, select, none {} other {. Answer it with: {commands}, and run the command again}}',
+  /** `AccountingError('ISSUED_CFDI_SUBSTITUTES_INVOICE')`: TipoRelacion 04 whose original is a live invoice. */
+  'error.ISSUED_CFDI_SUBSTITUTES_INVOICE':
+    'CFDI {uuid} substitutes a CFDI that is still customer invoice {invoice} ({status}): void that invoice first. Nothing was posted.',
+  /** `ValidationError`: the concepts do not add up to the revenue of the CFDI. */
+  'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH':
+    'The concepts of CFDI {uuid} add up to {lines} net of their discounts, and its SubTotal − Descuento is {revenue}: the revenue cannot be split by concept. Nothing was posted.',
+  /** `ValidationError`: a revenue line coded to an account that is not a postable revenue account with a credit balance. */
+  'error.ISSUED_CFDI_REVENUE_ACCOUNT':
+    'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
 
   // ==== end of error.* ================================================
 
@@ -2266,6 +2275,19 @@ export const EN = {
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
   'credit_note.advance.exceeds_invoiced_advance':
     'Credit note {note} applies an advance of {requested}, and customer {customer} has {available} in advance invoices not yet applied. Nothing was posted. Cash on account is applied with `receipt apply`; an advance booked by a journal entry is applied by a journal entry.',
+  // MNE-001-489 (#692): why a received credit note waits for a person.
+  'credit_note.received.refusal.not_received': 'CFDI {note} is from {issuer} to {receiver}: the entity is not its receiver. Only a credit note a vendor issued to the entity is posted against a bill.',
+  'credit_note.received.refusal.not_credit_note': 'CFDI {note} is type {type} with TipoRelacion {relation}. Only a type E with TipoRelacion 01 (credit note) or 03 (return) is posted against a bill.',
+  'credit_note.received.refusal.note_foreign_currency': 'Credit note {note} is in {currency}. A received credit note is posted only when it and its bill are in the entity\'s currency; this one waits for a person.',
+  'credit_note.received.refusal.other_taxes': 'Credit note {note} carries a tax other than transferred VAT (IEPS, a local tax or a withholding). It waits for a person.',
+  'credit_note.received.refusal.related_bills': 'Credit note {note} has to name exactly one bill of this entity among its related CFDI, and it names {count}.',
+  'credit_note.received.refusal.bill_foreign_currency': 'Bill {bill} is in {currency}. Credit note {note} is posted only when it and its bill are in the entity\'s currency; it waits for a person.',
+  'credit_note.received.refusal.other_vendor': 'Credit note {note} was issued by {issuer}, and bill {bill} belongs to vendor {vendor}. A credit note lowers only a bill of its own issuer.',
+  'credit_note.received.refusal.bill_not_payable': 'Bill {bill} is "{status}". Credit note {note} is posted only against a bill that is {payable}.',
+  'credit_note.received.refusal.release_not_recorded': 'A payment applied to bill {bill} did not record the VAT it released, so what the bill still has in pending VAT cannot be known. Credit note {note} waits for a person.',
+  'credit_note.received.refusal.exceeds_balance': 'Credit note {note} is for {total} and bill {bill} owes {due}. A credit note larger than the balance of its bill is not posted.',
+  'credit_note.received.refusal.vat_out_of_proportion': 'Credit note {note} carries {vat} of VAT, and in the proportion of bill {bill} it would carry {expected}. A bill with more than one VAT rate does not say which part the note lowers; it waits for a person.',
+  'credit_note.received.refusal.capitalised_line': 'Bill {bill} has a line on an account with the role {role}. Credit note {note} would lower an asset and not an expense; it waits for a person.',
   'payment.apply.other_vendor':
     '{bill} belongs to vendor {billVendor}, and payment {payment} belongs to vendor {paymentVendor}: cash on account settles only bills of its own vendor. Record the payment under {billVendor}, or apply {payment} to a bill of {paymentVendor}.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.

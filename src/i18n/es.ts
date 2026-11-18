@@ -47,13 +47,19 @@ export const ES: Record<keyof typeof EN, string> = {
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} ieps {traslada IEPS ({detail}), que este camino todavía no contabiliza} local_tax {traslada impuestos locales ({detail}), que este camino todavía no contabiliza} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
   'error.ISSUED_CFDI_NOT_OPEN':
     'El CFDI {uuid} no está abierto: su pre-registro está en {status}{invoice, select, none {} other {, como la factura de cliente {invoice}}}. No se posteó nada.',
   'error.ISSUED_CFDI_DRAFT_IN_REVIEW':
     'El CFDI {uuid} tiene un borrador de IA en revisión o aprobado: apruébalo o recházalo con: mnemosine review. No se posteó nada.',
   'error.ISSUED_CFDI_HELD':
-    'El CFDI {uuid} queda detenido y no se posteó nada: {reason}',
+    'El CFDI {uuid} queda detenido y no se posteó nada: {reason}{commands, select, none {} other {. Contéstalo con: {commands}, y vuelve a correr el comando}}',
+  'error.ISSUED_CFDI_SUBSTITUTES_INVOICE':
+    'El CFDI {uuid} sustituye a un CFDI que sigue siendo la factura de cliente {invoice} ({status}): anula primero esa factura. No se posteó nada.',
+  'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH':
+    'Los conceptos del CFDI {uuid} suman {lines} netos de sus descuentos, y su SubTotal − Descuento es {revenue}: el ingreso no se puede repartir por concepto. No se posteó nada.',
+  'error.ISSUED_CFDI_REVENUE_ACCOUNT':
+    'La cuenta {account} ({type}, saldo {balance}){line, select, none {} other {, codificada en el renglón {line},}} no puede recibir el ingreso del CFDI {uuid}: una venta abona una cuenta de ingresos activa y afectable, de saldo acreedor. No se posteó nada.',
   // ==== fin de error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152); see en.ts ====
@@ -2139,6 +2145,19 @@ export const ES: Record<keyof typeof EN, string> = {
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
   'credit_note.advance.exceeds_invoiced_advance':
     'La nota de crédito {note} aplica un anticipo de {requested}, y el cliente {customer} tiene {available} en facturas de anticipo sin aplicar. No se posteó nada. El saldo a cuenta se aplica con `receipt apply`; un anticipo registrado con una póliza se aplica con una póliza.',
+  // MNE-001-489 (#692): why a received credit note waits for a person.
+  'credit_note.received.refusal.not_received': 'El CFDI {note} es de {issuer} para {receiver}: la entidad no es su receptor. Sólo una nota de crédito que un proveedor le emitió a la entidad se contabiliza contra un gasto.',
+  'credit_note.received.refusal.not_credit_note': 'El CFDI {note} es tipo {type} con TipoRelacion {relation}. Sólo un tipo E con TipoRelacion 01 (nota de crédito) o 03 (devolución) se contabiliza contra un gasto.',
+  'credit_note.received.refusal.note_foreign_currency': 'La nota de crédito {note} está en {currency}. Una nota de crédito recibida se contabiliza sólo cuando ella y su gasto están en la moneda de la entidad; ésta espera a una persona.',
+  'credit_note.received.refusal.other_taxes': 'La nota de crédito {note} trae un impuesto distinto del IVA trasladado (IEPS, un impuesto local o una retención). Espera a una persona.',
+  'credit_note.received.refusal.related_bills': 'La nota de crédito {note} tiene que nombrar exactamente un gasto de esta entidad entre sus CFDI relacionados, y nombra {count}.',
+  'credit_note.received.refusal.bill_foreign_currency': 'El gasto {bill} está en {currency}. La nota de crédito {note} se contabiliza sólo cuando ella y su gasto están en la moneda de la entidad; espera a una persona.',
+  'credit_note.received.refusal.other_vendor': 'La nota de crédito {note} la emitió {issuer}, y el gasto {bill} es del proveedor {vendor}. Una nota de crédito sólo baja un gasto de su propio emisor.',
+  'credit_note.received.refusal.bill_not_payable': 'El gasto {bill} está en "{status}". La nota de crédito {note} se contabiliza sólo contra un gasto en {payable}.',
+  'credit_note.received.refusal.release_not_recorded': 'Un pago aplicado al gasto {bill} no guardó el IVA que liberó, así que no se puede saber cuánto IVA pendiente le queda al gasto. La nota de crédito {note} espera a una persona.',
+  'credit_note.received.refusal.exceeds_balance': 'La nota de crédito {note} es por {total} y el gasto {bill} debe {due}. Una nota de crédito mayor que el saldo de su gasto no se contabiliza.',
+  'credit_note.received.refusal.vat_out_of_proportion': 'La nota de crédito {note} trae {vat} de IVA, y en la proporción del gasto {bill} traería {expected}. Un gasto con más de una tasa de IVA no dice qué parte baja la nota; espera a una persona.',
+  'credit_note.received.refusal.capitalised_line': 'El gasto {bill} tiene un renglón en una cuenta con el rol {role}. La nota de crédito {note} bajaría un activo y no un gasto; espera a una persona.',
   'payment.apply.other_vendor':
     '{bill} es del proveedor {billVendor} y el pago {payment} es del proveedor {paymentVendor}: el saldo a cuenta sólo salda gastos de su propio proveedor. Registra el pago a nombre de {billVendor}, o aplica {payment} a un gasto de {paymentVendor}.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.

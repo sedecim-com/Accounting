@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Command } from 'commander';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
-import { query, closeDatabase } from '../../src/database/connection.js';
+import { query, withTransaction, closeDatabase } from '../../src/database/connection.js';
+import { ivaStillParked, receivedVatStillParked } from '../../src/services/accounting/iva-cash-basis.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
@@ -176,6 +177,23 @@ describe('payment unapply: the duplicated 80,000 transfer can be undone, dated',
     );
     const lines = await linesOf(second.journalEntry!.id);
     expect(lines.get('1130')?.debit, 'the closed application is not prior payment').toBe('160.00');
+  }, 120_000);
+
+  // MNE-001-489: what a received credit note will read before it splits its VAT.
+  it('a half-paid PPD bill still has half its IVA parked, and all of it again once the payment is unapplied', async () => {
+    const { billId, vendorId } = await approvedBill(f, '8000.00', '1280.00');
+    const stillParked = async (): Promise<[string, string]> =>
+      withTransaction(async (client) => [
+        await ivaStillParked(client, 'received', f.entityId, billId),
+        await receivedVatStillParked(client, f.entityId, billId),
+      ]);
+    expect(await stillParked()).toEqual(['1280.0000', '1280.0000']);
+
+    const paymentId = await paidWithBill(f, billId, vendorId, '4640.00');
+    expect(await stillParked(), 'the cap alone does not see the release a payment posted').toEqual(['1280.0000', '640.0000']);
+
+    await unapplyVendorPayment(f.entityId, paymentId, { billId, reason: 'Pago al gasto equivocado' }, f.userId);
+    expect(await stillParked()).toEqual(['1280.0000', '1280.0000']);
   }, 120_000);
 
   it('an application that released no IVA stores 0, and unapplies re-parking nothing', async () => {
