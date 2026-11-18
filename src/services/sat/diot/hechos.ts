@@ -13,6 +13,7 @@ import {
   type RenglonDeGasto,
   type TipoFactor,
 } from './desglose.js';
+import { linesToSplit, type CfdiTaxSummary } from './cfdi-split.js';
 import type { Hallazgo } from './hallazgos.js';
 
 // ============================================================
@@ -70,6 +71,18 @@ import type { Hallazgo } from './hallazgos.js';
 // (`ivaStillParked`). El mes se calcula como acumulado al cierre menos
 // acumulado al cierre del mes anterior — que telescopa, y por tanto la suma
 // de los doce meses reproduce exactamente el IVA del documento.
+//
+// THE SPLIT BY RATE OF A BILL BORN FROM A CFDI (MNE-001-563)
+//
+// The lines of a fact are the bill's own, with one exception. A bill approved
+// from an AI draft under `lineas_factura_desde = poliza` holds the debits of
+// the entry: no VAT on them, and no rate when the CFDI mixes regimes. Such
+// lines cannot say the split, so the fact carries the lines of its CFDI's
+// summary instead (`linesToSplit`, cfdi-split.ts). The CFDI is found by
+// provenance, `pre_registrations.bill_id`, never by UUID: a bill captured by
+// hand has no pre-registration and is always read from its own lines. The
+// event, the share and the VAT paid of the fact do not change, and nothing is
+// written: the DIOT and the VAT workpaper read the same fact.
 //
 // ============================================================
 
@@ -236,6 +249,29 @@ async function renglonesDe(
 }
 
 /**
+ * The tax summary of the CFDI each bill was born from, by provenance: the
+ * pre-registration that created the bill keeps it in `bill_id`, at both doors.
+ * Scoped by entity in the SQL; a bill with no pre-registration has no row.
+ */
+async function cfdiSummariesOf(
+  client: pg.PoolClient,
+  entityId: string,
+  billIds: readonly string[]
+): Promise<Map<string, CfdiTaxSummary>> {
+  const byBill = new Map<string, CfdiTaxSummary>();
+  if (billIds.length === 0) return byBill;
+  const { rows } = await client.query<{ bill_id: string; tax_breakdown: CfdiTaxSummary }>(
+    `SELECT p.bill_id, p.tax_breakdown
+       FROM pre_registrations p
+      WHERE p.entity_id = $1 AND p.document_type = 'bill' AND p.bill_id = ANY($2::uuid[])
+        AND p.tax_breakdown IS NOT NULL`,
+    [entityId, [...billIds]]
+  );
+  for (const r of rows) byBill.set(r.bill_id, r.tax_breakdown);
+  return byBill;
+}
+
+/**
  * El IVA retenido de cada gasto, del CFDI que lo originó.
  *
  * NO HAY COLUMNA DE RETENCIÓN EN `bill_lines`: la 063 añadió la tasa, el tipo
@@ -337,6 +373,7 @@ export async function hechosDelMes(
 
   const ids = [...byBill.map((g) => g.id), ...byPayment.map((g) => g.id)];
   const renglones = await renglonesDe(client, entityId, ids);
+  const summaries = await cfdiSummariesOf(client, entityId, ids);
   const retenciones = await retencionesDe(client, entityId, ids);
 
   const arma = (
@@ -354,7 +391,7 @@ export async function hechosDelMes(
     ivaPagado,
     ivaRetenido: porcionDelDocumento(retenciones.get(g.id) ?? '0', porcion),
     porcion,
-    renglones: renglones.get(g.id) ?? [],
+    renglones: linesToSplit(renglones.get(g.id) ?? [], g.tax_amount, summaries.get(g.id)),
   });
 
   // ── El gasto: un PUE sin IVA aparcado, entero en su mes ────────────────

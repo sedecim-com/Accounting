@@ -61,6 +61,8 @@ export {
   type TipoFactor,
 } from './desglose.js';
 
+export { linesToSplit, vatLinesOfCfdi, type CfdiTaxSummary } from './cfdi-split.js';
+
 export { hechosDelMes, rangoDelMes, type HechoPagado, type RangoDelMes } from './hechos.js';
 
 export {
