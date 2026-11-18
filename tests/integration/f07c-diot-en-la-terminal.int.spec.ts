@@ -235,11 +235,13 @@ describe('diot check · las verificaciones contra el libro real', () => {
     // El motor lo dice y hay que dejarlo dicho: un gasto marcado PUE entra
     // COMPLETO en la DIOT del mes aunque no se le haya aplicado un peso,
     // porque su IVA fue acreditable al contabilizarlo. Es un aviso y no un
-    // bloqueante —el asiento es legítimo—, pero es la señal de que el método
-    // pudo capturarse mal, y entonces el IVA se acredita antes de tiempo.
+    // bloqueante —el asiento es legítimo—, y dice lo que pasó: su IVA fue a
+    // la 1130 y se acredita antes de pagarse (MNE-001-491), sin culpar al método.
     const r = await correr(['diot', 'check', ...PERIODO]);
     expect(r.exitCode, `${r.out}${r.err}`).toBe(ExitCode.OK);
     expect(r.out).toContain('DIOT-PUE-SIN-PAGO');
+    expect(r.out).toMatch(/antes de pagarse/);
+    expect(r.out).not.toMatch(/mal capturado/);
     // The second notice: diot_creditable_iva_proportion is unanswered, so its
     // default is named on every DIOT instead of applied in silence.
     expect(r.out).toContain('DIOT-PROPORTION-BY-DEFAULT');
