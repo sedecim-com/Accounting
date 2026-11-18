@@ -48,6 +48,8 @@ interface FakeState {
   parked: Record<string, string>;
   /** gl_account_id de la cuenta bancaria ligada, si la hay. */
   bankGl: string | null;
+  /** Rows the credit note's guarded write finds: 1 on the real path. */
+  noteRows: number;
 }
 
 let state: FakeState;
@@ -61,6 +63,7 @@ function fakeClient(): pg.PoolClient {
 
     // The collection's two guarded UPDATEs (invariant 3) find their one row.
     if (/^UPDATE (customer_payments|payment_allocations)/.test(sql.trim())) return { rows: [], rowCount: 1 };
+    if (/^UPDATE credit_notes/.test(sql.trim())) return { rows: [], rowCount: state.noteRows };
     if (sql.includes('FROM legal_entities')) {
       return { rows: [{ incorporation_country: state.country, accounting_standard: state.standard }] };
     }
@@ -92,7 +95,7 @@ function fakeClient(): pg.PoolClient {
 beforeEach(() => {
   mockCreate.mockClear();
   escrituras = [];
-  state = { country: 'MX', standard: 'mx_nif', cfdiMetodo: {}, invoices: {}, parked: {}, bankGl: null };
+  state = { country: 'MX', standard: 'mx_nif', cfdiMetodo: {}, invoices: {}, parked: {}, bankGl: null, noteRows: 1 };
 });
 
 function lines(): Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }> {
@@ -112,6 +115,7 @@ const nota = (over: Partial<NotaCredito> = {}): NotaCredito =>
     id: 'cn-1',
     entity_id: ENTITY,
     credit_note_number: 'CN-001',
+    type: 'devolucion',
     invoice_id: null,
     subtotal: '1000.0000',
     tax_amount: '160.0000',
@@ -196,6 +200,62 @@ describe('la nota de crédito deshace el IVA en la cuenta donde la factura lo de
     await postCreditNoteEntry(fakeClient(), nota(), USER);
 
     expect(escrituras.some((e) => /UPDATE credit_notes SET journal_entry_id/.test(e.sql))).toBe(true);
+  });
+
+  // MNE-001-515: applying an advance moves it out of the liability, not out
+  // of revenue. The type of the note says which fact happened.
+  it('an anticipo note on a PUE invoice debits the advance, not sales returns', async () => {
+    state.cfdiMetodo = { 'UUID-PUE': 'PUE' };
+    state.invoices = {
+      'inv-8': { id: 'inv-8', invoice_number: 'INV-008', cfdi_uuid: 'UUID-PUE', terms: null, memo: null },
+    };
+    await postCreditNoteEntry(fakeClient(), nota({ type: 'anticipo', invoice_id: 'inv-8' }), USER);
+
+    expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('1000.0000');
+    expect(lineFor('acct:iva_trasladado')!.debit_amount).toBe('160.0000');
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('1160.0000');
+    expect(lineFor('acct:devolucion_ventas')).toBeUndefined();
+  });
+
+  it('an anticipo note on a PPD invoice takes its IVA back from the parked account', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.invoices = {
+      'inv-9': { id: 'inv-9', invoice_number: 'INV-009', cfdi_uuid: 'UUID-PPD', terms: null, memo: null },
+    };
+    await postCreditNoteEntry(fakeClient(), nota({ type: 'anticipo', invoice_id: 'inv-9' }), USER);
+
+    expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('1000.0000');
+    expect(lineFor('acct:iva_trasladado_no_cobrado')!.debit_amount).toBe('160.0000');
+    expect(lineFor('acct:iva_trasladado')).toBeUndefined();
+  });
+
+  it('an anticipo note with no IVA posts two lines', async () => {
+    await postCreditNoteEntry(
+      fakeClient(),
+      nota({ type: 'anticipo', tax_amount: '0.0000', total_amount: '1000.0000' }),
+      USER
+    );
+
+    expect(lines()).toHaveLength(2);
+    expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('1000.0000');
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('1000.0000');
+  });
+
+  it.each(['devolucion', 'descuento', 'correccion'])('a %s note still debits sales returns', async (type) => {
+    await postCreditNoteEntry(fakeClient(), nota({ type }), USER);
+
+    expect(lineFor('acct:devolucion_ventas')!.debit_amount).toBe('1000.0000');
+    expect(lineFor('acct:anticipo_clientes')).toBeUndefined();
+  });
+
+  it('links the entry only to a note of the entity that has none, and a write of no row throws', async () => {
+    await postCreditNoteEntry(fakeClient(), nota(), USER);
+    const write = escrituras.find((e) => /UPDATE credit_notes SET journal_entry_id/.test(e.sql))!;
+    expect(write.sql).toMatch(/WHERE id = \$2 AND entity_id = \$3 AND journal_entry_id IS NULL/);
+    expect(write.params).toEqual(['je-1', 'cn-1', ENTITY]);
+
+    state.noteRows = 0;
+    await expect(postCreditNoteEntry(fakeClient(), nota(), USER)).rejects.toThrow(/CN-001/);
   });
 
   it('una nota ya posteada, o de importe cero, no vuelve a postear', async () => {

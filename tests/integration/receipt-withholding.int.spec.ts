@@ -169,6 +169,8 @@ describe('receipt apply with the customer withholding', () => {
   it('unapplying reopens the cash and the withholding, and takes the withholding off its accounts', async () => {
     const isrBefore = await balance('1145');
     const ivaBefore = await balance('1146');
+    const causedBefore = await balance('2120');
+    const parkedBefore = await balance('2125');
     const r = await unapplyCustomerPayment(
       f.entityId, paymentId, { invoiceId: invoice.id, reason: 'wrong invoice' }, f.userId
     );
@@ -185,6 +187,14 @@ describe('receipt apply with the customer withholding', () => {
     expect(lines['1146'].credit).toBeCloseTo(1066.67);
     expect(await balance('1145')).toBeCloseTo(isrBefore - 1000);
     expect(await balance('1146')).toBeCloseTo(ivaBefore - 1066.67);
+    // MNE-001-517: a PUE invoice caused its IVA at issue and parked none, so
+    // the unapply has none to give back: 2120 and 2125 do not move.
+    expect(lines['2120']).toBeUndefined();
+    expect(lines['2125']).toBeUndefined();
+    expect(await balance('2120')).toBe(causedBefore);
+    expect(await balance('2125')).toBe(parkedBefore);
+    expect(r.ivaReAparcado).toBe('0.0000');
+    expect(r.ivaEstimado).toBe(false);
   });
 
   it('an NSF reversal reopens the whole settlement, withholding included', async () => {

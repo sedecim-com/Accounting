@@ -2128,6 +2128,8 @@ export const ES: Record<keyof typeof EN, string> = {
     '{invoice} ya registró la retención del cliente ({amount}) al emitirse: su cuenta por cobrar es el neto que paga el cliente. Aplica sólo el efectivo; --withholding es para facturas cuya cuenta por cobrar se registró en bruto.',
   'receipt.apply.other_customer':
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
+  'credit_note.advance.exceeds_invoiced_advance':
+    'La nota de crédito {note} aplica un anticipo de {requested}, y el cliente {customer} tiene {available} en facturas de anticipo sin aplicar. No se posteó nada. El saldo a cuenta se aplica con `receipt apply`; un anticipo registrado con una póliza se aplica con una póliza.',
   'payment.apply.other_vendor':
     '{bill} es del proveedor {billVendor} y el pago {payment} es del proveedor {paymentVendor}: el saldo a cuenta sólo salda gastos de su propio proveedor. Registra el pago a nombre de {billVendor}, o aplica {payment} a un gasto de {paymentVendor}.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
