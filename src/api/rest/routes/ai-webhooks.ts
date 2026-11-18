@@ -1,6 +1,6 @@
-import express, { Router, Request, Response } from 'express';
+import express, { Router, Response } from 'express';
 import { withTenant } from '../../../database/connection.js';
-import { asyncHandler } from '../middleware/async-handler.js';
+import { asyncHandler, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { AppError, UnauthorizedError } from '../../../utils/errors.js';
 import {
   verifyWebhookToken,

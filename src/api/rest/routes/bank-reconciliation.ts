@@ -1,11 +1,11 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { z } from 'zod';
 import { boundedString, uuidString } from '../../../utils/zod-compat.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
-import { asyncHandler, validateBody } from '../middleware/async-handler.js';
+import { asyncHandler, validateBody, type RouteRequest as Request } from '../middleware/async-handler.js';
 import { ConflictError, NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
 import { autoMatchUnreconciled } from '../../../services/banking/matching.js';
 import { entityScope } from '../../../database/scope.js';

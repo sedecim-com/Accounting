@@ -175,7 +175,7 @@ export async function startSatSimulator(): Promise<SatSimulator> {
       else res.end(auth ? tokenResponse(now, new Date(now.getTime() + 5 * 60_000)) : answer(action, body, sim));
     });
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
   sim.base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   sim.url = `${sim.base}/Autenticacion/Autenticacion.svc`;
   sim.close = () => new Promise<void>((resolve) => server.close(() => resolve()));

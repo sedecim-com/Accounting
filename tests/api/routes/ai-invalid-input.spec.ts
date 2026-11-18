@@ -78,7 +78,7 @@ beforeAll(async () => {
   app.use('/v1/ai', aiRouter);
   app.use(errorHandler);
   await new Promise<void>((resolve) => {
-    server = app.listen(0, '127.0.0.1', resolve);
+    server = app.listen(0, '127.0.0.1', () => resolve());
   });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
