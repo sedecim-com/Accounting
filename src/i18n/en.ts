@@ -72,16 +72,25 @@ export const EN = {
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
+    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} ieps {it transfers IEPS ({detail}), which this path does not book yet} local_tax {it transfers local taxes ({detail}), which this path does not book yet} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
   /** `AccountingError('ISSUED_CFDI_NOT_OPEN')`: the pre-registration is completed, rejected or processing. */
   'error.ISSUED_CFDI_NOT_OPEN':
     'CFDI {uuid} is not open: its pre-registration is {status}{invoice, select, none {} other {, as customer invoice {invoice}}}. Nothing was posted.',
   /** `AccountingError('ISSUED_CFDI_DRAFT_IN_REVIEW')`: an AI draft of the same CFDI would book the sale twice. */
   'error.ISSUED_CFDI_DRAFT_IN_REVIEW':
     'CFDI {uuid} has an AI draft in review or approved: approve or reject it with: mnemosine review. Nothing was posted.',
-  /** `AccountingError('CFDI_REQUIERE_DECISION')` at the hand door: `reason` is the classifier's. */
+  /** `AccountingError('CFDI_REQUIERE_DECISION')` at the hand door: `reason` is the classifier's, `commands` the panel keys that answer it. */
   'error.ISSUED_CFDI_HELD':
-    'CFDI {uuid} is held and nothing was posted: {reason}',
+    'CFDI {uuid} is held and nothing was posted: {reason}{commands, select, none {} other {. Answer it with: {commands}, and run the command again}}',
+  /** `AccountingError('ISSUED_CFDI_SUBSTITUTES_INVOICE')`: TipoRelacion 04 whose original is a live invoice. */
+  'error.ISSUED_CFDI_SUBSTITUTES_INVOICE':
+    'CFDI {uuid} substitutes a CFDI that is still customer invoice {invoice} ({status}): void that invoice first. Nothing was posted.',
+  /** `ValidationError`: the concepts do not add up to the revenue of the CFDI. */
+  'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH':
+    'The concepts of CFDI {uuid} add up to {lines} net of their discounts, and its SubTotal − Descuento is {revenue}: the revenue cannot be split by concept. Nothing was posted.',
+  /** `ValidationError`: a revenue line coded to an account that is not a postable revenue account with a credit balance. */
+  'error.ISSUED_CFDI_REVENUE_ACCOUNT':
+    'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
 
   // ==== end of error.* ================================================
 
