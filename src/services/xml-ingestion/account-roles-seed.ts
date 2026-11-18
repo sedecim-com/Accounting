@@ -12,8 +12,8 @@ import type { AccountRole } from './cfdi-taxonomy.js';
 //
 // Each account is born inside the seeded tree, under the header of its class
 // (MNE-001-482), as the base chart hangs 1130 from 1100. Left at the root,
-// a migrated trial balance that nests 1135 under Activo Circulante put
-// 1135's balance on the header 1100, and the opening refused it.
+// a migrated trial balance that nests 1135 under 1100 put 1135's balance on
+// the header itself, and the opening refused it.
 // ============================================================
 
 export interface AccountSpec {
