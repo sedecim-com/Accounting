@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,7 +9,7 @@ import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { ingestCfdiFiles } from '../../src/ai/ingest-service.js';
 import { approveDraft, canonicalDraftHash, createDraft, getDraft, rejectDraft, type Reviewer } from '../../src/ai/draft-service.js';
-import { seedPolicies } from '../../src/services/policy/policy-service.js';
+import { resolvePolicy, seedPolicies } from '../../src/services/policy/policy-service.js';
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { codePreRegistration } from '../../src/services/xml-ingestion/pre-registration-coding.js';
 import type { AgentContext } from '../../src/ai/context.js';
@@ -39,8 +39,49 @@ const swap = (from: string | RegExp, to: string): Edit => (xml) => {
   return xml.replace(from, to);
 };
 const method = (m: string | null) => swap(' MetodoPago="PPD"', m ? ` MetodoPago="${m}"` : '');
+const total = (attributes: string) => swap('SubTotal="8000.00" Total="9280.00"', attributes);
 const related = (type: string, uuid: string) =>
   swap('<cfdi:Emisor', `<cfdi:CfdiRelacionados TipoRelacion="${type}"><cfdi:CfdiRelacionado UUID="${uuid}"/></cfdi:CfdiRelacionados><cfdi:Emisor`);
+const tax = (kind: 'Traslado' | 'Retencion', code: string, rate: string, amount: string) =>
+  `<cfdi:${kind} Base="8000.00" Impuesto="${code}" TipoFactor="Tasa" TasaOCuota="${rate}" Importe="${amount}"/>`;
+/**
+ * Taxes go on the concept as well as in the global node: with the global node
+ * only, the facts read every withholding as ISR.
+ */
+const taxes = (totals: string, nodes: string): Edit[] => [
+  swap(' ObjetoImp="02"/>', ` ObjetoImp="02"><cfdi:Impuestos>${nodes}</cfdi:Impuestos></cfdi:Concepto>`),
+  swap(/<cfdi:Impuestos TotalImpuestosTrasladados[\s\S]*?<\/cfdi:Impuestos>/, `<cfdi:Impuestos ${totals}>${nodes}</cfdi:Impuestos>`),
+];
+const VAT = tax('Traslado', '002', '0.160000', '1280.00');
+/**
+ * A PPD sale with the customer's withholdings: base 8,000.00, VAT 1,280.00
+ * (16 %), ISR withheld 800.00 (10 %), VAT withheld 853.33 (two thirds), total
+ * 7,626.67. The issuer becomes regime 612 so the withholdings have their legal
+ * basis: a legal entity that pays an individual's professional fees withholds
+ * 10 % ISR (LISR 106) and two thirds of the VAT (LIVA 1-A II a, RLIVA 3-I).
+ */
+const WITHHELD: Edit[] = [
+  swap('SA" RegimenFiscal="601"', 'SA" RegimenFiscal="612"'),
+  total('SubTotal="8000.00" Total="7626.67"'),
+  ...taxes(
+    'TotalImpuestosRetenidos="1653.33" TotalImpuestosTrasladados="1280.00"',
+    `<cfdi:Traslados>${VAT}</cfdi:Traslados><cfdi:Retenciones>${tax('Retencion', '001', '0.100000', '800.00')}` +
+      `${tax('Retencion', '002', '0.106667', '853.33')}</cfdi:Retenciones>`
+  ),
+];
+/** IEPS of 640.00 (8 %) next to the VAT: total 9,920.00. */
+const WITH_IEPS: Edit[] = [
+  total('SubTotal="8000.00" Total="9920.00"'),
+  ...taxes('TotalImpuestosTrasladados="1920.00"', `<cfdi:Traslados>${VAT}${tax('Traslado', '003', '0.080000', '640.00')}</cfdi:Traslados>`),
+];
+/** A local tax of 240.00 (3 %) transferred in its complement: total 9,520.00. */
+const WITH_LOCAL_TAX: Edit[] = [
+  total('SubTotal="8000.00" Total="9520.00"'),
+  swap('<cfdi:Complemento>',
+    '<cfdi:Complemento><implocal:ImpuestosLocales xmlns:implocal="http://www.sat.gob.mx/implocal" version="1.0" ' +
+      'TotaldeRetenciones="0.00" TotaldeTraslados="240.00"><implocal:TrasladosLocales ImpLocTrasladado="ISH" ' +
+      'TasadeTraslado="3.00" Importe="240.00"/></implocal:ImpuestosLocales>'),
+];
 
 let f: Fixture;
 let ctx: AgentContext;
@@ -68,9 +109,9 @@ async function stranded(edits: Edit[] = [], received = false): Promise<{ uuid: s
   return { uuid, id: pre.rows[0].id };
 }
 
-const post = (uuid: string, account?: string) =>
+const post = (uuid: string, account?: string, dryRun = false) =>
   new PreRegistrationService().postIssuedCfdiByHand({
-    entityId: f.entityId, cfdiUuid: uuid, userId: f.userId, revenueAccountId: account ? f.cuentas[account] : undefined,
+    entityId: f.entityId, cfdiUuid: uuid, userId: f.userId, revenueAccountId: account ? f.cuentas[account] : undefined, dryRun,
   });
 
 /** Everything a refusal must leave as it was; `folios` is the INV counter. */
@@ -143,20 +184,35 @@ afterAll(async () => {
 });
 
 describe('an issued CFDI coded by hand becomes a customer invoice with its entry, in one act', () => {
-  it('PPD, nothing coded: revenue on 4100 and the VAT parked on 2125; the invoice and the entry carry the CFDI date', async () => {
+  it('PPD, nothing coded: a dry run shows the act and writes nothing; the real run draws the same folio', async () => {
     const { uuid, id } = await stranded();
+    const before = await ledger();
+    const preview = await post(uuid, undefined, true);
+    expect(preview).toMatchObject({ dryRun: true, preRegistrationId: id, invoice: { status: 'sent', amountDue: '9280.0000' } });
+    expect(preview.lines.map((l) => [l.accountCode, l.debit, l.credit])).toEqual([
+      ['1120', '9280.0000', null], ['4100', null, '8000.0000'], ['2125', null, '1280.0000'],
+    ]);
+    expect(await ledger()).toEqual(before);
+
     const posted = await post(uuid);
     const invoice = await born(uuid);
-    expect(posted).toMatchObject({ preRegistrationId: id, invoice: { id: invoice.id, number: invoice.invoice_number } });
+    expect(posted).toMatchObject({
+      dryRun: false, invoice: { id: invoice.id, number: preview.invoice.number }, entry: { number: preview.entry.number },
+    });
     expect(invoice).toMatchObject({ amount_due: '9280.0000', invoice_date: '2026-08-20', entry_date: '2026-08-20' });
     expect(invoice.lines).toEqual(['DR 1120 9280.00', 'CR 4100 8000.00', 'CR 2125 1280.00']);
     expect(invoice.description).not.toMatch(/MetodoPago/);
   });
 
-  it.each<{ name: string; edits: Edit[]; coding: [account: string, line?: number]; account?: string; entry: string[] }>([
+  it.each<{ name: string; edits: Edit[]; coding?: [account: string, line?: number]; account?: string; entry: string[]; due?: string }>([
     {
       name: 'PUE with 4200 stored as the default: VAT on 2120, the invoice stays sent with the total due',
       edits: [method('PUE')], coding: ['4200'], entry: ['DR 1120 9280.00', 'CR 4200 8000.00', 'CR 2120 1280.00'],
+    },
+    {
+      name: 'PPD with the customer withholdings: each on its own account, VAT parked on 2125',
+      edits: WITHHELD, due: '7626.6700',
+      entry: ['DR 1120 7626.67', 'DR 1145 800.00', 'DR 1146 853.33', 'CR 4100 8000.00', 'CR 2125 1280.00'],
     },
     {
       name: 'a coded line beats the account passed',
@@ -166,13 +222,13 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
       name: 'the account passed beats the stored default',
       edits: [], coding: ['4200'], account: '4300', entry: ['DR 1120 9280.00', 'CR 4300 8000.00', 'CR 2125 1280.00'],
     },
-  ])('$name', async ({ edits, coding, account, entry }) => {
+  ])('$name', async ({ edits, coding, account, entry, due }) => {
     const { uuid, id } = await stranded(edits);
-    await code(id, ...coding);
+    if (coding) await code(id, ...coding);
     await post(uuid, account);
     const invoice = await born(uuid);
     expect(invoice.lines).toEqual(entry);
-    expect(invoice.amount_due).toBe('9280.0000');
+    expect(invoice.amount_due).toBe(due ?? '9280.0000');
   });
 
   it('no MetodoPago is a PUE sale and the entry says so; a line suggestion, an expense account, is ignored', async () => {
@@ -189,7 +245,7 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     expect(invoice.description).toMatch(/ · MetodoPago missing: PUE assumed$/);
   });
 
-  it.each<{ name: string; edits?: Edit[]; received?: boolean; refusal: RegExp }>([
+  it.each<{ name: string; edits?: Edit[]; received?: boolean; coding?: [string, number?]; account?: string; refusal: RegExp }>([
     {
       name: 'a receiver outside the customer catalog, with the command that registers it',
       edits: [swap(`<cfdi:Receptor Rfc="${CUSTOMER_RFC}"`, '<cfdi:Receptor Rfc="GAL150623QK8"')],
@@ -200,14 +256,29 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     { name: 'a CFDI in USD', edits: [swap('Moneda="MXN"', 'Moneda="USD" TipoCambio="18.50"')], refusal: /USD.*does not convert/ },
     { name: 'an advance', edits: [swap('Descripcion="Consultoria', 'Descripcion="Anticipo de consultoria')], refusal: /advance/ },
     { name: 'an invoice that applies an advance (TipoRelacion 07)', edits: [related('07', uuidv4())], refusal: /TipoRelacion 07/ },
-  ])('refuses $name, and writes nothing', async ({ edits, received, refusal }) => {
-    const { uuid } = await stranded(edits, received);
+    { name: 'IEPS transferred', edits: WITH_IEPS, refusal: /IEPS \(640\.00\)/ },
+    { name: 'a local tax transferred', edits: WITH_LOCAL_TAX, refusal: /local taxes \(240\.00\)/ },
+    { name: 'an expense account passed as the revenue account', account: '6100', refusal: /6100 \(expense.*cannot take the revenue/ },
+    { name: 'an expense account coded on a line', coding: ['6100', 1], refusal: /6100 .*line 1.*cannot take the revenue/ },
+    { name: 'a liability account with a credit balance', account: '2150', refusal: /2150 \(liability, credit.*cannot take the revenue/ },
+    { name: 'a header account', account: '4000', refusal: /4000 \(revenue, credit.*cannot take the revenue/ },
+    { name: 'a contra-revenue account (4400, debit balance)', account: '4400', refusal: /4400 \(revenue, debit.*cannot take the revenue/ },
+    {
+      // The concept nets 7,900.00 and the header says 7,900.00 − 100.00: ingestion takes it, the door does not.
+      name: 'concepts whose nets do not add up to SubTotal − Descuento',
+      edits: [swap(' ObjetoImp="02"/>', ' Descuento="100.00" ObjetoImp="02"/>'), total('SubTotal="7900.00" Descuento="100.00" Total="9080.00"')],
+      refusal: /7900\.00.*7800\.00/,
+    },
+  ])('refuses $name, and writes nothing', async ({ edits, received, coding, account, refusal }) => {
+    const { uuid, id } = await stranded(edits, received);
+    if (coding) await code(id, ...coding);
     const before = await ledger();
-    await expect(post(uuid)).rejects.toThrow(refusal);
+    await expect(post(uuid, account)).rejects.toThrow(refusal);
+    await expect(post(uuid, account, true)).rejects.toThrow(refusal);
     expect(await ledger()).toEqual(before);
   });
 
-  it('one CFDI gives one invoice: a repeat and a UUID already on a live invoice are refused by name; an unknown UUID is not found', async () => {
+  it('one CFDI gives one invoice: a repeat, a UUID already on a live invoice and a substitute of one are refused by name', async () => {
     const { uuid } = await stranded();
     const first = await post(uuid);
     const before = await ledger();
@@ -225,6 +296,9 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     const refusal = await post(opening.uuid).catch((e: unknown) => e);
     expect(refusal).toMatchObject({ code: 'CFDI_ALREADY_INVOICED' });
     expect((refusal as Error).message).toMatch(/INV-OPENING-7.*sent/);
+
+    const substitute = await stranded([related('04', uuid.toLowerCase())]);
+    await expect(post(substitute.uuid)).rejects.toThrow(new RegExp(`substitutes.*${first.invoice.number}`));
     expect(await ledger()).toEqual({ ...before, invoices: before.invoices + 1 });
   });
 
@@ -253,7 +327,7 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
   });
 
   // Last on purpose: it closes August, the month of every CFDI above.
-  it('a CFDI dated in a month closed hard is held for the decision, and nothing is written', async () => {
+  it('a CFDI of a month closed hard is held until cfdi_periodo_cerrado is answered; with periodo_actual the entry posts today', async () => {
     const { uuid } = await stranded();
     const closed = await query(
       `UPDATE fiscal_periods SET status = 'hard_close' WHERE id = $1 AND entity_id = $2 AND status = 'open'`,
@@ -263,7 +337,20 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     const before = await ledger();
     const refusal = await post(uuid).catch((e: unknown) => e);
     expect(refusal).toMatchObject({ code: 'CFDI_REQUIERE_DECISION' });
-    expect((refusal as Error).message).toMatch(/held.*periodo_cerrado/);
+    expect((refusal as Error).message).toMatch(/held.*periodo_cerrado.*mnemosine pending define cfdi_periodo_cerrado periodo_actual/);
     expect(await ledger()).toEqual(before);
+
+    await resolvePolicy({ tenantId: f.tenantId, entityId: f.entityId }, 'cfdi_periodo_cerrado', 'periodo_actual', reviewer.email);
+    // The fixture creates 2026 only, so "today" is pinned inside it.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-16T12:00:00'));
+    try {
+      await post(uuid);
+    } finally {
+      vi.useRealTimers();
+    }
+    const invoice = await born(uuid);
+    expect(invoice).toMatchObject({ entry_date: '2026-11-16', invoice_date: '2026-08-20' });
+    expect(invoice.invoice_number).toMatch(/^INV-2026-/);
   });
 });
