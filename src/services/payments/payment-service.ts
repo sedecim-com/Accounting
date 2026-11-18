@@ -1075,6 +1075,33 @@ async function ejecutarEvento<T>(
   }
 }
 
+/**
+ * The two parties of a refused application, each as «number name», to word the
+ * refusal. The decision is taken before, on the ids of the two locked rows:
+ * this read takes no lock and decides nothing.
+ */
+async function partyLabels(
+  client: pg.PoolClient,
+  entityId: string,
+  kind: 'customer' | 'vendor',
+  ids: [string, string]
+): Promise<[string, string]> {
+  const r = await client.query<{ id: string; number: string; name: string | null }>(
+    kind === 'customer'
+      ? `SELECT id, customer_number AS number,
+                COALESCE(company_name, NULLIF(TRIM(CONCAT(first_name, ' ', last_name)), '')) AS name
+           FROM customers WHERE entity_id = $1 AND id = ANY($2::uuid[])`
+      : `SELECT id, vendor_number AS number, company_name AS name
+           FROM vendors WHERE entity_id = $1 AND id = ANY($2::uuid[])`,
+    [entityId, ids]
+  );
+  const label = (id: string): string => {
+    const party = r.rows.find((row) => row.id === id);
+    return party ? [party.number, party.name].filter(Boolean).join(' ') : id;
+  };
+  return [label(ids[0]), label(ids[1])];
+}
+
 interface PagoVivo {
   id: string;
   payment_number: string;
@@ -1206,17 +1233,29 @@ export async function applyCustomerPayment(
 
     for (const app of aplicaciones) {
       const r = await client.query<{
-        id: string; invoice_number: string; amount_due: string; status: string;
+        id: string; invoice_number: string; customer_id: string; amount_due: string; status: string;
         currency_code: string; subtotal: string; tax_amount: string; total_amount: string;
         cfdi_uuid: string | null; terms: string | null; memo: string | null;
       }>(
-        `SELECT id, invoice_number, amount_due, status, currency_code,
+        `SELECT id, invoice_number, customer_id, amount_due, status, currency_code,
                 subtotal, tax_amount, total_amount, cfdi_uuid, terms, memo
            FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entityId]
       );
       if (r.rows.length === 0) throw new NotFoundError('Invoice', app.documentId);
       const inv = r.rows[0];
+      // NOTE: the party speaks before status and currency (#664). Those two say
+      // how to make the invoice applicable, and one of another customer never
+      // is: its sale is not collected with this cash (CCF art. 2185; LIVA art. 1o.-B).
+      if (inv.customer_id !== pago.customer_id) {
+        const [invoiceCustomer, receiptCustomer] = await partyLabels(
+          client, entityId, 'customer', [inv.customer_id, pago.customer_id]
+        );
+        throw new ValidationError({
+          key: 'receipt.apply.other_customer',
+          params: { invoice: inv.invoice_number, invoiceCustomer, receipt: pago.payment_number, receiptCustomer },
+        });
+      }
       if (!COBRABLES.includes(inv.status as (typeof COBRABLES)[number])) {
         throw new ValidationError(
           `${inv.invoice_number} está en "${inv.status}" y sólo se puede aplicar a una factura ` +
@@ -2058,18 +2097,30 @@ export async function applyVendorPayment(
 
     for (const app of aplicaciones) {
       const r = await client.query<{
-        id: string; bill_number: string; amount_due: string; status: string;
+        id: string; bill_number: string; vendor_id: string; amount_due: string; status: string;
         currency_code: string; tax_amount: string; total_amount: string;
         cfdi_uuid: string | null; terms: string | null; memo: string | null;
         bill_date: Date;
       }>(
-        `SELECT id, bill_number, amount_due, status, currency_code,
+        `SELECT id, bill_number, vendor_id, amount_due, status, currency_code,
                 tax_amount, total_amount, cfdi_uuid, terms, memo, bill_date
            FROM bills WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entityId]
       );
       if (r.rows.length === 0) throw new NotFoundError('Bill', app.documentId);
       const bill = r.rows[0];
+      // NOTE: the party speaks first, before status, currency and the discount
+      // (#664): the VAT of another vendor's bill is not paid with this cash
+      // (LIVA art. 5o. fr. III), and the DIOT reports by vendor.
+      if (bill.vendor_id !== pago.vendor_id) {
+        const [billVendor, paymentVendor] = await partyLabels(
+          client, entityId, 'vendor', [bill.vendor_id, pago.vendor_id]
+        );
+        throw new ValidationError({
+          key: 'payment.apply.other_vendor',
+          params: { bill: bill.bill_number, billVendor, payment: pago.payment_number, paymentVendor },
+        });
+      }
       if (!PAGABLES.includes(bill.status as (typeof PAGABLES)[number])) {
         throw new ValidationError(
           `${bill.bill_number} está en "${bill.status}" y sólo se puede aplicar a un gasto ` +
