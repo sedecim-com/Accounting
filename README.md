@@ -18,8 +18,9 @@ configuración, política guardada ni bandera futura puede subirlos.
 El repositorio se llama `Accounting` y el paquete `accounting-core` por su
 origen: un servidor REST (y, hasta T14b, también GraphQL). Ese motor sigue ahí
 y es el que el agente opera, pero el producto es el CLI. La API REST (`/v1`) y
-el tablero web de sólo lectura (`mnemosine web`) siguen en el árbol y no ganan
-funciones nuevas (PRD-003, D-04).
+el tablero web de sólo lectura (`mnemosine web`) siguen en el árbol y pueden
+volver a ganar funciones: el dueño levantó su congelamiento el 2026-11-18
+(PRD-003, D-04 enmendada).
 
 **A dónde va.** El objetivo que fijó el dueño es un sistema contable completo,
 multijurisdicción, operado desde el CLI y nativo para IA, con núcleo contable,
