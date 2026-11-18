@@ -92,7 +92,7 @@ export const E1_2: Criterio[] = [
       //    contando re-liberaría el IVA que su desaplicación ya re-aparcó;
       // 2. el IVA liberado se guarda POR APLICACIÓN, para desaplicar el
       //    importe EXACTO y no re-derivarlo bajo otro contexto;
-      // 3. la reversa NSF refleja CADA asiento del cobro (espejo NIF B-1) y
+      // 3. la reversa refleja CADA asiento del cobro (espejo NIF B-1) y
       //    el estado queda 'reversed' — ocurrió y rebotó, no 'void'.
       const iva = codigoDe('src/services/accounting/iva-cash-basis.ts');
       // Los DOS filtros de vida (pa y pa2): mutar uno deja al otro.
@@ -118,8 +118,8 @@ export const E1_2: Criterio[] = [
         return falla('el remanente a cuenta perdió una de sus tres vías: lo no aplicado volvería a colgar de la cuenta de control');
       }
       const pagos = pagosSvc;
-      if (!/voidJournalEntryInTx\(client, je\.id, userId, `NSF: /.test(pagos)) {
-        return falla('la reversa NSF dejó de reflejar los asientos por la vía NIF B-1: quedaría dinero contado sin espejo');
+      if (!/voidJournalEntryInTx\(client, je\.id, userId, note\)/.test(pagos)) {
+        return falla('la reversa del cobro dejó de reflejar los asientos por la vía NIF B-1: quedaría dinero contado sin espejo');
       }
       if (!/SET status = 'reversed', reversed_at = NOW\(\)/.test(pagos)) {
         return falla("el cobro devuelto dejó de quedar 'reversed': se confundiría con 'void', que es otra afirmación ante un auditor");
