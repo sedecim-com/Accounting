@@ -25,6 +25,8 @@ Cada dimensión se califica de 0 a 3 y se suman (0–15). El triage deja una lí
 
 Mientras `catalog-info.yaml` declare `lifecycle: experimental`, el cambio de un valor por omisión que deja una salida al comportamiento anterior y lleva su línea `CONTRACT:` no cuenta como contrato breaking para el piso de D4: la issue queda en D3 como mínimo. Lo decidió el dueño el 2026-11-16: «No: D3 con salida» ([#645](https://github.com/sedecim-com/Accounting/issues/645#issuecomment-6904197043)).
 
+Mientras `catalog-info.yaml` declare `lifecycle: experimental`, una issue D4 tampoco exige la segunda persona de la tabla: avanza con la decisión y la revisión del dueño, y la segunda persona vuelve a exigirse cuando ese archivo deje de decir `experimental`. «El dueño decide» no cambia, y su delegación en el coordinador sigue sin ocupar ese lugar en una D4. Lo decidió el dueño el 2026-11-17, entre esperar a una segunda persona, nombrarla o decidir él solo: «C» ([#695](https://github.com/sedecim-com/Accounting/issues/695#issuecomment-6964686748)).
+
 ## Dificultad: el ruteo
 
 | Nivel | Puntaje | Perfil típico | Modelo | Esfuerzo | Tokens por intento · intentos · tope | Al agotar el tope | Revisión |
