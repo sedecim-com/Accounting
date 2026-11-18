@@ -36,10 +36,14 @@ import {
   exitCodeFor,
   dateOnly,
   optionByKey,
+  argumentByKey,
+  describeCommand,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 import { todayFor } from '../services/policy/today.js';
+import { ADVANCE_TREATMENTS_AS_TYPED, readAdvanceTreatment } from '../services/payments/customer-advance.js';
+import { keepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
 
 // ============================================================
 // mnemosine receipt · cobro
@@ -127,6 +131,8 @@ Examples:
   mnemosine receipt record INV-2026-00042 --amount 120000.00 --on-account
   # See the entry it would post, writing nothing.
   mnemosine receipt record INV-2026-00042 --amount 98600.00 --dry-run
+  # An advance with no invoice yet: 1,000.00 stays in customer advances and its 160.00 of IVA is caused today.
+  mnemosine receipt record --customer "Grupo Alameda" --amount 1160.00 --tax-rate 16
 `,
   show: `
 Examples:
@@ -166,6 +172,16 @@ Examples:
   mnemosine receipt reverse PMT-2026-00042 --dry-run
 `,
 } as const;
+
+/**
+ * The three figures of an advance (MNE-001-421), as the dry run, the
+ * confirmation and `receipt show` print them. The rate is the treatment
+ * the accountant stated: a percent, or `exempt` / `not-subject`.
+ */
+function advanceFigures(a: { base: string; treatment: string; iva: string }): string {
+  const rate = /^\d/.test(a.treatment) ? `${a.treatment} %` : a.treatment;
+  return t('receipt.advance.figures', { base: a.base, iva: a.iva, rate });
+}
 
 /**
  * `--withholding isr:1000` for the only invoice, or `INV-2026-00042:iva:1066.67`
@@ -287,9 +303,11 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   // ---- receipt record ----------------------------------------------
   const record = receipt
     .command('record')
-    .alias('registrar')
-    .argument('<invoice>', 'invoice number or id')
-    .description('Record cash received against an invoice and recognize the IVA it was holding');
+    .alias('registrar');
+  argumentByKey(record, '[invoice]', 'help.receipt.record.argument.invoice');
+  describeCommand(record, 'help.receipt.record.description');
+  optionByKey(record, '--customer <ref>', 'help.receipt.record.option.customer');
+  optionByKey(record, '--tax-rate <rate>', 'help.receipt.record.option.tax_rate');
   record
     .requiredOption('--amount <amount>', 'amount, in the document currency')
     .option('--date <date>', 'value date (YYYY-MM-DD); defaults to today')
@@ -308,16 +326,34 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   record.addHelpText('after', EJEMPLOS.record);
   record.action(
     (
-      ref: string,
+      ref: string | undefined,
       opts: CommonOpts & {
         amount: string; date?: string; method: string; bank?: string;
-        reference?: string; onAccount?: boolean;
+        reference?: string; onAccount?: boolean; customer?: string; taxRate?: string;
       }
     ) =>
       run(async () => {
         const ctx = await writeEntityOf(opts);
-        const target = await resolveInvoice(ctx.entityId, ref);
         const p = deps.palette;
+
+        // MNE-001-421 (#623) · WITH NO INVOICE THE CASH IS AN ADVANCE, and what
+        // cannot be one is refused here, before any service is asked. Its IVA
+        // rate is a fact only the accountant states (there is no default) on
+        // an entity that keeps Mexican books; the service refuses a rate on
+        // one that does not, and an advance by cheque (issue 700).
+        if (ref === undefined && !opts.customer) throw usageError(t('receipt.advance.needs_customer'));
+        if (ref !== undefined && opts.taxRate !== undefined) throw usageError(t('receipt.advance.only_without_invoice'));
+        const treatment = opts.taxRate === undefined ? null : readAdvanceTreatment(opts.taxRate);
+        if (opts.taxRate !== undefined && treatment === null) {
+          const params = { value: opts.taxRate, allowed: ADVANCE_TREATMENTS_AS_TYPED };
+          throw usageError(t('receipt.advance.treatment_unknown', params));
+        }
+        if (ref === undefined && treatment === null && keepsMexicanBooks(ctx.country, ctx.accountingStandard)) {
+          throw usageError(t('receipt.advance.rate_required'));
+        }
+        const target = ref === undefined ? null : await resolveInvoice(ctx.entityId, ref);
+        const customer = opts.customer ? await resolveCustomer(ctx.entityId, opts.customer) : null;
+        const label = target?.invoice_number ?? customer?.company_name ?? opts.customer ?? '';
 
         // ============================================================
         // LA LLAVE SE MIRA ANTES DE TRABAJAR.
@@ -346,7 +382,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         // ya resuelta para que dos lecturas de `hoy()` no puedan discrepar de
         // madrugada.
         const cargaDeLaLlave = hashDeCarga(
-          target.id,
+          // An advance has no invoice to hash: its customer stands in for it.
+          target?.id ?? String(customer?.id),
           fechaDelCobro,
           cargaDelOperador(opts as unknown as Record<string, unknown>)
         );
@@ -371,7 +408,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             imprimirRegistro(
               grabado.pago,
               p,
-              target.invoice_number,
+              label,
               new Decimal(opts.amount).minus(yaAplicado),
               false,
               opts.json === true
@@ -380,7 +417,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           }
         }
 
-        if (!COBRABLES.includes(target.status as (typeof COBRABLES)[number])) {
+        if (target && !COBRABLES.includes(target.status as (typeof COBRABLES)[number])) {
           throw blockedByState(
             `${target.invoice_number} is "${target.status}". ` +
               (target.status === InvoiceStatus.PAID
@@ -394,8 +431,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         // Con --on-account el excedente sobre el saldo queda como anticipo;
         // sin la bandera, el servicio rechaza aplicar más de lo debido.
         const monto = new Decimal(opts.amount);
-        const saldo = new Decimal(target.amount_due);
-        const aplicar = opts.onAccount ? Decimal.min(monto, saldo) : monto;
+        const saldo = new Decimal(target?.amount_due ?? '0');
+        const aplicar = !target ? new Decimal(0) : opts.onAccount ? Decimal.min(monto, saldo) : monto;
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
         // By name or id, scoped to the entity in the SQL (#327): a raw name used to
@@ -405,16 +442,18 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (bank) process.stderr.write(p.dim(`Bank account: ${bank.account_name}\n`));
         const entrada: EntradaPago = {
           entityId: ctx.entityId,
-          counterpartyId: target.customer_id,
+          // With both, the customer named is what the service checks the invoice against.
+          counterpartyId: customer ? String(customer.id) : (target as NonNullable<typeof target>).customer_id,
           paymentAmount: opts.amount,
           paymentDate: fechaDelCobro,
           paymentMethod: opts.method,
           bankAccountId: bank?.id ?? null,
           referenceNumber: opts.reference ?? null,
-          applications: aplicar.greaterThan(0)
+          applications: target && aplicar.greaterThan(0)
             ? [{ documentId: target.id, amountApplied: aplicar.toFixed(2) }]
             : [],
-          onAccount: opts.onAccount === true,
+          onAccount: !target || opts.onAccount === true,
+          ...(treatment ? { advanceTreatment: treatment } : {}),
         };
 
         const previo = await recordCustomerPayment(entrada, reviewer.userId, { dryRun: true });
@@ -422,18 +461,23 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         const remanente = monto.minus(aplicar);
 
         if (opts.dryRun) {
-          imprimirRegistro(previo, p, target.invoice_number, remanente, true, opts.json === true);
+          imprimirRegistro(previo, p, label, remanente, true, opts.json === true);
           process.stderr.write(p.dim('Dry run: nothing was written.\n'));
           return;
         }
 
         await confirmOrAbort(
           opts,
-          `Record ${opts.amount} ${target.currency_code} collected on ${target.invoice_number}` +
-            (doc ? ` (${doc.saldoAnterior} → ${doc.saldoNuevo})` : '') +
-            (remanente.greaterThan(0) ? ` with ${remanente.toFixed(2)} left on account` : '') +
-            (bank ? ` into ${bank.account_name}` : '') +
-            ` in ${ctx.entityName}? This posts to the ledger.`
+          target
+            ? `Record ${opts.amount} ${target.currency_code} collected on ${target.invoice_number}` +
+              (doc ? ` (${doc.saldoAnterior} → ${doc.saldoNuevo})` : '') +
+              (remanente.greaterThan(0) ? ` with ${remanente.toFixed(2)} left on account` : '') +
+              (bank ? ` into ${bank.account_name}` : '') +
+              ` in ${ctx.entityName}? This posts to the ledger.`
+            : t('receipt.advance.confirm', {
+                amount: opts.amount, customer: label, entity: ctx.entityName,
+                figures: previo.advance ? ` (${advanceFigures(previo.advance)})` : '',
+              })
         );
 
         // ============================================================
@@ -491,7 +535,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         } else if (result.attestation) {
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
-        imprimirRegistro(result, p, target.invoice_number, remanente, false, opts.json === true);
+        imprimirRegistro(result, p, label, remanente, false, opts.json === true);
       })
   );
 
@@ -867,6 +911,9 @@ function imprimirRegistro(
           amount_due_after: doc?.saldoNuevo ?? null,
           document_status: doc?.estado ?? null,
           on_account: remanente.greaterThan(0) ? remanente.toFixed(2) : null,
+          advance_base: result.advance?.base ?? null,
+          advance_tax_rate: result.advance?.treatment ?? null,
+          advance_iva: result.advance?.iva ?? null,
           journal_entry: result.journalEntry?.entry_number ?? null,
           dry_run: ensayo,
         },
@@ -881,6 +928,7 @@ function imprimirRegistro(
       : `${p.green('✔')} ${p.bold(result.paymentNumber)} · ${p.bold(etiqueta)}` +
         (doc ? p.dim(` ${doc.saldoAnterior} → ${doc.saldoNuevo} (${doc.estado})`) : '')) +
       (remanente.greaterThan(0) ? p.dim(` · ${remanente.toFixed(2)} on account`) : '') +
+      (result.advance ? p.dim(` · ${t('receipt.advance.label')}: ${advanceFigures(result.advance)}`) : '') +
       (result.journalEntry ? p.dim(` · entry ${result.journalEntry.entry_number}`) : '') +
       '\n'
   );
