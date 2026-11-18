@@ -1893,7 +1893,10 @@ export async function reverseCustomerPayment(
     if (cause === 'not_collected' && ['credit_card', 'debit_card'].includes(pago.payment_method)) {
       warnings.push('receipt.reverse.warning.card_not_collected');
     }
-    if (cause === null) warnings.push('receipt.reverse.warning.cause_not_stated');
+    // The no-cause warning is about the IVA paper, which only Mexican books have.
+    if (cause === null && (await entityUsesCashBasisIva(client, entityId))) {
+      warnings.push('receipt.reverse.warning.cause_not_stated');
+    }
     const note = reversalNote(cause, args.reason);
 
     // Todos los asientos posteados del cobro: el original y los eventos.

@@ -2159,6 +2159,10 @@ export const ES: Record<keyof typeof EN, string> = {
     'Este cobro se pagó con tarjeta, y una tarjeta se paga cuando se acepta (LIVA art. 1-B): not_collected dice que el dinero nunca fue tuyo. Si llegó y el banco te lo quitó, como en un contracargo, la causa es taken_back.',
   'receipt.reverse.warning.cause_not_stated':
     'No se declaró causa, y sólo un cheque tiene una por omisión: el IVA de este cobro se queda en el mes en que se cobró hasta que se declare una causa (not_collected o taken_back).',
+  'receipt.reverse.cause.stated': 'causa {cause}',
+  'receipt.reverse.cause.defaulted':
+    'causa not_collected, tomada por omisión: un cheque se paga el día que el banco lo cobra',
+  'receipt.reverse.cause.none': 'sin causa declarada',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
@@ -2747,6 +2751,11 @@ export const ES: Record<keyof typeof EN, string> = {
     'tratamiento de IVA de un anticipo sin factura: 16, 8, 0, exempt (exento) o not-subject (no-objeto); el IVA se causa al cobro',
   'help.receipt.apply.option.withholding':
     'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
+  // MNE-001-509 (#701): the reversal states what happened to the money.
+  'help.receipt.reverse.description':
+    'Reversa un cobro cuyo dinero no se quedó, diciendo por qué: espeja cada asiento, reabre facturas y vuelve a aparcar el IVA',
+  'help.receipt.reverse.option.cause':
+    'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo); sin ella, un cheque toma not_collected y cualquier otro método queda sin causa',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',

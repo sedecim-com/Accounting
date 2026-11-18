@@ -13,6 +13,8 @@ import {
   unapplyCustomerPayment,
   reverseCustomerPayment,
   getCustomerPayment,
+  REVERSAL_CAUSES,
+  type ResultadoReversa,
   listCustomerPayments,
   type EntradaPago,
   type ResultadoPago,
@@ -50,7 +52,7 @@ import { keepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
 //
 // El dinero que entra, como HISTORIA y no como instantánea: registrar
 // (con o sin remanente a cuenta), ver, listar, aplicar el saldo a cuenta,
-// desaplicar (evento nuevo, jamás un DELETE) y reversar el cheque devuelto.
+// desaplicar (evento nuevo, jamás un DELETE) y reversar diciendo la causa.
 // Sobre services/payments/payment-service.ts — el mismo camino que el REST
 // y la ligadura del REP.
 //
@@ -166,7 +168,9 @@ Examples:
 `,
   reverse: `
 Examples:
-  # A bounced collection (NSF): mirrors every entry, reopens invoices, re-parks IVA.
+  # A chargeback: the money arrived and the bank took it back.
+  mnemosine receipt reverse PMT-2026-00042 --cause taken_back --reason "Contracargo 4853"
+  # A cheque returned unpaid: with no --cause a cheque takes not_collected.
   mnemosine receipt reverse PMT-2026-00042 --reason "Devuelto por fondos insuficientes"
   # See the mirror it would post, writing nothing.
   mnemosine receipt reverse PMT-2026-00042 --dry-run
@@ -814,9 +818,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   const reverse = receipt
     .command('reverse')
     .alias('reversar')
-    .argument('<ref>', 'payment number or id')
-    .description('Reverse a bounced collection (NSF): mirrors every entry, reopens invoices, re-parks IVA');
+    .argument('<ref>', 'payment number or id');
+  describeCommand(reverse, 'help.receipt.reverse.description');
   withContext(reverse);
+  optionByKey(reverse, '--cause <cause>', 'help.receipt.reverse.option.cause');
   reverse
     .option('--fee <amount>', 'bank fee charged for the return (not yet supported: needs a fee role account)')
     .option('--json', 'JSON output');
@@ -828,8 +833,12 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   });
   reverse.addHelpText('after', EJEMPLOS.reverse);
   reverse.action(
-    (ref: string, opts: CommonOpts & { fee?: string }) =>
+    (ref: string, opts: CommonOpts & { fee?: string; cause?: string }) =>
       run(async () => {
+        // A cause outside the two is refused before the receipt is read.
+        if (opts.cause !== undefined && !(REVERSAL_CAUSES as readonly string[]).includes(opts.cause)) {
+          throw usageError(t('receipt.reverse.cause_unknown', { value: opts.cause }));
+        }
         const ctx = await writeEntityOf(opts);
         const { dryRun, reason } = gateMutation(reverse, opts as Record<string, unknown>);
         const p = deps.palette;
@@ -839,9 +848,11 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
 
         const previo = await reverseCustomerPayment(
           ctx.entityId, cobro.id,
-          { reason: reason as string, feeAmount: opts.fee },
+          { reason: reason as string, cause: opts.cause, feeAmount: opts.fee },
           reviewer.userId, { dryRun: true }
         );
+        // What the service decided, repeated: the cause, and what to read before confirming.
+        const warnings = previo.warnings.map((key) => t(key));
 
         if (dryRun) {
           process.stdout.write(
@@ -852,20 +863,23 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           for (const d of previo.documentosReabiertos) {
             process.stdout.write(p.dim(`  ${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado})\n`));
           }
+          process.stdout.write(`  ${causeText(previo)}\n`);
+          for (const w of warnings) process.stderr.write(p.yellow(`${w}\n`));
           process.stderr.write(p.dim('Dry run: nothing was written.\n'));
           return;
         }
 
         await confirmOrAbort(
           opts,
-          `Reverse ${cobro.payment_number} (${cobro.payment_amount} ${cobro.currency_code}, NSF)? ` +
+          `Reverse ${cobro.payment_number} (${cobro.payment_amount} ${cobro.currency_code}; ${causeText(previo)})? ` +
             `${previo.reversals.length} ledger entry(ies) get a mirror and ` +
-            `${previo.documentosReabiertos.length} invoice(s) reopen.`
+            `${previo.documentosReabiertos.length} invoice(s) reopen.` +
+            warnings.map((w) => `\n${w}`).join('')
         );
 
         const result = await reverseCustomerPayment(
           ctx.entityId, cobro.id,
-          { reason: reason as string, feeAmount: opts.fee },
+          { reason: reason as string, cause: opts.cause, feeAmount: opts.fee },
           reviewer.userId
         );
         for (const a of result.attestations) {
@@ -878,6 +892,9 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             status: 'reversed',
             reversals: result.reversals.map((r) => r.entryNumber).join(', '),
             invoices_reopened: result.documentosReabiertos.length,
+            cause: result.cause,
+            cause_defaulted: result.causeDefaulted,
+            warnings: result.warnings.map((key) => t(key)).join(' '),
           }], { json: true });
           return;
         }
@@ -885,11 +902,18 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           `${p.green('✔')} ${p.bold(result.paymentNumber)} reversed ` +
             p.dim(
               `· ${result.reversals.map((r) => `${r.of}→${r.entryNumber}`).join(', ')} · ` +
-                `${result.documentosReabiertos.length} invoice(s) reopened\n`
+                `${result.documentosReabiertos.length} invoice(s) reopened · ${causeText(result)}\n`
             )
         );
+        for (const key of result.warnings) process.stderr.write(p.yellow(`${t(key)}\n`));
       })
   );
+}
+
+/** The cause a reversed receipt keeps, as the dry run, the confirmation and the result say it (MNE-001-509). */
+function causeText(r: Pick<ResultadoReversa, 'cause' | 'causeDefaulted'>): string {
+  if (r.cause === null) return t('receipt.reverse.cause.none');
+  return r.causeDefaulted ? t('receipt.reverse.cause.defaulted') : t('receipt.reverse.cause.stated', { cause: r.cause });
 }
 
 function imprimirRegistro(
