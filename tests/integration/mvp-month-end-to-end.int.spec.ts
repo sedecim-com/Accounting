@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 import { apartarCatalogos } from './helpers/catalogos-globales.js';
+import { validateAgainstOfficialXsd } from '../helpers/official-xsd.js';
 
 // ============================================================
 // MVP-E2E · THE MONTH OF AN SME, END TO END (#311, MNE-001-097)
@@ -112,6 +113,19 @@ import { apartarCatalogos } from './helpers/catalogos-globales.js';
 // entry gets a mirror dated the same 12-31, the adjustments are drafts again
 // and the items open, and the same range closes, is signed and posts a second
 // time. All of it happens before December is hard-closed.
+//
+// THE YEAR END AND THE MONTH'S OBLIGATIONS (MNE-001-416). With December
+// sealed, the fiscal year closes in period 13, soft and then hard: only that
+// hard close posts the closing entries, on 12-31 and inside period 13, so
+// December's own figures do not move and the Mes 13 trial balance shows every
+// income and expense account swept to zero. Then the files of the month: the
+// firm gives its accounts their SAT grouping code and files the chart of the
+// accounts it moved, so the catalog and the trial balance XML validate against
+// the SAT's XSD; the two auxiliaries are produced on request; the DIOT batch
+// file is compared byte for byte with the one written here. Two steps wait:
+// the journal XML, since no command can capture a customer transfer's origin
+// bank, so every receipt of the month stops it; and the IVA paper, which does
+// not yet take an issued credit note's IVA out of the month.
 //
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
@@ -686,8 +700,19 @@ interface IsrPaper {
   /** The paper publishes its findings' keys in Spanish; they are read as printed, never renamed. */
   findings: Record<string, string>[];
 }
-function isrPaperOf(r: Run): IsrPaper {
-  return (JSON.parse(r.out.slice(r.out.indexOf('{\n'), r.out.lastIndexOf('\n}') + 2)) as { sections: IsrPaper[] }).sections[0];
+/** The first section of a working paper asked for one form. */
+function sectionOf<T>(r: Run): T {
+  return (JSON.parse(r.out.slice(r.out.indexOf('{\n'), r.out.lastIndexOf('\n}') + 2)) as { sections: T[] }).sections[0];
+}
+const isrPaperOf = (r: Run): IsrPaper => sectionOf<IsrPaper>(r);
+/** The rows of an Anexo 24 file, keyed by NumCta: the attributes of each `<element>` as written. */
+function anexo24Rows(xml: string, element: string): Record<string, Record<string, string>> {
+  const rows: Record<string, Record<string, string>> = {};
+  for (const [, attributes] of xml.matchAll(new RegExp(`<${element} ([^>]*?)/?>`, 'g'))) {
+    const row = Object.fromEntries([...attributes.matchAll(/(\w+)="([^"]*)"/g)].map(([, k, v]) => [k, v]));
+    rows[row.NumCta] = row;
+  }
+  return rows;
 }
 
 const money = (v: string | undefined): string => new Decimal(v ?? 'NaN').toFixed(2);
@@ -1998,7 +2023,71 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(sealed.balanced).toBe(true);
     }, STEP_TIMEOUT_MS);
 
-    it.todo('closes the 2025 fiscal year into period 13: `balance generate --closing` nets to 0 and the closing entries are not in December — MNE-001-046');
+    it('closes the 2025 fiscal year into period 13: `balance generate --closing` nets to 0 and the closing entries are not in December — MNE-001-046', () => {
+      // Period 13 is closed by `close`, not by `closing run`, whose monthly
+      // depreciation does not look at the period's type and could book the
+      // 900 a second time (the plan of #311). Named in full: 2025-12 is
+      // December's too. Its hard close is what posts the closing entries.
+      const yearEnd = 'Year-end adjustments 2025';
+      const december = (): string =>
+        JSON.stringify(rowsOf(ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--json'])));
+      const decemberBefore = december();
+      expect(ok(['close', '--period', yearEnd, '--yes']).out).toContain(`✔ ${yearEnd} is now soft_close`);
+      const sealed = ok(['close', '--period', yearEnd, '--hard', '--yes']).out;
+      expect(sealed).toContain(`✔ ${yearEnd} is now hard_close`);
+      expect(sealed).toMatch(/Beginning balances carried into: January 2026$/m);
+
+      // By hand, the year's result is December's: the opening of 01-01 moved
+      // no income or expense. The first entry sweeps them into 3900: 4100 Dr
+      // 23,000, and 3900 Dr 28,880 for the expenses (27,650 + 900 + 30 + 300),
+      // against 4400 Cr 1,000, 3900 Cr 22,000 and the expenses' own credits:
+      // 23,000 + 28,880 = 51,880 a side. The second takes the loss, 28,880
+      // − 22,000 = 6,880, from 3900 to 3300 (`destino_del_resultado_del_ejercicio`
+      // by default: the result waits in 3300 for the shareholders' meeting).
+      const closing = rowsOf<{ entry_date: string; entry_type: string; source_type: string; total_debits: string }>(
+        ok(['entry', 'list', '--all', '--json'])
+      ).filter((e) => e.entry_type === 'closing');
+      expect(closing.map((e) => `${e.entry_date} ${e.source_type} ${money(e.total_debits)}`).sort())
+        .toEqual(['2025-12-31 period_close 51880.00', '2025-12-31 period_close 6880.00']);
+      // Dated 12-31 and booked into period 13: December reads as it did.
+      expect(december(), 'the closing entries moved a December figure').toBe(decemberBefore);
+
+      // Month 13 of the Anexo 24: SaldoIni is December's ending, the movement
+      // is the closing entries alone, and every income and expense account
+      // ends at zero. A parent declares its subaccounts: 6100 holds 27,650 of
+      // its own and its 6140 and 6150 (28,580), 6000 adds 6310, 3000 adds the
+      // two sweeps of 3900 and 3300 (Debe 28,880 + 6,880, Haber 28,880) and
+      // ends at the 98,120 of equity.
+      const file = path.join(workDir, 'balanza-2025-13.xml');
+      const [receipt] = rowsOf<Record<string, unknown>>(
+        ok(['e-accounting', 'balance', 'generate', '--period', '2025', '--closing', '--yes', '-o', file, '--json'])
+      );
+      expect(receipt).toMatchObject({ mes: '13', cierre: true, periodo: yearEnd, tipo_envio: 'N' });
+      const xml = fs.readFileSync(file, 'utf-8');
+      expect(validateAgainstOfficialXsd(xml, 'trialBalance')).toEqual({ valid: true, errors: [] });
+      const rows = anexo24Rows(xml, 'BCE:Ctas');
+      const line = (r: Record<string, string>): string => `${r.SaldoIni} ${r.Debe} ${r.Haber} ${r.SaldoFin}`;
+      const moved = Object.fromEntries(Object.entries(rows)
+        .filter(([, r]) => r.Debe !== '0.00' || r.Haber !== '0.00').map(([code, r]) => [code, line(r)]));
+      expect(moved).toEqual({
+        '3000': '105000.00 35760.00 28880.00 98120.00',
+        '3300': '0.00 6880.00 0.00 -6880.00',
+        '3900': '0.00 28880.00 28880.00 0.00',
+        '4000': '22000.00 23000.00 1000.00 0.00',
+        '4100': '23000.00 23000.00 0.00 0.00',
+        '4400': '1000.00 0.00 1000.00 0.00',
+        '6000': '28880.00 0.00 28880.00 0.00',
+        '6100': '28580.00 0.00 28580.00 0.00',
+        '6140': '900.00 0.00 900.00 0.00',
+        '6150': '30.00 0.00 30.00 0.00',
+        '6310': '300.00 0.00 300.00 0.00',
+      });
+      // Nothing else moved: the balance sheet opens and ends period 13 where December left it.
+      for (const [code, r] of Object.entries(rows)) {
+        if (!(code in moved)) expect(r.SaldoFin, `account ${code} in month 13`).toBe(r.SaldoIni);
+      }
+      expect(line(rows['1110'])).toBe(`${STATEMENT_CLOSING} 0.00 0.00 ${STATEMENT_CLOSING}`);
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('7 · financial statements, to the cent', () => {
@@ -2069,10 +2158,190 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('8 · monthly obligations', () => {
-    it.todo('the Anexo 24 chart and trial balance XML validate against their XSD, and 1110 declares 1111 + 1112 — MNE-001-047');
-    it.todo('the journal and auxiliary XML of the month are produced by command — MNE-001-054');
-    it.todo('`diot export --layout sat` matches, byte for byte, the file written by hand — MNE-001-055, MNE-001-027');
-    it.todo('the IVA working paper has the exact hand figures, each line traced to its entries — MNE-001-416');
+    /** The order number of the synthetic audit (AF) the request files answer. */
+    const AUDIT = ['--request-type', 'AF', '--order-number', 'ABC1234567/25'];
+
+    it('the Anexo 24 chart and trial balance XML validate against their XSD, and 1110 declares its subaccount 1111 — MNE-001-047', () => {
+      // The seeded accounts carry no SAT grouping code (the chart import of
+      // step 1·189 created 1320 with its own and rewrote nothing), and the
+      // panel's default refuses a catalog with an account that lacks one:
+      // exit 4, and no file.
+      const chart = path.join(workDir, 'catalogo-2025-12.xml');
+      const generate = ['e-accounting', 'catalog', 'generate', '--period', '2025-12', '-o', chart, '--json'];
+      const refused = mnemosine(generate);
+      expect(refused.status, refused.out + refused.err).toBe(4);
+      // The receipt keeps the service's Spanish keys, read as printed.
+      const [blocked] = rowsOf<Record<string, Record<string, string>[]>>(refused);
+      expect(blocked['hallazgos'].map((h) => h['regla'])).toEqual(['CAT-SIN-AGRUPADOR-BLOQUEA']);
+      expect(fs.existsSync(chart)).toBe(false);
+
+      // The firm files the accounts it moved and their parents (a panel
+      // option, `las_que_se_mueven`), and gives each its code of the SAT's
+      // agrupador. Moved up to 12-31: the eight of the opening, December's,
+      // and 3300 and 3900, which the closing entries of 12-31 moved.
+      ok(['pending', 'define', 'anexo24_niveles_a_presentar', 'las_que_se_mueven'], 'ingest');
+      const GROUPING: Record<string, string> = {
+        '1000': '100', '1100': '100.01', '1110': '102', '1111': '102.01', '1120': '105.01',
+        '1130': '118.01', // IVA acreditable pagado
+        '1135': '119.01', // IVA pendiente de pago
+        '1200': '100.02', '1220': '156.01', '1290': '171.05', '1300': '100.02',
+        '2000': '200', '2100': '200.01', '2110': '201.01',
+        '2120': '208.01', // IVA trasladado cobrado
+        '2125': '209.01', // IVA trasladado no cobrado
+        '2141': '216.04', // ISR retenido por servicios profesionales
+        '2142': '216.10', // IVA retenido
+        '2150': '206.01', // anticipo de cliente nacional
+        '3000': '300', '3100': '301.01', '3200': '304.01', '3300': '305', '3900': '306.01',
+        '4000': '400', '4100': '401.01', '4400': '402.01',
+        '6000': '600', '6100': '603', '6140': '613.05', '6150': '603.58', '6310': '701.10',
+      };
+      const csv = path.join(workDir, 'agrupador.csv');
+      fs.writeFileSync(csv, ['code,value', ...Object.entries(GROUPING).map(([code, value]) => `${code},${value}`)].join('\n'));
+      ok(['account', 'map', 'import', csv, '--scheme', 'sat-agrupador']);
+
+      ok(generate);
+      const catalog = fs.readFileSync(chart, 'utf-8');
+      expect(validateAgainstOfficialXsd(catalog, 'chart')).toEqual({ valid: true, errors: [] });
+      // The 32 accounts mapped here and 1320, with the code the opening gave it.
+      const declared = anexo24Rows(catalog, 'catalogocuentas:Ctas');
+      expect(Object.fromEntries(Object.entries(declared).map(([code, r]) => [code, r.CodAgrup])))
+        .toEqual({ ...GROUPING, '1320': '184.02' });
+      // Every SubCtaDe names an account the same file declares.
+      for (const r of Object.values(declared)) if (r.SubCtaDe) expect(declared, r.NumCta).toHaveProperty(r.SubCtaDe);
+
+      // December's trial balance, by the same answer of the panel: an account
+      // of the catalog per row. 1110 declares 1111 inside it, the bank of the
+      // month (16,588.00 in, 66,469.33 out, as step 7 has it); 1112 moved
+      // nothing all year and is not filed.
+      const trialBalance = path.join(workDir, 'balanza-2025-12.xml');
+      ok(['e-accounting', 'balance', 'generate', '--period', '2025-12', '-o', trialBalance, '--json']);
+      const filed = fs.readFileSync(trialBalance, 'utf-8');
+      expect(validateAgainstOfficialXsd(filed, 'trialBalance')).toEqual({ valid: true, errors: [] });
+      const rows = anexo24Rows(filed, 'BCE:Ctas');
+      for (const code of Object.keys(rows)) expect(declared, `${code} of the trial balance`).toHaveProperty(code);
+      const line = (r: Record<string, string> | undefined): string => `${r?.SaldoIni} ${r?.Debe} ${r?.Haber} ${r?.SaldoFin}`;
+      expect(line(rows['1110'])).toBe(`${BANK_BASELINE} 16588.00 66469.33 ${STATEMENT_CLOSING}`);
+      expect(line(rows['1110'])).toBe(line(rows['1111']));
+      expect(rows).not.toHaveProperty('1112');
+    }, STEP_TIMEOUT_MS);
+
+    // FIXME(#532): every customer transfer of December blocks the journal
+    // XML (exit 4, poliza-con-dinero-sin-rastro), since `receipt record` has
+    // nowhere to capture the payer's bank and nothing completes it later; so
+    // do the vendor transfers recorded without a bank account. No backlog
+    // task covers it yet.
+    it.todo('the journal XML of the month (`voucher generate`) is delivered with a payment node on every voucher that moves money — MNE-001-054, #532');
+
+    it('the two auxiliaries of the month, by account and by folio, are produced on request and validate against their XSD — MNE-001-054', () => {
+      // By account: each account December moved, from its beginning to its
+      // ending in its own nature, with its lines. The beginnings are the
+      // opening's; the endings are those of step 7. 3300 and 3900 moved in
+      // period 13, which is not December.
+      const byAccount = path.join(workDir, 'auxiliar-cuentas-2025-12.xml');
+      ok(['e-accounting', 'subledger', 'generate', '--period', '2025-12', '--kind', 'accounts', ...AUDIT, '-o', byAccount, '--json']);
+      const accounts = fs.readFileSync(byAccount, 'utf-8');
+      expect(validateAgainstOfficialXsd(accounts, 'accountAuxiliary')).toEqual({ valid: true, errors: [] });
+      const own = (v: string): string => new Decimal(v).abs().toFixed(2);
+      const opening: Record<string, string> = { '1111': BANK_BASELINE, '1120': '3480.00', '1135': '320.00', '2110': '2320.00', '2125': '480.00' };
+      const expected = Object.fromEntries(
+        [...Object.keys(ENDING).filter((c) => !['1320', '3100', '3200'].includes(c)), '2150'].sort()
+          .map((c) => [c, `${opening[c] ?? '0.00'} ${c === '2150' ? '0.00' : own(ENDING[c as keyof typeof ENDING])}`])
+      );
+      const declared = anexo24Rows(accounts, 'AuxiliarCtas:Cuenta');
+      expect(Object.fromEntries(Object.entries(declared).map(([c, r]) => [c, `${r.SaldoIni} ${r.SaldoFin}`]))).toEqual(expected);
+      // The bank's lines, by hand: in, the advance, the issued REP, the
+      // receipt and the two mirrors of the reopening (5); out, the computers,
+      // the bookshop twice, the hotel, the two PUE, the fees, the payment, the
+      // REP and the fee with its IVA posted twice (13).
+      const from = accounts.indexOf('NumCta="1111"');
+      const bank = accounts.slice(from, accounts.indexOf('</AuxiliarCtas:Cuenta>', from));
+      const details = [...bank.matchAll(/Debe="([^"]+)" Haber="([^"]+)"/g)];
+      expect(details).toHaveLength(18);
+      expect(details.reduce((s, [, d]) => s.plus(d), new Decimal(0)).toFixed(2)).toBe('16588.00');
+      expect(details.reduce((s, [, , h]) => s.plus(h), new Decimal(0)).toFixed(2)).toBe('66469.33');
+
+      // By folio: each voucher of December born from a CFDI, with its UUID,
+      // its counterparty and its total. The issued PPD and its REP, the seven
+      // received invoices posted, and the consultant's REP; a REP's total is
+      // what it paid. The gardener's CFDI waits uncoded and has no voucher.
+      const byVoucher = path.join(workDir, 'auxiliar-folios-2025-12.xml');
+      ok(['e-accounting', 'subledger', 'generate', '--period', '2025-12', '--kind', 'folios', ...AUDIT, '-o', byVoucher, '--json']);
+      const vouchers = fs.readFileSync(byVoucher, 'utf-8');
+      expect(validateAgainstOfficialXsd(vouchers, 'voucherAuxiliary')).toEqual({ valid: true, errors: [] });
+      expect([...vouchers.matchAll(/Fecha="([^"]+)">\s*<RepAuxFol:ComprNal UUID_CFDI="([^"]+)" RFC="([^"]+)" MontoTotal="([^"]+)"/g)]
+        .map(([, date, uuid, rfc, total]) => `${date} ${uuid.toUpperCase()} ${rfc} ${total}`)).toEqual([
+        `2025-12-02 ${ISSUED_PPD_UUID} ${WHOLESALER_RFC} 9280.00`,
+        `2025-12-03 ${ZERO_RATE_UUID} ${BOOKSHOP_RFC} 1200.00`,
+        `2025-12-04 ${EXEMPT_UUID} ${BOOKSHOP_RFC} 450.00`,
+        `2025-12-09 ${LODGING_UUID} ${HOTEL_RFC} 1190.00`,
+        `2025-12-10 ${PPD_UUID} ${CONSULTANT_RFC} 9280.00`,
+        `2025-12-11 ${ISSUED_REP_UUID} ${WHOLESALER_RFC} 9280.00`,
+        `2025-12-12 ${CLEANER_PUE_UUIDS[0]} ${CLEANER_RFC} 1160.00`,
+        `2025-12-16 ${FEES_UUID} ${FEES_RFC} 9533.33`,
+        `2025-12-19 ${CLEANER_PUE_UUIDS[1]} ${CLEANER_RFC} 1160.00`,
+        `2025-12-22 ${REP_UUID} ${CONSULTANT_RFC} 9280.00`,
+      ]);
+    }, STEP_TIMEOUT_MS);
+
+    it('`diot export --layout sat` matches, byte for byte, the file written by hand — MNE-001-055, MNE-001-027', () => {
+      // One record per vendor paid in December, by RFC, each field at its
+      // number in the SAT's instructivo (§3.1 to §3.5): 1 third-party type
+      // (04, national), 2 operation type (85, the panel's default: no vendor
+      // declares one), 3 RFC, 12 the value of acts at 16 %, 22 its IVA paid,
+      // 48 the IVA withheld, 50 exempt acts, 51 acts at 0 % and 54 the tax
+      // effects (01). In whole pesos, by CFF art. 20: 1,066.67 is 1,067. The
+      // cleaner's two PUE make one record; the hotel's ISH is no act of IVA.
+      // The opening bill is unpaid and the bank's fee has no vendor: neither
+      // is declared.
+      const record = (fields: Record<number, string>): string =>
+        Array.from({ length: 54 }, (_, i) => fields[i + 1] ?? '').join('|');
+      const national = (rfc: string, fields: Record<number, string>): string =>
+        record({ 1: '04', 2: '85', 3: rfc, ...fields, 54: '01' });
+      const DIOT_2025_12 = [
+        national(CONSULTANT_RFC, { 12: '8000', 22: '1280' }),
+        national(FEES_RFC, { 12: '10000', 22: '1600', 48: '1067' }),
+        national(HOTEL_RFC, { 12: '1000', 22: '160' }),
+        national(BOOKSHOP_RFC, { 50: '450', 51: '1200' }),
+        national(CLEANER_RFC, { 12: '2000', 22: '320' }),
+        national(VENDOR_RFC, { 12: '5000', 22: '800' }),
+      ].join('\r\n');
+      const file = path.join(workDir, 'diot-sat-2025-12.txt');
+      ok(['diot', 'export', '--period', '2025-12', '--layout', 'sat', '-o', file, '--json']);
+      expect(fs.readFileSync(file).equals(Buffer.from(DIOT_2025_12, 'utf8'))).toBe(true);
+    }, STEP_TIMEOUT_MS);
+
+    // THE IVA PAPER, BY HAND (MNE-001-416, for the task that closes the gap).
+    // What December declares. Charged, the IVA collected: the two typed
+    // invoices whole, on their day (PUE: 10,000 + 1,600 on 12-05 and 5,000 +
+    // 800 on 12-22), the issued PPD by what its REP collected on 12-11 (8,000
+    // + 1,280), less the credit note of 12-18 (1,000 + 160), which takes its
+    // IVA out of the month (LIVA art. 7). The advance caused 1,000 + 160 on
+    // 12-10 and gave them back on 12-22, applied to its sale. Creditable, the
+    // IVA paid: the DIOT's bills, 26,000 at 16 % with 4,160, 1,200 at 0 % and
+    // 450 exempt. Withheld and still to remit: 1,066.67 of the fees, shown and
+    // not netted. In cents and in pesos (`cada_renglon`):
+    //   charged.tasa16.base     22,000.00 / 22,000   charged.tasa16.iva     3,520.00 / 3,520
+    //   charged.tasa8, tasa0, exento (base and iva) and no_objeto.base: 0.00 / 0
+    //   creditable.tasa16.base  26,000.00 / 26,000   creditable.tasa16.iva  4,160.00 / 4,160
+    //   creditable.tasa8.base and .iva: 0.00 / 0
+    //   creditable.tasa0.base    1,200.00 / 1,200    creditable.tasa0.iva       0.00 / 0
+    //   creditable.exento.base     450.00 / 450      creditable.exento.iva      0.00 / 0
+    //   withheld_by_customers 0.00 / 0 · prior_balance_in_favor 0.00 / 0
+    //   withheld_to_remit        1,066.67 / 1,067
+    //   result  3,520 − 4,160 = −640.00 / −640, a balance in favor
+    // Traced by the day of each cash event: charged 1,600 on 12-05, 800 on
+    // 12-22, 1,280 on 12-11; creditable 1,280 on 12-22, 160 on 12-09, 12-12
+    // and 12-19, 1,600 on 12-16, 800 on 12-20; 0 % on 12-03; exempt on 12-04;
+    // the withholding on 12-16.
+    // NOTE: what the paper does today (seen on 2026-11-19). It reads no
+    // issued credit note: charged.tasa16 is 23,000.00 / 3,680.00 and the
+    // result −480.00 / −480, and IVA-WP-CHARGED-VS-LEDGER only warns that
+    // 2120 moved 3,520.0000. A second gap: the bank reconciliation posts the
+    // fee's 48.00 of IVA straight to 1130, not to 1135 until the bank's CFDI
+    // arrives (the note of 6310 in account-roles-seed.ts), so
+    // IVA-WP-CREDITABLE-VS-LEDGER warns that 1130 moved 4,208.0000 against
+    // the 4,160.0000 the bills paid.
+    it.todo('the IVA paper takes an issued credit note\'s IVA out of the month (LIVA art. 7) — task to open');
 
     it('the ISR working paper blocks until the 2024 return is captured, and then has the exact hand figures — MNE-001-420', () => {
       const paper = ['filing', 'workpaper', 'generate', '--period', '2025-12', '--form', 'isr', '--json'];
