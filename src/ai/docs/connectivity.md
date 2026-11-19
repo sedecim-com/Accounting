@@ -88,6 +88,17 @@ output when a connection problem is unclear.
   out loud after writing. The legacy `language` key keeps its OLD order (the
   first file that exists wins entire, project before user) and is still read
   as a fallback below `locale`.
+- `models` (`{ "<profile>": "<model id>" }`) sets a profile's model without
+  copying it, so a built-in keeps its declared window: `--model` >
+  `models.<profile>` > the profile's `model`. A name that is no profile is
+  refused. `init --section ai` writes `default_provider` and `models` to the
+  file that wins, creating `~/.mnemosine/config.json` (never a project file)
+  when none exists, and asks before writing a project file (default No, kept
+  by `--yes`; on No the project file still decides in that folder). A key
+  typed at init goes to `~/.mnemosine/.env` (600), never `./.env`; init
+  removes an empty definition of that variable from `./.env`, which would
+  hide it. `MNEMOSINE_PROVIDER` still outranks the saved default, and init
+  says so.
 - Inside chat, `/provider <name>` switches models by opening a NEW
   conversation: history is not portable across wire formats, so the current
   context is dropped.
