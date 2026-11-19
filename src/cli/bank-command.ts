@@ -145,7 +145,7 @@ import {
   type ExitCodeValue,
   type Row,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { t } from '../i18n/index.js';
 import { isRealCalendarDate } from '../utils/calendar-date.js';
 
@@ -2021,7 +2021,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
         process.stderr.write(

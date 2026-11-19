@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { AccountingError } from '../../utils/errors.js';
+import type { TranslationKey } from '../../i18n/index.js';
 import { queryAccountBalance, queryEntryMovementsOnAccount } from '../reporting/report-service.js';
 import {
   FX_REVALUATION_SOURCE,
@@ -177,6 +178,8 @@ export interface ArCheckResult {
   level: ArCheckLevel;
   count: number;
   detail: string;
+  /** When set, the edge renders the detail from the catalog; `detail` is its English source (MNE-001-530). */
+  detailKey?: TranslationKey;
   sample: string[];
 }
 
@@ -185,7 +188,7 @@ interface Sonda {
   /** El nivel cuando encuentra algo; 'clean' cuando no. */
   severity: 'blocking' | 'warning';
   descripcion: string;
-  correr: (entityId: string) => Promise<{ count: number; detail: string; sample: string[] }>;
+  correr: (entityId: string) => Promise<{ count: number; detail: string; detailKey?: TranslationKey; sample: string[] }>;
 }
 
 const cuenta = async (
@@ -276,6 +279,38 @@ const SONDAS: Sonda[] = [
         detail: count ? 'un cobro muerto sigue bajando saldo del auxiliar' : 'ninguna',
         sample,
       };
+    },
+  },
+  {
+    // MNE-001-530 (#664): since MNE-001-516 apply refuses another customer's
+    // invoice; this names the rows written before. A warning: it cannot tell
+    // an error from a transfer the two customers agreed (#695).
+    name: 'cross-party-application',
+    severity: 'warning',
+    descripcion: 'live allocations whose invoice belongs to another customer than their receipt',
+    correr: async (entityId) => {
+      const { count, sample } = await cuenta(
+        `SELECT cp.payment_number, pc.customer_number AS receipt_customer,
+                i.invoice_number, ic.customer_number AS invoice_customer,
+                COUNT(*) OVER()::int AS total
+           FROM payment_allocations pa
+           JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+           JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
+           JOIN customers pc ON pc.id = cp.customer_id AND pc.entity_id = $1
+           JOIN customers ic ON ic.id = i.customer_id AND ic.entity_id = $1
+          WHERE pa.unapplied_at IS NULL AND i.customer_id <> cp.customer_id
+          ORDER BY cp.payment_number, i.invoice_number LIMIT 5`,
+        [entityId],
+        (r) =>
+          `${String(r.payment_number)} (${String(r.receipt_customer)}) → ` +
+          `${String(r.invoice_number)} (${String(r.invoice_customer)})`
+      );
+      return count
+        ? {
+            count, sample, detailKey: 'ar.check.cross_party_application.found',
+            detail: "a customer's cash settles another customer's invoice: review it; nothing is blocked",
+          }
+        : { count, sample, detailKey: 'ar.check.cross_party_application.none', detail: 'none' };
     },
   },
   {
@@ -425,6 +460,7 @@ export async function runArChecks(
       level: r.count > 0 ? sonda.severity : 'clean',
       count: r.count,
       detail: r.detail,
+      ...(r.detailKey ? { detailKey: r.detailKey } : {}),
       sample: r.sample,
     });
   }
