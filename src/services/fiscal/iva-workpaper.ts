@@ -4,6 +4,7 @@ import { withTransaction } from '../../database/connection.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
 import { queryTrialBalanceRows } from '../reporting/report-service.js';
+import { ORIGEN_COBRO_DE_CHEQUE } from '../banking/treasury-posting.js';
 import { entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
 import type { CFDIParsed } from '../xml-ingestion/cfdi-parser.js';
 import {
@@ -580,7 +581,7 @@ async function chargedOfMonth(
 /**
  * The journal entries of each bill's cash event, for the bills the DIOT's facts
  * picked: the bill's own entry (a `bill` fact) or the vendor payments of the
- * month (a `payment` fact). Both the selection of bills and which event each
+ * month and the cashing entries of the cheques cashed in it (a `payment` fact). Both the selection of bills and which event each
  * one has stay `hechosDelMes`'s (MNE-001-491: where the VAT sits, not the
  * method); this only looks the entries up.
  */
@@ -614,6 +615,23 @@ async function billEntryIds(
       [entityId, byPayment, range.desde, range.hasta]
     );
     for (const r of rows) out.set(r.id, r.entries);
+    // A cheque cashed in the month (MNE-001-559): its cashing entry is the one
+    // that credited the IVA, so the bill traces to it. One whose own entry
+    // credited the IVA has no cashing entry, and its payment entry is above.
+    const cashed = await client.query<{ id: string; entry: string }>(
+      `SELECT DISTINCT pa.bill_id AS id, je.id::text AS entry
+         FROM payment_applications pa
+         JOIN vendor_payments vp ON vp.id = pa.payment_id
+         JOIN bills b ON b.id = pa.bill_id
+         JOIN journal_entries je ON je.source_id = vp.id AND je.entity_id = vp.entity_id
+                                AND je.source_type = '${ORIGEN_COBRO_DE_CHEQUE}' AND je.status = 'posted'
+        WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
+          AND vp.status <> 'void'
+          AND vp.check_cleared_date >= $3::date AND vp.check_cleared_date <= $4::date
+        ORDER BY 1, 2`,
+      [entityId, byPayment, range.desde, range.hasta]
+    );
+    for (const r of cashed.rows) out.set(r.id, [...(out.get(r.id) ?? []), r.entry]);
   }
   return out;
 }
