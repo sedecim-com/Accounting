@@ -2986,6 +2986,32 @@ export const EN = {
   // their own block and git merges them. Keep each family's keys between its
   // two markers; tests/i18n/sync.spec.ts checks they stay, once each, in order.
   // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+
+  // MNE-001-218: `src/cli/cashflow-command.ts` and `src/cli/cashflow-reconcile-command.ts`.
+  /** src/cli/cashflow-command.ts: `--gross` is refused, saying what is missing. */
+  'report.cashflow.gross_unavailable':
+    'The statement in GROSS terms (NIF B-2 §40 / ASC 230-10-45-7) cannot be built from these data, and the net is not returned labelled as gross. Gross needs receipts and payments kept apart, and that is a datum of the TRANSACTION, not of the account: the engine publishes a net per account, and splitting it into its debit and its credit does not give flows — disposing of an asset credits book value while the cash collected is another amount. The default output already shows every account of every section, which is the detail these books do support. Run it again without --gross.',
+  /** `concept` of the `derivado` contrast row. */
+  'report.cashflow_reconcile.derived_concept': 'Cash flow statement, net ({method} method)',
+  /** `concept` of the `real` contrast row. */
+  'report.cashflow_reconcile.ledger_concept': 'Cash and banks, change in the ledger',
+  /** `concept` of the `residuo` contrast row. */
+  'report.cashflow_reconcile.residue_concept': 'Residue (derived − actual)',
+  /** The cash note: the accounts, the criterion (and whether it was answered) and the two balances. */
+  'report.cashflow_reconcile.cash_accounts':
+    'Cash: {accounts} ({defaulted, select, yes {criterion "{criterion}", by default} other {criterion "{criterion}"}}) · {opening} → {closing}',
+  /** The statement ties to the real movement of cash. */
+  'report.cashflow_reconcile.ties':
+    'Ties: the cash flow statement equals the actual movement of cash.',
+  /** The suspects offered with `--show-candidates`. */
+  'report.cashflow_reconcile.suspects':
+    '{count, plural, one {# suspect} other {# suspects}} — this is a LIST OF SUSPECTS, not a verdict: cash movements that no section of the statement seems to claim, or that it may be counting twice. Check them before touching anything.',
+  /** How much of the residue the suspects explain. */
+  'report.cashflow_reconcile.coverage':
+    'They explain {explained} of the residue {amount}; {unexplained} remain that none of them explains.',
+  /** A residue with no suspects to offer. */
+  'report.cashflow_reconcile.no_suspects':
+    'No suspects to offer: every cash movement of the period falls in a section of the statement, so the residue is in HOW they are added up, not in what was left out.',
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
