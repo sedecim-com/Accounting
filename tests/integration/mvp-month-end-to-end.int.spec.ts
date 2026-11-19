@@ -2333,7 +2333,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     // 12-22, 1,280 on 12-11; creditable 1,280 on 12-22, 160 on 12-09, 12-12
     // and 12-19, 1,600 on 12-16, 800 on 12-20; 0 % on 12-03; exempt on 12-04;
     // the withholding on 12-16.
-    // NOTE: what the paper does today (seen on 2026-11-19). It reads no
+    // FIXME(#799): what the paper does today (seen on 2026-11-19). It reads no
     // issued credit note: charged.tasa16 is 23,000.00 / 3,680.00 and the
     // result −480.00 / −480, and IVA-WP-CHARGED-VS-LEDGER only warns that
     // 2120 moved 3,520.0000. A second gap: the bank reconciliation posts the
@@ -2341,7 +2341,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     // arrives (the note of 6310 in account-roles-seed.ts), so
     // IVA-WP-CREDITABLE-VS-LEDGER warns that 1130 moved 4,208.0000 against
     // the 4,160.0000 the bills paid.
-    it.todo('the IVA paper takes an issued credit note\'s IVA out of the month (LIVA art. 7) — task to open');
+    it.todo('the IVA paper takes an issued credit note\'s IVA out of the month (LIVA art. 7) — #799');
 
     it('the ISR working paper blocks until the 2024 return is captured, and then has the exact hand figures — MNE-001-420', () => {
       const paper = ['filing', 'workpaper', 'generate', '--period', '2025-12', '--form', 'isr', '--json'];
