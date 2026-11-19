@@ -5,7 +5,9 @@ import { AccountingError, NotFoundError, ValidationError } from '../../utils/err
 import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
 import { queryTrialBalanceRows } from '../reporting/report-service.js';
 import { CUSTOMER_CHECK_CASHING_SOURCE, ORIGEN_COBRO_DE_CHEQUE } from '../banking/treasury-posting.js';
-import { entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
+import {
+  entityUsesCashBasisIva, ivaReclassificationsFor, reclassRoles, resolveInvoiceMetodoPago,
+} from '../accounting/iva-cash-basis.js';
 import type { CFDIParsed } from '../xml-ingestion/cfdi-parser.js';
 import {
   acumuladoDelDocumento,
@@ -37,8 +39,9 @@ import {
 //                  released in the month (payment_allocations.iva_reclass_amount,
 //                  the very amount posted from 2125 to 2120), dated the day the
 //                  cash was applied (`applied_on`, migration 332; a row written
-//                  before it takes its receipt's date); and a customer advance
-//                  (MNE-001-423, below).
+//                  before it takes its receipt's date), or a cheque's cashing
+//                  (MNE-001-507, below); and a customer advance (MNE-001-423,
+//                  below).
 //
 // A CUSTOMER ADVANCE causes its IVA the day it is collected (LIVA art. 1-B,
 // first paragraph): the month of its receipt counts its base and IVA in the
@@ -81,12 +84,19 @@ import {
 //      paper counted it (`gapCauses`), and is silent where they agree; a cause
 //      stated after the reversal is named in each month it moved.
 //
-// NOTE: an advance by cheque causes its IVA the day the bank cashes it (LIVA
-// art. 1-B, second paragraph; #623 comment 6961035083). MNE-001-558 records
-// one, its receipt holding it whole in 2150 until the cashing posts its IVA;
-// counting it in the month of its cashing is MNE-001-507's (#700, task 5),
-// and until then this paper counts it in its receipt's month. Reversed as
-// not collected, a cheque's default cause, it counts in no month (MNE-001-510).
+// A CUSTOMER CHEQUE COUNTS IN THE MONTH THE BANK CASHED IT (MNE-001-507, #700;
+// LIVA art. 1-B, second paragraph; no panel key, the law sets the day). Since
+// MNE-001-556 the ledger holds its IVA in 2125 (an advance's in 2150, from
+// MNE-001-558; #623 comment 6961035083) until `bank check reconcile --receipt`
+// records the credit that cashed it, and the paper follows the ledger
+// (`countedOn`): every event of a held cheque, its applications, unapplies,
+// reversal and advance, counts on its own day or the cashing's, whichever is
+// later, and in no month while no cashing is recorded. A cheque whose own
+// entries caused its IVA before its cashing (one recorded before MNE-001-556,
+// or in another currency) keeps its days, as its entries did. And no month
+// settles while a held cheque possibly cashed in it has no cashing recorded
+// (`checkFindings`): the month its account's statement covers with no open
+// credit warns and settles; any other blocks.
 //   · creditable — IVA acreditable PAID: the DIOT's facts (`hechosDelMes`), the
 //                  one definition of "IVA paid" in this project. A third query
 //                  for it would be the fourth definition.
@@ -491,6 +501,39 @@ async function withheldPerSale(
 const CARRIED_AN_ADVANCE = '(pa.advance_base_amount + pa.advance_iva_amount) > 0';
 
 /**
+ * MNE-001-507 · True for a cheque receipt `cp` whose own entries (its record
+ * or an application) credited charged IVA before its cashing, or with none
+ * recorded: one posted before MNE-001-556, or in another currency than the
+ * functional one. The ledger caused that cheque's IVA on those days.
+ */
+const releasedBeforeCashing = (cp: string): string => `EXISTS (
+         SELECT 1
+           FROM journal_entries rje
+           JOIN journal_entry_lines rjl ON rjl.journal_entry_id = rje.id
+           JOIN account_roles rar ON rar.account_id = rjl.account_id AND rar.entity_id = rje.entity_id
+                                 AND rar.qualifier IS NULL AND rar.role = '${reclassRoles('issued').to}'
+          WHERE rje.entity_id = ${cp}.entity_id AND rje.source_id = ${cp}.id AND rje.status = 'posted'
+            AND rje.source_type IN ('customer_payment', 'receipt_application')
+            AND rjl.credit_amount > 0
+            AND (${cp}.check_cashed_date IS NULL OR rje.entry_date < ${cp}.check_cashed_date))`;
+
+/** A cheque whose IVA waits for its cashing (MNE-001-556): the ledger holds it until then. */
+const heldUntilCashed = (cp: string): string => `(${cp}.payment_method = 'check' AND NOT ${releasedBeforeCashing(cp)})`;
+
+/**
+ * CONTRACT: the day on which the IVA workpaper (a SAT deliverable's source)
+ * counts an event `day` of receipt `cp`. Its own day, except for a held
+ * cheque: the later of it and the cashing's, as the cashing entry posts what
+ * the earlier events held (LIVA art. 1-B, second paragraph), and NULL while no
+ * cashing is recorded, so the event enters no month.
+ */
+const countedOn = (cp: string, day: string): string => `(CASE
+         WHEN ${cp}.payment_method <> 'check' THEN ${day}
+         WHEN ${releasedBeforeCashing(cp)} THEN ${day}
+         WHEN ${cp}.check_cashed_date IS NULL THEN NULL
+         ELSE GREATEST(${day}, ${cp}.check_cashed_date) END)`;
+
+/**
  * MNE-001-510 (#701) · What a reversed receipt says happened to its money:
  * `not_collected`, `taken_back`, or `not_stated`. The stated cause decides
  * (MNE-001-509 at the reversal, MNE-001-511 later). A cheque with none, one
@@ -538,32 +581,41 @@ const MIRROR_OF_RECEIPT = `
  * invoice's cumulative goes back down by that cash, so a later collection of
  * the same invoice causes its own IVA (LIVA art. 1-B) instead of reading as
  * an overpayment. `ts` orders events of one day: the instant each was written.
+ *
+ * MNE-001-507 · Each event counts on `countedOn`: a held cheque's on its
+ * cashing at the earliest, and none of its events while it has no cashing.
  */
 const SHARE_EVENTS = `
+       SELECT se.* FROM (
        SELECT pa.invoice_id, cp.id AS payment_id, pa.amount_applied AS amount,
-              COALESCE(pa.iva_reclass_amount, 0) AS vat, COALESCE(pa.applied_on, cp.payment_date) AS on_day,
+              COALESCE(pa.iva_reclass_amount, 0) AS vat, ${countedOn('cp', 'COALESCE(pa.applied_on, cp.payment_date)')} AS on_day,
               'apply'::text AS kind, pa.created_at AS ts
          FROM payment_allocations pa
          JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
        UNION ALL
-       SELECT pa.invoice_id, cp.id, -pa.amount_applied, -COALESCE(pa.iva_reclass_amount, 0), pa.unapplied_at::date,
-              'undo', pa.unapplied_at
+       SELECT pa.invoice_id, cp.id, -pa.amount_applied, -COALESCE(pa.iva_reclass_amount, 0),
+              ${countedOn('cp', 'pa.unapplied_at::date')}, 'undo', pa.unapplied_at
          FROM payment_allocations pa
          JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
           AND pa.unapplied_at IS NOT NULL AND NOT ${CLOSED_BY_REVERSAL}
        UNION ALL
-       SELECT pa.invoice_id, cp.id, -pa.amount_applied, 0, ${REVERSED_ON}, 'reset', cp.reversed_at
+       SELECT pa.invoice_id, cp.id, -pa.amount_applied, 0, ${countedOn('cp', REVERSED_ON)}, 'reset', cp.reversed_at
          FROM payment_allocations pa
          JOIN customer_payments cp ON cp.id = pa.payment_id ${MIRROR_OF_RECEIPT}
-        WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS} AND ${CLOSED_BY_REVERSAL}`;
+        WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS} AND ${CLOSED_BY_REVERSAL}
+       ) se WHERE se.on_day IS NOT NULL`;
 
 /**
  * The receipt-side entries the charged side traces (`ar-ap-posting.ts`): a
- * receipt's own entry, and its application and unapplication entries.
+ * receipt's own entry, its application and unapplication entries, and a
+ * cheque's cashing entry (MNE-001-556), which moves what a held cheque's
+ * events left in 2125 (MNE-001-507).
  */
-const RECEIPT_SOURCES = ['customer_payment', 'receipt_application', 'receipt_unapplication'] as const;
+const RECEIPT_SOURCES = [
+  'customer_payment', 'receipt_application', 'receipt_unapplication', CUSTOMER_CHECK_CASHING_SOURCE,
+] as const;
 
 /** Every box of a split times `factor`: an undo gives back what its event put in. */
 function scaled(d: Desglose, factor: Decimal.Value): Desglose {
@@ -590,20 +642,21 @@ interface AdvanceOfMonth {
  * the events of its receipt there. Both ends of payment_allocations are
  * scoped; a void receipt or one reversed as never collected counts in no
  * month, and any other reversal leaves every month as it was (MNE-001-518,
- * MNE-001-510: the advance follows its receipt's cause).
+ * MNE-001-510: the advance follows its receipt's cause). An advance by cheque
+ * counts on its cashing (`countedOn`; MNE-001-558 records one).
  */
 async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<AdvanceOfMonth[]> {
   const { rows } = await client.query<AdvanceOfMonth>(
     `WITH events AS (
-       SELECT cp.id, cp.advance_base_amount AS base, cp.advance_iva_amount AS iva, cp.payment_date AS on_day
+       SELECT cp.id, cp.advance_base_amount AS base, cp.advance_iva_amount AS iva, ${countedOn('cp', 'cp.payment_date')} AS on_day
          FROM customer_payments cp
         WHERE cp.entity_id = $1
        UNION ALL
-       SELECT cp.id, -pa.advance_base_amount, -pa.advance_iva_amount, COALESCE(pa.applied_on, cp.payment_date)
+       SELECT cp.id, -pa.advance_base_amount, -pa.advance_iva_amount, ${countedOn('cp', 'COALESCE(pa.applied_on, cp.payment_date)')}
          FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND ${CARRIED_AN_ADVANCE}
        UNION ALL
-       SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount, pa.unapplied_at::date
+       SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount, ${countedOn('cp', 'pa.unapplied_at::date')}
          FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND pa.unapplied_at IS NOT NULL AND ${CARRIED_AN_ADVANCE} AND NOT ${CLOSED_BY_REVERSAL}
      )
@@ -639,7 +692,7 @@ function advanceBreakdown(a: Pick<AdvanceOfMonth, 'factor_type' | 'tax_rate' | '
   return { breakdown, notSubject: new Decimal(0) };
 }
 
-/** Each receipt's own, application and unapplication entries posted in the month, by receipt. */
+/** Each receipt's own, application, unapplication and cheque cashing entries posted in the month, by receipt. */
 async function receiptEntriesOfMonth(
   client: pg.PoolClient,
   entityId: string,
@@ -687,6 +740,8 @@ interface CashOnAccountOfMonth {
   /** The IVA the month's unapplies put back on account, and the IVA its applications took from there. */
   back: Decimal;
   taken: Decimal;
+  /** MNE-001-507 · the part of `back` a held cheque's share ended before its cashing never released in the ledger. */
+  neverReleased: Decimal;
 }
 
 interface AllocationEventRow {
@@ -697,8 +752,13 @@ interface AllocationEventRow {
   amount: string;
   vat: string;
   advance_taken: string;
+  /** The days the paper counts each event on (`countedOn`), and the days they were dated. */
   applied_day: string;
   undone_day: string | null;
+  dated_applied: string;
+  dated_undone: string | null;
+  /** A cheque whose IVA waited for its cashing (MNE-001-556). */
+  held: boolean;
   /** What the invoice had applied just before the unapply, its own application included. */
   applied_before_undo: string | null;
 }
@@ -715,6 +775,12 @@ interface AllocationEventRow {
  * day, because an application cannot take cash an unapply has not returned.
  * An application takes first the cash on account that carries no IVA, then
  * that taxed cash, as `takeFromAdvance` takes plain cash before an advance.
+ *
+ * MNE-001-507 · A held cheque's events count on its cashing at the earliest
+ * (`countedOn`), in the order they were dated. A share it ended before the
+ * cashing released nothing, so the cash back on account carries the IVA the
+ * share would have caused: the cashing is when that cash was collected, and
+ * cash held on account is taxed the day it is collected (LIVA art. 1-B).
  */
 async function cashOnAccountOfMonth(
   client: pg.PoolClient,
@@ -728,20 +794,28 @@ async function cashOnAccountOfMonth(
             (COALESCE(cp.advance_base_amount, 0) + COALESCE(cp.advance_iva_amount, 0))::text AS advance_total,
             pa.invoice_id::text, pa.amount_applied::text AS amount, COALESCE(pa.iva_reclass_amount, 0)::text AS vat,
             (pa.advance_base_amount + pa.advance_iva_amount)::text AS advance_taken,
-            COALESCE(pa.applied_on, cp.payment_date)::text AS applied_day,
-            CASE WHEN pa.unapplied_at IS NULL OR ${CLOSED_BY_REVERSAL} THEN NULL ELSE pa.unapplied_at::date::text END AS undone_day,
-            CASE WHEN pa.unapplied_at IS NULL THEN NULL ELSE (
+            d.applied::text AS applied_day, d.undone::text AS undone_day,
+            COALESCE(pa.applied_on, cp.payment_date)::text AS dated_applied,
+            CASE WHEN d.undone IS NULL THEN NULL ELSE pa.unapplied_at::date::text END AS dated_undone,
+            ${heldUntilCashed('cp')} AS held,
+            CASE WHEN d.undone IS NULL THEN NULL ELSE (
               SELECT COALESCE(SUM(e.amount), 0) FROM events e
                WHERE e.invoice_id = pa.invoice_id
-                 AND (e.on_day < pa.unapplied_at::date OR (e.on_day = pa.unapplied_at::date AND e.amount > 0))
+                 AND (e.on_day < d.undone OR (e.on_day = d.undone AND e.amount > 0))
             )::text END AS applied_before_undo
        FROM payment_allocations pa
        JOIN customer_payments cp ON cp.id = pa.payment_id
        JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
+      CROSS JOIN LATERAL (
+        SELECT ${countedOn('cp', 'COALESCE(pa.applied_on, cp.payment_date)')} AS applied,
+               CASE WHEN pa.unapplied_at IS NULL OR ${CLOSED_BY_REVERSAL} THEN NULL
+                    ELSE ${countedOn('cp', 'pa.unapplied_at::date')} END AS undone
+      ) d
       WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
-        AND COALESCE(pa.applied_on, cp.payment_date) <= $2::date
+        AND d.applied <= $2::date
         AND EXISTS (SELECT 1 FROM payment_allocations u
-                     WHERE u.payment_id = cp.id AND u.unapplied_at IS NOT NULL AND u.unapplied_at::date <= $2::date
+                     WHERE u.payment_id = cp.id AND u.unapplied_at IS NOT NULL
+                       AND ${countedOn('cp', 'u.unapplied_at::date')} <= $2::date
                        AND (u.advance_base_amount + u.advance_iva_amount) = 0
                        AND NOT (cp.status = 'reversed' AND u.unapplied_at = cp.reversed_at))
       ORDER BY pa.payment_id, applied_day, pa.created_at`,
@@ -759,11 +833,16 @@ async function cashOnAccountOfMonth(
     let pool = { cash: new Decimal(0), breakdown: desgloseCero(), notSubject: new Decimal(0) };
     const month: CashOnAccountOfMonth = {
       paymentId, breakdown: desgloseCero(), notSubject: new Decimal(0), back: new Decimal(0), taken: new Decimal(0),
+      neverReleased: new Decimal(0),
     };
+    const order = (x: string, y: string): number => (x === y ? 0 : x < y ? -1 : 1);
     const events = allocations
-      .flatMap((a) => [{ day: a.applied_day, undo: false, a }, ...(a.undone_day ? [{ day: a.undone_day, undo: true, a }] : [])])
+      .flatMap((a) => [
+        { day: a.applied_day, dated: a.dated_applied, undo: false, a },
+        ...(a.undone_day ? [{ day: a.undone_day, dated: a.dated_undone ?? a.undone_day, undo: true, a }] : []),
+      ])
       .filter((e) => e.day <= range.hasta)
-      .sort((x, y) => (x.day === y.day ? Number(!x.undo) - Number(!y.undo) : x.day < y.day ? -1 : 1));
+      .sort((x, y) => order(x.day, y.day) || order(x.dated, y.dated) || Number(!x.undo) - Number(!y.undo));
     let touched = false;
     for (const { day, undo, a } of events) {
       const inMonth = day >= range.desde;
@@ -781,9 +860,16 @@ async function cashOnAccountOfMonth(
           totalDocumento: sale.row.total_amount,
           tasaCambio: sale.row.exchange_rate,
         };
+        // A held cheque's share ended before its cashing stored 0: the IVA it
+        // carries is the share's own, the invoice's telescope read here.
+        const unreleased = a.held && new Decimal(a.vat).isZero();
+        const vat = unreleased
+          ? new Decimal(acumuladoDelDocumento(sale.row.tax_amount, new Decimal(share.aplicadoPrevio).plus(amount).toFixed(4), sale.row.total_amount, sale.row.exchange_rate))
+              .minus(acumuladoDelDocumento(sale.row.tax_amount, share.aplicadoPrevio, sale.row.total_amount, sale.row.exchange_rate))
+          : new Decimal(a.vat);
         const split = desglosarDocumento({
           documentId: sale.row.id, documentNumber: sale.row.invoice_number, renglones: sale.source.lines,
-          ivaCabecera: sale.row.tax_amount, ivaPagado: a.vat, porcion: share, politicaBaseExenta: 'exigir_base', documentKind: 'invoice',
+          ivaCabecera: sale.row.tax_amount, ivaPagado: q4(vat), porcion: share, politicaBaseExenta: 'exigir_base', documentKind: 'invoice',
         }).desglose;
         const notSubject = new Decimal(porcionDelDocumento(sale.source.notSubject, share));
         pool = { cash: pool.cash.plus(amount), breakdown: sumarDesgloses(pool.breakdown, split), notSubject: pool.notSubject.plus(notSubject) };
@@ -792,6 +878,7 @@ async function cashOnAccountOfMonth(
           month.breakdown = sumarDesgloses(month.breakdown, split);
           month.notSubject = month.notSubject.plus(notSubject);
           month.back = month.back.plus(ivaDelDesglose(split));
+          if (unreleased) month.neverReleased = month.neverReleased.plus(ivaDelDesglose(split));
         }
         continue;
       }
@@ -854,8 +941,8 @@ interface ReceiptLedgerRow {
   iva: string;
 }
 
-/** The receipt sources the ledger side reads: the charged side's and a cheque's cashing (MNE-001-556). */
-const RECEIPT_LEDGER_SOURCES = [...RECEIPT_SOURCES, CUSTOMER_CHECK_CASHING_SOURCE];
+/** The receipt sources the ledger side reads: the charged side's, a cheque's cashing included. */
+const RECEIPT_LEDGER_SOURCES = [...RECEIPT_SOURCES];
 
 /**
  * Every customer receipt's entries posted in the month, its reversal's mirrors
@@ -939,10 +1026,18 @@ function gapCauses(charged: ChargedOfMonth, ledger: readonly ReceiptLedgerRow[])
       );
     }
     const cash = charged.cashOnAccount.get(paymentId);
-    if (cash && cash.back.greaterThan(0)) {
+    const reparked = cash ? cash.back.minus(cash.neverReleased) : new Decimal(0);
+    if (reparked.greaterThan(0)) {
       why.push(
-        `desaplicar no devuelve el dinero: el IVA de ${q4(cash.back)} sigue causado mientras el efectivo siga a cuenta ` +
+        `desaplicar no devuelve el dinero: el IVA de ${q4(reparked)} sigue causado mientras el efectivo siga a cuenta ` +
           `(LIVA art. 1-B), y el mayor lo re-aparcó en iva_trasladado_no_cobrado`
+      );
+    }
+    if (cash && cash.neverReleased.greaterThan(0)) {
+      why.push(
+        `el cheque se desaplicó antes de cobrarse y el efectivo sigue a cuenta: el papel causa su IVA de ` +
+          `${q4(cash.neverReleased)} el día del cobro (LIVA art. 1-B, segundo párrafo), y el cobro del cheque no lo ` +
+          `movió en el mayor porque no tenía una factura que liberar`
       );
     }
     if (cash && cash.taken.greaterThan(0)) {
@@ -962,6 +1057,8 @@ interface ReversedReceiptRow {
   payment_number: string;
   payment_method: string;
   payment_date: string;
+  /** The day its advance counts on (`countedOn`): null for a held cheque with no cashing. */
+  collected_on: string | null;
   advance_base: string;
   advance_iva: string;
   mirror_number: string | null;
@@ -977,7 +1074,8 @@ interface ReversedAllocationRow extends InvoiceRow {
   vat: string;
   advance_base: string;
   advance_iva: string;
-  applied_day: string;
+  /** `countedOn`: null for a held cheque with no cashing. */
+  applied_day: string | null;
   undone_day: string | null;
 }
 
@@ -1032,12 +1130,13 @@ async function reversalFindings(
       WHERE r.entity_id = $1 AND r.status = 'reversed' AND r.journal_entry_id IS NOT NULL
         AND ${reversalCause('r')} <> 'not_collected'
         AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
-        AND COALESCE(pa.applied_on, cp.payment_date) >= $2::date AND COALESCE(pa.applied_on, cp.payment_date) <= $3::date
+        AND ${countedOn('cp', 'COALESCE(pa.applied_on, cp.payment_date)')} BETWEEN $2::date AND $3::date
       ORDER BY i.invoice_number, cp.payment_number`,
     [entityId, range.desde, range.hasta]
   );
   const reversed = await client.query<ReversedReceiptRow>(
     `SELECT cp.id::text, cp.payment_number, cp.payment_method, cp.payment_date::text AS payment_date,
+            ${countedOn('cp', 'cp.payment_date')}::text AS collected_on,
             COALESCE(cp.advance_base_amount, 0)::text AS advance_base, COALESCE(cp.advance_iva_amount, 0)::text AS advance_iva,
             m.entry_number AS mirror_number, ${REVERSED_ON}::text AS reversed_on, ${REVERSAL_CAUSE} AS cause,
             CASE WHEN cp.reversal_cause_stated_at > cp.reversed_at THEN cp.reversal_cause_stated_at::date::text END AS stated_on
@@ -1053,8 +1152,9 @@ async function reversalFindings(
             (pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)::text AS gross,
             COALESCE(pa.iva_reclass_amount, 0)::text AS vat,
             pa.advance_base_amount::text AS advance_base, pa.advance_iva_amount::text AS advance_iva,
-            COALESCE(pa.applied_on, cp.payment_date)::text AS applied_day,
-            CASE WHEN pa.unapplied_at IS NULL OR ${CLOSED_BY_REVERSAL} THEN NULL ELSE pa.unapplied_at::date::text END AS undone_day
+            ${countedOn('cp', 'COALESCE(pa.applied_on, cp.payment_date)')}::text AS applied_day,
+            CASE WHEN pa.unapplied_at IS NULL OR ${CLOSED_BY_REVERSAL} THEN NULL
+                 ELSE ${countedOn('cp', 'pa.unapplied_at::date')}::text END AS undone_day
        FROM payment_allocations pa
        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
        JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
@@ -1064,18 +1164,20 @@ async function reversalFindings(
   const ppd = new Map<string, boolean>();
   // By month (YYYY-MM): the base and IVA the receipt counts there, or would, had it been collected.
   const counted = new Map<string, Map<string, { base: Decimal; iva: Decimal }>>();
-  const add = (id: string, day: string, base: Decimal.Value, iva: Decimal.Value, sign: 1 | -1) => {
+  // A held cheque's event with no cashing recorded (`countedOn` NULL) counts in no month (MNE-001-507).
+  const add = (id: string, day: string | null, base: Decimal.Value, iva: Decimal.Value, sign: 1 | -1) => {
+    if (day === null) return;
     const months = counted.get(id) ?? new Map<string, { base: Decimal; iva: Decimal }>();
     const m = months.get(day.slice(0, 7)) ?? { base: new Decimal(0), iva: new Decimal(0) };
     months.set(day.slice(0, 7), { base: m.base.plus(new Decimal(base).times(sign)), iva: m.iva.plus(new Decimal(iva).times(sign)) });
     counted.set(id, months);
   };
   for (const r of reversed.rows) {
-    if (!new Decimal(r.advance_base).plus(r.advance_iva).isZero()) add(r.id, r.payment_date, r.advance_base, r.advance_iva, 1);
+    if (!new Decimal(r.advance_base).plus(r.advance_iva).isZero()) add(r.id, r.collected_on, r.advance_base, r.advance_iva, 1);
   }
   for (const a of allocations.rows) {
     if (!ppd.has(a.id)) ppd.set(a.id, (await resolveInvoiceMetodoPago(client, { ...a, entity_id: entityId })).metodo === 'PPD');
-    const events: Array<[string, 1 | -1]> = [[a.applied_day, 1], ...(a.undone_day ? [[a.undone_day, -1] as [string, 1 | -1]] : [])];
+    const events: Array<[string | null, 1 | -1]> = [[a.applied_day, 1], ...(a.undone_day ? [[a.undone_day, -1] as [string, 1 | -1]] : [])];
     for (const [day, sign] of events) {
       if (ppd.get(a.id)) add(a.payment_id, day, new Decimal(a.gross).minus(a.vat), a.vat, sign);
       add(a.payment_id, day, a.advance_base, a.advance_iva, sign === 1 ? -1 : 1);
@@ -1195,6 +1297,179 @@ async function reversalFindings(
   return findings;
 }
 
+interface UncashedCheckRow {
+  id: string;
+  payment_number: string;
+  check_number: string | null;
+  payment_date: string;
+  payment_amount: string;
+  currency: string;
+  bank_account_id: string | null;
+  advance_total: string;
+  advance_iva: string;
+}
+
+interface CheckAllocationRow extends InvoiceRow {
+  amount: string;
+  advance_taken: string;
+  live: boolean;
+}
+
+/**
+ * The IVA a held cheque's cashing would cause: what its live PPD allocations
+ * hold in 2125 (the release the cashing would post, `ivaReclassificationsFor`),
+ * an advance's IVA, and the share of a PPD allocation it ended whose cash is
+ * still on account, taxed the day the cash is collected (LIVA art. 1-B).
+ */
+async function heldIvaOf(client: pg.PoolClient, entityId: string, c: UncashedCheckRow): Promise<Decimal> {
+  const shares = await ivaReclassificationsFor(client, 'issued', entityId, c.id);
+  let iva = shares.reduce((s, x) => s.plus(x.amount), new Decimal(c.advance_iva));
+  // Both ends of the bridge are scoped.
+  const { rows } = await client.query<CheckAllocationRow>(
+    `SELECT ${INVOICE_COLUMNS}, pa.amount_applied::text AS amount,
+            (pa.advance_base_amount + pa.advance_iva_amount)::text AS advance_taken, (pa.unapplied_at IS NULL) AS live
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+       JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
+      WHERE pa.payment_id = $2 AND i.status NOT IN ('void', 'cancelled')`,
+    [entityId, c.id]
+  );
+  const live = rows.filter((r) => r.live);
+  const advanceLeft = Decimal.max(new Decimal(c.advance_total).minus(live.reduce((s, r) => s.plus(r.advance_taken), new Decimal(0))), 0);
+  const plain = Decimal.max(
+    new Decimal(c.payment_amount).minus(live.reduce((s, r) => s.plus(r.amount), new Decimal(0))).minus(advanceLeft), 0
+  );
+  let endedCash = new Decimal(0);
+  let endedIva = new Decimal(0);
+  for (const r of rows) {
+    if (r.live || !new Decimal(r.advance_taken).isZero()) continue;
+    if ((await resolveInvoiceMetodoPago(client, { ...r, entity_id: entityId })).metodo !== 'PPD') continue;
+    endedCash = endedCash.plus(r.amount);
+    endedIva = endedIva.plus(acumuladoDelDocumento(r.tax_amount, r.amount, r.total_amount, r.exchange_rate));
+  }
+  if (endedCash.greaterThan(0)) iva = iva.plus(endedIva.times(Decimal.min(plain.dividedBy(endedCash), 1)));
+  return iva;
+}
+
+/**
+ * MNE-001-507 (#700, task 2) · No month settles while a held cheque possibly
+ * cashed in it has no cashing recorded: counting it later would underpay that
+ * month (LIVA art. 1-B, second paragraph). For each such cheque, from the month
+ * of its receipt: when every account it may have been deposited in (its own,
+ * or, for one that names none such as a REP, every account of the entity in
+ * its currency) has a statement covering the month from the receipt's day,
+ * and none holds an OPEN credit there, the month warns and settles; otherwise
+ * a blocking finding names the cheque and why, and the month settles nothing.
+ * A credit is open when it is at least the cheque's amount, no receipt holds
+ * it as its cashing, and no live match ties it to anything but this receipt
+ * or the bank line of its own entry (as `recordCustomerChecksCashing` reads
+ * one). A cheque in another currency, or one whose own entries caused its IVA,
+ * is counted on its receipt day and is not flagged.
+ */
+async function checkFindings(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<Hallazgo[]> {
+  const { rows } = await client.query<UncashedCheckRow>(
+    `SELECT cp.id::text, cp.payment_number, cp.check_number, cp.payment_date::text AS payment_date,
+            cp.payment_amount::text AS payment_amount, TRIM(cp.currency_code) AS currency,
+            cp.bank_account_id::text AS bank_account_id,
+            (COALESCE(cp.advance_base_amount, 0) + COALESCE(cp.advance_iva_amount, 0))::text AS advance_total,
+            COALESCE(cp.advance_iva_amount, 0)::text AS advance_iva
+       FROM customer_payments cp
+       JOIN legal_entities e ON e.id = cp.entity_id
+      WHERE cp.entity_id = $1 AND cp.status = 'completed' AND cp.journal_entry_id IS NOT NULL
+        AND cp.check_cashed_tx_id IS NULL AND cp.payment_date <= $2::date
+        AND TRIM(cp.currency_code) = TRIM(e.functional_currency)
+        AND ${heldUntilCashed('cp')}
+      ORDER BY cp.payment_date, cp.payment_number`,
+    [entityId, range.hasta]
+  );
+  const findings: Hallazgo[] = [];
+  for (const c of rows) {
+    const iva = await heldIvaOf(client, entityId, c);
+    if (!iva.greaterThan(0)) continue;
+    const from = c.payment_date > range.desde ? c.payment_date : range.desde;
+    // `bank_transactions` has no entity: the boundary is its account's.
+    const accounts = await client.query<{ id: string; account_name: string; covered: boolean }>(
+      `SELECT ba.id::text, ba.account_name,
+              NOT EXISTS (
+                SELECT 1 FROM generate_series($2::date, $3::date, interval '1 day') AS g(d)
+                 WHERE NOT EXISTS (SELECT 1 FROM bank_statements s
+                                    WHERE s.entity_id = $1 AND s.bank_account_id = ba.id
+                                      AND g.d::date BETWEEN s.period_start AND s.period_end)) AS covered
+         FROM bank_accounts ba
+        WHERE ba.entity_id = $1
+          AND (ba.id = $4::uuid OR ($4::uuid IS NULL AND TRIM(ba.currency_code) = $5))
+        ORDER BY ba.account_name, ba.id`,
+      [entityId, from, range.hasta, c.bank_account_id, c.currency]
+    );
+    const open = await client.query<{ id: string; date: string; amount: string; account_name: string }>(
+      `SELECT bt.id::text, bt.transaction_date::text AS date, bt.amount::text AS amount, ba.account_name
+         FROM bank_transactions bt
+         JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+        WHERE ba.entity_id = $1 AND ba.id = ANY($2::uuid[])
+          AND bt.transaction_date >= $3::date AND bt.transaction_date <= $4::date
+          AND bt.amount >= $5::numeric
+          AND NOT EXISTS (SELECT 1 FROM customer_payments held
+                           WHERE held.check_cashed_tx_id = bt.id AND held.entity_id = $1)
+          AND NOT EXISTS (
+                SELECT 1 FROM reconciliation_matches rm
+                 WHERE rm.bank_transaction_id = bt.id AND rm.unapplied_at IS NULL
+                   AND NOT (rm.matched_entity_type = 'customer_payment' AND rm.matched_entity_id = $6::uuid)
+                   AND NOT (rm.matched_entity_type = 'journal_entry_line' AND EXISTS (
+                         SELECT 1 FROM journal_entry_lines l
+                           JOIN journal_entries je ON je.id = l.journal_entry_id
+                          WHERE l.id = rm.matched_entity_id AND je.entity_id = $1
+                            AND je.source_type = 'customer_payment' AND je.source_id = $6::uuid
+                            AND l.account_id = ba.gl_account_id)))
+        ORDER BY bt.transaction_date, bt.id`,
+      [entityId, accounts.rows.map((a) => a.id), from, range.hasta, c.payment_amount, c.id]
+    );
+    const who = `${c.check_number ? `El cheque ${c.check_number} del cobro` : 'El cheque del cobro'} ${c.payment_number}`;
+    const names = accounts.rows.map((a) => a.account_name).join(', ');
+    const uncovered = accounts.rows.filter((a) => !a.covered);
+    if (accounts.rows.length > 0 && uncovered.length === 0 && open.rows.length === 0) {
+      findings.push({
+        codigo: 'IVA-WP-CHEQUE-NOT-CASHED',
+        severidad: 'aviso',
+        documentId: c.id,
+        documentNumber: c.payment_number,
+        mensaje:
+          `${who}, recibido el ${c.payment_date}, no tiene cobro registrado: su IVA (${q4(iva)}) espera ese cobro y ` +
+          `ningún mes lo cuenta hasta que se registre (LIVA art. 1-B, segundo párrafo). El estado de cuenta de ` +
+          `${names} cubre del ${from} al ${range.hasta} sin un abono abierto que pueda ser su cobro, así que este mes ` +
+          `se liquida sin él. Cuando el banco lo cobre, regístralo con \`bank check reconcile --receipt ${c.payment_number}\`.`,
+      });
+      continue;
+    }
+    const reasons: string[] = [];
+    if (accounts.rows.length === 0) {
+      reasons.push(`la entidad no tiene una cuenta bancaria en ${c.currency} con un estado de cuenta que diga si lo cobró`);
+    } else if (uncovered.length > 0) {
+      reasons.push(
+        `el estado de cuenta de ${uncovered.map((a) => a.account_name).join(', ')} no cubre del ${from} al ${range.hasta}`
+      );
+    }
+    if (open.rows.length > 0) {
+      reasons.push(
+        `hay abonos abiertos de por lo menos su importe (${q4(c.payment_amount)}), sin registrar como cobro ni ` +
+          `cotejados con otra cosa: ${open.rows.map((t) => `${t.id} del ${t.date} por ${q4(t.amount)} en ${t.account_name}`).join(', ')}`
+      );
+    }
+    findings.push({
+      codigo: 'IVA-WP-CHEQUE-CASHING-UNRECORDED',
+      severidad: 'bloqueante',
+      documentId: c.id,
+      documentNumber: c.payment_number,
+      mensaje:
+        `${who}, recibido el ${c.payment_date}, no tiene cobro registrado y pudo cobrarse este mes: ${reasons.join('; ')}. ` +
+        `Si el banco lo cobró aquí, su IVA (${q4(iva)}) se causó este mes (LIVA art. 1-B, segundo párrafo), así que el ` +
+        `mes no se liquida hasta saberlo. Registra el cobro con \`bank check reconcile --receipt ${c.payment_number} ` +
+        `--transaction <id>\`; si el abono pagó otra cosa, cotéjalo con ella (\`bank match create\`); si falta el ` +
+        `estado de cuenta, impórtalo (\`bank statement import\`).`,
+    });
+  }
+  return findings;
+}
+
 /**
  * What ONE document put into the month's figures: its own split by rate and the
  * journal entries of the cash event that caused it. The paper's lines are sums
@@ -1225,7 +1500,7 @@ interface ChargedOfMonth {
   findings: Hallazgo[];
   /** MNE-001-518 · the charged IVA each receipt put into the month, and what its taxed cash on account moved. */
   ivaByReceipt: Map<string, Decimal>;
-  cashOnAccount: Map<string, { back: Decimal; taken: Decimal }>;
+  cashOnAccount: Map<string, { back: Decimal; taken: Decimal; neverReleased: Decimal }>;
 }
 
 async function chargedOfMonth(
@@ -1422,7 +1697,7 @@ async function chargedOfMonth(
     withheldPostedAtIssuance: q4(postedAtIssuance),
     findings,
     ivaByReceipt,
-    cashOnAccount: new Map(cashOnAccount.map((c) => [c.paymentId, { back: c.back, taken: c.taken }])),
+    cashOnAccount: new Map(cashOnAccount.map((c) => [c.paymentId, { back: c.back, taken: c.taken, neverReleased: c.neverReleased }])),
   };
 }
 
@@ -1658,6 +1933,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     const net = (r: IvaRole): Decimal => ledger[r].debit.minus(ledger[r].credit);
     const receiptLedger = await receiptLedgerOfMonth(client, entityId, range);
     findings.push(...(await reversalFindings(client, entityId, range, receiptLedger)));
+    findings.push(...(await checkFindings(client, entityId, range)));
     tieOut(
       findings, 'IVA-WP-CHARGED-VS-LEDGER', 'IVA trasladado cobrado por tasa', 'iva_trasladado',
       ivaDelDesglose(charged.breakdown), net('iva_trasladado').negated(), gapCauses(charged, receiptLedger)
