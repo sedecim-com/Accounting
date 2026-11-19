@@ -34,8 +34,33 @@ import {
 //
 //   · charged    — IVA trasladado COLLECTED: a PUE invoice posted in the
 //                  month, whole; a PPD invoice, the IVA its customer payments
-//                  of the month released (payment_allocations.iva_reclass_amount,
-//                  the very amount posted from 2125 to 2120).
+//                  released in the month (payment_allocations.iva_reclass_amount,
+//                  the very amount posted from 2125 to 2120), dated the day the
+//                  cash was applied (`applied_on`, migration 332; a row written
+//                  before it takes its receipt's date); and a customer advance
+//                  (MNE-001-423, below).
+//
+// A CUSTOMER ADVANCE causes its IVA the day it is collected (LIVA art. 1-B,
+// first paragraph): the month of its receipt counts its base and IVA in the
+// box of the treatment it was recorded with (customer_payments.advance_*), a
+// not-subject one in the no-objeto base. Applied to its sale, the advance's
+// IVA is cancelled instead of caused twice (MNE-001-422, MNE-001-461), so the
+// month of the application takes out what the allocation stored
+// (advance_base_amount, advance_iva_amount, migration 333). Unapplied, the cash
+// is back on account as the advance it was, its IVA caused again (the owner's
+// «no re-park», #623), so the month of the unapply adds it back and takes out
+// the PPD share the allocation had released, which went back to 2125. Each
+// event counts in the month whose 2120 it moved, and a month already shown
+// does not move when a later one undoes it. An unapplied allocation that
+// carried no advance still counts in no month, and a reversed receipt in
+// none (MNE-001-518, #666, dates those undoes by what happened to the money).
+// Each line traces the receipt's own entries of the month: its collection,
+// application and unapplication entries.
+//
+// NOTE: an advance by cheque causes its IVA the day the bank cashes it (LIVA
+// art. 1-B, second paragraph; #623 comment 6961035083). Until MNE-001-558 one
+// is refused when recorded; counting it in the month of its cashing is
+// MNE-001-507's (#700, task 5).
 //   · creditable — IVA acreditable PAID: the DIOT's facts (`hechosDelMes`), the
 //                  one definition of "IVA paid" in this project. A third query
 //                  for it would be the fourth definition.
@@ -324,8 +349,8 @@ interface InvoiceRow {
   cfdi_uuid: string | null;
   /** The invoice's own entry. */
   journal_entry_id: string | null;
-  /** The entries of the customer payments that released IVA in the month (PPD). */
-  payment_entries?: string[];
+  /** The customer payments whose allocations moved in the month (PPD). */
+  payment_ids?: string[];
   applied_before?: string;
   applied_now?: string;
   vat_released?: string;
@@ -436,6 +461,106 @@ async function withheldPerSale(
   return new Map(rows.map((r) => [r.id, r.withheld]));
 }
 
+/** An allocation that took cash from an advance (migration 333): its undo puts that advance back. */
+const CARRIED_AN_ADVANCE = '(pa.advance_base_amount + pa.advance_iva_amount) > 0';
+
+/**
+ * The receipt-side entries the charged side traces (`ar-ap-posting.ts`): a
+ * receipt's own entry, and its application and unapplication entries.
+ */
+const RECEIPT_SOURCES = ['customer_payment', 'receipt_application', 'receipt_unapplication'] as const;
+
+/** Every box of a split times `factor`: an undo gives back what its event put in. */
+function scaled(d: Desglose, factor: 1 | -1): Desglose {
+  const box = (c: { base: string; iva: string }) => ({ base: q4(new Decimal(c.base).times(factor)), iva: q4(new Decimal(c.iva).times(factor)) });
+  return {
+    tasa16: box(d.tasa16), tasa8: box(d.tasa8), tasa0: box(d.tasa0), exento: box(d.exento),
+    otras: d.otras.map((o) => ({ etiqueta: o.etiqueta, ...box(o) })),
+  };
+}
+
+/** One advance's net in the month: collected (+), applied (−) and unapplied (+), as the allocations stored them. */
+interface AdvanceOfMonth {
+  id: string;
+  payment_number: string;
+  /** customer_payments.advance_factor_type: 'tasa', 'exento' or 'no_objeto'. */
+  factor_type: string;
+  tax_rate: string | null;
+  base: string;
+  iva: string;
+}
+
+/**
+ * MNE-001-423 · The customer advances that moved 2120 in the month, each by
+ * the events of its receipt there. Both ends of payment_allocations are
+ * scoped; a receipt reversed or void counts in no month.
+ */
+async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<AdvanceOfMonth[]> {
+  const { rows } = await client.query<AdvanceOfMonth>(
+    `WITH events AS (
+       SELECT cp.id, cp.advance_base_amount AS base, cp.advance_iva_amount AS iva, cp.payment_date AS on_day
+         FROM customer_payments cp
+        WHERE cp.entity_id = $1
+       UNION ALL
+       SELECT cp.id, -pa.advance_base_amount, -pa.advance_iva_amount, COALESCE(pa.applied_on, cp.payment_date)
+         FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
+        WHERE cp.entity_id = $1 AND ${CARRIED_AN_ADVANCE}
+       UNION ALL
+       SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount, pa.unapplied_at::date
+         FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
+        WHERE cp.entity_id = $1 AND pa.unapplied_at IS NOT NULL AND ${CARRIED_AN_ADVANCE}
+     )
+     SELECT cp.id, cp.payment_number, cp.advance_factor_type AS factor_type, cp.advance_tax_rate::text AS tax_rate,
+            SUM(e.base)::text AS base, SUM(e.iva)::text AS iva
+       FROM customer_payments cp
+       JOIN events e ON e.id = cp.id
+      WHERE cp.entity_id = $1 AND cp.advance_factor_type IS NOT NULL
+        AND cp.journal_entry_id IS NOT NULL AND cp.status NOT IN ('void', 'reversed')
+        AND e.on_day >= $2::date AND e.on_day <= $3::date
+      GROUP BY cp.id
+     HAVING SUM(e.base) <> 0 OR SUM(e.iva) <> 0
+      ORDER BY cp.payment_number`,
+    [entityId, range.desde, range.hasta]
+  );
+  return rows;
+}
+
+/** An advance's net in the box of the treatment it was recorded with; a not-subject one is no-objeto base. */
+function advanceBreakdown(a: Pick<AdvanceOfMonth, 'factor_type' | 'tax_rate' | 'base' | 'iva'>): { breakdown: Desglose; notSubject: Decimal } {
+  const breakdown = desgloseCero();
+  const box = { base: q4(a.base), iva: q4(a.iva) };
+  if (a.factor_type === 'no_objeto') return { breakdown, notSubject: new Decimal(a.base) };
+  if (a.factor_type === 'exento') {
+    breakdown.exento = box;
+  } else {
+    const rate = new Decimal(a.tax_rate ?? '0');
+    if (rate.equals(16)) breakdown.tasa16 = box;
+    else if (rate.equals(8)) breakdown.tasa8 = box;
+    else if (rate.isZero()) breakdown.tasa0 = box;
+    else breakdown.otras = [{ etiqueta: rate.toFixed(2), ...box }];
+  }
+  return { breakdown, notSubject: new Decimal(0) };
+}
+
+/** Each receipt's own, application and unapplication entries posted in the month, by receipt. */
+async function receiptEntriesOfMonth(
+  client: pg.PoolClient,
+  entityId: string,
+  paymentIds: readonly string[],
+  range: RangoDelMes
+): Promise<Map<string, string[]>> {
+  if (paymentIds.length === 0) return new Map();
+  const { rows } = await client.query<{ payment_id: string; entries: string[] }>(
+    `SELECT je.source_id::text AS payment_id, array_agg(je.id::text ORDER BY je.entry_date, je.entry_number) AS entries
+       FROM journal_entries je
+      WHERE je.entity_id = $1 AND je.source_id = ANY($2::uuid[]) AND je.source_type = ANY($3::text[])
+        AND je.status = 'posted' AND je.entry_date >= $4::date AND je.entry_date <= $5::date
+      GROUP BY je.source_id`,
+    [entityId, [...paymentIds], [...RECEIPT_SOURCES], range.desde, range.hasta]
+  );
+  return new Map(rows.map((r) => [r.payment_id, r.entries]));
+}
+
 /**
  * What ONE document put into the month's figures: its own split by rate and the
  * journal entries of the cash event that caused it. The paper's lines are sums
@@ -444,8 +569,9 @@ async function withheldPerSale(
 export interface DocumentContribution {
   documentId: string;
   documentNumber: string;
-  documentKind: 'invoice' | 'bill';
-  /** The invoice's own entry for a PUE; the customer or vendor payments' entries for a PPD. */
+  /** 'receipt': a customer advance, collected, applied or unapplied in the month (MNE-001-423). */
+  documentKind: 'invoice' | 'bill' | 'receipt';
+  /** The invoice's own entry for a PUE; the customer or vendor payments' entries of the month for a PPD or an advance. */
   entryIds: string[];
   breakdown: Desglose;
   /** Charged side only: the base "no objeto" collected on the document. Four decimals. */
@@ -478,42 +604,68 @@ async function chargedOfMonth(
     [entityId, range.desde, range.hasta]
   );
   // The payment_allocations bridge has no entity_id: both ends are scoped.
+  // Each allocation is an event on the day its cash was applied, and one that
+  // carried an advance and was unapplied is a second event, negative, on the
+  // day of the unapply (see the header); the cumulative sums then telescope.
   const ppdCandidates = await client.query<InvoiceRow>(
-    `SELECT ${INVOICE_COLUMNS},
-            COALESCE(SUM(pa.amount_applied) FILTER (WHERE cp.payment_date < $2::date), 0)::text AS applied_before,
-            COALESCE(SUM(pa.amount_applied) FILTER (WHERE cp.payment_date >= $2::date), 0)::text AS applied_now,
-            COALESCE(SUM(pa.iva_reclass_amount) FILTER (WHERE cp.payment_date >= $2::date), 0)::text AS vat_released,
-            COALESCE(array_agg(DISTINCT cp.journal_entry_id::text) FILTER (WHERE cp.payment_date >= $2::date), '{}') AS payment_entries
+    `WITH events AS (
+       SELECT pa.invoice_id, cp.id AS payment_id, pa.amount_applied AS amount,
+              COALESCE(pa.iva_reclass_amount, 0) AS vat, COALESCE(pa.applied_on, cp.payment_date) AS on_day
+         FROM payment_allocations pa
+         JOIN customer_payments cp ON cp.id = pa.payment_id
+        WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND cp.status NOT IN ('void', 'reversed')
+          AND (pa.unapplied_at IS NULL OR ${CARRIED_AN_ADVANCE})
+       UNION ALL
+       SELECT pa.invoice_id, cp.id, -pa.amount_applied, -COALESCE(pa.iva_reclass_amount, 0), pa.unapplied_at::date
+         FROM payment_allocations pa
+         JOIN customer_payments cp ON cp.id = pa.payment_id
+        WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND cp.status NOT IN ('void', 'reversed')
+          AND pa.unapplied_at IS NOT NULL AND ${CARRIED_AN_ADVANCE}
+     )
+     SELECT ${INVOICE_COLUMNS},
+            COALESCE(SUM(e.amount) FILTER (WHERE e.on_day < $2::date), 0)::text AS applied_before,
+            COALESCE(SUM(e.amount) FILTER (WHERE e.on_day >= $2::date), 0)::text AS applied_now,
+            COALESCE(SUM(e.vat) FILTER (WHERE e.on_day >= $2::date), 0)::text AS vat_released,
+            COALESCE(array_agg(DISTINCT e.payment_id::text) FILTER (WHERE e.on_day >= $2::date), '{}') AS payment_ids
        FROM invoices i
-       JOIN payment_allocations pa ON pa.invoice_id = i.id AND pa.unapplied_at IS NULL
-       JOIN customer_payments cp ON cp.id = pa.payment_id
-      WHERE i.entity_id = $1 AND cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL
-        AND cp.status NOT IN ('void', 'reversed') AND cp.payment_date <= $3::date
-        AND i.status NOT IN ('void', 'cancelled')
+       JOIN events e ON e.invoice_id = i.id
+      WHERE i.entity_id = $1 AND e.on_day <= $3::date AND i.status NOT IN ('void', 'cancelled')
       GROUP BY i.id
-     HAVING COALESCE(SUM(pa.amount_applied) FILTER (WHERE cp.payment_date >= $2::date), 0) > 0
+     HAVING COALESCE(SUM(e.amount) FILTER (WHERE e.on_day >= $2::date), 0) <> 0
+         OR COALESCE(SUM(e.vat) FILTER (WHERE e.on_day >= $2::date), 0) <> 0
       ORDER BY i.invoice_number`,
     [entityId, range.desde, range.hasta]
   );
+  const advances = await advancesOfMonth(client, entityId, range);
+  const receiptEntries = await receiptEntriesOfMonth(client, entityId, [
+    ...new Set([...ppdCandidates.rows.flatMap((r) => r.payment_ids ?? []), ...advances.map((a) => a.id)]),
+  ], range);
 
-  const picked: Array<{ row: InvoiceRow; share: PorcionPagada; vat: string; entryIds: string[] }> = [];
+  const picked: Array<{ row: InvoiceRow; share: PorcionPagada; vat: string; entryIds: string[]; sign: 1 | -1 }> = [];
   for (const row of issuedInMonth.rows) {
     if ((await resolveInvoiceMetodoPago(client, { ...row, entity_id: entityId })).metodo !== 'PUE') continue;
     const share = { aplicadoPrevio: '0', aplicadoAhora: row.total_amount, totalDocumento: row.total_amount, tasaCambio: row.exchange_rate };
     picked.push({
-      row, share, entryIds: row.journal_entry_id ? [row.journal_entry_id] : [],
+      row, share, entryIds: row.journal_entry_id ? [row.journal_entry_id] : [], sign: 1,
       vat: acumuladoDelDocumento(row.tax_amount, row.total_amount, row.total_amount, row.exchange_rate),
     });
   }
   for (const row of ppdCandidates.rows) {
     if ((await resolveInvoiceMetodoPago(client, { ...row, entity_id: entityId })).metodo !== 'PPD') continue;
+    const before = new Decimal(row.applied_before ?? '0');
+    const now = new Decimal(row.applied_now ?? '0');
+    const vat = new Decimal(row.vat_released ?? '0');
+    // A month whose undoes outweigh its applications gives back a share: the
+    // same telescope read from the lower cumulative, and its sign turned.
+    const sign: 1 | -1 = now.isNegative() || (now.isZero() && vat.isNegative()) ? -1 : 1;
     const share = {
-      aplicadoPrevio: row.applied_before ?? '0',
-      aplicadoAhora: row.applied_now ?? '0',
+      aplicadoPrevio: q4(sign === 1 ? before : before.plus(now)),
+      aplicadoAhora: q4(now.abs()),
       totalDocumento: row.total_amount,
       tasaCambio: row.exchange_rate,
     };
-    picked.push({ row, share, vat: row.vat_released ?? '0', entryIds: row.payment_entries ?? [] });
+    const entryIds = [...new Set((row.payment_ids ?? []).flatMap((id) => receiptEntries.get(id) ?? []))];
+    picked.push({ row, share, vat: q4(vat.times(sign)), entryIds, sign });
   }
 
   const sources = await saleSources(client, entityId, picked.map((p) => p.row.id));
@@ -526,7 +678,7 @@ async function chargedOfMonth(
   let manualZeroRate = new Decimal(0);
   const findings: Hallazgo[] = [];
   const contributions: DocumentContribution[] = [];
-  for (const { row, share, vat, entryIds } of picked) {
+  for (const { row, share, vat, entryIds, sign } of picked) {
     const source = sources.get(row.id) ?? { lines: [], notSubject: q4(0), fromCfdi: false };
     const r = desglosarDocumento({
       documentId: row.id,
@@ -538,22 +690,38 @@ async function chargedOfMonth(
       politicaBaseExenta: 'exigir_base',
       documentKind: 'invoice',
     });
-    breakdown = sumarDesgloses(breakdown, r.desglose);
+    const split = sign === 1 ? r.desglose : scaled(r.desglose, -1);
+    breakdown = sumarDesgloses(breakdown, split);
     findings.push(...r.hallazgos);
-    notSubject = notSubject.plus(porcionDelDocumento(source.notSubject, share));
-    if (!source.fromCfdi) manualZeroRate = manualZeroRate.plus(r.desglose.tasa0.base);
+    const notSubjectHere = new Decimal(porcionDelDocumento(source.notSubject, share)).times(sign);
+    notSubject = notSubject.plus(notSubjectHere);
+    if (!source.fromCfdi) manualZeroRate = manualZeroRate.plus(split.tasa0.base);
     // The entry's amount is already in functional currency: only the ratio applies.
-    const withheldHere = porcionDelDocumento(withheldOf.get(row.id) ?? '0', { ...share, tasaCambio: '1' });
+    const withheldHere = new Decimal(porcionDelDocumento(withheldOf.get(row.id) ?? '0', { ...share, tasaCambio: '1' })).times(sign);
     withheld = withheld.plus(withheldHere);
     contributions.push({
       documentId: row.id,
       documentNumber: row.invoice_number,
       documentKind: 'invoice',
       entryIds,
-      breakdown: r.desglose,
-      notSubject: q4(porcionDelDocumento(source.notSubject, share)),
+      breakdown: split,
+      notSubject: q4(notSubjectHere),
       // The withholding sits in the invoice's own entry, whatever the cash event.
       withheld: { amount: q4(withheldHere), entryId: row.journal_entry_id },
+    });
+  }
+  for (const a of advances) {
+    const { breakdown: split, notSubject: notSubjectHere } = advanceBreakdown(a);
+    breakdown = sumarDesgloses(breakdown, split);
+    notSubject = notSubject.plus(notSubjectHere);
+    contributions.push({
+      documentId: a.id,
+      documentNumber: a.payment_number,
+      documentKind: 'receipt',
+      entryIds: receiptEntries.get(a.id) ?? [],
+      breakdown: split,
+      notSubject: q4(notSubjectHere),
+      withheld: { amount: q4(0), entryId: null },
     });
   }
   if (manualZeroRate.greaterThan(0)) {

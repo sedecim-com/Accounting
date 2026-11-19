@@ -68,7 +68,7 @@ export interface TraceEntry {
 export interface TraceDocument {
   documentId: string;
   documentNumber: string;
-  documentKind: 'invoice' | 'bill';
+  documentKind: 'invoice' | 'bill' | 'receipt';
   /** The document's own amount in this line, four decimals. */
   amount: string;
   entries: TraceEntry[];
