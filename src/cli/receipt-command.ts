@@ -352,7 +352,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         // cannot be one is refused here, before any service is asked. Its IVA
         // rate is a fact only the accountant states (there is no default) on
         // an entity that keeps Mexican books; the service refuses a rate on
-        // one that does not, and an advance by cheque (issue 700).
+        // one that does not.
         if (ref === undefined && !opts.customer) throw usageError(t('receipt.advance.needs_customer'));
         if (ref !== undefined && opts.taxRate !== undefined) throw usageError(t('receipt.advance.only_without_invoice'));
         const treatment = opts.taxRate === undefined ? null : readAdvanceTreatment(opts.taxRate);
@@ -475,6 +475,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (previo.advanceInvoices?.length) {
           const params = { customer: label, invoices: previo.advanceInvoices.join(', '), invoice: previo.advanceInvoices[0] };
           process.stderr.write(p.yellow(`${t('receipt.advance.invoice_already_booked', params)}\n`));
+        }
+        // MNE-001-558 · by cheque, the IVA the figures name waits in 2150 for the bank.
+        if (opts.method === 'check' && previo.advance && new Decimal(previo.advance.iva).greaterThan(0)) {
+          process.stderr.write(p.dim(`${t('receipt.advance.cheque_held', { iva: previo.advance.iva })}\n`));
         }
 
         if (opts.dryRun) {
