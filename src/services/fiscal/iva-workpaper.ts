@@ -7,6 +7,7 @@ import { queryTrialBalanceRows } from '../reporting/report-service.js';
 import { CUSTOMER_CHECK_CASHING_SOURCE, ORIGEN_COBRO_DE_CHEQUE } from '../banking/treasury-posting.js';
 import { entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
 import { saleSources, type SaleSource } from './sale-sources.js';
+import { issuedCreditNotesOfRange, type NoteGapCause } from './issued-credit-notes.js';
 import { backAsAdvance, storedAdvanceTreatment } from '../payments/customer-advance.js';
 import {
   acumuladoDelDocumento,
@@ -36,8 +37,11 @@ import {
 //                  released in the month (payment_allocations.iva_reclass_amount,
 //                  the very amount posted from 2125 to 2120), dated the day the
 //                  cash was applied (`applied_on`, migration 332; a row written
-//                  before it takes its receipt's date); and a customer advance
-//                  (MNE-001-423, below).
+//                  before it takes its receipt's date); a customer advance
+//                  (MNE-001-423, below); and, subtracted, each issued credit
+//                  note in the month its own entry moved 2120 (LIVA art. 7;
+//                  MNE-001-565, `issued-credit-notes.ts`): an `anticipo` one
+//                  too, which cancels an advance already caused.
 //
 // A CUSTOMER ADVANCE causes its IVA the day it is collected (LIVA art. 1-B,
 // first paragraph): the month of its receipt counts its base and IVA in the
@@ -72,7 +76,8 @@ import {
 //      method (`REVERSAL_CAUSE`).
 //   3. A reversal whose money arrived and was taken back (`taken_back`) takes
 //      no IVA out: it leaves only by an art. 7 restitution with its document,
-//      which the paper does not count. One with no cause stated, on any method
+//      an issued credit note, which the paper counts in its own month
+//      (MNE-001-565). One with no cause stated, on any method
 //      but a cheque, is read the same way until `receipt cause record` states
 //      one (MNE-001-511): the conservative side, it never lowers a month.
 //      Either way the invoice it collected can be collected again, and that
@@ -851,7 +856,7 @@ const ENTRY_KIND: Record<string, string> = {
   [CUSTOMER_CHECK_CASHING_SOURCE]: 'cobro del cheque',
 };
 
-/** One receipt's share of the charged side's gap with the ledger, and why. */
+/** One receipt's (or a cancelled credit note's) share of the charged side's gap with the ledger, and why. */
 interface GapCause {
   amount: Decimal;
   text: string;
@@ -958,7 +963,8 @@ const CAUSE_LABEL: Record<ReversalReading, string> = {
  *     art. 32).
  *   - taken_back: the money arrived, so its IVA was caused and stays; it
  *     leaves only by a restitution with the document of art. 7's second
- *     paragraph (RLIVA art. 24), which the paper does not count today.
+ *     paragraph (RLIVA art. 24): an issued credit note, which the paper
+ *     counts in the month its entry moves 2120 (MNE-001-565).
  *   - not_stated: kept where it was collected until `receipt cause record`
  *     states a cause; both findings name the command.
  * A cause stated after the reversal is a later event (rule 4): each month it
@@ -1070,8 +1076,8 @@ async function reversalFindings(
       parts.push(
         `El cobro ${r.payment_number} (${r.payment_method}) se reversó el ${r.reversed_on} (${entry}) ${CAUSE_LABEL[r.cause]}: ` +
           `el dinero llegó y se retiró después, así que este mes conserva su base ${q4(here.base)} y su IVA ${q4(here.iva)} ` +
-          `(LIVA art. 1-B). Ese IVA sólo sale con una restitución del art. 7 LIVA, en el mes en que se restituya; el papel ` +
-          `todavía no la cuenta.`
+          `(LIVA art. 1-B). Ese IVA sólo sale con una restitución del art. 7 LIVA, en el mes en que se restituya: una nota ` +
+          `de crédito emitida, que el papel resta en ese mes.`
       );
     } else if (countsHere) {
       parts.push(
@@ -1094,8 +1100,9 @@ async function reversalFindings(
           `La reversa del cobro ${r.payment_number} (${r.payment_method}, ${CAUSE_LABEL[r.cause]}, ${entry}, ${r.reversed_on}) no ` +
             `saca IVA este mes, aunque su espejo mueve ${q4(mirrored)} de IVA trasladado: el dinero llegó y el IVA sigue en ` +
             `${before.join(', ') || month}. Sólo sale con una restitución del art. 7 LIVA, el documento de su segundo párrafo que ` +
-            `hace constar que el impuesto se restituyó, con los datos del comprobante de la operación original (RLIVA art. 24), ` +
-            `que el papel hoy no cuenta.`
+            `hace constar que el impuesto se restituyó, con los datos del comprobante de la operación original (RLIVA art. 24): ` +
+            `una nota de crédito emitida, que el papel resta en el mes de su póliza; mientras no se emita, el papel no cuenta ` +
+            `ninguna restitución.`
         );
       } else {
         parts.push(
@@ -1113,7 +1120,7 @@ async function reversalFindings(
           `${CAUSE_LABEL[r.cause]} reabrió, se cobra otra vez este mes con ${receipts}: este mes cuenta ese cobro completo, ` +
           `porque el anterior dejó su IVA en ${kept}` +
           (r.cause === 'taken_back'
-            ? ', y el papel no cuenta ninguna restitución del art. 7 LIVA por él.'
+            ? ', y mientras no se emita una nota de crédito, la restitución del art. 7 LIVA, el papel no cuenta ninguna por él.'
             : ' hasta que se declare su causa: con not_collected sale de ahí (complementaria); con taken_back, sólo con una ' +
               'restitución del art. 7 LIVA.')
       );
@@ -1155,8 +1162,11 @@ async function reversalFindings(
 export interface DocumentContribution {
   documentId: string;
   documentNumber: string;
-  /** 'receipt': a customer advance, collected, applied or unapplied in the month (MNE-001-423). */
-  documentKind: 'invoice' | 'bill' | 'receipt';
+  /**
+   * 'receipt': a customer advance, collected, applied or unapplied in the month (MNE-001-423).
+   * 'credit_note': an issued credit note, subtracted (MNE-001-565).
+   */
+  documentKind: 'invoice' | 'bill' | 'receipt' | 'credit_note';
   /** The invoice's own entry for a PUE; the customer or vendor payments' entries of the month for a PPD or an advance. */
   entryIds: string[];
   breakdown: Desglose;
@@ -1178,6 +1188,8 @@ interface ChargedOfMonth {
   /** MNE-001-518 · the charged IVA each receipt put into the month, and what its taxed cash on account moved. */
   ivaByReceipt: Map<string, Decimal>;
   cashOnAccount: Map<string, { back: Decimal; taken: Decimal }>;
+  /** MNE-001-565 · the cancelled credit notes whose entries moved 2120 in the month. */
+  noteCauses: NoteGapCause[];
 }
 
 async function chargedOfMonth(
@@ -1350,6 +1362,13 @@ async function chargedOfMonth(
       withheld: { amount: q4(0), entryId: null },
     });
   }
+  // MNE-001-565 · each issued credit note, subtracted in the month its entry moved 2120.
+  const notes = await issuedCreditNotesOfRange(client, entityId, range);
+  breakdown = sumarDesgloses(breakdown, notes.breakdown);
+  notSubject = notSubject.plus(notes.notSubject);
+  manualZeroRate = manualZeroRate.plus(notes.manualZeroRate);
+  findings.push(...notes.findings);
+  contributions.push(...notes.contributions);
   const ivaByReceipt = await sharesIvaByReceipt(client, entityId, range);
   const addIva = (id: string, iva: Decimal.Value) => ivaByReceipt.set(id, (ivaByReceipt.get(id) ?? new Decimal(0)).plus(iva));
   for (const a of advances) addIva(a.id, a.iva);
@@ -1375,6 +1394,7 @@ async function chargedOfMonth(
     findings,
     ivaByReceipt,
     cashOnAccount: new Map(cashOnAccount.map((c) => [c.paymentId, { back: c.back, taken: c.taken }])),
+    noteCauses: notes.causes,
   };
 }
 
@@ -1532,7 +1552,7 @@ function tieOut(
       `es ${q4(ledger)}. Revisa las pólizas del mes antes de declarar: una nota de crédito, un ` +
       `asiento manual o un documento sin renglones explican la diferencia.` +
       (causes.length
-        ? ` De la diferencia de ${q4(gap)}, estos cobros explican ${q4(named)}: ${causes.map((c) => `${c.text} (${q4(c.amount)})`).join('; ')}.`
+        ? ` De la diferencia de ${q4(gap)}, estos cobros y notas de crédito explican ${q4(named)}: ${causes.map((c) => `${c.text} (${q4(c.amount)})`).join('; ')}.`
         : ''),
   });
 }
@@ -1612,7 +1632,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
     findings.push(...(await reversalFindings(client, entityId, range, receiptLedger)));
     tieOut(
       findings, 'IVA-WP-CHARGED-VS-LEDGER', 'IVA trasladado cobrado por tasa', 'iva_trasladado',
-      ivaDelDesglose(charged.breakdown), net('iva_trasladado').negated(), gapCauses(charged, receiptLedger)
+      ivaDelDesglose(charged.breakdown), net('iva_trasladado').negated(), [...gapCauses(charged, receiptLedger), ...charged.noteCauses]
     );
     tieOut(findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'));
     // Debits only: the month's settlement or offset entry credits the account,
