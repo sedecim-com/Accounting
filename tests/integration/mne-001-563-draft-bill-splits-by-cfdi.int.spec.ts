@@ -31,6 +31,7 @@ import type { ResolvedProfile } from '../../src/ai/providers/types.js';
 //   T1, T2, T5 · PUE 1,460.00 (1,000.00 at 16 % + 300.00 exempt), paid in March
 //   T3 · the same CFDI as PPD, paid 730.00 in April and 730.00 in May
 //   T4 · one concept at 16 % coded to two accounts (June)
+//   T6 · no VAT, 700.00 at 0 % and 300.00 exempt on one debit (July)
 //   G1 · `conceptos_cfdi` (August)        G2, G4 · the inbox door (September)
 //   G3 · `bill create` with a header that differs from its lines (October)
 // ============================================================
@@ -46,6 +47,7 @@ type EntryLine = { account_code: string; debit?: number; credit?: number };
 
 const vat16 = '<cfdi:Traslado Base="1000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="160.00"/>';
 const exempt = '<cfdi:Traslado Base="300.00" Impuesto="002" TipoFactor="Exento"/>';
+const zero = '<cfdi:Traslado Base="700.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.000000" Importe="0.00"/>';
 const ACCEPTANCE: Array<[string, string]> = [['1000.00', vat16], ['300.00', exempt]];
 const DRAFT: EntryLine[] = [{ account_code: '6100', debit: 1300 }, { account_code: '1130', debit: 160 }, { account_code: '2110', credit: 1460 }];
 
@@ -124,14 +126,14 @@ const diot = (month: number) => construirDiot({ tenantId: f.tenantId, entityId: 
 const declared = (d: Diot, billId: string) => {
   const doc = d.renglones.flatMap((r) => r.documentos).find((x) => x.billId === billId);
   return {
-    tasa16: doc?.desglose.tasa16, exento: doc?.desglose.exento,
+    tasa16: doc?.desglose.tasa16, tasa0: doc?.desglose.tasa0, exento: doc?.desglose.exento,
     codes: d.hallazgos.filter((h) => h.documentId === billId && h.severidad === 'bloqueante').map((h) => h.codigo),
   };
 };
 const lineTaxes = async (billId: string) =>
   (await query<{ tax: string }>(`SELECT tax_amount::text AS tax FROM bill_lines WHERE bill_id = $1 ORDER BY line_number`, [billId])).rows.map((r) => r.tax);
 const box = (base: string, iva = '0.0000') => ({ base, iva });
-const SPLIT = { tasa16: box('1000.0000', '160.0000'), exento: box('300.0000'), codes: [] };
+const SPLIT = { tasa16: box('1000.0000', '160.0000'), tasa0: box('0.0000'), exento: box('300.0000'), codes: [] };
 
 beforeAll(async () => {
   f = await crearInquilino('MNE-001-563 draft bill split');
@@ -159,6 +161,9 @@ beforeAll(async () => {
   bills.t4 = await approved(cfdi(6, 'PUE', [['1000.00', vat16]], '160.00', '1160.00'), [
     { account_code: '6100', debit: 600 }, { account_code: '6100', debit: 400 }, { account_code: '1130', debit: 160 }, { account_code: '2110', credit: 1160 },
   ]);
+  bills.t6 = await approved(cfdi(7, 'PUE', [['700.00', zero], ['300.00', exempt]], '0.00', '1000.00'), [
+    { account_code: '6100', debit: 1000 }, { account_code: '2110', credit: 1000 },
+  ]);
 
   await resolvePolicy(policy, 'lineas_factura_desde', 'conceptos_cfdi', email);
   bills.g1 = await approved(cfdi(8, 'PUE', ACCEPTANCE, '160.00', '1460.00'), [
@@ -181,11 +186,12 @@ beforeAll(async () => {
   await pay(bills.t1, '1460.00', '2026-03-20');
   await pay(bills.t3, '730.00', '2026-04-20');
   await pay(bills.t3, '730.00', '2026-05-20');
+  await pay(bills.t6, '1000.00', '2026-07-20');
   await pay(bills.g1, '1460.00', '2026-08-20');
   await pay(bills.g2, '1460.00', '2026-09-20');
   await pay(bills.g3, '1000.00', '2026-10-20');
 
-  for (const m of [3, 4, 5, 6, 8, 9, 10]) diots[m] = await diot(m);
+  for (const m of [3, 4, 5, 6, 7, 8, 9, 10]) diots[m] = await diot(m);
   workpaper = await buildIvaWorkpaper({ tenantId: f.tenantId, entityId: f.entityId, year: 2026, month: 3 });
   await query(
     `UPDATE bill_lines SET tax_amount = 100 WHERE bill_id = $1 AND tax_amount = 160
@@ -223,6 +229,10 @@ describe('a `poliza` bill is split by rate as its CFDI states', () => {
 
   it('T5 · nothing was rewritten: the stored line of T1 still has no VAT', async () => {
     expect(await lineTaxes(bills.t1)).toEqual(['0.0000']);
+  });
+
+  it('T6 · no VAT, 0 % and exempt on one debit: 700.00 at 0 % and 300.00 exempt, not 1,000.00 at 0 %', () => {
+    expect(declared(diots[7], bills.t6)).toEqual({ ...SPLIT, tasa16: box('0.0000'), tasa0: box('700.0000') });
   });
 });
 

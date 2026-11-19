@@ -85,4 +85,13 @@ describe('linesToSplit', () => {
     expect(r.codes).toEqual(['DIOT-BASE-EXENTA-DESCONOCIDA']);
     expect(r.tasa16).toEqual({ base: '1000.0000', iva: '160.0000' });
   });
+
+  it('U7 · no VAT and mixed regimes: 0 % and exempt each get their base; an all-exempt bill keeps its lines', () => {
+    const r = split([line({ importe: '1000.0000' })], '0.0000', taxes(vat(0, 700, 0), exempt(300)));
+    expect(r.tasa0.base).toBe('700.0000');
+    expect(r.exento.base).toBe('300.0000');
+    expect(r.codes).toEqual([]);
+    const allExempt = [line({ tipoFactor: 'exento', valorActos: '700.0000', importe: '700.0000' })];
+    expect(linesToSplit(allExempt, '0.0000', taxes(exempt(400), exempt(300)))).toBe(allExempt);
+  });
 });

@@ -48,14 +48,18 @@ export function vatLinesOfCfdi(taxes: CfdiTaxSummary): RenglonDeGasto[] {
  * The lines a bill is split by: its CFDI's when its own cannot say the split,
  * its stored lines otherwise.
  *
- * The CFDI is read only when no stored line carries VAT and the header does:
- * the lines sum zero under a header that does not. Lines that carry VAT are
+ * The CFDI is read only when no stored line carries VAT and either the header
+ * does (the lines sum zero under a header that does not) or no line states a
+ * regime at all (every line `tasa` with no rate, which `clasificarRenglon`
+ * would send whole to 0 %, exempt concepts included). Lines that carry VAT are
  * never replaced, also when they differ from the header: that bill keeps
  * blocking. A taxed transfer with no Base leaves the stored lines in place
  * too: a base nobody declared is not derived here.
  */
 export function linesToSplit(lines: RenglonDeGasto[], headerVat: string, taxes: CfdiTaxSummary): RenglonDeGasto[] {
-  if (lines.length === 0 || isZero(headerVat) || lines.some((l) => !isZero(l.iva))) return lines;
+  if (lines.length === 0 || lines.some((l) => !isZero(l.iva))) return lines;
+  const noRegime = lines.every((l) => l.tipoFactor === 'tasa' && l.tasa === null);
+  if (isZero(headerVat) && !noRegime) return lines;
   const vat = (taxes?.traslados ?? []).filter(isVat);
   if (vat.length === 0 || vat.some((t) => t.tipoFactor !== 'Exento' && t.base == null)) return lines;
   return vatLinesOfCfdi(taxes);
