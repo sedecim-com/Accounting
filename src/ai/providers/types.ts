@@ -123,6 +123,10 @@ export interface VentanaContexto {
   razon: string;
 }
 
+/** The `openai` SDK's ReasoningEffort values (openai 7.23.0, resources/shared.d.ts). */
+export const REASONING_EFFORT_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type ReasoningEffortLevel = (typeof REASONING_EFFORT_LEVELS)[number];
+
 /** Provider profile as it lives in the configuration. */
 export interface ProviderProfile {
   type: ProviderType;
@@ -150,6 +154,17 @@ export interface ProviderProfile {
    * 'max_completion_tokens'.
    */
   max_tokens_param?: 'max_tokens' | 'max_completion_tokens';
+  /**
+   * openai-compatible only: sent as `reasoning_effort` on every turn, compaction
+   * summary and init probe, and only when declared. The values are the `openai`
+   * SDK's own `ReasoningEffort`; which ones a model accepts is the vendor's call.
+   */
+  reasoning_effort?: ReasoningEffortLevel;
+  /**
+   * false = do NOT send `stream_options: { include_usage: true }` on streamed
+   * requests (a few old local servers 400 on the unknown field).
+   */
+  stream_usage?: boolean;
   /**
    * false = do not declare tools to the model (endpoints without function
    * calling, or agents like hermes-agent that run their own tools

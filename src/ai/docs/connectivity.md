@@ -99,6 +99,12 @@ output when a connection problem is unclear.
   removes an empty definition of that variable from `./.env`, which would
   hide it. `MNEMOSINE_PROVIDER` still outranks the saved default, and init
   says so.
+- An openai-compatible profile may declare `reasoning_effort` (none, minimal,
+  low, medium, high, xhigh, max); it is sent only then. A turn that spends
+  the whole 8192-token output cap without text or a tool call fails with an
+  error that says so: suggest a lower `reasoning_effort`, not a retry. Tool
+  calls keep the provider's `extra_content` (Gemini 3's thought signature)
+  and send it back unchanged.
 - Inside chat, `/provider <name>` switches models by opening a NEW
   conversation: history is not portable across wire formats, so the current
   context is dropped.
