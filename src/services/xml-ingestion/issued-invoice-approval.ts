@@ -5,6 +5,7 @@ import { getPolicy } from '../policy/policy-service.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
 import { decideMetodoPago } from '../accounting/iva-cash-basis.js';
+import { identityRfc } from '../ar/opening-invoices.js';
 import { CFDIParser, type CFDIParsed } from './cfdi-parser.js';
 import { extractImpuestosLocales } from './cfdi-facts.js';
 import { money, sumTax } from './cfdi-amounts.js';
@@ -27,6 +28,45 @@ const AR_ROLES = [
 export function customerCreateCommand(name: string, rfc: string): string {
   const q = (raw: string) => `'${raw.replace(/'/g, "'\\''")}'`;
   return `mnemosine customer create --name ${q(name)} --tax-id ${q(rfc)}`;
+}
+
+/** A customer of the entity that carries the receiver's RFC; `name` is its company name, or first plus last name. */
+export interface CustomerCandidate {
+  id: string;
+  customer_number: string;
+  is_active: boolean;
+  name: string | null;
+}
+
+export type CustomerChoice =
+  | { customer: CustomerCandidate }
+  | { none: 'no-match' | 'unnamed'; sameRfc: string[] }
+  | { several: CustomerCandidate[] };
+
+// NOTE: accents and punctuation are not folded. A miss only refuses; a fold would make «Peña» and
+// «Pena» one customer, and where both exist every sale to either would be an ambiguity with no way out.
+const comparableName = (name: string | null): string => (name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * Whose receivable the CFDI is, among `rows`: every customer of the entity with
+ * the receiver's RFC, oldest first (MNE-001-523 · #671). A generic RFC
+ * identifies nobody, so the CFDI's name narrows the rows first; `unnamed` is
+ * that RFC with no name to match. Then active customers come before archived
+ * ones, and only exactly one is an answer: two are never settled by age.
+ * `sameRfc` carries up to five customer numbers under the RFC when none matches.
+ */
+export function chooseCustomer(rows: CustomerCandidate[], rfc: string, name: string): CustomerChoice {
+  let matching = rows;
+  if (identityRfc(rfc.trim().toUpperCase()) === null) {
+    const wanted = comparableName(name);
+    if (wanted === '') return { none: 'unnamed', sameRfc: [] };
+    matching = rows.filter((r) => comparableName(r.name) === wanted);
+  }
+  const active = matching.filter((r) => r.is_active);
+  const candidates = active.length > 0 ? active : matching;
+  if (candidates.length === 1) return { customer: candidates[0] };
+  if (candidates.length > 1) return { several: candidates };
+  return { none: 'no-match', sameRfc: rows.slice(0, 5).map((r) => r.customer_number) };
 }
 
 /** One entry line as the core reads it: the account already resolved to its id. */
@@ -78,7 +118,10 @@ const WORDING: Record<IssuedInvoiceDoor, {
  * throw rolls the whole operation back; a draft stays pending. It guarantees:
  *   - the pre-registration is an open 'invoice' whose CFDI the entity itself
  *     issued, locked and entity-scoped; a second draft of it finds nothing;
- *   - the receiver is already in the customer catalog (never created here);
+ *   - the receiver is already in the customer catalog (never created or
+ *     renamed here: the XML's name only selects among existing customers), and
+ *     it is exactly one customer (chooseCustomer): by RFC, or by name under a
+ *     generic RFC. Two that match stop the posting;
  *   - one CFDI gives one invoice, whichever door or import wrote the first:
  *     a UUID already on an invoice of the entity that is not void or
  *     cancelled is refused, in any letter case, naming that invoice. It is a
@@ -137,16 +180,44 @@ export async function registerIssuedInvoice(
   const uuid = String(preReg.x_cfdi_uuid);
   const receiverRfc = String(preReg.x_receptor_rfc);
 
-  const customer = await client.query<{ id: string }>(
-    `SELECT id FROM customers WHERE entity_id = $1 AND UPPER(TRIM(tax_id)) = UPPER(TRIM($2))
-      ORDER BY is_active DESC, created_at LIMIT 1`,
+  const receiverName = typeof preReg.x_receptor_nombre === 'string' ? preReg.x_receptor_nombre : '';
+  const sameRfc = await client.query<CustomerCandidate>(
+    `SELECT id, customer_number, is_active,
+            COALESCE(company_name, NULLIF(TRIM(CONCAT(first_name, ' ', last_name)), '')) AS name
+       FROM customers WHERE entity_id = $1 AND UPPER(TRIM(tax_id)) = UPPER(TRIM($2))
+      ORDER BY created_at, customer_number`,
     [entityId, receiverRfc]
   );
-  if (customer.rows.length === 0) {
-    const name = typeof preReg.x_receptor_nombre === 'string' ? preReg.x_receptor_nombre : '';
+  const choice = chooseCustomer(sameRfc.rows, receiverRfc, receiverName);
+  if ('several' in choice) {
+    const active = choice.several[0].is_active;
     throw new ValidationError(
-      `CFDI ${uuid} is issued to "${name}" (RFC ${receiverRfc}), who is not in this entity's customer catalog. ` +
-        `Register it with \`${customerCreateCommand(name, receiverRfc)}\` ${wording.afterCustomer}`,
+      `CFDI ${uuid} is issued to "${receiverName}" (RFC ${receiverRfc}), and ${choice.several.length} ` +
+        `${active ? 'active' : 'archived'} customers of this entity match it: ` +
+        `${choice.several.map((c) => c.customer_number).join(', ')}. ` +
+        (active
+          ? "Archive the duplicate with `mnemosine customer archive <number> --reason '<why>'` "
+          : 'Restore the one it belongs to with `mnemosine customer restore <number>` ') +
+        wording.afterCustomer,
+      'customer_id'
+    );
+  }
+  if ('none' in choice) {
+    if (choice.none === 'unnamed') {
+      throw new ValidationError(
+        `CFDI ${uuid} is issued to the generic RFC ${receiverRfc} with no receiver name. A generic RFC identifies ` +
+          'nobody, so the customer is matched by name, and this CFDI names nobody. Nothing was posted.',
+        'customer_id'
+      );
+    }
+    // Only a generic RFC leaves customers behind here: under a real one, any row is a candidate.
+    const others = choice.sameRfc.length === 0
+      ? ''
+      : ` The generic RFC ${receiverRfc} identifies nobody, so the customer is matched by name; ` +
+        `under that RFC and another name there are: ${choice.sameRfc.join(', ')}.`;
+    throw new ValidationError(
+      `CFDI ${uuid} is issued to "${receiverName}" (RFC ${receiverRfc}), who is not in this entity's customer catalog. ` +
+        `Register it with \`${customerCreateCommand(receiverName, receiverRfc)}\` ${wording.afterCustomer}${others}`,
       'customer_id'
     );
   }
@@ -260,7 +331,7 @@ export async function registerIssuedInvoice(
        status, cfdi_uuid, cfdi_status, description, created_by
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'stamped',$16,$17)`,
     [
-      invoiceId, entityId, invoiceNumber, customer.rows[0].id,
+      invoiceId, entityId, invoiceNumber, choice.customer.id,
       money(preReg.x_subtotal).toFixed(2), vat.toFixed(2), total.toFixed(2),
       paid ? '0.00' : total.toFixed(2), paid ? total.toFixed(2) : '0.00',
       preReg.currency_code ?? 'MXN', preReg.exchange_rate ?? 1,
