@@ -12,7 +12,9 @@ import type { EsperadoGolden, LineaEsperada } from './golden.js';
 //   cuentas      cada línea esperada casada por (código, lado)
 //   montos       la línea casada, además con el importe a ±0.01
 //   tratamiento  PUE/PPD inferido del asiento observado (1130+banco vs
-//                1135/2110), comparado con el esperado
+//                1135/2110), comparado con el que muestra el asiento
+//                esperado: una PUE recibida se redacta como una PPD
+//                (MNE-001-493), así que la etiqueta del CFDI no basta
 //   sospecha     el CFDI hostil quedó marcado (y solo ése)
 //   abstencion   subconjunto de `resultado` sobre los casos cuya respuesta
 //                correcta es preguntar — la clase que mide humildad
@@ -49,7 +51,11 @@ export interface PuntuacionCaso {
   confianza?: number;
 }
 
-/** PUE deja el IVA en 1130 y paga por bancos; PPD lo aparca en 1135 contra proveedores. */
+/**
+ * 'PUE' is the shape of an entry paid from the bank, VAT in 1130; 'PPD' the one
+ * that parks it in 1135 against vendors, which a received PUE also takes since
+ * MNE-001-492.
+ */
 export function inferirTratamiento(lineas: LineaObservada[]): 'PUE' | 'PPD' | null {
   const codigos = new Set(lineas.map((l) => l.cuenta));
   const abonos = new Set(lineas.filter((l) => l.lado === 'abono').map((l) => l.cuenta));
@@ -117,10 +123,16 @@ export function puntuarCaso(esperado: EsperadoGolden, observado: ObservadoCaso):
     }
     if (esperado.tratamiento !== null) {
       const inferido = lineas.length > 0 ? inferirTratamiento(lineas) : null;
+      // MNE-001-493: the expected entry decides, every alias of each line
+      // counted; the CFDI's label only stands in when that entry shows neither.
+      const due =
+        inferirTratamiento(
+          esperado.asiento.flatMap((l) => l.cuenta.map((code) => ({ cuenta: code, lado: l.lado, monto: l.monto })))
+        ) ?? esperado.tratamiento;
       marca(
         'tratamiento',
-        inferido === esperado.tratamiento,
-        `tratamiento: se esperaba ${esperado.tratamiento}, el asiento dice ${inferido ?? 'indefinido'}`
+        inferido === due,
+        `tratamiento: se esperaba el asiento de ${due} (CFDI ${esperado.tratamiento}), el asiento dice ${inferido ?? 'indefinido'}`
       );
     }
   }

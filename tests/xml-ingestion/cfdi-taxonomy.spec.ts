@@ -148,10 +148,12 @@ describe('direction: issued vs received', () => {
 });
 
 describe('PUE vs PPD: the timing of VAT', () => {
-  it('received PUE credits the VAT immediately', async () => {
+  // MNE-001-492: PUE is the issuer's label, not proof of payment (RMF 2.7.1.39).
+  it('received PUE parks the VAT until it is paid, as a PPD does', async () => {
     const c = await classify({ metodoPago: 'PUE' });
-    expect(roleOf(c, 'iva_acreditable')!.debit).toBe(160);
-    expect(roleOf(c, 'iva_pendiente_acreditar')).toBeUndefined();
+    expect(c.case!.id).toBe('ingreso_recibido_pue');
+    expect(roleOf(c, 'iva_pendiente_acreditar')!.debit).toBe(160);
+    expect(roleOf(c, 'iva_acreditable')).toBeUndefined();
   });
 
   it('received PPD does NOT credit the VAT yet', async () => {
