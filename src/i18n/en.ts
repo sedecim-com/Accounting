@@ -2945,6 +2945,29 @@ export const EN = {
     'the figure the source declares, and by their net, debit positive. Nothing was compared: an opening that ' +
     'carries that money would come out equal with memorandum money on the balance sheet. Fix the hierarchy in ' +
     'the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
+  // ---- MNE-001-456 (#621): the load leaves the memorandum accounts out ----
+  'migration.opening.memorandum_excluded':
+    '"{account}" is a memorandum account (8xx), by its agrupador or because it hangs from one, and the source ' +
+    'declares {amount} for it. It gets no line in the opening entry and stays out of the ledger: keep this ' +
+    'figure with the working papers of the migration; see {doctrine}.',
+  'migration.opening.memorandum_in_ledger':
+    '"{account}" is a memorandum account (8xx), by its agrupador or because it hangs from one, and it already ' +
+    'exists in this entity as {type}. It gets no line in the opening entry (the source declares {amount}), but ' +
+    'by the doctrine ({doctrine}) it should not be in the ledger: review it by hand.',
+  'migration.opening.memorandum_inside_account':
+    'The figure "{account}" declares includes memorandum (8xx) money that hangs inside it and does not net to ' +
+    'zero there: {rows}, net {net} with debit positive. Nothing is loaded: posting that figure would put ' +
+    'memorandum money on the balance sheet, and posting less would fail opening-balance check. Fix the ' +
+    'hierarchy in the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
+  'migration.opening.memorandum_document':
+    'The document "{document}" hangs from "{account}", which is a memorandum account (8xx) and gets no line in ' +
+    'the opening entry. A memorandum account has no receivable or payable behind it: take the document out of ' +
+    'the --subledger file, or fix the account at the source; see {doctrine}.',
+  'migration.opening.unknown_account_chart_hint':
+    'If it is a memorandum account (8xx), pass the catalog of the same migration with --chart <file>: the ' +
+    'load leaves it out of the entry and names it ({doctrine}).',
+  'migration.opening.memorandum_excluded_header':
+    'Memorandum accounts left out of the entry, with the figure the source declares ({doctrine}):',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   //
   // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,
@@ -3159,6 +3182,9 @@ export const EN = {
     'Post the opening entry from an Anexo 24 BalanzaComprobacion XML, on the day after its cutoff -- irreversible',
   'help.opening_balance.import.option.subledger':
     'JSON array with the open documents of the receivable and payable control accounts',
+  'help.opening_balance.import.option.chart':
+    'the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the entry ' +
+    'and named with the source figure',
   'help.opening_balance.import.option.reason': 'why the opening is loaded; goes to the audit log',
   'help.opening_balance.check.description':
     'Compare the source trial balance against the ledger on the opening day, to the peso; exits 4 if they differ',
