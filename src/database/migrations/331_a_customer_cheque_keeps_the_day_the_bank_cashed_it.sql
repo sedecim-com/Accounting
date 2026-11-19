@@ -1,5 +1,5 @@
 -- ============================================================
--- 330 · A CUSTOMER CHEQUE KEEPS THE DAY THE BANK CASHED IT (#700, MNE-001-506)
+-- 331 · A CUSTOMER CHEQUE KEEPS THE DAY THE BANK CASHED IT (#700, MNE-001-506)
 --
 -- A price paid by cheque, and its IVA, is paid on the day the cheque is
 -- cashed (LIVA art. 1-B, second paragraph). A receipt by cheque could not

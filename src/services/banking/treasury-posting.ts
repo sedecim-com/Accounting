@@ -1861,7 +1861,7 @@ function exigirMovimientoCompatible(mov: FilaMovimientoDeCobro, pago: FilaPagoCo
 //
 // A price paid by cheque, and its IVA, is paid on the day the cheque is cashed
 // (LIVA art. 1-B, second paragraph). The receipt keeps the bank credit that
-// paid it and that credit's date (migration 330), and the IVA its allocations
+// paid it and that credit's date (migration 331), and the IVA its allocations
 // have not released yet moves from 2125 to 2120 on that date.
 //
 // THE ALLOCATION'S STORED AMOUNT IS THE SWITCH. `ivaStillParked` does not see
@@ -2103,7 +2103,7 @@ export async function recordCustomerCheckCashing(
       }
     }
 
-    // Both columns together (the CHECK of migration 330), with the entity
+    // Both columns together (the CHECK of migration 331), with the entity
     // and the state the checks above read. Invariant 3.
     const cashed = await client.query(
       `UPDATE customer_payments
