@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 // ============================================================
 // EL MANIFIESTO DEL CORPUS DEL AGENTE
@@ -287,5 +288,5 @@ function main(argv: string[]): number {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  exitWhenDrained(main(process.argv.slice(2)));
 }

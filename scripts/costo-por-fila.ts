@@ -32,6 +32,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 const RAIZ = path.resolve(__dirname, '..');
 const SUELO = 'docs/catalogo-minimos.json';
@@ -217,5 +218,5 @@ function main(): number {
 }
 
 if (require.main === module) {
-  process.exit(main());
+  exitWhenDrained(main());
 }

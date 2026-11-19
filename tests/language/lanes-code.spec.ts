@@ -345,7 +345,9 @@ describe('la cifra se reproduce fuera del metro', () => {
   // seis: los otros cuatro recorren EL MISMO código con otro argumento, así que
   // seis subprocesos comprarían la misma garantía por cuatro veces el tiempo.
   // Lo que esto ata es que `command` y el valor publicado no puedan separarse.
-  it.each(['spanish-identifiers-scripts', 'spanish-filenames-scripts'])(
+  // The `src` lane is here too: its listing is larger than a pipe buffer, so
+  // it is the one that proves the command is not cut short by the pipe (#659).
+  it.each(['spanish-identifiers-scripts', 'spanish-filenames-scripts', 'spanish-identifiers-src'])(
     '%s: correr su `command` da su `value`',
     (id) => {
       const lane = LANES.find((one) => one.id === id);

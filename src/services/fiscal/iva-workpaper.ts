@@ -8,7 +8,8 @@ import { CUSTOMER_CHECK_CASHING_SOURCE, ORIGEN_COBRO_DE_CHEQUE } from '../bankin
 import {
   entityUsesCashBasisIva, ivaReclassificationsFor, reclassRoles, resolveInvoiceMetodoPago,
 } from '../accounting/iva-cash-basis.js';
-import type { CFDIParsed } from '../xml-ingestion/cfdi-parser.js';
+import { saleSources, type SaleSource } from './sale-sources.js';
+import { backAsAdvance, storedAdvanceTreatment } from '../payments/customer-advance.js';
 import {
   acumuladoDelDocumento,
   desglosarDocumento,
@@ -18,14 +19,12 @@ import {
   porcionDelDocumento,
   rangoDelMes,
   sumarDesgloses,
-  vatLinesOfCfdi,
   type Desglose,
   type Hallazgo,
   type HechoPagado,
   type PoliticaBaseExenta,
   type PorcionPagada,
   type RangoDelMes,
-  type RenglonDeGasto,
 } from '../sat/diot/index.js';
 
 // ============================================================
@@ -52,9 +51,11 @@ import {
 // (advance_base_amount, advance_iva_amount, migration 333). Unapplied, the cash
 // is back on account as the advance it was, its IVA caused again (the owner's
 // «no re-park», #623), so the month of the unapply adds it back and takes out
-// the PPD share the allocation had released, which went back to 2125. Each
-// event counts in the month whose 2120 it moved, and a month already shown
-// does not move when a later one undoes it.
+// the PPD share the allocation had released, which went back to 2125. On a
+// receipt with a treatment all the cash an unapply puts back is that advance
+// (MNE-001-462, `backAsAdvance`), so rule 1 below leaves the receipt to it and
+// counts its cash back once. Each event counts in the month whose 2120 it
+// moved, and a month already shown does not move when a later one undoes it.
 // Each line traces the receipt's own entries of the month: its collection,
 // application and unapplication entries.
 //
@@ -395,84 +396,6 @@ interface InvoiceRow {
 const INVOICE_COLUMNS = `i.id, i.invoice_number, i.tax_amount::text, i.total_amount::text,
   i.exchange_rate::text, i.terms, i.memo, i.cfdi_uuid, i.journal_entry_id::text AS journal_entry_id`;
 
-/** What a sale is split by: its CFDI when it was born from one, its lines otherwise. */
-interface SaleSource {
-  lines: RenglonDeGasto[];
-  /** Base "no objeto" of the whole document, in its currency. Only a CFDI says it. */
-  notSubject: string;
-  /** True when the lines came from the CFDI, false when from invoice_lines. */
-  fromCfdi: boolean;
-}
-
-/**
- * The CFDI's own split. `tax_breakdown` is the Comprobante/Impuestos summary
- * stored at ingestion: one Traslado per tax, factor and rate, with its Base.
- * Each VAT one becomes one line (`vatLinesOfCfdi`), the reading the bills get.
- * What the subtotal carries beyond the bases the CFDI taxes or exempts is
- * "no objeto" (ObjetoImp 01): such a concept appears in no Traslado at all.
- */
-export function saleFromCfdi(
-  taxes: Partial<CFDIParsed['impuestos']>,
-  subtotal: string,
-  discount: string
-): SaleSource {
-  const vat = (taxes.traslados ?? []).filter((t) => String(t.impuesto ?? '').padStart(3, '0') === '002');
-  const lines = vatLinesOfCfdi(taxes);
-  // A Traslado without its Base leaves the rest unknown, and an unknown rest
-  // is not "no objeto": the exempt line without a base already blocks.
-  const known = vat.every((t) => t.base != null);
-  const bases = vat.reduce((acc, t) => acc.plus(t.base ?? 0), new Decimal(0));
-  const rest = known ? new Decimal(subtotal).minus(discount).minus(bases) : new Decimal(0);
-  return { lines, notSubject: q4(rest.greaterThan('0.01') ? rest : 0), fromCfdi: true };
-}
-
-async function saleSources(
-  client: pg.PoolClient,
-  entityId: string,
-  ids: readonly string[]
-): Promise<Map<string, SaleSource>> {
-  const bySale = new Map<string, SaleSource>();
-  if (ids.length === 0) return bySale;
-  const cfdi = await client.query<{
-    invoice_id: string; tax_breakdown: Partial<CFDIParsed['impuestos']>; subtotal: string; discount: string;
-  }>(
-    `SELECT p.result_id AS invoice_id, p.tax_breakdown, x.subtotal::text, COALESCE(x.descuento, 0)::text AS discount
-       FROM pre_registrations p
-       JOIN xml_documents x ON x.id = p.xml_document_id AND x.entity_id = p.entity_id
-      WHERE p.entity_id = $1 AND p.result_type = 'invoice' AND p.result_id = ANY($2::uuid[])
-        AND p.tax_breakdown IS NOT NULL`,
-    [entityId, [...ids]]
-  );
-  for (const r of cfdi.rows) bySale.set(r.invoice_id, saleFromCfdi(r.tax_breakdown, r.subtotal, r.discount));
-
-  const manual = ids.filter((id) => !bySale.has(id));
-  if (manual.length === 0) return bySale;
-  const { rows } = await client.query<{
-    invoice_id: string; tax_rate: string | null; tax_code: string | null; line_amount: string; tax_amount: string;
-  }>(
-    `SELECT il.invoice_id, il.tax_rate::text, il.tax_code, il.line_amount::text, il.tax_amount::text
-       FROM invoice_lines il JOIN invoices i ON i.id = il.invoice_id
-      WHERE i.entity_id = $1 AND il.invoice_id = ANY($2::uuid[])
-      ORDER BY il.invoice_id, il.line_number`,
-    [entityId, manual]
-  );
-  for (const r of rows) {
-    const sale = bySale.get(r.invoice_id) ?? { lines: [], notSubject: q4(0), fromCfdi: false };
-    // A manual invoice line has no tipo_factor column: `tax_code = 'exento'`
-    // is the only way it says so. Its base is its own amount.
-    const exempt = (r.tax_code ?? '').trim().toLowerCase() === 'exento';
-    sale.lines.push({
-      tipoFactor: exempt ? 'exento' : 'tasa',
-      tasa: exempt ? null : r.tax_rate,
-      valorActos: r.line_amount,
-      importe: r.line_amount,
-      iva: r.tax_amount,
-    });
-    bySale.set(r.invoice_id, sale);
-  }
-  return bySale;
-}
-
 /**
  * The IVA each sale's own entry debited to iva_retenido_a_favor: what the
  * customer withholds on that document, in functional currency. The role's
@@ -497,8 +420,17 @@ async function withheldPerSale(
   return new Map(rows.map((r) => [r.id, r.withheld]));
 }
 
-/** An allocation that took cash from an advance (migration 333): its undo puts that advance back. */
+/** An allocation that took cash from an advance (migration 333). */
 const CARRIED_AN_ADVANCE = '(pa.advance_base_amount + pa.advance_iva_amount) > 0';
+/**
+ * MNE-001-462 · A receipt with a treatment: an unapply puts all its cash
+ * back as that receipt's advance, its IVA still caused (the owner's «no
+ * re-park»; `backAsAdvance`), so `advancesOfMonth` counts it in the unapply's
+ * month and `cashOnAccountOfMonth` leaves the receipt out. The share it ends
+ * is a share event like any other (`SHARE_EVENTS`). Every allocation that
+ * carried an advance is one of these.
+ */
+const RETURNS_AS_ADVANCE = 'cp.advance_factor_type IS NOT NULL';
 
 /**
  * MNE-001-507 · True for a cheque receipt `cp` whose own entries (its record
@@ -658,7 +590,7 @@ async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: R
        UNION ALL
        SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount, ${countedOn('cp', 'pa.unapplied_at::date')}
          FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
-        WHERE cp.entity_id = $1 AND pa.unapplied_at IS NOT NULL AND ${CARRIED_AN_ADVANCE} AND NOT ${CLOSED_BY_REVERSAL}
+        WHERE cp.entity_id = $1 AND pa.unapplied_at IS NOT NULL AND ${RETURNS_AS_ADVANCE} AND NOT ${CLOSED_BY_REVERSAL}
      )
      SELECT cp.id, cp.payment_number, cp.advance_factor_type AS factor_type, cp.advance_tax_rate::text AS tax_rate,
             SUM(e.base)::text AS base, SUM(e.iva)::text AS iva
@@ -668,11 +600,28 @@ async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: R
         AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
         AND e.on_day >= $2::date AND e.on_day <= $3::date
       GROUP BY cp.id
-     HAVING SUM(e.base) <> 0 OR SUM(e.iva) <> 0
       ORDER BY cp.payment_number`,
     [entityId, range.desde, range.hasta]
   );
-  return rows;
+  // MNE-001-462: the cash an unapply of the month put back that took no
+  // advance comes back as one, split by the function unapply posted it with.
+  const back = await client.query<{ id: string; plain: string }>(
+    `SELECT cp.id, (pa.amount_applied - pa.advance_base_amount - pa.advance_iva_amount)::text AS plain
+       FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
+      WHERE cp.entity_id = $1 AND ${RETURNS_AS_ADVANCE} AND ${RECEIPT_COUNTS}
+        AND pa.unapplied_at IS NOT NULL AND NOT ${CLOSED_BY_REVERSAL}
+        AND pa.unapplied_at::date >= $2::date AND pa.unapplied_at::date <= $3::date
+        AND pa.amount_applied > pa.advance_base_amount + pa.advance_iva_amount`,
+    [entityId, range.desde, range.hasta]
+  );
+  return rows.flatMap((row) => {
+    const treatment = storedAdvanceTreatment(row.factor_type, row.tax_rate);
+    const plain = back.rows.filter((b) => b.id === row.id).map((b) => b.plain);
+    const more = treatment && plain.length > 0 ? backAsAdvance(plain, treatment) : { base: '0', iva: '0' };
+    const base = new Decimal(row.base).plus(more.base);
+    const iva = new Decimal(row.iva).plus(more.iva);
+    return base.isZero() && iva.isZero() ? [] : [{ ...row, base: base.toFixed(4), iva: iva.toFixed(4) }];
+  });
 }
 
 /** An advance's net in the box of the treatment it was recorded with; a not-subject one is no-objeto base. */
@@ -768,8 +717,10 @@ interface AllocationEventRow {
  * the firm, so its IVA stays caused (LIVA art. 1-B). The unapply's month takes
  * out the PPD share and lists the same cash back on account, already taxed,
  * netting 0; a later application of that cash nets it out again, the way an
- * advance is netted (MNE-001-423). An allocation that carried an advance is
- * left to `advancesOfMonth`, which gives the advance back.
+ * advance is netted (MNE-001-423). A receipt with a treatment is left whole
+ * to `advancesOfMonth` (MNE-001-462, «no re-park»): an unapply puts all its
+ * cash back as that receipt's advance, and a later application takes it from
+ * the advance, so counting it here too would count the cash back twice.
  *
  * Each receipt is replayed in the order of its events, unapplies first on a
  * day, because an application cannot take cash an unapply has not returned.
@@ -812,6 +763,7 @@ async function cashOnAccountOfMonth(
                     ELSE ${countedOn('cp', 'pa.unapplied_at::date')} END AS undone
       ) d
       WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
+        AND NOT ${RETURNS_AS_ADVANCE}
         AND d.applied <= $2::date
         AND EXISTS (SELECT 1 FROM payment_allocations u
                      WHERE u.payment_id = cp.id AND u.unapplied_at IS NOT NULL
