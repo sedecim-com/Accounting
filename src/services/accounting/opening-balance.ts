@@ -6,7 +6,9 @@ import { JournalEntryType } from '../../types/index.js';
 import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
 import { createJournalEntry, attestEntryAsync } from './posting.js';
 import { rubroDe } from './sat-agrupadores-catalogo.js';
-import { readAgrupador } from './sat-agrupador-account-type.js';
+import { MEMORANDUM_DOCTRINE, readAgrupador } from './sat-agrupador-account-type.js';
+import { memorandumClassifier, rowsInAHierarchyCycle } from './sat-chart-import.js';
+import { readCtaCatalogo, type CatalogFileRow } from '../sat/anexo24/catalog-reader.js';
 import {
   readBalanzaComprobacion,
   type BalanceFileRead,
@@ -15,7 +17,7 @@ import {
   ESCALA_DEL_MAYOR,
   ENTEROS_DEL_MAYOR,
 } from '../sat/anexo24/balance-reader.js';
-import { naturDe, saldoDelMayor } from '../sat/anexo24/balanza-invariantes.js';
+import { naturDe, saldoDelMayor, type Natur } from '../sat/anexo24/balanza-invariantes.js';
 import { compareToSource, shapesFromRows, type BalanceComparison } from './opening-balance-check.js';
 import { queryAccountAncestry, rollUpTrialBalanceRows } from '../reporting/report-service.js';
 import {
@@ -1262,6 +1264,83 @@ export async function importOpeningBalance(
   };
 }
 
+/**
+ * The migration's CatalogoCuentas as `--chart` hands it over (MNE-001-419).
+ * It decides which rows stay out of the footing, so it is refused wherever
+ * `chart import` would not plan on it: another taxpayer's file, a blocking
+ * reading finding, or a SubCtaDe cycle. The reader itself throws on malformed
+ * XML and on a root that is not <Catalogo>.
+ */
+function readMigrationChart(xml: string, rfc: string): readonly CatalogFileRow[] {
+  const chart = readCtaCatalogo(xml);
+  if (chart.header.rfc !== rfc) {
+    throw new ValidationError({
+      key: 'migration.chart_option.other_rfc',
+      params: { fileRfc: chart.header.rfc, entityRfc: rfc },
+    });
+  }
+  const blocking = chart.findings.filter((f) => f.severidad === 'bloquea');
+  if (blocking.length > 0) {
+    throw new ValidationError({
+      key: 'migration.chart_option.not_importable',
+      params: { findings: blocking.map((f) => `${f.regla}: ${f.mensaje}`).join(' · ') },
+    });
+  }
+  const cycle = rowsInAHierarchyCycle(chart.rows);
+  if (cycle.length > 0) {
+    throw new ValidationError({
+      key: 'migration.chart_option.hierarchy_cycle',
+      params: { rows: cycle.map((r) => `"${r.numCta}"`).join(', ') },
+    });
+  }
+  return chart.rows;
+}
+
+/** A ledger account whose declared figure holds memorandum money that does not net to zero. */
+interface MemorandumInsideAccount {
+  account: string;
+  /** Its top memorandum rows, each with the figure the source declares. */
+  rows: { code: string; amount: string }[];
+  /** Their sum on the ledger axis (debit positive). */
+  net: string;
+}
+
+/**
+ * MEMORANDUM MONEY INSIDE A LEDGER ACCOUNT (#621, owner's answer 3).
+ *
+ * The source declares each account with its subaccounts inside, so a
+ * memorandum row that hangs from a ledger account is inside that account's
+ * figure. Unless those rows net to zero there, leaving them out leaves their
+ * money on the balance sheet, under the parent's name.
+ *
+ * Each memorandum row climbs THE SOURCE'S tree to its nearest declared
+ * ancestor. Only a row whose ancestor is not memorandum is summed: a
+ * memorandum subtree counts once, by its top row, because that row already
+ * declares the levels below it.
+ */
+function memorandumInsideLedgerAccounts(
+  rows: readonly BalanceFileRow[],
+  isMemorandum: (code: string) => boolean,
+  parentOf: ReadonlyMap<string, string | null>,
+  natureOf: ReadonlyMap<string, Natur>
+): MemorandumInsideAccount[] {
+  const declared = new Set(rows.map((r) => r.numCta));
+  const inside = new Map<string, { rows: { code: string; amount: string }[]; net: Decimal }>();
+  for (const r of rows) {
+    if (!isMemorandum(r.numCta)) continue;
+    const holder = antepasadoDeclarado(r.numCta, parentOf, declared);
+    if (holder === null || isMemorandum(holder)) continue;
+    const held = inside.get(holder) ?? { rows: [], net: new Decimal(0) };
+    held.rows.push({ code: r.numCta, amount: new Decimal(r.saldoFin).toFixed(ESCALA_DEL_MAYOR) });
+    // A code the walk marks is in the entity or in the catalog, so it has a nature.
+    held.net = held.net.plus(saldoDelMayor(r.saldoFin, natureOf.get(r.numCta)!));
+    inside.set(holder, held);
+  }
+  return [...inside]
+    .filter(([, held]) => !held.net.isZero())
+    .map(([account, held]) => ({ account, rows: held.rows, net: held.net.toFixed(ESCALA_DEL_MAYOR) }));
+}
+
 export interface OpeningCheckReport {
   entityId: string;
   /** The day the opening lands on: the one after the file's cutoff. */
@@ -1274,8 +1353,12 @@ export interface OpeningCheckReport {
  *
  * Reads the source trial balance and compares its SaldoFin, account by
  * account and rolled up the tree, against OUR ledger on the day the opening
- * lands. Writes nothing. Memorandum accounts the caller names stay out of
- * the footing and are reported as excluded (#219, `MEMORANDUM_DOCTRINE`).
+ * lands. Writes nothing. Memorandum accounts stay out of the footing and are
+ * reported as excluded (#219, `MEMORANDUM_DOCTRINE`): the ones the caller
+ * names, and with `chartXml` every source or ledger code that the walk of
+ * `chart import` marks on the migration's catalog (`memorandumClassifier`).
+ * With `chartXml` it also REFUSES, before comparing, a source that hangs
+ * memorandum money inside a ledger account (`memorandumInsideLedgerAccounts`).
  *
  * NOTE: reversal pairs are left out on both sides —the reversed entry
  * (`reversed_by_entry_id`) and its mirror (`reverses_entry_id`)—. A reversed
@@ -1294,6 +1377,8 @@ export async function checkOpeningBalance(
      * instead of reported as missing from our chart.
      */
     memorandumCodes?: readonly string[];
+    /** The CatalogoCuentas XML of the same migration (`--chart`). */
+    chartXml?: string;
   }
 ): Promise<OpeningCheckReport> {
   const entity = await query<{ tax_id: string }>(
@@ -1311,15 +1396,17 @@ export async function checkOpeningBalance(
       `La balanza es del RFC ${source.header.rfc} y la entidad es ${rfc}: no hay nada que cotejar.`
     );
   }
+  const chart = opts.chartXml === undefined ? null : readMigrationChart(opts.chartXml, rfc);
   const asOf = dayAfterCutoff(source.header.anio, source.header.mes);
   const ledger = await query<{
     id: string;
     code: string;
     parent_code: string | null;
     normal_balance: string;
+    codigo_agrupador_sat: string | null;
     net: string;
   }>(
-    `SELECT a.id, a.code, p.code AS parent_code, a.normal_balance,
+    `SELECT a.id, a.code, p.code AS parent_code, a.normal_balance, a.codigo_agrupador_sat,
             COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0))
                        FILTER (WHERE e.id IS NOT NULL), 0)::text AS net
        FROM accounts a
@@ -1330,9 +1417,35 @@ export async function checkOpeningBalance(
              AND e.status = 'posted' AND e.entry_date <= $2::date
              AND e.reversed_by_entry_id IS NULL AND e.reverses_entry_id IS NULL
       WHERE a.entity_id = $1
-      GROUP BY a.id, a.code, p.code, a.normal_balance`,
+      GROUP BY a.id, a.code, p.code, a.normal_balance, a.codigo_agrupador_sat`,
     [opts.entityId, asOf]
   );
+  const memorandum = new Set(opts.memorandumCodes ?? []);
+  if (chart !== null) {
+    const isMemorandum = memorandumClassifier(chart, ledger.rows);
+    // The source added up its figures on ITS tree, so that is the one to
+    // climb: ours, overwritten by what the catalog declares.
+    const parentOf = new Map<string, string | null>(ledger.rows.map((r) => [r.code, r.parent_code]));
+    const sourceNature = new Map(ledger.rows.map((r) => [r.code, naturDe(r.normal_balance)]));
+    for (const c of chart) {
+      parentOf.set(c.numCta, c.subCtaDe);
+      sourceNature.set(c.numCta, c.natur);
+    }
+    const inside = memorandumInsideLedgerAccounts(source.rows, isMemorandum, parentOf, sourceNature);
+    if (inside.length > 0) {
+      const detail = inside
+        .map((a) => `${a.account}: ${a.rows.map((r) => `${r.code} ${r.amount}`).join(' + ')} = ${a.net}`)
+        .join('; ');
+      throw new ValidationError(
+        { key: 'migration.check.memorandum_inside_account', params: { detail, doctrine: MEMORANDUM_DOCTRINE } },
+        undefined,
+        { accounts: inside }
+      );
+    }
+    for (const code of [...source.rows.map((r) => r.numCta), ...ledger.rows.map((r) => r.code)]) {
+      if (isMemorandum(code)) memorandum.add(code);
+    }
+  }
   const shapes = shapesFromRows(ledger.rows);
   // Ours, rolled up the tree by THE roll-up (#323), since both sides of
   // compareToSource declare each ledger account with its subaccounts inside,
@@ -1361,7 +1474,7 @@ export async function checkOpeningBalance(
   return {
     entityId: opts.entityId,
     asOf,
-    comparison: compareToSource(source.rows, ours, shapes, 'SaldoFin', new Set(opts.memorandumCodes ?? [])),
+    comparison: compareToSource(source.rows, ours, shapes, 'SaldoFin', memorandum),
   };
 }
 

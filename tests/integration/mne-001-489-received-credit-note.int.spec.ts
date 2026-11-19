@@ -196,6 +196,57 @@ describe('the note of a PPD bill whose VAT is parked', () => {
   }, 90_000);
 });
 
+// MNE-001-490 (#692, part 3/3). Its rule goes away with the block: left in
+// place it would post every note uploaded below, T8's among them.
+describe('a firm rule that sets auto and requires document_type = credit_note', () => {
+  const ruleId = uuidv4();
+  const vendors = async () => (await rows<{ n: number }>(`SELECT COUNT(*)::int AS n FROM vendors WHERE entity_id = $1`, [f.entityId]))[0].n;
+
+  beforeAll(async () => {
+    await query(
+      `INSERT INTO processing_rules (id, entity_id, rule_name, rule_type, conditions, actions)
+       VALUES ($1, $2, 'vendor credit notes post by themselves', 'processing_mode',
+               '{"all":[{"field":"document_type","operator":"equals","value":"credit_note"}]}'::jsonb, '{"set_processing_mode":"auto"}'::jsonb)`,
+      [ruleId, f.entityId]
+    );
+  });
+  afterAll(async () => {
+    await query(`DELETE FROM processing_rules WHERE id = $1 AND entity_id = $2`, [ruleId, f.entityId]);
+  });
+
+  it('T12 · the upload posts the note against its bill, which owes 6,960.00', async () => {
+    const b = await bill();
+    const n = await note(b.uuid);
+    expect(n.autoProcessed).toBe(true);
+    expect(await entriesOf(n.uuid)).toEqual([expect.objectContaining({
+      source_type: 'vendor_credit_note', source_id: b.id, day: '2026-09-10',
+      lines: ['1135 0/320.0000', '2110 2320.0000/0', '6100 0/2000.0000'],
+    })]);
+    expect(await balanceOf(b.id)).toMatchObject({ due: '6960.0000' });
+  }, 90_000);
+
+  it('T13 · a note from an RFC that is not the vendor of the bill waits with its reason, and no vendor is created', async () => {
+    const b = await bill();
+    const before = await vendors();
+    const n = await note(b.uuid, (x) => x.replace(VENDOR_RFC, 'CON850101AB3'));
+    expect(n.autoProcessed).toBe(false);
+    expect(await entriesOf(n.uuid)).toEqual([]);
+    expect(await rows(`SELECT validation_status, error_message FROM pre_registrations WHERE id = $1`, [n.pre.id]))
+      .toEqual([{ validation_status: 'needs_review', error_message: expect.stringMatching(/issued by CON850101AB3, and bill \S+ belongs to vendor SIN060101AB1/) }]);
+    expect(await vendors()).toBe(before);
+    expect(await balanceOf(b.id)).toMatchObject({ due: '9280.0000' });
+  }, 90_000);
+
+  it('T14 · a type E this entity issued stays refused: nothing posts', async () => {
+    const b = await bill();
+    const n = await note(b.uuid, (x) => x.replace('Rfc="XAXX010101000"', 'Rfc="CLI010101AB2"').replace(VENDOR_RFC, 'XAXX010101000'));
+    expect(n.autoProcessed).toBe(false);
+    expect(await entriesOf(n.uuid)).toEqual([]);
+    expect(await rows(`SELECT document_type, status FROM pre_registrations WHERE id = $1`, [n.pre.id]))
+      .toEqual([{ document_type: 'credit_note', status: expect.not.stringMatching(/completed/) }]);
+  }, 90_000);
+});
+
 describe('what the note reads besides its bill', () => {
   it('T4 · the VAT of the bill in 1130, as a PUE and as a PPD credited the old way: the note credits 1130 and the workpaper warns', async () => {
     const october: Edit = (x) => x.replaceAll(/2026-0[89]-/g, '2026-10-');

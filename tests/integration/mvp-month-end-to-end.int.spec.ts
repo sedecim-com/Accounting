@@ -79,6 +79,19 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // with a date inside December. `entry void` would not do: its mirror takes
 // the date of the run, outside the month.
 //
+// THE BANK STATEMENT AND ITS BASELINE (MNE-001-412). The company's one bank
+// account is tied to 1111, and December's statement arrives as the CSV the
+// bank's site exports: it lists movements and no balances, so the closing
+// balance is typed from the printed statement and the opening follows from
+// it. The bank and the books tell the same December, which is why the
+// computers, paid from the bank on 12-01, are bought in section 3 with the
+// rest of the cash: the asset itself is still registered at the close. The
+// bank charged a fee the books do not know yet, so it ends 348.00 below 1111.
+// This is the account's first reconciliation, and it starts from a baseline:
+// the 100,000.00 that 1111 held on 11-30, which is the opening migrated in
+// January. Nothing before December is left to explain. A second download
+// that repeats movements of the first is refused whole.
+//
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
 // credential each built-in profile names (`api_key_env` of BUILTIN_PROFILES)
@@ -293,6 +306,56 @@ const CENSUS_METADATA = [
   ...CENSUS_RECEIVED.map(([uuid, rfc, name, date, amount, type]) =>
     `${uuid}~${rfc}~${name}~${COMPANY_RFC}~${COMPANY_NAME}~SAT970701NN3~${date} 10:00:00~${date} 10:05:00~${amount}~${type}~1~`),
 ].join('\r\n');
+
+// ── THE BANK STATEMENT OF DECEMBER (MNE-001-412) ───────────────────────
+const BANK_ACCOUNT = 'BBVA Operativa MXN';
+// What the bank saw in December, a row per movement, each written by hand
+// from the document that caused it, on that document's date. The last two
+// are the bank's own: the account fee and its IVA, which no document of the
+// month announces and the books do not hold yet.
+const STATEMENT_MOVEMENTS = [
+  // day, DESCRIPCIÓN, CARGO, ABONO
+  ['01', 'SPEI ENVIADO EQUIPO DE COMPUTO', '36000.00', ''],
+  ['03', 'SPEI ENVIADO LIBRERIA Y EDITORIAL DEL BAJIO', '1200.00', ''],
+  ['04', 'SPEI ENVIADO LIBRERIA Y EDITORIAL DEL BAJIO', '450.00', ''],
+  ['09', 'SPEI ENVIADO HOTEL SINTETICO', '1190.00', ''],
+  ['10', 'SPEI RECIBIDO CLIENTE SINTETICO', '', '1160.00'],
+  ['12', 'SPEI ENVIADO LIMPIEZA INTEGRAL MODERNA', '1160.00', ''],
+  ['15', 'SPEI RECIBIDO CLIENTE SINTETICO', '', '5800.00'],
+  ['16', 'SPEI ENVIADO JULIAN GOMEZ MARTINEZ', '9533.33', ''],
+  ['19', 'SPEI ENVIADO LIMPIEZA INTEGRAL MODERNA', '1160.00', ''],
+  ['20', 'SPEI ENVIADO PROVEEDOR SINTETICO', '5800.00', ''],
+  ['22', 'SPEI ENVIADO CONSULTORES ASOCIADOS DEL PACIFICO', '9280.00', ''],
+  ['31', 'COMISIÓN POR MANEJO DE CUENTA', '300.00', ''],
+  ['31', 'IVA DE COMISIÓN', '48.00', ''],
+] as const;
+/**
+ * The export of the bank's site (profile bbva-mx): a letterhead, the header
+ * and the movements from day `from` on, in Latin-1 as the bank writes it. It
+ * has no SALDO column: the file carries no balance at all. Nor a REFERENCIA:
+ * a movement has no id of the bank's, so a repeated one is known by its
+ * content alone, which is what `bank_statement_overlap` rules on. (With an
+ * id, the importer skips the repeated row by itself and names it.)
+ */
+const statementCsv = (from: string): Buffer => Buffer.from([
+  'BBVA MEXICO - MOVIMIENTOS DE LA CUENTA',
+  'Cuenta: ****1111',
+  '',
+  'FECHA,DESCRIPCIÓN,CARGO,ABONO',
+  ...STATEMENT_MOVEMENTS.filter(([day]) => day >= from)
+    .map(([day, description, charge, credit]) => `${day}/12/2025,${description},${charge},${credit}`),
+].join('\n'), 'latin1');
+// By hand. The bank's December is the books' December on 1111 plus its fee:
+//   credited   1,160 + 5,800                                    =  6,960.00
+//   charged    36,000 + 1,200 + 450 + 1,190 + 1,160 + 9,533.33
+//              + 1,160 + 5,800 + 9,280 = 65,773.33, and 300 + 48 = 66,121.33
+// From the 100,000.00 of 11-30: 100,000 + 6,960 − 66,121.33 = 40,838.67, the
+// balance the printed statement closes with. The books end at 41,186.67
+// (ENDING 1111), 348.00 above: the fee and its IVA.
+const BANK_BASELINE = '100000.00'; // 1111 on 2025-11-30: the opening, untouched until December
+const STATEMENT_CLOSING = '40838.67';
+/** The December statement and its session, as steps 4·231 and 4·232 leave them. */
+let statementId = '';
 
 // ── THE MONTH, BY HAND ──────────────────────────────────────────────────
 //   12-01 computers      1220 Dr 36,000.00 / 1111 Cr 36,000.00
@@ -1066,6 +1129,19 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('3 · receivables and payables', () => {
+    it('buys the computers on 12-01 from the bank, typed as a journal entry', () => {
+      // Bought here, with the rest of the month's cash, so that 1111 holds
+      // every movement the bank statement of step 4 lists. The asset is
+      // registered at the close, in step 6.
+      const [purchase] = rowsOf<{ entry_number: string }>(
+        ok(['entry', 'create', '--date', '2025-12-01', '--description', 'Computer equipment',
+          '--line', '1220:debit:36000.00', '--line', '1111:credit:36000.00', '--json'])
+      );
+      ok(['entry', 'post', purchase.entry_number, '--yes']);
+      // The bank: −23,973.33, where section 2 left it, − 36,000.
+      expect(decemberMoves(['1220', '1111'])).toEqual({ '1220': '36000.00', '1111': '-59973.33' });
+    }, STEP_TIMEOUT_MS);
+
     it('issues an invoice, collects half, captures and pays a bill, and issues a credit note', () => {
       ok(['customer', 'create', '--name', 'Cliente Sintetico SA de CV', '--tax-id', CUSTOMER_RFC, '--terms', 'Net 30']);
       ok(['invoice', 'create', '--customer', 'Cliente Sintetico', '--date', '2025-12-05',
@@ -1193,9 +1269,104 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('4 · bank', () => {
-    it.todo('collections and payments land on 1111, the leaf, not on 1110: debits 6,960.00 and credits 29,773.33 — MNE-001-039');
-    it.todo('imports the December statement, the first session with a baseline instead of the whole ledger history — MNE-001-038');
-    it.todo('an overlapping statement does not duplicate movements — MNE-001-042');
+    /** The bank's movements as `bank transaction list` prints them: date and signed amount, sorted. */
+    const bankMovements = (): string[] =>
+      rowsOf<{ date: string; amount: string }>(
+        ok(['bank', 'transaction', 'list', '--account', BANK_ACCOUNT, '--all', '--fields', 'date,amount', '--json'])
+      ).map((m) => `${m.date} ${money(m.amount)}`).sort();
+
+    it('collections and payments land on 1111, the leaf, not on 1110: debits 6,960.00 and credits 65,773.33 — MNE-001-039', () => {
+      // The role that every receipt and payment posts to names the leaf.
+      expect(rowsOf<{ account_code: string }>(ok(['account', 'role', 'list', '--role', 'banco', '--json']))
+        .map((r) => r.account_code)).toEqual(['1111']);
+
+      // By hand, the cash of the month before its close. Debits: the 1,160
+      // advance and the 5,800 receipt. Credits: the 36,000 computers, the
+      // bookshop's 1,200 and 450, the hotel's 1,190, the two PUE of 1,160, the
+      // fees' net of 9,533.33, the 5,800 payment and the REP's 9,280.
+      const tb = rowsOf<{ account_code: string; debit_total: string; credit_total: string }>(
+        ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--json'])
+      );
+      const moved = (code: string): string[] => {
+        const row = tb.find((r) => r.account_code === code);
+        return [money(row?.debit_total ?? '0'), money(row?.credit_total ?? '0')];
+      };
+      expect(moved('1111')).toEqual(['6960.00', '65773.33']);
+      // Nothing on the parent itself, nor on its other leaves.
+      for (const code of ['1110', '1112', '1115']) expect(moved(code), code).toEqual(['0.00', '0.00']);
+    }, STEP_TIMEOUT_MS);
+
+    it('imports the December statement, the first session with a baseline instead of the whole ledger history — MNE-001-038', () => {
+      const [account] = rowsOf<Record<string, string>>(
+        ok(['bank', 'account', 'create', BANK_ACCOUNT, '--bank', 'BBVA Mexico', '--gl-account', '1111', '--currency', 'MXN', '--json'])
+      );
+      expect(account).toMatchObject({ account: BANK_ACCOUNT, gl_code: '1111', currency: 'MXN' });
+
+      // The export carries no balance and the account has no earlier
+      // statement to carry one from: without --closing-balance it is refused
+      // (exit 4) and nothing is imported.
+      const csv = path.join(workDir, 'bbva-2025-12.csv');
+      fs.writeFileSync(csv, statementCsv('01'));
+      const load = ['bank', 'statement', 'import', csv, '--account', BANK_ACCOUNT];
+      const bare = mnemosine([...load, '--json']);
+      expect(bare.status, bare.out + bare.err).toBe(4);
+      expect(bare.err).toContain('--closing-balance');
+      expect(bankMovements()).toEqual([]);
+
+      // With the closing balance of the printed statement, the opening
+      // follows: 40,838.67 − 6,960 + 66,121.33 = 100,000.00.
+      const [imported] = rowsOf<Record<string, unknown>>(ok([...load, '--closing-balance', STATEMENT_CLOSING, '--json']));
+      expect(imported).toMatchObject({
+        file: 'bbva-2025-12.csv', format: 'csv', profile: 'bbva-mx', account: BANK_ACCOUNT, currency: 'MXN',
+        period: '2025-12-01..2025-12-31', read: 13, imported: 13, duplicated: 0, overlaps: [], overlap_policy: 'block',
+      });
+      expect([money(imported['opening'] as string), money(imported['closing'] as string)])
+        .toEqual([BANK_BASELINE, STATEMENT_CLOSING]);
+      statementId = imported['statement_id'] as string;
+
+      // The baseline is what 1111 held the day before the period. Typing
+      // today's balance of 1111 instead is refused (exit 4) with the
+      // difference, 100,000 − 41,186.67, and no session is opened.
+      const open = (baseline: string): string[] =>
+        ['bank', 'reconciliation', 'open', BANK_ACCOUNT, '--period', '2025-12', '--baseline', baseline, '--json'];
+      const refused = mnemosine(open(ENDING['1111']));
+      expect(refused.status, refused.out + refused.err).toBe(4);
+      expect(refused.err).toContain('41186.67 al 2025-11-30 y los libros dicen 100000.00: difieren en 58813.33');
+      expect(rowsOf(ok(['bank', 'reconciliation', 'list', '--json']))).toEqual([]);
+
+      const [session] = rowsOf<Record<string, unknown>>(ok(open(BANK_BASELINE)));
+      expect(session).toMatchObject({
+        account: BANK_ACCOUNT, period: '2025-12-01..2025-12-31', statement_id: statementId, statements: 1,
+        previous_session: '', baseline_date: '2025-11-30', warnings: [], dry_run: false,
+      });
+      expect(['opening', 'closing_bank', 'baseline_balance'].map((k) => money(session[k] as string)))
+        .toEqual([BANK_BASELINE, STATEMENT_CLOSING, BANK_BASELINE]);
+    }, STEP_TIMEOUT_MS);
+
+    it('an overlapping statement does not duplicate movements — MNE-001-042', () => {
+      // The thirteen movements of the statement, charges negative.
+      const movements = STATEMENT_MOVEMENTS
+        .map(([day, , charge, credit]) => `2025-12-${day} ${money(credit || `-${charge}`)}`).sort();
+      expect(bankMovements()).toEqual(movements);
+
+      // A second download, of the last fortnight: other bytes, so it is not
+      // the same document, but its six movements are in the month's file.
+      // The panel's default, bank_statement_overlap = block, refuses it whole
+      // (exit 6, a conflict) and names where the movements already are.
+      const csv = path.join(workDir, 'bbva-2025-12-16-al-31.csv');
+      fs.writeFileSync(csv, statementCsv('16'));
+      const refused = mnemosine(
+        ['bank', 'statement', 'import', csv, '--account', BANK_ACCOUNT, '--closing-balance', STATEMENT_CLOSING, '--json']
+      );
+      expect(refused.status, refused.out + refused.err).toBe(6);
+      expect(refused.err).toContain('6 línea(s) de este archivo ya están en otro estado de cuenta de la cuenta (bbva-2025-12.csv)');
+      expect(refused.err).toContain('`bank_statement_overlap` está en "block"');
+
+      expect(bankMovements()).toEqual(movements);
+      expect(rowsOf<{ id: string }>(ok(['bank', 'statement', 'list', '--account', BANK_ACCOUNT, '--fields', 'id', '--json'])).map((s) => s.id))
+        .toEqual([statementId]);
+    }, STEP_TIMEOUT_MS);
+
     it.todo('reconciles, classifies the bank fee and its IVA, and closes the session — MNE-001-040, MNE-001-041, MNE-001-043');
     it.todo('reopens the approved reconciliation from the terminal and closes it again, reversing what it posted — MNE-001-044, MNE-001-130');
   });
@@ -1207,12 +1378,8 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
   describe('6 · month-end close', () => {
     it('the checklist flags an entity with no fixed assets while 1220 carries the computers, and the asset is registered — MNE-001-020, MNE-001-021', () => {
-      const [purchase] = rowsOf<{ entry_number: string }>(
-        ok(['entry', 'create', '--date', '2025-12-01', '--description', 'Computer equipment',
-          '--line', '1220:debit:36000.00', '--line', '1111:credit:36000.00', '--json'])
-      );
-      ok(['entry', 'post', purchase.entry_number, '--yes']);
-
+      // The computers were bought in step 3, on 12-01: 1220 holds their 36,000
+      // and no asset is registered yet.
       // A finding, not a pass: warning weight, so only --strict makes it fail.
       const flagged = mnemosine(['closing', 'check', '--period', 'December 2025',
         '--check', 'depreciation-posted', '--strict', '--json']);

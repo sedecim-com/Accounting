@@ -117,8 +117,6 @@ export interface PanelDelDespacho {
   account_roles: RolDeCuenta[];
   /** Roles del taxonomía sin cuenta asignada en esta entidad. */
   unmapped_roles: string[];
-  /** Presente sólo cuando hubo que recortar NOTAS para que el panel cupiera. */
-  notes_trimmed?: string;
 }
 
 /**
@@ -277,97 +275,167 @@ export async function leerPanel(
 }
 
 // ============================================================
-// EL PANEL ENTERO CABE, Y LO QUE SE RECORTA SE DICE.
+// TWO FIXED SHAPES, CHOSEN BY `keys` AND NEVER BY SIZE (#747).
 //
-// Medido: 27 políticas (las que POLICY_CATALOG tiene en producción) con notas
-// de unos 900 caracteres serializan por encima de MAX_TOOL_RESULT_CHARS, y
-// withResultCap corta por el final. Dos consecuencias, no una: el instructivo
-// desaparecía (arreglado por el ORDEN de las claves) y el propio panel se
-// quedaba amputado a media lista SIN QUE EL AGENTE LO SUPIERA, que es peor —
-// decidir creyendo haber visto los 27 criterios cuando se vieron 18.
+// The panel used to travel whole in one result, and it outgrew the result cap
+// four times. A fixed ladder of note lengths broke at 46 keys and again at 49;
+// a bisection over the note length replaced it and, at 88 keys, left no room
+// for any note: the agent received every rule without one reason. Measured on
+// the same day, a firm that had answered nothing received 50,771 characters
+// cut at 32,000: 59 of 86 policies, and no role map. Each fix trimmed harder
+// inside one shape; none changed what grows with the catalog.
 //
-// Lo que se recorta son las NOTAS, que son la justificación; jamás `key`,
-// `status`, `value` ni `answered_value`, que son el criterio. Y se declara en
-// `notes_trimmed`, porque un recorte silencioso es otra forma de la misma
-// enfermedad.
+//  · Without `keys`: a compact list. One row per key with its status and
+//    value, the counts, and the role map. A row weighs about 97 characters,
+//    so the list holds well over 200 keys.
+//  · With `keys`: those policies in full. Nothing is trimmed: a policy either
+//    arrives whole or is named in `not_included`.
+//
+// Whatever is left out is named in the result, next to how to obtain it.
 // ============================================================
 
-/** Bajo el tope de tools/index.ts (32000) con margen para el resto del turno. */
-const TOPE_DEL_PANEL = 30000;
+/** Under the cap of tools/index.ts (32000), with room for the rest of the turn. */
+export const TOPE_DEL_PANEL = 30000;
 
-// NO HAY ESCALERA: SE BUSCA EL TOPE, NO SE ADIVINA.
-//
-// Aquí vivía `[400, 150, 60, 0]`. El 60 se añadió cuando el catálogo llegó a
-// 46 políticas porque 150 ya no cabía y la escalera saltaba directa a 0: el
-// agente recibía las 46 reglas SIN una sola razón de por qué son así. F07
-// añadió tres políticas más y el 60 tampoco cupo — el mismo fallo, el mismo
-// arreglo, un peldaño más abajo. Una escalera de peldaños fijos garantiza que
-// cada tramo que añada una política vuelva a romper esto, y que el arreglo sea
-// siempre inventar un número nuevo a mano.
-//
-// El recorte es monótono —a mayor tope de nota, mayor serialización— así que
-// el mayor tope que cabe se BUSCA por bisección en lugar de escogerse de una
-// lista. El catálogo puede crecer sin que nadie tenga que volver aquí, y la
-// nota que reciba el agente será siempre la más larga que el presupuesto
-// permita en vez de la del peldaño que alguien dejó escrito hace tres tramos.
-const TOPE_MAXIMO_DE_NOTA = 400;
+/**
+ * A free-text value cannot make a compact row unpredictable in size. Catalog
+ * values average 10 characters; only a typed answer reaches this.
+ */
+const COMPACT_VALUE_CHARS = 120;
 
-/** El marcador cuenta DENTRO del tope, no encima. */
-const MARCA_DE_RECORTE = ' […trimmed]';
+const COMPACT_SUFFIX =
+  ' This list is compact: every key with status and value. Before you rely on a key or ask ' +
+  "about one, call again with `keys` to read its question, its options and the firm's full " +
+  'note. `has_notes` marks a key whose note you have not read yet; `value_trimmed` marks a ' +
+  `value cut to ${COMPACT_VALUE_CHARS} characters here.`;
 
-function recortarNota(nota: string | null, tope: number): string | null {
-  if (nota === null) return null;
-  if (tope === 0) return null;
-  if (nota.length <= tope) return nota;
-  // El marcador se restaba del corte, no se sumaba al resultado: antes esto
-  // devolvía `tope + 11` caracteres mientras `notes_trimmed` anunciaba `tope`,
-  // así que el aviso mentía sobre su propio corte —y el presupuesto del panel
-  // se pasaba en once caracteres por cada nota recortada, veintisiete veces—.
-  // Un aviso que no describe lo que hizo es peor que no avisar.
-  const util = Math.max(0, tope - MARCA_DE_RECORTE.length);
-  return `${nota.slice(0, util)}${MARCA_DE_RECORTE}`;
+const KEYED_SUFFIX =
+  ' This is the full detail of the keys you asked for; the account role map comes only from a ' +
+  'call without `keys`. `not_included` names requested keys left out so that no note or value ' +
+  'here would be cut: call again with those keys. `unknown_keys` have no row in this ' +
+  "entity's panel: check them against the list from a call without `keys`.";
+
+/** One row of the compact list. The optional fields appear only when they apply. */
+export interface CompactPolicy {
+  key: string;
+  status: 'answered' | 'unanswered';
+  value: string;
+  scope: 'entity' | 'tenant';
+  /** The firm wrote a note for this key; the keyed call carries it whole. */
+  has_notes?: true;
+  /** `value` is cut to COMPACT_VALUE_CHARS here; the keyed call carries it whole. */
+  value_trimmed?: true;
+  /** A short code for a non-null `answer_defect`; the keyed call explains it. */
+  answer_defect?: 'resolved_but_blank';
 }
 
-/** Serializa el panel dentro del presupuesto, recortando SÓLO notas. */
-function serializarPanel(panel: PanelDelDespacho, tope = TOPE_DEL_PANEL): string {
-  const entero = JSON.stringify(panel);
-  if (entero.length <= tope) return entero;
+/** The result of a call without `keys`. */
+export interface CompactPanel {
+  /** First, for the reason given at PanelDelDespacho.how_to_use. */
+  how_to_use: string;
+  /** Second, and present only past the design limit: see `not_listed`. */
+  list_incomplete?: string;
+  entity: string;
+  /** Both counts describe the whole panel, `not_listed` keys included. */
+  answered_count: number;
+  unanswered_count: number;
+  policies: CompactPolicy[];
+  /** Keys whose row did not fit the budget: named, never cut. */
+  not_listed?: string[];
+  account_roles: RolDeCuenta[];
+  unmapped_roles: string[];
+}
 
-  const conEscalon = (escalon: number): string =>
-    JSON.stringify({
-      ...panel,
-      policies: panel.policies.map((p) => ({ ...p, notes: recortarNota(p.notes, escalon) })),
-      notes_trimmed:
-        escalon === 0
-          ? 'The rationale notes were DROPPED so the whole panel would fit; every key, status and ' +
-            'value below is complete. Ask a human for the rationale of a specific key if you need it.'
-          : `The rationale notes were trimmed to ${escalon} characters so the whole panel would fit; ` +
-            'every key, status and value below is complete.',
-    } satisfies PanelDelDespacho);
+/** The result of a call with `keys`. */
+export interface PolicyDetail {
+  how_to_use: string;
+  entity: string;
+  /** In the order requested, each one whole. */
+  policies: PoliticaDelPanel[];
+  /** Requested keys that did not fit this result. */
+  not_included?: string[];
+  /** Requested keys with no row in this entity's panel. */
+  unknown_keys?: string[];
+}
 
-  // Bisección sobre el tope de nota: el mayor que quepa gana. `bajo` es
-  // siempre un tope que cabe (0 cabe salvo panel patológico) y `alto` uno que
-  // no, así que el invariante se mantiene y el resultado es el máximo exacto.
-  let bajo = 0;
-  let mejor = conEscalon(0);
-  let alto = TOPE_MAXIMO_DE_NOTA + 1;
-  if (conEscalon(TOPE_MAXIMO_DE_NOTA).length <= tope) return conEscalon(TOPE_MAXIMO_DE_NOTA);
-  while (alto - bajo > 1) {
-    const medio = Math.floor((bajo + alto) / 2);
-    const candidato = conEscalon(medio);
-    if (candidato.length <= tope) {
-      bajo = medio;
-      mejor = candidato;
-    } else {
-      alto = medio;
-    }
+function compactRow(p: PoliticaDelPanel): CompactPolicy {
+  const long = p.value.length > COMPACT_VALUE_CHARS;
+  return {
+    key: p.key,
+    status: p.status,
+    value: long ? p.value.slice(0, COMPACT_VALUE_CHARS) : p.value,
+    scope: p.scope,
+    ...(p.notes !== null ? { has_notes: true as const } : {}),
+    ...(long ? { value_trimmed: true as const } : {}),
+    ...(p.answer_defect !== null ? { answer_defect: 'resolved_but_blank' as const } : {}),
+  };
+}
+
+/** The largest n in [0, max] whose result fits; `sizeOf` grows with n. */
+function largestThatFits(max: number, budget: number, sizeOf: (n: number) => number): number {
+  if (sizeOf(max) <= budget) return max;
+  let low = 0;
+  let high = max;
+  while (high - low > 1) {
+    const mid = Math.floor((low + high) / 2);
+    if (sizeOf(mid) <= budget) low = mid;
+    else high = mid;
   }
-  const ultimo = mejor;
-  if (ultimo.length <= tope) return ultimo;
-  // Panel patológico (valores libres enormes): el tope de la herramienta lo
-  // cortará, y por eso el instructivo va PRIMERO — se pierde el final, nunca
-  // la regla de uso.
-  return ultimo;
+  return low;
+}
+
+/**
+ * The compact list. Past the design limit it keeps whole rows and names the
+ * remaining keys bare; the notice sits right after the instructions, where a
+ * cut by the result cap cannot reach it.
+ */
+function serializeCompact(panel: PanelDelDespacho, budget = TOPE_DEL_PANEL): string {
+  const rows = panel.policies.map(compactRow);
+  const build = (n: number): string =>
+    JSON.stringify({
+      how_to_use: COMO_USARLO + COMPACT_SUFFIX,
+      ...(n < rows.length
+        ? {
+            list_incomplete:
+              `The panel has ${rows.length} keys; ${n} are listed with status and value, and the ` +
+              `other ${rows.length - n} appear in \`not_listed\` by key only: read those with ` +
+              '`keys` before you rely on any of them.',
+          }
+        : {}),
+      entity: panel.entity,
+      answered_count: rows.length - panel.unanswered.length,
+      unanswered_count: panel.unanswered.length,
+      policies: rows.slice(0, n),
+      ...(n < rows.length ? { not_listed: rows.slice(n).map((r) => r.key) } : {}),
+      account_roles: panel.account_roles,
+      unmapped_roles: panel.unmapped_roles,
+    } satisfies CompactPanel);
+  return build(largestThatFits(rows.length, budget, (n) => build(n).length));
+}
+
+/**
+ * The requested policies in full, in request order. A policy that does not fit
+ * is named in `not_included` whole rather than trimmed: the note is the firm's
+ * reason, and half a reason reads like a different one.
+ */
+function serializeDetail(
+  panel: PanelDelDespacho,
+  requested: string[],
+  budget = TOPE_DEL_PANEL
+): string {
+  const byKey = new Map(panel.policies.map((p) => [p.key, p]));
+  const asked = [...new Set(requested)];
+  const found = asked.filter((k) => byKey.has(k));
+  const unknown = asked.filter((k) => !byKey.has(k));
+  const build = (n: number): string =>
+    JSON.stringify({
+      how_to_use: COMO_USARLO + KEYED_SUFFIX,
+      entity: panel.entity,
+      policies: found.slice(0, n).flatMap((k) => byKey.get(k) ?? []),
+      ...(n < found.length ? { not_included: found.slice(n) } : {}),
+      ...(unknown.length > 0 ? { unknown_keys: unknown } : {}),
+    } satisfies PolicyDetail);
+  return build(largestThatFits(found.length, budget, (n) => build(n).length));
 }
 
 export function buildPolicyTools(ctx: AgentContext, deps: ToolDeps) {
@@ -381,6 +449,9 @@ export function buildPolicyTools(ctx: AgentContext, deps: ToolDeps) {
       'that depends on a firm criterion rather than on a standard — asset vs expense, deductible ' +
       'split, inventory vs direct expense — and before choosing an account a role already names. ' +
       'Read-only: it neither answers policies nor repoints roles, both of which are human acts. ' +
+      'Without `keys` it returns a compact list: every key with its status and value, plus the ' +
+      'role map. With `keys` it returns those policies in full: question, options and the ' +
+      "firm's note. " +
       'Each policy comes back with status: "answered" is your firm\'s criterion and you follow ' +
       'it; "unanswered" means the value shown is only the system default — do NOT apply it as if ' +
       'it were a decision, ask with ask_user when the answer would change what you book.',
@@ -389,18 +460,21 @@ export function buildPolicyTools(ctx: AgentContext, deps: ToolDeps) {
         .array(z.string().min(1))
         .optional()
         .describe(
-          'Policy keys to read (e.g. ["umbral_capitalizacion_mxn"]). Omit for the whole panel — ' +
-            'it is small, and reading it whole is how you notice a criterion you did not know applied.'
+          'Policy keys to read in full (e.g. ["umbral_capitalizacion_mxn"]): the question, the ' +
+            "options when nobody has answered, and the firm's whole note. Omit for the compact " +
+            'list of every key with its status and value, plus the account role map — read that ' +
+            'list first: it is how you notice a criterion you did not know applied.'
         ),
     }),
     run: async (input) => {
       deps.observe?.('get_accounting_policies', input);
-      const panel = await leerPanel(ctx, input.keys);
+      const keys = input.keys?.length ? input.keys : undefined;
+      const panel = await leerPanel(ctx, keys);
+      if (keys) return serializeDetail(panel, keys);
       if (panel.policies.length === 0) {
         return (
-          'The policy panel has no rows for this entity' +
-          (input.keys?.length ? ` matching ${input.keys.join(', ')}` : '') +
-          '. That is NOT "no criteria apply": it means nobody has seeded or answered the panel ' +
+          'The policy panel has no rows for this entity. That is NOT "no criteria apply": it ' +
+          'means nobody has seeded or answered the panel ' +
           '(a human runs `mnemosine init --section politicas` or `mnemosine pending`). Treat every ' +
           'firm criterion as undefined and ask with ask_user before booking anything that depends ' +
           'on one.\n' +
@@ -408,7 +482,7 @@ export function buildPolicyTools(ctx: AgentContext, deps: ToolDeps) {
             account_roles: panel.account_roles, unmapped_roles: panel.unmapped_roles })
         );
       }
-      return serializarPanel(panel);
+      return serializeCompact(panel);
     },
   });
 

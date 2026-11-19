@@ -207,7 +207,7 @@ async function buildPayRunEntry(
        COALESCE(SUM(fica_medicare_employer), 0) AS fica_med_er,
        COALESCE(SUM(futa), 0) AS futa,
        COALESCE(SUM(suta), 0) AS suta,
-       COALESCE(SUM(isr_withheld - subsidio_empleo), 0) AS isr,
+       COALESCE(SUM(GREATEST(isr_withheld - subsidio_empleo, 0) - subsidio_entregado_efectivo), 0) AS isr,
        COALESCE(SUM(imss_employee), 0) AS imss_ee,
        COALESCE(SUM(infonavit_withheld), 0) AS infonavit_ee,
        COALESCE(SUM(imss_employer), 0) AS imss_er,
@@ -276,8 +276,17 @@ async function buildPayRunEntry(
   creditIfPresent('state_tax_payable', n(b.sit) + n(b.sdi) + n(b.local_tax), 'State + local tax + SDI');
   // EL ISR PUEDE SER NEGATIVO, Y ENTONCES NO ES UN ABONO QUE SE DESCARTA.
   //
-  // `b.isr` es SUM(isr_withheld − subsidio_empleo) de la corrida: el ISR que
-  // se remite. Cuando el subsidio al empleo de la corrida supera al ISR
+  // `b.isr` is, summed over the run, the ISR each paycheck withheld (never
+  // below zero) less the subsidy that paycheck handed over IN CASH. It follows
+  // what the paycheck stored and has no date of its own (#600): a subsidy in
+  // excess of the ISR that was not handed over is not money and never reaches
+  // the entry, and it does not reduce the ISR withheld from another worker;
+  // a paycheck that did hand it over, under the law before 1 May 2024 or
+  // calculated before that rule was read, posts as it was paid. For every
+  // such paycheck the cash IS the excess, so the figure is the
+  // SUM(isr_withheld − subsidio_empleo) this line used to be, to the cent.
+  //
+  // Cuando el efectivo entregado de la corrida supera al ISR
   // retenido, ese importe es dinero que el patrón ENTREGÓ en efectivo a sus
   // trabajadores, y va al DEBE. Pasaba por `creditIfPresent`, que descarta lo
   // que no es positivo, así que la póliza quedaba descuadrada por exactamente

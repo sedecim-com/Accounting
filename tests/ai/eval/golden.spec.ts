@@ -57,11 +57,18 @@ describe('el corpus golden', () => {
     expect(new Set(uuids).size).toBe(uuids.length);
   });
 
-  it('el caso determinista es un CFDI tipo P: la ruta que jamás toca al modelo', () => {
+  it('a deterministic case is a type P, or a received type E with TipoRelacion 01 or 03: the routes that never reach the model', () => {
     const parser = new CFDIParser();
-    for (const caso of casos.filter((c) => c.esperado.resultado === 'determinista')) {
-      expect(parser.parse(caso.xml).tipoDeComprobante, caso.nombre).toBe('P');
+    const deterministic = casos.filter((c) => c.esperado.resultado === 'determinista');
+    for (const caso of deterministic) {
+      const cfdi = parser.parse(caso.xml);
+      if (cfdi.tipoDeComprobante === 'P') continue;
+      // #692: `ingest` leaves a received credit note to `bill inbox run`. The corpus's entity is the receiver of every case.
+      expect(cfdi.tipoDeComprobante, caso.nombre).toBe('E');
+      expect(['01', '03'], caso.nombre).toContain(cfdi.cfdiRelacionados?.tipoRelacion);
+      expect(cfdi.receptor.rfc, caso.nombre).toBe('XAXX010101000');
     }
+    expect(deterministic.map((c) => c.nombre)).toEqual(expect.arrayContaining(['nota-credito-ppd', 'rep-recibido']));
   });
 
   it('el asiento esperado de cada draft cuadra contra el BRUTO del propio CFDI', () => {
