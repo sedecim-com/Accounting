@@ -16,6 +16,13 @@ import { codePreRegistration } from '../../src/services/xml-ingestion/pre-regist
 import type { AgentContext } from '../../src/ai/context.js';
 import { registerCfdiCommand } from '../../src/cli/cfdi-command.js';
 import { registerBillCommand } from '../../src/cli/bill-command.js';
+import { registerRepCommand } from '../../src/cli/rep-command.js';
+import { entityScope } from '../../src/database/scope.js';
+import { emptyReading, loadCensus } from '../../src/services/sat-census/census.js';
+import { reconcileCensus } from '../../src/services/sat-census/reconcile.js';
+import xmlIngestionRouter from '../../src/api/rest/routes/xml-ingestion.js';
+import { levantar, pedir, sesionDe } from './helpers/servidor.js';
+import { repXml } from './helpers/rep-xml.js';
 
 // ============================================================
 // MNE-001-417 (#620, part 2/4) — AN ISSUED CFDI CODED BY HAND GOES TO AR.
@@ -28,6 +35,10 @@ import { registerBillCommand } from '../../src/cli/bill-command.js';
 // behind `bill inbox edit`. Synthetic data only: the entity is the generic RFC
 // XAXX010101000 and the customer a made-up RFC. Every figure is worked out by
 // hand and written here.
+//
+// MNE-001-455 (part 4/5) adds, on the same door: the issued REP that settles
+// the invoice, whether it arrives after it or waited parked for it; the doors
+// that still book no issued CFDI; and the census, which counts it as booked.
 // ============================================================
 
 const FIXTURE = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'cfdi', 'factura-consultoria-2001.xml'), 'utf8');
@@ -181,6 +192,26 @@ const code = (id: string, account: string, line?: number) =>
     ? { line: { lineNumber: line, accountId: f.cuentas[account] } }
     : { defaultAccountId: f.cuentas[account] });
 
+/** One command line in process; `said` is everything it printed or reported. */
+async function cli(...argv: string[]): Promise<{ exitCode?: number; said: string }> {
+  const program = new Command('mnemosine').exitOverride();
+  let exitCode: number | undefined;
+  let said = '';
+  const plain = (text: string) => text;
+  const say = (chunk: unknown) => { said += String((chunk as Error)?.message ?? chunk); return true; };
+  const deps = {
+    palette: { dim: plain, bold: plain, cyan: plain, red: plain, green: plain, yellow: plain } as never,
+    shutdown: (c: number) => { exitCode = c; }, reportError: say,
+  };
+  registerCfdiCommand(program, deps);
+  registerBillCommand(program, deps);
+  registerRepCommand(program, deps);
+  const streams = [vi.spyOn(process.stdout, 'write').mockImplementation(say), vi.spyOn(process.stderr, 'write').mockImplementation(say)];
+  await program.parseAsync(['node', 'mnemosine', ...argv, '--entity', f.entityId, '--tenant', f.tenantId])
+    .finally(() => streams.forEach((stream) => stream.mockRestore()));
+  return { exitCode, said };
+}
+
 afterAll(async () => {
   await drainAttestations(3000);
   await closeDatabase();
@@ -331,25 +362,6 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
 
   // MNE-001-418: the terminal command over the door, and the messages that send an issued CFDI to it.
   describe('cfdi post at the terminal, in process', () => {
-    /** One command line in process; `said` is everything it printed or reported. */
-    async function cli(...argv: string[]): Promise<{ exitCode?: number; said: string }> {
-      const program = new Command('mnemosine').exitOverride();
-      let exitCode: number | undefined;
-      let said = '';
-      const plain = (text: string) => text;
-      const say = (chunk: unknown) => { said += String((chunk as Error)?.message ?? chunk); return true; };
-      const deps = {
-        palette: { dim: plain, bold: plain, cyan: plain, red: plain, green: plain, yellow: plain } as never,
-        shutdown: (c: number) => { exitCode = c; }, reportError: say,
-      };
-      registerCfdiCommand(program, deps);
-      registerBillCommand(program, deps);
-      const streams = [vi.spyOn(process.stdout, 'write').mockImplementation(say), vi.spyOn(process.stderr, 'write').mockImplementation(say)];
-      await program.parseAsync(['node', 'mnemosine', ...argv, '--entity', f.entityId, '--tenant', f.tenantId])
-        .finally(() => streams.forEach((stream) => stream.mockRestore()));
-      return { exitCode, said };
-    }
-
     it('--dry-run writes nothing and names the folio the real run then draws; --account reaches the entry by its code', async () => {
       const { uuid, id } = await stranded([method('PUE')]);
       const before = await ledger();
@@ -380,6 +392,156 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
       expect(run.exitCode).toBe(1);
       expect(run.said).toContain(`mnemosine cfdi post ${uuid}`);
       expect(await ledger()).toEqual(before);
+    });
+  });
+
+  // MNE-001-455: the hand door against the REP, the doors that stay closed and the census.
+  describe('after the hand door: the REP, the closed doors and the census', () => {
+    /** Signed balance (debits less credits) of an account in August, the month of every document here. */
+    async function august(account: string): Promise<number> {
+      const r = await query<{ balance: string }>(
+        `SELECT COALESCE(sum(ab.debit_total - ab.credit_total), 0)::text AS balance
+           FROM account_balances ab JOIN accounts a ON a.id = ab.account_id
+          WHERE a.entity_id = $1 AND a.code = $2 AND ab.fiscal_period_id = $3`,
+        [f.entityId, account, f.periodos[8]]
+      );
+      return Number(r.rows[0].balance);
+    }
+
+    /** The entity's own REP for 9,280.00 on 2026-08-25, paying `invoiceUuid` in full, ingested with no model. */
+    async function ingestRep(invoiceUuid: string) {
+      const uuid = uuidv4().toUpperCase();
+      const file = path.join(dir, `${uuid}.xml`);
+      fs.writeFileSync(file, repXml({ cfdiUuid: invoiceUuid, total: '9280.00', iva: 1280 }, uuid, {
+        issuerRfc: OWN_RFC, issuerName: 'Demo Corp MX', receiverRfc: CUSTOMER_RFC, date: new Date(Date.UTC(2026, 7, 25)),
+      }));
+      const report = await ingestCfdiFiles({
+        ctx, reviewer, files: [file], session: null, capture: { drafts: [] },
+        thresholds: { autoPost: false, minConfidence: 0.95, maxAmount: 10000 },
+      });
+      return { uuid, result: report.results[0] };
+    }
+
+    /** The invoice of a CFDI and the collections applied to it, each with the REP it carries and its entry. */
+    async function collected(invoiceUuid: string) {
+      const invoice = (await query<{ id: string; status: string; amount_due: string }>(
+        `SELECT id, status, amount_due::text FROM invoices WHERE entity_id = $1 AND cfdi_uuid = $2`,
+        [f.entityId, invoiceUuid]
+      )).rows;
+      expect(invoice).toHaveLength(1);
+      const payments = (await query<{ rep: string; applied: string; entry: string | null }>(
+        `SELECT p.cfdi_uuid AS rep, a.amount_applied::text AS applied, je.status AS entry
+           FROM payment_allocations a
+           JOIN customer_payments p ON p.id = a.payment_id AND p.entity_id = $1
+           LEFT JOIN journal_entries je ON je.id = p.journal_entry_id AND je.entity_id = $1
+          WHERE a.invoice_id = $2`,
+        [f.entityId, invoice[0].id]
+      )).rows;
+      return { status: invoice[0].status, due: invoice[0].amount_due, payments };
+    }
+
+    it('the issued REP that arrives after the invoice settles it and moves 1,280.00 from 2125 to 2120', async () => {
+      const { uuid } = await stranded();
+      await post(uuid);
+      expect(await collected(uuid)).toEqual({ status: 'sent', due: '9280.0000', payments: [] });
+      const parked = await august('2125');
+      const payable = await august('2120');
+
+      const rep = await ingestRep(uuid);
+      expect(rep.result, rep.result.detail).toMatchObject({ status: 'rules' });
+      expect(rep.result.detail).toMatch(/linked deterministically/);
+      // One collection, made by the payments gate: posted entry, the REP's UUID, the whole invoice applied.
+      expect(await collected(uuid)).toEqual({
+        status: 'paid', due: '0.0000', payments: [{ rep: rep.uuid, applied: '9280.0000', entry: 'posted' }],
+      });
+      // Credit balances are negative: the debit raises 2125 and the credit lowers 2120.
+      expect(await august('2125')).toBeCloseTo(parked + 1280, 2);
+      expect(await august('2120')).toBeCloseTo(payable - 1280, 2);
+    });
+
+    it('a REP that arrived before its invoice waits parked, and rep reconcile links it once the CFDI is coded', async () => {
+      const { uuid } = await stranded();
+      const before = await ledger();
+      const rep = await ingestRep(uuid);
+      expect(rep.result.status, rep.result.detail).not.toBe('rules');
+      expect(rep.result.detail).toContain(uuid);
+      expect(await ledger()).toEqual(before);
+
+      await post(uuid);
+      const parked = await august('2125');
+      const payable = await august('2120');
+      expect(await collected(uuid)).toEqual({ status: 'sent', due: '9280.0000', payments: [] });
+
+      const reconciled = await cli('rep', 'reconcile');
+      expect(reconciled.exitCode, reconciled.said).toBe(0);
+      expect(await collected(uuid)).toEqual({
+        status: 'paid', due: '0.0000', payments: [{ rep: rep.uuid, applied: '9280.0000', entry: 'posted' }],
+      });
+      expect(await august('2125')).toBeCloseTo(parked + 1280, 2);
+      expect(await august('2120')).toBeCloseTo(payable - 1280, 2);
+    });
+
+    it('bill inbox run, the scheduled batch and both REST routes book no issued CFDI; the hand door still posts the row they left in error', async () => {
+      const { uuid, id } = await stranded();
+      const before = await ledger();
+      const row = async () => (await query<{ status: string }>(
+        `SELECT status FROM pre_registrations WHERE id = $1 AND entity_id = $2`, [id, f.entityId]
+      )).rows[0].status;
+
+      expect(await cli('bill', 'inbox', 'run', id, '--yes')).toMatchObject({ exitCode: 1 });
+      expect(await ledger()).toEqual(before);
+
+      const server = await levantar([['/v1', xmlIngestionRouter]], sesionDe(f));
+      try {
+        const single = await pedir(server, 'POST', `/v1/pre-registrations/${id}/process`);
+        expect(single.status, JSON.stringify(single.body)).toBe(422);
+        expect(await ledger()).toEqual(before);
+        const bulk = await pedir(server, 'POST', '/v1/pre-registrations/bulk', { action: 'process', ids: [id] });
+        expect(bulk.status, JSON.stringify(bulk.body)).toBe(200);
+        expect(JSON.stringify(bulk.body)).toMatch(new RegExp(`"id":"${id}","status":"error"`));
+        expect(await ledger()).toEqual(before);
+      } finally {
+        await server.cerrar();
+      }
+
+      // An issued row is born `draft`; the batch only takes `ready` rows, so the test puts it there.
+      const batchId = uuidv4();
+      await query(
+        `INSERT INTO processing_batches (id, entity_id, batch_number, batch_name, status) VALUES ($1, $2, $3, 'issued row', 'scheduled')`,
+        [batchId, f.entityId, `MNE455-${batchId.slice(0, 8)}`]
+      );
+      const queued = await query(
+        `UPDATE pre_registrations SET status = 'ready', processing_mode = 'batch', scheduled_batch_id = $3
+          WHERE id = $1 AND entity_id = $2 AND status = 'error'`,
+        [id, f.entityId, batchId]
+      );
+      expect(queued.rowCount).toBe(1);
+      expect(await new PreRegistrationService().processBatch(batchId, f.userId, f.entityId))
+        .toMatchObject({ total: 1, successful: 0, failed: 1, errors: [{ id }] });
+      expect(await ledger()).toEqual(before);
+      expect(await row()).toBe('error');
+
+      await post(uuid);
+      expect((await born(uuid)).lines).toEqual(['DR 1120 9280.00', 'CR 4100 8000.00', 'CR 2125 1280.00']);
+    });
+
+    it('the census counts the coded CFDI as matched, where before the door it was to post', async () => {
+      const { uuid } = await stranded();
+      const scope = entityScope(f.tenantId, f.entityId);
+      await loadCensus(scope, { source: 'metadata', fileName: 'mne-455.txt', sha256: 'a'.repeat(64), loadedBy: null }, {
+        ...emptyReading(),
+        rows: [{
+          uuid: uuid.toLowerCase(), direction: 'issued', cfdiType: 'I', issuerRfc: OWN_RFC, receiverRfc: CUSTOMER_RFC,
+          issuedAt: '2026-08-20 10:00:00', amount: '9280.00', satStatus: 'current', cancelledAt: null, source: 'metadata',
+        }],
+      });
+      const waiting = await reconcileCensus(scope, '2026-08-01', '2026-08-31');
+      expect(waiting.toPost.map((item) => item.uuid)).toEqual([uuid.toLowerCase()]);
+      expect(waiting.matched).toBe(0);
+
+      await post(uuid);
+      const booked = await reconcileCensus(scope, '2026-08-01', '2026-08-31');
+      expect(booked).toMatchObject({ matched: 1, toPost: [], toFetch: [] });
     });
   });
 
