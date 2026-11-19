@@ -3241,6 +3241,35 @@ export const EN = {
   'filing.workpaper.label_warning': 'warning',
   'filing.workpaper.not_a_filing': 'This paper is not a filing: nothing was sent to the SAT.',
   'filing.workpaper.more_entries': '+{count} more',
+  // ==== MNE-001-457 · annual figure record (issue #622) ====
+  'help.annual.description': 'The annual return of the entity: the figures read off it once it is filed',
+  'help.annual.figure.description': 'Figures of a filed annual return that the provisional payments need',
+  'help.annual.figure.record.description': 'Record a figure of a filed annual return, with that return as its source and who captured it',
+  'help.annual.figure.record.option.kind': 'which figure it is: {kinds}',
+  'help.annual.figure.record.option.value': 'the figure as the return states it: zero or more, up to four decimals',
+  'help.annual.figure.record.option.year': 'fiscal year of the annual return',
+  'help.annual.figure.record.option.filed_on': 'day the return, or its amendment, was filed (YYYY-MM-DD)',
+  'help.annual.figure.record.option.source': 'how you identify that return: its operation number',
+  'help.annual.figure.record.footer':
+    'This records what a filed return states. It files nothing, and the latest capture of a return is the one in force.\n' +
+    'A return that gave no coefficient is not captured: the paper then uses the latest return captured within five years (LISR art. 14 fr. I).\n' +
+    '\nExamples:\n' +
+    '  See the row the profit coefficient of the 2025 return would leave, writing nothing:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operation 000111" --dry-run\n' +
+    '  Its amendment, filed later: a new capture that takes over, and the earlier one stays:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json',
+  'annual.figure.kind_invalid': '--kind "{value}" is not a figure this command records: use {kinds}. Nothing was written.',
+  'annual.figure.value_invalid': '--value "{value}" is not valid: use zero or more, with up to fifteen digits before the point and four decimals (for example 0.0875). Nothing was written.',
+  'annual.figure.year_invalid': '--year "{value}" is not valid: use the four digits of the return\'s fiscal year, from {min} to {max}. Nothing was written.',
+  'annual.figure.filed_on_invalid': '--filed-on "{value}" is not a real day: use YYYY-MM-DD (for example 2026-03-20). Nothing was written.',
+  'annual.figure.source_required': 'Missing --source: say which return the figure was read from (its operation number). Nothing was written.',
+  'annual.figure.filed_on_not_after_year': '--filed-on {value} cannot be the filing date of the {year} return: an annual return is filed after its year ends. Nothing was written.',
+  'annual.figure.filed_on_in_future': '--filed-on {value} is after today ({today}): only a return already filed is recorded. Nothing was written.',
+  'annual.figure.dry_run': 'Dry run: the capture is valid; nothing was written.',
+  'annual.figure.next': 'Next: `mnemosine filing workpaper generate --period <YYYY-MM> --form isr`.',
+  'income_tax_input.year_out_of_range': 'The fiscal year of the source return goes from {min} to {max}: {year} is outside.',
+  'income_tax_input.filed_on_not_a_day': '"{value}" is not a real day (YYYY-MM-DD): it cannot be the filing date of the return.',
+  'income_tax_input.value_too_large': '"{value}" does not fit: a figure has at most fifteen digits before the point.',
   'help.diot.description':
     'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
   'help.diot.generate.description':
