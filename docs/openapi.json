@@ -9109,7 +9109,7 @@
         "x-exige-marcha-seca": true,
         "x-exige-compuerta-en-vivo": false,
         "x-exige-llave-de-idempotencia": true,
-        "x-escribe": "xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS",
+        "x-escribe": "xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS, también el de una nota de crédito recibida si una regla exige document_type = credit_note",
         "x-alcance-idempotencia": "POST /v1/upload",
         "x-permisos-requeridos": [
           "bills:create"
@@ -10916,7 +10916,7 @@
         "x-exige-marcha-seca": true,
         "x-exige-compuerta-en-vivo": false,
         "x-exige-llave-de-idempotencia": true,
-        "x-escribe": "xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS",
+        "x-escribe": "xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS, también el de una nota de crédito recibida si una regla exige document_type = credit_note",
         "x-alcance-idempotencia": "POST /v1/xml/upload",
         "x-permisos-requeridos": [
           "bills:create"
