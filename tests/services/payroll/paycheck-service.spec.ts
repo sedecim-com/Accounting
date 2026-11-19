@@ -48,6 +48,20 @@ vi.mock('../../../src/services/policy/policy-service.js', () => ({
   getPolicy: vi.fn(),
 }));
 
+// The law of the excess over the ISR (#600) is a dated row the paycheck reads
+// on its payment date. Here the reader answers with the share each test sets:
+// 0 is the rule in force on this spec's payment date, 1 the one before May 2024.
+let paidShare: 0 | 1 = 0;
+vi.mock('../../../src/services/payroll/mx/employment-subsidy.js', async (original) => ({
+  ...(await original<typeof import('../../../src/services/payroll/mx/employment-subsidy.js')>()),
+  readEmploymentSubsidyExcessRule: vi.fn(async (payDate: string) => ({
+    paidShare,
+    effectiveFrom: paidShare === 1 ? '2014-01-01' : '2024-05-01',
+    sourceUrl: `https://example.invalid/rule-read-on-${payDate}`,
+    sourceNote: 'Synthetic decree: its text',
+  })),
+}));
+
 import { calculatePaycheck } from '../../../src/services/payroll/common/paycheck-service.js';
 import { query } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
@@ -156,6 +170,7 @@ beforeEach(() => {
   mockQuery.mockReset();
   mockGetPolicy.mockReset();
   calculadoras.clear();
+  paidShare = 0;
   // Importes fijos: ISR menor que el subsidio, que es el caso que el
   // Math.max se tragaba.
   doble('MX', 'isr', { tax_amount: 158.57, rate_applied: 0.064, notes: 'Art. 96 LISR quincenal' });
@@ -172,10 +187,12 @@ describe('el recibo escribe el desglose que antes tiraba', () => {
   it('deja un renglón de paycheck_taxes por cada componente calculado', async () => {
     await calculatePaycheck(ENTRADA);
     const porTipo = Object.fromEntries(renglonesEscritos().map((r) => [r.tax_type, r]));
-    expect(Object.keys(porTipo).sort()).toEqual([
-      'imss', 'infonavit', 'infonavit_credit', 'isr',
-      'subsidio_empleo', 'subsidio_entregado_efectivo',
-    ]);
+    expect(Object.keys(porTipo).sort()).toEqual(['imss', 'infonavit', 'infonavit_credit', 'isr', 'subsidio_empleo']);
+    // Under the rule before May 2024 the cash handed over has its own row.
+    clienteEspia.query.mockClear();
+    paidShare = 1;
+    await calculatePaycheck(ENTRADA);
+    expect(renglonesEscritos().map((r) => r.tax_type)).toContain('subsidio_entregado_efectivo');
   });
 
   it('apunta la base gravable y la tasa de cada componente, no sólo el importe', async () => {
@@ -283,7 +300,59 @@ describe('the aguinaldo is taxed only above 30 UMA (#297)', () => {
   });
 });
 
-describe('el subsidio que excede al ISR llega al trabajador', () => {
+describe('the subsidy in excess of the ISR, when the law of the payment date hands over nothing', () => {
+  it('withholds no ISR, pays no cash and does not raise net pay', async () => {
+    const r = await calculatePaycheck(ENTRADA);
+    expect(r.subsidio_entregado_efectivo).toBe('0.0000');
+    // Net = 3000 − ISR withheld (0) − IMSS 75.50 − INFONAVIT credit 60.
+    expect(r.net_pay).toBeCloseTo(2864.5, 4);
+    expect(r.employee_taxes).toBeCloseTo(75.5, 4);
+    expect(insercionDelRecibo().params[35]).toBe('0.0000');
+  });
+
+  it('writes no cash row, does not read the panel key, and credits only what the ISR absorbed', async () => {
+    await calculatePaycheck(ENTRADA);
+    const rs = renglonesEscritos();
+    expect(rs.some((r) => r.tax_type === 'subsidio_entregado_efectivo')).toBe(false);
+    expect(mockGetPolicy).not.toHaveBeenCalledWith(
+      expect.anything(), 'subsidio_al_empleo_entregado_registro', undefined
+    );
+    const sub = rs.find((r) => r.tax_type === 'subsidio_empleo')!;
+    expect(sub.tax_amount).toBe('158.5700');
+    // The note names the excess and the row of the law it followed.
+    expect(sub.notas).toMatch(/248\.05 neither paid to the worker nor credited/);
+    expect(sub.notas).toMatch(/excess_over_isr_paid_share in force from 2024-05-01 \(Synthetic decree\)/);
+  });
+
+  it('records the law it applied in the audit trail', async () => {
+    await calculatePaycheck(ENTRADA);
+    const detail = JSON.parse(insercionDelRecibo().params[31] as string) as Record<string, unknown>;
+    expect(detail.subsidio_entregado_efectivo).toBe('0.0000');
+    expect(detail.subsidio_entregado_registro).toBeNull();
+    expect(detail.employment_subsidy_excess_not_paid).toBe('248.0500');
+    expect(detail.employment_subsidy_excess_rule).toEqual({
+      paid_share: 0,
+      effective_from: '2024-05-01',
+      source_url: 'https://example.invalid/rule-read-on-2026-01-15',
+    });
+  });
+
+  it('gives the same paycheck under both rules when the ISR absorbs the subsidy', async () => {
+    doble('MX', 'isr', { tax_amount: 800, rate_applied: 0.1088 });
+    doble('MX', 'subsidio_empleo', { tax_amount: 300, is_credit: true });
+    const now = await calculatePaycheck(ENTRADA);
+    paidShare = 1;
+    const before = await calculatePaycheck(ENTRADA);
+    expect(now.net_pay).toBeCloseTo(2364.5, 4);
+    expect(before.net_pay).toBe(now.net_pay);
+  });
+});
+
+describe('el subsidio que excede al ISR llega al trabajador (the rule before 1 May 2024)', () => {
+  beforeEach(() => {
+    paidShare = 1;
+  });
+
   it('entrega la diferencia en efectivo y la suma al neto', async () => {
     const r = await calculatePaycheck(ENTRADA);
     // 406.62 − 158.57 = 248.05 de subsidio entregado.
@@ -378,7 +447,8 @@ describe('el crédito INFONAVIT es una deducción, no un impuesto retenido', () 
 
   it('sigue descontándose del neto que el trabajador recibe', async () => {
     const r = await calculatePaycheck(ENTRADA);
-    const sinCredito = 3000 - 75.5 + 248.05;
+    // No cash is added: the rule of this payment date hands over nothing (#600).
+    const sinCredito = 3000 - 75.5;
     expect(r.net_pay).toBeCloseTo(sinCredito - 60, 4);
   });
 

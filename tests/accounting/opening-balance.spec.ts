@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -1157,11 +1157,163 @@ describe('checkOpeningBalance · the penny check writes nothing and compares Sal
     expect(r.comparison.faltantes).toEqual([]);
     expect(r.comparison.excluded).toEqual([{ code: '800', amount: '75000.0000' }]);
   });
-});
 
-// ------------------------------------------------------------
-// MNE-001-022 · the receivable documents also become invoices
-// ------------------------------------------------------------
+  // MNE-001-419 · #621: with `chartXml`, the list comes from the migration's
+  // catalog, through the walk `chart import` uses. Every figure is by hand.
+  describe('with the migration catalog (--chart)', () => {
+    const CHART_NS = 'http://www.sat.gob.mx/esquemas/ContabilidadE/1_3/CatalogoCuentas';
+    /** code, CodAgrup, Natur, SubCtaDe. */
+    type ChartRow = [string, string, ('D' | 'A')?, string?];
+    const chart = (rows: ChartRow[], rfc = 'XAXX010101000') =>
+      `<?xml version="1.0" encoding="UTF-8"?><catalogocuentas:Catalogo xmlns:catalogocuentas="${CHART_NS}" ` +
+      `Version="1.3" RFC="${rfc}" Mes="12" Anio="2025">` +
+      rows
+        .map(
+          ([code, group, nature = 'D', parent]) =>
+            `<catalogocuentas:Ctas CodAgrup="${group}" NumCta="${code}" Desc="Account ${code}"` +
+            `${parent === undefined ? '' : ` SubCtaDe="${parent}"`} Nivel="1" Natur="${nature}"/>`
+        )
+        .join('') +
+      `</catalogocuentas:Catalogo>`;
+    const BASE: ChartRow[] = [['1110', '101'], ['3100', '301', 'A']];
+    const PAIR: ChartRow[] = [['802-01', '802.01'], ['802-02', '802.02', 'A']];
+    const source = (...extra: [string, string][]) =>
+      archivo([['1110', '1000.00'], ['3100', '1000.00'], ...extra].map(([code, balance]) => ({ numCta: code, saldoFin: balance })));
+    const WITH_PAIR = source(['802-01', '75000.00'], ['802-02', '75000.00']);
+    const ours = (code: string, extra: object) => [
+      ...ledger('1000.0000', '-1000.0000'),
+      { id: `id-${code}`, code, parent_code: null, normal_balance: 'debit', net: '0', codigo_agrupador_sat: null, ...extra },
+    ];
+    const check = (xml: string, rows: ChartRow[]) =>
+      checkOpeningBalance(CTX, { entityId: 'ent-1', xml, chartXml: chart(rows) });
+    const refusal = async (xml: string, chartXml: string) =>
+      (await checkOpeningBalance(CTX, { entityId: 'ent-1', xml, chartXml }).catch((e: unknown) => e)) as ValidationError;
+    beforeEach(() => withLedger(ledger('1000.0000', '-1000.0000')));
+    // A refusal leaves queued answers behind; they must not reach the next describe.
+    afterEach(() => mockQuery.mockReset());
+
+    it('a CUFIN pair is left out by name with the source figure, and the check comes out equal', async () => {
+      const without = await checkOpeningBalance(CTX, { entityId: 'ent-1', xml: WITH_PAIR });
+      expect(without.comparison.faltantes).toEqual(['802-01', '802-02']);
+
+      withLedger(ledger('1000.0000', '-1000.0000'));
+      const r = await check(WITH_PAIR, [...BASE, ...PAIR]);
+      expect(r.comparison).toMatchObject({ iguales: true, comparadas: 2 });
+      expect(r.comparison.excluded).toEqual([
+        { code: '802-01', amount: '75000.0000' },
+        { code: '802-02', amount: '75000.0000' },
+      ]);
+      expect(mockQuery.mock.calls[1][0] as string).toContain('a.codigo_agrupador_sat');
+    });
+
+    it('a memorandum account already in our ledger with no money is excluded by name and is no surplus', async () => {
+      withLedger(ours('802-01', { codigo_agrupador_sat: '802.01' }));
+      const r = await check(WITH_PAIR, [...BASE, ...PAIR]);
+      expect(r.comparison.sobrantes).toEqual([]);
+      expect(r.comparison.excluded.map((e) => e.code)).toEqual(['802-01', '802-02']);
+      expect(r.comparison.iguales).toBe(true);
+    });
+
+    it('money our ledger carries on a memorandum account is surplus, even under an account the source declares', async () => {
+      // 1110 holds 500.00 of its own and 500.00 on a stored-802.01 subaccount:
+      // rolled up it equals the 1,000.00 the source declares, and still fails.
+      withLedger(
+        [
+          ...ledger('500.0000', '-1000.0000'),
+          { ...ours('802-01', { parent_code: '1110', net: '500.0000', codigo_agrupador_sat: '802.01' })[2] },
+        ],
+        undefined,
+        [
+          { account_id: 'id-1110', account_level: 1, ancestors: [] },
+          { account_id: 'id-3100', account_level: 1, ancestors: [] },
+          { account_id: 'id-802-01', account_level: 2, ancestors: ['id-1110'] },
+        ]
+      );
+      const r = await check(XML_SIMPLE, BASE);
+      expect(r.comparison.diferencias).toEqual([]);
+      expect(r.comparison.sobrantes).toEqual([{ numCta: '802-01', importe: '500.0000' }]);
+      expect(r.comparison.iguales).toBe(false);
+    });
+
+    describe('memorandum money inside a ledger account is refused before the comparison', () => {
+      const UNDER_1000: ChartRow[] = [['1000', '100'], ['1110', '101', 'D', '1000'], BASE[1]];
+      const NESTED: ChartRow[] = [
+        ...UNDER_1000,
+        ['802', '802', 'D', '1000'],
+        ['802-01', '802.01', 'D', '802'],
+        ['802-02', '802.02', 'A', '1000'],
+      ];
+      const nested = (credit: string) =>
+        source(['1000', '1000.00'], ['802', '50000.00'], ['802-01', '50000.00'], ['802-02', credit]);
+
+      it('one side of a pair under 1000: names 1000, 802-01 and the 50,000.00', async () => {
+        const e = await refusal(
+          source(['1000', '51000.00'], ['802-01', '50000.00']),
+          chart([...UNDER_1000, ['802-01', '802.01', 'D', '1000']])
+        );
+        expect(e).toBeInstanceOf(ValidationError);
+        expect(e.messageKey?.key).toBe('migration.check.memorandum_inside_account');
+        expect(e.details).toEqual({
+          accounts: [{ account: '1000', rows: [{ code: '802-01', amount: '50000.0000' }], net: '50000.0000' }],
+        });
+        for (const lang of ['en', 'es'] as const) {
+          expect(e.localized(lang)).toContain('1000: 802-01 50000.0000 = 50000.0000');
+          expect(e.localized(lang)).toContain('docs/memorandum-accounts.md');
+        }
+      });
+
+      it('only the top memorandum row under 1000 counts: a nested pair that nets to zero is not refused', async () => {
+        // 802 (D 50,000.00) already holds 802-01; summing every level would refuse this with 50,000.00.
+        const r = await check(nested('50000.00'), NESTED);
+        expect(r.comparison.excluded.map((x) => x.code)).toEqual(['802', '802-01', '802-02']);
+      });
+
+      it('the same tree with 100,000.00 on the credit side: refused with a net of -50,000.00', async () => {
+        // Summing every level would give 50,000 + 50,000 - 100,000 = 0 and let it through.
+        const e = await refusal(nested('100000.00'), chart(NESTED));
+        expect(e.details).toEqual({
+          accounts: [
+            {
+              account: '1000',
+              rows: [
+                { code: '802', amount: '50000.0000' },
+                { code: '802-02', amount: '100000.0000' },
+              ],
+              net: '-50000.0000',
+            },
+          ],
+        });
+      });
+
+      it("climbs the source's tree, not ours: the catalog's SubCtaDe and Natur win over the entity's", async () => {
+        // Our 802-01 hangs from 1110; the source hangs it from the root, where nothing holds it.
+        withLedger(ours('802-01', { parent_code: '1110', normal_balance: 'credit' }));
+        expect((await check(WITH_PAIR, [...BASE, ...PAIR])).comparison.iguales).toBe(true);
+      });
+
+      it('a memorandum row the catalog does not name is placed by our own tree and nature', async () => {
+        withLedger(ours('802-01', { parent_code: '1110', normal_balance: 'credit', codigo_agrupador_sat: '802.01' }));
+        const e = await refusal(source(['802-01', '300.00']), chart(BASE));
+        expect(e.details).toEqual({
+          accounts: [{ account: '1110', rows: [{ code: '802-01', amount: '300.0000' }], net: '-300.0000' }],
+        });
+      });
+    });
+
+    it.each<[string, string, string | RegExp]>([
+      ["another taxpayer's catalog", chart(BASE, 'AAA010101AAA'), 'migration.chart_option.other_rfc'],
+      ['a BalanzaComprobacion passed as --chart', XML_SIMPLE, /se esperaba <Catalogo>/],
+      ['a blocking reading finding (duplicate NumCta)', chart([...BASE, BASE[0]]), 'migration.chart_option.not_importable'],
+      ['a SubCtaDe cycle', chart([['A', '101', 'D', 'B'], ['B', '101', 'D', 'A']]), 'migration.chart_option.hierarchy_cycle'],
+    ])('a --chart that chart import would not take is refused before the ledger is read: %s', async (_label, chartXml, expected) => {
+      const e = await refusal(XML_SIMPLE, chartXml);
+      expect(e).toBeInstanceOf(ValidationError);
+      if (typeof expected === 'string') expect(e.messageKey?.key).toBe(expected);
+      else expect(e.message).toMatch(expected);
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+    });
+  });
+});
 
 describe('importOpeningBalance · the AR invoices of the opening (MNE-001-022)', () => {
   const DRAFTS = [{ number: 'A-1' }, { number: 'A-2' }];
