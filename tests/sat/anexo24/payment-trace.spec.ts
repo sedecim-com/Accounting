@@ -29,6 +29,9 @@ const payment = (over: Partial<Payment> = {}): Payment => ({
   cuenta_destino: '002180009876543210',
   banco_destino_sat: '002',
   banco_destino_extranjero: null,
+  cuenta_origen: null,
+  banco_origen_sat: null,
+  banco_origen_extranjero: null,
   cfdi_uuid: null,
   contraparte: 'Fletes del Norte SA',
   contraparte_id: 'v-1',
@@ -63,6 +66,7 @@ function finding(
       motivo: r.motivo ?? '',
       ...(r.missingOnRecord !== undefined ? { missingOnRecord: r.missingOnRecord } : {}),
       ...(r.missingOnBankAccount !== undefined ? { missingOnBankAccount: r.missingOnBankAccount } : {}),
+      ...(r.bankAccountFlag !== undefined ? { bankAccountFlag: r.bankAccountFlag } : {}),
       ...(r.noCommandFixes !== undefined ? { noCommandFixes: r.noCommandFixes } : {}),
     },
   ]);
@@ -110,7 +114,7 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
     expect(f.text).not.toContain('payment reverse');
   });
 
-  it('a customer transfer: nothing captures the payer bank, and the remedy says so', () => {
+  it('a customer transfer with no payer bank: captured only at `receipt record --payer-bank`', () => {
     const f = finding(
       payment({ payment_number: 'CPMT-2026-00003', cuenta_destino: null, banco_destino_sat: null }),
       'entra',
@@ -118,7 +122,7 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
     );
     expect(f.node).toBe(false);
     expect(f.text).toContain('el nodo Transferencia exige BancoOriNal');
-    expect(f.text).toContain('receipt record');
+    expect(f.text).toContain('receipt record --payer-bank');
     expect(f.text).not.toContain('payment create');
     expect(f.text).toContain('ningún comando');
   });
@@ -153,7 +157,9 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
       undefined
     );
     expect(f.node).toBe(false);
-    expect(f.text).toContain('no se pudo resolver la cuenta que lo recibió');
+    // Our bank account is named first (#611): it is what BancoDestNal and CtaDest come from.
+    expect(f.text).toContain('el nodo Transferencia exige BancoDestNal');
+    expect(f.text).toContain('se registró sin cuenta bancaria');
     expect(f.text).not.toContain('payment create');
     expect(f.text).toContain('ningún comando');
   });
@@ -173,6 +179,7 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
       finding(payment({ payment_method: 'check', check_number: '1' }), 'sale', account({ sat_bank_code: null })),
       finding(payment({ bank_account_id: null }), 'sale', undefined),
       finding(payment({ cuenta_destino: null }), 'entra', account()),
+      ...RECEIPT_GAPS.map(([, p, bank]) => finding(p, 'entra', bank)),
       finding(payment({ banco_destino_sat: null, banco_destino_extranjero: 'Bank of Nowhere' }), 'sale', account()),
       finding(payment({ banco_destino_sat: null }), 'sale', account()),
     ].map((f) => f.text);
@@ -180,5 +187,79 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
       expect(t).not.toBe('');
       expect(t).not.toMatch(/#\d/);
     }
+  });
+});
+
+// ============================================================
+// #611 · A receipt's payment node: the origin is the customer's (its bank,
+// its account, the cheque it drew), the destination is our bank account.
+// Hand figures from the plan: T1, T2, F1 and the transfer gaps.
+// ============================================================
+
+const PAYER_ACCOUNT = '002180009876543210';
+/** A receipt as `receipt record` stores it: no destination captured, the payer's origin captured. */
+const receipt = (over: Partial<Payment> = {}): Payment =>
+  payment({
+    payment_number: 'PMT-2026-00011',
+    cuenta_destino: null,
+    banco_destino_sat: null,
+    banco_origen_sat: '002',
+    cuenta_origen: PAYER_ACCOUNT,
+    contraparte: 'Cliente Puntual SA',
+    contraparte_id: 'c-1',
+    contraparte_rfc: 'CPU010101AB1',
+    ...over,
+  });
+
+/** The receipt causes of the plan (G1, G2, G6, G7): the case, the receipt, our bank account, and the remedy the reader must find. */
+const RECEIPT_GAPS: ReadonlyArray<readonly [string, Payment, BankAccount | undefined, string, string]> = [
+  ['G1 a transfer with no payer bank', receipt({ banco_origen_sat: null }), account(), 'Transferencia exige BancoOriNal', 'receipt record --payer-bank'],
+  ['G2 a transfer from a foreign payer bank', receipt({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of Nowhere' }), account(), 'Transferencia exige BancoOriNal', 'banco extranjero'],
+  ['G6 a transfer into an account with no c_Banco code', receipt(), account({ sat_bank_code: null }), 'Transferencia exige BancoDestNal', '--sat-bank-code <clave>'],
+  ['G7 a transfer into an account with no number', receipt(), account({ clabe_encrypted: null }), 'Transferencia exige CtaDest', 'bank account edit <cuenta> --clabe'],
+];
+
+describe('a receipt declares the payer as the origin and our bank account as the destination (#611)', () => {
+  it('T1: a complete transfer goes out with the payer bank and account, and ours as the destination', () => {
+    const r = rastroDePago(receipt({ payment_amount: '116.0000' }), 'entra', account(), OURS, passThrough, ENTRY);
+    expect(r.pago).toEqual({
+      clase: 'transferencia',
+      ctaOri: PAYER_ACCOUNT,
+      bancoOriNal: '002',
+      ctaDest: CLABE,
+      bancoDestNal: '012',
+      fecha: '2026-10-15',
+      benef: OURS.nombre,
+      rfc: OURS.rfc,
+      monto: '116.00',
+      moneda: 'MXN',
+    });
+  });
+
+  it('T2: without the payer account the node still goes out, with no CtaOri (optional in the XSD)', () => {
+    const r = rastroDePago(receipt({ cuenta_origen: null }), 'entra', account(), OURS, passThrough, ENTRY);
+    expect(r.pago).toMatchObject({ clase: 'transferencia', bancoOriNal: '002', ctaDest: CLABE, bancoDestNal: '012' });
+    expect(r.pago).not.toHaveProperty('ctaOri');
+  });
+
+  it('F1: a receipt in dollars carries its currency and rate', () => {
+    const r = rastroDePago(
+      receipt({ payment_amount: '100.0000', currency_code: 'USD', exchange_rate: '18.50' }), 'entra', account(), OURS, passThrough, ENTRY
+    );
+    expect(r.pago).toMatchObject({ clase: 'transferencia', monto: '100.00', moneda: 'USD', tipCamb: '18.5' });
+  });
+
+  it.each(RECEIPT_GAPS)('%s: no node, and a remedy that is true and is no vendor command', (_case, p, bank, node, remedy) => {
+    const f = finding(p, 'entra', bank);
+    expect(f.node).toBe(false);
+    expect(f.text).toContain(node);
+    expect(f.text).toContain(remedy);
+    expect(f.text).not.toContain('payment create');
+    expect(f.text).not.toMatch(/#\d/);
+  });
+
+  it('a foreign payer bank is named, on one line', () => {
+    const f = finding(receipt({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of\nNowhere' }), 'entra', account());
+    expect(f.text).toContain('«Bank of Nowhere»');
   });
 });

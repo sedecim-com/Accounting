@@ -37,6 +37,7 @@ import { billsDecidedByIngestion, cashLimitFinding, type CashDeductibilityFindin
 import { getPolicy } from '../policy/policy-service.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
 import { todayFor } from '../policy/today.js';
+import { officialEnumeration } from '../sat/anexo24/official-enumerations.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -167,6 +168,15 @@ export interface EntradaPago {
   /** Nombre del banco destino, cuando es extranjero: el Anexo 24 pide NOMBRE
    *  para el extranjero y CLAVE para el nacional. Son dos campos, no uno. */
   bancoDestinoExtranjero?: string | null;
+
+  // #611 · customer side only: where the customer's money came from. On a
+  // vendor payment the origin is our bank account, so these are refused there.
+  /** The account the customer paid from (CtaOri); the one a cheque is drawn on. */
+  payerAccount?: string | null;
+  /** c_Banco code of the customer's bank (BancoOriNal, or BanEmisNal of a cheque). */
+  payerBankCode?: string | null;
+  /** Name of the customer's bank when it is foreign; never together with the code. */
+  payerForeignBank?: string | null;
 }
 
 /** Longitud de `banco_destino_sat` (VARCHAR(3), c_Banco de tres dígitos). */
@@ -225,6 +235,59 @@ function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor')
         `por «${entrada.paymentMethod}». El número de cheque identifica un cheque: sobre otro método ` +
         'la póliza del Anexo 24 declararía un cheque que no existe. Usa la referencia bancaria para ' +
         'el folio de una transferencia.'
+    );
+  }
+}
+
+/** The payment methods whose node declares an origin bank: Cheque and Transferencia. */
+const METHODS_WITH_AN_ORIGIN_BANK = ['check', 'spei', 'wire', 'ach'];
+
+/**
+ * #611 · THE PAYER'S SIDE OF A RECEIPT'S TRACE, checked before the database
+ * is touched. The code is checked against the c_Banco of the vendored XSD,
+ * the list the vouchers file is judged by, so a code the SAT would reject
+ * never gets stored. The lengths and the pair repeat 335's columns and CHECK
+ * for the message's sake, as `assertRastroDePago` does for the destination.
+ */
+function assertPayerTrace(input: EntradaPago, side: 'cliente' | 'proveedor'): void {
+  const bank = (input.payerBankCode ?? '').trim();
+  const foreign = (input.payerForeignBank ?? '').trim();
+  const account = (input.payerAccount ?? '').trim();
+  if (bank === '' && foreign === '' && account === '') return;
+  if (side === 'proveedor') {
+    throw new ValidationError(
+      'El banco y la cuenta del pagador sólo se capturan en un cobro. En un pago a proveedor el ' +
+        'origen es nuestra cuenta bancaria (`--bank`), y su clave c_Banco vive en esa cuenta.'
+    );
+  }
+  if (!METHODS_WITH_AN_ORIGIN_BANK.includes(input.paymentMethod)) {
+    throw new ValidationError(
+      `Se dio banco o cuenta del cliente a un cobro por «${input.paymentMethod}». Sólo un cheque o ` +
+        'una transferencia declaran de qué banco salió el dinero en la póliza del Anexo 24.'
+    );
+  }
+  if (bank !== '' && foreign !== '') {
+    throw new ValidationError(
+      `El cobro declara banco del cliente nacional («${bank}») y extranjero («${foreign}») a la vez. ` +
+        'Un banco extranjero se da sólo con su nombre: la póliza le pone la clave 999 al escribirlo.'
+    );
+  }
+  if (bank !== '' && !officialEnumeration('c_Banco').has(bank)) {
+    throw new ValidationError(
+      `La clave de banco del cliente «${bank}» no está en el catálogo c_Banco del SAT (tres dígitos ` +
+        'de la lista publicada). Si el banco es extranjero, dilo con su nombre en el campo de banco extranjero.'
+    );
+  }
+  if (account !== '' && bank === '' && foreign === '') {
+    throw new ValidationError(
+      'Se indicó la cuenta del cliente y no su banco. El nodo de pago de la póliza exige el banco de ' +
+        'origen: la cuenta sola no permite emitirlo y sí aparenta que el cobro ya tiene su rastro.'
+    );
+  }
+  if (account.length > 50 || foreign.length > 150) {
+    throw new ValidationError(
+      'La cuenta del cliente admite hasta 50 caracteres y el nombre de su banco extranjero hasta 150, ' +
+        'los mismos límites del nodo de pago de la póliza.'
     );
   }
 }
@@ -501,6 +564,7 @@ export async function recordVendorPayment(
   // promete en `payment create --vendor` y `payment apply --discount`.
   assertAplicaciones(entrada, 'proveedor');
   assertRastroDePago(entrada, 'proveedor');
+  assertPayerTrace(entrada, 'proveedor');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     await assertPayableBankAccount(client, entrada.entityId, entrada.bankAccountId);
@@ -780,6 +844,7 @@ export async function recordCustomerPayment(
   assertEstado(entrada.status);
   assertAplicaciones(entrada, 'cliente');
   assertRastroDePago(entrada, 'cliente');
+  assertPayerTrace(entrada, 'cliente');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     await assertPayableBankAccount(client, entrada.entityId, entrada.bankAccountId);
@@ -926,8 +991,9 @@ export async function recordCustomerPayment(
          payment_method, reference_number, bank_account_id, payment_date,
          status, created_by, cfdi_uuid, cfdi_pago_indice,
          check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero, exchange_rate,
-         advance_factor_type, advance_tax_rate, advance_base_amount, advance_iva_amount
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+         advance_factor_type, advance_tax_rate, advance_base_amount, advance_iva_amount,
+         cuenta_origen, banco_origen_sat, banco_origen_extranjero
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
       [paymentId, entrada.entityId, paymentNumber, customerId, entrada.paymentAmount,
        advanceCurrency ?? currencyOf(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate, ESTADO, userId,
@@ -938,7 +1004,9 @@ export async function recordCustomerPayment(
        // in the functional one: the column's DEFAULT cannot tell the two apart.
        fx?.tasaPago ?? '1.0',
        // MNE-001-458: born with the row (four NULLs when none was stated).
-       advance?.factorType ?? null, advance?.taxRate ?? null, advance?.base ?? null, advance?.iva ?? null]
+       advance?.factorType ?? null, advance?.taxRate ?? null, advance?.base ?? null, advance?.iva ?? null,
+       // #611: the payer's side of the trace (335).
+       oNulo(entrada.payerAccount), oNulo(entrada.payerBankCode), oNulo(entrada.payerForeignBank)]
     );
 
     for (const app of entrada.applications) {

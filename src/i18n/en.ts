@@ -3134,6 +3134,13 @@ export const EN = {
     'IVA treatment of an advance: 16, 8, 0, exempt (exento) or not-subject (no-objeto); with no invoice it is required, and with one it states the treatment of the excess --on-account leaves; the IVA is caused on collection',
   'help.receipt.record.option.on_account':
     'let the amount exceed the invoice due: the excess stays on account as an advance and causes its IVA on collection (LIVA art. 1-B), at --tax-rate or the invoice\'s own rate',
+  // #611: the payer's side of the Anexo 24 payment node.
+  'help.receipt.record.option.payer_bank':
+    'c_Banco code (3 digits) of the bank the customer paid from; checked against the SAT list',
+  'help.receipt.record.option.payer_account':
+    'account the customer paid from (for a cheque, the account it is drawn on); needs --payer-bank or --payer-foreign-bank',
+  'help.receipt.record.option.payer_foreign_bank':
+    'full name of the customer\'s bank when it is foreign, instead of --payer-bank',
   // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
   'help.receipt.apply.description':
     'Apply the on-account balance of a collection to invoices: releases PPD IVA, and an advance cancels the IVA it caused instead of causing it again. It covers procedure A of Anexo 20, Appendix 6 (the sale invoiced whole); under procedure B the advance moves to revenue by a journal entry',

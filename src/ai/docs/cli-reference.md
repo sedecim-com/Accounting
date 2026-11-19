@@ -4543,40 +4543,48 @@ Record cash received: against an invoice, releasing the IVA it was holding, or
 with no invoice as a customer advance
 
 Arguments:
-  invoice                  invoice number or id; without it the cash is an
-                           advance, and --customer names who paid it
+  invoice                      invoice number or id; without it the cash is an
+                               advance, and --customer names who paid it
 
 Options:
-  --customer <ref>         the customer who paid (number, name or id); required
-                           with no invoice, and with one it must be the
-                           invoice's own
-  --tax-rate <rate>        IVA treatment of an advance: 16, 8, 0, exempt
-                           (exento) or not-subject (no-objeto); with no invoice
-                           it is required, and with one it states the treatment
-                           of the excess --on-account leaves; the IVA is caused
-                           on collection
-  --on-account             let the amount exceed the invoice due: the excess
-                           stays on account as an advance and causes its IVA on
-                           collection (LIVA art. 1-B), at --tax-rate or the
-                           invoice's own rate
-  --amount <amount>        amount, in the document currency
-  --date <date>            value date (YYYY-MM-DD); defaults to today
-  --method <method>        cash, check, ach, wire, spei, credit_card or other
-                           (default: "spei")
-  --bank <account>         bank account name or id; without it the entity's
-                           `banco` role is used
-  --reference <text>       bank reference or transfer number
-  --json                   JSON output
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  -y, --yes                skip the confirmation prompt
-  --dry-run                compute and show the full effect; write nothing and
-                           call nothing external
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
-  -h, --help               display help for command
+  --customer <ref>             the customer who paid (number, name or id);
+                               required with no invoice, and with one it must be
+                               the invoice's own
+  --tax-rate <rate>            IVA treatment of an advance: 16, 8, 0, exempt
+                               (exento) or not-subject (no-objeto); with no
+                               invoice it is required, and with one it states
+                               the treatment of the excess --on-account leaves;
+                               the IVA is caused on collection
+  --on-account                 let the amount exceed the invoice due: the excess
+                               stays on account as an advance and causes its IVA
+                               on collection (LIVA art. 1-B), at --tax-rate or
+                               the invoice's own rate
+  --payer-bank <code>          c_Banco code (3 digits) of the bank the customer
+                               paid from; checked against the SAT list
+  --payer-account <number>     account the customer paid from (for a cheque, the
+                               account it is drawn on); needs --payer-bank or
+                               --payer-foreign-bank
+  --payer-foreign-bank <name>  full name of the customer's bank when it is
+                               foreign, instead of --payer-bank
+  --amount <amount>            amount, in the document currency
+  --date <date>                value date (YYYY-MM-DD); defaults to today
+  --method <method>            cash, check, ach, wire, spei, credit_card or
+                               other (default: "spei")
+  --bank <account>             bank account name or id; without it the entity's
+                               `banco` role is used
+  --reference <text>           bank reference or transfer number
+  --json                       JSON output
+  -e, --entity <idOrName>      legal entity to operate on (defaults to the
+                               active one)
+  -t, --tenant <id>            tenant (firm) whose data to scope to
+  -u, --user <email>           acting user, for attribution and permissions
+  -y, --yes                    skip the confirmation prompt
+  --dry-run                    compute and show the full effect; write nothing
+                               and call nothing external
+  --idempotency-key <key>      client dedupe key, stored on success: a retry
+                               with the same key and payload returns the
+                               recorded result
+  -h, --help                   display help for command
 
 Examples:
   # Cash received against one invoice; this releases the PPD IVA it was holding.
