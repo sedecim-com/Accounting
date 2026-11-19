@@ -936,6 +936,20 @@ describe('las escrituras piden lo que el catálogo promete', () => {
 
 // ---- import: el cableado completo, con un CSV de verdad -------------
 
+// MNE-001-556 (T11) · one cheque per recording: a vendor payment or a customer receipt.
+describe('bank check reconcile names exactly one cheque', () => {
+  it.each([
+    ['a vendor payment and a receipt together', [PAGO, '--receipt', 'PMT-2026-00042'], /exactly one cheque/],
+    ['neither', [], /exactly one cheque/],
+    ['two receipts', ['--receipt', 'PMT-2026-00042', '--receipt', 'PMT-2026-00043'], /One --receipt per recording/],
+  ])('%s is a usage error that reads nothing', async (_case, args, message) => {
+    const r = await run(['bank', 'check', 'reconcile', ...args, '--yes'], lector());
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(message);
+    expect(r.sql).toEqual([]);
+  });
+});
+
 describe('bank statement import', () => {
   let dir: string;
   let archivo: string;

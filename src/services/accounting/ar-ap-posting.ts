@@ -579,6 +579,13 @@ interface PaymentRow {
   /** MNE-001-458 · the base and IVA an advance's cash on account splits into; absent: credited whole. */
   advance_base_amount?: string | null;
   advance_iva_amount?: string | null;
+  /**
+   * MNE-001-556 · a customer cheque the bank has not cashed yet: a price paid
+   * by cheque, and its IVA, is paid the day it is cashed (LIVA art. 1-B, second
+   * paragraph), so the receipt and its applications release nothing and the
+   * recorded cashing does (`recordCustomerCheckCashing`).
+   */
+  holdsIvaUntilCashed?: boolean;
 }
 
 /**
@@ -711,7 +718,11 @@ export async function postCustomerPaymentEntry(
   if (!new Decimal(payment.payment_amount).greaterThan(0)) return null;
 
   const bank = await bankAccountOf(client, payment.entity_id, payment.bank_account_id);
-  const iva = await ivaReclassLines(client, 'issued', payment, fx ? ivaFxOf(fx) : undefined);
+  // A held cheque releases nothing here; its allocations store 0 below, as any
+  // allocation that released nothing does.
+  const iva = payment.holdsIvaUntilCashed
+    ? { lines: [], documents: [], items: [] }
+    : await ivaReclassLines(client, 'issued', payment, fx ? ivaFxOf(fx) : undefined);
   const { jeLines, memo, difference } = fx
     ? await foreignReceiptLines(client, payment, fx, bank, iva)
     : { ...(await functionalReceiptLines(client, payment, bank.glAccountId, iva)), difference: undefined };
@@ -1050,7 +1061,8 @@ export async function postReceiptApplicationEntry(
   const ivaLines: JeLine[] = [];
   const documentos: string[] = [];
 
-  if (cashBasis) {
+  // A cheque not cashed yet releases nothing: the caller stores 0 and the cashing releases it.
+  if (cashBasis && !payment.holdsIvaUntilCashed) {
     const { from, to } = reclassRoles('issued');
     const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
     for (const app of aplicaciones) {
