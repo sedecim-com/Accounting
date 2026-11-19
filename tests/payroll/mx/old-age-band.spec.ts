@@ -18,7 +18,9 @@ import {
 import {
   placeOldAgeBand,
   readOldAgeBandEdge,
+  readOldAgeMinimumWageArea,
   type OldAgeBandEdge,
+  type OldAgeMinimumWageArea,
 } from '../../../src/services/payroll/mx/old-age-band.js';
 
 /**
@@ -47,18 +49,26 @@ const EMPLOYER = {
 const lawful = (day: string): Record<string, unknown> => ({
   uma_daily: day < '2026-02-01' ? 113.14 : 117.31,
   salario_minimo_general_diario: day < '2027-01-01' ? 315.04 : 340,
+  salario_minimo_frontera_diario: 440.87,
   imss_employer: EMPLOYER,
 });
+
+/** The area of an entity that never declared its zone: the general minimum, said so (MNE-001-376). */
+const UNDECLARED: OldAgeMinimumWageArea = { zone: 'general', rule: 'employer_registration_area', declared: false };
+const BORDER: OldAgeMinimumWageArea = { zone: 'northern_border', rule: 'employer_registration_area', declared: true };
+const GENERAL_ZONE: OldAgeMinimumWageArea = { zone: 'general', rule: 'general_zone', declared: true };
 
 const quota = (
   sbc: number,
   start: string,
   end: string,
-  edge: OldAgeBandEdge | null = 'above_upper_edge'
+  edge: OldAgeBandEdge | null = 'above_upper_edge',
+  area: OldAgeMinimumWageArea | null = UNDECLARED
 ) =>
   new MexicoImssEmployerCalculator().calculate({
     pay_frequency: 'quincenal', tax_year: Number(end.slice(0, 4)), taxable_wages: 0,
     sbc_daily: sbc, period_start: start, period_end: end, imss_old_age_band_edge: edge ?? undefined,
+    imss_minimum_wage_area: area ?? undefined,
   });
 const oldAge = async (...args: Parameters<typeof quota>): Promise<number | undefined> =>
   (await quota(...args)).breakdown?.cesantia_vejez;
@@ -145,7 +155,7 @@ describe('what is missing is named, never 3.150 %, zero or 315.04', () => {
     await expect(
       new MexicoImssEmployerCalculator().calculate({
         pay_frequency: 'quincenal', tax_year: 2026, taxable_wages: 0, sbc_daily: 400, days_in_period: 15,
-        imss_old_age_band_edge: 'above_upper_edge',
+        imss_old_age_band_edge: 'above_upper_edge', imss_minimum_wage_area: UNDECLARED,
       })
     ).rejects.toThrow(/period_start/);
     await expect(quota(400, ...MARCH, null)).rejects.toThrow(/imss_old_age_band_edge/);
@@ -176,7 +186,7 @@ describe('the notes say how the rate was reached', () => {
     expect(notes).toMatch(/^Work risk class 01; /);
     expect(notes).toContain(
       'from 2026-12-29, 3 days: band «3.01 a 3.50 UMA» at 6.361 %, UMA 117.31, ' +
-        'minimum wage 315.04 (ZSMG until #196), edge rule above_upper_edge'
+        'minimum wage 315.04 (general: the entity has not declared its zone), edge rule above_upper_edge'
     );
     expect(notes).toContain('from 2027-01-01, 4 days: band «3.01 a 3.50 UMA» at 7.164 %, UMA 117.31, minimum wage 340.00');
   });
@@ -202,5 +212,81 @@ describe('readOldAgeBandEdge', () => {
     const spec = getPolicySpec('imss_old_age_band_edge');
     expect(spec?.defaultValue).toBe('above_upper_edge');
     expect(spec?.options.map((o) => o.value)).toEqual(['above_upper_edge', 'truncated_to_hundredths']);
+  });
+});
+
+// ============================================================
+// MNE-001-578 (#196): the «1.00 SM» band is measured with the general minimum
+// of the area of the employer registration, the entity's zone (#661, LFT art.
+// 92, LSS arts. 28, 39 and 168 fr. II a); the policy can take the centre-zone
+// minimum for everyone instead. March 2026, 15 days, 1.00 SM = 315.04 general
+// or 440.87 at the border; 3.50 UMA = 410.585, 4.00 UMA = 469.24.
+// ============================================================
+describe('the minimum wage of the «1.00 SM» band is the area of the employer registration', () => {
+  it('T11 · six figures by hand', async () => {
+    // The total is the old-age line (every other rate is zero), rounded to the cent.
+    const line = async (...args: Parameters<typeof quota>): Promise<number> => (await quota(...args)).tax_amount;
+    // 400.00 × 3.150 % × 15
+    expect(await line(400, ...MARCH, 'above_upper_edge', BORDER)).toBe(189);
+    // 400.00 × 6.361 % × 15, as in #757
+    expect(await line(400, ...MARCH, 'above_upper_edge', GENERAL_ZONE)).toBe(381.66);
+    // 440.87 × 3.150 % × 15 = 208.311075
+    expect(await line(440.87, ...MARCH, 'above_upper_edge', BORDER)).toBe(208.31);
+    // 440.87 × 6.613 % × 15 = 437.3209965
+    expect(await line(440.87, ...MARCH, 'above_upper_edge', GENERAL_ZONE)).toBe(437.32);
+    // 440.88 × 6.613 % × 15 = 437.330916
+    expect(await line(440.88, ...MARCH, 'above_upper_edge', BORDER)).toBe(437.33);
+    // never declared: the general minimum, and the note says so
+    expect(await line(400, ...MARCH, 'above_upper_edge', UNDECLARED)).toBe(381.66);
+  });
+
+  it('T12 · the note names the area and who decided it', async () => {
+    expect((await quota(400, ...MARCH, 'above_upper_edge', BORDER)).notes).toContain(
+      "band «1.00 SM» at 3.150 %, UMA 117.31, minimum wage 440.87 (northern_border, the employer registration's area)"
+    );
+    expect((await quota(400, ...MARCH, 'above_upper_edge', GENERAL_ZONE)).notes).toContain(
+      'minimum wage 315.04 (general zone for every worker, policy general_zone)'
+    );
+  });
+
+  it('T13 · without the area, or without the border minimum of the day, it stops and names what is missing', async () => {
+    await expect(quota(400, ...MARCH, 'above_upper_edge', null)).rejects.toThrow(/imss_old_age_minimum_wage_area/);
+    row.at = (day) => ({ ...lawful(day), salario_minimo_frontera_diario: undefined });
+    await expect(quota(400, ...MARCH, 'above_upper_edge', BORDER)).rejects.toThrow(/salario_minimo_frontera_diario/);
+  });
+});
+
+describe('readOldAgeMinimumWageArea', () => {
+  const answer = (value: string): void => {
+    vi.mocked(getPolicy).mockResolvedValue({ key: 'imss_old_age_minimum_wage_area', value } as never);
+  };
+  const zoneRow = (r: Record<string, unknown>): void => {
+    vi.mocked(query).mockResolvedValue({ rows: [r] } as never);
+  };
+
+  it('T14 · employer_registration_area reads the entity\'s zone, declared or not', async () => {
+    answer('employer_registration_area');
+    zoneRow({ entity_zone: 'northern_border', entity_declared: true, employee_zone: null });
+    expect(await readOldAgeMinimumWageArea({ tenantId: 't', entityId: 'e' })).toEqual(BORDER);
+    zoneRow({ entity_zone: 'general', entity_declared: false, employee_zone: null });
+    expect(await readOldAgeMinimumWageArea({ tenantId: 't', entityId: 'e' })).toEqual(UNDECLARED);
+  });
+
+  it('T14 · general_zone takes the centre-zone minimum without reading the entity, and an unknown value is refused', async () => {
+    answer('general_zone');
+    vi.mocked(query).mockClear();
+    expect(await readOldAgeMinimumWageArea({ tenantId: 't', entityId: 'e' })).toEqual(GENERAL_ZONE);
+    expect(query).not.toHaveBeenCalled();
+    answer('frontera');
+    await expect(readOldAgeMinimumWageArea({ tenantId: 't', entityId: 'e' })).rejects.toMatchObject({
+      code: 'IMSS_OLD_AGE_MINIMUM_WAGE_AREA_UNKNOWN',
+    });
+  });
+
+  it('T14 · the catalog default is the area of the employer registration', async () => {
+    const { getPolicySpec } = await import('../../../src/services/policy/pending-catalog.js');
+    const spec = getPolicySpec('imss_old_age_minimum_wage_area');
+    expect(spec?.defaultValue).toBe('employer_registration_area');
+    expect(spec?.options.map((o) => o.value)).toEqual(['employer_registration_area', 'general_zone']);
   });
 });
