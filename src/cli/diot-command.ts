@@ -225,8 +225,14 @@ export function mesDeLaDiot(expr: string | undefined): { anio: number; mes: numb
  * cambiar sin que cambie de qué habla el hallazgo.
  */
 export const CODIGOS_POR_CHECK = Object.freeze({
-  /** El suceso del mayor: ¿hay pago, y no se libera más de lo aparcado? */
-  'hecho-pagado': Object.freeze(['DIOT-PUE-SIN-PAGO', 'DIOT-PUE-ESPERA-PAGO', 'DIOT-TOPE-APARCADO']),
+  /** El suceso del mayor: ¿hay pago, y no se libera más de lo aparcado? A cheque counts when cashed. */
+  'hecho-pagado': Object.freeze([
+    'DIOT-PUE-SIN-PAGO',
+    'DIOT-PUE-ESPERA-PAGO',
+    'DIOT-TOPE-APARCADO',
+    'DIOT-CHEQUE-NOT-CASHED',
+    'DIOT-CHEQUE-CREDITED-BEFORE-CASHING',
+  ]),
   /** El reparto por tasa: la DIOT declara por casilla, no un total. */
   'desglose-por-tasa': Object.freeze([
     'DIOT-SIN-RENGLONES',
