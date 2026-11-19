@@ -21,7 +21,7 @@ import type { ResultadoAcumulacion } from '../services/payroll/common/employer-l
 import { ConflictError } from '../utils/errors.js';
 import { parseForClient } from '../utils/zod-client-errors.js';
 import { t } from '../i18n/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
 import { registerPayRunPostCommand } from './pay-run-post-command.js';
 import {
@@ -252,7 +252,7 @@ export function registerPayRunCommand(program: Command, deps: PayRunCommandDeps)
     try {
       const answer = await confirmarConReintento(
         (q) => rl.question(q).catch(() => null),
-        p.cyan(`${question} [y/N] `)
+        p.cyan(yesNoPrompt(question))
       );
       if (answer.incomprendida !== undefined) process.stderr.write(`${noEntendi(answer.incomprendida)}\n`);
       return answer.si;

@@ -1,5 +1,5 @@
 import * as readline from 'node:readline/promises';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { stdin, stdout } from 'node:process';
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
@@ -512,7 +512,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
           // kernel, que distingue el sí del salir y reintenta ante lo ambiguo.
           const veredicto = await confirmarConReintento(
             (p) => rl.question(p).catch(() => null),
-            deps.palette.cyan(`Reopen ${target.period_name} (${target.status} → open)? [y/N] `)
+            deps.palette.cyan(yesNoPrompt(`Reopen ${target.period_name} (${target.status} → open)?`))
           );
           rl.close();
           if (veredicto.incomprendida !== undefined) {

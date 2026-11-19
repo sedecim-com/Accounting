@@ -32,7 +32,7 @@ import {
   exitCodeFor,
   dateOnly as day,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 
 // ============================================================
 // mnemosine credit-note · nota-credito
@@ -178,7 +178,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        `${question} [y/N] `
+        yesNoPrompt(question)
       );
       if (veredicto.si) return;
       throw abortedByUser(

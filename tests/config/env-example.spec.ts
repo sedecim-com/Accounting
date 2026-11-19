@@ -237,6 +237,12 @@ describe('.env.example es el censo, no una lista escrita a mano', () => {
     ).toEqual([]);
   });
 
+  it('MNEMOSINE_PROVIDER va vacío: un .env copiado no tapa el default_provider que guarda init', () => {
+    const m = /^MNEMOSINE_PROVIDER=(.*)$/m.exec(ejemplo);
+    expect(m, 'MNEMOSINE_PROVIDER debe estar declarado en .env.example').not.toBeNull();
+    expect(m?.[1].trim()).toBe('');
+  });
+
   it('ningún valor de ejemplo parece un secreto de verdad', () => {
     // Los tres secretos del sistema se declaran VACÍOS a propósito. Un ejemplo
     // con contenido acaba copiado a un .env y de ahí a producción.
