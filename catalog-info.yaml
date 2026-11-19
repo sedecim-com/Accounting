@@ -67,6 +67,11 @@ provides:
     # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed
     # credit_note.advance.exceeds_invoiced_advance, covers --dry-run and --yes alike, and
     # writes nothing. The other three types post as before.
+    # CONTRACT: POST /v1/pre-registrations/:id/process and `bill inbox run` post a received
+    # credit note (type E, TipoRelacion 01 or 03) against the one bill it names instead of
+    # failing with UNSUPPORTED_TYPE (MNE-001-555): an entry of source vendor_credit_note and a
+    # lower amount_due. A note that cannot be posted answers 422 CFDI_REQUIERE_DECISION with
+    # its reason and stays in the inbox; the panel key received_credit_note_cost is new.
   - file: sat-anexo24            # XML de catálogo, balanza, pólizas y auxiliares (a requerimiento, MNE-001-054); DIOT, SUA, CFDI de nómina (los presenta el contribuyente, en el portal).
     # CONTRACT: under efirma_sellado_contabilidad_electronica = sellar_con_custodia,
     # `e-accounting catalog seal` and `balance seal` hand over the archived CtaCatalogo and

@@ -20,6 +20,7 @@ import { money, satKey, sumTax } from './cfdi-amounts.js';
 import { registerIssuedInvoice } from './issued-invoice-approval.js';
 import { extractPagosCompletos } from './cfdi-facts.js';
 import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
+import { postReceivedCreditNote } from './received-credit-note-posting.js';
 import { SATValidationService } from './sat-validation.js';
 
 /**
@@ -379,6 +380,8 @@ export class PreRegistrationService {
 
     if (
       updated.processing_mode === 'auto' &&
+      // No rule posts a credit note by itself yet (MNE-001-555): it stays ready for a person.
+      updated.document_type !== 'credit_note' &&
       updated.validation_status === 'valid' &&
       !updated.requires_approval &&
       updated.status === 'ready'
@@ -727,6 +730,11 @@ export class PreRegistrationService {
           break;
         case 'payment':
           result = await this.procesarREP(preReg, userId);
+          break;
+        // A vendor's credit note lowers the bill it names (MNE-001-555). It creates no bill, so
+        // `bill_id` stays null: the related bill keeps its one pre-registration.
+        case 'credit_note':
+          result = { journalEntry: (await postReceivedCreditNote(preReg as never, userId)) as unknown as Record<string, unknown> };
           break;
         default:
           throw new AccountingError('UNSUPPORTED_TYPE', `Unsupported document type: ${preReg.document_type}`);

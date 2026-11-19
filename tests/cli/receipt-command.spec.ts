@@ -378,4 +378,25 @@ describe('receipt reverse --cause (MNE-001-509)', () => {
     const { rows } = JSON.parse(out) as { rows: Record<string, unknown>[] };
     expect(rows[0]).toMatchObject({ status: 'reversed', reversal_cause: 'taken_back' });
   });
+
+  it('receipt show, with no format asked for, prints the detail: the cause of a reversal and the advance CFDI where the REP was', async () => {
+    const row = {
+      id: 'pay-1', payment_number: 'PMT-2026-00042', status: 'reversed', payment_amount: '1160.00', currency_code: 'MXN',
+      payment_date: new Date('2026-05-20'), payment_method: 'bank_transfer', unapplied_amount: '1160.00', aplicaciones: [],
+      customer_name: 'Grupo Alameda', cfdi_uuid: null, advance_base: '1000.00', advance_tax_rate: '16', advance_iva: '160.00',
+      reversed_at: new Date('2026-06-02T10:00:00Z'), reversal_cause: null,
+    };
+    vi.mocked(payments.getCustomerPayment).mockResolvedValueOnce(row as never);
+    const all = await receipt(['show', 'PMT-2026-00042']);
+    expect(all.errs).toEqual([]);
+    expect(all.out).toMatch(/Reversal cause\s+not stated/);
+    expect(all.out).toContain(t('receipt.advance.cfdi_owed', {}, 'en'));
+    expect(all.out).not.toContain('sin REP');
+
+    // Part advance, part not: the REP is still owed.
+    vi.mocked(payments.getCustomerPayment).mockResolvedValueOnce({ ...row, payment_amount: '2000.00', reversal_cause: 'taken_back' } as never);
+    const part = await receipt(['show', 'PMT-2026-00042']);
+    expect(part.out).toMatch(/Reversal cause\s+taken_back/);
+    expect(part.out).toContain('sin REP');
+  });
 });

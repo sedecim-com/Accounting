@@ -1337,6 +1337,15 @@ export const EN = {
   'policy.short_payment_residual.option.prohibir':
     'Refuse: no bill closes short — demand the vendor credit note',
 
+  'policy.received_credit_note_cost.question': 'When a vendor sends a credit note for a bill, which account takes the cost it lowers?',
+  'policy.received_credit_note_cost.impact': 'Governs the entry of a received credit note posted from the inbox (`bill inbox run`). With "bill_accounts" the cost goes back to the expense accounts the bill debited, in proportion to its lines. With "purchase_returns" it goes to purchase returns and discounts (5200), whatever the bill debited. The payable and the VAT move the same either way.',
+  'policy.received_credit_note_cost.rationale': 'It reverses what the bill booked, so nothing moves between cost of sales and operating expenses, which a statement of comprehensive income classified by function presents apart (NIF B-3). An operating expense lowered through 5200 would understate a cost of sales it never was part of.',
+  'policy.received_credit_note_cost.why': 'A credit note lowers what a purchase cost. Some firms want that in the same account as the expense; others keep returns and discounts in their own account to see how much vendors give back.',
+  'policy.received_credit_note_cost.what': 'When you run a vendor credit note from the inbox, I debit accounts payable for its total, take its VAT out of where the VAT of its bill is, and credit the cost to the account you choose here.',
+  'policy.received_credit_note_cost.if_skipped': 'The cost goes back to the expense accounts of the bill.',
+  'policy.received_credit_note_cost.option.bill_accounts': 'The accounts the bill debited: the note reverses what was booked',
+  'policy.received_credit_note_cost.option.purchase_returns': 'Purchase returns and discounts (5200): what vendors give back is shown apart',
+
   'policy.employment_subsidy_paid_treatment.question':
     'When the employment subsidy exceeds the ISR withheld and you hand the difference to the worker in cash, is that a receivable from the tax authority or an expense of the firm?',
   'policy.employment_subsidy_paid_treatment.impact':
@@ -2288,6 +2297,7 @@ export const EN = {
   'credit_note.received.refusal.exceeds_balance': 'Credit note {note} is for {total} and bill {bill} owes {due}. A credit note larger than the balance of its bill is not posted.',
   'credit_note.received.refusal.vat_out_of_proportion': 'Credit note {note} carries {vat} of VAT, and in the proportion of bill {bill} it would carry {expected}. A bill with more than one VAT rate does not say which part the note lowers; it waits for a person.',
   'credit_note.received.refusal.capitalised_line': 'Bill {bill} has a line on an account with the role {role}. Credit note {note} would lower an asset and not an expense; it waits for a person.',
+  'credit_note.received.closed_period': 'Credit note {note} is dated {date}, in a period that is closed. It waits until the closed-period policy is answered: mnemosine pending define cfdi_periodo_cerrado periodo_actual',
   'payment.apply.other_vendor':
     '{bill} belongs to vendor {billVendor}, and payment {payment} belongs to vendor {paymentVendor}: cash on account settles only bills of its own vendor. Record the payment under {billVendor}, or apply {payment} to a bill of {paymentVendor}.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
@@ -2321,6 +2331,10 @@ export const EN = {
   'receipt.reverse.cause.defaulted':
     'cause not_collected, taken by default: a cheque is paid the day the bank cashes it',
   'receipt.reverse.cause.none': 'no cause stated',
+  'receipt.advance.cfdi_owed':
+    'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
+  'receipt.advance.invoice_already_booked':
+    '{customer} has {invoices} open, and its own entry already credited customer advances: an advance CFDI in the books. The cash of that advance is recorded against it (receipt record {invoice}), not as a new advance. Go on only if this is another advance.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
@@ -3986,6 +4000,11 @@ export const EN = {
   'payrun.post.drafted': 'Entry of run {id} left as draft {draft}: approve it with `mnemosine review`.',
   'payrun.post.posted': 'Entry of run {id} posted as {number}.',
   'payrun.post.repeated': 'The entry of run {id} was already written under this key: the recorded result is shown.',
+  // The law row of the employment subsidy's excess over the ISR (#600).
+  'payroll.employment_subsidy.excess_rule_unknown':
+    'The legal parameter {key} in force on the payment date {payDate} is {value} (row effective from {effectiveFrom}) ' +
+    'and only 0 or 1 is a rule: 1 hands the subsidy in excess of the ISR to the worker in cash, 0 hands over nothing. ' +
+    'Correct the row against its official source; no paycheck is calculated with a guessed share.',
 
   // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
   'help.e_accounting.voucher.description': 'The period vouchers the SAT asks for on request: PolizasPeriodo 1.3',

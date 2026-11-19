@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
@@ -6,6 +7,12 @@ vi.mock('../../../src/database/connection.js', () => ({
 vi.mock('../../../src/services/policy/policy-service.js', () => ({
   getPolicy: vi.fn(),
 }));
+// The real reader, wrapped: the calculator tests below still read the law
+// through the mocked `query`, and the excess-rule tests answer for it once.
+vi.mock('../../../src/services/jurisdiction/legal-parameters.js', async (original) => {
+  const actual = await original<typeof import('../../../src/services/jurisdiction/legal-parameters.js')>();
+  return { ...actual, legalParameterAt: vi.fn(actual.legalParameterAt) };
+});
 
 import { query } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
@@ -20,8 +27,17 @@ import {
   subsidyOfPaycheckInPeriod,
   subsidyOfOtherRunsInPeriod,
   subsidyDaysInPeriod,
+  EMPLOYMENT_SUBSIDY_EXCESS_LAW,
+  applyEmploymentSubsidy,
+  readEmploymentSubsidyExcessRule,
   type EmploymentSubsidyRounding,
 } from '../../../src/services/payroll/mx/employment-subsidy.js';
+import {
+  legalParameterAt,
+  LegalParameterUnavailableError,
+} from '../../../src/services/jurisdiction/legal-parameters.js';
+import { LEGAL_PARAMETERS_SEED } from '../../../src/services/jurisdiction/legal-parameters-seed.js';
+import { AccountingError } from '../../../src/utils/errors.js';
 import { POLICY_CATALOG } from '../../../src/services/policy/pending-catalog.js';
 import type { PayFrequency, TaxInput } from '../../../src/services/payroll/tax-engine/tax-engine.interface.js';
 
@@ -39,6 +55,7 @@ import type { PayFrequency, TaxInput } from '../../../src/services/payroll/tax-e
 
 const mockQuery = query as unknown as Mock;
 const mockGetPolicy = getPolicy as unknown as Mock;
+const mockLegalParameterAt = legalParameterAt as unknown as Mock;
 
 /** The rows migration 095 loads, as `legal_parameters` returns them. */
 const LAW: Array<{ key: string; from: string; value: string }> = [
@@ -272,5 +289,103 @@ describe('the subsidy of a later paycheck of the same period', () => {
     expect(sql).toMatch(/pr\.id <> \$4/);
     expect(sql).toMatch(/pr\.status IN \('calculated', 'approved', 'paid'\)/);
     expect(args).toEqual(['t', 'emp', 'per', 'run']);
+  });
+});
+
+/**
+ * THE SUBSIDY IN EXCESS OF THE ISR FOLLOWS THE LAW OF THE PAYMENT DATE
+ * (#600, MNE-001-440, part 1 of 3).
+ *
+ * Until 30 April 2024 the employer handed the worker the part of the subsidy
+ * the ISR did not absorb; from 1 May 2024 nothing is handed over. The rule is
+ * a dated row of `legal_parameters`: the share of that excess paid in cash.
+ */
+describe('the subsidy in excess of the ISR, by the rule of the payment date', () => {
+  const figures = (isr: number, subsidy: number, paidShare: 0 | 1) => {
+    const r = applyEmploymentSubsidy(isr, subsidy, { paidShare });
+    return [r.isrWithheld, r.subsidyCredited, r.paidInCash, r.excessNotPaid];
+  };
+
+  it('T1 · share 1 hands the excess to the worker in cash', () => {
+    expect(figures(158.57, 406.62, 1)).toEqual(['0.0000', '158.5700', '248.0500', '0.0000']);
+  });
+
+  it('T2 · share 0 hands over nothing, and the excess is named instead of lost', () => {
+    expect(figures(158.57, 406.62, 0)).toEqual(['0.0000', '158.5700', '0.0000', '248.0500']);
+  });
+
+  it('T2 · with the ISR above the subsidy both shares give the same result', () => {
+    const absorbed = ['500.0000', '300.0000', '0.0000', '0.0000'];
+    expect(figures(800, 300, 1)).toEqual(absorbed);
+    expect(figures(800, 300, 0)).toEqual(absorbed);
+  });
+
+  it('a negative ISR or subsidy counts as zero under both shares', () => {
+    expect(figures(100, -50, 0)).toEqual(['100.0000', '0.0000', '0.0000', '0.0000']);
+    expect(figures(-10, 50, 1)).toEqual(['0.0000', '0.0000', '50.0000', '0.0000']);
+  });
+
+  const row = (value: string, effectiveFrom: string) => ({
+    jurisdiction: 'MX', key: EMPLOYMENT_SUBSIDY_EXCESS_LAW, value, unit: 'rate', effectiveFrom,
+    sourceUrl: 'https://dof.gob.mx/x', sourceNote: 'the decree',
+  });
+
+  it('T3 · reads 1.0000 and 0.0000 on the payment date, with the row that says so', async () => {
+    mockLegalParameterAt.mockResolvedValueOnce(row('1.0000', '2014-01-01'));
+    expect(await readEmploymentSubsidyExcessRule('2024-04-30')).toEqual({
+      paidShare: 1, effectiveFrom: '2014-01-01', sourceUrl: 'https://dof.gob.mx/x', sourceNote: 'the decree',
+    });
+    const client = {} as never;
+    mockLegalParameterAt.mockResolvedValueOnce(row('0.0000', '2024-05-01'));
+    const rule = await readEmploymentSubsidyExcessRule('2024-05-01', client);
+    expect([rule.paidShare, rule.effectiveFrom]).toEqual([0, '2024-05-01']);
+    expect(mockLegalParameterAt).toHaveBeenLastCalledWith('MX', EMPLOYMENT_SUBSIDY_EXCESS_LAW, '2024-05-01', client);
+  });
+
+  it('T3 · refuses a share that is neither 0 nor 1, naming the key and the date', async () => {
+    mockLegalParameterAt.mockResolvedValueOnce(row('0.5000', '2024-05-01'));
+    const refused = await readEmploymentSubsidyExcessRule('2026-03-15').catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(AccountingError);
+    const e = refused as AccountingError;
+    expect(e.code).toBe('EMPLOYMENT_SUBSIDY_EXCESS_RULE_UNKNOWN');
+    for (const named of [EMPLOYMENT_SUBSIDY_EXCESS_LAW, '2026-03-15', '0.5000', '2024-05-01']) {
+      expect(e.message).toContain(named);
+      expect(e.localized('es')).toContain(named);
+    }
+    expect(e.localized('es')).not.toBe(e.message);
+  });
+
+  it('T3 · a missing row lets the error of the table through: no default lives in code', async () => {
+    // Through the real reader and the mocked table, which holds no row of the key.
+    const refused = await readEmploymentSubsidyExcessRule('2013-12-31').catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(LegalParameterUnavailableError);
+    expect((refused as LegalParameterUnavailableError).key).toBe(EMPLOYMENT_SUBSIDY_EXCESS_LAW);
+  });
+
+  it('T4 · the seed carries both rows, each with its official source', () => {
+    const rows = LEGAL_PARAMETERS_SEED.filter((p) => p.key === EMPLOYMENT_SUBSIDY_EXCESS_LAW);
+    expect(rows.map((p) => [p.jurisdiction, p.effectiveFrom, p.value, p.unit])).toEqual([
+      ['MX', '2014-01-01', '1.0000', 'rate'],
+      ['MX', '2024-05-01', '0.0000', 'rate'],
+    ]);
+    const [handedOver, notHandedOver] = rows;
+    expect(handedOver.sourceUrl).toBe('https://www.diputados.gob.mx/LeyesBiblio/pdf/LISR.pdf');
+    expect(handedOver.sourceNote).toMatch(/DOF 11-12-2013/);
+    expect(notHandedOver.sourceUrl).toBe('https://dof.gob.mx/nota_detalle.php?codigo=5725287&fecha=01/05/2024');
+    expect(notHandedOver.sourceNote).toMatch(/DOF 01-05-2024/);
+  });
+
+  it('T4 · migration 329 loads the same two rows, word for word, and never overwrites', () => {
+    const sql = readFileSync(
+      'src/database/migrations/329_the_employment_subsidy_excess_follows_the_payment_date.sql',
+      'utf8'
+    ).replace(/\s+/g, ' ');
+    for (const p of LEGAL_PARAMETERS_SEED.filter((r) => r.key === EMPLOYMENT_SUBSIDY_EXCESS_LAW)) {
+      expect(sql).toContain(
+        `('MX', '${p.key}', '${p.effectiveFrom}', '${p.value}', 'rate', '${p.sourceUrl}', '${p.sourceNote}')`
+      );
+    }
+    expect(sql).toContain('ON CONFLICT (jurisdiction, key, effective_from) DO NOTHING');
+    expect(sql).not.toMatch(/DO UPDATE|DELETE|ALTER|CREATE/);
   });
 });
