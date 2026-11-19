@@ -16,7 +16,8 @@ import {
  * An allocation that stored no IVA gets a pro-rata estimate only when its
  * invoice is PPD and the entity keeps cash-basis IVA books. A PUE invoice
  * (see receipt-withholding.int.spec.ts) and an entity off Mexican books
- * re-park nothing; a stored amount is re-parked as stored. Every invoice
+ * re-park nothing; a stored amount is re-parked as stored, 0 included
+ * (MNE-001-459 stores it on every new row). Every invoice
  * here is 1,000.00 + 160.00 of tax, so half of it carries 80.00.
  */
 
@@ -179,19 +180,20 @@ describe('receipt unapply re-parks only the IVA that was parked', () => {
     await expectRepark(r.journalEntry.id, 80, true);
   }, 120_000);
 
-  // A KNOWN LIMIT, NOT A RULE (plan decision 5). This invoice parked nothing
-  // at issue, so its collection released nothing and its row was born null;
-  // nothing on the row tells it from one written before migration 049, and
-  // the unapply still estimates. MNE-001-459 stores 0 on new rows and ends it.
-  it('T6 · a PPD release capped to 0 still gets the labelled estimate', async () => {
+  // MNE-001-459 ended the limit T6 used to pin: this invoice parked nothing at
+  // issue, so its collection released nothing, and the row now says so with a
+  // stored 0 instead of a null the unapply had to estimate.
+  it('T6 · a PPD release capped to 0 stores 0, and its unapply re-parks nothing', async () => {
     const invoiceId = await invoice(mx, mxCustomer, 'MXN', null); // no method: IVA caused in 2120
     await query(`UPDATE invoices SET terms = 'PPD' WHERE id = $1 AND entity_id = $2`, [invoiceId, mx.entityId]);
     const paymentId = await collected(mx, mxCustomer, invoiceId, ['580.00']);
-    expect(await storedIva(paymentId)).toEqual([null]);
+    expect(await storedIva(paymentId)).toEqual(['0.0000']);
 
     const r = await unapply(mx, paymentId, invoiceId);
-    expect(r.ivaReAparcado).toBe('80.0000');
-    expect(r.ivaEstimado).toBe(true);
-    await expectRepark(r.journalEntry.id, 80, true);
+    expect(r.ivaReAparcado).toBe('0.0000');
+    expect(r.ivaEstimado).toBe(false);
+    const lines = await linesOf(r.journalEntry.id);
+    expect(lines[mx.cuentas['2120']]).toBeUndefined();
+    expect(lines[mx.cuentas['2125']]).toBeUndefined();
   }, 120_000);
 });
