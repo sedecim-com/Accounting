@@ -15,7 +15,8 @@ import type { JurisdictionCode } from './jurisdiction.js';
 // ── POR QUÉ POCAS FILAS Y NO VEINTE ────────────────────────────────────
 //
 // It was born with six rows; the LFT minimums (T6 · #93) and the five rows of
-// the 2026 employment subsidy (#298) have joined since, each with its source.
+// the 2026 employment subsidy (#298) and the two of its excess over the ISR
+// (#600) have joined since, each with its source.
 // The rule below still holds: a row enters when its figure is verified.
 //
 // El grueso de la ley lo carga J0.4 —UMA de cada año, tarifas del art. 96,
@@ -82,6 +83,7 @@ export interface LegalParameterSeedRow {
 const LISR_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LISR.pdf';
 const LIVA_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LIVA.pdf';
 const LFT_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LFT.pdf';
+const SUBSIDY_DECREE_2024 = 'https://dof.gob.mx/nota_detalle.php?codigo=5725287&fecha=01/05/2024';
 const SUBSIDY_DECREE_2026 = 'https://dof.gob.mx/nota_detalle.php?codigo=5777649&fecha=31/12/2025';
 
 /**
@@ -275,6 +277,40 @@ export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
       'Decreto que modifica el subsidio para el empleo, DOF 31-12-2025: only workers whose monthly ' +
       'income does not exceed 11,492.66 receive the subsidy. Replaces the 10,171.00 of the DOF ' +
       '31-12-2024 decree.',
+  },
+
+  // ── The subsidy in excess of the ISR (#600, MNE-001-440) ───────────────
+  //
+  // The same two rows migration 329 loads. The share of the subsidy in excess
+  // of the ISR that the employer pays to the worker in cash: all of it until
+  // 30 April 2024, none of it since. Law with a date, not a policy of the firm.
+  {
+    jurisdiction: 'MX',
+    key: 'employment_subsidy.excess_over_isr_paid_share',
+    effectiveFrom: '2014-01-01',
+    value: '1.0000',
+    unit: 'rate',
+    sourceUrl: LISR_PDF,
+    sourceNote:
+      'Decreto DOF 11-12-2013 (the one that issues the LISR), Artículo Décimo, fracción I, in force 1 ' +
+      'January 2014 (its Transitorio Primero): when the ISR of art. 96 is smaller than the employment ' +
+      'subsidy, «el retenedor deberá entregar al contribuyente la diferencia que se obtenga», and may ' +
+      'credit what it hands over against its own ISR or the ISR withheld from others. 1 = the whole ' +
+      'excess over the ISR is paid to the worker in cash.',
+  },
+  {
+    jurisdiction: 'MX',
+    key: 'employment_subsidy.excess_over_isr_paid_share',
+    effectiveFrom: '2024-05-01',
+    value: '0.0000',
+    unit: 'rate',
+    sourceUrl: SUBSIDY_DECREE_2024,
+    sourceNote:
+      'Decreto que otorga el subsidio para el empleo, DOF 01-05-2024, Artículo Segundo, in force 1 May ' +
+      '2024 (its Transitorio Primero): when the ISR is smaller than the subsidy, «la diferencia no ' +
+      'podrá aplicarse contra el impuesto que resulte a su cargo posteriormente, ni se entregará ' +
+      'cantidad alguna por concepto del subsidio para el empleo». 0 = nothing of the excess over the ' +
+      'ISR is paid; it replaces the Artículo Décimo of the DOF 11-12-2013 decree.',
   },
 
   // ── Salarios mínimos ───────────────────────────────────────────────────
