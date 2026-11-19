@@ -2112,6 +2112,29 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'Shortfalls go to purchase discounts (5200). Nothing breaks, but if your criterion is to treat them as income, the cost of sales will be understated until you say so.',
     priority: 35,
   },
+  {
+    // MNE-001-555 (#692). The VAT of a received credit note has one treatment;
+    // its cost side is a fork, so it is asked here. Reader: postReceivedCreditNote.
+    key: 'received_credit_note_cost',
+    textKey: 'received_credit_note_cost',
+    category: 'contable',
+    question: 'When a vendor sends a credit note for a bill, which account takes the cost it lowers?',
+    impact:
+      'Governs the entry of a received credit note posted from the inbox (`bill inbox run`). With "bill_accounts" the cost goes back to the expense accounts the bill debited, in proportion to its lines. With "purchase_returns" it goes to purchase returns and discounts (5200), whatever the bill debited. The payable and the VAT move the same either way.',
+    options: [
+      { value: 'bill_accounts', label: 'The accounts the bill debited: the note reverses what was booked' },
+      { value: 'purchase_returns', label: 'Purchase returns and discounts (5200): what vendors give back is shown apart' },
+    ],
+    defaultValue: 'bill_accounts',
+    defaultRationale:
+      'It reverses what the bill booked, so nothing moves between cost of sales and operating expenses, which a statement of comprehensive income classified by function presents apart (NIF B-3). An operating expense lowered through 5200 would understate a cost of sales it never was part of.',
+    whyAsking:
+      'A credit note lowers what a purchase cost. Some firms want that in the same account as the expense; others keep returns and discounts in their own account to see how much vendors give back.',
+    whatIDo:
+      'When you run a vendor credit note from the inbox, I debit accounts payable for its total, take its VAT out of where the VAT of its bill is, and credit the cost to the account you choose here.',
+    ifSkipped: 'The cost goes back to the expense accounts of the bill.',
+    priority: 36,
+  },
   // ---- F08a · Lo que el patrón paga y lo que el trabajador no recibió ----
 
   {

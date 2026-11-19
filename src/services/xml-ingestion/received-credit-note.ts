@@ -14,13 +14,13 @@ import { TIPO_RELACION } from './cfdi-facts.js';
 // arts. 5 fr. III and 7; decided in #692 on 2026-11-17).
 //
 // This file is the rule as pure functions. Nothing here reads or writes: the
-// door that posts is part 2/3 (MNE-001-555).
+// posting is `postReceivedCreditNote` (received-credit-note-posting.ts).
 // ============================================================
 
 /** `journal_entries.source_type` of the note's entry; its `source_id` is the bill. */
 export const VENDOR_CREDIT_NOTE_SOURCE = 'vendor_credit_note';
 
-/** The two answers of the panel key `received_credit_note_cost` (part 2/3 declares it). */
+/** The two answers of the panel key `received_credit_note_cost`. */
 export type ReceivedCreditNoteCost = 'bill_accounts' | 'purchase_returns';
 
 /** A line of the bill: its account, its amount before tax, and the roles of that account. */
@@ -51,7 +51,7 @@ type RefusalReason =
   | 'exceeds_balance' | 'vat_out_of_proportion' | 'capitalised_line';
 
 /** NOTE: the statuses a payment accepts too (the same list in payments/payment-service.ts). */
-const PAYABLE = ['approved', 'posted', 'partially_paid'];
+export const PAYABLE = ['approved', 'posted', 'partially_paid'];
 /** A credit on these would write down an asset, not reverse an expense: a person decides. */
 const CAPITALISED_ROLES = ['inventario', 'activo_fijo', 'gasto_anticipado'];
 const LEDGER_SCALE = 4;

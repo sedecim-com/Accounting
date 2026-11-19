@@ -666,6 +666,30 @@ export async function receivedVatStillParked(
 }
 
 /**
+ * What the payment that settles a bill lowered by a credit note releases.
+ *
+ * The pro rata reads the bill's total, and such a bill is settled below it, so
+ * its last payment would leave a rounding remainder parked on a paid bill.
+ * Settled by cash and notes alone, it releases all it still has parked. NOTE:
+ * any other bill keeps `proRata`, and so does one closed with a discount or a
+ * write-off, whose VAT is not all creditable (MNE-001-555).
+ */
+export async function receivedReleaseAtSettlement(
+  client: pg.PoolClient, entityId: string, billId: string, proRata: string
+): Promise<string> {
+  const { rows } = await client.query(
+    `SELECT 1 FROM bills b
+      WHERE b.id = $2 AND b.entity_id = $1 AND b.amount_due <= 0
+        AND b.total_amount - b.amount_paid = (
+              SELECT SUM(jel.debit_amount)
+                FROM journal_entry_lines jel JOIN journal_entries je ON je.id = jel.journal_entry_id
+               WHERE je.entity_id = $1 AND je.source_type = $3 AND je.source_id = b.id AND je.status = 'posted')`,
+    [entityId, billId, VENDOR_CREDIT_NOTE_SOURCE]
+  );
+  return rows.length > 0 ? receivedVatStillParked(client, entityId, billId) : proRata;
+}
+
+/**
  * What a payment releases from the pending-IVA account, per document.
  *
  * Received: where the IVA sits decides, not the method (MNE-001-491). A bill
@@ -761,7 +785,9 @@ export async function ivaReclassificationsFor(
           .toDecimalPlaces(SCALE);
       enFuncional = acumulado(priorApplied.plus(appliedNow)).minus(acumulado(priorApplied));
     } else {
-      enFuncional = new Decimal(amount);
+      enFuncional = new Decimal(
+        side === 'received' ? await receivedReleaseAtSettlement(client, entityId, row.document_id, amount) : amount
+      );
     }
     if (enFuncional.lessThanOrEqualTo(0)) continue;
 

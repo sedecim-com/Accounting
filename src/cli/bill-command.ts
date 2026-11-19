@@ -1664,12 +1664,15 @@ async function unActoDeBandeja(
       // que el operador seleccionó y no se contabiliza tiene que decir por qué.
       const uuid = cruda.document_type === 'invoice' ? await issuedCfdiUuid(orden.entityId, cruda.xml_document_id) : null;
       if (uuid) throw blockedByState({ key: 'bill.inbox.run.issued_not_a_bill', params: { uuid } });
-      if (cruda.document_type !== 'bill') {
+      //
+      // MNE-001-555: a vendor's credit note goes through too. It lowers the
+      // bill it names, or waits with its reason (received-credit-note.ts).
+      if (cruda.document_type !== 'bill' && cruda.document_type !== 'credit_note') {
         throw blockedByState(
           `es un pre-registro de tipo "${textoDe(cruda.document_type, 'desconocido')}", ` +
-            'no una factura de proveedor. ' +
-            '`bill inbox run` sólo contabiliza gastos; un complemento de pago emitido registraría ' +
-            'COBROS DE CLIENTES, que no es lo que este comando dice hacer.'
+            'no una factura de proveedor ni su nota de crédito. ' +
+            '`bill inbox run` sólo contabiliza gastos y las notas que los bajan; un complemento de pago ' +
+            'emitido registraría COBROS DE CLIENTES, que no es lo que este comando dice hacer.'
         );
       }
 

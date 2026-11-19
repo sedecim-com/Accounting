@@ -5893,6 +5893,30 @@
     },
     {
       "class": "policy-key",
+      "where": "received_credit_note_cost",
+      "es": "received_credit_note_cost",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-555): which account takes the cost a received credit note lowers."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_credit_note_cost/bill_accounts",
+      "es": "bill_accounts",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the expense accounts the bill debited, pro rata to its lines."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_credit_note_cost/purchase_returns",
+      "es": "purchase_returns",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the role of purchase returns and discounts (5200)."
+    },
+    {
+      "class": "policy-key",
       "where": "cash_over_limit_outside_ingestion",
       "es": "cash_over_limit_outside_ingestion",
       "en": null,
