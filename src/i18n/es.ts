@@ -3995,6 +3995,10 @@ export const ES: Record<keyof typeof EN, string> = {
     '{method, select, PPD {Su IVA queda como no cobrado (2125 en el catálogo sembrado) hasta que llegue su complemento de pago (REP).{parked, select, yes { Hay complementos de pago aparcados: mnemosine rep reconcile liga el que pague esta factura.} other {}}} other {Registra su cobro con: mnemosine receipt record {invoice}}}',
   'ingest.issued_left_to_code':
     'Queda por contabilizar a mano ({reason}): lo emitió esta entidad, así que es una venta. Contabilízalo en CxC con `mnemosine cfdi post {uuid}`; `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending` lista los que esperan',
+  'ingest.received_credit_note_to_inbox':
+    'Nota de crédito recibida: el modelo no la redacta. Contabilízala contra su factura con `mnemosine bill inbox run <id>`; `mnemosine bill inbox list` la muestra, y el motivo si tiene que esperar',
+  'ingest.preview.route.received_credit_note':
+    'nota de crédito recibida: reglas del despacho y luego la bandeja; sin borrador de la IA. La contabiliza una regla que exija este tipo de documento o, si no, `mnemosine bill inbox run`',
   'ingest.summary.issued_to_post':
     '{count} de ellos los emitió esta entidad: contabiliza cada uno en CxC con `mnemosine cfdi post <uuid>`; lístalos con `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending`.',
   'bill.inbox.edit.issued_post_with': 'Lo emitió esta entidad: contabilízalo en CxC con `mnemosine cfdi post {uuid}`.',

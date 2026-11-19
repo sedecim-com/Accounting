@@ -82,6 +82,11 @@ export interface IngestFileResult {
   toCode?: boolean;
   /** MNE-001-418: a CFDI left to code that the entity issued; `cfdi post` books it, not the bill inbox. */
   issued?: boolean;
+  /**
+   * #692: a received credit note. No model drafts it and there is nothing to
+   * code: `bill inbox run` posts it against its bill. Status is 'blocked'.
+   */
+  toInbox?: boolean;
 }
 
 export interface IngestReport {
@@ -91,6 +96,8 @@ export interface IngestReport {
   toCode: number;
   /** MNE-001-418: how many of `toCode` the entity issued. */
   issuedToCode: number;
+  /** #692: how many received credit notes wait for `bill inbox run`; they carry no question. */
+  toInbox: number;
 }
 
 /** The summary line of what was left to code: the received go to the bill inbox, the issued to `cfdi post`. */
@@ -190,6 +197,7 @@ export async function ingestCfdiFiles(opts: {
     results, counts,
     toCode: results.filter((r) => r.toCode).length,
     issuedToCode: results.filter((r) => r.toCode && r.issued).length,
+    toInbox: results.filter((r) => r.toInbox).length,
   };
 
   async function ingestOne(file: string, name: string): Promise<IngestFileResult> {
@@ -312,6 +320,15 @@ export async function ingestCfdiFiles(opts: {
           detail: (err as Error).message,
         };
       }
+    }
+
+    // A received credit note is not drafted either (#692): its entry is the
+    // mirror of its bill's, VAT split between 1135 and 1130 by what the ledger
+    // still parks, and `bill inbox run` posts it or names why it waits. With
+    // or without a provider. Types N and T share the document type and get
+    // their reason at that door. A test double carries no direction.
+    if (upload.preRegistration.document_type === 'credit_note' && upload.direction !== 'issued') {
+      return { file: name, status: 'blocked', toInbox: true, detail: t('ingest.received_credit_note_to_inbox') };
     }
 
     // ING-3 (#320): an issued CFDI (its REP aside, handled above) reaches the
@@ -853,6 +870,19 @@ export interface IngestPreviewRow {
   detail?: string;
 }
 
+/** Where the real run would send a CFDI of this type and direction; the same order as `classify`. */
+export function previewRoute(cfdiType: string, direction: CfdiDirection, thresholds: IngestThresholds): string {
+  if (cfdiType === 'P') return 'REP: would link to its payment deterministically (procesarREP)';
+  if (direction === 'issued') {
+    return 'issued by this entity: AI classification → sale draft; approving it creates the customer invoice (AR), never a vendor bill';
+  }
+  // Every received type but I and P is a `credit_note` pre-registration (tipoDocumentoDe).
+  if (cfdiType !== 'I') return t('ingest.preview.route.received_credit_note');
+  return thresholds.autoPost
+    ? `firm rules → AI classification → draft, auto-posted only if every gate passes (conf ≥ ${thresholds.minConfidence}, amount ≤ ${thresholds.maxAmount})`
+    : 'firm rules → AI classification → draft for `mnemosine review`';
+}
+
 export async function previewCfdiFiles(opts: {
   files: string[];
   thresholds: IngestThresholds;
@@ -904,17 +934,9 @@ export async function previewCfdiFiles(opts: {
         continue;
       }
       const tipo = parsed.tipoDeComprobante;
-      const route =
-        tipo === 'P'
-          ? 'REP: would link to its payment deterministically (procesarREP)'
-          : direction === 'issued'
-            ? 'issued by this entity: AI classification → sale draft; approving it creates the customer invoice (AR), never a vendor bill'
-            : opts.thresholds.autoPost
-            ? `firm rules → AI classification → draft, auto-posted only if every gate passes (conf ≥ ${opts.thresholds.minConfidence}, amount ≤ ${opts.thresholds.maxAmount})`
-            : 'firm rules → AI classification → draft for `mnemosine review`';
       rows.push({
         file: name, verdict: 'would_process', tipo, direction, uuid,
-        total: `${parsed.total} ${parsed.moneda}`, route,
+        total: `${parsed.total} ${parsed.moneda}`, route: previewRoute(tipo, direction, opts.thresholds),
       });
     } catch (err) {
       rows.push({ file: name, verdict: 'error', detail: (err as Error).message });

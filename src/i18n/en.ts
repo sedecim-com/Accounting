@@ -4134,6 +4134,10 @@ export const EN = {
     '{method, select, PPD {Its VAT waits as not yet collected (2125 in the seeded chart) until its payment receipt (REP) arrives.{parked, select, yes { There are parked payment receipts: mnemosine rep reconcile links any that pays this invoice.} other {}}} other {Record its collection with: mnemosine receipt record {invoice}}}',
   'ingest.issued_left_to_code':
     'Left to post by hand ({reason}): this entity issued it, so it is a sale. Post it to receivables with `mnemosine cfdi post {uuid}`; `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending` lists the ones waiting',
+  'ingest.received_credit_note_to_inbox':
+    'Received credit note: the model does not draft it. Post it against its bill with `mnemosine bill inbox run <id>`; `mnemosine bill inbox list` shows it, and the reason if it has to wait',
+  'ingest.preview.route.received_credit_note':
+    'received credit note: firm rules, then the inbox; no AI draft. A rule that requires this document type posts it, otherwise `mnemosine bill inbox run` does',
   'ingest.summary.issued_to_post':
     '{count} of them issued by this entity: post each to receivables with `mnemosine cfdi post <uuid>`; list them with `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending`.',
   'bill.inbox.edit.issued_post_with': 'This entity issued it: post it to receivables with `mnemosine cfdi post {uuid}`.',

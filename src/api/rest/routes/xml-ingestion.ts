@@ -153,7 +153,7 @@ const createBatchSchema = z.object({
 // invocable por el agente. Además, `irreversible` es lo que le cuelga la
 // llave de idempotencia: hasta ahora un reintento de red sobre un lote de
 // CFDI no tenía con qué deduplicarse aquí.
-router.post('/upload', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS' }), requirePermission('bills:create'), requireEntityAccess, validateBody(uploadXmlSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/upload', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS, también el de una nota de crédito recibida si una regla exige document_type = credit_note' }), requirePermission('bills:create'), requireEntityAccess, validateBody(uploadXmlSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, xml_content, xml_contents, source = 'api' } = req.body;
   const entityId = entity_id || req.entityId;
 

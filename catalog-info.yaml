@@ -75,6 +75,10 @@ provides:
     # failing with UNSUPPORTED_TYPE (MNE-001-555): an entry of source vendor_credit_note and a
     # lower amount_due. A note that cannot be posted answers 422 CFDI_REQUIERE_DECISION with
     # its reason and stays in the inbox; the panel key received_credit_note_cost is new.
+    # CONTRACT: POST /v1/xml/upload posts a received credit note by itself only
+    # when a matched firm rule sets processing_mode = auto and requires it with a condition
+    # `document_type equals credit_note` in `all` (MNE-001-490). A rule with no conditions
+    # leaves it ready for a person, a refused note waits with its reason, and no vendor is created.
   - file: sat-anexo24            # XML de catálogo, balanza, pólizas y auxiliares (a requerimiento, MNE-001-054); DIOT, SUA, CFDI de nómina (los presenta el contribuyente, en el portal).
     # CONTRACT: under efirma_sellado_contabilidad_electronica = sellar_con_custodia,
     # `e-accounting catalog seal` and `balance seal` hand over the archived CtaCatalogo and
