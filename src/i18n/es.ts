@@ -1304,15 +1304,15 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.received_credit_note_cost.option.purchase_returns': 'Devoluciones y descuentos sobre compras (5200): lo que regresan los proveedores se ve aparte',
 
   'policy.employment_subsidy_paid_treatment.question':
-    'Cuando el subsidio para el empleo excede el ISR retenido y le entregas la diferencia en efectivo al trabajador, ¿es una cuenta por cobrar al fisco o un gasto del despacho?',
+    'El subsidio para el empleo sobre el ISR que se le entregó en efectivo al trabajador (la regla anterior al 1 de mayo de 2024): ¿es una cuenta por cobrar al fisco o un gasto del despacho?',
   'policy.employment_subsidy_paid_treatment.impact':
     'Decide si el efectivo que entregas regresa como acreditamiento contra el ISR retenido a otros trabajadores, o cae en gasto de nómina y nunca regresa.',
   'policy.employment_subsidy_paid_treatment.rationale':
     'Es lo que permite la ley y lo que de verdad es el dinero: el patrón adelanta efectivo que la autoridad le devuelve vía acreditamiento. Mandarlo a gasto es decidir renunciar a ese acreditamiento, lo que algunos despachos hacen a propósito cuando los importes son pequeños y el papeleo no vale la pena; pero debe ser una decisión, no la consecuencia de un valor por omisión.',
   'policy.employment_subsidy_paid_treatment.why':
-    'Cuando el subsidio es mayor que el ISR del periodo, el patrón debe entregarle la diferencia en efectivo al trabajador. Ese dinero sale del despacho y sólo regresa si lo acreditas. Dónde lo registras cambia tu gasto de nómina y lo que le debes al SAT este mes.',
+    'Hasta el 30 de abril de 2024, cuando el subsidio era mayor que el ISR del periodo el patrón debía entregarle la diferencia en efectivo al trabajador. Ese dinero salió del despacho y sólo regresa si lo acreditas, así que dónde lo registras cambia tu gasto de nómina y lo que le debes al SAT. Un recibo pagado desde el 1 de mayo de 2024 no entrega nada (decreto DOF 01-05-2024): eso es ley, y esta decisión no le aplica. Sí aplica a un recibo que ya se calculó con ese efectivo.',
   'policy.employment_subsidy_paid_treatment.what':
-    'Calculo el excedente por recibo, lo anoto en el recibo de nómina como efectivo entregado y lo contabilizo en la cuenta que nombra esta política. Con «cuenta_por_cobrar_fisco» además lo compenso contra el ISR retenido que reporta la declaración mensual.',
+    'En un recibo que entregó efectivo, contabilizo ese efectivo en la cuenta que nombra esta política; con «cuenta_por_cobrar_fisco» además lo compenso contra el ISR retenido que reporta la declaración mensual. En un recibo pagado desde el 1 de mayo de 2024 la retención de ISR es cero, no se entrega nada y no contabilizo nada por el excedente, diga lo que diga esta política.',
   'policy.employment_subsidy_paid_treatment.if_skipped':
     'Va a una cuenta por cobrar a la autoridad. Nada se rompe; si tu criterio es absorberlo, el gasto de nómina quedará subestimado hasta que lo digas.',
   'policy.employment_subsidy_paid_treatment.option.cuenta_por_cobrar_fisco':

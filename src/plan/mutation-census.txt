@@ -544,8 +544,11 @@ mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/servic
 mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/services/accounting/closing-conductor.ts	la negativa calcula bien qué aconsejar y aconseja siempre reanudar, también la corrida de otro
 mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/services/accounting/closing-conductor.ts	un `finally` vuelve a contar como latido el que falló: el conductor aislado de la base nunca nota su silencio
 mirror	memory	E4.1 closing-run-stops-when-it-cannot-prove-it-is-alone	src/cli/closing-command.ts	el ensayo aconseja --resume sobre la corrida que otro conductor sigue conduciendo
-mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/mx/cfdi-nomina-generator.ts	el comprobante deja de declarar el subsidio entregado con la clave que el SAT cruza, y el criterio tiene que verlo aunque el nodo siga ahí
-mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/gl-posting-service.ts	la rama del cargo queda escrita y nunca se toma: la corrida vuelve a descuadrarse por el importe entregado, que es el defecto original con una condición imposible en vez de un Math.max
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/paycheck-service.ts	the paycheck pays the excess in cash whatever its payment date, which is the defect of #600 with the row still read and never used
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/mx/employment-subsidy.ts	the two rules trade places: cash from May 2024 and none before it
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/mx/cfdi-nomina-generator.ts	the CFDI stops declaring the subsidy handed over under the key the SAT crosses, and the criterion has to see it although the node is still there
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/gl-posting-service.ts	the old sum books an excess nobody received as a receivable, and lets it reduce the ISR withheld from another worker of the run
+mirror	memory	E4.1 employment-subsidy-cash-delivery	src/services/payroll/common/gl-posting-service.ts	the debit branch is written and never taken: a run paid under the old rule is unbalanced by the cash handed over
 mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/payroll/mx/isr-calculator.ts	restaura la tabla por tramos de la migración 009: el subsidio vuelve a ser el de la ley derogada en mayo de 2024
 mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/payroll/common/paycheck-service.ts	el recibo lee la política y no se la pasa al motor: la clave del panel se vuelve decorativa
 mirror	memory	E4.1 employment-subsidy-is-a-share-of-the-uma	src/services/policy/pending-catalog.ts	el panel pierde uno de los dos valores decididos y ofrece truncar, que quedó descartado por no tener fuente
@@ -1245,7 +1248,10 @@ anchor	src/plan/criteria/e4-1.ts	de: " AND fp.id = cr.fiscal_period_id AND fp.en
 anchor	src/plan/criteria/e4-1.ts	de: 'recorded step(s). ${next}`',
 anchor	src/plan/criteria/e4-1.ts	de: ' // Not a verdict (see above): the silence it leaves is what counts.\n }\n',
 anchor	src/plan/criteria/e4-1.ts	de: 'runClosingLine(outcome, stopAt, existingRun !== null, liveRun !== null)',
+anchor	src/plan/criteria/e4-1.ts	de: 'applyEmploymentSubsidy(isr.tax_amount, sub.tax_amount, subsidyExcessRule)',
+anchor	src/plan/criteria/e4-1.ts	de: 'rule.paidShare === 1 ? excess : new Decimal(0)',
 anchor	src/plan/criteria/e4-1.ts	de: 'TipoOtroPago="002"',
+anchor	src/plan/criteria/e4-1.ts	de: 'SUM(GREATEST(isr_withheld - subsidio_empleo, 0) - subsidio_entregado_efectivo)',
 anchor	src/plan/criteria/e4-1.ts	de: 'isrDeLaCorrida.lessThan(0)',
 anchor	src/plan/criteria/e4-1.ts	de: "const rate = await legalParameterAt('MX', EMPLOYMENT_SUBSIDY_LAW.rate, onDate);",
 anchor	src/plan/criteria/e4-1.ts	de: 'employment_subsidy_rounding: employmentSubsidyRounding,',
