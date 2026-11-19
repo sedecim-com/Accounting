@@ -13,19 +13,18 @@
     },
     {
       "cuenta": [
-        "1130"
+        "1135"
       ],
       "lado": "cargo",
       "monto": "560.00"
     },
     {
       "cuenta": [
-        "1110",
-        "1111"
+        "2110"
       ],
       "lado": "abono",
       "monto": "4060.00"
     }
   ],
-  "nota": "Gasto PUE simple: la regla del prompt (PUE -> IVA acreditable 1130 + abono a bancos) aplicada al caso mas comun."
+  "nota": "Gasto PUE simple: IVA pendiente de acreditar 1135 y abono a proveedores 2110, como un PPD (MNE-001-493): PUE es la etiqueta del emisor, no prueba de pago, y el pago al proveedor mueve el IVA a 1130. Nunca a bancos."
 }

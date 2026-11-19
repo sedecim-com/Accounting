@@ -146,7 +146,8 @@ describe('la entidad recién sembrada puede contabilizar sin SQL a mano', () => 
     expect(entry!.description).toMatch(/MetodoPago missing: PPD assumed/);
   });
 
-  it('factura de proveedor PUE → el IVA sí es acreditable de inmediato', async () => {
+  // MNE-001-492: PUE es la etiqueta del emisor, no prueba del pago.
+  it('factura de proveedor PUE → el IVA espera su pago en 1135', async () => {
     const vendorId = await crearProveedor();
     const billId = uuidv4();
     await query(
@@ -172,8 +173,8 @@ describe('la entidad recién sembrada puede contabilizar sin SQL a mano', () => 
       return postBillEntry(client, bill, lineas, f.userId);
     });
 
-    expect(await saldoDe(f.roles.iva_acreditable, f.periodos[8])).toBeCloseTo(acreditableAntes + 80, 4);
-    expect(await saldoDe(f.roles.iva_pendiente_acreditar, f.periodos[8])).toBeCloseTo(pendienteAntes, 4);
+    expect(await saldoDe(f.roles.iva_acreditable, f.periodos[8])).toBeCloseTo(acreditableAntes, 4);
+    expect(await saldoDe(f.roles.iva_pendiente_acreditar, f.periodos[8])).toBeCloseTo(pendienteAntes + 80, 4);
   });
 
   it('cobro de cliente → DR Banco, CR CxC', async () => {

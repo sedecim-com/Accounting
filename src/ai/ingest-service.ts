@@ -809,7 +809,7 @@ CFDI:
 - Date: ${toCalendarDate(d.cfdi_fecha as Date | string)}
 - Issuer: ${wrapUntrusted(d.emisor_nombre)} (${d.emisor_rfc})${issued ? `\n- Receiver (the customer): ${wrapUntrusted(d.receptor_nombre)} (${typeof d.receptor_rfc === 'string' ? d.receptor_rfc : ''})` : ''}
 - Subtotal: ${d.subtotal} · Transferred VAT: ${d.total_impuestos_trasladados} · Total: ${d.total} ${d.moneda}
-- Payment form: ${d.forma_pago ?? 'n/a'} · Method: ${d.metodo_pago ?? 'n/a'} (PUE = paid, PPD = on credit → account ${issued ? 'receivable' : 'payable'})
+- Payment form: ${d.forma_pago ?? 'n/a'} · Method: ${d.metodo_pago ?? 'n/a'} ${issued ? '(PUE = paid, PPD = on credit → account receivable)' : '(PUE or PPD: owed to the vendor until its payment is recorded → account payable)'}
 ${issued ? '- The customer must already be registered: approving the draft creates the customer invoice for this RFC' : `- ${vendorInfo}`}
 - Line items:
 ${conceptos || '  (no lines)'}
@@ -829,14 +829,16 @@ Instructions:
    would post the system's stopgap as if the firm had decided it. If every admissible answer yields
    the same entry, the policy does not block you and you proceed without asking.
 ${issued ? ISSUED_VAT_STEP : `3. Verify the accounts in the chart of accounts (search_accounts). VAT IS ON A CASH BASIS
-   (LIVA art. 5-III): input VAT is creditable only once the invoice has been PAID, so the
-   Method above decides which VAT account the entry hits.
-   - PUE (paid in one go): debit expense for the subtotal + debit "IVA Acreditable" (1130)
-     + credit banks.
+   (LIVA art. 5-III): input VAT is creditable only once the invoice has been PAID, and PUE is
+   the issuer's label, not proof of payment (RMF rule 2.7.1.39). So PUE and PPD draft alike:
+   - PUE: debit expense for the subtotal + debit "IVA Pendiente de Acreditar" (1135)
+     + credit vendors for the total.
    - PPD (on credit): debit expense for the subtotal + debit "IVA Pendiente de Acreditar"
      (1135) + credit vendors. Do NOT debit IVA Acreditable: nothing has been paid yet, and
      crediting VAT that was never paid is the finding the SAT actually writes up. The
-     payment entry is what later moves it from 1135 to 1130.
+     payment entry is what later moves it from 1135 to 1130. Do NOT credit a bank either:
+     that payment entry books the outflow, and the approval refuses a draft against vendors
+     whose VAT is not in 1135.
    - No Method declared: treat it as PPD. It is the assumption that cannot overstate the
      credit, and it self-corrects when the payment is recorded.`}
 4. Create the draft with reference "${referenceSerieFolio} · ${d.cfdi_uuid}".
