@@ -42,7 +42,7 @@ import {
   type PackVerdict,
 } from '../services/accounting/closing-pack.js';
 import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { translateDomainError } from './entry-command.js';
 import type { Palette } from './palette.js';
 import { registerClosingFx } from './closing-fx-command.js';
@@ -517,7 +517,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     try {
       const verdict = await confirmarConReintento(
         (prompt) => rl.question(prompt).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (verdict.incomprendida !== undefined) {
         process.stderr.write(`${noEntendi(verdict.incomprendida)}; taking that as no.\n`);

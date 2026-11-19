@@ -9,6 +9,9 @@ import {
   CENSUS_TYPES_POLICY_KEY, INGESTIBLE_TYPES, completenessTypes, emptyReading, loadCensus, readMetadata, readXml,
   type CensusReading,
 } from '../services/sat-census/census.js';
+import {
+  cancelledCfdiFindings, markCensusCancellations, type CancellationMarks, type CancelledCfdiFinding,
+} from '../services/sat-census/cancellations.js';
 import { readZip, type ZipEntry } from '../services/sat-census/zip-reader.js';
 import { AppError } from '../utils/errors.js';
 import { usageError } from './kernel/index.js';
@@ -26,6 +29,11 @@ const c = palette(process.stdout);
 // completeness is the panel's (`census_cfdi_types`). Only the types the
 // ingestion routes (INGESTIBLE_TYPES) are handed on: payroll is posted by the
 // payroll module, not by the AP inbox.
+//
+// After each load, the SAT's cancellations of that file's window reach the
+// mirror and, through the #313 bridge, the invoice (MNE-001-144, #441); the
+// posted documents that still carry one are printed as findings. Nothing is
+// reversed: what a cancelled CFDI means for the books is the accountant's call.
 // ============================================================
 
 export const INGEST_KINDS = ['xml', 'zip', 'metadata'] as const;
@@ -56,6 +64,17 @@ export interface CensusRun {
   reading: CensusReading;
   /** XML extracted from a ZIP, ready for the regular ingestion. Empty for metadata. */
   xmlFiles: string[];
+  /** What the SAT's cancellations of the loaded windows marked. Zero on a dry run. */
+  marks: CancellationMarks;
+  /** Posted documents still carrying a CFDI the SAT cancelled. Empty on a dry run. */
+  findings: CancelledCfdiFinding[];
+}
+
+/** The issue dates a reading covers, as ISO dates; null when it has no rows. */
+function windowOf(rows: CensusReading['rows']): [string, string] | null {
+  if (rows.length === 0) return null;
+  const days = rows.map((r) => r.issuedAt.slice(0, 10)).sort();
+  return [days[0], days[days.length - 1]];
 }
 
 /** Third-party text (entry names, raw field values) never reaches the terminal with control characters. */
@@ -80,6 +99,7 @@ export async function runCensus(opts: {
   const total = emptyReading();
   const xmlFiles: string[] = [];
   const loaded: string[] = [];
+  const marks: CancellationMarks = { mirror: 0, invoices: 0 };
   let tmp: string | null = null;
 
   for (const file of opts.files) {
@@ -118,14 +138,28 @@ export async function runCensus(opts: {
         reading
       );
       loaded.push(t('ingest.census.loaded', { file: clean(name), inserted: r.inserted, refreshed: r.refreshed }));
+      const span = windowOf(reading.rows);
+      if (span) {
+        const marked = await markCensusCancellations(opts.scope, ...span);
+        marks.mirror += marked.mirror;
+        marks.invoices += marked.invoices;
+      }
     }
   }
+  const window = opts.dryRun ? null : windowOf(total.rows);
+  const findings = window ? await cancelledCfdiFindings(opts.scope, ...window) : [];
 
   const counted = await completenessTypes({ tenantId: opts.scope.tenantId, entityId: opts.scope.entityId });
   printReading(opts.kind, total, counted);
   for (const line of loaded) console.log(line);
+  if (window) console.log(t('ingest.census.marks', { mirror: marks.mirror, invoices: marks.invoices }));
+  for (const x of findings) {
+    console.log(c.yellow(`  ⚠ ${t('ingest.census.cancelled_booked', {
+      document: t(`ingest.census.document.${x.source}`, { number: clean(x.number) }), date: x.date, uuid: x.uuid,
+    })}`));
+  }
   if (opts.dryRun) console.log(c.dim(t('ingest.census.dry_run')));
-  return { reading: total, xmlFiles };
+  return { reading: total, xmlFiles, marks, findings };
 }
 
 function makeTempDir(): string {

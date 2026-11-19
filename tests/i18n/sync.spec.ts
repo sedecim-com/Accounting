@@ -707,3 +707,27 @@ describe('la forma del catálogo', () => {
     expect(CATALOGS.en).toBe(EN);
   });
 });
+
+// ---- §12 · The I8 family blocks --------------------------------------
+//
+// MNE-001-217 (issue #262) seeds one empty block per family in both catalogues,
+// so the nine family PRs (I8.1 to I8.9, MNE-001-218 to 230) each write inside
+// their own block and git merges them. A family PR that deletes or reorders
+// another's block brings the collisions back, so the markers are checked.
+
+describe('the I8 family blocks', () => {
+  const FAMILIES = ['I8.1', 'I8.2', 'I8.3', 'I8.4', 'I8.5', 'I8.6', 'I8.7', 'I8.8', 'I8.9'];
+  const markersOf = (file: string): string[] =>
+    fs
+      .readFileSync(path.join(__dirname, '..', '..', 'src', 'i18n', file), 'utf8')
+      .split('\n')
+      .map((line) => /^ {2}\/\/ ==== (?:end of )?(I8\.\d)\b/.exec(line))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => (m[0].includes('end of') ? `end ${m[1]}` : `open ${m[1]}`));
+
+  it('en.ts and es.ts open and close the nine blocks once each, in the same order', () => {
+    const expected = FAMILIES.flatMap((f) => [`open ${f}`, `end ${f}`]);
+    expect(markersOf('en.ts')).toEqual(expected);
+    expect(markersOf('es.ts')).toEqual(expected);
+  });
+});

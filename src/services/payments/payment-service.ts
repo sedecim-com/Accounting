@@ -731,19 +731,25 @@ export async function recordVendorPayment(
       // amount_paid recibe SÓLO el efectivo; el saldo baja por los dos. Un
       // descuento no es dinero cobrado: contarlo como pagado inflaría lo que
       // el proveedor recibió y descuadraría cualquier conciliación de banco.
-      await client.query(
+      // MNE-001-532 · invariant 3, as the invoice twin of applyCustomerPayment;
+      // GREATEST: a payment dated before another one does not move the last back.
+      const settled = await client.query(
         `UPDATE bills SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $2,
            status = CASE WHEN amount_due - $2 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $3
-         WHERE id = $4 AND entity_id = $5`,
+           last_payment_date = GREATEST(last_payment_date, $3::date)
+         WHERE id = $4 AND entity_id = $5 AND status = ANY($6::text[]) AND amount_due >= $2`,
         [
           app.amountApplied,
           new Decimal(app.amountApplied).plus(app.discountAmount ?? '0').toFixed(4),
-          entrada.paymentDate, app.documentId, entrada.entityId,
+          entrada.paymentDate, app.documentId, entrada.entityId, [...PAGABLES],
         ]
       );
+      if (settled.rowCount !== 1) {
+        const bill = documentos.find((d) => d.id === app.documentId)?.numero ?? app.documentId;
+        throw new AccountingError('BILL_CHANGED', { key: 'error.BILL_CHANGED', params: { bill } });
+      }
     }
 
     // Aquí es donde se libera el IVA aparcado de los CFDI a crédito — y,
@@ -2819,15 +2825,19 @@ export async function applyVendorPayment(
       // efectivo, descuento y condonación. Un descuento no es dinero cobrado
       // y una condonación menos aún: contarlos como pagados inflaría lo que
       // el proveedor recibió y descuadraría la conciliación de banco.
-      await client.query(
+      // MNE-001-532 · invariant 3, as the invoice twin of applyCustomerPayment.
+      const settled = await client.query(
         `UPDATE bills SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $2,
            status = CASE WHEN amount_due - $2 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $3
-         WHERE id = $4 AND entity_id = $5`,
-        [app.amountApplied, baja.toFixed(4), new Date(), app.documentId, entityId]
+           last_payment_date = GREATEST(last_payment_date, $3::date)
+         WHERE id = $4 AND entity_id = $5 AND status = ANY($6::text[]) AND amount_due >= $2`,
+        [app.amountApplied, baja.toFixed(4), new Date(), app.documentId, entityId, [...PAGABLES]]
       );
+      if (settled.rowCount !== 1) {
+        throw new AccountingError('BILL_CHANGED', { key: 'error.BILL_CHANGED', params: { bill: bill.bill_number } });
+      }
 
       const nuevo = saldo.minus(baja);
       documentos.push({

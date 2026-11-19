@@ -93,7 +93,7 @@ import {
   argumentByKey,
   type ExitCodeValue,
 } from './kernel/index.js';
-import { esAfirmativa, esNegativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { esAfirmativa, esNegativa, confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { registerSatCommands } from './sat-commands.js';
 import { registerPendingCommands, renderAll } from './pending-command.js';
@@ -1938,7 +1938,7 @@ async function offerToSeedPrecedent(
   console.log(c.dim(`    then: ${propuesta.criterion}`));
   const veredicto = await confirmarConReintento(
     preguntar,
-    c.cyan('  Seed it as a firm criterion, attributed to you? [y/N] ')
+    c.cyan(yesNoPrompt('  Seed it as a firm criterion, attributed to you?'))
   );
   if (!veredicto.si) {
     console.log(c.dim('  Not seeded: the rejection stands and nothing was taught.'));
@@ -2064,7 +2064,7 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
             // aparte, con la gramática única de confirmación del kernel.
             const veredicto = await confirmarConReintento(
               preguntar,
-              c.cyan('Approve and post THIS version? [y/N] ')
+              c.cyan(yesNoPrompt('Approve and post THIS version?'))
             );
             if (!veredicto.si) {
               console.log(c.dim('Not approved: the correction is discarded and the draft stays pending.'));
@@ -2085,7 +2085,7 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
               const vendor = vendorToRegister(err);
               if (!vendor || !stdin.isTTY) throw err;
               const answer = await confirmarConReintento(
-                preguntar, c.cyan(t('review.vendor.register_prompt', { name: vendor.name, rfc: vendor.rfc }))
+                preguntar, c.cyan(yesNoPrompt(t('review.vendor.register_prompt', { name: vendor.name, rfc: vendor.rfc })))
               );
               if (!answer.si) {
                 console.log(c.dim(t('review.vendor.not_registered')));
@@ -2603,7 +2603,7 @@ onboard.action(async (opts: {
         const rlOnboard = rl;
         const veredicto = await confirmarConReintento(
           (q) => ask(rlOnboard, q),
-          c.cyan(`\n${pregunta} [y/N] > `)
+          c.cyan(`\n${yesNoPrompt(pregunta)}> `)
         );
         if (!veredicto.si) {
           console.log(
@@ -2816,7 +2816,7 @@ async function correrOutboxImpl(
           const rlOutbox = rl;
           const veredicto = await confirmarConReintento(
             (q) => ask(rlOutbox, q),
-            c.cyan('\nExecute in the external system? [y/N] > ')
+            c.cyan(`\n${yesNoPrompt('Execute in the external system?')}> `)
           );
           rl.close();
           rl = undefined;

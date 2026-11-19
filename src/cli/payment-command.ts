@@ -33,7 +33,7 @@ import {
   usageError,
   exitCodeFor,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 import { todayFor } from '../services/policy/today.js';
 import { completePaymentTrace, type TraceField } from '../services/payments/payment-trace-service.js';
@@ -194,7 +194,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        `${question} [y/N] `
+        yesNoPrompt(question)
       );
       if (veredicto.si) return;
       throw abortedByUser(

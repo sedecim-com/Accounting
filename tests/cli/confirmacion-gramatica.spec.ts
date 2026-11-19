@@ -7,7 +7,9 @@ import {
   esNegativa,
   confirmarConReintento,
   noEntendi,
+  yesNoPrompt,
 } from '../../src/cli/kernel/confirmacion.js';
+import { LOCALE_ENV_VAR } from '../../src/i18n/locale.js';
 import { confirmarCierre } from '../../src/cli/close-command.js';
 
 // ============================================================
@@ -298,5 +300,65 @@ describe('censo: ningún predicado de confirmación fuera del kernel', () => {
         `ningún patrón del censo reconoce: ${muestra}`
       ).toBe(true);
     }
+  });
+});
+
+// ============================================================
+// The [y/N] suffix comes from the catalogue, through the kernel (MNE-001-217,
+// issue #262). Twenty leaves used to write `[y/N]` by hand, so a question
+// already translated to Spanish still ended in English. The figures below are
+// written by hand: the question, one space, the suffix of the user's language,
+// one trailing space.
+// ============================================================
+
+describe('yesNoPrompt: the suffix comes from the catalogue', () => {
+  afterAll(() => setLanguage('es'));
+
+  it('in English the suffix is [y/N]', () => {
+    setLanguage('en');
+    expect(yesNoPrompt('Post entry JE-0001?')).toBe('Post entry JE-0001? [y/N] ');
+  });
+
+  it('in Spanish the suffix is [s/N]', () => {
+    setLanguage('es');
+    expect(yesNoPrompt('¿Contabilizar la póliza?')).toBe('¿Contabilizar la póliza? [s/N] ');
+  });
+
+  it('it follows the es-MX locale when nobody pins the language', () => {
+    const argvOutside = process.argv;
+    const localeOutside = process.env[LOCALE_ENV_VAR];
+    try {
+      process.argv = ['node', 'vitest'];
+      resetLanguage();
+      process.env[LOCALE_ENV_VAR] = 'es-MX';
+      expect(yesNoPrompt('¿Reabrir el periodo?')).toBe('¿Reabrir el periodo? [s/N] ');
+      process.env[LOCALE_ENV_VAR] = 'en-US';
+      expect(yesNoPrompt('Reopen the period?')).toBe('Reopen the period? [y/N] ');
+    } finally {
+      process.argv = argvOutside;
+      if (localeOutside === undefined) delete process.env[LOCALE_ENV_VAR];
+      else process.env[LOCALE_ENV_VAR] = localeOutside;
+      setLanguage('es');
+    }
+  });
+
+  it('a leaf asks through the kernel: the close prompt ends in [s/N] in Spanish', async () => {
+    setLanguage('es');
+    const plain = { dim: (s: string) => s, bold: (s: string) => s, cyan: (s: string) => s, red: (s: string) => s };
+    const prompts: string[] = [];
+    const answers = ['salir', 'no'];
+    const ask = async (p: string): Promise<string | null> => {
+      prompts.push(p);
+      return answers[prompts.length - 1] ?? null;
+    };
+    const v = await confirmarCierre(ask, plain, 'soft close (reversible)', {
+      hard: false,
+      periodName: 'July 2026',
+    });
+    expect(v).toEqual({ procede: false, mensaje: 'Cancelled.' });
+    expect(prompts).toEqual([
+      'Proceed with soft close (reversible)? [s/N] ',
+      'no entendí «salir»: responde y/s para sí, n para no\nProceed with soft close (reversible)? [s/N] ',
+    ]);
   });
 });

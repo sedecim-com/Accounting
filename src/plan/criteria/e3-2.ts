@@ -127,6 +127,74 @@ export const E3_2: Criterio[] = [
     },
   },
 
+  // ---- EFIRMA-3 1/3 · MNE-001-144 (#441) · the census's cancellations reach the mirror and the invoice ----
+  {
+    paquete: 'E3.2',
+    id: 'sat-metadata-cancellation-reaches-invoice',
+    enunciado: 'Una cancelación que entra al censo del SAT marca el espejo y, por el puente de #313, la factura, con UPDATE guardados',
+    mutantes: [
+      {
+        archivo: 'src/services/sat-census/cancellations.ts',
+        de: 'invoices += await markInvoiceCfdiCancelled(scope.entityId, row.u);',
+        a: 'invoices += 0;',
+        porque: 'the mirror learns the cancellation and the invoice never does: the AR control stays quiet over a cancelled CFDI',
+      },
+      {
+        archivo: 'src/services/sat-census/cancellations.ts',
+        de: "AND xd.sat_validation_status IS DISTINCT FROM 'cancelled'",
+        a: 'AND TRUE',
+        porque: 'the mirror UPDATE loses its state predicate: a row already cancelled is rewritten on every load',
+      },
+      {
+        archivo: 'src/cli/ingest-census.ts',
+        de: 'const marked = await markCensusCancellations(opts.scope, ...span);',
+        a: 'const marked = { mirror: 0, invoices: 0 };',
+        porque: 'runCensus loads the cancellation into the census and never runs the marks: the mirror and the invoice keep saying current',
+      },
+    ],
+    evaluar: () => {
+      // Before MNE-001-144 the SAT's metadata status stayed in sat_cfdi_census:
+      // only the one-by-one status query told the mirror and, through the
+      // #313 bridge, the invoice. The marks reuse that bridge; they never
+      // write invoices themselves.
+      const file = 'src/services/sat-census/cancellations.ts';
+      if (!existe(file)) return falla('no existen las marcas de cancelación sobre el censo');
+      const src = codigoDe(file);
+      const i = src.indexOf('export async function markCensusCancellations');
+      const marks = i >= 0 ? src.slice(i, src.indexOf('\n}', i)) : '';
+      if (!marks) return falla('no existe markCensusCancellations: el Estatus 0 del SAT se queda en el censo');
+      const u = marks.indexOf('UPDATE xml_documents xd');
+      const update = u >= 0 ? marks.slice(u, marks.indexOf('args\n', u)) : '';
+      if (!/SET sat_validation_status = 'cancelled', sat_estado = 'Cancelado'/.test(update)) {
+        return falla('el espejo no recibe la cancelación del censo');
+      }
+      if (!/FROM \(\$\{CANCELLED_OF_WINDOW\}\) k/.test(update) || !/JOIN legal_entities le ON le\.id = c\.entity_id AND le\.tenant_id = \$2/.test(src) ||
+          !/xd\.entity_id = \$1/.test(update) ||
+          !/AND xd\.sat_validation_status IS DISTINCT FROM 'cancelled'/.test(update) ||
+          !/if \(marked\.rowCount !== expected\.rows\.length\)/.test(marks)) {
+        return falla('el UPDATE del espejo perdió su guarda (entidad y tenant en el SQL, el predicado de estado o el rowCount): invariante 3');
+      }
+      if (!/invoices \+= await markInvoiceCfdiCancelled\(scope\.entityId, row\.u\)/.test(marks) ||
+          !/import \{ markInvoiceCfdiCancelled \} from '\.\.\/sat\/cfdi-status\.js'/.test(src)) {
+        return falla('las marcas no llaman al puente de #313: el espejo sabe que el CFDI se canceló y la factura no');
+      }
+      if (/UPDATE\s+invoices/i.test(src)) {
+        return falla('las marcas escriben invoices por su cuenta: un segundo puente que no lleva la guarda del de #313');
+      }
+      const cli = codigoDe('src/cli/ingest-census.ts');
+      const r = cli.indexOf('export async function runCensus');
+      const run = r >= 0 ? cli.slice(r, cli.indexOf('\n}\n', r)) : '';
+      const load = run.indexOf('await loadCensus(');
+      const mark = run.indexOf('await markCensusCancellations(opts.scope, ...span)');
+      if (load < 0 || mark < load) {
+        return falla('runCensus no corre las marcas tras cada carga: ingest --kind metadata y sat package download --import dejan la cancelación en el censo');
+      }
+      return /await cancelledCfdiFindings\(opts\.scope/.test(run)
+        ? ok('cada carga del censo marca el espejo con un UPDATE guardado y la factura por el puente de #313, y nombra cada documento contabilizado que aún lleva un CFDI cancelado')
+        : falla('runCensus marca y no nombra los documentos contabilizados que aún llevan un CFDI cancelado');
+    },
+  },
+
   // ---- EFIRMA-1 · MNE-001-141 (#439) · the SAT authentication signs through withCredential ----
   {
     paquete: 'E3.2',
