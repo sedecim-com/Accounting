@@ -262,8 +262,8 @@ export function reclassRoles(side: DocumentSide): { from: AccountRole; to: Accou
   if (from === to) {
     throw new AccountingError(
       'IVA_ROLE_UNRESOLVED',
-      `La taxonomía CFDI manda el IVA de una PPD recibida a ${to}: un pago no tendría de dónde liberarlo. ` +
-        `Revisa CASES en src/services/xml-ingestion/cfdi-taxonomy.ts.`
+      `The CFDI taxonomy sends the VAT of a received PPD to ${to}: a payment would have nowhere to release it from. ` +
+        `Check CASES in src/services/xml-ingestion/cfdi-taxonomy.ts.`
     );
   }
   return { from, to };
