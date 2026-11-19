@@ -2929,6 +2929,22 @@ export const EN = {
     'Leave the opening of fiscal year {year} on {date} as a DRAFT (Debit {debit} · Credit {credit})? ' +
     'It stays out of the ledger until you apply it with `entry post`.',
   'migration.check.as_of': 'As of {date} · {comparison}',
+  // ---- MNE-001-419 (#621): what --chart refuses ----
+  'migration.chart_option.other_rfc':
+    'The --chart catalog belongs to RFC {fileRfc} and the entity is {entityRfc}. It is not used: the catalog of ' +
+    'another taxpayer cannot say which accounts of this entity are memorandum accounts.',
+  'migration.chart_option.not_importable':
+    'The --chart catalog is one that chart import would not take, so it cannot say which accounts are ' +
+    'memorandum accounts: {findings}. Fix the file at the source and export it again.',
+  'migration.chart_option.hierarchy_cycle':
+    'The hierarchy of the --chart catalog bites its own tail: {rows}. chart import refuses this file and so does ' +
+    'the opening: fix the SubCtaDe at the source.',
+  'migration.check.memorandum_inside_account':
+    'The source hangs memorandum (8xx) money inside a ledger account, so the figure that account declares ' +
+    'includes money that stays off the balance: {detail}. Each account is followed by its memorandum rows, with ' +
+    'the figure the source declares, and by their net, debit positive. Nothing was compared: an opening that ' +
+    'carries that money would come out equal with memorandum money on the balance sheet. Fix the hierarchy in ' +
+    'the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   //
   // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,
@@ -3146,6 +3162,9 @@ export const EN = {
   'help.opening_balance.import.option.reason': 'why the opening is loaded; goes to the audit log',
   'help.opening_balance.check.description':
     'Compare the source trial balance against the ledger on the opening day, to the peso; exits 4 if they differ',
+  'help.opening_balance.check.option.chart':
+    'the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the footing ' +
+    'and named with the source figure',
   'help.ar.description':
     'Receivables controls: reconcile the subledger against the control account, run named diagnostics',
   'help.ar.reconcile.description':
