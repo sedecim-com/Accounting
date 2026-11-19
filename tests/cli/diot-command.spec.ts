@@ -246,6 +246,8 @@ describe('los nombres de verificación cubren TODO lo que el motor emite', () =>
         vistos.set(codigo, nombre);
       }
     }
+    // MNE-001-492: the notice of a PUE whose VAT waits for its payment is filtered with the paid fact.
+    expect(vistos.get('DIOT-PUE-ESPERA-PAGO')).toBe('hecho-pagado');
   });
 });
 
