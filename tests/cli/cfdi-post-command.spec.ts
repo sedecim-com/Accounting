@@ -34,6 +34,7 @@ const posting = (dryRun: boolean) => ({
   invoice: { id: 'I1', number: 'INV-2026-00001', status: 'sent', amountDue: '9280.00' },
   entry: { id: 'J1', number: 'JE-2026-000001' },
   lines: [{ accountCode: '1120', accountName: 'Clientes', debit: '9280.00', credit: null, description: 'x' }],
+  references: [] as Array<{ line: number; accountCode: string; accountName: string }>,
   warnings: [],
 });
 
@@ -113,6 +114,24 @@ describe('cfdi post, the terminal command of the hand door (MNE-001-418)', () =>
     await run([UUID, '--yes', '--json']);
     const row = { invoice_number: 'INV-2026-00001', status: 'sent', amount_due: '9280.00', entry_number: 'JE-2026-000001', dry_run: false };
     expect(JSON.parse(out)).toMatchObject({ rows: [row] });
+  });
+
+  // MNE-001-522 (#670, decision 4): a line migration 334 uncoded keeps the expense account it held as a reference.
+  it('prints the account each line held before it was re-typed, as a reference that is not posted, in en and es', async () => {
+    const referenced = () => Promise.resolve({ ...posting(true), references: [{ line: 1, accountCode: '6100', accountName: 'Gastos generales' }] });
+    doorSpy.mockImplementation(referenced);
+    await run([UUID, '--dry-run']);
+    const said = { line: 1, code: '6100', name: 'Gastos generales' };
+    expect(out).toContain(t('cfdi.post.previous_account', said, 'en'));
+    expect(t('cfdi.post.previous_account', said, 'es')).not.toBe(t('cfdi.post.previous_account', said, 'en'));
+    out = '';
+    setLanguage('es');
+    await run([UUID, '--dry-run']);
+    expect(out).toContain(t('cfdi.post.previous_account', said, 'es'));
+    out = '';
+    doorSpy.mockImplementation((o: { dryRun?: boolean }) => Promise.resolve(posting(o.dryRun === true)));
+    await run([UUID, '--dry-run']);
+    expect(out).not.toContain('6100');
   });
 
   it.each<[string, () => Error, number]>([

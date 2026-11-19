@@ -4230,6 +4230,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'cfdi.post.posted': 'CFDI {uuid} contabilizado como {invoice} para {rfc} · póliza {entry} · {due} por cobrar',
   'cfdi.post.nothing_written':
     'No se escribió nada. Para codificar antes un concepto: mnemosine bill inbox edit {id} --line <n> --account <code>',
+  'cfdi.post.previous_account':
+    'El renglón {line} tenía {code} {name} mientras este CFDI estaba guardado como factura de proveedor: sólo es referencia, no se contabiliza.',
   'cfdi.post.next':
     '{method, select, PPD {Su IVA queda como no cobrado (2125 en el catálogo sembrado) hasta que llegue su complemento de pago (REP).{parked, select, yes { Hay complementos de pago aparcados: mnemosine rep reconcile liga el que pague esta factura.} other {}}} other {Registra su cobro con: mnemosine receipt record {invoice}}}',
   'ingest.issued_left_to_code':

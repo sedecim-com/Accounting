@@ -155,6 +155,12 @@ export interface LineWithSuggestion {
   suggestion_reason: string;
   account_id?: string;
   cost_center_id?: string;
+  /**
+   * MNE-001-522 (#670, decision 4): the expense account the line held before
+   * migration 334 re-typed its row from 'bill' to 'invoice' and uncoded it. A
+   * reference the review prints; no door reads it as coding.
+   */
+  previous_account_id?: string;
 }
 
 /** What the hand door of an issued CFDI wrote, or would write under `dryRun`. */
@@ -166,6 +172,8 @@ export interface IssuedCfdiPosting {
   entry: { id: string; number: string };
   /** The entry's lines, read back inside the transaction: under `dryRun`, the rows that were rolled back. */
   lines: Array<{ accountCode: string; accountName: string; debit: string | null; credit: string | null; description: string }>;
+  /** The account each line held before migration 334 uncoded it: shown beside the entry, never posted. */
+  references: Array<{ line: number; accountCode: string; accountName: string }>;
   /** The classifier's warnings: this door stores none, so the caller prints them. */
   warnings: string[];
 }
@@ -1621,6 +1629,15 @@ export class PreRegistrationService {
         WHERE l.journal_entry_id = $1 ORDER BY l.line_number`,
       [entry.id, entityId]
     );
+    const held = lines.filter((l) => l.previous_account_id);
+    const previous = await client.query<{ id: string; code: string; name: string }>(
+      `SELECT id::text, code, name FROM accounts WHERE id::text = ANY($1::text[]) AND entity_id = $2`,
+      [held.map((l) => String(l.previous_account_id).toLowerCase()), entityId]
+    );
+    const references = held.map((l) => {
+      const a = previous.rows.find((row) => row.id === String(l.previous_account_id).toLowerCase());
+      return { line: l.line_number, accountCode: a?.code ?? String(l.previous_account_id), accountName: a?.name ?? '' };
+    });
     return {
       dryRun: opts.dryRun === true,
       tenantId: String(preReg.tenant_id),
@@ -1628,6 +1645,7 @@ export class PreRegistrationService {
       invoice: { id: invoice.invoiceId, number: invoice.invoiceNumber, ...born.rows[0] },
       entry: { id: entry.id, number: entry.entry_number },
       lines: entryLines.rows,
+      references,
       warnings: plan.avisos,
     };
   }
@@ -1770,9 +1788,11 @@ async function insertarFacturaDePreRegistro(
   buildLines: () => BillLineRow[]
 ): Promise<{ billId: string; billNumber: string; vendorId: string }> {
   // ING-3 (#320): the last door before `bills`, shared by `bill inbox run` and
-  // the draft approval. A pre-registration born before the direction existed
-  // can still say 'bill' for a CFDI the entity issued; its own sale is never
-  // its expense, whatever the row says.
+  // the draft approval. Migration 334 (#670) re-typed to 'invoice' the open rows
+  // born 'bill' before the direction existed, with this same predicate. The
+  // guard stays for what it left: a row consumed or rejected by then, and an
+  // entity whose RFC changed since. Its own sale is never its expense, whatever
+  // the row says.
   const own = await db.query<{ emisor_rfc: string }>(
     `SELECT x.emisor_rfc FROM xml_documents x JOIN legal_entities le ON le.id = x.entity_id
       WHERE x.id = $1 AND x.entity_id = $2 AND UPPER(TRIM(x.emisor_rfc)) = UPPER(TRIM(le.tax_id))`,

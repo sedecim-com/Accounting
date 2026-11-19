@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import Decimal from 'decimal.js';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
@@ -279,6 +280,65 @@ describe('MNE-001-462 · the excess of a collection is an advance in the paper t
     expect(june.contributions.charged.find((x) => x.documentId === receipt.paymentId)?.breakdown.tasa16)
       .toEqual({ base: '1000.0000', iva: '160.0000' });
     for (const wp of [may, june]) expect(codes(wp)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
+    expect(at16(await paper(b, 5))).toEqual(at16(may));
+  }, 120_000);
+
+  // With MNE-001-518 the paper also lists the cash an unapply puts back on account, already taxed. On a
+  // receipt with a treatment that cash is the advance above, so it is counted once, as the advance: June
+  // nets the ended share −1,000.00 / −160.00 against the advance +1,000.00 / +160.00, and the July
+  // application takes it out of the advance once (share +1,000.00 / +160.00, advance −1,000.00 / −160.00).
+  it('--tax-rate 16 on PPD: the cash back is counted once in June, and the July application nets it out once', async () => {
+    const b = await book('excess PPD stated');
+    const inv = await invoice(b, '1000.00', day(5, 5), 'PPD');
+    const receipt = await recordCustomerPayment(
+      {
+        entityId: b.f.entityId, counterpartyId: b.customerId, paymentAmount: '1500.00', paymentDate: day(5, 10),
+        paymentMethod: 'spei', onAccount: true, advanceTreatment: '16',
+        applications: [{ documentId: inv, amountApplied: '1160.00' }],
+      },
+      b.f.userId
+    );
+    const may = await paper(b, 5);
+    expect(at16(may)).toEqual({ base: '1293.10', iva: '206.90' });
+
+    await unapply(b, receipt.paymentId, inv, day(6, 8));
+    const june = await paper(b, 6);
+    expect(at16(june)).toEqual({ base: '0.00', iva: '0.00' });
+    expect(june.ledger.iva_trasladado).toBe('0.0000');
+    expect(june.contributions.charged.find((x) => x.documentId === receipt.paymentId)?.breakdown.tasa16)
+      .toEqual({ base: '1000.0000', iva: '160.0000' });
+
+    await apply(b, receipt.paymentId, inv, '1160.00', day(7, 6));
+    const july = await paper(b, 7);
+    console.log('DBG', JSON.stringify(july.figures.charged.tasa16), JSON.stringify(july.contributions.charged.map((c) => [c.documentKind, c.breakdown.tasa16])), july.ledger.iva_trasladado, JSON.stringify(july.findings.map((f) => f.codigo)));
+    // The application takes 1,160.00 of the 1,500.00 advance pro rata (1,293.10 / 206.90): 999.9973 /
+    // 160.0027, as the allocation stores it and 2120 moves it, so July nets to 0 at the cent.
+    expect(Math.abs(Number(july.figures.charged.tasa16.iva))).toBeLessThan(0.01);
+    expect(Math.abs(Number(july.figures.charged.tasa16.base))).toBeLessThan(0.01);
+    const taken = july.contributions.charged.find((x) => x.documentId === receipt.paymentId)?.breakdown.tasa16;
+    expect([Number(taken?.base).toFixed(2), Number(taken?.iva).toFixed(2)]).toEqual(['-1000.00', '-160.00']);
+    expect(july.ledger.iva_trasladado).toBe(new Decimal(july.figures.charged.tasa16.iva).negated().toFixed(4));
+    for (const wp of [may, june, july]) expect(codes(wp)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
+    expect(at16(await paper(b, 5))).toEqual(at16(may));
+    expect(at16(await paper(b, 6))).toEqual(at16(june));
+  }, 120_000);
+
+  // A reversal by spei closes the allocation with the receipt, at the same NOW() (MNE-001-518, rule 3):
+  // it is no unapply, so no cash comes back as an advance in the month the allocation was closed.
+  it('PPD reversed by spei: the reversal puts no advance back, and May keeps its figures', async () => {
+    const b = await book('excess PPD reversed');
+    const inv = await invoice(b, '1000.00', day(5, 5), 'PPD');
+    const receipt = await collectWithExcess(b, inv, day(5, 10));
+    const may = await paper(b, 5);
+    await reverseCustomerPayment(b.f.entityId, receipt.paymentId, { reason: 'Wrong customer' }, b.f.userId);
+    const closed = await query<{ y: number; m: number }>(
+      `SELECT EXTRACT(YEAR FROM unapplied_at::date)::int AS y, EXTRACT(MONTH FROM unapplied_at::date)::int AS m
+         FROM payment_allocations WHERE payment_id = $1`,
+      [receipt.paymentId]
+    );
+    const { y, m } = closed.rows[0];
+    const then = await buildIvaWorkpaper({ tenantId: b.f.tenantId, entityId: b.f.entityId, year: y, month: m });
+    expect(then.contributions.charged.find((x) => x.documentId === receipt.paymentId)).toBeUndefined();
     expect(at16(await paper(b, 5))).toEqual(at16(may));
   }, 120_000);
 });
