@@ -43,6 +43,9 @@ describe('recordIncomeTaxInput refuses what the law does not allow', () => {
     ['a return filed inside its own year', { sourceFiledOn: '2025-12-31' }, 'sourceFiledOn'],
     ['a filing date that is not a date', { sourceFiledOn: '25/03/2026' }, 'sourceFiledOn'],
     ['a coefficient with an update month', { updatedThrough: '2025-12' }, 'updatedThrough'],
+    ['a year outside the table\'s range', { sourceFiscalYear: 1999, sourceFiledOn: '2000-03-31' }, 'sourceFiscalYear'],
+    ['a filing date that is not a real day', { sourceFiledOn: '2026-02-30' }, 'sourceFiledOn'],
+    ['more integer digits than the column holds', { value: '1000000000000000' }, 'value'],
   ])('%s', async (_, change, field) => {
     const err = await recordIncomeTaxInput(scope, { ...good, ...change }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ValidationError);

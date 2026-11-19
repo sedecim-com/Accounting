@@ -580,10 +580,11 @@ interface PaymentRow {
   advance_base_amount?: string | null;
   advance_iva_amount?: string | null;
   /**
-   * MNE-001-556 · a customer cheque the bank has not cashed yet: a price paid
-   * by cheque, and its IVA, is paid the day it is cashed (LIVA art. 1-B, second
-   * paragraph), so the receipt and its applications release nothing and the
-   * recorded cashing does (`recordCustomerCheckCashing`).
+   * A cheque in the functional currency the bank has not cashed yet: a price
+   * paid by cheque, and its IVA, is paid the day it is cashed (LIVA art. 1-B,
+   * second paragraph), so the payment's entries and its applications release
+   * nothing and the recorded cashing does. Customer side, MNE-001-556
+   * (`recordCustomerCheckCashing`); vendor side, MNE-001-508 (`conciliarCheque`).
    */
   holdsIvaUntilCashed?: boolean;
 }
@@ -1221,7 +1222,11 @@ export async function postVendorApplicationEntry(
         appliedNow: app.amount,
       }));
       const parked = await ivaStillParked(client, 'received', payment.entity_id, app.invoiceId);
-      const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
+      // A held cheque credits nothing here; the written-off share below still
+      // leaves 1135, because it was never going to be paid.
+      const liberable = payment.holdsIvaUntilCashed
+        ? new Decimal(0)
+        : Decimal.min(new Decimal(bruto), new Decimal(parked));
 
       // ── EL IVA DEL SALDO CONDONADO ──────────────────────────────────
       //
@@ -1504,7 +1509,9 @@ export async function postVendorPaymentEntry(
 
   const bank = await bankAccountOf(client, payment.entity_id, payment.bank_account_id);
   const bankId = bank.glAccountId;
-  const iva = await ivaReclassLines(client, 'received', payment, fx ? ivaFxOf(fx) : undefined);
+  const iva = payment.holdsIvaUntilCashed
+    ? { lines: [], documents: [], items: [] }
+    : await ivaReclassLines(client, 'received', payment, fx ? ivaFxOf(fx) : undefined);
   // The IVA each application born with this payment released, 0 included,
   // stored on its row (105) so `payment unapply` re-parks it exactly instead
   // of re-deriving it under another context.
