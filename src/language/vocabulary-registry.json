@@ -1693,6 +1693,13 @@
     {
       "class": "account-role",
       "where": "account_roles.role",
+      "es": "ieps_trasladado_no_cobrado",
+      "en": "ieps_payable_uncollected",
+      "why": "2181 (grouping code 209.02, Anexo 24): the IEPS of a PPD sale not collected yet, which is caused on collection (LIEPS art. 10). It mirrors `iva_payable_uncollected` (2125) so the uncollected pair reads together, and keeps the IEPS acronym as `ieps_payable` does. MNE-001-504 moves it to `ieps_payable` on each collection (src/services/accounting/ieps-cash-basis.ts:IEPS_UNCOLLECTED_ROLE); the seed and the AccountRole union that park IEPS in it are MNE-001-505 (#699)."
+    },
+    {
+      "class": "account-role",
+      "where": "account_roles.role",
       "es": "impuestos_locales_gasto",
       "en": "local_taxes_expense",
       "why": "Apunta a 6100 (account-roles-seed.ts:269): el ISH y demás impuestos estatales son gasto, no impuesto acreditable. `local_taxes` en plural porque la cuenta 2190 agrupa varios (ISH y otros) y el rol no distingue cuál; `expense` marca el lado que lo separa de `local_taxes_payable`. Ojo: comparte código 6100 con el rol genérico `gasto`, así que los dos nombres ingleses tienen que seguir siendo distintos aunque la cuenta sea la misma."

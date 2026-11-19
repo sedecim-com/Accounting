@@ -23,6 +23,7 @@ import {
   type DiferenciaCambiaria,
 } from '../accounting/moneda-origen.js';
 import { ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
+import { iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
   ADVANCE_TREATMENTS, isAdvanceTreatment, splitAdvance, storedAdvanceTreatment, takeFromAdvance,
   type AdvanceSplit, type AdvanceTake,
@@ -1023,12 +1024,8 @@ async function advanceSplitOf(client: pg.PoolClient, input: EntradaPago): Promis
   if (!(await entityUsesCashBasisIva(client, input.entityId))) {
     throw new ValidationError({ key: 'receipt.advance.not_mexican_books' });
   }
-  // A price paid by cheque, and its IVA, is paid the day the bank cashes it
-  // (LIVA art. 1-B, second paragraph): the receipt's entry must not cause it.
-  // TODO(#700): post the advance's IVA on the recorded cashing, and lift this refusal.
-  if (input.paymentMethod === 'check') {
-    throw new AccountingError('ADVANCE_BY_CHEQUE_NOT_WIRED', { key: 'receipt.advance.cheque_not_wired' });
-  }
+  // By cheque the split is kept too: the receipt's entry holds it whole in
+  // 2150 and the recorded cashing causes its IVA (MNE-001-558, `pendingRelease`).
   return splitAdvance(input.paymentAmount, treatment);
 }
 
@@ -1653,6 +1650,8 @@ export interface ResultadoDesaplicacion {
   ivaEstimado: boolean;
   /** MNE-001-460: the day of the unapply, which its entry and the closure carry. */
   date: string;
+  /** #699 · The IEPS moved back to the uncollected role: exactly what this receipt had moved. */
+  iepsReparked: string;
 }
 
 /**
@@ -1770,6 +1769,10 @@ export async function unapplyCustomerPayment(
     // the invoice's rate is above the advance's, leaves 2120.
     const backInParked = ivaExacto.plus(ivaEstimadoParte);
     const reparked = advanceIva.greaterThan(0) ? Decimal.max(backInParked.minus(advanceIva), 0) : backInParked;
+    // #699 · The IEPS this receipt moved for the invoice, read back from the
+    // tagged lines of its unreversed entries before the rows close: exact,
+    // net of an earlier unapply, and zero where nothing was parked.
+    const iepsMoved = await iepsMovedForInvoice(client, entityId, factura.id, paymentId);
 
     // Invariant 3: the live rows read above, of a receipt of this entity, and
     // every one of them; a miss is loud.
@@ -1817,6 +1820,9 @@ export async function unapplyCustomerPayment(
         ivaEstimado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
         advanceIva: advanceIva.toFixed(4),
         date,
+        ...(iepsMoved.greaterThan(0)
+          ? { ieps: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsMoved.toFixed(4) } }
+          : {}),
       },
       userId
     );
@@ -1834,6 +1840,7 @@ export async function unapplyCustomerPayment(
         date,
         desaplicado: total.toFixed(2),
         advance_iva_restored: advanceIva.toFixed(4),
+        ...(iepsMoved.greaterThan(0) ? { ieps_reparked: iepsMoved.toFixed(4) } : {}),
         journal_entry_id: entry.id,
       },
       reason: args.reason,
@@ -1856,6 +1863,7 @@ export async function unapplyCustomerPayment(
       ivaReAparcado: reparked.toFixed(4),
       ivaEstimado: estimado,
       date,
+      iepsReparked: iepsMoved.toFixed(4),
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;

@@ -140,14 +140,16 @@ describe('receipt record with no invoice, --customer and --tax-rate', () => {
     expect(await written()).toEqual([receipts + 1, allocations, entries + 1]);
   });
 
-  it('refuses an advance by cheque naming issue 700, and writes nothing', async () => {
+  it('records an advance by cheque whole in 2150 and says its IVA waits for the cashing (MNE-001-558)', async () => {
     // LIVA art. 1-B, second paragraph: a cheque's IVA is caused the day the bank cashes it.
-    const before = await written();
-    const r = await receipt(advance('--method', 'check'));
-    expect(r.exitCode).not.toBe(0);
-    expect(r.errors[0]).toMatchObject({ code: 'ADVANCE_BY_CHEQUE_NOT_WIRED', messageKey: { key: 'receipt.advance.cheque_not_wired' } });
-    expect(r.err).toContain('issue 700');
-    expect(await written()).toEqual(before);
+    const [receipts, allocations, entries] = await written();
+    const r = await receipt(advance('--method', 'check', '--json'));
+    expect(r.exitCode, r.err).toBe(0);
+    const row = rowOf(r.out);
+    expect(row).toMatchObject({ advance_base: '1000.00', advance_iva: '160.00' });
+    expect(r.err).toContain('its IVA of 160.00 is caused the day the bank cashes it');
+    expect(await written()).toEqual([receipts + 1, allocations, entries + 1]);
+    expect(await linesOf(row.journal_entry)).toEqual({ '1111': [1160, 0], '2150': [0, 1160] });
   });
 
   it('receipt show lists the three figures of the advance', async () => {
