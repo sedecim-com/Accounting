@@ -2361,8 +2361,8 @@ export const EN = {
     'An IVA treatment is stated only for an advance with no invoice. This receipt applies cash to an invoice, and the cash it leaves on account does not take a rate yet (issue 623).',
   'receipt.advance.not_mexican_books':
     'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
-  'receipt.advance.cheque_not_wired':
-    'An advance received by cheque causes its IVA on the day the bank cashes the cheque (LIVA art. 1-B, second paragraph), not on the day it is received, and recording that cashing does not exist yet (issue 700). Nothing was recorded.',
+  'receipt.advance.cheque_held':
+    'Received by cheque, its IVA of {iva} is caused the day the bank cashes it (LIVA art. 1-B, second paragraph): until then the whole amount waits in customer advances, and recording the cashing with bank check reconcile --receipt moves the IVA to IVA charged on that day.',
   'receipt.advance.application_not_wired':
     '{receipt} is an advance whose IVA was caused when it was collected. Applying it to an invoice has to cancel that IVA instead of causing it a second time, and that is not wired yet (issue 623, MNE-001-422). Nothing was applied.',
   // MNE-001-421 (#623): the advance from the terminal.

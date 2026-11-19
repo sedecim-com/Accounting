@@ -585,7 +585,8 @@ interface PaymentRow {
    * A cheque in the functional currency the bank has not cashed yet: a price
    * paid by cheque, and its IVA, is paid the day it is cashed (LIVA art. 1-B,
    * second paragraph), so the payment's entries and its applications release
-   * nothing and the recorded cashing does. Customer side, MNE-001-556
+   * nothing and the recorded cashing does; a customer advance by cheque
+   * credits 2150 whole (MNE-001-558). Customer side, MNE-001-556
    * (`recordCustomerCheckCashing`); vendor side, MNE-001-508 (`conciliarCheque`).
    */
   holdsIvaUntilCashed?: boolean;
@@ -726,9 +727,14 @@ export async function postCustomerPaymentEntry(
   const iva = payment.holdsIvaUntilCashed
     ? { lines: [], documents: [], items: [] }
     : await ivaReclassLines(client, 'issued', payment, fx ? ivaFxOf(fx) : undefined);
+  // A held advance goes whole to 2150; its cashing moves its IVA to 2120
+  // (MNE-001-558, #623 comment 6961035083). The receipt keeps the split.
+  const credited = payment.holdsIvaUntilCashed
+    ? { ...payment, advance_base_amount: null, advance_iva_amount: null }
+    : payment;
   const { jeLines, memo, difference } = fx
     ? await foreignReceiptLines(client, payment, fx, bank, iva)
-    : { ...(await functionalReceiptLines(client, payment, bank.glAccountId, iva)), difference: undefined };
+    : { ...(await functionalReceiptLines(client, credited, bank.glAccountId, iva)), difference: undefined };
 
   const entry = await createJournalEntry(
     payment.entity_id,

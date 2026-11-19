@@ -2230,8 +2230,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'El tratamiento de IVA sólo se declara para un anticipo sin factura. Este cobro aplica efectivo a una factura, y el efectivo que deja a cuenta todavía no lleva tasa (issue 623).',
   'receipt.advance.not_mexican_books':
     'Esta entidad no lleva libros mexicanos, así que un anticipo no lleva tratamiento de IVA: regístralo sin él y el importe completo va a su cuenta de anticipos de clientes.',
-  'receipt.advance.cheque_not_wired':
-    'Un anticipo recibido con cheque causa su IVA el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo), no el día en que se recibe, y registrar ese cobro todavía no existe (issue 700). No se registró nada.',
+  'receipt.advance.cheque_held':
+    'Recibido con cheque, su IVA de {iva} se causa el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo): hasta entonces el importe completo espera en anticipos de clientes, y registrar el cobro con bank check reconcile --receipt pasa el IVA al IVA trasladado ese día.',
   'receipt.advance.application_not_wired':
     '{receipt} es un anticipo cuyo IVA se causó al cobrarse. Aplicarlo a una factura tiene que cancelar ese IVA en vez de causarlo otra vez, y eso todavía no está cableado (issue 623, MNE-001-422). No se aplicó nada.',
   // MNE-001-421 (#623): the advance from the terminal.
