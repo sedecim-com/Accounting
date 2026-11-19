@@ -1041,6 +1041,9 @@ export interface AplicacionPosterior {
  *
  * Devuelve el IVA liberado por factura para que el llamador lo persista en
  * las filas de aplicación recién insertadas.
+ *
+ * MNE-001-460: dated `date`, the day of the application, never the process
+ * clock: the IVA it causes belongs to that day's month.
  */
 // MNE-001-113: what the customer withheld also closes the receivable, as a
 // debit to the two customer-withholding roles. The VAT the customer
@@ -1052,7 +1055,8 @@ export async function postReceiptApplicationEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
   aplicaciones: AplicacionPosterior[],
-  userId: string
+  userId: string,
+  date: string
 ): Promise<{ entry: JournalEntry; ivaPorFactura: Map<string, string> }> {
   const total = aplicaciones.reduce((s, a) => s.plus(a.amount), new Decimal(0));
   const withheldIsr = aplicaciones.reduce((s, a) => s.plus(a.withholdingIsr ?? '0'), new Decimal(0));
@@ -1106,7 +1110,7 @@ export async function postReceiptApplicationEntry(
   const roles = await roleAccounts(client, payment.entity_id, ['cxc', 'anticipo_clientes']);
   const entry = await createJournalEntry(
     payment.entity_id,
-    new Date(),
+    date,
     JournalEntryType.AUTO_PAYMENT,
     documentos.length
       ? `Application of ${payment.payment_number} · IVA caused on collection: ${documentos.join(', ')}`
@@ -1375,12 +1379,15 @@ export async function postVendorApplicationEntry(
  * MNE-001-517: a row that stored none is estimated pro-rata, and the lines
  * say so, only for a PPD invoice on cash-basis IVA books; the caller passes
  * zero for any other, and then no IVA line is written and no IVA role read.
+ *
+ * MNE-001-460: dated `app.date`, the day of the unapply, as
+ * `postVendorUnapplicationEntry` is.
  */
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
   app: {
-    invoiceNumber: string; amount: string; ivaReclass: string | null; ivaEstimado: string;
+    invoiceNumber: string; amount: string; ivaReclass: string | null; ivaEstimado: string; date: string;
     /** MNE-001-113: what the customer withheld on the rows being closed. */
     withholdingIsr?: string; withholdingIva?: string;
   },
@@ -1427,7 +1434,7 @@ export async function postReceiptUnapplicationEntry(
 
   return createJournalEntry(
     payment.entity_id,
-    new Date(),
+    app.date,
     JournalEntryType.AUTO_PAYMENT,
     `Unapplication of ${payment.payment_number} from ${app.invoiceNumber}`,
     jeLines,

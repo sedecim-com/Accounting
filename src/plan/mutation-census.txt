@@ -136,6 +136,7 @@ mirror	memory	E1.1 account-code-single-name	src/services/payroll/common/payroll-
 mirror	memory	E1.1 account-code-single-name	src/services/accounting/chart-seed.ts	la colisión tiene dos lados y el criterio debe morder por los dos: renombrar la cuenta del catálogo base sin tocar las otras semillas es la mitad que un espejo de un solo sentido bendeciría
 mirror	memory	E1.2 payment-application-immutable-history	src/services/payments/payment-service.ts	«reversed» degradado a «void»: ocurrió-y-rebotó es otra afirmación ante un auditor
 mirror	memory	E1.2 payment-application-immutable-history	src/services/payments/payment-service.ts	the later application stores its IVA on the vendor table: the vendor store alone used to satisfy the check
+mirror	memory	E1.2 payment-application-immutable-history	src/services/payments/payment-service.ts	receipt unapply closes on the run day again (MNE-001-460): its entry carries --date and the closure another day
 mirror	memory	E1.2 every-ledger-line-writer-carries-its-dimensions	src/services/accounting/journal-entry-service.ts	el INSERT de la edición vuelve a dejarse el centro de costo fuera: corregir el texto de una línea borra la dimensión de todas
 mirror	memory	E1.2 every-ledger-line-writer-carries-its-dimensions	src/services/accounting/journal-entry-service.ts	la capa que resuelve las líneas tira el centro de costo que el llamador mandó: las cuatro superficies que la usan lo pierden a la vez
 mirror	memory	E1.2 every-ledger-line-writer-carries-its-dimensions	src/services/accounting/journal-entry-service.ts	lo mismo con el proyecto, que es la otra dimensión que el mayor general devuelve al cliente
@@ -847,6 +848,7 @@ anchor	src/plan/criteria/e1-1.ts	de: "code: '6110', name: 'Sueldos y Salarios'",
 anchor	src/plan/criteria/e1-1.ts	de: "code: '6110', name: 'Sueldos y Salarios'",
 anchor	src/plan/criteria/e1-2.ts	de: "SET status = 'reversed', reversed_at = NOW()",
 anchor	src/plan/criteria/e1-2.ts	de: 'UPDATE payment_allocations SET iva_reclass_amount = $1 WHERE id = $2',
+anchor	src/plan/criteria/e1-2.ts	de: 'SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3\n WHERE id = ANY($4::uuid[]) AND unapplied_at IS NULL',
 anchor	src/plan/criteria/e1-2.ts	de: ' cost_center_id, project_id\n ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
 anchor	src/plan/criteria/e1-2.ts	de: ' cost_center_id: line.cost_center_id ?? null,',
 anchor	src/plan/criteria/e1-2.ts	de: ' project_id: line.project_id ?? null,',

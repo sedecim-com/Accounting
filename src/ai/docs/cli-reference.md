@@ -4671,6 +4671,9 @@ Options:
                            with the cash: "isr:1000" or "iva:1066.67"
                            (repeatable); with several invoices,
                            "INV-2026-00042:isr:1000"
+  --date <date>            day of the application (YYYY-MM-DD), which dates its
+                           entry, the allocation and the invoice's last payment;
+                           defaults to today in the entity's time zone
   -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
@@ -4685,6 +4688,8 @@ Examples:
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042 --amount 2500.00
   # The customer paid 9533.33 on fees of 10000 + VAT: it withheld 10 % ISR and 2/3 of the VAT.
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:9533.33 --withholding isr:1000 --withholding iva:1066.67
+  # Dated: the entry, the allocation and the invoice's last payment carry May 20, and so does the IVA it causes.
+  mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:2500.00 --date 2026-05-20
 ```
 
 ### `mnemosine receipt unapply` (alias: desaplicar)
@@ -4707,6 +4712,9 @@ Options:
   --reason <text>          why: it lands in the audit trail and the ledger
                            description
   --json                   JSON output
+  --date <date>            day of the unapply (YYYY-MM-DD), which dates its
+                           entry and the closed allocation; defaults to today in
+                           the entity's time zone
   -y, --yes                skip the confirmation prompt
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
@@ -4719,6 +4727,8 @@ Examples:
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada"
   # See what would be reopened before doing it.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Revision del cobro de julio" --dry-run
+  # Dated: the mirror and the closed allocation carry May 25.
+  mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada" --date 2026-05-25
 ```
 
 ### `mnemosine receipt reverse` (alias: reversar)
