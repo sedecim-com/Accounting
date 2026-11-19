@@ -421,7 +421,7 @@ export const METODO_A_SAT: Readonly<Record<string, string>> = {
 /** Where the missing datum lives, which decides the remedy the finding prescribes. */
 type RemedyCause = Pick<
   UntracedMoney,
-  'missingOnRecord' | 'missingOnBankAccount' | 'bankAccountFlag' | 'noCommandFixes'
+  'missingOnRecord' | 'missingOnBankAccount' | 'bankAccountFlag' | 'noCommandFixes' | 'completedBy'
 >;
 
 /** The defined fields of a cause only: `exactOptionalPropertyTypes` refuses an undefined one. */
@@ -431,6 +431,7 @@ function remedyCause(c: RemedyCause): RemedyCause {
     ...(c.missingOnBankAccount !== undefined ? { missingOnBankAccount: c.missingOnBankAccount } : {}),
     ...(c.bankAccountFlag !== undefined ? { bankAccountFlag: c.bankAccountFlag } : {}),
     ...(c.noCommandFixes !== undefined ? { noCommandFixes: c.noCommandFixes } : {}),
+    ...(c.completedBy !== undefined ? { completedBy: c.completedBy } : {}),
   };
 }
 
@@ -662,6 +663,11 @@ export function rastroDePago(
     };
   }
 
+  // MNE-001-568 · What `payment trace record` completes on a vendor payment
+  // already registered, named by its number so the line can be copied.
+  const traceRecord = (flag: string): string =>
+    `payment trace record ${p.payment_number} ${flag} --reason <motivo>`;
+
   if (p.payment_method === 'check') {
     const num = (p.check_number ?? '').trim();
     // The payee's record goes first. Its gap survives a new payment, so naming
@@ -672,16 +678,20 @@ export function rastroDePago(
     if (num === '') {
       return {
         motivo:
-          `el pago ${p.payment_number} se hizo por cheque y no tiene número de cheque capturado ` +
-          `(\`payment create --check-number\`); el nodo Cheque lo exige`,
+          `el pago ${p.payment_number} se hizo por cheque y no tiene número de cheque capturado; ` +
+          `el nodo Cheque lo exige`,
+        completedBy: traceRecord('--check-number <número>'),
       };
     }
-    if (nuestroBanco === undefined) return ourBankGap('Cheque', 'BanEmisNal', `el cheque ${num}`);
+    if (banco === undefined || nuestroBanco === undefined) return ourBankGap('Cheque', 'BanEmisNal', `el cheque ${num}`);
     if (nuestraCuenta === undefined) {
+      const account = namedAccount(banco);
       return {
         motivo:
           `el pago ${p.payment_number} es un cheque y no se pudo resolver la cuenta de origen: ` +
-          `la cuenta bancaria del pago no tiene número guardado o no descifra`,
+          `${account} no tiene número guardado o no descifra`,
+        missingOnBankAccount: account,
+        bankAccountFlag: '--clabe <18 dígitos>',
       };
     }
     return {
@@ -740,8 +750,9 @@ export function rastroDePago(
     if (ctaDest === undefined) {
       return {
         motivo:
-          `el pago ${p.payment_number} es una transferencia y no tiene cuenta destino capturada ` +
-          `(\`payment create --to-account\`); es el dato obligatorio del nodo Transferencia`,
+          `el pago ${p.payment_number} es una transferencia y no tiene cuenta destino capturada; ` +
+          `es el dato obligatorio del nodo Transferencia`,
+        completedBy: traceRecord('--to-account <cuenta>'),
       };
     }
     const who = `la transferencia ${p.payment_number}`;
@@ -762,10 +773,7 @@ export function rastroDePago(
           }
         : {
             motivo: bankGap('Transferencia', 'BancoDestNal', `${who} no tiene banco destino capturado`),
-            noCommandFixes:
-              'el banco destino sólo se captura al registrar el pago (`payment create --to-bank`) ' +
-              'y ningún comando lo añade a un pago ya registrado; reversarlo y registrarlo otra vez ' +
-              'tampoco lo arregla, porque el asiento original y su espejo se quedan sin rastro',
+            completedBy: traceRecord('--to-bank <clave>'),
           };
     }
     const nodo: NodoDePago = {

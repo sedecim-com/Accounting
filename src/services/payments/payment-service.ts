@@ -191,8 +191,14 @@ const LARGO_CLAVE_BANCO = 3;
  * character varying(3)`, que no le dicen nada a quien tecleó el comando y
  * además llegan DESPUÉS de que la transacción haya hecho medio trabajo. Lo
  * que se gana aquí es el mensaje, no la seguridad — la seguridad ya estaba.
+ *
+ * MNE-001-568 · `payment trace record` runs it on the merged trace (what is
+ * stored plus what is given), so a completion is held to the capture's rules.
  */
-function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor'): void {
+export function assertRastroDePago(
+  entrada: Pick<EntradaPago, 'paymentMethod' | 'checkNumber' | 'cuentaDestino' | 'bancoDestinoSat' | 'bancoDestinoExtranjero'>,
+  lado: 'cliente' | 'proveedor'
+): void {
   const nacional = (entrada.bancoDestinoSat ?? '').trim();
   const extranjero = (entrada.bancoDestinoExtranjero ?? '').trim();
   const cuenta = (entrada.cuentaDestino ?? '').trim();
