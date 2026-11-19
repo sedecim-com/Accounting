@@ -34,6 +34,7 @@ import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { billsDecidedByIngestion, cashLimitFinding, type CashDeductibilityFinding } from '../ap/cash-deductibility.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
+import { todayFor } from '../policy/today.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -917,9 +918,10 @@ export async function recordCustomerPayment(
 
     for (const app of entrada.applications) {
       await client.query(
-        `INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_applied)
-         VALUES ($1,$2,$3,$4)`,
-        [uuidv4(), paymentId, app.documentId, app.amountApplied]
+        // MNE-001-460: cash applied on collection is applied on the receipt's day.
+        `INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_applied, applied_on)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [uuidv4(), paymentId, app.documentId, app.amountApplied, entrada.paymentDate]
       );
       await client.query(
         `UPDATE invoices SET
@@ -1191,6 +1193,50 @@ async function cobroParaEscribir(
   return pago;
 }
 
+/**
+ * MNE-001-460 · The day a later event on a receipt is dated: the one given,
+ * or today in the entity's zone (`zona_horaria`, never the process clock).
+ * It dates the entry, the allocation and the invoice together, so it can be
+ * neither in the future nor before the receipt's last posted event: the
+ * ledger would apply or undo cash before it happened. A cheque's cashing
+ * (MNE-001-556) is one of those events. A hard-closed or locked period is
+ * refused by posting itself.
+ */
+async function receiptEventDate(
+  client: pg.PoolClient,
+  entityId: string,
+  receipt: PagoVivo,
+  given: string | undefined,
+  event: 'apply' | 'unapply'
+): Promise<string> {
+  const today = await todayFor({ tenantId: await tenantDe(client, entityId), entityId }, { client });
+  const date = given === undefined ? today : toCalendarDate(given);
+  const params = { receipt: receipt.payment_number, date, today };
+  if (date > today) {
+    throw new ValidationError(
+      { key: event === 'apply' ? 'receipt.apply.date_future' : 'receipt.unapply.date_future', params }, 'date'
+    );
+  }
+  const last = await client.query<{ d: string | null }>(
+    `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
+      WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
+        AND source_type IN ('customer_payment', 'receipt_application', 'receipt_unapplication', 'customer_cheque_cashing')`,
+    [entityId, receipt.id]
+  );
+  const recorded = toCalendarDate(receipt.payment_date);
+  const since = last.rows[0]?.d && last.rows[0].d > recorded ? last.rows[0].d : recorded;
+  if (date < since) {
+    throw new ValidationError(
+      {
+        key: event === 'apply' ? 'receipt.apply.date_before_last_event' : 'receipt.unapply.date_before_last_event',
+        params: { ...params, since },
+      },
+      'date'
+    );
+  }
+  return date;
+}
+
 async function remanenteDe(client: pg.PoolClient, paymentId: string, paymentAmount: string): Promise<Decimal> {
   const r = await client.query<{ aplicado: string }>(
     `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
@@ -1208,6 +1254,11 @@ export interface ResultadoAplicacion {
   documentos: DocumentoAplicado[];
   remanenteAnterior: string;
   remanenteNuevo: string;
+}
+
+/** MNE-001-460: a customer application also says its day, which its entry and its rows carry. */
+export interface CustomerApplicationResult extends ResultadoAplicacion {
+  date: string;
 }
 
 /**
@@ -1236,14 +1287,22 @@ async function withholdingBookedAtIssuance(
   return new Decimal(r.rows[0]?.booked ?? '0');
 }
 
-/** Aplicar saldo a cuenta de un cobro existente a una o varias facturas. */
+/**
+ * Aplicar saldo a cuenta de un cobro existente a una o varias facturas.
+ *
+ * MNE-001-460: `opts.date` (default today in the entity's zone) dates the
+ * entry, each new allocation (`applied_on`) and each invoice's
+ * last_payment_date, so a balance read "as of" that day sees both sides
+ * move together. It is refused in the future, before the receipt's last
+ * posted event and before the date of an invoice it pays.
+ */
 export async function applyCustomerPayment(
   entityId: string,
   paymentId: string,
   aplicaciones: AplicacionPago[],
   userId: string,
-  opts: OpcionesPago = {}
-): Promise<ResultadoAplicacion> {
+  opts: OpcionesPago & { date?: string } = {}
+): Promise<CustomerApplicationResult> {
   if (aplicaciones.length === 0) {
     throw new ValidationError('Indica a qué factura(s) se aplica el saldo a cuenta.');
   }
@@ -1262,7 +1321,7 @@ export async function applyCustomerPayment(
     }
   }
 
-  const correr = async (client: pg.PoolClient): Promise<ResultadoAplicacion> => {
+  const correr = async (client: pg.PoolClient): Promise<CustomerApplicationResult> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
     // TODO(#623): MNE-001-422 stores what an application takes from an advance and cancels its IVA; until then
     // applying one would cause the IVA twice (or, at 0 % and exempt, lose the base the IVA paper has to net).
@@ -1270,6 +1329,7 @@ export async function applyCustomerPayment(
       const params = { receipt: pago.payment_number };
       throw new AccountingError('ADVANCE_APPLICATION_NOT_WIRED', { key: 'receipt.advance.application_not_wired', params });
     }
+    const date = await receiptEventDate(client, entityId, pago, opts.date, 'apply');
     const remanente = await remanenteDe(client, paymentId, pago.payment_amount);
     const total = aplicaciones.reduce((s, a) => s.plus(a.amountApplied), new Decimal(0));
     if (total.greaterThan(remanente)) {
@@ -1287,10 +1347,11 @@ export async function applyCustomerPayment(
       const r = await client.query<{
         id: string; invoice_number: string; customer_id: string; amount_due: string; status: string;
         currency_code: string; subtotal: string; tax_amount: string; total_amount: string;
-        cfdi_uuid: string | null; terms: string | null; memo: string | null;
+        cfdi_uuid: string | null; terms: string | null; memo: string | null; invoice_date: string;
       }>(
         `SELECT id, invoice_number, customer_id, amount_due, status, currency_code,
-                subtotal, tax_amount, total_amount, cfdi_uuid, terms, memo
+                subtotal, tax_amount, total_amount, cfdi_uuid, terms, memo,
+                to_char(invoice_date, 'YYYY-MM-DD') AS invoice_date
            FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entityId]
       );
@@ -1315,6 +1376,13 @@ export async function applyCustomerPayment(
         );
       }
       assertMoneda(inv.invoice_number, inv.currency_code, pago.currency_code);
+      // MNE-001-460: cash cannot settle a sale before the sale exists.
+      if (date < inv.invoice_date) {
+        throw new ValidationError(
+          { key: 'receipt.apply.date_before_invoice', params: { invoice: inv.invoice_number, invoiceDate: inv.invoice_date, date } },
+          'date'
+        );
+      }
       const aplicado = new Decimal(app.amountApplied);
       // An allocation row holds cash (CHECK amount_applied > 0): a withholding
       // alone would reach Postgres as a constraint error, so say why here.
@@ -1379,18 +1447,20 @@ export async function applyCustomerPayment(
       const allocId = uuidv4();
       await client.query(
         `INSERT INTO payment_allocations
-           (id, payment_id, invoice_id, amount_applied, withholding_isr_amount, withholding_iva_amount)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [allocId, paymentId, app.documentId, app.amountApplied, isr.toFixed(4), iva.toFixed(4)]
+           (id, payment_id, invoice_id, amount_applied, withholding_isr_amount, withholding_iva_amount, applied_on)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::date)`,
+        [allocId, paymentId, app.documentId, app.amountApplied, isr.toFixed(4), iva.toFixed(4), date]
       );
+      // GREATEST: an application dated before another collection of the
+      // same invoice does not move its last payment back.
       const settledRow = await client.query(
         `UPDATE invoices SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $1,
            status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $2
+           last_payment_date = GREATEST(last_payment_date, $2::date)
          WHERE id = $3 AND entity_id = $4 AND status = ANY($5::text[]) AND amount_due >= $1`,
-        [settled.toFixed(4), new Date(), app.documentId, entityId, [...COBRABLES]]
+        [settled.toFixed(4), date, app.documentId, entityId, [...COBRABLES]]
       );
       if (settledRow.rowCount !== 1) {
         throw new AccountingError(
@@ -1433,7 +1503,8 @@ export async function applyCustomerPayment(
         holdsIvaUntilCashed: await holdsIvaUntilCashed(client, entityId, pago),
       },
       posteriores,
-      userId
+      userId,
+      date
     );
     // 0 included (MNE-001-459), on any entity: NULL is left to rows written
     // before anyone stored it. Invariant 3: only the live row that has not
@@ -1463,6 +1534,7 @@ export async function applyCustomerPayment(
       entityId: paymentId,
       newValues: {
         evento: 'apply',
+        date,
         aplicado: total.toFixed(2),
         withholding: aplicaciones.reduce(
           (s, a) => s.plus(a.withholdingIsr ?? '0').plus(a.withholdingIva ?? '0'), new Decimal(0)
@@ -1472,12 +1544,13 @@ export async function applyCustomerPayment(
       },
     });
 
-    const salida: ResultadoAplicacion = {
+    const salida: CustomerApplicationResult = {
       paymentId, paymentNumber: pago.payment_number, journalEntry: entry,
       attestation: { entityId, entryId: entry.id },
       documentos,
       remanenteAnterior: remanente.toFixed(2),
       remanenteNuevo: remanente.minus(total).toFixed(2),
+      date,
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;
@@ -1495,6 +1568,8 @@ export interface ResultadoDesaplicacion {
   desaplicado: string;
   ivaReAparcado: string;
   ivaEstimado: boolean;
+  /** MNE-001-460: the day of the unapply, which its entry and the closure carry. */
+  date: string;
   /** #699 · The IEPS moved back to the uncollected role: exactly what this receipt had moved. */
   iepsReparked: string;
 }
@@ -1507,11 +1582,17 @@ export interface ResultadoDesaplicacion {
  * MNE-001-517: a row that stored no IVA is estimated pro-rata only when the
  * invoice is PPD and the entity keeps cash-basis IVA books. A PUE invoice
  * and an entity off Mexican books parked nothing, so nothing is re-parked.
+ *
+ * MNE-001-460: `args.date` (default today in the entity's zone) dates the
+ * closure (`unapplied_at`) and the entry, so a balance read "as of" that day
+ * sees both sides move together, as `payment unapply` does on the vendor
+ * side. It is refused in the future and before the receipt's last posted
+ * event: the ledger would undo an application before it happened.
  */
 export async function unapplyCustomerPayment(
   entityId: string,
   paymentId: string,
-  args: { invoiceId: string; reason: string },
+  args: { invoiceId: string; reason: string; date?: string },
   userId: string,
   opts: OpcionesPago = {}
 ): Promise<ResultadoDesaplicacion> {
@@ -1526,6 +1607,7 @@ export async function unapplyCustomerPayment(
           'needs the rate of each leg, which its allocations do not store.'
       );
     }
+    const date = await receiptEventDate(client, entityId, pago, args.date, 'unapply');
 
     const inv = await client.query<{
       id: string; invoice_number: string; amount_due: string; amount_paid: string;
@@ -1595,12 +1677,21 @@ export async function unapplyCustomerPayment(
     // net of an earlier unapply, and zero where nothing was parked.
     const iepsMoved = await iepsMovedForInvoice(client, entityId, factura.id, paymentId);
 
-    await client.query(
+    // Invariant 3: the live rows read above, of a receipt of this entity, and
+    // every one of them; a miss is loud.
+    const closed = await client.query(
       `UPDATE payment_allocations
-          SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2
-        WHERE payment_id = $3 AND invoice_id = $4 AND unapplied_at IS NULL`,
-      [userId, args.reason, paymentId, args.invoiceId]
+          SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3
+        WHERE id = ANY($4::uuid[]) AND unapplied_at IS NULL
+          AND payment_id = (SELECT id FROM customer_payments WHERE id = $5 AND entity_id = $6)`,
+      [date, userId, args.reason, vivas.rows.map((r) => r.id), paymentId, entityId]
     );
+    if (closed.rowCount !== vivas.rows.length) {
+      throw new AccountingError(
+        'UNAPPLY_RACE',
+        `${pago.payment_number} on ${factura.invoice_number} changed while it was being unapplied; nothing was written.`
+      );
+    }
     const reopenedRow = await client.query(
       `UPDATE invoices SET
          amount_paid = amount_paid - $1,
@@ -1630,6 +1721,7 @@ export async function unapplyCustomerPayment(
         withholdingIva: withheldIva.toFixed(4),
         ivaReclass: estimado ? null : ivaExacto.toFixed(4),
         ivaEstimado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
+        date,
         ...(iepsMoved.greaterThan(0)
           ? { ieps: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsMoved.toFixed(4) } }
           : {}),
@@ -1647,6 +1739,7 @@ export async function unapplyCustomerPayment(
       newValues: {
         evento: 'unapply',
         invoice: factura.invoice_number,
+        date,
         desaplicado: total.toFixed(2),
         ...(iepsMoved.greaterThan(0) ? { ieps_reparked: iepsMoved.toFixed(4) } : {}),
         journal_entry_id: entry.id,
@@ -1669,6 +1762,7 @@ export async function unapplyCustomerPayment(
       desaplicado: total.toFixed(2),
       ivaReAparcado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
       ivaEstimado: estimado,
+      date,
       iepsReparked: iepsMoved.toFixed(4),
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
@@ -1748,6 +1842,8 @@ export interface CobroDetalle {
     withholding_iva_amount: string;
     iva_reclass_amount: string | null;
     viva: boolean;
+    /** MNE-001-460: the day the cash was applied; for a row written before migration 332, the receipt's date. */
+    applied_on: string;
     unapplied_at: Date | null;
     unapply_reason: string | null;
   }[];
@@ -1786,12 +1882,14 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
   const apps = await query<{
     invoice_number: string; amount_applied: string; iva_reclass_amount: string | null;
     withholding_isr_amount: string; withholding_iva_amount: string;
-    unapplied_at: Date | null; unapply_reason: string | null;
+    applied_on: string; unapplied_at: Date | null; unapply_reason: string | null;
   }>(
     `SELECT i.invoice_number, pa.amount_applied::text, pa.iva_reclass_amount::text,
             pa.withholding_isr_amount::text, pa.withholding_iva_amount::text,
+            to_char(COALESCE(pa.applied_on, cp.payment_date), 'YYYY-MM-DD') AS applied_on,
             pa.unapplied_at, pa.unapply_reason
        FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
        JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $2
       WHERE pa.payment_id = $1
       ORDER BY pa.created_at`,
@@ -1833,6 +1931,7 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
       withholding_iva_amount: new Decimal(a.withholding_iva_amount).toFixed(2),
       iva_reclass_amount: a.iva_reclass_amount,
       viva: a.unapplied_at === null,
+      applied_on: a.applied_on,
       unapplied_at: a.unapplied_at,
       unapply_reason: a.unapply_reason,
     })),

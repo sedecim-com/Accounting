@@ -21,6 +21,8 @@ const mockCreate = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
 
 const ENTITY = 'e0000000-0000-0000-0000-000000000001';
 const USER = 'u0000000-0000-0000-0000-000000000001';
+/** MNE-001-460: the day an application or an unapply is dated, never the process clock. */
+const EVENT_DAY = '2026-05-20';
 
 // ============================================================
 // F03 · LOS ASIENTOS QUE LA FASE ESTRENA
@@ -290,10 +292,13 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
       fakeClient(),
       payment(),
       [aplicacion()],
-      USER
+      USER,
+      EVENT_DAY
     );
 
     expect(entry.id).toBe('je-1');
+    // MNE-001-460: dated the day of the application, not the run.
+    expect(mockCreate.mock.calls[0][1]).toBe(EVENT_DAY);
     expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('580.0000');
     expect(lineFor('acct:cxc')!.credit_amount).toBe('580.0000');
     expect(lineFor('acct:banco')).toBeUndefined();
@@ -308,7 +313,7 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
   it('el aparcado real es el tope: no se libera IVA que la factura nunca aparcó', async () => {
     state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
     state.parked = { 'inv-1': '20.0000' };
-    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER);
+    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER, EVENT_DAY);
 
     expect(ivaPorFactura.get('inv-1')).toBe('20.0000');
   });
@@ -316,7 +321,7 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
   it('nada aparcado ⇒ sólo el traspaso del crédito, sin líneas de IVA', async () => {
     state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
     state.parked = { 'inv-1': '0' };
-    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER);
+    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER, EVENT_DAY);
 
     expect(ivaPorFactura.size).toBe(0);
     expect(lines()).toHaveLength(2);
@@ -330,7 +335,8 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
       fakeClient(),
       payment(),
       [aplicacion({ cfdiUuid: 'UUID-PUE' })],
-      USER
+      USER,
+      EVENT_DAY
     );
 
     expect(ivaPorFactura.size).toBe(0);
@@ -341,7 +347,7 @@ describe('aplicar saldo a cuenta mueve el crédito, no el efectivo', () => {
     state.country = 'US';
     state.standard = 'us_gaap';
     state.parked = { 'inv-1': '160.0000' };
-    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER);
+    const { ivaPorFactura } = await postReceiptApplicationEntry(fakeClient(), payment(), [aplicacion()], USER, EVENT_DAY);
 
     expect(ivaPorFactura.size).toBe(0);
     expect(lines()).toHaveLength(2);
@@ -357,10 +363,11 @@ describe('desaplicar re-aparca el IVA que aquella aplicación liberó', () => {
     await postReceiptUnapplicationEntry(
       fakeClient(),
       payment(),
-      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: '80.0000', ivaEstimado: '55.0000' },
+      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: '80.0000', ivaEstimado: '55.0000', date: EVENT_DAY },
       USER
     );
 
+    expect(mockCreate.mock.calls[0][1]).toBe(EVENT_DAY);
     expect(lineFor('acct:cxc')!.debit_amount).toBe('580.0000');
     expect(lineFor('acct:anticipo_clientes')!.credit_amount).toBe('580.0000');
     expect(lineFor('acct:iva_trasladado')!.debit_amount).toBe('80.0000');
@@ -373,7 +380,7 @@ describe('desaplicar re-aparca el IVA que aquella aplicación liberó', () => {
     await postReceiptUnapplicationEntry(
       fakeClient(),
       payment(),
-      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: null, ivaEstimado: '80.0000' },
+      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: null, ivaEstimado: '80.0000', date: EVENT_DAY },
       USER
     );
 
@@ -385,7 +392,7 @@ describe('desaplicar re-aparca el IVA que aquella aplicación liberó', () => {
     await postReceiptUnapplicationEntry(
       fakeClient(),
       payment(),
-      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: '0', ivaEstimado: '0' },
+      { invoiceNumber: 'INV-001', amount: '580.0000', ivaReclass: '0', ivaEstimado: '0', date: EVENT_DAY },
       USER
     );
 
@@ -426,7 +433,8 @@ describe('the customer withholding closes the receivable on its own role account
       fakeClient(),
       payment(),
       [aplicacion({ amount: '953.3333', withholdingIsr: '100.0000', withholdingIva: '106.6667' })],
-      USER
+      USER,
+      EVENT_DAY
     );
 
     expect(lineFor('acct:anticipo_clientes')!.debit_amount).toBe('953.3333');
@@ -442,7 +450,8 @@ describe('the customer withholding closes the receivable on its own role account
       fakeClient(),
       payment(),
       [aplicacion({ cfdiUuid: null, withholdingIsr: '0', withholdingIva: '50.0000' })],
-      USER
+      USER,
+      EVENT_DAY
     );
 
     expect(lineFor('acct:isr_retenido_a_favor')).toBeUndefined();
@@ -456,7 +465,7 @@ describe('the customer withholding closes the receivable on its own role account
       payment(),
       {
         invoiceNumber: 'INV-001', amount: '953.3333', ivaReclass: '0', ivaEstimado: '0',
-        withholdingIsr: '100.0000', withholdingIva: '106.6667',
+        withholdingIsr: '100.0000', withholdingIva: '106.6667', date: EVENT_DAY,
       },
       USER
     );

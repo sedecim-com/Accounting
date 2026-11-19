@@ -165,6 +165,38 @@ describe('receipt apply shows the withholding before it posts (MNE-001-113)', ()
   });
 });
 
+describe('receipt apply and unapply take --date (MNE-001-460)', () => {
+  it('declares --date on both leaves with keyed help, in English and in Spanish', () => {
+    resetDeclarations();
+    const program = new Command('mnemosine');
+    registerReceiptCommand(program, deps);
+    for (const leaf of ['apply', 'unapply'] as const) {
+      const cmd = program.commands[0].commands.find((c) => c.name() === leaf)!;
+      const option = cmd.options.find((o) => o.long === '--date')!;
+      expect(option.description).toBe(t(`help.receipt.${leaf}.option.date`));
+      expect(t(`help.receipt.${leaf}.option.date`, {}, 'es')).toMatch(/AAAA-MM-DD/);
+    }
+  });
+
+  it('passes the stated day to the preview and prints it', async () => {
+    vi.mocked(payments.applyCustomerPayment).mockClear();
+    vi.mocked(payments.applyCustomerPayment).mockImplementationOnce(async () => ({
+      paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', journalEntry: null, attestation: null,
+      documentos: [], remanenteAnterior: '9533.33', remanenteNuevo: '0.00', date: '2026-05-20',
+    }));
+    const { out, errs } = await applyDryRun(['--date', '2026-05-20']);
+    expect(errs).toEqual([]);
+    expect(vi.mocked(payments.applyCustomerPayment).mock.calls[0][4]).toEqual({ dryRun: true, date: '2026-05-20' });
+    expect(out).toContain('2026-05-20');
+  });
+
+  it("with no --date the preview gets the entity's day, not the process clock", async () => {
+    vi.mocked(payments.applyCustomerPayment).mockClear();
+    await applyDryRun([]);
+    expect(vi.mocked(payments.applyCustomerPayment).mock.calls[0][4]).toEqual({ dryRun: true, date: '2026-12-31' });
+  });
+});
+
 describe('receipt record without --date (MNE-001-290)', () => {
   it("dates the collection with the entity's day, not the process clock", async () => {
     resetDeclarations();

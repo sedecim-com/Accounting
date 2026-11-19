@@ -159,6 +159,8 @@ Examples:
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042 --amount 2500.00
   # The customer paid 9533.33 on fees of 10000 + VAT: it withheld 10 % ISR and 2/3 of the VAT.
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:9533.33 --withholding isr:1000 --withholding iva:1066.67
+  # Dated: the entry, the allocation and the invoice's last payment carry May 20, and so does the IVA it causes.
+  mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:2500.00 --date 2026-05-20
 `,
   unapply: `
 Examples:
@@ -166,6 +168,8 @@ Examples:
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada"
   # See what would be reopened before doing it.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Revision del cobro de julio" --dry-run
+  # Dated: the mirror and the closed allocation carry May 25.
+  mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada" --date 2026-05-25
 `,
   reverse: `
 Examples:
@@ -633,6 +637,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         render(
           cobro.aplicaciones.map((a) => ({
             invoice: a.invoice_number,
+            applied_on: a.applied_on,
             applied: a.amount_applied,
             isr_withheld: a.withholding_isr_amount,
             vat_withheld: a.withholding_iva_amount,
@@ -718,6 +723,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .option('--amount <amount>', 'amount for a single --invoice without an inline amount')
     .option('--json', 'JSON output');
   optionByKey(apply, '--withholding <spec...>', 'help.receipt.apply.option.withholding');
+  optionByKey(apply, '--date <date>', 'help.receipt.apply.option.date');
   declareRisk(apply, {
     risk: 'irreversible',
     llave: { sinLlave: 'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento' },
@@ -726,10 +732,12 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   });
   apply.addHelpText('after', EJEMPLOS.apply);
   apply.action(
-    (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string; withholding?: string[] }) =>
+    (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string; withholding?: string[]; date?: string }) =>
       run(async () => {
         const ctx = await writeEntityOf(opts);
         const { dryRun } = gateMutation(apply, opts as Record<string, unknown>);
+        // MNE-001-460: resolved once, so the preview and the write cannot disagree at midnight.
+        const date = opts.date ?? (await hoy(ctx));
         const p = deps.palette;
         const pares = parseAplicaciones(opts.invoice, opts.amount);
         const withheld = parseWithholding(opts.withholding, pares.map((x) => x.ref));
@@ -747,10 +755,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-        const previo = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId, { dryRun: true });
+        const previo = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId, { dryRun: true, date });
 
         if (dryRun) {
-          imprimirAplicacion(previo.documentos, previo.remanenteAnterior, previo.remanenteNuevo, cobro.payment_number, p, true, opts.json === true, previo.journalEntry?.entry_number ?? null);
+          imprimirAplicacion(previo.documentos, previo.remanenteAnterior, previo.remanenteNuevo, cobro.payment_number, p, true, opts.json === true, previo.journalEntry?.entry_number ?? null, previo.date);
           process.stderr.write(p.dim('Dry run: nothing was written.\n'));
           return;
         }
@@ -759,14 +767,14 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           opts,
           `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo}${withheldText(d)})`).join(', ')} ` +
             `from ${cobro.payment_number} (on account ${previo.remanenteAnterior} → ${previo.remanenteNuevo}) ` +
-            `in ${ctx.entityName}? This posts to the ledger.`
+            `on ${previo.date} in ${ctx.entityName}? This posts to the ledger.`
         );
 
-        const result = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId);
+        const result = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId, { date });
         if (result.attestation) {
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
-        imprimirAplicacion(result.documentos, result.remanenteAnterior, result.remanenteNuevo, cobro.payment_number, p, false, opts.json === true, result.journalEntry?.entry_number ?? null);
+        imprimirAplicacion(result.documentos, result.remanenteAnterior, result.remanenteNuevo, cobro.payment_number, p, false, opts.json === true, result.journalEntry?.entry_number ?? null, result.date);
       })
   );
 
@@ -781,6 +789,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .requiredOption('--invoice <ref>', 'the invoice to unapply from')
     .requiredOption('--reason <text>', 'why: it lands in the audit trail and the ledger description')
     .option('--json', 'JSON output');
+  optionByKey(unapply, '--date <date>', 'help.receipt.unapply.option.date');
   declareRisk(unapply, {
     risk: 'irreversible',
     llave: { sinLlave: 'un reintento vuelve a desaplicar y postea otro espejo' },
@@ -789,11 +798,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   });
   unapply.addHelpText('after', EJEMPLOS.unapply);
   unapply.action(
-    (ref: string, opts: CommonOpts & { invoice: string; reason: string }) =>
+    (ref: string, opts: CommonOpts & { invoice: string; reason: string; date?: string }) =>
       run(async () => {
         const ctx = await writeEntityOf(opts);
         const { dryRun } = gateMutation(unapply, opts as unknown as Record<string, unknown>);
         const p = deps.palette;
+        // MNE-001-460: resolved once, so the preview and the write cannot disagree at midnight.
+        const date = opts.date ?? (await hoy(ctx));
 
         const cobro = await getCustomerPayment(ctx.entityId, ref);
         const factura = await resolveInvoice(ctx.entityId, opts.invoice);
@@ -801,14 +812,14 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
 
         const previo = await unapplyCustomerPayment(
           ctx.entityId, cobro.id,
-          { invoiceId: factura.id, reason: opts.reason },
+          { invoiceId: factura.id, reason: opts.reason, date },
           reviewer.userId, { dryRun: true }
         );
 
         if (dryRun) {
           process.stdout.write(
             `${p.bold(`Would unapply ${previo.desaplicado} from ${previo.documento.numero}`)} ` +
-              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)})`) +
+              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}) on ${previo.date}`) +
               (new Decimal(previo.ivaReAparcado).greaterThan(0)
                 ? p.dim(` · IVA re-parked ${previo.ivaReAparcado}${previo.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
                 : '') + '\n'
@@ -820,13 +831,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         await confirmOrAbort(
           opts,
           `Unapply ${previo.desaplicado} of ${cobro.payment_number} from ${previo.documento.numero} ` +
-            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)})? ` +
+            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)}) on ${previo.date}? ` +
             'The cash stays on account; the invoice reopens.'
         );
 
         const result = await unapplyCustomerPayment(
           ctx.entityId, cobro.id,
-          { invoiceId: factura.id, reason: opts.reason },
+          { invoiceId: factura.id, reason: opts.reason, date },
           reviewer.userId
         );
         attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
@@ -839,13 +850,14 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             withholding_isr: result.documento.withholdingIsr ?? '0.00',
             withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
+            date: result.date,
             entry_number: result.journalEntry.entry_number,
           }], { json: true });
           return;
         }
         process.stdout.write(
           `${p.green('✔')} ${p.bold(result.paymentNumber)} unapplied from ${p.bold(result.documento.numero)} ` +
-            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)} · entry ${result.journalEntry.entry_number}`) +
+            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)} · ${result.date} · entry ${result.journalEntry.entry_number}`) +
             (new Decimal(result.ivaReAparcado).greaterThan(0)
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
               : '') + '\n'
@@ -1093,12 +1105,14 @@ function imprimirAplicacion(
   p: Palette,
   ensayo: boolean,
   json: boolean,
-  entryNumber: string | null
+  entryNumber: string | null,
+  date: string
 ): void {
   if (json) {
     render(
       documentos.map((d) => ({
         payment_number: paymentNumber,
+        date,
         invoice: d.numero,
         amount_due_before: d.saldoAnterior,
         amount_due_after: d.saldoNuevo,
@@ -1117,7 +1131,7 @@ function imprimirAplicacion(
   const prefijo = ensayo ? p.bold('Would apply') : `${p.green('✔')} ${p.bold(paymentNumber)} applied`;
   process.stdout.write(
     `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado}${withheldText(d)})`).join(', ')} ` +
-      p.dim(`· on account ${remanenteAnterior} → ${remanenteNuevo}`) +
+      p.dim(`· on account ${remanenteAnterior} → ${remanenteNuevo} · ${date}`) +
       (entryNumber ? p.dim(` · entry ${entryNumber}`) : '') +
       '\n'
   );
