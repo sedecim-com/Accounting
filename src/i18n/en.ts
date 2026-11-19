@@ -2847,6 +2847,8 @@ export const EN = {
     '{amount} of VAT in period {period}. The ledger is immutable: this is only corrected by ' +
     'reversal. Continue?',
   'bank.check.reconcile.already_cleared': 'check cleared on {date}',
+  'bank.check.reconcile.changed_meanwhile':
+    'Payment {payment} ("{status}") changed while the cashing of its cheque was being recorded, or it is not a completed payment. Nothing was written.',
   'bank.check.reconcile.summary':
     '· cleared on {date} · period {period} · VAT reclassified {amount}',
   'bank.check.reconcile.dry_run':
