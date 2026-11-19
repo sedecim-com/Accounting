@@ -401,6 +401,52 @@ describe('desaplicar re-aparca el IVA que aquella aplicación liberó', () => {
 });
 
 // ============================================================
+// MNE-001-422 · AN ADVANCE APPLIED TO A PUE INVOICE
+// ============================================================
+
+describe('an advance applied to a PUE invoice cancels the IVA it caused', () => {
+  it('DR 2150 the base, DR 2120 the IVA / CR 1120 the cash, and no release', async () => {
+    state.cfdiMetodo = { 'UUID-PUE': 'PUE' };
+    const { ivaPorFactura: released } = await postReceiptApplicationEntry(
+      fakeClient(), payment(),
+      [aplicacion({ amount: '1160.0000', taxAmount: '800.0000', totalAmount: '5800.0000', cfdiUuid: 'UUID-PUE', advanceIva: '160.0000' })],
+      USER, EVENT_DAY
+    );
+    expect(released.size).toBe(0);
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:anticipo_clientes', '1000.0000', null],
+      ['acct:cxc', null, '1160.0000'],
+      ['acct:iva_trasladado', '160.0000', null],
+    ]);
+    expect(entryDescription()).toBe('Application of PMT-001');
+  });
+
+  it('cancelled on an invoice its month also caused, the line and the entry say which month', async () => {
+    state.cfdiMetodo = { 'UUID-PUE': 'PUE' };
+    await postReceiptApplicationEntry(
+      fakeClient(), payment(),
+      [aplicacion({ cfdiUuid: 'UUID-PUE', advanceIva: '80.0000', advanceIvaTwiceIn: '2026-04' })],
+      USER, EVENT_DAY
+    );
+    expect(lineFor('acct:iva_trasladado')!.description).toMatch(/2026-04 also caused it/);
+    expect(entryDescription()).toMatch(/advance IVA caused twice in 2026-04/);
+  });
+
+  it('the unapply credits back exactly what the allocation stored: CR 2150 the base, CR 2120 the IVA', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(), payment(),
+      { invoiceNumber: 'INV-001', amount: '1160.0000', ivaReclass: '0.0000', ivaEstimado: '0', advanceIva: '160.0000', date: EVENT_DAY },
+      USER
+    );
+    expect(lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount])).toEqual([
+      ['acct:cxc', '1160.0000', null],
+      ['acct:anticipo_clientes', null, '1000.0000'],
+      ['acct:iva_trasladado', null, '160.0000'],
+    ]);
+  });
+});
+
+// ============================================================
 // LA CUENTA DEL BANCO
 // ============================================================
 
