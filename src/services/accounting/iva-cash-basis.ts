@@ -248,9 +248,25 @@ export function ivaRoleFor(side: DocumentSide, metodo: MetodoPago): AccountRole 
   return line.role;
 }
 
-/** The pair a payment reclassifies: out of the pending role, into the due one. */
+/**
+ * The pair a payment reclassifies: out of the pending role, into the due one.
+ *
+ * NOTE: received, the target is the creditable role itself and not what the
+ * taxonomy says of a PUE. Once a received PUE parks its VAT too (MNE-001-492)
+ * that probe answers the pending role, and a release would move 1135 to 1135.
+ */
 export function reclassRoles(side: DocumentSide): { from: AccountRole; to: AccountRole } {
-  return { from: ivaRoleFor(side, 'PPD'), to: ivaRoleFor(side, 'PUE') };
+  const from = ivaRoleFor(side, 'PPD');
+  if (side === 'issued') return { from, to: ivaRoleFor(side, 'PUE') };
+  const to: AccountRole = 'iva_acreditable';
+  if (from === to) {
+    throw new AccountingError(
+      'IVA_ROLE_UNRESOLVED',
+      `The CFDI taxonomy sends the VAT of a received PPD to ${to}: a payment would have nowhere to release it from. ` +
+        `Check CASES in src/services/xml-ingestion/cfdi-taxonomy.ts.`
+    );
+  }
+  return { from, to };
 }
 
 // ============================================================
@@ -562,17 +578,22 @@ async function billsAppliedBy(
  * and can be released, and a document that never was simply has a zero cap.
  * Prior releases net themselves out, so a partial payment can be followed by
  * another without double-releasing.
+ *
+ * `beforeCreditNotes` leaves a received credit note's entry out: what the bill
+ * parked, whatever a note took back since. It answers whether the bill ever
+ * parked VAT, which is not a cap (MNE-001-492).
  */
 export async function ivaStillParked(
   client: pg.PoolClient,
   side: DocumentSide,
   entityId: string,
-  documentId: string
+  documentId: string,
+  options: { beforeCreditNotes?: boolean } = {}
 ): Promise<string> {
   const { from } = reclassRoles(side);
   const sourceTypes = side === 'issued'
     ? ['invoice', 'customer_payment', 'iva_reclass']
-    : ['bill', 'vendor_payment', 'iva_reclass', VENDOR_CREDIT_NOTE_SOURCE];
+    : ['bill', 'vendor_payment', 'iva_reclass', ...(options.beforeCreditNotes ? [] : [VENDOR_CREDIT_NOTE_SOURCE])];
 
   // MNE-001-023: a bill migrated with the opening parked its IVA inside the
   // opening entry, which carries the pending-IVA balance as ONE line for all

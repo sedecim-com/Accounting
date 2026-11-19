@@ -228,6 +228,7 @@ export const CODIGOS_POR_CHECK = Object.freeze({
   /** El suceso del mayor: ¿hay pago, y no se libera más de lo aparcado? A cheque counts when cashed. */
   'hecho-pagado': Object.freeze([
     'DIOT-PUE-SIN-PAGO',
+    'DIOT-PUE-ESPERA-PAGO',
     'DIOT-TOPE-APARCADO',
     'DIOT-CHEQUE-NOT-CASHED',
     'DIOT-CHEQUE-CREDITED-BEFORE-CASHING',

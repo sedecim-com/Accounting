@@ -390,12 +390,42 @@ async function retencionesDe(
 }
 
 /**
+ * What each bill has applied by vendor payments credited up to `hasta`. Both
+ * ends of the bridge are scoped, and the payments are the ones
+ * `gastosPagadosEnElMes` counts, on the same day (`CREDIT_DATE`): a cheque
+ * that waits for its cashing has paid nothing yet (MNE-001-559).
+ */
+async function appliedThrough(
+  client: pg.PoolClient,
+  entityId: string,
+  billIds: readonly string[],
+  hasta: string
+): Promise<Map<string, string>> {
+  const byBill = new Map<string, string>();
+  if (billIds.length === 0) return byBill;
+  const { rows } = await client.query<{ bill_id: string; applied: string }>(
+    `SELECT pa.bill_id, SUM(pa.amount_applied)::text AS applied
+       FROM payment_applications pa
+       JOIN bills b ON b.id = pa.bill_id
+       JOIN vendor_payments vp ON vp.id = pa.payment_id
+      WHERE b.entity_id = $1 AND vp.entity_id = $1 AND pa.bill_id = ANY($2::uuid[])
+        AND vp.journal_entry_id IS NOT NULL AND vp.status <> 'void'
+        AND ${CREDIT_DATE} <= $3::date
+      GROUP BY pa.bill_id`,
+    [entityId, [...billIds], hasta]
+  );
+  for (const r of rows) byBill.set(r.bill_id, r.applied);
+  return byBill;
+}
+
+/**
  * Todo lo que el mes declara, documento por documento.
  * The two notices about cheques (MNE-001-559) are at the end, from `checksToFlag`.
  *
  * Los avisos que salen de aquí son los que sólo se ven con la base delante:
- * el PUE acreditado al contabilizarse y sin un peso aplicado y el gasto cuyo tope aparcado deja el IVA por
- * debajo de lo que la proporción pedía.
+ * el PUE acreditado al contabilizarse y sin un peso aplicado, el PUE cuyo IVA
+ * espera su pago en 1135 al cierre del mes y el gasto cuyo tope aparcado deja
+ * el IVA por debajo de lo que la proporción pedía.
  */
 export async function hechosDelMes(
   client: pg.PoolClient,
@@ -439,23 +469,58 @@ export async function hechosDelMes(
     return cap;
   };
 
-  // ONE EVENT PER BILL (MNE-001-491). A PUE with nothing parked (its IVA went
+  // ONE EVENT PER BILL (MNE-001-491). A PUE that parked nothing (its IVA went
   // to 1130, it was paid in its own entry, or it has no IVA) is declared whole
   // in its bill month; every other bill by its payments, cap included. Both
   // lists ask this one predicate, so a bill can never be declared twice.
-  // NOTE: a later release does not lower the cap (its entry carries the
-  // payment as source), so a parked bill stays a payment-month fact after it
-  // is paid. A source that DOES lower it (#692, a credit note) would send a
-  // parked PUE back to its bill month: MNE-001-492 has to ask what the bill
-  // parked gross, not what is left.
-  const eventOf = async (g: FilaGasto): Promise<HechoPagado['event']> =>
-    (await metodoDe(g)).metodo === 'PUE' && (await parkedOf(g)).isZero() ? 'bill' : 'payment';
+  // NOTE: the question is what the bill PARKED, not what is left (MNE-001-492).
+  // A release does not lower the cap (its entry carries the payment as
+  // source), but a credit note's entry does: read net, a parked PUE credited
+  // in full by a note would fall back to its bill month and be declared whole
+  // there, with IVA that never reached 1130. So a zero cap is asked again
+  // without the notes.
+  const events = new Map<string, HechoPagado['event']>();
+  const eventOf = async (g: FilaGasto): Promise<HechoPagado['event']> => {
+    const known = events.get(g.id);
+    if (known) return known;
+    const parkedNothing =
+      (await parkedOf(g)).isZero() &&
+      new Decimal(
+        await ivaStillParked(client, 'received', entityId, g.id, { beforeCreditNotes: true })
+      ).isZero();
+    const event = (await metodoDe(g)).metodo === 'PUE' && parkedNothing ? 'bill' : 'payment';
+    events.set(g.id, event);
+    return event;
+  };
 
+  const waiting: FilaGasto[] = [];
   for (const g of datedInMonth) {
     if ((await eventOf(g)) === 'bill') byBill.push(g);
+    else if (clasificado.get(g.id)!.metodo === 'PUE') waiting.push(g);
   }
   for (const g of paidInMonth) {
     if ((await eventOf(g)) === 'payment') byPayment.push(g);
+  }
+
+  // ── El PUE que espera: su IVA sigue en 1135 al cierre de su mes ────────
+  // Nada se retiene por él: la DIOT ya declara sólo lo pagado. El aviso dice
+  // por qué el gasto no está, o no está entero, y qué le toca a su emisor.
+  const applied = await appliedThrough(client, entityId, waiting.map((g) => g.id), rango.hasta);
+  for (const g of waiting) {
+    const paid = new Decimal(applied.get(g.id) ?? '0');
+    if (paid.greaterThanOrEqualTo(g.total_amount)) continue;
+    hallazgos.push({
+      codigo: 'DIOT-PUE-ESPERA-PAGO',
+      severidad: 'aviso',
+      documentId: g.id,
+      documentNumber: g.bill_number,
+      mensaje:
+        `El gasto ${g.bill_number} es PUE (método leído de: ${clasificado.get(g.id)!.origin}) y su IVA ` +
+        `espera el pago en la 1135: al cierre del mes tiene aplicado ${q(paid)} de ` +
+        `${q(new Decimal(g.total_amount))}, y la DIOT sólo declara lo pagado. Sin pagar pasado su mes de ` +
+        `emisión (el 17 del mes siguiente si el emisor es del sector financiero), la regla 2.7.1.39 ` +
+        `hace que su emisor lo sustituya por un CFDI PPD.`,
+    });
   }
 
   const ids = [...byBill.map((g) => g.id), ...byPayment.map((g) => g.id)];

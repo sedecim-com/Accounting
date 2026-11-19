@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
+import type { MessageParams, TranslationKey } from '../../i18n/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { JournalEntryType } from '../../types/index.js';
 import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
@@ -125,6 +126,15 @@ import {
 // que el ejercicio no se cerró en el origen — se dice, con las cuentas y el
 // importe, y se pide la balanza de cierre (Mes 13), que es un archivo que el
 // contribuyente tiene que presentar de todas formas.
+//
+// MEMORANDUM ACCOUNTS (8xx), WITH `--chart` (MNE-001-456 · #621). They do not
+// migrate (#219), so a row that the walk of `chart import` marks on the
+// migration's catalog gets no line: it is named with the figure the source
+// declares, in the report and in the audit row of the load. What that leaves
+// unsafe is stopped, and the fix goes back to the source like every other stop
+// here: memorandum money hanging inside a ledger account
+// (APE-MEMORANDUM-INSIDE-ACCOUNT) and a subledger document on a memorandum
+// account (APE-MEMORANDUM-DOCUMENT). Without `--chart` nothing is classified.
 // ============================================================
 
 /** Un auxiliar con subledger propio en este sistema. */
@@ -219,8 +229,44 @@ export interface ControlAccountPlan {
   cubierto: boolean;
 }
 
-/** Un defecto de la carga. Es el mismo tipo que usan los dos lectores. */
-export type OpeningFinding = BalanceReadFinding;
+/**
+ * Un defecto de la carga. Es el mismo tipo que usan los dos lectores.
+ *
+ * A finding written by key (MNE-001-456) carries the key instead of prose:
+ * no service reads the language, so the surface that prints it renders it
+ * with `localizeOpeningReport`. Until then `mensaje` holds the key and its
+ * parameters, which is language-neutral and still says everything.
+ */
+export type OpeningFinding = BalanceReadFinding & {
+  /** The whole message, by key. */
+  messageKey?: KeyedText;
+  /** A sentence by key that follows the prose of `mensaje`. */
+  hintKey?: KeyedText;
+};
+
+/** A text of the catalog, not yet rendered. */
+interface KeyedText {
+  key: TranslationKey;
+  params: MessageParams;
+}
+
+/** `t()` as the surface hands it over: the CLI's, with its own language. */
+export type Translate = (key: TranslationKey, params: MessageParams) => string;
+
+/** What a keyed text reads as before a surface renders it. */
+const unrendered: Translate = (key, params) => `${key} ${JSON.stringify(params)}`;
+
+/** Renders the keyed findings of a plan or a report in the language of the surface. */
+export function localizeOpeningReport<R extends { findings: readonly OpeningFinding[] }>(
+  report: R,
+  translate: Translate
+): R {
+  const findings = report.findings.map((f) => {
+    const text = f.messageKey === undefined ? f.mensaje : translate(f.messageKey.key, f.messageKey.params);
+    return { ...f, mensaje: f.hintKey === undefined ? text : `${text} ${translate(f.hintKey.key, f.hintKey.params)}` };
+  });
+  return { ...report, findings };
+}
 
 export interface OpeningPlan {
   /** El primer día del ejercicio que se abre. YYYY-MM-DD. */
@@ -232,6 +278,12 @@ export interface OpeningPlan {
   totalHaber: string;
   control: readonly ControlAccountPlan[];
   findings: readonly OpeningFinding[];
+  /**
+   * Memorandum rows left out of the entry, each with the figure the source
+   * declares (same shape as the check's). Never added into a total: the source
+   * declares each level with its subaccounts inside.
+   */
+  excluded: readonly { code: string; amount: string }[];
   /** false si algo impide escribir. Todo o nada: no hay carga a medias. */
   puedeCargarse: boolean;
 }
@@ -424,6 +476,18 @@ function antepasadoDeclarado(
   return null;
 }
 
+/** A finding whose whole message is written by key. */
+function keyedFinding(
+  rule: string,
+  severity: 'bloquea' | 'aviso',
+  account: string,
+  key: TranslationKey,
+  params: MessageParams,
+  row?: number
+): OpeningFinding {
+  return { ...finding(rule, severity, account, unrendered(key, params), row), messageKey: { key, params } };
+}
+
 /**
  * Qué asiento se escribiría, y qué lo impide. Función PURA: mismas entradas,
  * mismo plan, sin tocar la base. Es lo que hace que el `--dry-run` sea de
@@ -433,9 +497,12 @@ export function planOpeningBalance(
   lectura: BalanceFileRead,
   cuentas: readonly OpeningAccountRow[],
   documentos: readonly OpeningDocument[],
-  ejercicio: OpeningExercise
+  ejercicio: OpeningExercise,
+  /** The rows of the migration's catalog (`--chart`). Without it, nothing is classified. */
+  chart?: readonly CatalogFileRow[]
 ): OpeningPlan {
   const findings: OpeningFinding[] = [...lectura.findings];
+  const excluded: { code: string; amount: string }[] = [];
   const vacio = (): OpeningPlan => ({
     fecha: ejercicio.startDate,
     ejercicio: ejercicio.yearNumber,
@@ -444,6 +511,7 @@ export function planOpeningBalance(
     totalHaber: '0.0000',
     control: [],
     findings,
+    excluded,
     puedeCargarse: false,
   });
 
@@ -472,6 +540,9 @@ export function planOpeningBalance(
 
   const porCodigo = new Map(cuentas.map((c) => [c.code, c]));
   const padre = new Map(cuentas.map((c) => [c.code, c.parent_code]));
+  // The same walk as `chart import`, so the two cannot disagree on which codes
+  // are 8xx. By agrupador and hierarchy, never by the digits of the code.
+  const isMemorandum = chart === undefined ? () => false : memorandumClassifier(chart, cuentas);
 
   // ── LAS CUENTAS QUE EL ARCHIVO NOMBRA ───────────────────────────────
   const declaradas = new Set<string>();
@@ -480,10 +551,29 @@ export function planOpeningBalance(
   let faltantes = 0;
   for (const f of lectura.rows) {
     const cuenta = porCodigo.get(f.numCta);
+    if (isMemorandum(f.numCta)) {
+      // No line, no residual, no control-account check: the row is only named.
+      const amount = new Decimal(f.saldoFin).toFixed(ESCALA_DEL_MAYOR);
+      excluded.push({ code: f.numCta, amount });
+      const params = { account: f.numCta, amount, doctrine: MEMORANDUM_DOCTRINE };
+      findings.push(
+        cuenta === undefined
+          ? keyedFinding('APE-MEMORANDUM-EXCLUDED', 'aviso', f.numCta, 'migration.opening.memorandum_excluded', params, f.fila)
+          : keyedFinding(
+              'APE-MEMORANDUM-IN-LEDGER',
+              'aviso',
+              f.numCta,
+              'migration.opening.memorandum_in_ledger',
+              { ...params, type: cuenta.account_type },
+              f.fila
+            )
+      );
+      continue;
+    }
     if (cuenta === undefined) {
       faltantes++;
-      findings.push(
-        finding(
+      findings.push({
+        ...finding(
           'APE-CUENTA-DESCONOCIDA',
           'bloquea',
           f.numCta,
@@ -491,14 +581,39 @@ export function planOpeningBalance(
             `saldo no tiene dónde posarse: importa primero el catálogo de cuentas (la capa anterior de ` +
             `esta migración), que es de donde salen el código, el nombre y la naturaleza.`,
           f.fila
-        )
-      );
+        ),
+        // Without the catalog nothing was classified: the row may be an 8xx one.
+        ...(chart === undefined
+          ? { hintKey: { key: 'migration.opening.unknown_account_chart_hint', params: { doctrine: MEMORANDUM_DOCTRINE } } }
+          : {}),
+      });
       continue;
     }
     declaradas.add(f.numCta);
     resueltas.push({ f, cuenta });
   }
   if (faltantes > 0) return vacio();
+
+  // ── MEMORANDUM MONEY INSIDE A LEDGER ACCOUNT ────────────────────────
+  //
+  // The load cannot go on: posting the figure the account declares would put
+  // memorandum money on the balance sheet, and posting less would fail the
+  // check, which compares the account as the source declares it.
+  let memorandumInside = false;
+  if (chart !== undefined) {
+    const { parentOf, natureOf } = sourceTree(cuentas, chart);
+    for (const a of memorandumInsideLedgerAccounts(lectura.rows, isMemorandum, parentOf, natureOf)) {
+      memorandumInside = true;
+      findings.push(
+        keyedFinding('APE-MEMORANDUM-INSIDE-ACCOUNT', 'bloquea', a.account, 'migration.opening.memorandum_inside_account', {
+          account: a.account,
+          rows: a.rows.map((r) => `${r.code} ${r.amount}`).join(' + '),
+          net: a.net,
+          doctrine: MEMORANDUM_DOCTRINE,
+        })
+      );
+    }
+  }
 
   // ── EL RESIDUO: LO QUE LA CUENTA LLEVA POR SÍ MISMA ─────────────────
   //
@@ -534,6 +649,18 @@ export function planOpeningBalance(
     // la heurística de binario de git sólo mira los primeros 8 000 bytes y el
     // NUL caía más allá, así que el diff se veía normal en la revisión.
     const clave = `${d.cuenta}\u0000${d.documento}`;
+    if (isMemorandum(d.cuenta)) {
+      // Not an orphan: the balanza does declare the account, and it is left out.
+      documentosInvalidos++;
+      findings.push(
+        keyedFinding('APE-MEMORANDUM-DOCUMENT', 'bloquea', d.cuenta, 'migration.opening.memorandum_document', {
+          document: d.documento,
+          account: d.cuenta,
+          doctrine: MEMORANDUM_DOCTRINE,
+        })
+      );
+      continue;
+    }
     if (!declaradas.has(d.cuenta)) {
       documentosInvalidos++;
       findings.push(
@@ -669,7 +796,8 @@ export function planOpeningBalance(
   const lines: OpeningLine[] = [];
   const control: ControlAccountPlan[] = [];
   const resultadoAbierto: { code: string; importe: Decimal }[] = [];
-  let bloqueado = documentosInvalidos > 0;
+  // The memorandum stop already said why: APE-NO-CUADRA must not repeat it.
+  let bloqueado = documentosInvalidos > 0 || memorandumInside;
 
   for (const { f, cuenta } of resueltas) {
     const natur = naturDe(cuenta.normal_balance);
@@ -900,6 +1028,7 @@ export function planOpeningBalance(
     totalHaber: totalHaber.toFixed(4),
     control,
     findings,
+    excluded,
     puedeCargarse: !bloqueado && findings.every((f) => f.severidad !== 'bloquea'),
   };
 }
@@ -950,6 +1079,11 @@ export interface ImportOpeningBalanceOptions {
   userId: string;
   /** El auxiliar abierto de las cuentas de control, documento a documento. */
   documentos?: readonly OpeningDocument[];
+  /**
+   * The CatalogoCuentas XML of the same migration (`--chart`): its memorandum
+   * accounts (8xx) get no line in the entry and are named with the source figure.
+   */
+  chartXml?: string;
   /**
    * El ejercicio que se abre. Por omisión se BUSCA: el que empieza el día
    * siguiente al corte del archivo. Nombrarlo a mano no salta el candado —el
@@ -1049,6 +1183,9 @@ export async function importOpeningBalance(
     );
   }
 
+  // Third-party input, refused before anything else is read or written.
+  const chart = opts.chartXml === undefined ? undefined : readMigrationChart(opts.chartXml, rfc);
+
   const ejercicio = await ejercicioDeApertura(opts.entityId, lectura, opts.fiscalYearId);
 
   const cuentas = await query<OpeningAccountRow>(
@@ -1070,7 +1207,8 @@ export async function importOpeningBalance(
     lectura,
     cuentas.rows,
     opts.documentos ?? [],
-    ejercicio
+    ejercicio,
+    chart
   );
 
   // LA IDEMPOTENCIA VA POR EL ASIENTO QUE YA EXISTE, no por una bandera: dos
@@ -1220,6 +1358,8 @@ export async function importOpeningBalance(
         total_debe: plan.totalDebe,
         total_haber: plan.totalHaber,
         load_mode: loadMode === 'draft' ? 'borrador' : 'contabilizar',
+        // An exclusion that is not written down is a difference someone hid.
+        memorandum_excluded: plan.excluded,
       },
       reason: opts.reason ?? null,
     });
@@ -1341,6 +1481,24 @@ function memorandumInsideLedgerAccounts(
     .map(([account, held]) => ({ account, rows: held.rows, net: held.net.toFixed(ESCALA_DEL_MAYOR) }));
 }
 
+/**
+ * THE SOURCE'S tree and natures: ours, overwritten by what the catalog
+ * declares. The source added up its figures on ITS tree, so that is the one
+ * the inside-account rule climbs.
+ */
+function sourceTree(
+  accounts: readonly { code: string; parent_code: string | null; normal_balance: string }[],
+  chart: readonly CatalogFileRow[]
+): { parentOf: Map<string, string | null>; natureOf: Map<string, Natur> } {
+  const parentOf = new Map<string, string | null>(accounts.map((a) => [a.code, a.parent_code]));
+  const natureOf = new Map(accounts.map((a) => [a.code, naturDe(a.normal_balance)]));
+  for (const c of chart) {
+    parentOf.set(c.numCta, c.subCtaDe);
+    natureOf.set(c.numCta, c.natur);
+  }
+  return { parentOf, natureOf };
+}
+
 export interface OpeningCheckReport {
   entityId: string;
   /** The day the opening lands on: the one after the file's cutoff. */
@@ -1423,14 +1581,7 @@ export async function checkOpeningBalance(
   const memorandum = new Set(opts.memorandumCodes ?? []);
   if (chart !== null) {
     const isMemorandum = memorandumClassifier(chart, ledger.rows);
-    // The source added up its figures on ITS tree, so that is the one to
-    // climb: ours, overwritten by what the catalog declares.
-    const parentOf = new Map<string, string | null>(ledger.rows.map((r) => [r.code, r.parent_code]));
-    const sourceNature = new Map(ledger.rows.map((r) => [r.code, naturDe(r.normal_balance)]));
-    for (const c of chart) {
-      parentOf.set(c.numCta, c.subCtaDe);
-      sourceNature.set(c.numCta, c.natur);
-    }
+    const { parentOf, natureOf: sourceNature } = sourceTree(ledger.rows, chart);
     const inside = memorandumInsideLedgerAccounts(source.rows, isMemorandum, parentOf, sourceNature);
     if (inside.length > 0) {
       const detail = inside
@@ -1552,14 +1703,21 @@ async function ejercicioDeApertura(
 /**
  * El informe en texto. Quien migra necesita ver QUÉ entró y qué no antes de
  * confiar en el sistema, y lo está mirando en una terminal.
+ *
+ * `translate` is the surface's `t()`: it writes the one line here that has a
+ * key. The findings come already rendered, by `localizeOpeningReport`.
  */
-export function renderOpeningBalanceReport(r: OpeningBalanceReport): string {
+export function renderOpeningBalanceReport(r: OpeningBalanceReport, translate: Translate = unrendered): string {
   const l: string[] = [];
   l.push(
     `Apertura del ejercicio ${r.ejercicio} · RFC ${r.rfc} · desde la balanza ${r.origenAnio}-${r.origenMes}`
   );
   l.push(`  Asiento al ${r.fecha} · ${r.filasLeidas} filas leídas · ${r.lines.length} renglones`);
   l.push(`  Debe ${r.totalDebe} · Haber ${r.totalHaber}`);
+  if (r.excluded.length > 0) {
+    l.push(`  ${translate('migration.opening.memorandum_excluded_header', { doctrine: MEMORANDUM_DOCTRINE })}`);
+    for (const x of r.excluded) l.push(`    ${x.code} ${x.amount}`);
+  }
   const conDocumento = r.lines.filter((x) => x.documento !== undefined).length;
   if (conDocumento > 0) {
     l.push(`  ${conDocumento} renglón(es) vienen del auxiliar, documento a documento.`);

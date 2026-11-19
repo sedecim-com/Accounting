@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Command } from 'commander';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
+import { seedBill } from './helpers/seeded-bill.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { resolvePolicy, seedPolicies } from '../../src/services/policy/policy-service.js';
@@ -250,10 +251,9 @@ describe('a firm rule that sets auto and requires document_type = credit_note', 
 describe('what the note reads besides its bill', () => {
   it('T4 · the VAT of the bill in 1130, as a PUE and as a PPD credited the old way: the note credits 1130 and the workpaper warns', async () => {
     const october: Edit = (x) => x.replaceAll(/2026-0[89]-/g, '2026-10-');
-    for (const oldWay of [false, true]) {
-      const b = await bill((x) => october(x).replace('MetodoPago="PPD"', 'MetodoPago="PUE"'));
-      // NOTE: seeded, not posted: a PPD document whose entry debited 1130 is what the door wrote before cash-basis VAT.
-      if (oldWay) await query(`UPDATE xml_documents SET xml_content = replace(xml_content, '"PUE"', '"PPD"') WHERE entity_id = $1 AND cfdi_uuid = $2`, [f.entityId, b.uuid]);
+    for (const method of ['PUE', 'PPD'] as const) {
+      // NOTE: seeded, not posted: no door debits 1130 against vendors for a PPD since cash-basis VAT, nor for a PUE after MNE-001-492.
+      const b = await seedBill(f, { vendorId, method, vatCode: '1130', date: '2026-10-20', subtotal: '8000.00', vat: '1280.00' });
       const n = await note(b.uuid, october);
       await post(n);
       expect(await linesOf(n.uuid)).toEqual(['1130 0/320.0000', '2110 2320.0000/0', '6100 0/2000.0000']);

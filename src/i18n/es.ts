@@ -2847,6 +2847,29 @@ export const ES: Record<keyof typeof EN, string> = {
     'orden, con el saldo que el origen declara, y de su neto, con el cargo en positivo. No se cotejó nada: una ' +
     'apertura que lleve ese dinero saldría igual al peso con dinero de cuentas de orden dentro del balance. ' +
     'Corrige la jerarquía en el catálogo de origen (SubCtaDe) y vuelve a exportar los dos archivos; ver {doctrine}.',
+  // ---- MNE-001-456 (#621): the load leaves the memorandum accounts out ----
+  'migration.opening.memorandum_excluded':
+    '«{account}» es cuenta de orden (8xx), por su agrupador o porque cuelga de una, y el origen le declara ' +
+    '{amount}. No recibe renglón en el asiento de apertura y queda fuera del mayor: guarda este saldo con los ' +
+    'papeles de trabajo de la migración; ver {doctrine}.',
+  'migration.opening.memorandum_in_ledger':
+    '«{account}» es cuenta de orden (8xx), por su agrupador o porque cuelga de una, y ya existe en esta ' +
+    'entidad como {type}. No recibe renglón en el asiento de apertura (el origen le declara {amount}), pero ' +
+    'según la doctrina ({doctrine}) no debería estar en el mayor: revísala a mano.',
+  'migration.opening.memorandum_inside_account':
+    'El saldo que declara «{account}» incluye dinero de cuentas de orden (8xx) que cuelga dentro de ella y no ' +
+    'suma cero ahí: {rows}, neto {net} con el cargo en positivo. No se carga nada: postear ese saldo metería ' +
+    'dinero de cuentas de orden al balance, y postear menos haría fallar opening-balance check. Corrige la ' +
+    'jerarquía en el catálogo de origen (SubCtaDe) y vuelve a exportar los dos archivos; ver {doctrine}.',
+  'migration.opening.memorandum_document':
+    'El documento «{document}» cuelga de «{account}», que es cuenta de orden (8xx) y no recibe renglón en el ' +
+    'asiento de apertura. Una cuenta de orden no tiene detrás una cuenta por cobrar ni por pagar: quita el ' +
+    'documento del archivo de --subledger, o corrige la cuenta en el origen; ver {doctrine}.',
+  'migration.opening.unknown_account_chart_hint':
+    'Si es cuenta de orden (8xx), pasa el catálogo de la misma migración con --chart <file>: la carga la deja ' +
+    'fuera del asiento y la nombra ({doctrine}).',
+  'migration.opening.memorandum_excluded_header':
+    'Cuentas de orden fuera del asiento, con el saldo que declara el origen ({doctrine}):',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',
   'help.period.list.description': 'Lista todos los periodos con su estado, sus fechas y la marca de vencido',
@@ -3057,6 +3080,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'Contabiliza la póliza de apertura desde un XML BalanzaComprobacion del Anexo 24, el día siguiente a su corte -- irreversible',
   'help.opening_balance.import.option.subledger':
     'arreglo JSON con los documentos abiertos de las cuentas de control de clientes y proveedores',
+  'help.opening_balance.import.option.chart':
+    'el XML CatalogoCuentas de la misma migración: sus cuentas de orden (8xx) quedan fuera del asiento, ' +
+    'nombradas con el saldo del origen',
   'help.opening_balance.import.option.reason': 'por qué se carga la apertura; va a la bitácora de auditoría',
   'help.opening_balance.check.description':
     'Compara la balanza de origen contra el mayor en el día de apertura, al peso; sale con 4 si difieren',
