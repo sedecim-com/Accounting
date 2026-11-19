@@ -366,6 +366,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.rep_unknown_document.option.preguntar':
     'Preguntar el importe del IVA',
 
+  'policy.rep_voided_document.question':
+    'Un pago de un complemento (REP) cubre una factura viva y otra que los libros anularon: ¿qué pasa?',
+  'policy.rep_voided_document.impact':
+    'Aplica a un complemento que la entidad emitió. Con «review» todo el pago espera a una persona, así que el IVA de la factura viva sigue como no cobrado hasta entonces. Con «post_live_documents» el pago se registra sólo por las facturas vivas y su IVA se libera; la parte de la factura anulada queda sin registrar, con un aviso guardado en el complemento.',
+  'policy.rep_voided_document.rationale':
+    'Un complemento se emite sólo cuando el dinero efectivamente se recibe (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, pregunta 11), así que uno que nombra una factura que los libros anularon los contradice, y sólo una persona puede decir cuál está mal; el ADR-0006 elige la opción que no registra sin revisión, como hace `rep_documento_desconocido` al esperar. Un despacho que contabiliza directo de los CFDI puede registrar los documentos vivos, cuyo IVA se causa cuando se cobra (LIVA arts. 1o.-B, 11 y 17).',
+  'policy.rep_voided_document.why':
+    'Cuando un movimiento de banco paga varias facturas y una de ellas está anulada o cancelada en los libros, o el complemento o los libros están mal. Unos despachos quieren aclararlo antes de registrar nada; otros quieren cobrar de una vez las facturas que sí siguen en pie.',
+  'policy.rep_voided_document.what':
+    'Por omisión mando todo el pago a revisión y nombro la factura anulada. Con «post_live_documents» cobro las facturas vivas, no aplico nada a la anulada y guardo un aviso que la nombra.',
+  'policy.rep_voided_document.if_skipped':
+    'Todo el pago va a revisión, nombrando la factura anulada.',
+  'policy.rep_voided_document.option.review':
+    'Revisión: detener todo el pago y nombrar la factura anulada',
+  'policy.rep_voided_document.option.post_live_documents':
+    'Registrar las facturas vivas y dejar la anulada sin registrar, con un aviso',
+
   'policy.rep_match_window_days.question':
     '¿Cuántos días de diferencia puede haber entre la fecha del complemento y la del pago registrado para que sigan siendo el mismo evento?',
   'policy.rep_match_window_days.impact':
@@ -2235,11 +2252,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.reverse.warning.card_not_collected':
     'Este cobro se pagó con tarjeta, y una tarjeta se paga cuando se acepta (LIVA art. 1-B): not_collected dice que el dinero nunca fue tuyo. Si llegó y el banco te lo quitó, como en un contracargo, la causa es taken_back.',
   'receipt.reverse.warning.cause_not_stated':
-    'No se declaró causa, y sólo un cheque tiene una por omisión: el IVA de este cobro se queda en el mes en que se cobró hasta que se declare una causa (not_collected o taken_back).',
+    'No se declaró causa, y sólo un cheque tiene una por omisión: el IVA de este cobro se queda en el mes en que se cobró hasta que se declare una causa (not_collected o taken_back) con `cobro causa registrar`.',
   'receipt.reverse.cause.stated': 'causa {cause}',
   'receipt.reverse.cause.defaulted':
     'causa not_collected, tomada por omisión: un cheque se paga el día que el banco lo cobra',
   'receipt.reverse.cause.none': 'sin causa declarada',
+  // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
+  'receipt.cause.not_reversed':
+    'El cobro {number} está en «{status}»: la causa sólo se declara para un cobro reversado. No se escribió nada.',
+  'receipt.cause.already_stated':
+    'El cobro {number} ya tiene su causa, {cause}, declarada el {stated_at}: una causa declarada no se sobrescribe. No se escribió nada.',
+  'receipt.cause.reason_required':
+    'Declarar la causa de una reversa exige --reason "<por qué>": queda escrito en el rastro de auditoría.',
+  'receipt.cause.would_state': 'Declararía la causa {cause} para la reversa de {number}',
+  'receipt.cause.confirm':
+    '¿Declarar {cause} como la causa de la reversa de {number}? Se escribe una sola vez y no se puede corregir; no postea nada en el mayor.',
+  'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
   'receipt.advance.cfdi_owed':
     'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
   'receipt.advance.invoice_already_booked':
@@ -2847,6 +2875,29 @@ export const ES: Record<keyof typeof EN, string> = {
     'orden, con el saldo que el origen declara, y de su neto, con el cargo en positivo. No se cotejó nada: una ' +
     'apertura que lleve ese dinero saldría igual al peso con dinero de cuentas de orden dentro del balance. ' +
     'Corrige la jerarquía en el catálogo de origen (SubCtaDe) y vuelve a exportar los dos archivos; ver {doctrine}.',
+  // ---- MNE-001-456 (#621): the load leaves the memorandum accounts out ----
+  'migration.opening.memorandum_excluded':
+    '«{account}» es cuenta de orden (8xx), por su agrupador o porque cuelga de una, y el origen le declara ' +
+    '{amount}. No recibe renglón en el asiento de apertura y queda fuera del mayor: guarda este saldo con los ' +
+    'papeles de trabajo de la migración; ver {doctrine}.',
+  'migration.opening.memorandum_in_ledger':
+    '«{account}» es cuenta de orden (8xx), por su agrupador o porque cuelga de una, y ya existe en esta ' +
+    'entidad como {type}. No recibe renglón en el asiento de apertura (el origen le declara {amount}), pero ' +
+    'según la doctrina ({doctrine}) no debería estar en el mayor: revísala a mano.',
+  'migration.opening.memorandum_inside_account':
+    'El saldo que declara «{account}» incluye dinero de cuentas de orden (8xx) que cuelga dentro de ella y no ' +
+    'suma cero ahí: {rows}, neto {net} con el cargo en positivo. No se carga nada: postear ese saldo metería ' +
+    'dinero de cuentas de orden al balance, y postear menos haría fallar opening-balance check. Corrige la ' +
+    'jerarquía en el catálogo de origen (SubCtaDe) y vuelve a exportar los dos archivos; ver {doctrine}.',
+  'migration.opening.memorandum_document':
+    'El documento «{document}» cuelga de «{account}», que es cuenta de orden (8xx) y no recibe renglón en el ' +
+    'asiento de apertura. Una cuenta de orden no tiene detrás una cuenta por cobrar ni por pagar: quita el ' +
+    'documento del archivo de --subledger, o corrige la cuenta en el origen; ver {doctrine}.',
+  'migration.opening.unknown_account_chart_hint':
+    'Si es cuenta de orden (8xx), pasa el catálogo de la misma migración con --chart <file>: la carga la deja ' +
+    'fuera del asiento y la nombra ({doctrine}).',
+  'migration.opening.memorandum_excluded_header':
+    'Cuentas de orden fuera del asiento, con el saldo que declara el origen ({doctrine}):',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',
   'help.period.list.description': 'Lista todos los periodos con su estado, sus fechas y la marca de vencido',
@@ -2895,6 +2946,14 @@ export const ES: Record<keyof typeof EN, string> = {
     'Reversa un cobro cuyo dinero no se quedó, diciendo por qué: espeja cada asiento, reabre facturas y vuelve a aparcar el IVA',
   'help.receipt.reverse.option.cause':
     'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo); sin ella, un cheque toma not_collected y cualquier otro método queda sin causa',
+  // MNE-001-511 (#701): the cause of a reversal, stated afterwards.
+  'help.receipt.cause.description': 'La causa de un cobro reversado: qué pasó con su dinero',
+  'help.receipt.cause.record.description':
+    'Declara la causa de un cobro que se reversó sin ella: se escribe una vez, queda auditada y no postea nada',
+  'help.receipt.cause.record.argument.ref': 'número de cobro o id',
+  'help.receipt.cause.record.option.cause':
+    'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo)',
+  'help.receipt.cause.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',
@@ -3057,6 +3116,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'Contabiliza la póliza de apertura desde un XML BalanzaComprobacion del Anexo 24, el día siguiente a su corte -- irreversible',
   'help.opening_balance.import.option.subledger':
     'arreglo JSON con los documentos abiertos de las cuentas de control de clientes y proveedores',
+  'help.opening_balance.import.option.chart':
+    'el XML CatalogoCuentas de la misma migración: sus cuentas de orden (8xx) quedan fuera del asiento, ' +
+    'nombradas con el saldo del origen',
   'help.opening_balance.import.option.reason': 'por qué se carga la apertura; va a la bitácora de auditoría',
   'help.opening_balance.check.description':
     'Compara la balanza de origen contra el mayor en el día de apertura, al peso; sale con 4 si difieren',

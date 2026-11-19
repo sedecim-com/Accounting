@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 246 of 392 subcommands
+  spelling is `-T` at the root and `-t` on the 247 of 394 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -2435,6 +2435,7 @@ Options:
   -t, --tenant <id>                        tenant (firm) whose data to scope to
   -u, --user <email>                       acting user, for attribution and permissions
   --subledger <file>                       JSON array with the open documents of the receivable and payable control accounts
+  --chart <file>                           the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the entry and named with the source figure
   --reason <text>                          why the opening is loaded; goes to the audit log
   --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
   --json                                   shorthand for --format json
@@ -2450,6 +2451,8 @@ Examples:
   # ALWAYS this one first: the opening is posted and the ledger cannot be undone.
   mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --dry-run
   mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --yes
+  # With the migration's catalog, its memorandum accounts (8xx) get no line in the entry, each one named.
+  mnemosine opening-balance import ./migration/balanza-2025-12.xml --chart ./migration/catalogo.xml --dry-run
 ```
 
 ### `mnemosine opening-balance check` (alias: verificar)
@@ -4521,6 +4524,8 @@ Commands:
   reverse|reversar [options] <ref>      Reverse a collection whose money did not
                                         stay, saying why: mirrors every entry,
                                         reopens invoices, re-parks IVA
+  cause|causa                           The cause of a reversed collection: what
+                                        happened to its money
   help [command]                        display help for command
 ```
 
@@ -4754,6 +4759,58 @@ Examples:
   mnemosine receipt reverse PMT-2026-00042 --reason "Devuelto por fondos insuficientes"
   # See the mirror it would post, writing nothing.
   mnemosine receipt reverse PMT-2026-00042 --dry-run
+```
+
+### `mnemosine receipt cause` (alias: causa)
+
+```
+Usage: mnemosine receipt cause|causa [options] [command]
+
+The cause of a reversed collection: what happened to its money
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  record|registrar [options] <ref>  State the cause of a collection that was
+                                    reversed with none: written once, audited,
+                                    posts nothing
+  help [command]                    display help for command
+```
+
+#### `mnemosine receipt cause record` (alias: registrar)
+
+```
+Usage: mnemosine receipt cause record|registrar [options] <ref>
+
+State the cause of a collection that was reversed with none: written once,
+audited, posts nothing
+
+Arguments:
+  ref                      payment number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --cause <cause>          what happened to the money: not_collected (it never
+                           became yours) or taken_back (it arrived and was taken
+                           back, as in a chargeback)
+  --reason <text>          justification recorded in the audit trail (required)
+  --json                   JSON output
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
+  -h, --help               display help for command
+
+Examples:
+  # A direct debit reversed with no cause turned out to be a dispute after it was paid.
+  mnemosine receipt cause record PMT-2026-00042 --cause taken_back --reason "Disputed by the payer on June 9"
+  # See what would be written, writing nothing.
+  mnemosine receipt cause record PMT-2026-00042 --cause not_collected --dry-run
 ```
 
 ## `mnemosine credit-note` (alias: nota-credito)

@@ -410,6 +410,23 @@ export const EN = {
   'policy.rep_unknown_document.option.preguntar':
     'Ask for the VAT amount',
 
+  'policy.rep_voided_document.question':
+    'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',
+  'policy.rep_voided_document.impact':
+    'Applies to a receipt the entity issued. With "review" the whole payment waits for a person, so the VAT of the live invoice stays as not yet collected until then. With "post_live_documents" the payment is recorded for the live invoices only and their VAT is released; the share of the annulled invoice stays unbooked, with a warning saved on the receipt.',
+  'policy.rep_voided_document.rationale':
+    'A receipt is issued only when the money is actually received (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, question 11), so one that names an invoice the books voided contradicts them, and only a person can say which is wrong; ADR-0006 picks the option that does not post without review, as `rep_documento_desconocido` does by waiting. A firm that books straight from CFDIs may post the live documents, whose VAT is caused when collected (LIVA arts. 1o.-B, 11 and 17).',
+  'policy.rep_voided_document.why':
+    'When one bank movement pays several invoices and one of them is void or cancelled in the books, either the receipt or the books are wrong. Some firms want to settle that before anything is recorded; others want the invoices that do stand collected at once.',
+  'policy.rep_voided_document.what':
+    'By default I send the whole payment to review and name the annulled invoice. With "post_live_documents" I collect the live invoices, apply nothing to the annulled one and save a warning that names it.',
+  'policy.rep_voided_document.if_skipped':
+    'The whole payment goes to review, naming the annulled invoice.',
+  'policy.rep_voided_document.option.review':
+    'Review: hold the whole payment and name the annulled invoice',
+  'policy.rep_voided_document.option.post_live_documents':
+    'Post the live invoices and leave the annulled one unbooked, with a warning',
+
   'policy.rep_match_window_days.question':
     'How many days apart can the receipt date and the recorded payment be and still be the same event?',
   'policy.rep_match_window_days.impact':
@@ -2366,11 +2383,22 @@ export const EN = {
   'receipt.reverse.warning.card_not_collected':
     'This receipt was paid by card, and a card is paid when it is accepted (LIVA art. 1-B): not_collected says the money never became yours. If it arrived and the bank took it back, as in a chargeback, the cause is taken_back.',
   'receipt.reverse.warning.cause_not_stated':
-    'No cause is stated, and only a cheque has one by default: the IVA of this receipt stays in the month it was collected until a cause is stated (not_collected or taken_back).',
+    'No cause is stated, and only a cheque has one by default: the IVA of this receipt stays in the month it was collected until a cause is stated (not_collected or taken_back) with `receipt cause record`.',
   'receipt.reverse.cause.stated': 'cause {cause}',
   'receipt.reverse.cause.defaulted':
     'cause not_collected, taken by default: a cheque is paid the day the bank cashes it',
   'receipt.reverse.cause.none': 'no cause stated',
+  // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
+  'receipt.cause.not_reversed':
+    'The receipt {number} is "{status}": a cause is stated only for a reversed receipt. Nothing was written.',
+  'receipt.cause.already_stated':
+    'The receipt {number} already has its cause, {cause}, stated at {stated_at}: a stated cause is not overwritten. Nothing was written.',
+  'receipt.cause.reason_required':
+    'Stating the cause of a reversal requires --reason "<why>": it is written to the audit trail.',
+  'receipt.cause.would_state': 'Would state the cause {cause} for the reversal of {number}',
+  'receipt.cause.confirm':
+    'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
+  'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
   'receipt.advance.cfdi_owed':
     'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
   'receipt.advance.invoice_already_booked':
@@ -3003,6 +3031,29 @@ export const EN = {
     'the figure the source declares, and by their net, debit positive. Nothing was compared: an opening that ' +
     'carries that money would come out equal with memorandum money on the balance sheet. Fix the hierarchy in ' +
     'the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
+  // ---- MNE-001-456 (#621): the load leaves the memorandum accounts out ----
+  'migration.opening.memorandum_excluded':
+    '"{account}" is a memorandum account (8xx), by its agrupador or because it hangs from one, and the source ' +
+    'declares {amount} for it. It gets no line in the opening entry and stays out of the ledger: keep this ' +
+    'figure with the working papers of the migration; see {doctrine}.',
+  'migration.opening.memorandum_in_ledger':
+    '"{account}" is a memorandum account (8xx), by its agrupador or because it hangs from one, and it already ' +
+    'exists in this entity as {type}. It gets no line in the opening entry (the source declares {amount}), but ' +
+    'by the doctrine ({doctrine}) it should not be in the ledger: review it by hand.',
+  'migration.opening.memorandum_inside_account':
+    'The figure "{account}" declares includes memorandum (8xx) money that hangs inside it and does not net to ' +
+    'zero there: {rows}, net {net} with debit positive. Nothing is loaded: posting that figure would put ' +
+    'memorandum money on the balance sheet, and posting less would fail opening-balance check. Fix the ' +
+    'hierarchy in the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
+  'migration.opening.memorandum_document':
+    'The document "{document}" hangs from "{account}", which is a memorandum account (8xx) and gets no line in ' +
+    'the opening entry. A memorandum account has no receivable or payable behind it: take the document out of ' +
+    'the --subledger file, or fix the account at the source; see {doctrine}.',
+  'migration.opening.unknown_account_chart_hint':
+    'If it is a memorandum account (8xx), pass the catalog of the same migration with --chart <file>: the ' +
+    'load leaves it out of the entry and names it ({doctrine}).',
+  'migration.opening.memorandum_excluded_header':
+    'Memorandum accounts left out of the entry, with the figure the source declares ({doctrine}):',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   //
   // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,
@@ -3060,6 +3111,14 @@ export const EN = {
     'Reverse a collection whose money did not stay, saying why: mirrors every entry, reopens invoices, re-parks IVA',
   'help.receipt.reverse.option.cause':
     'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback); with none, a cheque takes not_collected and any other method keeps no cause',
+  // MNE-001-511 (#701): the cause of a reversal, stated afterwards.
+  'help.receipt.cause.description': 'The cause of a reversed collection: what happened to its money',
+  'help.receipt.cause.record.description':
+    'State the cause of a collection that was reversed with none: written once, audited, posts nothing',
+  'help.receipt.cause.record.argument.ref': 'payment number or id',
+  'help.receipt.cause.record.option.cause':
+    'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback)',
+  'help.receipt.cause.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
@@ -3217,6 +3276,9 @@ export const EN = {
     'Post the opening entry from an Anexo 24 BalanzaComprobacion XML, on the day after its cutoff -- irreversible',
   'help.opening_balance.import.option.subledger':
     'JSON array with the open documents of the receivable and payable control accounts',
+  'help.opening_balance.import.option.chart':
+    'the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the entry ' +
+    'and named with the source figure',
   'help.opening_balance.import.option.reason': 'why the opening is loaded; goes to the audit log',
   'help.opening_balance.check.description':
     'Compare the source trial balance against the ledger on the opening day, to the peso; exits 4 if they differ',
