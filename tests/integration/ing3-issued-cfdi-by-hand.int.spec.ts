@@ -23,6 +23,7 @@ import { reconcileCensus } from '../../src/services/sat-census/reconcile.js';
 import xmlIngestionRouter from '../../src/api/rest/routes/xml-ingestion.js';
 import { levantar, pedir, sesionDe } from './helpers/servidor.js';
 import { repXml } from './helpers/rep-xml.js';
+import { t } from '../../src/i18n/index.js';
 
 // ============================================================
 // MNE-001-417 (#620, part 2/4) — AN ISSUED CFDI CODED BY HAND GOES TO AR.
@@ -294,6 +295,33 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     const invoice = await born(uuid);
     expect(invoice.lines).toEqual(['DR 1120 9280.00', 'CR 4100 8000.00', 'CR 2120 1280.00']);
     expect(invoice.description).toMatch(/ · MetodoPago missing: PUE assumed$/);
+  });
+
+  // MNE-001-522 (#670, decision 4): migration 334 uncodes a line that held an expense account and keeps that
+  // account on it as `previous_account_id`. The review shows it; the entry never takes it.
+  it('a line uncoded by the re-typing shows the account it held as a reference, and the sale posts to revenue', async () => {
+    const { uuid, id } = await stranded();
+    const left = await query(
+      `UPDATE pre_registrations SET lines = jsonb_set(lines, '{0,previous_account_id}', to_jsonb($3::text))
+        WHERE id = $1 AND entity_id = $2 AND document_type = 'invoice'`,
+      [id, f.entityId, f.cuentas['6100']]
+    );
+    expect(left.rowCount).toBe(1);
+    const name = (await query<{ name: string }>(
+      `SELECT name FROM accounts WHERE id = $1 AND entity_id = $2`, [f.cuentas['6100'], f.entityId]
+    )).rows[0].name;
+    const before = await ledger();
+    const preview = await post(uuid, undefined, true);
+    expect(preview.references).toEqual([{ line: 1, accountCode: '6100', accountName: name }]);
+    expect(preview.lines.map((l) => l.accountCode)).toEqual(['1120', '4100', '2125']);
+    expect(await ledger()).toEqual(before);
+    const review = await cli('cfdi', 'post', uuid, '--dry-run');
+    expect(review.exitCode).toBe(0);
+    expect(review.said).toContain(t('cfdi.post.previous_account', { line: 1, code: '6100', name }));
+    expect(await ledger()).toEqual(before);
+
+    await post(uuid);
+    expect((await born(uuid)).lines).toEqual(['DR 1120 9280.00', 'CR 4100 8000.00', 'CR 2125 1280.00']);
   });
 
   it.each<{ name: string; edits?: Edit[]; received?: boolean; coding?: [string, number?]; account?: string; refusal: RegExp }>([

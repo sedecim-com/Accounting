@@ -450,6 +450,10 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
         r.lines.map((l) => ({ account: l.accountCode, name: l.accountName, debit: l.debit ?? '', credit: l.credit ?? '' })),
         { format: 'table', numeric: ['debit', 'credit'] }
       );
+      // MNE-001-522 (#670, decision 4): what a line held before migration 334 uncoded it, never posted.
+      for (const ref of r.references) {
+        note(t('cfdi.post.previous_account', { line: ref.line, code: ref.accountCode, name: ref.accountName }));
+      }
       if (dryRun) {
         note(t('cfdi.post.nothing_written', { id: r.preRegistrationId }));
         return;

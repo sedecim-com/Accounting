@@ -4358,6 +4358,8 @@ export const EN = {
   'cfdi.post.posted': 'CFDI {uuid} posted as {invoice} for {rfc} · entry {entry} · {due} due',
   'cfdi.post.nothing_written':
     'Nothing was written. To code one concept first: mnemosine bill inbox edit {id} --line <n> --account <code>',
+  'cfdi.post.previous_account':
+    'Line {line} held {code} {name} while this CFDI was stored as a vendor bill: a reference only, it is not posted.',
   'cfdi.post.next':
     '{method, select, PPD {Its VAT waits as not yet collected (2125 in the seeded chart) until its payment receipt (REP) arrives.{parked, select, yes { There are parked payment receipts: mnemosine rep reconcile links any that pays this invoice.} other {}}} other {Record its collection with: mnemosine receipt record {invoice}}}',
   'ingest.issued_left_to_code':

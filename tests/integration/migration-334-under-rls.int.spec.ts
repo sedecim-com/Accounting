@@ -250,31 +250,49 @@ describe('334 under FORCE RLS, run by an owner that cannot bypass it', () => {
     expect(Object.keys(after).filter((id) => after[id] !== before[id]).sort()).toEqual([rows['open-a'], rows['open-b']].sort());
   });
 
-  // DECISION 4 of the plan (#670), which the owner may overturn: these two cases go with its block of the SQL.
-  it('D4 · an expense account leaves the line and the default; a revenue account and the suggestion stay', async () => {
+  // DECISION 4 of #670, as the owner answered it on 19 Nov («Limpiar y dejar referencia»): an account that
+  // is not revenue leaves the line, which then asks to be coded, and stays on it as `previous_account_id`,
+  // a reference the review prints and no door posts.
+  it('D4 · an expense account leaves the line and the default and stays as its reference; a revenue account and the suggestion stay', async () => {
     const [a, b] = firms;
-    expect(await rowOf('open-a')).toMatchObject({
-      default_account_id: null, account_mapping_method: null, account_mapping_confidence: null,
-      lines: [
-        { line_number: 1, description: 'Consulting', suggested_account_id: a.expense },
-        { line_number: 2, description: 'Licence', account_id: a.revenue },
-        { line_number: 3, description: 'Nothing coded' },
-      ],
-    });
-    expect((await rowOf('open-a')).lines).not.toHaveProperty([0, 'account_id']);
+    const lines = (await rowOf('open-a')).lines;
+    expect(await rowOf('open-a')).toMatchObject({ default_account_id: null, account_mapping_method: null, account_mapping_confidence: null });
+    expect(lines).toEqual([
+      // Coded with 6100 by the rule: uncoded, 6100 kept as the reference.
+      { line_number: 1, description: 'Consulting', suggested_account_id: a.expense, previous_account_id: a.expense },
+      // A revenue account is a sale's coding: it stays, with no reference.
+      { line_number: 2, description: 'Licence', account_id: a.revenue },
+      // It took the default, 6100, which is cleared: the reference names the account it would have posted to.
+      { line_number: 3, description: 'Nothing coded', previous_account_id: a.expense },
+    ]);
+    // A revenue default stays, so the line that takes it holds no reference.
     expect(await rowOf('open-b')).toMatchObject({
       default_account_id: b.revenue, account_mapping_method: 'rule', lines: [{ line_number: 1, description: 'Consulting' }],
     });
+    expect((await rowOf('open-b')).lines).not.toHaveProperty([0, 'previous_account_id']);
   });
 
-  it('D4 · the audit row holds each cleared account, and none where nothing was cleared', async () => {
+  it('D4 · nothing posts: no entry, no invoice, no bill in any firm', async () => {
+    const { rows: [n] } = await verifier.query<{ entries: number; invoices: number; bills: number }>(
+      `SELECT (SELECT count(*) FROM journal_entries)::int AS entries, (SELECT count(*) FROM invoices)::int AS invoices,
+              (SELECT count(*) FROM bills)::int AS bills`
+    );
+    expect(n).toEqual({ entries: 0, invoices: 0, bills: 0 });
+  });
+
+  it('D4 · the audit row holds each cleared account and each reference left, and none where nothing was cleared', async () => {
     const records = await trail();
     const of = (name: string) => records.find((r) => r.entity_id === rows[name])!;
     expect(of('open-a').old_values).toMatchObject({
       default_account_id: firms[0].expense, account_mapping_method: 'rule', account_mapping_confidence: 1,
       cleared_lines: [{ line_number: 1, account_id: firms[0].expense }],
     });
-    expect(of('open-a').new_values).toMatchObject({ default_account_id: null, account_mapping_method: null, account_mapping_confidence: null });
+    expect(of('open-a').new_values).toMatchObject({
+      default_account_id: null, account_mapping_method: null, account_mapping_confidence: null, cleared_lines: [],
+      referenced_lines: [
+        { line_number: 1, previous_account_id: firms[0].expense }, { line_number: 3, previous_account_id: firms[0].expense },
+      ],
+    });
     for (const values of [of('open-b').old_values, of('open-b').new_values]) {
       expect(Object.keys(values).filter((k) => /account|lines/.test(k))).toEqual([]);
     }
