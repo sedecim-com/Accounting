@@ -47,7 +47,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} ieps {traslada IEPS ({detail}), que este camino todavía no contabiliza} local_tax {traslada impuestos locales ({detail}), que este camino todavía no contabiliza} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+  'error.ISSUED_CFDI_PPD_IEPS':
+    'El CFDI {uuid} es una venta PPD que traslada IEPS ({ieps}): ese IEPS espera al cobro, y la contabilidad no puede aparcarlo hasta que entre la issue {issue}. No se posteó nada.',
   'error.ISSUED_CFDI_NOT_OPEN':
     'El CFDI {uuid} no está abierto: su pre-registro está en {status}{invoice, select, none {} other {, como la factura de cliente {invoice}}}. No se posteó nada.',
   'error.ISSUED_CFDI_DRAFT_IN_REVIEW':
