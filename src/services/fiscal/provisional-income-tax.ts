@@ -287,7 +287,8 @@ export async function buildProvisionalIncomeTaxWorkpaper(
     if (!coefficient) {
       block('ISR-WP-NO-COEFFICIENT',
         `No hay coeficiente de utilidad capturado de una declaración anual presentada o exigible al ` +
-          `vencer el pago de ${year}-${pad(month)} (LISR art. 14 fr. I). Captúralo con su declaración; ` +
+          `vencer el pago de ${year}-${pad(month)} (LISR art. 14 fr. I). Captúralo con su declaración: ` +
+          '`mnemosine annual figure record --kind profit_coefficient`; ' +
           `en el primer ejercicio de operaciones no hay pagos provisionales.`);
     }
 
