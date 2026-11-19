@@ -37,6 +37,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revaluación de {period} se revierte el primer día del periodo siguiente, y ese periodo {status, select, missing {no existe} other {está en {status}}}. Ábrelo (en diciembre, abre antes el ejercicio siguiente) y vuelve a correrla: no se posteó nada.',
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'La revaluación de cierre está hecha para entidades que llevan sus libros en pesos mexicanos (NIF B-15), y ésta los lleva en {currency}. Otras monedas funcionales, y ASC 830, son el issue 124: no se posteó nada.',
+  'error.BILL_CHANGED': '{bill} cambió mientras se aplicaba el pago; no se escribió nada.',
   'error.FX_REVALUATION_PLAN_CHANGED':
     'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
   'error.FX_REVALUATION_MARKER_MISMATCH':
@@ -3207,6 +3208,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ar.reconcile.description':
     'Auxiliar (facturas abiertas − notas de crédito sin aplicar) contra la cuenta de control de cxc, nombrando las pólizas manuales',
   'help.ar.reconcile.option.strict': 'sale con 4 ante cualquier diferencia, por corta que sea la lista de sospechosos',
+  'ar.check.cross_party_application.found':
+    'el dinero de un cliente salda la factura de otro: revísalo; no se bloquea nada',
+  'ar.check.cross_party_application.none': 'ninguna',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',

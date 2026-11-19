@@ -56,6 +56,8 @@ export const EN = {
   /** `AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED')`: an entity whose functional currency is not MXN (#124). */
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'The closing revaluation is built for entities that keep their books in Mexican pesos (NIF B-15), and this one keeps them in {currency}. Other functional currencies, and ASC 830, are issue 124: nothing was posted.',
+  /** `AccountingError('BILL_CHANGED')`: a payment's bill UPDATE matched no row (MNE-001-532). */
+  'error.BILL_CHANGED': '{bill} changed while the payment was being applied; nothing was written.',
   /** `AccountingError('FX_REVALUATION_PLAN_CHANGED')`: the live run recomputed a different gain or loss than the plan the user confirmed. */
   'error.FX_REVALUATION_PLAN_CHANGED':
     'The revaluation of {period} changed between the plan you confirmed (gain {expectedGain}, loss {expectedLoss}) and the post (gain {gain}, loss {loss}): something was posted or a rate changed in between. Nothing was posted; run it again to see the new plan.',
@@ -3371,6 +3373,10 @@ export const EN = {
   'help.ar.reconcile.description':
     'Subledger (open invoices − unapplied credit notes) vs the cxc control account, naming manual entries',
   'help.ar.reconcile.option.strict': 'exit 4 on any delta, however small the list of suspects',
+  /** `ar check`, probe cross-party-application (MNE-001-530). */
+  'ar.check.cross_party_application.found':
+    "a customer's cash settles another customer's invoice: review it; nothing is blocked",
+  'ar.check.cross_party_application.none': 'none',
   'help.ar.check.description':
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',
