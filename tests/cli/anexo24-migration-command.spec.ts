@@ -24,6 +24,8 @@ const m = vi.hoisted(() => ({
   importOpeningBalance: vi.fn(),
   checkOpeningBalance: vi.fn(),
 }));
+/** What the CLI hands to the service to render its keyed findings. */
+const edge = vi.hoisted(() => ({ translators: [] as unknown[] }));
 vi.mock('../../src/ai/context.js', () => ({ bootstrapTenant: vi.fn() }));
 vi.mock('../../src/ai/draft-service.js', () => ({
   resolveReviewer: vi.fn(async () => ({ userId: 'u-1' })),
@@ -44,6 +46,10 @@ vi.mock('../../src/services/accounting/opening-balance.js', () => ({
   importOpeningBalance: m.importOpeningBalance,
   checkOpeningBalance: m.checkOpeningBalance,
   renderOpeningBalanceReport: () => 'opening report',
+  localizeOpeningReport: (report: unknown, translate: unknown) => {
+    edge.translators.push(translate);
+    return report;
+  },
 }));
 
 
@@ -79,6 +85,7 @@ beforeEach(() => {
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   for (const f of Object.values(m)) f.mockReset();
+  edge.translators.length = 0;
 });
 
 describe('the declarations', () => {
@@ -95,7 +102,7 @@ describe('the declarations', () => {
     const c = leaf('opening-balance', 'import');
     expect(riskOf(c)).toMatchObject({ risk: 'irreversible', agentAllowed: false });
     const longs = c.options.map((o) => o.long);
-    expect(longs).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--subledger']));
+    expect(longs).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--subledger', '--chart']));
   });
 
   it('chart import writes with the agent closed; check is a read', () => {
@@ -127,6 +134,31 @@ describe('the gesture: --dry-run, then --yes', () => {
     expect(code).toBe(0);
     expect(m.importOpeningBalance).toHaveBeenCalledTimes(2);
     expect(m.importOpeningBalance.mock.calls[1][1]).not.toHaveProperty('dryRun');
+  });
+
+  // MNE-001-456 · #621: the preview and the apply classify with the same catalog text.
+  it('--chart reaches the preview and the apply as the same chartXml, and without it nothing is passed', async () => {
+    const chart = path.join(path.dirname(FILE), 'import-chart.xml');
+    writeFileSync(chart, '<synthetic-chart/>');
+    m.importOpeningBalance.mockResolvedValueOnce(opening(false)).mockResolvedValueOnce(opening(true));
+    expect(await build().run('opening-balance', 'import', FILE, '--chart', chart, '--yes')).toBe(0);
+    expect(m.importOpeningBalance.mock.calls.map((c) => (c[1] as { chartXml?: string }).chartXml)).toEqual([
+      '<synthetic-chart/>',
+      '<synthetic-chart/>',
+    ]);
+    // Both reports have their keyed findings rendered here, at the edge, with the CLI's t().
+    const translators = edge.translators.splice(0) as ((key: string, params: object) => string)[];
+    expect(translators).toHaveLength(2);
+    expect(translators[1]('migration.subledger_not_array', {})).toContain('--subledger');
+    m.importOpeningBalance.mockReset();
+    m.importOpeningBalance.mockResolvedValue(opening(false));
+    await build().run('opening-balance', 'import', FILE, '--dry-run');
+    expect(m.importOpeningBalance.mock.calls[0][1]).not.toHaveProperty('chartXml');
+  });
+
+  it('an unreadable --chart exits 2 and the load is never called', async () => {
+    expect(await build().run('opening-balance', 'import', FILE, '--chart', `${FILE}.missing`, '--dry-run')).toBe(2);
+    expect(m.importOpeningBalance).not.toHaveBeenCalled();
   });
 
   it('under apertura_modo_de_carga = borrador the question says draft, not post (MNE-001-099)', async () => {

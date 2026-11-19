@@ -2435,6 +2435,7 @@ Options:
   -t, --tenant <id>                        tenant (firm) whose data to scope to
   -u, --user <email>                       acting user, for attribution and permissions
   --subledger <file>                       JSON array with the open documents of the receivable and payable control accounts
+  --chart <file>                           the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the entry and named with the source figure
   --reason <text>                          why the opening is loaded; goes to the audit log
   --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
   --json                                   shorthand for --format json
@@ -2450,6 +2451,8 @@ Examples:
   # ALWAYS this one first: the opening is posted and the ledger cannot be undone.
   mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --dry-run
   mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --yes
+  # With the migration's catalog, its memorandum accounts (8xx) get no line in the entry, each one named.
+  mnemosine opening-balance import ./migration/balanza-2025-12.xml --chart ./migration/catalogo.xml --dry-run
 ```
 
 ### `mnemosine opening-balance check` (alias: verificar)

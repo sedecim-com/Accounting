@@ -32,13 +32,17 @@ import {
   importOpeningBalance,
   checkOpeningBalance,
   renderOpeningBalanceReport,
+  localizeOpeningReport,
   subledgerKindOf,
   dayAfterCutoff,
   type OpeningAccountRow,
   type OpeningDocument,
   type OpeningExercise,
+  type OpeningFinding,
 } from '../../src/services/accounting/opening-balance.js';
 import { readBalanzaComprobacion } from '../../src/services/sat/anexo24/balance-reader.js';
+import { t } from '../../src/i18n/index.js';
+import { readCtaCatalogo } from '../../src/services/sat/anexo24/catalog-reader.js';
 import { query, withTransaction } from '../../src/database/connection.js';
 import { registrarAuditoria } from '../../src/services/audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync } from '../../src/services/accounting/posting.js';
@@ -115,13 +119,39 @@ const cuenta = (p: Partial<OpeningAccountRow> & { code: string }): OpeningAccoun
 
 const EJERCICIO: OpeningExercise = { id: 'fy-2026', yearNumber: 2026, startDate: '2026-01-01' };
 
+const CHART_NS = 'http://www.sat.gob.mx/esquemas/ContabilidadE/1_3/CatalogoCuentas';
+/** code, CodAgrup, Natur, SubCtaDe. */
+type ChartRow = [string, string, ('D' | 'A')?, string?];
+const chart = (rows: ChartRow[], rfc = 'XAXX010101000') =>
+  `<?xml version="1.0" encoding="UTF-8"?><catalogocuentas:Catalogo xmlns:catalogocuentas="${CHART_NS}" ` +
+  `Version="1.3" RFC="${rfc}" Mes="12" Anio="2025">` +
+  rows
+    .map(
+      ([code, group, nature = 'D', parent]) =>
+        `<catalogocuentas:Ctas CodAgrup="${group}" NumCta="${code}" Desc="Account ${code}"` +
+        `${parent === undefined ? '' : ` SubCtaDe="${parent}"`} Nivel="1" Natur="${nature}"/>`
+    )
+    .join('') +
+  `</catalogocuentas:Catalogo>`;
+const BASE: ChartRow[] = [['1110', '101'], ['3100', '301', 'A']];
+const PAIR: ChartRow[] = [['802-01', '802.01'], ['802-02', '802.02', 'A']];
+
 const plan = (
   filas: FilaXml[],
   cuentas: OpeningAccountRow[],
   documentos: OpeningDocument[] = [],
   cab: Partial<{ rfc: string; mes: string; anio: string }> = {},
-  ejercicio: OpeningExercise = EJERCICIO
-) => planOpeningBalance(readBalanzaComprobacion(archivo(filas, cab)), cuentas, documentos, ejercicio);
+  ejercicio: OpeningExercise = EJERCICIO,
+  /** The migration's catalog (`--chart`), as rows. */
+  chartRows?: ChartRow[]
+) =>
+  planOpeningBalance(
+    readBalanzaComprobacion(archivo(filas, cab)),
+    cuentas,
+    documentos,
+    ejercicio,
+    chartRows === undefined ? undefined : readCtaCatalogo(chart(chartRows)).rows
+  );
 
 const reglas = (p: { findings: readonly { regla: string }[] }) => p.findings.map((f) => f.regla);
 
@@ -397,6 +427,181 @@ describe('lo que no entra en una apertura', () => {
     expect(cerrada.findings.find((f) => f.regla === 'APE-CUENTA-NO-POSTEABLE')?.mensaje).toContain(
       'asientos manuales cerrados'
     );
+  });
+});
+
+// ------------------------------------------------------------
+// 4b · MEMORANDUM ACCOUNTS STAY OUT OF THE ENTRY (MNE-001-456 · #621)
+// ------------------------------------------------------------
+
+// Every figure is by hand: the base is 1110 at 1,000.00 debit and 3100 at
+// 1,000.00 credit, so the entry totals 1000.0000 on each side.
+describe('planOpeningBalance · with the migration catalog (--chart)', () => {
+  const ACCOUNTS = [
+    cuenta({ code: '1110' }),
+    cuenta({ code: '3100', normal_balance: 'credit', account_type: 'equity' }),
+  ];
+  const UNDER_1000 = [cuenta({ code: '1000' }), cuenta({ code: '1110', parent_code: '1000' }), ACCOUNTS[1]];
+  const rows = (...r: [string, string][]): FilaXml[] => r.map(([code, balance]) => ({ numCta: code, saldoFin: balance }));
+  const SOURCE = rows(['1110', '1000.00'], ['3100', '1000.00']);
+  const PAIR_ROWS = rows(['802-01', '50000.00'], ['802-02', '50000.00']);
+  const BOTH_EXCLUDED = [
+    { code: '802-01', amount: '50000.0000' },
+    { code: '802-02', amount: '50000.0000' },
+  ];
+  const withChart = (
+    sourceRows: FilaXml[],
+    accounts: OpeningAccountRow[],
+    chartRows: ChartRow[],
+    documents: OpeningDocument[] = []
+  ) => localizeOpeningReport(plan(sourceRows, accounts, documents, {}, EJERCICIO, chartRows), t);
+  const found = (p: { findings: readonly OpeningFinding[] }, rule: string) =>
+    p.findings.filter((f) => f.regla === rule);
+
+  it('a pair at the root gets no line, and each row is named with the figure the source declares', () => {
+    const p = withChart([...SOURCE, ...PAIR_ROWS], ACCOUNTS, [...BASE, ...PAIR]);
+    expect(p.puedeCargarse).toBe(true);
+    expect(p.lines.map((l) => l.code)).toEqual(['1110', '3100']);
+    expect([p.totalDebe, p.totalHaber]).toEqual(['1000.0000', '1000.0000']);
+    expect(p.excluded).toEqual(BOTH_EXCLUDED);
+    const notices = found(p, 'APE-MEMORANDUM-EXCLUDED');
+    expect(notices.map((f) => f.numCta)).toEqual(['802-01', '802-02']);
+    expect(notices[0].messageKey).toEqual({
+      key: 'migration.opening.memorandum_excluded',
+      params: { account: '802-01', amount: '50000.0000', doctrine: 'docs/memorandum-accounts.md' },
+    });
+    // Before a surface renders it, the message is the key and its parameters.
+    const raw = plan([...SOURCE, ...PAIR_ROWS], ACCOUNTS, [], {}, EJERCICIO, [...BASE, ...PAIR]);
+    expect(raw.findings[0].mensaje).toBe(
+      'migration.opening.memorandum_excluded {"account":"802-01","amount":"50000.0000","doctrine":"docs/memorandum-accounts.md"}'
+    );
+    for (const f of notices) expect(f.mensaje).toContain('docs/memorandum-accounts.md');
+    expect(p.findings.every((f) => f.severidad === 'aviso')).toBe(true);
+  });
+
+  it('without the catalog nothing is classified: it blocks as before, and says how to pass --chart', () => {
+    const raw = plan([...SOURCE, ...PAIR_ROWS], ACCOUNTS);
+    // The service reads no language: the hint travels as a key until the surface renders it.
+    expect(raw.findings.map((f) => f.hintKey?.key)).toEqual(Array(2).fill('migration.opening.unknown_account_chart_hint'));
+    expect(raw.findings[0].mensaje).not.toContain('--chart');
+    const p = localizeOpeningReport(raw, t);
+    expect(reglas(p)).toEqual(['APE-CUENTA-DESCONOCIDA', 'APE-CUENTA-DESCONOCIDA']);
+    for (const f of p.findings) expect(f.mensaje).toMatch(/importa primero el catálogo.* --chart <file>/);
+    expect(p.lines).toEqual([]);
+    expect(p.excluded).toEqual([]);
+    expect(p.puedeCargarse).toBe(false);
+  });
+
+  it('a row that is neither in the entity nor memorandum still blocks, and the exclusions are still listed', () => {
+    const p = withChart([...SOURCE, ...PAIR_ROWS, ...rows(['1999', '10.00'])], ACCOUNTS, [...BASE, ...PAIR, ['1999', '101']]);
+    const unknown = found(p, 'APE-CUENTA-DESCONOCIDA');
+    expect(unknown.map((f) => f.numCta)).toEqual(['1999']);
+    expect(unknown[0].mensaje).not.toContain('--chart');
+    expect(p.lines).toEqual([]);
+    expect(p.puedeCargarse).toBe(false);
+    expect(p.excluded).toEqual(BOTH_EXCLUDED);
+  });
+
+  it('a code the catalog does not name is never memorandum, whatever its digits', () => {
+    const p = withChart([...SOURCE, ...rows(['802-99', '10.00'])], ACCOUNTS, BASE);
+    expect(found(p, 'APE-CUENTA-DESCONOCIDA').map((f) => f.numCta)).toEqual(['802-99']);
+    expect(p.excluded).toEqual([]);
+  });
+
+  it('a subtree of three levels stays out whole, each level with its own figure', () => {
+    // Only 8000 carries an 8xx agrupador: the levels below are memorandum by the hierarchy.
+    const p = withChart(
+      [...SOURCE, ...rows(['8000', '0.00'], ['8100', '0.00'], ['8110', '5000.00'], ['8120', '5000.00'])],
+      ACCOUNTS,
+      [...BASE, ['8000', '800'], ['8100', '101', 'D', '8000'], ['8110', '101', 'D', '8100'], ['8120', '101', 'A', '8100']]
+    );
+    expect(p.puedeCargarse).toBe(true);
+    expect(p.excluded).toEqual([
+      { code: '8000', amount: '0.0000' },
+      { code: '8100', amount: '0.0000' },
+      { code: '8110', amount: '5000.0000' },
+      { code: '8120', amount: '5000.0000' },
+    ]);
+    expect(p.lines.map((l) => l.code)).toEqual(['1110', '3100']);
+  });
+
+  it('one side of a pair inside a ledger account stops the load, naming both, and APE-NO-CUADRA does not repeat it', () => {
+    // 1000 declares 51,000.00: its child 1110 plus the 50,000.00 of 802-01 inside it.
+    const p = withChart(
+      rows(['1000', '51000.00'], ['1110', '1000.00'], ['3100', '1000.00'], ['802-01', '50000.00']),
+      UNDER_1000,
+      [['1000', '100'], ['1110', '101', 'D', '1000'], BASE[1], ['802-01', '802.01', 'D', '1000']]
+    );
+    const stops = found(p, 'APE-MEMORANDUM-INSIDE-ACCOUNT');
+    expect(stops.map((f) => f.numCta)).toEqual(['1000']);
+    expect(stops[0].mensaje).toContain('802-01 50000.0000');
+    expect(stops[0].mensaje).toContain('docs/memorandum-accounts.md');
+    expect(reglas(p)).not.toContain('APE-NO-CUADRA');
+    expect(p.puedeCargarse).toBe(false);
+    expect(p.excluded).toEqual([{ code: '802-01', amount: '50000.0000' }]);
+  });
+
+  it('a pair split between an asset and a liability would balance, and is stopped on both accounts', () => {
+    const p = withChart(
+      rows(['1000', '51000.00'], ['1110', '1000.00'], ['2000', '50000.00'], ['3100', '1000.00'], ...PAIR_ROWS.map((r) => [r.numCta, r.saldoFin] as [string, string])),
+      [...UNDER_1000, cuenta({ code: '2000', normal_balance: 'credit', account_type: 'liability' })],
+      [['1000', '100'], ['1110', '101', 'D', '1000'], ['2000', '200', 'A'], BASE[1], ['802-01', '802.01', 'D', '1000'], ['802-02', '802.02', 'A', '2000']]
+    );
+    // Without the stop the entry foots: 51,000.00 on each side, the pair on the balance sheet.
+    expect([p.totalDebe, p.totalHaber]).toEqual(['51000.0000', '51000.0000']);
+    expect(found(p, 'APE-MEMORANDUM-INSIDE-ACCOUNT').map((f) => f.numCta)).toEqual(['1000', '2000']);
+    expect(p.puedeCargarse).toBe(false);
+  });
+
+  it('both sides inside the same ledger account net to zero there, and the load goes through', () => {
+    const p = withChart(
+      [...rows(['1000', '1000.00']), ...SOURCE, ...PAIR_ROWS],
+      UNDER_1000,
+      [['1000', '100'], ['1110', '101', 'D', '1000'], BASE[1], ['802-01', '802.01', 'D', '1000'], ['802-02', '802.02', 'A', '1000']]
+    );
+    expect(reglas(p)).toEqual(['APE-MEMORANDUM-EXCLUDED', 'APE-MEMORANDUM-EXCLUDED']);
+    expect(p.puedeCargarse).toBe(true);
+    expect(p.lines.map((l) => l.code)).toEqual(['1110', '3100']);
+  });
+
+  it('an unequal pair leaves the rest unbalanced: APE-NO-CUADRA, with the exclusions still listed', () => {
+    const p = withChart(
+      rows(['1110', '1000.00'], ['3100', '11000.00'], ['802-01', '50000.00'], ['802-02', '40000.00']),
+      ACCOUNTS,
+      [...BASE, ...PAIR]
+    );
+    expect(found(p, 'APE-NO-CUADRA')[0].mensaje).toContain('-10000.00 de diferencia');
+    expect(p.puedeCargarse).toBe(false);
+    expect(p.excluded).toEqual([
+      { code: '802-01', amount: '50000.0000' },
+      { code: '802-02', amount: '40000.0000' },
+    ]);
+  });
+
+  it('a subledger document on a memorandum account stops the load and says why', () => {
+    const p = withChart([...SOURCE, ...PAIR_ROWS], ACCOUNTS, [...BASE, ...PAIR], [
+      { cuenta: '802-01', documento: 'A-1', contraparte: 'X', fecha: '2025-10-01', importe: '50000.00' },
+    ]);
+    const stop = found(p, 'APE-MEMORANDUM-DOCUMENT');
+    expect(stop.map((f) => [f.numCta, f.severidad])).toEqual([['802-01', 'bloquea']]);
+    expect(stop[0].mensaje).toContain('A-1');
+    expect(reglas(p)).not.toContain('APE-DOCUMENTO-HUERFANO');
+    expect(p.puedeCargarse).toBe(false);
+  });
+
+  it('a memorandum account that already exists in the entity gets no line, and the report says it should not be there', () => {
+    const p = withChart(
+      [...SOURCE, ...PAIR_ROWS],
+      [...ACCOUNTS, cuenta({ code: '802-01', codigo_agrupador_sat: '802.01' })],
+      [...BASE, ...PAIR]
+    );
+    expect(p.lines.map((l) => l.code)).toEqual(['1110', '3100']);
+    const inLedger = found(p, 'APE-MEMORANDUM-IN-LEDGER');
+    expect(inLedger.map((f) => [f.numCta, f.severidad])).toEqual([['802-01', 'aviso']]);
+    expect(inLedger[0].mensaje).toContain('docs/memorandum-accounts.md');
+    expect(found(p, 'APE-MEMORANDUM-EXCLUDED').map((f) => f.numCta)).toEqual(['802-02']);
+    expect(p.excluded).toEqual(BOTH_EXCLUDED);
+    expect(p.puedeCargarse).toBe(true);
   });
 });
 
@@ -930,6 +1135,65 @@ describe('importOpeningBalance · lo que ESCRIBE', () => {
   });
 });
 
+// MNE-001-456 · #621: the load takes the migration's catalog as `chartXml`.
+describe('importOpeningBalance · with the migration catalog (--chart)', () => {
+  const xml = archivo([
+    { numCta: '1110', saldoFin: '1000.00' },
+    { numCta: '3100', saldoFin: '1000.00' },
+    { numCta: '802-01', saldoFin: '50000.00' },
+    { numCta: '802-02', saldoFin: '50000.00' },
+  ]);
+  const WITH_CHART = { ...OPTS, xml, chartXml: chart([...BASE, ...PAIR]) };
+  const EXCLUDED = [
+    { code: '802-01', amount: '50000.0000' },
+    { code: '802-02', amount: '50000.0000' },
+  ];
+
+  it.each<[string, string, string | RegExp]>([
+    ["another taxpayer's catalog", chart(BASE, 'AAA010101AAA'), 'migration.chart_option.other_rfc'],
+    ['a BalanzaComprobacion passed as --chart', XML_SIMPLE, /se esperaba <Catalogo>/],
+  ])('refuses %s before the fiscal year is looked up and before any write', async (_label, chartXml, expected) => {
+    const e = (await importOpeningBalance(CTX, { ...OPTS, chartXml }).catch((x: unknown) => x)) as ValidationError;
+    expect(e).toBeInstanceOf(ValidationError);
+    if (typeof expected === 'string') expect(e.messageKey?.key).toBe(expected);
+    else expect(e.message).toMatch(expected);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    expect(mockCrear).not.toHaveBeenCalled();
+  });
+
+  it('posts no line on the pair, and the audit row of the load lists what it left out', async () => {
+    const r = await importOpeningBalance(CTX, WITH_CHART);
+    expect(r.escrito).toBe(true);
+    expect(r.excluded).toEqual(EXCLUDED);
+    const lines = mockCrear.mock.calls[0][4] as { account_id: string }[];
+    expect(lines.map((l) => l.account_id)).toEqual(['id-1110', 'id-3100']);
+    const auditRow = mockAudit.mock.calls[0][1] as { newValues: Record<string, unknown> };
+    expect(auditRow.newValues).toMatchObject({ total_debe: '1000.0000', total_haber: '1000.0000' });
+    expect(auditRow.newValues.memorandum_excluded).toEqual(EXCLUDED);
+  });
+
+  it('under borrador the draft leaves the pair out the same way', async () => {
+    loadModeIs('borrador');
+    const r = await importOpeningBalance(CTX, WITH_CHART);
+    expect(r.loadMode).toBe('draft');
+    expect(mockCrear.mock.calls[0][6]).toMatchObject({ autoPost: false });
+    expect((mockCrear.mock.calls[0][4] as { account_id: string }[]).map((l) => l.account_id)).toEqual(['id-1110', 'id-3100']);
+    expect(r.excluded).toEqual(EXCLUDED);
+  });
+
+  it('the text report names each excluded code with the source figure and cites the doctrine', async () => {
+    const report = localizeOpeningReport(await importOpeningBalance(CTX, { ...WITH_CHART, dryRun: true }), t);
+    const text = renderOpeningBalanceReport(report, t);
+    expect(text).toContain(`  ${t('migration.opening.memorandum_excluded_header', { doctrine: 'docs/memorandum-accounts.md' })}`);
+    expect(text).toContain(`[aviso] APE-MEMORANDUM-EXCLUDED fila 3 802-01: ${report.findings[0].mensaje}`);
+    expect(report.findings[0].mensaje).toContain('50000.0000');
+    expect(text).toContain('    802-01 50000.0000');
+    expect(text).toContain('    802-02 50000.0000');
+    const plain = renderOpeningBalanceReport(await importOpeningBalance(CTX, { ...OPTS, dryRun: true }));
+    expect(plain).not.toContain('docs/memorandum-accounts.md');
+  });
+});
+
 // ------------------------------------------------------------
 // 7 · EL INFORME
 // ------------------------------------------------------------
@@ -1161,22 +1425,6 @@ describe('checkOpeningBalance · the penny check writes nothing and compares Sal
   // MNE-001-419 · #621: with `chartXml`, the list comes from the migration's
   // catalog, through the walk `chart import` uses. Every figure is by hand.
   describe('with the migration catalog (--chart)', () => {
-    const CHART_NS = 'http://www.sat.gob.mx/esquemas/ContabilidadE/1_3/CatalogoCuentas';
-    /** code, CodAgrup, Natur, SubCtaDe. */
-    type ChartRow = [string, string, ('D' | 'A')?, string?];
-    const chart = (rows: ChartRow[], rfc = 'XAXX010101000') =>
-      `<?xml version="1.0" encoding="UTF-8"?><catalogocuentas:Catalogo xmlns:catalogocuentas="${CHART_NS}" ` +
-      `Version="1.3" RFC="${rfc}" Mes="12" Anio="2025">` +
-      rows
-        .map(
-          ([code, group, nature = 'D', parent]) =>
-            `<catalogocuentas:Ctas CodAgrup="${group}" NumCta="${code}" Desc="Account ${code}"` +
-            `${parent === undefined ? '' : ` SubCtaDe="${parent}"`} Nivel="1" Natur="${nature}"/>`
-        )
-        .join('') +
-      `</catalogocuentas:Catalogo>`;
-    const BASE: ChartRow[] = [['1110', '101'], ['3100', '301', 'A']];
-    const PAIR: ChartRow[] = [['802-01', '802.01'], ['802-02', '802.02', 'A']];
     const source = (...extra: [string, string][]) =>
       archivo([['1110', '1000.00'], ['3100', '1000.00'], ...extra].map(([code, balance]) => ({ numCta: code, saldoFin: balance })));
     const WITH_PAIR = source(['802-01', '75000.00'], ['802-02', '75000.00']);
