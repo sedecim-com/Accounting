@@ -1030,15 +1030,21 @@ export async function recordCustomerPayment(
          VALUES ($1,$2,$3,$4,$5)`,
         [uuidv4(), paymentId, app.documentId, app.amountApplied, entrada.paymentDate]
       );
-      await client.query(
+      // MNE-001-580 · invariant 3, as the twin in applyCustomerPayment; GREATEST:
+      // a receipt dated before another one does not move the last payment back.
+      const settled = await client.query(
         `UPDATE invoices SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $1,
            status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $2
-         WHERE id = $3 AND entity_id = $4`,
-        [app.amountApplied, entrada.paymentDate, app.documentId, entrada.entityId]
+           last_payment_date = GREATEST(last_payment_date, $2::date)
+         WHERE id = $3 AND entity_id = $4 AND status = ANY($5::text[]) AND amount_due >= $1`,
+        [app.amountApplied, entrada.paymentDate, app.documentId, entrada.entityId, [...COBRABLES]]
       );
+      if (settled.rowCount !== 1) {
+        const invoice = documentos.find((d) => d.id === app.documentId)?.numero ?? app.documentId;
+        throw new AccountingError('INVOICE_CHANGED', { key: 'error.INVOICE_CHANGED', params: { invoice } });
+      }
     }
 
     const entry = await postCustomerPaymentEntry(
@@ -2381,14 +2387,20 @@ export async function reverseCustomerPayment(
       );
       if (inv.rows.length === 0) continue;
       const factura = inv.rows[0];
-      await client.query(
+      // MNE-001-580 · invariant 3, as the unapply path's reopening.
+      const reopened = await client.query(
         `UPDATE invoices SET
            amount_paid = amount_paid - $1,
            amount_due  = amount_due + $1,
            status = CASE WHEN amount_paid - $1 <= 0 THEN 'sent' ELSE 'partially_paid' END
-         WHERE id = $2 AND entity_id = $3`,
+         WHERE id = $2 AND entity_id = $3 AND amount_paid >= $1`,
         [fila.total, fila.invoice_id, entityId]
       );
+      if (reopened.rowCount !== 1) {
+        throw new AccountingError('INVOICE_CHANGED', {
+          key: 'error.INVOICE_CHANGED', params: { invoice: factura.invoice_number },
+        });
+      }
       documentosReabiertos.push({
         id: factura.id, numero: factura.invoice_number,
         saldoAnterior: new Decimal(factura.amount_due).toFixed(2),
