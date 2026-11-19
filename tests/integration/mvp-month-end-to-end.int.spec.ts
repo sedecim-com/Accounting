@@ -167,11 +167,23 @@ const OPENING_2024 = [
   ['3200', 'Resultado de Ejercicios Anteriores', '304.01', '3000', 2, 'A', '5000.00'],
 ] as const;
 const OPENING_DEBITS = '107800.00';
+// The previous system also carries a CUFIN pair (MNE-001-484, #219): memorandum
+// accounts, off the balance sheet, which do not migrate. Both files declare
+// it, at the root and 30,000.00 on each side, so it hangs from no ledger
+// account and nets to zero: `chart import` and the opening leave it out with
+// `--chart`, and no figure above moves. The codes are the firm's; what makes
+// them memorandum is the agrupador 802, never the 8 they start with.
+const MEMORANDUM_PAIR = [
+  ['8100', 'CUFIN', '802.01', '', 1, 'D', '30000.00'],
+  ['8200', 'CUFIN Contra', '802.02', '', 1, 'A', '30000.00'],
+] as const;
+/** The pair as the opening reports it left out: the figure the source declares, at four decimals. */
+const MEMORANDUM_EXCLUDED = [{ code: '8100', amount: '30000.0000' }, { code: '8200', amount: '30000.0000' }];
 const SAT_NS = 'http://www.sat.gob.mx/esquemas/ContabilidadE/1_3';
 const CHART_XML =
   `<?xml version="1.0" encoding="UTF-8"?><catalogocuentas:Catalogo xmlns:catalogocuentas="${SAT_NS}/CatalogoCuentas" ` +
   `Version="1.3" RFC="${COMPANY_RFC}" Mes="12" Anio="2024">` +
-  OPENING_2024.map(([num, desc, group, parent, level, nature]) =>
+  [...OPENING_2024, ...MEMORANDUM_PAIR].map(([num, desc, group, parent, level, nature]) =>
     `<catalogocuentas:Ctas CodAgrup="${group}" NumCta="${num}" Desc="${desc}"` +
     `${parent ? ` SubCtaDe="${parent}"` : ''} Nivel="${level}" Natur="${nature}"/>`).join('') +
   '</catalogocuentas:Catalogo>';
@@ -179,7 +191,7 @@ const CHART_XML =
 const TRIAL_BALANCE_XML =
   `<?xml version="1.0" encoding="UTF-8"?><BCE:Balanza xmlns:BCE="${SAT_NS}/BalanzaComprobacion" ` +
   `Version="1.3" RFC="${COMPANY_RFC}" Mes="12" Anio="2024" TipoEnvio="N">` +
-  OPENING_2024.map(([num, , , , , , balance]) =>
+  [...OPENING_2024, ...MEMORANDUM_PAIR].map(([num, , , , , , balance]) =>
     `<BCE:Ctas NumCta="${num}" SaldoIni="${balance}" Debe="0.00" Haber="0.00" SaldoFin="${balance}"/>`).join('') +
   '</BCE:Balanza>';
 // The documents behind 1120 and 2110, as the previous system's subledgers list
@@ -786,20 +798,31 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(dry.out).toContain('dry-run: nothing was written');
     }, STEP_TIMEOUT_MS);
 
-    it('imports the chart from Anexo 24 XML: the dry run writes nothing, and --yes creates the one account the seeded chart lacks — MNE-001-018', () => {
+    it('imports the chart from Anexo 24 XML: the dry run writes nothing, and --yes creates the one account the seeded chart lacks and leaves the CUFIN pair out — MNE-001-018, MNE-001-019, MNE-001-484', () => {
       const chart = path.join(workDir, 'catalogo-2024-12.xml');
       fs.writeFileSync(chart, CHART_XML);
       // The report publishes the service's keys, in Spanish: read as printed, never renamed.
       const [dry] = rowsOf<Record<string, unknown>>(ok(['chart', 'import', chart, '--dry-run', '--json']));
+      // The pair is left out by doctrine, which is no defect: the plan is
+      // still complete, so --yes needs no --partial.
+      const memorandumOut: unknown[] = [
+        expect.objectContaining({ code: '8100', motivo: 'cuentas_de_orden' }),
+        expect.objectContaining({ code: '8200', motivo: 'cuentas_de_orden' }),
+      ];
       expect(dry).toMatchObject({
-        dryRun: true, escrito: false, creadas: [], omitidas: [], aCrear: [expect.objectContaining({ code: '1320' })],
+        dryRun: true, escrito: false, creadas: [], completa: true, omitidas: memorandumOut,
+        aCrear: [expect.objectContaining({ code: '1320' })],
       });
+      const warned = (r: Record<string, unknown>): string[] => (r['findings'] as Record<string, string>[])
+        .filter((x) => x['regla'] === 'IMP-CUENTAS-DE-ORDEN').map((x) => `${x['numCta']} ${x['severidad']}`);
+      expect(warned(dry)).toEqual(['8100 aviso', '8200 aviso']);
       // The other fourteen are seeded accounts: named, and left as they are.
       expect(dry['yaExistian']).toHaveLength(14);
 
       // Only the dry run came before: had it written 1320, this run would list it as existing.
       const [applied] = rowsOf<Record<string, unknown>>(ok(['chart', 'import', chart, '--yes', '--json']));
-      expect(applied).toMatchObject({ dryRun: false, escrito: true, creadas: ['1320'] });
+      expect(applied).toMatchObject({ dryRun: false, escrito: true, creadas: ['1320'], omitidas: memorandumOut });
+      expect(warned(applied)).toEqual(['8100 aviso', '8200 aviso']);
       expect(applied['yaExistian']).toHaveLength(14);
 
       // A second dry run reads the accounts back. Nothing is left to create,
@@ -824,7 +847,12 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         fs.writeFileSync(file, JSON.stringify(documents));
         return file;
       };
-      const load = (file: string): string[] => ['opening-balance', 'import', trialBalance, '--subledger', file, '--yes', '--json'];
+      // The catalog of the same migration tells the load which rows are the
+      // CUFIN pair; without it, 8100 and 8200 would block as unknown accounts.
+      const load = (file: string): string[] => [
+        'opening-balance', 'import', trialBalance, '--chart', path.join(workDir, 'catalogo-2024-12.xml'),
+        '--subledger', file, '--yes', '--json',
+      ];
 
       // The bill one peso short: 2,319.00 of documents against the 2,320.00
       // the trial balance declares on 2110. With --yes, only the refusal
@@ -841,6 +869,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       const untied = (stopped['findings'] as Record<string, string>[]).find((f) => f['regla'] === 'APE-DETALLE-NO-CUADRA');
       expect(untied).toMatchObject({ numCta: '2110', severidad: 'bloquea' });
       expect(untied?.['mensaje']).toContain('faltan 1.00');
+      // The bill is the one reason: the pair is named, and blocks nothing.
+      const blocking = (r: Record<string, unknown>): string[] => (r['findings'] as Record<string, string>[])
+        .filter((f) => f['severidad'] === 'bloquea').map((f) => `${f['regla']} ${f['numCta']}`);
+      expect(blocking(stopped)).toEqual(['APE-DETALLE-NO-CUADRA 2110']);
+      expect(stopped['excluded']).toEqual(MEMORANDUM_EXCLUDED);
       expect(rowsOf(ok(['entry', 'list', '--all', '--json']))).toEqual([]);
       for (const leaf of ['invoice', 'customer', 'bill', 'vendor']) {
         expect(rowsOf(ok([leaf, 'list', '--all', '--json'])), `${leaf} list after the refusal`).toEqual([]);
@@ -851,6 +884,12 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(money(loaded['totalDebe'] as string)).toBe(OPENING_DEBITS);
       expect(money(loaded['totalHaber'] as string)).toBe(OPENING_DEBITS);
       openingEntry = (loaded['asiento'] as { entry_number: string }).entry_number;
+      // 107,800.00 is the opening without the pair: the pair got no line, and
+      // each side is named with what the source declares, citing the doctrine.
+      expect(loaded['excluded']).toEqual(MEMORANDUM_EXCLUDED);
+      const named = (loaded['findings'] as Record<string, string>[]).filter((f) => f['regla'] === 'APE-MEMORANDUM-EXCLUDED');
+      expect(named.map((f) => `${f['numCta']} ${f['severidad']}`)).toEqual(['8100 aviso', '8200 aviso']);
+      for (const f of named) expect(f['mensaje']).toContain('docs/memorandum-accounts.md');
 
       // Each document is the invoice or bill it was, hanging from the opening
       // entry, which already carries its amount.
@@ -889,12 +928,16 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       })]);
       expect(money(entries[0].total_debits)).toBe(OPENING_DEBITS);
 
-      // The fifteen accounts of the source, parents included, against our
-      // ledger on 2025-01-01, rolled up the same way.
+      // The fifteen ledger accounts of the source, parents included, against
+      // our ledger on 2025-01-01, rolled up the same way. The catalog names
+      // the other two rows, the CUFIN pair: left out of the footing and named.
       const [check] = rowsOf<Record<string, unknown>>(
-        ok(['opening-balance', 'check', path.join(workDir, 'balanza-2024-12.xml'), '--json'])
+        ok(['opening-balance', 'check', path.join(workDir, 'balanza-2024-12.xml'),
+          '--chart', path.join(workDir, 'catalogo-2024-12.xml'), '--json'])
       );
-      expect(check).toMatchObject({ asOf: '2025-01-01', comparison: { comparadas: 15, iguales: true } });
+      expect(check).toMatchObject({
+        asOf: '2025-01-01', comparison: { comparadas: 15, iguales: true, faltantes: [], excluded: MEMORANDUM_EXCLUDED },
+      });
 
       // Each month is soft-closed, then hard-closed, oldest first. The hard
       // close carries its endings into the next month and no further, since
@@ -913,8 +956,6 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(months.map((m) => periods.find((p) => p.period_name === `${m} 2025`)?.status))
         .toEqual([...Array<string>(11).fill('hard_close'), 'open']);
     }, STEP_TIMEOUT_MS);
-
-    it.todo('imports the 8xx memorandum accounts with the chart and the opening trial balance, and leaves them out of the footing — MNE-001-019, MNE-001-484');
   });
 
   describe('2 · CFDI to the ledger', () => {
@@ -1695,6 +1736,8 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // 1000 → 1100 → 1110 → 1111: the leaves are level 4, so the cut hides
       // them and their money is printed once, inside 1110.
       expect(tb.some((r) => ['1111', '1112', '1115'].includes(r.account_code))).toBe(false);
+      // The CUFIN pair of the migration never reached the ledger (MNE-001-484).
+      expect(detail.filter((r) => ['8100', '8200'].includes(r.account_code))).toEqual([]);
     }, STEP_TIMEOUT_MS);
   });
 
