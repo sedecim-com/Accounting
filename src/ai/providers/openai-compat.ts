@@ -59,6 +59,34 @@ interface AccumulatedToolCall {
   id: string;
   name: string;
   arguments: string;
+  /**
+   * The provider's own data on the call, kept as received and sent back with
+   * it. Gemini 3 puts its thought signature here
+   * (`extra_content.google.thought_signature`) and answers 400 on the next tool
+   * turn without it (ai.google.dev/gemini-api/docs/thought-signatures).
+   */
+  extra_content?: unknown;
+}
+
+/** A tool call as a provider may return it: the SDK's shape plus `extra_content`. */
+type ToolCallWithExtra = { extra_content?: unknown };
+
+/**
+ * A turn the output cap cut before the model wrote any text or asked for any
+ * tool: `finish_reason: "length"` on an empty message. A reasoning model can
+ * spend the whole cap thinking; returning '' would read as an empty answer.
+ */
+export class TruncatedEmptyTurnError extends Error {
+  constructor(profile: ResolvedProfile) {
+    const effort = profile.reasoning_effort
+      ? `its reasoning_effort "${profile.reasoning_effort}" may be too high for it`
+      : 'if the model reasons, declare a lower reasoning_effort in its profile';
+    super(
+      `Provider "${profile.name}" (${profile.model}) spent the whole ${MAX_TOKENS}-token output cap ` +
+        `without writing text or calling a tool (finish_reason: length); ${effort}.`
+    );
+    this.name = 'TruncatedEmptyTurnError';
+  }
 }
 
 export interface OpenAiCompatSessionOptions {
@@ -249,6 +277,7 @@ export class OpenAiCompatSession implements LlmSession {
           { role: 'user', content: sourceText },
         ],
         ...this.tokenLimitParam(),
+        ...this.reasoningParam(),
         stream: false,
       },
       { signal }
@@ -266,6 +295,12 @@ export class OpenAiCompatSession implements LlmSession {
       cacheReadInputTokens: usage.prompt_tokens_details?.cached_tokens ?? undefined,
       durationMs,
     });
+  }
+
+  // CONTRACT: `reasoning_effort` goes to the provider only when the profile
+  // declares it (model-providers, catalog-info.yaml; MNE-001-442).
+  private reasoningParam(): { reasoning_effort?: OpenAI.ReasoningEffort } {
+    return this.profile.reasoning_effort ? { reasoning_effort: this.profile.reasoning_effort } : {};
   }
 
   private tokenLimitParam(): Record<string, number> {
@@ -292,9 +327,12 @@ export class OpenAiCompatSession implements LlmSession {
 
     let lastContent = '';
     for (let iteration = 0; iteration < this.maxIterations; iteration++) {
-      const { content, toolCalls } = await this.complete(signal);
+      const { content, toolCalls, finishReason } = await this.complete(signal);
       lastContent = content;
 
+      if (toolCalls.length === 0 && content === '' && finishReason === 'length') {
+        throw new TruncatedEmptyTurnError(this.profile);
+      }
       if (toolCalls.length === 0) {
         this.history.push({ role: 'assistant', content });
         return finishTurn(content);
@@ -303,10 +341,13 @@ export class OpenAiCompatSession implements LlmSession {
       this.history.push({
         role: 'assistant',
         content: content || null,
+        // CONTRACT: each call's `extra_content` goes back exactly as received
+        // (model-providers, catalog-info.yaml; MNE-001-442).
         tool_calls: toolCalls.map((tc) => ({
           id: tc.id,
           type: 'function' as const,
           function: { name: tc.name, arguments: tc.arguments },
+          ...(tc.extra_content !== undefined ? { extra_content: tc.extra_content } : {}),
         })),
       });
 
@@ -370,7 +411,7 @@ export class OpenAiCompatSession implements LlmSession {
   /** One model call; accumulates streaming if the profile allows it. */
   private async complete(
     signal?: AbortSignal
-  ): Promise<{ content: string; toolCalls: AccumulatedToolCall[] }> {
+  ): Promise<{ content: string; toolCalls: AccumulatedToolCall[]; finishReason: string | null }> {
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: this.systemText },
       ...this.history,
@@ -383,6 +424,7 @@ export class OpenAiCompatSession implements LlmSession {
       model: this.profile.model,
       messages,
       ...limit,
+      ...this.reasoningParam(),
       ...(this.toolSpecs ? { tools: this.toolSpecs } : {}),
     };
 
@@ -401,16 +443,21 @@ export class OpenAiCompatSession implements LlmSession {
       if (content && !this.muteText) this.callbacks.onText?.(content);
       const toolCalls: AccumulatedToolCall[] = (choice?.message?.tool_calls ?? [])
         .filter((tc): tc is OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall => tc.type === 'function')
-        .map((tc) => ({ id: tc.id, name: tc.function.name, arguments: tc.function.arguments }));
-      return { content, toolCalls };
+        .map((tc) => {
+          const extra = (tc as ToolCallWithExtra).extra_content;
+          return {
+            id: tc.id, name: tc.function.name, arguments: tc.function.arguments,
+            ...(extra !== undefined ? { extra_content: extra } : {}),
+          };
+        });
+      return { content, toolCalls, finishReason: choice?.finish_reason ?? null };
     }
 
     // stream_options.include_usage makes compliant servers report token
     // usage on the final chunk of a streamed response (without it the usage
     // ledger under-counts every streamed turn). Some old local servers 400
     // on unknown fields: profiles can opt out with stream_usage: false.
-    const streamUsage =
-      (this.profile as ResolvedProfile & { stream_usage?: boolean }).stream_usage !== false;
+    const streamUsage = this.profile.stream_usage !== false;
     const stream = await this.client.chat.completions.create(
       {
         ...base,
@@ -422,10 +469,12 @@ export class OpenAiCompatSession implements LlmSession {
 
     let content = '';
     let usage: OpenAI.Completions.CompletionUsage | undefined;
+    let finishReason: string | null = null;
     const byIndex = new Map<number, AccumulatedToolCall>();
     for await (const chunk of stream) {
       // Servers that report streamed usage put it on the final chunk.
       if (chunk.usage) usage = chunk.usage;
+      if (chunk.choices[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
       const delta = chunk.choices[0]?.delta;
       if (!delta) continue;
       if (delta.content) {
@@ -440,6 +489,9 @@ export class OpenAiCompatSession implements LlmSession {
         // fragments and are concatenated.
         if (tc.function?.name) acc.name = tc.function.name;
         if (tc.function?.arguments) acc.arguments += tc.function.arguments;
+        // Whole, like the name: the signature is opaque and never concatenated.
+        const extra = (tc as ToolCallWithExtra).extra_content;
+        if (extra !== undefined) acc.extra_content = extra;
         byIndex.set(tc.index, acc);
       }
     }
@@ -448,6 +500,6 @@ export class OpenAiCompatSession implements LlmSession {
     const toolCalls = [...byIndex.entries()]
       .sort(([a], [b]) => a - b)
       .map(([, tc], i) => ({ ...tc, id: tc.id || `call_${i}` }));
-    return { content, toolCalls };
+    return { content, toolCalls, finishReason };
   }
 }

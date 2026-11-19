@@ -45,6 +45,13 @@ import type { DocumentContribution } from './iva-workpaper.js';
 //     month, as a reversal of money that never arrived (MNE-001-518, rule 2):
 //     each month its entry or its mirror moved 2120 names it in the tie-out,
 //     and its own month names the amended return (CFF art. 32).
+//   · A note on a PPD invoice whose entry debited 2125 more than the invoice
+//     still had parked on the note's day (MNE-001-566; the IVA of what it
+//     still owed) was posted before the posting split it: the excess is IVA
+//     already caused, yet it left 2125, where nothing of it was parked, and
+//     stays in 2120. The paper subtracts nothing of it and
+//     IVA-WP-CREDIT-NOTE-AFTER-COLLECTION names the note; its entry stands
+//     (NIF B-1). A note that takes the excess from 2120 counts it above.
 // ============================================================
 
 /** One cancelled note's share of the charged side's gap with the ledger. */
@@ -78,6 +85,8 @@ interface NoteRow {
   mirror_date: string | null;
   /** What the note's entry debited to iva_trasladado, net. */
   iva: string;
+  /** What the note's entry debited to iva_trasladado_no_cobrado (2125), net. */
+  parked: string;
   invoice_number: string | null;
   invoice_total: string | null;
   invoice_tax: string | null;
@@ -110,6 +119,11 @@ async function notesOfRange(client: pg.PoolClient, entityId: string, range: Rang
               WHERE l.journal_entry_id = je.id
                 AND l.account_id IN (SELECT account_id FROM account_roles
                                       WHERE entity_id = $1 AND role = 'iva_trasladado'))::text AS iva,
+            (SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)
+               FROM journal_entry_lines l
+              WHERE l.journal_entry_id = je.id
+                AND l.account_id IN (SELECT account_id FROM account_roles
+                                      WHERE entity_id = $1 AND role = 'iva_trasladado_no_cobrado'))::text AS parked,
             i.invoice_number, i.total_amount::text AS invoice_total, i.tax_amount::text AS invoice_tax,
             i.exchange_rate::text AS invoice_rate, i.terms, i.memo, i.cfdi_uuid
        FROM credit_notes cn
@@ -137,6 +151,47 @@ function rateOf(subtotal: string, tax: string): string | null {
 }
 
 const inRange = (d: string | null, range: RangoDelMes): boolean => d !== null && d >= range.desde && d <= range.hasta;
+
+/**
+ * A note on a PPD invoice whose entry debited 2125 beyond the IVA of what the
+ * invoice still owed on the note's day: its total less the cash (and
+ * withholdings) applied by then and not undone, and less the notes before it
+ * that stand, at the invoice's IVA over its total. Null when the debit fits.
+ */
+async function afterCollection(client: pg.PoolClient, entityId: string, n: NoteRow): Promise<Hallazgo | null> {
+  const { rows } = await client.query<{ owed: string }>(
+    `SELECT (i.total_amount
+        - COALESCE((SELECT SUM(pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)
+              FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+             WHERE pa.invoice_id = i.id AND cp.journal_entry_id IS NOT NULL AND cp.status <> 'void'
+               AND COALESCE(pa.applied_on, cp.payment_date) <= $3::date
+               AND (pa.unapplied_at IS NULL OR pa.unapplied_at::date > $3::date)), 0)
+        - COALESCE((SELECT SUM(o.total_amount) FROM credit_notes o
+              JOIN journal_entries oe ON oe.id = o.journal_entry_id AND oe.entity_id = $1 AND oe.status = 'posted'
+             WHERE o.entity_id = $1 AND o.invoice_id = i.id AND o.status <> 'void' AND oe.reversed_by_entry_id IS NULL
+               AND (oe.entry_date < $3::date OR (oe.entry_date = $3::date AND o.credit_note_number < $4))), 0))::text AS owed
+       FROM invoices i WHERE i.entity_id = $1 AND i.id = $2`,
+    [entityId, n.invoice_id, n.entry_date, n.credit_note_number]
+  );
+  const owed = Decimal.max(new Decimal(rows[0]?.owed ?? (n.invoice_total as string)), 0);
+  const invoiceTotal = new Decimal(n.invoice_total as string);
+  const stillParked = invoiceTotal.isZero() ? new Decimal(0) : owed.times(n.invoice_tax as string).dividedBy(invoiceTotal);
+  const debited = new Decimal(n.parked);
+  const excess = debited.minus(stillParked);
+  if (!excess.greaterThan(CENT)) return null;
+  return {
+    codigo: 'IVA-WP-CREDIT-NOTE-AFTER-COLLECTION',
+    severidad: 'aviso',
+    documentId: n.id,
+    documentNumber: n.credit_note_number,
+    mensaje:
+      `La nota de crédito ${n.credit_note_number} del ${n.entry_date} (${q4(n.total_amount)}, de IVA ${q4(n.tax_amount)}) ` +
+      `es sobre la factura PPD ${n.invoice_number}, que ese día tenía ${q4(owed)} sin cobrar, con ${q4(stillParked)} ` +
+      `de IVA aparcado en 2125. Su póliza ${n.entry_number} cargó ${q4(debited)} a 2125: ${q4(excess)} de IVA ya ` +
+      `causado salió de donde no estaba aparcado y sigue en 2120, así que el papel no lo resta del trasladado. La ` +
+      `póliza se queda como está (NIF B-1): revisa la nota y las casillas antes de declarar.`,
+  };
+}
 
 /** A cancelled note, named in each month its entries moved 2120 (amount: what the paper misses against the ledger). */
 function cancelledCause(n: NoteRow, range: RangoDelMes): NoteGapCause | null {
@@ -185,6 +240,10 @@ export async function issuedCreditNotesOfRange(
       : 'PUE';
     const tax = new Decimal(n.tax_amount);
     const share = method === 'PUE' ? new Decimal(1) : tax.greaterThan(0) ? iva.dividedBy(tax) : new Decimal(0);
+    if (method === 'PPD' && n.invoice_id) {
+      const warning = await afterCollection(client, entityId, n);
+      if (warning) out.findings.push(warning);
+    }
     if (!share.greaterThan(0)) continue;
 
     const source = n.invoice_id ? sources.get(n.invoice_id) : undefined;

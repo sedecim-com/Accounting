@@ -566,6 +566,11 @@ describe('failover chains (config field + resolveFailoverChain)', () => {
     expect(() => resolveFailoverChain('a', tmpDir)).toThrow(/cycle detected/);
   });
 
+  it('accepts reasoning_effort in the strict profile schema', () => {
+    writeProviders({ a: p({ reasoning_effort: 'minimal' }) });
+    expect(listProfiles(tmpDir).profiles.a.reasoning_effort).toBe('minimal');
+  });
+
   it('accepts stream_usage in the strict profile schema (streamed-usage opt-out)', () => {
     writeProviders({ a: p({ stream_usage: false }) });
     const { profiles } = listProfiles(tmpDir);

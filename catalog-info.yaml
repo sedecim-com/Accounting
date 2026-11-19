@@ -61,6 +61,11 @@ provides:
     # instead of a project file, asks before writing a project file (default No), and
     # writes a typed key to ~/.mnemosine/.env instead of ./.env. Rollback: remove
     # `models` from any config file, which the previous build refuses.
+    # CONTRACT: a profile in mnemosine.config.json accepts optional `reasoning_effort`
+    # (the openai SDK's enum: none, minimal, low, medium, high, xhigh, max) and
+    # `stream_usage` is typed on the profile (MNE-001-442, #644); a value outside the
+    # enum is refused. Rollback: remove `reasoning_effort` from any profile, which the
+    # previous build refuses.
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
     # apply: 1e999 as budget.daily_usd, budget.monthly_usd or ingest.auto_post_max_amount
@@ -140,6 +145,13 @@ external:
     # SubsidioCausado = the whole subsidy of the period, and TotalOtrosPagos. The node is
     # checked against the SAT's nomina12.xsd, vendored in src/services/sat/cfdi40/xsd.
   - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
+    # CONTRACT: the compatible adapter (src/ai/providers/openai-compat.ts) sends
+    # `reasoning_effort` on chat turns, compaction summaries and the init probe only when
+    # the profile declares it, and sends each tool call's `extra_content` (Gemini 3's
+    # google.thought_signature) back unchanged on the next request, streamed or not. A
+    # turn that ends with finish_reason "length" and neither text nor a tool call is a
+    # TruncatedEmptyTurnError naming the 8192-token cap. The init probe asks for 1024
+    # output tokens instead of 64 (MNE-001-442, #644).
   - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
   - zkverify                     # anclaje de sellos; opcional
 

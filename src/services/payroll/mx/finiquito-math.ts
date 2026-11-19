@@ -274,6 +274,20 @@ export function salarioDiarioDesdeSueldoAnual(sueldoAnual: string | number): str
   return new Decimal(sueldoAnual).dividedBy(DIAS_PARA_SALARIO_DIARIO).toFixed(DECIMALES);
 }
 
+/** The two day counts of a month the panel offers for the USMO (`usmo_days_per_month`). */
+export type UsmoDaysPerMonth = '30' | '30.4';
+
+/**
+ * The last ordinary monthly salary (USMO) of LISR art. 96, last paragraph: the
+ * daily wage times the days of a month the firm chose in the panel (MNE-001-374,
+ * decided in MNE-001-373). 30 follows LFT art. 89, which divides a monthly
+ * salary by thirty to get the daily wage; 30.4 is the month of the monthly
+ * tariff. The separation ISR (MNE-001-375) divides the ISR of this figure by it.
+ */
+export function lastOrdinaryMonthlySalary(dailyWage: string, daysPerMonth: UsmoDaysPerMonth): string {
+  return new Decimal(dailyWage).times(daysPerMonth).toFixed(DECIMALES);
+}
+
 /**
  * Recupera el salario diario a partir del SBC deshaciendo la integración.
  *

@@ -545,6 +545,40 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.vacation_premium_pct.option.1_00':
     '100 %',
 
+  'policy.usmo_isr_subsidy.question':
+    'Para el ISR de la separación, ¿el ISR del último sueldo mensual ordinario (USMO) se toma bruto de tarifa, o neto del subsidio para el empleo?',
+  'policy.usmo_isr_subsidy.impact':
+    'El art. 96 LISR, último párrafo, retiene el ISR de una prima de antigüedad o de una indemnización a una tasa: el ISR del último sueldo mensual ordinario entre ese sueldo. Lo lee el finiquito (finiquito-calculator.ts), que informa este criterio en su desglose. Todavía no se retiene nada: el ISR de la separación que aplica la tasa viene después (MNE-001-375). Neto del subsidio baja la tasa, así que se retiene menos.',
+  'policy.usmo_isr_subsidy.rationale':
+    'El art. 96 LISR, último párrafo (con el art. 174 RLISR), divide «el impuesto que corresponda al último sueldo mensual ordinario» entre ese sueldo. El subsidio para el empleo es un crédito contra el ISR retenido, no impuesto causado, así que el impuesto que corresponde es el de la tarifa. Bruto es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); neto del subsidio es la otra lectura, y retiene menos.',
+  'policy.usmo_isr_subsidy.why':
+    'La ley arma la tasa de la separación con el ISR del último sueldo mensual, y no dice si ese ISR resta el subsidio para el empleo. Lo decide tu despacho.',
+  'policy.usmo_isr_subsidy.what':
+    'Tomo el ISR del último sueldo mensual ordinario por la tarifa mensual, sin restar el subsidio, e informo ese criterio en el finiquito. La retención que lo usa todavía no está.',
+  'policy.usmo_isr_subsidy.if_skipped':
+    'Lo tomo bruto de tarifa, sin restar el subsidio.',
+  'policy.usmo_isr_subsidy.option.gross_of_tariff':
+    'El ISR del USMO por la tarifa mensual, sin restar el subsidio para el empleo',
+  'policy.usmo_isr_subsidy.option.net_of_subsidy':
+    'El ISR del USMO por la tarifa mensual, menos el subsidio para el empleo que tendría ese sueldo',
+
+  'policy.usmo_days_per_month.question':
+    '¿Cuántos días hacen el último sueldo mensual ordinario (USMO) de un finiquito: 30 o 30.4?',
+  'policy.usmo_days_per_month.impact':
+    'El USMO es el salario diario por estos días, y sobre él se arma el ISR de la separación del art. 96 LISR, último párrafo. Lo lee el finiquito (finiquito-calculator.ts), que informa el USMO en su desglose. Todavía no se retiene nada: el ISR de la separación viene después (MNE-001-375). Con un salario diario de 300.00 el USMO es 9,000.00 a 30 días y 9,120.00 a 30.4.',
+  'policy.usmo_days_per_month.rationale':
+    'El art. 89 LFT divide un salario mensual entre treinta para obtener el salario diario, así que el sueldo mensual ordinario de un salario diario es ese salario × 30; el art. 96 LISR, último párrafo, arma la tasa de la separación sobre ese sueldo. 30 es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); 30.4 es la otra lectura, el mes con el que prorratean la tarifa mensual y el decreto del subsidio.',
+  'policy.usmo_days_per_month.why':
+    'La ley nombra el último sueldo mensual ordinario pero no dice cuántos días tiene un mes. Lo decide tu despacho.',
+  'policy.usmo_days_per_month.what':
+    'Calculo el USMO como salario diario × 30 y lo informo en el finiquito. La retención que lo usa todavía no está.',
+  'policy.usmo_days_per_month.if_skipped':
+    'Uso 30 días.',
+  'policy.usmo_days_per_month.option.30':
+    'Salario diario × 30 (el art. 89 LFT divide un salario mensual entre treinta)',
+  'policy.usmo_days_per_month.option.30_4':
+    'Salario diario × 30.4 (el mes de la tarifa mensual)',
+
   'policy.cash_flow_method.question':
     '¿El estado de flujos de efectivo se presenta por el método indirecto o por el directo?',
   'policy.cash_flow_method.impact':
@@ -3031,6 +3065,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'tratamiento de IVA de un anticipo: 16, 8, 0, exempt (exento) o not-subject (no-objeto); sin factura es obligatorio, y con una declara el del excedente que deja --on-account; el IVA se causa al cobro',
   'help.receipt.record.option.on_account':
     'permite que el importe exceda el saldo de la factura: el excedente queda a cuenta como anticipo y causa su IVA al cobro (LIVA art. 1-B), a la tasa de --tax-rate o a la de la propia factura',
+  // #611: the payer's side of the Anexo 24 payment node.
+  'help.receipt.record.option.check_number':
+    'número del cheque del cliente (con --method check); el XML de pólizas lo declara en el nodo Cheque',
+  'help.receipt.record.option.payer_bank':
+    'clave c_Banco (3 dígitos) del banco del que pagó el cliente; se valida contra la lista del SAT',
+  'help.receipt.record.option.payer_account':
+    'cuenta de la que pagó el cliente (en un cheque, la cuenta contra la que se giró); exige --payer-bank o --payer-foreign-bank',
+  'help.receipt.record.option.payer_foreign_bank':
+    'nombre completo del banco del cliente cuando es extranjero, en lugar de --payer-bank',
   // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
   'help.receipt.apply.description':
     'Aplica el saldo a cuenta de un cobro a facturas: libera el IVA de las PPD, y un anticipo cancela el IVA que causó en vez de causarlo otra vez. Cubre el procedimiento A del Anexo 20, Apéndice 6 (la venta facturada completa); con el procedimiento B el anticipo pasa a ingresos por póliza',
