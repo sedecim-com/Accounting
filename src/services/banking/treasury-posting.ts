@@ -9,6 +9,7 @@ import { JournalEntryType } from '../../types/index.js';
 import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import { resolverCuentaBancaria } from './bank-statement-service.js';
 import { rangoDelPeriodo } from './reconciliation-service.js';
+import { functionalCurrencyOf } from '../accounting/moneda-origen.js';
 
 // ============================================================
 // LOS TRES ASIENTOS DE TESORERÍA (F05d · 055)
@@ -1476,15 +1477,14 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
  * esa aritmética aquí habría dado un segundo sitio donde el IVA de un pago se
  * calcula, y el día que los dos discrepen nadie sabría cuál manda.
  *
- * EL TOPE ES TAMBIÉN LA PROTECCIÓN CONTRA EL DOBLE ACREDITAMIENTO, y hace falta
- * decirlo: hoy `postVendorPaymentEntry` ya libera el IVA en la fecha del PAGO,
- * así que para un cheque cuyo pago se contabilizó de esa manera `ivaStillParked`
- * devuelve cero y este comando reclasifica cero, informándolo. Eso NO es un
- * fallo de aquí: es la señal de que ese IVA se acreditó en el mes de la firma
- * del cheque y no en el del cobro, que es precisamente lo que la fila 1271
- * existe para corregir. Cerrarlo del todo pide que el asiento del pago con
- * cheque DEJE el IVA aparcado y espere a este comando, y eso se decide en
- * `ar-ap-posting.ts`, no aquí.
+ * THE CAP IS NOT WHAT STOPS A SECOND CREDIT (MNE-001-508). `ivaStillParked`
+ * does not see what a payment's own entry released, because that entry's
+ * `source_id` is the payment and not the bill. What stops it is the amount each
+ * application stores: see `vatHeldByVendorCheck`. A cheque in the functional
+ * currency holds its IVA in 1135 (`holdsIvaUntilCashed`, `ar-ap-posting.ts`)
+ * and this act releases it; a cheque whose own entry credited the IVA on its
+ * signing day, as all did before MNE-001-508 and as a foreign-currency one
+ * still does, records its cashing here and moves nothing.
  */
 export async function conciliarCheque(
   entityId: string,
@@ -1576,9 +1576,13 @@ export async function conciliarCheque(
     // aparcado en 1135 que liberar. Preguntar antes evita recorrer la máquina
     // de reclasificación para que devuelva cero por el motivo equivocado.
     const flujoDeEfectivo = await entityUsesCashBasisIva(client, entityId);
-    const items = flujoDeEfectivo
-      ? await ivaReclassificationsFor(client, 'received', entityId, pago.id)
-      : [];
+    // A foreign-currency cheque credited on its payment day, at that day's
+    // rate: releasing here with no rate would move its dollars as pesos.
+    const inFunctional =
+      flujoDeEfectivo && pago.currency_code === (await functionalCurrencyOf(client, entityId));
+    const { items, alreadyCredited } = inFunctional
+      ? await vatHeldByVendorCheck(client, entityId, pago.id)
+      : { items: [], alreadyCredited: flujoDeEfectivo };
     const totalIva = items.reduce((s, i) => s.plus(i.amount), new Decimal(0));
 
     if (totalIva.greaterThan(0) && periodoCerrado(periodo)) {
@@ -1647,11 +1651,14 @@ export async function conciliarCheque(
         ? `No había IVA que reclasificar, así que el cobro se registra sin asiento; ` +
           `${motivoDePeriodo(periodo, fechaDeCobro)}, y con IVA que mover esto se habría ` +
           `rechazado en vez de postearse con otra fecha.`
+        : alreadyCredited
+        ? `El asiento del pago ya lo acreditó en la fecha del cheque (${pago.payment_date}), así ` +
+          `que el cobro se registra y no acredita ese IVA otra vez. Si el cobro cae en otro mes, ` +
+          `la declaración del mes de la firma puede necesitar complementaria.`
         : flujoDeEfectivo
         ? `No quedaba IVA aparcado en 1135 para este pago, así que no hay nada que reclasificar. ` +
-          `Casi siempre significa una de dos cosas: los gastos que pagó eran PUE —su IVA ya era ` +
-          `acreditable desde la factura— o el asiento del pago ya lo liberó en la fecha del ` +
-          `cheque en vez de esperar al cobro.`
+          `Casi siempre significa que los gastos que pagó eran PUE —su IVA ya era acreditable ` +
+          `desde la factura— o que el pago sigue a cuenta, sin aplicar a ningún gasto.`
         : `La entidad no contabiliza el IVA por flujo de efectivo (no es mexicana), así que el ` +
           `cobro del cheque se registra pero no reclasifica impuesto ninguno.`;
     }
@@ -1662,14 +1669,32 @@ export async function conciliarCheque(
     // la entidad va OTRA VEZ en el WHERE aunque el SELECT de arriba ya la
     // exigió: la última fuga de este módulo entró justo por un id que se dio
     // por comprobado antes de escribir.
-    await client.query(
+    // MNE-001-508: and the state too. A cheque is cashed once, on a payment
+    // that stands: zero rows means it changed under this act, and nothing stays.
+    const cashed = await client.query(
       `UPDATE vendor_payments
           SET check_cleared_date = $1::date,
               check_cleared_tx_id = $2,
               updated_at = NOW()
-        WHERE id = $3 AND entity_id = $4`,
+        WHERE id = $3 AND entity_id = $4
+          AND check_cleared_tx_id IS NULL AND status = 'completed'`,
       [fechaDeCobro, movimiento.id, pago.id, entityId]
     );
+    if (cashed.rowCount !== 1) throw changedMeanwhile(pago);
+    // What the cashing released goes on the application, so `payment unapply`
+    // re-parks it and no later act releases it again.
+    for (const item of items) {
+      const kept = await client.query(
+        `UPDATE payment_applications pa
+            SET iva_reclass_amount = pa.iva_reclass_amount + $1
+           FROM vendor_payments vp
+          WHERE pa.id = $2 AND pa.payment_id = $3
+            AND vp.id = pa.payment_id AND vp.entity_id = $4
+            AND pa.unapplied_at IS NULL AND pa.iva_reclass_amount IS NOT NULL`,
+        [item.amount, item.applicationId, pago.id, entityId]
+      );
+      if (kept.rowCount !== 1) throw changedMeanwhile(pago);
+    }
 
     await registrarAuditoria(client, {
       tenantId,
@@ -1716,6 +1741,65 @@ export async function conciliarCheque(
     }
     return resultado;
   });
+}
+
+const changedMeanwhile = (payment: FilaPagoConCheque): ValidationError =>
+  new ValidationError({
+    key: 'bank.check.reconcile.changed_meanwhile',
+    params: { payment: payment.payment_number, status: payment.status },
+  });
+
+/** One bill's IVA a cheque still holds, and the application that will store its release. */
+interface VatHeldByCheck {
+  documentId: string;
+  documentNumber: string;
+  amount: string;
+  applicationId: string;
+}
+
+/**
+ * MNE-001-508 · what a vendor cheque's cashing releases, per bill: the share of
+ * the payment's live applications on the bill (`ivaReclassificationsFor`)
+ * minus what those applications already stored, kept on the oldest of them.
+ *
+ * A NULL on a live row counts as released: what it released cannot be known,
+ * and releasing again would credit the IVA twice. `alreadyCredited` says a
+ * share was left out for that reason or because it was stored in full.
+ */
+async function vatHeldByVendorCheck(
+  client: pg.PoolClient,
+  entityId: string,
+  paymentId: string
+): Promise<{ items: VatHeldByCheck[]; alreadyCredited: boolean }> {
+  const items: VatHeldByCheck[] = [];
+  let alreadyCredited = false;
+  for (const share of await ivaReclassificationsFor(client, 'received', entityId, paymentId)) {
+    const live = await client.query<{ id: string; stored: string | null }>(
+      `SELECT pa.id, pa.iva_reclass_amount::text AS stored
+         FROM payment_applications pa
+         JOIN vendor_payments vp ON vp.id = pa.payment_id
+        WHERE pa.payment_id = $1 AND pa.bill_id = $2 AND vp.entity_id = $3
+          AND pa.unapplied_at IS NULL
+        ORDER BY pa.created_at, pa.id
+        FOR UPDATE OF pa`,
+      [paymentId, share.documentId, entityId]
+    );
+    const stored = live.rows.reduce((s, r) => s.plus(r.stored ?? '0'), new Decimal(0));
+    const held = live.rows.some((r) => r.stored === null)
+      ? new Decimal(0)
+      : new Decimal(share.amount).minus(stored);
+    if (live.rows.length === 0 || held.lessThanOrEqualTo(0)) {
+      alreadyCredited = true;
+      continue;
+    }
+    items.push({
+      documentId: share.documentId,
+      documentNumber: share.documentNumber,
+      amount: held.toFixed(ESCALA),
+      applicationId: live.rows[0].id,
+    });
+  }
+  return { items, alreadyCredited };
 }
 
 /**

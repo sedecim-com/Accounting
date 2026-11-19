@@ -2667,6 +2667,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'Vas a registrar que el banco cobró el cheque {check} el {date} y a reclasificar {amount} de ' +
     'IVA en el periodo {period}. El mayor es inmutable: esto sólo se corrige por reversa. ¿Continuar?',
   'bank.check.reconcile.already_cleared': 'cheque cobrado el {date}',
+  'bank.check.reconcile.changed_meanwhile':
+    'El pago {payment} («{status}») cambió mientras se registraba el cobro de su cheque, o no es un pago completado. No se escribió nada.',
   'bank.check.reconcile.summary':
     '· cobrado el {date} · periodo {period} · IVA reclasificado {amount}',
   'bank.check.reconcile.dry_run': 'Ensayo: se registró el cobro de verdad y se deshizo.',

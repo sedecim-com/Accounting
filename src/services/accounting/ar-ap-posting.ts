@@ -579,6 +579,12 @@ interface PaymentRow {
   /** MNE-001-458 · the base and IVA an advance's cash on account splits into; absent: credited whole. */
   advance_base_amount?: string | null;
   advance_iva_amount?: string | null;
+  /**
+   * MNE-001-508 · a vendor cheque in the functional currency the bank has not
+   * cashed yet: its entries release no IVA, and the cashing does
+   * (`conciliarCheque`). A price paid by cheque is paid when it is cashed.
+   */
+  holdsIvaUntilCashed?: boolean;
 }
 
 /**
@@ -1180,7 +1186,11 @@ export async function postVendorApplicationEntry(
         appliedNow: app.amount,
       }));
       const parked = await ivaStillParked(client, 'received', payment.entity_id, app.invoiceId);
-      const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
+      // A held cheque credits nothing here; the written-off share below still
+      // leaves 1135, because it was never going to be paid.
+      const liberable = payment.holdsIvaUntilCashed
+        ? new Decimal(0)
+        : Decimal.min(new Decimal(bruto), new Decimal(parked));
 
       // ── EL IVA DEL SALDO CONDONADO ──────────────────────────────────
       //
@@ -1463,7 +1473,9 @@ export async function postVendorPaymentEntry(
 
   const bank = await bankAccountOf(client, payment.entity_id, payment.bank_account_id);
   const bankId = bank.glAccountId;
-  const iva = await ivaReclassLines(client, 'received', payment, fx ? ivaFxOf(fx) : undefined);
+  const iva = payment.holdsIvaUntilCashed
+    ? { lines: [], documents: [], items: [] }
+    : await ivaReclassLines(client, 'received', payment, fx ? ivaFxOf(fx) : undefined);
   // The IVA each application born with this payment released, 0 included,
   // stored on its row (105) so `payment unapply` re-parks it exactly instead
   // of re-deriving it under another context.
