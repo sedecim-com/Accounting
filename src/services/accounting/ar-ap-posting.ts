@@ -580,9 +580,11 @@ interface PaymentRow {
   advance_base_amount?: string | null;
   advance_iva_amount?: string | null;
   /**
-   * MNE-001-508 · a vendor cheque in the functional currency the bank has not
-   * cashed yet: its entries release no IVA, and the cashing does
-   * (`conciliarCheque`). A price paid by cheque is paid when it is cashed.
+   * A cheque in the functional currency the bank has not cashed yet: a price
+   * paid by cheque, and its IVA, is paid the day it is cashed (LIVA art. 1-B,
+   * second paragraph), so the payment's entries and its applications release
+   * nothing and the recorded cashing does. Customer side, MNE-001-556
+   * (`recordCustomerCheckCashing`); vendor side, MNE-001-508 (`conciliarCheque`).
    */
   holdsIvaUntilCashed?: boolean;
 }
@@ -717,7 +719,11 @@ export async function postCustomerPaymentEntry(
   if (!new Decimal(payment.payment_amount).greaterThan(0)) return null;
 
   const bank = await bankAccountOf(client, payment.entity_id, payment.bank_account_id);
-  const iva = await ivaReclassLines(client, 'issued', payment, fx ? ivaFxOf(fx) : undefined);
+  // A held cheque releases nothing here; its allocations store 0 below, as any
+  // allocation that released nothing does.
+  const iva = payment.holdsIvaUntilCashed
+    ? { lines: [], documents: [], items: [] }
+    : await ivaReclassLines(client, 'issued', payment, fx ? ivaFxOf(fx) : undefined);
   const { jeLines, memo, difference } = fx
     ? await foreignReceiptLines(client, payment, fx, bank, iva)
     : { ...(await functionalReceiptLines(client, payment, bank.glAccountId, iva)), difference: undefined };
@@ -1056,7 +1062,8 @@ export async function postReceiptApplicationEntry(
   const ivaLines: JeLine[] = [];
   const documentos: string[] = [];
 
-  if (cashBasis) {
+  // A cheque not cashed yet releases nothing: the caller stores 0 and the cashing releases it.
+  if (cashBasis && !payment.holdsIvaUntilCashed) {
     const { from, to } = reclassRoles('issued');
     const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
     for (const app of aplicaciones) {

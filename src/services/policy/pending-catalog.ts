@@ -1488,6 +1488,30 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 41,
   },
   {
+    // MNE-001-553 · #684: read by `createBillFromPreReg`
+    // (xml-ingestion/pre-registration-service.ts), only when a line is left
+    // with no account of its own, none for the document and no eligible suggestion.
+    key: 'received_line_without_account',
+    textKey: 'received_line_without_account',
+    category: 'contable',
+    question: 'When a line of a vendor CFDI reaches posting with no expense account, what do I do with it?',
+    impact:
+      'A received line posts to its own account, then to the one given for the whole document, then to a suggestion that is not a control account. This governs the line that has none of the three when the CFDI is posted from the inbox (`bill inbox run`). With "refuse" nothing is posted: the CFDI stays in the inbox and says which line has no account, until someone codes it. With "role_generic_account" the line goes to the account your chart gives the expense role the CFDI was classified under (general expenses for an ordinary purchase), and the bill is posted without anyone choosing the account; when the classification has no single expense role with an account, it is refused all the same and says why.',
+    options: [
+      { value: 'refuse', label: 'Post nothing until someone gives the line an account' },
+      { value: 'role_generic_account', label: 'Post the line to the generic account of its expense role' },
+    ],
+    defaultValue: 'refuse',
+    defaultRationale:
+      'A deduction has to be duly recorded in the books (LISR art. 27 fr. IV): an expense booked to a generic account nobody chose is recorded, but not as what it is. Refusing is the conservative option of ADR-0006, decision 1: nothing is posted without review, and coding the line takes one command.',
+    whyAsking:
+      'A vendor CFDI sometimes reaches posting with a line nobody gave an account and nothing in its history suggests one. I either wait for you to code it, or I book it to the generic expense account so the payable is not held up.',
+    whatIDo:
+      'By default I leave the CFDI in the inbox and tell you which line has no account. With "role_generic_account" I post that line to the account of the expense role I classified the CFDI under.',
+    ifSkipped: 'I post nothing until every line has an account.',
+    priority: 42,
+  },
+  {
     key: 'informes_asientos_de_cierre',
     textKey: 'closing_entries_in_reports',
     category: 'contable',
