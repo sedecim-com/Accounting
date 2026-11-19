@@ -18,6 +18,7 @@ import {
   ivaTreatmentNote,
   type MetodoPagoDecision,
 } from './iva-cash-basis.js';
+import { iepsCausedBy, iepsCausedByReceipt, iepsMoveLines, type IepsMove } from './ieps-cash-basis.js';
 import {
   convertirAFuncional,
   desgloseCambiarioDelPago,
@@ -88,6 +89,8 @@ interface JeLine {
   foreign_debit?: string;
   foreign_credit?: string;
   exchange_rate?: string;
+  /** Only the IEPS move writes one (ieps-cash-basis.ts). */
+  tags?: Record<string, unknown>;
 }
 
 function requireRole(map: Map<string, string>, role: string): string {
@@ -724,9 +727,23 @@ export async function postCustomerPaymentEntry(
   const bank = await bankAccountOf(client, payment.entity_id, payment.bank_account_id);
   // A held cheque releases nothing here; its allocations store 0 below, as any
   // allocation that released nothing does.
-  const iva = payment.holdsIvaUntilCashed
+  const vat = payment.holdsIvaUntilCashed
     ? { lines: [], documents: [], items: [] }
     : await ivaReclassLines(client, 'issued', payment, fx ? ivaFxOf(fx) : undefined);
+  // #699 · The IEPS a PPD sale parked is caused by the same collection (LIEPS
+  // art. 10, with LIVA's tests of collection by art. 5o.-C), so it moves on
+  // this entry with the VAT, and a held cheque moves it on its cashing.
+  const ieps = payment.holdsIvaUntilCashed || !(await entityUsesCashBasisIva(client, payment.entity_id))
+    ? []
+    : await iepsCausedByReceipt(client, payment.entity_id, payment.id);
+  const iva = {
+    ...vat,
+    lines: [...vat.lines, ...(await iepsMoveLines(client, payment.entity_id, payment.id, ieps, 'release', 'collection'))],
+  };
+  const taxNote = [
+    ...(vat.documents.length ? [`IVA caused on collection: ${vat.documents.join(', ')}`] : []),
+    ...(ieps.length ? [`IEPS caused on collection: ${ieps.map((m) => m.invoiceNumber).join(', ')}`] : []),
+  ];
   // A held advance goes whole to 2150; its cashing moves its IVA to 2120
   // (MNE-001-558, #623 comment 6961035083). The receipt keeps the split.
   const credited = payment.holdsIvaUntilCashed
@@ -742,8 +759,8 @@ export async function postCustomerPaymentEntry(
     // midnight, and west of Greenwich the entry landed a day before its payment.
     payment.payment_date,
     JournalEntryType.AUTO_PAYMENT,
-    iva.documents.length
-      ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}${memo}`
+    taxNote.length
+      ? `Customer payment ${payment.payment_number} · ${taxNote.join(' · ')}${memo}`
       : `Customer payment ${payment.payment_number}${memo}`,
     jeLines,
     userId,
@@ -1084,6 +1101,7 @@ export async function postReceiptApplicationEntry(
   const ivaPorFactura = new Map<string, string>();
   const ivaLines: JeLine[] = [];
   const documentos: string[] = [];
+  const iepsDocs: string[] = [];
 
   // A cheque not cashed yet releases nothing: the caller stores 0 and the cashing releases it.
   if (cashBasis && !payment.holdsIvaUntilCashed) {
@@ -1124,6 +1142,21 @@ export async function postReceiptApplicationEntry(
         description: `IVA now in ${to} (PPD collection) - Invoice ${app.invoiceNumber}`,
       });
     }
+
+    // #699 · The IEPS share of the same tranche, whatever the VAT did: what
+    // the invoice parked decides, and an invoice that parked none moves none.
+    const ieps: IepsMove[] = [];
+    for (const app of aplicaciones) {
+      const amount = await iepsCausedBy(client, payment.entity_id, {
+        invoiceId: app.invoiceId,
+        totalAmount: app.totalAmount,
+        priorApplied: app.priorApplied,
+        appliedNow: new Decimal(app.amount).plus(app.withholdingIsr ?? '0').plus(app.withholdingIva ?? '0').toFixed(4),
+      });
+      if (new Decimal(amount).greaterThan(0)) ieps.push({ invoiceId: app.invoiceId, invoiceNumber: app.invoiceNumber, amount });
+    }
+    ivaLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, ieps, 'release', 'collection')));
+    iepsDocs.push(...ieps.map((m) => m.invoiceNumber));
   }
 
   // MNE-001-422: an advance's IVA, caused when it was collected, is cancelled
@@ -1153,10 +1186,12 @@ export async function postReceiptApplicationEntry(
     payment.entity_id,
     date,
     JournalEntryType.AUTO_PAYMENT,
-    (documentos.length
-      ? `Application of ${payment.payment_number} · IVA caused on collection: ${documentos.join(', ')}`
-      : `Application of ${payment.payment_number}`) +
-      (twice.length ? ` · advance IVA caused twice in ${twice.join(', ')}` : ''),
+    [
+      `Application of ${payment.payment_number}`,
+      ...(documentos.length ? [`IVA caused on collection: ${documentos.join(', ')}`] : []),
+      ...(iepsDocs.length ? [`IEPS caused on collection: ${iepsDocs.join(', ')}`] : []),
+      ...(twice.length ? [`advance IVA caused twice in ${twice.join(', ')}`] : []),
+    ].join(' · '),
     [
       {
         account_id: requireRole(roles, 'anticipo_clientes'),
@@ -1428,6 +1463,10 @@ export async function postVendorApplicationEntry(
  *
  * MNE-001-422: the advance's IVA the rows cancelled (`advanceIva`) is
  * credited back to 2120, and only the rest of the cash to anticipo_clientes.
+ *
+ * #699 · `ieps` is what this receipt has moved out of the uncollected IEPS
+ * role for the invoice, read back from the ledger by the caller: it goes
+ * back exactly (DR ieps_por_pagar · CR the uncollected role).
  */
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,
@@ -1438,6 +1477,7 @@ export async function postReceiptUnapplicationEntry(
     withholdingIsr?: string; withholdingIva?: string;
     /** MNE-001-422: the advance's IVA the rows cancelled, which goes back to 2120 as they stored it. */
     advanceIva?: string;
+    ieps?: IepsMove;
   },
   userId: string
 ): Promise<JournalEntry> {
@@ -1489,6 +1529,9 @@ export async function postReceiptUnapplicationEntry(
       credit_amount: iva.toFixed(4),
       description: `IVA back in ${from} (unapply) - Invoice ${app.invoiceNumber}${nota}`,
     });
+  }
+  if (app.ieps) {
+    jeLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, [app.ieps], 'repark', 'unapply')));
   }
 
   return createJournalEntry(

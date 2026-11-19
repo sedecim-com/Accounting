@@ -239,7 +239,7 @@ describe('an advance received by cheque causes its IVA the day the bank cashes i
 
     const cashed = await recordCustomerCheckCashing(mx.entityId, r.paymentId, { userId: mx.userId });
     expect(cashed).toMatchObject({
-      transaction: { id: credit }, cashedOn: '2026-09-03', released: '160.0000', advanceIva: '160.0000', byInvoice: [], note: null,
+      transaction: { id: credit }, cashedOn: '2026-09-03', released: '160.0000', advanceIva: '160.0000', iepsReleased: '0.0000', byInvoice: [], note: null,
     });
     const entry = await query<{ date: string; period: string }>(
       `SELECT entry_date::text AS date, fiscal_period_id AS period FROM journal_entries
