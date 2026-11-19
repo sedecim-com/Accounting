@@ -2670,6 +2670,30 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.check.reconcile.summary':
     '· cobrado el {date} · periodo {period} · IVA reclasificado {amount}',
   'bank.check.reconcile.dry_run': 'Ensayo: se registró el cobro de verdad y se deshizo.',
+  'bank.check.cashing.refused.not_a_cheque':
+    'El cobro {receipt} se pagó por «{method}», no con cheque: sólo un cheque se cobra en un día posterior.',
+  'bank.check.cashing.refused.not_completed':
+    'El cobro {receipt} está en «{status}»: el cobro del cheque sólo se registra sobre un cobro completado.',
+  'bank.check.cashing.refused.already_cashed':
+    'El cheque del cobro {receipt} ya consta cobrado el {date} con el movimiento {transaction}. Un cheque se cobra una vez.',
+  'bank.check.cashing.refused.credit_used':
+    'El movimiento {transaction} ya es el cobro del cheque del cobro {holder}, así que no puede pagar el cobro {receipt}.',
+  'bank.check.cashing.refused.other_account':
+    'El movimiento {transaction} es de otra cuenta bancaria que el cobro {receipt}. Si el cheque se depositó ahí, corrige el cobro.',
+  'bank.check.cashing.refused.currency_differs':
+    'El movimiento {transaction} está en {creditCurrency} y el cobro {receipt} en {currency}. Aquí no se convierte.',
+  'bank.check.cashing.refused.amount_differs':
+    'El movimiento {transaction} es de {creditAmount} y el cobro {receipt} necesita un abono de exactamente {amount}.',
+  'bank.check.cashing.refused.credit_before_receipt':
+    'El movimiento {transaction} es del {date} y el cobro {receipt} del {receiptDate}: un cheque no se cobra antes de recibirse.',
+  'bank.check.cashing.refused.period_closed':
+    'El cobro del cheque del cobro {receipt} es del {date}, y ningún periodo abierto contiene esa fecha. Su IVA pertenece a ese mes y no se contabiliza con otra fecha: reabre antes el periodo.',
+  'bank.check.cashing.note.already_released':
+    'Sin asiento: el cobro ya había liberado este IVA en su propia fecha.',
+  'bank.check.cashing.note.nothing_to_release':
+    'Sin asiento: este cobro no tiene IVA pendiente de cobro.',
+  'bank.check.cashing.note.foreign_currency':
+    'Sin asiento: un cheque en moneda extranjera libera su IVA en la fecha del cobro.',
   'bank.transaction.show.unmatched': 'sin cotejar',
   'bank.match.create.summary':
     '· banco {bank} = libros {books} + ajustes {adjustments} · residual {residual} ({mode}) · ' +
@@ -3995,6 +4019,10 @@ export const ES: Record<keyof typeof EN, string> = {
     '{method, select, PPD {Su IVA queda como no cobrado (2125 en el catálogo sembrado) hasta que llegue su complemento de pago (REP).{parked, select, yes { Hay complementos de pago aparcados: mnemosine rep reconcile liga el que pague esta factura.} other {}}} other {Registra su cobro con: mnemosine receipt record {invoice}}}',
   'ingest.issued_left_to_code':
     'Queda por contabilizar a mano ({reason}): lo emitió esta entidad, así que es una venta. Contabilízalo en CxC con `mnemosine cfdi post {uuid}`; `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending` lista los que esperan',
+  'ingest.received_credit_note_to_inbox':
+    'Nota de crédito recibida: el modelo no la redacta. Contabilízala contra su factura con `mnemosine bill inbox run <id>`; `mnemosine bill inbox list` la muestra, y el motivo si tiene que esperar',
+  'ingest.preview.route.received_credit_note':
+    'nota de crédito recibida: reglas del despacho y luego la bandeja; sin borrador de la IA. La contabiliza una regla que exija este tipo de documento o, si no, `mnemosine bill inbox run`',
   'ingest.summary.issued_to_post':
     '{count} de ellos los emitió esta entidad: contabiliza cada uno en CxC con `mnemosine cfdi post <uuid>`; lístalos con `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending`.',
   'bill.inbox.edit.issued_post_with': 'Lo emitió esta entidad: contabilízalo en CxC con `mnemosine cfdi post {uuid}`.',

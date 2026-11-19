@@ -2823,6 +2823,30 @@ export const EN = {
     '· cleared on {date} · period {period} · VAT reclassified {amount}',
   'bank.check.reconcile.dry_run':
     'Dry run: the clearing really was recorded, and then rolled back.',
+  'bank.check.cashing.refused.not_a_cheque':
+    'Receipt {receipt} was paid by "{method}", not by cheque: only a cheque is cashed on a later day.',
+  'bank.check.cashing.refused.not_completed':
+    'Receipt {receipt} is in "{status}": a cashing is recorded on a completed receipt only.',
+  'bank.check.cashing.refused.already_cashed':
+    'The cheque of receipt {receipt} is already cashed on {date} with bank transaction {transaction}. A cheque is cashed once.',
+  'bank.check.cashing.refused.credit_used':
+    'Bank transaction {transaction} is already the cashing of receipt {holder}, so it cannot pay receipt {receipt}.',
+  'bank.check.cashing.refused.other_account':
+    'Bank transaction {transaction} is in another bank account than receipt {receipt}. If the cheque was deposited there, correct the receipt.',
+  'bank.check.cashing.refused.currency_differs':
+    'Bank transaction {transaction} is in {creditCurrency} and receipt {receipt} in {currency}. Nothing is converted here.',
+  'bank.check.cashing.refused.amount_differs':
+    'Bank transaction {transaction} is {creditAmount} and receipt {receipt} needs a credit of exactly {amount}.',
+  'bank.check.cashing.refused.credit_before_receipt':
+    'Bank transaction {transaction} is dated {date} and receipt {receipt} {receiptDate}: a cheque is not cashed before it is received.',
+  'bank.check.cashing.refused.period_closed':
+    'The cashing of receipt {receipt} is dated {date}, and no open period holds that date. Its VAT belongs to that month and is not posted with another date: reopen the period first.',
+  'bank.check.cashing.note.already_released':
+    'No entry: the receipt had already released this VAT on its own date.',
+  'bank.check.cashing.note.nothing_to_release':
+    'No entry: this receipt holds no VAT pending collection.',
+  'bank.check.cashing.note.foreign_currency':
+    'No entry: a cheque in a foreign currency releases its VAT on the receipt date.',
   'bank.transaction.show.unmatched': 'unmatched',
   'bank.match.create.summary':
     '· bank {bank} = books {books} + adjustments {adjustments} · residual {residual} ({mode}) · ' +
@@ -4134,6 +4158,10 @@ export const EN = {
     '{method, select, PPD {Its VAT waits as not yet collected (2125 in the seeded chart) until its payment receipt (REP) arrives.{parked, select, yes { There are parked payment receipts: mnemosine rep reconcile links any that pays this invoice.} other {}}} other {Record its collection with: mnemosine receipt record {invoice}}}',
   'ingest.issued_left_to_code':
     'Left to post by hand ({reason}): this entity issued it, so it is a sale. Post it to receivables with `mnemosine cfdi post {uuid}`; `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending` lists the ones waiting',
+  'ingest.received_credit_note_to_inbox':
+    'Received credit note: the model does not draft it. Post it against its bill with `mnemosine bill inbox run <id>`; `mnemosine bill inbox list` shows it, and the reason if it has to wait',
+  'ingest.preview.route.received_credit_note':
+    'received credit note: firm rules, then the inbox; no AI draft. A rule that requires this document type posts it, otherwise `mnemosine bill inbox run` does',
   'ingest.summary.issued_to_post':
     '{count} of them issued by this entity: post each to receivables with `mnemosine cfdi post <uuid>`; list them with `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending`.',
   'bill.inbox.edit.issued_post_with': 'This entity issued it: post it to receivables with `mnemosine cfdi post {uuid}`.',
