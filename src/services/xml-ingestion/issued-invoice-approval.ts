@@ -5,6 +5,7 @@ import { getPolicy } from '../policy/policy-service.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
 import { decideMetodoPago } from '../accounting/iva-cash-basis.js';
+import { IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
 import { identityRfc } from '../ar/opening-invoices.js';
 import { CFDIParser, type CFDIParsed } from './cfdi-parser.js';
 import { extractImpuestosLocales } from './cfdi-facts.js';
@@ -21,8 +22,20 @@ export interface ApprovedDraftInvoice {
 /** The roles the core checks against the CFDI. A credit on any other account is revenue, and an invoice line. */
 const AR_ROLES = [
   'cxc', 'banco', 'iva_trasladado', 'iva_trasladado_no_cobrado', 'isr_retenido_a_favor', 'iva_retenido_a_favor',
-  'ieps_por_pagar', 'impuestos_locales_por_pagar',
+  'ieps_por_pagar', IEPS_UNCOLLECTED_ROLE, 'impuestos_locales_por_pagar',
 ];
+
+/**
+ * The refusal of a PPD sale with IEPS on an entity with no account for the
+ * role where that IEPS waits: one seeded before MNE-001-505, until the
+ * backfill gives it 2181. Both doors say the same.
+ */
+export function ppdIepsWithoutRole(uuid: string, ieps: Decimal.Value): ValidationError {
+  return new ValidationError({
+    key: 'error.ISSUED_CFDI_PPD_IEPS',
+    params: { uuid, ieps: new Decimal(ieps).toFixed(2), role: IEPS_UNCOLLECTED_ROLE },
+  });
+}
 
 /** `customer create` as printed in the refusal, runnable: both values come from the XML. */
 export function customerCreateCommand(name: string, rfc: string): string {
@@ -135,14 +148,17 @@ const WORDING: Record<IssuedInvoiceDoor, {
  *     MetodoPago is a PUE sale, VAT in iva_trasladado: that is how the
  *     collection, the credit note and the IVA working paper will read the
  *     invoice, so VAT parked for it would never be released (#668);
- *   - IEPS and local taxes each sit on their own role, ieps_por_pagar and
- *     impuestos_locales_por_pagar, and are checked like the VAT on every
- *     CFDI: neither is revenue, an invoice line, or part of `tax_amount`,
- *     which stays the VAT alone because the VAT release prorates it. The
- *     local taxes are read from the stored XML: they live in their own
- *     complement, outside the tax breakdown (MNE-001-521, #669);
- *   - a PPD sale that transfers IEPS is refused at both doors: that IEPS is
- *     caused on collection, and until #699 there is no role where it waits.
+ *   - IEPS and local taxes each sit on their own role and are checked like
+ *     the VAT on every CFDI: neither is revenue, an invoice line, or part of
+ *     `tax_amount`, which stays the VAT alone because the VAT release
+ *     prorates it. Local taxes sit on impuestos_locales_por_pagar, read from
+ *     the stored XML: they live in their own complement, outside the tax
+ *     breakdown (MNE-001-521, #669);
+ *   - the IEPS sits where the MetodoPago says, as the VAT does: a PUE's on
+ *     ieps_por_pagar (2180), a PPD's on ieps_trasladado_no_cobrado (2181),
+ *     because it is caused on collection (LIEPS art. 10) and each collection
+ *     moves its share to 2180 (ieps-cash-basis.ts). An entity with no account
+ *     for that role refuses a PPD with IEPS, naming the backfill (#699).
  */
 export async function registerIssuedInvoice(
   client: pg.PoolClient,
@@ -273,10 +289,8 @@ export async function registerIssuedInvoice(
   const paid = toAr.isZero() && pue && net(accountsOf('banco'), 'debit').gt(0);
   const vat = sumTax(summary.traslados, '002');
   const ieps = sumTax(summary.traslados, '003');
-  // TODO(#699): the refusal becomes the choice of the role where a PPD's IEPS waits for its collection.
-  if (!pue && ieps.gt(0)) {
-    throw new ValidationError({ key: 'error.ISSUED_CFDI_PPD_IEPS', params: { uuid, ieps: ieps.toFixed(2), issue: '#699' } });
-  }
+  const iepsRole = pue ? 'ieps_por_pagar' : IEPS_UNCOLLECTED_ROLE;
+  if (!pue && ieps.gt(0) && accountsOf(IEPS_UNCOLLECTED_ROLE).size === 0) throw ppdIepsWithoutRole(uuid, ieps);
   const localTaxes = extractImpuestosLocales(new CFDIParser().parse(String(preReg.x_xml_content))).trasladados;
   const figures = [
     {
@@ -290,8 +304,8 @@ export async function registerIssuedInvoice(
       cfdi: vat,
     },
     {
-      figure: 'transferred IEPS (ieps_por_pagar)',
-      entry: net(accountsOf('ieps_por_pagar'), 'credit'),
+      figure: `transferred IEPS (${iepsRole})`,
+      entry: net(accountsOf(iepsRole), 'credit'),
       cfdi: ieps,
     },
     {

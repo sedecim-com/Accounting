@@ -24,11 +24,11 @@ import { resetDeclarations } from '../../src/cli/kernel/risk.js';
  * its share beside the VAT's DR 2125 / CR 2120. An unapply gives back exactly
  * what that receipt moved, and a reversal unwinds both pairs.
  *
- * Until part 2 lands nothing parks IEPS, so the invoice of #669 (SubTotal
- * 1,000.00, IEPS 80.00, VAT 172.80, Total 1,252.80) is built here with the
- * 80.00 on a line of its own whose account is 2181, mapped by hand to the
- * uncollected role: its issuance is the entry part 2 will post. Every figure
- * is computed by hand.
+ * The invoice of #669 (SubTotal 1,000.00, IEPS 80.00, VAT 172.80, Total
+ * 1,252.80) is built here with the 80.00 on a line of its own whose account
+ * is 2181, the account the seed maps to the uncollected role (MNE-001-505):
+ * its issuance is the entry an issued PPD CFDI posts. Every figure is
+ * computed by hand.
  */
 
 let mx: Fixture;
@@ -81,7 +81,7 @@ async function newCustomer(f: Fixture): Promise<string> {
 }
 
 /**
- * The PPD invoice of #669 as part 2 will post it: DR 1120 1,252.80 /
+ * The PPD invoice of #669 as an issued PPD CFDI posts it: DR 1120 1,252.80 /
  * CR 4100 1,000.00 / CR 2181 80.00 / CR 2125 172.80. With `iepsAccount`
  * 2180 it is the IEPS a manual entry already caused, which nothing parks.
  */
@@ -171,17 +171,14 @@ beforeAll(async () => {
   customerId = await newCustomer(mx);
   bareCustomerId = await newCustomer(bare);
 
-  // 2181 and its role, by hand: the seed that writes them is part 2.
-  account2181 = uuidv4();
-  await query(
-    `INSERT INTO accounts (id, code, name, account_type, fs_category, entity_id, currency_code, normal_balance, created_by)
-     VALUES ($1, '2181', 'IEPS Trasladado No Cobrado', 'liability', 'current_liabilities', $2, 'MXN', 'credit', $3)`,
-    [account2181, mx.entityId, mx.userId]
+  // 2181 and its role come from the seed (MNE-001-505); `bare` stands for an entity seeded before it.
+  const seeded = await query<{ account_id: string }>(
+    `SELECT account_id FROM account_roles WHERE entity_id = $1 AND role = 'ieps_trasladado_no_cobrado' AND qualifier IS NULL`,
+    [mx.entityId]
   );
-  await query(
-    `INSERT INTO account_roles (tenant_id, entity_id, role, account_id) VALUES ($1, $2, 'ieps_trasladado_no_cobrado', $3)`,
-    [mx.tenantId, mx.entityId, account2181]
-  );
+  expect(seeded.rows.map((r) => r.account_id)).toEqual([mx.cuentas['2181']]);
+  account2181 = mx.cuentas['2181'];
+  await query(`DELETE FROM account_roles WHERE entity_id = $1 AND role = 'ieps_trasladado_no_cobrado'`, [bare.entityId]);
 
   const gl = uuidv4();
   await query(
@@ -203,7 +200,7 @@ afterAll(async () => {
 });
 
 describe('the invoice of #669 with its IEPS parked in 2181', () => {
-  it('is issued as part 2 will post it, with tax_amount the VAT alone', async () => {
+  it('is issued as an issued PPD CFDI posts it, with tax_amount the VAT alone', async () => {
     const inv = await iepsInvoice();
     expect(await linesOf({ id: inv.entryId })).toEqual({
       '1120': ['1252.8000', '0.0000'], '4100': ['0.0000', '1000.0000'],
