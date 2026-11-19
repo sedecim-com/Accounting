@@ -22,7 +22,8 @@ import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/
 //     amended return (CFF art. 32).
 //   - taken_back: the money arrived, so its IVA was caused, and it leaves only
 //     by an art. 7 restitution (its second paragraph's document; RLIVA
-//     art. 24), which the paper does not count. The collection month keeps it.
+//     art. 24): an issued credit note, which the paper subtracts in its own
+//     month (MNE-001-565). None is issued here, so the collection month keeps it.
 //   - no cause on a receipt that is not a cheque: rule 3, the IVA stays where
 //     it was collected until a cause is stated with `receipt cause record`
 //     (MNE-001-511); both findings name that command.
