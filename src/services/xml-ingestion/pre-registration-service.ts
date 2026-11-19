@@ -22,7 +22,8 @@ import {
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto, type CFDIImpuesto } from './cfdi-parser.js';
 import { money, satKey, sumTax } from './cfdi-amounts.js';
-import { registerIssuedInvoice } from './issued-invoice-approval.js';
+import { ppdIepsWithoutRole, registerIssuedInvoice } from './issued-invoice-approval.js';
+import { IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
 import { extractPagosCompletos } from './cfdi-facts.js';
 import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
 import { postReceivedCreditNote } from './received-credit-note-posting.js';
@@ -1526,6 +1527,8 @@ export class PreRegistrationService {
     });
     if (!plan) throw new NotFoundError('The XML of CFDI', uuid);
     const { facts, decisions } = plan.clasificacion;
+    // #699 · Said as the draft door says it: the role is missing until the backfill, not a decision to answer.
+    if (plan.clasificacion.missingRoles.includes(IEPS_UNCOLLECTED_ROLE)) throw ppdIepsWithoutRole(uuid, facts.iepsTrasladado);
     const postable = planContabilizable(plan);
     if (!postable.ok) {
       // No trail is written here, so the message is the only place that says how to answer.
