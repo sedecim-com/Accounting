@@ -2782,7 +2782,8 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // MNE-001-572 (#789) · An advance received by cheque, applied before the
     // bank cashes it where it would cancel IVA nobody has caused (a PPD
     // invoice, or a PUE one at another treatment). Reader:
-    // `refuseUncausedCancellation` in payment-service.ts. The owner's answer
+    // `defersUncausedCancellation` in payment-service.ts, and the cashing
+    // (`deferredAdvanceIva`, treasury-posting.ts) for "defer_to_cashing". The owner's answer
     // of 19 Nov 2026 on #789: «Rechazar + clave para diferir».
     key: 'cheque_advance_before_cashing',
     textKey: 'cheque_advance_before_cashing',
@@ -2792,11 +2793,11 @@ export const POLICY_CATALOG: PolicySpec[] = [
     impact:
       'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. ' +
       'With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. ' +
-      'With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. ' +
+      'With "defer_to_cashing" an application to a PPD invoice posts now with no IVA line, and the cashing nets that IVA against the share the invoice releases that day; a PUE invoice at another treatment releases none, so it is still refused. ' +
       'A PUE invoice at the receipt\'s own treatment is applied either way.',
     options: [
       { value: 'refuse', label: 'Refuse until the cashing is recorded' },
-      { value: 'defer_to_cashing', label: 'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)' },
+      { value: 'defer_to_cashing', label: 'Apply it to a PPD invoice now and net its IVA on the cashing day' },
     ],
     defaultValue: 'refuse',
     defaultRationale:
@@ -2806,7 +2807,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whyAsking:
       'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
     whatIDo:
-      'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+      'With "refuse" I refuse the application and name the cashing command. With "defer_to_cashing" I apply it to a PPD invoice with no IVA line and net its IVA when the cashing is recorded; a PUE invoice at another treatment I still refuse.',
     ifSkipped: 'I refuse the application until the cashing is recorded.',
     priority: 58,
   },

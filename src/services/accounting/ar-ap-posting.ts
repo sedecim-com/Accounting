@@ -1063,6 +1063,14 @@ export interface AplicacionPosterior {
    */
   advanceIva?: string;
   advanceIvaTwiceIn?: string | null;
+  /**
+   * MNE-001-573 · a held cheque's advance IVA this cash takes and the entry
+   * cancels nothing for (`defer_to_cashing`): the cashing nets it against the
+   * share the PPD invoice releases. Named in the description only.
+   */
+  advanceIvaDeferred?: string;
+  /** MNE-001-573 · the cashing day of a cheque whose PUE invoice of an earlier month caused that IVA. */
+  advanceIvaCashedOn?: string | null;
   /** Lo aplicado (vivo) a la factura por CUALQUIER pago, ANTES de este evento. */
   priorApplied: string;
   taxAmount: string;
@@ -1162,7 +1170,10 @@ export async function postReceiptApplicationEntry(
   // meet in one 2120 line, CR g − c (DR when negative, none at zero), so the
   // IVA of that cash is caused once (LIVA art. 1-B).
   const advanceIva = aplicaciones.reduce((s, a) => s.plus(a.advanceIva ?? '0'), new Decimal(0));
-  const twice = [...new Set(aplicaciones.flatMap((a) => (a.advanceIvaTwiceIn ? [a.advanceIvaTwiceIn] : [])))];
+  const twice = [...new Set(aplicaciones.flatMap((a) => (a.advanceIvaTwiceIn && !a.advanceIvaCashedOn ? [a.advanceIvaTwiceIn] : [])))];
+  const beforeCashing = [...new Set(aplicaciones.flatMap((a) =>
+    (a.advanceIvaTwiceIn && a.advanceIvaCashedOn ? [`${a.advanceIvaTwiceIn} caused the advance IVA its cheque's cashing of ${a.advanceIvaCashedOn} causes`] : [])))];
+  const deferred = aplicaciones.reduce((s, a) => s.plus(a.advanceIvaDeferred ?? '0'), new Decimal(0));
   const ivaLines: JeLine[] = [];
   if (ivaPorFactura.size > 0 || advanceIva.greaterThan(0)) {
     const { from, to } = reclassRoles('issued');
@@ -1211,6 +1222,8 @@ export async function postReceiptApplicationEntry(
       ...(documentos.length ? [`IVA caused on collection: ${documentos.join(', ')}`] : []),
       ...(iepsDocs.length ? [`IEPS caused on collection: ${iepsDocs.join(', ')}`] : []),
       ...(twice.length ? [`advance IVA caused twice in ${twice.join(', ')}`] : []),
+      ...beforeCashing,
+      ...(deferred.greaterThan(0) ? [`advance IVA ${deferred.toFixed(4)} deferred to the cheque's cashing`] : []),
     ].join(' · '),
     [
       {

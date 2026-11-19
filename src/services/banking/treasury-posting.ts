@@ -6,7 +6,7 @@ import type { MessageParams, TranslationKey } from '../../i18n/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { attestEntryAsync, createJournalEntry } from '../accounting/posting.js';
 import {
-  entityUsesCashBasisIva, ivaReclassificationsFor, reclassRoles,
+  entityUsesCashBasisIva, ivaReclassificationsFor, reclassRoles, resolveInvoiceMetodoPago,
 } from '../accounting/iva-cash-basis.js';
 import { iepsCausedByReceipt, iepsMoveLines, iepsMovedForInvoice, type IepsMove } from '../accounting/ieps-cash-basis.js';
 import { JournalEntryType } from '../../types/index.js';
@@ -2332,7 +2332,11 @@ async function pendingRelease(
   // advance while it was held, which they left whole in 2150 too.
   const treatment = storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate);
   const back = functional && treatment !== null ? (await advanceBackOnAccount(client, entityId, receipt.id, treatment)).iva : '0';
-  const advance = functional ? new Decimal(receipt.advance_iva ?? '0').plus(back) : new Decimal(0);
+  // MNE-001-573 · less the IVA its live PPD allocations took and cancelled
+  // nothing for (`defer_to_cashing`): the share each one releases below
+  // causes it, so the advance's own leaves 2150 only for the rest.
+  const deferred = functional ? await deferredAdvanceIva(client, entityId, receipt.id) : new Decimal(0);
+  const advance = functional ? Decimal.max(new Decimal(receipt.advance_iva ?? '0').plus(back).minus(deferred), 0) : new Decimal(0);
   const shares = functional && cashBasis ? await ivaReclassificationsFor(client, 'issued', entityId, receipt.id) : [];
   const releases: PendingRelease[] = [];
   for (const share of shares) {
@@ -2363,6 +2367,30 @@ async function pendingRelease(
     if (due.greaterThan(0)) ieps.push({ ...share, amount: due.toFixed(ESCALA) });
   }
   return { functional, shares: shares.length, releases, ieps, advance, total };
+}
+
+/**
+ * MNE-001-573 · The advance IVA a held cheque's live allocations to PPD
+ * invoices took (`advance_iva_amount`): a held cheque applied to a PPD
+ * invoice is refused unless the firm defers it (`cheque_advance_before_cashing`),
+ * and a deferred application cancels nothing, so every such row is deferred.
+ * Both ends of the bridge are scoped.
+ */
+async function deferredAdvanceIva(client: pg.PoolClient, entityId: string, receiptId: string): Promise<Decimal> {
+  const r = await client.query<{ id: string; invoice_number: string; cfdi_uuid: string | null; terms: string | null; memo: string | null; c: string }>(
+    `SELECT i.id, i.invoice_number, i.cfdi_uuid, i.terms, i.memo, SUM(pa.advance_iva_amount)::text AS c
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+       JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
+      WHERE pa.payment_id = $2 AND pa.unapplied_at IS NULL AND pa.advance_iva_amount > 0
+      GROUP BY i.id`,
+    [entityId, receiptId]
+  );
+  let total = new Decimal(0);
+  for (const row of r.rows) {
+    if ((await resolveInvoiceMetodoPago(client, { ...row, entity_id: entityId })).metodo === 'PPD') total = total.plus(row.c);
+  }
+  return total;
 }
 
 /** One receipt's cashing entry, DR 2125 (or 2150, an advance's) / CR 2120, and what it released stored. */

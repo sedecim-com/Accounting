@@ -5,7 +5,7 @@ import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
 import {
-  recordCustomerPayment, unapplyCustomerPayment, reverseCustomerPayment,
+  recordCustomerPayment, unapplyCustomerPayment, reverseCustomerPayment, applyCustomerPayment,
 } from '../../src/services/payments/payment-service.js';
 import {
   recordCustomerCheckCashing, recordCustomerChecksCashing, CUSTOMER_CHECK_CASHING_SOURCE,
@@ -373,5 +373,36 @@ describe('an advance received by cheque', () => {
       expect(checkFinding(wp, receipt.paymentId)).toBeUndefined();
       expect(wp.settlement).not.toBeNull();
     }
+  }, 120_000);
+
+  // MNE-001-573 (#789, figure 10): applied before the cashing to a PUE invoice at its own 16 %, the ledger
+  // cancels the invoice's IVA in May and the cashing causes the advance's in June; the paper counts the
+  // application on its own day, so it reads both months as the ledger does.
+  it('applied to a PUE invoice at its own treatment before the cashing: May nets 0.00, June counts 160.00, and the ledger agrees', async () => {
+    const b = await book('advance pue');
+    const receipt = await recordCustomerPayment(
+      {
+        entityId: b.f.entityId, counterpartyId: b.customerId, paymentAmount: '1160.00', paymentDate: day(5, 30),
+        paymentMethod: 'check', bankAccountId: b.account, checkNumber: 'CHQ-507-PUE',
+        applications: [], onAccount: true, advanceTreatment: '16',
+      },
+      b.f.userId
+    );
+    const draft = await createInvoice({
+      entity_id: b.f.entityId, customer_id: b.customerId, invoice_date: day(5, 31), due_date: day(5, 31),
+      currency_code: 'MXN', terms: null,
+      lines: [{ revenue_account_id: b.f.cuentas['4100'], description: 'Synthetic sale', quantity: '1', unit_price: '1000.00', tax_rate: '16' }],
+      created_by: b.f.userId,
+    });
+    const inv = (await issueInvoice(draft.id, b.f.userId, { entityId: b.f.entityId })).invoice.id;
+    await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: inv, amountApplied: '1160.00' }], b.f.userId, { date: day(5, 31) });
+    await cash(b, receipt.paymentId, await bankLine(b.account, day(6, 1), '1160.00'));
+
+    const [may, june] = [await paper(b, 5), await paper(b, 6)];
+    expect(at16(may)).toEqual({ base: '0.00', iva: '0.00' });
+    expect(may.ledger.iva_trasladado).toBe('0.0000');
+    expect(at16(june)).toEqual({ base: '1000.00', iva: '160.00' });
+    expect(june.ledger.iva_trasladado).toBe('-160.0000');
+    for (const wp of [may, june]) expect(codes(wp)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
   }, 120_000);
 });

@@ -1661,17 +1661,17 @@ export const EN = {
   'policy.cheque_advance_before_cashing.question':
     'An advance received by cheque is applied to an invoice before the bank cashes the cheque, where it would cancel IVA not caused yet: what do I do?',
   'policy.cheque_advance_before_cashing.impact':
-    'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. With "defer_to_cashing" the application would post now and net that IVA on the cashing day; it is not built yet and is refused meanwhile, naming part 2/2 of issue 789. A PUE invoice at the receipt\'s own treatment is applied either way.',
+    'Governs `receipt apply` of a cheque with no cashing recorded whose cash carries its advance\'s IVA, to a PPD invoice or to a PUE one at another treatment. With "refuse" nothing is written, and the message names `bank check reconcile --receipt`, after which the application goes through. With "defer_to_cashing" an application to a PPD invoice posts now with no IVA line, and the cashing nets that IVA against the share the invoice releases that day; a PUE invoice at another treatment releases none, so it is still refused. A PUE invoice at the receipt\'s own treatment is applied either way.',
   'policy.cheque_advance_before_cashing.rationale':
     'LIVA art. 1-B, second paragraph: a price paid by cheque is collected, and its IVA caused, the day the bank cashes the cheque. Applying its advance before then would cancel in the ledger IVA nobody has caused yet, so the month would read less IVA than the paper. Refusing posts nothing without review, the conservative option of ADR-0006.',
   'policy.cheque_advance_before_cashing.why':
     'Some firms apply a customer\'s cheque to its invoice the day it arrives, before the bank cashes it. That works if the IVA of the advance is settled on the cashing day; refusing keeps every month exact until then.',
   'policy.cheque_advance_before_cashing.what':
-    'With "refuse" I refuse the application and name the cashing command. "defer_to_cashing" is declared and not built yet, so I refuse it too and say so.',
+    'With "refuse" I refuse the application and name the cashing command. With "defer_to_cashing" I apply it to a PPD invoice with no IVA line and net its IVA when the cashing is recorded; a PUE invoice at another treatment I still refuse.',
   'policy.cheque_advance_before_cashing.if_skipped': 'I refuse the application until the cashing is recorded.',
   'policy.cheque_advance_before_cashing.option.refuse': 'Refuse until the cashing is recorded',
   'policy.cheque_advance_before_cashing.option.defer_to_cashing':
-    'Apply now and net its IVA on the cashing day (not built yet: refused meanwhile)',
+    'Apply it to a PPD invoice now and net its IVA on the cashing day',
 
   'policy.cash_over_limit_outside_ingestion.question':
     'When a bill is settled in cash above the LISR limit outside the CFDI ingestion, what do I do?',
@@ -2368,8 +2368,8 @@ export const EN = {
   // MNE-001-572 (#789): a held cheque's advance is not applied against IVA nobody has caused.
   'receipt.apply.cheque_advance_not_cashed':
     'The receipt {receipt} is a cheque the bank has not cashed, and applying it to {invoice} would cancel {iva} of its advance\'s IVA, which is not caused until the cashing (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it; the panel key {key} governs this. Nothing was written.',
-  'receipt.apply.cheque_advance_deferral_not_wired':
-    'The panel key {key} says defer_to_cashing, which applies the receipt {receipt} to {invoice} now and nets the {iva} of its advance\'s IVA on the cashing day; that option arrives in part 2/2 of issue 789 and is not built yet. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, or answer refuse. Nothing was written.',
+  'receipt.apply.cheque_advance_deferral_ppd_only':
+    'The panel key {key} says defer_to_cashing, which nets the advance\'s IVA against the share a PPD invoice releases on the cashing day. {invoice} is a PUE invoice at another treatment than the receipt {receipt}: it releases no share, and applying it now would cancel {iva} of IVA nobody has caused (LIVA art. 1-B, second paragraph). Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`, then apply it. Nothing was written.',
   'receipt.unapply.iva_at_cashing':
     'The {iva} of IVA this cash carries back on account is caused the day the bank cashes the cheque (LIVA art. 1-B, second paragraph): recording that cashing with bank check reconcile --receipt posts it.',
   'receipt.apply.other_customer':
@@ -2459,6 +2459,9 @@ export const EN = {
   // MNE-001-422 / MNE-001-461 (#623): an advance applied to its sale's invoice cancels the IVA it caused.
   'receipt.advance.iva_cancelled': 'advance IVA cancelled {iva}',
   'receipt.advance.iva_restored': 'advance IVA restored {iva}',
+  // MNE-001-573 (#789): a PUE invoice of a month before its cheque advance was cashed.
+  'receipt.advance.iva_before_cashing':
+    'The advance\'s IVA of {iva} cancelled on {invoice} is caused on {cashed}, the day the bank cashed the cheque (LIVA art. 1-B, second paragraph), and {invoice}, a PUE, already caused it in {month}: that month\'s IVA charged carries what the cashing day should, and this application cancels the advance\'s in its own month. Review the return of {month}.',
   'receipt.advance.iva_caused_twice':
     'The advance\'s IVA of {iva} cancelled on {invoice} was also caused in {month} by that invoice, a PUE issued on or before the advance (LIVA art. 1-B): that month\'s IVA charged carried it twice, and this application cancels it in its own month. Review the return of {month}.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
