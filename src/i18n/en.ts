@@ -2273,6 +2273,16 @@ export const EN = {
   'ingest.census.more_invalid': '… and {count} more',
   'ingest.census.loaded': 'Census loaded from {file}: {inserted} new, {refreshed} already known.',
   'ingest.census.dry_run': '(dry-run: the census was read, not loaded.)',
+  // MNE-001-144 (#441): the SAT's cancellations of the census reach the mirror and the invoice.
+  'ingest.census.marks':
+    'Cancelled by the SAT: {mirror, plural, one {# CFDI} other {# CFDI}} marked in the mirror, ' +
+    '{invoices, plural, one {# invoice} other {# invoices}} marked cancelled.',
+  'ingest.census.cancelled_booked':
+    '{document} ({date}) carries CFDI {uuid}, which the SAT reports cancelled. Nothing was reversed: ' +
+    'its status, entry and balance stay until the accountant decides.',
+  'ingest.census.document.invoice': 'Invoice {number}',
+  'ingest.census.document.credit_note': 'Credit note {number}',
+  'ingest.census.document.bill': 'Bill {number}',
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
