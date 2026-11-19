@@ -9,8 +9,10 @@ import {
   recordCustomerPayment, reverseCustomerPayment, applyCustomerPayment, unapplyCustomerPayment, getCustomerPayment,
 } from '../../src/services/payments/payment-service.js';
 import {
-  recordCustomerCheckCashing, CUSTOMER_CHECK_CASHING_SOURCE,
+  recordCustomerCheckCashing, recordCustomerChecksCashing, CUSTOMER_CHECK_CASHING_SOURCE,
 } from '../../src/services/banking/treasury-posting.js';
+import { crearGrupoDeCotejo, desaplicarCotejo, type ReferenciaDeLibros } from '../../src/services/banking/match-service.js';
+import { entityScope } from '../../src/database/scope.js';
 import { ValidationError } from '../../src/utils/errors.js';
 import { registerBankCommand } from '../../src/cli/bank-command.js';
 import { registerReceiptCommand } from '../../src/cli/receipt-command.js';
@@ -156,6 +158,30 @@ async function cashingEntries(id: string) {
 
 const record = (id: string, transactionId: string | undefined, f: Fixture = mx, dryRun = false) =>
   recordCustomerCheckCashing(f.entityId, id, { transactionId, userId: f.userId, dryRun });
+
+const numberOf = async (id: string) => (await getCustomerPayment(mx.entityId, id)).payment_number;
+/** The sister entity gave the tenant a second user, so the reviewer is named. */
+const reviewer = async () =>
+  (await query<{ email: string }>('SELECT email FROM users WHERE id = $1', [mx.userId])).rows[0].email;
+
+/** Runs one leaf in-process, as the binary would; returns what it printed. */
+async function terminal(argv: string[]): Promise<string> {
+  const plain = Object.fromEntries(['dim', 'bold', 'cyan', 'red', 'green', 'yellow'].map((c) => [c, (x: string) => x]));
+  const out: string[] = [];
+  const stdout = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((c: string | Uint8Array) => { out.push(String(c)); return true; }) as typeof process.stdout.write;
+  try {
+    resetDeclarations();
+    const program = new Command('mnemosine');
+    const deps = { palette: plain as never, shutdown: () => undefined, reportError: (e: unknown) => { throw e; } };
+    registerBankCommand(program, deps);
+    registerReceiptCommand(program, deps);
+    await program.parseAsync(['node', 'mnemosine', ...argv, '-e', mx.entityId, '-t', mx.tenantId]);
+  } finally {
+    process.stdout.write = stdout;
+  }
+  return out.join('');
+}
 
 /** Refused with `key`, and the receipt still holds no cashing. */
 async function refused(id: string, transactionId: string, key: string): Promise<void> {
@@ -409,32 +435,12 @@ describe('a cheque releases its IVA the day the bank cashes it', () => {
   });
 
   it('T11 · from the terminal: `bank check reconcile --receipt` records the cashing, and `receipt show` says it', async () => {
-    const plain = Object.fromEntries(['dim', 'bold', 'cyan', 'red', 'green', 'yellow'].map((c) => [c, (x: string) => x]));
-    /** Runs one leaf in-process, as the binary would; returns what it printed. */
-    const terminal = async (argv: string[]): Promise<string> => {
-      const out: string[] = [];
-      const stdout = process.stdout.write.bind(process.stdout);
-      process.stdout.write = ((c: string | Uint8Array) => { out.push(String(c)); return true; }) as typeof process.stdout.write;
-      try {
-        resetDeclarations();
-        const program = new Command('mnemosine');
-        const deps = { palette: plain as never, shutdown: () => undefined, reportError: (e: unknown) => { throw e; } };
-        registerBankCommand(program, deps);
-        registerReceiptCommand(program, deps);
-        await program.parseAsync(['node', 'mnemosine', ...argv, '-e', mx.entityId, '-t', mx.tenantId]);
-      } finally {
-        process.stdout.write = stdout;
-      }
-      return out.join('');
-    };
     const { id, invoiceId } = await receipt();
-    const number = (await getCustomerPayment(mx.entityId, id)).payment_number;
+    const number = await numberOf(id);
     const credit = await bankLine(account, '2026-06-05', '1160.00');
 
-    // The sister entity gave the tenant a second user, so the reviewer is named.
-    const user = (await query<{ email: string }>('SELECT email FROM users WHERE id = $1', [mx.userId])).rows[0].email;
     const printed = await terminal(
-      ['bank', 'check', 'reconcile', '--receipt', number, '--transaction', credit, '--user', user, '--yes', '--json']
+      ['bank', 'check', 'reconcile', '--receipt', number, '--transaction', credit, '--user', await reviewer(), '--yes', '--json']
     );
     expect((JSON.parse(printed) as { rows: unknown[] }).rows[0]).toMatchObject({
       id, payment_number: number, cleared_on: '2026-06-05', reclassified: '160.0000',
@@ -442,5 +448,101 @@ describe('a cheque releases its IVA the day the bank cashes it', () => {
     });
     expect(await cashing(id)).toEqual({ date: '2026-06-05', tx: credit });
     expect(await terminal(['receipt', 'show', number])).toContain(`2026-06-05 · bank transaction ${credit}`);
+  });
+});
+
+/**
+ * MNE-001-557 (#700, part 3/4) · ONE CREDIT, SEVERAL CHEQUES. A deposit of
+ * several cheques is one bank credit: one recording names all the receipts,
+ * the credit is their exact sum, and each receipt gets its own entry. A credit
+ * is used while another receipt holds it, or a live match ties it to anything
+ * but the receipts named or the bank lines of their own entries.
+ */
+describe('one bank credit cashes several customer cheques in one act', () => {
+  /** A cheque of 1,160.00 on one invoice and one of 580.00 on half of another. */
+  async function pair(): Promise<{ a: { id: string; entryId: string }; b: { id: string; entryId: string } }> {
+    return { a: await receipt(), b: await pay(await invoice(), 'check', '580.00') };
+  }
+  const recordBoth = (ids: string[], transactionId?: string) =>
+    recordCustomerChecksCashing(mx.entityId, ids, { transactionId, userId: mx.userId });
+  async function refusedBoth(ids: string[], transactionId: string | undefined, key: string): Promise<void> {
+    const error = await recordBoth(ids, transactionId).catch((e: unknown) => e);
+    expect((error as ValidationError).messageKey?.key).toBe(`bank.check.cashing.refused.${key}`);
+    for (const id of ids) {
+      expect(await cashing(id)).toEqual({ date: null, tx: null });
+      expect(await cashingEntries(id)).toEqual([]);
+    }
+  }
+  /** The line of a receipt's own entry on the bank account's ledger account. */
+  async function bankLineOf(entryId: string): Promise<string> {
+    const r = await query<{ id: string }>(
+      `SELECT l.id FROM journal_entry_lines l JOIN bank_accounts ba ON ba.gl_account_id = l.account_id
+        WHERE l.journal_entry_id = $1 AND ba.id = $2`,
+      [entryId, account]
+    );
+    return r.rows[0].id;
+  }
+  const match = async (credit: string, bookItems: ReferenciaDeLibros[]) =>
+    (await crearGrupoDeCotejo(entityScope(mx.tenantId, mx.entityId), { cuentaId: account, banco: [credit], libros: bookItems }, { userId: mx.userId }))
+      .cotejos[0].matchId;
+  const receiptsOf = (...ids: string[]): ReferenciaDeLibros[] => ids.map((id) => ({ tipo: 'customer_payment', id }));
+
+  it('T12 · a credit of 1,740.00 cashes both cheques, one entry each; their sum is required, and the credit is named', async () => {
+    const { a, b } = await pair();
+    const ids = [a.id, b.id];
+    await refusedBoth(ids, await bankLine(account, '2026-06-08', '1160.00'), 'sum_differs');
+    await refusedBoth(ids, undefined, 'several_need_transaction');
+
+    const credit = await bankLine(account, '2026-06-08', '1740.00');
+    const printed = await terminal([
+      'bank', 'check', 'reconcile', '--receipt', await numberOf(a.id), '--receipt', await numberOf(b.id),
+      '--transaction', credit, '--user', await reviewer(), '--yes', '--json',
+    ]);
+    expect((JSON.parse(printed) as { rows: unknown[] }).rows).toEqual([
+      expect.objectContaining({ id: a.id, cleared_on: '2026-06-08', reclassified: '160.0000' }),
+      expect.objectContaining({ id: b.id, cleared_on: '2026-06-08', reclassified: '80.0000' }),
+    ]);
+    for (const [id, released] of [[a.id, '160.0000'], [b.id, '80.0000']]) {
+      expect(await cashing(id)).toEqual({ date: '2026-06-08', tx: credit });
+      const entries = await cashingEntries(id);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ date: '2026-06-08', period: mx.periodos[6] });
+      expect(await linesOf(entries[0].id)).toEqual([PENDING(released), DUE(released)]);
+      expect(await stored(id)).toEqual([released]);
+    }
+  });
+
+  it('T13 · a used credit is refused: held by another receipt, matched to a third one, or matched to a line of no receipt named', async () => {
+    const { a, b } = await pair();
+    const ids = [a.id, b.id];
+    const held = await bankLine(account, '2026-06-09', '1740.00');
+    await record((await pay(null, 'check', '1740.00')).id, held);
+    await refusedBoth(ids, held, 'credit_used');
+
+    const third = await pay(await invoice(), 'check', '580.00');
+    const toThird = await bankLine(account, '2026-06-09', '1740.00');
+    const foreign = await match(toThird, receiptsOf(a.id, third.id));
+    await refusedBoth(ids, toThird, 'credit_matched');
+
+    const toLine = await bankLine(account, '2026-06-09', '1740.00');
+    await match(toLine, [{ id: await bankLineOf(a.entryId) }, { id: await bankLineOf(third.entryId) }]);
+    await refusedBoth(ids, toLine, 'credit_matched');
+
+    // Once the foreign match is undone, the same credit cashes the two.
+    await desaplicarCotejo(entityScope(mx.tenantId, mx.entityId), foreign, { userId: mx.userId, motivo: 'cotejo-erroneo' });
+    expect((await recordBoth(ids, toThird)).map((r) => r.released)).toEqual(['160.0000', '80.0000']);
+  });
+
+  it('T13 · a credit matched to the receipts named, or to the bank lines of their own entries, is theirs', async () => {
+    const first = await pair();
+    const toReceipts = await bankLine(account, '2026-06-10', '1740.00');
+    await match(toReceipts, receiptsOf(first.a.id, first.b.id));
+    expect(await recordBoth([first.a.id, first.b.id], toReceipts)).toHaveLength(2);
+
+    const second = await pair();
+    const toLines = await bankLine(account, '2026-06-10', '1740.00');
+    await match(toLines, [{ id: await bankLineOf(second.a.entryId) }, { id: await bankLineOf(second.b.entryId) }]);
+    expect(await recordBoth([second.a.id, second.b.id], toLines)).toHaveLength(2);
+    expect(await cashing(second.b.id)).toEqual({ date: '2026-06-10', tx: toLines });
   });
 });

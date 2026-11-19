@@ -6553,7 +6553,9 @@ Options:
   --receipt <ref>          customer receipt paid by cheque, by number
                            (PMT-2026-00042) or id, instead of <id>; without
                            --transaction the credit of its amount is searched in
-                           its bank account from its date
+                           its bank account from its date. Repeat it for a
+                           deposit of several cheques: one credit of their exact
+                           sum, named with --transaction
   --transaction <id>       the bank movement that paid it, named by hand;
                            required when several charges match
   --as-of <date>           the clearing date you assert (YYYY-MM-DD); it is

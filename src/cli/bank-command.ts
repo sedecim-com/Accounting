@@ -92,7 +92,7 @@ import {
   conciliarCheque,
   contabilizarComisiones,
   contabilizarIntereses,
-  recordCustomerCheckCashing,
+  recordCustomerChecksCashing,
   type CustomerCheckCashing,
   type MovimientoOmitido,
   type ResultadoDeCobroDeCheque,
@@ -5874,29 +5874,35 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       }
     ) =>
       run(async () => {
-        // Exactly one of the vendor payment or the customer receipt, said before anything is read.
+        // The vendor payment or the customer receipts, said before anything is read.
         const receipts = opts.receipt ?? [];
         if ((pago === undefined) === (receipts.length === 0)) {
           throw usageError(t('bank.check.reconcile.one_of'));
         }
-        // TODO(#700): MNE-001-557 cashes several receipts with one credit.
-        if (receipts.length > 1) throw usageError(t('bank.check.reconcile.one_receipt'));
+        // MNE-001-557 · a deposit of several cheques names its credit: their sum may be another day's.
+        if (receipts.length > 1 && !opts.transaction) {
+          throw usageError(t('bank.check.cashing.refused.several_need_transaction', { receipt: receipts.join(', ') }));
+        }
         const ctx = await entityForWrite(opts);
         const { dryRun } = gateMutation(checkReconcile, opts as unknown as Record<string, unknown>);
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
         const p = deps.palette;
-        const receipt = pago === undefined ? await getCustomerPayment(ctx.entityId, receipts[0]) : null;
-        const pagoId = receipt ? receipt.id : uuidDeBandera('<id>', pago as string);
+        const receipt = pago === undefined;
+        const receiptIds: string[] = [];
+        for (const ref of receipts) receiptIds.push((await getCustomerPayment(ctx.entityId, ref)).id);
+        // Sorted, so one deposit is one idempotent payload whatever order its receipts are named in.
+        const pagoId = receipt ? [...new Set(receiptIds)].sort().join(',') : uuidDeBandera('<id>', pago);
         const movimientoId = opts.transaction
           ? uuidDeBandera('--transaction', opts.transaction)
           : undefined;
         const asOf = opts.asOf ? exigirFecha('--as-of', opts.asOf) : undefined;
 
-        const conciliar = (ensayo: boolean): Promise<ResultadoDeCobroDeCheque> => {
+        // One result per cheque: a vendor payment's, or each receipt's of one credit.
+        const conciliar = (ensayo: boolean): Promise<ResultadoDeCobroDeCheque[]> => {
           const how = { transactionId: movimientoId, asOf, userId: reviewer.userId, dryRun: ensayo };
           return receipt
-            ? recordCustomerCheckCashing(ctx.entityId, pagoId, how).then(receiptCashingAsClearing)
-            : conciliarCheque(ctx.entityId, pagoId, how);
+            ? recordCustomerChecksCashing(ctx.entityId, receiptIds, how).then((rs) => rs.map(receiptCashingAsClearing))
+            : conciliarCheque(ctx.entityId, pagoId, how).then((r) => [r]);
         };
         // A receipt's IVA is charged, not creditable: 2125 empties with a debit and 2120 fills.
         const [debited, credited] = receipt
@@ -5956,7 +5962,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           if (r.nota) out.write(`    ${p.yellow(r.nota)}\n`);
         };
 
-        const { repetido, resultado: r } = await actoIrreversible({
+        const { repetido, resultado: recorded } = await actoIrreversible({
           opts,
           dryRun,
           comando: 'bank check reconcile',
@@ -5971,52 +5977,59 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
               },
               () => conciliar(false)
             ),
-          mostrar,
+          mostrar: (rs) => rs.forEach(mostrar),
           pregunta: (previo) =>
             t('bank.check.reconcile.confirm', {
-              check: previo.checkNumber ?? previo.paymentNumber,
-              date: previo.fechaDeCobro,
-              amount: previo.reclasificado,
-              period: previo.periodo?.nombre ?? t('bank.check.reconcile.no_period'),
+              check: previo.map((x) => x.checkNumber ?? x.paymentNumber).join(', '),
+              date: previo[0].fechaDeCobro,
+              amount: previo.reduce((sum, x) => sum.plus(x.reclasificado), new Decimal(0)).toFixed(4),
+              period: previo[0].periodo?.nombre ?? t('bank.check.reconcile.no_period'),
             }),
         });
+        // A key recorded before MNE-001-557 replays one result, not a list.
+        const rs = ([] as ResultadoDeCobroDeCheque[]).concat(recorded);
         if (repetido) {
           avisarRepetido(
             opts.idempotencyKey,
-            t('bank.check.reconcile.already_cleared', { date: r.fechaDeCobro })
+            t('bank.check.reconcile.already_cleared', { date: rs[0].fechaDeCobro })
           );
         }
 
         if (opts.json) {
-          const { by_bill: byDocument, ...doc } = cobroDeChequeComoDocumento(r);
-          // CONTRACT: `by_bill` for a vendor cheque; a receipt's cashing lists its invoices.
-          const named = receipt
-            ? { ...doc, by_invoice: r.porGasto.map((g) => ({ invoice: g.billNumber, invoice_id: g.billId, amount: g.importe })) }
-            : { ...doc, by_bill: byDocument };
-          render([named], { json: true, idField: 'id' });
-        } else {
-          if (opts.yes === true || dryRun) mostrar(r);
-          process.stdout.write(
-            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(
-              r.checkNumber ?? r.paymentNumber
-            )} ${p.dim(
-              t('bank.check.reconcile.summary', {
-                date: r.fechaDeCobro,
-                period: r.periodo?.nombre ?? '—',
-                amount: r.reclasificado,
-              }) +
-                `${
-                  r.entryNumber
-                    ? ` · ${t('bank.entry_number', { entry: r.entryNumber })}`
-                    : ''
-                }`
-            )}\n`
-          );
+          const rows = rs.map((r) => {
+            const { by_bill: byDocument, ...doc } = cobroDeChequeComoDocumento(r);
+            // CONTRACT: `by_bill` for a vendor cheque; a receipt's cashing lists its invoices.
+            return receipt
+              ? { ...doc, by_invoice: r.porGasto.map((g) => ({ invoice: g.billNumber, invoice_id: g.billId, amount: g.importe })) }
+              : { ...doc, by_bill: byDocument };
+          });
+          render(rows, { json: true, idField: 'id' });
         }
-        // CERO ES UN RESULTADO LEGÍTIMO y se dice en voz alta con su porqué:
-        // casi siempre significa que el asiento del pago ya liberó el IVA en la
-        // fecha del cheque en vez de esperar al cobro.
-        if (r.nota) process.stderr.write(p.yellow(`  ${r.nota}\n`));
+        for (const r of rs) {
+          if (!opts.json) {
+            if (opts.yes === true || dryRun) mostrar(r);
+            process.stdout.write(
+              `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(
+                r.checkNumber ?? r.paymentNumber
+              )} ${p.dim(
+                t('bank.check.reconcile.summary', {
+                  date: r.fechaDeCobro,
+                  period: r.periodo?.nombre ?? '—',
+                  amount: r.reclasificado,
+                }) +
+                  `${
+                    r.entryNumber
+                      ? ` · ${t('bank.entry_number', { entry: r.entryNumber })}`
+                      : ''
+                  }`
+              )}\n`
+            );
+          }
+          // CERO ES UN RESULTADO LEGÍTIMO y se dice en voz alta con su porqué:
+          // casi siempre significa que el asiento del pago ya liberó el IVA en la
+          // fecha del cheque en vez de esperar al cobro.
+          if (r.nota) process.stderr.write(p.yellow(`  ${r.nota}\n`));
+        }
         if (dryRun) {
           process.stderr.write(p.yellow(`  ${t('bank.check.reconcile.dry_run')}\n`));
         }

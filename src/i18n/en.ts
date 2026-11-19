@@ -2897,14 +2897,18 @@ export const EN = {
     'Several credits of {amount} could be the cheque of receipt {receipt}: {candidates}. None is picked, because the wrong one dates its VAT in the wrong month. Name the right one with `--transaction`.',
   'bank.check.cashing.refused.as_of_differs':
     'Bank transaction {transaction} is dated {date}, not {asOf}, the date stated with `--as-of` for receipt {receipt}. The bank dates the cashing: check that this is the credit that paid the cheque.',
+  'bank.check.cashing.refused.several_need_transaction':
+    'Receipts {receipt} are cashed together by one bank credit: name it with `--transaction`. It is not searched by their sum, which the deposit of another day can match.',
+  'bank.check.cashing.refused.sum_differs':
+    'Bank transaction {transaction} is {creditAmount} and receipts {receipt} add up to {amount}: one credit cashes several cheques only when it is their exact sum.',
+  'bank.check.cashing.refused.credit_matched':
+    'Bank transaction {transaction} is tied by the live match {match} to {type} {matched}, which is not among receipts {receipt} nor a bank line of their entries: the credit paid something else. If that match is wrong, undo it with `bank match unapply {match}`.',
   'bank.check.cashing.check_value': '{check} · receipt {payment}',
   'bank.check.cashing.why':
     'why: under the VAT law a price paid by cheque counts as collected on the day the bank CASHED it and not ' +
     'the day it was received, so the VAT of this receipt is caused in that month.',
   'bank.check.reconcile.one_of':
     'Name exactly one cheque: the vendor payment <id>, or a customer receipt with --receipt <ref>.',
-  'bank.check.reconcile.one_receipt':
-    'One --receipt per recording: a credit that cashes several cheques is not recorded here yet.',
   'bank.transaction.show.unmatched': 'unmatched',
   'bank.match.create.summary':
     '· bank {bank} = books {books} + adjustments {adjustments} · residual {residual} ({mode}) · ' +
@@ -3674,7 +3678,8 @@ export const EN = {
   'help.bank.check.reconcile.argument.id': 'vendor payment made by check; omit it with --receipt',
   'help.bank.check.reconcile.option.receipt':
     'customer receipt paid by cheque, by number (PMT-2026-00042) or id, instead of <id>; without ' +
-    '--transaction the credit of its amount is searched in its bank account from its date',
+    '--transaction the credit of its amount is searched in its bank account from its date. Repeat it for ' +
+    'a deposit of several cheques: one credit of their exact sum, named with --transaction',
   'help.bank.check.reconcile.option.transaction':
     'the bank movement that paid it, named by hand; required when several charges match',
   'help.bank.check.reconcile.option.as_of':

@@ -2743,14 +2743,18 @@ export const ES: Record<keyof typeof EN, string> = {
     'Varios abonos de {amount} podrían ser el cheque del cobro {receipt}: {candidates}. No se elige ninguno, porque el equivocado fecha su IVA en el mes equivocado. Nombra el bueno con `--transaction`.',
   'bank.check.cashing.refused.as_of_differs':
     'El movimiento bancario {transaction} es del {date}, no del {asOf}, la fecha afirmada con `--as-of` para el cobro {receipt}. El cobro del cheque lo fecha el banco: revisa que ése sea el abono que pagó el cheque.',
+  'bank.check.cashing.refused.several_need_transaction':
+    'Los cobros {receipt} los cobra juntos un solo abono del banco: nómbralo con `--transaction`. No se busca por su suma, que puede coincidir con el depósito de otro día.',
+  'bank.check.cashing.refused.sum_differs':
+    'El movimiento {transaction} es de {creditAmount} y los cobros {receipt} suman {amount}: un abono cobra varios cheques sólo cuando es exactamente su suma.',
+  'bank.check.cashing.refused.credit_matched':
+    'El movimiento {transaction} está ligado por el cotejo vivo {match} a {type} {matched}, que no es ninguno de los cobros {receipt} ni un renglón de banco de sus pólizas: el abono pagó otra cosa. Si ese cotejo está mal, deshazlo con `bank match unapply {match}`.',
   'bank.check.cashing.check_value': '{check} · cobro {payment}',
   'bank.check.cashing.why':
     'por qué: bajo la LIVA el precio pagado con cheque se entiende cobrado el día en que el banco lo COBRA y no ' +
     'el día en que se recibe, así que el IVA de este cobro se causa en ese mes.',
   'bank.check.reconcile.one_of':
     'Nombra exactamente un cheque: el pago a proveedor <id>, o un cobro de cliente con --receipt <ref>.',
-  'bank.check.reconcile.one_receipt':
-    'Un solo --receipt por registro: un abono que cobra varios cheques todavía no se registra aquí.',
   'bank.transaction.show.unmatched': 'sin cotejar',
   'bank.match.create.summary':
     '· banco {bank} = libros {books} + ajustes {adjustments} · residual {residual} ({mode}) · ' +
@@ -3532,7 +3536,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bank.check.reconcile.argument.id': 'pago a proveedor hecho con cheque; se omite con --receipt',
   'help.bank.check.reconcile.option.receipt':
     'cobro de cliente pagado con cheque, por folio (PMT-2026-00042) o id, en lugar de <id>; sin ' +
-    '--transaction el abono de su importe se busca en su cuenta bancaria desde su fecha',
+    '--transaction el abono de su importe se busca en su cuenta bancaria desde su fecha. Se repite para ' +
+    'un depósito de varios cheques: un solo abono de exactamente su suma, nombrado con --transaction',
   'help.bank.check.reconcile.option.transaction':
     'el movimiento bancario que lo pagó, nombrado a mano; obligatorio cuando coinciden varios cargos',
   'help.bank.check.reconcile.option.as_of':
