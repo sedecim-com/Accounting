@@ -1695,7 +1695,7 @@
       "where": "account_roles.role",
       "es": "ieps_trasladado_no_cobrado",
       "en": "ieps_payable_uncollected",
-      "why": "2181 (grouping code 209.02, Anexo 24): the IEPS of a PPD sale not collected yet, which is caused on collection (LIEPS art. 10). It mirrors `iva_payable_uncollected` (2125) so the uncollected pair reads together, and keeps the IEPS acronym as `ieps_payable` does. MNE-001-504 moves it to `ieps_payable` on each collection (src/services/accounting/ieps-cash-basis.ts:IEPS_UNCOLLECTED_ROLE); the seed and the AccountRole union that park IEPS in it are MNE-001-505 (#699)."
+      "why": "2181 (grouping code 209.02, Anexo 24): the IEPS of a PPD sale not collected yet, which is caused on collection (LIEPS art. 10). It mirrors `iva_payable_uncollected` (2125) so the uncollected pair reads together, and keeps the IEPS acronym as `ieps_payable` does. An issued PPD CFDI parks IEPS in it (cfdi-taxonomy.ts, MNE-001-505) and each collection moves it to `ieps_payable` (src/services/accounting/ieps-cash-basis.ts:IEPS_UNCOLLECTED_ROLE, MNE-001-504); seeded on Mexican books only (account-roles-seed.ts), and given to entities seeded before by `npm run backfill:account-roles` (#699)."
     },
     {
       "class": "account-role",
