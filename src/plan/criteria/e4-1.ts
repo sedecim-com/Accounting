@@ -1564,72 +1564,109 @@ export const E4_1: Criterio[] = [
     paquete: 'E4.1',
     id: 'employment-subsidy-cash-delivery',
     enunciado:
-      'El subsidio al empleo que excede al ISR llega al trabajador, se declara en su CFDI y se puede postear',
+      'The employment subsidy in excess of the ISR follows the law of the payment date: handed over in cash under the rule before 1 May 2024, not handed over and not booked from then on',
     evaluar: () => {
-      // POR QUÉ NACE (F08a). La línea decía
-      // `Math.max(0, isr.tax_amount - sub.tax_amount)` y el comentario justo
-      // encima prometía «if negative, employee receives as cash». El Math.max
-      // era exactamente lo que impedía que lo recibiera: cuando el subsidio al
-      // empleo supera al ISR del periodo, el patrón ENTREGA la diferencia en
-      // efectivo y la acredita. Ese dinero desaparecía, y el defecto no se veía
-      // porque el recibo cuadraba consigo mismo — con el trabajador cobrando de
-      // menos.
+      // WHY IT WAS BORN (F08a). The line was `Math.max(0, isr - sub)`: the
+      // excess of the subsidy over the ISR, which the employer then had to
+      // hand to the worker in cash, vanished from the paycheck, the CFDI and
+      // the entry. The id still says «cash delivery» because it is on the
+      // floor (`docs/criterios-minimos.json`) and an id is never renamed.
       //
-      // Arreglarlo abrió otras dos puertas que este criterio vigila juntas,
-      // porque las tres son el mismo hecho visto desde tres capas: el efectivo
-      // entra en el neto (recibo), tiene que declararse como OtrosPagos 002
-      // (CFDI, o Total ≠ SubTotal − Descuento y el PAC lo rechaza) y tiene que
-      // tener contrapartida en el asiento (mayor, o la corrida entera no se
-      // puede postear). Un criterio por capa habría dejado pasar el estado en
-      // el que el trabajador cobra y la contabilidad se niega a registrarlo.
-      const recibo = codigoDe('src/services/payroll/common/paycheck-service.ts');
-      if (/Math\.max\(\s*0\s*,\s*isr\.tax_amount/.test(recibo)) {
+      // WHAT IT WATCHES NOW (#600). That cash is the law only of payment dates
+      // until 30 April 2024; from 1 May 2024 nothing is handed over. The rule
+      // is a dated row of `legal_parameters`, and the same fact is watched in
+      // its layers together: the paycheck reads the row on its payment date,
+      // the arithmetic pays the excess only under share 1, the entry follows
+      // the cash each paycheck stored, and the CFDI declares the cash that
+      // was handed over. One layer alone leaves a worker paid what the entry
+      // refuses to book, or an entry booking money nobody received.
+      const paycheck = codigoDe('src/services/payroll/common/paycheck-service.ts');
+      if (/Math\.max\(\s*0\s*,\s*isr\.tax_amount/.test(paycheck)) {
+        return falla('paycheck-service drops the excess with Math.max again, whatever the law of the payment date');
+      }
+      if (
+        !paycheck.includes('readEmploymentSubsidyExcessRule(toCalendarDate(period.pay_date))') ||
+        !paycheck.includes('applyEmploymentSubsidy(isr.tax_amount, sub.tax_amount, subsidyExcessRule)')
+      ) {
         return falla(
-          'paycheck-service vuelve a descartar el excedente con Math.max: el subsidio que el ' +
-            'trabajador debía recibir en efectivo se pierde otra vez'
+          'the paycheck does not split its subsidy by the rule read on its payment date: the excess over ' +
+            'the ISR is paid, or not, by something other than the law row'
         );
       }
-      if (!/subsidio_entregado_efectivo/.test(recibo)) {
-        return falla('el recibo no guarda el subsidio entregado en efectivo: no hay de dónde declararlo');
+      if (!/subsidio_entregado_efectivo/.test(paycheck)) {
+        return falla('the paycheck does not store the subsidy handed over in cash: the entry and the CFDI have nothing to follow');
+      }
+
+      const rule = codigoDe('src/services/payroll/mx/employment-subsidy.ts');
+      if (!rule.includes('rule.paidShare === 1 ? excess : new Decimal(0)')) {
+        return falla('applyEmploymentSubsidy does not pay the excess only under share 1: the rule of the row is not what decides the cash');
       }
 
       const cfdi = codigoDe('src/services/payroll/mx/cfdi-nomina-generator.ts');
       if (!/TipoOtroPago="002"/.test(cfdi) || !/SubsidioAlEmpleo SubsidioCausado/.test(cfdi)) {
         return falla(
-          'el CFDI de nómina no declara el subsidio entregado como OtrosPagos 002 con su ' +
-            'SubsidioCausado: Total deja de ser SubTotal − Descuento y el comprobante no cuadra consigo mismo'
+          'the payroll CFDI does not declare the subsidy handed over as OtrosPagos 002 with its ' +
+            'SubsidioCausado: Total is no longer SubTotal − Descuento + TotalOtrosPagos'
         );
       }
 
-      const mayor = codigoDe('src/services/payroll/common/gl-posting-service.ts');
-      if (!/isrDeLaCorrida\.lessThan\(0\)/.test(mayor)) {
+      const entry = codigoDe('src/services/payroll/common/gl-posting-service.ts');
+      if (!entry.includes('SUM(GREATEST(isr_withheld - subsidio_empleo, 0) - subsidio_entregado_efectivo)')) {
         return falla(
-          'el asiento de nómina no trata el ISR negativo como cargo: una corrida cuyo subsidio ' +
-            'entregado supere al ISR retenido no se puede postear, y el trabajador ya cobró'
+          'the payroll entry does not follow the cash each paycheck stored: an excess that was not handed ' +
+            'over reaches the entry, or reduces the ISR withheld from another worker'
+        );
+      }
+      if (!/isrDeLaCorrida\.lessThan\(0\)/.test(entry)) {
+        return falla(
+          'the payroll entry does not debit the cash handed over when it exceeds the ISR withheld: a run ' +
+            'paid under the old rule cannot be posted'
         );
       }
 
       return ok(
-        'el excedente entra en el neto, se declara como OtrosPagos 002 con su SubsidioCausado y ' +
-          'tiene contrapartida en el asiento'
+        'the paycheck reads the rule on its payment date, the excess is paid only under share 1, the entry ' +
+          'follows the cash stored and the CFDI declares it as OtrosPagos 002'
       );
     },
     mutantes: [
+      {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: 'applyEmploymentSubsidy(isr.tax_amount, sub.tax_amount, subsidyExcessRule)',
+        a: 'applyEmploymentSubsidy(isr.tax_amount, sub.tax_amount, { paidShare: 1 })',
+        porque:
+          'the paycheck pays the excess in cash whatever its payment date, which is the defect of #600 with the ' +
+          'row still read and never used',
+      },
+      {
+        archivo: 'src/services/payroll/mx/employment-subsidy.ts',
+        de: 'rule.paidShare === 1 ? excess : new Decimal(0)',
+        a: 'rule.paidShare === 0 ? excess : new Decimal(0)',
+        porque: 'the two rules trade places: cash from May 2024 and none before it',
+      },
       {
         archivo: 'src/services/payroll/mx/cfdi-nomina-generator.ts',
         de: 'TipoOtroPago="002"',
         a: 'TipoOtroPago="999"',
         porque:
-          'el comprobante deja de declarar el subsidio entregado con la clave que el SAT cruza, y el ' +
-          'criterio tiene que verlo aunque el nodo siga ahí',
+          'the CFDI stops declaring the subsidy handed over under the key the SAT crosses, and the ' +
+          'criterion has to see it although the node is still there',
+      },
+      {
+        archivo: 'src/services/payroll/common/gl-posting-service.ts',
+        de: 'SUM(GREATEST(isr_withheld - subsidio_empleo, 0) - subsidio_entregado_efectivo)',
+        a: 'SUM(isr_withheld - subsidio_empleo)',
+        porque:
+          'the old sum books an excess nobody received as a receivable, and lets it reduce the ISR withheld ' +
+          'from another worker of the run',
       },
       {
         archivo: 'src/services/payroll/common/gl-posting-service.ts',
         de: 'isrDeLaCorrida.lessThan(0)',
         a: 'isrDeLaCorrida.lessThan(-1e9)',
         porque:
-          'la rama del cargo queda escrita y nunca se toma: la corrida vuelve a descuadrarse por el ' +
-          'importe entregado, que es el defecto original con una condición imposible en vez de un Math.max',
+          'the debit branch is written and never taken: a run paid under the old rule is unbalanced by the ' +
+          'cash handed over',
       },
     ],
   },

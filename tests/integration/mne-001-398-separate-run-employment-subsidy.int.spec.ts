@@ -24,6 +24,10 @@ import { EMPLOYMENT_SUBSIDY_SEPARATE_RUN_POLICY } from '../../src/services/payro
 //
 // December 2026, a quincena paid on the 15th: the subsidy is 264.30. An
 // aguinaldo of 4 000.00 is exempt up to 30 UMA (3 519.30), so 480.70 is taxed.
+//
+// Since #600 the excess over the ISR follows the law of the payment date, and
+// every paycheck here is paid in 2026: none hands over cash. What this spec
+// pins is the subsidy CAUSED by each paycheck of the period.
 // ============================================================
 
 interface StoredPaycheck {
@@ -141,7 +145,7 @@ describe('an aguinaldo paid in its own run does not get a second employment subs
 
     it('the regular fortnight credits the subsidy of the period', () => {
       expect(regular.subsidy).toBe('264.30');
-      expect(Number(regular.subsidy_cash)).toBeGreaterThan(0);
+      expect(Number(regular.subsidy_cash)).toBe(0);
     });
 
     it('ACCEPTANCE: the aguinaldo run credits no second subsidy and pays none in cash', async () => {
@@ -199,35 +203,27 @@ describe('an aguinaldo paid in its own run does not get a second employment subs
     expect(first.paycheck.subsidy).toBe('0.00');
     const { runId, paycheck } = await approvedRun(period, 'regular', employee, [salary(1500)]);
     expect(paycheck.subsidy).toBe('264.30');
-    const cash = new Decimal(paycheck.subsidy_cash);
-    expect(cash.greaterThan(0)).toBe(true);
+    expect(Number(paycheck.subsidy_cash)).toBe(0);
 
     // Net pay: gross less the ISR retained (`isr_withheld` holds the ISR before
-    // the credit) and the worker's IMSS, plus the subsidy handed over in cash.
+    // the credit) and the worker's IMSS. The subsidy over the ISR is not paid.
     const isrRetained = Decimal.max(0, new Decimal(paycheck.isr_withheld).minus(paycheck.subsidy));
     const net = new Decimal(paycheck.gross_earnings)
       .minus(isrRetained)
       .minus(paycheck.imss_employee)
-      .minus(paycheck.infonavit_withheld)
-      .plus(cash);
+      .minus(paycheck.infonavit_withheld);
     expect(new Decimal(paycheck.net_pay).toFixed(2)).toBe(net.toFixed(2));
 
-    // The CFDI declares what the columns hold: OtrosPagos 002 with the cash
-    // delivered and the subsidy caused, and the nómina complement adds up to
-    // the net pay: perceptions + other payments − deductions.
+    // The CFDI still adds up to the net pay with no cash in it. Its subsidy
+    // node in this case is part 3 of #600.
     const xml = await stampedXml(paycheck.id);
-    expect(xml).toMatch(new RegExp(`TipoOtroPago="002"[^>]*Importe="${cash.toFixed(2)}"`));
-    expect(xml).toMatch(new RegExp(`SubsidioCausado="${paycheck.subsidy}"`));
-    expect(attr(xml, 'TotalOtrosPagos').toFixed(2)).toBe(cash.toFixed(2));
-    expect(
-      attr(xml, 'TotalPercepciones').plus(attr(xml, 'TotalOtrosPagos')).minus(attr(xml, 'TotalDeducciones')).toFixed(2)
-    ).toBe(new Decimal(paycheck.net_pay).toFixed(2));
+    expect(attr(xml, 'Total').toFixed(2)).toBe(new Decimal(paycheck.net_pay).toFixed(2));
+    expect(attr(xml, 'Total').toFixed(2)).toBe(attr(xml, 'SubTotal').minus(attr(xml, 'Descuento')).toFixed(2));
 
-    // The entry balances and debits the subsidy delivered.
+    // The entry balances and carries no subsidy line.
     const entry = await previewPayRunEntry(runId, f.tenantId, f.entityId);
     expect(entry.totalDebits).toBe(entry.totalCredits);
-    const delivered = entry.lines.find((l) => /Subsidio al empleo entregado/.test(l.description));
-    expect(delivered?.debit_amount).toBe(cash.toFixed(2));
+    expect(entry.lines.some((l) => /Subsidio al empleo entregado/.test(l.description))).toBe(false);
   });
 
   describe('with "none_on_separate_paycheck" the separate paycheck carries none, whatever runs first', () => {
@@ -247,7 +243,7 @@ describe('an aguinaldo paid in its own run does not get a second employment subs
       expect(Number(bonusRun.paycheck.subsidy_cash)).toBe(0);
       const { paycheck } = await approvedRun(period, 'regular', employee, [salary(1500)]);
       expect(paycheck.subsidy).toBe('264.30');
-      expect(Number(paycheck.subsidy_cash)).toBeGreaterThan(0);
+      expect(Number(paycheck.subsidy_cash)).toBe(0);
     });
 
     it('the aguinaldo run calculated AFTER the fortnight gets none', async () => {
