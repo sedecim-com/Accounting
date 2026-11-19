@@ -465,8 +465,10 @@ describe('D · el CFDI de nómina cuadra consigo mismo', () => {
       const otrosPagos = /\bTotalOtrosPagos="([0-9.]+)"/.exec(r.xml);
       const suma = subTotal.minus(descuento).plus(otrosPagos ? otrosPagos[1] : 0);
       expect(total.toFixed(2)).toBe(suma.toFixed(2));
-      // Paid in 2026 no cash is handed over, so no OtrosPagos declares any (#600).
-      expect(r.xml).not.toMatch(/OtrosPagos/);
+      // Paid in 2026 no cash is handed over: OtroPago 002 declares 0.00 with
+      // the subsidy caused (#600, MNE-001-551).
+      expect(r.xml).toMatch(/TipoOtroPago="002"[^>]* Importe="0\.00"/);
+      expect(r.xml).toContain('TotalOtrosPagos="0.00"');
     } finally {
       espia.mockRestore();
     }
