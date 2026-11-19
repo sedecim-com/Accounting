@@ -1397,6 +1397,23 @@ export const EN = {
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'None on the separate paycheck: a run other than the regular one, or a paycheck that pays only aguinaldo, carries no subsidy; the regular paycheck keeps its own',
 
+  'policy.imss_old_age_band_edge.question':
+    'When a worker\'s SBC falls just above the upper edge of a band of the employer cesantía en edad avanzada y vejez quota, which band does it pay?',
+  'policy.imss_old_age_band_edge.impact':
+    'It decides the rate of the employer quota for cesantía en edad avanzada y vejez of an SBC that falls between two bands of LSS art. 168 fr. II a), and with it the payslip, the payroll entry, the employer liability and the SUA file. In March 2026 an SBC of 352.00 (3.0006 UMA) pays 6.361 % with "above_upper_edge" (335.86 a quincena) and 6.026 % with "truncated_to_hundredths" (318.17); one of 316.00 (1.003 minimum wages) pays 6.026 % (285.63) or 3.150 % (149.31).',
+  'policy.imss_old_age_band_edge.rationale':
+    'LSS art. 168 fr. II a) charges every SBC but writes its bands to two decimals with no rounding rule; reading «1.51» as «more than 1.50» keeps every upper edge as written and never computes less than the table can require.',
+  'policy.imss_old_age_band_edge.why':
+    'The table writes its edges to two decimals («3.00 UMA», then «3.01 UMA») and gives no rounding rule, so the law does not say which band an SBC of 3.0006 UMA pays. If the program you determine your quotas with truncates, choose that option so both give the same figure.',
+  'policy.imss_old_age_band_edge.what':
+    'For each contribution day I place the SBC, capped at 25 UMA, with the UMA and the general minimum wage in force that day, and charge the rate of that band and year from the dated table. The calculation note names the band, the rate and the rule used.',
+  'policy.imss_old_age_band_edge.if_skipped':
+    'An SBC above an upper edge pays the next band.',
+  'policy.imss_old_age_band_edge.option.above_upper_edge':
+    'An SBC above a band\'s upper edge, by any amount, pays the next band',
+  'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
+    'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table',
+
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
   'policy.filing_rounding_to_pesos.impact':
