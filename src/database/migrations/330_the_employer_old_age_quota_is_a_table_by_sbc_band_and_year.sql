@@ -56,7 +56,7 @@ SELECT 'MX',
          || band.as_printed || '», from 1 January ' || cell.year || ': '
          || to_char(cell.rate::numeric * 100, 'FM990.000') || ' % of the SBC. '
          || CASE WHEN cell.year = 2030
-              THEN 'It is the figure of the table of art. 168 itself (decree of DOF 16-12-2020), where the gradual table of the decree''s transitorio Segundo ends; no later year replaces it.'
+              THEN 'It is the figure of the table of art. 168 itself (decree of DOF 16-12-2020), where the gradual table of the decree''s transitorio Segundo ends; the law states no figure for a later year.'
               ELSE 'Gradual table of the transitorio Segundo of the decree of DOF 16-12-2020, column ' || cell.year || '.'
             END
   FROM (VALUES
