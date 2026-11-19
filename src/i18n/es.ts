@@ -37,6 +37,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'La revaluación de {period} se revierte el primer día del periodo siguiente, y ese periodo {status, select, missing {no existe} other {está en {status}}}. Ábrelo (en diciembre, abre antes el ejercicio siguiente) y vuelve a correrla: no se posteó nada.',
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'La revaluación de cierre está hecha para entidades que llevan sus libros en pesos mexicanos (NIF B-15), y ésta los lleva en {currency}. Otras monedas funcionales, y ASC 830, son el issue 124: no se posteó nada.',
+  'error.BILL_CHANGED': '{bill} cambió mientras se aplicaba el pago; no se escribió nada.',
   'error.FX_REVALUATION_PLAN_CHANGED':
     'La revaluación de {period} cambió entre el plan que confirmaste (utilidad {expectedGain}, pérdida {expectedLoss}) y el posteo (utilidad {gain}, pérdida {loss}): algo se posteó o cambió un tipo entretanto. No se posteó nada; vuelve a correrla para ver el plan nuevo.',
   'error.FX_REVALUATION_MARKER_MISMATCH':
@@ -543,6 +544,40 @@ export const ES: Record<keyof typeof EN, string> = {
     '50 %',
   'policy.vacation_premium_pct.option.1_00':
     '100 %',
+
+  'policy.usmo_isr_subsidy.question':
+    'Para el ISR de la separación, ¿el ISR del último sueldo mensual ordinario (USMO) se toma bruto de tarifa, o neto del subsidio para el empleo?',
+  'policy.usmo_isr_subsidy.impact':
+    'El art. 96 LISR, último párrafo, retiene el ISR de una prima de antigüedad o de una indemnización a una tasa: el ISR del último sueldo mensual ordinario entre ese sueldo. Lo lee el finiquito (finiquito-calculator.ts), que informa este criterio en su desglose. Todavía no se retiene nada: el ISR de la separación que aplica la tasa viene después (MNE-001-375). Neto del subsidio baja la tasa, así que se retiene menos.',
+  'policy.usmo_isr_subsidy.rationale':
+    'El art. 96 LISR, último párrafo (con el art. 174 RLISR), divide «el impuesto que corresponda al último sueldo mensual ordinario» entre ese sueldo. El subsidio para el empleo es un crédito contra el ISR retenido, no impuesto causado, así que el impuesto que corresponde es el de la tarifa. Bruto es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); neto del subsidio es la otra lectura, y retiene menos.',
+  'policy.usmo_isr_subsidy.why':
+    'La ley arma la tasa de la separación con el ISR del último sueldo mensual, y no dice si ese ISR resta el subsidio para el empleo. Lo decide tu despacho.',
+  'policy.usmo_isr_subsidy.what':
+    'Tomo el ISR del último sueldo mensual ordinario por la tarifa mensual, sin restar el subsidio, e informo ese criterio en el finiquito. La retención que lo usa todavía no está.',
+  'policy.usmo_isr_subsidy.if_skipped':
+    'Lo tomo bruto de tarifa, sin restar el subsidio.',
+  'policy.usmo_isr_subsidy.option.gross_of_tariff':
+    'El ISR del USMO por la tarifa mensual, sin restar el subsidio para el empleo',
+  'policy.usmo_isr_subsidy.option.net_of_subsidy':
+    'El ISR del USMO por la tarifa mensual, menos el subsidio para el empleo que tendría ese sueldo',
+
+  'policy.usmo_days_per_month.question':
+    '¿Cuántos días hacen el último sueldo mensual ordinario (USMO) de un finiquito: 30 o 30.4?',
+  'policy.usmo_days_per_month.impact':
+    'El USMO es el salario diario por estos días, y sobre él se arma el ISR de la separación del art. 96 LISR, último párrafo. Lo lee el finiquito (finiquito-calculator.ts), que informa el USMO en su desglose. Todavía no se retiene nada: el ISR de la separación viene después (MNE-001-375). Con un salario diario de 300.00 el USMO es 9,000.00 a 30 días y 9,120.00 a 30.4.',
+  'policy.usmo_days_per_month.rationale':
+    'El art. 89 LFT divide un salario mensual entre treinta para obtener el salario diario, así que el sueldo mensual ordinario de un salario diario es ese salario × 30; el art. 96 LISR, último párrafo, arma la tasa de la separación sobre ese sueldo. 30 es la lectura que eligió el dueño en MNE-001-373 (ADR-0006, decisión 1); 30.4 es la otra lectura, el mes con el que prorratean la tarifa mensual y el decreto del subsidio.',
+  'policy.usmo_days_per_month.why':
+    'La ley nombra el último sueldo mensual ordinario pero no dice cuántos días tiene un mes. Lo decide tu despacho.',
+  'policy.usmo_days_per_month.what':
+    'Calculo el USMO como salario diario × 30 y lo informo en el finiquito. La retención que lo usa todavía no está.',
+  'policy.usmo_days_per_month.if_skipped':
+    'Uso 30 días.',
+  'policy.usmo_days_per_month.option.30':
+    'Salario diario × 30 (el art. 89 LFT divide un salario mensual entre treinta)',
+  'policy.usmo_days_per_month.option.30_4':
+    'Salario diario × 30.4 (el mes de la tarifa mensual)',
 
   'policy.cash_flow_method.question':
     '¿El estado de flujos de efectivo se presenta por el método indirecto o por el directo?',
@@ -1780,6 +1815,8 @@ export const ES: Record<keyof typeof EN, string> = {
   confirm_answer_not_understood:
     'no entendí «{answer}»: responde y/s para sí, n para no',
 
+  confirm_yes_no_suffix: '[s/N]',
+
   no_changes_ledger_untouched: 'Sin cambios: el mayor no se tocó.',
 
   no_changes_no_terminal:
@@ -1974,7 +2011,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'Aprobar crea la factura del proveedor del CFDI {uuid} · emisor {issuer} ({rfc}) · método {method} · total {total}',
   'review.draft.invoice_to_be_born':
     'Aprobar crea la factura al cliente del CFDI emitido {uuid} · cliente {customer} ({rfc}) · método {method} · total {total}',
-  'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N] ',
+  'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})?',
   'review.vendor.not_registered':
     'No se dio de alta al proveedor: no se contabilizó nada y el borrador sigue pendiente.',
   'help.ingest.argument.files':
@@ -2150,6 +2187,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'ingest.census.more_invalid': '… y {count} más',
   'ingest.census.loaded': 'Censo cargado de {file}: {inserted} nuevos, {refreshed} ya conocidos.',
   'ingest.census.dry_run': '(dry-run: el censo se leyó, no se cargó.)',
+  // MNE-001-144 (#441): las cancelaciones del SAT en el censo llegan al espejo y a la factura.
+  'ingest.census.marks':
+    'Cancelados por el SAT: {mirror, plural, one {# CFDI marcado} other {# CFDI marcados}} en el espejo, ' +
+    '{invoices, plural, one {# factura marcada como cancelada} other {# facturas marcadas como canceladas}}.',
+  'ingest.census.cancelled_booked':
+    '{document} ({date}) lleva el CFDI {uuid}, que el SAT reporta cancelado. No se revirtió nada: ' +
+    'su estado, su póliza y su saldo se quedan hasta que el contador decida.',
+  'ingest.census.document.invoice': 'Factura {number}',
+  'ingest.census.document.credit_note': 'Nota de crédito {number}',
+  'ingest.census.document.bill': 'Factura de proveedor {number}',
   'help.ingest.description':
     'Ingesta por lote de CFDI (XML): reglas → clasificación por IA → borradores (o alta ' +
     'automática según los umbrales)',
@@ -2815,6 +2862,34 @@ export const ES: Record<keyof typeof EN, string> = {
     '{matches, plural, one {# cotejo} other {# cotejos}} · ' +
     '{sealed, plural, one {# partida sellada} other {# partidas selladas}}',
   // ==== fin del piloto bank (I7) ====================================
+  // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
+  // Same blocks, same order as en.ts.
+  // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+  // ==== end of I8.1 ====
+
+  // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+  // ==== end of I8.2 ====
+
+  // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+  // ==== end of I8.3 ====
+
+  // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+  // ==== end of I8.4 ====
+
+  // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+  // ==== end of I8.5 ====
+
+  // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+  // ==== end of I8.6 ====
+
+  // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
+  // ==== end of I8.7 ====
+
+  // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  // ==== end of I8.8 ====
+
+  // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
+  // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // Same keys, same order as en.ts. The Spanish is what the board shows by
   // default (src/gateway/app/messages.ts falls back to es).
@@ -3169,6 +3244,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ar.reconcile.description':
     'Auxiliar (facturas abiertas − notas de crédito sin aplicar) contra la cuenta de control de cxc, nombrando las pólizas manuales',
   'help.ar.reconcile.option.strict': 'sale con 4 ante cualquier diferencia, por corta que sea la lista de sospechosos',
+  'ar.check.cross_party_application.found':
+    'el dinero de un cliente salda la factura de otro: revísalo; no se bloquea nada',
+  'ar.check.cross_party_application.none': 'ninguna',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',

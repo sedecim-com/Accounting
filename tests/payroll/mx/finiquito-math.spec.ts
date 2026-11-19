@@ -6,6 +6,7 @@ import {
   diasDelEjercicio,
   diasDeVacacionesPorAnio,
   factorDeIntegracion,
+  lastOrdinaryMonthlySalary,
   salarioDiarioDesdeSbc,
   salarioDiarioDesdeSueldoAnual,
 } from '../../../src/services/payroll/mx/finiquito-math.js';
@@ -496,5 +497,17 @@ describe('Bordes', () => {
     });
     // 24 × 500 = 12 000.0000
     expect(r.vacaciones_pendientes_importe).toBe('12000.0000');
+  });
+});
+
+// MNE-001-374 (#194): the last ordinary monthly salary (USMO) of LISR art. 96,
+// last paragraph, is the daily wage times the days the panel chose. Figures by
+// hand: 300 × 30, 300 × 30.4, and the issue's daily wage of 1 000.
+describe('lastOrdinaryMonthlySalary', () => {
+  it('is the daily wage × 30 or × 30.4, with four decimals', () => {
+    expect(lastOrdinaryMonthlySalary('300.0000', '30')).toBe('9000.0000');
+    expect(lastOrdinaryMonthlySalary('300.0000', '30.4')).toBe('9120.0000');
+    expect(lastOrdinaryMonthlySalary('1000.0000', '30')).toBe('30000.0000');
+    expect(lastOrdinaryMonthlySalary('1000.0000', '30.4')).toBe('30400.0000');
   });
 });

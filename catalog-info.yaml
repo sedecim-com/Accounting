@@ -59,6 +59,13 @@ provides:
     # own, ahead of the line's suggestion, which used to win; and a suggestion stored before
     # #684 that is a control account no longer posts. The way back is coding the line.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
+    # CONTRACT: mnemosine.config.json accepts an optional `models` map, profile name to
+    # model id (MNE-001-441, #644); a name that is no built-in and no profile of the same
+    # file is refused with the names. `init --section ai` now writes `default_provider`
+    # and `models.<p>` to the config file that wins, creates ~/.mnemosine/config.json
+    # instead of a project file, asks before writing a project file (default No), and
+    # writes a typed key to ~/.mnemosine/.env instead of ./.env. Rollback: remove
+    # `models` from any config file, which the previous build refuses.
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
     # apply: 1e999 as budget.daily_usd, budget.monthly_usd or ingest.auto_post_max_amount

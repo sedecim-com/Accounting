@@ -56,6 +56,8 @@ export const EN = {
   /** `AccountingError('FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED')`: an entity whose functional currency is not MXN (#124). */
   'error.FX_REVALUATION_FUNCTIONAL_NOT_SUPPORTED':
     'The closing revaluation is built for entities that keep their books in Mexican pesos (NIF B-15), and this one keeps them in {currency}. Other functional currencies, and ASC 830, are issue 124: nothing was posted.',
+  /** `AccountingError('BILL_CHANGED')`: a payment's bill UPDATE matched no row (MNE-001-532). */
+  'error.BILL_CHANGED': '{bill} changed while the payment was being applied; nothing was written.',
   /** `AccountingError('FX_REVALUATION_PLAN_CHANGED')`: the live run recomputed a different gain or loss than the plan the user confirmed. */
   'error.FX_REVALUATION_PLAN_CHANGED':
     'The revaluation of {period} changed between the plan you confirmed (gain {expectedGain}, loss {expectedLoss}) and the post (gain {gain}, loss {loss}): something was posted or a rate changed in between. Nothing was posted; run it again to see the new plan.',
@@ -587,6 +589,40 @@ export const EN = {
     '50 %',
   'policy.vacation_premium_pct.option.1_00':
     '100 %',
+
+  'policy.usmo_isr_subsidy.question':
+    'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
+  'policy.usmo_isr_subsidy.impact':
+    'LISR art. 96, last paragraph, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), which reports this reading in its basis. Nothing is withheld yet: the separation ISR that applies the rate comes next (MNE-001-375). Net of the subsidy lowers the rate, so less is withheld.',
+  'policy.usmo_isr_subsidy.rationale':
+    'LISR art. 96, last paragraph (with RLISR art. 174), divides "the tax that corresponds to the last ordinary monthly salary" by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+  'policy.usmo_isr_subsidy.why':
+    'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
+  'policy.usmo_isr_subsidy.what':
+    'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and report that reading in the settlement. The withholding that uses it is not in place yet.',
+  'policy.usmo_isr_subsidy.if_skipped':
+    'I take it gross of the tariff, without subtracting the subsidy.',
+  'policy.usmo_isr_subsidy.option.gross_of_tariff':
+    'The ISR of the USMO by the monthly tariff, without subtracting the employment subsidy',
+  'policy.usmo_isr_subsidy.option.net_of_subsidy':
+    'The ISR of the USMO by the monthly tariff, minus the employment subsidy that salary would get',
+
+  'policy.usmo_days_per_month.question':
+    'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
+  'policy.usmo_days_per_month.impact':
+    'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, last paragraph, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis. Nothing is withheld yet: the separation ISR comes next (MNE-001-375). On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+  'policy.usmo_days_per_month.rationale':
+    'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, last paragraph, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+  'policy.usmo_days_per_month.why':
+    'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
+  'policy.usmo_days_per_month.what':
+    'I compute the USMO as the daily wage × 30 and report it in the settlement. The withholding that uses it is not in place yet.',
+  'policy.usmo_days_per_month.if_skipped':
+    'I use 30 days.',
+  'policy.usmo_days_per_month.option.30':
+    'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)',
+  'policy.usmo_days_per_month.option.30_4':
+    'Daily wage × 30.4 (the month of the monthly tariff)',
 
   'policy.cash_flow_method.question':
     'Is the statement of cash flows presented by the indirect or the direct method?',
@@ -1826,6 +1862,10 @@ export const EN = {
   confirm_answer_not_understood:
     'did not understand “{answer}”: answer y or yes for yes, n or no for no',
 
+  /** `src/cli/kernel/confirmacion.ts` (`yesNoPrompt`): the suffix of every yes/no
+   *  prompt whose default is no. Written here once; no leaf writes it (#262). */
+  confirm_yes_no_suffix: '[y/N]',
+
   /** `src/cli/batch-command.ts:268`, `src/cli/bank-command.ts:2010` y
    *  `src/cli/prepaid-command.ts:1072`. Tres copias idénticas: la prueba de que
    *  esto ya era una clave. */
@@ -2099,7 +2139,7 @@ export const EN = {
   'review.draft.invoice_to_be_born':
     'Approving creates the customer invoice of issued CFDI {uuid} · customer {customer} ({rfc}) · method {method} · total {total}',
   /** `src/cli/mnemosine.ts` review: `proveedor_desconocido_al_aprobar = preguntar` (#318). The name comes from the XML. */
-  'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})? [y/N] ',
+  'review.vendor.register_prompt': 'Register vendor {name} (RFC {rfc})?',
   /** `src/cli/mnemosine.ts` review: the reviewer answered no to registering the vendor. */
   'review.vendor.not_registered': 'The vendor was not registered: nothing was posted and the draft stays pending.',
   'help.ingest.argument.files':
@@ -2275,6 +2315,16 @@ export const EN = {
   'ingest.census.more_invalid': '… and {count} more',
   'ingest.census.loaded': 'Census loaded from {file}: {inserted} new, {refreshed} already known.',
   'ingest.census.dry_run': '(dry-run: the census was read, not loaded.)',
+  // MNE-001-144 (#441): the SAT's cancellations of the census reach the mirror and the invoice.
+  'ingest.census.marks':
+    'Cancelled by the SAT: {mirror, plural, one {# CFDI} other {# CFDI}} marked in the mirror, ' +
+    '{invoices, plural, one {# invoice} other {# invoices}} marked cancelled.',
+  'ingest.census.cancelled_booked':
+    '{document} ({date}) carries CFDI {uuid}, which the SAT reports cancelled. Nothing was reversed: ' +
+    'its status, entry and balance stay until the accountant decides.',
+  'ingest.census.document.invoice': 'Invoice {number}',
+  'ingest.census.document.credit_note': 'Credit note {number}',
+  'ingest.census.document.bill': 'Bill {number}',
   'help.ingest.description':
     'Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)',
   'help.lang.description':
@@ -2969,6 +3019,36 @@ export const EN = {
     '{matches, plural, one {# match} other {# matches}} · ' +
     '{sealed, plural, one {# item sealed} other {# items sealed}}',
   // ==== fin del piloto bank (I7) ====================================
+  // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
+  // Seeded empty so the nine family PRs (MNE-001-218 to 230) each write inside
+  // their own block and git merges them. Keep each family's keys between its
+  // two markers; tests/i18n/sync.spec.ts checks they stay, once each, in order.
+  // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+  // ==== end of I8.1 ====
+
+  // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+  // ==== end of I8.2 ====
+
+  // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+  // ==== end of I8.3 ====
+
+  // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+  // ==== end of I8.4 ====
+
+  // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+  // ==== end of I8.5 ====
+
+  // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+  // ==== end of I8.6 ====
+
+  // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
+  // ==== end of I8.7 ====
+
+  // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  // ==== end of I8.8 ====
+
+  // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
+  // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // The keys of the web gateway's browser program, src/gateway/app. That
   // program imports this file and es.ts as modules, so what is written here is
@@ -3329,6 +3409,10 @@ export const EN = {
   'help.ar.reconcile.description':
     'Subledger (open invoices − unapplied credit notes) vs the cxc control account, naming manual entries',
   'help.ar.reconcile.option.strict': 'exit 4 on any delta, however small the list of suspects',
+  /** `ar check`, probe cross-party-application (MNE-001-530). */
+  'ar.check.cross_party_application.found':
+    "a customer's cash settles another customer's invoice: review it; nothing is blocked",
+  'ar.check.cross_party_application.none': 'none',
   'help.ar.check.description':
     'Named receivables diagnostics; `--check` with no value lists them, `--check a,b` selects',
   'help.ar.check.option.check': 'comma-separated diagnostics to run; bare --check lists the battery',

@@ -41,16 +41,28 @@ function conParametros(...respuestas: Array<{ rows: unknown[] }>): void {
   });
 }
 
+/**
+ * What the panel answers, BY KEY. Since MNE-001-374 the settlement reads four
+ * keys through `getPolicy`, and the two USMO readers refuse a value they do
+ * not know, so one answer for every key no longer fits.
+ */
+const PANEL_DEFAULTS: Record<string, string> = {
+  prima_vacacional_pct: '0.25',
+  usmo_isr_subsidy: 'gross_of_tariff',
+  usmo_days_per_month: '30',
+};
+
+function panelAnswers(answers: Record<string, string> = {}): void {
+  const values = { ...PANEL_DEFAULTS, ...answers };
+  mockGetPolicy.mockImplementation((_ctx: unknown, key: string) =>
+    Promise.resolve({ key, value: values[key], defined: key in answers, question: '', rationale: null })
+  );
+}
+
 /** Lo que el panel contesta cuando nadie ha tocado las políticas. */
 function panelPorDefecto(): void {
   mockGetPolicyNumber.mockResolvedValue(15);
-  mockGetPolicy.mockResolvedValue({
-    key: 'prima_vacacional_pct',
-    value: '0.25',
-    defined: false,
-    question: '',
-    rationale: null,
-  });
+  panelAnswers();
 }
 
 // ============================================================
@@ -118,7 +130,7 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
       CTX
     );
     mockGetPolicyNumber.mockResolvedValue(30);
-    mockGetPolicy.mockResolvedValue({ value: '1.00', key: '', defined: true, question: '', rationale: null });
+    panelAnswers({ prima_vacacional_pct: '1.00' });
     const conElContrato = await calculateFiniquito(
       { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
@@ -291,6 +303,83 @@ describe('el motivo de la baja se valida en tiempo de EJECUCIÓN', () => {
 });
 
 // ============================================================
+// MNE-001-374 (#194): the two USMO keys, read and reported.
+//
+// The separation ISR of LISR art. 96, last paragraph, is a rate built on the
+// last ordinary monthly salary (USMO). MNE-001-373 put its two readings in the
+// panel: the ISR of the USMO gross of the tariff or net of the employment
+// subsidy, and the USMO at 30 or 30.4 days. This step reads both and reports
+// the USMO; nothing is withheld yet (MNE-001-375). Figures by hand: an annual
+// salary of 109 500 is a daily wage of 109 500 / 365 = 300.0000.
+// ============================================================
+describe('Finiquito MX — the USMO keys (MNE-001-374)', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockGetPolicy.mockReset();
+    mockGetPolicyNumber.mockReset();
+    panelPorDefecto();
+  });
+
+  const WORKER = { sbc: null, hire_date: '2020-01-15', annual_salary: '109500', entity_id: 'e-del-empleado' };
+  const INPUT = {
+    employee_id: 'emp1', termination_date: '2026-06-30', last_paid_through: '2026-06-15', termination_reason: 'despido' as const,
+  };
+
+  it('by default the USMO is the daily wage × 30, and its ISR is read gross of the tariff', async () => {
+    conParametros({ rows: [WORKER] });
+    const r = await calculateFiniquito(INPUT, CTX);
+    expect(r.basis.daily_wage).toBe('300.0000');
+    expect(r.basis.last_ordinary_monthly_salary).toBe('9000.0000');
+    expect(r.basis.usmo_days_per_month).toBe('30');
+    expect(r.basis.usmo_isr_subsidy).toBe('gross_of_tariff');
+  });
+
+  it('answering the panel changes what is reported: 30.4 days and net of subsidy', async () => {
+    conParametros({ rows: [WORKER] });
+    panelAnswers({ usmo_days_per_month: '30.4', usmo_isr_subsidy: 'net_of_subsidy' });
+    const r = await calculateFiniquito(INPUT, CTX);
+    expect(r.basis.last_ordinary_monthly_salary).toBe('9120.0000');
+    expect(r.basis.usmo_days_per_month).toBe('30.4');
+    expect(r.basis.usmo_isr_subsidy).toBe('net_of_subsidy');
+  });
+
+  it('reads both keys in the entity of the employee', async () => {
+    conParametros({ rows: [WORKER] });
+    await calculateFiniquito(INPUT, CTX);
+    const panel = { tenantId: 't1', entityId: 'e-del-empleado' };
+    expect(mockGetPolicy).toHaveBeenCalledWith(panel, 'usmo_isr_subsidy');
+    expect(mockGetPolicy).toHaveBeenCalledWith(panel, 'usmo_days_per_month');
+  });
+
+  it('no amount and no total moves: the keys only report, until MNE-001-375 withholds', async () => {
+    conParametros({ rows: [WORKER] });
+    const byDefault = await calculateFiniquito(INPUT, CTX);
+    conParametros({ rows: [WORKER] });
+    panelAnswers({ usmo_days_per_month: '30.4', usmo_isr_subsidy: 'net_of_subsidy' });
+    const answered = await calculateFiniquito(INPUT, CTX);
+    const amounts = (r: typeof byDefault) => ({ ...r, basis: undefined });
+    expect(amounts(answered)).toEqual(amounts(byDefault));
+  });
+
+  it('a stored day count the reader does not know is refused, and named', async () => {
+    conParametros({ rows: [WORKER] });
+    panelAnswers({ usmo_days_per_month: '31' });
+    const refusal = calculateFiniquito(INPUT, CTX);
+    await expect(refusal).rejects.toMatchObject({ code: 'POLICY_VALUE_UNKNOWN' });
+    conParametros({ rows: [WORKER] });
+    await expect(calculateFiniquito(INPUT, CTX)).rejects.toThrow(/usmo_days_per_month = "31".*30, 30\.4/);
+  });
+
+  it('so is the Spanish spelling of the subsidy reading: bruto_de_tarifa is not a value', async () => {
+    conParametros({ rows: [WORKER] });
+    panelAnswers({ usmo_isr_subsidy: 'bruto_de_tarifa' });
+    await expect(calculateFiniquito(INPUT, CTX)).rejects.toThrow(
+      /usmo_isr_subsidy = "bruto_de_tarifa".*gross_of_tariff, net_of_subsidy/
+    );
+  });
+});
+
+// ============================================================
 // MNE-001-377 (#196): the cap of the seniority premium (LFT art. 486) is
 // twice the minimum of the zone of the place of work. Fifteen years and a
 // daily wage of 1 000: 180 days × 630.08 = 113 414.40 in the general zone,
@@ -305,8 +394,10 @@ describe('Finiquito MX — the minimum-wage zone', () => {
   });
 
   const FIFTEEN_YEARS = { sbc: null, hire_date: '2011-03-01', annual_salary: '365000', entity_id: 'e-del-empleado' };
+  // A date no other test uses: the tax parameters are cached by date, and this
+  // block needs its own (with the border minimum).
   const TERMINATION = {
-    employee_id: 'emp1', termination_date: '2026-06-30', last_paid_through: '2026-06-15',
+    employee_id: 'emp1', termination_date: '2026-05-29', last_paid_through: '2026-05-15',
     termination_reason: 'renuncia' as const,
   };
 

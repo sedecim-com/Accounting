@@ -15,7 +15,7 @@ import {
   type RegimenIsn,
   type TasaIsn,
 } from '../services/payroll/mx/isn-calculator.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { renderHallazgos } from './e-accounting-command.js';
 import type { Palette } from './palette.js';
 import {
@@ -706,7 +706,7 @@ function utilidades(deps: PayrollIsnCommandDeps) {
       // tests/cli/confirmacion-gramatica.spec.ts la acusaría.
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
         process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);

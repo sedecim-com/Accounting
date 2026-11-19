@@ -62,7 +62,7 @@ import {
   ExitCode,
   type ExitCodeValue,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { isKeyValueLine, lineKeysHelp, parseKeyValueLine, SIDE_ALIASES, type LineGrammar } from './kernel/line-spec.js';
 import { AppError } from '../utils/errors.js';
 
@@ -414,7 +414,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        `${question} [y/N] `
+        yesNoPrompt(question)
       );
       if (veredicto.si) return;
       throw abortedByUser(

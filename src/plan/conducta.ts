@@ -1472,8 +1472,8 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       },
       {
         archivo: 'src/services/ap/ap-controls.ts',
-        de: "AND NOT (je.source_type = 'opening_balance' AND EXISTS (",
-        a: "AND NOT (je.source_type = 'opening_balance_' AND EXISTS (",
+        de: "AND je.source_type = 'opening_balance'\n",
+        a: "AND je.source_type = 'opening_balance_'\n",
         porque:
           'the opening is listed again as a manual entry on the control account: ap reconcile ties ' +
           'at 0 and still prints a manual entry and a residue of 14 000',
