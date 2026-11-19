@@ -1,4 +1,5 @@
 import type { EmploymentSubsidyRounding } from '../mx/employment-subsidy.js';
+import type { OldAgeBandEdge } from '../mx/old-age-band.js';
 
 // ============================================================
 // TAX ENGINE INTERFACES
@@ -50,6 +51,9 @@ export interface TaxInput {
   // How the employment subsidy is rounded: a policy of the entity, read by
   // the caller (`readEmploymentSubsidyRounding`), never chosen by the engine.
   employment_subsidy_rounding?: EmploymentSubsidyRounding;
+  // How an SBC meets the edge of a band of the employer old-age quota: a
+  // policy of the entity too, read by the caller (`readOldAgeBandEdge`).
+  imss_old_age_band_edge?: OldAgeBandEdge;
 
   // Employer experience rate overrides (SUTA etc.)
   experience_rate?: number;

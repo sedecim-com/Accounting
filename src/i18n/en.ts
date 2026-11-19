@@ -1397,6 +1397,23 @@ export const EN = {
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'None on the separate paycheck: a run other than the regular one, or a paycheck that pays only aguinaldo, carries no subsidy; the regular paycheck keeps its own',
 
+  'policy.imss_old_age_band_edge.question':
+    'When a worker\'s SBC falls just above the upper edge of a band of the employer cesantía en edad avanzada y vejez quota, which band does it pay?',
+  'policy.imss_old_age_band_edge.impact':
+    'It decides the rate of the employer quota for cesantía en edad avanzada y vejez of an SBC that falls between two bands of LSS art. 168 fr. II a), and with it the payslip, the payroll entry, the employer liability and the SUA file. In March 2026 an SBC of 352.00 (3.0006 UMA) pays 6.361 % with "above_upper_edge" (335.86 a quincena) and 6.026 % with "truncated_to_hundredths" (318.17); one of 316.00 (1.003 minimum wages) pays 6.026 % (285.63) or 3.150 % (149.31).',
+  'policy.imss_old_age_band_edge.rationale':
+    'LSS art. 168 fr. II a) charges every SBC but writes its bands to two decimals with no rounding rule; reading «1.51» as «more than 1.50» keeps every upper edge as written and never computes less than the table can require.',
+  'policy.imss_old_age_band_edge.why':
+    'The table writes its edges to two decimals («3.00 UMA», then «3.01 UMA») and gives no rounding rule, so the law does not say which band an SBC of 3.0006 UMA pays. If the program you determine your quotas with truncates, choose that option so both give the same figure.',
+  'policy.imss_old_age_band_edge.what':
+    'For each contribution day I place the SBC, capped at 25 UMA, with the UMA and the general minimum wage in force that day, and charge the rate of that band and year from the dated table. The calculation note names the band, the rate and the rule used.',
+  'policy.imss_old_age_band_edge.if_skipped':
+    'An SBC above an upper edge pays the next band.',
+  'policy.imss_old_age_band_edge.option.above_upper_edge':
+    'An SBC above a band\'s upper edge, by any amount, pays the next band',
+  'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
+    'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table',
+
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
   'policy.filing_rounding_to_pesos.impact':
@@ -3243,6 +3260,35 @@ export const EN = {
   'filing.workpaper.label_warning': 'warning',
   'filing.workpaper.not_a_filing': 'This paper is not a filing: nothing was sent to the SAT.',
   'filing.workpaper.more_entries': '+{count} more',
+  // ==== MNE-001-457 · annual figure record (issue #622) ====
+  'help.annual.description': 'The annual return of the entity: the figures read off it once it is filed',
+  'help.annual.figure.description': 'Figures of a filed annual return that the provisional payments need',
+  'help.annual.figure.record.description': 'Record a figure of a filed annual return, with that return as its source and who captured it',
+  'help.annual.figure.record.option.kind': 'which figure it is: {kinds}',
+  'help.annual.figure.record.option.value': 'the figure as the return states it: zero or more, up to four decimals',
+  'help.annual.figure.record.option.year': 'fiscal year of the annual return',
+  'help.annual.figure.record.option.filed_on': 'day the return, or its amendment, was filed (YYYY-MM-DD)',
+  'help.annual.figure.record.option.source': 'how you identify that return: its operation number',
+  'help.annual.figure.record.footer':
+    'This records what a filed return states. It files nothing, and the latest capture of a return is the one in force.\n' +
+    'A return that gave no coefficient is not captured: the paper then uses the latest return captured within five years (LISR art. 14 fr. I).\n' +
+    '\nExamples:\n' +
+    '  See the row the profit coefficient of the 2025 return would leave, writing nothing:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operation 000111" --dry-run\n' +
+    '  Its amendment, filed later: a new capture that takes over, and the earlier one stays:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json',
+  'annual.figure.kind_invalid': '--kind "{value}" is not a figure this command records: use {kinds}. Nothing was written.',
+  'annual.figure.value_invalid': '--value "{value}" is not valid: use zero or more, with up to fifteen digits before the point and four decimals (for example 0.0875). Nothing was written.',
+  'annual.figure.year_invalid': '--year "{value}" is not valid: use the four digits of the return\'s fiscal year, from {min} to {max}. Nothing was written.',
+  'annual.figure.filed_on_invalid': '--filed-on "{value}" is not a real day: use YYYY-MM-DD (for example 2026-03-20). Nothing was written.',
+  'annual.figure.source_required': 'Missing --source: say which return the figure was read from (its operation number). Nothing was written.',
+  'annual.figure.filed_on_not_after_year': '--filed-on {value} cannot be the filing date of the {year} return: an annual return is filed after its year ends. Nothing was written.',
+  'annual.figure.filed_on_in_future': '--filed-on {value} is after today ({today}): only a return already filed is recorded. Nothing was written.',
+  'annual.figure.dry_run': 'Dry run: the capture is valid; nothing was written.',
+  'annual.figure.next': 'Next: `mnemosine filing workpaper generate --period <YYYY-MM> --form isr`.',
+  'income_tax_input.year_out_of_range': 'The fiscal year of the source return goes from {min} to {max}: {year} is outside.',
+  'income_tax_input.filed_on_not_a_day': '"{value}" is not a real day (YYYY-MM-DD): it cannot be the filing date of the return.',
+  'income_tax_input.value_too_large': '"{value}" does not fit: a figure has at most fifteen digits before the point.',
   'help.diot.description':
     'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
   'help.diot.generate.description':

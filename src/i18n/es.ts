@@ -1354,6 +1354,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'Ninguno en el recibo aparte: una corrida que no es la ordinaria, o un recibo que sólo paga aguinaldo, no lleva subsidio; el recibo ordinario conserva el suyo',
 
+  'policy.imss_old_age_band_edge.question':
+    'Cuando el SBC de un trabajador queda apenas arriba del límite superior de un tramo de la cuota patronal de cesantía en edad avanzada y vejez, ¿qué tramo paga?',
+  'policy.imss_old_age_band_edge.impact':
+    'Decide la tasa de la cuota patronal de cesantía en edad avanzada y vejez de un SBC que cae entre dos tramos de la LSS art. 168 fr. II a), y con ella el recibo, la póliza de nómina, el pasivo patronal y el archivo del SUA. En marzo de 2026 un SBC de 352.00 (3.0006 UMA) paga 6.361 % con "above_upper_edge" (335.86 por quincena) y 6.026 % con "truncated_to_hundredths" (318.17); uno de 316.00 (1.003 salarios mínimos) paga 6.026 % (285.63) o 3.150 % (149.31).',
+  'policy.imss_old_age_band_edge.rationale':
+    'La LSS art. 168 fr. II a) cobra todo SBC pero escribe sus tramos a dos decimales sin regla de redondeo; leer «1.51» como «más de 1.50» conserva cada límite superior como está escrito y nunca calcula menos de lo que la tabla puede exigir.',
+  'policy.imss_old_age_band_edge.why':
+    'La tabla escribe sus límites a dos decimales («3.00 UMA» y luego «3.01 UMA») y no da regla de redondeo, así que la ley no dice qué tramo paga un SBC de 3.0006 UMA. Si el programa con el que determinas tus cuotas trunca, elige esa opción para que ambos den la misma cifra.',
+  'policy.imss_old_age_band_edge.what':
+    'Por cada día cotizado ubico el SBC, topado a 25 UMA, con la UMA y el salario mínimo general vigentes ese día, y cobro la tasa de ese tramo y año de la tabla con fechas. La nota del cálculo nombra el tramo, la tasa y la regla usada.',
+  'policy.imss_old_age_band_edge.if_skipped':
+    'Un SBC arriba de un límite superior paga el tramo siguiente.',
+  'policy.imss_old_age_band_edge.option.above_upper_edge':
+    'Un SBC arriba del límite superior de un tramo, por cualquier monto, paga el tramo siguiente',
+  'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
+    'SBC ÷ salario mínimo y SBC ÷ UMA se cortan a dos decimales y luego se ubican en la tabla',
+
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
   'policy.filing_rounding_to_pesos.impact':
@@ -3089,6 +3106,35 @@ export const ES: Record<keyof typeof EN, string> = {
   'filing.workpaper.label_warning': 'aviso',
   'filing.workpaper.not_a_filing': 'Este papel no es una declaración: no se envió nada al SAT.',
   'filing.workpaper.more_entries': '+{count} más',
+  // ==== MNE-001-457 · annual figure record (issue #622) ====
+  'help.annual.description': 'La declaración anual de la entidad: las cifras que se toman de ella ya presentada',
+  'help.annual.figure.description': 'Cifras de una declaración anual presentada que los pagos provisionales necesitan',
+  'help.annual.figure.record.description': 'Registra una cifra de una declaración anual presentada, con esa declaración como fuente y quién la capturó',
+  'help.annual.figure.record.option.kind': 'qué cifra es: {kinds}',
+  'help.annual.figure.record.option.value': 'la cifra como la dice la declaración: cero o más, hasta cuatro decimales',
+  'help.annual.figure.record.option.year': 'ejercicio de la declaración anual',
+  'help.annual.figure.record.option.filed_on': 'día en que se presentó la declaración, o su complementaria (AAAA-MM-DD)',
+  'help.annual.figure.record.option.source': 'cómo identificas esa declaración: su número de operación',
+  'help.annual.figure.record.footer':
+    'Esto registra lo que dice una declaración presentada. No presenta nada, y la última captura de una declaración es la vigente.\n' +
+    'Una declaración que no dio coeficiente no se captura: el papel usa entonces la última declaración capturada dentro de cinco años (LISR art. 14 fr. I).\n' +
+    '\nEjemplos:\n' +
+    '  Ver el renglón que dejaría el coeficiente de utilidad de la declaración de 2025, sin escribir nada:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operación 000111" --dry-run\n' +
+    '  Su complementaria, presentada después: una captura nueva que queda vigente, y la anterior se conserva:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operación 000222" --json',
+  'annual.figure.kind_invalid': '--kind "{value}" no es una cifra que este comando registre: usa {kinds}. No se escribió nada.',
+  'annual.figure.value_invalid': '--value "{value}" no es válido: usa cero o más, con hasta quince dígitos antes del punto y cuatro decimales (por ejemplo 0.0875). No se escribió nada.',
+  'annual.figure.year_invalid': '--year "{value}" no es válido: usa los cuatro dígitos del ejercicio de la declaración, de {min} a {max}. No se escribió nada.',
+  'annual.figure.filed_on_invalid': '--filed-on "{value}" no es un día real: usa AAAA-MM-DD (por ejemplo 2026-03-20). No se escribió nada.',
+  'annual.figure.source_required': 'Falta --source: di de qué declaración se tomó la cifra (su número de operación). No se escribió nada.',
+  'annual.figure.filed_on_not_after_year': '--filed-on {value} no puede ser la fecha de presentación de la declaración de {year}: la anual se presenta después de que termina su ejercicio. No se escribió nada.',
+  'annual.figure.filed_on_in_future': '--filed-on {value} es posterior a hoy ({today}): sólo se registra una declaración ya presentada. No se escribió nada.',
+  'annual.figure.dry_run': 'Simulación: la captura es válida; no se escribió nada.',
+  'annual.figure.next': 'Sigue: `mnemosine filing workpaper generate --period <AAAA-MM> --form isr`.',
+  'income_tax_input.year_out_of_range': 'El ejercicio de la declaración fuente va de {min} a {max}: {year} queda fuera.',
+  'income_tax_input.filed_on_not_a_day': '"{value}" no es un día real (AAAA-MM-DD): no puede ser la fecha de presentación de la declaración.',
+  'income_tax_input.value_too_large': '"{value}" no cabe: una cifra tiene a lo más quince dígitos antes del punto.',
   'help.diot.description':
     'DIOT de México: armar el mes a partir de operaciones pagadas, verificarlo y exportar el papel de trabajo',
   'help.diot.generate.description':
