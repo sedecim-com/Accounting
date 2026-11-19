@@ -13,6 +13,8 @@ vi.mock('../../src/services/audit/audit-log.js', () => ({
 
 import {
   planSatChartImport,
+  memorandumClassifier,
+  rowsInAHierarchyCycle,
   importSatChart,
   renderSatChartImportReport,
   type ExistingAccountRow,
@@ -351,6 +353,70 @@ describe('planSatChartImport · el tipo de cuenta', () => {
         expect(p.aCrear.map((c) => [c.code, c.accountType])).toEqual([['G', 'asset']]);
         expect(p.omitidas).toEqual([]);
       });
+    });
+  });
+
+  // MNE-001-419: the opening classifies with THIS walk, so it has to mark
+  // exactly the file codes chart import leaves out or declares in conflict.
+  describe('memorandumClassifier · the walk chart import and the opening share', () => {
+    const chain = [
+      { numCta: 'M', codAgrup: '801', nivel: 1 },
+      { numCta: 'C', codAgrup: '', subCtaDe: 'M', nivel: 2 },
+      { numCta: 'G', codAgrup: '', subCtaDe: 'C', nivel: 3 },
+      { numCta: 'P', codAgrup: '101', nivel: 1 },
+      { numCta: 'Q', codAgrup: '', subCtaDe: 'P', nivel: 2 },
+    ];
+    const orders = [
+      ['M, C, G', chain],
+      ['G, C, M', [...chain].reverse()],
+      ['C, G, M', [chain[1], chain[2], chain[0], chain[4], chain[3]]],
+    ] as const;
+    const fixtures: [string, ExistingAccountRow[]][] = [
+      ['nothing exists yet', []],
+      ['M and C already exist', [existente({ code: 'M', codigo_agrupador_sat: '801' }), existente({ code: 'C', codigo_agrupador_sat: null })]],
+      ['M exists and lost its agrupador', [existente({ code: 'M', codigo_agrupador_sat: null })]],
+    ];
+
+    for (const [order, rows] of orders) {
+      for (const [label, existing] of fixtures) {
+        it(`${order}, ${label}: marks M, C and G and nothing of the ordinary subtree`, () => {
+          const read = readCtaCatalogo(archivo([...rows]));
+          const isMemorandum = memorandumClassifier(read.rows, existing);
+          const marked = read.rows.map((r) => r.numCta).filter(isMemorandum).sort();
+          expect(marked).toEqual(['C', 'G', 'M']);
+
+          const p = planSatChartImport(read, existing);
+          const leftOut = p.omitidas.filter((o) => o.motivo === 'cuentas_de_orden').map((o) => o.code);
+          const inLedger = p.findings.filter((f) => f.regla === 'IMP-ORDEN-YA-EN-EL-MAYOR').map((f) => f.numCta);
+          expect([...leftOut, ...inLedger].sort()).toEqual(marked);
+        });
+      }
+    }
+
+    it('walks the entity own tree, and a code in neither tree is never memorandum', () => {
+      const isMemorandum = memorandumClassifier(
+        [{ numCta: 'G', codAgrup: '', subCtaDe: 'C' }],
+        [
+          { code: 'M', codigo_agrupador_sat: '801', parent_code: null },
+          { code: 'C', codigo_agrupador_sat: null, parent_code: 'M' },
+        ]
+      );
+      expect(['M', 'C', 'G'].map(isMemorandum)).toEqual([true, true, true]);
+      expect(isMemorandum('8000')).toBe(false);
+      expect(isMemorandum('')).toBe(false);
+    });
+
+    it('rowsInAHierarchyCycle names the rows chart import refuses with IMP-CICLO, and none of a sound file', () => {
+      const looped = readCtaCatalogo(
+        archivo([
+          { numCta: 'A', subCtaDe: 'B', nivel: 2 },
+          { numCta: 'B', subCtaDe: 'A', nivel: 2 },
+          { numCta: 'Z' },
+        ])
+      );
+      expect(rowsInAHierarchyCycle(looped.rows).map((r) => r.numCta)).toEqual(['A', 'B']);
+      expect(planSatChartImport(looped, []).omitidas.map((o) => o.code)).toEqual(['A', 'B']);
+      expect(rowsInAHierarchyCycle(readCtaCatalogo(archivo([...chain])).rows)).toEqual([]);
     });
   });
 

@@ -579,6 +579,12 @@ interface PaymentRow {
   /** MNE-001-458 · the base and IVA an advance's cash on account splits into; absent: credited whole. */
   advance_base_amount?: string | null;
   advance_iva_amount?: string | null;
+  /**
+   * MNE-001-508 · a vendor cheque in the functional currency the bank has not
+   * cashed yet: its entries release no IVA, and the cashing does
+   * (`conciliarCheque`). A price paid by cheque is paid when it is cashed.
+   */
+  holdsIvaUntilCashed?: boolean;
 }
 
 /**
@@ -730,10 +736,11 @@ export async function postCustomerPaymentEntry(
     { autoPost: true, client, sourceType: 'customer_payment', sourceId: payment.id, reference: payment.payment_number }
   );
 
-  // The IVA THIS application released is stored on its row, so unapplying it
-  // re-parks that exact amount instead of re-deriving it under another
-  // context. Invariant 3: scoped through the payment's entity, only a live
-  // allocation that has not recorded a release yet, and zero rows is loud.
+  // The IVA THIS application released is stored on its row, 0 included, so
+  // unapplying it re-parks that exact amount instead of re-deriving it under
+  // another context. Invariant 3: scoped through the payment's entity, only a
+  // live allocation that has not recorded a release yet, and a missed row is
+  // loud.
   for (const item of iva.items) {
     const stored = await client.query(
       `UPDATE payment_allocations pa SET iva_reclass_amount = $1
@@ -748,6 +755,34 @@ export async function postCustomerPaymentEntry(
         'PAYMENT_ALLOCATION_NOT_FOUND',
         `${payment.payment_number}: no live allocation to invoice ${item.documentId} is waiting for its ` +
           'released IVA, so the amount an unapply would re-park cannot be recorded.'
+      );
+    }
+  }
+  // Whatever is still waiting released nothing: a PUE invoice, a PPD release
+  // capped to 0, or an entity off cash-basis books. NULL is left to the rows
+  // written before this store, the only ones an unapply still estimates.
+  const unreleased = await client.query<{ id: string }>(
+    `SELECT pa.id FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id
+      WHERE cp.entity_id = $2 AND pa.payment_id = $1
+        AND pa.unapplied_at IS NULL AND pa.iva_reclass_amount IS NULL
+        FOR UPDATE OF pa`,
+    [payment.id, payment.entity_id]
+  );
+  if (unreleased.rows.length > 0) {
+    const zeroed = await client.query(
+      `UPDATE payment_allocations pa SET iva_reclass_amount = 0
+         FROM customer_payments cp
+        WHERE cp.id = pa.payment_id AND cp.entity_id = $2
+          AND pa.id = ANY($1::uuid[])
+          AND pa.unapplied_at IS NULL AND pa.iva_reclass_amount IS NULL`,
+      [unreleased.rows.map((r) => r.id), payment.entity_id]
+    );
+    if (zeroed.rowCount !== unreleased.rows.length) {
+      throw new AccountingError(
+        'PAYMENT_ALLOCATION_NOT_FOUND',
+        `${payment.payment_number}: ${unreleased.rows.length} live allocations released no IVA and ` +
+          `${zeroed.rowCount ?? 0} recorded it, so an unapply could not tell them from rows that never stored one.`
       );
     }
   }
@@ -1180,7 +1215,11 @@ export async function postVendorApplicationEntry(
         appliedNow: app.amount,
       }));
       const parked = await ivaStillParked(client, 'received', payment.entity_id, app.invoiceId);
-      const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
+      // A held cheque credits nothing here; the written-off share below still
+      // leaves 1135, because it was never going to be paid.
+      const liberable = payment.holdsIvaUntilCashed
+        ? new Decimal(0)
+        : Decimal.min(new Decimal(bruto), new Decimal(parked));
 
       // ── EL IVA DEL SALDO CONDONADO ──────────────────────────────────
       //
@@ -1463,7 +1502,9 @@ export async function postVendorPaymentEntry(
 
   const bank = await bankAccountOf(client, payment.entity_id, payment.bank_account_id);
   const bankId = bank.glAccountId;
-  const iva = await ivaReclassLines(client, 'received', payment, fx ? ivaFxOf(fx) : undefined);
+  const iva = payment.holdsIvaUntilCashed
+    ? { lines: [], documents: [], items: [] }
+    : await ivaReclassLines(client, 'received', payment, fx ? ivaFxOf(fx) : undefined);
   // The IVA each application born with this payment released, 0 included,
   // stored on its row (105) so `payment unapply` re-parks it exactly instead
   // of re-deriving it under another context.

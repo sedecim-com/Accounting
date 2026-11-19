@@ -50,6 +50,8 @@ interface FakeState {
   bankGl?: string | null;
   /** rowCount of the guarded UPDATEs of a collection (1 by default). */
   updateRows?: number;
+  /** Live allocations of the collection still waiting for their released IVA. */
+  unreleased?: string[];
 }
 
 let state: FakeState;
@@ -95,6 +97,7 @@ function fakeClient(): pg.PoolClient {
           .map((role) => ({ role, account_id: `acct:${role}` })),
       };
     }
+    if (sql.includes('FOR UPDATE OF pa')) return { rows: (state.unreleased ?? []).map((id) => ({ id })) };
     if (sql.includes('FROM payment_allocations pa') || sql.includes('FROM payment_applications pa')) {
       return { rows: state.applied };
     }
@@ -381,6 +384,21 @@ describe('customer payment applied to a PPD invoice', () => {
     const update = sqlLog.find((q) => q.startsWith('UPDATE payment_allocations'));
     expect(update).toMatch(/cp\.entity_id = \$4/);
     expect(update).toMatch(/iva_reclass_amount IS NULL/);
+  });
+
+  // MNE-001-459: what released nothing stores 0, so NULL keeps meaning "never stored".
+  it('stores 0 on the live allocations that released nothing, and is loud when one is missed (invariant 3)', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PUE' };
+    state.applied = [appliedInvoice()];
+    state.unreleased = ['alloc-1'];
+
+    await postCustomerPaymentEntry(fakeClient(), payment(), USER);
+    const zero = sqlLog.find((q) => q.includes('SET iva_reclass_amount = 0'));
+    expect(zero).toMatch(/cp\.entity_id = \$2/);
+    expect(zero).toMatch(/pa\.unapplied_at IS NULL AND pa\.iva_reclass_amount IS NULL/);
+
+    state.updateRows = 0;
+    await expect(postCustomerPaymentEntry(fakeClient(), payment(), USER)).rejects.toThrow(/1 live allocations released no IVA and 0 recorded it/);
   });
 
   // MNE-001-491 keeps the method test on the issued side: even with its IVA

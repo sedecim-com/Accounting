@@ -2614,6 +2614,8 @@ const mundoDeFirma =
     if (/FROM vendor_payments/.test(text) && /FOR UPDATE/.test(text)) {
       return filas([pagoConCheque(over.pago)]);
     }
+    // MNE-001-508: the cashing's write is guarded, and one row is the answer it expects.
+    if (/UPDATE vendor_payments/.test(text)) return { rows: [], rowCount: 1 };
     if (/ya_usado_por/.test(text)) {
       return filas(
         over.movimientoDeCobro === null ? [] : [movimientoDeCobro(over.movimientoDeCobro)]

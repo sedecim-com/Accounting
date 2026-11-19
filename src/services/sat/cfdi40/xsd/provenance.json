@@ -1,5 +1,5 @@
 {
-  "note": "The SAT official CFDI 4.0 schemas (Anexo 20), byte for byte as published: CRLF line endings. Never edit one: download it again from its url, then update downloaded and sha256. .gitattributes keeps git from normalizing them. catCFDI.xsd is the SAT's own 6 MB catalog of enumerations; it is vendored whole so the validator never reaches the network.",
+  "note": "The SAT official CFDI 4.0 schemas (Anexo 20), byte for byte as published: CRLF line endings. Never edit one: download it again from its url, then update downloaded and sha256. .gitattributes keeps git from normalizing them. catCFDI.xsd is the SAT's own 6 MB catalog of enumerations; it is vendored whole so the validator never reaches the network. nomina12.xsd and catNomina.xsd are the payroll complement 1.2 and its catalog (#600), under the same rule.",
   "files": [
     {
       "path": "cfd/4/cfdv40.xsd",
@@ -18,6 +18,18 @@
       "url": "http://www.sat.gob.mx/sitio_internet/cfd/tipoDatos/tdCFDI/tdCFDI.xsd",
       "downloaded": "2026-09-30",
       "sha256": "b3b81fe4017b95d5477f23a32f47e8b0571683cfddfff1330508c75e02b504cd"
+    },
+    {
+      "path": "cfd/nomina/nomina12.xsd",
+      "url": "http://www.sat.gob.mx/sitio_internet/cfd/nomina/nomina12.xsd",
+      "downloaded": "2026-11-19",
+      "sha256": "ac5db22ceee35c2224aad8745a3ab968c9c3d04d36adb50d056c83c4c1a29083"
+    },
+    {
+      "path": "cfd/catalogos/Nomina/catNomina.xsd",
+      "url": "http://www.sat.gob.mx/sitio_internet/cfd/catalogos/Nomina/catNomina.xsd",
+      "downloaded": "2026-11-19",
+      "sha256": "aeabf62f9901d75d5dccf0fbed13dd9dca6295e5b0ef40c9d89edcae3c641bc9"
     }
   ]
 }

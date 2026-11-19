@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 245 of 389 subcommands
+  spelling is `-T` at the root and `-t` on the 246 of 392 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -95,6 +95,7 @@ Commands:
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   filing|declaracion                     Tax returns of the entity: the working papers behind them
+  annual|anual                           The annual return of the entity: the figures read off it once it is filed
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
   tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
   garnishment|embargo                    Court-ordered wage withholding: file an order, see the cascade, stop it
@@ -2463,6 +2464,7 @@ Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
   -t, --tenant <id>                        tenant (firm) whose data to scope to
   -u, --user <email>                       acting user, for attribution and permissions
+  --chart <file>                           the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the footing and named with the source figure
   --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
   --json                                   shorthand for --format json
   -o, --output <path>                      write to a file instead of stdout
@@ -2473,6 +2475,8 @@ Options:
 Examples:
   # Exits 0 when the ledger equals the source to the peso, 4 when it does not.
   mnemosine opening-balance check ./migration/balanza-2025-12.xml
+  # With the migration's catalog, its memorandum accounts (8xx) stay out of the footing, each one named.
+  mnemosine opening-balance check ./migration/balanza-2025-12.xml --chart ./migration/catalogo.xml
 ```
 
 ## `mnemosine entry` (alias: poliza, asiento)
@@ -8502,6 +8506,74 @@ Examples:
     mnemosine filing workpaper generate --period 2026-05 --form iva --json -o papel-2026-05.json
   The ISR with the PTU paid in the year and the provisional payments already made:
     mnemosine filing workpaper generate --period 2026-05 --form isr --ptu-paid 24000 --prior-provisional 15000.40
+```
+
+## `mnemosine annual` (alias: anual)
+
+```
+Usage: mnemosine annual|anual [options] [command]
+
+The annual return of the entity: the figures read off it once it is filed
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  figure|cifra    Figures of a filed annual return that the provisional payments
+                  need
+  help [command]  display help for command
+```
+
+### `mnemosine annual figure` (alias: cifra)
+
+```
+Usage: mnemosine annual figure|cifra [options] [command]
+
+Figures of a filed annual return that the provisional payments need
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  record|registrar [options]  Record a figure of a filed annual return, with
+                              that return as its source and who captured it
+  help [command]              display help for command
+```
+
+#### `mnemosine annual figure record` (alias: registrar)
+
+```
+Usage: mnemosine annual figure record|registrar [options]
+
+Record a figure of a filed annual return, with that return as its source and who
+captured it
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --kind <kind>                            which figure it is: profit_coefficient
+  --value <figure>                         the figure as the return states it: zero or more, up to four decimals
+  --year <yyyy>                            fiscal year of the annual return
+  --filed-on <date>                        day the return, or its amendment, was filed (YYYY-MM-DD)
+  --source <text>                          how you identify that return: its operation number
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  -h, --help                               display help for command
+
+This records what a filed return states. It files nothing, and the latest capture of a return is the one in force.
+A return that gave no coefficient is not captured: the paper then uses the latest return captured within five years (LISR art. 14 fr. I).
+
+Examples:
+  See the row the profit coefficient of the 2025 return would leave, writing nothing:
+    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operation 000111" --dry-run
+  Its amendment, filed later: a new capture that takes over, and the earlier one stays:
+    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json
 ```
 
 ## `mnemosine isn`

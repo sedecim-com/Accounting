@@ -1,8 +1,8 @@
 {
   "_": "SUELO DEL CATÁLOGO. Lo comprueba `npx tsx scripts/catalogo-estado.ts --check`, que corre en CI.",
   "_por_que": "El bloque generado publica el número de hoy, y regenerarlo lo actualiza — así que por sí solo no impide un retroceso: bastaría con borrar un comando y regenerar. Este archivo es el trinquete: sólo sube, y sube en el MISMO commit que gana el terreno, igual que la lista --exigir de plan:status.",
-  "invocables": 264,
-  "fase1Invocables": 218,
+  "invocables": 265,
+  "fase1Invocables": 219,
   "_ajuste_s07": "S0.7 bajó el suelo 94→92 y 86→84 SIN ceder terreno: el medidor contaba las dos filas-contrato («no es un comando», dice su propia celda) como comandos invocables de fase 1. La corrección del instrumento baja la cifra y el suelo baja con ella.",
   "_f01": "F01 subió el suelo 92→110 y 84→102: las 17 filas pendientes de account/entry/ledger ganaron comando (más role list/seed que ya tenían backend), en el mismo commit que ganó el terreno.",
   "_f02": "F02 subió el suelo 110→119 y 102→108: el espejo gana familia cfdi (list/show/status/explain), rep gana missing list y reconcile.",
@@ -49,5 +49,6 @@
   "_mne_001_145": "MNE-001-145 (#442) raises the floor 244->246 and 204->206: `e-accounting catalog seal` and `balance seal` are the two phase-1 rows that were `catalog file` and `balance file`. They promised to transmit to the SAT, which offers no web service for it; they now seal the archived file with the vault e.firma under sellar_con_custodia, and the upload stays in the SAT portal.",
   "_mne_001_143": "MNE-001-143 (#440) raises the floor 255->261 and 209->215: `sat download create|check|status|list`, `sat package download` and `sat quota show` are six PHASE 1 rows. The engine of MNE-001-142 gets its command surface: the ZIP of each package is archived by bytes with its SHA-256 before anything is read from it, and with --import its XML enters through the ingestion of MNE-001-096 marked sat_download.",
   "_mne_001_119": "MNE-001-119 (#312) sube invocables 255->256 y fase1Invocables 209->210: nace `sat download reconcile`, la fila de fase 1 que lee el censo del SAT contra lo contabilizado y es la cifra que el despacho vende (\u00abtenemos el 100 % de tus CFDI del mes\u00bb). No usa la e.firma ni sale al SAT.",
-  "_mne_001_418": "MNE-001-418 (#620, part 5/5) raises the floor 263->264 and 217->218: `cfdi post` is a PHASE 1 row, the terminal command over postIssuedCfdiByHand. Without a model, a CFDI the entity issued becomes its customer invoice and its entry in one act; the old row promised an AI draft and was open to the agent, and it is now irreversible and human-only. The tree measures more slack than that, which other slices won."
+  "_mne_001_418": "MNE-001-418 (#620, part 5/5) raises the floor 263->264 and 217->218: `cfdi post` is a PHASE 1 row, the terminal command over postIssuedCfdiByHand. Without a model, a CFDI the entity issued becomes its customer invoice and its entry in one act; the old row promised an AI draft and was open to the agent, and it is now irreversible and human-only. The tree measures more slack than that, which other slices won.",
+  "_mne_001_457": "MNE-001-457 (#622, part 1/2) raises the floor 264->265 and 218->219: `annual figure record` is a new PHASE 1 row. It captures the profit coefficient of a filed annual return with its source and who captured it; without it the provisional ISR of `filing workpaper generate`, a phase-1 paper, blocked every entity with ISR-WP-NO-COEFFICIENT. The pending tax losses join the same row in MNE-001-420, which does not move the floor."
 }

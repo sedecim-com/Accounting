@@ -653,6 +653,9 @@ export async function recordVendorPayment(
         payment_date: entrada.paymentDate,
         bank_account_id: entrada.bankAccountId ?? null,
         journal_entry_id: null,
+        // MNE-001-508: `fx` is null in the functional currency; a foreign
+        // cheque keeps crediting on its payment day.
+        holdsIvaUntilCashed: entrada.paymentMethod === 'check' && !fx,
       },
       userId,
       fx ?? undefined
@@ -1414,12 +1417,21 @@ export async function applyCustomerPayment(
       posteriores,
       userId
     );
+    // 0 included (MNE-001-459), on any entity: NULL is left to rows written
+    // before anyone stored it. Invariant 3: only the live row that has not
+    // recorded a release, of a receipt of this entity, and a miss is loud.
     for (const fila of filas) {
-      const iva = ivaPorFactura.get(fila.invoiceId);
-      if (iva) {
-        await client.query(
-          `UPDATE payment_allocations SET iva_reclass_amount = $1 WHERE id = $2`,
-          [iva, fila.allocId]
+      const stored = await client.query(
+        `UPDATE payment_allocations SET iva_reclass_amount = $1 WHERE id = $2
+            AND unapplied_at IS NULL AND iva_reclass_amount IS NULL
+            AND payment_id = (SELECT id FROM customer_payments WHERE id = $3 AND entity_id = $4)`,
+        [ivaPorFactura.get(fila.invoiceId) ?? '0', fila.allocId, pago.id, entityId]
+      );
+      if (stored.rowCount !== 1) {
+        throw new AccountingError(
+          'PAYMENT_ALLOCATION_NOT_FOUND',
+          `${pago.payment_number}: the allocation just written is not waiting for its released IVA, ` +
+            'so the amount an unapply would re-park cannot be recorded.'
         );
       }
     }
@@ -1534,8 +1546,8 @@ export async function unapplyCustomerPayment(
     const conIva = vivas.rows.filter((r) => r.iva_reclass_amount !== null);
     const sinIva = vivas.rows.filter((r) => r.iva_reclass_amount === null);
     const ivaExacto = conIva.reduce((s, r) => s.plus(r.iva_reclass_amount as string), new Decimal(0));
-    // A row with no stored IVA (written before migration 049, or a PPD release
-    // capped to 0) is estimated pro-rata, and the entry says so. Only a PPD
+    // A row with no stored IVA (written before MNE-001-459 stored 0 on every
+    // new row) is estimated pro-rata, and the entry says so. Only a PPD
     // invoice on cash-basis books parked IVA (LIVA art. 1o.-B); the books are
     // read first, so an entity off Mexican books never reads a MetodoPago.
     // Stored IVA is a fact of the ledger and is never gated.
@@ -2063,6 +2075,8 @@ interface PagoProveedorVivo {
   bank_account_id: string | null;
   journal_entry_id: string | null;
   status: string;
+  payment_method: string;
+  check_cleared_tx_id: string | null;
 }
 
 /** El pago, acotado por entidad y con candado. */
@@ -2073,7 +2087,8 @@ async function pagoProveedorParaEscribir(
 ): Promise<PagoProveedorVivo> {
   const r = await client.query<PagoProveedorVivo>(
     `SELECT id, payment_number, vendor_id, payment_amount, currency_code,
-            payment_date, bank_account_id, journal_entry_id, status
+            payment_date, bank_account_id, journal_entry_id, status,
+            payment_method, check_cleared_tx_id
        FROM vendor_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
     [paymentId, entityId]
   );
@@ -2343,6 +2358,10 @@ export async function applyVendorPayment(
         id: pago.id, entity_id: entityId, payment_number: pago.payment_number,
         payment_amount: pago.payment_amount, payment_date: pago.payment_date,
         bank_account_id: pago.bank_account_id, journal_entry_id: null,
+        // MNE-001-508: a cheque not cashed yet credits no IVA; its cashing does.
+        holdsIvaUntilCashed:
+          pago.payment_method === 'check' && pago.check_cleared_tx_id === null &&
+          pago.currency_code === (await functionalCurrencyOf(client, entityId)),
       },
       posteriores,
       userId,
@@ -2404,7 +2423,8 @@ export async function applyVendorPayment(
 
 /**
  * An undo cannot be dated before the payment's last posted event: the ledger
- * would undo it before it happened.
+ * would undo it before it happened. A cheque's cashing entry
+ * (`bank_check_clearing`, MNE-001-508) is one of those events.
  */
 async function assertAfterLastEvent(
   client: pg.PoolClient,
@@ -2416,7 +2436,7 @@ async function assertAfterLastEvent(
   const last = await client.query<{ d: string | null }>(
     `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
       WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
-        AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication')`,
+        AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing')`,
     [entityId, vp.id]
   );
   const since = last.rows[0]?.d ?? toCalendarDate(vp.payment_date);
@@ -2727,12 +2747,13 @@ export async function reverseVendorPayment(
       throw new AccountingError('REVERSE_RACE', `${vp.payment_number} changed while it was being reversed; nothing was written.`);
     }
 
-    // Every posted event of the payment not yet mirrored, oldest first.
+    // Every posted event of the payment not yet mirrored, oldest first, the
+    // cashing of a cheque included: reversed, it leaves nothing in 1130.
     // FOR UPDATE because reverseWithinTransaction expects the caller to hold it.
     const entries = await client.query<JournalEntry>(
       `SELECT * FROM journal_entries
         WHERE entity_id = $1 AND source_id = $2 AND status = 'posted' AND reversed_by_entry_id IS NULL
-          AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication')
+          AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing')
         ORDER BY created_at
         FOR UPDATE`,
       [entityId, paymentId]

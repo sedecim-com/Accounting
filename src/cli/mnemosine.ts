@@ -151,6 +151,7 @@ import { registerAnexo24MigrationCommands } from './anexo24-migration-command.js
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
 import { registerFilingWorkpaperCommand } from './filing-workpaper-command.js';
+import { registerAnnualFigureCommand } from './annual-figure-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerGarnishmentCommand } from './garnishment-command.js';
 import { registerEmployeeCommand } from './employee-command.js';
@@ -2427,7 +2428,7 @@ ingest.action(async (files: string[], opts: {
       if (cnt.draft > 0) console.log(c.dim('Review the drafts with: mnemosine review'));
       const leftToCode = leftToCodeSummary(report);
       if (leftToCode) console.log(leftToCode);
-      if (cnt.blocked > report.toCode) console.log(c.dim('Answer the questions with: mnemosine questions'));
+      if (cnt.blocked > report.toCode + report.toInbox) console.log(c.dim('Answer the questions with: mnemosine questions'));
       // El registro es best-effort y NO cambia el código de salida — los CFDI
       // clasificados son verdad aunque la anotación falle. Pero el operador se
       // entera aquí, donde mira, y no sólo cuando pasó hace veinte minutos.
@@ -3551,6 +3552,9 @@ registerPayCalendarCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
 registerFilingWorkpaperCommand(program, { palette: c, shutdown, reportError });
+// MNE-001-457 (#622): the profit coefficient of a filed annual return, which
+// the ISR of the workpaper above cannot settle without.
+registerAnnualFigureCommand(program, { palette: c, shutdown, reportError });
 // F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y
 // `tax-deposit` (el pasivo patronal, que lleva IMSS e INFONAVIT además del
 // ISN — colgarlo de `isn` habría sido mentira).
