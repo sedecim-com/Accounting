@@ -11,12 +11,13 @@ import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { ingestCfdiFiles, type DraftCapture } from '../../src/ai/ingest-service.js';
 import { OpenAiCompatSession } from '../../src/ai/providers/openai-compat.js';
 import { approveDraft, canonicalDraftHash, getDraft, type DraftLine, type Reviewer } from '../../src/ai/draft-service.js';
-import { seedPolicies } from '../../src/services/policy/policy-service.js';
+import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-service.js';
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { registerIssuedInvoice } from '../../src/services/xml-ingestion/issued-invoice-approval.js';
 import { recordCustomerPayment } from '../../src/services/payments/payment-service.js';
 import { buildIvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { repXml } from './helpers/rep-xml.js';
+import { reprocesarREPsAparcados } from '../../src/services/xml-ingestion/rep-pendientes.js';
 import type { AgentContext } from '../../src/ai/context.js';
 import type { ResolvedProfile } from '../../src/ai/providers/types.js';
 
@@ -383,5 +384,229 @@ describe('the shared receivables core: one CFDI, one invoice', () => {
       client.release();
     }
     expect(await invoicesOf(uuid)).toHaveLength(0);
+  });
+});
+
+// MNE-001-524 (#672): the lookup used to take the oldest invoice with the
+// REP's UUID, whatever its status. A void or cancelled invoice holds no
+// receivable, so the REP settles the live one, and goes to review by name when
+// there is none or more than one.
+describe('an issued REP settles the live invoice that carries its UUID, never an annulled one', () => {
+  const svc = new PreRegistrationService();
+  const REP_DAY = new Date(Date.UTC(2026, 7, 25));
+  const SALE = { total: '9280.00', iva: 1280 };
+  const POLICY_KEYS = ['rep_pago_no_registrado', 'rep_documento_desconocido', 'rep_voided_document'];
+
+  beforeAll(() => useNewTenant('MNE-001-524 REP settles the live invoice'));
+
+  /** An invoice written straight to the table, as an opening import or a voided one leaves it. */
+  async function insertInvoice(number: string, uuid: string, status: string, createdAt = 'NOW()'): Promise<string> {
+    const id = uuidv4();
+    await query(
+      `INSERT INTO invoices (id, entity_id, invoice_number, customer_id, subtotal, tax_amount, total_amount, amount_due,
+         currency_code, invoice_date, due_date, status, cfdi_uuid, created_by, created_at)
+       SELECT $1, $2, $3, c.id, 8000, 1280, 9280, 9280, 'MXN', '2026-08-20', '2026-08-20', $4, $5, $6, ${createdAt}
+         FROM customers c WHERE c.entity_id = $2 AND c.tax_id = $7`,
+      [id, f.entityId, number, status, uuid, f.userId, CUSTOMER_RFC]
+    );
+    return id;
+  }
+
+  async function uploadRep(paid: string, alsoPays?: string) {
+    const repUuid = uuidv4().toUpperCase();
+    const rep = await svc.processXMLUpload(
+      f.entityId,
+      repXml({ cfdiUuid: paid, ...SALE }, repUuid, {
+        issuerRfc: OWN_RFC, issuerName: 'Demo Corp MX', receiverRfc: CUSTOMER_RFC, date: REP_DAY,
+        alsoPays: alsoPays ? { cfdiUuid: alsoPays, ...SALE } : undefined,
+      }),
+      'manual_upload', f.userId
+    );
+    return { repUuid, preRegistration: rep.preRegistration as Record<string, unknown> };
+  }
+
+  /** The review a REP is sent to: its reason, read from the refusal. */
+  async function reviewOf(preRegistration: Record<string, unknown>): Promise<string> {
+    const refusal = await svc.processToAccounting(preRegistration, f.userId).catch((e: unknown) => e);
+    expect(refusal).toMatchObject({ code: 'CFDI_REQUIERE_DECISION' });
+    return (refusal as Error).message;
+  }
+
+  const paymentsLinkedTo = async (repUuid: string) => (await query<{ id: string; payment_amount: string }>(
+    `SELECT id, payment_amount::text FROM customer_payments WHERE entity_id = $1 AND cfdi_uuid = $2`, [f.entityId, repUuid]
+  )).rows;
+  const paymentCount = async () => Number((await query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM customer_payments WHERE entity_id = $1`, [f.entityId]
+  )).rows[0].n);
+  const invoiceById = async (id: string) => (await query<{ status: string; amount_due: string }>(
+    `SELECT status, amount_due::text FROM invoices WHERE id = $1 AND entity_id = $2`, [id, f.entityId]
+  )).rows[0];
+  const allocatedTo = async (paymentId: string) => (await query<{ invoice_id: string }>(
+    `SELECT invoice_id FROM payment_allocations WHERE payment_id = $1`, [paymentId]
+  )).rows.map((a) => a.invoice_id);
+  // The entity's own panel rows, answered and reopened in place: a case here answers one key several times.
+  async function setPolicy(key: string, value: string): Promise<void> {
+    await clearPolicies([key]);
+    await resolvePolicy({ tenantId: f.tenantId, entityId: f.entityId }, key, value, f.userId, 'test');
+  }
+  const clearPolicies = (keys = POLICY_KEYS) => query(
+    `UPDATE policy_decisions SET status = 'pending', resolved_value = NULL
+      WHERE tenant_id = $1 AND entity_id = $2 AND key = ANY($3::text[])`,
+    [f.tenantId, f.entityId, keys]
+  );
+
+  it.each([
+    ['a void invoice created first', 'void', `NOW() - interval '1 day'`],
+    ['a void invoice created after', 'void', `NOW() + interval '1 day'`],
+    ['a cancelled invoice created first', 'cancelled', `NOW() - interval '1 day'`],
+  ])('next to %s, the REP pays the live invoice and moves its VAT from 2125 to 2120', async (_case, status, createdAt) => {
+    const { xml, uuid } = issued();
+    const annulledId = await insertInvoice(`INV-ANNULLED-${uuid.slice(0, 8)}`, uuid, status, createdAt);
+    const posted = await approve(await ingest(xml, PPD_SALE));
+    const live = (await invoicesOf(uuid)).find((i) => i.id !== annulledId)!;
+    const parkedBefore = await balanceOf('2125', posted.entryId);
+    const dueBefore = await balanceOf('2120', posted.entryId);
+
+    const rep = await uploadRep(uuid);
+    const linked = await svc.processToAccounting(rep.preRegistration, f.userId);
+
+    expect(await allocatedTo(linked.paymentId!)).toEqual([live.id]);
+    expect(await invoiceById(live.id)).toEqual({ status: 'paid', amount_due: '0.0000' });
+    expect(await invoiceById(annulledId)).toEqual({ status, amount_due: '9280.0000' });
+    expect(await balanceOf('2125', posted.entryId)).toBeCloseTo(parkedBefore + 1280, 2);
+    expect(await balanceOf('2120', posted.entryId)).toBeCloseTo(dueBefore - 1280, 2);
+  });
+
+  // The two cases below share one CFDI: its draft waits while the only invoice with its UUID is void.
+  let parked: { uuid: string; draftId: string; voidId: string; collectionId: string; repId: string; repUuid: string };
+
+  it('only a void invoice, with a collection already applied to it: review naming it under every policy; nothing is linked', async () => {
+    const { xml, uuid } = issued();
+    const draftId = await ingest(xml, PPD_SALE);
+    const voidId = await insertInvoice('INV-VOID-ONLY', uuid, 'sent');
+    const collection = await recordCustomerPayment(
+      {
+        entityId: f.entityId, paymentAmount: '9280', paymentDate: '2026-08-25', paymentMethod: 'spei',
+        applications: [{ documentId: voidId, amountApplied: '9280' }],
+      },
+      f.userId
+    );
+    // What POST /v1/invoices/:id/void leaves: a void invoice that keeps its collection.
+    const voided = await query(`UPDATE invoices SET status = 'void' WHERE id = $1 AND entity_id = $2 AND status = 'paid'`, [voidId, f.entityId]);
+    expect(voided.rowCount).toBe(1);
+    const rep = await uploadRep(uuid);
+    parked = { uuid, draftId, voidId, collectionId: collection.paymentId, repId: rep.preRegistration.id as string, repUuid: rep.repUuid };
+    const before = await paymentCount();
+
+    try {
+      for (const unrecorded of ['crear_pago', 'revision']) {
+        for (const unknown of ['esperar', 'postear_sin_iva', 'preguntar']) {
+          for (const voidedDocument of ['review', 'post_live_documents']) {
+            await setPolicy('rep_pago_no_registrado', unrecorded);
+            await setPolicy('rep_documento_desconocido', unknown);
+            await setPolicy('rep_voided_document', voidedDocument);
+            const reason = await reviewOf(rep.preRegistration);
+            expect(reason, `${unrecorded}/${unknown}/${voidedDocument}`).toMatch(/INV-VOID-ONLY \(void\)/);
+          }
+        }
+      }
+    } finally {
+      await clearPolicies();
+    }
+    expect(await paymentsLinkedTo(rep.repUuid)).toEqual([]);
+    expect(await paymentCount()).toBe(before);
+    const old = (await query<{ cfdi_uuid: string | null }>(
+      `SELECT cfdi_uuid FROM customer_payments WHERE id = $1 AND entity_id = $2`, [collection.paymentId, f.entityId]
+    )).rows[0];
+    expect(old.cfdi_uuid).toBeNull();
+  });
+
+  it('the way out: once the draft of that CFDI is approved, rep reconcile links the REP to the live invoice', async () => {
+    await approve(parked.draftId);
+    const live = (await invoicesOf(parked.uuid)).find((i) => i.id !== parked.voidId)!;
+
+    const retried = await reprocesarREPsAparcados(f.entityId, f.userId, { service: svc });
+    expect(retried.detalles).toContainEqual({ id: parked.repId, resultado: 'ligado' });
+
+    const [payment] = await paymentsLinkedTo(parked.repUuid);
+    expect(payment.id).not.toBe(parked.collectionId);
+    expect(await allocatedTo(payment.id)).toEqual([live.id]);
+    expect(await invoiceById(live.id)).toEqual({ status: 'paid', amount_due: '0.0000' });
+  });
+
+  it('two live invoices with the UUID: review naming both, and no payment', async () => {
+    const { xml, uuid } = issued();
+    await approve(await ingest(xml, PPD_SALE));
+    const [first] = (await query<{ invoice_number: string }>(
+      `SELECT invoice_number FROM invoices WHERE entity_id = $1 AND cfdi_uuid = $2`, [f.entityId, uuid]
+    )).rows;
+    await insertInvoice('INV-TWIN', uuid, 'sent');
+    const before = await paymentCount();
+
+    const rep = await uploadRep(uuid);
+    const reason = await reviewOf(rep.preRegistration);
+
+    expect(reason).toContain(first.invoice_number);
+    expect(reason).toContain('INV-TWIN');
+    expect(await paymentCount()).toBe(before);
+    expect((await invoicesOf(uuid)).map((i) => i.status)).toEqual(['sent', 'sent']);
+  });
+
+  it('one payment for a void invoice and a live one: review by default; post_live_documents collects the live one and keeps a warning', async () => {
+    const { xml, uuid: liveUuid } = issued();
+    const posted = await approve(await ingest(xml, PPD_SALE));
+    const [live] = await invoicesOf(liveUuid);
+    const voidUuid = uuidv4().toUpperCase();
+    const voidId = await insertInvoice('INV-VOID-SHARED', voidUuid, 'void');
+    const rep = await uploadRep(voidUuid, liveUuid);
+    const before = await paymentCount();
+    const parkedBefore = await balanceOf('2125', posted.entryId);
+    const dueBefore = await balanceOf('2120', posted.entryId);
+
+    try {
+      for (const unknown of ['esperar', 'postear_sin_iva', 'preguntar']) {
+        await setPolicy('rep_documento_desconocido', unknown);
+        expect(await reviewOf(rep.preRegistration), unknown).toMatch(/INV-VOID-SHARED \(void\)/);
+      }
+      expect(await paymentCount()).toBe(before);
+      expect(await invoiceById(live.id)).toEqual({ status: 'sent', amount_due: '9280.0000' });
+      await clearPolicies();
+
+      // The REP already holds a warning: the new one is appended, not written over it.
+      await query(
+        `UPDATE pre_registrations SET validation_warnings = '["earlier warning"]'::jsonb WHERE id = $1 AND entity_id = $2`,
+        [rep.preRegistration.id, f.entityId]
+      );
+      await setPolicy('rep_voided_document', 'post_live_documents');
+      const linked = await svc.processToAccounting(rep.preRegistration, f.userId);
+
+      expect(await paymentsLinkedTo(rep.repUuid)).toEqual([{ id: linked.paymentId, payment_amount: '9280.0000' }]);
+      expect(await allocatedTo(linked.paymentId!)).toEqual([live.id]);
+      expect(await paymentCount()).toBe(before + 1);
+    } finally {
+      await clearPolicies();
+    }
+    expect(await invoiceById(live.id)).toEqual({ status: 'paid', amount_due: '0.0000' });
+    expect(await invoiceById(voidId)).toEqual({ status: 'void', amount_due: '9280.0000' });
+    expect(await balanceOf('2125', posted.entryId)).toBeCloseTo(parkedBefore + 1280, 2);
+    expect(await balanceOf('2120', posted.entryId)).toBeCloseTo(dueBefore - 1280, 2);
+    const saved = (await query<{ status: string; validation_status: string; validation_warnings: string[] }>(
+      `SELECT status, validation_status, validation_warnings FROM pre_registrations WHERE id = $1 AND entity_id = $2`,
+      [rep.preRegistration.id, f.entityId]
+    )).rows[0];
+    expect(saved).toMatchObject({ status: 'completed', validation_status: 'warnings' });
+    expect(saved.validation_warnings).toEqual(['earlier warning', expect.stringMatching(/INV-VOID-SHARED \(void\)/)]);
+  });
+
+  it('the REP writes the UUID in lower case and the invoice holds it in upper case: it links', async () => {
+    const { xml, uuid } = issued();
+    await approve(await ingest(xml, PPD_SALE));
+    const [live] = await invoicesOf(uuid);
+
+    const rep = await uploadRep(uuid.toLowerCase());
+    const linked = await svc.processToAccounting(rep.preRegistration, f.userId);
+
+    expect(await allocatedTo(linked.paymentId!)).toEqual([live.id]);
+    expect(await invoiceById(live.id)).toEqual({ status: 'paid', amount_due: '0.0000' });
   });
 });

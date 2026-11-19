@@ -407,6 +407,23 @@ export const EN = {
   'policy.rep_unknown_document.option.preguntar':
     'Ask for the VAT amount',
 
+  'policy.rep_voided_document.question':
+    'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',
+  'policy.rep_voided_document.impact':
+    'Applies to a receipt the entity issued. With "review" the whole payment waits for a person, so the VAT of the live invoice stays as not yet collected until then. With "post_live_documents" the payment is recorded for the live invoices only and their VAT is released; the share of the annulled invoice stays unbooked, with a warning saved on the receipt.',
+  'policy.rep_voided_document.rationale':
+    'A receipt is issued only when the money is actually received (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, question 11), so one that names an invoice the books voided contradicts them, and only a person can say which is wrong; ADR-0006 picks the option that does not post without review, as `rep_documento_desconocido` does by waiting. A firm that books straight from CFDIs may post the live documents, whose VAT is caused when collected (LIVA arts. 1o.-B, 11 and 17).',
+  'policy.rep_voided_document.why':
+    'When one bank movement pays several invoices and one of them is void or cancelled in the books, either the receipt or the books are wrong. Some firms want to settle that before anything is recorded; others want the invoices that do stand collected at once.',
+  'policy.rep_voided_document.what':
+    'By default I send the whole payment to review and name the annulled invoice. With "post_live_documents" I collect the live invoices, apply nothing to the annulled one and save a warning that names it.',
+  'policy.rep_voided_document.if_skipped':
+    'The whole payment goes to review, naming the annulled invoice.',
+  'policy.rep_voided_document.option.review':
+    'Review: hold the whole payment and name the annulled invoice',
+  'policy.rep_voided_document.option.post_live_documents':
+    'Post the live invoices and leave the annulled one unbooked, with a warning',
+
   'policy.rep_match_window_days.question':
     'How many days apart can the receipt date and the recorded payment be and still be the same event?',
   'policy.rep_match_window_days.impact':

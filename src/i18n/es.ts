@@ -364,6 +364,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.rep_unknown_document.option.preguntar':
     'Preguntar el importe del IVA',
 
+  'policy.rep_voided_document.question':
+    'Un pago de un complemento (REP) cubre una factura viva y otra que los libros anularon: ¿qué pasa?',
+  'policy.rep_voided_document.impact':
+    'Aplica a un complemento que la entidad emitió. Con «review» todo el pago espera a una persona, así que el IVA de la factura viva sigue como no cobrado hasta entonces. Con «post_live_documents» el pago se registra sólo por las facturas vivas y su IVA se libera; la parte de la factura anulada queda sin registrar, con un aviso guardado en el complemento.',
+  'policy.rep_voided_document.rationale':
+    'Un complemento se emite sólo cuando el dinero efectivamente se recibe (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, pregunta 11), así que uno que nombra una factura que los libros anularon los contradice, y sólo una persona puede decir cuál está mal; el ADR-0006 elige la opción que no registra sin revisión, como hace `rep_documento_desconocido` al esperar. Un despacho que contabiliza directo de los CFDI puede registrar los documentos vivos, cuyo IVA se causa cuando se cobra (LIVA arts. 1o.-B, 11 y 17).',
+  'policy.rep_voided_document.why':
+    'Cuando un movimiento de banco paga varias facturas y una de ellas está anulada o cancelada en los libros, o el complemento o los libros están mal. Unos despachos quieren aclararlo antes de registrar nada; otros quieren cobrar de una vez las facturas que sí siguen en pie.',
+  'policy.rep_voided_document.what':
+    'Por omisión mando todo el pago a revisión y nombro la factura anulada. Con «post_live_documents» cobro las facturas vivas, no aplico nada a la anulada y guardo un aviso que la nombra.',
+  'policy.rep_voided_document.if_skipped':
+    'Todo el pago va a revisión, nombrando la factura anulada.',
+  'policy.rep_voided_document.option.review':
+    'Revisión: detener todo el pago y nombrar la factura anulada',
+  'policy.rep_voided_document.option.post_live_documents':
+    'Registrar las facturas vivas y dejar la anulada sin registrar, con un aviso',
+
   'policy.rep_match_window_days.question':
     '¿Cuántos días de diferencia puede haber entre la fecha del complemento y la del pago registrado para que sigan siendo el mismo evento?',
   'policy.rep_match_window_days.impact':
