@@ -196,14 +196,17 @@ describe('payment unapply: the duplicated 80,000 transfer can be undone, dated',
     expect(await stillParked()).toEqual(['1280.0000', '1280.0000']);
   }, 120_000);
 
+  // MNE-001-492: a PUE with VAT parks it now, so its application releases it
+  // (the PUE's own re-park is in mne-001-492-received-pue-parks). With no VAT
+  // there is nothing to release.
   it('an application that released no IVA stores 0, and unapplies re-parking nothing', async () => {
-    const { billId, vendorId } = await approvedBill(f, '1000.00', '160.00', 'PUE');
+    const { billId, vendorId } = await approvedBill(f, '1000.00', '0.00', 'PUE');
     const pay = await recordVendorPayment(
-      { entityId: f.entityId, counterpartyId: vendorId, paymentAmount: '1160.00', paymentDate: PAID_ON,
+      { entityId: f.entityId, counterpartyId: vendorId, paymentAmount: '1000.00', paymentDate: PAID_ON,
         paymentMethod: 'spei', applications: [], onAccount: true },
       f.userId
     );
-    await applyVendorPayment(f.entityId, pay.paymentId, [{ documentId: billId, amountApplied: '1160.00' }], f.userId);
+    await applyVendorPayment(f.entityId, pay.paymentId, [{ documentId: billId, amountApplied: '1000.00' }], f.userId);
     const r = await unapplyVendorPayment(f.entityId, pay.paymentId, { billId, reason: 'Gasto equivocado' }, f.userId);
     expect(r.ivaReparked).toBe('0.00');
     const lines = await linesOf(r.journalEntry.id);

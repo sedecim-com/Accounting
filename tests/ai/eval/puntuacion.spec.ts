@@ -119,6 +119,22 @@ describe('puntuarCaso', () => {
     expect(p.clases.cuentas).toEqual({ aciertos: 3, total: 3 });
   });
 
+  // MNE-001-493: a received PUE parks its VAT as a PPD does, so the treatment
+  // the draft must show is the expected entry's, not the CFDI's label.
+  it('a received PUE scores the treatment of its expected entry: 1135 against vendors hits, 1130 against a bank misses', () => {
+    const expected: EsperadoGolden = { ...ESPERADO_PPD, caso: 'pue', tratamiento: 'PUE' };
+    expect(puntuarCaso(expected, OBSERVADO_PERFECTO).clases.tratamiento).toEqual({ aciertos: 1, total: 1 });
+    const paid = puntuarCaso(expected, {
+      resultado: 'draft',
+      lineas: [
+        { cuenta: '6100', lado: 'cargo', monto: '12000.00' },
+        { cuenta: '1130', lado: 'cargo', monto: '1920.00' },
+        { cuenta: '1111', lado: 'abono', monto: '13920.00' },
+      ],
+    });
+    expect(paid.clases.tratamiento).toEqual({ aciertos: 0, total: 1 });
+  });
+
   it('el lado importa: un abono donde iba el cargo no casa la línea', () => {
     const p = puntuarCaso(ESPERADO_PPD, {
       resultado: 'draft',
