@@ -1706,9 +1706,11 @@ async function insertarFacturaDePreRegistro(
   buildLines: () => BillLineRow[]
 ): Promise<{ billId: string; billNumber: string; vendorId: string }> {
   // ING-3 (#320): the last door before `bills`, shared by `bill inbox run` and
-  // the draft approval. A pre-registration born before the direction existed
-  // can still say 'bill' for a CFDI the entity issued; its own sale is never
-  // its expense, whatever the row says.
+  // the draft approval. Migration 332 (#670) re-typed to 'invoice' the open rows
+  // born 'bill' before the direction existed, with this same predicate. The
+  // guard stays for what it left: a row consumed or rejected by then, and an
+  // entity whose RFC changed since. Its own sale is never its expense, whatever
+  // the row says.
   const own = await db.query<{ emisor_rfc: string }>(
     `SELECT x.emisor_rfc FROM xml_documents x JOIN legal_entities le ON le.id = x.entity_id
       WHERE x.id = $1 AND x.entity_id = $2 AND UPPER(TRIM(x.emisor_rfc)) = UPPER(TRIM(le.tax_id))`,
