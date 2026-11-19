@@ -19,6 +19,12 @@ export interface AdvanceSplit {
   taxRate: string | null;
   base: string;
   iva: string;
+  /**
+   * MNE-001-462 · The excess of a collection left on account whose treatment
+   * nobody stated takes the one of the invoices it collects: their numbers,
+   * and what was assumed when they carry several (`treatmentOfSale`).
+   */
+  from?: { invoices: string; assumed: 'highest' | 'exempt' | null };
 }
 
 export function isAdvanceTreatment(value: string): value is AdvanceTreatment {
@@ -99,4 +105,42 @@ export function takeFromAdvance(t: AdvanceTake): { plain: string; base: string; 
     : new Decimal(t.iva).times(after).dividedBy(total).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
   const iva = Decimal.min(Decimal.max(target.minus(t.cancelled), 0), fromAdvance);
   return { plain: applied.minus(fromAdvance).toFixed(4), base: fromAdvance.minus(iva).toFixed(4), iva: iva.toFixed(4) };
+}
+
+/**
+ * MNE-001-462 · What the cash an unapply puts back on account carries, on a
+ * receipt recorded with a treatment.
+ *
+ * Under the owner's «no re-park» (#623, 17 Nov 2026; LIVA art. 1-B) the cash
+ * on account of such a receipt is a taxed advance: its IVA was caused when it
+ * was collected, by the invoice it paid or by the advance it was, and an
+ * unapply moves no money. So the part of an allocation that took no advance
+ * (`plain`, the record-time cash of a collection with an excess) goes back as
+ * an advance at the receipt's own treatment, as part 6 returns an advance at
+ * its declared rate (#623, comment 7005284036), split row by row as the
+ * advance itself was (`splitAdvance`). Unapply posts it, and the advance a
+ * later application consumes, and the IVA paper, read it with this same
+ * function, so the three agree to the cent.
+ */
+export function backAsAdvance(plain: readonly string[], treatment: AdvanceTreatment): { cash: string; base: string; iva: string } {
+  let cash = new Decimal(0);
+  let iva = new Decimal(0);
+  for (const p of plain) {
+    if (!new Decimal(p).greaterThan(0)) continue;
+    cash = cash.plus(p);
+    iva = iva.plus(splitAdvance(new Decimal(p).toFixed(2), treatment).iva);
+  }
+  return { cash: cash.toFixed(4), base: cash.minus(iva).toFixed(4), iva: iva.toFixed(4) };
+}
+
+/** MNE-001-462 · The note an entry carries when the excess took its treatment from the invoices it collects. */
+export function advanceSourceNote(split: Pick<AdvanceSplit, 'treatment' | 'from'>): string {
+  if (!split.from) return '';
+  const rate = split.treatment === 'exempt' ? ', exempt' : split.treatment === 'not-subject' ? ', not subject to IVA' : ` at ${split.treatment} %`;
+  const why = split.from.assumed === 'highest'
+    ? ' (several rates: the highest assumed)'
+    : split.from.assumed === 'exempt'
+      ? ' (several treatments, none with IVA: exempt assumed)'
+      : '';
+  return ` · excess on account is an advance${rate}, from ${split.from.invoices}${why}`;
 }
