@@ -2150,6 +2150,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'ingest.census.more_invalid': '… y {count} más',
   'ingest.census.loaded': 'Censo cargado de {file}: {inserted} nuevos, {refreshed} ya conocidos.',
   'ingest.census.dry_run': '(dry-run: el censo se leyó, no se cargó.)',
+  // MNE-001-144 (#441): las cancelaciones del SAT en el censo llegan al espejo y a la factura.
+  'ingest.census.marks':
+    'Cancelados por el SAT: {mirror, plural, one {# CFDI marcado} other {# CFDI marcados}} en el espejo, ' +
+    '{invoices, plural, one {# factura marcada como cancelada} other {# facturas marcadas como canceladas}}.',
+  'ingest.census.cancelled_booked':
+    '{document} ({date}) lleva el CFDI {uuid}, que el SAT reporta cancelado. No se revirtió nada: ' +
+    'su estado, su póliza y su saldo se quedan hasta que el contador decida.',
+  'ingest.census.document.invoice': 'Factura {number}',
+  'ingest.census.document.credit_note': 'Nota de crédito {number}',
+  'ingest.census.document.bill': 'Factura de proveedor {number}',
   'help.ingest.description':
     'Ingesta por lote de CFDI (XML): reglas → clasificación por IA → borradores (o alta ' +
     'automática según los umbrales)',

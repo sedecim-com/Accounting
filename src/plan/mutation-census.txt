@@ -455,6 +455,9 @@ mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/xml-ingestion/s
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its entity scope: another entity carrying the same UUID is marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/sat/cfdi-status.ts	the bridge loses its state predicate: a draft or failed CFDI could be marked cancelled
 mirror	memory	E3.2 sat-cancellation-reaches-invoice	src/services/ar/ar-controls.ts	the control reads a value the bridge never writes: it never fires
+mirror	memory	E3.2 sat-metadata-cancellation-reaches-invoice	src/services/sat-census/cancellations.ts	the mirror learns the cancellation and the invoice never does: the AR control stays quiet over a cancelled CFDI
+mirror	memory	E3.2 sat-metadata-cancellation-reaches-invoice	src/services/sat-census/cancellations.ts	the mirror UPDATE loses its state predicate: a row already cancelled is rewritten on every load
+mirror	memory	E3.2 sat-metadata-cancellation-reaches-invoice	src/cli/ingest-census.ts	runCensus loads the cancellation into the census and never runs the marks: the mirror and the invoice keep saying current
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the client reaches the vault itself: the key is decrypted outside withCredential, with no log row and no daily cap
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the signing runs through another path: the cap, the anomaly policy and the log are skipped
 mirror	memory	E3.2 sat-auth-signs-through-withcredential	src/services/sat-download/authentication.ts	the log row calls an authentication with the SAT a healthcheck: the use is not auditable as what it was
@@ -1166,6 +1169,9 @@ anchor	src/plan/criteria/e3-2.ts	de: 'await markInvoiceCfdiCancelled(d.entity_id
 anchor	src/plan/criteria/e3-2.ts	de: 'WHERE entity_id = $1',
 anchor	src/plan/criteria/e3-2.ts	de: "AND cfdi_status = 'stamped'",
 anchor	src/plan/criteria/e3-2.ts	de: "cfdi_status = 'cancelled' AND amount_due > 0",
+anchor	src/plan/criteria/e3-2.ts	de: 'invoices += await markInvoiceCfdiCancelled(scope.entityId, row.u);',
+anchor	src/plan/criteria/e3-2.ts	de: "AND xd.sat_validation_status IS DISTINCT FROM 'cancelled'",
+anchor	src/plan/criteria/e3-2.ts	de: 'const marked = await markCensusCancellations(opts.scope, ...span);',
 anchor	src/plan/criteria/e3-2.ts	de: "import { withCredential } from '../fiscal-credentials/service.js';",
 anchor	src/plan/criteria/e3-2.ts	de: 'await withCredential(',
 anchor	src/plan/criteria/e3-2.ts	de: "purpose: 'sat_auth'",
