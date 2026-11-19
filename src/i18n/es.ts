@@ -2750,6 +2750,22 @@ export const ES: Record<keyof typeof EN, string> = {
     '¿Dejar en BORRADOR la apertura del ejercicio {year} al {date} (Debe {debit} · Haber {credit})? ' +
     'No entra al mayor hasta que la apliques con `entry post`.',
   'migration.check.as_of': 'Al {date} · {comparison}',
+  // ---- MNE-001-419 (#621): what --chart refuses ----
+  'migration.chart_option.other_rfc':
+    'El catálogo de --chart es del RFC {fileRfc} y la entidad es {entityRfc}. No se usa: el catálogo de otro ' +
+    'contribuyente no puede decir qué cuentas de esta entidad son de orden.',
+  'migration.chart_option.not_importable':
+    'El catálogo de --chart es uno que chart import no tomaría, así que no puede decir qué cuentas son de ' +
+    'orden: {findings}. Corrige el archivo en el origen y vuelve a exportarlo.',
+  'migration.chart_option.hierarchy_cycle':
+    'La jerarquía del catálogo de --chart se muerde la cola: {rows}. chart import rechaza este archivo y la ' +
+    'apertura también: corrige el SubCtaDe en el origen.',
+  'migration.check.memorandum_inside_account':
+    'El origen cuelga dinero de cuentas de orden (8xx) dentro de una cuenta del mayor, así que el saldo que esa ' +
+    'cuenta declara incluye dinero que queda fuera del balance: {detail}. Cada cuenta va seguida de sus filas de ' +
+    'orden, con el saldo que el origen declara, y de su neto, con el cargo en positivo. No se cotejó nada: una ' +
+    'apertura que lleve ese dinero saldría igual al peso con dinero de cuentas de orden dentro del balance. ' +
+    'Corrige la jerarquía en el catálogo de origen (SubCtaDe) y vuelve a exportar los dos archivos; ver {doctrine}.',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',
   'help.period.list.description': 'Lista todos los periodos con su estado, sus fechas y la marca de vencido',
@@ -2963,6 +2979,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.opening_balance.import.option.reason': 'por qué se carga la apertura; va a la bitácora de auditoría',
   'help.opening_balance.check.description':
     'Compara la balanza de origen contra el mayor en el día de apertura, al peso; sale con 4 si difieren',
+  'help.opening_balance.check.option.chart':
+    'el XML CatalogoCuentas de la misma migración: sus cuentas de orden (8xx) quedan fuera del cuadre, ' +
+    'nombradas con el saldo del origen',
   'help.ar.description':
     'Controles de cuentas por cobrar: concilia el auxiliar contra la cuenta de control y corre diagnósticos por nombre',
   'help.ar.reconcile.description':
