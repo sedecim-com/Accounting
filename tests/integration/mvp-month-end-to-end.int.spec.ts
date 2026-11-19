@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 
 // ============================================================
 // MVP-E2E · THE MONTH OF AN SME, END TO END (#311, MNE-001-097)
@@ -1603,9 +1604,154 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     }, STEP_TIMEOUT_MS);
   });
 
+  // THE FORTNIGHT IS JANUARY 2026'S (MNE-001-414; decided on 2026-11-15 in
+  // #311). The payroll law of the repository starts on 2026-01-01: there is no
+  // 2025 fortnightly tariff and no 2025 subsidy, so a December fortnight would
+  // be refused, and none is loaded. Both employees are hired on 2026-01-01, so
+  // December's close accrues nothing for them, and the fortnight moves no
+  // December figure: step 5·238 reads December's trial balance before and
+  // after it. The fortnight carries an aguinaldo and a vacation premium so
+  // that both ISR caps are read in January, where the 2025 UMA still rules.
+  // The state rate is captured with `isn rate set`: the ISN table is a global
+  // catalog, so `apartarCatalogos` gives it back as it was when the section ends.
   describe('5 · payroll', () => {
-    it.todo('hires two employees and runs and posts a fortnight: ISR with subsidy, IMSS, INFONAVIT, ISN, entry and SUA — MNE-001-066, MNE-001-068, MNE-001-069, MNE-001-070');
-    it.todo('the fortnight figures match the hand-computed ones: employer IMSS, aguinaldo, vacation premium and 2026 subsidy — MNE-001-061, MNE-001-062, MNE-001-063, MNE-001-064');
+    apartarCatalogos('mx_isn_tasas_estatales');
+    const PAYROLL_STATE = 'JAL';
+    // Two workers paid by the day, 15 days each. SBC = daily × 383 / 365 (15
+    // days of aguinaldo and 25 % of 12 vacation days): an input, not a figure.
+    // The salaried one is also paid an aguinaldo; the low earner a vacation premium.
+    const STAFF = [
+      { employee_number: 'N-001', first_name: 'Andrea', last_name: 'Pena Molina', rfc: 'PEMA900101AB1',
+        curp: 'PEMA900101MJCNLN01', nss: '12345678901', sbc: 1049.32,
+        earnings: [{ earning_type: 'salary', amount: 15000, cfdi_clave_sat: '001' },
+          { earning_type: 'aguinaldo', amount: 5000, cfdi_clave_sat: '002' }] },
+      { employee_number: 'N-002', first_name: 'Bruno', last_name: 'Lopez Soto', rfc: 'LOSB920202CD2',
+        curp: 'LOSB920202HJCPTR02', nss: '10987654321', sbc: 335.78,
+        earnings: [{ earning_type: 'salary', amount: 4800, cfdi_clave_sat: '001' },
+          { earning_type: 'prima_vacacional', amount: 2000, cfdi_clave_sat: '021' }] },
+    ] as const;
+    // By hand. In January 2026 the UMA is still 2025's, 113.14 a day:
+    //   aguinaldo exempt        30 × 113.14 = 3,394.20; N-001's ISR base is
+    //                           15,000 + (5,000 − 3,394.20) = 16,605.80
+    //   vacation premium exempt 15 × 113.14 = 1,697.10; N-002's ISR base is
+    //                           4,800 + (2,000 − 1,697.10) = 5,102.90
+    //   subsidy  15.59 % × 113.14 × 30.4 = 536.21 a month, × 15 / 30.4 = 264.58
+    //            (producto_al_centavo, the default). Only N-002 earns it: its
+    //            base is 10,205.80 a month, under the cap of 11,492.66; N-001's
+    //            33,211.60 is over it
+    //   ISN      3 % of the gross, 20,000 + 6,800 = 26,800: 804.00
+    const YEAR_END_BONUS_EXEMPT = '3394.20';
+    const VACATION_PREMIUM_EXEMPT = '1697.10';
+    const ISR_BASE = { 'N-001': '16605.80', 'N-002': '5102.90' } as const;
+    const SUBSIDY = { 'N-001': '0.00', 'N-002': '264.58' } as const;
+    const GROSS = { 'N-001': '20000.00', 'N-002': '6800.00' } as const;
+    const ISN_RATE = '0.03';
+    const ISN = '804.00';
+    let payRunId = '';
+
+    it('hires two employees and runs and posts a fortnight of January 2026: ISR with subsidy, IMSS, INFONAVIT, ISN, entry and SUA — MNE-001-061, MNE-001-066, MNE-001-068, MNE-001-069, MNE-001-070', () => {
+      const december = (): string =>
+        JSON.stringify(rowsOf(ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--json'])));
+      const decemberBefore = december();
+      ok(['year', 'create', '2026']);
+      const [schedule] = rowsOf<{ id: string }>(ok(['pay-schedule', 'create', '--name', 'Quincenal',
+        '--frequency', 'quincenal', '--country', 'MX', '--first-start', '2026-01-01', '--json']));
+      const [period] = rowsOf<{ id: string; start: string; end: string; pay_date: string; tax_year: number }>(
+        ok(['pay-period', 'create', '--schedule', schedule.id, '--count', '1', '--json'])
+      );
+      expect(period).toMatchObject({ start: '2026-01-01', end: '2026-01-15', pay_date: '2026-01-15', tax_year: 2026 });
+
+      const inputs = STAFF.map(({ earnings, ...person }) => {
+        const file = path.join(workDir, `${person.employee_number}.json`);
+        fs.writeFileSync(file, JSON.stringify({ ...person, riesgo_puesto: '01', tipo_regimen_sat: '02',
+          work_state: PAYROLL_STATE, salary_type: 'salary', currency_code: 'MXN' }));
+        const [hired] = rowsOf<{ id: string }>(ok(['employee', 'create', '--file', file, '--country', 'MX',
+          '--hire-date', '2026-01-01', '--pay-schedule', schedule.id, '--json']));
+        return { employee_id: hired.id, earnings };
+      });
+      const inputsFile = path.join(workDir, 'fortnight-2026-01-1.json');
+      fs.writeFileSync(inputsFile, JSON.stringify({ employee_inputs: inputs }));
+
+      const [created] = rowsOf<{ id: string; status: string; tax_year: number }>(
+        ok(['pay-run', 'create', '--period', period.id, '--json'])
+      );
+      expect(created).toMatchObject({ status: 'draft', tax_year: 2026 });
+      payRunId = created.id;
+      const [calculated] = rowsOf<{ status: string; employees: number; gross: string }>(
+        ok(['pay-run', 'calculate', payRunId, '--file', inputsFile, '--json'])
+      );
+      expect({ ...calculated, gross: money(calculated.gross) })
+        .toMatchObject({ status: 'calculated', employees: 2, gross: '26800.00' });
+
+      // With no rate for Jalisco the approval would owe an ISN it cannot
+      // compute: its rehearsal refuses, naming the state, and writes nothing.
+      const unrated = mnemosine(['pay-run', 'approve', payRunId, '--dry-run', '--json']);
+      expect(unrated.status, unrated.out + unrated.err).toBe(4);
+      expect(rowsOf<{ findings: { code: string }[] }>(unrated)[0].findings.map((h) => h.code))
+        .toContain('isn_sin_tasa_capturada');
+      // A synthetic rate for a synthetic month: the basis says so, and cites no law.
+      ok(['isn', 'rate', 'set', PAYROLL_STATE, ISN_RATE, '--effective-from', '2026-01-01',
+        '--legal-basis', 'Synthetic rate of the MVP month spec; not a citation of state law', '-y', '--json']);
+      // `isn calculate --json` publishes its keys in Spanish; they are read as printed, never renamed.
+      const isn = rowsOf<Record<string, string>>(ok(['isn', 'calculate', '--run', payRunId, '--json']));
+      expect(isn.map((r) => [r['estado'], money(r['base']), new Decimal(r['tasa']).toString(), money(r['importe']), r['trabajadores']]))
+        .toEqual([[PAYROLL_STATE, '26800.00', ISN_RATE, ISN, 2]]);
+
+      const [approved] = rowsOf<{ status: string; liabilities: { tax_type: string; amount: string }[] }>(
+        ok(['pay-run', 'approve', payRunId, '--yes', '--json'])
+      );
+      expect(approved.status).toBe('approved');
+      const owed = (tax: string): string =>
+        approved.liabilities.filter((l) => l.tax_type === tax)
+          .reduce((s, l) => s.plus(l.amount), new Decimal(0)).toFixed(2);
+      expect(owed('isn')).toBe(ISN);
+      expect(new Decimal(owed('imss_employer')).gt(0)).toBe(true);
+
+      const [posted] = rowsOf<{ mode: string; entry_date: string; total_debits: string; total_credits: string }>(
+        ok(['pay-run', 'post', payRunId, '--post', '--yes', '--json'])
+      );
+      expect(posted).toMatchObject({ mode: 'posted', entry_date: '2026-01-15' });
+      expect(money(posted.total_credits)).toBe(money(posted.total_debits));
+
+      // The SUA of January: one line per worker, NSS first, and its employer
+      // IMSS and INFONAVIT (cents, after NSS, RFC, CURP and the names, 123,
+      // then SBC 8 and days 2) are what the approval wrote as owed.
+      const sua = path.join(workDir, 'SUA_2026-01.txt');
+      const [exported] = rowsOf<{ employee_count: number; findings: unknown[] }>(
+        ok(['imss', 'sua', 'export', '--period', '2026-01', '-o', sua, '--json'])
+      );
+      expect(exported).toMatchObject({ employee_count: 2, findings: [] });
+      const lines = fs.readFileSync(sua, 'utf8').split('\r\n').filter(Boolean);
+      expect(lines.map((l) => l.slice(0, 11)).sort()).toEqual(STAFF.map((s) => s.nss).sort());
+      const cents = (at: number): string =>
+        lines.reduce((s, l) => s.plus(new Decimal(l.slice(at, at + 10)).div(100)), new Decimal(0)).toFixed(2);
+      expect(cents(133)).toBe(owed('imss_employer'));
+      expect(cents(153)).toBe(owed('infonavit_employer'));
+
+      expect(december(), 'the January fortnight moved a December figure').toBe(decemberBefore);
+    }, STEP_TIMEOUT_MS);
+
+    it('the fortnight figures match the hand-computed ones: aguinaldo and vacation premium exempt, and the January 2026 subsidy — MNE-001-062, MNE-001-063, MNE-001-064', () => {
+      const slips = rowsOf<{ id: string; employee: string }>(ok(['payslip', 'list', '--run', payRunId, '--json']));
+      expect(slips.map((s) => s.employee)).toEqual(['N-001', 'N-002']);
+      type Line = { kind: string; concept: string; amount: string; base: string };
+      const figures = Object.fromEntries(slips.map(({ id, employee }) => {
+        const [slip] = rowsOf<{ gross: string; lines: Line[] }>(ok(['payslip', 'show', id, '--json']));
+        const tax = (concept: string): Line | undefined =>
+          slip.lines.find((l) => l.kind === 'tax' && l.concept === concept);
+        const isrBase = money(tax('isr')?.base);
+        return [employee, {
+          gross: money(slip.gross),
+          isrBase,
+          exempt: new Decimal(slip.gross).minus(isrBase).toFixed(2),
+          subsidy: money(tax('subsidio_empleo')?.amount ?? '0'),
+        }];
+      }));
+      expect(figures).toEqual({
+        'N-001': { gross: GROSS['N-001'], isrBase: ISR_BASE['N-001'], exempt: YEAR_END_BONUS_EXEMPT, subsidy: SUBSIDY['N-001'] },
+        'N-002': { gross: GROSS['N-002'], isrBase: ISR_BASE['N-002'], exempt: VACATION_PREMIUM_EXEMPT, subsidy: SUBSIDY['N-002'] },
+      });
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('6 · month-end close', () => {
