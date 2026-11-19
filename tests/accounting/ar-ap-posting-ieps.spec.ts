@@ -90,8 +90,10 @@ describe('MNE-001-504 · the IEPS move rides on the entry that moves the VAT', (
     await postReceiptApplicationEntry(fakeClient(), payment, [{
       invoiceId: 'inv-1', invoiceNumber: 'INV-1', amount: '626.40', priorApplied: '0',
       taxAmount: '172.80', totalAmount: '1252.80', cfdiUuid: null, terms: null, memo: null,
-    }], 'u1');
+    }], 'u1', '2026-08-20');
     const { description, lines } = posted();
+    // MNE-001-460: the IEPS rides on the entry dated by the event, not the clock.
+    expect((mockCreate.mock.calls.at(-1) as unknown[])[1]).toBe('2026-08-20');
     expect(iepsCausedBy).toHaveBeenCalledWith(expect.anything(), ENTITY, {
       invoiceId: 'inv-1', totalAmount: '1252.80', priorApplied: '0', appliedNow: '626.4000',
     });
@@ -100,7 +102,7 @@ describe('MNE-001-504 · the IEPS move rides on the entry that moves the VAT', (
   });
 
   it('an unapply gives back the figure it is handed, and writes nothing without one', async () => {
-    const app = { invoiceNumber: 'INV-1', amount: '626.40', ivaReclass: '0', ivaEstimado: '0' };
+    const app = { invoiceNumber: 'INV-1', amount: '626.40', ivaReclass: '0', ivaEstimado: '0', date: '2026-08-21' };
     await postReceiptUnapplicationEntry(fakeClient(), payment, {
       ...app, ieps: { invoiceId: 'inv-1', invoiceNumber: 'INV-1', amount: '40.0000' },
     }, 'u1');
@@ -108,6 +110,7 @@ describe('MNE-001-504 · the IEPS move rides on the entry that moves the VAT', (
       expect.objectContaining({ account_id: 'acct:2180', debit_amount: '40.0000' }),
       expect.objectContaining({ account_id: 'acct:2181', credit_amount: '40.0000' }),
     ]);
+    expect((mockCreate.mock.calls.at(-1) as unknown[])[1]).toBe('2026-08-21');
     await postReceiptUnapplicationEntry(fakeClient(), payment, app, 'u1');
     expect(iepsOf(posted().lines)).toEqual([]);
   });

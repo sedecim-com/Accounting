@@ -2336,6 +2336,17 @@ export const EN = {
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
   'receipt.apply.other_customer':
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
+  // MNE-001-460 (#623): an application and an unapply are dated.
+  'receipt.apply.date_future':
+    '{receipt} cannot be applied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was applied.',
+  'receipt.unapply.date_future':
+    '{receipt} cannot be unapplied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was unapplied.',
+  'receipt.apply.date_before_last_event':
+    '{receipt} was last posted on {since}: an application dated {date} would apply its cash before that happened. Date it {since} or later. Nothing was applied.',
+  'receipt.unapply.date_before_last_event':
+    '{receipt} was last posted on {since}: an unapply dated {date} would undo it before it happened. Date it {since} or later. Nothing was unapplied.',
+  'receipt.apply.date_before_invoice':
+    '{invoice} is dated {invoiceDate}: cash applied on {date} would settle it before the sale existed. Date the application {invoiceDate} or later. Nothing was applied.',
   'credit_note.advance.exceeds_invoiced_advance':
     'Credit note {note} applies an advance of {requested}, and customer {customer} has {available} in advance invoices not yet applied. Nothing was posted. Cash on account is applied with `receipt apply`; an advance booked by a journal entry is applied by a journal entry.',
   // MNE-001-489 (#692): why a received credit note waits for a person.
@@ -3110,6 +3121,10 @@ export const EN = {
     'IVA treatment of an advance with no invoice: 16, 8, 0, exempt (exento) or not-subject (no-objeto); the IVA is caused on collection',
   'help.receipt.apply.option.withholding':
     'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
+  'help.receipt.apply.option.date':
+    'day of the application (YYYY-MM-DD), which dates its entry, the allocation and the invoice\'s last payment; defaults to today in the entity\'s time zone',
+  'help.receipt.unapply.option.date':
+    'day of the unapply (YYYY-MM-DD), which dates its entry and the closed allocation; defaults to today in the entity\'s time zone',
   // MNE-001-509 (#701): the reversal states what happened to the money.
   'help.receipt.reverse.description':
     'Reverse a collection whose money did not stay, saying why: mirrors every entry, reopens invoices, re-parks IVA',

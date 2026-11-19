@@ -123,8 +123,13 @@ export interface CustomerListPage {
  *
  * It mirrors what moves the maintained `amount_due`, dated:
  *
- *   - cash: allocations of payments dated on or before the reference date.
- *     Allocations carry no date of their own, so the payment's date counts.
+ *   - cash: allocations applied on or before the reference date. Since
+ *     migration 332 an allocation keeps the day it was applied (`applied_on`:
+ *     the receipt's date when `receipt record` applied it, the date given to
+ *     `receipt apply` otherwise, MNE-001-460). A row written before it has
+ *     none and takes its payment's date, as every row did until then; it does
+ *     carry a `created_at`, which for a later `receipt apply` is the day its
+ *     entry was posted, but reading it would move balances already shown.
  *     A `void` payment never happened. A `reversed` one happened and was
  *     undone, so it counts only until its `reversed_at`; the reversal also
  *     closes its allocations, which the next rule reads.
@@ -150,7 +155,7 @@ export function amountDueAsOfSql(asOfParam: string): string {
           FROM payment_allocations pa
           JOIN customer_payments p ON p.id = pa.payment_id
           WHERE pa.invoice_id = i.id
-            AND p.payment_date <= ${asOf}
+            AND COALESCE(pa.applied_on, p.payment_date) <= ${asOf}
             AND p.status <> 'void'
             AND (p.status <> 'reversed' OR p.reversed_at::date > ${asOf})
             AND (pa.unapplied_at IS NULL OR pa.unapplied_at::date > ${asOf})

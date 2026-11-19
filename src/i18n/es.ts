@@ -2205,6 +2205,17 @@ export const ES: Record<keyof typeof EN, string> = {
     '{invoice} ya registró la retención del cliente ({amount}) al emitirse: su cuenta por cobrar es el neto que paga el cliente. Aplica sólo el efectivo; --withholding es para facturas cuya cuenta por cobrar se registró en bruto.',
   'receipt.apply.other_customer':
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
+  // MNE-001-460 (#623): una aplicación y una desaplicación llevan fecha.
+  'receipt.apply.date_future':
+    'El cobro {receipt} no se puede aplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se aplicó nada.',
+  'receipt.unapply.date_future':
+    'El cobro {receipt} no se puede desaplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se desaplicó nada.',
+  'receipt.apply.date_before_last_event':
+    'El último asiento del cobro {receipt} es del {since}: una aplicación fechada el {date} aplicaría su efectivo antes de que eso ocurriera. Féchala el {since} o después. No se aplicó nada.',
+  'receipt.unapply.date_before_last_event':
+    'El último asiento del cobro {receipt} es del {since}: una desaplicación fechada el {date} lo desharía antes de que ocurriera. Féchala el {since} o después. No se desaplicó nada.',
+  'receipt.apply.date_before_invoice':
+    '{invoice} es del {invoiceDate}: el efectivo aplicado el {date} la saldaría antes de que existiera la venta. Fecha la aplicación el {invoiceDate} o después. No se aplicó nada.',
   'credit_note.advance.exceeds_invoiced_advance':
     'La nota de crédito {note} aplica un anticipo de {requested}, y el cliente {customer} tiene {available} en facturas de anticipo sin aplicar. No se posteó nada. El saldo a cuenta se aplica con `receipt apply`; un anticipo registrado con una póliza se aplica con una póliza.',
   // MNE-001-489 (#692): why a received credit note waits for a person.
@@ -2945,6 +2956,10 @@ export const ES: Record<keyof typeof EN, string> = {
     'tratamiento de IVA de un anticipo sin factura: 16, 8, 0, exempt (exento) o not-subject (no-objeto); el IVA se causa al cobro',
   'help.receipt.apply.option.withholding':
     'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
+  'help.receipt.apply.option.date':
+    'día de la aplicación (AAAA-MM-DD), que fecha su asiento, la aplicación y el último cobro de la factura; por omisión, hoy en la zona horaria de la entidad',
+  'help.receipt.unapply.option.date':
+    'día de la desaplicación (AAAA-MM-DD), que fecha su asiento y la aplicación cerrada; por omisión, hoy en la zona horaria de la entidad',
   // MNE-001-509 (#701): the reversal states what happened to the money.
   'help.receipt.reverse.description':
     'Reversa un cobro cuyo dinero no se quedó, diciendo por qué: espeja cada asiento, reabre facturas y vuelve a aparcar el IVA',
