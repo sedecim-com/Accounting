@@ -3044,6 +3044,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'tratamiento de IVA de un anticipo: 16, 8, 0, exempt (exento) o not-subject (no-objeto); sin factura es obligatorio, y con una declara el del excedente que deja --on-account; el IVA se causa al cobro',
   'help.receipt.record.option.on_account':
     'permite que el importe exceda el saldo de la factura: el excedente queda a cuenta como anticipo y causa su IVA al cobro (LIVA art. 1-B), a la tasa de --tax-rate o a la de la propia factura',
+  // #611: the payer's side of the Anexo 24 payment node.
+  'help.receipt.record.option.check_number':
+    'número del cheque del cliente (con --method check); el XML de pólizas lo declara en el nodo Cheque',
+  'help.receipt.record.option.payer_bank':
+    'clave c_Banco (3 dígitos) del banco del que pagó el cliente; se valida contra la lista del SAT',
+  'help.receipt.record.option.payer_account':
+    'cuenta de la que pagó el cliente (en un cheque, la cuenta contra la que se giró); exige --payer-bank o --payer-foreign-bank',
+  'help.receipt.record.option.payer_foreign_bank':
+    'nombre completo del banco del cliente cuando es extranjero, en lugar de --payer-bank',
   // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
   'help.receipt.apply.description':
     'Aplica el saldo a cuenta de un cobro a facturas: libera el IVA de las PPD, y un anticipo cancela el IVA que causó en vez de causarlo otra vez. Cubre el procedimiento A del Anexo 20, Apéndice 6 (la venta facturada completa); con el procedimiento B el anticipo pasa a ingresos por póliza',
