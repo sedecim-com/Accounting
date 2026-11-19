@@ -909,6 +909,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Cargarlos al 0 % y avisar: no se acredita IVA cuando se paguen',
 
+  'policy.received_line_without_account.question':
+    'Cuando un renglón de un CFDI de proveedor llega a contabilizarse sin cuenta de gasto, ¿qué hago con él?',
+  'policy.received_line_without_account.impact':
+    'Un renglón recibido se contabiliza en su propia cuenta, luego en la que se dio para todo el documento, luego en una sugerencia que no sea cuenta de control. Esto gobierna el renglón que no tiene ninguna de las tres cuando el CFDI se contabiliza desde la bandeja (`bill inbox run`). Con «refuse» no se contabiliza nada: el CFDI se queda en la bandeja y dice qué renglón no tiene cuenta, hasta que alguien lo codifique. Con «role_generic_account» el renglón va a la cuenta que tu catálogo le da al rol de gasto con el que se clasificó el CFDI (gastos generales en una compra ordinaria), y la cuenta por pagar se contabiliza sin que nadie haya elegido la cuenta; cuando la clasificación no tiene un solo rol de gasto con cuenta, se rechaza igual y dice por qué.',
+  'policy.received_line_without_account.rationale':
+    'Una deducción tiene que estar debidamente registrada en contabilidad (LISR art. 27 fr. IV): un gasto registrado en una cuenta genérica que nadie eligió queda registrado, pero no como lo que es. Rechazar es la opción conservadora del ADR-0006, decisión 1: nada se contabiliza sin revisión, y codificar el renglón cuesta un comando.',
+  'policy.received_line_without_account.why':
+    'A veces un CFDI de proveedor llega a contabilizarse con un renglón al que nadie le puso cuenta y sin nada en su historia que sugiera una. O espero a que lo codifiques, o lo registro en la cuenta genérica de gastos para no detener la cuenta por pagar.',
+  'policy.received_line_without_account.what':
+    'Por omisión dejo el CFDI en la bandeja y te digo qué renglón no tiene cuenta. Con «role_generic_account» contabilizo ese renglón en la cuenta del rol de gasto con el que clasifiqué el CFDI.',
+  'policy.received_line_without_account.if_skipped':
+    'No contabilizo nada hasta que cada renglón tenga cuenta.',
+  'policy.received_line_without_account.option.refuse':
+    'No contabilizar nada hasta que alguien le ponga cuenta al renglón',
+  'policy.received_line_without_account.option.role_generic_account':
+    'Contabilizar el renglón en la cuenta genérica de su rol de gasto',
+
   'policy.closing_entries_in_reports.question':
     'Cuando un informe abarca la fecha en que se cerró el ejercicio, ¿sus pólizas de cierre cuentan como actividad?',
   'policy.closing_entries_in_reports.impact':
