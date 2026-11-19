@@ -47,7 +47,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} ieps {traslada IEPS ({detail}), que este camino todavía no contabiliza} local_tax {traslada impuestos locales ({detail}), que este camino todavía no contabiliza} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+  'error.ISSUED_CFDI_PPD_IEPS':
+    'El CFDI {uuid} es una venta PPD que traslada IEPS ({ieps}): ese IEPS se causa al cobro (LIEPS art. 10) y espera en el rol {role} (2181), que no tiene cuenta en esta entidad. Añádela con: npm run backfill:account-roles -- --aplicar. No se posteó nada.',
   'error.ISSUED_CFDI_NOT_OPEN':
     'El CFDI {uuid} no está abierto: su pre-registro está en {status}{invoice, select, none {} other {, como la factura de cliente {invoice}}}. No se posteó nada.',
   'error.ISSUED_CFDI_DRAFT_IN_REVIEW':
@@ -363,6 +365,23 @@ export const ES: Record<keyof typeof EN, string> = {
     'Casar el efectivo y dejar el IVA sin trasladar, con un aviso',
   'policy.rep_unknown_document.option.preguntar':
     'Preguntar el importe del IVA',
+
+  'policy.rep_voided_document.question':
+    'Un pago de un complemento (REP) cubre una factura viva y otra que los libros anularon: ¿qué pasa?',
+  'policy.rep_voided_document.impact':
+    'Aplica a un complemento que la entidad emitió. Con «review» todo el pago espera a una persona, así que el IVA de la factura viva sigue como no cobrado hasta entonces. Con «post_live_documents» el pago se registra sólo por las facturas vivas y su IVA se libera; la parte de la factura anulada queda sin registrar, con un aviso guardado en el complemento.',
+  'policy.rep_voided_document.rationale':
+    'Un complemento se emite sólo cuando el dinero efectivamente se recibe (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, pregunta 11), así que uno que nombra una factura que los libros anularon los contradice, y sólo una persona puede decir cuál está mal; el ADR-0006 elige la opción que no registra sin revisión, como hace `rep_documento_desconocido` al esperar. Un despacho que contabiliza directo de los CFDI puede registrar los documentos vivos, cuyo IVA se causa cuando se cobra (LIVA arts. 1o.-B, 11 y 17).',
+  'policy.rep_voided_document.why':
+    'Cuando un movimiento de banco paga varias facturas y una de ellas está anulada o cancelada en los libros, o el complemento o los libros están mal. Unos despachos quieren aclararlo antes de registrar nada; otros quieren cobrar de una vez las facturas que sí siguen en pie.',
+  'policy.rep_voided_document.what':
+    'Por omisión mando todo el pago a revisión y nombro la factura anulada. Con «post_live_documents» cobro las facturas vivas, no aplico nada a la anulada y guardo un aviso que la nombra.',
+  'policy.rep_voided_document.if_skipped':
+    'Todo el pago va a revisión, nombrando la factura anulada.',
+  'policy.rep_voided_document.option.review':
+    'Revisión: detener todo el pago y nombrar la factura anulada',
+  'policy.rep_voided_document.option.post_live_documents':
+    'Registrar las facturas vivas y dejar la anulada sin registrar, con un aviso',
 
   'policy.rep_match_window_days.question':
     '¿Cuántos días de diferencia puede haber entre la fecha del complemento y la del pago registrado para que sigan siendo el mismo evento?',
@@ -907,6 +926,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Cargarlos al 0 % y avisar: no se acredita IVA cuando se paguen',
 
+  'policy.received_line_without_account.question':
+    'Cuando un renglón de un CFDI de proveedor llega a contabilizarse sin cuenta de gasto, ¿qué hago con él?',
+  'policy.received_line_without_account.impact':
+    'Un renglón recibido se contabiliza en su propia cuenta, luego en la que se dio para todo el documento, luego en una sugerencia que no sea cuenta de control. Esto gobierna el renglón que no tiene ninguna de las tres cuando el CFDI se contabiliza desde la bandeja (`bill inbox run`). Con «refuse» no se contabiliza nada: el CFDI se queda en la bandeja y dice qué renglón no tiene cuenta, hasta que alguien lo codifique. Con «role_generic_account» el renglón va a la cuenta que tu catálogo le da al rol de gasto con el que se clasificó el CFDI (gastos generales en una compra ordinaria), y la cuenta por pagar se contabiliza sin que nadie haya elegido la cuenta; cuando la clasificación no tiene un solo rol de gasto con cuenta, se rechaza igual y dice por qué.',
+  'policy.received_line_without_account.rationale':
+    'Una deducción tiene que estar debidamente registrada en contabilidad (LISR art. 27 fr. IV): un gasto registrado en una cuenta genérica que nadie eligió queda registrado, pero no como lo que es. Rechazar es la opción conservadora del ADR-0006, decisión 1: nada se contabiliza sin revisión, y codificar el renglón cuesta un comando.',
+  'policy.received_line_without_account.why':
+    'A veces un CFDI de proveedor llega a contabilizarse con un renglón al que nadie le puso cuenta y sin nada en su historia que sugiera una. O espero a que lo codifiques, o lo registro en la cuenta genérica de gastos para no detener la cuenta por pagar.',
+  'policy.received_line_without_account.what':
+    'Por omisión dejo el CFDI en la bandeja y te digo qué renglón no tiene cuenta. Con «role_generic_account» contabilizo ese renglón en la cuenta del rol de gasto con el que clasifiqué el CFDI.',
+  'policy.received_line_without_account.if_skipped':
+    'No contabilizo nada hasta que cada renglón tenga cuenta.',
+  'policy.received_line_without_account.option.refuse':
+    'No contabilizar nada hasta que alguien le ponga cuenta al renglón',
+  'policy.received_line_without_account.option.role_generic_account':
+    'Contabilizar el renglón en la cuenta genérica de su rol de gasto',
+
   'policy.closing_entries_in_reports.question':
     'Cuando un informe abarca la fecha en que se cerró el ejercicio, ¿sus pólizas de cierre cuentan como actividad?',
   'policy.closing_entries_in_reports.impact':
@@ -1304,15 +1340,15 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.received_credit_note_cost.option.purchase_returns': 'Devoluciones y descuentos sobre compras (5200): lo que regresan los proveedores se ve aparte',
 
   'policy.employment_subsidy_paid_treatment.question':
-    'Cuando el subsidio para el empleo excede el ISR retenido y le entregas la diferencia en efectivo al trabajador, ¿es una cuenta por cobrar al fisco o un gasto del despacho?',
+    'El subsidio para el empleo sobre el ISR que se le entregó en efectivo al trabajador (la regla anterior al 1 de mayo de 2024): ¿es una cuenta por cobrar al fisco o un gasto del despacho?',
   'policy.employment_subsidy_paid_treatment.impact':
     'Decide si el efectivo que entregas regresa como acreditamiento contra el ISR retenido a otros trabajadores, o cae en gasto de nómina y nunca regresa.',
   'policy.employment_subsidy_paid_treatment.rationale':
     'Es lo que permite la ley y lo que de verdad es el dinero: el patrón adelanta efectivo que la autoridad le devuelve vía acreditamiento. Mandarlo a gasto es decidir renunciar a ese acreditamiento, lo que algunos despachos hacen a propósito cuando los importes son pequeños y el papeleo no vale la pena; pero debe ser una decisión, no la consecuencia de un valor por omisión.',
   'policy.employment_subsidy_paid_treatment.why':
-    'Cuando el subsidio es mayor que el ISR del periodo, el patrón debe entregarle la diferencia en efectivo al trabajador. Ese dinero sale del despacho y sólo regresa si lo acreditas. Dónde lo registras cambia tu gasto de nómina y lo que le debes al SAT este mes.',
+    'Hasta el 30 de abril de 2024, cuando el subsidio era mayor que el ISR del periodo el patrón debía entregarle la diferencia en efectivo al trabajador. Ese dinero salió del despacho y sólo regresa si lo acreditas, así que dónde lo registras cambia tu gasto de nómina y lo que le debes al SAT. Un recibo pagado desde el 1 de mayo de 2024 no entrega nada (decreto DOF 01-05-2024): eso es ley, y esta decisión no le aplica. Sí aplica a un recibo que ya se calculó con ese efectivo.',
   'policy.employment_subsidy_paid_treatment.what':
-    'Calculo el excedente por recibo, lo anoto en el recibo de nómina como efectivo entregado y lo contabilizo en la cuenta que nombra esta política. Con «cuenta_por_cobrar_fisco» además lo compenso contra el ISR retenido que reporta la declaración mensual.',
+    'En un recibo que entregó efectivo, contabilizo ese efectivo en la cuenta que nombra esta política; con «cuenta_por_cobrar_fisco» además lo compenso contra el ISR retenido que reporta la declaración mensual. En un recibo pagado desde el 1 de mayo de 2024 la retención de ISR es cero, no se entrega nada y no contabilizo nada por el excedente, diga lo que diga esta política.',
   'policy.employment_subsidy_paid_treatment.if_skipped':
     'Va a una cuenta por cobrar a la autoridad. Nada se rompe; si tu criterio es absorberlo, el gasto de nómina quedará subestimado hasta que lo digas.',
   'policy.employment_subsidy_paid_treatment.option.cuenta_por_cobrar_fisco':
@@ -1353,6 +1389,23 @@ export const ES: Record<keyof typeof EN, string> = {
     'Recalcularlo una sola vez sobre el ingreso de ambos recibos, y acreditar en el segundo sólo la diferencia',
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'Ninguno en el recibo aparte: una corrida que no es la ordinaria, o un recibo que sólo paga aguinaldo, no lleva subsidio; el recibo ordinario conserva el suyo',
+
+  'policy.imss_old_age_band_edge.question':
+    'Cuando el SBC de un trabajador queda apenas arriba del límite superior de un tramo de la cuota patronal de cesantía en edad avanzada y vejez, ¿qué tramo paga?',
+  'policy.imss_old_age_band_edge.impact':
+    'Decide la tasa de la cuota patronal de cesantía en edad avanzada y vejez de un SBC que cae entre dos tramos de la LSS art. 168 fr. II a), y con ella el recibo, la póliza de nómina, el pasivo patronal y el archivo del SUA. En marzo de 2026 un SBC de 352.00 (3.0006 UMA) paga 6.361 % con "above_upper_edge" (335.86 por quincena) y 6.026 % con "truncated_to_hundredths" (318.17); uno de 316.00 (1.003 salarios mínimos) paga 6.026 % (285.63) o 3.150 % (149.31).',
+  'policy.imss_old_age_band_edge.rationale':
+    'La LSS art. 168 fr. II a) cobra todo SBC pero escribe sus tramos a dos decimales sin regla de redondeo; leer «1.51» como «más de 1.50» conserva cada límite superior como está escrito y nunca calcula menos de lo que la tabla puede exigir.',
+  'policy.imss_old_age_band_edge.why':
+    'La tabla escribe sus límites a dos decimales («3.00 UMA» y luego «3.01 UMA») y no da regla de redondeo, así que la ley no dice qué tramo paga un SBC de 3.0006 UMA. Si el programa con el que determinas tus cuotas trunca, elige esa opción para que ambos den la misma cifra.',
+  'policy.imss_old_age_band_edge.what':
+    'Por cada día cotizado ubico el SBC, topado a 25 UMA, con la UMA y el salario mínimo general vigentes ese día, y cobro la tasa de ese tramo y año de la tabla con fechas. La nota del cálculo nombra el tramo, la tasa y la regla usada.',
+  'policy.imss_old_age_band_edge.if_skipped':
+    'Un SBC arriba de un límite superior paga el tramo siguiente.',
+  'policy.imss_old_age_band_edge.option.above_upper_edge':
+    'Un SBC arriba del límite superior de un tramo, por cualquier monto, paga el tramo siguiente',
+  'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
+    'SBC ÷ salario mínimo y SBC ÷ UMA se cortan a dos decimales y luego se ubican en la tabla',
 
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
@@ -2152,6 +2205,17 @@ export const ES: Record<keyof typeof EN, string> = {
     '{invoice} ya registró la retención del cliente ({amount}) al emitirse: su cuenta por cobrar es el neto que paga el cliente. Aplica sólo el efectivo; --withholding es para facturas cuya cuenta por cobrar se registró en bruto.',
   'receipt.apply.other_customer':
     '{invoice} es del cliente {invoiceCustomer} y el cobro {receipt} es del cliente {receiptCustomer}: el saldo a cuenta sólo salda facturas de su propio cliente. Registra el cobro a nombre de {invoiceCustomer}, o aplica {receipt} a una factura de {receiptCustomer}.',
+  // MNE-001-460 (#623): una aplicación y una desaplicación llevan fecha.
+  'receipt.apply.date_future':
+    'El cobro {receipt} no se puede aplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se aplicó nada.',
+  'receipt.unapply.date_future':
+    'El cobro {receipt} no se puede desaplicar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se desaplicó nada.',
+  'receipt.apply.date_before_last_event':
+    'El último asiento del cobro {receipt} es del {since}: una aplicación fechada el {date} aplicaría su efectivo antes de que eso ocurriera. Féchala el {since} o después. No se aplicó nada.',
+  'receipt.unapply.date_before_last_event':
+    'El último asiento del cobro {receipt} es del {since}: una desaplicación fechada el {date} lo desharía antes de que ocurriera. Féchala el {since} o después. No se desaplicó nada.',
+  'receipt.apply.date_before_invoice':
+    '{invoice} es del {invoiceDate}: el efectivo aplicado el {date} la saldaría antes de que existiera la venta. Fecha la aplicación el {invoiceDate} o después. No se aplicó nada.',
   'credit_note.advance.exceeds_invoiced_advance':
     'La nota de crédito {note} aplica un anticipo de {requested}, y el cliente {customer} tiene {available} en facturas de anticipo sin aplicar. No se posteó nada. El saldo a cuenta se aplica con `receipt apply`; un anticipo registrado con una póliza se aplica con una póliza.',
   // MNE-001-489 (#692): why a received credit note waits for a person.
@@ -2177,10 +2241,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'El tratamiento de IVA sólo se declara para un anticipo sin factura. Este cobro aplica efectivo a una factura, y el efectivo que deja a cuenta todavía no lleva tasa (issue 623).',
   'receipt.advance.not_mexican_books':
     'Esta entidad no lleva libros mexicanos, así que un anticipo no lleva tratamiento de IVA: regístralo sin él y el importe completo va a su cuenta de anticipos de clientes.',
-  'receipt.advance.cheque_not_wired':
-    'Un anticipo recibido con cheque causa su IVA el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo), no el día en que se recibe, y registrar ese cobro todavía no existe (issue 700). No se registró nada.',
-  'receipt.advance.application_not_wired':
-    '{receipt} es un anticipo cuyo IVA se causó al cobrarse. Aplicarlo a una factura tiene que cancelar ese IVA en vez de causarlo otra vez, y eso todavía no está cableado (issue 623, MNE-001-422). No se aplicó nada.',
+  'receipt.advance.cheque_held':
+    'Recibido con cheque, su IVA de {iva} se causa el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo): hasta entonces el importe completo espera en anticipos de clientes, y registrar el cobro con bank check reconcile --receipt pasa el IVA al IVA trasladado ese día.',
   // MNE-001-421 (#623): the advance from the terminal.
   'receipt.advance.needs_customer':
     'Indica la factura que este dinero liquida, o el cliente que lo pagó con --customer: sin factura se registra como anticipo.',
@@ -2188,6 +2250,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'Un anticipo sin factura causa su IVA al cobrarse (LIVA art. 1-B), y la tasa de una venta que aún no ocurre es un dato que tú declaras, nunca un valor por omisión: agrega --tax-rate 16, 8, 0, exempt o not-subject. No se registró nada.',
   'receipt.advance.figures': 'base {base}, IVA {iva}, tasa {rate}',
   'receipt.advance.label': 'Anticipo',
+  'receipt.cheque.cashed_label': 'Cheque cobrado',
+  'receipt.cheque.cashed': '{date} · movimiento bancario {transaction}',
+  'receipt.cheque.not_cashed': 'sin registrar todavía (`bank check reconcile --receipt`)',
   'receipt.advance.confirm':
     '¿Registrar {amount} recibidos de {customer} como anticipo sin factura{figures} en {entity}? Esto postea en el mayor.',
   // MNE-001-509 (#701): a reversed receipt says what happened to the money.
@@ -2196,15 +2261,31 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.reverse.warning.card_not_collected':
     'Este cobro se pagó con tarjeta, y una tarjeta se paga cuando se acepta (LIVA art. 1-B): not_collected dice que el dinero nunca fue tuyo. Si llegó y el banco te lo quitó, como en un contracargo, la causa es taken_back.',
   'receipt.reverse.warning.cause_not_stated':
-    'No se declaró causa, y sólo un cheque tiene una por omisión: el IVA de este cobro se queda en el mes en que se cobró hasta que se declare una causa (not_collected o taken_back).',
+    'No se declaró causa, y sólo un cheque tiene una por omisión: el IVA de este cobro se queda en el mes en que se cobró hasta que se declare una causa (not_collected o taken_back) con `cobro causa registrar`.',
   'receipt.reverse.cause.stated': 'causa {cause}',
   'receipt.reverse.cause.defaulted':
     'causa not_collected, tomada por omisión: un cheque se paga el día que el banco lo cobra',
   'receipt.reverse.cause.none': 'sin causa declarada',
+  // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
+  'receipt.cause.not_reversed':
+    'El cobro {number} está en «{status}»: la causa sólo se declara para un cobro reversado. No se escribió nada.',
+  'receipt.cause.already_stated':
+    'El cobro {number} ya tiene su causa, {cause}, declarada el {stated_at}: una causa declarada no se sobrescribe. No se escribió nada.',
+  'receipt.cause.reason_required':
+    'Declarar la causa de una reversa exige --reason "<por qué>": queda escrito en el rastro de auditoría.',
+  'receipt.cause.would_state': 'Declararía la causa {cause} para la reversa de {number}',
+  'receipt.cause.confirm':
+    '¿Declarar {cause} como la causa de la reversa de {number}? Se escribe una sola vez y no se puede corregir; no postea nada en el mayor.',
+  'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
   'receipt.advance.cfdi_owed':
     'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
   'receipt.advance.invoice_already_booked':
     '{customer} tiene abierta {invoices}, y su propia póliza ya abonó anticipos de clientes: un CFDI de anticipo en libros. El dinero de ese anticipo se registra contra ella (receipt record {invoice}), no como un anticipo nuevo. Sigue sólo si éste es otro anticipo.',
+  // MNE-001-422 / MNE-001-461 (#623): an advance applied to its sale's invoice cancels the IVA it caused.
+  'receipt.advance.iva_cancelled': 'IVA del anticipo cancelado {iva}',
+  'receipt.advance.iva_restored': 'IVA del anticipo devuelto {iva}',
+  'receipt.advance.iva_caused_twice':
+    'El IVA del anticipo, {iva}, que se cancela en {invoice} también se causó en {month} por esa factura, una PUE emitida el día del anticipo o antes (LIVA art. 1-B): el IVA trasladado de ese mes lo llevó dos veces, y esta aplicación lo cancela en su propio mes. Revisa la declaración de {month}.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
@@ -2667,6 +2748,8 @@ export const ES: Record<keyof typeof EN, string> = {
     'Vas a registrar que el banco cobró el cheque {check} el {date} y a reclasificar {amount} de ' +
     'IVA en el periodo {period}. El mayor es inmutable: esto sólo se corrige por reversa. ¿Continuar?',
   'bank.check.reconcile.already_cleared': 'cheque cobrado el {date}',
+  'bank.check.reconcile.changed_meanwhile':
+    'El pago {payment} («{status}») cambió mientras se registraba el cobro de su cheque, o no es un pago completado. No se escribió nada.',
   'bank.check.reconcile.summary':
     '· cobrado el {date} · periodo {period} · IVA reclasificado {amount}',
   'bank.check.reconcile.dry_run': 'Ensayo: se registró el cobro de verdad y se deshizo.',
@@ -2694,6 +2777,26 @@ export const ES: Record<keyof typeof EN, string> = {
     'Sin asiento: este cobro no tiene IVA pendiente de cobro.',
   'bank.check.cashing.note.foreign_currency':
     'Sin asiento: un cheque en moneda extranjera libera su IVA en la fecha del cobro.',
+  'bank.check.cashing.refused.transaction_needed':
+    'El cobro {receipt} no dice a qué cuenta bancaria entró, así que no hay dónde buscar su abono. Nombra el movimiento bancario con `--transaction`.',
+  'bank.check.cashing.refused.no_credit':
+    'No hay ningún abono sin usar de {amount} a partir del {date} en la cuenta bancaria del cobro {receipt}. O el banco todavía no cobra el cheque, o lo abonó por otro importe: nombra el movimiento bancario con `--transaction`.',
+  'bank.check.cashing.refused.several_credits':
+    'Varios abonos de {amount} podrían ser el cheque del cobro {receipt}: {candidates}. No se elige ninguno, porque el equivocado fecha su IVA en el mes equivocado. Nombra el bueno con `--transaction`.',
+  'bank.check.cashing.refused.as_of_differs':
+    'El movimiento bancario {transaction} es del {date}, no del {asOf}, la fecha afirmada con `--as-of` para el cobro {receipt}. El cobro del cheque lo fecha el banco: revisa que ése sea el abono que pagó el cheque.',
+  'bank.check.cashing.refused.several_need_transaction':
+    'Los cobros {receipt} los cobra juntos un solo abono del banco: nómbralo con `--transaction`. No se busca por su suma, que puede coincidir con el depósito de otro día.',
+  'bank.check.cashing.refused.sum_differs':
+    'El movimiento {transaction} es de {creditAmount} y los cobros {receipt} suman {amount}: un abono cobra varios cheques sólo cuando es exactamente su suma.',
+  'bank.check.cashing.refused.credit_matched':
+    'El movimiento {transaction} está ligado por el cotejo vivo {match} a {type} {matched}, que no es ninguno de los cobros {receipt} ni un renglón de banco de sus pólizas: el abono pagó otra cosa. Si ese cotejo está mal, deshazlo con `bank match unapply {match}`.',
+  'bank.check.cashing.check_value': '{check} · cobro {payment}',
+  'bank.check.cashing.why':
+    'por qué: bajo la LIVA el precio pagado con cheque se entiende cobrado el día en que el banco lo COBRA y no ' +
+    'el día en que se recibe, así que el IVA de este cobro se causa en ese mes.',
+  'bank.check.reconcile.one_of':
+    'Nombra exactamente un cheque: el pago a proveedor <id>, o un cobro de cliente con --receipt <ref>.',
   'bank.transaction.show.unmatched': 'sin cotejar',
   'bank.match.create.summary':
     '· banco {bank} = libros {books} + ajustes {adjustments} · residual {residual} ({mode}) · ' +
@@ -2774,6 +2877,45 @@ export const ES: Record<keyof typeof EN, string> = {
     '¿Dejar en BORRADOR la apertura del ejercicio {year} al {date} (Debe {debit} · Haber {credit})? ' +
     'No entra al mayor hasta que la apliques con `entry post`.',
   'migration.check.as_of': 'Al {date} · {comparison}',
+  // ---- MNE-001-419 (#621): what --chart refuses ----
+  'migration.chart_option.other_rfc':
+    'El catálogo de --chart es del RFC {fileRfc} y la entidad es {entityRfc}. No se usa: el catálogo de otro ' +
+    'contribuyente no puede decir qué cuentas de esta entidad son de orden.',
+  'migration.chart_option.not_importable':
+    'El catálogo de --chart es uno que chart import no tomaría, así que no puede decir qué cuentas son de ' +
+    'orden: {findings}. Corrige el archivo en el origen y vuelve a exportarlo.',
+  'migration.chart_option.hierarchy_cycle':
+    'La jerarquía del catálogo de --chart se muerde la cola: {rows}. chart import rechaza este archivo y la ' +
+    'apertura también: corrige el SubCtaDe en el origen.',
+  'migration.check.memorandum_inside_account':
+    'El origen cuelga dinero de cuentas de orden (8xx) dentro de una cuenta del mayor, así que el saldo que esa ' +
+    'cuenta declara incluye dinero que queda fuera del balance: {detail}. Cada cuenta va seguida de sus filas de ' +
+    'orden, con el saldo que el origen declara, y de su neto, con el cargo en positivo. No se cotejó nada: una ' +
+    'apertura que lleve ese dinero saldría igual al peso con dinero de cuentas de orden dentro del balance. ' +
+    'Corrige la jerarquía en el catálogo de origen (SubCtaDe) y vuelve a exportar los dos archivos; ver {doctrine}.',
+  // ---- MNE-001-456 (#621): the load leaves the memorandum accounts out ----
+  'migration.opening.memorandum_excluded':
+    '«{account}» es cuenta de orden (8xx), por su agrupador o porque cuelga de una, y el origen le declara ' +
+    '{amount}. No recibe renglón en el asiento de apertura y queda fuera del mayor: guarda este saldo con los ' +
+    'papeles de trabajo de la migración; ver {doctrine}.',
+  'migration.opening.memorandum_in_ledger':
+    '«{account}» es cuenta de orden (8xx), por su agrupador o porque cuelga de una, y ya existe en esta ' +
+    'entidad como {type}. No recibe renglón en el asiento de apertura (el origen le declara {amount}), pero ' +
+    'según la doctrina ({doctrine}) no debería estar en el mayor: revísala a mano.',
+  'migration.opening.memorandum_inside_account':
+    'El saldo que declara «{account}» incluye dinero de cuentas de orden (8xx) que cuelga dentro de ella y no ' +
+    'suma cero ahí: {rows}, neto {net} con el cargo en positivo. No se carga nada: postear ese saldo metería ' +
+    'dinero de cuentas de orden al balance, y postear menos haría fallar opening-balance check. Corrige la ' +
+    'jerarquía en el catálogo de origen (SubCtaDe) y vuelve a exportar los dos archivos; ver {doctrine}.',
+  'migration.opening.memorandum_document':
+    'El documento «{document}» cuelga de «{account}», que es cuenta de orden (8xx) y no recibe renglón en el ' +
+    'asiento de apertura. Una cuenta de orden no tiene detrás una cuenta por cobrar ni por pagar: quita el ' +
+    'documento del archivo de --subledger, o corrige la cuenta en el origen; ver {doctrine}.',
+  'migration.opening.unknown_account_chart_hint':
+    'Si es cuenta de orden (8xx), pasa el catálogo de la misma migración con --chart <file>: la carga la deja ' +
+    'fuera del asiento y la nombra ({doctrine}).',
+  'migration.opening.memorandum_excluded_header':
+    'Cuentas de orden fuera del asiento, con el saldo que declara el origen ({doctrine}):',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',
   'help.period.list.description': 'Lista todos los periodos con su estado, sus fechas y la marca de vencido',
@@ -2815,13 +2957,28 @@ export const ES: Record<keyof typeof EN, string> = {
     'el cliente que pagó (número, nombre o id); obligatorio sin factura, y con ella debe ser el de la factura',
   'help.receipt.record.option.tax_rate':
     'tratamiento de IVA de un anticipo sin factura: 16, 8, 0, exempt (exento) o not-subject (no-objeto); el IVA se causa al cobro',
+  // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
+  'help.receipt.apply.description':
+    'Aplica el saldo a cuenta de un cobro a facturas: libera el IVA de las PPD, y un anticipo cancela el IVA que causó en vez de causarlo otra vez. Cubre el procedimiento A del Anexo 20, Apéndice 6 (la venta facturada completa); con el procedimiento B el anticipo pasa a ingresos por póliza',
   'help.receipt.apply.option.withholding':
     'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
+  'help.receipt.apply.option.date':
+    'día de la aplicación (AAAA-MM-DD), que fecha su asiento, la aplicación y el último cobro de la factura; por omisión, hoy en la zona horaria de la entidad',
+  'help.receipt.unapply.option.date':
+    'día de la desaplicación (AAAA-MM-DD), que fecha su asiento y la aplicación cerrada; por omisión, hoy en la zona horaria de la entidad',
   // MNE-001-509 (#701): the reversal states what happened to the money.
   'help.receipt.reverse.description':
     'Reversa un cobro cuyo dinero no se quedó, diciendo por qué: espeja cada asiento, reabre facturas y vuelve a aparcar el IVA',
   'help.receipt.reverse.option.cause':
     'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo); sin ella, un cheque toma not_collected y cualquier otro método queda sin causa',
+  // MNE-001-511 (#701): the cause of a reversal, stated afterwards.
+  'help.receipt.cause.description': 'La causa de un cobro reversado: qué pasó con su dinero',
+  'help.receipt.cause.record.description':
+    'Declara la causa de un cobro que se reversó sin ella: se escribe una vez, queda auditada y no postea nada',
+  'help.receipt.cause.record.argument.ref': 'número de cobro o id',
+  'help.receipt.cause.record.option.cause':
+    'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo)',
+  'help.receipt.cause.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',
@@ -2984,9 +3141,15 @@ export const ES: Record<keyof typeof EN, string> = {
     'Contabiliza la póliza de apertura desde un XML BalanzaComprobacion del Anexo 24, el día siguiente a su corte -- irreversible',
   'help.opening_balance.import.option.subledger':
     'arreglo JSON con los documentos abiertos de las cuentas de control de clientes y proveedores',
+  'help.opening_balance.import.option.chart':
+    'el XML CatalogoCuentas de la misma migración: sus cuentas de orden (8xx) quedan fuera del asiento, ' +
+    'nombradas con el saldo del origen',
   'help.opening_balance.import.option.reason': 'por qué se carga la apertura; va a la bitácora de auditoría',
   'help.opening_balance.check.description':
     'Compara la balanza de origen contra el mayor en el día de apertura, al peso; sale con 4 si difieren',
+  'help.opening_balance.check.option.chart':
+    'el XML CatalogoCuentas de la misma migración: sus cuentas de orden (8xx) quedan fuera del cuadre, ' +
+    'nombradas con el saldo del origen',
   'help.ar.description':
     'Controles de cuentas por cobrar: concilia el auxiliar contra la cuenta de control y corre diagnósticos por nombre',
   'help.ar.reconcile.description':
@@ -3051,6 +3214,42 @@ export const ES: Record<keyof typeof EN, string> = {
   'filing.workpaper.label_warning': 'aviso',
   'filing.workpaper.not_a_filing': 'Este papel no es una declaración: no se envió nada al SAT.',
   'filing.workpaper.more_entries': '+{count} más',
+  // ==== MNE-001-457 · annual figure record (issue #622) ====
+  'help.annual.description': 'La declaración anual de la entidad: las cifras que se toman de ella ya presentada',
+  'help.annual.figure.description': 'Cifras de una declaración anual presentada que los pagos provisionales necesitan',
+  'help.annual.figure.record.description': 'Registra una cifra de una declaración anual presentada, con esa declaración como fuente y quién la capturó',
+  'help.annual.figure.record.option.kind': 'qué cifra es: {kinds}',
+  'help.annual.figure.record.option.value': 'la cifra como la dice la declaración: cero o más, hasta cuatro decimales',
+  'help.annual.figure.record.option.year': 'ejercicio de la declaración anual',
+  'help.annual.figure.record.option.filed_on': 'día en que se presentó la declaración, o su complementaria (AAAA-MM-DD)',
+  'help.annual.figure.record.option.source': 'cómo identificas esa declaración: su número de operación',
+  'help.annual.figure.record.option.updated_through': 'sólo pérdidas fiscales pendientes: el mes del INPC al que ya están actualizadas (AAAA-MM, LISR art. 57)',
+  'help.annual.figure.record.footer':
+    'Esto registra lo que dice una declaración presentada. No presenta nada, y la última captura de una declaración es la vigente.\n' +
+    'Una declaración que no dio coeficiente no se captura: el papel usa entonces la última declaración capturada dentro de cinco años (LISR art. 14 fr. I).\n' +
+    '\nEjemplos:\n' +
+    '  Ver el renglón que dejaría el coeficiente de utilidad de la declaración de 2025, sin escribir nada:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operación 000111" --dry-run\n' +
+    '  Su complementaria, presentada después: una captura nueva que queda vigente, y la anterior se conserva:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operación 000222" --json\n' +
+    '  Las pérdidas fiscales pendientes de esa declaración, actualizadas a diciembre de 2025; cero también se captura:\n' +
+    '    mnemosine annual figure record --kind pending_tax_losses --value 30000.00 --updated-through 2025-12 --year 2025 --filed-on 2026-03-20 --source "operación 000111"',
+  'annual.figure.kind_invalid': '--kind "{value}" no es una cifra que este comando registre: usa {kinds}. No se escribió nada.',
+  'annual.figure.value_invalid': '--value "{value}" no es válido: usa cero o más, con hasta quince dígitos antes del punto y cuatro decimales (por ejemplo 0.0875). No se escribió nada.',
+  'annual.figure.year_invalid': '--year "{value}" no es válido: usa los cuatro dígitos del ejercicio de la declaración, de {min} a {max}. No se escribió nada.',
+  'annual.figure.filed_on_invalid': '--filed-on "{value}" no es un día real: usa AAAA-MM-DD (por ejemplo 2026-03-20). No se escribió nada.',
+  'annual.figure.source_required': 'Falta --source: di de qué declaración se tomó la cifra (su número de operación). No se escribió nada.',
+  'annual.figure.filed_on_not_after_year': '--filed-on {value} no puede ser la fecha de presentación de la declaración de {year}: la anual se presenta después de que termina su ejercicio. No se escribió nada.',
+  'annual.figure.filed_on_in_future': '--filed-on {value} es posterior a hoy ({today}): sólo se registra una declaración ya presentada. No se escribió nada.',
+  'annual.figure.updated_through_required': 'Falta --updated-through: las pérdidas fiscales pendientes dicen a qué mes del INPC están actualizadas (AAAA-MM, por ejemplo 2025-12). No se escribió nada.',
+  'annual.figure.updated_through_not_allowed': '--updated-through no va con --kind {kind}: sólo las pérdidas fiscales pendientes llevan mes de actualización. No se escribió nada.',
+  'annual.figure.updated_through_invalid': '--updated-through "{value}" no es un mes: usa AAAA-MM (por ejemplo 2025-12). No se escribió nada.',
+  'annual.figure.updated_through_after_target': '--updated-through {value} es posterior a {target}: las pérdidas de la declaración de {year} las aplican los pagos del ejercicio siguiente, que las actualizan a lo más a ese junio (LISR art. 57). No se escribió nada.',
+  'annual.figure.dry_run': 'Simulación: la captura es válida; no se escribió nada.',
+  'annual.figure.next': 'Sigue: `mnemosine filing workpaper generate --period <AAAA-MM> --form isr`.',
+  'income_tax_input.year_out_of_range': 'El ejercicio de la declaración fuente va de {min} a {max}: {year} queda fuera.',
+  'income_tax_input.filed_on_not_a_day': '"{value}" no es un día real (AAAA-MM-DD): no puede ser la fecha de presentación de la declaración.',
+  'income_tax_input.value_too_large': '"{value}" no cabe: una cifra tiene a lo más quince dígitos antes del punto.',
   'help.diot.description':
     'DIOT de México: armar el mes a partir de operaciones pagadas, verificarlo y exportar el papel de trabajo',
   'help.diot.generate.description':
@@ -3422,9 +3621,13 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los cheques en papel como hecho fiscal: cuándo el banco pagó de verdad un cheque, que bajo la LIVA es ' +
     'cuando el pago se entiende efectuado',
   'help.bank.check.reconcile.description':
-    'Prueba el cheque contra el movimiento bancario que lo cobró y contabiliza la reclasificación del IVA de ' +
-    'pendiente de acreditar a acreditable EN EL MES DEL COBRO',
-  'help.bank.check.reconcile.argument.id': 'pago a proveedor hecho con cheque',
+    'Prueba el cheque contra el movimiento bancario que lo cobró y contabiliza su IVA EN EL MES DEL COBRO: de ' +
+    'pendiente de acreditar a acreditable en un pago a proveedor, de no cobrado a trasladado en un cobro de cliente',
+  'help.bank.check.reconcile.argument.id': 'pago a proveedor hecho con cheque; se omite con --receipt',
+  'help.bank.check.reconcile.option.receipt':
+    'cobro de cliente pagado con cheque, por folio (PMT-2026-00042) o id, en lugar de <id>; sin ' +
+    '--transaction el abono de su importe se busca en su cuenta bancaria desde su fecha. Se repite para ' +
+    'un depósito de varios cheques: un solo abono de exactamente su suma, nombrado con --transaction',
   'help.bank.check.reconcile.option.transaction':
     'el movimiento bancario que lo pagó, nombrado a mano; obligatorio cuando coinciden varios cargos',
   'help.bank.check.reconcile.option.as_of':

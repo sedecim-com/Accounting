@@ -8,6 +8,10 @@ import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-servi
 import {
   recordCustomerPayment, applyCustomerPayment, reverseCustomerPayment, type EntradaPago,
 } from '../../src/services/payments/payment-service.js';
+import { recordCustomerCheckCashing, CUSTOMER_CHECK_CASHING_SOURCE } from '../../src/services/banking/treasury-posting.js';
+import { Command } from 'commander';
+import { registerBankCommand } from '../../src/cli/bank-command.js';
+import { resetDeclarations } from '../../src/cli/kernel/risk.js';
 
 /**
  * MNE-001-458 (#623, part 1/8) · A CUSTOMER ADVANCE IN THE LEDGER.
@@ -49,6 +53,23 @@ async function linesOf(entryId: string): Promise<Record<string, [number, number]
     [entryId]
   );
   return Object.fromEntries(r.rows.map((l) => [l.account_id, [Number(l.debit), Number(l.credit)]]));
+}
+
+/** Runs one `bank` leaf in-process, as the binary would; returns what it printed. */
+async function bankLeaf(argv: string[]): Promise<string> {
+  const plain = Object.fromEntries(['dim', 'bold', 'cyan', 'red', 'green', 'yellow'].map((c) => [c, (x: string) => x]));
+  const out: string[] = [];
+  const stdout = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((c: string | Uint8Array) => { out.push(String(c)); return true; }) as typeof process.stdout.write;
+  try {
+    resetDeclarations();
+    const program = new Command('mnemosine');
+    registerBankCommand(program, { palette: plain as never, shutdown: () => undefined, reportError: (e: unknown) => { throw e; } });
+    await program.parseAsync(['node', 'mnemosine', 'bank', ...argv, '-e', mx.entityId, '-t', mx.tenantId]);
+  } finally {
+    process.stdout.write = stdout;
+  }
+  return out.join('');
 }
 
 /** Posted balances (debit − credit) of bank, 2150 and 2120. */
@@ -125,14 +146,15 @@ describe('a customer advance recorded with its treatment', () => {
     expect(await count('payment_allocations')).toBe(0);
   });
 
-  it('refuses to apply it until part 5/8, and writes nothing', async () => {
+  it('applied to its sale\'s invoice, cancels the IVA it caused (MNE-001-422, customer-advance-apply.int.spec.ts)', async () => {
     const invoiceId = await saleInvoice();
-    await expect(
-      applyCustomerPayment(mx.entityId, paymentId, [{ documentId: invoiceId, amountApplied: '1160.00' }], mx.userId)
-    ).rejects.toMatchObject({ code: 'ADVANCE_APPLICATION_NOT_WIRED', messageKey: { key: 'receipt.advance.application_not_wired' } });
-    expect(await count('payment_allocations')).toBe(0);
-    const inv = await query<{ due: string }>('SELECT amount_due::text AS due FROM invoices WHERE id = $1', [invoiceId]);
-    expect(Number(inv.rows[0].due)).toBe(5800);
+    const r = await applyCustomerPayment(
+      mx.entityId, paymentId, [{ documentId: invoiceId, amountApplied: '1160.00' }], mx.userId, { date: '2026-08-20' }
+    );
+    expect(r.documentos[0]).toMatchObject({ saldoNuevo: '4640.00', advanceIva: '160.00' });
+    expect(await linesOf(r.journalEntry!.id)).toEqual({
+      [mx.cuentas['2150']]: [1000, 0], [mx.cuentas['2120']]: [160, 0], [mx.cuentas['1120']]: [0, 1160],
+    });
   });
 
   it('is undone by receipt reverse with one mirror: bank, 2150 and 2120 hold what they held', async () => {
@@ -175,6 +197,65 @@ describe('a customer advance recorded with its treatment', () => {
   });
 });
 
+/**
+ * MNE-001-558 (#700, part 4/4; #623, comment 6961035083) · T14. A price paid
+ * by cheque, and its IVA, is paid the day the bank cashes it (LIVA art. 1-B,
+ * second paragraph), which governs over the advance's day of receipt.
+ */
+describe('an advance received by cheque causes its IVA the day the bank cashes it', () => {
+  it('credits 2150 whole on the receipt, posts DR 2150 / CR 2120 160.00 on the cashing day, and reverses to nothing', async () => {
+    const account = uuidv4();
+    await query(
+      `INSERT INTO bank_accounts (id, entity_id, account_name, bank_name, gl_account_id, currency_code, account_type)
+       VALUES ($1, $2, 'Cheques 558', 'Bank', $3, 'MXN', 'checking')`,
+      [account, mx.entityId, mx.cuentas['1111']]
+    );
+    const before = await balances();
+    // The balances are floats: the movement is added in cents, or a 2120 that
+    // the tests above left at −1,017.93 reads −1,177.9299999999998.
+    const moved = (bank: number, advances: number, iva: number): number[] =>
+      [bank, advances, iva].map((d, i) => Math.round((before[i] + d) * 100) / 100);
+
+    const r = await recordCustomerPayment(
+      advance('1160.00', '16', { paymentMethod: 'check', bankAccountId: account, checkNumber: '558001' }), mx.userId
+    );
+    // The receipt keeps what was stated; its entry causes no IVA.
+    expect(r.advance).toMatchObject({ factorType: 'tasa', base: '1000.00', iva: '160.00' });
+    expect(await stored(r.paymentId)).toEqual({ type: 'tasa', rate: '16.00', base: '1000.0000', iva: '160.0000' });
+    expect(await linesOf(r.journalEntry!.id)).toEqual({ [mx.cuentas['1111']]: [1160, 0], [mx.cuentas['2150']]: [0, 1160] });
+    expect(await balances()).toEqual(moved(1160, -1160, 0));
+
+    const credit = uuidv4();
+    await query(
+      `INSERT INTO bank_transactions (id, bank_account_id, transaction_date, amount, transaction_type, description, is_matched)
+       VALUES ($1, $2, '2026-09-03', 1160.00, 'credit', 'synthetic cheque deposit', false)`,
+      [credit, account]
+    );
+    // The preview names the line from 2150, and the dry run writes nothing.
+    const preview = await bankLeaf(['check', 'reconcile', '--receipt', r.paymentNumber, '--dry-run']);
+    expect(preview).toMatch(new RegExp(`anticipo_clientes · ${r.paymentNumber}\\s+160\\.0000`));
+    expect(preview).toMatch(new RegExp(`iva_trasladado · ${r.paymentNumber}\\s+.*160\\.0000`));
+    expect(await balances()).toEqual(moved(1160, -1160, 0));
+
+    const cashed = await recordCustomerCheckCashing(mx.entityId, r.paymentId, { userId: mx.userId });
+    expect(cashed).toMatchObject({
+      transaction: { id: credit }, cashedOn: '2026-09-03', released: '160.0000', advanceIva: '160.0000', iepsReleased: '0.0000', byInvoice: [], note: null,
+    });
+    const entry = await query<{ date: string; period: string }>(
+      `SELECT entry_date::text AS date, fiscal_period_id AS period FROM journal_entries
+        WHERE id = $1 AND entity_id = $2 AND source_type = $3 AND source_id = $4`,
+      [cashed.entryId, mx.entityId, CUSTOMER_CHECK_CASHING_SOURCE, r.paymentId]
+    );
+    expect(entry.rows).toEqual([{ date: '2026-09-03', period: mx.periodos[9] }]);
+    expect(await linesOf(cashed.entryId!)).toEqual({ [mx.cuentas['2150']]: [160, 0], [mx.cuentas['2120']]: [0, 160] });
+    expect(await balances()).toEqual(moved(1160, -1000, -160));
+
+    // The reversal mirrors the receipt's entry and the cashing's.
+    await reverseCustomerPayment(mx.entityId, r.paymentId, { reason: 'Cheque returned' }, mx.userId);
+    expect(await balances()).toEqual(before);
+  });
+});
+
 describe('what a stated treatment is refused for, with nothing written', () => {
   it('a treatment outside 16, 8, 0, exempt and not-subject', async () => {
     await refused(advance('1160.00', '17'), mx, { messageKey: { key: 'receipt.advance.treatment_unknown' } });
@@ -183,12 +264,6 @@ describe('what a stated treatment is refused for, with nothing written', () => {
   it('a treatment on a receipt that names an invoice (the excess is part 8/8)', async () => {
     const applications = [{ documentId: await saleInvoice(), amountApplied: '100.00' }];
     await refused(advance('1160.00', '16', { applications }), mx, { messageKey: { key: 'receipt.advance.only_without_invoice' } });
-  });
-
-  it('an advance received by cheque, whose IVA is caused when the bank cashes it (#700)', async () => {
-    await refused(advance('1160.00', '16', { paymentMethod: 'check' }), mx, {
-      code: 'ADVANCE_BY_CHEQUE_NOT_WIRED', message: expect.stringContaining('issue 700'),
-    });
   });
 
   it('an entity that does not keep Mexican books: it posts as before and takes no treatment', async () => {

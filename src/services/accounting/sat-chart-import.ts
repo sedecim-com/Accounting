@@ -258,6 +258,62 @@ function ordenarPorDependencia(rows: readonly CatalogFileRow[]): {
 }
 
 /**
+ * The rows of a catalog whose SubCtaDe bites its own tail. `chart import`
+ * refuses such a file with IMP-CICLO, and the opening refuses it as `--chart`.
+ */
+export function rowsInAHierarchyCycle(rows: readonly CatalogFileRow[]): CatalogFileRow[] {
+  return ordenarPorDependencia(rows).ciclo;
+}
+
+/**
+ * WHICH CODES ARE MEMORANDUM ACCOUNTS. One walk for `chart import` and the
+ * opening (MNE-001-419), so they cannot disagree on which codes are 8xx.
+ *
+ * A subaccount of UFIN is UFIN too, whatever its own CodAgrup says, so the
+ * whole 8xx subtree stays out by the same doctrine and none of it blocks.
+ * That holds THROUGH accounts that already exist (WIT-03, PR #415): an
+ * existing C under an existing 8xx M makes a new G under C memorandum too.
+ * So it is not decided row by row in file order: each code walks its
+ * ancestors in BOTH trees —the entity's own and the file's SubCtaDe— and is
+ * memorandum if any of them carries an 8xx agrupador, stored or declared.
+ * Excluding is the safe direction: it never adds money to the balance.
+ *
+ * A code that is in neither tree is never memorandum: the classification
+ * comes from the agrupador and the hierarchy, never from the code's digits
+ * and never from the account being unknown.
+ */
+export function memorandumClassifier(
+  fileRows: readonly Pick<CatalogFileRow, 'numCta' | 'codAgrup' | 'subCtaDe'>[],
+  existing: readonly Pick<ExistingAccountRow, 'code' | 'codigo_agrupador_sat' | 'parent_code'>[]
+): (code: string) => boolean {
+  const ownMemorandum = new Set<string>();
+  const parentsOf = new Map<string, string[]>();
+  const addParent = (code: string, parent: string | null | undefined): void => {
+    if (parent === null || parent === undefined) return;
+    parentsOf.set(code, [...(parentsOf.get(code) ?? []), parent]);
+  };
+  for (const e of existing) {
+    if (readAgrupador(e.codigo_agrupador_sat ?? '').verdict === 'cuentas_de_orden') ownMemorandum.add(e.code);
+    addParent(e.code, e.parent_code);
+  }
+  for (const r of fileRows) {
+    if (readAgrupador(r.codAgrup).verdict === 'cuentas_de_orden') ownMemorandum.add(r.numCta);
+    addParent(r.numCta, r.subCtaDe);
+  }
+  return (code: string): boolean => {
+    const seen = new Set<string>();
+    const pending = [code];
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      if (ownMemorandum.has(next)) return true;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      pending.push(...(parentsOf.get(next) ?? []));
+    }
+    return false;
+  };
+}
+
+/**
  * Qué se crearía y qué no. Función pura: mismas entradas, mismo plan.
  */
 export function planSatChartImport(
@@ -323,41 +379,7 @@ export function planSatChartImport(
   /** La profundidad efectiva de cada código, ya sea nueva o preexistente. */
   const nivelResuelto = new Map<string, number>();
   const descartadas = new Set<string>();
-  // ── WHICH CODES ARE MEMORANDUM ACCOUNTS ────────────────────────────
-  //
-  // A subaccount of UFIN is UFIN too, whatever its own CodAgrup says, so the
-  // whole 8xx subtree stays out by the same doctrine and none of it blocks.
-  // That holds THROUGH accounts that already exist (WIT-03, PR #415): an
-  // existing C under an existing 8xx M makes a new G under C memorandum too.
-  // So it is not decided row by row in file order: each code walks its
-  // ancestors in BOTH trees —the entity's own and the file's SubCtaDe— and is
-  // memorandum if any of them carries an 8xx agrupador, stored or declared.
-  // Excluding is the safe direction: it never adds money to the balance.
-  const ownMemorandum = new Set<string>();
-  const parentsOf = new Map<string, string[]>();
-  const addParent = (code: string, parent: string | null | undefined): void => {
-    if (parent === null || parent === undefined) return;
-    parentsOf.set(code, [...(parentsOf.get(code) ?? []), parent]);
-  };
-  for (const e of existentes) {
-    if (readAgrupador(e.codigo_agrupador_sat ?? '').verdict === 'cuentas_de_orden') ownMemorandum.add(e.code);
-    addParent(e.code, e.parent_code);
-  }
-  for (const r of orden) {
-    if (readAgrupador(r.codAgrup).verdict === 'cuentas_de_orden') ownMemorandum.add(r.numCta);
-    addParent(r.numCta, r.subCtaDe);
-  }
-  const isMemorandum = (code: string): boolean => {
-    const seen = new Set<string>();
-    const pending = [code];
-    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-      if (ownMemorandum.has(next)) return true;
-      if (seen.has(next)) continue;
-      seen.add(next);
-      pending.push(...(parentsOf.get(next) ?? []));
-    }
-    return false;
-  };
+  const isMemorandum = memorandumClassifier(orden, existentes);
   const leaveOutAsMemorandum = (r: CatalogFileRow, detail: string, why: string): void => {
     descartadas.add(r.numCta);
     omitidas.push({ fila: r.fila, code: r.numCta, motivo: 'cuentas_de_orden', detalle: detail });

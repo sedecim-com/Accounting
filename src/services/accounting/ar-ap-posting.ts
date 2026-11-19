@@ -18,6 +18,7 @@ import {
   ivaTreatmentNote,
   type MetodoPagoDecision,
 } from './iva-cash-basis.js';
+import { iepsCausedBy, iepsCausedByReceipt, iepsMoveLines, type IepsMove } from './ieps-cash-basis.js';
 import {
   convertirAFuncional,
   desgloseCambiarioDelPago,
@@ -48,11 +49,12 @@ import { tenantDe } from '../audit/audit-log.js';
 // the rate of the firm's `fuente_tipo_cambio` source.
 //
 // IVA IS ON A CASH BASIS FOR MEXICAN ENTITIES. Which IVA role a
-// document's tax lands in is decided by the CFDI MetodoPago and
-// read off the taxonomy (see iva-cash-basis.ts): PUE posts to
-// iva_trasladado / iva_acreditable, PPD parks in
-// iva_trasladado_no_cobrado (2125) / iva_pendiente_acreditar
-// (1135) and is released by the payment that applies the document.
+// document's tax lands in is read off the taxonomy (see
+// iva-cash-basis.ts). An invoice's follows its CFDI MetodoPago: PUE
+// posts to iva_trasladado, PPD parks in iva_trasladado_no_cobrado
+// (2125). A bill's parks in iva_pendiente_acreditar (1135), PUE or
+// PPD (MNE-001-492). What is parked is released by the payment that
+// applies the document.
 // A non-Mexican entity is untouched by any of this and keeps
 // posting its tax exactly where it always did.
 // ============================================================
@@ -87,6 +89,8 @@ interface JeLine {
   foreign_debit?: string;
   foreign_credit?: string;
   exchange_rate?: string;
+  /** Only the IEPS move writes one (ieps-cash-basis.ts). */
+  tags?: Record<string, unknown>;
 }
 
 function requireRole(map: Map<string, string>, role: string): string {
@@ -246,8 +250,9 @@ export async function postInvoiceEntry(
 }
 
 /**
- * CR cxp (total) · DR expense per line · DR the IVA role the MetodoPago
- * selects: iva_acreditable for PUE, iva_pendiente_acreditar for PPD.
+ * CR cxp (total) · DR expense per line · DR the IVA role the taxonomy
+ * gives a received document: iva_pendiente_acreditar, PUE or PPD, until
+ * the vendor payment releases it (MNE-001-492).
  */
 export async function postBillEntry(
   client: pg.PoolClient,
@@ -579,6 +584,15 @@ interface PaymentRow {
   /** MNE-001-458 · the base and IVA an advance's cash on account splits into; absent: credited whole. */
   advance_base_amount?: string | null;
   advance_iva_amount?: string | null;
+  /**
+   * A cheque in the functional currency the bank has not cashed yet: a price
+   * paid by cheque, and its IVA, is paid the day it is cashed (LIVA art. 1-B,
+   * second paragraph), so the payment's entries and its applications release
+   * nothing and the recorded cashing does; a customer advance by cheque
+   * credits 2150 whole (MNE-001-558). Customer side, MNE-001-556
+   * (`recordCustomerCheckCashing`); vendor side, MNE-001-508 (`conciliarCheque`).
+   */
+  holdsIvaUntilCashed?: boolean;
 }
 
 /**
@@ -711,10 +725,33 @@ export async function postCustomerPaymentEntry(
   if (!new Decimal(payment.payment_amount).greaterThan(0)) return null;
 
   const bank = await bankAccountOf(client, payment.entity_id, payment.bank_account_id);
-  const iva = await ivaReclassLines(client, 'issued', payment, fx ? ivaFxOf(fx) : undefined);
+  // A held cheque releases nothing here; its allocations store 0 below, as any
+  // allocation that released nothing does.
+  const vat = payment.holdsIvaUntilCashed
+    ? { lines: [], documents: [], items: [] }
+    : await ivaReclassLines(client, 'issued', payment, fx ? ivaFxOf(fx) : undefined);
+  // #699 · The IEPS a PPD sale parked is caused by the same collection (LIEPS
+  // art. 10, with LIVA's tests of collection by art. 5o.-C), so it moves on
+  // this entry with the VAT, and a held cheque moves it on its cashing.
+  const ieps = payment.holdsIvaUntilCashed || !(await entityUsesCashBasisIva(client, payment.entity_id))
+    ? []
+    : await iepsCausedByReceipt(client, payment.entity_id, payment.id);
+  const iva = {
+    ...vat,
+    lines: [...vat.lines, ...(await iepsMoveLines(client, payment.entity_id, payment.id, ieps, 'release', 'collection'))],
+  };
+  const taxNote = [
+    ...(vat.documents.length ? [`IVA caused on collection: ${vat.documents.join(', ')}`] : []),
+    ...(ieps.length ? [`IEPS caused on collection: ${ieps.map((m) => m.invoiceNumber).join(', ')}`] : []),
+  ];
+  // A held advance goes whole to 2150; its cashing moves its IVA to 2120
+  // (MNE-001-558, #623 comment 6961035083). The receipt keeps the split.
+  const credited = payment.holdsIvaUntilCashed
+    ? { ...payment, advance_base_amount: null, advance_iva_amount: null }
+    : payment;
   const { jeLines, memo, difference } = fx
     ? await foreignReceiptLines(client, payment, fx, bank, iva)
-    : { ...(await functionalReceiptLines(client, payment, bank.glAccountId, iva)), difference: undefined };
+    : { ...(await functionalReceiptLines(client, credited, bank.glAccountId, iva)), difference: undefined };
 
   const entry = await createJournalEntry(
     payment.entity_id,
@@ -722,8 +759,8 @@ export async function postCustomerPaymentEntry(
     // midnight, and west of Greenwich the entry landed a day before its payment.
     payment.payment_date,
     JournalEntryType.AUTO_PAYMENT,
-    iva.documents.length
-      ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}${memo}`
+    taxNote.length
+      ? `Customer payment ${payment.payment_number} · ${taxNote.join(' · ')}${memo}`
       : `Customer payment ${payment.payment_number}${memo}`,
     jeLines,
     userId,
@@ -1011,6 +1048,15 @@ export interface AplicacionPosterior {
    */
   withholdingIsr?: string;
   withholdingIva?: string;
+  /**
+   * MNE-001-422 · customer side only: the IVA an advance caused when it was
+   * collected that this cash carries, cancelled on its sale's invoice (DR
+   * 2120; on a PPD invoice netted against the share it releases, MNE-001-461)
+   * instead of caused again, and the month whose 2120 also carried it, when a
+   * PUE invoice was issued on or before the advance.
+   */
+  advanceIva?: string;
+  advanceIvaTwiceIn?: string | null;
   /** Lo aplicado (vivo) a la factura por CUALQUIER pago, ANTES de este evento. */
   priorApplied: string;
   taxAmount: string;
@@ -1029,6 +1075,16 @@ export interface AplicacionPosterior {
  *
  * Devuelve el IVA liberado por factura para que el llamador lo persista en
  * las filas de aplicación recién insertadas.
+ *
+ * MNE-001-460: dated `date`, the day of the application, never the process
+ * clock: the IVA it causes belongs to that day's month.
+ *
+ * MNE-001-422: the advance's IVA the cash carries (`advanceIva`) is debited
+ * to 2120, and only the rest of the cash to anticipo_clientes.
+ *
+ * MNE-001-461: on a PPD invoice that debit meets the share released from
+ * 2125 in one 2120 line per invoice, CR g − c (DR when negative, none at
+ * zero). The release returned is g, what left 2125.
  */
 // MNE-001-113: what the customer withheld also closes the receivable, as a
 // debit to the two customer-withholding roles. The VAT the customer
@@ -1040,19 +1096,20 @@ export async function postReceiptApplicationEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
   aplicaciones: AplicacionPosterior[],
-  userId: string
+  userId: string,
+  date: string
 ): Promise<{ entry: JournalEntry; ivaPorFactura: Map<string, string> }> {
   const total = aplicaciones.reduce((s, a) => s.plus(a.amount), new Decimal(0));
   const withheldIsr = aplicaciones.reduce((s, a) => s.plus(a.withholdingIsr ?? '0'), new Decimal(0));
   const withheldIva = aplicaciones.reduce((s, a) => s.plus(a.withholdingIva ?? '0'), new Decimal(0));
   const cashBasis = await entityUsesCashBasisIva(client, payment.entity_id);
   const ivaPorFactura = new Map<string, string>();
-  const ivaLines: JeLine[] = [];
   const documentos: string[] = [];
+  const iepsDocs: string[] = [];
+  const iepsLines: JeLine[] = [];
 
-  if (cashBasis) {
-    const { from, to } = reclassRoles('issued');
-    const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
+  // A cheque not cashed yet releases nothing: the caller stores 0 and the cashing releases it.
+  if (cashBasis && !payment.holdsIvaUntilCashed) {
     for (const app of aplicaciones) {
       const metodo = await resolveInvoiceMetodoPago(client, {
         id: app.invoiceId,
@@ -1072,36 +1129,87 @@ export async function postReceiptApplicationEntry(
       const parked = await ivaStillParked(client, 'issued', payment.entity_id, app.invoiceId);
       const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
       if (liberable.lessThanOrEqualTo(0)) continue;
-      const monto = liberable.toFixed(4);
-      ivaPorFactura.set(app.invoiceId, monto);
-      documentos.push(app.invoiceNumber);
-      ivaLines.push({
-        account_id: requireRole(ivaRoles, from),
-        debit_amount: monto,
-        credit_amount: null,
-        description: `IVA released from ${from} on collection - Invoice ${app.invoiceNumber}`,
+      ivaPorFactura.set(app.invoiceId, liberable.toFixed(4));
+    }
+
+    // #699 · The IEPS share of the same tranche, whatever the VAT did: what
+    // the invoice parked decides, and an invoice that parked none moves none.
+    const ieps: IepsMove[] = [];
+    for (const app of aplicaciones) {
+      const amount = await iepsCausedBy(client, payment.entity_id, {
+        invoiceId: app.invoiceId,
+        totalAmount: app.totalAmount,
+        priorApplied: app.priorApplied,
+        appliedNow: new Decimal(app.amount).plus(app.withholdingIsr ?? '0').plus(app.withholdingIva ?? '0').toFixed(4),
       });
-      ivaLines.push({
-        account_id: requireRole(ivaRoles, to),
-        debit_amount: null,
-        credit_amount: monto,
-        description: `IVA now in ${to} (PPD collection) - Invoice ${app.invoiceNumber}`,
-      });
+      if (new Decimal(amount).greaterThan(0)) ieps.push({ invoiceId: app.invoiceId, invoiceNumber: app.invoiceNumber, amount });
+    }
+    iepsLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, ieps, 'release', 'collection')));
+    iepsDocs.push(...ieps.map((m) => m.invoiceNumber));
+  }
+
+  // MNE-001-422 / MNE-001-461: an advance's IVA, caused when it was collected
+  // (`c`), is cancelled on its sale's invoice instead of caused again, as the
+  // TipoRelacion 07 egreso does (`egreso_emitido_aplicacion_anticipo`,
+  // cfdi-taxonomy.ts); its base alone leaves 2150. On a PPD invoice the share
+  // the cash settles still leaves 2125 (`g`, the release above), and the two
+  // meet in one 2120 line, CR g − c (DR when negative, none at zero), so the
+  // IVA of that cash is caused once (LIVA art. 1-B).
+  const advanceIva = aplicaciones.reduce((s, a) => s.plus(a.advanceIva ?? '0'), new Decimal(0));
+  const twice = [...new Set(aplicaciones.flatMap((a) => (a.advanceIvaTwiceIn ? [a.advanceIvaTwiceIn] : [])))];
+  const ivaLines: JeLine[] = [];
+  if (ivaPorFactura.size > 0 || advanceIva.greaterThan(0)) {
+    const { from, to } = reclassRoles('issued');
+    const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
+    for (const app of aplicaciones) {
+      const released = new Decimal(ivaPorFactura.get(app.invoiceId) ?? '0');
+      const cancelled = new Decimal(app.advanceIva ?? '0');
+      if (released.greaterThan(0)) {
+        ivaLines.push({
+          account_id: requireRole(ivaRoles, from),
+          debit_amount: released.toFixed(4),
+          credit_amount: null,
+          description: `IVA released from ${from} on collection - Invoice ${app.invoiceNumber}`,
+        });
+      }
+      const net = released.minus(cancelled);
+      if (net.greaterThan(0)) {
+        documentos.push(app.invoiceNumber);
+        ivaLines.push({
+          account_id: requireRole(ivaRoles, to),
+          debit_amount: null,
+          credit_amount: net.toFixed(4),
+          description: `IVA now in ${to} (PPD collection) - Invoice ${app.invoiceNumber}` +
+            (cancelled.greaterThan(0) ? `, net of advance ${payment.payment_number}'s ${cancelled.toFixed(4)} caused when collected` : ''),
+        });
+      } else if (net.lessThan(0)) {
+        ivaLines.push({
+          account_id: requireRole(ivaRoles, to),
+          debit_amount: net.negated().toFixed(4),
+          credit_amount: null,
+          description: `IVA of advance ${payment.payment_number} cancelled on ${app.invoiceNumber}, caused when collected` +
+            (released.greaterThan(0) ? `, net of ${released.toFixed(4)} released` : '') +
+            (app.advanceIvaTwiceIn ? ` · ${app.advanceIvaTwiceIn} also caused it on the invoice` : ''),
+        });
+      }
     }
   }
 
   const roles = await roleAccounts(client, payment.entity_id, ['cxc', 'anticipo_clientes']);
   const entry = await createJournalEntry(
     payment.entity_id,
-    new Date(),
+    date,
     JournalEntryType.AUTO_PAYMENT,
-    documentos.length
-      ? `Application of ${payment.payment_number} · IVA caused on collection: ${documentos.join(', ')}`
-      : `Application of ${payment.payment_number}`,
+    [
+      `Application of ${payment.payment_number}`,
+      ...(documentos.length ? [`IVA caused on collection: ${documentos.join(', ')}`] : []),
+      ...(iepsDocs.length ? [`IEPS caused on collection: ${iepsDocs.join(', ')}`] : []),
+      ...(twice.length ? [`advance IVA caused twice in ${twice.join(', ')}`] : []),
+    ].join(' · '),
     [
       {
         account_id: requireRole(roles, 'anticipo_clientes'),
-        debit_amount: total.toFixed(4),
+        debit_amount: total.minus(advanceIva).toFixed(4),
         credit_amount: null,
         description: `On-account applied ${payment.payment_number}`,
       },
@@ -1113,6 +1221,7 @@ export async function postReceiptApplicationEntry(
         description: `AR settlement ${payment.payment_number}`,
       },
       ...ivaLines,
+      ...iepsLines,
     ],
     userId,
     // Fuera del índice parcial uq_je_document_source a propósito: un cobro
@@ -1209,7 +1318,11 @@ export async function postVendorApplicationEntry(
         appliedNow: app.amount,
       }));
       const parked = await ivaStillParked(client, 'received', payment.entity_id, app.invoiceId);
-      const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
+      // A held cheque credits nothing here; the written-off share below still
+      // leaves 1135, because it was never going to be paid.
+      const liberable = payment.holdsIvaUntilCashed
+        ? new Decimal(0)
+        : Decimal.min(new Decimal(bruto), new Decimal(parked));
 
       // ── EL IVA DEL SALDO CONDONADO ──────────────────────────────────
       //
@@ -1358,20 +1471,39 @@ export async function postVendorApplicationEntry(
  * MNE-001-517: a row that stored none is estimated pro-rata, and the lines
  * say so, only for a PPD invoice on cash-basis IVA books; the caller passes
  * zero for any other, and then no IVA line is written and no IVA role read.
+ *
+ * MNE-001-460: dated `app.date`, the day of the unapply, as
+ * `postVendorUnapplicationEntry` is.
+ *
+ * MNE-001-422: the advance's IVA the rows cancelled (`advanceIva`) is
+ * credited back to 2120, and only the rest of the cash to anticipo_clientes.
+ *
+ * MNE-001-461: when the rows carried an advance's IVA, nothing caused is
+ * re-parked (the owner's «no re-park», #623): the share they released goes
+ * back to 2125 (CR g) against the advance's IVA, and 2120 moves by c − g in
+ * one line, none when they are equal.
+ *
+ * #699 · `ieps` is what this receipt has moved out of the uncollected IEPS
+ * role for the invoice, read back from the ledger by the caller: it goes
+ * back exactly (DR ieps_por_pagar · CR the uncollected role).
  */
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
   app: {
-    invoiceNumber: string; amount: string; ivaReclass: string | null; ivaEstimado: string;
+    invoiceNumber: string; amount: string; ivaReclass: string | null; ivaEstimado: string; date: string;
     /** MNE-001-113: what the customer withheld on the rows being closed. */
     withholdingIsr?: string; withholdingIva?: string;
+    /** MNE-001-422: the advance's IVA the rows cancelled, which goes back to 2120 as they stored it. */
+    advanceIva?: string;
+    ieps?: IepsMove;
   },
   userId: string
 ): Promise<JournalEntry> {
   const roles = await roleAccounts(client, payment.entity_id, ['cxc', 'anticipo_clientes']);
   const isr = new Decimal(app.withholdingIsr ?? '0');
   const vat = new Decimal(app.withholdingIva ?? '0');
+  const advanceIva = new Decimal(app.advanceIva ?? '0');
   const jeLines: JeLine[] = [
     {
       account_id: requireRole(roles, 'cxc'),
@@ -1382,7 +1514,7 @@ export async function postReceiptUnapplicationEntry(
     {
       account_id: requireRole(roles, 'anticipo_clientes'),
       debit_amount: null,
-      credit_amount: app.amount,
+      credit_amount: new Decimal(app.amount).minus(advanceIva).toFixed(4),
       description: `Back on account ${payment.payment_number}`,
     },
     ...(await withholdingLines(client, payment, isr, vat, 'credit')),
@@ -1390,7 +1522,33 @@ export async function postReceiptUnapplicationEntry(
 
   const iva = new Decimal(app.ivaReclass ?? app.ivaEstimado);
   const estimado = app.ivaReclass === null && iva.greaterThan(0);
-  if (iva.greaterThan(0)) {
+  if (advanceIva.greaterThan(0)) {
+    // MNE-001-461: the cash goes back on account as the advance it was, its
+    // IVA caused when collected (LIVA art. 1-B), so nothing caused is
+    // re-parked: the invoice's share goes back to 2125 because the invoice is
+    // owed again, and 2120 moves only by c − g, none when they are equal
+    // (the owner's «no re-park» of 17 Nov 2026, #623).
+    const { from, to } = reclassRoles('issued');
+    const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
+    if (iva.greaterThan(0)) {
+      jeLines.push({
+        account_id: requireRole(ivaRoles, from),
+        debit_amount: null,
+        credit_amount: iva.toFixed(4),
+        description: `IVA back in ${from} (unapply), against advance ${payment.payment_number}'s - Invoice ${app.invoiceNumber}`,
+      });
+    }
+    const net = advanceIva.minus(iva);
+    if (!net.isZero()) {
+      jeLines.push({
+        account_id: requireRole(ivaRoles, to),
+        debit_amount: net.isNegative() ? net.negated().toFixed(4) : null,
+        credit_amount: net.isNegative() ? null : net.toFixed(4),
+        description: `IVA of advance ${payment.payment_number} restored (unapply) - Invoice ${app.invoiceNumber}` +
+          (iva.greaterThan(0) ? `, net of ${iva.toFixed(4)} back in ${from}` : ''),
+      });
+    }
+  } else if (iva.greaterThan(0)) {
     const { from, to } = reclassRoles('issued');
     const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
     const nota = estimado ? ' · pre-049: pro-rata estimate' : '';
@@ -1407,10 +1565,13 @@ export async function postReceiptUnapplicationEntry(
       description: `IVA back in ${from} (unapply) - Invoice ${app.invoiceNumber}${nota}`,
     });
   }
+  if (app.ieps) {
+    jeLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, [app.ieps], 'repark', 'unapply')));
+  }
 
   return createJournalEntry(
     payment.entity_id,
-    new Date(),
+    app.date,
     JournalEntryType.AUTO_PAYMENT,
     `Unapplication of ${payment.payment_number} from ${app.invoiceNumber}`,
     jeLines,
@@ -1470,7 +1631,7 @@ export async function postVendorUnapplicationEntry(
 }
 
 /**
- * DR cxp · CR bank, plus — for every PPD bill this payment applies to —
+ * DR cxp · CR bank, plus — for every bill this payment applies to that parked IVA —
  * DR iva_acreditable · CR iva_pendiente_acreditar for the paid share. Under
  * LIVA art. 5 the input IVA becomes creditable here, not when the bill
  * arrived.
@@ -1492,7 +1653,9 @@ export async function postVendorPaymentEntry(
 
   const bank = await bankAccountOf(client, payment.entity_id, payment.bank_account_id);
   const bankId = bank.glAccountId;
-  const iva = await ivaReclassLines(client, 'received', payment, fx ? ivaFxOf(fx) : undefined);
+  const iva = payment.holdsIvaUntilCashed
+    ? { lines: [], documents: [], items: [] }
+    : await ivaReclassLines(client, 'received', payment, fx ? ivaFxOf(fx) : undefined);
   // The IVA each application born with this payment released, 0 included,
   // stored on its row (105) so `payment unapply` re-parks it exactly instead
   // of re-deriving it under another context.

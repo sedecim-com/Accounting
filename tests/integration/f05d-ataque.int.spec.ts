@@ -374,8 +374,9 @@ describe('ataque: el cheque de enero cobrado en marzo', () => {
       [pagoId, A.entityId, vendorId, cuentaA, A.userId]
     );
     await query(
-      `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied)
-       VALUES ($1,$2,$3,1160)`,
+      // MNE-001-508: a held cheque's application stores 0; a NULL reads as already released.
+      `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, iva_reclass_amount)
+       VALUES ($1,$2,$3,1160,0)`,
       [uuidv4(), pagoId, gastoId]
     );
 
@@ -509,8 +510,9 @@ describe('ataque: el cheque cobrado el día 1', () => {
       [pagoId, A.entityId, vendorId, cuenta, A.userId]
     );
     await query(
-      `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied)
-       VALUES ($1,$2,$3,1160)`,
+      // MNE-001-508: a held cheque's application stores 0; a NULL reads as already released.
+      `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, iva_reclass_amount)
+       VALUES ($1,$2,$3,1160,0)`,
       [uuidv4(), pagoId, gastoId]
     );
     // EL BANCO LO PAGA EL PRIMERO DE JUNIO.
@@ -811,8 +813,9 @@ describe('ataque: el periodo cerrado y la fecha declarada', () => {
       [pagoId, A.entityId, `P-${sufijo}`, vendorId, sufijo, cuenta, fechaDelCheque, A.userId]
     );
     await query(
-      `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied)
-       VALUES ($1,$2,$3,1160)`,
+      // MNE-001-508: a held cheque's application stores 0; a NULL reads as already released.
+      `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, iva_reclass_amount)
+       VALUES ($1,$2,$3,1160,0)`,
       [uuidv4(), pagoId, gastoId]
     );
     return pagoId;

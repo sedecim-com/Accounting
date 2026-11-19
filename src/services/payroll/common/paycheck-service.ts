@@ -11,7 +11,6 @@ import '../tax-engine/register-all.js';
 import { getEmployeeYtd, getEmployeeSutaYtd } from '../tax-engine/ytd-service.js';
 import { calculateGarnishments } from '../usa/garnishments/garnishment-engine.js';
 import {
-  aplicarSubsidioAlEmpleo,
   leerRegistroDelSubsidio,
   notaDelSubsidioEntregado,
   type RegistroSubsidioLeido,
@@ -23,7 +22,12 @@ import {
   readEmploymentSubsidySeparateRun,
   subsidyOfOtherRunsInPeriod,
   subsidyOfPaycheckInPeriod,
+  EMPLOYMENT_SUBSIDY_EXCESS_LAW,
+  applyEmploymentSubsidy,
+  readEmploymentSubsidyExcessRule,
+  type EmploymentSubsidyExcessRule,
 } from '../mx/employment-subsidy.js';
+import { readOldAgeBandEdge } from '../mx/old-age-band.js';
 import type { TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
 // ============================================================
@@ -382,10 +386,15 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
     work_city: emp.work_city || undefined,
   };
 
-  // Subsidio al empleo entregado en efectivo (México). Cero mientras el ISR
-  // alcance a absorber el subsidio, que es el caso corriente.
+  // Employment subsidy handed over in cash (Mexico). Zero while the ISR
+  // absorbs the subsidy, and zero for every paycheck paid from 1 May 2024:
+  // the law of the payment date decides (#600).
   let subsidioEntregado = new Decimal(0);
   let registroDelSubsidio: RegistroSubsidioLeido | null = null;
+  // The excess over the ISR that the rule did not hand over, and the row of
+  // `legal_parameters` that said so: the paycheck records which law it applied.
+  let subsidyExcessNotPaid = new Decimal(0);
+  let subsidyExcessRule: EmploymentSubsidyExcessRule | null = null;
 
   if (emp.country_code === 'US') {
     // FIT
@@ -543,19 +552,24 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
     }
     breakdown.subsidio_empleo = sub.tax_amount;
 
-    // EL SUBSIDIO QUE EXCEDE AL ISR NO SE EVAPORA: SE ENTREGA.
+    // THE SUBSIDY IN EXCESS OF THE ISR FOLLOWS THE LAW OF THE PAYMENT DATE (#600).
     //
-    // La línea era `Math.max(0, isr - sub)` con un comentario que prometía
-    // «if negative, employee receives as cash». Nadie entregaba nada: el
-    // recorte a cero era todo el tratamiento, y el excedente desaparecía del
-    // recibo, del neto y de la contabilidad.
-    const aplicado = aplicarSubsidioAlEmpleo(isr.tax_amount, sub.tax_amount);
-    employeeTaxes = employeeTaxes.plus(aplicado.isrRetenido);
-    subsidioEntregado = new Decimal(aplicado.entregadoEnEfectivo);
+    // Until 30 April 2024 the employer hands the difference to the worker in
+    // cash; from 1 May 2024 nothing is handed over and nothing is carried
+    // forward. Which one applies is a dated row of `legal_parameters`, read on
+    // the payment date like the ISR tariff and the amount of the subsidy; no
+    // date and no default live here, and without a row in force the paycheck
+    // is refused. (The line was once `Math.max(0, isr - sub)` for every date,
+    // which dropped the cash of the old rule too.)
+    subsidyExcessRule = await readEmploymentSubsidyExcessRule(toCalendarDate(period.pay_date));
+    const applied = applyEmploymentSubsidy(isr.tax_amount, sub.tax_amount, subsidyExcessRule);
+    employeeTaxes = employeeTaxes.plus(applied.isrWithheld);
+    subsidioEntregado = new Decimal(applied.paidInCash);
+    subsidyExcessNotPaid = new Decimal(applied.excessNotPaid);
 
     apuntar(isr, 'EE', {
       taxable_wages: taxableIsr,
-      notas: `${isr.notes ?? 'ISR del periodo'} · retenido tras acreditar el subsidio: ${aplicado.isrRetenido}`,
+      notas: `${isr.notes ?? 'ISR del periodo'} · retenido tras acreditar el subsidio: ${applied.isrWithheld}`,
     });
     // EL RENGLÓN LLEVA LO ACREDITADO, NO EL SUBSIDIO ENTERO.
     //
@@ -565,14 +579,22 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
     // causado. Poner el causado en éste y el entregado en el otro contaba dos
     // veces la parte entregada: un verificador sumó los créditos de la tabla y
     // el ISR neto del periodo salió −248.04 donde el fisco ve −124.02.
-    const subsidioAcreditado = new Decimal(isr.tax_amount).minus(aplicado.isrRetenido);
+    //
+    // Under the rule of 1 May 2024 there is no second row: the excess is not
+    // money, so the note of this row names it and the row of the law.
+    const subsidioAcreditado = new Decimal(applied.subsidyCredited);
     apuntar(sub, 'EE', {
       tax_amount: subsidioAcreditado,
       taxable_wages: taxableIsr,
       is_credit: true,
       notas:
         `${sub.notes ?? 'Subsidio al empleo'} · causado ${new Decimal(sub.tax_amount).toFixed(2)}, ` +
-        `acreditado contra el ISR del periodo ${subsidioAcreditado.toFixed(2)}`,
+        `acreditado contra el ISR del periodo ${subsidioAcreditado.toFixed(2)}` +
+        (subsidyExcessNotPaid.greaterThan(0)
+          ? ` · excess over the ISR ${subsidyExcessNotPaid.toFixed(2)} neither paid to the worker nor credited: ` +
+            `${EMPLOYMENT_SUBSIDY_EXCESS_LAW} in force from ${subsidyExcessRule.effectiveFrom}` +
+            (subsidyExcessRule.sourceNote ? ` (${subsidyExcessRule.sourceNote.split(':')[0]})` : '')
+          : ''),
     });
 
     if (subsidioEntregado.greaterThan(0)) {
@@ -602,7 +624,14 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
 
     // IMSS employer
     const imssErCalc = taxRegistry.getRequired('MX', 'imss_employer');
-    const imssEr = await imssErCalc.calculate({ ...baseTaxInput, taxable_wages: 0 });
+    // LSS art. 168 gives no rounding rule for the edges of the old-age bands,
+    // so the entity's policy decides (#661); the engine refuses without it.
+    const oldAgeBandEdge = await readOldAgeBandEdge({ tenantId: input.tenant_id, entityId: period.entity_id });
+    const imssEr = await imssErCalc.calculate({
+      ...baseTaxInput,
+      taxable_wages: 0,
+      imss_old_age_band_edge: oldAgeBandEdge,
+    });
     taxableImss = imssEr.taxable_wages_used;
     breakdown.imss_employer = imssEr.tax_amount;
     employerTaxes = employerTaxes.plus(imssEr.tax_amount);
@@ -679,7 +708,8 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
   // --- Net pay ---
   //
   // El subsidio entregado SUMA: es la única partida del recibo que aumenta lo
-  // que el trabajador se lleva sin ser una percepción gravable.
+  // que el trabajador se lleva sin ser una percepción gravable. It is zero
+  // when the law of the payment date hands over nothing (#600).
   const netPay = new Decimal(grossEarnings)
     .minus(preTaxDeductions)
     .minus(employeeTaxes)
@@ -698,6 +728,16 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
       ? {
           valor: registroDelSubsidio.valor,
           decidido_por_el_despacho: registroDelSubsidio.decididoPorElDespacho,
+        }
+      : null,
+    // Which law the excess over the ISR followed (#600): a Mexican paycheck
+    // names the row it read, whether or not it had an excess.
+    employment_subsidy_excess_not_paid: subsidyExcessNotPaid.toFixed(4),
+    employment_subsidy_excess_rule: subsidyExcessRule
+      ? {
+          paid_share: subsidyExcessRule.paidShare,
+          effective_from: subsidyExcessRule.effectiveFrom,
+          source_url: subsidyExcessRule.sourceUrl,
         }
       : null,
   };

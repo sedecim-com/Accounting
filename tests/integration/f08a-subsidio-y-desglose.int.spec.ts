@@ -22,6 +22,12 @@ import { calculatePaycheck } from '../../src/services/payroll/common/paycheck-se
 // Los importes salen de las tarifas 2026 sembradas por la migración 009:
 // quincena de 1 500, ISR 77.28, subsidio 264.58 → 187.30 que hasta hoy se
 // evaporaban.
+//
+// SINCE #600 THAT CASH FOLLOWS THE LAW OF THE PAYMENT DATE. This spec pays on
+// 15 January 2026, under the decree of 1 May 2024: the ISR withheld is zero,
+// the 187.30 of excess are NOT handed over, and net pay is gross less the
+// worker's contributions. The cash of the rule before May 2024 is pinned by
+// `f08a-ataque` block A and `mne-001-440-employment-subsidy-excess`.
 // ============================================================
 
 const CLAVE_SUBSIDIO = 'subsidio_al_empleo_entregado_registro';
@@ -128,7 +134,7 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     const claves = rs.map((r) => `${r.tax_type}:${r.employee_employer}`).sort();
     expect(claves).toEqual([
       'imss:EE', 'imss:ER', 'infonavit:ER', 'infonavit_credit:EE',
-      'isr:EE', 'subsidio_empleo:EE', 'subsidio_entregado_efectivo:EE',
+      'isr:EE', 'subsidio_empleo:EE',
     ]);
     for (const r of rs) expect(r.jurisdiction).toBe('MX');
   });
@@ -144,7 +150,7 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     expect(Number(isr.tax_amount)).toBeCloseTo(77.28, 2);
   });
 
-  it('DEJA EL EFECTIVO EN LA MANO DEL TRABAJADOR: el excedente suma al neto', async () => {
+  it('paid in 2026, the excess over the ISR is not handed over and net pay does not grow', async () => {
     const { rows } = await query<{
       subsidio_entregado_efectivo: string; net_pay: string; gross_earnings: string;
       isr_withheld: string; subsidio_empleo: string; imss_employee: string;
@@ -158,49 +164,35 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     );
     const p = rows[0];
 
-    // Subsidio 264.58 − ISR 77.28 = 187.30 que antes desaparecían. Paid on
-    // January 15th, 2026: 15.59 % of the 2025 monthly UMA (#298).
+    // Subsidy 264.58 − ISR 77.28 = 187.30 of excess. Paid on January 15th,
+    // 2026: 15.59 % of the 2025 monthly UMA (#298), and nothing in cash (#600).
     expect(Number(p.isr_withheld)).toBeCloseTo(77.28, 2);
     expect(Number(p.subsidio_empleo)).toBeCloseTo(264.58, 2);
-    expect(Number(p.subsidio_entregado_efectivo)).toBeCloseTo(187.30, 2);
+    expect(Number(p.subsidio_entregado_efectivo)).toBe(0);
 
-    // Y el neto lo refleja: bruto − IMSS − crédito INFONAVIT + subsidio
-    // entregado. El ISR retenido es CERO porque el subsidio lo absorbió.
-    const esperado =
-      Number(p.gross_earnings) -
-      Number(p.imss_employee) -
-      Number(p.infonavit_withheld) +
-      Number(p.subsidio_entregado_efectivo);
-    expect(Number(p.net_pay)).toBeCloseTo(esperado, 2);
-    expect(Number(p.net_pay)).toBeGreaterThan(Number(p.gross_earnings) - Number(p.imss_employee) - Number(p.infonavit_withheld));
+    // Net pay: gross − IMSS − INFONAVIT credit. The ISR withheld is ZERO
+    // because the subsidy absorbed it, and that is all the subsidy does.
+    const expected = Number(p.gross_earnings) - Number(p.imss_employee) - Number(p.infonavit_withheld);
+    expect(Number(p.net_pay)).toBeCloseTo(expected, 2);
   });
 
-  it('deja el renglón del efectivo entregado marcado como crédito del trabajador', async () => {
-    const r = (await impuestosDe(reciboConEfectivo)).find(
-      (x) => x.tax_type === 'subsidio_entregado_efectivo'
-    )!;
+  it('the subsidy row credits what the ISR absorbed and its note names the excess and the law', async () => {
+    const r = (await impuestosDe(reciboConEfectivo)).find((x) => x.tax_type === 'subsidio_empleo')!;
     expect(r.employee_employer).toBe('EE');
     expect(r.is_credit).toBe(true);
-    expect(Number(r.tax_amount)).toBeCloseTo(187.30, 2);
+    expect(Number(r.tax_amount)).toBeCloseTo(77.28, 2);
+    expect(r.calculation_notes).toMatch(/187\.30 neither paid to the worker nor credited/);
+    expect(r.calculation_notes).toMatch(/in force from 2024-05-01 \(Decreto que otorga el subsidio para el empleo, DOF 01-05-2024/);
   });
 
-  it('dice en la nota que el criterio es el de omisión mientras nadie conteste', async () => {
-    // Una política sin responder devuelve su default, y eso NO es una
-    // decisión del despacho. El renglón lo declara para quien audite.
-    const r = (await impuestosDe(reciboConEfectivo)).find(
-      (x) => x.tax_type === 'subsidio_entregado_efectivo'
-    )!;
-    expect(r.calculation_notes).toMatch(/cuenta por cobrar al fisco/);
-    expect(r.calculation_notes).toMatch(/sigue sin contestar/);
-
+  it('the audit trail records the law applied, and no treatment of cash that was not handed over', async () => {
     const { rows } = await query<{ detalle: Record<string, unknown> }>(
       `SELECT calculation_details AS detalle FROM paychecks WHERE id = $1`,
       [reciboConEfectivo]
     );
-    expect(rows[0].detalle.subsidio_entregado_registro).toEqual({
-      valor: 'cuenta_por_cobrar_fisco',
-      decidido_por_el_despacho: false,
-    });
+    expect(rows[0].detalle.subsidio_entregado_registro).toBeNull();
+    expect(Number(rows[0].detalle.employment_subsidy_excess_not_paid)).toBeCloseTo(187.30, 2);
+    expect(rows[0].detalle.employment_subsidy_excess_rule).toMatchObject({ paid_share: 0, effective_from: '2024-05-01' });
   });
 
   it('no entrega nada cuando el ISR absorbe el subsidio', async () => {
@@ -261,7 +253,7 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     ).rejects.toThrow(/Pay run with id .+ not found/);
   });
 
-  it('cuando el despacho SÍ contesta la política, el recibo lo registra así', async () => {
+  it('answering the panel key does not bring the cash back: the key governs cash that was handed over', async () => {
     await resolvePolicy(
       { tenantId: f.tenantId, entityId: f.entityId },
       CLAVE_SUBSIDIO, 'gasto_del_patron', f.userId, 'Los importes son menores'
@@ -284,21 +276,13 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
       tenant_id: f.tenantId, pay_run_id: otraCorrida, employee_id: empId,
       earnings: [{ earning_type: 'salary', amount: 1500 }],
     });
-    expect(r.subsidio_entregado_efectivo).toBe('187.3000');
-
-    const renglon = (await impuestosDe(r.paycheck_id)).find(
-      (x) => x.tax_type === 'subsidio_entregado_efectivo'
-    )!;
-    expect(renglon.calculation_notes).toMatch(/gasto del patrón/);
-    expect(renglon.calculation_notes).toMatch(/criterio del despacho/);
+    expect(r.subsidio_entregado_efectivo).toBe('0.0000');
+    expect((await impuestosDe(r.paycheck_id)).some((x) => x.tax_type === 'subsidio_entregado_efectivo')).toBe(false);
 
     const { rows } = await query<{ detalle: Record<string, unknown> }>(
       `SELECT calculation_details AS detalle FROM paychecks WHERE id = $1`,
       [r.paycheck_id]
     );
-    expect(rows[0].detalle.subsidio_entregado_registro).toEqual({
-      valor: 'gasto_del_patron',
-      decidido_por_el_despacho: true,
-    });
+    expect(rows[0].detalle.subsidio_entregado_registro).toBeNull();
   });
 });

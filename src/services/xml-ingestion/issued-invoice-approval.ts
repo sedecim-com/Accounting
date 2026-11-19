@@ -5,7 +5,10 @@ import { getPolicy } from '../policy/policy-service.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
 import { decideMetodoPago } from '../accounting/iva-cash-basis.js';
-import type { CFDIParsed } from './cfdi-parser.js';
+import { IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
+import { identityRfc } from '../ar/opening-invoices.js';
+import { CFDIParser, type CFDIParsed } from './cfdi-parser.js';
+import { extractImpuestosLocales } from './cfdi-facts.js';
 import { money, sumTax } from './cfdi-amounts.js';
 import type { ApprovedLine } from './pre-registration-service.js';
 
@@ -16,14 +19,67 @@ export interface ApprovedDraftInvoice {
   close(journalEntryId: string): Promise<void>;
 }
 
+/** The roles the core checks against the CFDI. A credit on any other account is revenue, and an invoice line. */
 const AR_ROLES = [
   'cxc', 'banco', 'iva_trasladado', 'iva_trasladado_no_cobrado', 'isr_retenido_a_favor', 'iva_retenido_a_favor',
+  'ieps_por_pagar', IEPS_UNCOLLECTED_ROLE, 'impuestos_locales_por_pagar',
 ];
+
+/**
+ * The refusal of a PPD sale with IEPS on an entity with no account for the
+ * role where that IEPS waits: one seeded before MNE-001-505, until the
+ * backfill gives it 2181. Both doors say the same.
+ */
+export function ppdIepsWithoutRole(uuid: string, ieps: Decimal.Value): ValidationError {
+  return new ValidationError({
+    key: 'error.ISSUED_CFDI_PPD_IEPS',
+    params: { uuid, ieps: new Decimal(ieps).toFixed(2), role: IEPS_UNCOLLECTED_ROLE },
+  });
+}
 
 /** `customer create` as printed in the refusal, runnable: both values come from the XML. */
 export function customerCreateCommand(name: string, rfc: string): string {
   const q = (raw: string) => `'${raw.replace(/'/g, "'\\''")}'`;
   return `mnemosine customer create --name ${q(name)} --tax-id ${q(rfc)}`;
+}
+
+/** A customer of the entity that carries the receiver's RFC; `name` is its company name, or first plus last name. */
+export interface CustomerCandidate {
+  id: string;
+  customer_number: string;
+  is_active: boolean;
+  name: string | null;
+}
+
+export type CustomerChoice =
+  | { customer: CustomerCandidate }
+  | { none: 'no-match' | 'unnamed'; sameRfc: string[] }
+  | { several: CustomerCandidate[] };
+
+// NOTE: accents and punctuation are not folded. A miss only refuses; a fold would make «Peña» and
+// «Pena» one customer, and where both exist every sale to either would be an ambiguity with no way out.
+const comparableName = (name: string | null): string => (name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * Whose receivable the CFDI is, among `rows`: every customer of the entity with
+ * the receiver's RFC, oldest first (MNE-001-523 · #671). A generic RFC
+ * identifies nobody, so the CFDI's name narrows the rows first; `unnamed` is
+ * that RFC with no name to match. Then active customers come before archived
+ * ones, and only exactly one is an answer: two are never settled by age.
+ * `sameRfc` carries up to five customer numbers under the RFC when none matches.
+ */
+export function chooseCustomer(rows: CustomerCandidate[], rfc: string, name: string): CustomerChoice {
+  let matching = rows;
+  if (identityRfc(rfc.trim().toUpperCase()) === null) {
+    const wanted = comparableName(name);
+    if (wanted === '') return { none: 'unnamed', sameRfc: [] };
+    matching = rows.filter((r) => comparableName(r.name) === wanted);
+  }
+  const active = matching.filter((r) => r.is_active);
+  const candidates = active.length > 0 ? active : matching;
+  if (candidates.length === 1) return { customer: candidates[0] };
+  if (candidates.length > 1) return { several: candidates };
+  return { none: 'no-match', sameRfc: rows.slice(0, 5).map((r) => r.customer_number) };
 }
 
 /** One entry line as the core reads it: the account already resolved to its id. */
@@ -75,7 +131,10 @@ const WORDING: Record<IssuedInvoiceDoor, {
  * throw rolls the whole operation back; a draft stays pending. It guarantees:
  *   - the pre-registration is an open 'invoice' whose CFDI the entity itself
  *     issued, locked and entity-scoped; a second draft of it finds nothing;
- *   - the receiver is already in the customer catalog (never created here);
+ *   - the receiver is already in the customer catalog (never created or
+ *     renamed here: the XML's name only selects among existing customers), and
+ *     it is exactly one customer (chooseCustomer): by RFC, or by name under a
+ *     generic RFC. Two that match stop the posting;
  *   - one CFDI gives one invoice, whichever door or import wrote the first:
  *     a UUID already on an invoice of the entity that is not void or
  *     cancelled is refused, in any letter case, naming that invoice. It is a
@@ -88,7 +147,18 @@ const WORDING: Record<IssuedInvoiceDoor, {
  *     (rep-linkage.ts resolves the invoice by its cfdi_uuid). A CFDI with no
  *     MetodoPago is a PUE sale, VAT in iva_trasladado: that is how the
  *     collection, the credit note and the IVA working paper will read the
- *     invoice, so VAT parked for it would never be released (#668).
+ *     invoice, so VAT parked for it would never be released (#668);
+ *   - IEPS and local taxes each sit on their own role and are checked like
+ *     the VAT on every CFDI: neither is revenue, an invoice line, or part of
+ *     `tax_amount`, which stays the VAT alone because the VAT release
+ *     prorates it. Local taxes sit on impuestos_locales_por_pagar, read from
+ *     the stored XML: they live in their own complement, outside the tax
+ *     breakdown (MNE-001-521, #669);
+ *   - the IEPS sits where the MetodoPago says, as the VAT does: a PUE's on
+ *     ieps_por_pagar (2180), a PPD's on ieps_trasladado_no_cobrado (2181),
+ *     because it is caused on collection (LIEPS art. 10) and each collection
+ *     moves its share to 2180 (ieps-cash-basis.ts). An entity with no account
+ *     for that role refuses a PPD with IEPS, naming the backfill (#699).
  */
 export async function registerIssuedInvoice(
   client: pg.PoolClient,
@@ -107,7 +177,7 @@ export async function registerIssuedInvoice(
   const locked = await client.query<Record<string, unknown>>(
     `SELECT p.*, x.cfdi_uuid AS x_cfdi_uuid, x.subtotal AS x_subtotal, COALESCE(x.descuento, 0) AS x_descuento,
             x.total AS x_total, x.metodo_pago AS x_metodo_pago, x.receptor_rfc AS x_receptor_rfc,
-            x.receptor_nombre AS x_receptor_nombre
+            x.receptor_nombre AS x_receptor_nombre, x.xml_content AS x_xml_content
        FROM pre_registrations p
        JOIN xml_documents x ON x.id = p.xml_document_id AND x.entity_id = p.entity_id
        JOIN legal_entities le ON le.id = p.entity_id AND UPPER(TRIM(le.tax_id)) = UPPER(TRIM(x.emisor_rfc))
@@ -126,16 +196,44 @@ export async function registerIssuedInvoice(
   const uuid = String(preReg.x_cfdi_uuid);
   const receiverRfc = String(preReg.x_receptor_rfc);
 
-  const customer = await client.query<{ id: string }>(
-    `SELECT id FROM customers WHERE entity_id = $1 AND UPPER(TRIM(tax_id)) = UPPER(TRIM($2))
-      ORDER BY is_active DESC, created_at LIMIT 1`,
+  const receiverName = typeof preReg.x_receptor_nombre === 'string' ? preReg.x_receptor_nombre : '';
+  const sameRfc = await client.query<CustomerCandidate>(
+    `SELECT id, customer_number, is_active,
+            COALESCE(company_name, NULLIF(TRIM(CONCAT(first_name, ' ', last_name)), '')) AS name
+       FROM customers WHERE entity_id = $1 AND UPPER(TRIM(tax_id)) = UPPER(TRIM($2))
+      ORDER BY created_at, customer_number`,
     [entityId, receiverRfc]
   );
-  if (customer.rows.length === 0) {
-    const name = typeof preReg.x_receptor_nombre === 'string' ? preReg.x_receptor_nombre : '';
+  const choice = chooseCustomer(sameRfc.rows, receiverRfc, receiverName);
+  if ('several' in choice) {
+    const active = choice.several[0].is_active;
     throw new ValidationError(
-      `CFDI ${uuid} is issued to "${name}" (RFC ${receiverRfc}), who is not in this entity's customer catalog. ` +
-        `Register it with \`${customerCreateCommand(name, receiverRfc)}\` ${wording.afterCustomer}`,
+      `CFDI ${uuid} is issued to "${receiverName}" (RFC ${receiverRfc}), and ${choice.several.length} ` +
+        `${active ? 'active' : 'archived'} customers of this entity match it: ` +
+        `${choice.several.map((c) => c.customer_number).join(', ')}. ` +
+        (active
+          ? "Archive the duplicate with `mnemosine customer archive <number> --reason '<why>'` "
+          : 'Restore the one it belongs to with `mnemosine customer restore <number>` ') +
+        wording.afterCustomer,
+      'customer_id'
+    );
+  }
+  if ('none' in choice) {
+    if (choice.none === 'unnamed') {
+      throw new ValidationError(
+        `CFDI ${uuid} is issued to the generic RFC ${receiverRfc} with no receiver name. A generic RFC identifies ` +
+          'nobody, so the customer is matched by name, and this CFDI names nobody. Nothing was posted.',
+        'customer_id'
+      );
+    }
+    // Only a generic RFC leaves customers behind here: under a real one, any row is a candidate.
+    const others = choice.sameRfc.length === 0
+      ? ''
+      : ` The generic RFC ${receiverRfc} identifies nobody, so the customer is matched by name; ` +
+        `under that RFC and another name there are: ${choice.sameRfc.join(', ')}.`;
+    throw new ValidationError(
+      `CFDI ${uuid} is issued to "${receiverName}" (RFC ${receiverRfc}), who is not in this entity's customer catalog. ` +
+        `Register it with \`${customerCreateCommand(receiverName, receiverRfc)}\` ${wording.afterCustomer}${others}`,
       'customer_id'
     );
   }
@@ -190,6 +288,10 @@ export async function registerIssuedInvoice(
   const toAr = net(accountsOf('cxc'), 'debit');
   const paid = toAr.isZero() && pue && net(accountsOf('banco'), 'debit').gt(0);
   const vat = sumTax(summary.traslados, '002');
+  const ieps = sumTax(summary.traslados, '003');
+  const iepsRole = pue ? 'ieps_por_pagar' : IEPS_UNCOLLECTED_ROLE;
+  if (!pue && ieps.gt(0) && accountsOf(IEPS_UNCOLLECTED_ROLE).size === 0) throw ppdIepsWithoutRole(uuid, ieps);
+  const localTaxes = extractImpuestosLocales(new CFDIParser().parse(String(preReg.x_xml_content))).trasladados;
   const figures = [
     {
       figure: paid ? 'total (debit to bank, collected PUE)' : 'total (debit to accounts receivable)',
@@ -200,6 +302,16 @@ export async function registerIssuedInvoice(
       figure: `transferred VAT (${vatRole})`,
       entry: net(accountsOf(pue ? 'iva_trasladado' : 'iva_trasladado_no_cobrado'), 'credit'),
       cfdi: vat,
+    },
+    {
+      figure: `transferred IEPS (${iepsRole})`,
+      entry: net(accountsOf(iepsRole), 'credit'),
+      cfdi: ieps,
+    },
+    {
+      figure: 'transferred local taxes (impuestos_locales_por_pagar)',
+      entry: net(accountsOf('impuestos_locales_por_pagar'), 'credit'),
+      cfdi: money(localTaxes),
     },
     {
       figure: 'withholdings by the customer (ISR + VAT)',
@@ -233,7 +345,7 @@ export async function registerIssuedInvoice(
        status, cfdi_uuid, cfdi_status, description, created_by
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'stamped',$16,$17)`,
     [
-      invoiceId, entityId, invoiceNumber, customer.rows[0].id,
+      invoiceId, entityId, invoiceNumber, choice.customer.id,
       money(preReg.x_subtotal).toFixed(2), vat.toFixed(2), total.toFixed(2),
       paid ? '0.00' : total.toFixed(2), paid ? total.toFixed(2) : '0.00',
       preReg.currency_code ?? 'MXN', preReg.exchange_rate ?? 1,

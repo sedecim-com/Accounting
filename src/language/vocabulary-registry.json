@@ -1693,6 +1693,13 @@
     {
       "class": "account-role",
       "where": "account_roles.role",
+      "es": "ieps_trasladado_no_cobrado",
+      "en": "ieps_payable_uncollected",
+      "why": "2181 (grouping code 209.02, Anexo 24): the IEPS of a PPD sale not collected yet, which is caused on collection (LIEPS art. 10). It mirrors `iva_payable_uncollected` (2125) so the uncollected pair reads together, and keeps the IEPS acronym as `ieps_payable` does. An issued PPD CFDI parks IEPS in it (cfdi-taxonomy.ts, MNE-001-505) and each collection moves it to `ieps_payable` (src/services/accounting/ieps-cash-basis.ts:IEPS_UNCOLLECTED_ROLE, MNE-001-504); seeded on Mexican books only (account-roles-seed.ts), and given to entities seeded before by `npm run backfill:account-roles` (#699)."
+    },
+    {
+      "class": "account-role",
+      "where": "account_roles.role",
       "es": "impuestos_locales_gasto",
       "en": "local_taxes_expense",
       "why": "Apunta a 6100 (account-roles-seed.ts:269): el ISH y demás impuestos estatales son gasto, no impuesto acreditable. `local_taxes` en plural porque la cuenta 2190 agrupa varios (ISH y otros) y el rol no distingue cuál; `expense` marca el lado que lo separa de `local_taxes_payable`. Ojo: comparte código 6100 con el rol genérico `gasto`, así que los dos nombres ingleses tienen que seguir siendo distintos aunque la cuenta sea la misma."
@@ -2370,6 +2377,14 @@
     },
     {
       "class": "policy-key",
+      "where": "received_line_without_account",
+      "es": "received_line_without_account",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-553): `received` is the tree's term for a vendor's CFDI (`received_credit_note_cost`), `line` is a concept of it. Read by `createBillFromPreReg` (xml-ingestion/pre-registration-service.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "bank_statement_overlap",
       "es": "bank_statement_overlap",
       "en": null,
@@ -2995,6 +3010,22 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_line_without_account/refuse",
+      "es": "refuse",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-553): the literal `createBillFromPreReg` (xml-ingestion/pre-registration-service.ts) compares; a received line with no account posts nothing."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_line_without_account/role_generic_account",
+      "es": "role_generic_account",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-553): the literal `createBillFromPreReg` compares; `role` is the tree's term for an account role (`account_roles`), and the line posts to the account of the classifier's one expense role."
     },
     {
       "class": "policy-value",
@@ -5917,6 +5948,30 @@
     },
     {
       "class": "policy-key",
+      "where": "rep_voided_document",
+      "es": "rep_voided_document",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-524): a REP payment that covers a live invoice and one the books annulled."
+    },
+    {
+      "class": "policy-value",
+      "where": "rep_voided_document/review",
+      "es": "review",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the whole payment node waits for a person."
+    },
+    {
+      "class": "policy-value",
+      "where": "rep_voided_document/post_live_documents",
+      "es": "post_live_documents",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the node is processed with its live documents only."
+    },
+    {
+      "class": "policy-key",
       "where": "cash_over_limit_outside_ingestion",
       "es": "cash_over_limit_outside_ingestion",
       "en": null,
@@ -6186,6 +6241,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the separate paycheck of the period (a run other than the regular one, or one that pays only aguinaldo) carries no subsidy."
+    },
+    {
+      "class": "policy-key",
+      "where": "imss_old_age_band_edge",
+      "es": "imss_old_age_band_edge",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-513): how an SBC meets the edge of a band of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a)."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_band_edge/above_upper_edge",
+      "es": "above_upper_edge",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: an SBC above a band's upper edge, by any amount, pays the next band."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_band_edge/truncated_to_hundredths",
+      "es": "truncated_to_hundredths",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the SBC in minimum wages and in UMA is cut to two decimals before it is placed in the table."
     }
   ]
 }

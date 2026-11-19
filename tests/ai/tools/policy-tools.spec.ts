@@ -8,8 +8,8 @@ vi.mock('../../../src/database/connection.js', () => ({
   withTransaction: vi.fn(),
 }));
 
-import { buildPolicyTools, leerPanel } from '../../../src/ai/tools/policy-tools.js';
-import type { PanelDelDespacho } from '../../../src/ai/tools/policy-tools.js';
+import { buildPolicyTools, leerPanel, TOPE_DEL_PANEL } from '../../../src/ai/tools/policy-tools.js';
+import type { CompactPanel, PolicyDetail } from '../../../src/ai/tools/policy-tools.js';
 import { buildTools, MAX_TOOL_RESULT_CHARS } from '../../../src/ai/tools/index.js';
 import {
   buildReaderTools,
@@ -27,6 +27,10 @@ import {
 import { cargarCasosGolden, politicasRequeridas } from '../../../src/ai/eval/golden.js';
 import { CFDIParser } from '../../../src/services/xml-ingestion/cfdi-parser.js';
 import { POLICY_CATALOG } from '../../../src/services/policy/pending-catalog.js';
+import {
+  cuentasRequeridasPara,
+  rolesPara,
+} from '../../../src/services/xml-ingestion/account-roles-seed.js';
 import { query } from '../../../src/database/connection.js';
 import type { AgentContext } from '../../../src/ai/context.js';
 import type { BetaTool, BetaToolResultContentBlockParam } from '@anthropic-ai/sdk/resources/beta';
@@ -126,15 +130,40 @@ const MANDATO =
   'unanswered too, and worse: its row claims to be resolved, so nobody will ever be asked again ' +
   'unless you raise it.';
 
+/**
+ * The mandate gains one suffix per shape (#747), copied here word for word for
+ * the same reason as the mandate itself.
+ */
+const COMPACT_MANDATE =
+  MANDATO +
+  ' This list is compact: every key with status and value. Before you rely on a key or ask ' +
+  "about one, call again with `keys` to read its question, its options and the firm's full " +
+  'note. `has_notes` marks a key whose note you have not read yet; `value_trimmed` marks a ' +
+  'value cut to 120 characters here.';
+
+const KEYED_MANDATE =
+  MANDATO +
+  ' This is the full detail of the keys you asked for; the account role map comes only from a ' +
+  'call without `keys`. `not_included` names requested keys left out so that no note or value ' +
+  'here would be cut: call again with those keys. `unknown_keys` have no row in this ' +
+  "entity's panel: check them against the list from a call without `keys`.";
+
 /** La llamada n-ésima a `query`, tipada: [sql, parámetros]. */
 function llamada(n: number): [string, unknown[]] {
   return mockQuery.mock.calls[n] as [string, unknown[]];
 }
 
-/** El resultado de la herramienta, ya parseado. */
-async function correr(input: { keys?: string[] } = {}): Promise<PanelDelDespacho> {
-  return JSON.parse((await herramienta().run(input)) as string) as PanelDelDespacho;
+/** The compact list (a call without `keys`), parsed. */
+async function correr(): Promise<CompactPanel> {
+  return JSON.parse((await herramienta().run({})) as string) as CompactPanel;
 }
+
+/** The full detail of the named keys, parsed. */
+async function detail(keys: string[]): Promise<PolicyDetail> {
+  return JSON.parse((await herramienta().run({ keys })) as string) as PolicyDetail;
+}
+
+const UMBRAL_KEY = ['umbral_capitalizacion_mxn'];
 
 beforeEach(() => mockQuery.mockReset());
 
@@ -254,12 +283,14 @@ describe('contestada vs sin contestar: la diferencia que hace todo el tramo', ()
     // reescribe la constante, y la prueba compararía el mutante consigo mismo.
     // Por eso la frase vive AQUÍ: cambiar el mandato obliga a cambiar la
     // prueba, que es exactamente el peaje que un mandato merece.
-    expect(panel.how_to_use).toBe(MANDATO);
+    expect(panel.how_to_use).toBe(COMPACT_MANDATE);
+    mockPanel([filaPanel()]);
+    expect((await detail(UMBRAL_KEY)).how_to_use).toBe(KEYED_MANDATE);
   });
 
-  it('el mandato no admite la forma contraria: aplicar el defecto y no preguntar', async () => {
+  it.each(['compact', 'keyed'])('el mandato no admite la forma contraria: aplicar el defecto y no preguntar (%s)', async (shape) => {
     mockPanel([filaPanel()]);
-    const { how_to_use: texto } = await correr();
+    const { how_to_use: texto } = shape === 'compact' ? await correr() : await detail(UMBRAL_KEY);
     // Dos redes por SENTIDO, no por letra, para el caso de que alguien copie
     // un mandato invertido dentro de MANDATO: ninguna frase puede mandar
     // aplicar el defecto ni prohibir la pregunta.
@@ -309,7 +340,8 @@ describe('el panel vacío no se disfraza de «no aplica ningún criterio»', () 
       'lleva_inventarios',
     ]);
     expect(panel.policies[0].value).toBe('5000');
-    expect(panel.unanswered).toEqual(['lleva_inventarios']);
+    expect(panel.policies.map((p) => p.status)).toEqual(['answered', 'unanswered']);
+    expect([panel.answered_count, panel.unanswered_count]).toEqual([1, 1]);
   });
 });
 
@@ -478,7 +510,7 @@ describe('una respuesta en blanco no es una decisión del despacho', () => {
    */
   it('resolved con valor en blanco sale UNANSWERED, no answered con el defecto', async () => {
     mockPanel([filaPanel({ status: 'resolved', resolved_value: '   \n  ' })]);
-    const panel = await correr();
+    const panel = await detail(UMBRAL_KEY);
     const p = panel.policies[0];
 
     expect(p.status, 'un blanco sellado como criterio del despacho es la inversión').toBe(
@@ -487,7 +519,6 @@ describe('una respuesta en blanco no es una decisión del despacho', () => {
     expect(p.answered_value).toBeNull();
     // El defecto sigue viajando (nada se detiene), pero etiquetado como lo que es.
     expect(p.value).toBe('20000');
-    expect(panel.unanswered).toEqual(['umbral_capitalizacion_mxn']);
     // Y se dice POR QUÉ, porque el humano no lo va a ver: `mnemosine pending`
     // sólo lista status 'pending', así que la fila rota es invisible.
     expect(p.answer_defect).toContain(
@@ -496,11 +527,19 @@ describe('una respuesta en blanco no es una decisión del despacho', () => {
     expect(p.answer_defect).toContain(
       'It will NOT appear in `mnemosine pending` (that list only shows status "pending")'
     );
+
+    // The compact list carries the defect too, as a short code the mandate names.
+    mockPanel([filaPanel({ status: 'resolved', resolved_value: '   \n  ' })]);
+    const row = (await correr()).policies[0];
+    expect(row.status).toBe('unanswered');
+    expect(row.answer_defect).toBe('resolved_but_blank');
+    mockPanel([filaPanel()]);
+    expect('answer_defect' in (await correr()).policies[0]).toBe(false);
   });
 
   it('lo mismo con caracteres de control, que es lo que queda tras neutralizar', async () => {
     mockPanel([filaPanel({ status: 'resolved', resolved_value: '	  ' })]);
-    const p = (await correr()).policies[0];
+    const p = (await detail(UMBRAL_KEY)).policies[0];
     expect(p.status).toBe('unanswered');
     expect(p.answered_value).toBeNull();
     expect(p.answer_defect).not.toBeNull();
@@ -510,7 +549,7 @@ describe('una respuesta en blanco no es una decisión del despacho', () => {
     // El arreglo no puede comerse las respuestas buenas: sin este caso, una
     // pieza que devolviera 'unanswered' SIEMPRE también pasaría el de arriba.
     mockPanel([filaPanel({ status: 'resolved', resolved_value: '  5000\n' })]);
-    const p = (await correr()).policies[0];
+    const p = (await detail(UMBRAL_KEY)).policies[0];
     expect(p.status).toBe('answered');
     expect(p.value).toBe('5000');
     expect(p.answered_value).toBe('5000');
@@ -524,8 +563,8 @@ describe('una respuesta en blanco no es una decisión del despacho', () => {
       filaPanel({ key: 'comidas_deducibles', status: 'resolved', resolved_value: 'no' }),
     ]);
     const panel = await correr();
-    expect(panel.unanswered).toEqual(['umbral_capitalizacion_mxn', 'lleva_inventarios']);
-    expect(panel.policies[2].status).toBe('answered');
+    expect(panel.policies.map((p) => p.status)).toEqual(['unanswered', 'unanswered', 'answered']);
+    expect([panel.answered_count, panel.unanswered_count]).toEqual([1, 2]);
   });
 });
 
@@ -562,8 +601,8 @@ describe('the panel paints the catalog wording, not the seed-day copy', () => {
   it('an unanswered policy with stale seeded text carries the catalog question and options', async () => {
     mockPanel([staleRow()]);
     const spec = catalogSpec('umbral_capitalizacion_mxn');
-    const output = (await herramienta().run({})) as string;
-    const policy = (JSON.parse(output) as PanelDelDespacho).policies[0];
+    const output = (await herramienta().run({ keys: UMBRAL_KEY })) as string;
+    const policy = (JSON.parse(output) as PolicyDetail).policies[0];
 
     expect(policy.status).toBe('unanswered');
     expect(policy.question).toBe(spec.question);
@@ -574,8 +613,8 @@ describe('the panel paints the catalog wording, not the seed-day copy', () => {
   it('an answered policy with stale seeded text carries the catalog question too', async () => {
     mockPanel([staleRow({ status: 'resolved', resolved_value: '5000' })]);
     const spec = catalogSpec('umbral_capitalizacion_mxn');
-    const output = (await herramienta().run({})) as string;
-    const policy = (JSON.parse(output) as PanelDelDespacho).policies[0];
+    const output = (await herramienta().run({ keys: UMBRAL_KEY })) as string;
+    const policy = (JSON.parse(output) as PolicyDetail).policies[0];
 
     expect(policy.status).toBe('answered');
     expect(policy.question).toBe(spec.question);
@@ -608,7 +647,7 @@ describe('the panel paints the catalog wording, not the seed-day copy', () => {
         default_value: 'a',
       }),
     ]);
-    const policy = (await correr()).policies[0];
+    const policy = (await detail([orphanKey])).policies[0];
 
     expect(policy.key).toBe(orphanKey);
     expect(policy.question).toBe('Seeded question of a retired policy?');
@@ -621,124 +660,255 @@ describe('the panel paints the catalog wording, not the seed-day copy', () => {
       staleRow(),
       filaPanel({ key: orphanKey, question: 'Seeded question of a retired policy?', options: [] }),
     ]);
-    const { policies } = await correr();
+    const { policies } = await detail(['umbral_capitalizacion_mxn', orphanKey]);
     expect(policies[0].question).toBe(catalogSpec('umbral_capitalizacion_mxn').question);
     expect(policies[1].question).toBe('Seeded question of a retired policy?');
     expect(policies[1].options).toEqual([]);
   });
 });
 
-// ─── El tope de resultado ───
+// ─── The size budget (#747) ───
+//
+// The panel used to travel whole, and it stopped fitting: at 88 keys every
+// rationale note was dropped, and a firm that had answered nothing received
+// 50,771 characters cut at 32,000, with 59 of 86 policies and no role map.
+// Now a call without `keys` is a compact list and a key's detail comes by name.
 
-/** Un panel del TAMAÑO DE PRODUCCIÓN: las claves reales del catálogo. */
-function panelDeProduccion(notas = 900) {
-  return POLICY_CATALOG.map((spec) =>
+/** A realistic full role map: every role a seeded Mexican entity gets. */
+function fullRoleMap() {
+  const names = new Map(cuentasRequeridasPara(true).map((c) => [c.code, c.name]));
+  return Object.entries(rolesPara(true)).map(([role, code]) =>
+    filaRol({ role, account_code: code, account_name: names.get(code) ?? 'Cuenta' })
+  );
+}
+
+const NOTE = `Agreed by the partners. ${'x'.repeat(900)}`;
+const answeredWithNote = { status: 'resolved', resolved_value: 'si', resolution_notes: NOTE };
+
+/** The production catalog plus `extra` synthetic keys of typical size. */
+function catalogRows(extra: number, over: Record<string, unknown> = {}) {
+  const real = POLICY_CATALOG.map((spec) =>
     filaPanel({
       key: spec.key,
       category: spec.category,
       question: spec.question,
       options: spec.options,
       default_value: spec.defaultValue,
-      status: 'resolved',
-      resolved_value: spec.options[0]?.value ?? '1',
-      resolution_notes: `Acordado en junta de socios. ${'x'.repeat(notas)}`,
+      ...over,
     })
   );
+  const synthetic = Array.from({ length: extra }, (_, i) =>
+    filaPanel({
+      key: `synthetic_policy_key_${String(i).padStart(4, '0')}`,
+      default_value: 'conservador',
+      ...over,
+    })
+  );
+  return [...real, ...synthetic];
 }
 
-/** La herramienta TAL Y COMO SE EMBARCA: envuelta por withResultCap. */
+/** The tool AS SHIPPED: wrapped by withResultCap. */
 function embarcada(): ToolHandle<{ keys?: string[] }> {
   const t = buildTools(CTX, { model: 'm' } as never).find(
     (x) => x.name === 'get_accounting_policies'
   );
-  expect(t, 'la herramienta embarcada existe').toBeDefined();
+  expect(t, 'the shipped tool exists').toBeDefined();
   return t as unknown as ToolHandle<{ keys?: string[] }>;
 }
 
-describe('el instructivo no puede perderse por el tope, y el panel tampoco', () => {
-  it('con el panel de producción entero: nada se trunca y el mandato llega intacto', async () => {
-    // Medido por un adversario: 27 filas con notas de ~900 caracteres daban
-    // 32109 chars — el tope corta por el FINAL y how_to_use era el ÚLTIMO
-    // campo, así que la primera víctima del corte era la regla de uso.
-    expect(POLICY_CATALOG.length).toBeGreaterThan(20);
-    mockPanel(panelDeProduccion());
-    const salida = (await embarcada().run({})) as string;
+const average = (xs: number[]): number => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
 
-    expect(salida.length).toBeLessThanOrEqual(MAX_TOOL_RESULT_CHARS);
-    expect(salida, 'el panel de producción ya no llega amputado').not.toContain(
-      'result truncated at'
-    );
-
-    const panel = JSON.parse(salida) as PanelDelDespacho;
-    expect(panel.how_to_use).toBe(MANDATO);
-    // El panel llega COMPLETO: ninguna política se cae por el borde.
-    expect(panel.policies).toHaveLength(POLICY_CATALOG.length);
-    expect(panel.policies.map((p) => p.key)).toEqual(POLICY_CATALOG.map((c) => c.key));
-    for (const p of panel.policies) expect(p.value.length).toBeGreaterThan(0);
-    // Lo que se recortó son las NOTAS —la justificación, no el criterio— y se
-    // DICE con el número que de verdad aplicó.
-    //
-    // El aserto fijaba «400» y se puso rojo al crecer el catálogo: el recorte
-    // es ADAPTATIVO —baja hasta que el panel entero quepa— así que el número
-    // depende de cuántas políticas haya, y clavarlo convertía una propiedad en
-    // una fotografía. Lo que importa no es cuánto se recortó sino que lo
-    // recortado sean las notas, que se anuncie, y que el número anunciado sea
-    // el que de verdad se aplicó: un aviso que miente sobre su propio corte es
-    // peor que no avisar.
-    //
-    // Y EL ESCALON DE CERO TAMBIEN SE JUZGA, porque la fusion lo alcanzo. Con
-    // 39 politicas el panel cabia recortando las notas a 150; con las 46 de
-    // hoy —F07a y F07b anadieron siete— ya no cabe ninguna nota: el panel
-    // desnudo mide 26 035 caracteres sobre un presupuesto de 30 000, o sea
-    // menos de 90 por politica, y la escalera [400, 150, 0] no tiene peldano
-    // ahi. Exigir un numero POSITIVO era exigir que el catalogo fuera pequeno,
-    // que es una fotografia del mismo tipo que el «400» de antes. Lo que no
-    // cambia es la propiedad: el aviso NO PUEDE MENTIR sobre su propio corte,
-    // EXIGE QUE RECORTE, NO QUE SUELTE. La fusion habia relajado esto para
-    // aceptar tambien «notes were DROPPED», y con ello daba por buena una
-    // regresion embarcada: a 46 politicas el panel medía 26 001 y el agente
-    // recibia las reglas SIN una sola justificacion. La escalera gano un
-    // peldano de 60 y vuelven las 46 notas, asi que el aserto vuelve a ser el
-    // de main — un aserto que acepta las dos salidas no distingue la sana de
-    // la rota, que es justo lo que tiene que hacer.
-    const recortado = /notes were trimmed to (\d+) characters/.exec(panel.notes_trimmed ?? '');
+describe('the panel fits its size budget and says what it leaves out (#747)', () => {
+  it('measures the panel by field', async () => {
+    mockPanel(catalogRows(0), fullRoleMap());
+    const panel = await correr();
+    const rows = panel.policies.map((p) => JSON.stringify(p).length + 1);
+    const weights = {
+      catalog_keys: POLICY_CATALOG.length,
+      compact_row_avg: average(rows),
+      compact_row_max: Math.max(...rows),
+      key_avg: average(POLICY_CATALOG.map((s) => s.key.length)),
+      question_avg: average(POLICY_CATALOG.map((s) => s.question.length)),
+      default_value_avg: average(POLICY_CATALOG.map((s) => (s.defaultValue ?? '').length)),
+      options_avg: average(
+        POLICY_CATALOG.map(
+          (s) => JSON.stringify(s.options.map(({ value, label }) => ({ value, label }))).length
+        )
+      ),
+      mapped_roles: panel.account_roles.length,
+      role_map_chars: JSON.stringify(panel.account_roles).length,
+      compact_panel_chars: JSON.stringify(panel).length,
+    };
+    process.stdout.write(`[#747] panel weights: ${JSON.stringify(weights)}\n`);
     expect(
-      recortado,
-      'el panel solto sus notas en vez de recortarlas: el agente se queda sin ninguna justificacion'
-    ).not.toBeNull();
-    {
-      const tope = Number(recortado![1]);
-      expect(tope).toBeGreaterThan(0);
-      for (const p of panel.policies) {
-        expect(
-          (p.notes ?? '').length,
-          `la nota de ${p.key} pasa del recorte que el propio aviso anuncia`
-        ).toBeLessThanOrEqual(tope);
-      }
-    }
+      weights.compact_row_avg,
+      `the compact row weighs ${weights.compact_row_avg} characters on average; the design of #747 assumed at most 150`
+    ).toBeLessThanOrEqual(150);
   });
 
-  it('el mandato ABRE el resultado: es lo único que un corte no puede llevarse', async () => {
-    // Panel patológico: valores libres enormes que NO se pueden recortar
-    // (el valor es el criterio). Aquí el tope sí corta — y aun así la regla
-    // de uso viaja entera, porque es la primera clave del JSON.
-    mockPanel(
-      POLICY_CATALOG.map((spec) =>
-        filaPanel({
-          key: spec.key,
-          status: 'resolved',
-          resolved_value: 'v'.repeat(5000),
-          resolution_notes: 'n'.repeat(5000),
-        })
-      )
-    );
-    const salida = (await embarcada().run({})) as string;
+  it('catalog plus 40 synthetic keys, all unanswered, every role mapped: the whole list arrives', async () => {
+    const rows = catalogRows(40);
+    mockPanel(rows, fullRoleMap());
+    const output = (await embarcada().run({})) as string;
+    const panel = JSON.parse(output) as CompactPanel;
 
-    expect(salida).toContain('result truncated at');
+    // THE ALARM: red 40 keys before the agent loses anything.
     expect(
-      salida.startsWith(`{"how_to_use":${JSON.stringify(MANDATO)}`),
-      'how_to_use es la PRIMERA clave del JSON, con el mandato entero'
+      panel.not_listed,
+      `the compact panel holds ${panel.policies?.length} keys within TOPE_DEL_PANEL=${TOPE_DEL_PANEL}; ` +
+        `the catalog has ${POLICY_CATALOG.length}; fewer than 40 keys of headroom remain — ` +
+        'redesign before adding keys (#747)'
+    ).toBeUndefined();
+    expect(panel.list_incomplete).toBeUndefined();
+    expect(output.length).toBeLessThanOrEqual(MAX_TOOL_RESULT_CHARS);
+    expect(output).not.toContain('result truncated at');
+
+    expect(
+      output.startsWith(`{"how_to_use":${JSON.stringify(COMPACT_MANDATE)}`),
+      'how_to_use is the FIRST key of the JSON, whole'
     ).toBe(true);
+    expect(panel.policies.map((p) => p.key)).toEqual(rows.map((r) => r.key));
+    for (const p of panel.policies) {
+      expect(p.status, p.key).toBe('unanswered');
+      expect(p.scope, p.key).toBe('tenant');
+    }
+    expect(panel.policies[0].value).toBe(POLICY_CATALOG[0].defaultValue);
+    expect(panel.unanswered_count).toBe(rows.length);
+    expect(panel.answered_count).toBe(0);
+    // The role map travels with the list, after it: a cut would take it first.
+    expect(panel.account_roles).toHaveLength(fullRoleMap().length);
+    expect(Array.isArray(panel.unmapped_roles)).toBe(true);
+  });
+
+  it('the same panel, all answered with 900-character notes: rows flag the note and carry no text', async () => {
+    mockPanel(catalogRows(40, answeredWithNote), fullRoleMap());
+    const output = (await embarcada().run({})) as string;
+    const panel = JSON.parse(output) as CompactPanel;
+
+    expect(panel.policies).toHaveLength(POLICY_CATALOG.length + 40);
+    expect(panel.not_listed).toBeUndefined();
+    for (const p of panel.policies) {
+      expect(p.status, p.key).toBe('answered');
+      expect(p.value, p.key).toBe('si');
+      expect(p.has_notes, p.key).toBe(true);
+    }
+    expect(panel.answered_count).toBe(panel.policies.length);
+    expect(output).not.toContain('Agreed by the partners');
+    expect(output).not.toContain('"notes"');
+    expect(output).not.toContain('"question"');
+    expect(output).not.toContain('"options"');
+    expect(output).not.toContain(POLICY_CATALOG[0].question);
+  });
+
+  it('keys returns the full policy: question, options when unanswered, and the note whole', async () => {
+    const spec = POLICY_CATALOG.find((p) => p.key === 'umbral_capitalizacion_mxn')!;
+    mockPanel([
+      filaPanel(),
+      filaPanel({ key: 'lleva_inventarios', default_value: 'no', ...answeredWithNote }),
+    ]);
+    const output = (await embarcada().run({
+      keys: ['umbral_capitalizacion_mxn', 'lleva_inventarios'],
+    })) as string;
+    const panel = JSON.parse(output) as PolicyDetail;
+
+    expect(panel.how_to_use).toBe(KEYED_MANDATE);
+    expect(output.startsWith('{"how_to_use":')).toBe(true);
+    const [open, answered] = panel.policies;
+    expect(open.question).toBe(spec.question);
+    expect(open.options).toEqual(spec.options.map(({ value, label }) => ({ value, label })));
+    expect(open.notes).toBeNull();
+    expect(answered.status).toBe('answered');
+    expect(answered.options).toBeUndefined();
+    expect(answered.notes, 'a keyed call never trims a note').toBe(NOTE);
+    expect(panel.not_included).toBeUndefined();
+    expect(panel.unknown_keys).toBeUndefined();
+    // The role map comes only with the compact list, and the mandate says so.
+    expect(output).not.toContain('"account_roles"');
+    expect(panel.how_to_use).toMatch(/role map comes only from a call without `keys`/);
+  });
+
+  it('a keyed call too large names what it left out, and every returned note is whole', async () => {
+    const requested = POLICY_CATALOG.map((p) => p.key).reverse();
+    mockPanel(catalogRows(0, answeredWithNote));
+    const output = (await embarcada().run({ keys: requested })) as string;
+
+    expect(output.length).toBeLessThanOrEqual(MAX_TOOL_RESULT_CHARS);
+    expect(output).not.toContain('result truncated at');
+    const panel = JSON.parse(output) as PolicyDetail;
+    const returned = panel.policies.map((p) => p.key);
+    expect(returned.length).toBeGreaterThan(0);
+    expect(panel.not_included!.length).toBeGreaterThan(0);
+    // Request order, packed whole: what came plus what is named is what was asked.
+    expect([...returned, ...panel.not_included!]).toEqual(requested);
+    for (const p of panel.policies) expect(p.notes, p.key).toBe(NOTE);
+    expect(panel.how_to_use).toMatch(/`not_included`[^.]*: call again with those keys/);
+  });
+
+  it('an unknown key is named instead of vanishing', async () => {
+    mockPanel([filaPanel()]);
+    const some = await detail(['no_such_key', 'umbral_capitalizacion_mxn']);
+    expect(some.policies.map((p) => p.key)).toEqual(['umbral_capitalizacion_mxn']);
+    expect(some.unknown_keys).toEqual(['no_such_key']);
+
+    mockPanel([]);
+    const none = await detail(['no_such_key']);
+    expect(none.policies).toEqual([]);
+    expect(none.unknown_keys).toEqual(['no_such_key']);
+    expect(none.how_to_use).toBe(KEYED_MANDATE);
+  });
+
+  it('a long free-text value is trimmed and flagged in the list, and whole by key', async () => {
+    const long = 'v'.repeat(1500);
+    const rows = [
+      filaPanel({ status: 'resolved', resolved_value: long }),
+      filaPanel({ key: 'lleva_inventarios', status: 'resolved', resolved_value: 'no' }),
+    ];
+    mockPanel(rows);
+    const [trimmed, plain] = (await correr()).policies;
+    expect(trimmed.value).toBe('v'.repeat(120));
+    expect(trimmed.value_trimmed).toBe(true);
+    expect(plain.value).toBe('no');
+    expect(plain.value_trimmed).toBeUndefined();
+
+    mockPanel(rows);
+    const whole = (await detail(['umbral_capitalizacion_mxn'])).policies[0];
+    expect(whole.value).toBe(long);
+    expect(whole.answered_value).toBe(long);
+  });
+
+  it('5,000-character values on every key: the list still arrives whole', async () => {
+    // This panel used to be cut by the result cap. The value is the criterion,
+    // so the list keeps its first 120 characters and flags the rest.
+    mockPanel(catalogRows(0, { status: 'resolved', resolved_value: 'v'.repeat(5000) }));
+    const output = (await embarcada().run({})) as string;
+    expect(output).not.toContain('result truncated at');
+    const panel = JSON.parse(output) as CompactPanel;
+    expect(panel.policies).toHaveLength(POLICY_CATALOG.length);
+    for (const p of panel.policies) expect(p.value_trimmed, p.key).toBe(true);
+  });
+
+  it('past the design limit the tail is named, not cut', async () => {
+    const rows = catalogRows(300);
+    mockPanel(rows, fullRoleMap());
+    const output = (await embarcada().run({})) as string;
+
+    expect(output.length).toBeLessThanOrEqual(MAX_TOOL_RESULT_CHARS);
+    expect(output).not.toContain('result truncated at');
+    const panel = JSON.parse(output) as CompactPanel;
+    // The notice comes right after the mandate, where no cut can reach it.
+    expect(Object.keys(panel).slice(0, 2)).toEqual(['how_to_use', 'list_incomplete']);
+    const listed = panel.policies.map((p) => p.key);
+    expect(listed.length).toBeGreaterThan(POLICY_CATALOG.length);
+    expect(panel.not_listed!.length).toBeGreaterThan(0);
+    expect([...listed, ...panel.not_listed!]).toEqual(rows.map((r) => r.key));
+    expect(panel.list_incomplete).toContain(
+      `${rows.length} keys; ${listed.length} are listed with status and value, and the other ` +
+        `${panel.not_listed!.length} appear in \`not_listed\` by key only`
+    );
+    for (const p of panel.policies) expect(p.status, p.key).toBe('unanswered');
+    // The counts describe the WHOLE panel, not only the rows listed.
+    expect(panel.unanswered_count).toBe(rows.length);
+    expect(panel.account_roles).toHaveLength(fullRoleMap().length);
   });
 });
 
@@ -881,8 +1051,8 @@ describe('el lector de webhooks la RECIBE y la puede correr', () => {
     expect(t).toBeDefined();
     const panel = JSON.parse(
       (await (t as unknown as ToolHandle<{ keys?: string[] }>).run({})) as string
-    ) as PanelDelDespacho;
-    expect(panel.how_to_use).toBe(MANDATO);
+    ) as CompactPanel;
+    expect(panel.how_to_use).toBe(COMPACT_MANDATE);
     expect(panel.policies[0].status).toBe('unanswered');
     // Acotado a la entidad de la sesión también aquí.
     expect(llamada(0)[1][1]).toBe(CTX.entityId);

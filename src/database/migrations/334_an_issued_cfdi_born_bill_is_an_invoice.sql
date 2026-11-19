@@ -1,5 +1,5 @@
 -- ============================================================
--- 332 · AN ISSUED CFDI BORN 'bill' IS AN INVOICE (#670 · MNE-001-522)
+-- 334 · AN ISSUED CFDI BORN 'bill' IS AN INVOICE (#670 · MNE-001-522)
 --
 -- Before MNE-001-025 (#392) every type I CFDI was pre-registered as 'bill',
 -- with its issuer matched as a vendor and the firm's rules run on it. Since
@@ -91,7 +91,7 @@ BEGIN
       INTO changes, closed;
 
     IF closed > 0 THEN
-      RAISE NOTICE 'migration 332: % pre-registration(s) of an issued CFDI left as bill in tenant %: consumed, rejected or not open',
+      RAISE NOTICE 'migration 334: % pre-registration(s) of an issued CFDI left as bill in tenant %: consumed, rejected or not open',
         closed, t.id;
     END IF;
     CONTINUE WHEN jsonb_array_length(changes) = 0;
@@ -163,14 +163,14 @@ BEGIN
 
     INSERT INTO audit_log (user_id, tenant_id, action, entity_type, entity_id, legal_entity_id, old_values, new_values, reason)
     SELECT author, t.id, 'update', 'pre_registrations', f.id, f.entity_id, f.old, f.new,
-           '332_an_issued_cfdi_born_bill_is_an_invoice.sql'
+           '334_an_issued_cfdi_born_bill_is_an_invoice.sql'
       FROM jsonb_to_recordset(changes) AS f(id uuid, entity_id uuid, old jsonb, new jsonb);
     GET DIAGNOSTICS audited = ROW_COUNT;
     IF audited <> jsonb_array_length(changes) THEN
-      RAISE EXCEPTION 'migration 332: % pre-registration(s) re-typed and % audit row(s) written in one tenant',
+      RAISE EXCEPTION 'migration 334: % pre-registration(s) re-typed and % audit row(s) written in one tenant',
         jsonb_array_length(changes), audited;
     END IF;
-    RAISE NOTICE 'migration 332: % pre-registration(s) of an issued CFDI re-typed from bill to invoice in tenant %', audited, t.id;
+    RAISE NOTICE 'migration 334: % pre-registration(s) of an issued CFDI re-typed from bill to invoice in tenant %', audited, t.id;
   END LOOP;
   PERFORM set_config('app.current_tenant', '', true);
 END

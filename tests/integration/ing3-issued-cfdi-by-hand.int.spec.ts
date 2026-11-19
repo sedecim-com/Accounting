@@ -256,6 +256,23 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
       name: 'the account passed beats the stored default',
       edits: [], coding: ['4200'], account: '4300', entry: ['DR 1120 9280.00', 'CR 4300 8000.00', 'CR 2125 1280.00'],
     },
+    // MNE-001-521 (#669): each tax on its own role. 8,000.00 + 1,280.00 + 240.00 = 9,520.00; with IEPS, + 640.00 = 9,920.00.
+    {
+      name: 'PPD with a local tax of 240.00: on 2190 at issuance, VAT parked on 2125',
+      edits: WITH_LOCAL_TAX, due: '9520.0000',
+      entry: ['DR 1120 9520.00', 'CR 4100 8000.00', 'CR 2125 1280.00', 'CR 2190 240.00'],
+    },
+    {
+      name: 'PUE with IEPS of 640.00: on 2180 at issuance, VAT on 2120',
+      edits: [...WITH_IEPS, method('PUE')], due: '9920.0000',
+      entry: ['DR 1120 9920.00', 'CR 4100 8000.00', 'CR 2180 640.00', 'CR 2120 1280.00'],
+    },
+    // MNE-001-505 (#699): a PPD's IEPS is caused on collection (LIEPS art. 10), so it parks in 2181 beside the VAT.
+    {
+      name: 'PPD with IEPS of 640.00: parked on 2181, VAT parked on 2125',
+      edits: WITH_IEPS, due: '9920.0000',
+      entry: ['DR 1120 9920.00', 'CR 4100 8000.00', 'CR 2181 640.00', 'CR 2125 1280.00'],
+    },
   ])('$name', async ({ edits, coding, account, entry, due }) => {
     const { uuid, id } = await stranded(edits);
     if (coding) await code(id, ...coding);
@@ -290,8 +307,6 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     { name: 'a CFDI in USD', edits: [swap('Moneda="MXN"', 'Moneda="USD" TipoCambio="18.50"')], refusal: /USD.*does not convert/ },
     { name: 'an advance', edits: [swap('Descripcion="Consultoria', 'Descripcion="Anticipo de consultoria')], refusal: /advance/ },
     { name: 'an invoice that applies an advance (TipoRelacion 07)', edits: [related('07', uuidv4())], refusal: /TipoRelacion 07/ },
-    { name: 'IEPS transferred', edits: WITH_IEPS, refusal: /IEPS \(640\.00\)/ },
-    { name: 'a local tax transferred', edits: WITH_LOCAL_TAX, refusal: /local taxes \(240\.00\)/ },
     { name: 'an expense account passed as the revenue account', account: '6100', refusal: /6100 \(expense.*cannot take the revenue/ },
     { name: 'an expense account coded on a line', coding: ['6100', 1], refusal: /6100 .*line 1.*cannot take the revenue/ },
     { name: 'a liability account with a credit balance', account: '2150', refusal: /2150 \(liability, credit.*cannot take the revenue/ },
@@ -304,6 +319,25 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     await expect(post(uuid, account)).rejects.toThrow(refusal);
     await expect(post(uuid, account, true)).rejects.toThrow(refusal);
     expect(await ledger()).toEqual(before);
+  });
+
+  it('a PPD with IEPS on an entity seeded before its role is refused naming the backfill, as at the draft door (#699)', async () => {
+    const role = (await query<{ account_id: string }>(
+      `DELETE FROM account_roles WHERE entity_id = $1 AND role = 'ieps_trasladado_no_cobrado' RETURNING account_id`, [f.entityId]
+    )).rows[0];
+    try {
+      const { uuid } = await stranded(WITH_IEPS);
+      const before = await ledger();
+      const refusal = /PPD sale.*IEPS \(640\.00\).*ieps_trasladado_no_cobrado \(2181\).*npm run backfill:account-roles -- --aplicar/;
+      await expect(post(uuid)).rejects.toThrow(refusal);
+      await expect(post(uuid, undefined, true)).rejects.toThrow(refusal);
+      expect(await ledger()).toEqual(before);
+    } finally {
+      await query(
+        `INSERT INTO account_roles (tenant_id, entity_id, role, account_id) VALUES ($1, $2, 'ieps_trasladado_no_cobrado', $3)`,
+        [f.tenantId, f.entityId, role.account_id]
+      );
+    }
   });
 
   it('a CFDI whose concepts do not add up to its SubTotal never reaches the door: the upload refuses it (#729)', async () => {

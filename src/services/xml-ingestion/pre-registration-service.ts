@@ -3,7 +3,9 @@ import Decimal from 'decimal.js';
 import pg from 'pg';
 import { query, getClient, withTransaction } from '../../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
-import { planearAsiento, planContabilizable, type OpcionesPlan, type PlanDeAsiento } from './cfdi-posting-plan.js';
+import {
+  planearAsiento, planContabilizable, singleExpenseRole, type OpcionesPlan, type PlanDeAsiento,
+} from './cfdi-posting-plan.js';
 import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
 import { getPolicySpec } from '../policy/pending-catalog.js';
 import {
@@ -20,7 +22,8 @@ import {
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto, type CFDIImpuesto } from './cfdi-parser.js';
 import { money, satKey, sumTax } from './cfdi-amounts.js';
-import { registerIssuedInvoice } from './issued-invoice-approval.js';
+import { ppdIepsWithoutRole, registerIssuedInvoice } from './issued-invoice-approval.js';
+import { IEPS_UNCOLLECTED_ROLE } from '../accounting/ieps-cash-basis.js';
 import { extractPagosCompletos } from './cfdi-facts.js';
 import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
 import { postReceivedCreditNote } from './received-credit-note-posting.js';
@@ -1200,6 +1203,17 @@ export class PreRegistrationService {
       );
     }
 
+    // Saved before the review throw below: a node posted past an annulled
+    // invoice answers `ya_ligado` on the next run and never warns again, and
+    // the catch of processToAccounting leaves the warnings as they are.
+    // NOTE: only this warning is saved; #698 widens it to every warning of a posted node.
+    const annulledWarnings = resultados
+      .filter((r) => r.accion !== 'revision' && r.annulledWarning)
+      .map((r) => r.annulledWarning as string);
+    if (annulledWarnings.length > 0) {
+      await appendRepWarnings(preReg.entity_id as string, preReg.id as string, annulledWarnings);
+    }
+
     const paraRevision = resultados.filter((r) => r.accion === 'revision');
     if (paraRevision.length > 0) {
       // Los nodos anteriores pueden haber creado o casado pagos YA: cada
@@ -1241,6 +1255,47 @@ export class PreRegistrationService {
   }
 
   /**
+   * A LINE WITH NO ACCOUNT (MNE-001-553, #684): the panel key
+   * `received_line_without_account` decides. `refuse`, the default, gives it
+   * none and the bill-lines thunk refuses it. `role_generic_account` asks the
+   * classifier once, before the bill exists, and gives it the account of the
+   * plan's one expense role; when the plan leaves a doubt about which account
+   * that is, the line is refused as under `refuse`, with the reason in `why`.
+   */
+  private async accountForUncodedLines(
+    client: pg.PoolClient,
+    preReg: Record<string, unknown>,
+    lines: LineWithSuggestion[]
+  ): Promise<{ accountId?: string; why?: string }> {
+    const entityId = preReg.entity_id as string;
+    const entity = await client.query<{ tenant_id: string }>(`SELECT tenant_id FROM legal_entities WHERE id = $1`, [entityId]);
+    if (entity.rows.length === 0) throw new AccountingError('ENTITY_NOT_FOUND', `Entity ${entityId} not found`);
+    const tenantId = entity.rows[0].tenant_id;
+    const answer = (await getPolicy({ tenantId, entityId }, 'received_line_without_account', client)).value;
+    if (answer === 'refuse') return {};
+    if (answer !== 'role_generic_account') {
+      throw new AccountingError(
+        'POLICY_VALUE_UNKNOWN',
+        `received_line_without_account = "${answer}" is not a value this system knows (refuse | role_generic_account); nothing was posted.`
+      );
+    }
+    const refused = (why: string) => ({ why: `received_line_without_account = role_generic_account: ${why}` });
+    // The reference only words the plan's descriptions, which this read discards.
+    const plan = await this.planDeAsiento(preReg, lines, String(preReg.external_reference ?? ''));
+    if (!plan) return refused('the document has no CFDI to classify');
+    const role = singleExpenseRole(plan.clasificacion.lines);
+    if ('why' in role) return refused(role.why);
+    const account = await client.query<{ id: string }>(
+      `SELECT a.id FROM accounts a
+         JOIN legal_entities le ON le.id = a.entity_id AND le.tenant_id = $2
+        WHERE a.entity_id = $1 AND a.code = $3`,
+      [entityId, tenantId, role.accountCode]
+    );
+    if (account.rows.length !== 1) return refused(`the role ${role.role} has no account in this entity`);
+    return { accountId: account.rows[0].id };
+  }
+
+  /**
    * THE BILL AND ITS ENTRY ARE ONE ACT (#498).
    *
    * The INSERTs of `bills` and `bill_lines` used to autocommit before the
@@ -1261,7 +1316,8 @@ export class PreRegistrationService {
    * person gave the whole document, then its suggestion while it is eligible.
    * The lines are resolved once, here, and the bill lines and the entry read
    * the same resolved lines. A suggestion stored before #684 is rechecked on
-   * this read and the stored row is not rewritten.
+   * this read and the stored row is not rewritten. A line the three leave
+   * with no account follows the panel key (`accountForUncodedLines`).
    */
   private async createBillFromPreReg(
     preReg: Record<string, unknown>,
@@ -1273,10 +1329,13 @@ export class PreRegistrationService {
 
     const result = await withTransaction(async (client) => {
       const eligible = await eligibleSuggestions(client, entityId, stored);
-      const lines = stored.map((line) => ({
+      const picked = stored.map((line) => ({
         ...line,
         account_id: pickLineAccount(line, preReg.default_account_id as string | null, eligible),
       }));
+      // Invariant 6: a line left with no account is a fork the panel answers, read only when one exists.
+      const generic = picked.every((line) => line.account_id) ? {} : await this.accountForUncodedLines(client, preReg, picked);
+      const lines = picked.map((line) => ({ ...line, account_id: line.account_id ?? generic.accountId }));
       const { billId, billNumber } = await insertarFacturaDePreRegistro(
         client,
         preReg,
@@ -1294,7 +1353,8 @@ export class PreRegistrationService {
           lines.map((line) => {
             const accountId = line.account_id;
             if (!accountId) {
-              throw new ValidationError(`Line ${line.line_number}: no account assigned`);
+              // The refusal stays here, after the vendor is resolved or refused: an unknown issuer still exits 11.
+              throw new ValidationError(`Line ${line.line_number}: no account assigned${generic.why ? ` (${generic.why})` : ''}`);
             }
             // Only the IVA transfer is `tax_amount`: taking the first transfer
             // wrote an IEPS that came ahead of it as if it were VAT (#284). The
@@ -1467,6 +1527,8 @@ export class PreRegistrationService {
     });
     if (!plan) throw new NotFoundError('The XML of CFDI', uuid);
     const { facts, decisions } = plan.clasificacion;
+    // #699 · Said as the draft door says it: the role is missing until the backfill, not a decision to answer.
+    if (plan.clasificacion.missingRoles.includes(IEPS_UNCOLLECTED_ROLE)) throw ppdIepsWithoutRole(uuid, facts.iepsTrasladado);
     const postable = planContabilizable(plan);
     if (!postable.ok) {
       // No trail is written here, so the message is the only place that says how to answer.
@@ -1497,9 +1559,6 @@ export class PreRegistrationService {
         params: { uuid, invoice: replaced.rows[0].invoice_number, status: replaced.rows[0].status },
       });
     }
-    // The core counts any credit outside its roles as revenue, so it cannot book these two yet (#620, question 2).
-    if (facts.iepsTrasladado > 0) throw unsupported('ieps', facts.iepsTrasladado.toFixed(2));
-    if (facts.impuestosLocalesTrasladados > 0) throw unsupported('local_tax', facts.impuestosLocalesTrasladados.toFixed(2));
     if (plan.revenueLinesMismatch) {
       throw new ValidationError({
         key: 'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH',
@@ -1711,7 +1770,7 @@ async function insertarFacturaDePreRegistro(
   buildLines: () => BillLineRow[]
 ): Promise<{ billId: string; billNumber: string; vendorId: string }> {
   // ING-3 (#320): the last door before `bills`, shared by `bill inbox run` and
-  // the draft approval. Migration 332 (#670) re-typed to 'invoice' the open rows
+  // the draft approval. Migration 334 (#670) re-typed to 'invoice' the open rows
   // born 'bill' before the direction existed, with this same predicate. The
   // guard stays for what it left: a row consumed or rejected by then, and an
   // entity whose RFC changed since. Its own sale is never its expense, whatever
@@ -1969,7 +2028,9 @@ export function spreadDeclaredBase(base: string | null, debits: Decimal[]): Arra
  *     (`newVendorTaxId`); then the inbox path's own vendor creation runs on
  *     this client, so vendor, bill and entry commit or roll back together;
  *   - the approved entry matches the CFDI figure by figure within
- *     `cfdi_tolerancia_cuadre`, and a mismatch is refused, never absorbed;
+ *     `cfdi_tolerancia_cuadre`, and a mismatch is refused, never absorbed.
+ *     On cash-basis books its VAT is in iva_pendiente_acreditar, or in
+ *     iva_acreditable for a PUE the entry pays from the bank (MNE-001-492);
  *   - the bill header comes from the XML; its lines follow
  *     `lineas_factura_desde`.
  */
@@ -2071,13 +2132,25 @@ export async function registrarFacturaDeBorradorAprobado(
   const summary = (preReg.tax_breakdown ?? {}) as Partial<CFDIParsed['impuestos']>;
   const toAp = net(ap, 'credit');
   const paid = toAp.isZero() && preReg.x_metodo_pago === 'PUE' && net(bank, 'credit').gt(0);
-  const figures: Array<{ figure: string; entry: Decimal; cfdi: Decimal }> = [
+  // MNE-001-492: on cash-basis books the VAT sits in one role, as at the issued
+  // door. Owed to vendors, PUE or PPD, it waits in iva_pendiente_acreditar for
+  // the payment that releases it; paid in the entry itself, it is creditable
+  // now, since no payment would ever release it from 1135.
+  const vatRole = !(await entityUsesCashBasisIva(client, entityId))
+    ? null
+    : paid ? 'iva_acreditable' : 'iva_pendiente_acreditar';
+  const figures: Array<{ figure: string; entry: Decimal; cfdi: Decimal; note?: string }> = [
     {
       figure: paid ? 'total (credit to bank, paid PUE)' : 'total (credit to accounts payable)',
       entry: paid ? net(bank, 'credit') : toAp,
       cfdi: money(preReg.x_total),
     },
-    { figure: 'transferred VAT', entry: net(vat, 'debit'), cfdi: sumTax(summary.traslados, '002') },
+    {
+      figure: 'transferred VAT',
+      entry: net(vatRole ? accountsOf(vatRole) : vat, 'debit'),
+      cfdi: sumTax(summary.traslados, '002'),
+      ...(vatRole ? { note: `counted in ${vatRole}${paid ? ', as the entry pays the PUE' : ', where it waits until paid'}` } : {}),
+    },
   ];
   // NOTE: the 'single' withholding layout (MNE-001-147) and entities seeded
   // before MNE-001-056 (2140) point both withholding roles at one account;
@@ -2106,7 +2179,7 @@ export async function registrarFacturaDeBorradorAprobado(
       'CFDI_RECONCILIATION_FAILED',
       `The approved entry does not match CFDI ${uuid}: ` +
         mismatches
-          .map((c) => `${c.figure} is ${c.entry.toFixed(2)} in the entry and ${c.cfdi.toFixed(2)} in the CFDI (difference ${c.entry.minus(c.cfdi).toFixed(2)})`)
+          .map((c) => `${c.figure} is ${c.entry.toFixed(2)} in the entry and ${c.cfdi.toFixed(2)} in the CFDI (difference ${c.entry.minus(c.cfdi).toFixed(2)})${c.note ? `, ${c.note}` : ''}`)
           .join('; ') +
         `. Tolerance per figure: ${tolerance.toFixed(2)} (cfdi_tolerancia_cuadre). Nothing was posted; correct the draft and approve again.`,
       { cfdi_uuid: uuid, figures: mismatches.map((c) => c.figure) }
@@ -2288,6 +2361,30 @@ function linesPerConcept(
       tags: { clave_prod_serv: c.clave_prod_serv },
     };
   });
+}
+
+/**
+ * Appends warnings to a REP's pre-registration, never replacing the ones it
+ * already holds. A warning that is saved nowhere is not a warning.
+ */
+export async function appendRepWarnings(
+  entityId: string,
+  preRegistrationId: string,
+  warnings: string[]
+): Promise<void> {
+  const saved = await query(
+    `UPDATE pre_registrations
+        SET validation_status = 'warnings',
+            validation_warnings = COALESCE(validation_warnings, '[]'::jsonb) || $3::jsonb
+      WHERE id = $1 AND entity_id = $2 AND document_type = 'payment'`,
+    [preRegistrationId, entityId, JSON.stringify(warnings)]
+  );
+  if (saved.rowCount !== 1) {
+    throw new AccountingError(
+      'REP_WARNING_NOT_SAVED',
+      `The warnings of payment receipt ${preRegistrationId} could not be saved: it is not a receipt of this entity.`
+    );
+  }
 }
 
 /** El vocabulario de xml_documents.sat_validation_status al del clasificador. */

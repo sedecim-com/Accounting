@@ -287,7 +287,8 @@ export async function buildProvisionalIncomeTaxWorkpaper(
     if (!coefficient) {
       block('ISR-WP-NO-COEFFICIENT',
         `No hay coeficiente de utilidad capturado de una declaración anual presentada o exigible al ` +
-          `vencer el pago de ${year}-${pad(month)} (LISR art. 14 fr. I). Captúralo con su declaración; ` +
+          `vencer el pago de ${year}-${pad(month)} (LISR art. 14 fr. I). Captúralo con su declaración: ` +
+          '`mnemosine annual figure record --kind profit_coefficient`; ' +
           `en el primer ejercicio de operaciones no hay pagos provisionales.`);
     }
 
@@ -302,7 +303,8 @@ export async function buildProvisionalIncomeTaxWorkpaper(
       block('ISR-WP-LOSSES-STALE',
         `Las pérdidas pendientes capturadas son de la declaración de ${lossInput.sourceFiscalYear}; ` +
           `el pago de ${year} aplica las que quedaron al cierre de ${year - 1} (LISR art. 57). ` +
-          `Captura las de la declaración de ${year - 1}, aunque sean cero.`);
+          `Captura las de la declaración de ${year - 1} una vez presentada, aunque sean cero: ` +
+          `\`mnemosine annual figure record --kind pending_tax_losses --year ${year - 1}\`.`);
     } else if (lossInput) {
       const target = lossesUpdateTarget(year, month);
       const [y, m] = (lossInput.updatedThrough as string).split('-').map(Number);

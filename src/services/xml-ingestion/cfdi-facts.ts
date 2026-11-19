@@ -293,7 +293,7 @@ function breakdownTaxes(cfdi: CFDIParsed) {
  * total does not match the sum of its parts and the journal entry does
  * not balance.
  */
-function extractImpuestosLocales(cfdi: CFDIParsed): { trasladados: number; retenidos: number } {
+export function extractImpuestosLocales(cfdi: CFDIParsed): { trasladados: number; retenidos: number } {
   const c = cfdi.complementos.find((x) => x.type === 'ImpuestosLocales');
   if (!c) return { trasladados: 0, retenidos: 0 };
   const d = c.data;

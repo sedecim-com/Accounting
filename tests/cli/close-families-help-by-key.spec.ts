@@ -55,6 +55,8 @@ describe('close and control families, help by key (#314, MNE-001-092)', () => {
     ['year create', 'help.year.create.argument.year'],
     ['chart import', 'help.chart.import.option.partial'],
     ['opening-balance import', 'help.opening_balance.import.option.subledger'],
+    ['opening-balance import', 'help.opening_balance.import.option.chart'],
+    ['opening-balance check', 'help.opening_balance.check.option.chart'],
     ['ar check', 'help.ar.check.option.strict'],
     ['ap reconcile', 'help.ap.reconcile.option.as_of'],
     ['cashflow reconcile', 'help.cashflow.reconcile.option.show_candidates'],

@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import { query } from '../../database/connection.js';
 import type { EntityScope } from '../../database/scope.js';
+import { isRealCalendarDate } from '../../utils/calendar-date.js';
 import { NotFoundError, ValidationError } from '../../utils/errors.js';
 import { legalParameterAt, type LegalParameterInForce } from '../jurisdiction/legal-parameters.js';
 
@@ -78,7 +79,10 @@ export interface ProvisionalPayment {
 
 const KINDS: readonly IncomeTaxInputKind[] = ['profit_coefficient', 'pending_tax_losses'];
 const DECIMAL_4 = /^\d+(\.\d{1,4})?$/;
-const ISO_DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+/** DECIMAL(19,4): fifteen digits before the point (migration 166). */
+const MAX_INTEGER_DIGITS = 15;
+/** The CHECK of source_fiscal_year (migration 166). */
+const YEAR_RANGE = { min: 2000, max: 2200 };
 const ISO_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 /** LISR art. 14 fr. I: a coefficient from a return up to five years older. */
 export const COEFFICIENT_MAX_AGE_YEARS = 5;
@@ -213,15 +217,27 @@ function assertCapture(c: IncomeTaxInputCapture): void {
   if (!Number.isInteger(c.sourceFiscalYear)) {
     throw new ValidationError('El ejercicio de la declaración fuente es un año entero.', 'sourceFiscalYear');
   }
+  if (c.sourceFiscalYear < YEAR_RANGE.min || c.sourceFiscalYear > YEAR_RANGE.max) {
+    throw new ValidationError(
+      { key: 'income_tax_input.year_out_of_range', params: { ...YEAR_RANGE, year: c.sourceFiscalYear } },
+      'sourceFiscalYear');
+  }
   if (!DECIMAL_4.test(c.value)) {
     throw new ValidationError(
       `"${c.value}" no es una cifra no negativa con hasta cuatro decimales.`, 'value');
+  }
+  if (c.value.split('.')[0].length > MAX_INTEGER_DIGITS) {
+    throw new ValidationError({ key: 'income_tax_input.value_too_large', params: { value: c.value } }, 'value');
   }
   if (c.sourceDocument.trim() === '') {
     throw new ValidationError(
       'Falta la fuente: la declaración anual de la que se tomó la cifra.', 'sourceDocument');
   }
-  if (!ISO_DATE.test(c.sourceFiledOn) || c.sourceFiledOn <= `${c.sourceFiscalYear}-12-31`) {
+  if (!isRealCalendarDate(c.sourceFiledOn)) {
+    throw new ValidationError(
+      { key: 'income_tax_input.filed_on_not_a_day', params: { value: c.sourceFiledOn } }, 'sourceFiledOn');
+  }
+  if (c.sourceFiledOn <= `${c.sourceFiscalYear}-12-31`) {
     throw new ValidationError(
       `La declaración de ${c.sourceFiscalYear} se presenta después de que termina el ejercicio: ` +
         `"${c.sourceFiledOn}" no puede ser su fecha.`,

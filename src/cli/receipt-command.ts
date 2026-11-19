@@ -12,6 +12,7 @@ import {
   applyCustomerPayment,
   unapplyCustomerPayment,
   reverseCustomerPayment,
+  stateReversalCause,
   getCustomerPayment,
   REVERSAL_CAUSES,
   type ResultadoReversa,
@@ -158,6 +159,8 @@ Examples:
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042 --amount 2500.00
   # The customer paid 9533.33 on fees of 10000 + VAT: it withheld 10 % ISR and 2/3 of the VAT.
   mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:9533.33 --withholding isr:1000 --withholding iva:1066.67
+  # Dated: the entry, the allocation and the invoice's last payment carry May 20, and so does the IVA it causes.
+  mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042:2500.00 --date 2026-05-20
 `,
   unapply: `
 Examples:
@@ -165,6 +168,8 @@ Examples:
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada"
   # See what would be reopened before doing it.
   mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Revision del cobro de julio" --dry-run
+  # Dated: the mirror and the closed allocation carry May 25.
+  mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada" --date 2026-05-25
 `,
   reverse: `
 Examples:
@@ -174,6 +179,13 @@ Examples:
   mnemosine receipt reverse PMT-2026-00042 --reason "Devuelto por fondos insuficientes"
   # See the mirror it would post, writing nothing.
   mnemosine receipt reverse PMT-2026-00042 --dry-run
+`,
+  causeRecord: `
+Examples:
+  # A direct debit reversed with no cause turned out to be a dispute after it was paid.
+  mnemosine receipt cause record PMT-2026-00042 --cause taken_back --reason "Disputed by the payer on June 9"
+  # See what would be written, writing nothing.
+  mnemosine receipt cause record PMT-2026-00042 --cause not_collected --dry-run
 `,
 } as const;
 
@@ -344,7 +356,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         // cannot be one is refused here, before any service is asked. Its IVA
         // rate is a fact only the accountant states (there is no default) on
         // an entity that keeps Mexican books; the service refuses a rate on
-        // one that does not, and an advance by cheque (issue 700).
+        // one that does not.
         if (ref === undefined && !opts.customer) throw usageError(t('receipt.advance.needs_customer'));
         if (ref !== undefined && opts.taxRate !== undefined) throw usageError(t('receipt.advance.only_without_invoice'));
         const treatment = opts.taxRate === undefined ? null : readAdvanceTreatment(opts.taxRate);
@@ -468,6 +480,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           const params = { customer: label, invoices: previo.advanceInvoices.join(', '), invoice: previo.advanceInvoices[0] };
           process.stderr.write(p.yellow(`${t('receipt.advance.invoice_already_booked', params)}\n`));
         }
+        // MNE-001-558 · by cheque, the IVA the figures name waits in 2150 for the bank.
+        if (opts.method === 'check' && previo.advance && new Decimal(previo.advance.iva).greaterThan(0)) {
+          process.stderr.write(p.dim(`${t('receipt.advance.cheque_held', { iva: previo.advance.iva })}\n`));
+        }
 
         if (opts.dryRun) {
           imprimirRegistro(previo, p, label, remanente, true, opts.json === true);
@@ -584,6 +600,15 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       fact('Date', dateOnly(cobro.payment_date));
       fact('Amount', `${cobro.payment_amount} ${cobro.currency_code}`);
       fact('Method', cobro.payment_method);
+      // MNE-001-556: a cheque's VAT is caused the day the bank cashes it, so the receipt says whether it has.
+      if (cobro.payment_method === 'check' && (cobro.check_cashed_tx_id || cobro.status === 'completed')) {
+        fact(
+          t('receipt.cheque.cashed_label'),
+          cobro.check_cashed_tx_id
+            ? t('receipt.cheque.cashed', { date: cobro.check_cashed_date ?? '', transaction: cobro.check_cashed_tx_id })
+            : t('receipt.cheque.not_cashed')
+        );
+      }
       fact('Reference', cobro.reference_number);
       fact('On account', cobro.unapplied_amount !== '0.00' ? cobro.unapplied_amount : null);
       const { advance_base: base, advance_tax_rate: treatment, advance_iva: iva } = cobro;
@@ -603,6 +628,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       if (cobro.reversed_at) {
         fact('Reversed', p.yellow(new Date(cobro.reversed_at).toISOString()));
         fact('Reversal cause', cobro.reversal_cause ?? 'not stated');
+        // Later than the reversal when the cause was stated afterwards (MNE-001-511).
+        if (cobro.reversal_cause_stated_at) fact('Cause stated', new Date(cobro.reversal_cause_stated_at).toISOString());
       }
 
       out.write(`\n${p.bold('Applications')} ${p.dim(`(${cobro.aplicaciones.length})`)}\n`);
@@ -610,14 +637,16 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         render(
           cobro.aplicaciones.map((a) => ({
             invoice: a.invoice_number,
+            applied_on: a.applied_on,
             applied: a.amount_applied,
             isr_withheld: a.withholding_isr_amount,
             vat_withheld: a.withholding_iva_amount,
             iva_released: a.iva_reclass_amount ?? '',
+            advance_iva: a.advance_iva_amount,
             live: a.viva ? 'yes' : 'no',
             unapplied_reason: a.unapply_reason ?? '',
           })),
-          { format: 'table', numeric: ['applied', 'isr_withheld', 'vat_withheld', 'iva_released'] }
+          { format: 'table', numeric: ['applied', 'isr_withheld', 'vat_withheld', 'iva_released', 'advance_iva'] }
         );
       }
       out.write('\n');
@@ -687,14 +716,15 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   const apply = receipt
     .command('apply')
     .alias('aplicar')
-    .argument('<ref>', 'payment number or id')
-    .description('Apply the on-account balance of a collection to one or more invoices (releases PPD IVA)');
+    .argument('<ref>', 'payment number or id');
+  describeCommand(apply, 'help.receipt.apply.description');
   withContext(apply);
   apply
     .option('--invoice <spec...>', 'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount')
     .option('--amount <amount>', 'amount for a single --invoice without an inline amount')
     .option('--json', 'JSON output');
   optionByKey(apply, '--withholding <spec...>', 'help.receipt.apply.option.withholding');
+  optionByKey(apply, '--date <date>', 'help.receipt.apply.option.date');
   declareRisk(apply, {
     risk: 'irreversible',
     llave: { sinLlave: 'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento' },
@@ -703,10 +733,12 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   });
   apply.addHelpText('after', EJEMPLOS.apply);
   apply.action(
-    (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string; withholding?: string[] }) =>
+    (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string; withholding?: string[]; date?: string }) =>
       run(async () => {
         const ctx = await writeEntityOf(opts);
         const { dryRun } = gateMutation(apply, opts as Record<string, unknown>);
+        // MNE-001-460: resolved once, so the preview and the write cannot disagree at midnight.
+        const date = opts.date ?? (await hoy(ctx));
         const p = deps.palette;
         const pares = parseAplicaciones(opts.invoice, opts.amount);
         const withheld = parseWithholding(opts.withholding, pares.map((x) => x.ref));
@@ -724,26 +756,31 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-        const previo = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId, { dryRun: true });
+        const previo = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId, { dryRun: true, date });
 
+        // MNE-001-422: an advance's IVA declared twice in an earlier month is said before anything posts.
+        const twice = previo.documentos.map((d) => advanceWarning(d.numero, d, previo.date)).filter((w): w is string => w !== null);
         if (dryRun) {
-          imprimirAplicacion(previo.documentos, previo.remanenteAnterior, previo.remanenteNuevo, cobro.payment_number, p, true, opts.json === true, previo.journalEntry?.entry_number ?? null);
+          imprimirAplicacion(previo.documentos, previo.remanenteAnterior, previo.remanenteNuevo, cobro.payment_number, p, true, opts.json === true, previo.journalEntry?.entry_number ?? null, previo.date);
+          for (const w of twice) process.stderr.write(p.yellow(`${w}\n`));
           process.stderr.write(p.dim('Dry run: nothing was written.\n'));
           return;
         }
 
         await confirmOrAbort(
           opts,
-          `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo}${withheldText(d)})`).join(', ')} ` +
+          `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo}${withheldText(d)}${advanceText(d, 'receipt.advance.iva_cancelled')})`).join(', ')} ` +
             `from ${cobro.payment_number} (on account ${previo.remanenteAnterior} → ${previo.remanenteNuevo}) ` +
-            `in ${ctx.entityName}? This posts to the ledger.`
+            `on ${previo.date} in ${ctx.entityName}? This posts to the ledger.` +
+            twice.map((w) => `\n${w}`).join('')
         );
 
-        const result = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId);
+        const result = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId, { date });
         if (result.attestation) {
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
-        imprimirAplicacion(result.documentos, result.remanenteAnterior, result.remanenteNuevo, cobro.payment_number, p, false, opts.json === true, result.journalEntry?.entry_number ?? null);
+        imprimirAplicacion(result.documentos, result.remanenteAnterior, result.remanenteNuevo, cobro.payment_number, p, false, opts.json === true, result.journalEntry?.entry_number ?? null, result.date);
+        if (!opts.json) for (const w of twice) process.stderr.write(p.yellow(`${w}\n`));
       })
   );
 
@@ -758,6 +795,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .requiredOption('--invoice <ref>', 'the invoice to unapply from')
     .requiredOption('--reason <text>', 'why: it lands in the audit trail and the ledger description')
     .option('--json', 'JSON output');
+  optionByKey(unapply, '--date <date>', 'help.receipt.unapply.option.date');
   declareRisk(unapply, {
     risk: 'irreversible',
     llave: { sinLlave: 'un reintento vuelve a desaplicar y postea otro espejo' },
@@ -766,11 +804,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   });
   unapply.addHelpText('after', EJEMPLOS.unapply);
   unapply.action(
-    (ref: string, opts: CommonOpts & { invoice: string; reason: string }) =>
+    (ref: string, opts: CommonOpts & { invoice: string; reason: string; date?: string }) =>
       run(async () => {
         const ctx = await writeEntityOf(opts);
         const { dryRun } = gateMutation(unapply, opts as unknown as Record<string, unknown>);
         const p = deps.palette;
+        // MNE-001-460: resolved once, so the preview and the write cannot disagree at midnight.
+        const date = opts.date ?? (await hoy(ctx));
 
         const cobro = await getCustomerPayment(ctx.entityId, ref);
         const factura = await resolveInvoice(ctx.entityId, opts.invoice);
@@ -778,14 +818,14 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
 
         const previo = await unapplyCustomerPayment(
           ctx.entityId, cobro.id,
-          { invoiceId: factura.id, reason: opts.reason },
+          { invoiceId: factura.id, reason: opts.reason, date },
           reviewer.userId, { dryRun: true }
         );
 
         if (dryRun) {
           process.stdout.write(
             `${p.bold(`Would unapply ${previo.desaplicado} from ${previo.documento.numero}`)} ` +
-              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)})`) +
+              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}`) +
               (new Decimal(previo.ivaReAparcado).greaterThan(0)
                 ? p.dim(` · IVA re-parked ${previo.ivaReAparcado}${previo.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
                 : '') + '\n'
@@ -797,13 +837,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         await confirmOrAbort(
           opts,
           `Unapply ${previo.desaplicado} of ${cobro.payment_number} from ${previo.documento.numero} ` +
-            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)})? ` +
+            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}? ` +
             'The cash stays on account; the invoice reopens.'
         );
 
         const result = await unapplyCustomerPayment(
           ctx.entityId, cobro.id,
-          { invoiceId: factura.id, reason: opts.reason },
+          { invoiceId: factura.id, reason: opts.reason, date },
           reviewer.userId
         );
         attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
@@ -816,13 +856,15 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             withholding_isr: result.documento.withholdingIsr ?? '0.00',
             withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
+            advance_iva_restored: result.documento.advanceIva ?? '0.00',
+            date: result.date,
             entry_number: result.journalEntry.entry_number,
           }], { json: true });
           return;
         }
         process.stdout.write(
           `${p.green('✔')} ${p.bold(result.paymentNumber)} unapplied from ${p.bold(result.documento.numero)} ` +
-            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)} · entry ${result.journalEntry.entry_number}`) +
+            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)}${advanceText(result.documento, 'receipt.advance.iva_restored')} · ${result.date} · entry ${result.journalEntry.entry_number}`) +
             (new Decimal(result.ivaReAparcado).greaterThan(0)
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
               : '') + '\n'
@@ -924,6 +966,75 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         for (const key of result.warnings) process.stderr.write(p.yellow(`${t(key)}\n`));
       })
   );
+
+  // ---- receipt cause record (MNE-001-511) ---------------------------
+  // The cause of a receipt that was reversed with none, stated afterwards.
+  // `cause` qualifies `receipt`, as `tax` qualifies `customer`.
+  const cause = describeCommand(receipt.command('cause').alias('causa'), 'help.receipt.cause.description');
+  const causeRecord = describeCommand(cause.command('record').alias('registrar'), 'help.receipt.cause.record.description');
+  argumentByKey(causeRecord, '<ref>', 'help.receipt.cause.record.argument.ref');
+  withContext(causeRecord);
+  optionByKey(causeRecord, '--cause <cause>', 'help.receipt.cause.record.option.cause', { mandatory: true });
+  // `record` is not an undo verb, so the kernel does not inject --reason: the leaf declares it.
+  optionByKey(causeRecord, '--reason <text>', 'cli.flag.reason');
+  optionByKey(causeRecord, '--json', 'help.receipt.cause.record.option.json');
+  declareRisk(causeRecord, {
+    risk: 'irreversible',
+    llave: { innecesaria: 'a cause is written once: a repeat finds the receipt with its cause and is refused' },
+    agent: false,
+    writes: 'customer_payments.reversal_cause, customer_payments.reversal_cause_stated_at',
+  });
+  causeRecord.addHelpText('after', EJEMPLOS.causeRecord);
+  causeRecord.action(
+    (ref: string, opts: CommonOpts & { cause?: string; reason?: string }) =>
+      run(async () => {
+        // A cause outside the two is refused before the receipt is read.
+        const stated = opts.cause ?? '';
+        if (!(REVERSAL_CAUSES as readonly string[]).includes(stated)) {
+          throw usageError(t('receipt.reverse.cause_unknown', { value: stated }));
+        }
+        const { dryRun, reason } = gateMutation(causeRecord, opts as Record<string, unknown>);
+        if (!reason?.trim() && !dryRun) throw usageError({ key: 'receipt.cause.reason_required' });
+        const ctx = await writeEntityOf(opts);
+        const p = deps.palette;
+
+        const payment = await getCustomerPayment(ctx.entityId, ref);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const args = { cause: stated, reason: reason?.trim() ?? '' };
+
+        const preview = await stateReversalCause(ctx.entityId, payment.id, args, reviewer.userId, { dryRun: true });
+        const warnings = preview.warnings.map((key) => t(key));
+        if (dryRun) {
+          process.stdout.write(`${t('receipt.cause.would_state', { number: preview.paymentNumber, cause: preview.cause })}\n`);
+          for (const w of warnings) process.stderr.write(p.yellow(`${w}\n`));
+          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          return;
+        }
+
+        await confirmOrAbort(
+          opts,
+          t('receipt.cause.confirm', { number: preview.paymentNumber, cause: preview.cause }) +
+            warnings.map((w) => `\n${w}`).join('')
+        );
+
+        const result = await stateReversalCause(ctx.entityId, payment.id, args, reviewer.userId);
+        if (opts.json) {
+          render([{
+            payment_number: result.paymentNumber,
+            cause: result.cause,
+            stated_at: result.statedAt.toISOString(),
+            warnings: result.warnings.map((key) => t(key)).join(' '),
+          }], { json: true });
+          return;
+        }
+        process.stdout.write(
+          `${p.green('✔')} ${t('receipt.cause.stated', {
+            number: result.paymentNumber, cause: result.cause, stated_at: result.statedAt.toISOString(),
+          })}\n`
+        );
+        for (const key of result.warnings) process.stderr.write(p.yellow(`${t(key)}\n`));
+      })
+  );
 }
 
 /** The cause a reversed receipt keeps, as the dry run, the confirmation and the result say it (MNE-001-509). */
@@ -990,10 +1101,22 @@ function withheldText(d: { withholdingIsr?: string; withholdingIva?: string }): 
   return parts.length === 0 ? '' : `; withheld ${parts.map(([k, v]) => `${k} ${v}`).join(' + ')}`;
 }
 
+/** MNE-001-422 · The advance's IVA a document's event cancels or restores, as a suffix; empty when none. */
+function advanceText(d: { advanceIva?: string }, key: 'receipt.advance.iva_cancelled' | 'receipt.advance.iva_restored'): string {
+  return d.advanceIva !== undefined && new Decimal(d.advanceIva).greaterThan(0) ? `; ${t(key, { iva: d.advanceIva })}` : '';
+}
+
+/** MNE-001-422 · The warning for an advance's IVA that an earlier month's 2120 carried twice; null when none. */
+function advanceWarning(invoice: string, d: { advanceIva?: string; advanceIvaTwiceIn?: string | null }, date: string): string | null {
+  if (!d.advanceIvaTwiceIn) return null;
+  return t('receipt.advance.iva_caused_twice', { iva: d.advanceIva ?? '0.00', invoice, month: d.advanceIvaTwiceIn, date });
+}
+
 function imprimirAplicacion(
   documentos: {
     numero: string; saldoAnterior: string; saldoNuevo: string; estado: string;
     withholdingIsr?: string; withholdingIva?: string;
+    advanceIva?: string; advanceIvaTwiceIn?: string | null;
   }[],
   remanenteAnterior: string,
   remanenteNuevo: string,
@@ -1001,17 +1124,21 @@ function imprimirAplicacion(
   p: Palette,
   ensayo: boolean,
   json: boolean,
-  entryNumber: string | null
+  entryNumber: string | null,
+  date: string
 ): void {
   if (json) {
     render(
       documentos.map((d) => ({
         payment_number: paymentNumber,
+        date,
         invoice: d.numero,
         amount_due_before: d.saldoAnterior,
         amount_due_after: d.saldoNuevo,
         withholding_isr: d.withholdingIsr ?? '0.00',
         withholding_iva: d.withholdingIva ?? '0.00',
+        advance_iva_cancelled: d.advanceIva ?? '0.00',
+        warning: advanceWarning(d.numero, d, date),
         invoice_status: d.estado,
         on_account_before: remanenteAnterior,
         on_account_after: remanenteNuevo,
@@ -1024,8 +1151,8 @@ function imprimirAplicacion(
   }
   const prefijo = ensayo ? p.bold('Would apply') : `${p.green('✔')} ${p.bold(paymentNumber)} applied`;
   process.stdout.write(
-    `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado}${withheldText(d)})`).join(', ')} ` +
-      p.dim(`· on account ${remanenteAnterior} → ${remanenteNuevo}`) +
+    `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado}${withheldText(d)}${advanceText(d, 'receipt.advance.iva_cancelled')})`).join(', ')} ` +
+      p.dim(`· on account ${remanenteAnterior} → ${remanenteNuevo} · ${date}`) +
       (entryNumber ? p.dim(` · entry ${entryNumber}`) : '') +
       '\n'
   );

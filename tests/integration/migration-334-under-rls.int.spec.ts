@@ -6,7 +6,7 @@ import pg from 'pg';
 import { SYSTEM_USER_EMAIL } from '../../src/services/entity/entity-service.js';
 
 /**
- * 332 RE-TYPES THE OPEN PRE-REGISTRATIONS OF ISSUED CFDI THAT STILL SAY 'bill',
+ * 334 RE-TYPES THE OPEN PRE-REGISTRATIONS OF ISSUED CFDI THAT STILL SAY 'bill',
  * ON AN INSTALLED, HARDENED FIRM (#670 · MNE-001-522).
  *
  * The bench of tests/integration/migration-328-under-rls.int.spec.ts, for the
@@ -15,16 +15,16 @@ import { SYSTEM_USER_EMAIL } from '../../src/services/entity/entity-service.js';
  * production. Here the runner is a NOBYPASSRLS role that owns the tables, the
  * policies carry their FORCE, and the session has the `row_security = off`
  * floor of migrate.ts. A superuser on the same database seeds the rows and
- * judges what 332 left. Three firms: A with its system user, B without one,
+ * judges what 334 left. Three firms: A with its system user, B without one,
  * and C with nothing to re-type. All data is synthetic.
  */
 
 const ADMIN =
   process.env.TEST_ADMIN_DATABASE_URL || process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
-const DATABASE = `mnem_332_${randomBytes(4).toString('hex')}`;
-const MIGRATOR = `it_mig332_${randomBytes(4).toString('hex')}`;
+const DATABASE = `mnem_334_${randomBytes(4).toString('hex')}`;
+const MIGRATOR = `it_mig334_${randomBytes(4).toString('hex')}`;
 const DIR = path.join(__dirname, '..', '..', 'src', 'database', 'migrations');
-const FILE = '332_an_issued_cfdi_born_bill_is_an_invoice.sql';
+const FILE = '334_an_issued_cfdi_born_bill_is_an_invoice.sql';
 const OWN_RFC = 'XAXX010101000';
 const OTHER_RFC = 'AAA010101AAA';
 const sqlOf = (file: string): string => fs.readFileSync(path.join(DIR, file), 'utf-8');
@@ -69,7 +69,7 @@ async function preRegistration(name: string, firm: Firm, fields: Record<string, 
   );
 }
 
-/** Applies 332 as migrate.ts does: the floor, then the file in one transaction. */
+/** Applies 334 as migrate.ts does: the floor, then the file in one transaction. */
 async function apply(client: pg.Client = db): Promise<void> {
   await client.query('SET row_security = off');
   await client.query('BEGIN');
@@ -120,7 +120,7 @@ beforeAll(async () => {
   await verifier.connect();
 
   await db.query('SET row_security = off');
-  for (const file of fs.readdirSync(DIR).filter((f) => f.endsWith('.sql') && Number(f.slice(0, 3)) < 332).sort()) {
+  for (const file of fs.readdirSync(DIR).filter((f) => f.endsWith('.sql') && Number(f.slice(0, 3)) < 334).sort()) {
     // 071 ends with RESET ROLE: in production that returns to mnemosine_owner, here to the superuser.
     await db.query(`SET ROLE ${MIGRATOR}`);
     await db.query('BEGIN');
@@ -198,7 +198,7 @@ afterAll(async () => {
   await admin?.end();
 });
 
-describe('332 under FORCE RLS, run by an owner that cannot bypass it', () => {
+describe('334 under FORCE RLS, run by an owner that cannot bypass it', () => {
   let before: Record<string, string>;
   let xmlBefore: Record<string, string>;
 
@@ -224,7 +224,7 @@ describe('332 under FORCE RLS, run by an owner that cannot bypass it', () => {
     const users = await systemUsers();
     const systemUserOf = (firm: Firm) => users.find((u) => u.tenant_id === firm.tenant);
     expect(systemUserOf(firms[0])?.id).toBe(firms[0].user);
-    expect(systemUserOf(firms[1]), 'firm B had none: 332 created it').toMatchObject({ is_active: false });
+    expect(systemUserOf(firms[1]), 'firm B had none: 334 created it').toMatchObject({ is_active: false });
     expect(systemUserOf(firms[2]), 'firm C had none and no row changed there').toBeUndefined();
     const records = await trail();
     expect(records).toHaveLength(2);

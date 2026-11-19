@@ -12,13 +12,24 @@ export interface PaidDocument {
 /**
  * A CFDI 4.0 type P (Pagos 2.0) paying `doc` in full, issued by `issuerRfc`
  * to `receiverRfc` (default: the test entity). Shared by the REP linkage specs.
+ * `alsoPays` adds a second related document to the same payment node, also
+ * paid in full; the node's Monto is then the sum of both.
  */
 export function repXml(
   doc: PaidDocument,
   repUuid: string,
-  o: { issuerRfc?: string; issuerName?: string; receiverRfc?: string; date?: Date } = {}
+  o: { issuerRfc?: string; issuerName?: string; receiverRfc?: string; date?: Date; alsoPays?: PaidDocument } = {}
 ): string {
   const when = (o.date ?? fechaEnPeriodo()).toISOString().slice(0, 19);
+  const docs = o.alsoPays ? [doc, o.alsoPays] : [doc];
+  const amount = o.alsoPays ? (Number(doc.total) + Number(o.alsoPays.total)).toFixed(2) : doc.total;
+  const related = docs.map((d) => `<pago20:DoctoRelacionado IdDocumento="${d.cfdiUuid}" MonedaDR="MXN" NumParcialidad="1"
+          ImpSaldoAnt="${d.total}" ImpPagado="${d.total}" ImpSaldoInsoluto="0" ObjetoImpDR="02">
+          <pago20:ImpuestosDR><pago20:TrasladosDR>
+            <pago20:TrasladoDR BaseDR="${(Number(d.total) - d.iva).toFixed(2)}" ImpuestoDR="002"
+              TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="${d.iva.toFixed(2)}"/>
+          </pago20:TrasladosDR></pago20:ImpuestosDR>
+        </pago20:DoctoRelacionado>`).join('\n        ');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
   xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
@@ -34,14 +45,8 @@ export function repXml(
   <cfdi:Complemento>
     <pago20:Pagos Version="2.0">
       <pago20:Pago FechaPago="${when}"
-        FormaDePagoP="03" MonedaP="MXN" Monto="${doc.total}" NumOperacion="OP-9">
-        <pago20:DoctoRelacionado IdDocumento="${doc.cfdiUuid}" MonedaDR="MXN" NumParcialidad="1"
-          ImpSaldoAnt="${doc.total}" ImpPagado="${doc.total}" ImpSaldoInsoluto="0" ObjetoImpDR="02">
-          <pago20:ImpuestosDR><pago20:TrasladosDR>
-            <pago20:TrasladoDR BaseDR="${(Number(doc.total) - doc.iva).toFixed(2)}" ImpuestoDR="002"
-              TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="${doc.iva.toFixed(2)}"/>
-          </pago20:TrasladosDR></pago20:ImpuestosDR>
-        </pago20:DoctoRelacionado>
+        FormaDePagoP="03" MonedaP="MXN" Monto="${amount}" NumOperacion="OP-9">
+        ${related}
       </pago20:Pago>
     </pago20:Pagos>
     <tfd:TimbreFiscalDigital Version="1.1" UUID="${repUuid}"

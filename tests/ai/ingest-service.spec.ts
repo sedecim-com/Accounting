@@ -34,6 +34,8 @@ const { registrarSombraMock, wouldMatchMock, getDraftMock } = vi.hoisted(() => (
 }));
 
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   ingestCfdiFiles,
   buildCfdiPrompt,
@@ -430,6 +432,30 @@ describe('buildCfdiPrompt', () => {
     expect(prompt).toMatch(/No Method declared[\s\S]*treat it as PPD/);
   });
 
+  // MNE-001-493: since MNE-001-492 a received PUE parks its VAT in 1135 at
+  // every door, and the draft door refuses one owed to vendors with its VAT on
+  // 1130. The prompt and the manual the agent reads must draft it that way.
+  it('a received PUE is drafted against vendors with its VAT in 1135, never against banks (MNE-001-493)', () => {
+    const prompt = buildCfdiPrompt({ ...makeUpload({ metodo_pago: 'PUE' }), direction: 'received' });
+    const pue = prompt.slice(prompt.indexOf('   - PUE'), prompt.indexOf('   - PPD'));
+    expect(pue).toMatch(/debit "IVA Pendiente de Acreditar"\s+\(1135\)\s+\+\s+credit vendors/);
+    expect(pue).not.toMatch(/1130|banks/);
+    expect(prompt).toMatch(/moves it from 1135 to 1130/);
+    expect(prompt).not.toMatch(/credit banks/);
+    expect(prompt).not.toMatch(/PUE = paid/);
+    expect(prompt).not.toMatch(/debit "IVA Acreditable" \(1130\)/);
+  });
+
+  it('the manual the agent reads drafts a received PUE as the prompt does (MNE-001-493)', () => {
+    const manual = fs.readFileSync(path.resolve(__dirname, '../../src/ai/docs/mexico-cfdi.md'), 'utf8');
+    const ingestion = manual.slice(manual.indexOf('## Ingestion of received CFDIs'));
+    const layer2 = ingestion.slice(ingestion.indexOf('2. YOU classify'), ingestion.indexOf('3. Auto-post gates'));
+    expect(layer2).toMatch(/against VENDORS — never banks — with the VAT in 1135/);
+    expect(layer2).not.toMatch(/chosen by PUE\/PPD/);
+    expect(layer2).not.toMatch(/to bank for a paid PUE/);
+    expect(manual).not.toMatch(/credit banks|PUE = paid/);
+  });
+
   it('flags an unregistered vendor and tolerates malformed lines', () => {
     const prompt = buildCfdiPrompt(
       makeUpload({}, { vendor_id: null, lines: '{not json' })
@@ -689,6 +715,13 @@ describe('ING-3 · #320 — the direction of the CFDI', () => {
     const issued = buildCfdiPrompt({ ...makeUpload(), direction: 'issued' });
     expect(issued).toMatch(/No Method declared: treat it as PUE[\s\S]*2120/);
     expect(issued).not.toMatch(/treat it as PPD/);
+  });
+
+  it('an issued CFDI sends a PPD\'s IEPS to the uncollected role (2181) and a PUE\'s to 2180 (MNE-001-505, #699)', () => {
+    const issued = buildCfdiPrompt({ ...makeUpload(), direction: 'issued' });
+    expect(issued).toMatch(/a PUE's goes to "IEPS por Pagar" \(2180\)/);
+    expect(issued).toMatch(/PPD's to "IEPS Trasladado No Cobrado" \(2181\), because it is caused on collection \(LIEPS art\. 10\)/);
+    expect(buildCfdiPrompt({ ...makeUpload(), direction: 'received' })).not.toMatch(/2181/);
   });
 
   it('the prompt states the direction instead of assuming a received CFDI', () => {

@@ -124,7 +124,7 @@ describe('listInvoices', () => {
     await listInvoices(ENTITY, { asOf: '2026-06-30', withAging: true });
     expect(sql(1)).toMatch(/amount_due_as_of/);
     expect(sql(1)).toMatch(/FROM payment_allocations pa/);
-    expect(sql(1)).toMatch(/p\.payment_date <= \$\d+::date/);
+    expect(sql(1)).toMatch(/COALESCE\(pa\.applied_on, p\.payment_date\) <= \$\d+::date/); // MNE-001-460
     // A voided payment never happened.
     expect(sql(1)).toMatch(/p\.status <> 'void'/);
     // The same definition customer show uses (#94): unapplications, NSF

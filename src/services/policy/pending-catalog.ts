@@ -700,6 +700,29 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 45,
   },
   {
+    // MNE-001-524 (#672). A payment node that pays only annulled invoices always goes to review;
+    // the fork is the node that also pays a live one. Reader: ligarPagoREP, issued side only.
+    key: 'rep_voided_document',
+    textKey: 'rep_voided_document',
+    category: 'fiscal',
+    question: 'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',
+    impact:
+      'Applies to a receipt the entity issued. With "review" the whole payment waits for a person, so the VAT of the live invoice stays as not yet collected until then. With "post_live_documents" the payment is recorded for the live invoices only and their VAT is released; the share of the annulled invoice stays unbooked, with a warning saved on the receipt.',
+    options: [
+      { value: 'review', label: 'Review: hold the whole payment and name the annulled invoice' },
+      { value: 'post_live_documents', label: 'Post the live invoices and leave the annulled one unbooked, with a warning' },
+    ],
+    defaultValue: 'review',
+    defaultRationale:
+      'A receipt is issued only when the money is actually received (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, question 11), so one that names an invoice the books voided contradicts them, and only a person can say which is wrong; ADR-0006 picks the option that does not post without review, as `rep_documento_desconocido` does by waiting. A firm that books straight from CFDIs may post the live documents, whose VAT is caused when collected (LIVA arts. 1o.-B, 11 and 17).',
+    whyAsking:
+      'When one bank movement pays several invoices and one of them is void or cancelled in the books, either the receipt or the books are wrong. Some firms want to settle that before anything is recorded; others want the invoices that do stand collected at once.',
+    whatIDo:
+      'By default I send the whole payment to review and name the annulled invoice. With "post_live_documents" I collect the live invoices, apply nothing to the annulled one and save a warning that names it.',
+    ifSkipped: 'The whole payment goes to review, naming the annulled invoice.',
+    priority: 45,
+  },
+  {
     key: 'rep_ventana_dias',
     textKey: 'rep_match_window_days',
     category: 'operativa',
@@ -1488,6 +1511,30 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 41,
   },
   {
+    // MNE-001-553 · #684: read by `createBillFromPreReg`
+    // (xml-ingestion/pre-registration-service.ts), only when a line is left
+    // with no account of its own, none for the document and no eligible suggestion.
+    key: 'received_line_without_account',
+    textKey: 'received_line_without_account',
+    category: 'contable',
+    question: 'When a line of a vendor CFDI reaches posting with no expense account, what do I do with it?',
+    impact:
+      'A received line posts to its own account, then to the one given for the whole document, then to a suggestion that is not a control account. This governs the line that has none of the three when the CFDI is posted from the inbox (`bill inbox run`). With "refuse" nothing is posted: the CFDI stays in the inbox and says which line has no account, until someone codes it. With "role_generic_account" the line goes to the account your chart gives the expense role the CFDI was classified under (general expenses for an ordinary purchase), and the bill is posted without anyone choosing the account; when the classification has no single expense role with an account, it is refused all the same and says why.',
+    options: [
+      { value: 'refuse', label: 'Post nothing until someone gives the line an account' },
+      { value: 'role_generic_account', label: 'Post the line to the generic account of its expense role' },
+    ],
+    defaultValue: 'refuse',
+    defaultRationale:
+      'A deduction has to be duly recorded in the books (LISR art. 27 fr. IV): an expense booked to a generic account nobody chose is recorded, but not as what it is. Refusing is the conservative option of ADR-0006, decision 1: nothing is posted without review, and coding the line takes one command.',
+    whyAsking:
+      'A vendor CFDI sometimes reaches posting with a line nobody gave an account and nothing in its history suggests one. I either wait for you to code it, or I book it to the generic expense account so the payable is not held up.',
+    whatIDo:
+      'By default I leave the CFDI in the inbox and tell you which line has no account. With "role_generic_account" I post that line to the account of the expense role I classified the CFDI under.',
+    ifSkipped: 'I post nothing until every line has an account.',
+    priority: 42,
+  },
+  {
     key: 'informes_asientos_de_cierre',
     textKey: 'closing_entries_in_reports',
     category: 'contable',
@@ -2142,7 +2189,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
     textKey: 'employment_subsidy_paid_treatment',
     category: 'contable',
     question:
-      'When the employment subsidy exceeds the ISR withheld and you hand the difference to the worker in cash, is that a receivable from the tax authority or an expense of the firm?',
+      'The employment subsidy over the ISR that was handed to the worker in cash (the rule before 1 May 2024): a receivable from the tax authority or an expense of the firm?',
     impact:
       'It decides whether the cash you hand over comes back as a credit against the ISR withheld from other workers, or lands in payroll expense and never comes back.',
     options: [
@@ -2162,9 +2209,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'some firms make deliberately when the amounts are small and the paperwork is not worth it — ' +
       'but it should be a decision, not the consequence of a default.',
     whyAsking:
-      'When the subsidy is larger than the ISR of the period, the employer must hand the difference to the worker in cash. That money leaves the firm and comes back only if you credit it. Where you book it changes both your payroll expense and what you owe the SAT this month.',
+      'Until 30 April 2024, when the subsidy was larger than the ISR of the period the employer had to hand the difference to the worker in cash. That money left the firm and comes back only if you credit it, so where you book it changes both your payroll expense and what you owe the SAT. A paycheck paid from 1 May 2024 hands over nothing (decree DOF 01-05-2024): that is law, and this decision does not apply to it. It still applies to a paycheck already calculated with that cash.',
     whatIDo:
-      'I compute the excess per paycheck, record it on the payslip as cash delivered, and post it to the account this policy names. With "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports.',
+      'For a paycheck that handed cash over, I post that cash to the account this policy names; with "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports. For a paycheck paid from 1 May 2024 I withhold no ISR, hand over nothing and post nothing for the excess, whatever this policy says.',
     ifSkipped:
       'It goes to a receivable from the authority. Nothing breaks; if your criterion is to absorb it, payroll expense will be understated until you say so.',
     priority: 42,
@@ -2249,6 +2296,32 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'that pays only aguinaldo, carries none, and the regular paycheck keeps its own whichever was calculated first.',
     ifSkipped:
       'I recompute on the combined income of the period and credit only the difference.',
+    priority: 42,
+  },
+  // #661 · MNE-001-513. LSS art. 168 fr. II a) writes the bands of the employer
+  // old-age quota to two decimals and gives no rounding rule. Read by
+  // `readOldAgeBandEdge` (payroll/mx/old-age-band.ts); the default is the answer
+  // of 17 Nov 2026 on #661, under the owner's standing rule (ADR-0006).
+  {
+    key: 'imss_old_age_band_edge',
+    textKey: 'imss_old_age_band_edge',
+    category: 'fiscal',
+    question:
+      'When a worker\'s SBC falls just above the upper edge of a band of the employer cesantía en edad avanzada y vejez quota, which band does it pay?',
+    impact:
+      'It decides the rate of the employer quota for cesantía en edad avanzada y vejez of an SBC that falls between two bands of LSS art. 168 fr. II a), and with it the payslip, the payroll entry, the employer liability and the SUA file. In March 2026 an SBC of 352.00 (3.0006 UMA) pays 6.361 % with "above_upper_edge" (335.86 a quincena) and 6.026 % with "truncated_to_hundredths" (318.17); one of 316.00 (1.003 minimum wages) pays 6.026 % (285.63) or 3.150 % (149.31).',
+    options: [
+      { value: 'above_upper_edge', label: 'An SBC above a band\'s upper edge, by any amount, pays the next band' },
+      { value: 'truncated_to_hundredths', label: 'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table' },
+    ],
+    defaultValue: 'above_upper_edge',
+    defaultRationale:
+      'LSS art. 168 fr. II a) charges every SBC but writes its bands to two decimals with no rounding rule; reading «1.51» as «more than 1.50» keeps every upper edge as written and never computes less than the table can require.',
+    whyAsking:
+      'The table writes its edges to two decimals («3.00 UMA», then «3.01 UMA») and gives no rounding rule, so the law does not say which band an SBC of 3.0006 UMA pays. If the program you determine your quotas with truncates, choose that option so both give the same figure.',
+    whatIDo:
+      'For each contribution day I place the SBC, capped at 25 UMA, with the UMA and the general minimum wage in force that day, and charge the rate of that band and year from the dated table. The calculation note names the band, the rate and the rule used.',
+    ifSkipped: 'An SBC above an upper edge pays the next band.',
     priority: 42,
   },
   // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by

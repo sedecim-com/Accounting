@@ -47,6 +47,25 @@ const ROLES_DE_GASTO = new Set<AccountRole>([
   'activo_fijo',
 ]);
 
+/**
+ * The one expense role of a classification and its account code, or why there
+ * is none. Read under `received_line_without_account = role_generic_account`
+ * (MNE-001-553, #684): a line nobody coded takes that account only when the
+ * classifier leaves no doubt about which one it is.
+ */
+export function singleExpenseRole(
+  lines: readonly ProposedLine[]
+): { role: AccountRole; accountCode: string } | { why: string } {
+  const expense = lines.filter((l) => ROLES_DE_GASTO.has(l.role));
+  const roles = [...new Set(expense.map((l) => l.role))];
+  if (roles.length === 0) return { why: 'the classifier proposes no expense line for this CFDI' };
+  if (roles.length > 1) return { why: `the classifier proposes more than one expense role (${roles.join(', ')})` };
+  const codes = [...new Set(expense.map((l) => l.accountCode))];
+  const code = codes.length === 1 ? codes[0] : null;
+  if (!code) return { why: `the role ${roles[0]} has no account in this entity` };
+  return { role: roles[0], accountCode: code };
+}
+
 export interface RenglonDocumento {
   line_number: number;
   descripcion: string;

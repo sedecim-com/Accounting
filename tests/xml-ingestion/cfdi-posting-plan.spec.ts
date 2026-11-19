@@ -21,7 +21,7 @@ vi.mock('../../src/database/connection.js', () => ({
   query: (...a: unknown[]) => consultaFalsa(...a),
 }));
 
-import { planearAsiento, planContabilizable } from '../../src/services/xml-ingestion/cfdi-posting-plan.js';
+import { planearAsiento, planContabilizable, singleExpenseRole } from '../../src/services/xml-ingestion/cfdi-posting-plan.js';
 
 const ENTIDAD = '11111111-1111-1111-1111-111111111111';
 const RFC_RECEPTOR = 'XAXX010101000';
@@ -72,7 +72,8 @@ function lineaDe(plan: Awaited<ReturnType<typeof planearAsiento>>, cuenta: strin
 }
 
 describe('el método de pago decide la cuenta del IVA', () => {
-  it('PUE: el IVA se acredita al recibir la factura (1130)', async () => {
+  // MNE-001-492: la PUE recibida también espera su pago para acreditar.
+  it('PUE: el IVA queda PENDIENTE de acreditar (1135) hasta pagarla', async () => {
     const plan = await planearAsiento({
       entityId: ENTIDAD, entityRfc: RFC_RECEPTOR, xml: XML_PUE,
       renglones: RENGLONES, referencia: 'BILL-2026-00001',
@@ -80,8 +81,8 @@ describe('el método de pago decide la cuenta del IVA', () => {
     });
 
     expect(plan.clasificacion.verdict).toBe('ready');
-    expect(lineaDe(plan, idDe('1130'))?.debit_amount).toBe('160.0000');
-    expect(lineaDe(plan, idDe('1135'))).toBeUndefined();
+    expect(lineaDe(plan, idDe('1135'))?.debit_amount).toBe('160.0000');
+    expect(lineaDe(plan, idDe('1130'))).toBeUndefined();
   });
 
   it('PPD: el IVA queda PENDIENTE de acreditar (1135), no acreditado', async () => {
@@ -276,5 +277,22 @@ describe('the revenue line of an issued sale opens by concept', () => {
       vendorExists: true, periodOpen: true, satStatus: 'vigente' as const,
     };
     expect(await planearAsiento({ ...base, revenueLines: { callerAccountId: 'acct-4200' } })).toEqual(await planearAsiento(base));
+  });
+});
+
+describe('singleExpenseRole · the account a line nobody coded may take (MNE-001-553)', () => {
+  const line = (role: string, accountCode: string | null) =>
+    ({ role, accountCode, accountName: null, debit: 100, credit: null, description: role }) as never;
+
+  it('one expense role with its account: that account, whatever else the entry carries', () => {
+    expect(singleExpenseRole([line('gasto', '6100'), line('iva_pendiente_acreditar', '1135'), line('cxp', '2110')]))
+      .toEqual({ role: 'gasto', accountCode: '6100' });
+  });
+
+  it('no expense line, two expense roles, or a role with no account: none, and it says why', () => {
+    const why = (r: ReturnType<typeof singleExpenseRole>): string => ('why' in r ? r.why : `chose ${r.accountCode}`);
+    expect(why(singleExpenseRole([line('cxp', '2110')]))).toContain('no expense line');
+    expect(why(singleExpenseRole([line('gasto', '6100'), line('activo_fijo', '1210')]))).toContain('gasto, activo_fijo');
+    expect(why(singleExpenseRole([line('gasto', null)]))).toContain('role gasto has no account');
   });
 });

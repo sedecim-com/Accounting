@@ -11,6 +11,7 @@ import {
 import {
   checkOpeningBalance,
   importOpeningBalance,
+  localizeOpeningReport,
   renderOpeningBalanceReport,
   type OpeningDocument,
 } from '../services/accounting/opening-balance.js';
@@ -62,11 +63,15 @@ Examples:
   # ALWAYS this one first: the opening is posted and the ledger cannot be undone.
   mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --dry-run
   mnemosine opening-balance import ./migration/balanza-2025-12.xml --subledger ./migration/open-docs.json --yes
+  # With the migration's catalog, its memorandum accounts (8xx) get no line in the entry, each one named.
+  mnemosine opening-balance import ./migration/balanza-2025-12.xml --chart ./migration/catalogo.xml --dry-run
 `,
   openingCheck: `
 Examples:
   # Exits 0 when the ledger equals the source to the peso, 4 when it does not.
   mnemosine opening-balance check ./migration/balanza-2025-12.xml
+  # With the migration's catalog, its memorandum accounts (8xx) stay out of the footing, each one named.
+  mnemosine opening-balance check ./migration/balanza-2025-12.xml --chart ./migration/catalogo.xml
 `,
 };
 
@@ -90,6 +95,7 @@ interface Opts {
   reason?: string;
   partial?: boolean;
   subledger?: string;
+  chart?: string;
 }
 
 export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24MigrationDeps): void {
@@ -234,6 +240,7 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
   );
   withContext(openingImport);
   optionByKey(openingImport, '--subledger <file>', 'help.opening_balance.import.option.subledger');
+  optionByKey(openingImport, '--chart <file>', 'help.opening_balance.import.option.chart');
   optionByKey(openingImport, '--reason <text>', 'help.opening_balance.import.option.reason');
   withOutput(openingImport);
   openingImport.addHelpText('after', EXAMPLES.openingImport);
@@ -271,14 +278,18 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
         xml: readFile(file),
         userId: reviewer.userId,
         documentos: openDocuments,
+        // Read once: the preview and the apply classify with the same text.
+        ...(opts.chart === undefined ? {} : { chartXml: readFile(opts.chart) }),
         reason: opts.reason ?? null,
       };
       return twoSteps(opts, dryRun, 'opening-balance import', {
-        preview: () => importOpeningBalance(ctx, { ...base, dryRun: true }),
-        apply: () => importOpeningBalance(ctx, base),
+        // The service reads no language: its keyed findings are rendered here,
+        // so the text and --json carry the same sentences.
+        preview: async () => localizeOpeningReport(await importOpeningBalance(ctx, { ...base, dryRun: true }), t),
+        apply: async () => localizeOpeningReport(await importOpeningBalance(ctx, base), t),
         writable: (r) => r.puedeCargarse,
         written: (r) => r.escrito,
-        text: renderOpeningBalanceReport,
+        text: (r) => renderOpeningBalanceReport(r, t),
         question: (r) =>
           t(r.loadMode === 'draft' ? 'migration.opening.confirm_draft' : 'migration.opening.confirm', {
             year: r.ejercicio,
@@ -295,6 +306,7 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
     'help.opening_balance.check.description'
   );
   withContext(openingCheck);
+  optionByKey(openingCheck, '--chart <file>', 'help.opening_balance.check.option.chart');
   withOutput(openingCheck);
   openingCheck.addHelpText('after', EXAMPLES.openingCheck);
   declareRisk(openingCheck, { risk: 'lectura', agent: true });
@@ -302,7 +314,11 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
     run(async () => {
       bootstrapTenant(opts.tenant);
       const { ctx } = await resolveActiveEntity({ entity: opts.entity }, { home: deps.home });
-      const report = await checkOpeningBalance(ctx, { entityId: ctx.entityId, xml: readFile(file) });
+      const report = await checkOpeningBalance(ctx, {
+        entityId: ctx.entityId,
+        xml: readFile(file),
+        ...(opts.chart === undefined ? {} : { chartXml: readFile(opts.chart) }),
+      });
       print(
         opts,
         report,

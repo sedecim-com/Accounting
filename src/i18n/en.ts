@@ -72,7 +72,10 @@ export const EN = {
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} ieps {it transfers IEPS ({detail}), which this path does not book yet} local_tax {it transfers local taxes ({detail}), which this path does not book yet} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
+    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
+  /** `ValidationError` of the receivables core, at both doors: IEPS on a PPD sale is caused on collection, and this entity has no account for the role it waits in (MNE-001-505, #699). */
+  'error.ISSUED_CFDI_PPD_IEPS':
+    'CFDI {uuid} is a PPD sale that transfers IEPS ({ieps}): that IEPS is caused on collection (LIEPS art. 10) and waits in the role {role} (2181), which has no account on this entity. Add it with: npm run backfill:account-roles -- --aplicar. Nothing was posted.',
   /** `AccountingError('ISSUED_CFDI_NOT_OPEN')`: the pre-registration is completed, rejected or processing. */
   'error.ISSUED_CFDI_NOT_OPEN':
     'CFDI {uuid} is not open: its pre-registration is {status}{invoice, select, none {} other {, as customer invoice {invoice}}}. Nothing was posted.',
@@ -406,6 +409,23 @@ export const EN = {
     'Match the cash and leave the VAT untransferred, with a warning',
   'policy.rep_unknown_document.option.preguntar':
     'Ask for the VAT amount',
+
+  'policy.rep_voided_document.question':
+    'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',
+  'policy.rep_voided_document.impact':
+    'Applies to a receipt the entity issued. With "review" the whole payment waits for a person, so the VAT of the live invoice stays as not yet collected until then. With "post_live_documents" the payment is recorded for the live invoices only and their VAT is released; the share of the annulled invoice stays unbooked, with a warning saved on the receipt.',
+  'policy.rep_voided_document.rationale':
+    'A receipt is issued only when the money is actually received (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, question 11), so one that names an invoice the books voided contradicts them, and only a person can say which is wrong; ADR-0006 picks the option that does not post without review, as `rep_documento_desconocido` does by waiting. A firm that books straight from CFDIs may post the live documents, whose VAT is caused when collected (LIVA arts. 1o.-B, 11 and 17).',
+  'policy.rep_voided_document.why':
+    'When one bank movement pays several invoices and one of them is void or cancelled in the books, either the receipt or the books are wrong. Some firms want to settle that before anything is recorded; others want the invoices that do stand collected at once.',
+  'policy.rep_voided_document.what':
+    'By default I send the whole payment to review and name the annulled invoice. With "post_live_documents" I collect the live invoices, apply nothing to the annulled one and save a warning that names it.',
+  'policy.rep_voided_document.if_skipped':
+    'The whole payment goes to review, naming the annulled invoice.',
+  'policy.rep_voided_document.option.review':
+    'Review: hold the whole payment and name the annulled invoice',
+  'policy.rep_voided_document.option.post_live_documents':
+    'Post the live invoices and leave the annulled one unbooked, with a warning',
 
   'policy.rep_match_window_days.question':
     'How many days apart can the receipt date and the recorded payment be and still be the same event?',
@@ -950,6 +970,23 @@ export const EN = {
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Load them at 0 % and warn: no IVA is credited when they are paid',
 
+  'policy.received_line_without_account.question':
+    'When a line of a vendor CFDI reaches posting with no expense account, what do I do with it?',
+  'policy.received_line_without_account.impact':
+    'A received line posts to its own account, then to the one given for the whole document, then to a suggestion that is not a control account. This governs the line that has none of the three when the CFDI is posted from the inbox (`bill inbox run`). With "refuse" nothing is posted: the CFDI stays in the inbox and says which line has no account, until someone codes it. With "role_generic_account" the line goes to the account your chart gives the expense role the CFDI was classified under (general expenses for an ordinary purchase), and the bill is posted without anyone choosing the account; when the classification has no single expense role with an account, it is refused all the same and says why.',
+  'policy.received_line_without_account.rationale':
+    'A deduction has to be duly recorded in the books (LISR art. 27 fr. IV): an expense booked to a generic account nobody chose is recorded, but not as what it is. Refusing is the conservative option of ADR-0006, decision 1: nothing is posted without review, and coding the line takes one command.',
+  'policy.received_line_without_account.why':
+    'A vendor CFDI sometimes reaches posting with a line nobody gave an account and nothing in its history suggests one. I either wait for you to code it, or I book it to the generic expense account so the payable is not held up.',
+  'policy.received_line_without_account.what':
+    'By default I leave the CFDI in the inbox and tell you which line has no account. With "role_generic_account" I post that line to the account of the expense role I classified the CFDI under.',
+  'policy.received_line_without_account.if_skipped':
+    'I post nothing until every line has an account.',
+  'policy.received_line_without_account.option.refuse':
+    'Post nothing until someone gives the line an account',
+  'policy.received_line_without_account.option.role_generic_account':
+    'Post the line to the generic account of its expense role',
+
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
   'policy.closing_entries_in_reports.impact':
@@ -1347,15 +1384,15 @@ export const EN = {
   'policy.received_credit_note_cost.option.purchase_returns': 'Purchase returns and discounts (5200): what vendors give back is shown apart',
 
   'policy.employment_subsidy_paid_treatment.question':
-    'When the employment subsidy exceeds the ISR withheld and you hand the difference to the worker in cash, is that a receivable from the tax authority or an expense of the firm?',
+    'The employment subsidy over the ISR that was handed to the worker in cash (the rule before 1 May 2024): a receivable from the tax authority or an expense of the firm?',
   'policy.employment_subsidy_paid_treatment.impact':
     'It decides whether the cash you hand over comes back as a credit against the ISR withheld from other workers, or lands in payroll expense and never comes back.',
   'policy.employment_subsidy_paid_treatment.rationale':
     'It is what the law allows and what the money actually is: the employer advances cash that the authority repays by way of credit. Expensing it is a decision to give up that credit, which some firms make deliberately when the amounts are small and the paperwork is not worth it — but it should be a decision, not the consequence of a default.',
   'policy.employment_subsidy_paid_treatment.why':
-    'When the subsidy is larger than the ISR of the period, the employer must hand the difference to the worker in cash. That money leaves the firm and comes back only if you credit it. Where you book it changes both your payroll expense and what you owe the SAT this month.',
+    'Until 30 April 2024, when the subsidy was larger than the ISR of the period the employer had to hand the difference to the worker in cash. That money left the firm and comes back only if you credit it, so where you book it changes both your payroll expense and what you owe the SAT. A paycheck paid from 1 May 2024 hands over nothing (decree DOF 01-05-2024): that is law, and this decision does not apply to it. It still applies to a paycheck already calculated with that cash.',
   'policy.employment_subsidy_paid_treatment.what':
-    'I compute the excess per paycheck, record it on the payslip as cash delivered, and post it to the account this policy names. With "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports.',
+    'For a paycheck that handed cash over, I post that cash to the account this policy names; with "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports. For a paycheck paid from 1 May 2024 I withhold no ISR, hand over nothing and post nothing for the excess, whatever this policy says.',
   'policy.employment_subsidy_paid_treatment.if_skipped':
     'It goes to a receivable from the authority. Nothing breaks; if your criterion is to absorb it, payroll expense will be understated until you say so.',
   'policy.employment_subsidy_paid_treatment.option.cuenta_por_cobrar_fisco':
@@ -1396,6 +1433,23 @@ export const EN = {
     'Recompute it once on the income of both paychecks, and credit on the second only the difference',
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'None on the separate paycheck: a run other than the regular one, or a paycheck that pays only aguinaldo, carries no subsidy; the regular paycheck keeps its own',
+
+  'policy.imss_old_age_band_edge.question':
+    'When a worker\'s SBC falls just above the upper edge of a band of the employer cesantía en edad avanzada y vejez quota, which band does it pay?',
+  'policy.imss_old_age_band_edge.impact':
+    'It decides the rate of the employer quota for cesantía en edad avanzada y vejez of an SBC that falls between two bands of LSS art. 168 fr. II a), and with it the payslip, the payroll entry, the employer liability and the SUA file. In March 2026 an SBC of 352.00 (3.0006 UMA) pays 6.361 % with "above_upper_edge" (335.86 a quincena) and 6.026 % with "truncated_to_hundredths" (318.17); one of 316.00 (1.003 minimum wages) pays 6.026 % (285.63) or 3.150 % (149.31).',
+  'policy.imss_old_age_band_edge.rationale':
+    'LSS art. 168 fr. II a) charges every SBC but writes its bands to two decimals with no rounding rule; reading «1.51» as «more than 1.50» keeps every upper edge as written and never computes less than the table can require.',
+  'policy.imss_old_age_band_edge.why':
+    'The table writes its edges to two decimals («3.00 UMA», then «3.01 UMA») and gives no rounding rule, so the law does not say which band an SBC of 3.0006 UMA pays. If the program you determine your quotas with truncates, choose that option so both give the same figure.',
+  'policy.imss_old_age_band_edge.what':
+    'For each contribution day I place the SBC, capped at 25 UMA, with the UMA and the general minimum wage in force that day, and charge the rate of that band and year from the dated table. The calculation note names the band, the rate and the rule used.',
+  'policy.imss_old_age_band_edge.if_skipped':
+    'An SBC above an upper edge pays the next band.',
+  'policy.imss_old_age_band_edge.option.above_upper_edge':
+    'An SBC above a band\'s upper edge, by any amount, pays the next band',
+  'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
+    'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table',
 
   'policy.filing_rounding_to_pesos.question':
     'In the monthly tax workpaper, which figures do you adjust to whole pesos: every line you capture, or only the amount payable?',
@@ -2282,6 +2336,17 @@ export const EN = {
     '{invoice} already booked the customer\'s withholding ({amount}) when it was issued: its receivable is the net the customer pays. Apply only the cash; --withholding is for invoices whose receivable was booked gross.',
   'receipt.apply.other_customer':
     '{invoice} belongs to customer {invoiceCustomer}, and collection {receipt} belongs to customer {receiptCustomer}: cash on account settles only invoices of its own customer. Record the collection under {invoiceCustomer}, or apply {receipt} to an invoice of {receiptCustomer}.',
+  // MNE-001-460 (#623): an application and an unapply are dated.
+  'receipt.apply.date_future':
+    '{receipt} cannot be applied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was applied.',
+  'receipt.unapply.date_future':
+    '{receipt} cannot be unapplied on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was unapplied.',
+  'receipt.apply.date_before_last_event':
+    '{receipt} was last posted on {since}: an application dated {date} would apply its cash before that happened. Date it {since} or later. Nothing was applied.',
+  'receipt.unapply.date_before_last_event':
+    '{receipt} was last posted on {since}: an unapply dated {date} would undo it before it happened. Date it {since} or later. Nothing was unapplied.',
+  'receipt.apply.date_before_invoice':
+    '{invoice} is dated {invoiceDate}: cash applied on {date} would settle it before the sale existed. Date the application {invoiceDate} or later. Nothing was applied.',
   'credit_note.advance.exceeds_invoiced_advance':
     'Credit note {note} applies an advance of {requested}, and customer {customer} has {available} in advance invoices not yet applied. Nothing was posted. Cash on account is applied with `receipt apply`; an advance booked by a journal entry is applied by a journal entry.',
   // MNE-001-489 (#692): why a received credit note waits for a person.
@@ -2307,10 +2372,8 @@ export const EN = {
     'An IVA treatment is stated only for an advance with no invoice. This receipt applies cash to an invoice, and the cash it leaves on account does not take a rate yet (issue 623).',
   'receipt.advance.not_mexican_books':
     'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
-  'receipt.advance.cheque_not_wired':
-    'An advance received by cheque causes its IVA on the day the bank cashes the cheque (LIVA art. 1-B, second paragraph), not on the day it is received, and recording that cashing does not exist yet (issue 700). Nothing was recorded.',
-  'receipt.advance.application_not_wired':
-    '{receipt} is an advance whose IVA was caused when it was collected. Applying it to an invoice has to cancel that IVA instead of causing it a second time, and that is not wired yet (issue 623, MNE-001-422). Nothing was applied.',
+  'receipt.advance.cheque_held':
+    'Received by cheque, its IVA of {iva} is caused the day the bank cashes it (LIVA art. 1-B, second paragraph): until then the whole amount waits in customer advances, and recording the cashing with bank check reconcile --receipt moves the IVA to IVA charged on that day.',
   // MNE-001-421 (#623): the advance from the terminal.
   'receipt.advance.needs_customer':
     'Name the invoice this cash settles, or the customer who paid it with --customer: with no invoice it is recorded as an advance.',
@@ -2318,6 +2381,9 @@ export const EN = {
     'An advance with no invoice causes its IVA when it is collected (LIVA art. 1-B), and the rate of a sale that has not happened is a fact you state, never a default: add --tax-rate 16, 8, 0, exempt or not-subject. Nothing was recorded.',
   'receipt.advance.figures': 'base {base}, IVA {iva}, rate {rate}',
   'receipt.advance.label': 'Advance',
+  'receipt.cheque.cashed_label': 'Cheque cashed',
+  'receipt.cheque.cashed': '{date} · bank transaction {transaction}',
+  'receipt.cheque.not_cashed': 'not recorded yet (`bank check reconcile --receipt`)',
   'receipt.advance.confirm':
     'Record {amount} received from {customer} as an advance with no invoice{figures} in {entity}? This posts to the ledger.',
   // MNE-001-509 (#701): a reversed receipt says what happened to the money.
@@ -2326,15 +2392,31 @@ export const EN = {
   'receipt.reverse.warning.card_not_collected':
     'This receipt was paid by card, and a card is paid when it is accepted (LIVA art. 1-B): not_collected says the money never became yours. If it arrived and the bank took it back, as in a chargeback, the cause is taken_back.',
   'receipt.reverse.warning.cause_not_stated':
-    'No cause is stated, and only a cheque has one by default: the IVA of this receipt stays in the month it was collected until a cause is stated (not_collected or taken_back).',
+    'No cause is stated, and only a cheque has one by default: the IVA of this receipt stays in the month it was collected until a cause is stated (not_collected or taken_back) with `receipt cause record`.',
   'receipt.reverse.cause.stated': 'cause {cause}',
   'receipt.reverse.cause.defaulted':
     'cause not_collected, taken by default: a cheque is paid the day the bank cashes it',
   'receipt.reverse.cause.none': 'no cause stated',
+  // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
+  'receipt.cause.not_reversed':
+    'The receipt {number} is "{status}": a cause is stated only for a reversed receipt. Nothing was written.',
+  'receipt.cause.already_stated':
+    'The receipt {number} already has its cause, {cause}, stated at {stated_at}: a stated cause is not overwritten. Nothing was written.',
+  'receipt.cause.reason_required':
+    'Stating the cause of a reversal requires --reason "<why>": it is written to the audit trail.',
+  'receipt.cause.would_state': 'Would state the cause {cause} for the reversal of {number}',
+  'receipt.cause.confirm':
+    'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
+  'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
   'receipt.advance.cfdi_owed':
     'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
   'receipt.advance.invoice_already_booked':
     '{customer} has {invoices} open, and its own entry already credited customer advances: an advance CFDI in the books. The cash of that advance is recorded against it (receipt record {invoice}), not as a new advance. Go on only if this is another advance.',
+  // MNE-001-422 / MNE-001-461 (#623): an advance applied to its sale's invoice cancels the IVA it caused.
+  'receipt.advance.iva_cancelled': 'advance IVA cancelled {iva}',
+  'receipt.advance.iva_restored': 'advance IVA restored {iva}',
+  'receipt.advance.iva_caused_twice':
+    'The advance\'s IVA of {iva} cancelled on {invoice} was also caused in {month} by that invoice, a PUE issued on or before the advance (LIVA art. 1-B): that month\'s IVA charged carried it twice, and this application cancels it in its own month. Review the return of {month}.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
@@ -2819,6 +2901,8 @@ export const EN = {
     '{amount} of VAT in period {period}. The ledger is immutable: this is only corrected by ' +
     'reversal. Continue?',
   'bank.check.reconcile.already_cleared': 'check cleared on {date}',
+  'bank.check.reconcile.changed_meanwhile':
+    'Payment {payment} ("{status}") changed while the cashing of its cheque was being recorded, or it is not a completed payment. Nothing was written.',
   'bank.check.reconcile.summary':
     '· cleared on {date} · period {period} · VAT reclassified {amount}',
   'bank.check.reconcile.dry_run':
@@ -2847,6 +2931,26 @@ export const EN = {
     'No entry: this receipt holds no VAT pending collection.',
   'bank.check.cashing.note.foreign_currency':
     'No entry: a cheque in a foreign currency releases its VAT on the receipt date.',
+  'bank.check.cashing.refused.transaction_needed':
+    'Receipt {receipt} names no bank account, so there is nowhere to look for its credit. Name the bank transaction with `--transaction`.',
+  'bank.check.cashing.refused.no_credit':
+    'No unused credit of {amount} from {date} is in the bank account of receipt {receipt}. Either the cheque is not cashed yet or the bank credited another amount: name the bank transaction with `--transaction`.',
+  'bank.check.cashing.refused.several_credits':
+    'Several credits of {amount} could be the cheque of receipt {receipt}: {candidates}. None is picked, because the wrong one dates its VAT in the wrong month. Name the right one with `--transaction`.',
+  'bank.check.cashing.refused.as_of_differs':
+    'Bank transaction {transaction} is dated {date}, not {asOf}, the date stated with `--as-of` for receipt {receipt}. The bank dates the cashing: check that this is the credit that paid the cheque.',
+  'bank.check.cashing.refused.several_need_transaction':
+    'Receipts {receipt} are cashed together by one bank credit: name it with `--transaction`. It is not searched by their sum, which the deposit of another day can match.',
+  'bank.check.cashing.refused.sum_differs':
+    'Bank transaction {transaction} is {creditAmount} and receipts {receipt} add up to {amount}: one credit cashes several cheques only when it is their exact sum.',
+  'bank.check.cashing.refused.credit_matched':
+    'Bank transaction {transaction} is tied by the live match {match} to {type} {matched}, which is not among receipts {receipt} nor a bank line of their entries: the credit paid something else. If that match is wrong, undo it with `bank match unapply {match}`.',
+  'bank.check.cashing.check_value': '{check} · receipt {payment}',
+  'bank.check.cashing.why':
+    'why: under the VAT law a price paid by cheque counts as collected on the day the bank CASHED it and not ' +
+    'the day it was received, so the VAT of this receipt is caused in that month.',
+  'bank.check.reconcile.one_of':
+    'Name exactly one cheque: the vendor payment <id>, or a customer receipt with --receipt <ref>.',
   'bank.transaction.show.unmatched': 'unmatched',
   'bank.match.create.summary':
     '· bank {bank} = books {books} + adjustments {adjustments} · residual {residual} ({mode}) · ' +
@@ -2929,6 +3033,45 @@ export const EN = {
     'Leave the opening of fiscal year {year} on {date} as a DRAFT (Debit {debit} · Credit {credit})? ' +
     'It stays out of the ledger until you apply it with `entry post`.',
   'migration.check.as_of': 'As of {date} · {comparison}',
+  // ---- MNE-001-419 (#621): what --chart refuses ----
+  'migration.chart_option.other_rfc':
+    'The --chart catalog belongs to RFC {fileRfc} and the entity is {entityRfc}. It is not used: the catalog of ' +
+    'another taxpayer cannot say which accounts of this entity are memorandum accounts.',
+  'migration.chart_option.not_importable':
+    'The --chart catalog is one that chart import would not take, so it cannot say which accounts are ' +
+    'memorandum accounts: {findings}. Fix the file at the source and export it again.',
+  'migration.chart_option.hierarchy_cycle':
+    'The hierarchy of the --chart catalog bites its own tail: {rows}. chart import refuses this file and so does ' +
+    'the opening: fix the SubCtaDe at the source.',
+  'migration.check.memorandum_inside_account':
+    'The source hangs memorandum (8xx) money inside a ledger account, so the figure that account declares ' +
+    'includes money that stays off the balance: {detail}. Each account is followed by its memorandum rows, with ' +
+    'the figure the source declares, and by their net, debit positive. Nothing was compared: an opening that ' +
+    'carries that money would come out equal with memorandum money on the balance sheet. Fix the hierarchy in ' +
+    'the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
+  // ---- MNE-001-456 (#621): the load leaves the memorandum accounts out ----
+  'migration.opening.memorandum_excluded':
+    '"{account}" is a memorandum account (8xx), by its agrupador or because it hangs from one, and the source ' +
+    'declares {amount} for it. It gets no line in the opening entry and stays out of the ledger: keep this ' +
+    'figure with the working papers of the migration; see {doctrine}.',
+  'migration.opening.memorandum_in_ledger':
+    '"{account}" is a memorandum account (8xx), by its agrupador or because it hangs from one, and it already ' +
+    'exists in this entity as {type}. It gets no line in the opening entry (the source declares {amount}), but ' +
+    'by the doctrine ({doctrine}) it should not be in the ledger: review it by hand.',
+  'migration.opening.memorandum_inside_account':
+    'The figure "{account}" declares includes memorandum (8xx) money that hangs inside it and does not net to ' +
+    'zero there: {rows}, net {net} with debit positive. Nothing is loaded: posting that figure would put ' +
+    'memorandum money on the balance sheet, and posting less would fail opening-balance check. Fix the ' +
+    'hierarchy in the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
+  'migration.opening.memorandum_document':
+    'The document "{document}" hangs from "{account}", which is a memorandum account (8xx) and gets no line in ' +
+    'the opening entry. A memorandum account has no receivable or payable behind it: take the document out of ' +
+    'the --subledger file, or fix the account at the source; see {doctrine}.',
+  'migration.opening.unknown_account_chart_hint':
+    'If it is a memorandum account (8xx), pass the catalog of the same migration with --chart <file>: the ' +
+    'load leaves it out of the entry and names it ({doctrine}).',
+  'migration.opening.memorandum_excluded_header':
+    'Memorandum accounts left out of the entry, with the figure the source declares ({doctrine}):',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   //
   // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,
@@ -2979,13 +3122,28 @@ export const EN = {
     'the customer who paid (number, name or id); required with no invoice, and with one it must be the invoice\'s own',
   'help.receipt.record.option.tax_rate':
     'IVA treatment of an advance with no invoice: 16, 8, 0, exempt (exento) or not-subject (no-objeto); the IVA is caused on collection',
+  // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
+  'help.receipt.apply.description':
+    'Apply the on-account balance of a collection to invoices: releases PPD IVA, and an advance cancels the IVA it caused instead of causing it again. It covers procedure A of Anexo 20, Appendix 6 (the sale invoiced whole); under procedure B the advance moves to revenue by a journal entry',
   'help.receipt.apply.option.withholding':
     'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
+  'help.receipt.apply.option.date':
+    'day of the application (YYYY-MM-DD), which dates its entry, the allocation and the invoice\'s last payment; defaults to today in the entity\'s time zone',
+  'help.receipt.unapply.option.date':
+    'day of the unapply (YYYY-MM-DD), which dates its entry and the closed allocation; defaults to today in the entity\'s time zone',
   // MNE-001-509 (#701): the reversal states what happened to the money.
   'help.receipt.reverse.description':
     'Reverse a collection whose money did not stay, saying why: mirrors every entry, reopens invoices, re-parks IVA',
   'help.receipt.reverse.option.cause':
     'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback); with none, a cheque takes not_collected and any other method keeps no cause',
+  // MNE-001-511 (#701): the cause of a reversal, stated afterwards.
+  'help.receipt.cause.description': 'The cause of a reversed collection: what happened to its money',
+  'help.receipt.cause.record.description':
+    'State the cause of a collection that was reversed with none: written once, audited, posts nothing',
+  'help.receipt.cause.record.argument.ref': 'payment number or id',
+  'help.receipt.cause.record.option.cause':
+    'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback)',
+  'help.receipt.cause.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',
@@ -3143,9 +3301,15 @@ export const EN = {
     'Post the opening entry from an Anexo 24 BalanzaComprobacion XML, on the day after its cutoff -- irreversible',
   'help.opening_balance.import.option.subledger':
     'JSON array with the open documents of the receivable and payable control accounts',
+  'help.opening_balance.import.option.chart':
+    'the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the entry ' +
+    'and named with the source figure',
   'help.opening_balance.import.option.reason': 'why the opening is loaded; goes to the audit log',
   'help.opening_balance.check.description':
     'Compare the source trial balance against the ledger on the opening day, to the peso; exits 4 if they differ',
+  'help.opening_balance.check.option.chart':
+    'the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the footing ' +
+    'and named with the source figure',
   'help.ar.description':
     'Receivables controls: reconcile the subledger against the control account, run named diagnostics',
   'help.ar.reconcile.description':
@@ -3205,6 +3369,42 @@ export const EN = {
   'filing.workpaper.label_warning': 'warning',
   'filing.workpaper.not_a_filing': 'This paper is not a filing: nothing was sent to the SAT.',
   'filing.workpaper.more_entries': '+{count} more',
+  // ==== MNE-001-457 · annual figure record (issue #622) ====
+  'help.annual.description': 'The annual return of the entity: the figures read off it once it is filed',
+  'help.annual.figure.description': 'Figures of a filed annual return that the provisional payments need',
+  'help.annual.figure.record.description': 'Record a figure of a filed annual return, with that return as its source and who captured it',
+  'help.annual.figure.record.option.kind': 'which figure it is: {kinds}',
+  'help.annual.figure.record.option.value': 'the figure as the return states it: zero or more, up to four decimals',
+  'help.annual.figure.record.option.year': 'fiscal year of the annual return',
+  'help.annual.figure.record.option.filed_on': 'day the return, or its amendment, was filed (YYYY-MM-DD)',
+  'help.annual.figure.record.option.source': 'how you identify that return: its operation number',
+  'help.annual.figure.record.option.updated_through': 'pending tax losses only: the INPC month they are already updated through (YYYY-MM, LISR art. 57)',
+  'help.annual.figure.record.footer':
+    'This records what a filed return states. It files nothing, and the latest capture of a return is the one in force.\n' +
+    'A return that gave no coefficient is not captured: the paper then uses the latest return captured within five years (LISR art. 14 fr. I).\n' +
+    '\nExamples:\n' +
+    '  See the row the profit coefficient of the 2025 return would leave, writing nothing:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operation 000111" --dry-run\n' +
+    '  Its amendment, filed later: a new capture that takes over, and the earlier one stays:\n' +
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json\n' +
+    '  The pending tax losses of that return, updated through December 2025; zero is captured too:\n' +
+    '    mnemosine annual figure record --kind pending_tax_losses --value 30000.00 --updated-through 2025-12 --year 2025 --filed-on 2026-03-20 --source "operation 000111"',
+  'annual.figure.kind_invalid': '--kind "{value}" is not a figure this command records: use {kinds}. Nothing was written.',
+  'annual.figure.value_invalid': '--value "{value}" is not valid: use zero or more, with up to fifteen digits before the point and four decimals (for example 0.0875). Nothing was written.',
+  'annual.figure.year_invalid': '--year "{value}" is not valid: use the four digits of the return\'s fiscal year, from {min} to {max}. Nothing was written.',
+  'annual.figure.filed_on_invalid': '--filed-on "{value}" is not a real day: use YYYY-MM-DD (for example 2026-03-20). Nothing was written.',
+  'annual.figure.source_required': 'Missing --source: say which return the figure was read from (its operation number). Nothing was written.',
+  'annual.figure.filed_on_not_after_year': '--filed-on {value} cannot be the filing date of the {year} return: an annual return is filed after its year ends. Nothing was written.',
+  'annual.figure.filed_on_in_future': '--filed-on {value} is after today ({today}): only a return already filed is recorded. Nothing was written.',
+  'annual.figure.updated_through_required': 'Missing --updated-through: pending tax losses say the INPC month they are updated through (YYYY-MM, for example 2025-12). Nothing was written.',
+  'annual.figure.updated_through_not_allowed': '--updated-through does not go with --kind {kind}: only the pending tax losses carry an update month. Nothing was written.',
+  'annual.figure.updated_through_invalid': '--updated-through "{value}" is not a month: use YYYY-MM (for example 2025-12). Nothing was written.',
+  'annual.figure.updated_through_after_target': '--updated-through {value} is after {target}: the losses of the {year} return are applied by the next year\'s payments, which update them to that June at most (LISR art. 57). Nothing was written.',
+  'annual.figure.dry_run': 'Dry run: the capture is valid; nothing was written.',
+  'annual.figure.next': 'Next: `mnemosine filing workpaper generate --period <YYYY-MM> --form isr`.',
+  'income_tax_input.year_out_of_range': 'The fiscal year of the source return goes from {min} to {max}: {year} is outside.',
+  'income_tax_input.filed_on_not_a_day': '"{value}" is not a real day (YYYY-MM-DD): it cannot be the filing date of the return.',
+  'income_tax_input.value_too_large': '"{value}" does not fit: a figure has at most fifteen digits before the point.',
   'help.diot.description':
     'Mexican DIOT: build the month from paid transactions, check it, and export the working paper',
   'help.diot.generate.description':
@@ -3563,9 +3763,13 @@ export const EN = {
     'Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law ' +
     'is when the payment counts',
   'help.bank.check.reconcile.description':
-    'Prove the check against the bank movement that cleared it and post the VAT ' +
-    'reclassification from pending to creditable IN THE MONTH IT CLEARED',
-  'help.bank.check.reconcile.argument.id': 'vendor payment made by check',
+    'Prove the check against the bank movement that cleared it and post its VAT IN THE MONTH IT CLEARED: ' +
+    'from pending to creditable for a vendor payment, from pending collection to charged for a customer receipt',
+  'help.bank.check.reconcile.argument.id': 'vendor payment made by check; omit it with --receipt',
+  'help.bank.check.reconcile.option.receipt':
+    'customer receipt paid by cheque, by number (PMT-2026-00042) or id, instead of <id>; without ' +
+    '--transaction the credit of its amount is searched in its bank account from its date. Repeat it for ' +
+    'a deposit of several cheques: one credit of their exact sum, named with --transaction',
   'help.bank.check.reconcile.option.transaction':
     'the bank movement that paid it, named by hand; required when several charges match',
   'help.bank.check.reconcile.option.as_of':

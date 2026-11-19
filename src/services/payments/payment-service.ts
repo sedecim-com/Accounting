@@ -23,8 +23,10 @@ import {
   type DiferenciaCambiaria,
 } from '../accounting/moneda-origen.js';
 import { ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
+import { iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
-  ADVANCE_TREATMENTS, isAdvanceTreatment, splitAdvance, storedAdvanceTreatment, type AdvanceSplit,
+  ADVANCE_TREATMENTS, isAdvanceTreatment, splitAdvance, storedAdvanceTreatment, takeFromAdvance,
+  type AdvanceSplit, type AdvanceTake,
 } from './customer-advance.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
@@ -33,6 +35,7 @@ import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import { billsDecidedByIngestion, cashLimitFinding, type CashDeductibilityFinding } from '../ap/cash-deductibility.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { changePolicyHint } from '../policy/policy-hint.js';
+import { todayFor } from '../policy/today.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -232,6 +235,13 @@ interface DocumentoAplicado {
    */
   withholdingIsr?: string;
   withholdingIva?: string;
+  /**
+   * MNE-001-422 · customer side: the advance's IVA this event cancels on the
+   * invoice (or, on unapply, restores to 2120), and the month whose 2120
+   * also carried it through a PUE invoice issued on or before the advance.
+   */
+  advanceIva?: string;
+  advanceIvaTwiceIn?: string | null;
 }
 
 export interface ResultadoPago {
@@ -653,6 +663,9 @@ export async function recordVendorPayment(
         payment_date: entrada.paymentDate,
         bank_account_id: entrada.bankAccountId ?? null,
         journal_entry_id: null,
+        // MNE-001-508: `fx` is null in the functional currency; a foreign
+        // cheque keeps crediting on its payment day.
+        holdsIvaUntilCashed: entrada.paymentMethod === 'check' && !fx,
       },
       userId,
       fx ?? undefined
@@ -913,9 +926,10 @@ export async function recordCustomerPayment(
 
     for (const app of entrada.applications) {
       await client.query(
-        `INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_applied)
-         VALUES ($1,$2,$3,$4)`,
-        [uuidv4(), paymentId, app.documentId, app.amountApplied]
+        // MNE-001-460: cash applied on collection is applied on the receipt's day.
+        `INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_applied, applied_on)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [uuidv4(), paymentId, app.documentId, app.amountApplied, entrada.paymentDate]
       );
       await client.query(
         `UPDATE invoices SET
@@ -940,6 +954,9 @@ export async function recordCustomerPayment(
         journal_entry_id: null,
         advance_base_amount: advance?.base ?? null,
         advance_iva_amount: advance?.iva ?? null,
+        // MNE-001-556: a new cheque has no cashing. One in another currency
+        // (`fx`) keeps releasing on its receipt until its cashing can convert.
+        holdsIvaUntilCashed: entrada.paymentMethod === 'check' && !fx,
       },
       userId,
       fx ?? undefined
@@ -1007,12 +1024,8 @@ async function advanceSplitOf(client: pg.PoolClient, input: EntradaPago): Promis
   if (!(await entityUsesCashBasisIva(client, input.entityId))) {
     throw new ValidationError({ key: 'receipt.advance.not_mexican_books' });
   }
-  // A price paid by cheque, and its IVA, is paid the day the bank cashes it
-  // (LIVA art. 1-B, second paragraph): the receipt's entry must not cause it.
-  // TODO(#700): post the advance's IVA on the recorded cashing, and lift this refusal.
-  if (input.paymentMethod === 'check') {
-    throw new AccountingError('ADVANCE_BY_CHEQUE_NOT_WIRED', { key: 'receipt.advance.cheque_not_wired' });
-  }
+  // By cheque the split is kept too: the receipt's entry holds it whole in
+  // 2150 and the recorded cashing causes its IVA (MNE-001-558, `pendingRelease`).
   return splitAdvance(input.paymentAmount, treatment);
 }
 
@@ -1146,7 +1159,26 @@ interface PagoVivo {
   cfdi_uuid: string | null;
   /** MNE-001-458: non-null when the receipt was recorded as an advance with its treatment. */
   advance_factor_type: string | null;
+  /** MNE-001-458: the advance's base and IVA as the receipt stored them; null when it carries no treatment. */
+  advance_base_amount: string | null;
+  advance_iva_amount: string | null;
   payment_method: string;
+  /** Migration 331: the bank credit that cashed the cheque; null while it has none. */
+  check_cashed_tx_id: string | null;
+}
+
+/**
+ * MNE-001-556 · A cheque in the functional currency with no cashing recorded
+ * holds its IVA (LIVA art. 1-B, second paragraph). NOTE: read from the method
+ * and the cashing, never from the 0 an allocation stores: every allocation
+ * that released nothing stores 0, whatever the method (MNE-001-459).
+ */
+async function holdsIvaUntilCashed(client: pg.PoolClient, entityId: string, receipt: PagoVivo): Promise<boolean> {
+  return (
+    receipt.payment_method === 'check' &&
+    receipt.check_cashed_tx_id === null &&
+    receipt.currency_code.trim() === (await functionalCurrencyOf(client, entityId))
+  );
 }
 
 /** El cobro, acotado por entidad y con candado: la base de los tres eventos. */
@@ -1157,7 +1189,9 @@ async function cobroParaEscribir(
 ): Promise<PagoVivo> {
   const r = await client.query<PagoVivo>(
     `SELECT id, payment_number, customer_id, payment_amount, currency_code,
-            payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid, advance_factor_type, payment_method
+            payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid, advance_factor_type, payment_method,
+            advance_base_amount::text AS advance_base_amount, advance_iva_amount::text AS advance_iva_amount,
+            check_cashed_tx_id
        FROM customer_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
     [paymentId, entityId]
   );
@@ -1169,6 +1203,81 @@ async function cobroParaEscribir(
     );
   }
   return pago;
+}
+
+/**
+ * MNE-001-460 · The day a later event on a receipt is dated: the one given,
+ * or today in the entity's zone (`zona_horaria`, never the process clock).
+ * It dates the entry, the allocation and the invoice together, so it can be
+ * neither in the future nor before the receipt's last posted event: the
+ * ledger would apply or undo cash before it happened. A cheque's cashing
+ * (MNE-001-556) is one of those events. A hard-closed or locked period is
+ * refused by posting itself.
+ */
+async function receiptEventDate(
+  client: pg.PoolClient,
+  entityId: string,
+  receipt: PagoVivo,
+  given: string | undefined,
+  event: 'apply' | 'unapply'
+): Promise<string> {
+  const today = await todayFor({ tenantId: await tenantDe(client, entityId), entityId }, { client });
+  const date = given === undefined ? today : toCalendarDate(given);
+  const params = { receipt: receipt.payment_number, date, today };
+  if (date > today) {
+    throw new ValidationError(
+      { key: event === 'apply' ? 'receipt.apply.date_future' : 'receipt.unapply.date_future', params }, 'date'
+    );
+  }
+  const last = await client.query<{ d: string | null }>(
+    `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
+      WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
+        AND source_type IN ('customer_payment', 'receipt_application', 'receipt_unapplication', 'customer_cheque_cashing')`,
+    [entityId, receipt.id]
+  );
+  const recorded = toCalendarDate(receipt.payment_date);
+  const since = last.rows[0]?.d && last.rows[0].d > recorded ? last.rows[0].d : recorded;
+  if (date < since) {
+    throw new ValidationError(
+      {
+        key: event === 'apply' ? 'receipt.apply.date_before_last_event' : 'receipt.unapply.date_before_last_event',
+        params: { ...params, since },
+      },
+      'date'
+    );
+  }
+  return date;
+}
+
+/**
+ * MNE-001-422 · What is left of a receipt's advance after its live
+ * allocations, and the cash on account that is no advance: null when the
+ * receipt carries no treatment, whose cash on account takes nothing from one.
+ */
+async function advanceLeft(
+  client: pg.PoolClient,
+  entityId: string,
+  receipt: PagoVivo,
+  onAccount: Decimal
+): Promise<Omit<AdvanceTake, 'applied'> | null> {
+  if (receipt.advance_base_amount === null || receipt.advance_iva_amount === null) return null;
+  const total = new Decimal(receipt.advance_base_amount).plus(receipt.advance_iva_amount);
+  const r = await client.query<{ consumed: string; cancelled: string }>(
+    `SELECT COALESCE(SUM(pa.advance_base_amount + pa.advance_iva_amount), 0)::text AS consumed,
+            COALESCE(SUM(pa.advance_iva_amount), 0)::text AS cancelled
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
+      WHERE pa.payment_id = $1 AND pa.unapplied_at IS NULL`,
+    [receipt.id, entityId]
+  );
+  const consumed = new Decimal(r.rows[0]?.consumed ?? '0');
+  return {
+    total: total.toFixed(4),
+    iva: new Decimal(receipt.advance_iva_amount).toFixed(4),
+    consumed: consumed.toFixed(4),
+    cancelled: new Decimal(r.rows[0]?.cancelled ?? '0').toFixed(4),
+    plain: Decimal.max(onAccount.minus(total.minus(consumed)), 0).toFixed(4),
+  };
 }
 
 async function remanenteDe(client: pg.PoolClient, paymentId: string, paymentAmount: string): Promise<Decimal> {
@@ -1188,6 +1297,11 @@ export interface ResultadoAplicacion {
   documentos: DocumentoAplicado[];
   remanenteAnterior: string;
   remanenteNuevo: string;
+}
+
+/** MNE-001-460: a customer application also says its day, which its entry and its rows carry. */
+export interface CustomerApplicationResult extends ResultadoAplicacion {
+  date: string;
 }
 
 /**
@@ -1216,14 +1330,33 @@ async function withholdingBookedAtIssuance(
   return new Decimal(r.rows[0]?.booked ?? '0');
 }
 
-/** Aplicar saldo a cuenta de un cobro existente a una o varias facturas. */
+/**
+ * Aplicar saldo a cuenta de un cobro existente a una o varias facturas.
+ *
+ * MNE-001-460: `opts.date` (default today in the entity's zone) dates the
+ * entry, each new allocation (`applied_on`) and each invoice's
+ * last_payment_date, so a balance read "as of" that day sees both sides
+ * move together. It is refused in the future, before the receipt's last
+ * posted event and before the date of an invoice it pays.
+ *
+ * MNE-001-422: a receipt recorded as an advance caused its IVA when it was
+ * collected (LIVA art. 1-B). The cash it applies to a PUE invoice takes its
+ * share of that IVA (`takeFromAdvance`), which the entry cancels against
+ * 2120 instead of causing it twice and the allocation stores
+ * (`advance_base_amount`, `advance_iva_amount`, 333) for unapply to give
+ * back.
+ *
+ * MNE-001-461: on a PPD invoice the share the cash settles still leaves 2125
+ * (stored in `iva_reclass_amount`), and the advance's IVA takes its place in
+ * 2120, so the entry nets the two (`postReceiptApplicationEntry`).
+ */
 export async function applyCustomerPayment(
   entityId: string,
   paymentId: string,
   aplicaciones: AplicacionPago[],
   userId: string,
-  opts: OpcionesPago = {}
-): Promise<ResultadoAplicacion> {
+  opts: OpcionesPago & { date?: string } = {}
+): Promise<CustomerApplicationResult> {
   if (aplicaciones.length === 0) {
     throw new ValidationError('Indica a qué factura(s) se aplica el saldo a cuenta.');
   }
@@ -1242,15 +1375,11 @@ export async function applyCustomerPayment(
     }
   }
 
-  const correr = async (client: pg.PoolClient): Promise<ResultadoAplicacion> => {
+  const correr = async (client: pg.PoolClient): Promise<CustomerApplicationResult> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
-    // TODO(#623): MNE-001-422 stores what an application takes from an advance and cancels its IVA; until then
-    // applying one would cause the IVA twice (or, at 0 % and exempt, lose the base the IVA paper has to net).
-    if (pago.advance_factor_type !== null) {
-      const params = { receipt: pago.payment_number };
-      throw new AccountingError('ADVANCE_APPLICATION_NOT_WIRED', { key: 'receipt.advance.application_not_wired', params });
-    }
+    const date = await receiptEventDate(client, entityId, pago, opts.date, 'apply');
     const remanente = await remanenteDe(client, paymentId, pago.payment_amount);
+    const advance = await advanceLeft(client, entityId, pago, remanente);
     const total = aplicaciones.reduce((s, a) => s.plus(a.amountApplied), new Decimal(0));
     if (total.greaterThan(remanente)) {
       throw new ValidationError(
@@ -1267,10 +1396,11 @@ export async function applyCustomerPayment(
       const r = await client.query<{
         id: string; invoice_number: string; customer_id: string; amount_due: string; status: string;
         currency_code: string; subtotal: string; tax_amount: string; total_amount: string;
-        cfdi_uuid: string | null; terms: string | null; memo: string | null;
+        cfdi_uuid: string | null; terms: string | null; memo: string | null; invoice_date: string;
       }>(
         `SELECT id, invoice_number, customer_id, amount_due, status, currency_code,
-                subtotal, tax_amount, total_amount, cfdi_uuid, terms, memo
+                subtotal, tax_amount, total_amount, cfdi_uuid, terms, memo,
+                to_char(invoice_date, 'YYYY-MM-DD') AS invoice_date
            FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entityId]
       );
@@ -1295,6 +1425,13 @@ export async function applyCustomerPayment(
         );
       }
       assertMoneda(inv.invoice_number, inv.currency_code, pago.currency_code);
+      // MNE-001-460: cash cannot settle a sale before the sale exists.
+      if (date < inv.invoice_date) {
+        throw new ValidationError(
+          { key: 'receipt.apply.date_before_invoice', params: { invoice: inv.invoice_number, invoiceDate: inv.invoice_date, date } },
+          'date'
+        );
+      }
       const aplicado = new Decimal(app.amountApplied);
       // An allocation row holds cash (CHECK amount_applied > 0): a withholding
       // alone would reach Postgres as a constraint error, so say why here.
@@ -1356,21 +1493,49 @@ export async function applyCustomerPayment(
         throw new ValidationError({ key: 'receipt.withholding.isr_cap', params: { invoice: inv.invoice_number, cap: isrCap.toFixed(2) } });
       }
 
+      // MNE-001-422: the part of the advance this cash is, and the IVA it carries.
+      const take = advance
+        ? takeFromAdvance({ ...advance, applied: aplicado.toFixed(4) })
+        : { plain: aplicado.toFixed(4), base: '0.0000', iva: '0.0000' };
+      const fromAdvance = new Decimal(take.base).plus(take.iva);
+      let twiceIn: string | null = null;
+      if (advance && fromAdvance.greaterThan(0)) {
+        advance.consumed = new Decimal(advance.consumed).plus(fromAdvance).toFixed(4);
+        advance.cancelled = new Decimal(advance.cancelled).plus(take.iva).toFixed(4);
+        advance.plain = new Decimal(advance.plain).minus(take.plain).toFixed(4);
+        // A PUE invoice caused its IVA when it was issued (LIVA art. 1-B; CFF 29-A fr. VII b). Issued on or
+        // before the advance, the advance's month carried both, and an application in a later month cancels
+        // one of them there, not in the month that declared it twice. A PPD invoice parked its IVA instead:
+        // the share this cash settles leaves 2125 and nets against the advance's (MNE-001-461), so no month
+        // carries it twice.
+        const received = toCalendarDate(pago.payment_date);
+        if (new Decimal(take.iva).greaterThan(0) && inv.invoice_date <= received && date.slice(0, 7) > received.slice(0, 7)) {
+          const invoiceMethod = await resolveInvoiceMetodoPago(client, {
+            id: inv.id, entity_id: entityId, invoice_number: inv.invoice_number,
+            cfdi_uuid: inv.cfdi_uuid, terms: inv.terms, memo: inv.memo,
+          });
+          if (invoiceMethod.metodo !== 'PPD') twiceIn = received.slice(0, 7);
+        }
+      }
+
       const allocId = uuidv4();
       await client.query(
         `INSERT INTO payment_allocations
-           (id, payment_id, invoice_id, amount_applied, withholding_isr_amount, withholding_iva_amount)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [allocId, paymentId, app.documentId, app.amountApplied, isr.toFixed(4), iva.toFixed(4)]
+           (id, payment_id, invoice_id, amount_applied, withholding_isr_amount, withholding_iva_amount, applied_on,
+            advance_base_amount, advance_iva_amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9)`,
+        [allocId, paymentId, app.documentId, app.amountApplied, isr.toFixed(4), iva.toFixed(4), date, take.base, take.iva]
       );
+      // GREATEST: an application dated before another collection of the
+      // same invoice does not move its last payment back.
       const settledRow = await client.query(
         `UPDATE invoices SET
            amount_paid = amount_paid + $1,
            amount_due  = amount_due - $1,
            status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $2
+           last_payment_date = GREATEST(last_payment_date, $2::date)
          WHERE id = $3 AND entity_id = $4 AND status = ANY($5::text[]) AND amount_due >= $1`,
-        [settled.toFixed(4), new Date(), app.documentId, entityId, [...COBRABLES]]
+        [settled.toFixed(4), date, app.documentId, entityId, [...COBRABLES]]
       );
       if (settledRow.rowCount !== 1) {
         throw new AccountingError(
@@ -1387,6 +1552,8 @@ export async function applyCustomerPayment(
         moneda: inv.currency_code,
         withholdingIsr: isr.toFixed(2),
         withholdingIva: iva.toFixed(2),
+        advanceIva: new Decimal(take.iva).toFixed(2),
+        advanceIvaTwiceIn: twiceIn,
       });
       posteriores.push({
         invoiceId: inv.id,
@@ -1394,6 +1561,8 @@ export async function applyCustomerPayment(
         amount: aplicado.toFixed(4),
         withholdingIsr: isr.toFixed(4),
         withholdingIva: iva.toFixed(4),
+        advanceIva: take.iva,
+        advanceIvaTwiceIn: twiceIn,
         priorApplied: prev.rows[0]?.aplicado ?? '0',
         taxAmount: inv.tax_amount,
         totalAmount: inv.total_amount,
@@ -1410,9 +1579,11 @@ export async function applyCustomerPayment(
         id: pago.id, entity_id: entityId, payment_number: pago.payment_number,
         payment_amount: pago.payment_amount, payment_date: pago.payment_date,
         bank_account_id: pago.bank_account_id, journal_entry_id: null,
+        holdsIvaUntilCashed: await holdsIvaUntilCashed(client, entityId, pago),
       },
       posteriores,
-      userId
+      userId,
+      date
     );
     // 0 included (MNE-001-459), on any entity: NULL is left to rows written
     // before anyone stored it. Invariant 3: only the live row that has not
@@ -1442,21 +1613,24 @@ export async function applyCustomerPayment(
       entityId: paymentId,
       newValues: {
         evento: 'apply',
+        date,
         aplicado: total.toFixed(2),
         withholding: aplicaciones.reduce(
           (s, a) => s.plus(a.withholdingIsr ?? '0').plus(a.withholdingIva ?? '0'), new Decimal(0)
         ).toFixed(2),
         documentos: documentos.length,
+        advance_iva_cancelled: posteriores.reduce((s, a) => s.plus(a.advanceIva ?? '0'), new Decimal(0)).toFixed(4),
         journal_entry_id: entry.id,
       },
     });
 
-    const salida: ResultadoAplicacion = {
+    const salida: CustomerApplicationResult = {
       paymentId, paymentNumber: pago.payment_number, journalEntry: entry,
       attestation: { entityId, entryId: entry.id },
       documentos,
       remanenteAnterior: remanente.toFixed(2),
       remanenteNuevo: remanente.minus(total).toFixed(2),
+      date,
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;
@@ -1474,6 +1648,10 @@ export interface ResultadoDesaplicacion {
   desaplicado: string;
   ivaReAparcado: string;
   ivaEstimado: boolean;
+  /** MNE-001-460: the day of the unapply, which its entry and the closure carry. */
+  date: string;
+  /** #699 · The IEPS moved back to the uncollected role: exactly what this receipt had moved. */
+  iepsReparked: string;
 }
 
 /**
@@ -1484,11 +1662,24 @@ export interface ResultadoDesaplicacion {
  * MNE-001-517: a row that stored no IVA is estimated pro-rata only when the
  * invoice is PPD and the entity keeps cash-basis IVA books. A PUE invoice
  * and an entity off Mexican books parked nothing, so nothing is re-parked.
+ *
+ * MNE-001-460: `args.date` (default today in the entity's zone) dates the
+ * closure (`unapplied_at`) and the entry, so a balance read "as of" that day
+ * sees both sides move together, as `payment unapply` does on the vendor
+ * side. It is refused in the future and before the receipt's last posted
+ * event: the ledger would undo an application before it happened.
+ *
+ * MNE-001-422: the advance's IVA the rows cancelled goes back to 2120, as
+ * they stored it: the cash is back on account as the advance it was.
+ *
+ * MNE-001-461: on a PPD invoice that IVA stays caused in place of the share
+ * the rows released, which goes back to 2125 because the invoice is owed
+ * again; `ivaReAparcado` is only what leaves 2120, 0 when the two are equal.
  */
 export async function unapplyCustomerPayment(
   entityId: string,
   paymentId: string,
-  args: { invoiceId: string; reason: string },
+  args: { invoiceId: string; reason: string; date?: string },
   userId: string,
   opts: OpcionesPago = {}
 ): Promise<ResultadoDesaplicacion> {
@@ -1503,6 +1694,7 @@ export async function unapplyCustomerPayment(
           'needs the rate of each leg, which its allocations do not store.'
       );
     }
+    const date = await receiptEventDate(client, entityId, pago, args.date, 'unapply');
 
     const inv = await client.query<{
       id: string; invoice_number: string; amount_due: string; amount_paid: string;
@@ -1518,10 +1710,11 @@ export async function unapplyCustomerPayment(
     const factura = inv.rows[0];
 
     const vivas = await client.query<{
-      id: string; amount_applied: string; iva_reclass_amount: string | null; isr: string; iva: string;
+      id: string; amount_applied: string; iva_reclass_amount: string | null; isr: string; iva: string; advance_iva: string;
     }>(
       `SELECT id, amount_applied::text, iva_reclass_amount::text,
-              withholding_isr_amount::text AS isr, withholding_iva_amount::text AS iva
+              withholding_isr_amount::text AS isr, withholding_iva_amount::text AS iva,
+              advance_iva_amount::text AS advance_iva
          FROM payment_allocations
         WHERE payment_id = $1 AND invoice_id = $2 AND unapplied_at IS NULL
         FOR UPDATE`,
@@ -1540,6 +1733,8 @@ export async function unapplyCustomerPayment(
     const withheldIsr = vivas.rows.reduce((s, r) => s.plus(r.isr), new Decimal(0));
     const withheldIva = vivas.rows.reduce((s, r) => s.plus(r.iva), new Decimal(0));
     const reopened = total.plus(withheldIsr).plus(withheldIva);
+    // MNE-001-422: the advance's IVA these rows cancelled goes back to 2120, read from what they stored.
+    const advanceIva = vivas.rows.reduce((s, r) => s.plus(r.advance_iva), new Decimal(0));
     const conIva = vivas.rows.filter((r) => r.iva_reclass_amount !== null);
     const sinIva = vivas.rows.filter((r) => r.iva_reclass_amount === null);
     const ivaExacto = conIva.reduce((s, r) => s.plus(r.iva_reclass_amount as string), new Decimal(0));
@@ -1567,13 +1762,33 @@ export async function unapplyCustomerPayment(
         )
       : new Decimal(0);
     const estimado = sinIva.length > 0 && ivaEstimadoParte.greaterThan(0);
+    // MNE-001-461: what leaves 2120 for 2125. Cash that carried an advance's
+    // IVA goes back on account as that advance, its IVA still caused (LIVA
+    // art. 1-B; the owner's «no re-park» of 17 Nov 2026, #623): the share
+    // back in 2125 takes the advance's IVA, and only what exceeds it, when
+    // the invoice's rate is above the advance's, leaves 2120.
+    const backInParked = ivaExacto.plus(ivaEstimadoParte);
+    const reparked = advanceIva.greaterThan(0) ? Decimal.max(backInParked.minus(advanceIva), 0) : backInParked;
+    // #699 · The IEPS this receipt moved for the invoice, read back from the
+    // tagged lines of its unreversed entries before the rows close: exact,
+    // net of an earlier unapply, and zero where nothing was parked.
+    const iepsMoved = await iepsMovedForInvoice(client, entityId, factura.id, paymentId);
 
-    await client.query(
+    // Invariant 3: the live rows read above, of a receipt of this entity, and
+    // every one of them; a miss is loud.
+    const closed = await client.query(
       `UPDATE payment_allocations
-          SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2
-        WHERE payment_id = $3 AND invoice_id = $4 AND unapplied_at IS NULL`,
-      [userId, args.reason, paymentId, args.invoiceId]
+          SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3
+        WHERE id = ANY($4::uuid[]) AND unapplied_at IS NULL
+          AND payment_id = (SELECT id FROM customer_payments WHERE id = $5 AND entity_id = $6)`,
+      [date, userId, args.reason, vivas.rows.map((r) => r.id), paymentId, entityId]
     );
+    if (closed.rowCount !== vivas.rows.length) {
+      throw new AccountingError(
+        'UNAPPLY_RACE',
+        `${pago.payment_number} on ${factura.invoice_number} changed while it was being unapplied; nothing was written.`
+      );
+    }
     const reopenedRow = await client.query(
       `UPDATE invoices SET
          amount_paid = amount_paid - $1,
@@ -1603,6 +1818,11 @@ export async function unapplyCustomerPayment(
         withholdingIva: withheldIva.toFixed(4),
         ivaReclass: estimado ? null : ivaExacto.toFixed(4),
         ivaEstimado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
+        advanceIva: advanceIva.toFixed(4),
+        date,
+        ...(iepsMoved.greaterThan(0)
+          ? { ieps: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsMoved.toFixed(4) } }
+          : {}),
       },
       userId
     );
@@ -1617,7 +1837,10 @@ export async function unapplyCustomerPayment(
       newValues: {
         evento: 'unapply',
         invoice: factura.invoice_number,
+        date,
         desaplicado: total.toFixed(2),
+        advance_iva_restored: advanceIva.toFixed(4),
+        ...(iepsMoved.greaterThan(0) ? { ieps_reparked: iepsMoved.toFixed(4) } : {}),
         journal_entry_id: entry.id,
       },
       reason: args.reason,
@@ -1634,10 +1857,13 @@ export async function unapplyCustomerPayment(
         moneda: factura.currency_code,
         withholdingIsr: withheldIsr.toFixed(2),
         withholdingIva: withheldIva.toFixed(2),
+        advanceIva: advanceIva.toFixed(2),
       },
       desaplicado: total.toFixed(2),
-      ivaReAparcado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
+      ivaReAparcado: reparked.toFixed(4),
       ivaEstimado: estimado,
+      date,
+      iepsReparked: iepsMoved.toFixed(4),
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;
@@ -1705,6 +1931,9 @@ export interface CobroDetalle {
   advance_base: string | null;
   advance_tax_rate: string | null;
   advance_iva: string | null;
+  /** MNE-001-556: the day the bank cashed the cheque and the credit that paid it (migration 331); nulls while it has none. */
+  check_cashed_date: string | null;
+  check_cashed_tx_id: string | null;
   aplicaciones: {
     invoice_number: string;
     amount_applied: string;
@@ -1712,7 +1941,11 @@ export interface CobroDetalle {
     withholding_isr_amount: string;
     withholding_iva_amount: string;
     iva_reclass_amount: string | null;
+    /** MNE-001-422: the advance's IVA this allocation cancelled instead of causing it again. */
+    advance_iva_amount: string;
     viva: boolean;
+    /** MNE-001-460: the day the cash was applied; for a row written before migration 332, the receipt's date. */
+    applied_on: string;
     unapplied_at: Date | null;
     unapply_reason: string | null;
   }[];
@@ -1731,12 +1964,14 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     reversal_cause: string | null; reversal_cause_stated_at: Date | null;
     advance_factor_type: string | null; advance_tax_rate: string | null;
     advance_base_amount: string | null; advance_iva_amount: string | null;
+    check_cashed_date: string | null; check_cashed_tx_id: string | null;
   }>(
     `SELECT cp.id, cp.payment_number, cp.customer_id, COALESCE(cu.company_name, NULLIF(TRIM(CONCAT(cu.first_name, ' ', cu.last_name)), '')) AS customer_name,
             cp.payment_amount::text, cp.currency_code, cp.payment_date, cp.payment_method,
             cp.reference_number, cp.status, je.entry_number AS journal_entry_number,
             cp.cfdi_uuid, cp.cfdi_pago_indice, cp.reversed_at, cp.reversal_cause, cp.reversal_cause_stated_at,
-            cp.advance_factor_type, cp.advance_tax_rate::text, cp.advance_base_amount::text, cp.advance_iva_amount::text
+            cp.advance_factor_type, cp.advance_tax_rate::text, cp.advance_base_amount::text, cp.advance_iva_amount::text,
+            cp.check_cashed_date::text AS check_cashed_date, cp.check_cashed_tx_id
        FROM customer_payments cp
        LEFT JOIN customers cu ON cu.id = cp.customer_id
        LEFT JOIN journal_entries je ON je.id = cp.journal_entry_id
@@ -1748,13 +1983,15 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
 
   const apps = await query<{
     invoice_number: string; amount_applied: string; iva_reclass_amount: string | null;
-    withholding_isr_amount: string; withholding_iva_amount: string;
-    unapplied_at: Date | null; unapply_reason: string | null;
+    withholding_isr_amount: string; withholding_iva_amount: string; advance_iva_amount: string;
+    applied_on: string; unapplied_at: Date | null; unapply_reason: string | null;
   }>(
     `SELECT i.invoice_number, pa.amount_applied::text, pa.iva_reclass_amount::text,
-            pa.withholding_isr_amount::text, pa.withholding_iva_amount::text,
+            pa.withholding_isr_amount::text, pa.withholding_iva_amount::text, pa.advance_iva_amount::text,
+            to_char(COALESCE(pa.applied_on, cp.payment_date), 'YYYY-MM-DD') AS applied_on,
             pa.unapplied_at, pa.unapply_reason
        FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $2
        JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $2
       WHERE pa.payment_id = $1
       ORDER BY pa.created_at`,
@@ -1786,6 +2023,8 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     advance_base: pago.advance_base_amount === null ? null : new Decimal(pago.advance_base_amount).toFixed(2),
     advance_tax_rate: storedAdvanceTreatment(pago.advance_factor_type, pago.advance_tax_rate),
     advance_iva: pago.advance_iva_amount === null ? null : new Decimal(pago.advance_iva_amount).toFixed(2),
+    check_cashed_date: pago.check_cashed_date,
+    check_cashed_tx_id: pago.check_cashed_tx_id,
     aplicaciones: apps.rows.map((a) => ({
       invoice_number: a.invoice_number,
       amount_applied: new Decimal(a.amount_applied).toFixed(2),
@@ -1793,7 +2032,9 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
       withholding_isr_amount: new Decimal(a.withholding_isr_amount).toFixed(2),
       withholding_iva_amount: new Decimal(a.withholding_iva_amount).toFixed(2),
       iva_reclass_amount: a.iva_reclass_amount,
+      advance_iva_amount: new Decimal(a.advance_iva_amount).toFixed(2),
       viva: a.unapplied_at === null,
+      applied_on: a.applied_on,
       unapplied_at: a.unapplied_at,
       unapply_reason: a.unapply_reason,
     })),
@@ -1945,7 +2186,8 @@ export async function reverseCustomerPayment(
       `SELECT id, entry_number, source_type FROM journal_entries
         WHERE entity_id = $1 AND status = 'posted' AND reversed_by_entry_id IS NULL
           AND ((source_type = 'customer_payment' AND source_id = $2)
-            OR (source_type IN ('receipt_application', 'receipt_unapplication') AND source_id = $2))
+            -- MNE-001-556: the cashing's release is the receipt's too, or a reversed cheque would leave its IVA caused.
+            OR (source_type IN ('receipt_application', 'receipt_unapplication', 'customer_cheque_cashing') AND source_id = $2))
         ORDER BY created_at`,
       [entityId, paymentId]
     );
@@ -2044,6 +2286,108 @@ export async function reverseCustomerPayment(
   return ejecutarEvento(correr, opts);
 }
 
+export interface StatedReversalCause {
+  paymentId: string;
+  paymentNumber: string;
+  cause: ReversalCause;
+  /** The instant of the statement; later than `reversedAt`, which is how a reader tells a later statement. */
+  statedAt: Date;
+  reversedAt: Date | null;
+  /** Keys of what the accountant should read before confirming; the dry run returns the same. */
+  warnings: TranslationKey[];
+}
+
+/**
+ * MNE-001-511: states afterwards the cause of a receipt that was reversed
+ * with none. The cause is written once, with the instant of the statement,
+ * and audited with its reason; nothing posts, and what the reversal already
+ * wrote (its mirrors, its closed allocations, `reversed_at`) is left as it
+ * is. A receipt that is not reversed, or that already has a cause, is
+ * refused: a stated cause is never overwritten.
+ */
+export async function stateReversalCause(
+  entityId: string,
+  paymentId: string,
+  args: { cause: string; reason: string },
+  userId: string,
+  opts: OpcionesPago = {}
+): Promise<StatedReversalCause> {
+  if (!(REVERSAL_CAUSES as readonly string[]).includes(args.cause)) {
+    throw new ValidationError({ key: 'receipt.reverse.cause_unknown', params: { value: args.cause } });
+  }
+  const cause = args.cause as ReversalCause;
+
+  const run = async (client: pg.PoolClient): Promise<StatedReversalCause> => {
+    // Its own locked read: `cobroParaEscribir` refuses every receipt that is not 'completed'.
+    const found = await client.query<{
+      payment_number: string; status: string; payment_method: string;
+      reversed_at: Date | null; reversal_cause: string | null; reversal_cause_stated_at: Date | null;
+    }>(
+      `SELECT payment_number, status, payment_method, reversed_at, reversal_cause, reversal_cause_stated_at
+         FROM customer_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+      [paymentId, entityId]
+    );
+    if (found.rows.length === 0) throw new NotFoundError('Customer payment', paymentId);
+    const row = found.rows[0];
+    if (row.status !== 'reversed') {
+      throw new ValidationError({
+        key: 'receipt.cause.not_reversed', params: { number: row.payment_number, status: row.status },
+      });
+    }
+    if (row.reversal_cause !== null) {
+      throw new ValidationError({
+        key: 'receipt.cause.already_stated',
+        params: {
+          number: row.payment_number, cause: row.reversal_cause,
+          stated_at: row.reversal_cause_stated_at?.toISOString() ?? '',
+        },
+      });
+    }
+    const warnings: TranslationKey[] = [];
+    // A card is paid when it is accepted (LIVA art. 1-B), not when it settles.
+    if (cause === 'not_collected' && ['credit_card', 'debit_card'].includes(row.payment_method)) {
+      warnings.push('receipt.reverse.warning.card_not_collected');
+    }
+
+    // Entity, state, no cause yet, and one row, or nothing (invariant 3).
+    const written = await client.query<{ reversal_cause_stated_at: Date }>(
+      `UPDATE customer_payments SET reversal_cause = $3, reversal_cause_stated_at = NOW()
+        WHERE id = $1 AND entity_id = $2 AND status = 'reversed' AND reversal_cause IS NULL
+        RETURNING reversal_cause_stated_at`,
+      [paymentId, entityId, cause]
+    );
+    if (written.rowCount !== 1) {
+      throw new AccountingError('REVERSAL_CAUSE_RACE', `${row.payment_number} changed while its cause was being stated; nothing was written.`);
+    }
+    const statedAt = written.rows[0].reversal_cause_stated_at;
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
+      userId,
+      action: 'update',
+      entityType: 'customer_payments',
+      entityId: paymentId,
+      oldValues: { reversal_cause: null },
+      newValues: {
+        evento: 'state_reversal_cause',
+        reversal_cause: cause,
+        reversal_cause_stated_at: statedAt,
+        reversed_at: row.reversed_at,
+      },
+      reason: args.reason,
+    });
+
+    const result: StatedReversalCause = {
+      paymentId, paymentNumber: row.payment_number, cause, statedAt, reversedAt: row.reversed_at, warnings,
+    };
+    if (opts.dryRun) throw new EnsayoEvento(result);
+    return result;
+  };
+
+  return ejecutarEvento(run, opts);
+}
+
 // ============================================================
 // APLICAR UN PAGO YA HECHO (050 · F04)
 //
@@ -2072,6 +2416,8 @@ interface PagoProveedorVivo {
   bank_account_id: string | null;
   journal_entry_id: string | null;
   status: string;
+  payment_method: string;
+  check_cleared_tx_id: string | null;
 }
 
 /** El pago, acotado por entidad y con candado. */
@@ -2082,7 +2428,8 @@ async function pagoProveedorParaEscribir(
 ): Promise<PagoProveedorVivo> {
   const r = await client.query<PagoProveedorVivo>(
     `SELECT id, payment_number, vendor_id, payment_amount, currency_code,
-            payment_date, bank_account_id, journal_entry_id, status
+            payment_date, bank_account_id, journal_entry_id, status,
+            payment_method, check_cleared_tx_id
        FROM vendor_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
     [paymentId, entityId]
   );
@@ -2352,6 +2699,10 @@ export async function applyVendorPayment(
         id: pago.id, entity_id: entityId, payment_number: pago.payment_number,
         payment_amount: pago.payment_amount, payment_date: pago.payment_date,
         bank_account_id: pago.bank_account_id, journal_entry_id: null,
+        // MNE-001-508: a cheque not cashed yet credits no IVA; its cashing does.
+        holdsIvaUntilCashed:
+          pago.payment_method === 'check' && pago.check_cleared_tx_id === null &&
+          pago.currency_code === (await functionalCurrencyOf(client, entityId)),
       },
       posteriores,
       userId,
@@ -2413,7 +2764,8 @@ export async function applyVendorPayment(
 
 /**
  * An undo cannot be dated before the payment's last posted event: the ledger
- * would undo it before it happened.
+ * would undo it before it happened. A cheque's cashing entry
+ * (`bank_check_clearing`, MNE-001-508) is one of those events.
  */
 async function assertAfterLastEvent(
   client: pg.PoolClient,
@@ -2425,7 +2777,7 @@ async function assertAfterLastEvent(
   const last = await client.query<{ d: string | null }>(
     `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
       WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
-        AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication')`,
+        AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing')`,
     [entityId, vp.id]
   );
   const since = last.rows[0]?.d ?? toCalendarDate(vp.payment_date);
@@ -2736,12 +3088,13 @@ export async function reverseVendorPayment(
       throw new AccountingError('REVERSE_RACE', `${vp.payment_number} changed while it was being reversed; nothing was written.`);
     }
 
-    // Every posted event of the payment not yet mirrored, oldest first.
+    // Every posted event of the payment not yet mirrored, oldest first, the
+    // cashing of a cheque included: reversed, it leaves nothing in 1130.
     // FOR UPDATE because reverseWithinTransaction expects the caller to hold it.
     const entries = await client.query<JournalEntry>(
       `SELECT * FROM journal_entries
         WHERE entity_id = $1 AND source_id = $2 AND status = 'posted' AND reversed_by_entry_id IS NULL
-          AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication')
+          AND source_type IN ('vendor_payment', 'vendor_application', 'vendor_unapplication', 'bank_check_clearing')
         ORDER BY created_at
         FOR UPDATE`,
       [entityId, paymentId]
