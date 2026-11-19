@@ -2336,7 +2336,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
   // MNE-001-568 (#612): el rastro de un pago registrado, completado con su evidencia.
   'payment.trace.nothing_given':
-    'Di qué completar: --check-number, --to-account, --to-bank o --to-foreign-bank. No se escribió nada.',
+    'Di qué completar: --check-number, --to-account, --to-bank, --to-foreign-bank o --bank. No se escribió nada.',
   'payment.trace.reason_required':
     'Completar el rastro de un pago exige --reason "<por qué>", con la evidencia de la que sale: queda escrito en el rastro de auditoría.',
   'payment.trace.too_long':
@@ -2346,6 +2346,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'payment.trace.already_captured':
     'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
   'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-569 (#612): la cuenta bancaria que se liga después tiene que ser la que movió el asiento.
+  'payment.trace.bank_no_entry':
+    'El pago {number} no tiene asiento posteado: no hay renglón del mayor contra el cual cotejar una cuenta bancaria. No se escribió nada.',
+  'payment.trace.bank_not_in_entry':
+    'El asiento {entry} del pago {number} movió {moved}; «{account}» postea a {candidate}. Ligarla haría que la póliza declarara un banco que el mayor no movió. No se escribió nada.',
   'payment.trace.would_complete': 'Completaría {number}: {fields}',
   'payment.trace.confirm':
     '¿Completar {fields} en {number}? Sólo se llenan campos vacíos, y no se postea nada en el mayor.',
@@ -3105,6 +3110,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.payment.trace.record.option.to_account': 'cuenta que recibió el dinero (CtaDest de la póliza del SAT)',
   'help.payment.trace.record.option.to_bank': 'clave del banco destino en el catálogo c_Banco del SAT (3 dígitos)',
   'help.payment.trace.record.option.to_foreign_bank': 'nombre del banco destino cuando es extranjero',
+  'help.payment.trace.record.option.bank': 'cuenta bancaria (nombre o id) de la que salió el pago; sólo una que postea a la cuenta del mayor que movió su asiento',
   'help.payment.trace.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':

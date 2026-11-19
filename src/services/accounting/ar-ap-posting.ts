@@ -491,8 +491,10 @@ export async function postCreditNoteEntry(
  * The bank's GL account (the linked bank account's gl_account_id, else the
  * banco role) and, when the payment names a bank account, the currency that
  * account is kept in (null when none is named: the banco role records none).
+ * MNE-001-569 · `payment trace record --bank` reads the same rule to decide
+ * which ledger account a bank account linked afterwards would have moved.
  */
-async function bankAccountOf(
+export async function bankAccountOf(
   client: pg.PoolClient,
   entityId: string,
   bankAccountId: string | null
@@ -520,7 +522,7 @@ async function bankAccountOf(
  * account. Until a panel key decides how that conversion is booked, the
  * payment is refused and the mismatch named.
  */
-function assertBankCurrency(
+export function assertBankCurrency(
   bank: { currency: string | null },
   paymentCurrency: string,
   paymentNumber: string

@@ -181,6 +181,8 @@ export interface EntradaPago {
 
 /** Longitud de `banco_destino_sat` (VARCHAR(3), c_Banco de tres dígitos). */
 const LARGO_CLAVE_BANCO = 3;
+/** The c_Banco code the vouchers file declares a foreign bank with, next to its name (#532). */
+const FOREIGN_BANK_CODE = '999';
 
 /**
  * El rastro de pago, comprobado ANTES de tocar la base.
@@ -194,6 +196,8 @@ const LARGO_CLAVE_BANCO = 3;
  *
  * MNE-001-568 · `payment trace record` runs it on the merged trace (what is
  * stored plus what is given), so a completion is held to the capture's rules.
+ * MNE-001-569 · the national code is checked against c_Banco here, so
+ * `payment create --to-bank` refuses an off-list code at capture too.
  */
 export function assertRastroDePago(
   entrada: Pick<EntradaPago, 'paymentMethod' | 'checkNumber' | 'cuentaDestino' | 'bancoDestinoSat' | 'bancoDestinoExtranjero'>,
@@ -208,7 +212,11 @@ export function assertRastroDePago(
       `El pago declara banco destino nacional («${nacional}») y extranjero («${extranjero}») a la vez. ` +
         'El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: ' +
         'declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo ' +
-        'las lleva tal cual a la autoridad.'
+        'las lleva tal cual a la autoridad.' +
+        // #532: 999 is the code the file itself puts on a foreign bank, next to its name.
+        (nacional === FOREIGN_BANK_CODE
+          ? ` Un banco extranjero se da sólo con su nombre: la póliza le pone la clave ${FOREIGN_BANK_CODE} al escribirlo.`
+          : '')
     );
   }
   if (nacional !== '' && nacional.length !== LARGO_CLAVE_BANCO) {
@@ -216,6 +224,14 @@ export function assertRastroDePago(
       `La clave de banco destino «${nacional}» tiene ${nacional.length} caracteres y el c_Banco ` +
         `del SAT son ${LARGO_CLAVE_BANCO}. Un banco no se identifica por su nombre en este campo: ` +
         'si el banco es extranjero, dilo con el nombre en el campo de banco extranjero.'
+    );
+  }
+  // MNE-001-569 · the list the vouchers file is judged by, as #611 checks the
+  // payer's bank: a code off it would be stored and then block the month.
+  if (nacional !== '' && !officialEnumeration('c_Banco').has(nacional)) {
+    throw new ValidationError(
+      `La clave de banco destino «${nacional}» no está en el catálogo c_Banco del SAT (tres dígitos ` +
+        'de la lista publicada). Si el banco es extranjero, dilo con su nombre en el campo de banco extranjero.'
     );
   }
   // El banco sin la cuenta es media pista. En el nodo de transferencia del
