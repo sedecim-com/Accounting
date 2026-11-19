@@ -2023,7 +2023,9 @@ export function spreadDeclaredBase(base: string | null, debits: Decimal[]): Arra
  *     (`newVendorTaxId`); then the inbox path's own vendor creation runs on
  *     this client, so vendor, bill and entry commit or roll back together;
  *   - the approved entry matches the CFDI figure by figure within
- *     `cfdi_tolerancia_cuadre`, and a mismatch is refused, never absorbed;
+ *     `cfdi_tolerancia_cuadre`, and a mismatch is refused, never absorbed.
+ *     On cash-basis books its VAT is in iva_pendiente_acreditar, or in
+ *     iva_acreditable for a PUE the entry pays from the bank (MNE-001-492);
  *   - the bill header comes from the XML; its lines follow
  *     `lineas_factura_desde`.
  */
@@ -2125,13 +2127,25 @@ export async function registrarFacturaDeBorradorAprobado(
   const summary = (preReg.tax_breakdown ?? {}) as Partial<CFDIParsed['impuestos']>;
   const toAp = net(ap, 'credit');
   const paid = toAp.isZero() && preReg.x_metodo_pago === 'PUE' && net(bank, 'credit').gt(0);
-  const figures: Array<{ figure: string; entry: Decimal; cfdi: Decimal }> = [
+  // MNE-001-492: on cash-basis books the VAT sits in one role, as at the issued
+  // door. Owed to vendors, PUE or PPD, it waits in iva_pendiente_acreditar for
+  // the payment that releases it; paid in the entry itself, it is creditable
+  // now, since no payment would ever release it from 1135.
+  const vatRole = !(await entityUsesCashBasisIva(client, entityId))
+    ? null
+    : paid ? 'iva_acreditable' : 'iva_pendiente_acreditar';
+  const figures: Array<{ figure: string; entry: Decimal; cfdi: Decimal; note?: string }> = [
     {
       figure: paid ? 'total (credit to bank, paid PUE)' : 'total (credit to accounts payable)',
       entry: paid ? net(bank, 'credit') : toAp,
       cfdi: money(preReg.x_total),
     },
-    { figure: 'transferred VAT', entry: net(vat, 'debit'), cfdi: sumTax(summary.traslados, '002') },
+    {
+      figure: 'transferred VAT',
+      entry: net(vatRole ? accountsOf(vatRole) : vat, 'debit'),
+      cfdi: sumTax(summary.traslados, '002'),
+      ...(vatRole ? { note: `counted in ${vatRole}${paid ? ', as the entry pays the PUE' : ', where it waits until paid'}` } : {}),
+    },
   ];
   // NOTE: the 'single' withholding layout (MNE-001-147) and entities seeded
   // before MNE-001-056 (2140) point both withholding roles at one account;
@@ -2160,7 +2174,7 @@ export async function registrarFacturaDeBorradorAprobado(
       'CFDI_RECONCILIATION_FAILED',
       `The approved entry does not match CFDI ${uuid}: ` +
         mismatches
-          .map((c) => `${c.figure} is ${c.entry.toFixed(2)} in the entry and ${c.cfdi.toFixed(2)} in the CFDI (difference ${c.entry.minus(c.cfdi).toFixed(2)})`)
+          .map((c) => `${c.figure} is ${c.entry.toFixed(2)} in the entry and ${c.cfdi.toFixed(2)} in the CFDI (difference ${c.entry.minus(c.cfdi).toFixed(2)})${c.note ? `, ${c.note}` : ''}`)
           .join('; ') +
         `. Tolerance per figure: ${tolerance.toFixed(2)} (cfdi_tolerancia_cuadre). Nothing was posted; correct the draft and approve again.`,
       { cfdi_uuid: uuid, figures: mismatches.map((c) => c.figure) }

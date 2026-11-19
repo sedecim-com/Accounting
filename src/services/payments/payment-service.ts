@@ -1015,12 +1015,8 @@ async function advanceSplitOf(client: pg.PoolClient, input: EntradaPago): Promis
   if (!(await entityUsesCashBasisIva(client, input.entityId))) {
     throw new ValidationError({ key: 'receipt.advance.not_mexican_books' });
   }
-  // A price paid by cheque, and its IVA, is paid the day the bank cashes it
-  // (LIVA art. 1-B, second paragraph): the receipt's entry must not cause it.
-  // TODO(#700): post the advance's IVA on the recorded cashing, and lift this refusal.
-  if (input.paymentMethod === 'check') {
-    throw new AccountingError('ADVANCE_BY_CHEQUE_NOT_WIRED', { key: 'receipt.advance.cheque_not_wired' });
-  }
+  // By cheque the split is kept too: the receipt's entry holds it whole in
+  // 2150 and the recorded cashing causes its IVA (MNE-001-558, `pendingRelease`).
   return splitAdvance(input.paymentAmount, treatment);
 }
 
