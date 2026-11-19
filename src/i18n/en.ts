@@ -950,6 +950,23 @@ export const EN = {
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Load them at 0 % and warn: no IVA is credited when they are paid',
 
+  'policy.received_line_without_account.question':
+    'When a line of a vendor CFDI reaches posting with no expense account, what do I do with it?',
+  'policy.received_line_without_account.impact':
+    'A received line posts to its own account, then to the one given for the whole document, then to a suggestion that is not a control account. This governs the line that has none of the three when the CFDI is posted from the inbox (`bill inbox run`). With "refuse" nothing is posted: the CFDI stays in the inbox and says which line has no account, until someone codes it. With "role_generic_account" the line goes to the account your chart gives the expense role the CFDI was classified under (general expenses for an ordinary purchase), and the bill is posted without anyone choosing the account; when the classification has no single expense role with an account, it is refused all the same and says why.',
+  'policy.received_line_without_account.rationale':
+    'A deduction has to be duly recorded in the books (LISR art. 27 fr. IV): an expense booked to a generic account nobody chose is recorded, but not as what it is. Refusing is the conservative option of ADR-0006, decision 1: nothing is posted without review, and coding the line takes one command.',
+  'policy.received_line_without_account.why':
+    'A vendor CFDI sometimes reaches posting with a line nobody gave an account and nothing in its history suggests one. I either wait for you to code it, or I book it to the generic expense account so the payable is not held up.',
+  'policy.received_line_without_account.what':
+    'By default I leave the CFDI in the inbox and tell you which line has no account. With "role_generic_account" I post that line to the account of the expense role I classified the CFDI under.',
+  'policy.received_line_without_account.if_skipped':
+    'I post nothing until every line has an account.',
+  'policy.received_line_without_account.option.refuse':
+    'Post nothing until someone gives the line an account',
+  'policy.received_line_without_account.option.role_generic_account':
+    'Post the line to the generic account of its expense role',
+
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
   'policy.closing_entries_in_reports.impact':

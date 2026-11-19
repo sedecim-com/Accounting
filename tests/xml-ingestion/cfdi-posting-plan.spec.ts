@@ -21,7 +21,7 @@ vi.mock('../../src/database/connection.js', () => ({
   query: (...a: unknown[]) => consultaFalsa(...a),
 }));
 
-import { planearAsiento, planContabilizable } from '../../src/services/xml-ingestion/cfdi-posting-plan.js';
+import { planearAsiento, planContabilizable, singleExpenseRole } from '../../src/services/xml-ingestion/cfdi-posting-plan.js';
 
 const ENTIDAD = '11111111-1111-1111-1111-111111111111';
 const RFC_RECEPTOR = 'XAXX010101000';
@@ -276,5 +276,22 @@ describe('the revenue line of an issued sale opens by concept', () => {
       vendorExists: true, periodOpen: true, satStatus: 'vigente' as const,
     };
     expect(await planearAsiento({ ...base, revenueLines: { callerAccountId: 'acct-4200' } })).toEqual(await planearAsiento(base));
+  });
+});
+
+describe('singleExpenseRole · the account a line nobody coded may take (MNE-001-553)', () => {
+  const line = (role: string, accountCode: string | null) =>
+    ({ role, accountCode, accountName: null, debit: 100, credit: null, description: role }) as never;
+
+  it('one expense role with its account: that account, whatever else the entry carries', () => {
+    expect(singleExpenseRole([line('gasto', '6100'), line('iva_pendiente_acreditar', '1135'), line('cxp', '2110')]))
+      .toEqual({ role: 'gasto', accountCode: '6100' });
+  });
+
+  it('no expense line, two expense roles, or a role with no account: none, and it says why', () => {
+    expect(singleExpenseRole([line('cxp', '2110')])).toEqual({ why: expect.stringContaining('no expense line') });
+    expect(singleExpenseRole([line('gasto', '6100'), line('activo_fijo', '1210')]))
+      .toEqual({ why: expect.stringContaining('gasto, activo_fijo') });
+    expect(singleExpenseRole([line('gasto', null)])).toEqual({ why: expect.stringContaining('role gasto has no account') });
   });
 });
