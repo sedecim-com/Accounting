@@ -161,6 +161,7 @@ import ts from 'typescript';
 import type { Lane, LaneMeter } from '../lane.js';
 import { isFlagged } from '../lexicon.js';
 import { CLI_SURFACE, userStringsUnder } from '../extract.js';
+import { exitWhenDrained } from '../../lib/exit-when-drained.js';
 
 /** La raíz del repositorio: este archivo vive en `scripts/language/lanes/`. */
 const ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -518,10 +519,11 @@ function main(args: string[]): number {
     );
     return 2;
   }
-  for (const row of list(mode as Mode, tree as Tree)) process.stdout.write(`${row}\n`);
+  // One write for the whole list, not one per line (#659).
+  process.stdout.write(list(mode as Mode, tree as Tree).map((row) => `${row}\n`).join(''));
   return 0;
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  exitWhenDrained(main(process.argv.slice(2)));
 }

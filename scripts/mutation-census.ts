@@ -24,6 +24,7 @@ import {
   parseCensus,
   renderCensus,
 } from '../src/plan/mutation-census.js';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 /** The census measured on the current tree, rendered as it is committed. */
 export function liveCensus(): string {
@@ -70,5 +71,5 @@ export function main(argv: string[]): number {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  exitWhenDrained(main(process.argv.slice(2)));
 }

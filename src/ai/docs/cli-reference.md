@@ -4550,9 +4550,15 @@ Options:
   --customer <ref>         the customer who paid (number, name or id); required
                            with no invoice, and with one it must be the
                            invoice's own
-  --tax-rate <rate>        IVA treatment of an advance with no invoice: 16, 8,
-                           0, exempt (exento) or not-subject (no-objeto); the
-                           IVA is caused on collection
+  --tax-rate <rate>        IVA treatment of an advance: 16, 8, 0, exempt
+                           (exento) or not-subject (no-objeto); with no invoice
+                           it is required, and with one it states the treatment
+                           of the excess --on-account leaves; the IVA is caused
+                           on collection
+  --on-account             let the amount exceed the invoice due: the excess
+                           stays on account as an advance and causes its IVA on
+                           collection (LIVA art. 1-B), at --tax-rate or the
+                           invoice's own rate
   --amount <amount>        amount, in the document currency
   --date <date>            value date (YYYY-MM-DD); defaults to today
   --method <method>        cash, check, ach, wire, spei, credit_card or other
@@ -4560,8 +4566,6 @@ Options:
   --bank <account>         bank account name or id; without it the entity's
                            `banco` role is used
   --reference <text>       bank reference or transfer number
-  --on-account             let the amount exceed the invoice due; the excess
-                           stays on account (anticipo)
   --json                   JSON output
   -e, --entity <idOrName>  legal entity to operate on (defaults to the active
                            one)
@@ -4577,7 +4581,7 @@ Options:
 Examples:
   # Cash received against one invoice; this releases the PPD IVA it was holding.
   mnemosine receipt record INV-2026-00042 --amount 98600.00 --date 2026-07-31 --method spei --reference "SPEI 0123456789"
-  # Take more than the invoice owes; the excess stays on account as an anticipo.
+  # Take more than the invoice owes; the excess stays on account as an advance and causes its IVA today, at the invoice's rate.
   mnemosine receipt record INV-2026-00042 --amount 120000.00 --on-account
   # See the entry it would post, writing nothing.
   mnemosine receipt record INV-2026-00042 --amount 98600.00 --dry-run

@@ -52,6 +52,8 @@ interface FakeState {
   bankGl: string | null;
   /** Rows the credit note's guarded write finds: 1 on the real path. */
   noteRows: number;
+  /** MNE-001-462: what the receipt's live allocations applied, when a test says so. */
+  applied?: string;
 }
 
 let state: FakeState;
@@ -66,6 +68,7 @@ function fakeClient(): pg.PoolClient {
     // The collection's two guarded UPDATEs (invariant 3) find their one row.
     if (/^UPDATE (customer_payments|payment_allocations)/.test(sql.trim())) return { rows: [], rowCount: 1 };
     if (/^UPDATE credit_notes/.test(sql.trim())) return { rows: [], rowCount: state.noteRows };
+    if (state.applied !== undefined && sql.includes('AS aplicado')) return { rows: [{ aplicado: state.applied }] };
     if (sql.includes('FROM legal_entities')) {
       return { rows: [{ incorporation_country: state.country, accounting_standard: state.standard }] };
     }
@@ -521,6 +524,34 @@ describe('an advance applied to a PPD invoice nets its IVA against the share the
       ['acct:iva_trasladado_no_cobrado', null, '100.0000'],
       ['acct:iva_trasladado', null, '60.0000'],
     ]);
+  });
+});
+
+// ============================================================
+// MNE-001-462 · THE EXCESS OF A COLLECTION IS AN ADVANCE
+// ============================================================
+
+describe('the excess a collection leaves on account posts as an advance: its base to 2150, its IVA to 2120', () => {
+  it('1,500.00 on 1,160.00 at 16 %: CR cxc 1,160.00, CR anticipo 293.10, CR iva_trasladado 46.90, and the entry names its source', async () => {
+    state.applied = '1160.0000';
+    const note = ' · excess on account is an advance at 16 %, from INV-001';
+    await postCustomerPaymentEntry(fakeClient(), payment({
+      payment_amount: '1500.0000', advance_base_amount: '293.10', advance_iva_amount: '46.90', advance_note: note,
+    }), USER);
+
+    expect(lineFor('acct:banco')!.debit_amount).toBe('1500.0000');
+    expect(lineFor('acct:cxc')!.credit_amount).toBe('1160.0000');
+    expect(lineFor('acct:anticipo_clientes')!.credit_amount).toBe('293.1000');
+    expect(lineFor('acct:iva_trasladado')!.credit_amount).toBe('46.9000');
+    expect(entryDescription()).toBe(`Customer payment PMT-001${note}`);
+  });
+
+  it('a split that is not the cash left on account is refused, not posted', async () => {
+    state.applied = '1160.0000';
+    await expect(postCustomerPaymentEntry(fakeClient(), payment({
+      payment_amount: '1500.0000', advance_base_amount: '1293.10', advance_iva_amount: '206.90',
+    }), USER)).rejects.toMatchObject({ code: 'ADVANCE_SPLIT_MISMATCH' });
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });
 

@@ -274,7 +274,7 @@ describe('receipt record with no invoice (MNE-001-421)', () => {
     ['a rate written as a factor', [...advance, '--tax-rate', '1.6'], /"1\.6"/],
     ['a rate that is not one', [...advance, '--tax-rate', 'abc'], /"abc"/],
     ['neither an invoice nor --customer', ['--amount', '1160.00', '--tax-rate', '16'], /--customer/],
-    ['--tax-rate with an invoice', ['INV-1', '--amount', '100.00', '--tax-rate', '16'], /only for an advance with no invoice/],
+    ['--tax-rate with an invoice and no --on-account', ['INV-1', '--amount', '100.00', '--tax-rate', '16'], /goes with --on-account/],
   ])('refuses %s before the service is called', async (_case, args, message) => {
     const { errs, calls } = await record([...args, '--yes']);
     expect(errs).toHaveLength(1);
@@ -304,6 +304,32 @@ describe('receipt record with no invoice (MNE-001-421)', () => {
       counterpartyId: 'cus-1', applications: [{ documentId: 'id-INV-1', amountApplied: '100.00' }], onAccount: false,
     });
     expect(calls[0][0].advanceTreatment).toBeUndefined();
+  });
+
+  // MNE-001-462: the excess of a collection is an advance; the service reads the invoice's rate unless one is stated.
+  it.each([
+    ['asks for the invoice\'s rate', [] as string[], { advanceTreatmentFromInvoice: true }, undefined],
+    ['passes a stated rate instead', ['--tax-rate', '0'], { advanceTreatment: '0' }, 'advanceTreatmentFromInvoice'],
+  ])('with an invoice and --on-account, it %s', async (_case, extra, expected, absent) => {
+    vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '1160.00', customer_id: 'c-1',
+    } as never);
+    const { errs, calls } = await record(['INV-1', '--amount', '1500.00', '--on-account', ...extra, '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls[0][0]).toMatchObject({
+      applications: [{ documentId: 'id-INV-1', amountApplied: '1160.00' }], onAccount: true, ...expected,
+    });
+    if (absent) expect(calls[0][0]).not.toHaveProperty(absent);
+  });
+
+  it('with an invoice and no --on-account, it asks for no rate: the cash only settles the invoice', async () => {
+    vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '1160.00', customer_id: 'c-1',
+    } as never);
+    const { errs, calls } = await record(['INV-1', '--amount', '1160.00', '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls[0][0]).not.toHaveProperty('advanceTreatment');
+    expect(calls[0][0]).not.toHaveProperty('advanceTreatmentFromInvoice');
   });
 
   it('with no --yes and no terminal it is refused after the rehearsal, and nothing is recorded', async () => {

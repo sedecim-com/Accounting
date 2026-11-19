@@ -18,6 +18,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { REST_BODY_GOLDEN, ROOT, recordRestBodyGolden } from '../tests/api/golden/rest-body-probes.js';
 import { TOOL_SCHEMAS_GOLDEN, recordToolSchemas } from '../tests/ai/tools/tool-schema-snapshot.js';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 function serialize(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -57,5 +58,5 @@ function main(args: string[]): number {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  exitWhenDrained(main(process.argv.slice(2)));
 }

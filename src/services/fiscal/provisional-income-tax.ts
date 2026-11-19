@@ -46,9 +46,10 @@ import {
 // how the coefficient's denominator is built. Two things the ledger cannot
 // say, the paper warns about instead of guessing: customer advances, which
 // LISR art. 17 fr. I accumulates when collected (anticipo_clientes mixes
-// advance CFDIs at their subtotal and advances recorded with their IVA
-// treatment at their base, MNE-001-458, with on-account remainders that
-// carry their IVA), and non-accumulable revenue such as dividends from Mexican
+// advance CFDIs at their subtotal, and advances and the excess of a
+// collection recorded with their IVA treatment at their base, MNE-001-458 and
+// MNE-001-462, with on-account remainders the service records with no
+// treatment, which carry their IVA), and non-accumulable revenue such as dividends from Mexican
 // entities (art. 16), which has no role of its own yet.
 //
 // WITHHELD ISR is read per entry: an entry whose lines on the role accounts

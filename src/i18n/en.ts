@@ -2368,8 +2368,18 @@ export const EN = {
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
   'receipt.advance.treatment_unknown':
     'The IVA treatment "{value}" of an advance is not known: state one of {allowed}.',
-  'receipt.advance.only_without_invoice':
-    'An IVA treatment is stated only for an advance with no invoice. This receipt applies cash to an invoice, and the cash it leaves on account does not take a rate yet (issue 623).',
+  // MNE-001-462 (#623): the excess of a collection left on account is an advance.
+  'receipt.advance.tax_rate_needs_on_account':
+    'With an invoice, --tax-rate states the treatment of the excess a collection leaves on account, so it goes with --on-account. Without it the cash only settles the invoice. Nothing was recorded.',
+  'receipt.advance.nothing_on_account':
+    'A treatment was stated for the cash this receipt of {amount} leaves on account, and it leaves none: it applies all of it to invoices. Drop --tax-rate, or record the amount that exceeds what they owe. Nothing was recorded.',
+  'receipt.excess.from': 'rate of {invoices}',
+  'receipt.excess.from_highest': 'rate of {invoices}: it carries several, and the highest is assumed; --tax-rate states another',
+  'receipt.excess.from_exempt': 'rate of {invoices}: none of its treatments carries IVA, and exempt is assumed; --tax-rate states another',
+  'receipt.excess.cheque_held':
+    'The {amount} left on account was received by cheque, whose IVA is caused the day the bank cashes it (LIVA art. 1-B, second paragraph). Recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700), so it goes whole to customer advances, as before.',
+  'receipt.excess.cheque_not_wired':
+    'The excess of a collection received by cheque causes its IVA the day the bank cashes it (LIVA art. 1-B, second paragraph), and recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700). Record it without --tax-rate, and the excess goes whole to customer advances. Nothing was recorded.',
   'receipt.advance.not_mexican_books':
     'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
   'receipt.advance.cheque_held':
@@ -3121,7 +3131,9 @@ export const EN = {
   'help.receipt.record.option.customer':
     'the customer who paid (number, name or id); required with no invoice, and with one it must be the invoice\'s own',
   'help.receipt.record.option.tax_rate':
-    'IVA treatment of an advance with no invoice: 16, 8, 0, exempt (exento) or not-subject (no-objeto); the IVA is caused on collection',
+    'IVA treatment of an advance: 16, 8, 0, exempt (exento) or not-subject (no-objeto); with no invoice it is required, and with one it states the treatment of the excess --on-account leaves; the IVA is caused on collection',
+  'help.receipt.record.option.on_account':
+    'let the amount exceed the invoice due: the excess stays on account as an advance and causes its IVA on collection (LIVA art. 1-B), at --tax-rate or the invoice\'s own rate',
   // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
   'help.receipt.apply.description':
     'Apply the on-account balance of a collection to invoices: releases PPD IVA, and an advance cancels the IVA it caused instead of causing it again. It covers procedure A of Anexo 20, Appendix 6 (the sale invoiced whole); under procedure B the advance moves to revenue by a journal entry',

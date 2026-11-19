@@ -110,6 +110,7 @@ import { program } from '../src/cli/mnemosine.js';
 import { riskOf } from '../src/cli/kernel/risk.js';
 import { FLAG_DICTIONARY } from '../src/cli/kernel/flags.js';
 import { VERBS } from '../src/cli/kernel/vocabulary.js';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 // ============================================================
 // LAS SEIS MEDIDAS
@@ -920,5 +921,5 @@ export function main(argv: readonly string[], efectos: Efectos = EFECTOS_REALES)
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  exitWhenDrained(main(process.argv.slice(2)));
 }

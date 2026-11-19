@@ -2237,8 +2237,18 @@ export const ES: Record<keyof typeof EN, string> = {
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
   'receipt.advance.treatment_unknown':
     'No conozco el tratamiento de IVA "{value}" para un anticipo: declara uno de {allowed}.',
-  'receipt.advance.only_without_invoice':
-    'El tratamiento de IVA sólo se declara para un anticipo sin factura. Este cobro aplica efectivo a una factura, y el efectivo que deja a cuenta todavía no lleva tasa (issue 623).',
+  // MNE-001-462 (#623): the excess of a collection left on account is an advance.
+  'receipt.advance.tax_rate_needs_on_account':
+    'Con una factura, --tax-rate declara el tratamiento del excedente que un cobro deja a cuenta, así que va con --on-account. Sin él el efectivo sólo liquida la factura. No se registró nada.',
+  'receipt.advance.nothing_on_account':
+    'Se declaró un tratamiento para el efectivo que este cobro de {amount} deja a cuenta, y no deja nada: lo aplica todo a facturas. Quita --tax-rate, o registra el importe que excede lo que deben. No se registró nada.',
+  'receipt.excess.from': 'tasa de {invoices}',
+  'receipt.excess.from_highest': 'tasa de {invoices}: lleva varias y se supone la más alta; --tax-rate declara otra',
+  'receipt.excess.from_exempt': 'tasa de {invoices}: ninguno de sus tratamientos lleva IVA y se supone exento; --tax-rate declara otro',
+  'receipt.excess.cheque_held':
+    'Los {amount} que quedan a cuenta se recibieron con cheque, cuyo IVA se causa el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo). Registrar ese cobro postea el IVA de un anticipo registrado sin factura, todavía no el del excedente de un cobro (issue 700), así que van completos a anticipos de clientes, como antes.',
+  'receipt.excess.cheque_not_wired':
+    'El excedente de un cobro recibido con cheque causa su IVA el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo), y registrar ese cobro postea el IVA de un anticipo registrado sin factura, todavía no el del excedente de un cobro (issue 700). Regístralo sin --tax-rate y el excedente va completo a anticipos de clientes. No se registró nada.',
   'receipt.advance.not_mexican_books':
     'Esta entidad no lleva libros mexicanos, así que un anticipo no lleva tratamiento de IVA: regístralo sin él y el importe completo va a su cuenta de anticipos de clientes.',
   'receipt.advance.cheque_held':
@@ -2956,7 +2966,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.receipt.record.option.customer':
     'el cliente que pagó (número, nombre o id); obligatorio sin factura, y con ella debe ser el de la factura',
   'help.receipt.record.option.tax_rate':
-    'tratamiento de IVA de un anticipo sin factura: 16, 8, 0, exempt (exento) o not-subject (no-objeto); el IVA se causa al cobro',
+    'tratamiento de IVA de un anticipo: 16, 8, 0, exempt (exento) o not-subject (no-objeto); sin factura es obligatorio, y con una declara el del excedente que deja --on-account; el IVA se causa al cobro',
+  'help.receipt.record.option.on_account':
+    'permite que el importe exceda el saldo de la factura: el excedente queda a cuenta como anticipo y causa su IVA al cobro (LIVA art. 1-B), a la tasa de --tax-rate o a la de la propia factura',
   // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
   'help.receipt.apply.description':
     'Aplica el saldo a cuenta de un cobro a facturas: libera el IVA de las PPD, y un anticipo cancela el IVA que causó en vez de causarlo otra vez. Cubre el procedimiento A del Anexo 20, Apéndice 6 (la venta facturada completa); con el procedimiento B el anticipo pasa a ingresos por póliza',
