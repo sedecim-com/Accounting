@@ -303,7 +303,8 @@ export async function buildProvisionalIncomeTaxWorkpaper(
       block('ISR-WP-LOSSES-STALE',
         `Las pérdidas pendientes capturadas son de la declaración de ${lossInput.sourceFiscalYear}; ` +
           `el pago de ${year} aplica las que quedaron al cierre de ${year - 1} (LISR art. 57). ` +
-          `Captura las de la declaración de ${year - 1}, aunque sean cero.`);
+          `Captura las de la declaración de ${year - 1} una vez presentada, aunque sean cero: ` +
+          `\`mnemosine annual figure record --kind pending_tax_losses --year ${year - 1}\`.`);
     } else if (lossInput) {
       const target = lossesUpdateTarget(year, month);
       const [y, m] = (lossInput.updatedThrough as string).split('-').map(Number);

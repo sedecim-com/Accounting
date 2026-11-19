@@ -19,9 +19,10 @@ describe('mnemosine annual, help by key', () => {
     expectEveryKeyInFormat(described, 'annual');
   });
 
-  it('the leaf shows its description and its --source in Spanish', () => {
+  it('the leaf shows its description, its --source and its --updated-through in Spanish', () => {
     expectSpanishHelp('annual figure record', 'help.annual.figure.record.description');
     expectSpanishHelp('annual figure record', 'help.annual.figure.record.option.source');
+    expectSpanishHelp('annual figure record', 'help.annual.figure.record.option.updated_through');
   });
 
   it('the leaf is a write the agent cannot call', () => {
