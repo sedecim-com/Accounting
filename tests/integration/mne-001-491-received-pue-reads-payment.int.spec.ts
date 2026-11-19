@@ -142,7 +142,8 @@ beforeAll(async () => {
   const email = (await query<{ email: string }>(`SELECT email FROM users WHERE id = $1`, [f.userId])).rows[0].email;
   reviewer = { userId: f.userId, email };
   await seedPolicies({ tenantId: f.tenantId, entityId: f.entityId });
-  // Lines per concept carry their own VAT; under the default (`poliza`) the DIOT has no split by rate.
+  // Lines per concept carry their own VAT: this spec guards that value. Under the default (`poliza`)
+  // the lines carry none and the DIOT reads the split from the CFDI (MNE-001-563, its own spec).
   await resolvePolicy({ tenantId: f.tenantId, entityId: f.entityId }, 'lineas_factura_desde', 'conceptos_cfdi', email);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mne491-'));
   vendorId = uuidv4();

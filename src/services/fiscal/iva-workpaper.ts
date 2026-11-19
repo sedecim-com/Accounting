@@ -5,7 +5,6 @@ import { AccountingError, NotFoundError, ValidationError } from '../../utils/err
 import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
 import { queryTrialBalanceRows } from '../reporting/report-service.js';
 import { entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
-import { vatColumnsOf } from '../xml-ingestion/pre-registration-service.js';
 import type { CFDIParsed } from '../xml-ingestion/cfdi-parser.js';
 import {
   acumuladoDelDocumento,
@@ -16,6 +15,7 @@ import {
   porcionDelDocumento,
   rangoDelMes,
   sumarDesgloses,
+  vatLinesOfCfdi,
   type Desglose,
   type Hallazgo,
   type HechoPagado,
@@ -49,6 +49,10 @@ import {
 // the approval of an issued CFDI writes the lines without tax and keeps the
 // IVA on the header, so the rates, the exempt base and the "no objeto" base
 // (subtotal minus the bases the CFDI taxes) come from the CFDI's own summary.
+//
+// A PURCHASE can be split by its CFDI too (MNE-001-563): a bill approved from
+// a draft under `lineas_factura_desde = poliza` has lines with no VAT, and
+// `hechosDelMes` hands over the CFDI's lines for it (sat/diot/cfdi-split.ts).
 //
 // THE IVA WITHHELD BY CUSTOMERS follows the charged side on cash basis: the
 // customer withholds when it pays (LIVA art. 1-A), so a PUE sale counts it in
@@ -341,7 +345,7 @@ interface SaleSource {
 /**
  * The CFDI's own split. `tax_breakdown` is the Comprobante/Impuestos summary
  * stored at ingestion: one Traslado per tax, factor and rate, with its Base.
- * Each becomes one line through `vatColumnsOf`, the reading the bills get.
+ * Each VAT one becomes one line (`vatLinesOfCfdi`), the reading the bills get.
  * What the subtotal carries beyond the bases the CFDI taxes or exempts is
  * "no objeto" (ObjetoImp 01): such a concept appears in no Traslado at all.
  */
@@ -351,16 +355,7 @@ export function saleFromCfdi(
   discount: string
 ): SaleSource {
   const vat = (taxes.traslados ?? []).filter((t) => String(t.impuesto ?? '').padStart(3, '0') === '002');
-  const lines = vat.map((t): RenglonDeGasto => {
-    const c = vatColumnsOf([t]);
-    return {
-      tipoFactor: c.factor_type,
-      tasa: c.tax_rate,
-      valorActos: c.acts_value,
-      importe: c.acts_value ?? '0',
-      iva: q4(c.tax),
-    };
-  });
+  const lines = vatLinesOfCfdi(taxes);
   // A Traslado without its Base leaves the rest unknown, and an unknown rest
   // is not "no objeto": the exempt line without a base already blocks.
   const known = vat.every((t) => t.base != null);
