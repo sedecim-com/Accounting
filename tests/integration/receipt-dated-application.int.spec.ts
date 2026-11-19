@@ -290,19 +290,14 @@ describe('MNE-001-504 · the IEPS a PPD application moved goes back on the unapp
   }
 
   it('unapply --date of a PPD application whose invoice parked IEPS re-parks it on an entry dated that day', async () => {
-    // 2181 and its role by hand, as mne-001-504-ppd-ieps-release does: the
-    // seed that writes them is MNE-001-505. The invoice of #669 posts
-    // CR 4100 1,000.00 / CR 2181 80.00 / CR 2125 172.80.
-    const account2181 = uuidv4();
-    await query(
-      `INSERT INTO accounts (id, code, name, account_type, fs_category, entity_id, currency_code, normal_balance, created_by)
-       VALUES ($1, '2181', 'IEPS Trasladado No Cobrado', 'liability', 'current_liabilities', $2, 'MXN', 'credit', $3)`,
-      [account2181, mx.entityId, mx.userId]
+    // 2181 and its role come from the seed (MNE-001-505). The invoice of
+    // #669 posts CR 4100 1,000.00 / CR 2181 80.00 / CR 2125 172.80.
+    const seeded = await query<{ account_id: string }>(
+      `SELECT account_id FROM account_roles WHERE entity_id = $1 AND role = 'ieps_trasladado_no_cobrado'`,
+      [mx.entityId]
     );
-    await query(
-      `INSERT INTO account_roles (tenant_id, entity_id, role, account_id) VALUES ($1, $2, 'ieps_trasladado_no_cobrado', $3)`,
-      [mx.tenantId, mx.entityId, account2181]
-    );
+    expect(seeded.rows).toHaveLength(1);
+    const account2181 = seeded.rows[0].account_id;
     const draft = await createInvoice({
       entity_id: mx.entityId, customer_id: customerId, invoice_date: '2026-08-01', due_date: '2026-08-01',
       currency_code: 'MXN', terms: 'PPD',

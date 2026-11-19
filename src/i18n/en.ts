@@ -73,9 +73,9 @@ export const EN = {
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':
     'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
-  /** `ValidationError` of the receivables core, at both doors: IEPS on a PPD sale is caused on collection (MNE-001-521, #669). `issue` is a parameter: a literal hash is ICU's plural number. */
+  /** `ValidationError` of the receivables core, at both doors: IEPS on a PPD sale is caused on collection, and this entity has no account for the role it waits in (MNE-001-505, #699). */
   'error.ISSUED_CFDI_PPD_IEPS':
-    'CFDI {uuid} is a PPD sale that transfers IEPS ({ieps}): that IEPS waits for collection, and the books cannot park it until issue {issue} lands. Nothing was posted.',
+    'CFDI {uuid} is a PPD sale that transfers IEPS ({ieps}): that IEPS is caused on collection (LIEPS art. 10) and waits in the role {role} (2181), which has no account on this entity. Add it with: npm run backfill:account-roles -- --aplicar. Nothing was posted.',
   /** `AccountingError('ISSUED_CFDI_NOT_OPEN')`: the pre-registration is completed, rejected or processing. */
   'error.ISSUED_CFDI_NOT_OPEN':
     'CFDI {uuid} is not open: its pre-registration is {status}{invoice, select, none {} other {, as customer invoice {invoice}}}. Nothing was posted.',

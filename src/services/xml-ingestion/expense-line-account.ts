@@ -17,7 +17,7 @@ export const CONTROL_ROLES: readonly AccountRole[] = [
   'iva_trasladado', 'iva_trasladado_no_cobrado', 'iva_acreditable', 'iva_pendiente_acreditar',
   'iva_retenido_por_pagar', 'iva_retenido_a_favor',
   'isr_retenido_por_pagar', 'isr_retenido_a_favor', 'isr_nomina_por_pagar',
-  'ieps_acreditable', 'ieps_por_pagar', 'impuestos_locales_por_pagar',
+  'ieps_acreditable', 'ieps_por_pagar', 'ieps_trasladado_no_cobrado', 'impuestos_locales_por_pagar',
   'sueldos_por_pagar', 'imss_por_pagar',
   'provision_aguinaldo', 'provision_vacaciones', 'provision_prima_vacacional',
   'depreciacion_acumulada',

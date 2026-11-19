@@ -10,6 +10,7 @@ import {
   censusRolesOnParentAccounts,
   repointRolesToLeaves,
 } from '../src/services/accounting/account-roles-backfill.js';
+import type { AccountRole } from '../src/services/xml-ingestion/cfdi-taxonomy.js';
 
 // ============================================================
 // Envoltorio de línea de comandos sobre
@@ -17,12 +18,15 @@ import {
 //
 // Por omisión NO escribe: censa y lo imprime.
 //
-// Three passes, all idempotent: entities with no roles at all get the whole
-// seed; seeded entities get `efectivo`, the role the seed gained after they
-// were seeded; and default roles seeded onto a parent account (`banco` →
-// 1110) move to the leaf the seed now uses (BAN-1, #324). The order matters:
-// `efectivo` has to anchor cash on 1110 before `banco` leaves it, or the
-// cash-flow statement of an entity would shrink to 1111 in between.
+// Four passes, all idempotent: entities with no roles at all get the whole
+// seed; seeded entities get each role the seed gained after they were seeded,
+// `efectivo` (BAN-1, #324) and, on Mexican books, `ieps_trasladado_no_cobrado`
+// with its account 2181, created where the chart lacks it (#699); and default
+// roles seeded onto a parent account (`banco` → 1110) move to the leaf the
+// seed now uses (BAN-1). The order matters: `efectivo` has to anchor cash on
+// 1110 before `banco` leaves it, or the cash-flow statement of an entity would
+// shrink to 1111 in between. A role already mapped, by hand or by the seed, is
+// never moved by the late-role passes.
 //
 //   npx tsx scripts/rellenar-roles-de-cuenta.ts [--tenant <uuid>]
 //   npx tsx scripts/rellenar-roles-de-cuenta.ts [--tenant <uuid>] --aplicar
@@ -39,7 +43,8 @@ async function main(): Promise<void> {
   if (tenantId) enterTenant(tenantId);
 
   await seedMissingRoles(tenantId, aplicar);
-  await addCashRole(tenantId, aplicar);
+  await addLateRole('efectivo', tenantId, aplicar);
+  await addLateRole('ieps_trasladado_no_cobrado', tenantId, aplicar);
   await repointParentRoles(tenantId, aplicar);
 }
 
@@ -70,12 +75,14 @@ async function repointParentRoles(tenantId: string | undefined, apply: boolean):
   if (r.failures.length > 0) process.exitCode = 1;
 }
 
-async function addCashRole(tenantId: string | undefined, apply: boolean): Promise<void> {
-  const census = await censusMissingRole('efectivo', tenantId);
-  console.log(`\nEntidades sembradas sin el rol «efectivo»\n${'─'.repeat(64)}`);
-  for (const m of census.missing) console.log(`  ${m.entityName.padEnd(34)} efectivo → ${m.code}`);
+async function addLateRole(role: AccountRole, tenantId: string | undefined, apply: boolean): Promise<void> {
+  const census = await censusMissingRole(role, tenantId);
+  console.log(`\nEntidades sembradas sin el rol «${role}»\n${'─'.repeat(64)}`);
+  for (const m of census.missing) {
+    console.log(`  ${m.entityName.padEnd(34)} ${role} → ${m.code}${m.create ? ` (se crea ${m.code} ${m.create.name})` : ''}`);
+  }
   for (const u of census.unmappable) {
-    console.log(`  ${u.entityName.padEnd(34)} sin la cuenta ${u.code}: mapéalo con account role set`);
+    console.log(`  ${u.entityName.padEnd(34)} ${u.why ?? `sin la cuenta ${u.code}`}: mapéalo con account role set`);
   }
   if (census.missing.length === 0) {
     console.log('  Ninguna entidad que completar.');
@@ -87,7 +94,7 @@ async function addCashRole(tenantId: string | undefined, apply: boolean): Promis
   }
   const actors = await actoresPorInquilino([...new Set(census.missing.map((m) => m.tenantId))]);
   const r = await addMissingRoles(census.missing, actors);
-  console.log(`${r.added} entidades con el rol «efectivo» añadido`);
+  console.log(`${r.added} entidades con el rol «${role}» añadido`);
   for (const f of r.failures) console.log(`  ✗ ${f}`);
   if (r.failures.length > 0) process.exitCode = 1;
 }

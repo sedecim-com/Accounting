@@ -31,8 +31,10 @@ export type AccountRole =
   // Withholdings: as withholder (liability) or as withheld party (asset in favor)
   | 'isr_retenido_por_pagar' | 'iva_retenido_por_pagar'
   | 'isr_retenido_a_favor' | 'iva_retenido_a_favor'
-  // Other taxes
-  | 'ieps_acreditable' | 'ieps_por_pagar'
+  // Other taxes. Under PPD a sale's IEPS, like its VAT, is caused on collection
+  // (LIEPS art. 10): it waits in `ieps_trasladado_no_cobrado` (2181, grouping
+  // code 209.02) and each collection moves its share to `ieps_por_pagar` (#699).
+  | 'ieps_acreditable' | 'ieps_por_pagar' | 'ieps_trasladado_no_cobrado'
   | 'impuestos_locales_gasto' | 'impuestos_locales_por_pagar'
   // Payroll
   | 'sueldos_gasto' | 'sueldos_por_pagar' | 'isr_nomina_por_pagar' | 'imss_por_pagar'
@@ -235,14 +237,16 @@ export const CASES: CfdiCase[] = [
       { role: 'isr_retenido_a_favor', side: 'debit', amount: A.isrRet, description: 'ISR withheld by the customer', omitIfZero: true },
       { role: 'iva_retenido_a_favor', side: 'debit', amount: A.ivaRet, description: 'VAT withheld by the customer', omitIfZero: true },
       { role: 'ingreso', side: 'credit', amount: A.subtotalNeto, description: 'Sale' },
-      { role: 'ieps_por_pagar', side: 'credit', amount: A.ieps, description: 'IEPS transferred', omitIfZero: true },
+      // The IEPS is caused on collection too (LIEPS art. 10): it waits beside the VAT (#699).
+      { role: 'ieps_trasladado_no_cobrado', side: 'credit', amount: A.ieps, description: 'IEPS transferred not collected (caused on collection)', omitIfZero: true },
       // Symmetric to received PPD: the VAT is triggered on collection.
       { role: 'iva_trasladado_no_cobrado', side: 'credit', amount: A.ivaTrasladado, description: 'Output VAT not collected (triggered with the REP)', omitIfZero: true },
       { role: 'impuestos_locales_por_pagar', side: 'credit', amount: A.localesTras, description: 'Local taxes transferred', omitIfZero: true },
     ],
     notes:
       'The VAT on a PPD sale is triggered at the moment of collection. Booking it straight to ' +
-      'output VAT brings the tax remittance forward.',
+      'output VAT brings the tax remittance forward. Its IEPS likewise (LIEPS art. 10): it waits ' +
+      'in IEPS not collected and each collection moves its share to IEPS payable.',
     priority: 80,
   },
   {

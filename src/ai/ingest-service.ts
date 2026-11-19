@@ -766,6 +766,9 @@ const ISSUED_VAT_STEP = `3. Verify the accounts in the chart of accounts (search
    - PPD (on credit): debit 1120 accounts receivable for the total + credit revenue for the
      subtotal + credit "IVA Trasladado No Cobrado" (2125). The customer's payment receipt (REP)
      later moves it to 2120; the approval refuses a PPD whose VAT is not in 2125.
+   - IEPS transferred (Impuesto 003) is never revenue: a PUE's goes to "IEPS por Pagar" (2180); a
+     PPD's to "IEPS Trasladado No Cobrado" (2181), because it is caused on collection (LIEPS art. 10)
+     and each collection moves its share to 2180. The approval refuses it anywhere else.
    - Withholdings by the customer: debit 1145 (ISR) / 1146 (VAT) and reduce the receivable.
    - No Method declared: treat it as PUE, VAT in "IVA Trasladado" (2120). A stamped CFDI 4.0 always
      declares it, and the approval refuses this VAT in 2125: no collection would release it.`;

@@ -20,7 +20,7 @@ const ROLE_MAP = new Map<string, { code: string; name: string }>(
     ['iva_acreditable', '1130'], ['iva_pendiente_acreditar', '1135'],
     ['isr_retenido_por_pagar', '2150'], ['iva_retenido_por_pagar', '2155'],
     ['isr_retenido_a_favor', '1140'], ['iva_retenido_a_favor', '1145'],
-    ['ieps_acreditable', '1160'], ['ieps_por_pagar', '2160'],
+    ['ieps_acreditable', '1160'], ['ieps_por_pagar', '2160'], ['ieps_trasladado_no_cobrado', '2161'],
     ['impuestos_locales_gasto', '6200'], ['impuestos_locales_por_pagar', '2170'],
     ['sueldos_gasto', '6110'], ['sueldos_por_pagar', '2120'],
     ['isr_nomina_por_pagar', '2125'], ['imss_por_pagar', '2127'],
@@ -288,6 +288,33 @@ describe('taxes: IEPS and exempt vs 0% rate', () => {
     const c = await classify({ ieps: 80, total: 1240 });
     expect(c.facts.iepsTrasladado).toBe(80);
     expect(roleOf(c, 'ieps_acreditable')!.debit).toBe(80);
+  });
+
+  // MNE-001-505 (#699): the CFDI of #669, SubTotal 1,000.00, IEPS 80.00 (8 %), VAT 172.80 (16 % of 1,080.00).
+  const IEPS_SALE = { emisor: ENTITY.entityRfc, receptor: 'CLI010101AAA', ieps: 80, iva: 172.8, total: 1252.8 };
+
+  it('an issued PPD parks its IEPS in the uncollected role and credits ieps_por_pagar nothing', async () => {
+    const c = await classify({ ...IEPS_SALE, metodoPago: 'PPD' });
+    expect(c.case!.id).toBe('ingreso_emitido_ppd');
+    expect(roleOf(c, 'ieps_trasladado_no_cobrado')).toMatchObject({ credit: 80, debit: null });
+    expect(roleOf(c, 'ieps_por_pagar')).toBeUndefined();
+    expect(roleOf(c, 'iva_trasladado_no_cobrado')!.credit).toBe(172.8);
+    expect(totals(c.lines)).toEqual({ debits: 1252.8, credits: 1252.8 });
+  });
+
+  it('an issued PUE credits its IEPS to ieps_por_pagar, as before', async () => {
+    const c = await classify({ ...IEPS_SALE, metodoPago: 'PUE' });
+    expect(roleOf(c, 'ieps_por_pagar')!.credit).toBe(80);
+    expect(roleOf(c, 'ieps_trasladado_no_cobrado')).toBeUndefined();
+  });
+
+  it('an issued PPD on an entity without the role names it as missing; one with no IEPS does not need it', async () => {
+    const without = new Map(ROLE_MAP);
+    without.delete('ieps_trasladado_no_cobrado');
+    expect((await classify({ ...IEPS_SALE, metodoPago: 'PPD' }, { roleMap: without })).missingRoles)
+      .toEqual(['ieps_trasladado_no_cobrado']);
+    const plain = await classify({ emisor: ENTITY.entityRfc, receptor: 'CLI010101AAA', metodoPago: 'PPD' }, { roleMap: without });
+    expect(plain.missingRoles).toEqual([]);
   });
 
   it('warns about EXEMPT items (they generate no creditable VAT)', async () => {
