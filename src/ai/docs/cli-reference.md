@@ -4559,6 +4559,9 @@ Options:
                                stays on account as an advance and causes its IVA
                                on collection (LIVA art. 1-B), at --tax-rate or
                                the invoice's own rate
+  --check-number <number>      number of the customer's cheque (with --method
+                               check); the vouchers file declares it in the
+                               Cheque node
   --payer-bank <code>          c_Banco code (3 digits) of the bank the customer
                                paid from; checked against the SAT list
   --payer-account <number>     account the customer paid from (for a cheque, the

@@ -604,7 +604,8 @@ export function rastroDePago(
     };
   };
 
-  // #611 · In a receipt the origin is the customer's: its bank and its account, as `receipt record` captured them. A foreign
+  // #611 · In a receipt the origin is the customer's: its bank (the issuer of
+  // its cheque) and its account, as `receipt record` captured them. A foreign
   // bank is declared as 999 with its name in `*Ext` (#532), which the builder
   // does not accept yet, so its receipt is named meanwhile.
   const payerBank = (p.banco_origen_sat ?? '').trim() || undefined;
@@ -622,6 +623,44 @@ export function rastroDePago(
           motivo: bankGap(node, attribute, `el banco del cliente de ${what} no está capturado`),
           noCommandFixes: onlyAtRecord('--payer-bank'),
         };
+
+  if (p.payment_method === 'check' && sentido === 'entra') {
+    // A customer's cheque: the customer's bank issued it, drawn on the
+    // customer's account. Our bank account is not part of this node.
+    const num = (p.check_number ?? '').trim();
+    const what = num === '' ? `el cobro ${p.payment_number}` : `el cheque ${num}`;
+    const gap = payeeGap('Cheque', num === '' ? `del cobro ${p.payment_number}` : `del cheque ${num}`);
+    if (gap !== undefined) return gap;
+    if (num === '') {
+      return {
+        motivo:
+          `el cobro ${p.payment_number} se recibió en cheque y no tiene número de cheque capturado; ` +
+          `el nodo Cheque lo exige`,
+        noCommandFixes: onlyAtRecord('--check-number'),
+      };
+    }
+    if (payerBank === undefined) return payerBankGap('Cheque', 'BanEmisNal', what);
+    if (payerAccount === undefined) {
+      return {
+        motivo: bankGap('Cheque', 'CtaOri', `la cuenta contra la que se giró ${what} no está capturada`),
+        noCommandFixes: onlyAtRecord('--payer-account'),
+      };
+    }
+    return {
+      pago: {
+        clase: 'cheque',
+        num,
+        banEmisNal: payerBank,
+        ctaOri: payerAccount,
+        fecha: p.payment_date,
+        benef: emittedBenef(),
+        rfc: rfcBenef,
+        monto,
+        moneda,
+        ...(tipCamb !== undefined ? { tipCamb } : {}),
+      },
+    };
+  }
 
   if (p.payment_method === 'check') {
     const num = (p.check_number ?? '').trim();

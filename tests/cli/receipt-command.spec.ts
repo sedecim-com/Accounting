@@ -534,12 +534,13 @@ describe('receipt cause record (MNE-001-511)', () => {
 
 describe('receipt record captures the payer bank, account and cheque number (#611)', () => {
   const FLAGS = [
+    ['--check-number', 'check_number'],
     ['--payer-bank', 'payer_bank'],
     ['--payer-account', 'payer_account'],
     ['--payer-foreign-bank', 'payer_foreign_bank'],
   ] as const;
 
-  it('declares the payer options with keyed help, in English and in Spanish', () => {
+  it('declares the four options with keyed help, in English and in Spanish', () => {
     resetDeclarations();
     const program = new Command('mnemosine');
     registerReceiptCommand(program, deps);
@@ -565,6 +566,20 @@ describe('receipt record captures the payer bank, account and cheque number (#61
     });
   });
 
+  it("passes a cheque's number with the bank and account it is drawn on", async () => {
+    vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
+      id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '232.00', customer_id: 'c1',
+    } as never);
+    const { errs, calls } = await record([
+      'INV-1', '--amount', '232.00', '--method', 'check', '--check-number', '4501',
+      '--payer-bank', '072', '--payer-account', '1234567890', '--dry-run',
+    ]);
+    expect(errs).toEqual([]);
+    expect(calls[0][0]).toMatchObject({
+      paymentMethod: 'check', checkNumber: '4501', payerBankCode: '072', payerAccount: '1234567890', payerForeignBank: null,
+    });
+  });
+
   it('without the options the service gets nulls, as before', async () => {
     vi.mocked(invoices.resolveInvoice).mockResolvedValueOnce({
       id: 'id-INV-1', invoice_number: 'INV-1', status: 'sent', amount_due: '100.00', customer_id: 'c1',
@@ -572,7 +587,7 @@ describe('receipt record captures the payer bank, account and cheque number (#61
     const { errs, calls } = await record(['INV-1', '--amount', '100.00', '--dry-run']);
     expect(errs).toEqual([]);
     expect(calls[0][0]).toMatchObject({
-      payerBankCode: null, payerAccount: null, payerForeignBank: null,
+      checkNumber: null, payerBankCode: null, payerAccount: null, payerForeignBank: null,
     });
   });
 });

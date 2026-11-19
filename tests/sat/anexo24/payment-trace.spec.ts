@@ -193,7 +193,7 @@ describe('a payment node without its c_Banco code: the remedy follows the cause'
 // ============================================================
 // #611 · A receipt's payment node: the origin is the customer's (its bank,
 // its account, the cheque it drew), the destination is our bank account.
-// Hand figures from the plan: T1, T2, F1 and the transfer gaps.
+// Hand figures from the plan: T1, T2, C1, F1 and G1-G7.
 // ============================================================
 
 const PAYER_ACCOUNT = '002180009876543210';
@@ -210,11 +210,16 @@ const receipt = (over: Partial<Payment> = {}): Payment =>
     contraparte_rfc: 'CPU010101AB1',
     ...over,
   });
+const customerCheckPayment = (over: Partial<Payment> = {}): Payment =>
+  receipt({ payment_method: 'check', check_number: '4501', banco_origen_sat: '072', cuenta_origen: '1234567890', payment_amount: '232.0000', bank_account_id: null, ...over });
 
-/** The receipt causes of the plan (G1, G2, G6, G7): the case, the receipt, our bank account, and the remedy the reader must find. */
+/** The receipt causes the plan names G1-G7: the case, the receipt, our bank account, and the remedy the reader must find. */
 const RECEIPT_GAPS: ReadonlyArray<readonly [string, Payment, BankAccount | undefined, string, string]> = [
   ['G1 a transfer with no payer bank', receipt({ banco_origen_sat: null }), account(), 'Transferencia exige BancoOriNal', 'receipt record --payer-bank'],
   ['G2 a transfer from a foreign payer bank', receipt({ banco_origen_sat: null, banco_origen_extranjero: 'Bank of Nowhere' }), account(), 'Transferencia exige BancoOriNal', 'banco extranjero'],
+  ['G3 a cheque with no number', customerCheckPayment({ check_number: null }), undefined, 'el nodo Cheque lo exige', 'receipt record --check-number'],
+  ['G4 a cheque with no payer bank', customerCheckPayment({ banco_origen_sat: null }), undefined, 'Cheque exige BanEmisNal', 'receipt record --payer-bank'],
+  ['G5 a cheque with no drawn-on account', customerCheckPayment({ cuenta_origen: null }), undefined, 'Cheque exige CtaOri', 'receipt record --payer-account'],
   ['G6 a transfer into an account with no c_Banco code', receipt(), account({ sat_bank_code: null }), 'Transferencia exige BancoDestNal', '--sat-bank-code <clave>'],
   ['G7 a transfer into an account with no number', receipt(), account({ clabe_encrypted: null }), 'Transferencia exige CtaDest', 'bank account edit <cuenta> --clabe'],
 ];
@@ -240,6 +245,16 @@ describe('a receipt declares the payer as the origin and our bank account as the
     const r = rastroDePago(receipt({ cuenta_origen: null }), 'entra', account(), OURS, passThrough, ENTRY);
     expect(r.pago).toMatchObject({ clase: 'transferencia', bancoOriNal: '002', ctaDest: CLABE, bancoDestNal: '012' });
     expect(r.pago).not.toHaveProperty('ctaOri');
+  });
+
+  it('C1: a customer cheque declares the customer bank and account, never ours, and needs no bank account of ours', () => {
+    const r = rastroDePago(customerCheckPayment(), 'entra', undefined, OURS, passThrough, ENTRY);
+    expect(r.pago).toMatchObject({
+      clase: 'cheque', num: '4501', banEmisNal: '072', ctaOri: '1234567890', benef: OURS.nombre, monto: '232.00',
+    });
+    const deposited = rastroDePago(customerCheckPayment(), 'entra', account(), OURS, passThrough, ENTRY);
+    expect(deposited.pago).toMatchObject({ banEmisNal: '072', ctaOri: '1234567890' });
+    expect(JSON.stringify(deposited.pago)).not.toContain(CLABE);
   });
 
   it('F1: a receipt in dollars carries its currency and rate', () => {

@@ -339,6 +339,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   optionByKey(record, '--tax-rate <rate>', 'help.receipt.record.option.tax_rate');
   optionByKey(record, '--on-account', 'help.receipt.record.option.on_account');
   // #611 · the payer's side of the Anexo 24 payment node, captured with the receipt.
+  optionByKey(record, '--check-number <number>', 'help.receipt.record.option.check_number');
   optionByKey(record, '--payer-bank <code>', 'help.receipt.record.option.payer_bank');
   optionByKey(record, '--payer-account <number>', 'help.receipt.record.option.payer_account');
   optionByKey(record, '--payer-foreign-bank <name>', 'help.receipt.record.option.payer_foreign_bank');
@@ -363,7 +364,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       opts: CommonOpts & {
         amount: string; date?: string; method: string; bank?: string;
         reference?: string; onAccount?: boolean; customer?: string; taxRate?: string;
-        payerBank?: string; payerAccount?: string; payerForeignBank?: string;
+        checkNumber?: string; payerBank?: string; payerAccount?: string; payerForeignBank?: string;
       }
     ) =>
       run(async () => {
@@ -486,6 +487,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           paymentMethod: opts.method,
           bankAccountId: bank?.id ?? null,
           referenceNumber: opts.reference ?? null,
+          checkNumber: opts.checkNumber ?? null,
           payerAccount: opts.payerAccount ?? null,
           payerBankCode: opts.payerBank ?? null,
           payerForeignBank: opts.payerForeignBank ?? null,

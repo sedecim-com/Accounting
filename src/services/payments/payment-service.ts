@@ -253,6 +253,14 @@ function assertPayerTrace(input: EntradaPago, side: 'cliente' | 'proveedor'): vo
   const bank = (input.payerBankCode ?? '').trim();
   const foreign = (input.payerForeignBank ?? '').trim();
   const account = (input.payerAccount ?? '').trim();
+  // Cheque/@Num allows 20 characters: a longer one would make the whole
+  // vouchers file fail the XSD, so the receipt that brings it is refused.
+  if (side === 'cliente' && (input.checkNumber ?? '').trim().length > 20) {
+    throw new ValidationError(
+      `El número de cheque «${(input.checkNumber ?? '').trim()}» pasa de los 20 caracteres que admite el ` +
+        'nodo Cheque de la póliza del Anexo 24.'
+    );
+  }
   if (bank === '' && foreign === '' && account === '') return;
   if (side === 'proveedor') {
     throw new ValidationError(

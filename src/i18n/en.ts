@@ -3135,6 +3135,8 @@ export const EN = {
   'help.receipt.record.option.on_account':
     'let the amount exceed the invoice due: the excess stays on account as an advance and causes its IVA on collection (LIVA art. 1-B), at --tax-rate or the invoice\'s own rate',
   // #611: the payer's side of the Anexo 24 payment node.
+  'help.receipt.record.option.check_number':
+    'number of the customer\'s cheque (with --method check); the vouchers file declares it in the Cheque node',
   'help.receipt.record.option.payer_bank':
     'c_Banco code (3 digits) of the bank the customer paid from; checked against the SAT list',
   'help.receipt.record.option.payer_account':

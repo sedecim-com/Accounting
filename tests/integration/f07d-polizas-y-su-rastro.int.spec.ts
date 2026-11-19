@@ -944,7 +944,8 @@ describe('a payment node the XSD would reject is left out and its entry is named
 
 describe('a receipt declares the payer bank and account, and our account as the destination (#611)', () => {
   // A month of its own (8, 9 and 10 are taken). Hand figures from the plan:
-  // T1 SPEI 116.00 from 002 into ours (012 and its CLABE).
+  // T1 SPEI 116.00 from 002 into ours (012 and its CLABE); C1 a cheque 4501
+  // for 232.00 drawn on 072, account 1234567890, deposited with no `--bank`.
   const RECEIPT_MONTH = 11;
   const PAYER_ACCOUNT = '002180009876543210';
   type Payer = Pick<
@@ -971,26 +972,34 @@ describe('a receipt declares the payer bank and account, and our account as the 
   }
 
   let t1: { id: string; entry: string | undefined };
+  let c1: { id: string; entry: string | undefined };
 
   beforeAll(async () => {
-    // The codes this block declares, whatever the earlier blocks left seeded.
+    // The catalogue the earlier blocks leave holds 012 and 002; 072 joins it so
+    // the cheque is judged on its trace, not on a catalogue seeded for others.
     await query(
       `INSERT INTO sat_bancos (clave, nombre_corto, vigente)
-       VALUES ('002','Banamex',true), ('012','BBVA',true)
+       VALUES ('002','Banamex',true), ('012','BBVA',true), ('072','Banorte',true)
        ON CONFLICT (clave) DO NOTHING`
     );
     t1 = await receipt('100.00', {
       paymentMethod: 'spei', bankAccountId: bancoId, payerBankCode: '002', payerAccount: PAYER_ACCOUNT,
     });
+    c1 = await receipt('200.00', {
+      paymentMethod: 'check', checkNumber: '4501', payerBankCode: '072', payerAccount: '1234567890',
+    });
   });
 
   it('stores the payer bank and account on the receipt', async () => {
     const r = await query<Record<string, string | null>>(
-      `SELECT banco_origen_sat, cuenta_origen, banco_origen_extranjero
-         FROM customer_payments WHERE id = $1 AND entity_id = $2`,
-      [t1.id, f.entityId]
+      `SELECT check_number, banco_origen_sat, cuenta_origen, banco_origen_extranjero
+         FROM customer_payments WHERE id = ANY($1::uuid[]) AND entity_id = $2 ORDER BY check_number NULLS FIRST`,
+      [[t1.id, c1.id], f.entityId]
     );
-    expect(r.rows).toEqual([{ banco_origen_sat: '002', cuenta_origen: PAYER_ACCOUNT, banco_origen_extranjero: null }]);
+    expect(r.rows).toEqual([
+      { check_number: null, banco_origen_sat: '002', cuenta_origen: PAYER_ACCOUNT, banco_origen_extranjero: null },
+      { check_number: '4501', banco_origen_sat: '072', cuenta_origen: '1234567890', banco_origen_extranjero: null },
+    ]);
   });
 
   it.each([
@@ -1000,6 +1009,7 @@ describe('a receipt declares the payer bank and account, and our account as the 
     ['999 with a foreign name', { paymentMethod: 'spei', payerBankCode: '999', payerForeignBank: 'Bank of Nowhere' }, /nacional.*extranjero/],
     ['a payer account with no payer bank', { paymentMethod: 'spei', payerAccount: PAYER_ACCOUNT }, /cuenta del cliente.*banco/],
     ['a payer bank on a cash receipt', { paymentMethod: 'cash', payerBankCode: '002' }, /«cash»/],
+    ['a cheque number longer than the node allows', { paymentMethod: 'check', checkNumber: '1'.repeat(21) }, /20 caracteres/],
   ] as const)('refuses %s before anything is written', async (_case, payer, message) => {
     const before = await receiptRows();
     const issued = await issuedInvoice(RECEIPT_MONTH, '10.00');
@@ -1045,7 +1055,7 @@ describe('a receipt declares the payer bank and account, and our account as the 
     ).rejects.toMatchObject({ code: '23514', constraint: 'banco_origen_nacional_o_extranjero_cobro' });
   });
 
-  it('the month leaves the receipt with its node, validates, and does not name it', async () => {
+  it('the month leaves both receipts with their node, validates, and names neither', async () => {
     const r = await generarPolizas(f.entityId, { periodo: `2026-${RECEIPT_MONTH}`, solicitud: SOLICITUD });
     expect(validateAgainstOfficialXsd(r.xml, 'journal')).toEqual({ valid: true, errors: [] });
     const voucher = (entry: string | undefined): string =>
@@ -1055,11 +1065,15 @@ describe('a receipt declares the payer bank and account, and our account as the 
       `<PLZ:Transferencia CtaOri="${PAYER_ACCOUNT}" BancoOriNal="002" CtaDest="${CLABE}" BancoDestNal="012" `
     );
     expect(voucher(t1.entry)).toContain('Monto="116.00"');
+    expect(voucher(c1.entry)).toContain('<PLZ:Cheque Num="4501" BanEmisNal="072" CtaOri="1234567890" ');
+    expect(voucher(c1.entry)).toContain('Monto="232.00"');
+    expect(voucher(c1.entry)).not.toContain('BanEmisNal="012"');
+    expect(voucher(c1.entry)).not.toContain(CLABE);
 
-    // The receipt is not named. The file's shared bank account posts to 1120,
+    // Neither receipt is named. The file's shared bank account posts to 1120,
     // so this fixture's invoices read as bank moves with no payment: those
     // are the only blocking findings left, and none is a receipt's.
-    expect(r.hallazgos.filter((h) => h.referencia === t1.entry)).toEqual([]);
+    expect(r.hallazgos.filter((h) => h.referencia === t1.entry || h.referencia === c1.entry)).toEqual([]);
     const blocking = r.hallazgos.filter((h) => h.severity === 'blocking');
     expect(blocking.every((h) => h.detalle.includes('(source_type invoice)')), JSON.stringify(blocking)).toBe(true);
   });

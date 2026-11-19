@@ -2970,6 +2970,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.receipt.record.option.on_account':
     'permite que el importe exceda el saldo de la factura: el excedente queda a cuenta como anticipo y causa su IVA al cobro (LIVA art. 1-B), a la tasa de --tax-rate o a la de la propia factura',
   // #611: the payer's side of the Anexo 24 payment node.
+  'help.receipt.record.option.check_number':
+    'número del cheque del cliente (con --method check); el XML de pólizas lo declara en el nodo Cheque',
   'help.receipt.record.option.payer_bank':
     'clave c_Banco (3 dígitos) del banco del que pagó el cliente; se valida contra la lista del SAT',
   'help.receipt.record.option.payer_account':
