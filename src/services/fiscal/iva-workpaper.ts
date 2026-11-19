@@ -58,9 +58,11 @@ import {
 // application and unapplication entries.
 //
 // NOTE: an advance by cheque causes its IVA the day the bank cashes it (LIVA
-// art. 1-B, second paragraph; #623 comment 6961035083). Until MNE-001-558 one
-// is refused when recorded; counting it in the month of its cashing is
-// MNE-001-507's (#700, task 5).
+// art. 1-B, second paragraph; #623 comment 6961035083). MNE-001-558 records
+// one, its receipt holding it whole in 2150 until the cashing posts its IVA;
+// counting it in the month of its cashing is MNE-001-507's (#700, task 5),
+// and until then this paper counts it in its receipt's month. Reversed, it
+// counts in no month, as any reversed receipt.
 //   · creditable — IVA acreditable PAID: the DIOT's facts (`hechosDelMes`), the
 //                  one definition of "IVA paid" in this project. A third query
 //                  for it would be the fourth definition.

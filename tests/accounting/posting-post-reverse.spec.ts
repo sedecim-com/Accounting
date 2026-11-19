@@ -240,8 +240,10 @@ describe('reverseJournalEntry · NIF B-1', () => {
     expect(espejo).toHaveLength(2);
     // Original línea 1: DR 1712.34, foreign_debit 100. Espejo: CR 1712.34
     // y el extranjero cruzado a foreign_credit, misma moneda, misma tasa.
-    expect(espejo[0].params.slice(9)).toEqual(['USD', null, '100.00', '17.1234']);
-    expect(espejo[1].params.slice(9)).toEqual(['USD', '100.00', null, '17.1234']);
+    expect(espejo[0].params.slice(9, 13)).toEqual(['USD', null, '100.00', '17.1234']);
+    expect(espejo[1].params.slice(9, 13)).toEqual(['USD', '100.00', null, '17.1234']);
+    // #699: the mirror copies no tags, so an IEPS move it undoes stops counting with its original.
+    expect(espejo.map((l) => l.params[13])).toEqual([null, null]);
   });
 
   it('enlaza el original con su espejo en la misma transacción', async () => {

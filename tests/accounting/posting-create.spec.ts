@@ -271,10 +271,10 @@ describe('createJournalEntry · R4: el origen en moneda extranjera', () => {
     expect(cf.coincidencias(/SELECT functional_currency FROM legal_entities/)).toHaveLength(1);
     const insertos = cf.coincidencias(/INSERT INTO journal_entry_lines/);
     expect(insertos).toHaveLength(2);
-    // Posiciones 10-13 del INSERT de 13 columnas: moneda, foreign_debit,
-    // foreign_credit, tasa. El origen entra al mayor TAL CUAL se declaró.
-    expect(insertos[0].params.slice(9)).toEqual(['USD', '100.00', null, '17.1234']);
-    expect(insertos[1].params.slice(9)).toEqual(['USD', null, '100.00', '17.1234']);
+    // Positions 10-13 of the INSERT: currency, foreign_debit, foreign_credit,
+    // rate (14 is the line's tags, #699). The origin reaches the ledger as declared.
+    expect(insertos[0].params.slice(9, 13)).toEqual(['USD', '100.00', null, '17.1234']);
+    expect(insertos[1].params.slice(9, 13)).toEqual(['USD', null, '100.00', '17.1234']);
   });
 
   it('el funcional que no casa se rechaza con LOS TRES NÚMEROS y no llega al INSERT', async () => {

@@ -63,7 +63,7 @@ describe('a received lodging CFDI through the inbox', () => {
     expect(lines).toEqual([
       { code: '6100', debit: '1000.0000', credit: null, local: false },
       { code: '6100', debit: '30.0000', credit: null, local: true },
-      { code: '1130', debit: '160.0000', credit: null, local: false },
+      { code: '1135', debit: '160.0000', credit: null, local: false },
       { code: '2110', debit: null, credit: '1190.0000', local: false },
     ]);
   }, 90_000);
