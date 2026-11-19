@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
 import { boundedString, integerNumber, recordOf, urlString } from '../../utils/zod-compat.js';
+import { REASONING_EFFORT_LEVELS } from './types.js';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
 import { languageOfLocale, resolveLocale, type Locale } from '../../i18n/locale.js';
 import { parseForClient } from '../../utils/zod-client-errors.js';
@@ -530,6 +531,8 @@ const profileSchema = z
      */
     stream_usage: z.boolean().optional(),
     max_tokens_param: z.enum(['max_tokens', 'max_completion_tokens']).optional(),
+    /** Sent only when declared (MNE-001-442); the openai SDK's own enum. */
+    reasoning_effort: z.enum(REASONING_EFFORT_LEVELS).optional(),
     tools: z.boolean().optional(),
     headers: recordOf(z.string()).optional(),
     max_iterations: integerNumber().min(1).max(100).optional(),
@@ -598,8 +601,9 @@ const compactionSchema = z
 
 // CONTRACT: what a mnemosine.config.json may hold, and the prose that refuses
 // it, pinned by tests/ai/providers/config-contract.spec.ts (#367). The optional
-// `models` map (MNE-001-441, #644) is a compatible addition: a file without it
-// loads as before, and a reverted build refuses a file that carries it. Two
+// `models` map (MNE-001-441, #644) and a profile's optional `reasoning_effort`
+// (MNE-001-442) are compatible additions: a file without them loads as before,
+// and a reverted build refuses a file that carries them. Two
 // tightenings of the Zod 4 migration reach it, declared in catalog-info.yaml
 // under provides.cli, each row of that spec with a zod 3 and a zod 4 answer:
 //   T1  JSON 1e999 (Infinity), which zod 3 loaded as a number, is refused as

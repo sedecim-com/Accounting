@@ -82,6 +82,7 @@ Y los campos de un perfil:
 | `api_key_env` | **Nombre** de la variable de entorno con la credencial. |
 | `api_key_cmd` | Comando que **imprime** la credencial. |
 | `max_tokens_param` | `max_tokens` o `max_completion_tokens`, según lo que acepte el endpoint. |
+| `reasoning_effort` | Cuánto razona el modelo antes de responder: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` o `max` (los valores del SDK de `openai`; cuáles acepta cada modelo lo decide el proveedor). Sólo se envía si el perfil lo declara, en cada turno, en los resúmenes de compactación y en la sonda de `init`. Si un turno gasta todo el tope de 8 192 tokens de salida sin escribir nada, el error lo dice y sugiere bajarlo. |
 | `stream_usage` | `false` para no mandar `stream_options` a servidores viejos que responden 400 ante el campo desconocido. |
 | `stream` | Si la respuesta se transmite en flujo. |
 | `headers` | Cabeceras extra, para proxies. |
