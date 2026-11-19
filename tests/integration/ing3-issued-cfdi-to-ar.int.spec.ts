@@ -15,6 +15,7 @@ import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-se
 import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import { registerIssuedInvoice } from '../../src/services/xml-ingestion/issued-invoice-approval.js';
 import { recordCustomerPayment } from '../../src/services/payments/payment-service.js';
+import { actoresPorInquilino, addMissingRoles, censusMissingRole } from '../../src/services/accounting/account-roles-backfill.js';
 import { buildIvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { repXml } from './helpers/rep-xml.js';
 import { reprocesarREPsAparcados } from '../../src/services/xml-ingestion/rep-pendientes.js';
@@ -616,19 +617,38 @@ describe('an issued REP settles the live invoice that carries its UUID, never an
 });
 
 // MNE-001-521 (#669): IEPS (2180) and local taxes (2190) are roles of the
-// receivables core, each checked against the CFDI, and no longer revenue. IEPS
-// on a PPD sale is refused until #699 gives it a role to wait in. Figures by
-// hand. ISH sale: 1,000.00 + VAT 160.00 + ISH 30.00 = 1,190.00. IEPS sale:
-// 1,000.00 + IEPS 80.00 + VAT 172.80 (16 % of 1,080.00) = 1,252.80; with the
-// local tax of 30.00 as well, 1,282.80.
+// receivables core, each checked against the CFDI, and no longer revenue.
+// MNE-001-505 (#699): a PPD sale's IEPS is caused on collection (LIEPS art.
+// 10), so it parks in 2181, the seeded `ieps_trasladado_no_cobrado`, and each
+// collection moves its share to 2180. Figures by hand. ISH sale: 1,000.00 +
+// VAT 160.00 + ISH 30.00 = 1,190.00. IEPS sale: 1,000.00 + IEPS 80.00 + VAT
+// 172.80 (16 % of 1,080.00) = 1,252.80; with the local tax of 30.00 as well,
+// 1,282.80.
 describe('an issued CFDI with IEPS or a local tax reaches receivables, each tax on its own role', () => {
   const who = { ownRfc: OWN_RFC, customerRfc: CUSTOMER_RFC };
   const dr = (account_code: string, debit: number): DraftLine => ({ account_code, debit });
   const cr = (account_code: string, credit: number): DraftLine => ({ account_code, credit });
   const ishSale = (vat: string) => [dr('1120', 1190), cr('4100', 1000), cr(vat, 160), cr('2190', 30)];
-  const iepsSale = (vat: string) => [dr('1120', 1252.8), cr('4100', 1000), cr('2180', 80), cr(vat, 172.8)];
-  const bothSale = (vat: string) => [dr('1120', 1282.8), cr('4100', 1000), cr('2180', 80), cr(vat, 172.8), cr('2190', 30)];
-  const IEPS_ON_PPD = /PPD sale.*IEPS \(80\.00\).*#699/;
+  // The IEPS goes where the VAT does: 2180 beside 2120 (PUE), 2181 beside 2125 (PPD).
+  const iepsOf = (vat: string) => (vat === '2125' ? '2181' : '2180');
+  const iepsSale = (vat: string, ieps = iepsOf(vat)) => [dr('1120', 1252.8), cr('4100', 1000), cr(ieps, 80), cr(vat, 172.8)];
+  const bothSale = (vat: string) => [dr('1120', 1282.8), cr('4100', 1000), cr(iepsOf(vat), 80), cr(vat, 172.8), cr('2190', 30)];
+  const IEPS_WITHOUT_ROLE = /PPD sale.*IEPS \(80\.00\).*ieps_trasladado_no_cobrado \(2181\).*npm run backfill:account-roles -- --aplicar/;
+
+  /** The posted credit balance of each code, at 4 dp. */
+  async function credits(...codes: string[]): Promise<Record<string, string>> {
+    const r = await query<{ code: string; b: string }>(
+      `SELECT a.code, COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::numeric(18,4)::text AS b
+         FROM accounts a
+         LEFT JOIN journal_entry_lines l ON l.account_id = a.id
+          AND l.journal_entry_id IN (SELECT id FROM journal_entries WHERE entity_id = $1 AND status = 'posted')
+        WHERE a.entity_id = $1 AND a.code = ANY($2::text[]) GROUP BY a.code`,
+      [f.entityId, codes]
+    );
+    return Object.fromEntries(codes.map((c) => [c, r.rows.find((x) => x.code === c)?.b ?? 'missing']));
+  }
+  const minus = (after: Record<string, string>, before: Record<string, string>) =>
+    Object.fromEntries(Object.keys(after).map((k) => [k, (Number(after[k]) - Number(before[k])).toFixed(4)]));
 
   beforeAll(() => useNewTenant('MNE-001-521 issued CFDI with IEPS or a local tax'));
 
@@ -715,9 +735,86 @@ describe('an issued CFDI with IEPS or a local tax reaches receivables, each tax 
     });
   });
 
-  it('T4 · IEPS on a PPD sale is refused, naming the IEPS and #699; nothing is written', async () => {
-    const refusal = await refused(issuedIepsSale({ ...who, method: 'PPD' }), iepsSale('2125'));
-    expect(refusal.message).toMatch(IEPS_ON_PPD);
+  it('T4 · IEPS on a PPD sale parks in 2181: born sent with 1,252.80 due and tax_amount 172.80; two receipts of 626.40 move 86.40 and 40.00 each', async () => {
+    const { xml, uuid } = issuedIepsSale({ ...who, method: 'PPD' });
+    await approve(await ingest(xml, iepsSale('2125')));
+    const inv = await born(uuid);
+    expect(inv).toMatchObject({
+      status: 'sent', amount_due: '1252.8000', tax_amount: '172.8000', lines: ['4100 1000.0000'],
+      entry: ['DR 1120 1252.80', 'CR 4100 1000.00', 'CR 2181 80.00', 'CR 2125 172.80'],
+    });
+
+    const before = await credits('2120', '2125', '2180', '2181');
+    const customer = (await query<{ customer_id: string }>(`SELECT customer_id FROM invoices WHERE id = $1`, [inv.id])).rows[0].customer_id;
+    const collect = () => recordCustomerPayment({
+      entityId: f.entityId, counterpartyId: customer, paymentAmount: '626.40', paymentDate: '2026-08-25',
+      paymentMethod: 'spei', applications: [{ documentId: inv.id, amountApplied: '626.40' }],
+    }, f.userId);
+    await collect();
+    expect(minus(await credits('2120', '2125', '2180', '2181'), before))
+      .toEqual({ '2120': '86.4000', '2125': '-86.4000', '2180': '40.0000', '2181': '-40.0000' });
+    await collect();
+    expect(minus(await credits('2120', '2125', '2180', '2181'), before))
+      .toEqual({ '2120': '172.8000', '2125': '-172.8000', '2180': '80.0000', '2181': '-80.0000' });
+    expect(await born(uuid)).toMatchObject({ status: 'paid', amount_due: '0.0000' });
+  });
+
+  it('T4b · its issued REP of 1,252.80 settles it and moves the whole 80.00 from 2181 to 2180', async () => {
+    const { xml, uuid } = issuedIepsSale({ ...who, method: 'PPD' });
+    await approve(await ingest(xml, iepsSale('2125')));
+    const before = await credits('2120', '2125', '2180', '2181');
+    const svc = new PreRegistrationService();
+    const rep = await svc.processXMLUpload(
+      f.entityId,
+      repXml({ cfdiUuid: uuid, total: '1252.80', iva: 172.8 }, uuidv4().toUpperCase(), {
+        issuerRfc: OWN_RFC, issuerName: 'Demo Corp MX', receiverRfc: CUSTOMER_RFC, date: new Date(Date.UTC(2026, 7, 25)),
+      }),
+      'manual_upload', f.userId
+    );
+    expect((await svc.processToAccounting(rep.preRegistration, f.userId)).paymentId).toBeTruthy();
+    expect(await born(uuid)).toMatchObject({ status: 'paid', amount_due: '0.0000' });
+    expect(minus(await credits('2120', '2125', '2180', '2181'), before))
+      .toEqual({ '2120': '172.8000', '2125': '-172.8000', '2180': '80.0000', '2181': '-80.0000' });
+  });
+
+  it('T4c · a PPD whose 80.00 sits on 2180 or in revenue fails CFDI_RECONCILIATION_FAILED on the IEPS figure; a PUE on 2181 too', async () => {
+    const onDue = await refused(issuedIepsSale({ ...who, method: 'PPD' }), iepsSale('2125', '2180'));
+    expect(onDue).toMatchObject({ code: 'CFDI_RECONCILIATION_FAILED' });
+    expect(onDue.message).toMatch(/transferred IEPS \(ieps_trasladado_no_cobrado\) is 0\.00 in the entry and 80\.00 in the CFDI/);
+
+    const inRevenue = await refused(issuedIepsSale({ ...who, method: 'PPD' }), [dr('1120', 1252.8), cr('4100', 1080), cr('2125', 172.8)]);
+    expect(inRevenue).toMatchObject({ code: 'CFDI_RECONCILIATION_FAILED' });
+    expect(inRevenue.message).toMatch(/transferred IEPS \(ieps_trasladado_no_cobrado\) is 0\.00 in the entry and 80\.00 in the CFDI/);
+
+    const pueParked = await refused(issuedIepsSale(who), iepsSale('2120', '2181'));
+    expect(pueParked.message).toMatch(/transferred IEPS \(ieps_por_pagar\) is 0\.00 in the entry and 80\.00 in the CFDI/);
+  });
+
+  it('T4d · an entity seeded before the role refuses a PPD with IEPS naming the backfill, and posts it once the backfill ran', async () => {
+    await query(`DELETE FROM account_roles WHERE entity_id = $1 AND role = 'ieps_trasladado_no_cobrado'`, [f.entityId]);
+    const sale = issuedIepsSale({ ...who, method: 'PPD' });
+    const refusal = await refused(sale, iepsSale('2125', '2180'));
+    expect(refusal.message).toMatch(IEPS_WITHOUT_ROLE);
+
+    // Collections post as today in between: a PPD with no IEPS moves its VAT alone.
+    const plain = issued();
+    await approve(await ingest(plain.xml, PPD_SALE));
+    const [inv] = await invoicesOf(plain.uuid);
+    const before = await credits('2120', '2125', '2180');
+    const customer = (await query<{ customer_id: string }>(`SELECT customer_id FROM invoices WHERE id = $1`, [inv.id])).rows[0].customer_id;
+    await recordCustomerPayment({
+      entityId: f.entityId, counterpartyId: customer, paymentAmount: '9280.00', paymentDate: '2026-08-25',
+      paymentMethod: 'spei', applications: [{ documentId: inv.id, amountApplied: '9280.00' }],
+    }, f.userId);
+    expect(minus(await credits('2120', '2125', '2180'), before)).toEqual({ '2120': '1280.0000', '2125': '-1280.0000', '2180': '0.0000' });
+
+    const census = await censusMissingRole('ieps_trasladado_no_cobrado', f.tenantId);
+    expect(census.missing.map((m) => [m.entityId, m.code, m.create])).toEqual([[f.entityId, '2181', undefined]]);
+    expect(await addMissingRoles(census.missing, await actoresPorInquilino([f.tenantId]))).toEqual({ added: 1, failures: [] });
+
+    const again = issuedIepsSale({ ...who, method: 'PPD' });
+    await approve(await ingest(again.xml, iepsSale('2125')));
+    expect((await born(again.uuid)).entry).toEqual(['DR 1120 1252.80', 'CR 4100 1000.00', 'CR 2181 80.00', 'CR 2125 172.80']);
   });
 
   it('T5 · a tax off its role by more than the tolerance, or left in revenue, is refused by figure', async () => {
@@ -733,12 +830,14 @@ describe('an issued CFDI with IEPS or a local tax reaches receivables, each tax 
     expect(ieps.message).toMatch(/transferred IEPS \(ieps_por_pagar\) is 0\.00 in the entry and 80\.00 in the CFDI/);
   });
 
-  it('T6 · IEPS by quota, both taxes on one CFDI, and IEPS with no MetodoPago: PUE posts, PPD is refused', async () => {
+  it('T6 · IEPS by quota, both taxes on one CFDI, and IEPS with no MetodoPago: PUE on 2180, PPD on 2181', async () => {
     const quota = issuedIepsSale({ ...who, quota: true });
     expect(quota.xml).toMatch(/TipoFactor="Cuota"/);
     await approve(await ingest(quota.xml, iepsSale('2120')));
     expect((await born(quota.uuid)).entry).toContain('CR 2180 80.00');
-    expect((await refused(issuedIepsSale({ ...who, quota: true, method: 'PPD' }), iepsSale('2125'))).message).toMatch(IEPS_ON_PPD);
+    const quotaPpd = issuedIepsSale({ ...who, quota: true, method: 'PPD' });
+    await approve(await ingest(quotaPpd.xml, iepsSale('2125')));
+    expect((await born(quotaPpd.uuid)).entry).toContain('CR 2181 80.00');
 
     const both = issuedIepsSale({ ...who, localTax: true });
     await approve(await ingest(both.xml, bothSale('2120')));
@@ -746,7 +845,9 @@ describe('an issued CFDI with IEPS or a local tax reaches receivables, each tax 
       status: 'sent', amount_due: '1282.8000', tax_amount: '172.8000', lines: ['4100 1000.0000'],
       entry: ['DR 1120 1282.80', 'CR 4100 1000.00', 'CR 2180 80.00', 'CR 2120 172.80', 'CR 2190 30.00'],
     });
-    expect((await refused(issuedIepsSale({ ...who, localTax: true, method: 'PPD' }), bothSale('2125'))).message).toMatch(IEPS_ON_PPD);
+    const bothPpd = issuedIepsSale({ ...who, localTax: true, method: 'PPD' });
+    await approve(await ingest(bothPpd.xml, bothSale('2125')));
+    expect((await born(bothPpd.uuid)).entry).toEqual(['DR 1120 1282.80', 'CR 4100 1000.00', 'CR 2181 80.00', 'CR 2125 172.80', 'CR 2190 30.00']);
 
     const noMethod = issuedIepsSale({ ...who, method: null });
     expect(noMethod.xml).not.toMatch(/MetodoPago/);

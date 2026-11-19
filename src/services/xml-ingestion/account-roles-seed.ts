@@ -147,6 +147,18 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     description: 'IEPS trasladado a clientes, pendiente de entero.',
   },
   {
+    // #699 · The IEPS of a PPD sale is caused on collection and on what is
+    // collected (LIEPS art. 10), as its VAT is: it waits here, as the VAT
+    // waits in 2125, and each collection moves its share to 2180. Grouping
+    // code 209.02 «IEPS trasladado no cobrado» (Anexo 24), set by
+    // `account map set` like every seeded account.
+    code: '2181', name: 'IEPS Trasladado No Cobrado', account_type: 'liability',
+    normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
+    description:
+      'IEPS de ventas PPD aún no cobradas. El IEPS se causa al COBRAR (LIEPS art. 10): ' +
+      'llevarlo directo a IEPS por Pagar adelanta el entero del impuesto.',
+  },
+  {
     code: '2190', name: 'Impuestos Locales por Pagar', account_type: 'liability',
     normal_balance: 'credit', fs_category: 'current_liabilities', parent: '2100',
     description: 'ISH y otros impuestos estatales; viven en su propio complemento del CFDI.',
@@ -304,6 +316,7 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   // Other taxes
   ieps_acreditable: '1165',
   ieps_por_pagar: '2180',
+  ieps_trasladado_no_cobrado: '2181',
   impuestos_locales_gasto: '6100',
   impuestos_locales_por_pagar: '2190',
   // Payroll
@@ -368,6 +381,7 @@ const CODIGOS_FISCALES_MX = new Set([
   '2142', // IVA Retenido por Enterar
   '2170', // IMSS por Pagar
   '2180', // IEPS por Pagar
+  '2181', // IEPS Trasladado No Cobrado
   '2190', // Impuestos Locales por Pagar
 ]);
 
@@ -386,6 +400,7 @@ const ROLES_FISCALES_MX: readonly AccountRole[] = [
   'iva_retenido_a_favor',
   'ieps_acreditable',
   'ieps_por_pagar',
+  'ieps_trasladado_no_cobrado',
   'impuestos_locales_gasto',
   'impuestos_locales_por_pagar',
   'isr_nomina_por_pagar',
