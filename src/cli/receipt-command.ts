@@ -42,7 +42,7 @@ import {
   argumentByKey,
   describeCommand,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 import { todayFor } from '../services/policy/today.js';
 import { ADVANCE_TREATMENTS_AS_TYPED, readAdvanceTreatment, type AdvanceSplit } from '../services/payments/customer-advance.js';
@@ -290,7 +290,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        `${question} [y/N] `
+        yesNoPrompt(question)
       );
       if (veredicto.si) return;
       throw abortedByUser(

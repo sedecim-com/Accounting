@@ -57,7 +57,7 @@ import {
   ExitCode,
   type ExitCodeValue,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import {
   LEGACY_COMMA_WARNING,
   LEGACY_LINE_FORMS_RETIRE_IN,
@@ -429,7 +429,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
         process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.

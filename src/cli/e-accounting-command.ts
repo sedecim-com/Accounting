@@ -27,7 +27,7 @@ import { sealArchivedDocument } from '../services/sat/anexo24/seal.js';
 import type { SealableDocument } from '../services/sat/anexo24/original-string.js';
 import { t } from '../i18n/index.js';
 import { describeCommand, describeOption, optionByKey } from './kernel/help.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
 import {
   ExitCode,
@@ -423,7 +423,7 @@ export function registerEAccountingCommand(
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${pregunta} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(pregunta))
       );
       if (veredicto.incomprendida !== undefined) {
         process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);

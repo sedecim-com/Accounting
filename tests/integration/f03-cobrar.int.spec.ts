@@ -30,6 +30,7 @@ import {
 } from '../../src/services/ar/customer-service.js';
 import { entityScope } from '../../src/database/scope.js';
 import { ValidationError } from '../../src/utils/errors.js';
+import { t } from '../../src/i18n/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 
@@ -573,5 +574,48 @@ describe('receipt apply stays within the receipt\'s own customer', () => {
     expect(Number(byCode['1120'].credit)).toBeCloseTo(1160);
     expect((await invoiceRow(invoiceA.id)).status).toBe('paid');
     expect(await invoiceRow(invoiceB.id)).toEqual({ amount_due: '1160.0000', amount_paid: '0.0000', status: 'sent' });
+  });
+});
+
+describe('ar check names the live allocations that cross customers (cross-party-application, MNE-001-530)', () => {
+  const probe = async (entityId: string) =>
+    (await runArChecks(entityId, { checks: ['cross-party-application'] })).results[0];
+
+  it('T3-T5 · warns on a receipt of one customer applied to an invoice of another, in its own entity only', async () => {
+    const customerC = uuidv4();
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, currency_code, created_by)
+       VALUES ($1, $2, 'C-F03-003', 'Cliente Cruce SA', 'MXN', $3)`,
+      [customerC, f.entityId, f.userId]
+    );
+    const invoice = await facturaEmitida('100.00', '16.00'); // 116.00, of customer A (C-F03-001)
+    const r = await recordCustomerPayment(
+      {
+        entityId: f.entityId, counterpartyId: clienteId, paymentAmount: '116.00', paymentDate: fecha(),
+        paymentMethod: 'spei', applications: [{ documentId: invoice.id, amountApplied: '116.00' }],
+      },
+      f.userId
+    );
+    // Since MNE-001-516 the engine refuses to write it, so the row written
+    // before it is injected, as the orphan test does: the receipt becomes C's.
+    await query(`UPDATE customer_payments SET customer_id = $1 WHERE id = $2 AND entity_id = $3`,
+      [customerC, r.paymentId, f.entityId]);
+    const other = await crearInquilino('F03 Cobrar · otra entidad');
+    try {
+      const found = await probe(f.entityId);
+      expect(found).toMatchObject({ level: 'warning', count: 1, detailKey: 'ar.check.cross_party_application.found' });
+      expect(found.detail, 'the English source is the catalog\'s').toBe(t('ar.check.cross_party_application.found', {}, 'en'));
+      expect(found.sample).toEqual([`${r.paymentNumber} (C-F03-003) → ${invoice.invoice_number} (C-F03-001)`]);
+      // T4 · another entity does not see it.
+      expect(await probe(other.entityId)).toMatchObject({ level: 'clean', count: 0, sample: [] });
+    } finally {
+      await query(`UPDATE customer_payments SET customer_id = $1 WHERE id = $2 AND entity_id = $3`,
+        [clienteId, r.paymentId, f.entityId]);
+    }
+    // T5 · restored, the battery is clean again.
+    const clean = await probe(f.entityId);
+    expect(clean).toMatchObject({
+      level: 'clean', count: 0, sample: [], detailKey: 'ar.check.cross_party_application.none',
+    });
   });
 });

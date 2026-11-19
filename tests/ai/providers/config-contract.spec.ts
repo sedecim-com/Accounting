@@ -75,6 +75,13 @@ describe('the loader reports every rejected key verbatim', () => {
       "providers.p.type: Invalid enum value. Expected 'anthropic' | 'openai-compatible', received 'x'",
     ],
     ['a missing provider type', { providers: { p: { model: 'm' } } }, 'providers.p.type: Required'],
+    ['a model id that is not a string', { models: { gemini: 1 } }, 'models.gemini: Expected string, received number'],
+    [
+      'a models name that is no profile',
+      { models: { nadie: 'x' } },
+      'models.nadie: "nadie" is not a profile. Known: anthropic, hermes, hermes-agent, ollama, openai, grok, ' +
+        'minimax, qwen, gemini, openrouter, copilot, openclaw',
+    ],
     // The config format has no '<root>' label: a root issue starts with ': '.
     ['an unknown key at the strict root', { extra: 1 }, ": Unrecognized key(s) in object: 'extra'"],
     [

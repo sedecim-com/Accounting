@@ -31,6 +31,8 @@ import { IdentidadSection } from '../../../src/cli/init/s1-identity.js';
 import { UsuariosSection, ROLES } from '../../../src/cli/init/s2-users.js';
 import { IaSection, categorizeProbeError } from '../../../src/cli/init/s3-ai.js';
 import { buildSections } from '../../../src/cli/init/index.js';
+import { BUILTIN_PROFILES, resolveProfile, ventanaDe } from '../../../src/ai/providers/config.js';
+import type { MnemosineConfig } from '../../../src/ai/providers/config.js';
 import type { SectionContext } from '../../../src/cli/init/section.js';
 import { query, withTransaction, enterTenant, currentTenant } from '../../../src/database/connection.js';
 
@@ -39,6 +41,7 @@ const mockTx = withTransaction as unknown as Mock;
 const mockEnterTenant = enterTenant as unknown as Mock;
 
 let tmp: string;
+let homedir: { mockRestore: () => void };
 const ENV = { ...process.env };
 
 /** Section context that captures output and answers a fixed script. */
@@ -79,8 +82,12 @@ beforeEach(() => {
   delete process.env.MNEMOSINE_TENANT;
   // Hermetic: a section that falls back to ~/.mnemosine/.env must never touch the real home.
   process.env.HOME = tmp;
+  // os.homedir() (the config files' reader and writer) stops following
+  // process.env.HOME once afterEach swaps the object, so it is pinned too.
+  homedir = vi.spyOn(os, 'homedir').mockReturnValue(tmp);
 });
 afterEach(() => {
+  homedir.mockRestore();
   fs.rmSync(tmp, { recursive: true, force: true });
   process.env = { ...ENV };
 });
@@ -472,8 +479,9 @@ describe('S3 · AI provider', () => {
     const s = new IaSection({
       cwd: tmp, probe, listOllamaModels: async () => ['gemma4:26b', 'llama3'],
     });
-    // --provider forces the profile; without it the suggestion would pick a ready built-in
-    const ctx = makeCtx({ flags: { provider: 'ollamita' }, text: ['2'] });
+    // --provider forces the profile; without it the suggestion would pick a ready built-in.
+    // The profile lives in the project file, so init asks before writing there: Yes.
+    const ctx = makeCtx({ flags: { provider: 'ollamita' }, text: ['2'], confirms: [true] });
     await s.configure(ctx);
 
     const written = JSON.parse(fs.readFileSync(path.join(tmp, 'mnemosine.config.json'), 'utf-8'));
@@ -759,7 +767,8 @@ describe('S3 · verify before persisting / verify-repair on re-run', () => {
         ? { chat: true, tools: true, detail: 'ok' }
         : { chat: false, tools: false, detail: 'ECONNREFUSED' }
     );
-    const ctx = makeCtx({ flags: { provider: 'p1' }, confirms: [true], text: ['p2'] });
+    // Yes to «try another», then Yes to writing the project file that defines p2.
+    const ctx = makeCtx({ flags: { provider: 'p1' }, confirms: [true, true], text: ['p2'] });
     await new IaSection({ cwd: tmp, probe, listOllamaModels: async () => [] }).configure(ctx);
 
     expect(probe).toHaveBeenCalledTimes(2);
@@ -821,5 +830,160 @@ describe('S3 · verify before persisting / verify-repair on re-run', () => {
       new IaSection({ cwd: tmp, probe, listOllamaModels: async () => [] }).configure(ctx)
     ).rejects.toThrow(/credential/);
     expect(fs.existsSync(configFile())).toBe(false);
+  });
+});
+
+describe('S3 · init saves the chosen model and key in the person\'s own files (MNE-001-441)', () => {
+  const userConfig = () => path.join(tmp, '.mnemosine', 'config.json');
+  const userEnv = () => path.join(tmp, '.mnemosine', '.env');
+  let cwd: string;
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(tmp, 'cwd-'));
+    delete process.env.MNEMOSINE_PROVIDER;
+  });
+  const projectConfig = () => path.join(cwd, 'mnemosine.config.json');
+  const readJson = (file: string) => JSON.parse(fs.readFileSync(file, 'utf-8')) as MnemosineConfig;
+  const okProbe = () => vi.fn().mockResolvedValue({ chat: true, tools: true, detail: 'ok' });
+
+  for (const name of ['anthropic', 'openai', 'grok', 'gemini', 'ollama']) {
+    it(`${name} --model: probes that model, saves default_provider and models.${name} in the user file`, async () => {
+      const env = BUILTIN_PROFILES[name].api_key_env;
+      if (env) process.env[env] = `clave-falsa-de-prueba-${name}`;
+      const model = `${name}-modelo-de-prueba`;
+      const probe = okProbe();
+      await new IaSection({ cwd, home: tmp, probe, listOllamaModels: async () => [] }).configure(
+        makeCtx({ flags: { provider: name, model } })
+      );
+
+      expect(probe).toHaveBeenCalledWith(name, model);
+      expect(fs.existsSync(projectConfig())).toBe(false);
+      // Only the two keys: the built-in is not copied, so it keeps its window and posture.
+      expect(readJson(userConfig())).toEqual({ default_provider: name, models: { [name]: model } });
+      expect(resolveProfile(undefined, undefined, cwd)).toMatchObject({ name, model });
+      expect(ventanaDe(name, cwd)).toEqual(BUILTIN_PROFILES[name].ventana);
+      expect(resolveProfile(name, 'otro-modelo', cwd).model).toBe('otro-modelo');
+    });
+  }
+
+  it('ollama without --model: probes and saves the installed model picked from the list', async () => {
+    const probe = okProbe();
+    await new IaSection({ cwd, home: tmp, probe, listOllamaModels: async () => ['a:1b', 'b:2b'] }).configure(
+      makeCtx({ flags: { provider: 'ollama' }, text: ['2'] })
+    );
+    expect(probe).toHaveBeenCalledWith('ollama', 'b:2b');
+    expect(readJson(userConfig()).models).toEqual({ ollama: 'b:2b' });
+  });
+
+  it('a model other than the one the window was declared for is reported with the threshold that governs it', async () => {
+    const ctx = makeCtx({ flags: { provider: 'ollama', model: 'otro:7b' } });
+    await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(ctx);
+    const out = ctx.lines.join('\n');
+    expect(out).toContain('32768');
+    expect(out).toContain('llama3.1');
+    expect(out).toContain('compaction.threshold_tokens');
+  });
+
+  it('a profile kept in the user file keeps living there, with and without --model; no project file appears', async () => {
+    fs.mkdirSync(path.dirname(userConfig()), { recursive: true });
+    fs.writeFileSync(userConfig(), JSON.stringify({
+      providers: {
+        mio: { type: 'openai-compatible', model: 'viejo', base_url: 'http://localhost:9/v1', api_key_cmd: 'printf falsa' },
+      },
+    }));
+    const probe = okProbe();
+    await new IaSection({ cwd, home: tmp, probe, listOllamaModels: async () => [] }).configure(
+      makeCtx({ flags: { provider: 'mio' } })
+    );
+    expect(readJson(userConfig())).toMatchObject({ default_provider: 'mio', providers: { mio: { model: 'viejo' } } });
+
+    await new IaSection({ cwd, home: tmp, probe, listOllamaModels: async () => [] }).configure(
+      makeCtx({ flags: { provider: 'mio', model: 'nuevo' } })
+    );
+    const saved = readJson(userConfig());
+    expect(saved.providers?.mio).toEqual({
+      type: 'openai-compatible', model: 'nuevo', base_url: 'http://localhost:9/v1', api_key_cmd: 'printf falsa',
+    });
+    expect(saved.models).toBeUndefined();
+    expect(fs.existsSync(projectConfig())).toBe(false);
+  });
+
+  describe('a project file wins in this folder', () => {
+    beforeEach(() => {
+      process.env.GEMINI_API_KEY = 'clave-falsa-de-prueba';
+      fs.writeFileSync(projectConfig(), JSON.stringify({ default_provider: 'anthropic' }));
+    });
+
+    it('says who reads it and asks; No (the default) writes the user file and says the project file still decides', async () => {
+      const before = fs.readFileSync(projectConfig(), 'utf-8');
+      const ctx = makeCtx({ flags: { provider: 'gemini', model: 'g-prueba' } });
+      await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(ctx);
+
+      const out = ctx.lines.join('\n');
+      expect(out).toContain(`everyone who runs mnemosine in ${cwd} reads ${projectConfig()}`);
+      expect(fs.readFileSync(projectConfig(), 'utf-8')).toBe(before);
+      expect(readJson(userConfig())).toEqual({ default_provider: 'gemini', models: { gemini: 'g-prueba' } });
+      expect(out).toContain(`${projectConfig()} still decides in ${cwd}`);
+    });
+
+    it('--yes keeps No', async () => {
+      const before = fs.readFileSync(projectConfig(), 'utf-8');
+      await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(
+        makeCtx({ flags: { provider: 'gemini', model: 'g-prueba', yes: true } })
+      );
+      expect(fs.readFileSync(projectConfig(), 'utf-8')).toBe(before);
+      expect(readJson(userConfig()).models).toEqual({ gemini: 'g-prueba' });
+    });
+
+    it('Yes writes the project file', async () => {
+      await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(
+        makeCtx({ flags: { provider: 'gemini', model: 'g-prueba' }, confirms: [true] })
+      );
+      expect(readJson(projectConfig())).toEqual({ default_provider: 'gemini', models: { gemini: 'g-prueba' } });
+      expect(fs.existsSync(userConfig())).toBe(false);
+    });
+  });
+
+  it('a profile defined only in the project file is not copied into the user file on No', async () => {
+    fs.writeFileSync(projectConfig(), JSON.stringify({
+      providers: { compartido: { type: 'openai-compatible', model: 'm', base_url: 'http://localhost:9/v1', api_key_cmd: 'printf falsa' } },
+    }));
+    const ctx = makeCtx({ flags: { provider: 'compartido', model: 'n' } });
+    await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(ctx);
+    expect(fs.existsSync(userConfig())).toBe(false);
+    expect(readJson(projectConfig()).providers?.compartido?.model).toBe('m');
+    expect(ctx.lines.join('\n')).toMatch(/only in .*mnemosine\.config\.json.*nothing was saved/i);
+  });
+
+  it('a typed key goes to ~/.mnemosine/.env (600), never ./.env, and an empty definition in ./.env is removed', async () => {
+    fs.writeFileSync(path.join(cwd, '.env'), 'OTRA=1\nGEMINI_API_KEY=\nMAS=2\n', { mode: 0o644 });
+    delete process.env.GEMINI_API_KEY;
+    const ctx = makeCtx({ flags: { provider: 'gemini' }, secrets: ['clave-falsa-tecleada'] });
+    await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(ctx);
+
+    expect(readEnvVar(userEnv(), 'GEMINI_API_KEY')).toBe('clave-falsa-tecleada');
+    expect(fs.statSync(userEnv()).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(path.dirname(userEnv())).mode & 0o777).toBe(0o700);
+    const local = fs.readFileSync(path.join(cwd, '.env'), 'utf-8');
+    expect(local).toBe('OTRA=1\nMAS=2\n');
+    expect(local).not.toContain('clave-falsa-tecleada');
+  });
+
+  it('a non-empty definition in ./.env is left alone, and init says it wins in that folder', async () => {
+    fs.writeFileSync(path.join(cwd, '.env'), 'GEMINI_API_KEY=clave-falsa-de-la-carpeta\n');
+    delete process.env.GEMINI_API_KEY;
+    const ctx = makeCtx({ flags: { provider: 'gemini' }, secrets: ['clave-falsa-tecleada'] });
+    await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(ctx);
+
+    expect(fs.readFileSync(path.join(cwd, '.env'), 'utf-8')).toBe('GEMINI_API_KEY=clave-falsa-de-la-carpeta\n');
+    expect(readEnvVar(userEnv(), 'GEMINI_API_KEY')).toBe('clave-falsa-tecleada');
+    expect(ctx.lines.join('\n')).toContain(`GEMINI_API_KEY in ${path.join(cwd, '.env')} wins in ${cwd}`);
+  });
+
+  it('MNEMOSINE_PROVIDER naming another profile is reported as the one that wins', async () => {
+    process.env.MNEMOSINE_PROVIDER = 'anthropic';
+    process.env.GEMINI_API_KEY = 'clave-falsa-de-prueba';
+    const ctx = makeCtx({ flags: { provider: 'gemini' } });
+    await new IaSection({ cwd, home: tmp, probe: okProbe(), listOllamaModels: async () => [] }).configure(ctx);
+    expect(ctx.lines.join('\n')).toContain('MNEMOSINE_PROVIDER=anthropic wins over the default_provider just saved');
   });
 });
