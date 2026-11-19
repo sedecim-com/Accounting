@@ -1957,7 +1957,8 @@ function exigirMovimientoCompatible(mov: FilaMovimientoDeCobro, pago: FilaPagoCo
 
 type CashingRefusal =
   | 'not_a_cheque' | 'not_completed' | 'already_cashed' | 'credit_used' | 'other_account'
-  | 'currency_differs' | 'amount_differs' | 'credit_before_receipt' | 'period_closed';
+  | 'currency_differs' | 'amount_differs' | 'credit_before_receipt' | 'period_closed'
+  | 'transaction_needed' | 'no_credit' | 'several_credits' | 'as_of_differs';
 
 const refuseCashing = (reason: CashingRefusal, params: MessageParams): ValidationError =>
   new ValidationError({ key: `bank.check.cashing.refused.${reason}`, params });
@@ -2006,7 +2007,10 @@ export interface CustomerCheckCashing {
 
 /**
  * Records that the bank cashed one customer cheque with one credit, and posts
- * the IVA release on the credit's date.
+ * the IVA release on the credit's date. With no credit named, the one of the
+ * receipt's amount from its date in its account is taken; several are listed
+ * and never picked, because two cheques of one amount are common and the wrong
+ * credit dates the IVA in the wrong month.
  *
  * Nothing to release is not a refusal: a cheque applied to PUE invoices, left
  * on account, in another currency than the functional one, or whose receipt
@@ -2015,7 +2019,7 @@ export interface CustomerCheckCashing {
 export async function recordCustomerCheckCashing(
   entityId: string,
   receiptId: string,
-  opts: { transactionId: string; userId: string; dryRun?: boolean }
+  opts: { transactionId?: string; asOf?: string; userId: string; dryRun?: boolean }
 ): Promise<CustomerCheckCashing> {
   return ejecutarActo(async (client, attest) => {
     const tenantId = await tenantDe(client, entityId);
@@ -2049,6 +2053,31 @@ export async function recordCustomerCheckCashing(
       });
     }
 
+    let transactionId = opts.transactionId;
+    if (!transactionId) {
+      if (!receipt.bank_account_id) throw refuseCashing('transaction_needed', named);
+      // No end to the window: a cheque cashed months later is still this cheque.
+      const found = await client.query<{ id: string; date: string }>(
+        `SELECT bt.id, bt.transaction_date::text AS date
+           FROM bank_transactions bt
+           JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+          WHERE ba.entity_id = $1 AND bt.bank_account_id = $2
+            AND bt.transaction_date >= $3::date AND bt.amount = $4::numeric
+            AND NOT EXISTS (SELECT 1 FROM customer_payments held
+                             WHERE held.check_cashed_tx_id = bt.id AND held.entity_id = $1)
+          ORDER BY bt.transaction_date, bt.id
+          LIMIT 6`,
+        [entityId, receipt.bank_account_id, receipt.payment_date, receipt.payment_amount]
+      );
+      const search = { ...named, amount: receipt.payment_amount, date: receipt.payment_date };
+      if (found.rows.length === 0) throw refuseCashing('no_credit', search);
+      if (found.rows.length > 1) {
+        const candidates = found.rows.map((c) => `${c.id} (${c.date})`).join(', ');
+        throw refuseCashing('several_credits', { ...search, candidates });
+      }
+      transactionId = found.rows[0].id;
+    }
+
     // `bank_transactions` has no entity: the boundary is its account's. The
     // lock makes a second receipt wait before it asks who holds the credit.
     const credits = await client.query<BankCreditRow>(
@@ -2058,9 +2087,9 @@ export async function recordCustomerCheckCashing(
          JOIN bank_accounts ba ON ba.id = bt.bank_account_id
         WHERE bt.id = $1 AND ba.entity_id = $2
         FOR UPDATE OF bt`,
-      [opts.transactionId, entityId]
+      [transactionId, entityId]
     );
-    if (credits.rows.length === 0) throw new NotFoundError('Bank Transaction', opts.transactionId);
+    if (credits.rows.length === 0) throw new NotFoundError('Bank Transaction', transactionId);
     const credit = credits.rows[0];
     const about = { ...named, transaction: credit.id };
 
@@ -2088,6 +2117,10 @@ export async function recordCustomerCheckCashing(
       throw refuseCashing('amount_differs', {
         ...about, creditAmount: credit.amount, amount: receipt.payment_amount,
       });
+    }
+    // `--as-of` is contrasted, never imposed: the bank dates the cashing.
+    if (opts.asOf !== undefined && opts.asOf !== credit.date) {
+      throw refuseCashing('as_of_differs', { ...about, date: credit.date, asOf: opts.asOf });
     }
     if (credit.date < receipt.payment_date) {
       throw refuseCashing('credit_before_receipt', {

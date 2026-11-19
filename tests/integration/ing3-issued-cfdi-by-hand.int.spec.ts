@@ -256,6 +256,17 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
       name: 'the account passed beats the stored default',
       edits: [], coding: ['4200'], account: '4300', entry: ['DR 1120 9280.00', 'CR 4300 8000.00', 'CR 2125 1280.00'],
     },
+    // MNE-001-521 (#669): each tax on its own role. 8,000.00 + 1,280.00 + 240.00 = 9,520.00; with IEPS, + 640.00 = 9,920.00.
+    {
+      name: 'PPD with a local tax of 240.00: on 2190 at issuance, VAT parked on 2125',
+      edits: WITH_LOCAL_TAX, due: '9520.0000',
+      entry: ['DR 1120 9520.00', 'CR 4100 8000.00', 'CR 2125 1280.00', 'CR 2190 240.00'],
+    },
+    {
+      name: 'PUE with IEPS of 640.00: on 2180 at issuance, VAT on 2120',
+      edits: [...WITH_IEPS, method('PUE')], due: '9920.0000',
+      entry: ['DR 1120 9920.00', 'CR 4100 8000.00', 'CR 2180 640.00', 'CR 2120 1280.00'],
+    },
   ])('$name', async ({ edits, coding, account, entry, due }) => {
     const { uuid, id } = await stranded(edits);
     if (coding) await code(id, ...coding);
@@ -290,8 +301,8 @@ describe('an issued CFDI coded by hand becomes a customer invoice with its entry
     { name: 'a CFDI in USD', edits: [swap('Moneda="MXN"', 'Moneda="USD" TipoCambio="18.50"')], refusal: /USD.*does not convert/ },
     { name: 'an advance', edits: [swap('Descripcion="Consultoria', 'Descripcion="Anticipo de consultoria')], refusal: /advance/ },
     { name: 'an invoice that applies an advance (TipoRelacion 07)', edits: [related('07', uuidv4())], refusal: /TipoRelacion 07/ },
-    { name: 'IEPS transferred', edits: WITH_IEPS, refusal: /IEPS \(640\.00\)/ },
-    { name: 'a local tax transferred', edits: WITH_LOCAL_TAX, refusal: /local taxes \(240\.00\)/ },
+    // MNE-001-521: the core's refusal, the same at both doors, until #699 gives that IEPS a role to wait in.
+    { name: 'IEPS transferred on a PPD sale', edits: WITH_IEPS, refusal: /PPD sale.*IEPS \(640\.00\).*#699/ },
     { name: 'an expense account passed as the revenue account', account: '6100', refusal: /6100 \(expense.*cannot take the revenue/ },
     { name: 'an expense account coded on a line', coding: ['6100', 1], refusal: /6100 .*line 1.*cannot take the revenue/ },
     { name: 'a liability account with a credit balance', account: '2150', refusal: /2150 \(liability, credit.*cannot take the revenue/ },

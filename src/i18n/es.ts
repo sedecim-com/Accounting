@@ -47,7 +47,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'No hay tipo de cambio {from}→{to} de la fuente {source} para {date}. Captúralo con: mnemosine fx rate set {from}/{to} {date} TASA --source {source}, o descárgalo con: mnemosine fx rate download. No se toma otra fuente ni otra fecha en silencio: la fuente la eligió el panel de políticas, y es un criterio del despacho.',
   // ---- MNE-001-417 · la puerta a mano de un CFDI emitido; see en.ts ----
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} ieps {traslada IEPS ({detail}), que este camino todavía no contabiliza} local_tax {traslada impuestos locales ({detail}), que este camino todavía no contabiliza} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+    'El CFDI {uuid} no se contabiliza en CxC a mano: {reason, select, received {la entidad lo recibió; contabilízalo con: mnemosine bill inbox run {detail}} document_type {es un {detail}, no una factura de venta} currency {está en {detail}, y este camino no convierte monedas} advance {es un anticipo de cliente, un pasivo y no una venta} applies_advance {aplica un anticipo (TipoRelacion 07)} other {su caso es {detail}, no una venta PUE o PPD}}. No se posteó nada.',
+  'error.ISSUED_CFDI_PPD_IEPS':
+    'El CFDI {uuid} es una venta PPD que traslada IEPS ({ieps}): ese IEPS espera al cobro, y la contabilidad no puede aparcarlo hasta que entre la issue {issue}. No se posteó nada.',
   'error.ISSUED_CFDI_NOT_OPEN':
     'El CFDI {uuid} no está abierto: su pre-registro está en {status}{invoice, select, none {} other {, como la factura de cliente {invoice}}}. No se posteó nada.',
   'error.ISSUED_CFDI_DRAFT_IN_REVIEW':
@@ -906,6 +908,23 @@ export const ES: Record<keyof typeof EN, string> = {
     'Detener la carga hasta que cada documento de proveedor diga su tasa de IVA',
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Cargarlos al 0 % y avisar: no se acredita IVA cuando se paguen',
+
+  'policy.received_line_without_account.question':
+    'Cuando un renglón de un CFDI de proveedor llega a contabilizarse sin cuenta de gasto, ¿qué hago con él?',
+  'policy.received_line_without_account.impact':
+    'Un renglón recibido se contabiliza en su propia cuenta, luego en la que se dio para todo el documento, luego en una sugerencia que no sea cuenta de control. Esto gobierna el renglón que no tiene ninguna de las tres cuando el CFDI se contabiliza desde la bandeja (`bill inbox run`). Con «refuse» no se contabiliza nada: el CFDI se queda en la bandeja y dice qué renglón no tiene cuenta, hasta que alguien lo codifique. Con «role_generic_account» el renglón va a la cuenta que tu catálogo le da al rol de gasto con el que se clasificó el CFDI (gastos generales en una compra ordinaria), y la cuenta por pagar se contabiliza sin que nadie haya elegido la cuenta; cuando la clasificación no tiene un solo rol de gasto con cuenta, se rechaza igual y dice por qué.',
+  'policy.received_line_without_account.rationale':
+    'Una deducción tiene que estar debidamente registrada en contabilidad (LISR art. 27 fr. IV): un gasto registrado en una cuenta genérica que nadie eligió queda registrado, pero no como lo que es. Rechazar es la opción conservadora del ADR-0006, decisión 1: nada se contabiliza sin revisión, y codificar el renglón cuesta un comando.',
+  'policy.received_line_without_account.why':
+    'A veces un CFDI de proveedor llega a contabilizarse con un renglón al que nadie le puso cuenta y sin nada en su historia que sugiera una. O espero a que lo codifiques, o lo registro en la cuenta genérica de gastos para no detener la cuenta por pagar.',
+  'policy.received_line_without_account.what':
+    'Por omisión dejo el CFDI en la bandeja y te digo qué renglón no tiene cuenta. Con «role_generic_account» contabilizo ese renglón en la cuenta del rol de gasto con el que clasifiqué el CFDI.',
+  'policy.received_line_without_account.if_skipped':
+    'No contabilizo nada hasta que cada renglón tenga cuenta.',
+  'policy.received_line_without_account.option.refuse':
+    'No contabilizar nada hasta que alguien le ponga cuenta al renglón',
+  'policy.received_line_without_account.option.role_generic_account':
+    'Contabilizar el renglón en la cuenta genérica de su rol de gasto',
 
   'policy.closing_entries_in_reports.question':
     'Cuando un informe abarca la fecha en que se cerró el ejercicio, ¿sus pólizas de cierre cuentan como actividad?',
@@ -2205,6 +2224,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'Un anticipo sin factura causa su IVA al cobrarse (LIVA art. 1-B), y la tasa de una venta que aún no ocurre es un dato que tú declaras, nunca un valor por omisión: agrega --tax-rate 16, 8, 0, exempt o not-subject. No se registró nada.',
   'receipt.advance.figures': 'base {base}, IVA {iva}, tasa {rate}',
   'receipt.advance.label': 'Anticipo',
+  'receipt.cheque.cashed_label': 'Cheque cobrado',
+  'receipt.cheque.cashed': '{date} · movimiento bancario {transaction}',
+  'receipt.cheque.not_cashed': 'sin registrar todavía (`bank check reconcile --receipt`)',
   'receipt.advance.confirm':
     '¿Registrar {amount} recibidos de {customer} como anticipo sin factura{figures} en {entity}? Esto postea en el mayor.',
   // MNE-001-509 (#701): a reversed receipt says what happened to the money.
@@ -2724,6 +2746,22 @@ export const ES: Record<keyof typeof EN, string> = {
     'Sin asiento: este cobro no tiene IVA pendiente de cobro.',
   'bank.check.cashing.note.foreign_currency':
     'Sin asiento: un cheque en moneda extranjera libera su IVA en la fecha del cobro.',
+  'bank.check.cashing.refused.transaction_needed':
+    'El cobro {receipt} no dice a qué cuenta bancaria entró, así que no hay dónde buscar su abono. Nombra el movimiento bancario con `--transaction`.',
+  'bank.check.cashing.refused.no_credit':
+    'No hay ningún abono sin usar de {amount} a partir del {date} en la cuenta bancaria del cobro {receipt}. O el banco todavía no cobra el cheque, o lo abonó por otro importe: nombra el movimiento bancario con `--transaction`.',
+  'bank.check.cashing.refused.several_credits':
+    'Varios abonos de {amount} podrían ser el cheque del cobro {receipt}: {candidates}. No se elige ninguno, porque el equivocado fecha su IVA en el mes equivocado. Nombra el bueno con `--transaction`.',
+  'bank.check.cashing.refused.as_of_differs':
+    'El movimiento bancario {transaction} es del {date}, no del {asOf}, la fecha afirmada con `--as-of` para el cobro {receipt}. El cobro del cheque lo fecha el banco: revisa que ése sea el abono que pagó el cheque.',
+  'bank.check.cashing.check_value': '{check} · cobro {payment}',
+  'bank.check.cashing.why':
+    'por qué: bajo la LIVA el precio pagado con cheque se entiende cobrado el día en que el banco lo COBRA y no ' +
+    'el día en que se recibe, así que el IVA de este cobro se causa en ese mes.',
+  'bank.check.reconcile.one_of':
+    'Nombra exactamente un cheque: el pago a proveedor <id>, o un cobro de cliente con --receipt <ref>.',
+  'bank.check.reconcile.one_receipt':
+    'Un solo --receipt por registro: un abono que cobra varios cheques todavía no se registra aquí.',
   'bank.transaction.show.unmatched': 'sin cotejar',
   'bank.match.create.summary':
     '· banco {bank} = libros {books} + ajustes {adjustments} · residual {residual} ({mode}) · ' +
@@ -3508,9 +3546,12 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los cheques en papel como hecho fiscal: cuándo el banco pagó de verdad un cheque, que bajo la LIVA es ' +
     'cuando el pago se entiende efectuado',
   'help.bank.check.reconcile.description':
-    'Prueba el cheque contra el movimiento bancario que lo cobró y contabiliza la reclasificación del IVA de ' +
-    'pendiente de acreditar a acreditable EN EL MES DEL COBRO',
-  'help.bank.check.reconcile.argument.id': 'pago a proveedor hecho con cheque',
+    'Prueba el cheque contra el movimiento bancario que lo cobró y contabiliza su IVA EN EL MES DEL COBRO: de ' +
+    'pendiente de acreditar a acreditable en un pago a proveedor, de no cobrado a trasladado en un cobro de cliente',
+  'help.bank.check.reconcile.argument.id': 'pago a proveedor hecho con cheque; se omite con --receipt',
+  'help.bank.check.reconcile.option.receipt':
+    'cobro de cliente pagado con cheque, por folio (PMT-2026-00042) o id, en lugar de <id>; sin ' +
+    '--transaction el abono de su importe se busca en su cuenta bancaria desde su fecha',
   'help.bank.check.reconcile.option.transaction':
     'el movimiento bancario que lo pagó, nombrado a mano; obligatorio cuando coinciden varios cargos',
   'help.bank.check.reconcile.option.as_of':

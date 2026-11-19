@@ -2370,6 +2370,14 @@
     },
     {
       "class": "policy-key",
+      "where": "received_line_without_account",
+      "es": "received_line_without_account",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-553): `received` is the tree's term for a vendor's CFDI (`received_credit_note_cost`), `line` is a concept of it. Read by `createBillFromPreReg` (xml-ingestion/pre-registration-service.ts)."
+    },
+    {
+      "class": "policy-key",
       "where": "bank_statement_overlap",
       "es": "bank_statement_overlap",
       "en": null,
@@ -2995,6 +3003,22 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English (MNE-001-023): the literal `openingPayableIvaPolicy` (ap/opening-bills.ts) compares; a vendor document without a rate loads at 0 % with a warning."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_line_without_account/refuse",
+      "es": "refuse",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-553): the literal `createBillFromPreReg` (xml-ingestion/pre-registration-service.ts) compares; a received line with no account posts nothing."
+    },
+    {
+      "class": "policy-value",
+      "where": "received_line_without_account/role_generic_account",
+      "es": "role_generic_account",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-553): the literal `createBillFromPreReg` compares; `role` is the tree's term for an account role (`account_roles`), and the line posts to the account of the classifier's one expense role."
     },
     {
       "class": "policy-value",

@@ -72,7 +72,10 @@ export const EN = {
   // ---- MNE-001-417 · the hand door of an issued CFDI, postIssuedCfdiByHand (issue #620) ----
   /** `ValidationError`: a CFDI the hand door does not post to receivables, by `reason`. */
   'error.ISSUED_CFDI_NOT_SUPPORTED':
-    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} ieps {it transfers IEPS ({detail}), which this path does not book yet} local_tax {it transfers local taxes ({detail}), which this path does not book yet} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
+    'CFDI {uuid} is not posted to receivables by hand: {reason, select, received {the entity received it; post it with: mnemosine bill inbox run {detail}} document_type {it is a {detail}, not a sale invoice} currency {it is in {detail}, and this path does not convert currencies} advance {it is an advance from a customer, a liability and not a sale} applies_advance {it applies an advance (TipoRelacion 07)} other {its case is {detail}, not a PUE or PPD sale}}. Nothing was posted.',
+  /** `ValidationError` of the receivables core, at both doors: IEPS on a PPD sale is caused on collection (MNE-001-521, #669). `issue` is a parameter: a literal hash is ICU's plural number. */
+  'error.ISSUED_CFDI_PPD_IEPS':
+    'CFDI {uuid} is a PPD sale that transfers IEPS ({ieps}): that IEPS waits for collection, and the books cannot park it until issue {issue} lands. Nothing was posted.',
   /** `AccountingError('ISSUED_CFDI_NOT_OPEN')`: the pre-registration is completed, rejected or processing. */
   'error.ISSUED_CFDI_NOT_OPEN':
     'CFDI {uuid} is not open: its pre-registration is {status}{invoice, select, none {} other {, as customer invoice {invoice}}}. Nothing was posted.',
@@ -949,6 +952,23 @@ export const EN = {
     'Stop the load until each vendor document says its IVA rate',
   'policy.opening_payable_iva.option.assume_zero_rate':
     'Load them at 0 % and warn: no IVA is credited when they are paid',
+
+  'policy.received_line_without_account.question':
+    'When a line of a vendor CFDI reaches posting with no expense account, what do I do with it?',
+  'policy.received_line_without_account.impact':
+    'A received line posts to its own account, then to the one given for the whole document, then to a suggestion that is not a control account. This governs the line that has none of the three when the CFDI is posted from the inbox (`bill inbox run`). With "refuse" nothing is posted: the CFDI stays in the inbox and says which line has no account, until someone codes it. With "role_generic_account" the line goes to the account your chart gives the expense role the CFDI was classified under (general expenses for an ordinary purchase), and the bill is posted without anyone choosing the account; when the classification has no single expense role with an account, it is refused all the same and says why.',
+  'policy.received_line_without_account.rationale':
+    'A deduction has to be duly recorded in the books (LISR art. 27 fr. IV): an expense booked to a generic account nobody chose is recorded, but not as what it is. Refusing is the conservative option of ADR-0006, decision 1: nothing is posted without review, and coding the line takes one command.',
+  'policy.received_line_without_account.why':
+    'A vendor CFDI sometimes reaches posting with a line nobody gave an account and nothing in its history suggests one. I either wait for you to code it, or I book it to the generic expense account so the payable is not held up.',
+  'policy.received_line_without_account.what':
+    'By default I leave the CFDI in the inbox and tell you which line has no account. With "role_generic_account" I post that line to the account of the expense role I classified the CFDI under.',
+  'policy.received_line_without_account.if_skipped':
+    'I post nothing until every line has an account.',
+  'policy.received_line_without_account.option.refuse':
+    'Post nothing until someone gives the line an account',
+  'policy.received_line_without_account.option.role_generic_account':
+    'Post the line to the generic account of its expense role',
 
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
@@ -2335,6 +2355,9 @@ export const EN = {
     'An advance with no invoice causes its IVA when it is collected (LIVA art. 1-B), and the rate of a sale that has not happened is a fact you state, never a default: add --tax-rate 16, 8, 0, exempt or not-subject. Nothing was recorded.',
   'receipt.advance.figures': 'base {base}, IVA {iva}, rate {rate}',
   'receipt.advance.label': 'Advance',
+  'receipt.cheque.cashed_label': 'Cheque cashed',
+  'receipt.cheque.cashed': '{date} · bank transaction {transaction}',
+  'receipt.cheque.not_cashed': 'not recorded yet (`bank check reconcile --receipt`)',
   'receipt.advance.confirm':
     'Record {amount} received from {customer} as an advance with no invoice{figures} in {entity}? This posts to the ledger.',
   // MNE-001-509 (#701): a reversed receipt says what happened to the money.
@@ -2877,6 +2900,22 @@ export const EN = {
     'No entry: this receipt holds no VAT pending collection.',
   'bank.check.cashing.note.foreign_currency':
     'No entry: a cheque in a foreign currency releases its VAT on the receipt date.',
+  'bank.check.cashing.refused.transaction_needed':
+    'Receipt {receipt} names no bank account, so there is nowhere to look for its credit. Name the bank transaction with `--transaction`.',
+  'bank.check.cashing.refused.no_credit':
+    'No unused credit of {amount} from {date} is in the bank account of receipt {receipt}. Either the cheque is not cashed yet or the bank credited another amount: name the bank transaction with `--transaction`.',
+  'bank.check.cashing.refused.several_credits':
+    'Several credits of {amount} could be the cheque of receipt {receipt}: {candidates}. None is picked, because the wrong one dates its VAT in the wrong month. Name the right one with `--transaction`.',
+  'bank.check.cashing.refused.as_of_differs':
+    'Bank transaction {transaction} is dated {date}, not {asOf}, the date stated with `--as-of` for receipt {receipt}. The bank dates the cashing: check that this is the credit that paid the cheque.',
+  'bank.check.cashing.check_value': '{check} · receipt {payment}',
+  'bank.check.cashing.why':
+    'why: under the VAT law a price paid by cheque counts as collected on the day the bank CASHED it and not ' +
+    'the day it was received, so the VAT of this receipt is caused in that month.',
+  'bank.check.reconcile.one_of':
+    'Name exactly one cheque: the vendor payment <id>, or a customer receipt with --receipt <ref>.',
+  'bank.check.reconcile.one_receipt':
+    'One --receipt per recording: a credit that cashes several cheques is not recorded here yet.',
   'bank.transaction.show.unmatched': 'unmatched',
   'bank.match.create.summary':
     '· bank {bank} = books {books} + adjustments {adjustments} · residual {residual} ({mode}) · ' +
@@ -3649,9 +3688,12 @@ export const EN = {
     'Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law ' +
     'is when the payment counts',
   'help.bank.check.reconcile.description':
-    'Prove the check against the bank movement that cleared it and post the VAT ' +
-    'reclassification from pending to creditable IN THE MONTH IT CLEARED',
-  'help.bank.check.reconcile.argument.id': 'vendor payment made by check',
+    'Prove the check against the bank movement that cleared it and post its VAT IN THE MONTH IT CLEARED: ' +
+    'from pending to creditable for a vendor payment, from pending collection to charged for a customer receipt',
+  'help.bank.check.reconcile.argument.id': 'vendor payment made by check; omit it with --receipt',
+  'help.bank.check.reconcile.option.receipt':
+    'customer receipt paid by cheque, by number (PMT-2026-00042) or id, instead of <id>; without ' +
+    '--transaction the credit of its amount is searched in its bank account from its date',
   'help.bank.check.reconcile.option.transaction':
     'the bank movement that paid it, named by hand; required when several charges match',
   'help.bank.check.reconcile.option.as_of':

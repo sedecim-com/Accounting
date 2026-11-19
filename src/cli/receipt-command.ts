@@ -592,6 +592,15 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       fact('Date', dateOnly(cobro.payment_date));
       fact('Amount', `${cobro.payment_amount} ${cobro.currency_code}`);
       fact('Method', cobro.payment_method);
+      // MNE-001-556: a cheque's VAT is caused the day the bank cashes it, so the receipt says whether it has.
+      if (cobro.payment_method === 'check' && (cobro.check_cashed_tx_id || cobro.status === 'completed')) {
+        fact(
+          t('receipt.cheque.cashed_label'),
+          cobro.check_cashed_tx_id
+            ? t('receipt.cheque.cashed', { date: cobro.check_cashed_date ?? '', transaction: cobro.check_cashed_tx_id })
+            : t('receipt.cheque.not_cashed')
+        );
+      }
       fact('Reference', cobro.reference_number);
       fact('On account', cobro.unapplied_amount !== '0.00' ? cobro.unapplied_amount : null);
       const { advance_base: base, advance_tax_rate: treatment, advance_iva: iva } = cobro;
