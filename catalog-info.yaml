@@ -50,6 +50,9 @@ provides:
     # frequent bill-line account (#684). POST /v1/pre-registrations/{id}/process therefore
     # refuses, with «Line N: no account assigned», a row it used to post; coding the line
     # (PATCH /v1/pre-registrations/{id}) posts it. The shape of the row does not change.
+    # A `default_account_id` set by that PATCH now posts every line with no account of its
+    # own, ahead of the line's suggestion, which used to win; and a suggestion stored before
+    # #684 that is a control account no longer posts. The way back is coding the line.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings

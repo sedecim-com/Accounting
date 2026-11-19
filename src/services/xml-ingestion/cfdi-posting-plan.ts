@@ -3,6 +3,7 @@ import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { classifyXml, type Classification, type ProposedLine } from './cfdi-classifier.js';
 import type { AccountRole } from './cfdi-taxonomy.js';
+import { NO_ELIGIBLE_SUGGESTION, pickLineAccount } from './expense-line-account.js';
 
 // ============================================================
 // DEL VEREDICTO AL ASIENTO.
@@ -163,12 +164,14 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
   );
   const sumaRenglones = opts.renglones.reduce((s, r) => s.plus(r.importe), new Decimal(0));
 
+  // The caller resolves an eligible suggestion into `account_id` before it asks (MNE-001-552): the
+  // plan reads no accounts' eligibility, so a suggestion alone opens nothing here.
+  const cuentaDe = (r: RenglonDocumento) => pickLineAccount(r, opts.cuentaGastoPorDefecto, NO_ELIGIBLE_SUGGESTION);
+
   let desglose: PlanDeAsiento['desglose'] = 'sin_gasto';
   if (lineasGasto.length > 0) {
     const cuadra = importeGasto.minus(sumaRenglones).abs().lessThanOrEqualTo('0.01');
-    const todosConCuenta = opts.renglones.every(
-      (r) => r.account_id || r.suggested_account_id || opts.cuentaGastoPorDefecto
-    );
+    const todosConCuenta = opts.renglones.every((r) => cuentaDe(r) !== undefined);
     if (opts.renglones.length > 0 && cuadra && todosConCuenta) {
       desglose = 'abierta';
     } else {
@@ -244,9 +247,8 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
       // La línea de gasto se abre en los renglones del documento; cada uno
       // conserva su cuenta y su centro de costo.
       for (const r of opts.renglones) {
-        const cuenta = r.account_id || r.suggested_account_id || opts.cuentaGastoPorDefecto;
         lineas.push({
-          account_id: cuenta as string,
+          account_id: cuentaDe(r) as string,
           debit_amount: new Decimal(r.importe).toFixed(4),
           credit_amount: null,
           description: r.descripcion,
