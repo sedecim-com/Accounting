@@ -107,6 +107,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `src/services/banking/match-service.ts`
 - `src/services/banking/reconciliation-service.ts`
 - `src/services/banking/treasury-posting.ts`
+- `src/services/fiscal/iva-workpaper.ts`
 - `src/services/payments/payment-service.ts`
 - `src/services/payroll/common/garnishment-service.ts`
 - `src/services/policy/pending-catalog.ts`
