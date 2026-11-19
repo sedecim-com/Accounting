@@ -33,6 +33,10 @@ mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/ai/doctor-s
 mirror	memory	E0.0 the-user-language-is-written-where-it-is-read	src/i18n/locale.ts	limpiar-lo-viejo: se retira el escalón de la clave vieja y quien la tenga escrita pierde su idioma hoy, cuando su retiro es de I24
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	src/cli/mnemosine.ts	sin cromo instalado, el CLI vuelve a la prosa de fábrica de Commander y el locale deja de cambiar una sola pantalla
 mirror	memory	E0.0 cli-chrome-and-pilot-speak-by-key	docs/language-baseline.json	terreno-devuelto: el piloto vuelve a cargar una cadena sin clave y el desglose lo registra
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	literal-back-in-a-leaf: a leaf writes [y/N] by hand again and a Spanish user reads an English suffix
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/pay-run-command.ts	kernel-bypassed: the leaf asks with no suffix at all, so no literal is left for check 1 to see
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/cli/kernel/confirmacion.ts	kernel-off-the-catalogue: the kernel hard-codes the suffix and Spanish goes back to [y/N]
+mirror	memory	E0.0 cli-yes-no-prompt-built-by-kernel	src/i18n/es.ts	suffix-twice: a catalogue key carries its own suffix again and prints it twice once wrapped
 mirror	memory	E0.0 instrument-identity-is-not-prose	src/plan/status.ts	la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de casar con un solo criterio y el trinquete se quedaría protegiendo nada
 mirror	memory	E0.0 ci-gates-single-workflow	.github/workflows/ci.yml	la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga que lo borra— y el criterio que la nombraba tiene que acusarlo
 mirror	memory	E0.0 plan-job-gates-run-and-cannot-be-skipped	.github/workflows/ci.yml	el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual
@@ -745,6 +749,10 @@ anchor	src/plan/criteria/e0-0.ts	de: " database: { id: 'database-connection', na
 anchor	src/plan/criteria/e0-0.ts	de: "const raw = readConfigString(activeConfig, 'language', warn);",
 anchor	src/plan/criteria/e0-0.ts	de: 'installHelpChrome(program);',
 anchor	src/plan/criteria/e0-0.ts	de: '"spanish-user-strings-cli": {',
+anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',
+anchor	src/plan/criteria/e0-0.ts	de: 'p.cyan(yesNoPrompt(question))',
+anchor	src/plan/criteria/e0-0.ts	de: "t('confirm_yes_no_suffix')",
+anchor	src/plan/criteria/e0-0.ts	de: "'¿Dar de alta al proveedor {name} (RFC {rfc})?'",
 anchor	src/plan/criteria/e0-0.ts	de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
 anchor	src/plan/criteria/e0-0.ts	de: ' restauracion:',
 anchor	src/plan/criteria/e0-0.ts	de: ' - run: npm run plan:status -- --piso',

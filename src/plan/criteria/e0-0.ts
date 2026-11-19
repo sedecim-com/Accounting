@@ -1253,6 +1253,185 @@ export const E0_0: Criterio[] = [
       },
     ],
   },
+  {
+    paquete: 'E0.0',
+    id: 'cli-yes-no-prompt-built-by-kernel',
+    // MNE-001-217 (issue #262, I8.0). Twenty leaves wrote `[y/N]` by hand, so a
+    // question already translated to Spanish still ended in English. The kernel
+    // now builds the suffix from one catalogue key (`yesNoPrompt`, next to the
+    // answer grammar in `confirmacion.ts`), and the nine families of I8 call it.
+    //
+    // IT READS STRING LITERALS, NOT TEXT. `mnemosine.ts` and `confirmacion.ts`
+    // name `[y/N]` in comments, and the comment stripper stops stripping in
+    // `mnemosine.ts` (see `cli-chrome-and-pilot-speak-by-key` above). The
+    // compiler's tree tells a literal from a comment without guessing.
+    //
+    // FOUR CHECKS, one per way of losing the ground:
+    //   1. no literal in `src/cli/**` (kernel included) carries the suffix;
+    //   2. the kernel reads it from the catalogue;
+    //   3. in each catalogue the suffix lives in its own key and nowhere else,
+    //      or a key that carries it prints it twice once wrapped;
+    //   4. every `confirmarConReintento` outside the kernel asks through
+    //      `yesNoPrompt`: a leaf that drops the suffix also drops the kernel.
+    enunciado:
+      'No CLI leaf writes the [y/N] suffix: the kernel builds it from the catalogue, in the user language (#262, MNE-001-217)',
+    evaluar: () => {
+      const SUFFIX = /\[[ys]\/N\]/;
+      const KEY = 'confirm_yes_no_suffix';
+      const parse = (rel: string): ts.SourceFile =>
+        ts.createSourceFile(rel, crudoDe(rel), ts.ScriptTarget.Latest, true);
+      const literalPieces = (n: ts.Node): string | undefined =>
+        ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isTemplateLiteralToken(n)
+          ? n.text
+          : undefined;
+      const walk = (n: ts.Node, visit: (node: ts.Node) => void): void => {
+        visit(n);
+        n.forEachChild((child) => walk(child, visit));
+      };
+      const lineOf = (sf: ts.SourceFile, n: ts.Node): number =>
+        sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+
+      const files = fuentes('src/cli').map((abs) => path.relative(RAIZ, abs).split(path.sep).join('/'));
+      const trees = new Map(files.map((rel) => [rel, parse(rel)] as const));
+
+      // The kernel is the file that declares yesNoPrompt, found and not named:
+      // a path written here would pin the criterion to today's file name.
+      const declares = (sf: ts.SourceFile): boolean =>
+        sf.statements.some(
+          (st) =>
+            (ts.isFunctionDeclaration(st) && st.name?.text === 'yesNoPrompt') ||
+            (ts.isVariableStatement(st) &&
+              st.declarationList.declarations.some((d) => ts.isIdentifier(d.name) && d.name.text === 'yesNoPrompt'))
+        );
+      const kernels = files.filter((rel) => declares(trees.get(rel)!));
+      if (kernels.length !== 1) {
+        return falla(
+          `${kernels.length} file(s) in src/cli declare yesNoPrompt (${kernels.join(', ') || 'none'}): ` +
+            'the yes/no prompt must have exactly one builder, in the kernel'
+        );
+      }
+      const KERNEL = kernels[0];
+      if (!KERNEL.startsWith('src/cli/kernel/')) {
+        return falla(`yesNoPrompt is declared in ${KERNEL}, outside src/cli/kernel/: a leaf cannot own the prompt`);
+      }
+
+      // 1 · No hand-written suffix anywhere in the CLI.
+      const handWritten: string[] = [];
+      // 4 · Every confirmation outside the kernel asks through yesNoPrompt.
+      const unbuilt: string[] = [];
+      let confirmations = 0;
+      for (const rel of files) {
+        const sf = trees.get(rel)!;
+        walk(sf, (n) => {
+          const text = literalPieces(n);
+          if (text !== undefined && SUFFIX.test(text)) handWritten.push(`${rel}:${lineOf(sf, n)}`);
+          if (
+            rel !== KERNEL &&
+            ts.isCallExpression(n) &&
+            ts.isIdentifier(n.expression) &&
+            n.expression.text === 'confirmarConReintento'
+          ) {
+            confirmations++;
+            let built = false;
+            const prompt = n.arguments[1];
+            if (prompt) {
+              walk(prompt, (m) => {
+                if (ts.isCallExpression(m) && ts.isIdentifier(m.expression) && m.expression.text === 'yesNoPrompt') {
+                  built = true;
+                }
+              });
+            }
+            if (!built) unbuilt.push(`${rel}:${lineOf(sf, n)}`);
+          }
+        });
+      }
+      if (handWritten.length) {
+        return falla(
+          `${handWritten.length} literal(s) in src/cli write the [y/N] suffix by hand ` +
+            `(${handWritten.slice(0, 3).join(', ')}): ask with yesNoPrompt(question) from ${KERNEL}, ` +
+            'which takes the suffix from the catalogue in the user language'
+        );
+      }
+      if (confirmations === 0) {
+        return noEvaluable('no confirmarConReintento call outside the kernel: the confirmation changed shape');
+      }
+      if (unbuilt.length) {
+        return falla(
+          `${unbuilt.length} confirmation(s) do not ask through yesNoPrompt ` +
+            `(${unbuilt.slice(0, 3).join(', ')}): the prompt must come from the kernel`
+        );
+      }
+
+      // 2 · The kernel reads the suffix from the catalogue.
+      let readsKey = false;
+      walk(trees.get(KERNEL)!, (n) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === 't' &&
+          n.arguments[0] !== undefined &&
+          literalPieces(n.arguments[0]) === KEY
+        ) {
+          readsKey = true;
+        }
+      });
+      if (!readsKey) {
+        return falla(`${KERNEL} no longer calls t('${KEY}'): the suffix stops following the user language`);
+      }
+
+      // 3 · In each catalogue, the suffix lives in its own key only.
+      for (const rel of ['src/i18n/en.ts', 'src/i18n/es.ts']) {
+        const sf = parse(rel);
+        const owners: string[] = [];
+        walk(sf, (n) => {
+          if (!ts.isPropertyAssignment(n)) return;
+          let carries = false;
+          walk(n.initializer, (m) => {
+            const text = literalPieces(m);
+            if (text !== undefined && SUFFIX.test(text)) carries = true;
+          });
+          if (carries) owners.push(ts.isIdentifier(n.name) || ts.isStringLiteral(n.name) ? n.name.text : '?');
+        });
+        if (owners.length !== 1 || owners[0] !== KEY) {
+          return falla(
+            `${rel}: the suffix is carried by ${owners.length ? owners.join(', ') : 'no key'}, and only ` +
+              `${KEY} may carry it: a key with its own suffix prints it twice once the kernel wraps it`
+          );
+        }
+      }
+
+      return ok(
+        `${confirmations} confirmation(s) in ${files.length} CLI file(s) ask through yesNoPrompt, none writes ` +
+          `the suffix, and ${KEY} is its only home in en.ts and es.ts`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/pay-run-command.ts',
+        de: 'p.cyan(yesNoPrompt(question))',
+        a: 'p.cyan(`${question} [y/N] `)',
+        porque: 'literal-back-in-a-leaf: a leaf writes [y/N] by hand again and a Spanish user reads an English suffix',
+      },
+      {
+        archivo: 'src/cli/pay-run-command.ts',
+        de: 'p.cyan(yesNoPrompt(question))',
+        a: 'p.cyan(`${question} `)',
+        porque: 'kernel-bypassed: the leaf asks with no suffix at all, so no literal is left for check 1 to see',
+      },
+      {
+        archivo: 'src/cli/kernel/confirmacion.ts',
+        de: "t('confirm_yes_no_suffix')",
+        a: "'[y/N]'",
+        porque: 'kernel-off-the-catalogue: the kernel hard-codes the suffix and Spanish goes back to [y/N]',
+      },
+      {
+        archivo: 'src/i18n/es.ts',
+        de: "'¿Dar de alta al proveedor {name} (RFC {rfc})?'",
+        a: "'¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N]'",
+        porque: 'suffix-twice: a catalogue key carries its own suffix again and prints it twice once wrapped',
+      },
+    ],
+  },
 
 
 
