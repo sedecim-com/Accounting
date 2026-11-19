@@ -2383,11 +2383,22 @@ export const EN = {
   'receipt.reverse.warning.card_not_collected':
     'This receipt was paid by card, and a card is paid when it is accepted (LIVA art. 1-B): not_collected says the money never became yours. If it arrived and the bank took it back, as in a chargeback, the cause is taken_back.',
   'receipt.reverse.warning.cause_not_stated':
-    'No cause is stated, and only a cheque has one by default: the IVA of this receipt stays in the month it was collected until a cause is stated (not_collected or taken_back).',
+    'No cause is stated, and only a cheque has one by default: the IVA of this receipt stays in the month it was collected until a cause is stated (not_collected or taken_back) with `receipt cause record`.',
   'receipt.reverse.cause.stated': 'cause {cause}',
   'receipt.reverse.cause.defaulted':
     'cause not_collected, taken by default: a cheque is paid the day the bank cashes it',
   'receipt.reverse.cause.none': 'no cause stated',
+  // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
+  'receipt.cause.not_reversed':
+    'The receipt {number} is "{status}": a cause is stated only for a reversed receipt. Nothing was written.',
+  'receipt.cause.already_stated':
+    'The receipt {number} already has its cause, {cause}, stated at {stated_at}: a stated cause is not overwritten. Nothing was written.',
+  'receipt.cause.reason_required':
+    'Stating the cause of a reversal requires --reason "<why>": it is written to the audit trail.',
+  'receipt.cause.would_state': 'Would state the cause {cause} for the reversal of {number}',
+  'receipt.cause.confirm':
+    'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
+  'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
   'receipt.advance.cfdi_owed':
     'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
   'receipt.advance.invoice_already_booked':
@@ -3100,6 +3111,14 @@ export const EN = {
     'Reverse a collection whose money did not stay, saying why: mirrors every entry, reopens invoices, re-parks IVA',
   'help.receipt.reverse.option.cause':
     'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback); with none, a cheque takes not_collected and any other method keeps no cause',
+  // MNE-001-511 (#701): the cause of a reversal, stated afterwards.
+  'help.receipt.cause.description': 'The cause of a reversed collection: what happened to its money',
+  'help.receipt.cause.record.description':
+    'State the cause of a collection that was reversed with none: written once, audited, posts nothing',
+  'help.receipt.cause.record.argument.ref': 'payment number or id',
+  'help.receipt.cause.record.option.cause':
+    'what happened to the money: not_collected (it never became yours) or taken_back (it arrived and was taken back, as in a chargeback)',
+  'help.receipt.cause.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',

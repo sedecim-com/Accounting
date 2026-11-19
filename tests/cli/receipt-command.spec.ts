@@ -38,6 +38,10 @@ vi.mock('../../src/services/payments/payment-service.js', async (importOriginal)
     paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', reversals: [{ entryNumber: 'JE-2', of: 'JE-1' }],
     attestations: [], documentosReabiertos: [], cause: 'taken_back', causeDefaulted: false, warnings: [],
   })),
+  stateReversalCause: vi.fn(async () => ({
+    paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', cause: 'taken_back',
+    statedAt: new Date('2026-06-09T15:00:00Z'), reversedAt: new Date('2026-06-02T10:00:00Z'), warnings: [],
+  })),
   applyCustomerPayment: vi.fn(async () => ({
     paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', journalEntry: null, attestation: null,
     documentos: [{
@@ -398,5 +402,67 @@ describe('receipt reverse --cause (MNE-001-509)', () => {
     const part = await receipt(['show', 'PMT-2026-00042']);
     expect(part.out).toMatch(/Reversal cause\s+taken_back/);
     expect(part.out).toContain('sin REP');
+    expect(part.out).not.toContain('Cause stated');
+
+    // MNE-001-511: the instant the cause was stated, which is later than the reversal when it was stated afterwards.
+    vi.mocked(payments.getCustomerPayment).mockResolvedValueOnce(
+      { ...row, reversal_cause: 'taken_back', reversal_cause_stated_at: new Date('2026-06-09T15:00:00Z') } as never);
+    const later = await receipt(['show', 'PMT-2026-00042']);
+    expect(later.out).toMatch(/Cause stated\s+2026-06-09T15:00:00.000Z/);
+  });
+});
+
+// ============================================================
+// MNE-001-511 (#701) · `receipt cause record`: the cause of a receipt
+// reversed with none, stated afterwards. The terminal refuses what it can
+// before reading, and repeats what the service answered.
+// ============================================================
+
+describe('receipt cause record (MNE-001-511)', () => {
+  const state = vi.mocked(payments.stateReversalCause);
+  const record = ['cause', 'record', 'PMT-2026-00042'];
+  const run = async (args: string[]) => {
+    state.mockClear();
+    return { ...(await receipt([...record, ...args])), calls: state.mock.calls };
+  };
+
+  it('C1 · refuses a cause that is neither of the two before anything is read', async () => {
+    const { errs, calls } = await run(['--cause', 'bounced', '--reason', 'typo', '--yes']);
+    expect(errs).toHaveLength(1);
+    expect(errs[0].message).toMatch(/"bounced".*not_collected.*taken_back/);
+    expect(exitCodeFor(errs[0])).toBe(2);
+    expect(calls).toEqual([]);
+    expect(payments.getCustomerPayment).not.toHaveBeenCalled();
+  });
+
+  it('C2 · with no --reason it is a usage error outside a dry run, and nothing is called', async () => {
+    const { errs, calls } = await run(['--cause', 'taken_back', '--yes']);
+    expect(errs).toHaveLength(1);
+    expect(exitCodeFor(errs[0])).toBe(2);
+    expect(errs[0].message).toContain('--reason');
+    expect(calls).toEqual([]);
+  });
+
+  it('C3 · the dry run asks the service with dryRun, prints the cause and its warnings, and stops there', async () => {
+    state.mockResolvedValueOnce({
+      paymentId: 'pay-1', paymentNumber: 'PMT-2026-00042', cause: 'not_collected',
+      statedAt: new Date('2026-06-09T15:00:00Z'), reversedAt: null, warnings: ['receipt.reverse.warning.card_not_collected'],
+    });
+    const { out, errs, calls } = await run(['--cause', 'not_collected', '--dry-run']);
+    expect(errs).toEqual([]);
+    expect(calls.map((c) => [c[1], c[2], c[4]])).toEqual([['pay-1', { cause: 'not_collected', reason: '' }, { dryRun: true }]]);
+    expect(out).toContain(t('receipt.cause.would_state', { number: 'PMT-2026-00042', cause: 'not_collected' }, 'en'));
+    expect(out).toContain(t('receipt.reverse.warning.card_not_collected', {}, 'en'));
+  });
+
+  it('C4 · --json carries the cause, the instant it was stated and the warnings', async () => {
+    const { out, errs, calls } = await run(['--cause', 'taken_back', '--reason', 'disputed on June 9', '--yes', '--json']);
+    expect(errs).toEqual([]);
+    expect(calls.map((c) => c[4])).toEqual([{ dryRun: true }, undefined]);
+    expect(calls[1][2]).toEqual({ cause: 'taken_back', reason: 'disputed on June 9' });
+    const { rows } = JSON.parse(out) as { rows: Record<string, unknown>[] };
+    expect(rows[0]).toEqual({
+      payment_number: 'PMT-2026-00042', cause: 'taken_back', stated_at: '2026-06-09T15:00:00.000Z', warnings: '',
+    });
   });
 });
