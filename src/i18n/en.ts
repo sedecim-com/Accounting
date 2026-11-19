@@ -1722,6 +1722,8 @@ export const EN = {
     'your {label} expires in {days, plural, one {# day} other {# days}}',
   'pending.board.period_close':
     '{count, plural, one {# ended period remains} other {# ended periods remain}} unclosed',
+  'pending.board.minimum_wage_zone':
+    'the minimum wage zone is not declared: {count, plural, one {# worker is} other {# workers are}} computed with the general minimum',
   'pending.board.period_example':
     '{period} (ended {date})',
   'pending.policies.none':
@@ -3451,6 +3453,7 @@ export const EN = {
   'help.account.list.description': 'List accounts, filtered by type, state, parent or free text',
   'help.account.list.argument.search': 'match against code or name',
   'help.account.list.option.type': 'account type: {types}',
+  'help.entity.option.minimum_wage_zone': '{zones}: minimum-wage area of the workplace, which caps the seniority premium (LFT art. 486)',
   'help.account.list.option.parent': 'only children of this account code',
   'help.account.list.option.inactive': 'show inactive accounts instead of active ones',
   'help.account.show.description': 'Show one account with its parent, flags and lifetime activity',
