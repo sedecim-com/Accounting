@@ -1201,12 +1201,16 @@ function interesesComoDocumento(r: ResultadoDeIntereses): Row {
   };
 }
 
+/** A vendor cheque's cashing, or a receipt's with the IVA of an advance it caused (MNE-001-558). */
+type CheckCashingView = ResultadoDeCobroDeCheque & { advanceIva?: string | null };
+
 /**
  * MNE-001-556 · a customer cheque's cashing in the shape the command shows a
  * vendor cheque's in: one preview, one confirmation and one summary for both.
  */
-function receiptCashingAsClearing(r: CustomerCheckCashing): ResultadoDeCobroDeCheque {
+function receiptCashingAsClearing(r: CustomerCheckCashing): CheckCashingView {
   return {
+    advanceIva: r.advanceIva,
     paymentId: r.receiptId,
     paymentNumber: r.receiptNumber,
     checkNumber: r.checkNumber,
@@ -5898,7 +5902,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         const asOf = opts.asOf ? exigirFecha('--as-of', opts.asOf) : undefined;
 
         // One result per cheque: a vendor payment's, or each receipt's of one credit.
-        const conciliar = (ensayo: boolean): Promise<ResultadoDeCobroDeCheque[]> => {
+        const conciliar = (ensayo: boolean): Promise<CheckCashingView[]> => {
           const how = { transactionId: movimientoId, asOf, userId: reviewer.userId, dryRun: ensayo };
           return receipt
             ? recordCustomerChecksCashing(ctx.entityId, receiptIds, how).then((rs) => rs.map(receiptCashingAsClearing))
@@ -5918,7 +5922,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
          * diferencia entre dos declaraciones mensuales de IVA, así que el mes
          * y su razón se imprimen antes de preguntar, no después.
          */
-        const mostrar = (r: ResultadoDeCobroDeCheque): void => {
+        const mostrar = (r: CheckCashingView): void => {
           const out = process.stdout;
           const renglon = (etiqueta: string, valor: string): void => {
             out.write(`    ${etiqueta.padEnd(16)}${valor}\n`);
@@ -5949,12 +5953,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           out.write(`    ${p.dim(t(receipt ? 'bank.check.cashing.why' : 'bank.check.reconcile.why'))}\n`);
 
           out.write(`\n  ${p.bold(t('bank.check.reconcile.entry_title'))}\n`);
-          if (r.porGasto.length === 0) {
+          if (r.porGasto.length === 0 && !r.advanceIva) {
             out.write(`      ${p.dim(t('bank.check.reconcile.no_vat'))}\n`);
           }
           for (const g of r.porGasto) {
             renglonDeAsiento(`${debited} · ${g.billNumber}`, g.importe, null);
             renglonDeAsiento(`${credited} · ${g.billNumber}`, null, g.importe);
+          }
+          if (r.advanceIva) {
+            renglonDeAsiento(`anticipo_clientes · ${r.paymentNumber}`, r.advanceIva, null);
+            renglonDeAsiento(`${credited} · ${r.paymentNumber}`, null, r.advanceIva);
           }
           out.write(
             `      ${p.dim(t('bank.check.reconcile.total', { amount: r.reclasificado }))}\n`
@@ -5987,7 +5995,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             }),
         });
         // A key recorded before MNE-001-557 replays one result, not a list.
-        const rs = ([] as ResultadoDeCobroDeCheque[]).concat(recorded);
+        const rs = ([] as CheckCashingView[]).concat(recorded);
         if (repetido) {
           avisarRepetido(
             opts.idempotencyKey,
@@ -5998,9 +6006,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         if (opts.json) {
           const rows = rs.map((r) => {
             const { by_bill: byDocument, ...doc } = cobroDeChequeComoDocumento(r);
-            // CONTRACT: `by_bill` for a vendor cheque; a receipt's cashing lists its invoices.
+            // CONTRACT: `by_bill` for a vendor cheque; a receipt's cashing lists its invoices and an advance's IVA.
             return receipt
-              ? { ...doc, by_invoice: r.porGasto.map((g) => ({ invoice: g.billNumber, invoice_id: g.billId, amount: g.importe })) }
+              ? {
+                  ...doc, advance_iva: r.advanceIva ?? null,
+                  by_invoice: r.porGasto.map((g) => ({ invoice: g.billNumber, invoice_id: g.billId, amount: g.importe })),
+                }
               : { ...doc, by_bill: byDocument };
           });
           render(rows, { json: true, idField: 'id' });

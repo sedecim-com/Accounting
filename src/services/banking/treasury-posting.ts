@@ -1946,7 +1946,9 @@ function exigirMovimientoCompatible(mov: FilaMovimientoDeCobro, pago: FilaPagoCo
 // A price paid by cheque, and its IVA, is paid on the day the cheque is cashed
 // (LIVA art. 1-B, second paragraph). The receipt keeps the bank credit that
 // paid it and that credit's date (migration 331), and the IVA its allocations
-// have not released yet moves from 2125 to 2120 on that date.
+// have not released yet moves from 2125 to 2120 on that date. An advance by
+// cheque keeps its IVA in 2150 until then, and moves it to 2120 the same day
+// (MNE-001-558; #623, comment 6961035083).
 //
 // THE ALLOCATION'S STORED AMOUNT IS THE SWITCH. `ivaStillParked` does not see
 // what a receipt's own entry released, so the cap cannot stop a second
@@ -1977,6 +1979,8 @@ interface CheckReceiptRow {
   bank_account_id: string | null;
   check_cashed_date: string | null;
   check_cashed_tx_id: string | null;
+  /** MNE-001-458 · the IVA of an advance, which a cheque's receipt entry left in 2150. */
+  advance_iva: string | null;
 }
 
 interface BankCreditRow {
@@ -1996,9 +2000,11 @@ export interface CustomerCheckCashing {
   /** The credit's date: the bank dates the cashing, not the user. */
   cashedOn: string;
   period: { name: string; status: string } | null;
-  /** Total moved from 2125 to 2120. Zero is a legitimate result. */
+  /** Total moved to 2120, from 2125 and from 2150. Zero is a legitimate result. */
   released: string;
   byInvoice: { invoiceId: string; invoiceNumber: string; amount: string }[];
+  /** The advance's IVA moved from 2150 to 2120; null when the receipt is no advance with IVA. */
+  advanceIva: string | null;
   entryId: string | null;
   entryNumber: string | null;
   /** Why nothing was released, when nothing was. */
@@ -2056,7 +2062,8 @@ export async function recordCustomerChecksCashing(
               cp.payment_amount::text AS payment_amount, cp.payment_date::text AS payment_date,
               TRIM(cp.currency_code) AS currency, TRIM(e.functional_currency) AS functional_currency,
               cp.status, cp.bank_account_id,
-              cp.check_cashed_date::text AS check_cashed_date, cp.check_cashed_tx_id
+              cp.check_cashed_date::text AS check_cashed_date, cp.check_cashed_tx_id,
+              cp.advance_iva_amount::text AS advance_iva
          FROM customer_payments cp
          JOIN legal_entities e ON e.id = cp.entity_id
         WHERE cp.id = ANY($1::uuid[]) AND cp.entity_id = $2
@@ -2212,9 +2219,9 @@ export async function recordCustomerChecksCashing(
 
     const results: CustomerCheckCashing[] = [];
     for (const [i, receipt] of receipts.entries()) {
-      const { functional, shares, releases, total: released } = pending[i];
+      const { functional, shares, releases, advance, total: released } = pending[i];
       const entry = released.greaterThan(0)
-        ? await postCashing(client, entityId, receipt, credit, releases, opts.userId)
+        ? await postCashing(client, entityId, receipt, credit, releases, advance, opts.userId)
         : null;
       if (entry) attest(tenantId, entityId, entry.id);
 
@@ -2242,6 +2249,7 @@ export async function recordCustomerChecksCashing(
           check_cashed_date: credit.date,
           check_cashed_tx_id: credit.id,
           iva_released: released.toFixed(ESCALA),
+          ...(advance.greaterThan(0) ? { advance_iva_caused: advance.toFixed(ESCALA) } : {}),
           journal_entry_id: entry?.id ?? null,
           ...(receipts.length > 1 ? { cashed_with: named } : {}),
         },
@@ -2257,6 +2265,7 @@ export async function recordCustomerChecksCashing(
         period: period ? { name: period.period_name, status: period.status } : null,
         released: released.toFixed(ESCALA),
         byInvoice: releases.map(({ invoiceId, invoiceNumber, amount }) => ({ invoiceId, invoiceNumber, amount })),
+        advanceIva: advance.greaterThan(0) ? advance.toFixed(ESCALA) : null,
         entryId: entry?.id ?? null,
         entryNumber: entry?.entry_number ?? null,
         note: released.greaterThan(0)
@@ -2285,7 +2294,8 @@ interface PendingRelease {
 
 /**
  * What each PPD invoice's share is today, minus what the receipt's live
- * allocations to it already released. A cheque in another currency keeps
+ * allocations to it already released, and an advance's IVA, which its
+ * receipt entry held whole in 2150. A cheque in another currency keeps
  * releasing on its receipt: its cashing would need that day's rate.
  */
 async function pendingRelease(
@@ -2293,8 +2303,11 @@ async function pendingRelease(
   entityId: string,
   receipt: CheckReceiptRow,
   cashBasis: boolean
-): Promise<{ functional: boolean; shares: number; releases: PendingRelease[]; total: Decimal }> {
+): Promise<{ functional: boolean; shares: number; releases: PendingRelease[]; advance: Decimal; total: Decimal }> {
   const functional = receipt.currency === receipt.functional_currency;
+  // An advance is refused in another currency, and before MNE-001-558 one by
+  // cheque was refused whole, so a stored IVA here is one no entry caused.
+  const advance = functional ? new Decimal(receipt.advance_iva ?? '0') : new Decimal(0);
   const shares = functional && cashBasis ? await ivaReclassificationsFor(client, 'issued', entityId, receipt.id) : [];
   const releases: PendingRelease[] = [];
   for (const share of shares) {
@@ -2318,22 +2331,23 @@ async function pendingRelease(
       });
     }
   }
-  const total = releases.reduce((sum, r) => sum.plus(r.amount), new Decimal(0));
-  return { functional, shares: shares.length, releases, total };
+  const total = releases.reduce((sum, r) => sum.plus(r.amount), advance);
+  return { functional, shares: shares.length, releases, advance, total };
 }
 
-/** One receipt's cashing entry, DR 2125 / CR 2120 per invoice, and what it released stored. */
+/** One receipt's cashing entry, DR 2125 (or 2150, an advance's) / CR 2120, and what it released stored. */
 async function postCashing(
   client: pg.PoolClient,
   entityId: string,
   receipt: CheckReceiptRow,
   credit: BankCreditRow,
   releases: PendingRelease[],
+  advance: Decimal,
   userId: string
 ): Promise<{ id: string; entry_number: string }> {
   const checkLabel = receipt.check_number ?? receipt.payment_number;
   const { from, to } = reclassRoles('issued');
-  const roles = await roleAccounts(client, entityId, [from, to]);
+  const roles = await roleAccounts(client, entityId, [from, to, 'anticipo_clientes']);
   const pendingAccount = requireRole(roles, from);
   const dueAccount = requireRole(roles, to);
   // Both are liabilities: 2125 empties with a debit and 2120 fills with a credit.
@@ -2347,6 +2361,19 @@ async function postCashing(
       description: `IVA caused on cheque cashing (LIVA art. 1-B) - Invoice ${r.invoiceNumber}`,
     },
   ]);
+  if (advance.greaterThan(0)) {
+    const amount = advance.toFixed(ESCALA);
+    lines.push(
+      {
+        account_id: requireRole(roles, 'anticipo_clientes'), debit_amount: amount, credit_amount: null,
+        description: `IVA of advance ${receipt.payment_number} out of customer advances, cheque cashed ${credit.date}`,
+      },
+      {
+        account_id: dueAccount, debit_amount: null, credit_amount: amount,
+        description: `IVA caused on cheque cashing (LIVA art. 1-B) - Advance ${receipt.payment_number}`,
+      }
+    );
+  }
   const entry = await createJournalEntry(
     entityId,
     // The credit's day, at local midnight: see `fechaDelAsiento`.

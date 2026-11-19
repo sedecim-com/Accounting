@@ -396,24 +396,27 @@ let statementId = '';
 //                        (16 % of 10,000; no MetodoPago on a typed invoice → PUE)
 //   12-08 bill           6100 Dr 5,000.00, 1135 Dr 800.00 / 2110 Cr 5,800.00
 //                        (no MetodoPago on a typed bill → PPD, IVA parked in 1135)
-//   12-09 lodging        6100 Dr 1,000.00, 6150 Dr 30.00, 1130 Dr 160.00 / 2110 Cr
-//                        1,190.00, and paid that day: the 3 % ISH on the 1,000 is
-//                        a cost, not a creditable tax, in a leaf of its own
+//   12-09 lodging        6100 Dr 1,000.00, 6150 Dr 30.00, 1135 Dr 160.00 / 2110 Cr
+//                        1,190.00, and paid that day, which moves 1135 → 1130:
+//                        160.00. The 3 % ISH on the 1,000 is a cost, not a
+//                        creditable tax, in a leaf of its own
 //   12-10 advance        bank Dr 1,160.00 / 2150 Cr 1,000.00, 2120 Cr 160.00: a
 //                        customer advance with no invoice causes its IVA the
 //                        day it is collected (LIVA art. 1-B); 1,160 / 1.16
 //   12-10 received PPD   6100 Dr 8,000.00, 1135 Dr 1,280.00 / 2110 Cr 9,280.00
 //                        (the consultant's CFDI: PPD, so its IVA waits in 1135)
-//   12-12 received PUE   6100 Dr 1,000.00, 1130 Dr 160.00 / 2110 Cr 1,160.00, and
-//                        paid that day: 2110 Dr 1,160.00 / bank Cr 1,160.00, with
-//                        no IVA moved (a PUE declares one payment, CFF 29-A fr. VII b)
+//   12-12 received PUE   6100 Dr 1,000.00, 1135 Dr 160.00 / 2110 Cr 1,160.00, and
+//                        paid that day: 2110 Dr 1,160.00 / bank Cr 1,160.00, and
+//                        the paid IVA moves 1135 → 1130: 160.00 (MNE-001-492: PUE
+//                        is the issuer's label, the IVA is credited once paid)
 //   12-15 receipt        bank Dr 5,800.00 / 1120 Cr 5,800.00 (half the invoice)
-//   12-16 fees           6100 Dr 10,000.00, 1130 Dr 1,600.00 / 2141 Cr 1,000.00,
+//   12-16 fees           6100 Dr 10,000.00, 1135 Dr 1,600.00 / 2141 Cr 1,000.00,
 //                        2142 Cr 1,066.67, 2110 Cr 9,533.33: an individual's fees,
 //                        so the company withholds 10 % of ISR (LISR art. 106) and
 //                        two thirds of the 1,600 of IVA (LIVA art. 1-A fr. II a;
 //                        RLIVA art. 3), and that day pays the net alone:
-//                        2110 Dr 9,533.33 / bank Cr 9,533.33
+//                        2110 Dr 9,533.33 / bank Cr 9,533.33, which moves the
+//                        whole 1,600.00 1135 → 1130
 //   12-18 credit note    4400 Dr 1,000.00, 2120 Dr 160.00 / 1120 Cr 1,160.00
 //   12-19 received PUE   the same as on 12-12: the cleaner's second CFDI
 //   12-20 payment        2110 Dr 5,800.00 / bank Cr 5,800.00,
@@ -444,14 +447,15 @@ let statementId = '';
 //                        life; whole-month convention, so 36,000 / 40
 // Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
 // + 900 + 1,160 (the advance) + 5,800 + 1,160 (its invoice, and its application)
-// = 75,980 typed, and 9,280 + 2 × 1,160 + 2 × 1,160 + (9,280 + 1,280)
-// = 24,480 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
-// + 2 × 1,190 + (11,600 + 9,533.33) = 26,813.33, and the stray entry and its
+// = 75,980 typed, and 9,280 + 2 × 1,160 + 2 × (1,160 + 160) + (9,280 + 1,280)
+// = 24,800 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
+// + 1,190 + (1,190 + 160) + (11,600 + 9,533.33 + 1,600) = 28,573.33 (each
+// PUE's payment releases its IVA, MNE-001-492), and the stray entry and its
 // mirror, which move no balance but are debits all the same: 2 × 2,000
 // = 4,000, and the bank fee with its IVA, posted, mirrored and posted again:
-// 3 × 348 = 1,044. In all 132,317.33. The dossier seals the trial balance as
-// of 12-31, so it counts the opening of 01-01 too: 107,800 + 132,317.33.
-const SEALED_DEBITS = '240117.33';
+// 3 × 348 = 1,044. In all 134,397.33. The dossier seals the trial balance as
+// of 12-31, so it counts the opening of 01-01 too: 107,800 + 134,397.33.
+const SEALED_DEBITS = '242197.33';
 const ENDING = {
   // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
   // − 1,200 − 450 (the bookshop) − 1,190 (the hotel) − 9,533.33 (the fees, net)
@@ -464,7 +468,7 @@ const ENDING = {
   // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE) + 160 (the hotel) + 1,600 (the fees)
   // + 48 (the bank fee's)
   '1130': '4208.00',
-  '1135': '320.00', // the opening's; the 800 and the 1,280 parked in December moved to 1130 when paid
+  '1135': '320.00', // the opening's; all December parked (the PPD's, the PUE's) moved to 1130 when paid
   '1220': '36000.00',
   '1290': '-900.00', // accumulated depreciation, credit balance
   '1320': '4000.00', // the deposit, untouched since the opening
@@ -1071,9 +1075,8 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         .map((r) => [r.id, Number(r.matched)])).toEqual([[rule.id, 1]]);
       expect(rowsOf(ok(['bill', 'inbox', 'list', '--status', 'ready', '--json']))).toEqual([]);
 
-      // A PUE declares that it was paid in one exhibition (CFF art. 29-A fr. VII b),
-      // which is why its IVA was credited when it posted: each is paid on its
-      // date, and the payment releases no IVA again. The numbers are derived:
+      // A PUE's IVA waits in 1135 until it is paid (MNE-001-492): each is paid
+      // on its date, and the payment moves its 160.00 to 1130. The numbers are derived:
       // `bill inbox run --json` carries them only inside its Spanish prose.
       for (const [bill, date] of [['BILL-2025-00002', '2025-12-12'], ['BILL-2025-00003', '2025-12-19']]) {
         expect(ok(['payment', 'create', bill, '--amount', '1160.00', '--date', date, '--yes']).out)
@@ -1082,7 +1085,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(rowsOf<{ bill_number: string; bill_date: string; status: string }>(ok(['bill', 'list', '--json']))
         .filter((b) => b.bill_number.startsWith('BILL-2025-')).map((b) => `${b.bill_number} ${b.bill_date} ${b.status}`)
         .sort()).toEqual(['BILL-2025-00001 2025-12-10 paid', 'BILL-2025-00002 2025-12-12 paid', 'BILL-2025-00003 2025-12-19 paid']);
-      // A 1130 above 1,600.00 would be a second IVA release.
+      // 1,280 (the REP's) + 2 × 160; a 1130 above 1,600.00 would be a second IVA release.
       expect(decemberMoves(['6100', '1130', '1135', '2110', '1111'])).toEqual(
         { '6100': '10000.00', '1130': '1600.00', '1135': '0.00', '2110': '0.00', '1111': '-11600.00' }
       );
@@ -1144,10 +1147,10 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         { file: 'lodging-2025-12-09.xml', date: '2025-12-09', uuid: LODGING_UUID });
 
       // 1,000 + 160 of IVA + 30 of ISH (3 %, in the ImpuestosLocales complement)
-      // = 1,190: the IVA is credited, the ISH is a cost, and the bill owes both.
+      // = 1,190: the IVA waits for the payment, the ISH is a cost, and the bill owes both.
       const bill = postToExpense(lodging, 'H4001', '1190.00');
       expect(billPosting(bill).entry)
-        .toEqual(['6100 Dr 1000.00', `${LODGING_TAX_ACCOUNT} Dr 30.00`, '1130 Dr 160.00', '2110 Cr 1190.00']);
+        .toEqual(['6100 Dr 1000.00', `${LODGING_TAX_ACCOUNT} Dr 30.00`, '1135 Dr 160.00', '2110 Cr 1190.00']);
       expect(ok(['payment', 'create', bill, '--amount', '1190.00', '--date', '2025-12-09', '--yes']).out)
         .toContain('1190.00 → 0.00 (paid)');
       // 6100: 11,650 + 1,000; 1130: 1,600 + 160; the bank: −13,250 − 1,190.
@@ -1163,10 +1166,10 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // An individual's fees to a persona moral: 10,000 + 1,600 of IVA, less
       // 1,000 of ISR (10 %) and 1,066.67 of IVA (two thirds of 1,600) withheld
       // = 9,533.33, the CFDI's total and all the vendor is owed. The whole
-      // 1,600 is credited, as the product posts a PUE.
+      // 1,600 waits in 1135, and paying the net releases all of it.
       const bill = postToExpense(fees, 'H56', '9533.33');
       expect(billPosting(bill).entry)
-        .toEqual(['6100 Dr 10000.00', '1130 Dr 1600.00', '2141 Cr 1000.00', '2142 Cr 1066.67', '2110 Cr 9533.33']);
+        .toEqual(['6100 Dr 10000.00', '1135 Dr 1600.00', '2141 Cr 1000.00', '2142 Cr 1066.67', '2110 Cr 9533.33']);
       // Paying the net settles the vendor and touches neither withholding:
       // 2141 and 2142 stay owed to the SAT until the company remits them.
       expect(ok(['payment', 'create', bill, '--amount', '9533.33', '--date', '2025-12-16', '--yes']).out)
