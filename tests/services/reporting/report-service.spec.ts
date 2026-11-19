@@ -504,6 +504,20 @@ describe('queryAccountBalance — one account, raw, on the caller connection', (
     expect(sql(0)).toMatch(/AND a\.id = \$4/);
     expect(params(0)).toEqual([ENTITY, '2026-12-31', 'p12', 'acc-1']);
   });
+
+  it('narrows to a set of accounts after the cut, on the caller client (MNE-001-436)', async () => {
+    const clientQuery = vi.fn().mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(
+      ENTITY,
+      { date: '2026-01-31', inclusive: true },
+      { ignoreClosingPolicy: true, accountIds: ['acc-1220', 'acc-1230'], client: { query: clientQuery } as never }
+    );
+    const text = String(clientQuery.mock.calls[0][0]).replace(/\s+/g, ' ');
+    expect(text).toMatch(/AND je\.entry_date <= \$2/);
+    expect(text).toMatch(/WHERE a\.entity_id = \$1 AND a\.id = ANY\(\$3::uuid\[\]\) GROUP BY jel\.account_id/);
+    expect(clientQuery.mock.calls[0][1]).toEqual([ENTITY, '2026-01-31', ['acc-1220', 'acc-1230']]);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
 });
 
 describe('queryEntryMovementsOnAccount — one account, entry by entry', () => {
@@ -565,6 +579,20 @@ describe('queryEntryMovementsOnAccount — one account, entry by entry', () => {
     );
     expect(sql(0)).toMatch(/\(COUNT\(\*\) OVER \(\)\)::int AS total_entries/);
     expect(sql(0)).toMatch(/GROUP BY je\.id, je\.entry_number, je\.entry_date, je\.description, je\.created_by/);
+  });
+
+  it('keeps only the named source types and the entries that reverse them (MNE-001-436)', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsOnAccount(ENTITY, 'acc-1', { onlySourceTypes: ['fx_revaluation'] });
+    expect(sql(0)).toMatch(
+      /AND jel\.account_id = \$2 AND \(je\.source_type = ANY\(\$3::text\[\]\) OR EXISTS \( SELECT 1 FROM journal_entries orig WHERE orig\.id = je\.reverses_entry_id AND orig\.entity_id = je\.entity_id AND orig\.source_type = ANY\(\$3::text\[\]\)\)\) GROUP BY/
+    );
+    expect(params(0)).toEqual([ENTITY, 'acc-1', ['fx_revaluation']]);
+
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsOnAccount(ENTITY, 'acc-1', { onlySourceTypes: ['fx_revaluation'], asOf: '2026-03-31' });
+    expect(sql(1)).toMatch(/orig\.source_type = ANY\(\$3::text\[\]\)\)\) AND je\.entry_date <= \$4::date GROUP BY/);
+    expect(params(1)).toEqual([ENTITY, 'acc-1', ['fx_revaluation'], '2026-03-31']);
   });
 });
 
