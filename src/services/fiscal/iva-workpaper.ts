@@ -10,6 +10,7 @@ import {
 } from '../accounting/iva-cash-basis.js';
 import { saleSources, type SaleSource } from './sale-sources.js';
 import { issuedCreditNotesOfRange, type NoteGapCause } from './issued-credit-notes.js';
+import { bankFeesOfRange } from './bank-fee-iva.js';
 import { backAsAdvance, storedAdvanceTreatment } from '../payments/customer-advance.js';
 import {
   acumuladoDelDocumento,
@@ -105,7 +106,10 @@ import {
 // credit warns and settles; any other blocks.
 //   · creditable — IVA acreditable PAID: the DIOT's facts (`hechosDelMes`), the
 //                  one definition of "IVA paid" in this project. A third query
-//                  for it would be the fourth definition.
+//                  for it would be the fourth definition. Plus the bank fees
+//                  (MNE-001-566, `bank-fee-iva.ts`), which no bill carries: the
+//                  charge is their payment (MNE-001-041), so their IVA counts
+//                  in the month its entry moved 1130.
 //
 // The ledger holds ONE IVA line per document, so the split by rate comes from
 // the document lines, through the DIOT's `desglosarDocumento`: the total is
@@ -1442,8 +1446,9 @@ export interface DocumentContribution {
   /**
    * 'receipt': a customer advance, collected, applied or unapplied in the month (MNE-001-423).
    * 'credit_note': an issued credit note, subtracted (MNE-001-565).
+   * 'bank_fee': a bank fee's IVA, creditable at its charge (MNE-001-566); the id is its movement or its adjustment.
    */
-  documentKind: 'invoice' | 'bill' | 'receipt' | 'credit_note';
+  documentKind: 'invoice' | 'bill' | 'receipt' | 'credit_note' | 'bank_fee';
   /** The invoice's own entry for a PUE; the customer or vendor payments' entries of the month for a PPD or an advance. */
   entryIds: string[];
   breakdown: Desglose;
@@ -1829,7 +1834,7 @@ function tieOut(
       `es ${q4(ledger)}. Revisa las pólizas del mes antes de declarar: una nota de crédito, un ` +
       `asiento manual o un documento sin renglones explican la diferencia.` +
       (causes.length
-        ? ` De la diferencia de ${q4(gap)}, estos cobros y notas de crédito explican ${q4(named)}: ${causes.map((c) => `${c.text} (${q4(c.amount)})`).join('; ')}.`
+        ? ` De la diferencia de ${q4(gap)}, estos documentos explican ${q4(named)}: ${causes.map((c) => `${c.text} (${q4(c.amount)})`).join('; ')}.`
         : ''),
   });
 }
@@ -1902,6 +1907,10 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
         withheld: { amount: q4(0), entryId: null },
       });
     }
+    const fees = await bankFeesOfRange(client, entityId, range);
+    creditable = sumarDesgloses(creditable, fees.breakdown);
+    creditableContributions.push(...fees.contributions);
+    findings.push(...fees.findings);
 
     const ledger = await roleMovements(client, tenantId, entityId, range);
     const net = (r: IvaRole): Decimal => ledger[r].debit.minus(ledger[r].credit);
@@ -1912,7 +1921,7 @@ export async function buildIvaWorkpaper(opts: IvaWorkpaperOptions): Promise<IvaW
       findings, 'IVA-WP-CHARGED-VS-LEDGER', 'IVA trasladado cobrado por tasa', 'iva_trasladado',
       ivaDelDesglose(charged.breakdown), net('iva_trasladado').negated(), [...gapCauses(charged, receiptLedger), ...charged.noteCauses]
     );
-    tieOut(findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'));
+    tieOut(findings, 'IVA-WP-CREDITABLE-VS-LEDGER', 'IVA acreditable pagado por tasa', 'iva_acreditable', ivaDelDesglose(creditable), net('iva_acreditable'), fees.causes);
     // Debits only: the month's settlement or offset entry credits the account,
     // and a net movement would read as zero once it is posted.
     tieOut(findings, 'IVA-WP-WITHHELD-VS-LEDGER', 'IVA retenido que las ventas del mes registraron al emitirse', 'iva_retenido_a_favor (cargos)', charged.withheldPostedAtIssuance, ledger.iva_retenido_a_favor.debit);

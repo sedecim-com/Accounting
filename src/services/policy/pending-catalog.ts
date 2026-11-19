@@ -969,6 +969,54 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 40,
   },
   {
+    // MNE-001-374 · #194: read by `calculateFiniquito` (payroll/mx/finiquito-calculator.ts),
+    // decided by the owner in MNE-001-373. The separation ISR that uses it is MNE-001-375.
+    key: 'usmo_isr_subsidy',
+    textKey: 'usmo_isr_subsidy',
+    category: 'fiscal',
+    question:
+      'For the separation ISR, is the ISR of the last ordinary monthly salary (USMO) taken gross of the tariff, or net of the employment subsidy?',
+    impact:
+      'LISR art. 96, last paragraph, withholds the ISR of a seniority premium or an indemnity at a rate: the ISR of the last ordinary monthly salary divided by that salary. Read by the settlement (finiquito-calculator.ts), which reports this reading in its basis. Nothing is withheld yet: the separation ISR that applies the rate comes next (MNE-001-375). Net of the subsidy lowers the rate, so less is withheld.',
+    options: [
+      { value: 'gross_of_tariff', label: 'The ISR of the USMO by the monthly tariff, without subtracting the employment subsidy' },
+      { value: 'net_of_subsidy', label: 'The ISR of the USMO by the monthly tariff, minus the employment subsidy that salary would get' },
+    ],
+    defaultValue: 'gross_of_tariff',
+    defaultRationale:
+      'LISR art. 96, last paragraph (with RLISR art. 174), divides "the tax that corresponds to the last ordinary monthly salary" by that salary. The employment subsidy is a credit against the ISR withheld, not tax caused, so the tax that corresponds is the one of the tariff. Gross is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); net of the subsidy is the other reading, and it withholds less.',
+    whyAsking:
+      'The law builds the separation rate on the ISR of the last monthly salary, and does not say whether that ISR subtracts the employment subsidy. Your firm decides.',
+    whatIDo:
+      'I take the ISR of the last ordinary monthly salary by the monthly tariff, without subtracting the subsidy, and report that reading in the settlement. The withholding that uses it is not in place yet.',
+    ifSkipped: 'I take it gross of the tariff, without subtracting the subsidy.',
+    priority: 40,
+  },
+  {
+    // MNE-001-374 · #194: read by `calculateFiniquito` (payroll/mx/finiquito-calculator.ts),
+    // decided by the owner in MNE-001-373. The separation ISR that uses it is MNE-001-375.
+    key: 'usmo_days_per_month',
+    textKey: 'usmo_days_per_month',
+    category: 'fiscal',
+    question:
+      'How many days make the last ordinary monthly salary (USMO) of a settlement: 30 or 30.4?',
+    impact:
+      'The USMO is the daily wage times these days, and the separation ISR of LISR art. 96, last paragraph, is built on it. Read by the settlement (finiquito-calculator.ts), which reports the USMO in its basis. Nothing is withheld yet: the separation ISR comes next (MNE-001-375). On a daily wage of 300.00 the USMO is 9,000.00 at 30 days and 9,120.00 at 30.4.',
+    options: [
+      { value: '30', label: 'Daily wage × 30 (LFT art. 89 divides a monthly salary by thirty)' },
+      { value: '30.4', label: 'Daily wage × 30.4 (the month of the monthly tariff)' },
+    ],
+    defaultValue: '30',
+    defaultRationale:
+      'LFT art. 89 divides a monthly salary by thirty to get the daily wage, so the ordinary monthly salary of a daily wage is the daily wage × 30; LISR art. 96, last paragraph, builds the separation rate on that salary. 30 is the reading the owner chose in MNE-001-373 (ADR-0006, decision 1); 30.4 is the other reading, the month the monthly tariff and the subsidy decree prorate.',
+    whyAsking:
+      'The law names the last ordinary monthly salary but not how many days a month has. Your firm decides.',
+    whatIDo:
+      'I compute the USMO as the daily wage × 30 and report it in the settlement. The withholding that uses it is not in place yet.',
+    ifSkipped: 'I use 30 days.',
+    priority: 40,
+  },
+  {
     key: 'flujo_efectivo_metodo',
     textKey: 'cash_flow_method',
     category: 'contable',

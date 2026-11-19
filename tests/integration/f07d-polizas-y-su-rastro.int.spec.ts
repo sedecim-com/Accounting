@@ -157,6 +157,36 @@ async function gastoAprobado(
   return { billId, total, vendorId, uuid: uuidCfdi };
 }
 
+/** An issued invoice to a well-formed customer on day 5 of `month`, ready to be collected. */
+async function issuedInvoice(month: number, unitPrice: string): Promise<{ invoiceId: string; total: string }> {
+  const customerId = uuidv4();
+  await query(
+    `INSERT INTO customers (id, entity_id, customer_number, company_name, tax_id, currency_code, created_by)
+     VALUES ($1,$2,$3,'Cliente Puntual SA','CPU010101AB1','MXN',$4)`,
+    [customerId, f.entityId, `C-${customerId.slice(0, 8)}`, f.userId]
+  );
+  const day = fechaEnPeriodo(month, 5).toISOString().slice(0, 10);
+  const draft = await createInvoice({
+    entity_id: f.entityId,
+    customer_id: customerId,
+    invoice_date: day,
+    due_date: day,
+    currency_code: 'MXN',
+    lines: [
+      {
+        revenue_account_id: await cuentaPorCodigo(f.entityId, '4100'),
+        description: 'Servicio',
+        quantity: '1',
+        unit_price: unitPrice,
+        tax_rate: '16.0000',
+      },
+    ],
+    created_by: f.userId,
+  });
+  const issued = await issueInvoice(draft.id, f.userId, { entityId: f.entityId });
+  return { invoiceId: issued.invoice.id, total: new Decimal(unitPrice).times('1.16').toFixed(2) };
+}
+
 // ============================================================
 // 1 · EL NÚMERO DE CHEQUE, QUE POR FIN TIENE ESCRITOR
 // ============================================================
@@ -647,33 +677,9 @@ describe('a payment node without its c_Banco code is left out and its entry is n
   }
 
   async function customerTransfer(): Promise<string | undefined> {
-    const customerId = uuidv4();
-    await query(
-      `INSERT INTO customers (id, entity_id, customer_number, company_name, tax_id, currency_code, created_by)
-       VALUES ($1,$2,$3,'Cliente Puntual SA','CPU010101AB1','MXN',$4)`,
-      [customerId, f.entityId, `C-${customerId.slice(0, 8)}`, f.userId]
-    );
-    const day = fechaEnPeriodo(TRACE_MONTH, 5).toISOString().slice(0, 10);
-    const draft = await createInvoice({
-      entity_id: f.entityId,
-      customer_id: customerId,
-      invoice_date: day,
-      due_date: day,
-      currency_code: 'MXN',
-      lines: [
-        {
-          revenue_account_id: await cuentaPorCodigo(f.entityId, '4100'),
-          description: 'Servicio',
-          quantity: '1',
-          unit_price: '100.00',
-          tax_rate: '16.0000',
-        },
-      ],
-      created_by: f.userId,
-    });
-    const issued = await issueInvoice(draft.id, f.userId, { entityId: f.entityId });
+    const issued = await issuedInvoice(TRACE_MONTH, '100.00');
     // Our own account has a code and a number, so the destination is complete:
-    // the only gap left is the payer's bank.
+    // the only gap left is the payer's bank, which this receipt does not give.
     const receipt = await recordCustomerPayment(
       {
         entityId: f.entityId,
@@ -681,7 +687,7 @@ describe('a payment node without its c_Banco code is left out and its entry is n
         paymentDate: fechaEnPeriodo(TRACE_MONTH, 20),
         paymentMethod: 'spei',
         bankAccountId: bancoId,
-        applications: [{ documentId: issued.invoice.id, amountApplied: '116.00' }],
+        applications: [{ documentId: issued.invoiceId, amountApplied: '116.00' }],
       },
       f.userId
     );
@@ -713,8 +719,8 @@ describe('a payment node without its c_Banco code is left out and its entry is n
     ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal',
       'decisión del dueño', 'payment create',
       () => vendorPayment('spei', 'with code', { cuentaDestino: 'GB29NWBK60161331926819', bancoDestinoExtranjero: 'Bank of Nowhere' })],
-    ['a customer transfer', 'Transferencia', 'BancoOriNal',
-      '`receipt record` no tiene dónde capturar el banco del cliente', 'payment create',
+    ['a customer transfer with no payer bank', 'Transferencia', 'BancoOriNal',
+      'receipt record --payer-bank', 'payment create',
       () => customerTransfer()],
   ] as const)('%s', async (_label, node, attribute, remedy, wrongRemedy, record) => {
     const entry = await record();
@@ -933,5 +939,142 @@ describe('a payment node the XSD would reject is left out and its entry is named
         h.check === 'texto-normalizado' && h.referencia === entry && h.detalle.includes('Benef del pago')
     );
     expect(benefNotices).toEqual([]);
+  });
+});
+
+describe('a receipt declares the payer bank and account, and our account as the destination (#611)', () => {
+  // A month of its own (8, 9 and 10 are taken). Hand figures from the plan:
+  // T1 SPEI 116.00 from 002 into ours (012 and its CLABE); C1 a cheque 4501
+  // for 232.00 drawn on 072, account 1234567890, deposited with no `--bank`.
+  const RECEIPT_MONTH = 11;
+  const PAYER_ACCOUNT = '002180009876543210';
+  type Payer = Pick<
+    Parameters<typeof recordCustomerPayment>[0],
+    'checkNumber' | 'payerBankCode' | 'payerAccount' | 'payerForeignBank' | 'bankAccountId' | 'paymentMethod'
+  >;
+
+  const receiptRows = async (): Promise<number> =>
+    Number((await query<{ n: string }>(`SELECT count(*) AS n FROM customer_payments WHERE entity_id = $1`, [f.entityId])).rows[0].n);
+
+  async function receipt(unitPrice: string, payer: Payer): Promise<{ id: string; entry: string | undefined }> {
+    const issued = await issuedInvoice(RECEIPT_MONTH, unitPrice);
+    const r = await recordCustomerPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: issued.total,
+        paymentDate: fechaEnPeriodo(RECEIPT_MONTH, 20),
+        ...payer,
+        applications: [{ documentId: issued.invoiceId, amountApplied: issued.total }],
+      },
+      f.userId
+    );
+    return { id: r.paymentId, entry: r.journalEntry?.entry_number };
+  }
+
+  let t1: { id: string; entry: string | undefined };
+  let c1: { id: string; entry: string | undefined };
+
+  beforeAll(async () => {
+    // The catalogue the earlier blocks leave holds 012 and 002; 072 joins it so
+    // the cheque is judged on its trace, not on a catalogue seeded for others.
+    await query(
+      `INSERT INTO sat_bancos (clave, nombre_corto, vigente)
+       VALUES ('002','Banamex',true), ('012','BBVA',true), ('072','Banorte',true)
+       ON CONFLICT (clave) DO NOTHING`
+    );
+    t1 = await receipt('100.00', {
+      paymentMethod: 'spei', bankAccountId: bancoId, payerBankCode: '002', payerAccount: PAYER_ACCOUNT,
+    });
+    c1 = await receipt('200.00', {
+      paymentMethod: 'check', checkNumber: '4501', payerBankCode: '072', payerAccount: '1234567890',
+    });
+  });
+
+  it('stores the payer bank and account on the receipt', async () => {
+    const r = await query<Record<string, string | null>>(
+      `SELECT check_number, banco_origen_sat, cuenta_origen, banco_origen_extranjero
+         FROM customer_payments WHERE id = ANY($1::uuid[]) AND entity_id = $2 ORDER BY check_number NULLS FIRST`,
+      [[t1.id, c1.id], f.entityId]
+    );
+    expect(r.rows).toEqual([
+      { check_number: null, banco_origen_sat: '002', cuenta_origen: PAYER_ACCOUNT, banco_origen_extranjero: null },
+      { check_number: '4501', banco_origen_sat: '072', cuenta_origen: '1234567890', banco_origen_extranjero: null },
+    ]);
+  });
+
+  it.each([
+    ['a payer bank off c_Banco', { paymentMethod: 'spei', payerBankCode: '003' }, /«003».*c_Banco/],
+    ['a payer bank that is not three digits', { paymentMethod: 'spei', payerBankCode: '12' }, /«12».*c_Banco/],
+    ['a national and a foreign payer bank', { paymentMethod: 'spei', payerBankCode: '002', payerForeignBank: 'Bank of Nowhere' }, /nacional.*extranjero/],
+    ['999 with a foreign name', { paymentMethod: 'spei', payerBankCode: '999', payerForeignBank: 'Bank of Nowhere' }, /nacional.*extranjero/],
+    ['a payer account with no payer bank', { paymentMethod: 'spei', payerAccount: PAYER_ACCOUNT }, /cuenta del cliente.*banco/],
+    ['a payer bank on a cash receipt', { paymentMethod: 'cash', payerBankCode: '002' }, /«cash»/],
+    ['a cheque number longer than the node allows', { paymentMethod: 'check', checkNumber: '1'.repeat(21) }, /20 caracteres/],
+  ] as const)('refuses %s before anything is written', async (_case, payer, message) => {
+    const before = await receiptRows();
+    const issued = await issuedInvoice(RECEIPT_MONTH, '10.00');
+    const refused = await recordCustomerPayment(
+      {
+        entityId: f.entityId,
+        paymentAmount: issued.total,
+        paymentDate: fechaEnPeriodo(RECEIPT_MONTH, 20),
+        ...payer,
+        applications: [{ documentId: issued.invoiceId, amountApplied: issued.total }],
+      },
+      f.userId
+    ).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(ValidationError);
+    expect((refused as Error).message).toMatch(message);
+    expect(await receiptRows()).toBe(before);
+  });
+
+  it('refuses the payer fields on a vendor payment: its origin is our bank account', async () => {
+    const g = await gastoAprobado(f.entityId, f.userId, '10.00', '1.60', { month: RECEIPT_MONTH });
+    await expect(
+      recordVendorPayment(
+        {
+          entityId: f.entityId,
+          paymentAmount: g.total,
+          paymentDate: fechaEnPeriodo(RECEIPT_MONTH, 20),
+          paymentMethod: 'spei',
+          bankAccountId: bancoId,
+          payerBankCode: '002',
+          applications: [{ documentId: g.billId, amountApplied: g.total }],
+        },
+        f.userId
+      )
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('the database refuses a national and a foreign payer bank together', async () => {
+    await expect(
+      query(
+        `UPDATE customer_payments SET banco_origen_extranjero = 'Bank of Nowhere' WHERE id = $1 AND entity_id = $2`,
+        [t1.id, f.entityId]
+      )
+    ).rejects.toMatchObject({ code: '23514', constraint: 'banco_origen_nacional_o_extranjero_cobro' });
+  });
+
+  it('the month leaves both receipts with their node, validates, and names neither', async () => {
+    const r = await generarPolizas(f.entityId, { periodo: `2026-${RECEIPT_MONTH}`, solicitud: SOLICITUD });
+    expect(validateAgainstOfficialXsd(r.xml, 'journal')).toEqual({ valid: true, errors: [] });
+    const voucher = (entry: string | undefined): string =>
+      r.xml.split('<PLZ:Poliza ').find((block) => block.includes(`NumUnIdenPol="${entry}"`)) ?? '';
+
+    expect(voucher(t1.entry)).toContain(
+      `<PLZ:Transferencia CtaOri="${PAYER_ACCOUNT}" BancoOriNal="002" CtaDest="${CLABE}" BancoDestNal="012" `
+    );
+    expect(voucher(t1.entry)).toContain('Monto="116.00"');
+    expect(voucher(c1.entry)).toContain('<PLZ:Cheque Num="4501" BanEmisNal="072" CtaOri="1234567890" ');
+    expect(voucher(c1.entry)).toContain('Monto="232.00"');
+    expect(voucher(c1.entry)).not.toContain('BanEmisNal="012"');
+    expect(voucher(c1.entry)).not.toContain(CLABE);
+
+    // Neither receipt is named. The file's shared bank account posts to 1120,
+    // so this fixture's invoices read as bank moves with no payment: those
+    // are the only blocking findings left, and none is a receipt's.
+    expect(r.hallazgos.filter((h) => h.referencia === t1.entry || h.referencia === c1.entry)).toEqual([]);
+    const blocking = r.hallazgos.filter((h) => h.severity === 'blocking');
+    expect(blocking.every((h) => h.detalle.includes('(source_type invoice)')), JSON.stringify(blocking)).toBe(true);
   });
 });

@@ -202,8 +202,9 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     normal_balance: 'debit', fs_category: 'other_expenses', parent: '6000',
     description:
       'Comisiones de manejo de cuenta, transferencias y devoluciones que cobra el banco. ' +
-      'Su IVA se aparca en 1135 hasta que llega el CFDI del banco: sin comprobante no hay ' +
-      'acreditamiento, por mucho que el cargo esté en el extracto.',
+      'Su IVA se acredita en el mes del cargo, porque el cargo es el pago (LIVA arts. 1-B y 5 ' +
+      'fr. III): `bank fee post` lo pasa de 1135 a 1130 en el mismo acto. Conserva el CFDI del ' +
+      'banco: sin él no hay acreditamiento (art. 5 fr. II).',
   },
   {
     // F05d. Separado de 4300 «Otros Ingresos» por la misma razón: el interés

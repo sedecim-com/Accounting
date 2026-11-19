@@ -646,7 +646,8 @@ describe("the service's bank-code checks keep it away from the builder's guard (
     payment_number: 'VPMT-1', payment_amount: '1160.0000', payment_date: '2026-02-10',
     payment_method: method, currency_code: 'MXN', exchange_rate: '1', bank_account_id: 'ba-1',
     check_number: checkNumber, cuenta_destino: '002180009876543210', banco_destino_sat: destCode,
-    banco_destino_extranjero: destForeign, cfdi_uuid: null, contraparte: 'Proveedor SA',
+    banco_destino_extranjero: destForeign, cuenta_origen: null, banco_origen_sat: null,
+    banco_origen_extranjero: null, cfdi_uuid: null, contraparte: 'Proveedor SA',
     contraparte_id: 'v-1', contraparte_rfc: 'PSA010101AA1',
   });
   const account = (code: string | null) => ({

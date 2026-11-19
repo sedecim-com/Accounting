@@ -328,6 +328,10 @@ interface FilaDePago {
   cuenta_destino: string | null;
   banco_destino_sat: string | null;
   banco_destino_extranjero: string | null;
+  /** #611 · the customer's side of a receipt (335); NULL on a vendor payment, whose origin is ours. */
+  cuenta_origen: string | null;
+  banco_origen_sat: string | null;
+  banco_origen_extranjero: string | null;
   cfdi_uuid: string | null;
   /** Nombre y RFC de la contraparte, ya resueltos por el JOIN. */
   contraparte: string;
@@ -356,6 +360,7 @@ async function pagosAProveedores(
             vp.payment_date::text AS payment_date, vp.payment_method, vp.currency_code,
             vp.exchange_rate::text AS exchange_rate, vp.bank_account_id::text AS bank_account_id,
             vp.check_number, vp.cuenta_destino, vp.banco_destino_sat, vp.banco_destino_extranjero,
+            NULL::text AS cuenta_origen, NULL::text AS banco_origen_sat, NULL::text AS banco_origen_extranjero,
             vp.cfdi_uuid, v.id::text AS contraparte_id, v.company_name AS contraparte,
             v.tax_id AS contraparte_rfc
        FROM vendor_payments vp
@@ -377,6 +382,7 @@ async function cobrosDeClientes(
             cp.payment_date::text AS payment_date, cp.payment_method, cp.currency_code,
             cp.exchange_rate::text AS exchange_rate, cp.bank_account_id::text AS bank_account_id,
             cp.check_number, cp.cuenta_destino, cp.banco_destino_sat, cp.banco_destino_extranjero,
+            cp.cuenta_origen, cp.banco_origen_sat, cp.banco_origen_extranjero,
             cp.cfdi_uuid, c.id::text AS contraparte_id,
             COALESCE(c.company_name, TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))) AS contraparte,
             c.tax_id AS contraparte_rfc
@@ -413,13 +419,17 @@ export const METODO_A_SAT: Readonly<Record<string, string>> = {
 };
 
 /** Where the missing datum lives, which decides the remedy the finding prescribes. */
-type RemedyCause = Pick<UntracedMoney, 'missingOnRecord' | 'missingOnBankAccount' | 'noCommandFixes'>;
+type RemedyCause = Pick<
+  UntracedMoney,
+  'missingOnRecord' | 'missingOnBankAccount' | 'bankAccountFlag' | 'noCommandFixes'
+>;
 
 /** The defined fields of a cause only: `exactOptionalPropertyTypes` refuses an undefined one. */
 function remedyCause(c: RemedyCause): RemedyCause {
   return {
     ...(c.missingOnRecord !== undefined ? { missingOnRecord: c.missingOnRecord } : {}),
     ...(c.missingOnBankAccount !== undefined ? { missingOnBankAccount: c.missingOnBankAccount } : {}),
+    ...(c.bankAccountFlag !== undefined ? { bankAccountFlag: c.bankAccountFlag } : {}),
     ...(c.noCommandFixes !== undefined ? { noCommandFixes: c.noCommandFixes } : {}),
   };
 }
@@ -443,11 +453,12 @@ type Saneador = (crudo: string, numUnIdenPol: string, campo: string) => string;
 /** Cuando no hay a quién denunciarle nada (el auxiliar de folios). */
 const SANEADOR_MUDO: Saneador = (crudo) => limpiar(crudo).texto;
 
-// Every customer transfer lacks the payer's bank, whatever else it lacks, so
-// each receipt cause shares this remedy and none sends the reader to a payment.
-const RECEIPT_ORIGIN_UNCAPTURED =
-  '`receipt record` no tiene dónde capturar el banco del cliente que ordenó la ' +
-  'transferencia, y nada lo completa en un cobro ya registrado';
+// #611 · What a receipt captures only when it is recorded. #612 adds the
+// command that completes a registered one; until then the finding says so.
+const onlyAtRecord = (flag: string): string =>
+  `el dato sólo se captura al registrar el cobro (\`receipt record ${flag}\`) y ningún comando lo ` +
+  `añade a un cobro ya registrado; reversarlo y registrarlo otra vez tampoco lo arregla, porque el ` +
+  `asiento original y su espejo se quedan sin rastro`;
 
 /**
  * DE UN PAGO REGISTRADO AL NODO QUE EL ANEXO 24 DECLARA.
@@ -573,6 +584,8 @@ export function rastroDePago(
   // (`--bank` is optional), no command links one afterwards, and reversing and
   // registering again leaves the original entry and its mirror untraced.
   const register = sentido === 'sale' ? 'payment create --bank' : 'receipt record --bank';
+  const namedAccount = (b: FilaDeCuentaBancaria): string =>
+    `la cuenta bancaria «${limpiar(b.account_name).texto}» (id ${b.id})`;
   const ourBankGap = (node: string, attribute: string, what: string): RastroResuelto => {
     if (banco === undefined) {
       return {
@@ -584,12 +597,70 @@ export function rastroDePago(
           `lo arregla, porque el asiento original y su espejo se quedan sin rastro`,
       };
     }
-    const account = `la cuenta bancaria «${limpiar(banco.account_name).texto}» (id ${banco.id})`;
+    const account = namedAccount(banco);
     return {
-      motivo: bankGap(node, attribute, `${what} sale de ${account}, que no tiene clave c_Banco`),
+      motivo: bankGap(node, attribute, `${what} ${sentido === 'sale' ? 'sale de' : 'entra a'} ${account}, que no tiene clave c_Banco`),
       missingOnBankAccount: account,
     };
   };
+
+  // #611 · In a receipt the origin is the customer's: its bank (the issuer of
+  // its cheque) and its account, as `receipt record` captured them. A foreign
+  // bank is declared as 999 with its name in `*Ext` (#532), which the builder
+  // does not accept yet, so its receipt is named meanwhile.
+  const payerBank = (p.banco_origen_sat ?? '').trim() || undefined;
+  const payerForeign = (p.banco_origen_extranjero ?? '').trim() || undefined;
+  const payerAccount = (p.cuenta_origen ?? '').replace(/\s+/g, '') || undefined;
+  const payerBankGap = (node: string, attribute: string, what: string): RastroResuelto =>
+    payerForeign !== undefined
+      ? {
+          motivo: bankGap(node, attribute, `el banco del cliente de ${what} es extranjero («${limpiar(payerForeign).texto}»)`),
+          noCommandFixes:
+            'el archivo todavía no declara un banco extranjero (la clave 999 con su nombre llega en una ' +
+            'entrega pendiente del sistema); el dato ya está guardado en el cobro',
+        }
+      : {
+          motivo: bankGap(node, attribute, `el banco del cliente de ${what} no está capturado`),
+          noCommandFixes: onlyAtRecord('--payer-bank'),
+        };
+
+  if (p.payment_method === 'check' && sentido === 'entra') {
+    // A customer's cheque: the customer's bank issued it, drawn on the
+    // customer's account. Our bank account is not part of this node.
+    const num = (p.check_number ?? '').trim();
+    const what = num === '' ? `el cobro ${p.payment_number}` : `el cheque ${num}`;
+    const gap = payeeGap('Cheque', num === '' ? `del cobro ${p.payment_number}` : `del cheque ${num}`);
+    if (gap !== undefined) return gap;
+    if (num === '') {
+      return {
+        motivo:
+          `el cobro ${p.payment_number} se recibió en cheque y no tiene número de cheque capturado; ` +
+          `el nodo Cheque lo exige`,
+        noCommandFixes: onlyAtRecord('--check-number'),
+      };
+    }
+    if (payerBank === undefined) return payerBankGap('Cheque', 'BanEmisNal', what);
+    if (payerAccount === undefined) {
+      return {
+        motivo: bankGap('Cheque', 'CtaOri', `la cuenta contra la que se giró ${what} no está capturada`),
+        noCommandFixes: onlyAtRecord('--payer-account'),
+      };
+    }
+    return {
+      pago: {
+        clase: 'cheque',
+        num,
+        banEmisNal: payerBank,
+        ctaOri: payerAccount,
+        fecha: p.payment_date,
+        benef: emittedBenef(),
+        rfc: rfcBenef,
+        monto,
+        moneda,
+        ...(tipCamb !== undefined ? { tipCamb } : {}),
+      },
+    };
+  }
 
   if (p.payment_method === 'check') {
     const num = (p.check_number ?? '').trim();
@@ -630,43 +701,47 @@ export function rastroDePago(
   }
 
   if (p.payment_method === 'spei' || p.payment_method === 'wire' || p.payment_method === 'ach') {
-    // En un pago la cuenta destino es la CAPTURADA (la del tercero); en un
-    // cobro la destino es la NUESTRA y la del tercero no se conoce — y no se
-    // inventa: `CtaOri` se omite, que el esquema permite.
-    const ctaDest = sentido === 'sale' ? cuentaCapturada : (cuentaCapturada ?? nuestraCuenta);
     // The payee's record first, for the same reason as in the check above.
     const gap = payeeGap('Transferencia', `de la transferencia ${p.payment_number}`);
     if (gap !== undefined) return gap;
-    if (ctaDest === undefined) {
-      if (sentido === 'sale') {
+    if (sentido === 'entra') {
+      // #611 · A receipt: the customer's bank and account are the origin, our
+      // bank account the destination. Our account goes first: editing it
+      // fixes even a receipt already registered, and its gap survives a new one.
+      const what = `el cobro ${p.payment_number}`;
+      if (banco === undefined || nuestroBanco === undefined) return ourBankGap('Transferencia', 'BancoDestNal', what);
+      const receivingAccount = cuentaCapturada ?? nuestraCuenta;
+      if (receivingAccount === undefined) {
+        const account = namedAccount(banco);
         return {
-          motivo:
-            `el pago ${p.payment_number} es una transferencia y no tiene cuenta destino capturada ` +
-            `(\`payment create --to-account\`); es el dato obligatorio del nodo Transferencia`,
+          motivo: bankGap('Transferencia', 'CtaDest', `${what} entra a ${account}, que no tiene número de cuenta guardado o no descifra`),
+          missingOnBankAccount: account,
+          bankAccountFlag: '--clabe <18 dígitos>',
         };
       }
-      // Completing the receiving account would not trace a receipt: its
-      // origin bank (below) stays uncaptured. So no remedy is true today.
+      if (payerBank === undefined) return payerBankGap('Transferencia', 'BancoOriNal', `la transferencia ${p.payment_number}`);
       return {
-        motivo:
-          `el cobro ${p.payment_number} entró por transferencia y no se pudo resolver la cuenta ` +
-          `que lo recibió: ni está capturada ni la cuenta bancaria del cobro tiene número`,
-        noCommandFixes: RECEIPT_ORIGIN_UNCAPTURED,
+        pago: {
+          clase: 'transferencia',
+          ...(payerAccount !== undefined ? { ctaOri: payerAccount } : {}),
+          bancoOriNal: payerBank,
+          ctaDest: receivingAccount,
+          bancoDestNal: nuestroBanco,
+          fecha: p.payment_date,
+          benef: emittedBenef(),
+          rfc: rfcBenef,
+          monto,
+          moneda,
+          ...(tipCamb !== undefined ? { tipCamb } : {}),
+        },
       };
     }
-    // In a receipt the origin bank is the payer's, and nothing captures it:
-    // `customer_payments` has no column for it and `receipt record` no flag
-    // (TODO(#532)). So every customer transfer is named here, and what
-    // follows is for a payment only.
-    if (sentido === 'entra') {
+    const ctaDest = cuentaCapturada;
+    if (ctaDest === undefined) {
       return {
-        motivo: bankGap(
-          'Transferencia',
-          'BancoOriNal',
-          `el cobro ${p.payment_number} entró por transferencia y el banco del cliente que la ` +
-            `ordenó no está capturado`
-        ),
-        noCommandFixes: RECEIPT_ORIGIN_UNCAPTURED,
+        motivo:
+          `el pago ${p.payment_number} es una transferencia y no tiene cuenta destino capturada ` +
+          `(\`payment create --to-account\`); es el dato obligatorio del nodo Transferencia`,
       };
     }
     const who = `la transferencia ${p.payment_number}`;
