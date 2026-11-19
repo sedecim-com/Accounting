@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 
 // ============================================================
 // MVP-E2E · THE MONTH OF AN SME, END TO END (#311, MNE-001-097)
@@ -167,11 +168,23 @@ const OPENING_2024 = [
   ['3200', 'Resultado de Ejercicios Anteriores', '304.01', '3000', 2, 'A', '5000.00'],
 ] as const;
 const OPENING_DEBITS = '107800.00';
+// The previous system also carries a CUFIN pair (MNE-001-484, #219): memorandum
+// accounts, off the balance sheet, which do not migrate. Both files declare
+// it, at the root and 30,000.00 on each side, so it hangs from no ledger
+// account and nets to zero: `chart import` and the opening leave it out with
+// `--chart`, and no figure above moves. The codes are the firm's; what makes
+// them memorandum is the agrupador 802, never the 8 they start with.
+const MEMORANDUM_PAIR = [
+  ['8100', 'CUFIN', '802.01', '', 1, 'D', '30000.00'],
+  ['8200', 'CUFIN Contra', '802.02', '', 1, 'A', '30000.00'],
+] as const;
+/** The pair as the opening reports it left out: the figure the source declares, at four decimals. */
+const MEMORANDUM_EXCLUDED = [{ code: '8100', amount: '30000.0000' }, { code: '8200', amount: '30000.0000' }];
 const SAT_NS = 'http://www.sat.gob.mx/esquemas/ContabilidadE/1_3';
 const CHART_XML =
   `<?xml version="1.0" encoding="UTF-8"?><catalogocuentas:Catalogo xmlns:catalogocuentas="${SAT_NS}/CatalogoCuentas" ` +
   `Version="1.3" RFC="${COMPANY_RFC}" Mes="12" Anio="2024">` +
-  OPENING_2024.map(([num, desc, group, parent, level, nature]) =>
+  [...OPENING_2024, ...MEMORANDUM_PAIR].map(([num, desc, group, parent, level, nature]) =>
     `<catalogocuentas:Ctas CodAgrup="${group}" NumCta="${num}" Desc="${desc}"` +
     `${parent ? ` SubCtaDe="${parent}"` : ''} Nivel="${level}" Natur="${nature}"/>`).join('') +
   '</catalogocuentas:Catalogo>';
@@ -179,7 +192,7 @@ const CHART_XML =
 const TRIAL_BALANCE_XML =
   `<?xml version="1.0" encoding="UTF-8"?><BCE:Balanza xmlns:BCE="${SAT_NS}/BalanzaComprobacion" ` +
   `Version="1.3" RFC="${COMPANY_RFC}" Mes="12" Anio="2024" TipoEnvio="N">` +
-  OPENING_2024.map(([num, , , , , , balance]) =>
+  [...OPENING_2024, ...MEMORANDUM_PAIR].map(([num, , , , , , balance]) =>
     `<BCE:Ctas NumCta="${num}" SaldoIni="${balance}" Debe="0.00" Haber="0.00" SaldoFin="${balance}"/>`).join('') +
   '</BCE:Balanza>';
 // The documents behind 1120 and 2110, as the previous system's subledgers list
@@ -804,20 +817,31 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(dry.out).toContain('dry-run: nothing was written');
     }, STEP_TIMEOUT_MS);
 
-    it('imports the chart from Anexo 24 XML: the dry run writes nothing, and --yes creates the one account the seeded chart lacks — MNE-001-018', () => {
+    it('imports the chart from Anexo 24 XML: the dry run writes nothing, and --yes creates the one account the seeded chart lacks and leaves the CUFIN pair out — MNE-001-018, MNE-001-019, MNE-001-484', () => {
       const chart = path.join(workDir, 'catalogo-2024-12.xml');
       fs.writeFileSync(chart, CHART_XML);
       // The report publishes the service's keys, in Spanish: read as printed, never renamed.
       const [dry] = rowsOf<Record<string, unknown>>(ok(['chart', 'import', chart, '--dry-run', '--json']));
+      // The pair is left out by doctrine, which is no defect: the plan is
+      // still complete, so --yes needs no --partial.
+      const memorandumOut: unknown[] = [
+        expect.objectContaining({ code: '8100', motivo: 'cuentas_de_orden' }),
+        expect.objectContaining({ code: '8200', motivo: 'cuentas_de_orden' }),
+      ];
       expect(dry).toMatchObject({
-        dryRun: true, escrito: false, creadas: [], omitidas: [], aCrear: [expect.objectContaining({ code: '1320' })],
+        dryRun: true, escrito: false, creadas: [], completa: true, omitidas: memorandumOut,
+        aCrear: [expect.objectContaining({ code: '1320' })],
       });
+      const warned = (r: Record<string, unknown>): string[] => (r['findings'] as Record<string, string>[])
+        .filter((x) => x['regla'] === 'IMP-CUENTAS-DE-ORDEN').map((x) => `${x['numCta']} ${x['severidad']}`);
+      expect(warned(dry)).toEqual(['8100 aviso', '8200 aviso']);
       // The other fourteen are seeded accounts: named, and left as they are.
       expect(dry['yaExistian']).toHaveLength(14);
 
       // Only the dry run came before: had it written 1320, this run would list it as existing.
       const [applied] = rowsOf<Record<string, unknown>>(ok(['chart', 'import', chart, '--yes', '--json']));
-      expect(applied).toMatchObject({ dryRun: false, escrito: true, creadas: ['1320'] });
+      expect(applied).toMatchObject({ dryRun: false, escrito: true, creadas: ['1320'], omitidas: memorandumOut });
+      expect(warned(applied)).toEqual(['8100 aviso', '8200 aviso']);
       expect(applied['yaExistian']).toHaveLength(14);
 
       // A second dry run reads the accounts back. Nothing is left to create,
@@ -842,7 +866,12 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         fs.writeFileSync(file, JSON.stringify(documents));
         return file;
       };
-      const load = (file: string): string[] => ['opening-balance', 'import', trialBalance, '--subledger', file, '--yes', '--json'];
+      // The catalog of the same migration tells the load which rows are the
+      // CUFIN pair; without it, 8100 and 8200 would block as unknown accounts.
+      const load = (file: string): string[] => [
+        'opening-balance', 'import', trialBalance, '--chart', path.join(workDir, 'catalogo-2024-12.xml'),
+        '--subledger', file, '--yes', '--json',
+      ];
 
       // The bill one peso short: 2,319.00 of documents against the 2,320.00
       // the trial balance declares on 2110. With --yes, only the refusal
@@ -859,6 +888,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       const untied = (stopped['findings'] as Record<string, string>[]).find((f) => f['regla'] === 'APE-DETALLE-NO-CUADRA');
       expect(untied).toMatchObject({ numCta: '2110', severidad: 'bloquea' });
       expect(untied?.['mensaje']).toContain('faltan 1.00');
+      // The bill is the one reason: the pair is named, and blocks nothing.
+      const blocking = (r: Record<string, unknown>): string[] => (r['findings'] as Record<string, string>[])
+        .filter((f) => f['severidad'] === 'bloquea').map((f) => `${f['regla']} ${f['numCta']}`);
+      expect(blocking(stopped)).toEqual(['APE-DETALLE-NO-CUADRA 2110']);
+      expect(stopped['excluded']).toEqual(MEMORANDUM_EXCLUDED);
       expect(rowsOf(ok(['entry', 'list', '--all', '--json']))).toEqual([]);
       for (const leaf of ['invoice', 'customer', 'bill', 'vendor']) {
         expect(rowsOf(ok([leaf, 'list', '--all', '--json'])), `${leaf} list after the refusal`).toEqual([]);
@@ -869,6 +903,12 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(money(loaded['totalDebe'] as string)).toBe(OPENING_DEBITS);
       expect(money(loaded['totalHaber'] as string)).toBe(OPENING_DEBITS);
       openingEntry = (loaded['asiento'] as { entry_number: string }).entry_number;
+      // 107,800.00 is the opening without the pair: the pair got no line, and
+      // each side is named with what the source declares, citing the doctrine.
+      expect(loaded['excluded']).toEqual(MEMORANDUM_EXCLUDED);
+      const named = (loaded['findings'] as Record<string, string>[]).filter((f) => f['regla'] === 'APE-MEMORANDUM-EXCLUDED');
+      expect(named.map((f) => `${f['numCta']} ${f['severidad']}`)).toEqual(['8100 aviso', '8200 aviso']);
+      for (const f of named) expect(f['mensaje']).toContain('docs/memorandum-accounts.md');
 
       // Each document is the invoice or bill it was, hanging from the opening
       // entry, which already carries its amount.
@@ -907,12 +947,16 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       })]);
       expect(money(entries[0].total_debits)).toBe(OPENING_DEBITS);
 
-      // The fifteen accounts of the source, parents included, against our
-      // ledger on 2025-01-01, rolled up the same way.
+      // The fifteen ledger accounts of the source, parents included, against
+      // our ledger on 2025-01-01, rolled up the same way. The catalog names
+      // the other two rows, the CUFIN pair: left out of the footing and named.
       const [check] = rowsOf<Record<string, unknown>>(
-        ok(['opening-balance', 'check', path.join(workDir, 'balanza-2024-12.xml'), '--json'])
+        ok(['opening-balance', 'check', path.join(workDir, 'balanza-2024-12.xml'),
+          '--chart', path.join(workDir, 'catalogo-2024-12.xml'), '--json'])
       );
-      expect(check).toMatchObject({ asOf: '2025-01-01', comparison: { comparadas: 15, iguales: true } });
+      expect(check).toMatchObject({
+        asOf: '2025-01-01', comparison: { comparadas: 15, iguales: true, faltantes: [], excluded: MEMORANDUM_EXCLUDED },
+      });
 
       // Each month is soft-closed, then hard-closed, oldest first. The hard
       // close carries its endings into the next month and no further, since
@@ -931,8 +975,6 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(months.map((m) => periods.find((p) => p.period_name === `${m} 2025`)?.status))
         .toEqual([...Array<string>(11).fill('hard_close'), 'open']);
     }, STEP_TIMEOUT_MS);
-
-    it.todo('imports the 8xx memorandum accounts with the chart and the opening trial balance, and leaves them out of the footing — MNE-001-019, MNE-001-484');
   });
 
   describe('2 · CFDI to the ledger', () => {
@@ -1606,9 +1648,154 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     }, STEP_TIMEOUT_MS);
   });
 
+  // THE FORTNIGHT IS JANUARY 2026'S (MNE-001-414; decided on 2026-11-15 in
+  // #311). The payroll law of the repository starts on 2026-01-01: there is no
+  // 2025 fortnightly tariff and no 2025 subsidy, so a December fortnight would
+  // be refused, and none is loaded. Both employees are hired on 2026-01-01, so
+  // December's close accrues nothing for them, and the fortnight moves no
+  // December figure: step 5·238 reads December's trial balance before and
+  // after it. The fortnight carries an aguinaldo and a vacation premium so
+  // that both ISR caps are read in January, where the 2025 UMA still rules.
+  // The state rate is captured with `isn rate set`: the ISN table is a global
+  // catalog, so `apartarCatalogos` gives it back as it was when the section ends.
   describe('5 · payroll', () => {
-    it.todo('hires two employees and runs and posts a fortnight: ISR with subsidy, IMSS, INFONAVIT, ISN, entry and SUA — MNE-001-066, MNE-001-068, MNE-001-069, MNE-001-070');
-    it.todo('the fortnight figures match the hand-computed ones: employer IMSS, aguinaldo, vacation premium and 2026 subsidy — MNE-001-061, MNE-001-062, MNE-001-063, MNE-001-064');
+    apartarCatalogos('mx_isn_tasas_estatales');
+    const PAYROLL_STATE = 'JAL';
+    // Two workers paid by the day, 15 days each. SBC = daily × 383 / 365 (15
+    // days of aguinaldo and 25 % of 12 vacation days): an input, not a figure.
+    // The salaried one is also paid an aguinaldo; the low earner a vacation premium.
+    const STAFF = [
+      { employee_number: 'N-001', first_name: 'Andrea', last_name: 'Pena Molina', rfc: 'PEMA900101AB1',
+        curp: 'PEMA900101MJCNLN01', nss: '12345678901', sbc: 1049.32,
+        earnings: [{ earning_type: 'salary', amount: 15000, cfdi_clave_sat: '001' },
+          { earning_type: 'aguinaldo', amount: 5000, cfdi_clave_sat: '002' }] },
+      { employee_number: 'N-002', first_name: 'Bruno', last_name: 'Lopez Soto', rfc: 'LOSB920202CD2',
+        curp: 'LOSB920202HJCPTR02', nss: '10987654321', sbc: 335.78,
+        earnings: [{ earning_type: 'salary', amount: 4800, cfdi_clave_sat: '001' },
+          { earning_type: 'prima_vacacional', amount: 2000, cfdi_clave_sat: '021' }] },
+    ] as const;
+    // By hand. In January 2026 the UMA is still 2025's, 113.14 a day:
+    //   aguinaldo exempt        30 × 113.14 = 3,394.20; N-001's ISR base is
+    //                           15,000 + (5,000 − 3,394.20) = 16,605.80
+    //   vacation premium exempt 15 × 113.14 = 1,697.10; N-002's ISR base is
+    //                           4,800 + (2,000 − 1,697.10) = 5,102.90
+    //   subsidy  15.59 % × 113.14 × 30.4 = 536.21 a month, × 15 / 30.4 = 264.58
+    //            (producto_al_centavo, the default). Only N-002 earns it: its
+    //            base is 10,205.80 a month, under the cap of 11,492.66; N-001's
+    //            33,211.60 is over it
+    //   ISN      3 % of the gross, 20,000 + 6,800 = 26,800: 804.00
+    const YEAR_END_BONUS_EXEMPT = '3394.20';
+    const VACATION_PREMIUM_EXEMPT = '1697.10';
+    const ISR_BASE = { 'N-001': '16605.80', 'N-002': '5102.90' } as const;
+    const SUBSIDY = { 'N-001': '0.00', 'N-002': '264.58' } as const;
+    const GROSS = { 'N-001': '20000.00', 'N-002': '6800.00' } as const;
+    const ISN_RATE = '0.03';
+    const ISN = '804.00';
+    let payRunId = '';
+
+    it('hires two employees and runs and posts a fortnight of January 2026: ISR with subsidy, IMSS, INFONAVIT, ISN, entry and SUA — MNE-001-061, MNE-001-066, MNE-001-068, MNE-001-069, MNE-001-070', () => {
+      const december = (): string =>
+        JSON.stringify(rowsOf(ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--json'])));
+      const decemberBefore = december();
+      ok(['year', 'create', '2026']);
+      const [schedule] = rowsOf<{ id: string }>(ok(['pay-schedule', 'create', '--name', 'Quincenal',
+        '--frequency', 'quincenal', '--country', 'MX', '--first-start', '2026-01-01', '--json']));
+      const [period] = rowsOf<{ id: string; start: string; end: string; pay_date: string; tax_year: number }>(
+        ok(['pay-period', 'create', '--schedule', schedule.id, '--count', '1', '--json'])
+      );
+      expect(period).toMatchObject({ start: '2026-01-01', end: '2026-01-15', pay_date: '2026-01-15', tax_year: 2026 });
+
+      const inputs = STAFF.map(({ earnings, ...person }) => {
+        const file = path.join(workDir, `${person.employee_number}.json`);
+        fs.writeFileSync(file, JSON.stringify({ ...person, riesgo_puesto: '01', tipo_regimen_sat: '02',
+          work_state: PAYROLL_STATE, salary_type: 'salary', currency_code: 'MXN' }));
+        const [hired] = rowsOf<{ id: string }>(ok(['employee', 'create', '--file', file, '--country', 'MX',
+          '--hire-date', '2026-01-01', '--pay-schedule', schedule.id, '--json']));
+        return { employee_id: hired.id, earnings };
+      });
+      const inputsFile = path.join(workDir, 'fortnight-2026-01-1.json');
+      fs.writeFileSync(inputsFile, JSON.stringify({ employee_inputs: inputs }));
+
+      const [created] = rowsOf<{ id: string; status: string; tax_year: number }>(
+        ok(['pay-run', 'create', '--period', period.id, '--json'])
+      );
+      expect(created).toMatchObject({ status: 'draft', tax_year: 2026 });
+      payRunId = created.id;
+      const [calculated] = rowsOf<{ status: string; employees: number; gross: string }>(
+        ok(['pay-run', 'calculate', payRunId, '--file', inputsFile, '--json'])
+      );
+      expect({ ...calculated, gross: money(calculated.gross) })
+        .toMatchObject({ status: 'calculated', employees: 2, gross: '26800.00' });
+
+      // With no rate for Jalisco the approval would owe an ISN it cannot
+      // compute: its rehearsal refuses, naming the state, and writes nothing.
+      const unrated = mnemosine(['pay-run', 'approve', payRunId, '--dry-run', '--json']);
+      expect(unrated.status, unrated.out + unrated.err).toBe(4);
+      expect(rowsOf<{ findings: { code: string }[] }>(unrated)[0].findings.map((h) => h.code))
+        .toContain('isn_sin_tasa_capturada');
+      // A synthetic rate for a synthetic month: the basis says so, and cites no law.
+      ok(['isn', 'rate', 'set', PAYROLL_STATE, ISN_RATE, '--effective-from', '2026-01-01',
+        '--legal-basis', 'Synthetic rate of the MVP month spec; not a citation of state law', '-y', '--json']);
+      // `isn calculate --json` publishes its keys in Spanish; they are read as printed, never renamed.
+      const isn = rowsOf<Record<string, string>>(ok(['isn', 'calculate', '--run', payRunId, '--json']));
+      expect(isn.map((r) => [r['estado'], money(r['base']), new Decimal(r['tasa']).toString(), money(r['importe']), r['trabajadores']]))
+        .toEqual([[PAYROLL_STATE, '26800.00', ISN_RATE, ISN, 2]]);
+
+      const [approved] = rowsOf<{ status: string; liabilities: { tax_type: string; amount: string }[] }>(
+        ok(['pay-run', 'approve', payRunId, '--yes', '--json'])
+      );
+      expect(approved.status).toBe('approved');
+      const owed = (tax: string): string =>
+        approved.liabilities.filter((l) => l.tax_type === tax)
+          .reduce((s, l) => s.plus(l.amount), new Decimal(0)).toFixed(2);
+      expect(owed('isn')).toBe(ISN);
+      expect(new Decimal(owed('imss_employer')).gt(0)).toBe(true);
+
+      const [posted] = rowsOf<{ mode: string; entry_date: string; total_debits: string; total_credits: string }>(
+        ok(['pay-run', 'post', payRunId, '--post', '--yes', '--json'])
+      );
+      expect(posted).toMatchObject({ mode: 'posted', entry_date: '2026-01-15' });
+      expect(money(posted.total_credits)).toBe(money(posted.total_debits));
+
+      // The SUA of January: one line per worker, NSS first, and its employer
+      // IMSS and INFONAVIT (cents, after NSS, RFC, CURP and the names, 123,
+      // then SBC 8 and days 2) are what the approval wrote as owed.
+      const sua = path.join(workDir, 'SUA_2026-01.txt');
+      const [exported] = rowsOf<{ employee_count: number; findings: unknown[] }>(
+        ok(['imss', 'sua', 'export', '--period', '2026-01', '-o', sua, '--json'])
+      );
+      expect(exported).toMatchObject({ employee_count: 2, findings: [] });
+      const lines = fs.readFileSync(sua, 'utf8').split('\r\n').filter(Boolean);
+      expect(lines.map((l) => l.slice(0, 11)).sort()).toEqual(STAFF.map((s) => s.nss).sort());
+      const cents = (at: number): string =>
+        lines.reduce((s, l) => s.plus(new Decimal(l.slice(at, at + 10)).div(100)), new Decimal(0)).toFixed(2);
+      expect(cents(133)).toBe(owed('imss_employer'));
+      expect(cents(153)).toBe(owed('infonavit_employer'));
+
+      expect(december(), 'the January fortnight moved a December figure').toBe(decemberBefore);
+    }, STEP_TIMEOUT_MS);
+
+    it('the fortnight figures match the hand-computed ones: aguinaldo and vacation premium exempt, and the January 2026 subsidy — MNE-001-062, MNE-001-063, MNE-001-064', () => {
+      const slips = rowsOf<{ id: string; employee: string }>(ok(['payslip', 'list', '--run', payRunId, '--json']));
+      expect(slips.map((s) => s.employee)).toEqual(['N-001', 'N-002']);
+      type Line = { kind: string; concept: string; amount: string; base: string };
+      const figures = Object.fromEntries(slips.map(({ id, employee }) => {
+        const [slip] = rowsOf<{ gross: string; lines: Line[] }>(ok(['payslip', 'show', id, '--json']));
+        const tax = (concept: string): Line | undefined =>
+          slip.lines.find((l) => l.kind === 'tax' && l.concept === concept);
+        const isrBase = money(tax('isr')?.base);
+        return [employee, {
+          gross: money(slip.gross),
+          isrBase,
+          exempt: new Decimal(slip.gross).minus(isrBase).toFixed(2),
+          subsidy: money(tax('subsidio_empleo')?.amount ?? '0'),
+        }];
+      }));
+      expect(figures).toEqual({
+        'N-001': { gross: GROSS['N-001'], isrBase: ISR_BASE['N-001'], exempt: YEAR_END_BONUS_EXEMPT, subsidy: SUBSIDY['N-001'] },
+        'N-002': { gross: GROSS['N-002'], isrBase: ISR_BASE['N-002'], exempt: VACATION_PREMIUM_EXEMPT, subsidy: SUBSIDY['N-002'] },
+      });
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('6 · month-end close', () => {
@@ -1712,6 +1899,8 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // 1000 → 1100 → 1110 → 1111: the leaves are level 4, so the cut hides
       // them and their money is printed once, inside 1110.
       expect(tb.some((r) => ['1111', '1112', '1115'].includes(r.account_code))).toBe(false);
+      // The CUFIN pair of the migration never reached the ledger (MNE-001-484).
+      expect(detail.filter((r) => ['8100', '8200'].includes(r.account_code))).toEqual([]);
     }, STEP_TIMEOUT_MS);
   });
 
