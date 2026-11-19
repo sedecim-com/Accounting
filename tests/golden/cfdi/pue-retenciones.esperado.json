@@ -13,7 +13,7 @@
     },
     {
       "cuenta": [
-        "1130"
+        "1135"
       ],
       "lado": "cargo",
       "monto": "1600.00"
@@ -34,12 +34,11 @@
     },
     {
       "cuenta": [
-        "1110",
-        "1111"
+        "2110"
       ],
       "lado": "abono",
       "monto": "9533.33"
     }
   ],
-  "nota": "Honorarios de persona fisica: ISR retenido 10% e IVA retenido 2/3 van a ISR Retenido por Enterar 2141 e IVA Retenido por Enterar 2142; al banco sale el neto."
+  "nota": "Honorarios de persona fisica: ISR retenido 10% e IVA retenido 2/3 van a ISR Retenido por Enterar 2141 e IVA Retenido por Enterar 2142; a proveedores 2110 se abona el neto, con el IVA en 1135 hasta el pago (MNE-001-493)."
 }

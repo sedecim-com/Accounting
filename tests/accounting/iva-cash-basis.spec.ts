@@ -141,6 +141,8 @@ describe('the assumption is legible', () => {
       .toMatch(/moves to IVA acreditable on payment/);
     expect(ivaTreatmentNote('received', { metodo: 'PPD', origin: 'default', assumed: true }))
       .toMatch(/conservative PPD assumed/);
+    expect(ivaTreatmentNote('received', { metodo: 'PUE', origin: 'cfdi', assumed: false }))
+      .toBe('IVA not yet creditable — moves to IVA acreditable on payment');
   });
 });
 
@@ -152,7 +154,8 @@ describe('ivaRoleFor', () => {
   it('routes the four cases exactly as cfdi-taxonomy.ts declares them', () => {
     expect(ivaRoleFor('issued', 'PUE')).toBe('iva_trasladado');
     expect(ivaRoleFor('issued', 'PPD')).toBe('iva_trasladado_no_cobrado');
-    expect(ivaRoleFor('received', 'PUE')).toBe('iva_acreditable');
+    // MNE-001-492: a received PUE parks too; its payment releases it.
+    expect(ivaRoleFor('received', 'PUE')).toBe('iva_pendiente_acreditar');
     expect(ivaRoleFor('received', 'PPD')).toBe('iva_pendiente_acreditar');
   });
 
