@@ -251,7 +251,7 @@
     "additionalProperties": false,
     "properties": {
       "keys": {
-        "description": "Policy keys to read (e.g. [\"umbral_capitalizacion_mxn\"]). Omit for the whole panel — it is small, and reading it whole is how you notice a criterion you did not know applied.",
+        "description": "Policy keys to read in full (e.g. [\"umbral_capitalizacion_mxn\"]): the question, the options when nobody has answered, and the firm's whole note. Omit for the compact list of every key with its status and value, plus the account role map — read that list first: it is how you notice a criterion you did not know applied.",
         "items": {
           "minLength": 1,
           "type": "string"
