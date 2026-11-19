@@ -1294,6 +1294,15 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.short_payment_residual.option.prohibir':
     'Negarse: ninguna cuenta por pagar cierra corta; exigir la nota de crédito del proveedor',
 
+  'policy.received_credit_note_cost.question': 'Cuando un proveedor manda una nota de crédito de un gasto, ¿qué cuenta recibe el costo que baja?',
+  'policy.received_credit_note_cost.impact': 'Gobierna la póliza de una nota de crédito recibida que se contabiliza desde la bandeja (`bill inbox run`). Con «bill_accounts» el costo regresa a las cuentas de gasto que el gasto cargó, en proporción a sus renglones. Con «purchase_returns» va a devoluciones y descuentos sobre compras (5200), haya cargado lo que haya cargado el gasto. El pasivo y el IVA se mueven igual en los dos casos.',
+  'policy.received_credit_note_cost.rationale': 'Reversa lo que el gasto registró, así que nada se mueve entre el costo de ventas y los gastos de operación, que un estado de resultado integral clasificado por función presenta por separado (NIF B-3). Un gasto de operación bajado por la 5200 subestimaría un costo de ventas del que nunca fue parte.',
+  'policy.received_credit_note_cost.why': 'Una nota de crédito baja lo que costó una compra. Unos despachos lo quieren en la misma cuenta del gasto; otros llevan las devoluciones y descuentos en su propia cuenta para ver cuánto regresan los proveedores.',
+  'policy.received_credit_note_cost.what': 'Cuando contabilizas desde la bandeja la nota de crédito de un proveedor, cargo proveedores por su total, saco su IVA de donde está el IVA de su gasto y abono el costo a la cuenta que elijas aquí.',
+  'policy.received_credit_note_cost.if_skipped': 'El costo regresa a las cuentas de gasto del gasto.',
+  'policy.received_credit_note_cost.option.bill_accounts': 'Las cuentas que el gasto cargó: la nota reversa lo que se registró',
+  'policy.received_credit_note_cost.option.purchase_returns': 'Devoluciones y descuentos sobre compras (5200): lo que regresan los proveedores se ve aparte',
+
   'policy.employment_subsidy_paid_treatment.question':
     'Cuando el subsidio para el empleo excede el ISR retenido y le entregas la diferencia en efectivo al trabajador, ¿es una cuenta por cobrar al fisco o un gasto del despacho?',
   'policy.employment_subsidy_paid_treatment.impact':
@@ -2158,6 +2167,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'credit_note.received.refusal.exceeds_balance': 'La nota de crédito {note} es por {total} y el gasto {bill} debe {due}. Una nota de crédito mayor que el saldo de su gasto no se contabiliza.',
   'credit_note.received.refusal.vat_out_of_proportion': 'La nota de crédito {note} trae {vat} de IVA, y en la proporción del gasto {bill} traería {expected}. Un gasto con más de una tasa de IVA no dice qué parte baja la nota; espera a una persona.',
   'credit_note.received.refusal.capitalised_line': 'El gasto {bill} tiene un renglón en una cuenta con el rol {role}. La nota de crédito {note} bajaría un activo y no un gasto; espera a una persona.',
+  'credit_note.received.closed_period': 'La nota de crédito {note} tiene fecha {date}, en un periodo que está cerrado. Espera a que se conteste la política del periodo cerrado: mnemosine pending define cfdi_periodo_cerrado periodo_actual',
   'payment.apply.other_vendor':
     '{bill} es del proveedor {billVendor} y el pago {payment} es del proveedor {paymentVendor}: el saldo a cuenta sólo salda gastos de su propio proveedor. Registra el pago a nombre de {billVendor}, o aplica {payment} a un gasto de {paymentVendor}.',
   // MNE-001-458 (#623): a customer advance recorded with its IVA treatment.
@@ -2191,6 +2201,10 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.reverse.cause.defaulted':
     'causa not_collected, tomada por omisión: un cheque se paga el día que el banco lo cobra',
   'receipt.reverse.cause.none': 'sin causa declarada',
+  'receipt.advance.cfdi_owed':
+    'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
+  'receipt.advance.invoice_already_booked':
+    '{customer} tiene abierta {invoices}, y su propia póliza ya abonó anticipos de clientes: un CFDI de anticipo en libros. El dinero de ese anticipo se registra contra ella (receipt record {invoice}), no como un anticipo nuevo. Sigue sólo si éste es otro anticipo.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
@@ -3872,6 +3886,11 @@ export const ES: Record<keyof typeof EN, string> = {
   'payrun.post.drafted': 'La póliza de la corrida {id} quedó como borrador {draft}: apruébala con `mnemosine review`.',
   'payrun.post.posted': 'Póliza de la corrida {id} contabilizada como {number}.',
   'payrun.post.repeated': 'La póliza de la corrida {id} ya se escribió con esta llave: se muestra el resultado grabado.',
+  // The law row of the employment subsidy's excess over the ISR (#600).
+  'payroll.employment_subsidy.excess_rule_unknown':
+    'El parámetro legal {key} vigente en la fecha de pago {payDate} vale {value} (fila en vigor desde {effectiveFrom}) ' +
+    'y sólo 0 o 1 es una regla: con 1 el subsidio que excede al ISR se entrega al trabajador en efectivo, con 0 no se ' +
+    'entrega nada. Corrige la fila contra su fuente oficial; ningún recibo se calcula con una parte adivinada.',
 
   // --- e-accounting voucher|subledger generate (MNE-001-054, #328) --------
   'help.e_accounting.voucher.description': 'Las pólizas del periodo que el SAT pide a requerimiento: PolizasPeriodo 1.3',

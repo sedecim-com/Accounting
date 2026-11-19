@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { query } from '../../../database/connection.js';
 import { getPolicy } from '../../policy/policy-service.js';
 import { AccountingError } from '../../../utils/errors.js';
+import { legalParameterAt } from '../../jurisdiction/legal-parameters.js';
 import type { PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
 // ============================================================
@@ -252,4 +253,88 @@ export function subsidyOfPaycheckInPeriod(args: {
   // paycheck of the period from getting it twice.
   const difference = new Decimal(recompute ? args.onCombinedIncome : args.own).minus(args.alreadyCaused);
   return difference.greaterThan(0) ? difference : new Decimal(0);
+}
+
+// ============================================================
+// THE SUBSIDY IN EXCESS OF THE ISR FOLLOWS THE LAW OF THE PAYMENT DATE
+// (#600, MNE-001-440)
+//
+// When the subsidy of a paycheck is larger than its ISR, the law of the
+// payment date says what happens to the difference: until 30 April 2024 the
+// employer hands it to the worker in cash and credits it against ISR (Decreto
+// DOF 11-12-2013, Artículo Décimo); from 1 May 2024 nothing is handed over
+// (Decreto DOF 01-05-2024, Artículo Segundo). One treatment per date, fixed by
+// law, so it is a dated row of `legal_parameters` and not a key of the panel
+// (ADR-0006). No default lives here: without a row in force the read fails.
+// ============================================================
+
+/** The `legal_parameters` key: the share of the excess over the ISR paid to the worker, 0 or 1. */
+export const EMPLOYMENT_SUBSIDY_EXCESS_LAW = 'employment_subsidy.excess_over_isr_paid_share';
+
+/** The rule in force on a payment date, with the row it was read from. */
+export interface EmploymentSubsidyExcessRule {
+  /** 1: the excess is paid to the worker in cash. 0: nothing is paid. */
+  paidShare: 0 | 1;
+  effectiveFrom: string;
+  sourceUrl: string;
+  sourceNote: string | null;
+}
+
+/**
+ * Reads the rule on the payment date. The table's own error passes through
+ * when no row is in force; a share other than 0 or 1 is named, not rounded.
+ */
+export async function readEmploymentSubsidyExcessRule(
+  payDate: string,
+  client?: pg.PoolClient
+): Promise<EmploymentSubsidyExcessRule> {
+  const row = await legalParameterAt('MX', EMPLOYMENT_SUBSIDY_EXCESS_LAW, payDate, client);
+  const share = new Decimal(row.value);
+  if (!share.equals(0) && !share.equals(1)) {
+    throw new AccountingError('EMPLOYMENT_SUBSIDY_EXCESS_RULE_UNKNOWN', {
+      key: 'payroll.employment_subsidy.excess_rule_unknown',
+      params: { key: EMPLOYMENT_SUBSIDY_EXCESS_LAW, payDate, value: row.value, effectiveFrom: row.effectiveFrom },
+    });
+  }
+  return {
+    paidShare: share.equals(1) ? 1 : 0,
+    effectiveFrom: row.effectiveFrom,
+    sourceUrl: row.sourceUrl,
+    sourceNote: row.sourceNote,
+  };
+}
+
+/** What a paycheck does with its subsidy. Amounts are strings with four decimals. */
+export interface EmploymentSubsidyApplied {
+  /** ISR withheld from the worker, net of the subsidy. Never negative. */
+  isrWithheld: string;
+  /** The part of the subsidy the ISR absorbed. */
+  subsidyCredited: string;
+  /** The excess over the ISR the employer pays to the worker in cash. */
+  paidInCash: string;
+  /** The excess over the ISR that is neither paid nor carried forward. */
+  excessNotPaid: string;
+}
+
+/**
+ * Splits the subsidy of a paycheck by the rule of its payment date. A negative
+ * ISR or subsidy counts as zero, as in `aplicarSubsidioAlEmpleo`, which stays
+ * as the arithmetic of the rule before May 2024.
+ */
+export function applyEmploymentSubsidy(
+  isr: Decimal.Value,
+  subsidy: Decimal.Value,
+  rule: Pick<EmploymentSubsidyExcessRule, 'paidShare'>
+): EmploymentSubsidyApplied {
+  const tax = Decimal.max(isr, 0);
+  const caused = Decimal.max(subsidy, 0);
+  const credited = Decimal.min(tax, caused);
+  const excess = caused.minus(credited);
+  const paid = rule.paidShare === 1 ? excess : new Decimal(0);
+  return {
+    isrWithheld: tax.minus(credited).toFixed(4),
+    subsidyCredited: credited.toFixed(4),
+    paidInCash: paid.toFixed(4),
+    excessNotPaid: excess.minus(paid).toFixed(4),
+  };
 }

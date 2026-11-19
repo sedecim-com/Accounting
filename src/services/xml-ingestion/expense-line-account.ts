@@ -72,3 +72,50 @@ export async function eligibleExpenseAccounts(
   );
   return new Set(r.rows.map((row) => row.id));
 }
+
+// ============================================================
+// WHICH ACCOUNT THE LINE POSTS TO (MNE-001-552 · #684)
+// ============================================================
+
+/** What a stored line says about its account. */
+export interface CodableLine {
+  account_id?: string | null;
+  suggested_account_id?: string | null;
+}
+
+/** For a reader that made no eligibility read: no suggestion posts. */
+export const NO_ELIGIBLE_SUGGESTION: ReadonlySet<string> = new Set();
+
+/** The suggestions of `lines` that may still post, read when the row is read: a stored row is never rewritten. */
+export function eligibleSuggestions(
+  db: Queryable,
+  entityId: string,
+  lines: readonly CodableLine[]
+): Promise<Set<string>> {
+  return eligibleExpenseAccounts(db, entityId, lines.flatMap((l) => (l.suggested_account_id ? [l.suggested_account_id] : [])));
+}
+
+/**
+ * The account a line posts to: its own, then the one a person gave the whole
+ * document, then its suggestion while it is in `eligible`. The first two are
+ * what a person or a rule wrote and are not judged here (#684).
+ */
+export function pickLineAccount(
+  line: CodableLine,
+  defaultAccountId: string | null | undefined,
+  eligible: ReadonlySet<string>
+): string | undefined {
+  if (line.account_id) return line.account_id;
+  if (defaultAccountId) return defaultAccountId;
+  const suggested = line.suggested_account_id;
+  return suggested && eligible.has(suggested) ? suggested : undefined;
+}
+
+/** The lines `pickLineAccount` finds no account for. */
+export function uncodedLines<L extends CodableLine>(
+  lines: readonly L[],
+  defaultAccountId: string | null | undefined,
+  eligible: ReadonlySet<string>
+): L[] {
+  return lines.filter((line) => !pickLineAccount(line, defaultAccountId, eligible));
+}

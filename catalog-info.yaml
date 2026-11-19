@@ -50,6 +50,9 @@ provides:
     # frequent bill-line account (#684). POST /v1/pre-registrations/{id}/process therefore
     # refuses, with «Line N: no account assigned», a row it used to post; coding the line
     # (PATCH /v1/pre-registrations/{id}) posts it. The shape of the row does not change.
+    # A `default_account_id` set by that PATCH now posts every line with no account of its
+    # own, ahead of the line's suggestion, which used to win; and a suggestion stored before
+    # #684 that is a control account no longer posts. The way back is coding the line.
   - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
     # CONTRACT: mnemosine.config.json is refused with the same zod 3 prose, pinned by
     # tests/ai/providers/config-contract.spec.ts (#367), and the same two tightenings
@@ -67,6 +70,11 @@ provides:
     # the customer's advance invoices still hold in 2150 (MNE-001-515). The refusal is keyed
     # credit_note.advance.exceeds_invoiced_advance, covers --dry-run and --yes alike, and
     # writes nothing. The other three types post as before.
+    # CONTRACT: POST /v1/pre-registrations/:id/process and `bill inbox run` post a received
+    # credit note (type E, TipoRelacion 01 or 03) against the one bill it names instead of
+    # failing with UNSUPPORTED_TYPE (MNE-001-555): an entry of source vendor_credit_note and a
+    # lower amount_due. A note that cannot be posted answers 422 CFDI_REQUIERE_DECISION with
+    # its reason and stays in the inbox; the panel key received_credit_note_cost is new.
   - file: sat-anexo24            # XML de catálogo, balanza, pólizas y auxiliares (a requerimiento, MNE-001-054); DIOT, SUA, CFDI de nómina (los presenta el contribuyente, en el portal).
     # CONTRACT: under efirma_sellado_contabilidad_electronica = sellar_con_custodia,
     # `e-accounting catalog seal` and `balance seal` hand over the archived CtaCatalogo and

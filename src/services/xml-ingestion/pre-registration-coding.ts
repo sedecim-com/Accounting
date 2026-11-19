@@ -21,7 +21,7 @@ export const CODABLE_STATUSES = ['draft', 'ready', 'error'] as const;
 export const PRE_REGISTRATION_NOT_CODABLE = 'PRE_REGISTRATION_NOT_CODABLE';
 
 export interface PreRegistrationCoding {
-  /** The account every line without its own falls back to. */
+  /** The account every line without its own posts to, ahead of any suggestion (MNE-001-552). */
   defaultAccountId?: string;
   /** One line's own coding. */
   line?: { lineNumber: number; accountId?: string; costCenterId?: string };

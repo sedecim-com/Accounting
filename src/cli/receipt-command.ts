@@ -463,6 +463,11 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         const previo = await recordCustomerPayment(entrada, reviewer.userId, { dryRun: true });
         const doc = previo.documentos[0];
         const remanente = monto.minus(aplicar);
+        // A warning, not a refusal: a second advance for another sale is legitimate.
+        if (previo.advanceInvoices?.length) {
+          const params = { customer: label, invoices: previo.advanceInvoices.join(', '), invoice: previo.advanceInvoices[0] };
+          process.stderr.write(p.yellow(`${t('receipt.advance.invoice_already_booked', params)}\n`));
+        }
 
         if (opts.dryRun) {
           imprimirRegistro(previo, p, label, remanente, true, opts.json === true);
@@ -558,7 +563,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       const cobro = await getCustomerPayment(ctx.entityId, ref);
       const p = deps.palette;
 
-      if (opts.json || opts.output || opts.format) {
+      // NOTE: --format defaults to 'table', so testing its mere presence left the
+      // detail view below unreachable; it is compared, as `bill show` does.
+      // --fields and --quiet still pick from the row.
+      if (opts.json || opts.output || opts.fields || opts.quiet || (opts.format && opts.format !== 'table')) {
         render([cobro as unknown as Record<string, unknown>], {
           ...opts, idField: 'payment_number', numeric: MONEY,
         });
@@ -578,15 +586,23 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       fact('Method', cobro.payment_method);
       fact('Reference', cobro.reference_number);
       fact('On account', cobro.unapplied_amount !== '0.00' ? cobro.unapplied_amount : null);
+      const { advance_base: base, advance_tax_rate: treatment, advance_iva: iva } = cobro;
+      const isAdvance = base !== null && treatment !== null && iva !== null;
+      if (isAdvance) fact(t('receipt.advance.label'), advanceFigures({ base, treatment, iva }));
       fact('Ledger entry', cobro.journal_entry_number);
+      // A receipt that is all advance owes the advance CFDI the client issues, not a REP.
+      const allAdvance = isAdvance && new Decimal(base).plus(iva).equals(cobro.payment_amount);
       fact(
         'REP',
         cobro.cfdi_uuid
           ? `${cobro.cfdi_uuid} (pago ${cobro.cfdi_pago_indice ?? '—'})`
-          : p.yellow('sin REP — obligación fiscal propia con plazo del SAT')
+          : allAdvance
+            ? t('receipt.advance.cfdi_owed')
+            : p.yellow('sin REP — obligación fiscal propia con plazo del SAT')
       );
       if (cobro.reversed_at) {
         fact('Reversed', p.yellow(new Date(cobro.reversed_at).toISOString()));
+        fact('Reversal cause', cobro.reversal_cause ?? 'not stated');
       }
 
       out.write(`\n${p.bold('Applications')} ${p.dim(`(${cobro.aplicaciones.length})`)}\n`);
@@ -938,6 +954,7 @@ function imprimirRegistro(
           advance_base: result.advance?.base ?? null,
           advance_tax_rate: result.advance?.treatment ?? null,
           advance_iva: result.advance?.iva ?? null,
+          open_advance_invoices: result.advanceInvoices ?? null,
           journal_entry: result.journalEntry?.entry_number ?? null,
           dry_run: ensayo,
         },
