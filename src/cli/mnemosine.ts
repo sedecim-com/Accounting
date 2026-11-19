@@ -64,7 +64,7 @@ import {
   updateSessionProvider,
   type SessionRow,
 } from '../ai/session-store.js';
-import { ingestCfdiFiles, previewCfdiFiles, type DraftCapture } from '../ai/ingest-service.js';
+import { ingestCfdiFiles, leftToCodeSummary, previewCfdiFiles, type DraftCapture } from '../ai/ingest-service.js';
 import {
   SUPERFICIE_DESATENDIDA,
   SUPERFICIE_DESATENDIDA_SANDBOX,
@@ -2425,12 +2425,8 @@ ingest.action(async (files: string[], opts: {
           `${cnt.blocked} blocked, ${cnt.duplicate} duplicate(s), ${cnt.invalid + cnt.error} with errors`
       );
       if (cnt.draft > 0) console.log(c.dim('Review the drafts with: mnemosine review'));
-      if (report.toCode > 0) {
-        console.log(
-          `${report.toCode} left to code: the model was not consulted. ` +
-            c.dim('See them with `mnemosine bill inbox list`, code them with `mnemosine bill inbox edit`')
-        );
-      }
+      const leftToCode = leftToCodeSummary(report);
+      if (leftToCode) console.log(leftToCode);
       if (cnt.blocked > report.toCode) console.log(c.dim('Answer the questions with: mnemosine questions'));
       // El registro es best-effort y NO cambia el código de salida — los CFDI
       // clasificados son verdad aunque la anotación falle. Pero el operador se
