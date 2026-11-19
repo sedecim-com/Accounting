@@ -10,6 +10,7 @@ import {
   ORIGEN_COBRO_DE_CHEQUE,
   FEE_VAT_RELEASE_SOURCE,
   ORIGENES_DE_TESORERIA,
+  CUSTOMER_CHECK_CASHING_SOURCE,
 } from '../../../src/services/banking/treasury-posting.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 
@@ -172,13 +173,14 @@ describe('desglosarInteresConRetencionDeclarada · cuando el extracto la publica
 });
 
 describe('the treasury `source_type`s', () => {
-  it('are four, all distinct, the fee VAT release included (#95)', () => {
-    expect(new Set(ORIGENES_DE_TESORERIA).size).toBe(4);
+  it('are five, all distinct, the fee VAT release (#95) and the customer cheque cashing (#700) included', () => {
+    expect(new Set(ORIGENES_DE_TESORERIA).size).toBe(5);
     expect(ORIGENES_DE_TESORERIA).toEqual([
       ORIGEN_COMISION,
       ORIGEN_INTERES,
       ORIGEN_COBRO_DE_CHEQUE,
       FEE_VAT_RELEASE_SOURCE,
+      CUSTOMER_CHECK_CASHING_SOURCE,
     ]);
   });
 

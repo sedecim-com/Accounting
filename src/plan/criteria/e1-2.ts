@@ -84,6 +84,12 @@ export const E1_2: Criterio[] = [
         a: "SET status = 'void', reversed_at = NOW()",
         porque: "«reversed» degradado a «void»: ocurrió-y-rebotó es otra afirmación ante un auditor",
       },
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'UPDATE payment_allocations SET iva_reclass_amount = $1 WHERE id = $2',
+        a: 'UPDATE payment_applications SET iva_reclass_amount = $1 WHERE id = $2',
+        porque: 'the later application stores its IVA on the vendor table: the vendor store alone used to satisfy the check',
+      },
     ],
     evaluar: () => {
       // F03: tres propiedades que mantienen el IVA de flujo de efectivo
@@ -106,7 +112,9 @@ export const E1_2: Criterio[] = [
       const pagosSvc = codigoDe('src/services/payments/payment-service.ts');
       if (
         !/SET iva_reclass_amount = \$1/.test(posting) ||
-        !/SET iva_reclass_amount = \$1 WHERE id = \$2/.test(pagosSvc)
+        // Narrowed to the customer table (MNE-001-459): the vendor side
+        // stores with the same text on payment_applications.
+        !/UPDATE payment_allocations SET iva_reclass_amount = \$1 WHERE id = \$2/.test(pagosSvc)
       ) {
         return falla('el IVA por aplicación dejó de persistirse en las DOS vías (registro y aplicación posterior): desaplicar volvería a adivinar');
       }

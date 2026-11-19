@@ -40,6 +40,7 @@ import {
   scanImportedText,
   isProviderUnavailable,
   leftToCodeSummary,
+  previewRoute,
   UNTRUSTED_OPEN,
   UNTRUSTED_CLOSE,
   type DraftCapture,
@@ -804,5 +805,50 @@ describe('ING-2 · #319 — without a model, and after its failure', () => {
     expect(r.status).toBe('duplicate');
     expect(r.detail).toMatch(/not reprocessable/);
     expect(session.runTurn).not.toHaveBeenCalled();
+  });
+});
+
+describe('MNE-001-490 · #692 — a received credit note is not drafted', () => {
+  const received = () => ({
+    ...makeUpload({ cfdi_uuid: 'UUID-E' }, { document_type: 'credit_note' }), direction: 'received' as const,
+  });
+
+  it('I1 · with a live session the model is not called: blocked, to the inbox, nothing to code', async () => {
+    const { report, session } = run({ plan: [{ confidence: 0.99 }], files: ['/tmp/e.xml', '/tmp/q.xml'], uploads: [received(), makeUpload()] });
+    const r = await report;
+    expect(session.runTurn).toHaveBeenCalledTimes(1);
+    expect(r.results[0]).toMatchObject({ status: 'blocked', toInbox: true });
+    expect(r.results[0].toCode).toBeUndefined();
+    expect(r.results[0].detail).toMatch(/mnemosine bill inbox run/);
+    expect(r.results[0].detail).toMatch(/bill inbox list/);
+    expect(r).toMatchObject({ toCode: 0, toInbox: 1 });
+    expect(leftToCodeSummary(r)).toBeNull();
+  });
+
+  it('I2 · with no provider it is the same row, and it is not counted as left to code', async () => {
+    const { report } = run({ noModel: true, plan: [], files: ['/tmp/e.xml', '/tmp/b.xml'], uploads: [received(), makeUpload()] });
+    const r = await report;
+    expect(r.results[0]).toMatchObject({ status: 'blocked', toInbox: true });
+    expect(r.results[0].detail).toMatch(/mnemosine bill inbox run/);
+    expect(r.results[0].detail).not.toMatch(/no model provider/);
+    expect(r).toMatchObject({ toCode: 1, toInbox: 1 });
+  });
+
+  it('I3 · an issued type E is not taken by the branch: it still reaches the model', async () => {
+    const issued = { ...received(), direction: 'issued' as const };
+    const { report, session } = run({ plan: [{ confidence: 0.99 }], thresholds: CLOSED, uploads: [issued] });
+    const r = (await report).results[0];
+    expect(session.runTurn).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe('draft');
+    expect(r.toInbox).toBeUndefined();
+  });
+
+  it('I4 · the dry run promises a received type E the inbox, not a draft', () => {
+    expect(previewRoute('E', 'received', CLOSED)).toMatch(/mnemosine bill inbox run/);
+    expect(previewRoute('E', 'received', OPEN)).not.toMatch(/AI classification/);
+    expect(previewRoute('E', 'issued', CLOSED)).toMatch(/sale draft/);
+    expect(previewRoute('I', 'received', CLOSED)).toMatch(/AI classification → draft for `mnemosine review`/);
+    expect(previewRoute('I', 'received', OPEN)).toMatch(/auto-posted only if every gate passes/);
+    expect(previewRoute('P', 'received', CLOSED)).toMatch(/^REP/);
   });
 });

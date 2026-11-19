@@ -273,6 +273,36 @@ export class RulesEngine {
   }
 }
 
+/**
+ * The matched rule that sets `auto` and itself requires `documentType`, or
+ * null. For a document no catch-all rule may post by itself (a received
+ * credit note, #692): a rule with no conditions matches everything, so the
+ * mode alone is not the firm's word on that type.
+ *
+ * «Requires» is one shape: a condition in `all` with `document_type equals`
+ * the type. `in`, `not_equals`, `regex` and anything in `any` can each admit
+ * another type, so none counts. The aggregated mode must still be `auto`: a
+ * later `manual` or `hold` wins. Which matched rule set it last does not
+ * matter, so two rules of equal priority cannot flip the answer.
+ */
+export function autoRuleRequiring(
+  rules: Rule[],
+  results: RuleEvaluationResult[],
+  aggregated: RuleActions,
+  documentType: string
+): Rule | null {
+  if (aggregated.set_processing_mode !== 'auto') return null;
+  for (const result of results) {
+    if (!result.matched || result.actions.set_processing_mode !== 'auto') continue;
+    const rule = rules.find((r) => r.id === result.ruleId);
+    const requires = rule?.conditions.all?.some(
+      (c) => c.field === 'document_type' && c.operator === 'equals' && c.value === documentType
+    );
+    if (rule && requires) return rule;
+  }
+  return null;
+}
+
 // ============================================================
 // RULE BUILDER
 // ============================================================
