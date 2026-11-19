@@ -1778,6 +1778,8 @@ export const ES: Record<keyof typeof EN, string> = {
   confirm_answer_not_understood:
     'no entendí «{answer}»: responde y/s para sí, n para no',
 
+  confirm_yes_no_suffix: '[s/N]',
+
   no_changes_ledger_untouched: 'Sin cambios: el mayor no se tocó.',
 
   no_changes_no_terminal:
@@ -1972,7 +1974,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'Aprobar crea la factura del proveedor del CFDI {uuid} · emisor {issuer} ({rfc}) · método {method} · total {total}',
   'review.draft.invoice_to_be_born':
     'Aprobar crea la factura al cliente del CFDI emitido {uuid} · cliente {customer} ({rfc}) · método {method} · total {total}',
-  'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N] ',
+  'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})?',
   'review.vendor.not_registered':
     'No se dio de alta al proveedor: no se contabilizó nada y el borrador sigue pendiente.',
   'help.ingest.argument.files':
@@ -2813,6 +2815,34 @@ export const ES: Record<keyof typeof EN, string> = {
     '{matches, plural, one {# cotejo} other {# cotejos}} · ' +
     '{sealed, plural, one {# partida sellada} other {# partidas selladas}}',
   // ==== fin del piloto bank (I7) ====================================
+  // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
+  // Same blocks, same order as en.ts.
+  // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+  // ==== end of I8.1 ====
+
+  // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+  // ==== end of I8.2 ====
+
+  // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+  // ==== end of I8.3 ====
+
+  // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+  // ==== end of I8.4 ====
+
+  // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+  // ==== end of I8.5 ====
+
+  // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+  // ==== end of I8.6 ====
+
+  // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
+  // ==== end of I8.7 ====
+
+  // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  // ==== end of I8.8 ====
+
+  // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
+  // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // Same keys, same order as en.ts. The Spanish is what the board shows by
   // default (src/gateway/app/messages.ts falls back to es).
