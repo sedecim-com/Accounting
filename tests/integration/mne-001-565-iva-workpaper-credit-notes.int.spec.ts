@@ -35,7 +35,8 @@ import { generateFilingWorkpaper } from '../../src/services/fiscal/filing-workpa
 //        (800) 10-15; NA anticipo 1,000 + 160 10-20 on FIN
 //        → 1,000 + 5,000 − 1,000 = 5,000 / 800 = 2120 (not caused twice)
 //   Nov  S10 PPD 1,000 (160) 11-03, collected whole 11-05; N10 100 + 16
-//        11-12 → 1,000 / 160; N10 nothing, and 2125 ends at −16
+//        11-12 → 1,000 / 160; N10 nothing, 2125 ends at −16, and
+//        IVA-WP-CREDIT-NOTE-AFTER-COLLECTION names N10 (MNE-001-566)
 // ============================================================
 
 let f: Fixture;
@@ -245,13 +246,22 @@ describe('an issued credit note in the IVA paper (LIVA art. 7)', () => {
     expect(lineOf(oct, 'NA')?.breakdown.tasa16).toEqual({ base: '-1000.0000', iva: '-160.0000' });
   });
 
-  it('C7 · a note on a PPD invoice already collected: its entry debits 2125, so the paper takes nothing out (part 2 warns)', async () => {
-    // FIXME(#799): the posting takes the 16 from 2125, where nothing was
-    // parked, and the IVA stays in 2120. Part 2 (MNE-001-566) names it.
+  it('C7 · a note on a PPD invoice already collected: its entry debits 2125, the paper takes nothing out and says why', async () => {
+    // The posting takes the 16 from 2125, where nothing was parked, and the
+    // IVA stays in 2120; the entry stands (NIF B-1). MNE-001-566 names it:
+    // S10 owed 1,160 − 1,160 = 0 on 11-12, so 0 × 160 / 1,160 = 0 was still
+    // parked, and the entry's 16 debit to 2125 is 16 beyond it.
     const nov = papers[11];
     expect(box(nov, 'tasa16')).toEqual({ base: '1000.00', iva: '160.00' });
     expect(lineOf(nov, 'N10')).toBeUndefined();
     expect(codes(nov)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
+    const after = nov.findings.filter((h) => h.codigo === 'IVA-WP-CREDIT-NOTE-AFTER-COLLECTION');
+    expect(after.map((h) => h.documentId)).toEqual([notes.N10.id]);
+    expect(after[0].mensaje).toContain('0.0000 sin cobrar, con 0.0000 de IVA aparcado');
+    expect(after[0].mensaje).toContain('cargó 16.0000 a 2125: 16.0000 de IVA');
+    expect(after[0].mensaje).toContain('NIF B-1');
+    // N3 came before any collection of S3: 2,320 owed, 320 parked, against its 32 debit. No warning.
+    expect(codes(papers[5])).not.toContain('IVA-WP-CREDIT-NOTE-AFTER-COLLECTION');
   });
 
   it('C8 · the filing workpaper traces the note line to the note and its entry', async () => {
