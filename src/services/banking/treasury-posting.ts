@@ -8,6 +8,7 @@ import { attestEntryAsync, createJournalEntry } from '../accounting/posting.js';
 import {
   entityUsesCashBasisIva, ivaReclassificationsFor, reclassRoles,
 } from '../accounting/iva-cash-basis.js';
+import { iepsCausedByReceipt, iepsMoveLines, iepsMovedForInvoice, type IepsMove } from '../accounting/ieps-cash-basis.js';
 import { JournalEntryType } from '../../types/index.js';
 import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import { resolverCuentaBancaria } from './bank-statement-service.js';
@@ -394,6 +395,7 @@ interface LineaDeAsiento {
   debit_amount: string | null;
   credit_amount: string | null;
   description: string;
+  tags?: Record<string, unknown>;
 }
 
 /**
@@ -1998,6 +2000,8 @@ export interface CustomerCheckCashing {
   period: { name: string; status: string } | null;
   /** Total moved from 2125 to 2120. Zero is a legitimate result. */
   released: string;
+  /** #699 · Total IEPS moved from the uncollected role to 2180 on the same entry. */
+  iepsReleased: string;
   byInvoice: { invoiceId: string; invoiceNumber: string; amount: string }[];
   entryId: string | null;
   entryNumber: string | null;
@@ -2201,7 +2205,9 @@ export async function recordCustomerChecksCashing(
     const cashBasis = await entityUsesCashBasisIva(client, entityId);
     const pending = [];
     for (const receipt of receipts) pending.push(await pendingRelease(client, entityId, receipt, cashBasis));
-    const total = pending.reduce((s, p) => s.plus(p.total), new Decimal(0));
+    const total = pending.reduce(
+      (s, p) => p.ieps.reduce((t, m) => t.plus(m.amount), s.plus(p.total)), new Decimal(0)
+    );
 
     // The release belongs to the cashing's month, so it is never posted with
     // another date; with nothing to post, a closed month refuses nothing.
@@ -2212,9 +2218,10 @@ export async function recordCustomerChecksCashing(
 
     const results: CustomerCheckCashing[] = [];
     for (const [i, receipt] of receipts.entries()) {
-      const { functional, shares, releases, total: released } = pending[i];
-      const entry = released.greaterThan(0)
-        ? await postCashing(client, entityId, receipt, credit, releases, opts.userId)
+      const { functional, shares, releases, ieps, total: released } = pending[i];
+      const iepsReleased = ieps.reduce((sum, m) => sum.plus(m.amount), new Decimal(0));
+      const entry = released.greaterThan(0) || iepsReleased.greaterThan(0)
+        ? await postCashing(client, entityId, receipt, credit, releases, ieps, opts.userId)
         : null;
       if (entry) attest(tenantId, entityId, entry.id);
 
@@ -2242,6 +2249,7 @@ export async function recordCustomerChecksCashing(
           check_cashed_date: credit.date,
           check_cashed_tx_id: credit.id,
           iva_released: released.toFixed(ESCALA),
+          ...(iepsReleased.greaterThan(0) ? { ieps_released: iepsReleased.toFixed(ESCALA) } : {}),
           journal_entry_id: entry?.id ?? null,
           ...(receipts.length > 1 ? { cashed_with: named } : {}),
         },
@@ -2256,10 +2264,11 @@ export async function recordCustomerChecksCashing(
         cashedOn: credit.date,
         period: period ? { name: period.period_name, status: period.status } : null,
         released: released.toFixed(ESCALA),
+        iepsReleased: iepsReleased.toFixed(ESCALA),
         byInvoice: releases.map(({ invoiceId, invoiceNumber, amount }) => ({ invoiceId, invoiceNumber, amount })),
         entryId: entry?.id ?? null,
         entryNumber: entry?.entry_number ?? null,
-        note: released.greaterThan(0)
+        note: released.greaterThan(0) || iepsReleased.greaterThan(0)
           ? null
           : !functional
           ? 'bank.check.cashing.note.foreign_currency'
@@ -2287,13 +2296,18 @@ interface PendingRelease {
  * What each PPD invoice's share is today, minus what the receipt's live
  * allocations to it already released. A cheque in another currency keeps
  * releasing on its receipt: its cashing would need that day's rate.
+ *
+ * #699 · The IEPS the invoice parked is caused by the same cashing (LIEPS
+ * art. 5o.-C takes LIVA's tests of collection): its share today, minus what
+ * this receipt's tagged lines already moved, so a cheque posted before the
+ * hold, whose own entry moved it, moves nothing again.
  */
 async function pendingRelease(
   client: pg.PoolClient,
   entityId: string,
   receipt: CheckReceiptRow,
   cashBasis: boolean
-): Promise<{ functional: boolean; shares: number; releases: PendingRelease[]; total: Decimal }> {
+): Promise<{ functional: boolean; shares: number; releases: PendingRelease[]; ieps: IepsMove[]; total: Decimal }> {
   const functional = receipt.currency === receipt.functional_currency;
   const shares = functional && cashBasis ? await ivaReclassificationsFor(client, 'issued', entityId, receipt.id) : [];
   const releases: PendingRelease[] = [];
@@ -2319,7 +2333,12 @@ async function pendingRelease(
     }
   }
   const total = releases.reduce((sum, r) => sum.plus(r.amount), new Decimal(0));
-  return { functional, shares: shares.length, releases, total };
+  const ieps: IepsMove[] = [];
+  for (const share of functional && cashBasis ? await iepsCausedByReceipt(client, entityId, receipt.id) : []) {
+    const due = new Decimal(share.amount).minus(await iepsMovedForInvoice(client, entityId, share.invoiceId, receipt.id));
+    if (due.greaterThan(0)) ieps.push({ ...share, amount: due.toFixed(ESCALA) });
+  }
+  return { functional, shares: shares.length, releases, ieps, total };
 }
 
 /** One receipt's cashing entry, DR 2125 / CR 2120 per invoice, and what it released stored. */
@@ -2329,6 +2348,7 @@ async function postCashing(
   receipt: CheckReceiptRow,
   credit: BankCreditRow,
   releases: PendingRelease[],
+  ieps: IepsMove[],
   userId: string
 ): Promise<{ id: string; entry_number: string }> {
   const checkLabel = receipt.check_number ?? receipt.payment_number;
@@ -2347,6 +2367,7 @@ async function postCashing(
       description: `IVA caused on cheque cashing (LIVA art. 1-B) - Invoice ${r.invoiceNumber}`,
     },
   ]);
+  lines.push(...(await iepsMoveLines(client, entityId, receipt.id, ieps, 'release', `cheque ${checkLabel} cashed ${credit.date}`)));
   const entry = await createJournalEntry(
     entityId,
     // The credit's day, at local midnight: see `fechaDelAsiento`.

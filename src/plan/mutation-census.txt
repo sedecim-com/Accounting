@@ -887,7 +887,7 @@ anchor	src/plan/criteria/e1-2.ts	de: 'vendorAdvanceCurrency ?? currencyOf(docume
 anchor	src/plan/criteria/e1-2.ts	de: "await expect(advance(customerMxn, 'EUR')).rejects.toThrow(ValidationError);",
 anchor	src/plan/criteria/e1-2.ts	de: "midnight, which west of Greenwich is the previous day in the DATE column.\n entry_date,",
 anchor	src/plan/criteria/e1-2.ts	de: ' reversalDate: reversal_date,',
-anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n iva.documents.length',
+anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n taxNote.length',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,',
 anchor	src/plan/criteria/e1-2.ts	de: ' payment.payment_date,\n JournalEntryType.AUTO_PAYMENT,\n (iva.documents.length',
 anchor	src/plan/criteria/e1-2.ts	de: ' entry.entryDate,',
