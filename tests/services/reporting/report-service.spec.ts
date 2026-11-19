@@ -534,6 +534,38 @@ describe('queryEntryMovementsOnAccount — one account, entry by entry', () => {
     expect(sql(0)).toMatch(/HAVING SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\) > 0/);
     expect(params(0)).toEqual([ENTITY, 'acc-1', ['je-0']]);
   });
+
+  it('cuts by date after the other filters, so the limit keeps the last placeholder (MNE-001-435)', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsOnAccount(ENTITY, 'acc-1', {
+      excludeSourceTypes: ['bill'],
+      excludeEntryIds: ['je-0'],
+      asOf: '2026-03-31',
+      order: 'newest',
+      limit: 200,
+    });
+    expect(sql(0)).toMatch(/AND NOT \(je\.id = ANY\(\$4::uuid\[\]\)\) AND je\.entry_date <= \$5::date GROUP BY/);
+    expect(sql(0)).toMatch(/ORDER BY je\.entry_date DESC, je\.entry_number DESC LIMIT \$6/);
+    expect(params(0)).toEqual([ENTITY, 'acc-1', ['bill'], ['je-0'], '2026-03-31', 200]);
+  });
+
+  it('reads only the named entries when asked (MNE-001-435)', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsOnAccount(ENTITY, 'acc-1', { entryIds: ['je-a', 'je-b'] });
+    expect(sql(0)).toMatch(/AND jel\.account_id = \$2 AND je\.id = ANY\(\$3::uuid\[\]\) GROUP BY/);
+    expect(params(0)).toEqual([ENTITY, 'acc-1', ['je-a', 'je-b']]);
+  });
+
+  it('carries the creator and the total and count over every row, not over the page (MNE-001-435)', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryEntryMovementsOnAccount(ENTITY, 'acc-1', { limit: 2 });
+    expect(sql(0)).toMatch(/je\.created_by::text AS created_by/);
+    expect(sql(0)).toMatch(
+      /\(SUM\(SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\)\) OVER \(\)\)::text AS total_amount/
+    );
+    expect(sql(0)).toMatch(/\(COUNT\(\*\) OVER \(\)\)::int AS total_entries/);
+    expect(sql(0)).toMatch(/GROUP BY je\.id, je\.entry_number, je\.entry_date, je\.description, je\.created_by/);
+  });
 });
 
 describe('getTrialBalance — el saldo inicial que el Anexo 24 exige', () => {

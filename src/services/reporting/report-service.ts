@@ -31,9 +31,9 @@ import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
 //
 //   query*Rows()  — the SQL. One implementation, shared by REST, the
 //                   agent tools and the CLI — and by the services that
-//                   read a balance to guard money (the AR reconciliation,
-//                   the prepaid backing, the external-ledger diff; T14,
-//                   #101). This is the part where a mistake produces a
+//                   read a balance to guard money (the AR and AP
+//                   reconciliations, the prepaid backing, the
+//                   external-ledger diff; T14, #101). This is the part where a mistake produces a
 //                   wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
 //                   by REST and the CLI, which publish the same shape.
@@ -613,6 +613,15 @@ export interface EntryMovementRow {
   description: string | null;
   /** Net debit-positive movement the entry left on the account. */
   amount: string;
+  /** Who created the entry (`journal_entries.created_by`); the caller names the user. */
+  created_by: string;
+  /**
+   * Σ `amount` and the count over EVERY row the filters keep, before `limit`:
+   * a control that lists a page must still explain its balance with all of
+   * them (TOTALS ARE COMPUTED OVER EVERY ROW, above).
+   */
+  total_amount: string;
+  total_entries: number;
 }
 
 export interface EntryMovementFilters {
@@ -625,6 +634,10 @@ export interface EntryMovementFilters {
   excludeSourceTypes?: readonly string[];
   /** Leave out these entries by id. */
   excludeEntryIds?: readonly string[];
+  /** Only entries dated on or before this day (YYYY-MM-DD), the control's cut. */
+  asOf?: string;
+  /** Only these entries: the net a document's own entry left on the account. */
+  entryIds?: readonly string[];
   /** Only entries whose net movement on the account is a debit. */
   netDebitsOnly?: boolean;
   /** Oldest first (default) or newest first; the entry number breaks ties. */
@@ -664,6 +677,14 @@ export async function queryEntryMovementsOnAccount(
     params.push([...filters.excludeEntryIds]);
     where.push(`AND NOT (je.id = ANY($${params.length}::uuid[]))`);
   }
+  if (filters.asOf !== undefined) {
+    params.push(filters.asOf);
+    where.push(`AND je.entry_date <= $${params.length}::date`);
+  }
+  if (filters.entryIds) {
+    params.push([...filters.entryIds]);
+    where.push(`AND je.id = ANY($${params.length}::uuid[])`);
+  }
   const having = filters.netDebitsOnly
     ? 'HAVING SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)) > 0'
     : '';
@@ -679,13 +700,16 @@ export async function queryEntryMovementsOnAccount(
             je.entry_number AS entry_number,
             je.entry_date   AS entry_date,
             je.description  AS description,
-            SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS amount
+            je.created_by::text AS created_by,
+            SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS amount,
+            (SUM(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))) OVER ())::text AS total_amount,
+            (COUNT(*) OVER ())::int AS total_entries
        FROM journal_entry_lines jel
        JOIN journal_entries je ON je.id = jel.journal_entry_id
        JOIN accounts a ON a.id = jel.account_id AND a.entity_id = $1
       WHERE je.entity_id = $1 AND je.status = 'posted' AND jel.account_id = $2
         ${where.join(' ')}
-      GROUP BY je.id, je.entry_number, je.entry_date, je.description
+      GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.created_by
       ${having}
       ORDER BY je.entry_date ${direction}, je.entry_number ${direction}
       ${limit}`,
