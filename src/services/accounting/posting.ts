@@ -42,6 +42,11 @@ interface JournalEntryLineInput {
   foreign_debit?: string | null;
   foreign_credit?: string | null;
   exchange_rate?: string | null;
+  // Structured facts about the line (`journal_entry_lines.tags`). Today only
+  // the IEPS release writes one: the invoice and receipt it moved IEPS for,
+  // which is how an unapply reads back what that receipt moved
+  // (ieps-cash-basis.ts). A reversal does not copy it.
+  tags?: Record<string, unknown> | null;
 }
 
 // Attestations are fire-and-forget but must survive process shutdown: the
@@ -307,14 +312,15 @@ export async function createJournalEntry(
           id, journal_entry_id, line_number, account_id,
           debit_amount, credit_amount, description,
           cost_center_id, project_id,
-          currency_code, foreign_debit, foreign_credit, exchange_rate
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          currency_code, foreign_debit, foreign_credit, exchange_rate, tags
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE($14::jsonb, '{}'::jsonb))`,
         [
           uuidv4(), entryId, i + 1, line.account_id,
           line.debit_amount, line.credit_amount, line.description,
           line.cost_center_id || null, line.project_id || null,
           line.currency_code ?? null, line.foreign_debit ?? null,
           line.foreign_credit ?? null, line.exchange_rate ?? null,
+          line.tags ? JSON.stringify(line.tags) : null,
         ]
       );
     }

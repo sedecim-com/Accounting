@@ -272,3 +272,57 @@ describe('the allocation\'s day where nobody gave one', () => {
     expect(await owedAsOf(inv.number, '2026-07-12')).toBe(0);
   });
 });
+
+describe('MNE-001-504 · the IEPS a PPD application moved goes back on the unapply\'s day', () => {
+  /** A dated entry's lines on 2180 and 2181, each as [debit, credit]. */
+  async function iepsLinesOf(entryNumber: string): Promise<Record<string, [string, string]>> {
+    const r = await query<{ code: string; debit: string; credit: string }>(
+      `SELECT a.code, COALESCE(SUM(l.debit_amount), 0)::numeric(18,4)::text AS debit,
+              COALESCE(SUM(l.credit_amount), 0)::numeric(18,4)::text AS credit
+         FROM journal_entry_lines l
+         JOIN journal_entries je ON je.id = l.journal_entry_id
+         JOIN accounts a ON a.id = l.account_id
+        WHERE je.entity_id = $1 AND je.entry_number = $2 AND a.code IN ('2180', '2181')
+        GROUP BY a.code`,
+      [mx.entityId, entryNumber]
+    );
+    return Object.fromEntries(r.rows.map((l) => [l.code, [l.debit, l.credit] as [string, string]]));
+  }
+
+  it('unapply --date of a PPD application whose invoice parked IEPS re-parks it on an entry dated that day', async () => {
+    // 2181 and its role by hand, as mne-001-504-ppd-ieps-release does: the
+    // seed that writes them is MNE-001-505. The invoice of #669 posts
+    // CR 4100 1,000.00 / CR 2181 80.00 / CR 2125 172.80.
+    const account2181 = uuidv4();
+    await query(
+      `INSERT INTO accounts (id, code, name, account_type, fs_category, entity_id, currency_code, normal_balance, created_by)
+       VALUES ($1, '2181', 'IEPS Trasladado No Cobrado', 'liability', 'current_liabilities', $2, 'MXN', 'credit', $3)`,
+      [account2181, mx.entityId, mx.userId]
+    );
+    await query(
+      `INSERT INTO account_roles (tenant_id, entity_id, role, account_id) VALUES ($1, $2, 'ieps_trasladado_no_cobrado', $3)`,
+      [mx.tenantId, mx.entityId, account2181]
+    );
+    const draft = await createInvoice({
+      entity_id: mx.entityId, customer_id: customerId, invoice_date: '2026-08-01', due_date: '2026-08-01',
+      currency_code: 'MXN', terms: 'PPD',
+      lines: [
+        { revenue_account_id: mx.roles.ingreso, description: 'Synthetic soft drinks', quantity: '1', unit_price: '1000.00', tax_rate: '16.0000' },
+        { revenue_account_id: account2181, description: 'IEPS 8 % transferred', quantity: '1', unit_price: '80.00', tax_rate: '16.0000' },
+      ],
+      created_by: mx.userId,
+    });
+    const { invoice: inv } = await issueInvoice(draft.id, mx.userId, { entityId: mx.entityId });
+    const pmt = await onAccount('2026-08-02', '1252.80');
+
+    const applied = await receipt(['apply', pmt, '--invoice', `${inv.invoice_number}:1252.80`, '--date', '2026-08-05']);
+    expect(await entryDate(applied.journal_entry)).toBe('2026-08-05');
+    expect(await iepsLinesOf(applied.journal_entry)).toEqual({ '2181': ['80.0000', '0.0000'], '2180': ['0.0000', '80.0000'] });
+
+    const undone = await receipt(['unapply', pmt, '--invoice', inv.invoice_number, '--reason', 'wrong sale', '--date', '2026-08-10']);
+    expect(undone.date).toBe('2026-08-10');
+    expect(await entryDate(undone.entry_number)).toBe('2026-08-10');
+    expect(await iepsLinesOf(undone.entry_number)).toEqual({ '2180': ['80.0000', '0.0000'], '2181': ['0.0000', '80.0000'] });
+    expect(await allocations(pmt)).toEqual([{ applied_on: '2026-08-05', unapplied_on: '2026-08-10' }]);
+  });
+});

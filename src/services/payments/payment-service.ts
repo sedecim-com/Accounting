@@ -23,6 +23,7 @@ import {
   type DiferenciaCambiaria,
 } from '../accounting/moneda-origen.js';
 import { ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
+import { iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
   ADVANCE_TREATMENTS, isAdvanceTreatment, splitAdvance, storedAdvanceTreatment, type AdvanceSplit,
 } from './customer-advance.js';
@@ -1569,6 +1570,8 @@ export interface ResultadoDesaplicacion {
   ivaEstimado: boolean;
   /** MNE-001-460: the day of the unapply, which its entry and the closure carry. */
   date: string;
+  /** #699 · The IEPS moved back to the uncollected role: exactly what this receipt had moved. */
+  iepsReparked: string;
 }
 
 /**
@@ -1669,6 +1672,10 @@ export async function unapplyCustomerPayment(
         )
       : new Decimal(0);
     const estimado = sinIva.length > 0 && ivaEstimadoParte.greaterThan(0);
+    // #699 · The IEPS this receipt moved for the invoice, read back from the
+    // tagged lines of its unreversed entries before the rows close: exact,
+    // net of an earlier unapply, and zero where nothing was parked.
+    const iepsMoved = await iepsMovedForInvoice(client, entityId, factura.id, paymentId);
 
     // Invariant 3: the live rows read above, of a receipt of this entity, and
     // every one of them; a miss is loud.
@@ -1715,6 +1722,9 @@ export async function unapplyCustomerPayment(
         ivaReclass: estimado ? null : ivaExacto.toFixed(4),
         ivaEstimado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
         date,
+        ...(iepsMoved.greaterThan(0)
+          ? { ieps: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsMoved.toFixed(4) } }
+          : {}),
       },
       userId
     );
@@ -1731,6 +1741,7 @@ export async function unapplyCustomerPayment(
         invoice: factura.invoice_number,
         date,
         desaplicado: total.toFixed(2),
+        ...(iepsMoved.greaterThan(0) ? { ieps_reparked: iepsMoved.toFixed(4) } : {}),
         journal_entry_id: entry.id,
       },
       reason: args.reason,
@@ -1752,6 +1763,7 @@ export async function unapplyCustomerPayment(
       ivaReAparcado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
       ivaEstimado: estimado,
       date,
+      iepsReparked: iepsMoved.toFixed(4),
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;
