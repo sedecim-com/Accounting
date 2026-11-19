@@ -56,7 +56,9 @@ import * as payments from '../../src/services/payments/payment-service.js';
 import { resolveEntity } from '../../src/ai/context.js';
 import * as invoices from '../../src/services/ar/invoice-service.js';
 import { todayFor } from '../../src/services/policy/today.js';
-import { parseWithholding, registerReceiptCommand } from '../../src/cli/receipt-command.js';
+import { idempotencyHitNote, parseWithholding, registerReceiptCommand } from '../../src/cli/receipt-command.js';
+import type { CliError } from '../../src/cli/kernel/cli-error.js';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import { resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { exitCodeFor } from '../../src/cli/kernel/index.js';
 import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../src/cli/kernel/audit.js';
@@ -453,13 +455,13 @@ describe('receipt reverse --cause (MNE-001-509)', () => {
     expect(all.errs).toEqual([]);
     expect(all.out).toMatch(/Reversal cause\s+not stated/);
     expect(all.out).toContain(t('receipt.advance.cfdi_owed', {}, 'en'));
-    expect(all.out).not.toContain('sin REP');
+    expect(all.out).not.toContain('no REP');
 
     // Part advance, part not: the REP is still owed.
     vi.mocked(payments.getCustomerPayment).mockResolvedValueOnce({ ...row, payment_amount: '2000.00', reversal_cause: 'taken_back' } as never);
     const part = await receipt(['show', 'PMT-2026-00042']);
     expect(part.out).toMatch(/Reversal cause\s+taken_back/);
-    expect(part.out).toContain('sin REP');
+    expect(part.out).toContain('no REP — a tax obligation of its own, with a SAT deadline');
     expect(part.out).not.toContain('Cause stated');
 
     // MNE-001-511: the instant the cause was stated, which is later than the reversal when it was stated afterwards.
@@ -522,5 +524,80 @@ describe('receipt cause record (MNE-001-511)', () => {
     expect(rows[0]).toEqual({
       payment_number: 'PMT-2026-00042', cause: 'taken_back', stated_at: '2026-06-09T15:00:00.000Z', warnings: '',
     });
+  });
+});
+
+// ============================================================
+// I8.3 · THE ar FAMILY SPEAKS BY KEY (MNE-001-220, #265)
+//
+// One assertion per key of `receipt`, in English, and the same texts in
+// Spanish. Written by hand, before the code.
+// ============================================================
+describe('I8.3 · receipt speaks by key', () => {
+  const apply = ['apply', 'PMT-2026-00042'];
+
+  it('apply with no --invoice names the two ways to say it', async () => {
+    const r = await receipt(apply);
+    expect(r.errs[0]?.message).toBe(
+      'Name the invoice or invoices: --invoice "INV-2026-00042:2500" (repeatable), or --invoice <ref> --amount <n>.'
+    );
+    expect((r.errs[0] as CliError).localized('es')).toBe(
+      'Indica la factura o las facturas: --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>.'
+    );
+  });
+
+  it('a bare invoice among several carries no amount, and says so', async () => {
+    const r = await receipt([...apply, '--invoice', 'INV-1', 'INV-2:10']);
+    expect(r.errs[0]?.message).toBe(
+      'The invoice "INV-1" carries no amount. With several invoices each one carries its own ("number:amount"); with only one it can go in --amount.'
+    );
+    expect((r.errs[0] as CliError).localized('es')).toContain('La factura «INV-1» no trae importe.');
+  });
+
+  it('a key passed to apply is refused with the reason in the language of its sentence', async () => {
+    const r = await receipt([...apply, '--invoice', 'INV-1:10', '--idempotency-key', 'k1']);
+    expect(r.errs[0]?.message).toContain('a retry allocates the on-account balance again and posts another entry');
+    expect((r.errs[0] as CliError).localized('es')).toContain(
+      'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento'
+    );
+  });
+
+  it('unapply and reverse say why the key would protect nothing', async () => {
+    const unapply = await receipt(['unapply', 'PMT-2026-00042', '--invoice', 'INV-1', '--reason', 'x', '--idempotency-key', 'k1']);
+    expect(unapply.errs[0]?.message).toContain('a retry unapplies again and posts another mirror');
+    const reverse = await receipt(['reverse', 'PMT-2026-00042', '--reason', 'x', '--idempotency-key', 'k1']);
+    expect(reverse.errs[0]?.message).toContain('a retry posts the mirrors of the reversal again');
+  });
+
+  it('the idempotency hit says the key already spent the receipt', () => {
+    try {
+      setLanguage('en');
+      expect(idempotencyHitNote('k1', 'PMT-2026-00042')).toBe(
+        '↩ Idempotency hit: the key "k1" already spent this receipt (PMT-2026-00042). Nothing was written again; this is the recorded result.'
+      );
+      setLanguage('es');
+      expect(idempotencyHitNote('k1', 'PMT-2026-00042')).toBe(
+        '↩ Reintento idempotente: la llave «k1» ya consumó este cobro (PMT-2026-00042). Nada se escribió otra vez; esto es el resultado grabado.'
+      );
+    } finally {
+      resetLanguage();
+    }
+  });
+
+  it('receipt show says «sin REP» to a Spanish reader', async () => {
+    const row = {
+      id: 'pay-1', payment_number: 'PMT-2026-00042', status: 'completed', payment_amount: '2000.00', currency_code: 'MXN',
+      payment_date: new Date('2026-05-20'), payment_method: 'bank_transfer', unapplied_amount: '0.00', aplicaciones: [],
+      customer_name: 'Grupo Alameda', cfdi_uuid: null, advance_base: null, advance_tax_rate: null, advance_iva: null,
+      reversed_at: null, reversal_cause: null,
+    };
+    vi.mocked(payments.getCustomerPayment).mockResolvedValueOnce(row as never);
+    try {
+      setLanguage('es');
+      const r = await receipt(['show', 'PMT-2026-00042']);
+      expect(r.out).toContain('sin REP — obligación fiscal propia con plazo del SAT');
+    } finally {
+      resetLanguage();
+    }
   });
 });

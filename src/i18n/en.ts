@@ -3033,6 +3033,35 @@ export const EN = {
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+
+  // MNE-001-220: receipt, invoice, customer and credit-note.
+  /** `receipt apply` with no `--invoice`. */
+  'ar.receipt.invoice_missing':
+    'Name the invoice or invoices: --invoice "INV-2026-00042:2500" (repeatable), or --invoice <ref> --amount <n>.',
+  /** `receipt apply`: a bare invoice where its amount cannot come from --amount. */
+  'ar.receipt.invoice_without_amount':
+    'The invoice "{spec}" carries no amount. With several invoices each one carries its own ("number:amount"); with only one it can go in --amount.',
+  /** `receipt record`: the key was already spent, and this is the recorded result. */
+  'ar.receipt.idempotency_hit':
+    '↩ Idempotency hit: the key "{key}" already spent this receipt ({number}). Nothing was written again; this is the recorded result.',
+  /** `receipt show`: the REP of a receipt that has none. */
+  'ar.receipt.no_rep': 'no REP — a tax obligation of its own, with a SAT deadline',
+  /** The reason `receipt apply` does not honor --idempotency-key (`cli.risk.key_not_honored`). */
+  'ar.receipt.retry_reallocates':
+    'a retry allocates the on-account balance again and posts another entry',
+  /** The reason `receipt unapply` does not honor --idempotency-key. */
+  'ar.receipt.retry_unapplies': 'a retry unapplies again and posts another mirror',
+  /** The reason `receipt reverse` does not honor --idempotency-key. */
+  'ar.receipt.retry_reverses': 'a retry posts the mirrors of the reversal again',
+  /** The reason `invoice issue` does not honor --idempotency-key. */
+  'ar.invoice.retry_reissues': 'a retry issues again and posts the revenue a second time',
+  /** The reason `invoice void` does not honor --idempotency-key. */
+  'ar.invoice.retry_void_mirror': 'a retry posts the mirror of the void again',
+  /** The reason `invoice delete` does not honor --idempotency-key. */
+  'ar.invoice.delete_by_state':
+    'the delete is unrepeatable only through the state of the draft, not through the key',
+  /** The reason `credit-note issue` does not honor --idempotency-key. */
+  'ar.credit_note.retry_reissues': 'a retry issues the note again and posts another entry',
   // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====

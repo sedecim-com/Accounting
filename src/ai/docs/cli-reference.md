@@ -3969,9 +3969,9 @@ Options:
 
 Examples:
   # Commercial and contact data. The tax profile is NOT edited here.
-  mnemosine customer edit "Grupo Alameda" --email pagos@grupoalameda.mx --terms "Net 45" --reason "Convenio comercial 2026"
+  mnemosine customer edit "Grupo Alameda" --email pagos@grupoalameda.mx --terms "Net 45" --reason "2026 commercial agreement"
   # Leave a note on the customer file.
-  mnemosine customer edit "Grupo Alameda" --notes "Exige orden de compra en cada factura"
+  mnemosine customer edit "Grupo Alameda" --notes "Requires a purchase order on every invoice"
 ```
 
 ### `mnemosine customer archive` (alias: archivar)
@@ -3997,9 +3997,9 @@ Options:
 
 Examples:
   # Deactivate a customer. It is an undo verb, so --reason is required.
-  mnemosine customer archive "Grupo Alameda" --reason "Cliente inactivo desde 2025"
+  mnemosine customer archive "Grupo Alameda" --reason "Customer inactive since 2025"
   # Archive one that still shows a balance: --force overrides the check, never the reason.
-  mnemosine customer archive "Grupo Alameda" --force --reason "Saldo incobrable ya castigado"
+  mnemosine customer archive "Grupo Alameda" --force --reason "Uncollectible balance already written off"
 ```
 
 ### `mnemosine customer restore` (alias: restaurar)
@@ -4025,7 +4025,7 @@ Examples:
   # Put an archived customer back in service.
   mnemosine customer restore "Grupo Alameda"
   # With the justification that lands in the audit trail.
-  mnemosine customer restore "Grupo Alameda" --reason "Reactivado con contrato 2026"
+  mnemosine customer restore "Grupo Alameda" --reason "Reactivated with the 2026 contract"
 ```
 
 ### `mnemosine customer tax` (alias: fiscal)
@@ -4103,9 +4103,9 @@ Options:
 
 Examples:
   # The four fields CFDI 4.0 stamps against, validated against the SAT catalogs.
-  mnemosine customer tax set "Grupo Alameda" --rfc GAL150623QK8 --tax-regime 601 --postal-code 06600 --uso-cfdi G03 --reason "Constancia de situacion fiscal de julio"
+  mnemosine customer tax set "Grupo Alameda" --rfc GAL150623QK8 --tax-regime 601 --postal-code 06600 --uso-cfdi G03 --reason "Tax status certificate of July"
   # Only the default UsoCFDI.
-  mnemosine customer tax set "Grupo Alameda" --uso-cfdi G01 --reason "Solicitud del cliente"
+  mnemosine customer tax set "Grupo Alameda" --uso-cfdi G01 --reason "Customer request"
 ```
 
 #### `mnemosine customer tax list` (alias: listar)

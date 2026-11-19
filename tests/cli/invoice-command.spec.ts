@@ -88,7 +88,7 @@ describe('the safety property', () => {
     // DEUDA_DE_LLAVES y R11 la acusa. Mientras siga ahí, pasar la llave falla
     // en vez de fingir: eso es lo que esta prueba fija.
     expect(riskOf(find(program, 'invoice issue'))?.llave).toEqual({
-      sinLlave: 'un reintento vuelve a emitir y postea el ingreso otra vez',
+      sinLlave: { key: 'ar.invoice.retry_reissues' },
     });
     expect(DEUDA_DE_LLAVES).toContain('invoice issue');
     expect(

@@ -2858,6 +2858,23 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+
+  'ar.receipt.invoice_missing':
+    'Indica la factura o las facturas: --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>.',
+  'ar.receipt.invoice_without_amount':
+    'La factura «{spec}» no trae importe. Con varias facturas cada una lo lleva pegado («folio:importe»); con una sola puede ir en --amount.',
+  'ar.receipt.idempotency_hit':
+    '↩ Reintento idempotente: la llave «{key}» ya consumó este cobro ({number}). Nada se escribió otra vez; esto es el resultado grabado.',
+  'ar.receipt.no_rep': 'sin REP — obligación fiscal propia con plazo del SAT',
+  'ar.receipt.retry_reallocates':
+    'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento',
+  'ar.receipt.retry_unapplies': 'un reintento vuelve a desaplicar y postea otro espejo',
+  'ar.receipt.retry_reverses': 'un reintento vuelve a postear los espejos de la reversa',
+  'ar.invoice.retry_reissues': 'un reintento vuelve a emitir y postea el ingreso otra vez',
+  'ar.invoice.retry_void_mirror': 'un reintento vuelve a postear el espejo de la anulación',
+  'ar.invoice.delete_by_state':
+    'el borrado sólo es irrepetible por estado del borrador, no por llave',
+  'ar.credit_note.retry_reissues': 'un reintento vuelve a emitir la nota y postea otro asiento',
   // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
