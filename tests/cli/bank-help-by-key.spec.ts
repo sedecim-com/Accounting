@@ -109,6 +109,7 @@ describe('the bank family, help by key, group by group (#314, MNE-001-231 to 233
     ['bank interest', 'help.bank.interest.post.description'],
     ['bank interest post', 'help.bank.interest.post.option.rate'],
     ['bank check reconcile', 'help.bank.check.reconcile.option.as_of'],
+    ['bank check reconcile', 'help.bank.check.reconcile.option.receipt'],
     ['bank', 'help.bank.reconciliation.description'],
     ['bank', 'help.bank.reconciling_item.description'],
     ['bank', 'help.bank.adjustment.description'],

@@ -2355,6 +2355,9 @@ export const EN = {
     'An advance with no invoice causes its IVA when it is collected (LIVA art. 1-B), and the rate of a sale that has not happened is a fact you state, never a default: add --tax-rate 16, 8, 0, exempt or not-subject. Nothing was recorded.',
   'receipt.advance.figures': 'base {base}, IVA {iva}, rate {rate}',
   'receipt.advance.label': 'Advance',
+  'receipt.cheque.cashed_label': 'Cheque cashed',
+  'receipt.cheque.cashed': '{date} · bank transaction {transaction}',
+  'receipt.cheque.not_cashed': 'not recorded yet (`bank check reconcile --receipt`)',
   'receipt.advance.confirm':
     'Record {amount} received from {customer} as an advance with no invoice{figures} in {entity}? This posts to the ledger.',
   // MNE-001-509 (#701): a reversed receipt says what happened to the money.
@@ -2886,6 +2889,22 @@ export const EN = {
     'No entry: this receipt holds no VAT pending collection.',
   'bank.check.cashing.note.foreign_currency':
     'No entry: a cheque in a foreign currency releases its VAT on the receipt date.',
+  'bank.check.cashing.refused.transaction_needed':
+    'Receipt {receipt} names no bank account, so there is nowhere to look for its credit. Name the bank transaction with `--transaction`.',
+  'bank.check.cashing.refused.no_credit':
+    'No unused credit of {amount} from {date} is in the bank account of receipt {receipt}. Either the cheque is not cashed yet or the bank credited another amount: name the bank transaction with `--transaction`.',
+  'bank.check.cashing.refused.several_credits':
+    'Several credits of {amount} could be the cheque of receipt {receipt}: {candidates}. None is picked, because the wrong one dates its VAT in the wrong month. Name the right one with `--transaction`.',
+  'bank.check.cashing.refused.as_of_differs':
+    'Bank transaction {transaction} is dated {date}, not {asOf}, the date stated with `--as-of` for receipt {receipt}. The bank dates the cashing: check that this is the credit that paid the cheque.',
+  'bank.check.cashing.check_value': '{check} · receipt {payment}',
+  'bank.check.cashing.why':
+    'why: under the VAT law a price paid by cheque counts as collected on the day the bank CASHED it and not ' +
+    'the day it was received, so the VAT of this receipt is caused in that month.',
+  'bank.check.reconcile.one_of':
+    'Name exactly one cheque: the vendor payment <id>, or a customer receipt with --receipt <ref>.',
+  'bank.check.reconcile.one_receipt':
+    'One --receipt per recording: a credit that cashes several cheques is not recorded here yet.',
   'bank.transaction.show.unmatched': 'unmatched',
   'bank.match.create.summary':
     '· bank {bank} = books {books} + adjustments {adjustments} · residual {residual} ({mode}) · ' +
@@ -3650,9 +3669,12 @@ export const EN = {
     'Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law ' +
     'is when the payment counts',
   'help.bank.check.reconcile.description':
-    'Prove the check against the bank movement that cleared it and post the VAT ' +
-    'reclassification from pending to creditable IN THE MONTH IT CLEARED',
-  'help.bank.check.reconcile.argument.id': 'vendor payment made by check',
+    'Prove the check against the bank movement that cleared it and post its VAT IN THE MONTH IT CLEARED: ' +
+    'from pending to creditable for a vendor payment, from pending collection to charged for a customer receipt',
+  'help.bank.check.reconcile.argument.id': 'vendor payment made by check; omit it with --receipt',
+  'help.bank.check.reconcile.option.receipt':
+    'customer receipt paid by cheque, by number (PMT-2026-00042) or id, instead of <id>; without ' +
+    '--transaction the credit of its amount is searched in its bank account from its date',
   'help.bank.check.reconcile.option.transaction':
     'the bank movement that paid it, named by hand; required when several charges match',
   'help.bank.check.reconcile.option.as_of':

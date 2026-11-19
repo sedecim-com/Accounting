@@ -943,6 +943,9 @@ export async function recordCustomerPayment(
         journal_entry_id: null,
         advance_base_amount: advance?.base ?? null,
         advance_iva_amount: advance?.iva ?? null,
+        // MNE-001-556: a new cheque has no cashing. One in another currency
+        // (`fx`) keeps releasing on its receipt until its cashing can convert.
+        holdsIvaUntilCashed: entrada.paymentMethod === 'check' && !fx,
       },
       userId,
       fx ?? undefined
@@ -1150,6 +1153,22 @@ interface PagoVivo {
   /** MNE-001-458: non-null when the receipt was recorded as an advance with its treatment. */
   advance_factor_type: string | null;
   payment_method: string;
+  /** Migration 331: the bank credit that cashed the cheque; null while it has none. */
+  check_cashed_tx_id: string | null;
+}
+
+/**
+ * MNE-001-556 · A cheque in the functional currency with no cashing recorded
+ * holds its IVA (LIVA art. 1-B, second paragraph). NOTE: read from the method
+ * and the cashing, never from the 0 an allocation stores: every allocation
+ * that released nothing stores 0, whatever the method (MNE-001-459).
+ */
+async function holdsIvaUntilCashed(client: pg.PoolClient, entityId: string, receipt: PagoVivo): Promise<boolean> {
+  return (
+    receipt.payment_method === 'check' &&
+    receipt.check_cashed_tx_id === null &&
+    receipt.currency_code.trim() === (await functionalCurrencyOf(client, entityId))
+  );
 }
 
 /** El cobro, acotado por entidad y con candado: la base de los tres eventos. */
@@ -1160,7 +1179,8 @@ async function cobroParaEscribir(
 ): Promise<PagoVivo> {
   const r = await client.query<PagoVivo>(
     `SELECT id, payment_number, customer_id, payment_amount, currency_code,
-            payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid, advance_factor_type, payment_method
+            payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid, advance_factor_type, payment_method,
+            check_cashed_tx_id
        FROM customer_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
     [paymentId, entityId]
   );
@@ -1413,6 +1433,7 @@ export async function applyCustomerPayment(
         id: pago.id, entity_id: entityId, payment_number: pago.payment_number,
         payment_amount: pago.payment_amount, payment_date: pago.payment_date,
         bank_account_id: pago.bank_account_id, journal_entry_id: null,
+        holdsIvaUntilCashed: await holdsIvaUntilCashed(client, entityId, pago),
       },
       posteriores,
       userId
@@ -1708,6 +1729,9 @@ export interface CobroDetalle {
   advance_base: string | null;
   advance_tax_rate: string | null;
   advance_iva: string | null;
+  /** MNE-001-556: the day the bank cashed the cheque and the credit that paid it (migration 331); nulls while it has none. */
+  check_cashed_date: string | null;
+  check_cashed_tx_id: string | null;
   aplicaciones: {
     invoice_number: string;
     amount_applied: string;
@@ -1734,12 +1758,14 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     reversal_cause: string | null; reversal_cause_stated_at: Date | null;
     advance_factor_type: string | null; advance_tax_rate: string | null;
     advance_base_amount: string | null; advance_iva_amount: string | null;
+    check_cashed_date: string | null; check_cashed_tx_id: string | null;
   }>(
     `SELECT cp.id, cp.payment_number, cp.customer_id, COALESCE(cu.company_name, NULLIF(TRIM(CONCAT(cu.first_name, ' ', cu.last_name)), '')) AS customer_name,
             cp.payment_amount::text, cp.currency_code, cp.payment_date, cp.payment_method,
             cp.reference_number, cp.status, je.entry_number AS journal_entry_number,
             cp.cfdi_uuid, cp.cfdi_pago_indice, cp.reversed_at, cp.reversal_cause, cp.reversal_cause_stated_at,
-            cp.advance_factor_type, cp.advance_tax_rate::text, cp.advance_base_amount::text, cp.advance_iva_amount::text
+            cp.advance_factor_type, cp.advance_tax_rate::text, cp.advance_base_amount::text, cp.advance_iva_amount::text,
+            cp.check_cashed_date::text AS check_cashed_date, cp.check_cashed_tx_id
        FROM customer_payments cp
        LEFT JOIN customers cu ON cu.id = cp.customer_id
        LEFT JOIN journal_entries je ON je.id = cp.journal_entry_id
@@ -1789,6 +1815,8 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     advance_base: pago.advance_base_amount === null ? null : new Decimal(pago.advance_base_amount).toFixed(2),
     advance_tax_rate: storedAdvanceTreatment(pago.advance_factor_type, pago.advance_tax_rate),
     advance_iva: pago.advance_iva_amount === null ? null : new Decimal(pago.advance_iva_amount).toFixed(2),
+    check_cashed_date: pago.check_cashed_date,
+    check_cashed_tx_id: pago.check_cashed_tx_id,
     aplicaciones: apps.rows.map((a) => ({
       invoice_number: a.invoice_number,
       amount_applied: new Decimal(a.amount_applied).toFixed(2),
@@ -1948,7 +1976,8 @@ export async function reverseCustomerPayment(
       `SELECT id, entry_number, source_type FROM journal_entries
         WHERE entity_id = $1 AND status = 'posted' AND reversed_by_entry_id IS NULL
           AND ((source_type = 'customer_payment' AND source_id = $2)
-            OR (source_type IN ('receipt_application', 'receipt_unapplication') AND source_id = $2))
+            -- MNE-001-556: the cashing's release is the receipt's too, or a reversed cheque would leave its IVA caused.
+            OR (source_type IN ('receipt_application', 'receipt_unapplication', 'customer_cheque_cashing') AND source_id = $2))
         ORDER BY created_at`,
       [entityId, paymentId]
     );

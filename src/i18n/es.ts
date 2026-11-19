@@ -2224,6 +2224,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'Un anticipo sin factura causa su IVA al cobrarse (LIVA art. 1-B), y la tasa de una venta que aún no ocurre es un dato que tú declaras, nunca un valor por omisión: agrega --tax-rate 16, 8, 0, exempt o not-subject. No se registró nada.',
   'receipt.advance.figures': 'base {base}, IVA {iva}, tasa {rate}',
   'receipt.advance.label': 'Anticipo',
+  'receipt.cheque.cashed_label': 'Cheque cobrado',
+  'receipt.cheque.cashed': '{date} · movimiento bancario {transaction}',
+  'receipt.cheque.not_cashed': 'sin registrar todavía (`bank check reconcile --receipt`)',
   'receipt.advance.confirm':
     '¿Registrar {amount} recibidos de {customer} como anticipo sin factura{figures} en {entity}? Esto postea en el mayor.',
   // MNE-001-509 (#701): a reversed receipt says what happened to the money.
@@ -2732,6 +2735,22 @@ export const ES: Record<keyof typeof EN, string> = {
     'Sin asiento: este cobro no tiene IVA pendiente de cobro.',
   'bank.check.cashing.note.foreign_currency':
     'Sin asiento: un cheque en moneda extranjera libera su IVA en la fecha del cobro.',
+  'bank.check.cashing.refused.transaction_needed':
+    'El cobro {receipt} no dice a qué cuenta bancaria entró, así que no hay dónde buscar su abono. Nombra el movimiento bancario con `--transaction`.',
+  'bank.check.cashing.refused.no_credit':
+    'No hay ningún abono sin usar de {amount} a partir del {date} en la cuenta bancaria del cobro {receipt}. O el banco todavía no cobra el cheque, o lo abonó por otro importe: nombra el movimiento bancario con `--transaction`.',
+  'bank.check.cashing.refused.several_credits':
+    'Varios abonos de {amount} podrían ser el cheque del cobro {receipt}: {candidates}. No se elige ninguno, porque el equivocado fecha su IVA en el mes equivocado. Nombra el bueno con `--transaction`.',
+  'bank.check.cashing.refused.as_of_differs':
+    'El movimiento bancario {transaction} es del {date}, no del {asOf}, la fecha afirmada con `--as-of` para el cobro {receipt}. El cobro del cheque lo fecha el banco: revisa que ése sea el abono que pagó el cheque.',
+  'bank.check.cashing.check_value': '{check} · cobro {payment}',
+  'bank.check.cashing.why':
+    'por qué: bajo la LIVA el precio pagado con cheque se entiende cobrado el día en que el banco lo COBRA y no ' +
+    'el día en que se recibe, así que el IVA de este cobro se causa en ese mes.',
+  'bank.check.reconcile.one_of':
+    'Nombra exactamente un cheque: el pago a proveedor <id>, o un cobro de cliente con --receipt <ref>.',
+  'bank.check.reconcile.one_receipt':
+    'Un solo --receipt por registro: un abono que cobra varios cheques todavía no se registra aquí.',
   'bank.transaction.show.unmatched': 'sin cotejar',
   'bank.match.create.summary':
     '· banco {bank} = libros {books} + ajustes {adjustments} · residual {residual} ({mode}) · ' +
@@ -3508,9 +3527,12 @@ export const ES: Record<keyof typeof EN, string> = {
     'Los cheques en papel como hecho fiscal: cuándo el banco pagó de verdad un cheque, que bajo la LIVA es ' +
     'cuando el pago se entiende efectuado',
   'help.bank.check.reconcile.description':
-    'Prueba el cheque contra el movimiento bancario que lo cobró y contabiliza la reclasificación del IVA de ' +
-    'pendiente de acreditar a acreditable EN EL MES DEL COBRO',
-  'help.bank.check.reconcile.argument.id': 'pago a proveedor hecho con cheque',
+    'Prueba el cheque contra el movimiento bancario que lo cobró y contabiliza su IVA EN EL MES DEL COBRO: de ' +
+    'pendiente de acreditar a acreditable en un pago a proveedor, de no cobrado a trasladado en un cobro de cliente',
+  'help.bank.check.reconcile.argument.id': 'pago a proveedor hecho con cheque; se omite con --receipt',
+  'help.bank.check.reconcile.option.receipt':
+    'cobro de cliente pagado con cheque, por folio (PMT-2026-00042) o id, en lugar de <id>; sin ' +
+    '--transaction el abono de su importe se busca en su cuenta bancaria desde su fecha',
   'help.bank.check.reconcile.option.transaction':
     'el movimiento bancario que lo pagó, nombrado a mano; obligatorio cuando coinciden varios cargos',
   'help.bank.check.reconcile.option.as_of':
