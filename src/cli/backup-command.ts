@@ -27,7 +27,7 @@ import {
   exitCodeFor,
   checkExitCode,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 
 // ============================================================
 // mnemosine backup · respaldo
@@ -122,7 +122,7 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        `${question} [y/N] `
+        yesNoPrompt(question)
       );
       if (veredicto.si) return;
       throw abortedByUser(

@@ -2,7 +2,7 @@ import * as readline from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import Decimal from 'decimal.js';
 import { InvalidArgumentError, type Command } from 'commander';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
@@ -673,7 +673,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       // como NO un «sí» tecleado en español.
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        deps.palette.cyan(`${question} [y/N] `)
+        deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
         process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);

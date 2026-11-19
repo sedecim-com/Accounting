@@ -47,6 +47,8 @@ El agente nunca escribe el mayor ni sistemas externos, así que apagarlo no pier
 
 El CLI carga `./.env` y, después, `~/.mnemosine/.env` (`src/config/env-file.ts`); **`./.env` gana** si ambos definen la variable. `mnemosine init` (cualquier sección que escriba: infraestructura, identidad o IA) usa el que ya exista; si no hay ninguno, pregunta (por omisión `./.env` dentro de un checkout, `~/.mnemosine/.env` fuera de uno), y sin terminal aplica esa misma regla y dice cuál eligió. El archivo queda en modo 600 y `~/.mnemosine/` en 700, aunque ya existieran más abiertos.
 
+La llave de un proveedor que tecleas en `mnemosine init --section ai` es tuya y va siempre a `~/.mnemosine/.env`, aunque exista `./.env`: una llave en `./.env` le sirve a todo el que corre mnemosine en esa carpeta. Si `./.env` define esa variable vacía (como la trae `.env.example`), init borra esa línea, porque taparía tu llave; si la define con valor, la deja y te avisa que en esa carpeta gana.
+
 ## Identidad con Cognito
 
 Con `AUTH_OIDC_PROVIDER=cognito`, la API acepta los access tokens del user pool (#369):

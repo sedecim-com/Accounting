@@ -39,7 +39,7 @@ import {
   exitCodeFor,
   type Row,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 
 // ============================================================
 // mnemosine cfdi
@@ -419,7 +419,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
           throw abortedByUser({ key: 'cfdi.post.no_terminal', params: { question } });
         } else {
           const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-          const verdict = await confirmarConReintento((q) => rl.question(q).catch(() => null), `${question} [y/N] `)
+          const verdict = await confirmarConReintento((q) => rl.question(q).catch(() => null), yesNoPrompt(question))
             .finally(() => rl.close());
           if (!verdict.si) throw abortedByUser(verdict.incomprendida !== undefined ? noEntendi(verdict.incomprendida) : undefined);
         }
