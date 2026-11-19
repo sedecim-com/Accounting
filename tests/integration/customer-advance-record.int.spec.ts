@@ -146,14 +146,15 @@ describe('a customer advance recorded with its treatment', () => {
     expect(await count('payment_allocations')).toBe(0);
   });
 
-  it('refuses to apply it until part 5/8, and writes nothing', async () => {
+  it('applied to its sale\'s invoice, cancels the IVA it caused (MNE-001-422, customer-advance-apply.int.spec.ts)', async () => {
     const invoiceId = await saleInvoice();
-    await expect(
-      applyCustomerPayment(mx.entityId, paymentId, [{ documentId: invoiceId, amountApplied: '1160.00' }], mx.userId)
-    ).rejects.toMatchObject({ code: 'ADVANCE_APPLICATION_NOT_WIRED', messageKey: { key: 'receipt.advance.application_not_wired' } });
-    expect(await count('payment_allocations')).toBe(0);
-    const inv = await query<{ due: string }>('SELECT amount_due::text AS due FROM invoices WHERE id = $1', [invoiceId]);
-    expect(Number(inv.rows[0].due)).toBe(5800);
+    const r = await applyCustomerPayment(
+      mx.entityId, paymentId, [{ documentId: invoiceId, amountApplied: '1160.00' }], mx.userId, { date: '2026-08-20' }
+    );
+    expect(r.documentos[0]).toMatchObject({ saldoNuevo: '4640.00', advanceIva: '160.00' });
+    expect(await linesOf(r.journalEntry!.id)).toEqual({
+      [mx.cuentas['2150']]: [1000, 0], [mx.cuentas['2120']]: [160, 0], [mx.cuentas['1120']]: [0, 1160],
+    });
   });
 
   it('is undone by receipt reverse with one mirror: bank, 2150 and 2120 hold what they held', async () => {
@@ -210,6 +211,10 @@ describe('an advance received by cheque causes its IVA the day the bank cashes i
       [account, mx.entityId, mx.cuentas['1111']]
     );
     const before = await balances();
+    // The balances are floats: the movement is added in cents, or a 2120 that
+    // the tests above left at −1,017.93 reads −1,177.9299999999998.
+    const moved = (bank: number, advances: number, iva: number): number[] =>
+      [bank, advances, iva].map((d, i) => Math.round((before[i] + d) * 100) / 100);
 
     const r = await recordCustomerPayment(
       advance('1160.00', '16', { paymentMethod: 'check', bankAccountId: account, checkNumber: '558001' }), mx.userId
@@ -218,7 +223,7 @@ describe('an advance received by cheque causes its IVA the day the bank cashes i
     expect(r.advance).toMatchObject({ factorType: 'tasa', base: '1000.00', iva: '160.00' });
     expect(await stored(r.paymentId)).toEqual({ type: 'tasa', rate: '16.00', base: '1000.0000', iva: '160.0000' });
     expect(await linesOf(r.journalEntry!.id)).toEqual({ [mx.cuentas['1111']]: [1160, 0], [mx.cuentas['2150']]: [0, 1160] });
-    expect(await balances()).toEqual([before[0] + 1160, before[1] - 1160, before[2]]);
+    expect(await balances()).toEqual(moved(1160, -1160, 0));
 
     const credit = uuidv4();
     await query(
@@ -230,7 +235,7 @@ describe('an advance received by cheque causes its IVA the day the bank cashes i
     const preview = await bankLeaf(['check', 'reconcile', '--receipt', r.paymentNumber, '--dry-run']);
     expect(preview).toMatch(new RegExp(`anticipo_clientes · ${r.paymentNumber}\\s+160\\.0000`));
     expect(preview).toMatch(new RegExp(`iva_trasladado · ${r.paymentNumber}\\s+.*160\\.0000`));
-    expect(await balances()).toEqual([before[0] + 1160, before[1] - 1160, before[2]]);
+    expect(await balances()).toEqual(moved(1160, -1160, 0));
 
     const cashed = await recordCustomerCheckCashing(mx.entityId, r.paymentId, { userId: mx.userId });
     expect(cashed).toMatchObject({
@@ -243,7 +248,7 @@ describe('an advance received by cheque causes its IVA the day the bank cashes i
     );
     expect(entry.rows).toEqual([{ date: '2026-09-03', period: mx.periodos[9] }]);
     expect(await linesOf(cashed.entryId!)).toEqual({ [mx.cuentas['2150']]: [160, 0], [mx.cuentas['2120']]: [0, 160] });
-    expect(await balances()).toEqual([before[0] + 1160, before[1] - 1000, before[2] - 160]);
+    expect(await balances()).toEqual(moved(1160, -1000, -160));
 
     // The reversal mirrors the receipt's entry and the cashing's.
     await reverseCustomerPayment(mx.entityId, r.paymentId, { reason: 'Cheque returned' }, mx.userId);

@@ -642,10 +642,11 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             isr_withheld: a.withholding_isr_amount,
             vat_withheld: a.withholding_iva_amount,
             iva_released: a.iva_reclass_amount ?? '',
+            advance_iva: a.advance_iva_amount,
             live: a.viva ? 'yes' : 'no',
             unapplied_reason: a.unapply_reason ?? '',
           })),
-          { format: 'table', numeric: ['applied', 'isr_withheld', 'vat_withheld', 'iva_released'] }
+          { format: 'table', numeric: ['applied', 'isr_withheld', 'vat_withheld', 'iva_released', 'advance_iva'] }
         );
       }
       out.write('\n');
@@ -715,8 +716,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   const apply = receipt
     .command('apply')
     .alias('aplicar')
-    .argument('<ref>', 'payment number or id')
-    .description('Apply the on-account balance of a collection to one or more invoices (releases PPD IVA)');
+    .argument('<ref>', 'payment number or id');
+  describeCommand(apply, 'help.receipt.apply.description');
   withContext(apply);
   apply
     .option('--invoice <spec...>', 'invoice with amount: "INV-2026-00042:2500" (repeatable), or a bare ref with --amount')
@@ -757,17 +758,21 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
         const previo = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId, { dryRun: true, date });
 
+        // MNE-001-422: an advance's IVA declared twice in an earlier month is said before anything posts.
+        const twice = previo.documentos.map((d) => advanceWarning(d.numero, d, previo.date)).filter((w): w is string => w !== null);
         if (dryRun) {
           imprimirAplicacion(previo.documentos, previo.remanenteAnterior, previo.remanenteNuevo, cobro.payment_number, p, true, opts.json === true, previo.journalEntry?.entry_number ?? null, previo.date);
+          for (const w of twice) process.stderr.write(p.yellow(`${w}\n`));
           process.stderr.write(p.dim('Dry run: nothing was written.\n'));
           return;
         }
 
         await confirmOrAbort(
           opts,
-          `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo}${withheldText(d)})`).join(', ')} ` +
+          `Apply ${previo.documentos.map((d) => `${d.numero} (${d.saldoAnterior} → ${d.saldoNuevo}${withheldText(d)}${advanceText(d, 'receipt.advance.iva_cancelled')})`).join(', ')} ` +
             `from ${cobro.payment_number} (on account ${previo.remanenteAnterior} → ${previo.remanenteNuevo}) ` +
-            `on ${previo.date} in ${ctx.entityName}? This posts to the ledger.`
+            `on ${previo.date} in ${ctx.entityName}? This posts to the ledger.` +
+            twice.map((w) => `\n${w}`).join('')
         );
 
         const result = await applyCustomerPayment(ctx.entityId, cobro.id, aplicaciones, reviewer.userId, { date });
@@ -775,6 +780,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
         imprimirAplicacion(result.documentos, result.remanenteAnterior, result.remanenteNuevo, cobro.payment_number, p, false, opts.json === true, result.journalEntry?.entry_number ?? null, result.date);
+        if (!opts.json) for (const w of twice) process.stderr.write(p.yellow(`${w}\n`));
       })
   );
 
@@ -819,7 +825,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (dryRun) {
           process.stdout.write(
             `${p.bold(`Would unapply ${previo.desaplicado} from ${previo.documento.numero}`)} ` +
-              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}) on ${previo.date}`) +
+              p.dim(`(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}, back on account${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}`) +
               (new Decimal(previo.ivaReAparcado).greaterThan(0)
                 ? p.dim(` · IVA re-parked ${previo.ivaReAparcado}${previo.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
                 : '') + '\n'
@@ -831,7 +837,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         await confirmOrAbort(
           opts,
           `Unapply ${previo.desaplicado} of ${cobro.payment_number} from ${previo.documento.numero} ` +
-            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)}) on ${previo.date}? ` +
+            `(${previo.documento.saldoAnterior} → ${previo.documento.saldoNuevo}${withheldText(previo.documento)}${advanceText(previo.documento, 'receipt.advance.iva_restored')}) on ${previo.date}? ` +
             'The cash stays on account; the invoice reopens.'
         );
 
@@ -850,6 +856,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             withholding_isr: result.documento.withholdingIsr ?? '0.00',
             withholding_iva: result.documento.withholdingIva ?? '0.00',
             iva_reparked: result.ivaReAparcado,
+            advance_iva_restored: result.documento.advanceIva ?? '0.00',
             date: result.date,
             entry_number: result.journalEntry.entry_number,
           }], { json: true });
@@ -857,7 +864,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         }
         process.stdout.write(
           `${p.green('✔')} ${p.bold(result.paymentNumber)} unapplied from ${p.bold(result.documento.numero)} ` +
-            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)} · ${result.date} · entry ${result.journalEntry.entry_number}`) +
+            p.dim(`${result.documento.saldoAnterior} → ${result.documento.saldoNuevo}${withheldText(result.documento)}${advanceText(result.documento, 'receipt.advance.iva_restored')} · ${result.date} · entry ${result.journalEntry.entry_number}`) +
             (new Decimal(result.ivaReAparcado).greaterThan(0)
               ? p.dim(` · IVA re-parked ${result.ivaReAparcado}${result.ivaEstimado ? ' (pro-rata estimate)' : ''}`)
               : '') + '\n'
@@ -1094,10 +1101,22 @@ function withheldText(d: { withholdingIsr?: string; withholdingIva?: string }): 
   return parts.length === 0 ? '' : `; withheld ${parts.map(([k, v]) => `${k} ${v}`).join(' + ')}`;
 }
 
+/** MNE-001-422 · The advance's IVA a document's event cancels or restores, as a suffix; empty when none. */
+function advanceText(d: { advanceIva?: string }, key: 'receipt.advance.iva_cancelled' | 'receipt.advance.iva_restored'): string {
+  return d.advanceIva !== undefined && new Decimal(d.advanceIva).greaterThan(0) ? `; ${t(key, { iva: d.advanceIva })}` : '';
+}
+
+/** MNE-001-422 · The warning for an advance's IVA that an earlier month's 2120 carried twice; null when none. */
+function advanceWarning(invoice: string, d: { advanceIva?: string; advanceIvaTwiceIn?: string | null }, date: string): string | null {
+  if (!d.advanceIvaTwiceIn) return null;
+  return t('receipt.advance.iva_caused_twice', { iva: d.advanceIva ?? '0.00', invoice, month: d.advanceIvaTwiceIn, date });
+}
+
 function imprimirAplicacion(
   documentos: {
     numero: string; saldoAnterior: string; saldoNuevo: string; estado: string;
     withholdingIsr?: string; withholdingIva?: string;
+    advanceIva?: string; advanceIvaTwiceIn?: string | null;
   }[],
   remanenteAnterior: string,
   remanenteNuevo: string,
@@ -1118,6 +1137,8 @@ function imprimirAplicacion(
         amount_due_after: d.saldoNuevo,
         withholding_isr: d.withholdingIsr ?? '0.00',
         withholding_iva: d.withholdingIva ?? '0.00',
+        advance_iva_cancelled: d.advanceIva ?? '0.00',
+        warning: advanceWarning(d.numero, d, date),
         invoice_status: d.estado,
         on_account_before: remanenteAnterior,
         on_account_after: remanenteNuevo,
@@ -1130,7 +1151,7 @@ function imprimirAplicacion(
   }
   const prefijo = ensayo ? p.bold('Would apply') : `${p.green('✔')} ${p.bold(paymentNumber)} applied`;
   process.stdout.write(
-    `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado}${withheldText(d)})`).join(', ')} ` +
+    `${prefijo} ${documentos.map((d) => `${d.numero} ${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado}${withheldText(d)}${advanceText(d, 'receipt.advance.iva_cancelled')})`).join(', ')} ` +
       p.dim(`· on account ${remanenteAnterior} → ${remanenteNuevo} · ${date}`) +
       (entryNumber ? p.dim(` · entry ${entryNumber}`) : '') +
       '\n'

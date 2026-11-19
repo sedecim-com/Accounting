@@ -478,6 +478,13 @@ let statementId = '';
 //                        and the paid IVA moves 1135 → 1130: 800.00
 //   12-22 REP            2110 Dr 9,280.00 / bank Cr 9,280.00, and the PPD's
 //                        paid IVA moves 1135 → 1130: 1,280.00 (LIVA art. 5 fr. III)
+//   12-22 advance's sale 1120 Dr 5,800.00 / 4100 Cr 5,000.00, 2120 Cr 800.00
+//                        (the sale the advance was for, INV-2025-00003; typed, so PUE)
+//   12-22 its advance    2150 Dr 1,000.00, 2120 Dr 160.00 / 1120 Cr 1,160.00: the
+//                        advance of 12-10 applied to it. Its IVA was caused when
+//                        collected, so applying it cancels that IVA instead of
+//                        causing it twice (the egreso of TipoRelacion 07,
+//                        Apéndice 6 procedure A; MNE-001-422)
 //   12-28 stray entry    1120 Dr 2,000.00 / 4100 Cr 2,000.00: a sale typed as a
 //                        journal entry, with no invoice behind it, so 1120 holds
 //                        2,000 that the receivables subledger does not
@@ -494,25 +501,26 @@ let statementId = '';
 //                        computer class, 30 % LISR maximum → 40-month book
 //                        life; whole-month convention, so 36,000 / 40
 // Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
-// + 900 + 1,160 (the advance) = 69,020 typed, and 9,280 + 2 × 1,160 + 2 × (1,160 + 160) + (9,280 + 1,280)
+// + 900 + 1,160 (the advance) + 5,800 + 1,160 (its invoice, and its application)
+// = 75,980 typed, and 9,280 + 2 × 1,160 + 2 × (1,160 + 160) + (9,280 + 1,280)
 // = 24,800 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
 // + 1,190 + (1,190 + 160) + (11,600 + 9,533.33 + 1,600) = 28,573.33 (each
 // PUE's payment releases its IVA, MNE-001-492), and the stray entry and its
 // mirror, which move no balance but are debits all the same: 2 × 2,000
 // = 4,000, and the bank fee with its IVA, posted, mirrored and posted again:
 // 3 × 348 = 1,044, and the issued PPD and its REP: 9,280 + (9,280 + 1,280)
-// = 19,840. In all 147,277.33. The dossier seals the trial balance as of
-// 12-31, so it counts the opening of 01-01 too: 107,800 + 147,277.33.
-const SEALED_DEBITS = '255077.33';
+// = 19,840. In all 154,237.33. The dossier seals the trial balance as of
+// 12-31, so it counts the opening of 01-01 too: 107,800 + 154,237.33.
+const SEALED_DEBITS = '262037.33';
 const ENDING = {
   // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
   // − 1,200 − 450 (the bookshop) − 1,190 (the hotel) − 9,533.33 (the fees, net)
   // + 1,160 (the customer advance) + 9,280 (the issued REP) (see MNE-001-039 in
   // step 4) − 300 − 48 (the bank fee and its IVA): the balance the statement closes with
   '1111': STATEMENT_CLOSING,
-  // 3,480 opening + 11,600 − 5,800 − 1,160 (+ 9,280 − 9,280, the issued PPD and
-  // its REP, and + 2,000 − 2,000, the stray entry and its mirror)
-  '1120': '8120.00',
+  // 3,480 opening + 11,600 − 5,800 − 1,160 + 5,800 − 1,160 (the advance's sale, less the advance applied to it)
+  // (+ 9,280 − 9,280, the issued PPD and its REP, and + 2,000 − 2,000, the stray entry and its mirror)
+  '1120': '12760.00',
   // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE) + 160 (the hotel) + 1,600 (the fees)
   // + 48 (the bank fee's)
   '1130': '4208.00',
@@ -521,17 +529,18 @@ const ENDING = {
   '1290': '-900.00', // accumulated depreciation, credit balance
   '1320': '4000.00', // the deposit, untouched since the opening
   '2110': '-2320.00', // the opening bill: every December bill was paid within the month
-  // −1,600 + 160 − 160 (the advance's IVA) − 1,280 (the issued PPD's, collected), credit balance
-  '2120': '-2880.00',
+  // −1,600 − 160 (the advance's IVA, caused on 12-10) + 160 (the credit note) − 1,280 (the issued PPD's,
+  // collected) − 800 (the advance's sale) + 160 (the advance's IVA, cancelled when applied): credit
+  // balance. 2150 ends at 0, so --exclude-zero drops it.
+  '2120': '-3520.00',
   '2141': '-1000.00', // the ISR withheld from the fees, owed to the SAT
   '2142': '-1066.67', // the IVA withheld from the fees, owed to the SAT
   '2125': '-480.00', // the opening invoice's IVA, still uncollected; the issued PPD's came and went
-  '2150': '-1000.00', // the advance's base, a liability until it meets its invoice
   '3100': '-100000.00',
   '3200': '-5000.00', // the 2024 result, untouched since the opening
-  // 8,000 (the issued PPD) + 10,000 (the typed invoice); the stray 2,000 was
-  // credited on 12-28 and debited back on 12-31
-  '4100': '-18000.00',
+  // 8,000 (the issued PPD) + 10,000 (the typed invoice) + 5,000 (the advance's sale); the stray
+  // 2,000 was credited on 12-28 and debited back on 12-31
+  '4100': '-23000.00',
   '4400': '1000.00',
   // 5,000 typed + 8,000 (PPD) + 1,000 + 1,000 (the PUE) + 1,200 + 450 (the bookshop)
   // + 1,000 (the hotel) + 10,000 (the fees)
@@ -540,14 +549,15 @@ const ENDING = {
   '6310': BANK_FEE, // posted twice and mirrored once: 600 of debits, 300 of credits
   [LODGING_TAX_ACCOUNT]: '30.00', // the ISH of the hotel night
 } as const;
-const NET_SALES = '17000.00'; // 8,000 + 10,000 − 1,000 returned
-const NET_INCOME = '-11880.00'; // 17,000 − 27,650 − 30 − 900 − 300 (the bank fee)
-const TOTAL_ASSETS = '101866.67'; // 50,118.67 + 8,120 + 4,208 + 320 + 36,000 − 900 + 4,000
-const TOTAL_LIABILITIES = '8746.67'; // 2,320 + 2,880 + 480 + 1,000 + 1,066.67 + 1,000 (the advance)
-const TOTAL_EQUITY = '93120.00'; // 100,000 + 5,000 − 11,880; and 101,866.67 = 8,746.67 + 93,120
-// Indirect method: −11,880 + 900 (depreciation, no cash) − 4,640 (AR up)
-// − 4,208 (IVA credit up) + 2,880 (IVA payable up) + 2,066.67 (withholdings
-// owed) + 1,000 (customer advances up) = −13,881.33, which is the 9,280
+const NET_SALES = '22000.00'; // 8,000 + 10,000 + 5,000 − 1,000 returned
+const NET_INCOME = '-6880.00'; // 22,000 − 27,650 − 30 − 900 − 300 (the bank fee)
+const TOTAL_ASSETS = '106506.67'; // 50,118.67 + 12,760 + 4,208 + 320 + 36,000 − 900 + 4,000
+const TOTAL_LIABILITIES = '8386.67'; // 2,320 + 3,520 + 480 + 1,000 + 1,066.67; the advance's 2150 is back at 0
+const TOTAL_EQUITY = '98120.00'; // 100,000 + 5,000 − 6,880; and 106,506.67 = 8,386.67 + 98,120
+// Indirect method: −6,880 + 900 (depreciation, no cash) − 9,280 (AR up)
+// − 4,208 (IVA credit up) + 3,520 (IVA payable up) + 2,066.67 (withholdings
+// owed) = −13,881.33; the advance came and went through 2150 within the
+// month, and its cash is inside the AR it settled. That is the 9,280
 // + 5,800 + 1,160 received minus the 5,800 + 9,280 + 1,160 + 1,160 + 1,200
 // + 450 + 1,190 + 9,533.33 + 300 + 48 paid. 1135, 2110 and 2125 end December
 // where they began it.
@@ -1398,6 +1408,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(entries()).toEqual(posted);
     }, STEP_TIMEOUT_MS);
 
+    /** The receipt of the 12-10 advance, as `receipt record --json` printed it. */
+    let advanceReceipt = '';
+
     it('records a customer advance with no invoice from the terminal: its IVA is caused the day it is collected — MNE-001-421', () => {
       // 1,160.00 at 16 %: the base is 1,160 / 1.16 = 1,000.00 and the IVA the other 160.00.
       const [advance] = rowsOf<Record<string, string>>(
@@ -1405,6 +1418,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
           '--date', '2025-12-10', '--yes', '--json'])
       );
       expect(advance).toMatchObject({ document: null, advance_base: '1000.00', advance_tax_rate: '16', advance_iva: '160.00' });
+      advanceReceipt = advance.payment_number;
       const [entry] = rowsOf<{ lines: { account: string; debit: string; credit: string }[] }>(
         ok(['entry', 'show', advance.journal_entry, '--json'])
       );
@@ -1414,18 +1428,42 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       ]);
     }, STEP_TIMEOUT_MS);
 
-    it.todo('applies the customer advance to the next invoice — MNE-001-422');
+    it('applies the customer advance to the invoice of its sale on 12-22, cancelling the IVA it caused instead of causing it twice — MNE-001-422', () => {
+      // The sale the advance was for: 5,000.00 + 800.00, typed, so PUE (its IVA is caused when issued).
+      const [sale] = rowsOf<{ invoice_number: string }>(
+        ok(['invoice', 'create', '--customer', 'Cliente Sintetico', '--date', '2025-12-22',
+          '--line', 'account=4100;qty=1;price=5000.00;tax-rate=16;description=Mercancia anticipada', '--json'])
+      );
+      // December's third invoice: the issued PPD of 12-02 drew 00001 and section 3's typed one 00002.
+      expect(sale.invoice_number).toBe('INV-2025-00003');
+      ok(['invoice', 'issue', sale.invoice_number, '--yes']);
+      const [applied] = rowsOf<Record<string, string>>(
+        ok(['receipt', 'apply', advanceReceipt, '--invoice', `${sale.invoice_number}:1160.00`, '--date', '2025-12-22', '--yes', '--json'])
+      );
+      // The invoice was issued after the advance: its month carried the IVA once, so nothing warns.
+      expect(applied).toMatchObject({ advance_iva_cancelled: '160.00', amount_due_after: '4640.00', on_account_after: '0.00', warning: null });
+      const [entry] = rowsOf<{ entry_date: string; lines: { account: string; debit: string; credit: string }[] }>(
+        ok(['entry', 'show', applied.journal_entry, '--json'])
+      );
+      expect(entry.entry_date.slice(0, 10)).toBe('2025-12-22');
+      expect(entry.lines.map((l) => [l.account, l.debit && money(l.debit), l.credit && money(l.credit)])).toEqual([
+        ['2150', '1000.00', ''], ['1120', '', '1160.00'], ['2120', '160.00', ''],
+      ]);
+    }, STEP_TIMEOUT_MS);
+
     it('ar reconcile ties to 1120 as of the run and ap reconcile to 2110 at 2025-12-31, and an entry on 1120 blocks the close until it is reversed — MNE-001-034, MNE-001-035, MNE-001-036, MNE-001-037', () => {
       type ArTie = { control_balance: string; subledger_net: string; delta: string; balanced: boolean;
         manual_entries: { entry_number: string }[] };
       const arTie = ['ar', 'reconcile', '--strict', '--json'];
       const closeCheck = ['closing', 'check', '--period', 'December 2025', '--check', 'ar-subledger-delta', '--json'];
-      // By hand: the opening invoice, 3,480, and what INV-2025-00002 still owes
-      // after its receipt and its credit note, 11,600 − 5,800 − 1,160 = 4,640.
-      // No credit note waits to be applied. 1120 holds the same 8,120.
+      // By hand: the opening invoice, 3,480, what INV-2025-00002 still owes
+      // after its receipt and its credit note, 11,600 − 5,800 − 1,160 = 4,640,
+      // and what the advance's sale, INV-2025-00003, owes after the advance,
+      // 5,800 − 1,160 = 4,640. The issued PPD, INV-2025-00001, is paid. No
+      // credit note waits to be applied. 1120 holds the same 12,760.
       const tied = {
-        control_balance: '8120.00', open_invoices: '8120.00', unapplied_credit_notes: '0.00',
-        subledger_net: '8120.00', delta: '0.00', balanced: true,
+        control_balance: '12760.00', open_invoices: '12760.00', unapplied_credit_notes: '0.00',
+        subledger_net: '12760.00', delta: '0.00', balanced: true,
       };
       // `ar reconcile` has no --as-of: it reads today's subledger against today's 1120.
       expect(rowsOf<ArTie>(ok(arTie))[0]).toMatchObject(tied);
@@ -1444,12 +1482,12 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       );
       ok(['entry', 'post', stray.entry_number, '--yes']);
 
-      // 8,120 + 2,000 = 10,120 in the ledger against 8,120 of documents. The
+      // 12,760 + 2,000 = 14,760 in the ledger against 12,760 of documents. The
       // command names the entry and, under --strict, exits 4.
       const untied = mnemosine(arTie);
       expect(untied.status, untied.out + untied.err).toBe(4);
       const [delta] = rowsOf<ArTie>(untied);
-      expect(delta).toMatchObject({ control_balance: '10120.00', subledger_net: '8120.00', delta: '2000.00', balanced: false });
+      expect(delta).toMatchObject({ control_balance: '14760.00', subledger_net: '12760.00', delta: '2000.00', balanced: false });
       expect(delta.manual_entries.map((m) => m.entry_number)).toContain(stray.entry_number);
       // The close reads the same figure, and it blocks without --strict.
       const blocked = mnemosine(closeCheck);
@@ -1457,7 +1495,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(rowsOf<{ is_complete: boolean; severity: string; details: string }>(blocked)[0]).toMatchObject({
         is_complete: false,
         severity: 'blocking',
-        details: 'control 10120.00 vs subledger 8120.00 · delta 2000.00 (ar reconcile lists the causes)',
+        details: 'control 14760.00 vs subledger 12760.00 · delta 2000.00 (ar reconcile lists the causes)',
       });
 
       // The correction is a mirror dated inside December (NIF B-1). `entry void`
@@ -1474,8 +1512,8 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(rowsOf<ArTie>(ok(arTie))[0]).toMatchObject(tied);
       expect(rowsOf<{ is_complete: boolean }>(ok(closeCheck))[0].is_complete).toBe(true);
       // December moved as if the entry had never been typed: 1120 by 11,600
-      // − 5,800 − 1,160 (the issued PPD came and went), and 4100 by the two invoices.
-      expect(decemberMoves(['1120', '4100'])).toEqual({ '1120': '4640.00', '4100': '-18000.00' });
+      // − 5,800 − 1,160 + 5,800 − 1,160 (the issued PPD came and went), and 4100 by the three invoices.
+      expect(decemberMoves(['1120', '4100'])).toEqual({ '1120': '9280.00', '4100': '-23000.00' });
     }, STEP_TIMEOUT_MS);
   });
 
@@ -2057,33 +2095,35 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // By hand, in cents and in pesos. Each line is adjusted to pesos on its
       // own (`cada_renglon`, the default; CFF art. 20: up from 51 cents), and
       // the pesos column runs its own chain.
-      //   nominal income  18,000.00: the issued PPD of 12-02, 8,000, accrued
+      //   nominal income  23,000.00: the issued PPD of 12-02, 8,000, accrued
       //                   when it was issued though collected later (LISR art.
-      //                   17 fr. I a), and the 12-05 invoice, 10,000, both on
-      //                   4100. The 2,000 of 12-28 and its mirror of 12-31 wash out; the 1,000
-      //                   returned on 4400 stays out, a deduction of the annual
-      //                   return by default (`provisional_isr_sales_returns`);
-      //                   the 1,000 advance on 2150 is no revenue account
-      //   profit          18,000 × 0.1125 = 2,025.00
+      //                   17 fr. I a), the 12-05 invoice, 10,000, and the 12-22
+      //                   invoice, 5,000, all on 4100. The 2,000 of 12-28 and its
+      //                   mirror of 12-31 wash out; the 1,000 returned on 4400
+      //                   stays out, a deduction of the annual return by default
+      //                   (`provisional_isr_sales_returns`); the 1,000 advance
+      //                   credited to 2150 on 12-10 is inside the 5,000 invoiced
+      //                   on 12-22, to which it was applied
+      //   profit          23,000 × 0.1125 = 2,587.50; in pesos its 50 cents go down: 2,587
       //   PTU             none paid; no payment was due before December and
       //                   nobody withheld ISR from the company
       //   losses          412.50, all of it, being under the profit; in pesos
       //                   its 50 cents go down: 412
-      //   base            2,025.00 − 412.50 = 1,612.50; in pesos 2,025 − 412 = 1,613
-      //   tax             1,612.50 × 30 % = 483.75; in pesos 1,613 × 30 % = 483.90,
-      //                   whose 90 cents go up: 484
+      //   base            2,587.50 − 412.50 = 2,175.00; in pesos 2,587 − 412 = 2,175
+      //   tax             2,175.00 × 30 % = 652.50; in pesos 2,175 × 30 % = 652.50,
+      //                   whose 50 cents go down: 652
       expect(isr.lines.map((l) => [l.key, l.cents, l.whole])).toEqual([
-        ['nominal_income', '18000.00', '18000'],
-        ['estimated_profit', '2025.00', '2025'],
+        ['nominal_income', '23000.00', '23000'],
+        ['estimated_profit', '2587.50', '2587'],
         ['ptu_deducted', '0.00', '0'],
         ['pending_losses_applied', '412.50', '412'],
-        ['taxable_base', '1612.50', '1613'],
-        ['tax_caused', '483.75', '484'],
+        ['taxable_base', '2175.00', '2175'],
+        ['tax_caused', '652.50', '652'],
         ['prior_provisional_payments', '0.00', '0'],
         ['withheld_income_tax', '0.00', '0'],
-        ['payable', '483.75', '484'],
+        ['payable', '652.50', '652'],
       ]);
-      expect([isr.resultCents, isr.resultWhole]).toEqual(['483.75', '484']);
+      expect([isr.resultCents, isr.resultWhole]).toEqual(['652.50', '652']);
 
       const line = (key: string): IsrPaper['lines'][number]['source'] =>
         isr.lines.find((l) => l.key === key)?.source ?? { accounts: [], entries: [] };
@@ -2094,14 +2134,17 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(isr.inputs.losses).toEqual({
         value: '412.5000', ...from2024, updatedThrough: '2025-06', updatedTo: '2025-06', factor: '1.0000', applied: '412.5000',
       });
-      // The year's revenue entries, debit positive: the two invoices, the stray sale and its mirror.
+      // The year's revenue entries, debit positive: the three invoices, the stray sale and its mirror.
       expect(line('nominal_income').accounts).toEqual(['4100']);
       expect(line('nominal_income').entries.map((e) => [e.entryDate, e.net])).toEqual([
-        ['2025-12-02', '-8000.0000'], ['2025-12-05', '-10000.0000'], ['2025-12-28', '-2000.0000'], ['2025-12-31', '2000.0000'],
+        ['2025-12-02', '-8000.0000'], ['2025-12-05', '-10000.0000'], ['2025-12-22', '-5000.0000'],
+        ['2025-12-28', '-2000.0000'], ['2025-12-31', '2000.0000'],
       ]);
-      // The advance of 12-10 warns and does not block: LISR art. 17 fr. I
-      // accumulates it when collected, so the accountant adds its 1,000.00 when
-      // declaring. The paper's own figures leave it out (MNE-001-421).
+      // The advance of 12-10 still warns and does not block: the warning reads
+      // what 2150 was credited, and LISR art. 17 fr. I accumulates an advance
+      // when collected. Its own text says to add advances «menos los ya
+      // facturados», and this one was invoiced and applied on 12-22, so its
+      // 1,000.00 is already inside the 23,000.00 (MNE-001-421, MNE-001-422).
       expect(isr.findings.map((h) => [h['codigo'], h['severidad']])).toEqual([['ISR-WP-ADVANCES', 'aviso']]);
     }, STEP_TIMEOUT_MS);
   });
