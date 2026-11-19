@@ -33,8 +33,10 @@ import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
 //                   agent tools and the CLI — and by the services that
 //                   read a balance to guard money (the AR and AP
 //                   reconciliations, the prepaid backing, the
-//                   external-ledger diff, the close's fixed-asset box and
-//                   the FX revaluation line; T14, #101). This is the part
+//                   external-ledger diff, the close's fixed-asset box,
+//                   the FX revaluation line, the IVA paper's withholding
+//                   per sale and receipt movement, and the DIOT's exempt
+//                   revenue; T14, #101). This is the part
 //                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
 //                   by REST and the CLI, which publish the same shape.
@@ -656,6 +658,12 @@ export interface EntryMovementFilters {
   /** Oldest first (default) or newest first; the entry number breaks ties. */
   order?: 'oldest' | 'newest';
   limit?: number;
+  /**
+   * Run inside the caller's transaction (MNE-001-437): a tax paper reads its
+   * documents and their entries on one connection, as `queryTrialBalanceRows`
+   * and `queryAccumulatedBalances` already allow.
+   */
+  client?: pg.PoolClient;
 }
 
 /**
@@ -720,7 +728,11 @@ export async function queryEntryMovementsOnAccount(
     limit = `LIMIT $${params.length}`;
   }
 
-  const result = await query<EntryMovementRow>(
+  const client = filters.client;
+  const run = client
+    ? (sql: string, p: unknown[]) => client.query<EntryMovementRow>(sql, p)
+    : (sql: string, p: unknown[]) => query<EntryMovementRow>(sql, p);
+  const result = await run(
     `SELECT je.id           AS journal_entry_id,
             je.entry_number AS entry_number,
             je.entry_date   AS entry_date,
