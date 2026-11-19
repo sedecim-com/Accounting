@@ -188,4 +188,12 @@ describe('an issued credit note takes its IVA from where its invoice\'s IVA sits
     expect(lineOf('N5b')?.breakdown.tasa16).toEqual({ base: '-100.0000', iva: '-16.0000' });
     expect(lineOf('N6')?.breakdown.tasa16).toEqual({ base: '-100.0000', iva: '-16.0000' });
   });
+
+  it('the warning of MNE-001-566 is silent on every note this rule split: none debited 2125 beyond what was parked', () => {
+    const named = november.findings
+      .filter((h) => h.codigo === 'IVA-WP-CREDIT-NOTE-AFTER-COLLECTION')
+      .map((h) => h.documentId);
+    for (const key of ['N1', 'N2', 'N5b', 'N6']) expect(named, key).not.toContain(notes[key].id);
+    expect(named).toEqual([]);
+  });
 });
