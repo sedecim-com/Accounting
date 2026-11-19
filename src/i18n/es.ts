@@ -2196,11 +2196,22 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.reverse.warning.card_not_collected':
     'Este cobro se pagó con tarjeta, y una tarjeta se paga cuando se acepta (LIVA art. 1-B): not_collected dice que el dinero nunca fue tuyo. Si llegó y el banco te lo quitó, como en un contracargo, la causa es taken_back.',
   'receipt.reverse.warning.cause_not_stated':
-    'No se declaró causa, y sólo un cheque tiene una por omisión: el IVA de este cobro se queda en el mes en que se cobró hasta que se declare una causa (not_collected o taken_back).',
+    'No se declaró causa, y sólo un cheque tiene una por omisión: el IVA de este cobro se queda en el mes en que se cobró hasta que se declare una causa (not_collected o taken_back) con `cobro causa registrar`.',
   'receipt.reverse.cause.stated': 'causa {cause}',
   'receipt.reverse.cause.defaulted':
     'causa not_collected, tomada por omisión: un cheque se paga el día que el banco lo cobra',
   'receipt.reverse.cause.none': 'sin causa declarada',
+  // MNE-001-511 (#701): the cause of a receipt reversed with none, stated afterwards.
+  'receipt.cause.not_reversed':
+    'El cobro {number} está en «{status}»: la causa sólo se declara para un cobro reversado. No se escribió nada.',
+  'receipt.cause.already_stated':
+    'El cobro {number} ya tiene su causa, {cause}, declarada el {stated_at}: una causa declarada no se sobrescribe. No se escribió nada.',
+  'receipt.cause.reason_required':
+    'Declarar la causa de una reversa exige --reason "<por qué>": queda escrito en el rastro de auditoría.',
+  'receipt.cause.would_state': 'Declararía la causa {cause} para la reversa de {number}',
+  'receipt.cause.confirm':
+    '¿Declarar {cause} como la causa de la reversa de {number}? Se escribe una sola vez y no se puede corregir; no postea nada en el mayor.',
+  'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
   'receipt.advance.cfdi_owed':
     'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
   'receipt.advance.invoice_already_booked':
@@ -2798,6 +2809,14 @@ export const ES: Record<keyof typeof EN, string> = {
     'Reversa un cobro cuyo dinero no se quedó, diciendo por qué: espeja cada asiento, reabre facturas y vuelve a aparcar el IVA',
   'help.receipt.reverse.option.cause':
     'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo); sin ella, un cheque toma not_collected y cualquier otro método queda sin causa',
+  // MNE-001-511 (#701): the cause of a reversal, stated afterwards.
+  'help.receipt.cause.description': 'La causa de un cobro reversado: qué pasó con su dinero',
+  'help.receipt.cause.record.description':
+    'Declara la causa de un cobro que se reversó sin ella: se escribe una vez, queda auditada y no postea nada',
+  'help.receipt.cause.record.argument.ref': 'número de cobro o id',
+  'help.receipt.cause.record.option.cause':
+    'qué pasó con el dinero: not_collected (nunca fue tuyo) o taken_back (llegó y te lo quitaron, como en un contracargo)',
+  'help.receipt.cause.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',

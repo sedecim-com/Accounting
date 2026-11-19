@@ -2035,6 +2035,108 @@ export async function reverseCustomerPayment(
   return ejecutarEvento(correr, opts);
 }
 
+export interface StatedReversalCause {
+  paymentId: string;
+  paymentNumber: string;
+  cause: ReversalCause;
+  /** The instant of the statement; later than `reversedAt`, which is how a reader tells a later statement. */
+  statedAt: Date;
+  reversedAt: Date | null;
+  /** Keys of what the accountant should read before confirming; the dry run returns the same. */
+  warnings: TranslationKey[];
+}
+
+/**
+ * MNE-001-511: states afterwards the cause of a receipt that was reversed
+ * with none. The cause is written once, with the instant of the statement,
+ * and audited with its reason; nothing posts, and what the reversal already
+ * wrote (its mirrors, its closed allocations, `reversed_at`) is left as it
+ * is. A receipt that is not reversed, or that already has a cause, is
+ * refused: a stated cause is never overwritten.
+ */
+export async function stateReversalCause(
+  entityId: string,
+  paymentId: string,
+  args: { cause: string; reason: string },
+  userId: string,
+  opts: OpcionesPago = {}
+): Promise<StatedReversalCause> {
+  if (!(REVERSAL_CAUSES as readonly string[]).includes(args.cause)) {
+    throw new ValidationError({ key: 'receipt.reverse.cause_unknown', params: { value: args.cause } });
+  }
+  const cause = args.cause as ReversalCause;
+
+  const run = async (client: pg.PoolClient): Promise<StatedReversalCause> => {
+    // Its own locked read: `cobroParaEscribir` refuses every receipt that is not 'completed'.
+    const found = await client.query<{
+      payment_number: string; status: string; payment_method: string;
+      reversed_at: Date | null; reversal_cause: string | null; reversal_cause_stated_at: Date | null;
+    }>(
+      `SELECT payment_number, status, payment_method, reversed_at, reversal_cause, reversal_cause_stated_at
+         FROM customer_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+      [paymentId, entityId]
+    );
+    if (found.rows.length === 0) throw new NotFoundError('Customer payment', paymentId);
+    const row = found.rows[0];
+    if (row.status !== 'reversed') {
+      throw new ValidationError({
+        key: 'receipt.cause.not_reversed', params: { number: row.payment_number, status: row.status },
+      });
+    }
+    if (row.reversal_cause !== null) {
+      throw new ValidationError({
+        key: 'receipt.cause.already_stated',
+        params: {
+          number: row.payment_number, cause: row.reversal_cause,
+          stated_at: row.reversal_cause_stated_at?.toISOString() ?? '',
+        },
+      });
+    }
+    const warnings: TranslationKey[] = [];
+    // A card is paid when it is accepted (LIVA art. 1-B), not when it settles.
+    if (cause === 'not_collected' && ['credit_card', 'debit_card'].includes(row.payment_method)) {
+      warnings.push('receipt.reverse.warning.card_not_collected');
+    }
+
+    // Entity, state, no cause yet, and one row, or nothing (invariant 3).
+    const written = await client.query<{ reversal_cause_stated_at: Date }>(
+      `UPDATE customer_payments SET reversal_cause = $3, reversal_cause_stated_at = NOW()
+        WHERE id = $1 AND entity_id = $2 AND status = 'reversed' AND reversal_cause IS NULL
+        RETURNING reversal_cause_stated_at`,
+      [paymentId, entityId, cause]
+    );
+    if (written.rowCount !== 1) {
+      throw new AccountingError('REVERSAL_CAUSE_RACE', `${row.payment_number} changed while its cause was being stated; nothing was written.`);
+    }
+    const statedAt = written.rows[0].reversal_cause_stated_at;
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
+      userId,
+      action: 'update',
+      entityType: 'customer_payments',
+      entityId: paymentId,
+      oldValues: { reversal_cause: null },
+      newValues: {
+        evento: 'state_reversal_cause',
+        reversal_cause: cause,
+        reversal_cause_stated_at: statedAt,
+        reversed_at: row.reversed_at,
+      },
+      reason: args.reason,
+    });
+
+    const result: StatedReversalCause = {
+      paymentId, paymentNumber: row.payment_number, cause, statedAt, reversedAt: row.reversed_at, warnings,
+    };
+    if (opts.dryRun) throw new EnsayoEvento(result);
+    return result;
+  };
+
+  return ejecutarEvento(run, opts);
+}
+
 // ============================================================
 // APLICAR UN PAGO YA HECHO (050 · F04)
 //

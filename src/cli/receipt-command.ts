@@ -12,6 +12,7 @@ import {
   applyCustomerPayment,
   unapplyCustomerPayment,
   reverseCustomerPayment,
+  stateReversalCause,
   getCustomerPayment,
   REVERSAL_CAUSES,
   type ResultadoReversa,
@@ -174,6 +175,13 @@ Examples:
   mnemosine receipt reverse PMT-2026-00042 --reason "Devuelto por fondos insuficientes"
   # See the mirror it would post, writing nothing.
   mnemosine receipt reverse PMT-2026-00042 --dry-run
+`,
+  causeRecord: `
+Examples:
+  # A direct debit reversed with no cause turned out to be a dispute after it was paid.
+  mnemosine receipt cause record PMT-2026-00042 --cause taken_back --reason "Disputed by the payer on June 9"
+  # See what would be written, writing nothing.
+  mnemosine receipt cause record PMT-2026-00042 --cause not_collected --dry-run
 `,
 } as const;
 
@@ -603,6 +611,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       if (cobro.reversed_at) {
         fact('Reversed', p.yellow(new Date(cobro.reversed_at).toISOString()));
         fact('Reversal cause', cobro.reversal_cause ?? 'not stated');
+        // Later than the reversal when the cause was stated afterwards (MNE-001-511).
+        if (cobro.reversal_cause_stated_at) fact('Cause stated', new Date(cobro.reversal_cause_stated_at).toISOString());
       }
 
       out.write(`\n${p.bold('Applications')} ${p.dim(`(${cobro.aplicaciones.length})`)}\n`);
@@ -920,6 +930,75 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
               `· ${result.reversals.map((r) => `${r.of}→${r.entryNumber}`).join(', ')} · ` +
                 `${result.documentosReabiertos.length} invoice(s) reopened · ${causeText(result)}\n`
             )
+        );
+        for (const key of result.warnings) process.stderr.write(p.yellow(`${t(key)}\n`));
+      })
+  );
+
+  // ---- receipt cause record (MNE-001-511) ---------------------------
+  // The cause of a receipt that was reversed with none, stated afterwards.
+  // `cause` qualifies `receipt`, as `tax` qualifies `customer`.
+  const cause = describeCommand(receipt.command('cause').alias('causa'), 'help.receipt.cause.description');
+  const causeRecord = describeCommand(cause.command('record').alias('registrar'), 'help.receipt.cause.record.description');
+  argumentByKey(causeRecord, '<ref>', 'help.receipt.cause.record.argument.ref');
+  withContext(causeRecord);
+  optionByKey(causeRecord, '--cause <cause>', 'help.receipt.cause.record.option.cause', { mandatory: true });
+  // `record` is not an undo verb, so the kernel does not inject --reason: the leaf declares it.
+  optionByKey(causeRecord, '--reason <text>', 'cli.flag.reason');
+  optionByKey(causeRecord, '--json', 'help.receipt.cause.record.option.json');
+  declareRisk(causeRecord, {
+    risk: 'irreversible',
+    llave: { innecesaria: 'a cause is written once: a repeat finds the receipt with its cause and is refused' },
+    agent: false,
+    writes: 'customer_payments.reversal_cause, customer_payments.reversal_cause_stated_at',
+  });
+  causeRecord.addHelpText('after', EJEMPLOS.causeRecord);
+  causeRecord.action(
+    (ref: string, opts: CommonOpts & { cause?: string; reason?: string }) =>
+      run(async () => {
+        // A cause outside the two is refused before the receipt is read.
+        const stated = opts.cause ?? '';
+        if (!(REVERSAL_CAUSES as readonly string[]).includes(stated)) {
+          throw usageError(t('receipt.reverse.cause_unknown', { value: stated }));
+        }
+        const { dryRun, reason } = gateMutation(causeRecord, opts as Record<string, unknown>);
+        if (!reason?.trim() && !dryRun) throw usageError({ key: 'receipt.cause.reason_required' });
+        const ctx = await writeEntityOf(opts);
+        const p = deps.palette;
+
+        const payment = await getCustomerPayment(ctx.entityId, ref);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const args = { cause: stated, reason: reason?.trim() ?? '' };
+
+        const preview = await stateReversalCause(ctx.entityId, payment.id, args, reviewer.userId, { dryRun: true });
+        const warnings = preview.warnings.map((key) => t(key));
+        if (dryRun) {
+          process.stdout.write(`${t('receipt.cause.would_state', { number: preview.paymentNumber, cause: preview.cause })}\n`);
+          for (const w of warnings) process.stderr.write(p.yellow(`${w}\n`));
+          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          return;
+        }
+
+        await confirmOrAbort(
+          opts,
+          t('receipt.cause.confirm', { number: preview.paymentNumber, cause: preview.cause }) +
+            warnings.map((w) => `\n${w}`).join('')
+        );
+
+        const result = await stateReversalCause(ctx.entityId, payment.id, args, reviewer.userId);
+        if (opts.json) {
+          render([{
+            payment_number: result.paymentNumber,
+            cause: result.cause,
+            stated_at: result.statedAt.toISOString(),
+            warnings: result.warnings.map((key) => t(key)).join(' '),
+          }], { json: true });
+          return;
+        }
+        process.stdout.write(
+          `${p.green('✔')} ${t('receipt.cause.stated', {
+            number: result.paymentNumber, cause: result.cause, stated_at: result.statedAt.toISOString(),
+          })}\n`
         );
         for (const key of result.warnings) process.stderr.write(p.yellow(`${t(key)}\n`));
       })

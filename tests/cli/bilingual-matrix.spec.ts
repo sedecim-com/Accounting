@@ -265,8 +265,10 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // controles de la cartera.
   receipt: {
     record: 'registrar', show: 'ver', list: 'listar',
-    apply: 'aplicar', unapply: 'desaplicar', reverse: 'reversar',
+    apply: 'aplicar', unapply: 'desaplicar', reverse: 'reversar', cause: 'causa',
   },
+  // MNE-001-511: `cause` qualifies `receipt`, as `rate` qualifies `fx`.
+  'receipt cause': { record: 'registrar' },
   'credit-note': { create: 'crear', show: 'ver', list: 'listar', issue: 'emitir', apply: 'aplicar' },
   ar: { reconcile: 'conciliar', check: 'verificar' },
   ap: { reconcile: 'conciliar' },
@@ -400,7 +402,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'web', 'tenant', 'user'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'receipt cause', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'web', 'tenant', 'user'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(...family.split(' '));
