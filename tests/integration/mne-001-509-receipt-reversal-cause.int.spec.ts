@@ -237,5 +237,14 @@ describe('receipt reverse states its cause', () => {
     expect(r).toMatchObject({ cause: 'taken_back', causeDefaulted: false, warnings: [] });
     expect(await stored(rec.paymentId)).toMatchObject({ status: 'reversed', cause: 'taken_back' });
     expect((await notes(rec.paymentId, r, us)).mirrors[0]).toContain('Reversed (taken back): recalled by the bank');
+
+    // The no-cause warning speaks of the IVA paper, which these books do not have.
+    const again = await recordCustomerPayment({
+      entityId: us.entityId, counterpartyId: payer, paymentAmount: '500.00', paymentDate: '2026-05-21',
+      paymentMethod: 'wire', currencyCode: 'USD', applications: [], onAccount: true,
+    }, us.userId);
+    const bare = await reverseCustomerPayment(us.entityId, again.paymentId, { reason: 'recalled' }, us.userId);
+    expect(bare).toMatchObject({ cause: null, causeDefaulted: false, warnings: [] });
+    expect(await stored(again.paymentId)).toMatchObject({ status: 'reversed', cause: null });
   });
 });

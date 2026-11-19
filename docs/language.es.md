@@ -80,7 +80,7 @@ Como `catalogo:estado` y `ux:status`: recorre el árbol, escribe su bloque entre
 | Líneas de comentario en español en `src/` | 22 731 | trinquete desde I20 |
 
 
-La medición viva, escrita por el propio metro. **No se edita a mano**: `npm run language:status -- --write` sustituye todo lo que hay entre los marcadores, y vuelve a sellar esta gemela para que no quede caducada.
+Los topes del trinquete, escritos por el propio metro a partir de `docs/language-baseline.json`; los conteos vivos se leen con `npm run language:status`, así que un pull request que sólo mueve un conteo no toca esta página. **No se edita a mano**: `npm run language:status -- --write` sustituye todo lo que hay entre los marcadores, y vuelve a sellar esta gemela para que no quede caducada.
 
 <!-- LANGUAGE-STATUS:START -->
 
@@ -89,15 +89,16 @@ La medición viva, escrita por el propio metro. **No se edita a mano**: `npm run
   CI verifies it with --check, so a hand edit shows up red.
 -->
 
-### How much Spanish is left, and where
+### How much Spanish may be left, and where
 
 18 lanes under the ratchet and 1 measured but not yet required.
-The ratchet lives in `docs/language-baseline.json` and only goes down; raising a number is a
-manual act and its trace is the diff.
+This block publishes the ratchet's ceilings, not the live counts: each figure is the lane's baseline
+in `docs/language-baseline.json`, which only goes down; raising a number is a manual act and its
+trace is the diff. The live figures are read with `npm run language:status`.
 
-| Lane | What it counts | Today | Towards |
+| Lane | What it counts | Ceiling | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10507 (baseline 10512) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10512 | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5763 | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |

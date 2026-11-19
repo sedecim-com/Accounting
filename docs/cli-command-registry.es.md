@@ -1,6 +1,6 @@
 # REGISTRY — los diccionarios vinculantes del árbol de comandos de mnemosine
 
-> Gemela en español de [`cli-command-registry.md`](cli-command-registry.md) · source_sha: 970f8f9ab97f516da70b1a4451f67547e3759115
+> Gemela en español de [`cli-command-registry.md`](cli-command-registry.md) · source_sha: b926349fd818e7774b3286af508c45c8d4807106
 
 **Estado: vinculante.** Este archivo prevalece sobre los once archivos de sección. Donde una sección discrepe de
 este archivo, la sección está mal y debe reescribirse. Donde este archivo calle, gobierna `research/cli-ux.md`
@@ -73,7 +73,7 @@ exactamente eso, y todo uso de `pull`/`push` en el catálogo era una descarga o 
 
 | Inglés | Español | Significado preciso | Puede aplicarse a |
 |---|---|---|---|
-| `post` | `contabilizar` | Escribir la póliza aprobada en el libro mayor. | `entry`, `bill`, `invoice`, `payment`, `pay-run`, `depreciation`, `allocation`, `consolidation`, `bank reconciliation`, `inventory` |
+| `post` | `contabilizar` | Escribir la póliza aprobada en el libro mayor. | `entry`, `bill`, `invoice`, `cfdi`, `payment`, `pay-run`, `depreciation`, `allocation`, `consolidation`, `bank reconciliation`, `inventory` |
 | `void` | `anular` | Matar un documento **no contabilizado**. | `entry`, `bill`, `invoice`, `payment`, `payslip`, `pay-run`, `bank check` |
 | `reverse` | `reversar` | Escribir la contrapóliza de un documento **contabilizado**. Absorbe `unpost`, `rollback`, `revert`. | `entry`, `bill`, `depreciation`, `accrual`, `inventory`, `pay-run`, `write-off`, `consolidation` |
 | `correct` | `corregir` | Emitir un documento sustituto que reemplaza a uno anterior, conservando ambos. | `entry`, `cfdi`, `1099`, `w2`, `filing`, `memory`, `payslip` |
