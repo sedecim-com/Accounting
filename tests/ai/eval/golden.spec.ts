@@ -211,14 +211,27 @@ describe('el reparto del asiento esperado, línea por línea', () => {
     expect(iva, `${caso.nombre}: el IVA acreditable, en su cuenta`).toHaveLength(1);
     expect(Number(iva[0].monto)).toBeCloseTo(cfdi.impuestos!.totalImpuestosTrasladados!, 2);
 
-    // Y el abono a BANCOS, no a proveedores: es PUE, se pagó de una vez.
+    // And the credit to VENDORS, PUE included (MNE-001-493): the payment is
+    // booked by its own entry.
     const abonos = lineas.filter((l) => l.lado === 'abono');
     expect(abonos, `${caso.nombre}: una sola contrapartida`).toHaveLength(1);
-    for (const codigo of abonos[0].cuenta) {
-      expect(codigo.startsWith(ROLE_MAP.banco.slice(0, 3)), `${codigo} no es una cuenta de bancos`).toBe(true);
-      expect(codigo, 'PUE no deja cuenta por pagar').not.toBe(ROLE_MAP.cxp);
-    }
+    expect(abonos[0].cuenta).toEqual([ROLE_MAP.cxp]);
     expect(Number(abonos[0].monto)).toBeCloseTo(cfdi.total, 2);
+  });
+
+  // MNE-001-493: a received PUE is drafted as a PPD is since MNE-001-492, VAT in
+  // 1135 against vendors. A case still expecting 1130 and a bank credit would
+  // score the right draft as wrong and bless the one the approval refuses.
+  it('every received PUE draft expects its VAT in 1135 and its total owed to vendors, never a bank', () => {
+    const pueDrafts = drafts.filter((c) => parser.parse(c.xml).metodoPago === 'PUE');
+    expect(pueDrafts.length, 'the corpus lost its received PUE drafts').toBeGreaterThanOrEqual(5);
+    for (const pue of pueDrafts) {
+      const lines = pue.esperado.asiento!;
+      const iva = lines.filter(esDe(CUENTAS_DE_IVA));
+      expect(iva.map((l) => l.cuenta), pue.nombre).toEqual([[ROLE_MAP.iva_pendiente_acreditar]]);
+      const counterpart = lines.filter((l) => l.lado === 'abono' && !esDe(CUENTAS_DE_RETENCION)(l));
+      expect(counterpart.map((l) => l.cuenta), pue.nombre).toEqual([[ROLE_MAP.cxp]]);
+    }
   });
 });
 

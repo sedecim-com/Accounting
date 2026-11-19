@@ -168,7 +168,7 @@ export const CASES: CfdiCase[] = [
       { role: 'gasto', side: 'debit', amount: A.subtotalNeto, description: 'Expense/purchase' },
       { role: 'ieps_acreditable', side: 'debit', amount: A.ieps, description: 'IEPS', omitIfZero: true },
       { role: 'impuestos_locales_gasto', side: 'debit', amount: A.localesTras, description: 'Local taxes', omitIfZero: true },
-      // The key difference vs PUE: the VAT is NOT creditable yet.
+      // As for a PUE (MNE-001-492): the VAT is NOT creditable yet.
       { role: 'iva_pendiente_acreditar', side: 'debit', amount: A.ivaTrasladado, description: 'VAT pending crediting (credited with the REP)', omitIfZero: true },
       { role: 'isr_retenido_por_pagar', side: 'credit', amount: A.isrRetDue, description: 'ISR withheld from vendor', omitIfZero: true },
       { role: 'iva_retenido_por_pagar', side: 'credit', amount: A.ivaRetDue, description: 'VAT withheld from vendor', omitIfZero: true },
@@ -189,7 +189,10 @@ export const CASES: CfdiCase[] = [
       { role: 'gasto', side: 'debit', amount: A.subtotalNeto, description: 'Expense/purchase' },
       { role: 'ieps_acreditable', side: 'debit', amount: A.ieps, description: 'IEPS', omitIfZero: true },
       { role: 'impuestos_locales_gasto', side: 'debit', amount: A.localesTras, description: 'Local taxes', omitIfZero: true },
-      { role: 'iva_acreditable', side: 'debit', amount: A.ivaTrasladado, description: 'Creditable VAT', omitIfZero: true },
+      // MNE-001-492: PUE is the issuer's label, not proof of payment (RMF rule
+      // 2.7.1.39). The VAT is creditable once paid (LIVA art. 5-III), so it
+      // parks as a PPD's does and the vendor payment releases it.
+      { role: 'iva_pendiente_acreditar', side: 'debit', amount: A.ivaTrasladado, description: 'VAT pending crediting (credited on payment)', omitIfZero: true },
       { role: 'isr_retenido_por_pagar', side: 'credit', amount: A.isrRetDue, description: 'ISR withheld from vendor', omitIfZero: true },
       { role: 'iva_retenido_por_pagar', side: 'credit', amount: A.ivaRetDue, description: 'VAT withheld from vendor', omitIfZero: true },
       { role: 'cxp', side: 'credit', amount: A.total, description: 'Vendor' },

@@ -1158,8 +1158,8 @@ export const E1_2: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/ar-ap-posting.ts',
-        de: '    payment.payment_date,\n    JournalEntryType.AUTO_PAYMENT,\n    iva.documents.length',
-        a: '    new Date(payment.payment_date),\n    JournalEntryType.AUTO_PAYMENT,\n    iva.documents.length',
+        de: '    payment.payment_date,\n    JournalEntryType.AUTO_PAYMENT,\n    taxNote.length',
+        a: '    new Date(payment.payment_date),\n    JournalEntryType.AUTO_PAYMENT,\n    taxNote.length',
         porque: 'the customer receipt entry lands a day before its receipt, and a receipt dated January 1st is refused',
       },
       {

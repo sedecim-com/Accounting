@@ -523,12 +523,11 @@ export interface ApproveBillOptions {
  * carries a journal_entry_id.
  *
  * IVA IS NOW ON A CASH BASIS, and that is decided in the engine, not here.
- * For a Mexican entity postBillEntry reads the CFDI MetodoPago and sends a
- * PPD bill's IVA to `iva_pendiente_acreditar` (1135); it only reaches
- * `iva_acreditable` when a vendor payment applies the bill. A PUE bill is
- * creditable at once, as before. A bill with NO MetodoPago is treated as
- * PPD — the conservative reading, which cannot bring a credit forward —
- * and the entry says so in its description.
+ * For a Mexican entity postBillEntry sends a bill's IVA to
+ * `iva_pendiente_acreditar` (1135), PUE or PPD (MNE-001-492); it only
+ * reaches `iva_acreditable` when a vendor payment applies the bill. The
+ * MetodoPago is still read and written into the entry's description; a
+ * bill with NO MetodoPago is tagged PPD (assumed).
  *
  * REMAINING LIMIT: the release only fires through the vendor-payment path
  * that writes `payment_applications` (POST /v1/bills/payments). Paying a

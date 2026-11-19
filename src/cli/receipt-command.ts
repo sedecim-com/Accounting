@@ -369,7 +369,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         // cannot be one is refused here, before any service is asked. Its IVA
         // rate is a fact only the accountant states (there is no default) on
         // an entity that keeps Mexican books; the service refuses a rate on
-        // one that does not, and an advance by cheque (issue 700).
+        // one that does not.
         if (ref === undefined && !opts.customer) throw usageError(t('receipt.advance.needs_customer'));
         // MNE-001-462: with an invoice, a rate is the excess's, which only --on-account leaves.
         if (ref !== undefined && opts.taxRate !== undefined && !opts.onAccount) {
@@ -500,6 +500,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         }
         if (previo.excessAwaitsCashing) {
           process.stderr.write(p.yellow(`${t('receipt.excess.cheque_held', { amount: remanente.toFixed(2) })}\n`));
+        }
+        // MNE-001-558 · by cheque, the IVA the figures name waits in 2150 for the bank.
+        if (opts.method === 'check' && previo.advance && new Decimal(previo.advance.iva).greaterThan(0)) {
+          process.stderr.write(p.dim(`${t('receipt.advance.cheque_held', { iva: previo.advance.iva })}\n`));
         }
 
         if (opts.dryRun) {

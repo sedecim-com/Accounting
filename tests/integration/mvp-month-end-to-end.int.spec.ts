@@ -31,7 +31,7 @@ import { apartarCatalogos } from './helpers/catalogos-globales.js';
 //
 // THE FIGURES ARE WRITTEN BY HAND, never copied from the output: a test
 // generated from the system's own answer cannot fail. Each constant carries
-// its derivation from the opening and the twenty documents of the month.
+// its derivation from the opening and the documents of the month.
 //
 // NOTHING IS SEEDED WITH SQL. The firm and its user come from `tenant create`
 // and `user create`, like every other row of the month (MNE-001-406).
@@ -42,6 +42,14 @@ import { apartarCatalogos } from './helpers/catalogos-globales.js';
 // balances on 2025-01-01, the first day of the fiscal year, and January to
 // November, which hold nothing else, are hard-closed in order so that their
 // carry-forward opens December with them.
+//
+// THE ISSUED CFDI GOES BY THE HAND DOOR (MNE-001-415). The company issues a
+// PPD to a wholesaler, and with no model `ingest` leaves it to post: it is a
+// sale, so it never becomes a bill. `cfdi post` makes it a customer invoice
+// with its UUID and its entry, with the IVA in 2125, not yet collected, and the
+// REP the company issues when it is paid links to that invoice by itself: the
+// bank takes the 9,280 and the IVA moves to 2120. It is December's first
+// invoice, so section 3's typed one is INV-2025-00002.
 //
 // THE RECEIVED CFDI GO BY THE MANUAL PATH (MNE-001-408). A consultant's PPD
 // and a cleaner's two PUE come from tests/fixtures/cfdi, rewritten to this
@@ -93,8 +101,8 @@ import { apartarCatalogos } from './helpers/catalogos-globales.js';
 // January. Nothing before December is left to explain. A second download
 // that repeats movements of the first is refused whole.
 //
-// RECONCILE, THE FEE AND REOPEN (MNE-001-413). The matcher ties eleven of the
-// thirteen movements to the lines of 1111 and finds nothing for the bank's
+// RECONCILE, THE FEE AND REOPEN (MNE-001-413). The matcher ties twelve of the
+// fourteen movements to the lines of 1111 and finds nothing for the bank's
 // own two. The guided pass raises those as reconciling items: charges the
 // books still owe. Each gets an adjustment, which is a draft, and an owner
 // and a date, which nobody but a person can give. Then the session closes,
@@ -222,25 +230,31 @@ const CLEANING_RULE = 'Cleaning goes to 6100';
 const PPD_UUID = '5A1E0408-1210-4C0A-9D2E-000000002001';
 const CLEANER_PUE_UUIDS = ['5A1E0408-1212-4C0A-9D2E-000000001001', '5A1E0408-1219-4C0A-9D2E-000000001002'] as const;
 const REP_UUID = '5A1E0408-1222-4C0A-9D2E-00000000A001';
-// The REP of the PPD, inline because tests/fixtures/cfdi has none. It copies
-// the shape of tests/integration/helpers/rep-xml.ts, which this spec cannot
-// import: that helper reaches src/database, whose config loads a .env.
-const REP_XML = `<?xml version="1.0" encoding="UTF-8"?>
+/**
+ * A REP that pays one PPD of 8,000.00 + 1,280.00 of IVA in full, in one
+ * installment. Inline because tests/fixtures/cfdi has none. It copies the
+ * shape of tests/integration/helpers/rep-xml.ts, which this spec cannot
+ * import: that helper reaches src/database, whose config loads a .env.
+ */
+const paymentReceiptXml = (o: {
+  uuid: string; invoiceUuid: string; date: string; operation: string; postalCode: string;
+  issuer: { rfc: string; name: string }; receiver: { rfc: string; name: string; postalCode: string };
+}): string => `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
   xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
   Version="4.0" TipoDeComprobante="P" Moneda="XXX" Total="0" SubTotal="0"
-  Fecha="2025-12-22T10:00:00" LugarExpedicion="06600" Exportacion="01">
-  <cfdi:Emisor Rfc="${CONSULTANT_RFC}" Nombre="${CONSULTANT_NAME}" RegimenFiscal="601"/>
-  <cfdi:Receptor Rfc="${COMPANY_RFC}" Nombre="${COMPANY_NAME}" UsoCFDI="CP01"
-    DomicilioFiscalReceptor="01000" RegimenFiscalReceptor="601"/>
+  Fecha="${o.date}T10:00:00" LugarExpedicion="${o.postalCode}" Exportacion="01">
+  <cfdi:Emisor Rfc="${o.issuer.rfc}" Nombre="${o.issuer.name}" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="${o.receiver.rfc}" Nombre="${o.receiver.name}" UsoCFDI="CP01"
+    DomicilioFiscalReceptor="${o.receiver.postalCode}" RegimenFiscalReceptor="601"/>
   <cfdi:Conceptos>
     <cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT"
       Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/>
   </cfdi:Conceptos>
   <cfdi:Complemento>
     <pago20:Pagos Version="2.0">
-      <pago20:Pago FechaPago="2025-12-22T10:00:00" FormaDePagoP="03" MonedaP="MXN" Monto="9280.00" NumOperacion="OP-2212">
-        <pago20:DoctoRelacionado IdDocumento="${PPD_UUID}" MonedaDR="MXN" NumParcialidad="1"
+      <pago20:Pago FechaPago="${o.date}T10:00:00" FormaDePagoP="03" MonedaP="MXN" Monto="9280.00" NumOperacion="${o.operation}">
+        <pago20:DoctoRelacionado IdDocumento="${o.invoiceUuid}" MonedaDR="MXN" NumParcialidad="1"
           ImpSaldoAnt="9280.00" ImpPagado="9280.00" ImpSaldoInsoluto="0" ObjetoImpDR="02">
           <pago20:ImpuestosDR><pago20:TrasladosDR>
             <pago20:TrasladoDR BaseDR="8000.00" ImpuestoDR="002"
@@ -249,10 +263,45 @@ const REP_XML = `<?xml version="1.0" encoding="UTF-8"?>
         </pago20:DoctoRelacionado>
       </pago20:Pago>
     </pago20:Pagos>
-    <tfd:TimbreFiscalDigital Version="1.1" UUID="${REP_UUID}"
-      FechaTimbrado="2025-12-22T10:05:00" SelloCFD="x" NoCertificadoSAT="1" SelloSAT="y"/>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="${o.uuid}"
+      FechaTimbrado="${o.date}T10:05:00" SelloCFD="x" NoCertificadoSAT="1" SelloSAT="y"/>
   </cfdi:Complemento>
 </cfdi:Comprobante>`;
+/** The consultant's REP of the PPD, on 12-22. */
+const REP_XML = paymentReceiptXml({
+  uuid: REP_UUID, invoiceUuid: PPD_UUID, date: '2025-12-22', operation: 'OP-2212', postalCode: '06600',
+  issuer: { rfc: CONSULTANT_RFC, name: CONSULTANT_NAME },
+  receiver: { rfc: COMPANY_RFC, name: COMPANY_NAME, postalCode: '01000' },
+});
+
+// ── THE ISSUED CFDI OF DECEMBER (MNE-001-415) ──────────────────────────
+// The company sells to a wholesaler on credit: a PPD it issues on 12-02,
+// written from the consultant's fixture with issuer and receiver swapped, and
+// the REP it issues when the wholesaler pays on 12-11. The wholesaler is
+// neither section 3's 'Cliente Sintetico' nor the opening's customer.
+const WHOLESALER_RFC = 'GMN060101AB1';
+const WHOLESALER_NAME = 'Grupo Mayorista del Norte SA de CV';
+const ISSUED_PPD_UUID = '5A1E0415-1202-4C0A-9D2E-000000005001';
+const ISSUED_REP_UUID = '5A1E0415-1211-4C0A-9D2E-00000000B001';
+/** The PPD the company issues: 8,000.00 + 1,280.00 of IVA, folio A-501. */
+const issuedPpdXml = (): string =>
+  fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'cfdi', 'factura-consultoria-2001.xml'), 'utf-8')
+    .replace('Serie="B" Folio="2001"', 'Serie="A" Folio="501"')
+    .replace(/ Fecha="[^"]+"/, ' Fecha="2025-12-02T10:00:00"')
+    .replace('LugarExpedicion="06600"', 'LugarExpedicion="01000"')
+    .replace('<cfdi:Emisor Rfc="SIN060101AB1" Nombre="Servicios Integrales SA"',
+      `<cfdi:Emisor Rfc="${COMPANY_RFC}" Nombre="${COMPANY_NAME}"`)
+    .replace('<cfdi:Receptor Rfc="XAXX010101000" Nombre="Demo Corp MX" UsoCFDI="G03" DomicilioFiscalReceptor="06600"',
+      `<cfdi:Receptor Rfc="${WHOLESALER_RFC}" Nombre="${WHOLESALER_NAME}" UsoCFDI="G01" DomicilioFiscalReceptor="64000"`)
+    .replace(/Descripcion="[^"]+"/, 'Descripcion="Mercancia al mayoreo"')
+    .replace(/FechaTimbrado="[^"]+"/, 'FechaTimbrado="2025-12-02T10:05:00"')
+    .replace(/UUID="[^"]+"/, `UUID="${ISSUED_PPD_UUID}"`);
+/** The REP the company issues when the wholesaler pays the PPD in full, on 12-11. */
+const ISSUED_REP_XML = paymentReceiptXml({
+  uuid: ISSUED_REP_UUID, invoiceUuid: ISSUED_PPD_UUID, date: '2025-12-11', operation: 'OP-1112', postalCode: '01000',
+  issuer: { rfc: COMPANY_RFC, name: COMPANY_NAME },
+  receiver: { rfc: WHOLESALER_RFC, name: WHOLESALER_NAME, postalCode: '64000' },
+});
 
 // ── THE EDGE CASES OF THE RECEIVED CFDI (MNE-001-409) ──────────────────
 // The bookshop is created before its CFDI arrive, like the cleaner. In the
@@ -345,6 +394,7 @@ const STATEMENT_MOVEMENTS = [
   ['04', 'SPEI ENVIADO LIBRERIA Y EDITORIAL DEL BAJIO', '450.00', ''],
   ['09', 'SPEI ENVIADO HOTEL SINTETICO', '1190.00', ''],
   ['10', 'SPEI RECIBIDO CLIENTE SINTETICO', '', '1160.00'],
+  ['11', 'SPEI RECIBIDO GRUPO MAYORISTA DEL NORTE', '', '9280.00'],
   ['12', 'SPEI ENVIADO LIMPIEZA INTEGRAL MODERNA', '1160.00', ''],
   ['15', 'SPEI RECIBIDO CLIENTE SINTETICO', '', '5800.00'],
   ['16', 'SPEI ENVIADO JULIAN GOMEZ MARTINEZ', '9533.33', ''],
@@ -371,15 +421,15 @@ const statementCsv = (from: string): Buffer => Buffer.from([
     .map(([day, description, charge, credit]) => `${day}/12/2025,${description},${charge},${credit}`),
 ].join('\n'), 'latin1');
 // By hand. The bank's December is the books' December on 1111 plus its fee:
-//   credited   1,160 + 5,800                                    =  6,960.00
+//   credited   1,160 + 9,280 + 5,800                            = 16,240.00
 //   charged    36,000 + 1,200 + 450 + 1,190 + 1,160 + 9,533.33
 //              + 1,160 + 5,800 + 9,280 = 65,773.33, and 300 + 48 = 66,121.33
-// From the 100,000.00 of 11-30: 100,000 + 6,960 − 66,121.33 = 40,838.67, the
+// From the 100,000.00 of 11-30: 100,000 + 16,240 − 66,121.33 = 50,118.67, the
 // balance the printed statement closes with. Until the reconciliation posts
-// the fee and its IVA, the books stand 348.00 above it, at 41,186.67.
+// the fee and its IVA, the books stand 348.00 above it, at 50,466.67.
 const BANK_BASELINE = '100000.00'; // 1111 on 2025-11-30: the opening, untouched until December
-const STATEMENT_CLOSING = '40838.67';
-const BOOKS_BEFORE_FEE = '41186.67'; // 100,000 + 6,960 − 65,773.33: 1111 before the session is posted
+const STATEMENT_CLOSING = '50118.67';
+const BOOKS_BEFORE_FEE = '50466.67'; // 100,000 + 16,240 − 65,773.33: 1111 before the session is posted
 const BANK_FEE = '300.00';
 const BANK_FEE_IVA = '48.00'; // 16 % of the fee
 /** The December statement and its session, as steps 4·231 and 4·232 leave them. */
@@ -387,6 +437,9 @@ let statementId = '';
 
 // ── THE MONTH, BY HAND ──────────────────────────────────────────────────
 //   12-01 computers      1220 Dr 36,000.00 / 1111 Cr 36,000.00
+//   12-02 issued PPD     1120 Dr 9,280.00 / 4100 Cr 8,000.00, 2125 Cr 1,280.00
+//                        (the wholesaler's sale on credit: its IVA is caused
+//                        when it is collected, LIVA art. 1-B, so it waits in 2125)
 //   12-03 received 0 %   6100 Dr 1,200.00 / 2110 Cr 1,200.00, and paid that day:
 //                        2110 Dr 1,200.00 / bank Cr 1,200.00 (the bookshop's own
 //                        edition, LIVA art. 2-A fr. I i: a rate of 0 %, no IVA line)
@@ -396,32 +449,37 @@ let statementId = '';
 //                        (16 % of 10,000; no MetodoPago on a typed invoice → PUE)
 //   12-08 bill           6100 Dr 5,000.00, 1135 Dr 800.00 / 2110 Cr 5,800.00
 //                        (no MetodoPago on a typed bill → PPD, IVA parked in 1135)
-//   12-09 lodging        6100 Dr 1,000.00, 6150 Dr 30.00, 1130 Dr 160.00 / 2110 Cr
-//                        1,190.00, and paid that day: the 3 % ISH on the 1,000 is
-//                        a cost, not a creditable tax, in a leaf of its own
+//   12-09 lodging        6100 Dr 1,000.00, 6150 Dr 30.00, 1135 Dr 160.00 / 2110 Cr
+//                        1,190.00, and paid that day, which moves 1135 → 1130:
+//                        160.00. The 3 % ISH on the 1,000 is a cost, not a
+//                        creditable tax, in a leaf of its own
 //   12-10 advance        bank Dr 1,160.00 / 2150 Cr 1,000.00, 2120 Cr 160.00: a
 //                        customer advance with no invoice causes its IVA the
 //                        day it is collected (LIVA art. 1-B); 1,160 / 1.16
 //   12-10 received PPD   6100 Dr 8,000.00, 1135 Dr 1,280.00 / 2110 Cr 9,280.00
 //                        (the consultant's CFDI: PPD, so its IVA waits in 1135)
-//   12-12 received PUE   6100 Dr 1,000.00, 1130 Dr 160.00 / 2110 Cr 1,160.00, and
-//                        paid that day: 2110 Dr 1,160.00 / bank Cr 1,160.00, with
-//                        no IVA moved (a PUE declares one payment, CFF 29-A fr. VII b)
+//   12-11 issued REP     bank Dr 9,280.00 / 1120 Cr 9,280.00, and the IVA now
+//                        collected moves 2125 → 2120: 1,280.00, in the same entry
+//   12-12 received PUE   6100 Dr 1,000.00, 1135 Dr 160.00 / 2110 Cr 1,160.00, and
+//                        paid that day: 2110 Dr 1,160.00 / bank Cr 1,160.00, and
+//                        the paid IVA moves 1135 → 1130: 160.00 (MNE-001-492: PUE
+//                        is the issuer's label, the IVA is credited once paid)
 //   12-15 receipt        bank Dr 5,800.00 / 1120 Cr 5,800.00 (half the invoice)
-//   12-16 fees           6100 Dr 10,000.00, 1130 Dr 1,600.00 / 2141 Cr 1,000.00,
+//   12-16 fees           6100 Dr 10,000.00, 1135 Dr 1,600.00 / 2141 Cr 1,000.00,
 //                        2142 Cr 1,066.67, 2110 Cr 9,533.33: an individual's fees,
 //                        so the company withholds 10 % of ISR (LISR art. 106) and
 //                        two thirds of the 1,600 of IVA (LIVA art. 1-A fr. II a;
 //                        RLIVA art. 3), and that day pays the net alone:
-//                        2110 Dr 9,533.33 / bank Cr 9,533.33
+//                        2110 Dr 9,533.33 / bank Cr 9,533.33, which moves the
+//                        whole 1,600.00 1135 → 1130
 //   12-18 credit note    4400 Dr 1,000.00, 2120 Dr 160.00 / 1120 Cr 1,160.00
 //   12-19 received PUE   the same as on 12-12: the cleaner's second CFDI
 //   12-20 payment        2110 Dr 5,800.00 / bank Cr 5,800.00,
 //                        and the paid IVA moves 1135 → 1130: 800.00
 //   12-22 REP            2110 Dr 9,280.00 / bank Cr 9,280.00, and the PPD's
 //                        paid IVA moves 1135 → 1130: 1,280.00 (LIVA art. 5 fr. III)
-//   12-22 second invoice 1120 Dr 5,800.00 / 4100 Cr 5,000.00, 2120 Cr 800.00
-//                        (the sale the advance was for; typed, so PUE)
+//   12-22 advance's sale 1120 Dr 5,800.00 / 4100 Cr 5,000.00, 2120 Cr 800.00
+//                        (the sale the advance was for, INV-2025-00003; typed, so PUE)
 //   12-22 its advance    2150 Dr 1,000.00, 2120 Dr 160.00 / 1120 Cr 1,160.00: the
 //                        advance of 12-10 applied to it. Its IVA was caused when
 //                        collected, so applying it cancels that IVA instead of
@@ -444,40 +502,45 @@ let statementId = '';
 //                        life; whole-month convention, so 36,000 / 40
 // Debits of December: 36,000 + 11,600 + 5,800 + 5,800 + 1,160 + 5,800 + 800
 // + 900 + 1,160 (the advance) + 5,800 + 1,160 (its invoice, and its application)
-// = 75,980 typed, and 9,280 + 2 × 1,160 + 2 × 1,160 + (9,280 + 1,280)
-// = 24,480 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
-// + 2 × 1,190 + (11,600 + 9,533.33) = 26,813.33, and the stray entry and its
+// = 75,980 typed, and 9,280 + 2 × 1,160 + 2 × (1,160 + 160) + (9,280 + 1,280)
+// = 24,800 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
+// + 1,190 + (1,190 + 160) + (11,600 + 9,533.33 + 1,600) = 28,573.33 (each
+// PUE's payment releases its IVA, MNE-001-492), and the stray entry and its
 // mirror, which move no balance but are debits all the same: 2 × 2,000
 // = 4,000, and the bank fee with its IVA, posted, mirrored and posted again:
-// 3 × 348 = 1,044. In all 132,317.33. The dossier seals the trial balance as
-// of 12-31, so it counts the opening of 01-01 too: 107,800 + 132,317.33.
-const SEALED_DEBITS = '240117.33';
+// 3 × 348 = 1,044, and the issued PPD and its REP: 9,280 + (9,280 + 1,280)
+// = 19,840. In all 154,237.33. The dossier seals the trial balance as of
+// 12-31, so it counts the opening of 01-01 too: 107,800 + 154,237.33.
+const SEALED_DEBITS = '262037.33';
 const ENDING = {
   // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
   // − 1,200 − 450 (the bookshop) − 1,190 (the hotel) − 9,533.33 (the fees, net)
-  // + 1,160 (the customer advance) (see MNE-001-039 in step 4) − 300 − 48 (the
-  // bank fee and its IVA): the balance the statement closes with
+  // + 1,160 (the customer advance) + 9,280 (the issued REP) (see MNE-001-039 in
+  // step 4) − 300 − 48 (the bank fee and its IVA): the balance the statement closes with
   '1111': STATEMENT_CLOSING,
-  // 3,480 opening + 11,600 − 5,800 − 1,160 + 5,800 − 1,160 (the second invoice, less the advance applied to it)
-  // (+ 2,000 − 2,000, the stray entry and its mirror)
+  // 3,480 opening + 11,600 − 5,800 − 1,160 + 5,800 − 1,160 (the advance's sale, less the advance applied to it)
+  // (+ 9,280 − 9,280, the issued PPD and its REP, and + 2,000 − 2,000, the stray entry and its mirror)
   '1120': '12760.00',
   // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE) + 160 (the hotel) + 1,600 (the fees)
   // + 48 (the bank fee's)
   '1130': '4208.00',
-  '1135': '320.00', // the opening's; the 800 and the 1,280 parked in December moved to 1130 when paid
+  '1135': '320.00', // the opening's; all December parked (the PPD's, the PUE's) moved to 1130 when paid
   '1220': '36000.00',
   '1290': '-900.00', // accumulated depreciation, credit balance
   '1320': '4000.00', // the deposit, untouched since the opening
   '2110': '-2320.00', // the opening bill: every December bill was paid within the month
-  // −1,600 + 160 (the advance's IVA, caused on 12-10) − 160 (the credit note) − 800 (the second invoice)
-  // + 160 (the advance's IVA, cancelled when applied): credit balance. 2150 ends at 0, so --exclude-zero drops it.
-  '2120': '-2240.00',
+  // −1,600 − 160 (the advance's IVA, caused on 12-10) + 160 (the credit note) − 1,280 (the issued PPD's,
+  // collected) − 800 (the advance's sale) + 160 (the advance's IVA, cancelled when applied): credit
+  // balance. 2150 ends at 0, so --exclude-zero drops it.
+  '2120': '-3520.00',
   '2141': '-1000.00', // the ISR withheld from the fees, owed to the SAT
   '2142': '-1066.67', // the IVA withheld from the fees, owed to the SAT
-  '2125': '-480.00', // the opening invoice's IVA, still uncollected
+  '2125': '-480.00', // the opening invoice's IVA, still uncollected; the issued PPD's came and went
   '3100': '-100000.00',
   '3200': '-5000.00', // the 2024 result, untouched since the opening
-  '4100': '-15000.00', // the two invoices; the stray 2,000 was credited on 12-28 and debited back on 12-31
+  // 8,000 (the issued PPD) + 10,000 (the typed invoice) + 5,000 (the advance's sale); the stray
+  // 2,000 was credited on 12-28 and debited back on 12-31
+  '4100': '-23000.00',
   '4400': '1000.00',
   // 5,000 typed + 8,000 (PPD) + 1,000 + 1,000 (the PUE) + 1,200 + 450 (the bookshop)
   // + 1,000 (the hotel) + 10,000 (the fees)
@@ -486,19 +549,19 @@ const ENDING = {
   '6310': BANK_FEE, // posted twice and mirrored once: 600 of debits, 300 of credits
   [LODGING_TAX_ACCOUNT]: '30.00', // the ISH of the hotel night
 } as const;
-const NET_SALES = '14000.00'; // 10,000 + 5,000 − 1,000 returned
-const NET_INCOME = '-14880.00'; // 14,000 − 27,650 − 30 − 900 − 300 (the bank fee)
-const TOTAL_ASSETS = '97226.67'; // 40,838.67 + 12,760 + 4,208 + 320 + 36,000 − 900 + 4,000
-const TOTAL_LIABILITIES = '7106.67'; // 2,320 + 2,240 + 480 + 1,000 + 1,066.67; the advance's 2150 is back at 0
-const TOTAL_EQUITY = '90120.00'; // 100,000 + 5,000 − 14,880; and 97,226.67 = 7,106.67 + 90,120
-// Indirect method: −14,880 + 900 (depreciation, no cash) − 9,280 (AR up)
-// − 4,208 (IVA credit up) + 2,240 (IVA payable up) + 2,066.67 (withholdings
-// owed) = −23,161.33; the advance came and went through 2150 within the
-// month, and its cash is inside the AR it settled. That is the 5,800
-// + 1,160 received minus the 5,800 + 9,280 + 1,160 + 1,160 + 1,200 + 450
-// + 1,190 + 9,533.33 + 300 + 48 paid. 1135, 2110 and 2125 end December where
-// they began it.
-const OPERATING_CASH = '-23161.33';
+const NET_SALES = '22000.00'; // 8,000 + 10,000 + 5,000 − 1,000 returned
+const NET_INCOME = '-6880.00'; // 22,000 − 27,650 − 30 − 900 − 300 (the bank fee)
+const TOTAL_ASSETS = '106506.67'; // 50,118.67 + 12,760 + 4,208 + 320 + 36,000 − 900 + 4,000
+const TOTAL_LIABILITIES = '8386.67'; // 2,320 + 3,520 + 480 + 1,000 + 1,066.67; the advance's 2150 is back at 0
+const TOTAL_EQUITY = '98120.00'; // 100,000 + 5,000 − 6,880; and 106,506.67 = 8,386.67 + 98,120
+// Indirect method: −6,880 + 900 (depreciation, no cash) − 9,280 (AR up)
+// − 4,208 (IVA credit up) + 3,520 (IVA payable up) + 2,066.67 (withholdings
+// owed) = −13,881.33; the advance came and went through 2150 within the
+// month, and its cash is inside the AR it settled. That is the 9,280
+// + 5,800 + 1,160 received minus the 5,800 + 9,280 + 1,160 + 1,160 + 1,200
+// + 450 + 1,190 + 9,533.33 + 300 + 48 paid. 1135, 2110 and 2125 end December
+// where they began it.
+const OPERATING_CASH = '-13881.33';
 const INVESTING_CASH = '-36000.00'; // the computers
 const FINANCING_CASH = '0.00'; // the capital came in with the opening, in January
 
@@ -986,16 +1049,80 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
   });
 
   describe('2 · CFDI to the ledger', () => {
-    it.todo('ingests the issued PUE and PPD invoices from tests/fixtures into receivables, never as expense, and the issued REP settles the PPD — MNE-001-025, MNE-001-028');
+    it('posts an issued PPD to receivables by hand, never as expense, and the issued REP settles it — MNE-001-025, MNE-001-028, MNE-001-418', () => {
+      // The hand door refuses a receiver outside the customer catalog, so the
+      // wholesaler is registered first, as a person would.
+      ok(['customer', 'create', '--name', WHOLESALER_NAME, '--tax-id', WHOLESALER_RFC]);
+      const ppd = path.join(workDir, 'issued-ppd-2025-12-02.xml');
+      fs.writeFileSync(ppd, issuedPpdXml());
+
+      // No model: the company issued it, so it is a sale left to post by
+      // hand, and the binary names the command that does it.
+      const ingested = ok(['ingest', ppd, '-y'], 'ingest').out;
+      expect(ingested).toContain(`mnemosine cfdi post ${ISSUED_PPD_UUID}`);
+      // MNE-001-025: never a bill. Its pre-registration waits in the inbox, as
+      // every CFDI to code does, but `bill inbox run` would not post it.
+      const bills = (): string[] =>
+        rowsOf<{ bill_number: string }>(ok(['bill', 'list', '--all', '--json'])).map((b) => b.bill_number);
+      expect(bills()).toEqual([expect.stringMatching(/^BILL-2024-\d{5}$/)]);
+      const inbox = (): string[] =>
+        rowsOf<{ date: string; total: string; status: string }>(ok(['bill', 'inbox', 'list', '--json']))
+          .map((r) => `${r.date} ${money(r.total)} ${r.status}`);
+      expect(inbox()).toEqual(['2025-12-02 9280.00 draft']);
+      expect(rowsOf<{ cfdi_uuid: string }>(
+        ok(['cfdi', 'list', '--direction', 'emitido', '--type', 'cfdi_ingreso', '--status', 'pending', '--json'])
+      ).map((c) => c.cfdi_uuid.toUpperCase())).toEqual([ISSUED_PPD_UUID]);
+
+      // The rehearsal shows the invoice and its entry and writes neither.
+      const moves = ['1120', '4100', '2125', '2120', '1111'];
+      const untouched = { '1120': '0.00', '4100': '0.00', '2125': '0.00', '2120': '0.00', '1111': '0.00' };
+      expect(ok(['cfdi', 'post', ISSUED_PPD_UUID, '--dry-run']).out).toContain(`Would post CFDI ${ISSUED_PPD_UUID}`);
+      expect(rowsOf(ok(['invoice', 'list', '--json']))).toHaveLength(1);
+      expect(decemberMoves(moves)).toEqual(untouched);
+
+      // MNE-001-028: posted, it is a customer invoice with the CFDI's UUID,
+      // dated as the CFDI, and owed whole. A PPD's IVA is not yet collected,
+      // so it waits in 2125 (LIVA art. 1-B: caused when it is paid). It draws
+      // 2025's first invoice number, before section 3's typed invoice.
+      const [posted] = rowsOf<{ invoice_number: string; status: string; amount_due: string; entry_number: string; dry_run: boolean }>(
+        ok(['cfdi', 'post', ISSUED_PPD_UUID, '--yes', '--json'])
+      );
+      expect({ ...posted, amount_due: money(posted.amount_due) }).toMatchObject(
+        { invoice_number: 'INV-2025-00001', status: 'sent', amount_due: '9280.00', dry_run: false }
+      );
+      const [entry] = rowsOf<{ entry_date: string; lines: { account: string; debit: string; credit: string }[] }>(
+        ok(['entry', 'show', posted.entry_number, '--json'])
+      );
+      expect([entry.entry_date.slice(0, 10), ...entry.lines.map((l) => `${l.account} ${l.debit ? `Dr ${money(l.debit)}` : `Cr ${money(l.credit)}`}`)])
+        .toEqual(['2025-12-02', '1120 Dr 9280.00', '4100 Cr 8000.00', '2125 Cr 1280.00']);
+      expect(rowsOf<Record<string, string>>(ok(['invoice', 'show', 'INV-2025-00001', '--json']))[0]).toMatchObject({
+        customer_name: WHOLESALER_NAME, cfdi_uuid: ISSUED_PPD_UUID, journal_entry_number: posted.entry_number,
+      });
+      expect(decemberMoves(moves)).toEqual({ ...untouched, '1120': '9280.00', '4100': '-8000.00', '2125': '-1280.00' });
+      // The act closed its pre-registration, and still no bill was born.
+      expect(inbox()).toEqual(['2025-12-02 9280.00 completed']);
+      expect(bills()).toHaveLength(1);
+
+      // The REP the company issues on 12-11 links to that invoice by its UUID:
+      // the collection is made by the payments gate, the bank takes the 9,280
+      // and the 1,280 of IVA, collected now, leaves 2125 for 2120.
+      const rep = path.join(workDir, 'issued-rep-2025-12-11.xml');
+      fs.writeFileSync(rep, ISSUED_REP_XML);
+      expect(ok(['ingest', rep, '-y'], 'ingest').out).toContain('issued-rep-2025-12-11.xml  rules · Payment receipt linked');
+      const [paid] = rowsOf<{ status: string; amount_due: string }>(ok(['invoice', 'show', 'INV-2025-00001', '--json']));
+      expect([paid.status, money(paid.amount_due)]).toEqual(['paid', '0.00']);
+      expect(decemberMoves(moves)).toEqual({ ...untouched, '4100': '-8000.00', '2120': '-1280.00', '1111': '9280.00' });
+    }, STEP_TIMEOUT_MS);
 
     it('approving a received PPD creates the bill, and its REP moves the IVA from 1135 to 1130 — MNE-001-026, MNE-001-116, MNE-001-117', () => {
       const ppd = receivedCfdi('factura-consultoria-2001.xml',
         { file: 'ppd-2025-12-10.xml', rfc: CONSULTANT_RFC, name: CONSULTANT_NAME, date: '2025-12-10', uuid: PPD_UUID });
       // No model: the CFDI is registered and left to code, with nothing posted.
       expect(ok(['ingest', ppd, '-y'], 'ingest').out).toContain('1 left to code');
-      const inbox = rowsOf<{ id: string; rfc: string; total: string }>(
-        ok(['bill', 'inbox', 'list', '--fields', 'id,rfc,total', '--json'])
-      );
+      // The issued PPD of step 2·194 stays listed, completed: what waits is the consultant's.
+      const inbox = rowsOf<{ id: string; rfc: string; total: string; status: string }>(
+        ok(['bill', 'inbox', 'list', '--fields', 'id,rfc,total,status', '--json'])
+      ).filter((r) => r.status !== 'completed');
       expect(inbox.map((r) => `${r.rfc} ${money(r.total)}`)).toEqual([`${CONSULTANT_RFC} 9280.00`]);
       const [row] = inbox;
 
@@ -1017,7 +1144,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       ok(['bill', 'inbox', 'run', row.id, '--yes']);
       const moves = ['6100', '1135', '1130', '2110', '1111'];
       expect(decemberMoves(moves)).toEqual(
-        { '6100': '8000.00', '1135': '1280.00', '1130': '0.00', '2110': '-9280.00', '1111': '0.00' }
+        { '6100': '8000.00', '1135': '1280.00', '1130': '0.00', '2110': '-9280.00', '1111': '9280.00' }
       );
 
       // The REP pays it on 12-22: the payment is created from the receipt, and
@@ -1033,7 +1160,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(paid.status).toBe('paid');
       expect([money(paid.total_amount), money(paid.amount_due)]).toEqual(['9280.00', '0.00']);
       expect(decemberMoves(moves)).toEqual(
-        { '6100': '8000.00', '1135': '0.00', '1130': '1280.00', '2110': '0.00', '1111': '-9280.00' }
+        { '6100': '8000.00', '1135': '0.00', '1130': '1280.00', '2110': '0.00', '1111': '0.00' }
       );
     }, STEP_TIMEOUT_MS);
 
@@ -1071,9 +1198,8 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         .map((r) => [r.id, Number(r.matched)])).toEqual([[rule.id, 1]]);
       expect(rowsOf(ok(['bill', 'inbox', 'list', '--status', 'ready', '--json']))).toEqual([]);
 
-      // A PUE declares that it was paid in one exhibition (CFF art. 29-A fr. VII b),
-      // which is why its IVA was credited when it posted: each is paid on its
-      // date, and the payment releases no IVA again. The numbers are derived:
+      // A PUE's IVA waits in 1135 until it is paid (MNE-001-492): each is paid
+      // on its date, and the payment moves its 160.00 to 1130. The numbers are derived:
       // `bill inbox run --json` carries them only inside its Spanish prose.
       for (const [bill, date] of [['BILL-2025-00002', '2025-12-12'], ['BILL-2025-00003', '2025-12-19']]) {
         expect(ok(['payment', 'create', bill, '--amount', '1160.00', '--date', date, '--yes']).out)
@@ -1082,9 +1208,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(rowsOf<{ bill_number: string; bill_date: string; status: string }>(ok(['bill', 'list', '--json']))
         .filter((b) => b.bill_number.startsWith('BILL-2025-')).map((b) => `${b.bill_number} ${b.bill_date} ${b.status}`)
         .sort()).toEqual(['BILL-2025-00001 2025-12-10 paid', 'BILL-2025-00002 2025-12-12 paid', 'BILL-2025-00003 2025-12-19 paid']);
-      // A 1130 above 1,600.00 would be a second IVA release.
+      // 1,280 (the REP's) + 2 × 160; a 1130 above 1,600.00 would be a second IVA release.
       expect(decemberMoves(['6100', '1130', '1135', '2110', '1111'])).toEqual(
-        { '6100': '10000.00', '1130': '1600.00', '1135': '0.00', '2110': '0.00', '1111': '-11600.00' }
+        { '6100': '10000.00', '1130': '1600.00', '1135': '0.00', '2110': '0.00', '1111': '-2320.00' }
       );
     }, STEP_TIMEOUT_MS);
 
@@ -1127,9 +1253,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         expect(ok(['payment', 'create', bills[c.invoiceNumber], '--amount', c.amount, '--date', c.date, '--yes']).out)
           .toContain(`${c.amount} → 0.00 (paid)`);
       }
-      // 6100: 10,000 + 1,200 + 450; the bank: −11,600 − 1,200 − 450; no IVA moved.
+      // 6100: 10,000 + 1,200 + 450; the bank: −2,320 − 1,200 − 450; no IVA moved.
       expect(decemberMoves(['6100', '1130', '1135', '2110', '1111'])).toEqual(
-        { '6100': '11650.00', '1130': '1600.00', '1135': '0.00', '2110': '0.00', '1111': '-13250.00' }
+        { '6100': '11650.00', '1130': '1600.00', '1135': '0.00', '2110': '0.00', '1111': '-3970.00' }
       );
     }, STEP_TIMEOUT_MS);
 
@@ -1144,15 +1270,15 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         { file: 'lodging-2025-12-09.xml', date: '2025-12-09', uuid: LODGING_UUID });
 
       // 1,000 + 160 of IVA + 30 of ISH (3 %, in the ImpuestosLocales complement)
-      // = 1,190: the IVA is credited, the ISH is a cost, and the bill owes both.
+      // = 1,190: the IVA waits for the payment, the ISH is a cost, and the bill owes both.
       const bill = postToExpense(lodging, 'H4001', '1190.00');
       expect(billPosting(bill).entry)
-        .toEqual(['6100 Dr 1000.00', `${LODGING_TAX_ACCOUNT} Dr 30.00`, '1130 Dr 160.00', '2110 Cr 1190.00']);
+        .toEqual(['6100 Dr 1000.00', `${LODGING_TAX_ACCOUNT} Dr 30.00`, '1135 Dr 160.00', '2110 Cr 1190.00']);
       expect(ok(['payment', 'create', bill, '--amount', '1190.00', '--date', '2025-12-09', '--yes']).out)
         .toContain('1190.00 → 0.00 (paid)');
-      // 6100: 11,650 + 1,000; 1130: 1,600 + 160; the bank: −13,250 − 1,190.
+      // 6100: 11,650 + 1,000; 1130: 1,600 + 160; the bank: −3,970 − 1,190.
       expect(decemberMoves(['6100', LODGING_TAX_ACCOUNT, '1130', '2110', '1111'])).toEqual(
-        { '6100': '12650.00', [LODGING_TAX_ACCOUNT]: '30.00', '1130': '1760.00', '2110': '0.00', '1111': '-14440.00' }
+        { '6100': '12650.00', [LODGING_TAX_ACCOUNT]: '30.00', '1130': '1760.00', '2110': '0.00', '1111': '-5160.00' }
       );
     }, STEP_TIMEOUT_MS);
 
@@ -1163,17 +1289,17 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // An individual's fees to a persona moral: 10,000 + 1,600 of IVA, less
       // 1,000 of ISR (10 %) and 1,066.67 of IVA (two thirds of 1,600) withheld
       // = 9,533.33, the CFDI's total and all the vendor is owed. The whole
-      // 1,600 is credited, as the product posts a PUE.
+      // 1,600 waits in 1135, and paying the net releases all of it.
       const bill = postToExpense(fees, 'H56', '9533.33');
       expect(billPosting(bill).entry)
-        .toEqual(['6100 Dr 10000.00', '1130 Dr 1600.00', '2141 Cr 1000.00', '2142 Cr 1066.67', '2110 Cr 9533.33']);
+        .toEqual(['6100 Dr 10000.00', '1135 Dr 1600.00', '2141 Cr 1000.00', '2142 Cr 1066.67', '2110 Cr 9533.33']);
       // Paying the net settles the vendor and touches neither withholding:
       // 2141 and 2142 stay owed to the SAT until the company remits them.
       expect(ok(['payment', 'create', bill, '--amount', '9533.33', '--date', '2025-12-16', '--yes']).out)
         .toContain('9533.33 → 0.00 (paid)');
-      // 6100: 12,650 + 10,000; 1130: 1,760 + 1,600; the bank: −14,440 − 9,533.33.
+      // 6100: 12,650 + 10,000; 1130: 1,760 + 1,600; the bank: −5,160 − 9,533.33.
       expect(decemberMoves(['6100', '1130', '2141', '2142', '2110', '1111'])).toEqual(
-        { '6100': '22650.00', '1130': '3360.00', '2141': '-1000.00', '2142': '-1066.67', '2110': '0.00', '1111': '-23973.33' }
+        { '6100': '22650.00', '1130': '3360.00', '2141': '-1000.00', '2142': '-1066.67', '2110': '0.00', '1111': '-14693.33' }
       );
     }, STEP_TIMEOUT_MS);
 
@@ -1218,7 +1344,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       // A census and an uncoded CFDI post nothing: December is where 2·199 left it.
       expect(decemberMoves(['6100', '1130', '2141', '2142', '2110', '1111'])).toEqual(
-        { '6100': '22650.00', '1130': '3360.00', '2141': '-1000.00', '2142': '-1066.67', '2110': '0.00', '1111': '-23973.33' }
+        { '6100': '22650.00', '1130': '3360.00', '2141': '-1000.00', '2142': '-1066.67', '2110': '0.00', '1111': '-14693.33' }
       );
     }, STEP_TIMEOUT_MS);
   });
@@ -1233,16 +1359,16 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
           '--line', '1220:debit:36000.00', '--line', '1111:credit:36000.00', '--json'])
       );
       ok(['entry', 'post', purchase.entry_number, '--yes']);
-      // The bank: −23,973.33, where section 2 left it, − 36,000.
-      expect(decemberMoves(['1220', '1111'])).toEqual({ '1220': '36000.00', '1111': '-59973.33' });
+      // The bank: −14,693.33, where section 2 left it, − 36,000.
+      expect(decemberMoves(['1220', '1111'])).toEqual({ '1220': '36000.00', '1111': '-50693.33' });
     }, STEP_TIMEOUT_MS);
 
     it('issues an invoice, collects half, captures and pays a bill, and issues a credit note', () => {
       ok(['customer', 'create', '--name', 'Cliente Sintetico SA de CV', '--tax-id', CUSTOMER_RFC, '--terms', 'Net 30']);
       ok(['invoice', 'create', '--customer', 'Cliente Sintetico', '--date', '2025-12-05',
         '--line', 'account=4100;qty=1;price=10000.00;tax-rate=16;description=Mercancia']);
-      ok(['invoice', 'issue', 'INV-2025-00001', '--yes']);
-      expect(ok(['receipt', 'record', 'INV-2025-00001', '--amount', '5800.00', '--date', '2025-12-15', '--yes']).out)
+      ok(['invoice', 'issue', 'INV-2025-00002', '--yes']);
+      expect(ok(['receipt', 'record', 'INV-2025-00002', '--amount', '5800.00', '--date', '2025-12-15', '--yes']).out)
         .toContain('11600.00 → 5800.00 (partially_paid)');
 
       ok(['vendor', 'create', 'Proveedor Sintetico SA de CV', '--tax-id', VENDOR_RFC, '--terms', 'Net 30']);
@@ -1255,17 +1381,17 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(ok(['payment', 'create', bill.bill_number, '--amount', '5800.00', '--date', '2025-12-20', '--yes']).out)
         .toContain('5800.00 → 0.00 (paid)');
 
-      ok(['credit-note', 'create', '--type', 'devolucion', '--invoice', 'INV-2025-00001',
+      ok(['credit-note', 'create', '--type', 'devolucion', '--invoice', 'INV-2025-00002',
         '--amount', '1000.00', '--tax', '160.00', '--date', '2025-12-18']);
       ok(['credit-note', 'issue', 'CN-2025-00001', '--yes']);
     }, STEP_TIMEOUT_MS);
 
     it('applies the credit note without a TTY: `credit-note apply` asks for --yes, and with it the invoice owes 4,640.00 and no entry is posted — MNE-001-088', () => {
       const owed = (): string =>
-        money(rowsOf<{ amount_due: string }>(ok(['invoice', 'show', 'INV-2025-00001', '--json']))[0].amount_due);
+        money(rowsOf<{ amount_due: string }>(ok(['invoice', 'show', 'INV-2025-00002', '--json']))[0].amount_due);
       const entries = (): string[] =>
         rowsOf<{ entry_number: string }>(ok(['entry', 'list', '--all', '--json'])).map((e) => e.entry_number);
-      const apply = ['credit-note', 'apply', 'CN-2025-00001', '--invoice', 'INV-2025-00001:1160.00'];
+      const apply = ['credit-note', 'apply', 'CN-2025-00001', '--invoice', 'INV-2025-00002:1160.00'];
       const posted = entries();
 
       // A pipe is not a terminal: the binary asks for --yes, aborts (exit 10,
@@ -1277,7 +1403,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       // 11,600 − 5,800 collected − 1,160 credited (1,000 + 160 IVA). The note
       // posted its entry when it was issued; applying it moves the subledger only.
-      expect(ok([...apply, '--yes']).out).toContain('INV-2025-00001 5800.00 → 4640.00 (partially_paid)');
+      expect(ok([...apply, '--yes']).out).toContain('INV-2025-00002 5800.00 → 4640.00 (partially_paid)');
       expect(owed()).toBe('4640.00');
       expect(entries()).toEqual(posted);
     }, STEP_TIMEOUT_MS);
@@ -1308,6 +1434,8 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         ok(['invoice', 'create', '--customer', 'Cliente Sintetico', '--date', '2025-12-22',
           '--line', 'account=4100;qty=1;price=5000.00;tax-rate=16;description=Mercancia anticipada', '--json'])
       );
+      // December's third invoice: the issued PPD of 12-02 drew 00001 and section 3's typed one 00002.
+      expect(sale.invoice_number).toBe('INV-2025-00003');
       ok(['invoice', 'issue', sale.invoice_number, '--yes']);
       const [applied] = rowsOf<Record<string, string>>(
         ok(['receipt', 'apply', advanceReceipt, '--invoice', `${sale.invoice_number}:1160.00`, '--date', '2025-12-22', '--yes', '--json'])
@@ -1328,10 +1456,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         manual_entries: { entry_number: string }[] };
       const arTie = ['ar', 'reconcile', '--strict', '--json'];
       const closeCheck = ['closing', 'check', '--period', 'December 2025', '--check', 'ar-subledger-delta', '--json'];
-      // By hand: the opening invoice, 3,480, what INV-2025-00001 still owes
+      // By hand: the opening invoice, 3,480, what INV-2025-00002 still owes
       // after its receipt and its credit note, 11,600 − 5,800 − 1,160 = 4,640,
-      // and what the second invoice owes after the advance, 5,800 − 1,160 =
-      // 4,640. No credit note waits to be applied. 1120 holds the same 12,760.
+      // and what the advance's sale, INV-2025-00003, owes after the advance,
+      // 5,800 − 1,160 = 4,640. The issued PPD, INV-2025-00001, is paid. No
+      // credit note waits to be applied. 1120 holds the same 12,760.
       const tied = {
         control_balance: '12760.00', open_invoices: '12760.00', unapplied_credit_notes: '0.00',
         subledger_net: '12760.00', delta: '0.00', balanced: true,
@@ -1383,8 +1512,8 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(rowsOf<ArTie>(ok(arTie))[0]).toMatchObject(tied);
       expect(rowsOf<{ is_complete: boolean }>(ok(closeCheck))[0].is_complete).toBe(true);
       // December moved as if the entry had never been typed: 1120 by 11,600
-      // − 5,800 − 1,160 + 5,800 − 1,160, and 4100 by the two invoices.
-      expect(decemberMoves(['1120', '4100'])).toEqual({ '1120': '9280.00', '4100': '-15000.00' });
+      // − 5,800 − 1,160 + 5,800 − 1,160 (the issued PPD came and went), and 4100 by the three invoices.
+      expect(decemberMoves(['1120', '4100'])).toEqual({ '1120': '9280.00', '4100': '-23000.00' });
     }, STEP_TIMEOUT_MS);
   });
 
@@ -1414,13 +1543,13 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         ...entry.lines.map((l) => `${l.account} ${l.debit ? `Dr ${money(l.debit)}` : `Cr ${money(l.credit)}`}`)].join(' ');
     };
 
-    it('collections and payments land on 1111, the leaf, not on 1110: debits 6,960.00 and credits 65,773.33 — MNE-001-039', () => {
+    it('collections and payments land on 1111, the leaf, not on 1110: debits 16,240.00 and credits 65,773.33 — MNE-001-039', () => {
       // The role that every receipt and payment posts to names the leaf.
       expect(rowsOf<{ account_code: string }>(ok(['account', 'role', 'list', '--role', 'banco', '--json']))
         .map((r) => r.account_code)).toEqual(['1111']);
 
-      // By hand, the cash of the month before its close. Debits: the 1,160
-      // advance and the 5,800 receipt. Credits: the 36,000 computers, the
+      // By hand, the cash of the month before its close. Debits: the 9,280 the
+      // wholesaler paid, the 1,160 advance and the 5,800 receipt. Credits: the 36,000 computers, the
       // bookshop's 1,200 and 450, the hotel's 1,190, the two PUE of 1,160, the
       // fees' net of 9,533.33, the 5,800 payment and the REP's 9,280.
       const tb = rowsOf<{ account_code: string; debit_total: string; credit_total: string }>(
@@ -1430,7 +1559,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         const row = tb.find((r) => r.account_code === code);
         return [money(row?.debit_total ?? '0'), money(row?.credit_total ?? '0')];
       };
-      expect(moved('1111')).toEqual(['6960.00', '65773.33']);
+      expect(moved('1111')).toEqual(['16240.00', '65773.33']);
       // Nothing on the parent itself, nor on its other leaves.
       for (const code of ['1110', '1112', '1115']) expect(moved(code), code).toEqual(['0.00', '0.00']);
     }, STEP_TIMEOUT_MS);
@@ -1453,11 +1582,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(bankMovements()).toEqual([]);
 
       // With the closing balance of the printed statement, the opening
-      // follows: 40,838.67 − 6,960 + 66,121.33 = 100,000.00.
+      // follows: 50,118.67 − 16,240 + 66,121.33 = 100,000.00.
       const [imported] = rowsOf<Record<string, unknown>>(ok([...load, '--closing-balance', STATEMENT_CLOSING, '--json']));
       expect(imported).toMatchObject({
         file: 'bbva-2025-12.csv', format: 'csv', profile: 'bbva-mx', account: BANK_ACCOUNT, currency: 'MXN',
-        period: '2025-12-01..2025-12-31', read: 13, imported: 13, duplicated: 0, overlaps: [], overlap_policy: 'block',
+        period: '2025-12-01..2025-12-31', read: 14, imported: 14, duplicated: 0, overlaps: [], overlap_policy: 'block',
       });
       expect([money(imported['opening'] as string), money(imported['closing'] as string)])
         .toEqual([BANK_BASELINE, STATEMENT_CLOSING]);
@@ -1465,13 +1594,13 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       // The baseline is what 1111 held the day before the period. Typing
       // today's balance of 1111 instead is refused (exit 4) with the
-      // difference, 100,000 − 41,186.67 (the fee is not in the books yet), and
+      // difference, 100,000 − 50,466.67 (the fee is not in the books yet), and
       // no session is opened.
       const open = (baseline: string): string[] =>
         ['bank', 'reconciliation', 'open', BANK_ACCOUNT, '--period', '2025-12', '--baseline', baseline, '--json'];
       const refused = mnemosine(open(BOOKS_BEFORE_FEE));
       expect(refused.status, refused.out + refused.err).toBe(4);
-      expect(refused.err).toContain('41186.67 al 2025-11-30 y los libros dicen 100000.00: difieren en 58813.33');
+      expect(refused.err).toContain('50466.67 al 2025-11-30 y los libros dicen 100000.00: difieren en 49533.33');
       expect(rowsOf(ok(['bank', 'reconciliation', 'list', '--json']))).toEqual([]);
 
       const [session] = rowsOf<Record<string, unknown>>(ok(open(BANK_BASELINE)));
@@ -1484,7 +1613,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     }, STEP_TIMEOUT_MS);
 
     it('an overlapping statement does not duplicate movements — MNE-001-042', () => {
-      // The thirteen movements of the statement, charges negative.
+      // The fourteen movements of the statement, charges negative.
       const movements = STATEMENT_MOVEMENTS
         .map(([day, , charge, credit]) => `2025-12-${day} ${money(credit || `-${charge}`)}`).sort();
       expect(bankMovements()).toEqual(movements);
@@ -1509,19 +1638,19 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
     it('reconciles, classifies the bank fee and its IVA, and closes the session — MNE-001-040, MNE-001-041, MNE-001-043', () => {
       // Where step 4·231 left the session: nothing matched yet, and the bank
-      // 348.00 below the books, 40,838.67 − 41,186.67.
+      // 348.00 below the books, 50,118.67 − 50,466.67.
       const [opened] = rowsOf<SessionStatus>(ok(['bank', 'reconciliation', 'status', '--account', BANK_ACCOUNT, '--json']));
-      expect(opened).toMatchObject({ status: 'in_progress', variance: '-348.00', unexplained_lines: 13, items: [] });
+      expect(opened).toMatchObject({ status: 'in_progress', variance: '-348.00', unexplained_lines: 14, items: [] });
       sessionId = opened.id;
 
       // The matcher writes matches and seals lines of 1111, never an entry.
-      // Eleven movements have their line in the books, to the cent and on
+      // Twelve movements have their line in the books, to the cent and on
       // their date; the bank's own two have none.
       const matched = rowsOf<{ outcome: string; amount: string; sealed: boolean; reason: string | null }>(
         ok(['bank', 'match', 'run', '--account', BANK_ACCOUNT, '--session', sessionId, '--json'])
       );
       expect(matched.filter((m) => m.outcome === 'applied' && m.sealed).map((m) => money(m.amount)).sort())
-        .toEqual(STATEMENT_MOVEMENTS.slice(0, 11).map(([, , charge, credit]) => charge || credit).sort());
+        .toEqual(STATEMENT_MOVEMENTS.slice(0, -2).map(([, , charge, credit]) => charge || credit).sort());
       expect(matched.filter((m) => m.outcome !== 'applied').map((m) => `${m.outcome} ${m.reason}`))
         .toEqual(['skipped sin-candidato', 'skipped sin-candidato']);
 
@@ -1536,7 +1665,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       // The guided pass, resumed over the open session, raises each as a
       // reconciling item: a charge of the bank that the books still owe. With
-      // them the arithmetic ties, 41,186.67 − 348 = 40,838.67. What is left
+      // them the arithmetic ties, 50,466.67 − 348 = 50,118.67. What is left
       // is theirs to say: who follows each item, and when it settles.
       const [pass] = rowsOf<{ classification: { raised: number }; status: SessionStatus }>(
         ok(['bank', 'reconciliation', 'run', BANK_ACCOUNT, '--period', '2025-12', '--resume', '--json'])
@@ -1586,11 +1715,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         ok(['bank', 'reconciliation', 'approve', sessionId, '--reason', 'December statement', '--yes', '--json'])
       );
       expect(signed).toMatchObject({
-        status: 'approved', balances: true, items: 2, matches: 11, adjustments: 2,
+        status: 'approved', balances: true, items: 2, matches: 12, adjustments: 2,
         segregation: { policy: 'off', approver_is_preparer: true },
       });
       signature = signed.hash;
-      expect(decemberMoves(['1111', '1130', '6310'])).toEqual({ '1111': '-58813.33', '1130': '4160.00', '6310': '0.00' });
+      expect(decemberMoves(['1111', '1130', '6310'])).toEqual({ '1111': '-49533.33', '1130': '4160.00', '6310': '0.00' });
 
       // The post is what moves the ledger: an entry per adjustment, dated the
       // last day of the session, each sealed against its line of the statement.
@@ -1602,9 +1731,9 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(postedEntries.map(entryOf).sort()).toEqual([
         '2025-12-31 1130 Dr 48.00 1111 Cr 48.00', '2025-12-31 6310 Dr 300.00 1111 Cr 300.00',
       ]);
-      // The bank: −58,813.33 − 348; 1130: 4,160 + 48. The books now end
+      // The bank: −49,533.33 − 348; 1130: 4,160 + 48. The books now end
       // where the statement does.
-      expect(decemberMoves(['1111', '1130', '6310'])).toEqual({ '1111': '-59161.33', '1130': '4208.00', '6310': BANK_FEE });
+      expect(decemberMoves(['1111', '1130', '6310'])).toEqual({ '1111': '-49881.33', '1130': '4208.00', '6310': BANK_FEE });
       expect(rowsOf<SessionStatus>(ok(['bank', 'reconciliation', 'status', sessionId, '--json']))[0]).toMatchObject({
         status: 'posted', variance: '0.00', resolved_items: 2, unexplained_lines: 0,
         bank: { balance: STATEMENT_CLOSING }, books: { balance: STATEMENT_CLOSING },
@@ -1635,7 +1764,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // The books are back where the first close found them, the two items
       // are open again with their owner and date, and each adjustment is a
       // draft once more, on a draft of its own.
-      expect(decemberMoves(['1111', '1130', '6310'])).toEqual({ '1111': '-58813.33', '1130': '4160.00', '6310': '0.00' });
+      expect(decemberMoves(['1111', '1130', '6310'])).toEqual({ '1111': '-49533.33', '1130': '4160.00', '6310': '0.00' });
       const [again] = rowsOf<SessionStatus>(ok(['bank', 'reconciliation', 'status', sessionId, '--json']));
       expect(again).toMatchObject({
         status: 'in_progress', variance: '0.00', resolved_items: 0, undated: 0, blockers: [], ready_to_close: true,
@@ -1653,7 +1782,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       const [signed] = rowsOf<{ hash: string }>(
         ok(['bank', 'reconciliation', 'approve', sessionId, '--reason', 'Checked: the fee is the contract\'s', '--yes', '--json'])
       );
-      expect(signed).toMatchObject({ status: 'approved', items: 2, matches: 11, adjustments: 2 });
+      expect(signed).toMatchObject({ status: 'approved', items: 2, matches: 12, adjustments: 2 });
       expect(signed.hash).not.toBe(signature);
       const [posted] = rowsOf<SessionPost>(ok(['bank', 'reconciliation', 'post', sessionId, '--yes', '--json']));
       expect(posted).toMatchObject({ status: 'posted', posted: 2, adopted: 0, items_resolved: 2 });
@@ -1664,14 +1793,14 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       ]);
 
       // One fee in the balances, three passes in the columns: on 1111, the
-      // 6,960 of step 4·230 + 348 of the mirrors, and its 65,773.33 + 2 × 348.
+      // 16,240 of step 4·230 + 348 of the mirrors, and its 65,773.33 + 2 × 348.
       const tb = rowsOf<{ account_code: string; debit_total: string; credit_total: string; net_change: string }>(
         ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--json'])
       );
       expect(Object.fromEntries(['1111', '1130', '6310'].map((code) => {
         const row = tb.find((r) => r.account_code === code);
         return [code, [row?.debit_total, row?.credit_total, row?.net_change].map(money).join(' ')];
-      }))).toEqual({ '1111': '7308.00 66469.33 -59161.33', '1130': '4256.00 48.00 4208.00', '6310': '600.00 300.00 300.00' });
+      }))).toEqual({ '1111': '16588.00 66469.33 -49881.33', '1130': '4256.00 48.00 4208.00', '6310': '600.00 300.00 300.00' });
 
       // The range was reused, not opened as a second session, and all of it
       // happened with December open: its hard close is step 6.
@@ -1912,13 +2041,14 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       // By hand: every cash movement of the month sits in the subtree of 1110,
       // whichever of its accounts it landed on (MNE-001-039). Debits: the
-      // 5,800 receipt and the 1,160 advance, since the opening is January's; credits: the 36,000
+      // issued REP's 9,280, the 5,800 receipt and the 1,160 advance, since the
+      // opening is January's; credits: the 36,000
       // computers, the 5,800 payment, the REP's 9,280, the two PUE paid,
       // 1,160 each, and the edge cases: 1,200 + 450 + 1,190 + 9,533.33. The
       // bank fee and its IVA were credited twice, 2 × 348, and debited once,
-      // by the mirrors of the reopening: 6,960 + 348 and 65,773.33 + 696.
-      // 100,000 + 7,308 − 66,469.33 = 40,838.67, the ending of 1111.
-      expect(money(cash?.debit_total)).toBe('7308.00');
+      // by the mirrors of the reopening: 16,240 + 348 and 65,773.33 + 696.
+      // 100,000 + 16,588 − 66,469.33 = 50,118.67, the ending of 1111.
+      expect(money(cash?.debit_total)).toBe('16588.00');
       expect(money(cash?.credit_total)).toBe('66469.33');
       expect(money(cash?.final_balance)).toBe(ENDING['1111']);
 
@@ -1965,32 +2095,35 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // By hand, in cents and in pesos. Each line is adjusted to pesos on its
       // own (`cada_renglon`, the default; CFF art. 20: up from 51 cents), and
       // the pesos column runs its own chain.
-      //   nominal income  15,000.00: the 12-05 and 12-22 invoices on 4100. The
-      //                   2,000 of 12-28 and its mirror of 12-31 wash out; the
-      //                   1,000 returned on 4400 stays out, a deduction of the
-      //                   annual return by default (`provisional_isr_sales_returns`);
-      //                   the 1,000 advance credited to 2150 on 12-10 is inside
-      //                   the 5,000 invoiced on 12-22, to which it was applied
-      //   profit          15,000 × 0.1125 = 1,687.50; in pesos its 50 cents go down: 1,687
+      //   nominal income  23,000.00: the issued PPD of 12-02, 8,000, accrued
+      //                   when it was issued though collected later (LISR art.
+      //                   17 fr. I a), the 12-05 invoice, 10,000, and the 12-22
+      //                   invoice, 5,000, all on 4100. The 2,000 of 12-28 and its
+      //                   mirror of 12-31 wash out; the 1,000 returned on 4400
+      //                   stays out, a deduction of the annual return by default
+      //                   (`provisional_isr_sales_returns`); the 1,000 advance
+      //                   credited to 2150 on 12-10 is inside the 5,000 invoiced
+      //                   on 12-22, to which it was applied
+      //   profit          23,000 × 0.1125 = 2,587.50; in pesos its 50 cents go down: 2,587
       //   PTU             none paid; no payment was due before December and
       //                   nobody withheld ISR from the company
       //   losses          412.50, all of it, being under the profit; in pesos
       //                   its 50 cents go down: 412
-      //   base            1,687.50 − 412.50 = 1,275.00; in pesos 1,687 − 412 = 1,275
-      //   tax             1,275.00 × 30 % = 382.50; in pesos 1,275 × 30 % = 382.50,
-      //                   whose 50 cents go down: 382
+      //   base            2,587.50 − 412.50 = 2,175.00; in pesos 2,587 − 412 = 2,175
+      //   tax             2,175.00 × 30 % = 652.50; in pesos 2,175 × 30 % = 652.50,
+      //                   whose 50 cents go down: 652
       expect(isr.lines.map((l) => [l.key, l.cents, l.whole])).toEqual([
-        ['nominal_income', '15000.00', '15000'],
-        ['estimated_profit', '1687.50', '1687'],
+        ['nominal_income', '23000.00', '23000'],
+        ['estimated_profit', '2587.50', '2587'],
         ['ptu_deducted', '0.00', '0'],
         ['pending_losses_applied', '412.50', '412'],
-        ['taxable_base', '1275.00', '1275'],
-        ['tax_caused', '382.50', '382'],
+        ['taxable_base', '2175.00', '2175'],
+        ['tax_caused', '652.50', '652'],
         ['prior_provisional_payments', '0.00', '0'],
         ['withheld_income_tax', '0.00', '0'],
-        ['payable', '382.50', '382'],
+        ['payable', '652.50', '652'],
       ]);
-      expect([isr.resultCents, isr.resultWhole]).toEqual(['382.50', '382']);
+      expect([isr.resultCents, isr.resultWhole]).toEqual(['652.50', '652']);
 
       const line = (key: string): IsrPaper['lines'][number]['source'] =>
         isr.lines.find((l) => l.key === key)?.source ?? { accounts: [], entries: [] };
@@ -2001,16 +2134,17 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       expect(isr.inputs.losses).toEqual({
         value: '412.5000', ...from2024, updatedThrough: '2025-06', updatedTo: '2025-06', factor: '1.0000', applied: '412.5000',
       });
-      // The year's revenue entries, debit positive: the two invoices, the stray sale and its mirror.
+      // The year's revenue entries, debit positive: the three invoices, the stray sale and its mirror.
       expect(line('nominal_income').accounts).toEqual(['4100']);
       expect(line('nominal_income').entries.map((e) => [e.entryDate, e.net])).toEqual([
-        ['2025-12-05', '-10000.0000'], ['2025-12-22', '-5000.0000'], ['2025-12-28', '-2000.0000'], ['2025-12-31', '2000.0000'],
+        ['2025-12-02', '-8000.0000'], ['2025-12-05', '-10000.0000'], ['2025-12-22', '-5000.0000'],
+        ['2025-12-28', '-2000.0000'], ['2025-12-31', '2000.0000'],
       ]);
       // The advance of 12-10 still warns and does not block: the warning reads
       // what 2150 was credited, and LISR art. 17 fr. I accumulates an advance
       // when collected. Its own text says to add advances «menos los ya
       // facturados», and this one was invoiced and applied on 12-22, so its
-      // 1,000.00 is already inside the 15,000.00 (MNE-001-421, MNE-001-422).
+      // 1,000.00 is already inside the 23,000.00 (MNE-001-421, MNE-001-422).
       expect(isr.findings.map((h) => [h['codigo'], h['severidad']])).toEqual([['ISR-WP-ADVANCES', 'aviso']]);
     }, STEP_TIMEOUT_MS);
   });

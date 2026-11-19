@@ -30,7 +30,7 @@ import type { ResolvedProfile } from '../../src/ai/providers/types.js';
 //
 //   T1, T2, T5 · PUE 1,460.00 (1,000.00 at 16 % + 300.00 exempt), paid in March
 //   T3 · the same CFDI as PPD, paid 730.00 in April and 730.00 in May
-//   T4 · one concept at 16 % coded to two accounts (June)
+//   T4 · one concept at 16 % coded to two accounts, paid in June
 //   T6 · no VAT, 700.00 at 0 % and 300.00 exempt on one debit (July)
 //   G1 · `conceptos_cfdi` (August)        G2, G4 · the inbox door (September)
 //   G3 · `bill create` with a header that differs from its lines (October)
@@ -49,7 +49,8 @@ const vat16 = '<cfdi:Traslado Base="1000.00" Impuesto="002" TipoFactor="Tasa" Ta
 const exempt = '<cfdi:Traslado Base="300.00" Impuesto="002" TipoFactor="Exento"/>';
 const zero = '<cfdi:Traslado Base="700.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.000000" Importe="0.00"/>';
 const ACCEPTANCE: Array<[string, string]> = [['1000.00', vat16], ['300.00', exempt]];
-const DRAFT: EntryLine[] = [{ account_code: '6100', debit: 1300 }, { account_code: '1130', debit: 160 }, { account_code: '2110', credit: 1460 }];
+// MNE-001-492: drafted against vendors, PUE or PPD, the VAT waits in 1135 for the payment.
+const DRAFT: EntryLine[] = [{ account_code: '6100', debit: 1300 }, { account_code: '1135', debit: 160 }, { account_code: '2110', credit: 1460 }];
 
 let f: Fixture;
 let ctx: AgentContext;
@@ -157,9 +158,9 @@ beforeAll(async () => {
 
   // The default policy: `lineas_factura_desde = poliza`.
   bills.t1 = await approved(cfdi(3, 'PUE', ACCEPTANCE, '160.00', '1460.00'), DRAFT);
-  bills.t3 = await approved(cfdi(3, 'PPD', ACCEPTANCE, '160.00', '1460.00'), DRAFT.map((l) => (l.account_code === '1130' ? { ...l, account_code: '1135' } : l)));
+  bills.t3 = await approved(cfdi(3, 'PPD', ACCEPTANCE, '160.00', '1460.00'), DRAFT);
   bills.t4 = await approved(cfdi(6, 'PUE', [['1000.00', vat16]], '160.00', '1160.00'), [
-    { account_code: '6100', debit: 600 }, { account_code: '6100', debit: 400 }, { account_code: '1130', debit: 160 }, { account_code: '2110', credit: 1160 },
+    { account_code: '6100', debit: 600 }, { account_code: '6100', debit: 400 }, { account_code: '1135', debit: 160 }, { account_code: '2110', credit: 1160 },
   ]);
   bills.t6 = await approved(cfdi(7, 'PUE', [['700.00', zero], ['300.00', exempt]], '0.00', '1000.00'), [
     { account_code: '6100', debit: 1000 }, { account_code: '2110', credit: 1000 },
@@ -167,7 +168,7 @@ beforeAll(async () => {
 
   await resolvePolicy(policy, 'lineas_factura_desde', 'conceptos_cfdi', email);
   bills.g1 = await approved(cfdi(8, 'PUE', ACCEPTANCE, '160.00', '1460.00'), [
-    { account_code: '6100', debit: 1000 }, { account_code: '6100', debit: 300 }, { account_code: '1130', debit: 160 }, { account_code: '2110', credit: 1460 },
+    { account_code: '6100', debit: 1000 }, { account_code: '6100', debit: 300 }, { account_code: '1135', debit: 160 }, { account_code: '2110', credit: 1460 },
   ]);
   await reopenPolicy(policy, 'lineas_factura_desde');
 
@@ -186,6 +187,7 @@ beforeAll(async () => {
   await pay(bills.t1, '1460.00', '2026-03-20');
   await pay(bills.t3, '730.00', '2026-04-20');
   await pay(bills.t3, '730.00', '2026-05-20');
+  await pay(bills.t4, '1160.00', '2026-06-20');
   await pay(bills.t6, '1000.00', '2026-07-20');
   await pay(bills.g1, '1460.00', '2026-08-20');
   await pay(bills.g2, '1460.00', '2026-09-20');

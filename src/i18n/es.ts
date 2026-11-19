@@ -2246,11 +2246,13 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.excess.from_highest': 'tasa de {invoices}: lleva varias y se supone la más alta; --tax-rate declara otra',
   'receipt.excess.from_exempt': 'tasa de {invoices}: ninguno de sus tratamientos lleva IVA y se supone exento; --tax-rate declara otro',
   'receipt.excess.cheque_held':
-    'Los {amount} que quedan a cuenta se recibieron con cheque, cuyo IVA se causa el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo). Registrar ese cobro todavía no postea el IVA de un anticipo (issue 700), así que van completos a anticipos de clientes, como antes.',
+    'Los {amount} que quedan a cuenta se recibieron con cheque, cuyo IVA se causa el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo). Registrar ese cobro postea el IVA de un anticipo registrado sin factura, todavía no el del excedente de un cobro (issue 700), así que van completos a anticipos de clientes, como antes.',
+  'receipt.excess.cheque_not_wired':
+    'El excedente de un cobro recibido con cheque causa su IVA el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo), y registrar ese cobro postea el IVA de un anticipo registrado sin factura, todavía no el del excedente de un cobro (issue 700). Regístralo sin --tax-rate y el excedente va completo a anticipos de clientes. No se registró nada.',
   'receipt.advance.not_mexican_books':
     'Esta entidad no lleva libros mexicanos, así que un anticipo no lleva tratamiento de IVA: regístralo sin él y el importe completo va a su cuenta de anticipos de clientes.',
-  'receipt.advance.cheque_not_wired':
-    'Un anticipo recibido con cheque causa su IVA el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo), no el día en que se recibe, y registrar ese cobro todavía no existe (issue 700). No se registró nada.',
+  'receipt.advance.cheque_held':
+    'Recibido con cheque, su IVA de {iva} se causa el día en que el banco lo cobra (LIVA art. 1-B, segundo párrafo): hasta entonces el importe completo espera en anticipos de clientes, y registrar el cobro con bank check reconcile --receipt pasa el IVA al IVA trasladado ese día.',
   // MNE-001-421 (#623): the advance from the terminal.
   'receipt.advance.needs_customer':
     'Indica la factura que este dinero liquida, o el cliente que lo pagó con --customer: sin factura se registra como anticipo.',

@@ -5,7 +5,7 @@ import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
 import {
-  recordCustomerPayment, applyCustomerPayment, unapplyCustomerPayment,
+  recordCustomerPayment, applyCustomerPayment, unapplyCustomerPayment, reverseCustomerPayment,
 } from '../../src/services/payments/payment-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { buildIvaWorkpaper, type IvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
@@ -283,6 +283,33 @@ describe('MNE-001-462 · the excess of a collection is an advance in the paper t
   }, 120_000);
 });
 
-// TODO(#700): MNE-001-558 lets an advance be received by cheque, its IVA posted the day the bank cashes it; until
-// then `recordCustomerPayment` refuses one (ADVANCE_BY_CHEQUE_NOT_WIRED), and the paper skips a reversed receipt.
-it.todo('an advance received by cheque and reversed in its own month counts in no month (MNE-001-423, after MNE-001-558)');
+// MNE-001-558 records an advance by cheque: its receipt credits 2150 whole, with no 2120 line, and the IVA
+// waits for the bank's cashing (LIVA art. 1-B, second paragraph). Returned before it is cashed, nothing was
+// ever caused, so no month counts it and 2120 never moved.
+describe('an advance received by cheque and reversed in its own month', () => {
+  it('counts in no month, and 2120 is silent in both', async () => {
+    const b = await book('cheque reversed');
+    const account = uuidv4();
+    await query(
+      `INSERT INTO bank_accounts (id, entity_id, account_name, bank_name, gl_account_id, currency_code, account_type)
+       VALUES ($1, $2, 'Cheques 423', 'Bank', $3, 'MXN', 'checking')`,
+      [account, b.f.entityId, b.f.cuentas['1111']]
+    );
+    const receipt = await recordCustomerPayment(
+      {
+        entityId: b.f.entityId, counterpartyId: b.customerId, paymentAmount: '1160.00', paymentDate: day(5, 10),
+        paymentMethod: 'check', bankAccountId: account, checkNumber: '423001',
+        applications: [], onAccount: true, advanceTreatment: '16',
+      },
+      b.f.userId
+    );
+    await reverseCustomerPayment(b.f.entityId, receipt.paymentId, { reason: 'Cheque returned' }, b.f.userId);
+
+    for (const wp of [await paper(b, 5), await paper(b, 6)]) {
+      expect(at16(wp)).toEqual({ base: '0.00', iva: '0.00' });
+      expect(wp.ledger.iva_trasladado).toBe('0.0000');
+      expect(wp.contributions.charged.find((x) => x.documentId === receipt.paymentId)).toBeUndefined();
+      expect(codes(wp)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
+    }
+  }, 120_000);
+});

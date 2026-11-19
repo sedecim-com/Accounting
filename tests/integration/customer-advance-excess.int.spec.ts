@@ -268,6 +268,16 @@ describe('the excess a collection leaves on account causes its IVA when collecte
     expect(await linesOf(done.row.journal_entry)).toEqual({ '1111': [1500, 0], '1120': [0, 1160], '2150': [0, 340] });
   }, 120_000);
 
+  it('by cheque a stated --tax-rate for the excess is refused, and nothing is written (#700)', async () => {
+    // MNE-001-558 posts the IVA of an advance by cheque with no invoice on its cashing; the excess of a
+    // collection is not carried by that path yet, so its stated treatment is refused rather than lost.
+    const inv = await sale();
+    const before = await receipts();
+    await expect(receipt(record(inv.number, '1500.00', '--on-account', '--method', 'check', '--tax-rate', '16')))
+      .rejects.toMatchObject({ code: 'EXCESS_BY_CHEQUE_NOT_WIRED' });
+    expect(await receipts()).toBe(before);
+  }, 120_000);
+
   it('an entity that does not keep Mexican books posts the excess as today, whole to its customer advances', async () => {
     const us = await crearInquilino('MNE-001-462 excess on account US', { pais: 'US' });
     const usCustomer = uuidv4();

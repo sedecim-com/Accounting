@@ -2377,11 +2377,13 @@ export const EN = {
   'receipt.excess.from_highest': 'rate of {invoices}: it carries several, and the highest is assumed; --tax-rate states another',
   'receipt.excess.from_exempt': 'rate of {invoices}: none of its treatments carries IVA, and exempt is assumed; --tax-rate states another',
   'receipt.excess.cheque_held':
-    'The {amount} left on account was received by cheque, whose IVA is caused the day the bank cashes it (LIVA art. 1-B, second paragraph). Recording that cashing does not post an advance\'s IVA yet (issue 700), so it goes whole to customer advances, as before.',
+    'The {amount} left on account was received by cheque, whose IVA is caused the day the bank cashes it (LIVA art. 1-B, second paragraph). Recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700), so it goes whole to customer advances, as before.',
+  'receipt.excess.cheque_not_wired':
+    'The excess of a collection received by cheque causes its IVA the day the bank cashes it (LIVA art. 1-B, second paragraph), and recording that cashing posts the IVA of an advance recorded with no invoice, not yet that of a collection\'s excess (issue 700). Record it without --tax-rate, and the excess goes whole to customer advances. Nothing was recorded.',
   'receipt.advance.not_mexican_books':
     'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
-  'receipt.advance.cheque_not_wired':
-    'An advance received by cheque causes its IVA on the day the bank cashes the cheque (LIVA art. 1-B, second paragraph), not on the day it is received, and recording that cashing does not exist yet (issue 700). Nothing was recorded.',
+  'receipt.advance.cheque_held':
+    'Received by cheque, its IVA of {iva} is caused the day the bank cashes it (LIVA art. 1-B, second paragraph): until then the whole amount waits in customer advances, and recording the cashing with bank check reconcile --receipt moves the IVA to IVA charged on that day.',
   // MNE-001-421 (#623): the advance from the terminal.
   'receipt.advance.needs_customer':
     'Name the invoice this cash settles, or the customer who paid it with --customer: with no invoice it is recorded as an advance.',

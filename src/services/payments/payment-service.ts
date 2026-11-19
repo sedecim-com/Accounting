@@ -23,6 +23,7 @@ import {
   type DiferenciaCambiaria,
 } from '../accounting/moneda-origen.js';
 import { ivaToReclassify, entityUsesCashBasisIva, resolveInvoiceMetodoPago } from '../accounting/iva-cash-basis.js';
+import { iepsMovedForInvoice } from '../accounting/ieps-cash-basis.js';
 import {
   ADVANCE_TREATMENTS, advanceSourceNote, backAsAdvance, isAdvanceTreatment, splitAdvance, storedAdvanceTreatment, takeFromAdvance,
   type AdvanceSplit, type AdvanceTake,
@@ -1034,9 +1035,13 @@ export async function recordCustomerPayment(
  * MNE-001-462 · With invoices, the split is of the excess the receipt leaves
  * on account, and the treatment is the one stated or, when the caller asks,
  * that of the invoices it collects. A stated treatment that finds nothing to
- * carry it, an entity off Mexican books or a cheque is refused, as for an
- * advance with no invoice; one taken from the invoices is not, and the cash
- * on account then posts as before, so no invocation that worked is refused.
+ * carry it or an entity off Mexican books is refused, as for an advance
+ * with no invoice, and so is a cheque's (#700); one taken from the invoices
+ * is not, and the cash on account then posts as before, so no invocation
+ * that worked is refused.
+ *
+ * MNE-001-558 · An advance by cheque with no invoice keeps its split; the
+ * cashing causes its IVA.
  */
 async function advanceSplitOf(
   client: pg.PoolClient,
@@ -1061,11 +1066,16 @@ async function advanceSplitOf(
     throw new ValidationError({ key: 'receipt.advance.not_mexican_books' });
   }
   // A price paid by cheque, and its IVA, is paid the day the bank cashes it
-  // (LIVA art. 1-B, second paragraph): the receipt's entry must not cause it.
-  // TODO(#700): post the advance's IVA on the recorded cashing, and lift this refusal.
-  if (input.paymentMethod === 'check') {
+  // (LIVA art. 1-B, second paragraph). An advance with no invoice keeps its
+  // split: the receipt's entry holds it whole in 2150 and the recorded
+  // cashing causes its IVA (MNE-001-558, `pendingRelease`).
+  // TODO(#700): the excess of a collection by cheque is not carried by that
+  // path yet (an unapply before the cashing would put its cash back as a
+  // taxed advance, `backAsAdvance`, ahead of the cashing), so it goes whole to
+  // 2150 as before, and a stated treatment for it is refused.
+  if (input.paymentMethod === 'check' && input.applications.length > 0) {
     if (stated === undefined) return { advance: null, excessAwaitsCashing: true };
-    throw new AccountingError('ADVANCE_BY_CHEQUE_NOT_WIRED', { key: 'receipt.advance.cheque_not_wired' });
+    throw new AccountingError('EXCESS_BY_CHEQUE_NOT_WIRED', { key: 'receipt.excess.cheque_not_wired' });
   }
   if (stated !== undefined) return { advance: splitAdvance(excess.toFixed(2), stated), excessAwaitsCashing: false };
   // Read under the lock the loop above already holds on each invoice.
@@ -1711,6 +1721,8 @@ export interface ResultadoDesaplicacion {
   ivaEstimado: boolean;
   /** MNE-001-460: the day of the unapply, which its entry and the closure carry. */
   date: string;
+  /** #699 · The IEPS moved back to the uncollected role: exactly what this receipt had moved. */
+  iepsReparked: string;
 }
 
 /**
@@ -1834,6 +1846,10 @@ export async function unapplyCustomerPayment(
     // the invoice's rate is above the advance's, leaves 2120.
     const backInParked = ivaExacto.plus(ivaEstimadoParte);
     const reparked = advanceIva.greaterThan(0) ? Decimal.max(backInParked.minus(advanceIva), 0) : backInParked;
+    // #699 · The IEPS this receipt moved for the invoice, read back from the
+    // tagged lines of its unreversed entries before the rows close: exact,
+    // net of an earlier unapply, and zero where nothing was parked.
+    const iepsMoved = await iepsMovedForInvoice(client, entityId, factura.id, paymentId);
 
     // Invariant 3: the live rows read above, of a receipt of this entity, and
     // every one of them; a miss is loud.
@@ -1881,6 +1897,9 @@ export async function unapplyCustomerPayment(
         ivaEstimado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
         advanceIva: advanceIva.toFixed(4),
         date,
+        ...(iepsMoved.greaterThan(0)
+          ? { ieps: { invoiceId: factura.id, invoiceNumber: factura.invoice_number, amount: iepsMoved.toFixed(4) } }
+          : {}),
       },
       userId
     );
@@ -1898,6 +1917,7 @@ export async function unapplyCustomerPayment(
         date,
         desaplicado: total.toFixed(2),
         advance_iva_restored: advanceIva.toFixed(4),
+        ...(iepsMoved.greaterThan(0) ? { ieps_reparked: iepsMoved.toFixed(4) } : {}),
         journal_entry_id: entry.id,
       },
       reason: args.reason,
@@ -1920,6 +1940,7 @@ export async function unapplyCustomerPayment(
       ivaReAparcado: reparked.toFixed(4),
       ivaEstimado: estimado,
       date,
+      iepsReparked: iepsMoved.toFixed(4),
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;
