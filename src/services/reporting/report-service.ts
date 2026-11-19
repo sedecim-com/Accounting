@@ -33,8 +33,9 @@ import { resolvePeriod } from '../accounting/fiscal-calendar-service.js';
 //                   agent tools and the CLI — and by the services that
 //                   read a balance to guard money (the AR and AP
 //                   reconciliations, the prepaid backing, the
-//                   external-ledger diff; T14, #101). This is the part where a mistake produces a
-//                   wrong number.
+//                   external-ledger diff, the close's fixed-asset box and
+//                   the FX revaluation line; T14, #101). This is the part
+//                   where a mistake produces a wrong number.
 //   get*()        — assembly: sections, sign conventions, totals. Used
 //                   by REST and the CLI, which publish the same shape.
 //                   The agent tools keep their own (2-decimal, flatter)
@@ -519,6 +520,8 @@ export async function queryAccumulatedBalances(
     ignoreClosingPolicy?: boolean;
     /** Only this account: the balance a control or a guard reads. */
     accountId?: string;
+    /** Only these accounts: a balance a close box reads over a set (MNE-001-436). */
+    accountIds?: readonly string[];
     /**
      * Run inside the caller's transaction. A guard that measures a balance
      * and then consumes it (prepaid backing, under its FOR UPDATE) must read
@@ -555,6 +558,10 @@ export async function queryAccumulatedBalances(
   if (filters.accountId !== undefined) {
     params.push(filters.accountId);
     accountFilter = `AND a.id = $${params.length}`;
+  }
+  if (filters.accountIds !== undefined) {
+    params.push([...filters.accountIds]);
+    accountFilter = `${accountFilter} AND a.id = ANY($${params.length}::uuid[])`.trim();
   }
   const client = filters.client;
   const run = client
@@ -632,6 +639,12 @@ export interface EntryMovementFilters {
    * column alone would list every clean void as if someone had typed it.
    */
   excludeSourceTypes?: readonly string[];
+  /**
+   * The mirror of `excludeSourceTypes`: only entries whose `source_type` is
+   * one of these, AND the reversals of such entries (the FX revaluation and
+   * its day-1 mirror, MNE-001-436).
+   */
+  onlySourceTypes?: readonly string[];
   /** Leave out these entries by id. */
   excludeEntryIds?: readonly string[];
   /** Only entries dated on or before this day (YYYY-MM-DD), the control's cut. */
@@ -671,6 +684,18 @@ export async function queryEntryMovementsOnAccount(
                WHERE orig.id = je.reverses_entry_id
                  AND orig.entity_id = je.entity_id
                  AND orig.source_type = ANY(${types}))`
+    );
+  }
+  if (filters.onlySourceTypes) {
+    params.push([...filters.onlySourceTypes]);
+    const types = `$${params.length}::text[]`;
+    where.push(
+      `AND (je.source_type = ANY(${types}) OR EXISTS (
+              SELECT 1
+                FROM journal_entries orig
+               WHERE orig.id = je.reverses_entry_id
+                 AND orig.entity_id = je.entity_id
+                 AND orig.source_type = ANY(${types})))`
     );
   }
   if (filters.excludeEntryIds) {
