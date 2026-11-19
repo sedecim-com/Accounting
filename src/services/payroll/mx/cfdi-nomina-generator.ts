@@ -131,29 +131,11 @@ export async function generateAndStampCfdiNomina(
     deductions.rows.reduce((s, d) => s + parseFloat(d.amount), 0);
   const totalDeducciones = totalImpRetenidos + totalOtrasDeducciones;
 
-  // EL SUBSIDIO ENTREGADO SE DECLARA, O EL COMPROBANTE NO CUADRA CONSIGO MISMO.
-  //
-  // Desde F08a el trabajador recibe en efectivo el subsidio que excedió a su
-  // ISR, y ese importe entra en `net_pay` —que es el `Total` del comprobante—.
-  // Sin el nodo OtrosPagos, Total ≠ SubTotal − Descuento y el CFDI se cae en la
-  // validación del PAC: un verificador lo midió en 1 588.39 contra 1 464.37,
-  // exactamente los 124.02 entregados.
-  //
-  // El `SubsidioCausado` del nodo NO es el importe entregado sino el que la
-  // tabla del subsidio arroja para el periodo, que es lo que guarda la columna
-  // `subsidio_empleo`. Los dos números conviven en el mismo nodo a propósito:
-  // el SAT cruza el causado contra lo entregado.
-  const subsidioEntregado = parseFloat(r.subsidio_entregado_efectivo ?? '0');
-  const subsidioCausado = parseFloat(r.subsidio_empleo);
-  const otrosPagosXml =
-    subsidioEntregado > 0
-      ? `      <nomina12:OtrosPagos>
-        <nomina12:OtroPago TipoOtroPago="002" Clave="002" Concepto="Subsidio para el empleo (efectivamente entregado al trabajador)" Importe="${subsidioEntregado.toFixed(2)}">
-          <nomina12:SubsidioAlEmpleo SubsidioCausado="${subsidioCausado.toFixed(2)}"/>
-        </nomina12:OtroPago>
-      </nomina12:OtrosPagos>
-`
-      : '';
+  const subsidyOtherPayment = employmentSubsidyOtherPayment({
+    isr: r.isr_withheld,
+    subsidyCaused: r.subsidio_empleo,
+    cashHandedOver: r.subsidio_entregado_efectivo ?? '0',
+  });
 
   // Days worked in period (inclusive)
   // #243 · Días de calendario, inclusive: este número viaja en el XML que se
@@ -192,7 +174,7 @@ export async function generateAndStampCfdiNomina(
     <nomina12:Nomina Version="1.2" TipoNomina="${payrollType}"
       FechaPago="${r.pay_date}" FechaInicialPago="${r.period_start}" FechaFinalPago="${r.period_end}"
       NumDiasPagados="${days}" TotalPercepciones="${totalPercepciones.toFixed(2)}"
-      TotalDeducciones="${totalDeducciones.toFixed(2)}"${subsidioEntregado > 0 ? ` TotalOtrosPagos="${subsidioEntregado.toFixed(2)}"` : ''}>
+      TotalDeducciones="${totalDeducciones.toFixed(2)}"${subsidyOtherPayment ? ` TotalOtrosPagos="${subsidyOtherPayment.total}"` : ''}>
       <nomina12:Emisor RegistroPatronal="B0000000000"/>
       <nomina12:Receptor Curp="${r.emp_curp || 'XAXX010101HDFNNN00'}" NumSeguridadSocial="${r.emp_nss || ''}"
         FechaInicioRelLaboral="${r.hire_date}" Antiguedad="${seniority}"
@@ -207,7 +189,7 @@ ${percepcionesXml}
 ${deduccionesXml}
         ${totalImpRetenidos > 0 ? `<nomina12:Deduccion TipoDeduccion="002" Clave="ISR" Concepto="ISR" Importe="${totalImpRetenidos.toFixed(2)}"/>` : ''}
       </nomina12:Deducciones>
-${otrosPagosXml}    </nomina12:Nomina>
+${subsidyOtherPayment?.xml ?? ''}    </nomina12:Nomina>
   </cfdi:Complemento>
 </cfdi:Comprobante>`;
 
@@ -234,6 +216,60 @@ ${otrosPagosXml}    </nomina12:Nomina>
     fecha_timbrado: stamp.fecha_timbrado,
     no_certificado_sat: stamp.no_certificado_sat,
   };
+}
+
+/**
+ * CONTRACT: the employment subsidy node of the payroll CFDI (#600, MNE-001-551).
+ *
+ * When the subsidy caused exceeds the ISR of the paycheck, the complement
+ * declares OtroPago 002 with the cash the paycheck stored. That cash is the law
+ * of the payment date, already applied by the calculation
+ * (`employment_subsidy.excess_over_isr_paid_share`): the excess until
+ * 30 April 2024, 0.00 from 1 May 2024. Nothing is decided here.
+ *
+ * What the SAT's documents say, as read on 2026-11-19:
+ * - Guide («Guía de llenado del comprobante del recibo de pago de nómina y su
+ *   complemento», CFDI 4.0 / complement 1.2, last change 16 Jan 2026), field
+ *   SubsidioCausado: «Se debe registrar el subsidio causado conforme a la
+ *   normatividad vigente. El valor de este dato debe ser mayor o igual que el
+ *   valor del campo "Importe" de la Información de OtroPago.» So it is the
+ *   whole subsidy of the period (`paychecks.subsidio_empleo`), not the part
+ *   the ISR absorbed.
+ * - Standard of the complement (revision C, 29 Dec 2021), OtroPago.Importe:
+ *   «Si el valor del atributo TipoOtroPago es "002", este atributo debe ser
+ *   menor o igual que el valor del atributo SubsidioCausado», and only the
+ *   other keys must be above zero. Importe="0.00" is therefore valid, and
+ *   TotalOtrosPagos must exist whenever OtrosPagos does.
+ *
+ * With the ISR at or above the subsidy no node is written, as before: that
+ * band belongs to MNE-001-279 (#92). A cash amount with no excess (a stored
+ * paycheck that does not add up) is still declared, so Total keeps its
+ * identity; one above the subsidy caused is refused, because a stamped CFDI
+ * cannot be taken back.
+ */
+export function employmentSubsidyOtherPayment(p: {
+  isr: string;
+  subsidyCaused: string;
+  cashHandedOver: string;
+}): { xml: string; total: string } | null {
+  const caused = new Decimal(p.subsidyCaused);
+  const cash = new Decimal(p.cashHandedOver);
+  if (!caused.greaterThan(p.isr) && !cash.greaterThan(0)) return null;
+  if (cash.greaterThan(caused)) {
+    throw new ValidationError(
+      `The employment subsidy handed over in cash (${cash.toFixed(2)}) is above the subsidy caused ` +
+        `(${caused.toFixed(2)}): OtroPago 002 cannot state it`,
+      'subsidio_entregado_efectivo'
+    );
+  }
+  const total = cash.toFixed(2);
+  const xml = `      <nomina12:OtrosPagos>
+        <nomina12:OtroPago TipoOtroPago="002" Clave="002" Concepto="Subsidio para el empleo (efectivamente entregado al trabajador)" Importe="${total}">
+          <nomina12:SubsidioAlEmpleo SubsidioCausado="${caused.toFixed(2)}"/>
+        </nomina12:OtroPago>
+      </nomina12:OtrosPagos>
+`;
+  return { xml, total };
 }
 
 type PayRunType = (typeof PAY_RUN_TYPES)[number];

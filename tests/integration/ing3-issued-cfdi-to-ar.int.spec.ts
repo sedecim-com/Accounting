@@ -17,6 +17,7 @@ import { registerIssuedInvoice } from '../../src/services/xml-ingestion/issued-i
 import { recordCustomerPayment } from '../../src/services/payments/payment-service.js';
 import { buildIvaWorkpaper } from '../../src/services/fiscal/iva-workpaper.js';
 import { repXml } from './helpers/rep-xml.js';
+import { issuedIepsSale, issuedIshSale } from './helpers/issued-cfdi-xml.js';
 import type { AgentContext } from '../../src/ai/context.js';
 import type { ResolvedProfile } from '../../src/ai/providers/types.js';
 
@@ -386,6 +387,146 @@ describe('the shared receivables core: one CFDI, one invoice', () => {
       client.release();
     }
     expect(await invoicesOf(uuid)).toHaveLength(0);
+  });
+});
+
+// MNE-001-521 (#669): IEPS (2180) and local taxes (2190) are roles of the
+// receivables core, each checked against the CFDI, and no longer revenue. IEPS
+// on a PPD sale is refused until #699 gives it a role to wait in. Figures by
+// hand. ISH sale: 1,000.00 + VAT 160.00 + ISH 30.00 = 1,190.00. IEPS sale:
+// 1,000.00 + IEPS 80.00 + VAT 172.80 (16 % of 1,080.00) = 1,252.80; with the
+// local tax of 30.00 as well, 1,282.80.
+describe('an issued CFDI with IEPS or a local tax reaches receivables, each tax on its own role', () => {
+  const who = { ownRfc: OWN_RFC, customerRfc: CUSTOMER_RFC };
+  const dr = (account_code: string, debit: number): DraftLine => ({ account_code, debit });
+  const cr = (account_code: string, credit: number): DraftLine => ({ account_code, credit });
+  const ishSale = (vat: string) => [dr('1120', 1190), cr('4100', 1000), cr(vat, 160), cr('2190', 30)];
+  const iepsSale = (vat: string) => [dr('1120', 1252.8), cr('4100', 1000), cr('2180', 80), cr(vat, 172.8)];
+  const bothSale = (vat: string) => [dr('1120', 1282.8), cr('4100', 1000), cr('2180', 80), cr(vat, 172.8), cr('2190', 30)];
+  const IEPS_ON_PPD = /PPD sale.*IEPS \(80\.00\).*#699/;
+
+  beforeAll(() => useNewTenant('MNE-001-521 issued CFDI with IEPS or a local tax'));
+
+  /** The invoice of a CFDI with its revenue lines, and the entry it posted as. */
+  async function born(uuid: string) {
+    const invoice = (await query<{ id: string; status: string; amount_due: string; tax_amount: string; journal_entry_id: string }>(
+      `SELECT id, status, amount_due::text, tax_amount::text, journal_entry_id FROM invoices WHERE entity_id = $1 AND cfdi_uuid = $2`,
+      [f.entityId, uuid]
+    )).rows[0];
+    const lines = await query<{ line: string }>(
+      `SELECT a.code || ' ' || l.line_amount::text AS line FROM invoice_lines l JOIN accounts a ON a.id = l.revenue_account_id
+        WHERE l.invoice_id = $1 ORDER BY l.line_number`,
+      [invoice.id]
+    );
+    const entry = await query<{ line: string }>(
+      `SELECT (CASE WHEN l.debit_amount IS NULL THEN 'CR ' ELSE 'DR ' END) || a.code || ' ' ||
+              to_char(COALESCE(l.debit_amount, l.credit_amount), 'FM9999990.00') AS line
+         FROM journal_entry_lines l JOIN accounts a ON a.id = l.account_id
+        WHERE l.journal_entry_id = $1 ORDER BY l.line_number`,
+      [invoice.journal_entry_id]
+    );
+    return { ...invoice, lines: lines.rows.map((l) => l.line), entry: entry.rows.map((l) => l.line) };
+  }
+
+  const written = async () => (await query<{ invoices: number; entries: number }>(
+    `SELECT (SELECT count(*) FROM invoices WHERE entity_id = $1)::int AS invoices,
+            (SELECT count(*) FROM journal_entries WHERE entity_id = $1)::int AS entries`,
+    [f.entityId]
+  )).rows[0];
+
+  /** Approves the draft of `lines`, expects a refusal that wrote nothing, and returns it. */
+  async function refused(sale: { xml: string; uuid: string }, lines: DraftLine[]): Promise<Error & { code?: string }> {
+    const draftId = await ingest(sale.xml, lines);
+    const before = await written();
+    const refusal = await approve(draftId).then(() => new Error('the draft was approved'), (e: Error) => e);
+    expect(await written()).toEqual(before);
+    expect(await invoicesOf(sale.uuid)).toHaveLength(0);
+    expect((await getDraft(ctx, draftId))!.status).toBe('pending_review');
+    return refusal;
+  }
+
+  it('T1 · ISH on a PUE sale: born sent with 1,190.00 due, tax_amount the VAT alone, one line of 1,000.00 on 4100', async () => {
+    const { xml, uuid } = issuedIshSale(who);
+    const posted = await approve(await ingest(xml, ishSale('2120')));
+    expect(await born(uuid)).toMatchObject({
+      status: 'sent', amount_due: '1190.0000', tax_amount: '160.0000', journal_entry_id: posted.entryId,
+      lines: ['4100 1000.0000'], entry: ['DR 1120 1190.00', 'CR 4100 1000.00', 'CR 2120 160.00', 'CR 2190 30.00'],
+    });
+  });
+
+  it('T2 · ISH on a PPD sale: the REP of 1,190.00 pays it, moves exactly 160.00 from 2125 to 2120, and 2190 keeps its 30.00', async () => {
+    const before = (await written()).entries;
+    const { xml, uuid } = issuedIshSale({ ...who, method: 'PPD' });
+    const posted = await approve(await ingest(xml, ishSale('2125')));
+    expect(await born(uuid)).toMatchObject({ status: 'sent', amount_due: '1190.0000', tax_amount: '160.0000', lines: ['4100 1000.0000'] });
+    expect((await written()).entries).toBe(before + 1);
+
+    const balances = async () => Promise.all(['2125', '2120', '2190'].map((code) => balanceOf(code, posted.entryId)));
+    const [parked, due, local] = await balances();
+    const svc = new PreRegistrationService();
+    const rep = await svc.processXMLUpload(
+      f.entityId,
+      repXml({ cfdiUuid: uuid, total: '1190.00', iva: 160 }, uuidv4().toUpperCase(), {
+        issuerRfc: OWN_RFC, issuerName: 'Demo Corp MX', receiverRfc: CUSTOMER_RFC, date: new Date(Date.UTC(2026, 7, 25)),
+      }),
+      'manual_upload', f.userId
+    );
+    expect((await svc.processToAccounting(rep.preRegistration, f.userId)).paymentId).toBeTruthy();
+
+    expect(await born(uuid)).toMatchObject({ status: 'paid', amount_due: '0.0000' });
+    // Credit balances are negative: releasing the parked VAT raises 2125 and lowers 2120.
+    const after = await balances();
+    expect(after[0]).toBeCloseTo(parked + 160, 2);
+    expect(after[1]).toBeCloseTo(due - 160, 2);
+    expect(after[2]).toBeCloseTo(local, 2);
+  });
+
+  it('T3 · IEPS on a PUE sale: 80.00 on 2180, born sent with 1,252.80 due and tax_amount 172.80', async () => {
+    const { xml, uuid } = issuedIepsSale(who);
+    await approve(await ingest(xml, iepsSale('2120')));
+    expect(await born(uuid)).toMatchObject({
+      status: 'sent', amount_due: '1252.8000', tax_amount: '172.8000', lines: ['4100 1000.0000'],
+      entry: ['DR 1120 1252.80', 'CR 4100 1000.00', 'CR 2180 80.00', 'CR 2120 172.80'],
+    });
+  });
+
+  it('T4 · IEPS on a PPD sale is refused, naming the IEPS and #699; nothing is written', async () => {
+    const refusal = await refused(issuedIepsSale({ ...who, method: 'PPD' }), iepsSale('2125'));
+    expect(refusal.message).toMatch(IEPS_ON_PPD);
+  });
+
+  it('T5 · a tax off its role by more than the tolerance, or left in revenue, is refused by figure', async () => {
+    const off = await refused(issuedIshSale(who), [dr('1120', 1190), cr('4100', 1000.02), cr('2120', 160), cr('2190', 29.98)]);
+    expect(off).toMatchObject({ code: 'CFDI_RECONCILIATION_FAILED' });
+    expect(off.message).toMatch(/transferred local taxes \(impuestos_locales_por_pagar\) is 29\.98 in the entry and 30\.00 in the CFDI/);
+
+    const inRevenue = await refused(issuedIshSale({ ...who, method: 'PPD' }), [dr('1120', 1190), cr('4100', 1030), cr('2125', 160)]);
+    expect(inRevenue.message).toMatch(/transferred local taxes \(impuestos_locales_por_pagar\) is 0\.00 in the entry and 30\.00 in the CFDI/);
+    expect(inRevenue.message).toMatch(/subtotal minus discount \(non-tax credits\) is 1030\.00 in the entry and 1000\.00 in the CFDI/);
+
+    const ieps = await refused(issuedIepsSale(who), [dr('1120', 1252.8), cr('4100', 1080), cr('2120', 172.8)]);
+    expect(ieps.message).toMatch(/transferred IEPS \(ieps_por_pagar\) is 0\.00 in the entry and 80\.00 in the CFDI/);
+  });
+
+  it('T6 · IEPS by quota, both taxes on one CFDI, and IEPS with no MetodoPago: PUE posts, PPD is refused', async () => {
+    const quota = issuedIepsSale({ ...who, quota: true });
+    expect(quota.xml).toMatch(/TipoFactor="Cuota"/);
+    await approve(await ingest(quota.xml, iepsSale('2120')));
+    expect((await born(quota.uuid)).entry).toContain('CR 2180 80.00');
+    expect((await refused(issuedIepsSale({ ...who, quota: true, method: 'PPD' }), iepsSale('2125'))).message).toMatch(IEPS_ON_PPD);
+
+    const both = issuedIepsSale({ ...who, localTax: true });
+    await approve(await ingest(both.xml, bothSale('2120')));
+    expect(await born(both.uuid)).toMatchObject({
+      status: 'sent', amount_due: '1282.8000', tax_amount: '172.8000', lines: ['4100 1000.0000'],
+      entry: ['DR 1120 1282.80', 'CR 4100 1000.00', 'CR 2180 80.00', 'CR 2120 172.80', 'CR 2190 30.00'],
+    });
+    expect((await refused(issuedIepsSale({ ...who, localTax: true, method: 'PPD' }), bothSale('2125'))).message).toMatch(IEPS_ON_PPD);
+
+    const noMethod = issuedIepsSale({ ...who, method: null });
+    expect(noMethod.xml).not.toMatch(/MetodoPago/);
+    await approve(await ingest(noMethod.xml, iepsSale('2120')));
+    expect(await born(noMethod.uuid)).toMatchObject({ status: 'sent', amount_due: '1252.8000', tax_amount: '172.8000' });
   });
 });
 

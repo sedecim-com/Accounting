@@ -6,7 +6,8 @@ import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
 import { decideMetodoPago } from '../accounting/iva-cash-basis.js';
 import { identityRfc } from '../ar/opening-invoices.js';
-import type { CFDIParsed } from './cfdi-parser.js';
+import { CFDIParser, type CFDIParsed } from './cfdi-parser.js';
+import { extractImpuestosLocales } from './cfdi-facts.js';
 import { money, sumTax } from './cfdi-amounts.js';
 import type { ApprovedLine } from './pre-registration-service.js';
 
@@ -17,8 +18,10 @@ export interface ApprovedDraftInvoice {
   close(journalEntryId: string): Promise<void>;
 }
 
+/** The roles the core checks against the CFDI. A credit on any other account is revenue, and an invoice line. */
 const AR_ROLES = [
   'cxc', 'banco', 'iva_trasladado', 'iva_trasladado_no_cobrado', 'isr_retenido_a_favor', 'iva_retenido_a_favor',
+  'ieps_por_pagar', 'impuestos_locales_por_pagar',
 ];
 
 /** `customer create` as printed in the refusal, runnable: both values come from the XML. */
@@ -131,7 +134,15 @@ const WORDING: Record<IssuedInvoiceDoor, {
  *     (rep-linkage.ts resolves the invoice by its cfdi_uuid). A CFDI with no
  *     MetodoPago is a PUE sale, VAT in iva_trasladado: that is how the
  *     collection, the credit note and the IVA working paper will read the
- *     invoice, so VAT parked for it would never be released (#668).
+ *     invoice, so VAT parked for it would never be released (#668);
+ *   - IEPS and local taxes each sit on their own role, ieps_por_pagar and
+ *     impuestos_locales_por_pagar, and are checked like the VAT on every
+ *     CFDI: neither is revenue, an invoice line, or part of `tax_amount`,
+ *     which stays the VAT alone because the VAT release prorates it. The
+ *     local taxes are read from the stored XML: they live in their own
+ *     complement, outside the tax breakdown (MNE-001-521, #669);
+ *   - a PPD sale that transfers IEPS is refused at both doors: that IEPS is
+ *     caused on collection, and until #699 there is no role where it waits.
  */
 export async function registerIssuedInvoice(
   client: pg.PoolClient,
@@ -150,7 +161,7 @@ export async function registerIssuedInvoice(
   const locked = await client.query<Record<string, unknown>>(
     `SELECT p.*, x.cfdi_uuid AS x_cfdi_uuid, x.subtotal AS x_subtotal, COALESCE(x.descuento, 0) AS x_descuento,
             x.total AS x_total, x.metodo_pago AS x_metodo_pago, x.receptor_rfc AS x_receptor_rfc,
-            x.receptor_nombre AS x_receptor_nombre
+            x.receptor_nombre AS x_receptor_nombre, x.xml_content AS x_xml_content
        FROM pre_registrations p
        JOIN xml_documents x ON x.id = p.xml_document_id AND x.entity_id = p.entity_id
        JOIN legal_entities le ON le.id = p.entity_id AND UPPER(TRIM(le.tax_id)) = UPPER(TRIM(x.emisor_rfc))
@@ -261,6 +272,12 @@ export async function registerIssuedInvoice(
   const toAr = net(accountsOf('cxc'), 'debit');
   const paid = toAr.isZero() && pue && net(accountsOf('banco'), 'debit').gt(0);
   const vat = sumTax(summary.traslados, '002');
+  const ieps = sumTax(summary.traslados, '003');
+  // TODO(#699): the refusal becomes the choice of the role where a PPD's IEPS waits for its collection.
+  if (!pue && ieps.gt(0)) {
+    throw new ValidationError({ key: 'error.ISSUED_CFDI_PPD_IEPS', params: { uuid, ieps: ieps.toFixed(2), issue: '#699' } });
+  }
+  const localTaxes = extractImpuestosLocales(new CFDIParser().parse(String(preReg.x_xml_content))).trasladados;
   const figures = [
     {
       figure: paid ? 'total (debit to bank, collected PUE)' : 'total (debit to accounts receivable)',
@@ -271,6 +288,16 @@ export async function registerIssuedInvoice(
       figure: `transferred VAT (${vatRole})`,
       entry: net(accountsOf(pue ? 'iva_trasladado' : 'iva_trasladado_no_cobrado'), 'credit'),
       cfdi: vat,
+    },
+    {
+      figure: 'transferred IEPS (ieps_por_pagar)',
+      entry: net(accountsOf('ieps_por_pagar'), 'credit'),
+      cfdi: ieps,
+    },
+    {
+      figure: 'transferred local taxes (impuestos_locales_por_pagar)',
+      entry: net(accountsOf('impuestos_locales_por_pagar'), 'credit'),
+      cfdi: money(localTaxes),
     },
     {
       figure: 'withholdings by the customer (ISR + VAT)',
