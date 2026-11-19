@@ -447,6 +447,84 @@ describe('an advance applied to a PUE invoice cancels the IVA it caused', () => 
 });
 
 // ============================================================
+// MNE-001-461 · AN ADVANCE APPLIED TO A PPD INVOICE
+// ============================================================
+
+describe('an advance applied to a PPD invoice nets its IVA against the share the invoice releases', () => {
+  const ppd = (over: Partial<AplicacionPosterior> = {}) =>
+    aplicacion({ amount: '1160.0000', taxAmount: '800.0000', totalAmount: '5800.0000', advanceIva: '160.0000', ...over });
+  const shape = () => lines().map((l) => [l.account_id, l.debit_amount, l.credit_amount]);
+
+  it('g = c: DR 2150 a − c, DR 2125 g / CR 1120 a, and no 2120 line', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.parked = { 'inv-1': '800.0000' };
+    const { ivaPorFactura: released } = await postReceiptApplicationEntry(fakeClient(), payment(), [ppd()], USER, EVENT_DAY);
+    // 800 × 1,160 / 5,800 = 160.0000 leaves 2125, and the advance's own 160.00 takes its place in 2120.
+    expect(released.get('inv-1')).toBe('160.0000');
+    expect(shape()).toEqual([
+      ['acct:anticipo_clientes', '1000.0000', null],
+      ['acct:cxc', null, '1160.0000'],
+      ['acct:iva_trasladado_no_cobrado', '160.0000', null],
+    ]);
+  });
+
+  it('g > c: the rest of the share is caused, CR 2120 g − c', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    state.parked = { 'inv-1': '800.0000' };
+    // An advance of 1,080.00 at 8 % on a sale at 16 %: 800 × 1,080 / 5,800 = 148.9655 against 80.00.
+    await postReceiptApplicationEntry(
+      fakeClient(), payment(), [ppd({ amount: '1080.0000', advanceIva: '80.0000' })], USER, EVENT_DAY
+    );
+    expect(shape()).toEqual([
+      ['acct:anticipo_clientes', '1000.0000', null],
+      ['acct:cxc', null, '1080.0000'],
+      ['acct:iva_trasladado_no_cobrado', '148.9655', null],
+      ['acct:iva_trasladado', null, '68.9655'],
+    ]);
+  });
+
+  it('g < c: the rest of the advance\'s IVA is cancelled, DR 2120 c − g', async () => {
+    state.cfdiMetodo = { 'UUID-PPD': 'PPD' };
+    // Only 100.00 is still parked, the cap of what leaves 2125.
+    state.parked = { 'inv-1': '100.0000' };
+    await postReceiptApplicationEntry(fakeClient(), payment(), [ppd()], USER, EVENT_DAY);
+    expect(shape()).toEqual([
+      ['acct:anticipo_clientes', '1000.0000', null],
+      ['acct:cxc', null, '1160.0000'],
+      ['acct:iva_trasladado_no_cobrado', '100.0000', null],
+      ['acct:iva_trasladado', '60.0000', null],
+    ]);
+  });
+
+  it('the unapply gives back what the row stored and re-parks nothing out of 2120: CR 2150 a − c, CR 2125 g', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(), payment(),
+      { invoiceNumber: 'INV-001', amount: '1160.0000', ivaReclass: '160.0000', ivaEstimado: '160.0000', advanceIva: '160.0000', date: EVENT_DAY },
+      USER
+    );
+    expect(shape()).toEqual([
+      ['acct:cxc', '1160.0000', null],
+      ['acct:anticipo_clientes', null, '1000.0000'],
+      ['acct:iva_trasladado_no_cobrado', null, '160.0000'],
+    ]);
+  });
+
+  it('the unapply of rows whose g and c differ moves 2120 by c − g only', async () => {
+    await postReceiptUnapplicationEntry(
+      fakeClient(), payment(),
+      { invoiceNumber: 'INV-001', amount: '1160.0000', ivaReclass: '100.0000', ivaEstimado: '100.0000', advanceIva: '160.0000', date: EVENT_DAY },
+      USER
+    );
+    expect(shape()).toEqual([
+      ['acct:cxc', '1160.0000', null],
+      ['acct:anticipo_clientes', null, '1000.0000'],
+      ['acct:iva_trasladado_no_cobrado', null, '100.0000'],
+      ['acct:iva_trasladado', null, '60.0000'],
+    ]);
+  });
+});
+
+// ============================================================
 // LA CUENTA DEL BANCO
 // ============================================================
 

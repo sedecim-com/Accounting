@@ -20,6 +20,12 @@ import { resetDeclarations } from '../../src/cli/kernel/risk.js';
  * (`egreso_emitido_aplicacion_anticipo`, cfdi-taxonomy.ts). The allocation
  * stores both, so unapply and reverse give back exactly that. The leaves run
  * in-process against Postgres; every figure is computed by hand.
+ *
+ * MNE-001-461 (#623, part 6/8) · AN ADVANCE APPLIED TO A PPD INVOICE. The
+ * share the cash settles still leaves 2125 (`g`), and the advance's IVA (`c`)
+ * takes its place in 2120: 2150 Dr a − c, 2125 Dr g / 1120 Cr a, 2120 Cr g − c.
+ * Unapplied, the cash is back on account as the advance it was, its IVA still
+ * caused (the owner's «no re-park» of 17 Nov 2026): nothing leaves 2120.
  */
 
 let mx: Fixture;
@@ -258,14 +264,90 @@ describe('the edges of an application', () => {
     expect(applied.row.warning).toBeNull();
     expect(applied.err).toBe('');
   }, 120_000);
+});
 
-  it('applying part of an advance to a PPD invoice is refused until part 6/8, naming the reason, and nothing is written', async () => {
-    const pmt = (await advance('1160.00', '2026-08-10')).payment_number;
-    const inv = await invoice('5000.00', '2026-08-20', { terms: 'PPD' });
+describe('an advance applied to a PPD invoice nets its IVA against the share the invoice releases (MNE-001-461)', () => {
+  /** Collects the rest of a PPD invoice from the terminal, dated `date`. */
+  const collect = (inv: { number: string }, amount: string, date: string) =>
+    row(['record', inv.number, '--amount', amount, '--date', date]);
+
+  it('1,160.00 at 16 % applied in full to 5,800.00: 2150 Dr 1,000.00, 2125 Dr 160.00 / 1120 Cr 1,160.00, no 2120 line; collecting the other 4,640.00 moves 640.00 to 2120', async () => {
     const before = await liabilities();
-    await expect(row(['apply', pmt, '--invoice', `${inv.number}:1160.00`, '--date', '2026-08-20']))
-      .rejects.toMatchObject({ code: 'ADVANCE_TO_PPD_NOT_WIRED' });
-    expect(await taken(pmt)).toEqual([]);
-    expect(await liabilities()).toEqual(before);
+    const pmt = (await advance('1160.00', '2026-09-10')).payment_number;
+    const inv = await invoice('5000.00', '2026-09-20', { terms: 'PPD' });
+
+    const applied = await row(['apply', pmt, '--invoice', `${inv.number}:1160.00`, '--date', '2026-09-20']);
+    expect(applied).toMatchObject({ advance_iva_cancelled: '160.00', amount_due_after: '4640.00' });
+    expect(await linesOf(applied.journal_entry)).toEqual({ '2150': [1000, 0], '2125': [160, 0], '1120': [0, 1160] });
+    expect(await taken(pmt)).toEqual([['1000.0000', '160.0000', true]]);
+    // The advance's 160.00 is in 2120 and the sale's other 640.00 still parked.
+    expect(moved(before, await liabilities())).toEqual({ '2150': '0.0000', '2120': '160.0000', '2125': '640.0000' });
+
+    const rest = await collect(inv, '4640.00', '2026-09-25');
+    // 800 × 5,800 / 5,800 − 160: the advance's allocation counts in the invoice's target.
+    expect(await linesOf(rest.journal_entry)).toEqual({ '1111': [4640, 0], '1120': [0, 4640], '2125': [640, 0], '2120': [0, 640] });
+    expect(moved(before, await liabilities())).toEqual({ '2150': '0.0000', '2120': '800.0000', '2125': '0.0000' });
+  }, 120_000);
+
+  it('in three parts of 386.67, 386.67 and 386.66 it nets 53.3338, 53.3338 and 53.3324 with no cent left', async () => {
+    const before = await liabilities();
+    const pmt = (await advance('1160.00', '2026-09-10')).payment_number;
+    const inv = await invoice('5000.00', '2026-09-20', { terms: 'PPD' });
+
+    const entries: string[] = [];
+    for (const part of ['386.67', '386.67', '386.66']) {
+      entries.push((await row(['apply', pmt, '--invoice', `${inv.number}:${part}`, '--date', '2026-09-21'])).journal_entry);
+    }
+    expect(await taken(pmt)).toEqual([
+      ['333.3362', '53.3338', true], ['333.3362', '53.3338', true], ['333.3276', '53.3324', true],
+    ]);
+    // The share each part settles is the same 53.3338, 53.3338 and 53.3324: no 2120 line in any.
+    for (const e of entries) expect(Object.keys(await linesOf(e)).sort()).toEqual(['1120', '2125', '2150']);
+    await collect(inv, '4640.00', '2026-09-25');
+    expect(moved(before, await liabilities())).toEqual({ '2150': '0.0000', '2120': '800.0000', '2125': '0.0000' });
+  }, 120_000);
+
+  it('applied to a PPD sale at 0 % it cancels its IVA the same way, and that sale leaves nothing in 2120', async () => {
+    const before = await liabilities();
+    const pmt = (await advance('1160.00', '2026-09-10')).payment_number;
+    const inv = await invoice('5000.00', '2026-09-20', { rate: '0.0000', terms: 'PPD' });
+
+    const applied = await row(['apply', pmt, '--invoice', `${inv.number}:1160.00`, '--date', '2026-09-20']);
+    expect(await linesOf(applied.journal_entry)).toEqual({ '2150': [1000, 0], '2120': [160, 0], '1120': [0, 1160] });
+    await collect(inv, '3840.00', '2026-09-25');
+    expect(moved(before, await liabilities())).toEqual({ '2150': '0.0000', '2120': '0.0000', '2125': '0.0000' });
+  }, 120_000);
+
+  it('receipt unapply gives back what the row stored and re-parks nothing out of 2120; applying again nets the same 160.00; receipt reverse leaves 2150, 2120 and 2125 as before the advance', async () => {
+    const inv = await invoice('5000.00', '2026-09-20', { terms: 'PPD' });
+    const before = await liabilities();
+    const pmt = (await advance('1160.00', '2026-09-10')).payment_number;
+
+    await row(['apply', pmt, '--invoice', `${inv.number}:1160.00`, '--date', '2026-09-20']);
+    const applied = await liabilities();
+    const undone = await row(['unapply', pmt, '--invoice', inv.number, '--reason', 'wrong invoice', '--date', '2026-09-21']);
+    // The cash is back on account as the advance it was: its 160.00 stays caused, the invoice's share goes back to 2125.
+    expect(undone).toMatchObject({ advance_iva_restored: '160.00', iva_reparked: '0.0000' });
+    expect(await linesOf(undone.entry_number)).toEqual({ '1120': [1160, 0], '2150': [0, 1000], '2125': [0, 160] });
+    expect(moved(applied, await liabilities())).toEqual({ '2150': '1000.0000', '2120': '0.0000', '2125': '160.0000' });
+    expect(moved(before, await liabilities())).toEqual({ '2150': '1000.0000', '2120': '160.0000', '2125': '0.0000' });
+
+    const again = await row(['apply', pmt, '--invoice', `${inv.number}:1160.00`, '--date', '2026-09-22']);
+    expect(again.advance_iva_cancelled).toBe('160.00');
+    expect(await linesOf(again.journal_entry)).toEqual({ '2150': [1000, 0], '2125': [160, 0], '1120': [0, 1160] });
+    expect(await taken(pmt)).toEqual([['1000.0000', '160.0000', false], ['1000.0000', '160.0000', true]]);
+
+    const id = (await query<{ id: string }>('SELECT id FROM customer_payments WHERE payment_number = $1 AND entity_id = $2', [pmt, mx.entityId])).rows[0].id;
+    const reversed = await reverseCustomerPayment(mx.entityId, id, { reason: 'the transfer was taken back', cause: 'taken_back' }, mx.userId);
+    expect(reversed.reversals).toHaveLength(4);
+    expect(moved(before, await liabilities())).toEqual({ '2150': '0.0000', '2120': '0.0000', '2125': '0.0000' });
+  }, 120_000);
+
+  it('unapplied from a PPD sale at 0 %, the advance\'s 160.00 is caused again in 2120', async () => {
+    const pmt = (await advance('1160.00', '2026-09-10')).payment_number;
+    const inv = await invoice('5000.00', '2026-09-20', { rate: '0.0000', terms: 'PPD' });
+    await row(['apply', pmt, '--invoice', `${inv.number}:1160.00`, '--date', '2026-09-20']);
+    const undone = await row(['unapply', pmt, '--invoice', inv.number, '--reason', 'wrong invoice', '--date', '2026-09-21']);
+    expect(await linesOf(undone.entry_number)).toEqual({ '1120': [1160, 0], '2150': [0, 1000], '2120': [0, 160] });
   }, 120_000);
 });
