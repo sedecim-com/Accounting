@@ -63,22 +63,30 @@ import {
 //      application of that cash nets it out again (`cashOnAccountOfMonth`).
 //      The ledger still re-parks a plain receipt's share (the owner's open
 //      question, #623 comment 7005284036), so that month's tie-out names it.
-//   2. A reversed cheque counts in no month: a returned cheque was never
-//      cashed (art. 1-B, second paragraph). Each month it would have counted
-//      in names the reversal and the amended return (CFF art. 32).
-//   3. A reversal by any other method takes no IVA out: the collection month
-//      keeps it, both months name it, and a person decides between an amended
-//      return and an art. 7 restitution (MNE-001-510 reads the stated cause).
+//   2. A reversal whose money never became the firm's counts in no month
+//      (art. 1-B): the cause `not_collected` (MNE-001-509), which a cheque
+//      takes by default because it is paid when cashed (second paragraph).
+//      Each month it would have counted in names the reversal and the amended
+//      return (CFF art. 32). MNE-001-510: the stated cause decides, not the
+//      method (`REVERSAL_CAUSE`).
+//   3. A reversal whose money arrived and was taken back (`taken_back`) takes
+//      no IVA out: it leaves only by an art. 7 restitution with its document,
+//      which the paper does not count. One with no cause stated, on any method
+//      but a cheque, is read the same way until `receipt cause record` states
+//      one (MNE-001-511): the conservative side, it never lowers a month.
+//      Either way the invoice it collected can be collected again, and that
+//      collection causes its own IVA (the reset events of `SHARE_EVENTS`).
 //   4. A later event that moves a month is named there, with its amount: the
 //      tie-out lists each receipt whose entries moved 2120 otherwise than the
-//      paper counted it (`gapCauses`), and is silent where they agree.
+//      paper counted it (`gapCauses`), and is silent where they agree; a cause
+//      stated after the reversal is named in each month it moved.
 //
 // NOTE: an advance by cheque causes its IVA the day the bank cashes it (LIVA
 // art. 1-B, second paragraph; #623 comment 6961035083). MNE-001-558 records
 // one, its receipt holding it whole in 2150 until the cashing posts its IVA;
 // counting it in the month of its cashing is MNE-001-507's (#700, task 5),
-// and until then this paper counts it in its receipt's month. Reversed, it
-// counts in no month, as any reversed cheque (MNE-001-518).
+// and until then this paper counts it in its receipt's month. Reversed as
+// not collected, a cheque's default cause, it counts in no month (MNE-001-510).
 //   · creditable — IVA acreditable PAID: the DIOT's facts (`hechosDelMes`), the
 //                  one definition of "IVA paid" in this project. A third query
 //                  for it would be the fourth definition.
@@ -483,11 +491,26 @@ async function withheldPerSale(
 const CARRIED_AN_ADVANCE = '(pa.advance_base_amount + pa.advance_iva_amount) > 0';
 
 /**
- * MNE-001-518 · A receipt counts unless it is void or a cheque that was
- * reversed: a returned cheque was never cashed (LIVA art. 1-B, second
- * paragraph). A reversal by any other method takes nothing out (#666, rule 3).
+ * MNE-001-510 (#701) · What a reversed receipt says happened to its money:
+ * `not_collected`, `taken_back`, or `not_stated`. The stated cause decides
+ * (MNE-001-509 at the reversal, MNE-001-511 later). A cheque with none, one
+ * reversed before migration 327, reads `not_collected`, the default the
+ * reversal gives a cheque: it is paid when it is cashed (LIVA art. 1-B,
+ * second paragraph). Any other method with none is `not_stated`.
  */
-const RECEIPT_COUNTS = `cp.status <> 'void' AND NOT (cp.status = 'reversed' AND cp.payment_method = 'check')`;
+const reversalCause = (alias: string): string =>
+  `COALESCE(${alias}.reversal_cause, CASE WHEN ${alias}.payment_method = 'check' THEN 'not_collected' ELSE 'not_stated' END)`;
+const REVERSAL_CAUSE = reversalCause('cp');
+
+type ReversalReading = 'not_collected' | 'taken_back' | 'not_stated';
+
+/**
+ * A receipt counts unless it is void or reversed as never collected (#666,
+ * rule 2): what was never received caused no IVA (LIVA art. 1-B). A receipt
+ * taken back, or with no cause stated, keeps its IVA where it was collected
+ * (rule 3).
+ */
+const RECEIPT_COUNTS = `cp.status <> 'void' AND NOT (cp.status = 'reversed' AND ${REVERSAL_CAUSE} = 'not_collected')`;
 
 /**
  * An allocation its receipt's reversal closed: the reversal closes them and
@@ -497,22 +520,44 @@ const RECEIPT_COUNTS = `cp.status <> 'void' AND NOT (cp.status = 'reversed' AND 
 const CLOSED_BY_REVERSAL = `(cp.status = 'reversed' AND pa.unapplied_at = cp.reversed_at)`;
 
 /**
+ * The reversal's day: its mirror's, as the ledger dates it, or `reversed_at`
+ * where the receipt had no entry to mirror. Needs `MIRROR_OF_RECEIPT`.
+ */
+const REVERSED_ON = 'COALESCE(m.entry_date, cp.reversed_at::date)';
+const MIRROR_OF_RECEIPT = `
+         LEFT JOIN journal_entries o ON o.id = cp.journal_entry_id AND o.entity_id = $1
+         LEFT JOIN journal_entries m ON m.id = o.reversed_by_entry_id AND m.entity_id = $1`;
+
+/**
  * Every PPD share event of the receipts that count: an application on the
- * day its cash was applied, and an unapply, negative, on its own day.
- * Both ends of payment_allocations are scoped.
+ * day its cash was applied, and an unapply, negative, on its own day. Both
+ * ends of payment_allocations are scoped.
+ *
+ * MNE-001-510 · A reversal that keeps its IVA (rule 3) closes its allocations
+ * with a `reset` on the reversal's day: it takes no share out, but the
+ * invoice's cumulative goes back down by that cash, so a later collection of
+ * the same invoice causes its own IVA (LIVA art. 1-B) instead of reading as
+ * an overpayment. `ts` orders events of one day: the instant each was written.
  */
 const SHARE_EVENTS = `
        SELECT pa.invoice_id, cp.id AS payment_id, pa.amount_applied AS amount,
-              COALESCE(pa.iva_reclass_amount, 0) AS vat, COALESCE(pa.applied_on, cp.payment_date) AS on_day
+              COALESCE(pa.iva_reclass_amount, 0) AS vat, COALESCE(pa.applied_on, cp.payment_date) AS on_day,
+              'apply'::text AS kind, pa.created_at AS ts
          FROM payment_allocations pa
          JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
        UNION ALL
-       SELECT pa.invoice_id, cp.id, -pa.amount_applied, -COALESCE(pa.iva_reclass_amount, 0), pa.unapplied_at::date
+       SELECT pa.invoice_id, cp.id, -pa.amount_applied, -COALESCE(pa.iva_reclass_amount, 0), pa.unapplied_at::date,
+              'undo', pa.unapplied_at
          FROM payment_allocations pa
          JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
-          AND pa.unapplied_at IS NOT NULL AND NOT ${CLOSED_BY_REVERSAL}`;
+          AND pa.unapplied_at IS NOT NULL AND NOT ${CLOSED_BY_REVERSAL}
+       UNION ALL
+       SELECT pa.invoice_id, cp.id, -pa.amount_applied, 0, ${REVERSED_ON}, 'reset', cp.reversed_at
+         FROM payment_allocations pa
+         JOIN customer_payments cp ON cp.id = pa.payment_id ${MIRROR_OF_RECEIPT}
+        WHERE cp.entity_id = $1 AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS} AND ${CLOSED_BY_REVERSAL}`;
 
 /**
  * The receipt-side entries the charged side traces (`ar-ap-posting.ts`): a
@@ -543,8 +588,9 @@ interface AdvanceOfMonth {
 /**
  * MNE-001-423 · The customer advances that moved 2120 in the month, each by
  * the events of its receipt there. Both ends of payment_allocations are
- * scoped; a void receipt or a reversed cheque counts in no month, and any
- * other reversal leaves every month as it was (MNE-001-518).
+ * scoped; a void receipt or one reversed as never collected counts in no
+ * month, and any other reversal leaves every month as it was (MNE-001-518,
+ * MNE-001-510: the advance follows its receipt's cause).
  */
 async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<AdvanceOfMonth[]> {
   const { rows } = await client.query<AdvanceOfMonth>(
@@ -799,6 +845,8 @@ interface ReceiptLedgerRow {
   payment_number: string;
   status: string;
   payment_method: string;
+  /** MNE-001-510 · `REVERSAL_CAUSE`, read on a reversed receipt only. */
+  cause: ReversalReading;
   entry_number: string;
   entry_date: string;
   source_type: string;
@@ -827,7 +875,7 @@ async function receiptLedgerOfMonth(client: pg.PoolClient, entityId: string, ran
        UNION ALL
        SELECT payment_id, reversed_by_entry_id, true FROM own WHERE reversed_by_entry_id IS NOT NULL
      )
-     SELECT t.payment_id::text, cp.payment_number, cp.status, cp.payment_method, je.entry_number,
+     SELECT t.payment_id::text, cp.payment_number, cp.status, cp.payment_method, ${REVERSAL_CAUSE} AS cause, je.entry_number,
             je.entry_date::text AS entry_date, je.source_type, t.mirror,
             COALESCE(SUM(COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0))
                      FILTER (WHERE jel.account_id IN (SELECT account_id FROM account_roles
@@ -837,7 +885,7 @@ async function receiptLedgerOfMonth(client: pg.PoolClient, entityId: string, ran
        JOIN customer_payments cp ON cp.id = t.payment_id AND cp.entity_id = $1
        JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
       WHERE je.entry_date >= $2::date AND je.entry_date <= $3::date
-      GROUP BY t.payment_id, cp.payment_number, cp.status, cp.payment_method, je.id, je.entry_number, je.entry_date, je.source_type, t.mirror
+      GROUP BY t.payment_id, cp.payment_number, cp.status, cp.payment_method, cp.reversal_cause, je.id, je.entry_number, je.entry_date, je.source_type, t.mirror
       ORDER BY cp.payment_number, je.entry_date, je.entry_number`,
     [entityId, range.desde, range.hasta, RECEIPT_LEDGER_SOURCES]
   );
@@ -877,10 +925,18 @@ function gapCauses(charged: ChargedOfMonth, ledger: readonly ReceiptLedgerRow[])
       .map((e) => `${e.mirror ? 'espejo de reversa' : ENTRY_KIND[e.source_type] ?? e.source_type} ${e.entry_number} del ${e.entry_date}`)
       .join(', ');
     const why: string[] = [];
-    if (head.status === 'reversed' && head.payment_method === 'check') {
-      why.push('es un cheque reversado, que no cuenta en ningún mes (LIVA art. 1-B, segundo párrafo; ver IVA-WP-RECEIPT-REVERSED)');
+    if (head.status === 'reversed' && head.cause === 'not_collected') {
+      why.push(
+        head.payment_method === 'check'
+          ? 'es un cheque reversado, que no cuenta en ningún mes (LIVA art. 1-B, segundo párrafo; ver IVA-WP-RECEIPT-REVERSED)'
+          : 'se reversó como no cobrado, y no cuenta en ningún mes (LIVA art. 1-B; ver IVA-WP-RECEIPT-REVERSED)'
+      );
     } else if (head.status === 'reversed' && entries.some((e) => e.mirror)) {
-      why.push('su reversa no saca IVA del papel hasta que una persona decida (ver IVA-WP-RECEIPT-REVERSED)');
+      why.push(
+        head.cause === 'taken_back'
+          ? 'se reversó como retirado, y su IVA sólo sale con una restitución del art. 7 LIVA, que el papel no cuenta (ver IVA-WP-RECEIPT-REVERSED)'
+          : 'su reversa no tiene causa declarada, y el papel deja su IVA donde se cobró hasta que se declare (ver IVA-WP-RECEIPT-REVERSED)'
+      );
     }
     const cash = charged.cashOnAccount.get(paymentId);
     if (cash && cash.back.greaterThan(0)) {
@@ -910,6 +966,9 @@ interface ReversedReceiptRow {
   advance_iva: string;
   mirror_number: string | null;
   reversed_on: string;
+  cause: ReversalReading;
+  /** The day a cause was stated after the reversal (MNE-001-511); null when it came with it, or none was. */
+  stated_on: string | null;
 }
 
 interface ReversedAllocationRow extends InvoiceRow {
@@ -922,15 +981,36 @@ interface ReversedAllocationRow extends InvoiceRow {
   undone_day: string | null;
 }
 
+/** An invoice a reversal that kept its IVA reopened, collected again in the month by another receipt. */
+interface CollectedAgainRow {
+  reversed_id: string;
+  invoice_number: string;
+  payment_number: string;
+}
+
+/** How a finding names a receipt's cause, with the identifier the CLI takes. */
+const CAUSE_LABEL: Record<ReversalReading, string> = {
+  not_collected: 'con la causa not_collected (no cobrado)',
+  taken_back: 'con la causa taken_back (retirado)',
+  not_stated: 'sin causa declarada',
+};
+
 /**
- * MNE-001-518 (#666, rules 2 to 4) · A reversed receipt, named in each month it
- * counted in (or would have, for a cheque) and in the month its mirrors moved
- * 2120: a cheque counts in no month, because a returned cheque was never
- * cashed (LIVA art. 1-B, second paragraph), and a filed return is corrected by
- * an amended one (CFF art. 32); any other method keeps its IVA, and a person
- * decides on the facts between an amended return (the money never arrived)
- * and an art. 7 restitution (it was taken back). MNE-001-510 reads the cause
- * the receipt states (`reversal_cause`) in place of that person.
+ * MNE-001-518 (#666, rules 2 to 4) and MNE-001-510 (#701) · A reversed
+ * receipt, named in each month it counted in (or would have), in the month
+ * its mirrors moved 2120, and in a month that collects again an invoice it
+ * reopened. Its cause decides (`REVERSAL_CAUSE`):
+ *   - not_collected: the money never became the firm's, so it caused no IVA
+ *     (LIVA art. 1-B; a cheque, at its cashing, second paragraph). It counts
+ *     in no month, and a filed return is corrected by an amended one (CFF
+ *     art. 32).
+ *   - taken_back: the money arrived, so its IVA was caused and stays; it
+ *     leaves only by a restitution with the document of art. 7's second
+ *     paragraph (RLIVA art. 24), which the paper does not count today.
+ *   - not_stated: kept where it was collected until `receipt cause record`
+ *     states a cause; both findings name the command.
+ * A cause stated after the reversal is a later event (rule 4): each month it
+ * moved names it, with what it took out.
  *
  * The figures named are the ones the paper counts for the receipt: a PPD
  * share's base is its cash, withholding included, less its IVA.
@@ -941,17 +1021,31 @@ async function reversalFindings(
   range: RangoDelMes,
   ledger: readonly ReceiptLedgerRow[]
 ): Promise<Hallazgo[]> {
+  // Both ends of each payment_allocations bridge are scoped.
+  const again = await client.query<CollectedAgainRow>(
+    `SELECT DISTINCT r.id::text AS reversed_id, i.invoice_number, cp.payment_number
+       FROM customer_payments r
+       JOIN payment_allocations ra ON ra.payment_id = r.id AND ra.unapplied_at = r.reversed_at
+       JOIN invoices i ON i.id = ra.invoice_id AND i.entity_id = $1
+       JOIN payment_allocations pa ON pa.invoice_id = ra.invoice_id AND pa.created_at > r.reversed_at
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+      WHERE r.entity_id = $1 AND r.status = 'reversed' AND r.journal_entry_id IS NOT NULL
+        AND ${reversalCause('r')} <> 'not_collected'
+        AND cp.journal_entry_id IS NOT NULL AND ${RECEIPT_COUNTS}
+        AND COALESCE(pa.applied_on, cp.payment_date) >= $2::date AND COALESCE(pa.applied_on, cp.payment_date) <= $3::date
+      ORDER BY i.invoice_number, cp.payment_number`,
+    [entityId, range.desde, range.hasta]
+  );
   const reversed = await client.query<ReversedReceiptRow>(
     `SELECT cp.id::text, cp.payment_number, cp.payment_method, cp.payment_date::text AS payment_date,
             COALESCE(cp.advance_base_amount, 0)::text AS advance_base, COALESCE(cp.advance_iva_amount, 0)::text AS advance_iva,
-            m.entry_number AS mirror_number, COALESCE(m.entry_date, cp.reversed_at::date)::text AS reversed_on
-       FROM customer_payments cp
-       LEFT JOIN journal_entries o ON o.id = cp.journal_entry_id AND o.entity_id = $1
-       LEFT JOIN journal_entries m ON m.id = o.reversed_by_entry_id AND m.entity_id = $1
+            m.entry_number AS mirror_number, ${REVERSED_ON}::text AS reversed_on, ${REVERSAL_CAUSE} AS cause,
+            CASE WHEN cp.reversal_cause_stated_at > cp.reversed_at THEN cp.reversal_cause_stated_at::date::text END AS stated_on
+       FROM customer_payments cp ${MIRROR_OF_RECEIPT}
       WHERE cp.entity_id = $1 AND cp.status = 'reversed' AND cp.journal_entry_id IS NOT NULL
-        AND COALESCE(m.entry_date, cp.reversed_at::date) >= $2::date
+        AND (${REVERSED_ON} >= $2::date OR cp.id = ANY($3::uuid[]))
       ORDER BY cp.payment_number`,
-    [entityId, range.desde]
+    [entityId, range.desde, [...new Set(again.rows.map((r) => r.reversed_id))]]
   );
   if (reversed.rows.length === 0) return [];
   const allocations = await client.query<ReversedAllocationRow>(
@@ -968,7 +1062,7 @@ async function reversalFindings(
     [entityId, reversed.rows.map((r) => r.id)]
   );
   const ppd = new Map<string, boolean>();
-  // By month (YYYY-MM): the base and IVA the receipt counts there, or would, for a cheque.
+  // By month (YYYY-MM): the base and IVA the receipt counts there, or would, had it been collected.
   const counted = new Map<string, Map<string, { base: Decimal; iva: Decimal }>>();
   const add = (id: string, day: string, base: Decimal.Value, iva: Decimal.Value, sign: 1 | -1) => {
     const months = counted.get(id) ?? new Map<string, { base: Decimal; iva: Decimal }>();
@@ -998,35 +1092,96 @@ async function reversalFindings(
       .filter((e) => e.payment_id === r.id && e.mirror)
       .reduce((s, e) => s.plus(e.iva), new Decimal(0));
     const countsHere = here !== undefined && (!here.base.isZero() || !here.iva.isZero());
-    if (!countsHere && mirrored.isZero()) continue;
+    const collectedAgain = again.rows.filter((g) => g.reversed_id === r.id);
+    if (!countsHere && mirrored.isZero() && collectedAgain.length === 0) continue;
     const byCheck = r.payment_method === 'check';
     const entry = r.mirror_number ? `póliza ${r.mirror_number}` : 'sin póliza espejo';
+    const before = live.filter((m) => m !== month);
+    const kept = before.join(', ') || live.join(', ') || r.payment_date.slice(0, 7);
     const parts: string[] = [];
-    if (countsHere && byCheck) {
+    if (countsHere && r.cause === 'not_collected') {
       parts.push(
-        `El cobro ${r.payment_number}, con cheque, se reversó el ${r.reversed_on} (${entry}): este mes ya no cuenta su base ` +
-          `${q4(here.base)} ni su IVA ${q4(here.iva)}, porque un cheque devuelto no se cobró (LIVA art. 1-B, segundo párrafo). ` +
-          `Si la declaración de ${month} ya se presentó, se corrige con una declaración complementaria (CFF art. 32); si ya no ` +
-          `puede corregirse, o si el cheque se transmitió a un tercero (salvo en procuración), lo decide una persona.`
+        byCheck
+          ? `El cobro ${r.payment_number}, con cheque, se reversó el ${r.reversed_on} (${entry}): este mes ya no cuenta su base ` +
+              `${q4(here.base)} ni su IVA ${q4(here.iva)}, porque un cheque devuelto no se cobró (LIVA art. 1-B, segundo párrafo). ` +
+              `Si la declaración de ${month} ya se presentó, se corrige con una declaración complementaria (CFF art. 32); si ya no ` +
+              `puede corregirse, o si el cheque se transmitió a un tercero (salvo en procuración), lo decide una persona.`
+          : `El cobro ${r.payment_number} (${r.payment_method}) se reversó el ${r.reversed_on} (${entry}) ${CAUSE_LABEL[r.cause]}: ` +
+              `este mes ya no cuenta su base ${q4(here.base)} ni su IVA ${q4(here.iva)}, porque el dinero nunca llegó y lo que no ` +
+              `se cobra no causa IVA (LIVA art. 1-B). Si la declaración de ${month} ya se presentó, se corrige con una ` +
+              `declaración complementaria (CFF art. 32).` +
+              (['credit_card', 'debit_card'].includes(r.payment_method)
+                ? ' Una tarjeta se paga cuando se acepta (LIVA art. 1-B, último párrafo): confirma que el cargo nunca se aceptó.'
+                : '')
+      );
+    } else if (countsHere && r.cause === 'taken_back') {
+      parts.push(
+        `El cobro ${r.payment_number} (${r.payment_method}) se reversó el ${r.reversed_on} (${entry}) ${CAUSE_LABEL[r.cause]}: ` +
+          `el dinero llegó y se retiró después, así que este mes conserva su base ${q4(here.base)} y su IVA ${q4(here.iva)} ` +
+          `(LIVA art. 1-B). Ese IVA sólo sale con una restitución del art. 7 LIVA, en el mes en que se restituya; el papel ` +
+          `todavía no la cuenta.`
       );
     } else if (countsHere) {
       parts.push(
-        `El cobro ${r.payment_number} (${r.payment_method}) se reversó el ${r.reversed_on} (${entry}): este mes conserva su ` +
-          `base ${q4(here.base)} y su IVA ${q4(here.iva)}. Si el dinero nunca llegó, la declaración de ${month} se corrige con ` +
-          `una complementaria (CFF art. 32); si llegó y se retiró, el IVA sólo sale con una restitución del art. 7 LIVA. Lo ` +
-          `decide una persona con los hechos del cobro.`
+        `El cobro ${r.payment_number} (${r.payment_method}) se reversó el ${r.reversed_on} (${entry}) ${CAUSE_LABEL[r.cause]}: ` +
+          `este mes conserva su base ${q4(here.base)} y su IVA ${q4(here.iva)} hasta que se declare. Si el dinero nunca llegó, ` +
+          `la declaración de ${month} se corrige con una complementaria (CFF art. 32); si llegó y se retiró, el IVA sólo sale ` +
+          `con una restitución del art. 7 LIVA.`
       );
     }
     if (!mirrored.isZero()) {
-      const before = live.filter((m) => m !== month);
+      if (r.cause === 'not_collected') {
+        const how = byCheck ? ', con cheque' : ` (${r.payment_method}, ${CAUSE_LABEL[r.cause]})`;
+        parts.push(
+          `El espejo de la reversa del cobro ${r.payment_number}${how} (${entry}, ${r.reversed_on}) mueve ` +
+            `${q4(mirrored)} de IVA trasladado este mes y el papel no lo cuenta: el cobro no cuenta en ningún mes.` +
+            (before.length ? ` Contaba en ${before.join(', ')}: si esa declaración ya se presentó, se corrige con una complementaria.` : '')
+        );
+      } else if (r.cause === 'taken_back') {
+        parts.push(
+          `La reversa del cobro ${r.payment_number} (${r.payment_method}, ${CAUSE_LABEL[r.cause]}, ${entry}, ${r.reversed_on}) no ` +
+            `saca IVA este mes, aunque su espejo mueve ${q4(mirrored)} de IVA trasladado: el dinero llegó y el IVA sigue en ` +
+            `${before.join(', ') || month}. Sólo sale con una restitución del art. 7 LIVA, el documento de su segundo párrafo que ` +
+            `hace constar que el impuesto se restituyó, con los datos del comprobante de la operación original (RLIVA art. 24), ` +
+            `que el papel hoy no cuenta.`
+        );
+      } else {
+        parts.push(
+          `La reversa del cobro ${r.payment_number} (${r.payment_method}, ${CAUSE_LABEL[r.cause]}, ${entry}, ${r.reversed_on}) no ` +
+            `saca IVA este mes, aunque su espejo mueve ${q4(mirrored)} de IVA trasladado: el IVA sigue en ` +
+            `${before.join(', ') || month} hasta que se declare la causa.`
+        );
+      }
+    }
+    if (collectedAgain.length > 0) {
+      const invoices = [...new Set(collectedAgain.map((g) => g.invoice_number))].join(', ');
+      const receipts = [...new Set(collectedAgain.map((g) => g.payment_number))].join(', ');
       parts.push(
-        byCheck
-          ? `El espejo de la reversa del cobro ${r.payment_number}, con cheque (${entry}, ${r.reversed_on}), mueve ` +
-              `${q4(mirrored)} de IVA trasladado este mes y el papel no lo cuenta: el cobro no cuenta en ningún mes.` +
-              (before.length ? ` Contaba en ${before.join(', ')}: si esa declaración ya se presentó, se corrige con una complementaria.` : '')
-          : `La reversa del cobro ${r.payment_number} (${r.payment_method}, ${entry}, ${r.reversed_on}) no saca IVA este mes, ` +
-              `aunque su espejo mueve ${q4(mirrored)} de IVA trasladado: el IVA sigue en ${before.join(', ') || month} hasta que ` +
-              `una persona decida entre una complementaria y una restitución del art. 7 LIVA.`
+        `La factura ${invoices}, que el cobro ${r.payment_number} había cobrado y que su reversa del ${r.reversed_on} ` +
+          `${CAUSE_LABEL[r.cause]} reabrió, se cobra otra vez este mes con ${receipts}: este mes cuenta ese cobro completo, ` +
+          `porque el anterior dejó su IVA en ${kept}` +
+          (r.cause === 'taken_back'
+            ? ', y el papel no cuenta ninguna restitución del art. 7 LIVA por él.'
+            : ' hasta que se declare su causa: con not_collected sale de ahí (complementaria); con taken_back, sólo con una ' +
+              'restitución del art. 7 LIVA.')
+      );
+    }
+    if (r.stated_on && (countsHere || !mirrored.isZero())) {
+      // Rule 4: the statement is a later event of each month it moved.
+      parts.push(
+        `La causa se declaró el ${r.stated_on}, después de la reversa: ` +
+          (r.cause === 'not_collected' && countsHere
+            ? `desde entonces este mes deja de contar la base ${q4(here.base)} y el IVA ${q4(here.iva)} que contaba.`
+            : r.cause === 'not_collected'
+              ? 'desde entonces el cobro sale de los meses en que contaba.'
+              : 'no mueve ninguna cifra de este mes.')
+      );
+    }
+    if (r.cause === 'not_stated') {
+      parts.push(
+        `Para que el papel aplique la causa, declárala con \`receipt cause record ${r.payment_number} --cause ` +
+          `not_collected|taken_back --reason "…"\` (cobro causa registrar): not_collected si el dinero nunca llegó, ` +
+          `taken_back si llegó y se retiró.`
       );
     }
     findings.push({
@@ -1089,21 +1244,32 @@ async function chargedOfMonth(
   // Each allocation is an event on the day its cash was applied, and one that
   // was unapplied is a second event, negative, on the day of the unapply (see
   // the header); the cumulative sums then telescope.
+  // MNE-001-510: a reset (a reversal that kept its IVA) starts a new stretch
+  // of the invoice's events. Each stretch telescopes from the cumulative where
+  // its first event of the month found it, so the month of a reset, or of a
+  // collection after one, counts what each stretch caused.
   const ppdCandidates = await client.query<InvoiceRow>(
     `WITH events AS (${SHARE_EVENTS}
+     ), ordered AS (
+       SELECT e.*, SUM(e.amount) OVER w - e.amount AS cum_before,
+              COUNT(*) FILTER (WHERE e.kind = 'reset') OVER w AS stretch
+         FROM events e
+       WINDOW w AS (PARTITION BY e.invoice_id ORDER BY e.on_day, e.ts, e.kind ROWS UNBOUNDED PRECEDING)
      )
      SELECT ${INVOICE_COLUMNS},
-            COALESCE(SUM(e.amount) FILTER (WHERE e.on_day < $2::date), 0)::text AS applied_before,
-            COALESCE(SUM(e.amount) FILTER (WHERE e.on_day >= $2::date), 0)::text AS applied_now,
-            COALESCE(SUM(e.vat) FILTER (WHERE e.on_day >= $2::date), 0)::text AS vat_released,
-            COALESCE(array_agg(DISTINCT e.payment_id::text) FILTER (WHERE e.on_day >= $2::date), '{}') AS payment_ids
+            ((array_agg(o.cum_before ORDER BY o.on_day, o.ts, o.kind)
+               FILTER (WHERE o.on_day >= $2::date AND o.kind <> 'reset'))[1])::text AS applied_before,
+            COALESCE(SUM(o.amount) FILTER (WHERE o.on_day >= $2::date AND o.kind <> 'reset'), 0)::text AS applied_now,
+            COALESCE(SUM(o.vat) FILTER (WHERE o.on_day >= $2::date), 0)::text AS vat_released,
+            COALESCE(array_agg(DISTINCT o.payment_id::text)
+                       FILTER (WHERE o.on_day >= $2::date AND o.kind <> 'reset'), '{}') AS payment_ids
        FROM invoices i
-       JOIN events e ON e.invoice_id = i.id
-      WHERE i.entity_id = $1 AND e.on_day <= $3::date AND i.status NOT IN ('void', 'cancelled')
-      GROUP BY i.id
-     HAVING COALESCE(SUM(e.amount) FILTER (WHERE e.on_day >= $2::date), 0) <> 0
-         OR COALESCE(SUM(e.vat) FILTER (WHERE e.on_day >= $2::date), 0) <> 0
-      ORDER BY i.invoice_number`,
+       JOIN ordered o ON o.invoice_id = i.id
+      WHERE i.entity_id = $1 AND o.on_day <= $3::date AND i.status NOT IN ('void', 'cancelled')
+      GROUP BY i.id, o.stretch
+     HAVING COALESCE(SUM(o.amount) FILTER (WHERE o.on_day >= $2::date AND o.kind <> 'reset'), 0) <> 0
+         OR COALESCE(SUM(o.vat) FILTER (WHERE o.on_day >= $2::date), 0) <> 0
+      ORDER BY i.invoice_number, o.stretch`,
     [entityId, range.desde, range.hasta]
   );
   const advances = await advancesOfMonth(client, entityId, range);
@@ -1172,6 +1338,15 @@ async function chargedOfMonth(
     // The entry's amount is already in functional currency: only the ratio applies.
     const withheldHere = new Decimal(porcionDelDocumento(withheldOf.get(row.id) ?? '0', { ...share, tasaCambio: '1' })).times(sign);
     withheld = withheld.plus(withheldHere);
+    // MNE-001-510: a second stretch of the same invoice (a collection after a reversal that kept its IVA) joins its line.
+    const same = contributions.find((c) => c.documentKind === 'invoice' && c.documentId === row.id);
+    if (same) {
+      same.breakdown = sumarDesgloses(same.breakdown, split);
+      same.notSubject = q4(new Decimal(same.notSubject).plus(notSubjectHere));
+      same.withheld.amount = q4(new Decimal(same.withheld.amount).plus(withheldHere));
+      same.entryIds = [...new Set([...same.entryIds, ...entryIds])];
+      continue;
+    }
     contributions.push({
       documentId: row.id,
       documentNumber: row.invoice_number,
