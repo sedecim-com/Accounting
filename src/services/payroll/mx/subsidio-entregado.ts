@@ -6,12 +6,16 @@ import { AccountingError } from '../../../utils/errors.js';
 // ============================================================
 // MX · EL SUBSIDIO AL EMPLEO QUE SE ENTREGA EN EFECTIVO
 //
-// El subsidio al empleo se acredita CONTRA el ISR del periodo. Cuando el
-// subsidio es MAYOR que ese ISR —sueldos bajos, que es justo para quien el
-// subsidio existe—, la diferencia no se pierde: el patrón la ENTREGA en
-// efectivo al trabajador y la acredita después contra el ISR retenido a
-// otros trabajadores (LISR, disposiciones de vigencia temporal del subsidio
-// al empleo).
+// THE RULE OF 1 JANUARY 2014 TO 30 APRIL 2024, and no longer the law of every
+// paycheck (#600). Under it, when the subsidy is LARGER than the ISR of the
+// period the employer HANDS the difference to the worker in cash and credits
+// it against the ISR withheld from others (Decreto DOF 11-12-2013, Artículo
+// Décimo). From 1 May 2024 nothing is handed over (Decreto DOF 01-05-2024).
+// Which rule a paycheck follows is a dated row of `legal_parameters`, read on
+// its payment date by `readEmploymentSubsidyExcessRule` and applied by
+// `applyEmploymentSubsidy` (./employment-subsidy.ts). `aplicarSubsidioAlEmpleo`
+// below stays as the arithmetic of the old rule, and the reader of the panel
+// key governs only cash that was in fact handed over.
 //
 // El cálculo hacía `Math.max(0, isr - subsidio)` con un comentario encima
 // que decía «if negative, employee receives as cash». El Math.max era

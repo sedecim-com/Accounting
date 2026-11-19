@@ -43,7 +43,7 @@ function tipoDocumentoDe(tipo: string | undefined, direction: CfdiDirection): st
   if (tipo === 'P') return 'payment';
   return 'credit_note';
 }
-import { RulesEngine, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
+import { RulesEngine, autoRuleRequiring, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { nextEntityNumber, nextVendorNumber, type Queryable } from '../../utils/sequence.js';
 
@@ -385,8 +385,13 @@ export class PreRegistrationService {
 
     if (
       updated.processing_mode === 'auto' &&
-      // No rule posts a credit note by itself yet (MNE-001-555): it stays ready for a person.
-      updated.document_type !== 'credit_note' &&
+      // A credit note posts by itself only under a rule of THIS evaluation
+      // that sets auto and requires `document_type equals credit_note`
+      // (#692): a catch-all rule never reaches it, and the column is not
+      // evidence, since an `auto` of an earlier run survives a deleted rule.
+      // Any other note stays ready for a person.
+      (updated.document_type !== 'credit_note' ||
+        autoRuleRequiring(rules, ruleResults.results, ruleResults.aggregatedActions, 'credit_note') !== null) &&
       updated.validation_status === 'valid' &&
       !updated.requires_approval &&
       updated.status === 'ready'

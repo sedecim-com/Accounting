@@ -7,6 +7,7 @@ import { registerAnexo24MigrationCommands } from '../../src/cli/anexo24-migratio
 import { riskOf } from '../../src/cli/kernel/risk.js';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { palette } from '../../src/cli/palette.js';
+import { ValidationError } from '../../src/utils/errors.js';
 
 // ============================================================
 // MNE-001-018 · THE ANEXO 24 MIGRATION LEAVES, WITHOUT A DATABASE
@@ -186,5 +187,32 @@ describe('opening-balance check', () => {
   it('an unreadable file is a usage error, not a crash', async () => {
     expect(await build().run('opening-balance', 'check', `${FILE}.missing`)).toBe(2);
     expect(m.checkOpeningBalance).not.toHaveBeenCalled();
+  });
+
+  // MNE-001-419 · #621: the migration's catalog names the memorandum accounts.
+  it('--chart reaches the service as chartXml, and without it nothing is passed', async () => {
+    const chart = path.join(path.dirname(FILE), 'chart.xml');
+    writeFileSync(chart, '<synthetic-chart/>');
+    m.checkOpeningBalance.mockResolvedValue(report(true));
+    expect(await build().run('opening-balance', 'check', FILE, '--chart', chart)).toBe(0);
+    expect(m.checkOpeningBalance.mock.calls[0][1]).toEqual({
+      entityId: 'e-1',
+      xml: '<synthetic/>',
+      chartXml: '<synthetic-chart/>',
+    });
+    await build().run('opening-balance', 'check', FILE);
+    expect(m.checkOpeningBalance.mock.calls[1][1]).toStrictEqual({ entityId: 'e-1', xml: '<synthetic/>' });
+  });
+
+  it('an unreadable --chart exits 2 and the service is not called', async () => {
+    expect(await build().run('opening-balance', 'check', FILE, '--chart', `${FILE}.missing`)).toBe(2);
+    expect(m.checkOpeningBalance).not.toHaveBeenCalled();
+  });
+
+  it('a --chart the service refuses exits 4', async () => {
+    m.checkOpeningBalance.mockRejectedValue(
+      new ValidationError({ key: 'migration.chart_option.other_rfc', params: { fileRfc: 'A', entityRfc: 'B' } })
+    );
+    expect(await build().run('opening-balance', 'check', FILE, '--chart', FILE)).toBe(4);
   });
 });

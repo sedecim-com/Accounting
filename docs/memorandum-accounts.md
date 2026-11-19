@@ -13,7 +13,7 @@
 | Momento | Qué pasa |
 |---|---|
 | `chart import` (catálogo `CatalogoCuentas`) | Cada cuenta con agrupador 8xx —y toda subcuenta que cuelgue de una— se queda fuera con el aviso `IMP-CUENTAS-DE-ORDEN`, que remite a este documento. **Es aviso, no bloqueo**: el resto del catálogo se escribe sin `--parcial`. Una cuenta de orden que **ya existe** en la entidad no se toca: se declara el conflicto (`IMP-ORDEN-YA-EN-EL-MAYOR`) y sus subcuentas nuevas tampoco se crean, aunque cuelguen de ella a través de otras cuentas que ya existen. |
-| `opening-balance check` (el cotejo al peso) | Al servicio (`checkOpeningBalance`, `compareToSource`) se le nombran las cuentas de orden; no se cotejan, **se declaran excluidas con su código y el saldo que declara el origen**, y el cotejo puede salir igual al peso. Una exclusión que no se escribe es una diferencia escondida, así que siempre se imprime. Si el mayor de este sistema llevara dinero en uno de esos códigos, sale como sobrante aunque cuelgue de una cuenta que el origen sí declara: el origen lo tiene fuera del balance. |
+| `opening-balance check` (el cotejo al peso) | Con `--chart <catálogo>` la terminal le pasa el `CatalogoCuentas` de la misma migración, y las cuentas de orden salen de ahí con el mismo recorrido de `chart import` (la balanza no trae el código agrupador). Sin `--chart` no se clasifica nada y cada 8xx sale como «sin cuenta en el plan». Las cuentas de orden no se cotejan, **se declaran excluidas con su código y el saldo que declara el origen**, y el cotejo puede salir igual al peso. Una exclusión que no se escribe es una diferencia escondida, así que siempre se imprime. Si el mayor de este sistema llevara dinero en uno de esos códigos, sale como sobrante aunque cuelgue de una cuenta que el origen sí declara: el origen lo tiene fuera del balance. **Si el origen cuelga dinero de cuentas de orden dentro de una cuenta del mayor** y ese dinero no suma cero ahí, el cotejo se niega (sale 4) y nombra la cuenta, sus filas de orden y el neto: una apertura que lo llevara saldría igual al peso con ese dinero dentro del balance. Se corrige la jerarquía en el catálogo de origen. Un `--chart` que no es un `CatalogoCuentas`, es de otro RFC o es uno que `chart import` no planearía sale 4; uno ilegible, 2. |
 
 ## Qué hace el contador con la CUFIN, la CUCA y la UFIN
 
@@ -25,7 +25,6 @@ Son **registros fiscales de control**, no saldos contables: la CUFIN (art. 77 LI
 
 ## Lo que todavía no está hecho
 
-- **La terminal no le pasa aún al cotejo cuáles cuentas son de orden.** La balanza de comprobación del Anexo 24 no trae el código agrupador, así que la lista tiene que salir del catálogo; `opening-balance check` por la terminal todavía no la recibe y reporta esas cuentas como «sin cuenta en el plan».
 - **`opening-balance import` rechaza una balanza que trae cuentas de orden** (`APE-CUENTA-DESCONOCIDA`): la cuenta no existe en el catálogo, precisamente porque no se migró. Hasta que la exclusión llegue a la carga, las filas 8xx se quitan de la balanza que se carga, no de la que se coteja.
 
-Ambos puntos los decide el dueño del plan; el código que los resuelva actualiza esta sección en el mismo PR.
+Este punto lo decidió el dueño del plan en #621 (MNE-001-456); el código que lo resuelva actualiza esta sección en el mismo PR.

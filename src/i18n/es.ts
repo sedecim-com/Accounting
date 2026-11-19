@@ -1321,15 +1321,15 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.received_credit_note_cost.option.purchase_returns': 'Devoluciones y descuentos sobre compras (5200): lo que regresan los proveedores se ve aparte',
 
   'policy.employment_subsidy_paid_treatment.question':
-    'Cuando el subsidio para el empleo excede el ISR retenido y le entregas la diferencia en efectivo al trabajador, ¿es una cuenta por cobrar al fisco o un gasto del despacho?',
+    'El subsidio para el empleo sobre el ISR que se le entregó en efectivo al trabajador (la regla anterior al 1 de mayo de 2024): ¿es una cuenta por cobrar al fisco o un gasto del despacho?',
   'policy.employment_subsidy_paid_treatment.impact':
     'Decide si el efectivo que entregas regresa como acreditamiento contra el ISR retenido a otros trabajadores, o cae en gasto de nómina y nunca regresa.',
   'policy.employment_subsidy_paid_treatment.rationale':
     'Es lo que permite la ley y lo que de verdad es el dinero: el patrón adelanta efectivo que la autoridad le devuelve vía acreditamiento. Mandarlo a gasto es decidir renunciar a ese acreditamiento, lo que algunos despachos hacen a propósito cuando los importes son pequeños y el papeleo no vale la pena; pero debe ser una decisión, no la consecuencia de un valor por omisión.',
   'policy.employment_subsidy_paid_treatment.why':
-    'Cuando el subsidio es mayor que el ISR del periodo, el patrón debe entregarle la diferencia en efectivo al trabajador. Ese dinero sale del despacho y sólo regresa si lo acreditas. Dónde lo registras cambia tu gasto de nómina y lo que le debes al SAT este mes.',
+    'Hasta el 30 de abril de 2024, cuando el subsidio era mayor que el ISR del periodo el patrón debía entregarle la diferencia en efectivo al trabajador. Ese dinero salió del despacho y sólo regresa si lo acreditas, así que dónde lo registras cambia tu gasto de nómina y lo que le debes al SAT. Un recibo pagado desde el 1 de mayo de 2024 no entrega nada (decreto DOF 01-05-2024): eso es ley, y esta decisión no le aplica. Sí aplica a un recibo que ya se calculó con ese efectivo.',
   'policy.employment_subsidy_paid_treatment.what':
-    'Calculo el excedente por recibo, lo anoto en el recibo de nómina como efectivo entregado y lo contabilizo en la cuenta que nombra esta política. Con «cuenta_por_cobrar_fisco» además lo compenso contra el ISR retenido que reporta la declaración mensual.',
+    'En un recibo que entregó efectivo, contabilizo ese efectivo en la cuenta que nombra esta política; con «cuenta_por_cobrar_fisco» además lo compenso contra el ISR retenido que reporta la declaración mensual. En un recibo pagado desde el 1 de mayo de 2024 la retención de ISR es cero, no se entrega nada y no contabilizo nada por el excedente, diga lo que diga esta política.',
   'policy.employment_subsidy_paid_treatment.if_skipped':
     'Va a una cuenta por cobrar a la autoridad. Nada se rompe; si tu criterio es absorberlo, el gasto de nómina quedará subestimado hasta que lo digas.',
   'policy.employment_subsidy_paid_treatment.option.cuenta_por_cobrar_fisco':
@@ -2687,6 +2687,30 @@ export const ES: Record<keyof typeof EN, string> = {
   'bank.check.reconcile.summary':
     '· cobrado el {date} · periodo {period} · IVA reclasificado {amount}',
   'bank.check.reconcile.dry_run': 'Ensayo: se registró el cobro de verdad y se deshizo.',
+  'bank.check.cashing.refused.not_a_cheque':
+    'El cobro {receipt} se pagó por «{method}», no con cheque: sólo un cheque se cobra en un día posterior.',
+  'bank.check.cashing.refused.not_completed':
+    'El cobro {receipt} está en «{status}»: el cobro del cheque sólo se registra sobre un cobro completado.',
+  'bank.check.cashing.refused.already_cashed':
+    'El cheque del cobro {receipt} ya consta cobrado el {date} con el movimiento {transaction}. Un cheque se cobra una vez.',
+  'bank.check.cashing.refused.credit_used':
+    'El movimiento {transaction} ya es el cobro del cheque del cobro {holder}, así que no puede pagar el cobro {receipt}.',
+  'bank.check.cashing.refused.other_account':
+    'El movimiento {transaction} es de otra cuenta bancaria que el cobro {receipt}. Si el cheque se depositó ahí, corrige el cobro.',
+  'bank.check.cashing.refused.currency_differs':
+    'El movimiento {transaction} está en {creditCurrency} y el cobro {receipt} en {currency}. Aquí no se convierte.',
+  'bank.check.cashing.refused.amount_differs':
+    'El movimiento {transaction} es de {creditAmount} y el cobro {receipt} necesita un abono de exactamente {amount}.',
+  'bank.check.cashing.refused.credit_before_receipt':
+    'El movimiento {transaction} es del {date} y el cobro {receipt} del {receiptDate}: un cheque no se cobra antes de recibirse.',
+  'bank.check.cashing.refused.period_closed':
+    'El cobro del cheque del cobro {receipt} es del {date}, y ningún periodo abierto contiene esa fecha. Su IVA pertenece a ese mes y no se contabiliza con otra fecha: reabre antes el periodo.',
+  'bank.check.cashing.note.already_released':
+    'Sin asiento: el cobro ya había liberado este IVA en su propia fecha.',
+  'bank.check.cashing.note.nothing_to_release':
+    'Sin asiento: este cobro no tiene IVA pendiente de cobro.',
+  'bank.check.cashing.note.foreign_currency':
+    'Sin asiento: un cheque en moneda extranjera libera su IVA en la fecha del cobro.',
   'bank.transaction.show.unmatched': 'sin cotejar',
   'bank.match.create.summary':
     '· banco {bank} = libros {books} + ajustes {adjustments} · residual {residual} ({mode}) · ' +
@@ -2767,6 +2791,22 @@ export const ES: Record<keyof typeof EN, string> = {
     '¿Dejar en BORRADOR la apertura del ejercicio {year} al {date} (Debe {debit} · Haber {credit})? ' +
     'No entra al mayor hasta que la apliques con `entry post`.',
   'migration.check.as_of': 'Al {date} · {comparison}',
+  // ---- MNE-001-419 (#621): what --chart refuses ----
+  'migration.chart_option.other_rfc':
+    'El catálogo de --chart es del RFC {fileRfc} y la entidad es {entityRfc}. No se usa: el catálogo de otro ' +
+    'contribuyente no puede decir qué cuentas de esta entidad son de orden.',
+  'migration.chart_option.not_importable':
+    'El catálogo de --chart es uno que chart import no tomaría, así que no puede decir qué cuentas son de ' +
+    'orden: {findings}. Corrige el archivo en el origen y vuelve a exportarlo.',
+  'migration.chart_option.hierarchy_cycle':
+    'La jerarquía del catálogo de --chart se muerde la cola: {rows}. chart import rechaza este archivo y la ' +
+    'apertura también: corrige el SubCtaDe en el origen.',
+  'migration.check.memorandum_inside_account':
+    'El origen cuelga dinero de cuentas de orden (8xx) dentro de una cuenta del mayor, así que el saldo que esa ' +
+    'cuenta declara incluye dinero que queda fuera del balance: {detail}. Cada cuenta va seguida de sus filas de ' +
+    'orden, con el saldo que el origen declara, y de su neto, con el cargo en positivo. No se cotejó nada: una ' +
+    'apertura que lleve ese dinero saldría igual al peso con dinero de cuentas de orden dentro del balance. ' +
+    'Corrige la jerarquía en el catálogo de origen (SubCtaDe) y vuelve a exportar los dos archivos; ver {doctrine}.',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   'help.period.description': 'Periodos contables: cuáles existen, en qué estado está cada uno y cómo abrir uno futuro',
   'help.period.list.description': 'Lista todos los periodos con su estado, sus fechas y la marca de vencido',
@@ -2980,6 +3020,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.opening_balance.import.option.reason': 'por qué se carga la apertura; va a la bitácora de auditoría',
   'help.opening_balance.check.description':
     'Compara la balanza de origen contra el mayor en el día de apertura, al peso; sale con 4 si difieren',
+  'help.opening_balance.check.option.chart':
+    'el XML CatalogoCuentas de la misma migración: sus cuentas de orden (8xx) quedan fuera del cuadre, ' +
+    'nombradas con el saldo del origen',
   'help.ar.description':
     'Controles de cuentas por cobrar: concilia el auxiliar contra la cuenta de control y corre diagnósticos por nombre',
   'help.ar.reconcile.description':
@@ -4012,6 +4055,10 @@ export const ES: Record<keyof typeof EN, string> = {
     '{method, select, PPD {Su IVA queda como no cobrado (2125 en el catálogo sembrado) hasta que llegue su complemento de pago (REP).{parked, select, yes { Hay complementos de pago aparcados: mnemosine rep reconcile liga el que pague esta factura.} other {}}} other {Registra su cobro con: mnemosine receipt record {invoice}}}',
   'ingest.issued_left_to_code':
     'Queda por contabilizar a mano ({reason}): lo emitió esta entidad, así que es una venta. Contabilízalo en CxC con `mnemosine cfdi post {uuid}`; `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending` lista los que esperan',
+  'ingest.received_credit_note_to_inbox':
+    'Nota de crédito recibida: el modelo no la redacta. Contabilízala contra su factura con `mnemosine bill inbox run <id>`; `mnemosine bill inbox list` la muestra, y el motivo si tiene que esperar',
+  'ingest.preview.route.received_credit_note':
+    'nota de crédito recibida: reglas del despacho y luego la bandeja; sin borrador de la IA. La contabiliza una regla que exija este tipo de documento o, si no, `mnemosine bill inbox run`',
   'ingest.summary.issued_to_post':
     '{count} de ellos los emitió esta entidad: contabiliza cada uno en CxC con `mnemosine cfdi post <uuid>`; lístalos con `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending`.',
   'bill.inbox.edit.issued_post_with': 'Lo emitió esta entidad: contabilízalo en CxC con `mnemosine cfdi post {uuid}`.',
