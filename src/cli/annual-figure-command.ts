@@ -23,14 +23,16 @@ import {
 } from './kernel/index.js';
 
 // ============================================================
-// mnemosine annual figure record · anual cifra registrar — MNE-001-457 (#622)
+// mnemosine annual figure record · anual cifra registrar — MNE-001-457,
+// MNE-001-420 (#622)
 //
 // The accountant attests a figure read off an annual return ALREADY FILED:
-// today the profit coefficient, without which the provisional ISR of `filing
-// workpaper generate` blocks (ISR-WP-NO-COEFFICIENT). The row keeps the return
-// as its source and the user who captured it. Nothing is filed or overwritten:
-// the table is append-only (migration 166), so an amendment is a new capture
-// and the reader takes the latest. The pending tax losses are MNE-001-420.
+// the profit coefficient, without which the provisional ISR of `filing
+// workpaper generate` blocks (ISR-WP-NO-COEFFICIENT), or the pending tax
+// losses, with the INPC month they are updated through. The row keeps the
+// return as its source and the user who captured it. Nothing is filed or
+// overwritten: the table is append-only (migration 166), so an amendment is a
+// new capture and the reader takes the latest.
 //
 // EVERY REFUSAL IS THE LEAF'S, IN WORDS, BEFORE ANY QUERY: exit 2 for a flag
 // missing or malformed, then exit 4 for a rule of the return itself. Only the
@@ -49,17 +51,23 @@ interface Opts {
   entity?: string; tenant?: string; user?: string;
   format?: string; json?: boolean; fields?: string | boolean; quiet?: boolean; output?: string;
   kind?: string; value?: string; year?: string; filedOn?: string; source?: string; dryRun?: boolean;
+  updatedThrough?: string;
 }
 
 /** The persisted kinds (migration 166) this leaf records; an identifier is never respelled. */
-const KINDS = ['profit_coefficient'] as const;
+const KINDS = ['profit_coefficient', 'pending_tax_losses'] as const;
 /** DECIMAL(19,4): at most fifteen digits before the point and four after. */
 const VALUE = /^(\d{1,15})(?:\.(\d{1,4}))?$/;
 /** The CHECK of source_fiscal_year in migration 166. */
 const FIRST_YEAR = 2000;
 const LAST_YEAR = 2200;
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-interface Capture { kind: (typeof KINDS)[number]; value: string; year: number; filedOn: string; source: string }
+interface Capture {
+  kind: (typeof KINDS)[number]; value: string; year: number; filedOn: string; source: string;
+  /** Pending tax losses only: the INPC month they are updated through. */
+  updatedThrough?: string;
+}
 
 /** The flags as a capture, or the refusal of the first one that fails. No query. */
 export function parseAnnualFigure(opts: Opts): Capture {
@@ -81,10 +89,27 @@ export function parseAnnualFigure(opts: Opts): Capture {
   }
   const source = opts.source?.trim();
   if (!source) throw usageError({ key: 'annual.figure.source_required' });
+  const updatedThrough = opts.updatedThrough;
+  if (kind === 'pending_tax_losses' && updatedThrough === undefined) {
+    throw usageError({ key: 'annual.figure.updated_through_required' });
+  }
+  if (kind !== 'pending_tax_losses' && updatedThrough !== undefined) {
+    throw usageError({ key: 'annual.figure.updated_through_not_allowed', params: { kind } });
+  }
+  if (updatedThrough !== undefined && !MONTH.test(updatedThrough)) {
+    throw usageError({ key: 'annual.figure.updated_through_invalid', params: { value: updatedThrough } });
+  }
   if (filedOn <= `${year}-12-31`) {
     throw validationFailed({ key: 'annual.figure.filed_on_not_after_year', params: { value: filedOn, year } });
   }
-  return { kind, value, year, filedOn, source };
+  // A return's losses serve the next year's payments, whose update target is
+  // at most that June (LISR art. 57). Past it the paper would take a factor of
+  // 1.0000 for a month no payment updates to, so the capture is refused.
+  const target = `${year + 1}-06`;
+  if (updatedThrough !== undefined && updatedThrough > target) {
+    throw validationFailed({ key: 'annual.figure.updated_through_after_target', params: { value: updatedThrough, year, target } });
+  }
+  return { kind, value, year, filedOn, source, ...(updatedThrough === undefined ? {} : { updatedThrough }) };
 }
 
 /** The usage text: what the leaf does and its examples, keyed, resolved when the help is shown. */
@@ -103,6 +128,7 @@ export function registerAnnualFigureCommand(program: Command, deps: AnnualFigure
   optionByKey(record, '--year <yyyy>', 'help.annual.figure.record.option.year');
   optionByKey(record, '--filed-on <date>', 'help.annual.figure.record.option.filed_on');
   optionByKey(record, '--source <text>', 'help.annual.figure.record.option.source');
+  optionByKey(record, '--updated-through <yyyy-mm>', 'help.annual.figure.record.option.updated_through');
   optionByKey(record, '--dry-run', 'cli.flag.dry_run');
   // Not open to the agent: this table is not a review queue.
   declareRisk(record, { risk: 'escritura', agent: false, writes: 'income_tax_annual_inputs (one row per capture, append-only)' });
@@ -126,12 +152,13 @@ export function registerAnnualFigureCommand(program: Command, deps: AnnualFigure
         : await recordIncomeTaxInput(entityScope(ctx.tenantId, ctx.entityId), {
             kind: capture.kind, value: capture.value, sourceFiscalYear: capture.year,
             sourceFiledOn: capture.filedOn, sourceDocument: capture.source, recordedBy: who.userId,
+            ...(capture.updatedThrough === undefined ? {} : { updatedThrough: capture.updatedThrough }),
           });
       render(
         [{
           id: saved?.id ?? '', kind: capture.kind, value: saved?.value ?? capture.value,
           source_fiscal_year: capture.year, source_filed_on: capture.filedOn, source_document: capture.source,
-          updated_through: saved?.updatedThrough ?? null, recorded_by: who.email,
+          updated_through: saved?.updatedThrough ?? capture.updatedThrough ?? null, recorded_by: who.email,
           recorded_at: saved?.recordedAt ?? '', dry_run: dryRun,
         }],
         { ...opts, idField: 'id' }

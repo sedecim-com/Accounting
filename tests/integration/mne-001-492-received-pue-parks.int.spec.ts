@@ -31,6 +31,8 @@ import { conciliarCheque } from '../../src/services/banking/treasury-posting.js'
 //   credited · PUE on 1135, credited in full by a note's entry on 2026-04-10
 //   legacy   · PUE on 1130, unpaid
 //   ppd      · PPD on 1135, unpaid
+//   cheque   · PUE on 1135, paid in full by a cheque signed 2026-03-22 that the
+//              bank has not cashed (MNE-001-559): it has paid nothing yet
 //
 // PR 2 · THE DOORS PARK IT (second tenant, at the end): the fixture CFDI posted
 // by `bill inbox run`'s service, typed bills approved with `bill approve`'s,
@@ -74,9 +76,18 @@ beforeAll(async () => {
   for (const name of ['waiting', 'partial', 'settled', 'credited']) bills[name] = await seed('PUE', '1135');
   bills.legacy = await seed('PUE', '1130');
   bills.ppd = await seed('PPD', '1135');
+  bills.cheque = await seed('PUE', '1135');
 
   await pay(bills.partial, '580.00', '2026-03-20');
   await pay(bills.settled, '1160.00', '2026-03-25');
+  await recordVendorPayment(
+    {
+      entityId: f.entityId, counterpartyId: vendorId, paymentAmount: '1160.00', paymentDate: '2026-03-22',
+      paymentMethod: 'check', checkNumber: 'CH-492',
+      applications: [{ documentId: bills.cheque, amountApplied: '1160.00' }],
+    },
+    f.userId
+  );
   marchBeforeApril = await diot(3);
 
   await pay(bills.waiting, '1160.00', '2026-04-08');
@@ -347,5 +358,13 @@ describe('PR 2 · a received PUE posted by any door', () => {
     expect(await approveDraft(draft('1135', bankCode))).toMatchObject({ code: 'CFDI_RECONCILIATION_FAILED' });
     expect(await approveDraft(draft('1135', '2110'))).toBeUndefined();
     expect(await approveDraft(draft('1130', bankCode))).toBeUndefined();
+  });
+});
+
+describe('a PUE paid by a cheque the bank has not cashed (MNE-001-559)', () => {
+  it('counts as unpaid: March declares none of its VAT and both notices say why', () => {
+    expect(vatOf(march, bills.cheque)).toBeUndefined();
+    expect(codesOf(march, bills.cheque)).toContain(WAITS);
+    expect(codesOf(march, bills.cheque)).toContain('DIOT-CHEQUE-NOT-CASHED');
   });
 });

@@ -14,7 +14,8 @@ import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/ten
 // stops blocking once the coefficient of a filed return is captured, an
 // amendment takes over while the earlier row stays, and no refusal reaches a
 // table CHECK or writes a row. The return is invented. A case that captures
-// uses its own sibling entity.
+// uses its own sibling entity. The pending tax losses of part 2/2
+// (MNE-001-420) are the second block.
 // ============================================================
 
 let f: Fixture;
@@ -83,7 +84,7 @@ const rowOf = (r: CliResult): Record<string, unknown> =>
 interface IsrSection {
   blockedBy: string[];
   lines: Array<{ key: string; source: { ref?: string } }>;
-  inputs: { coefficient?: Record<string, unknown> };
+  inputs: { coefficient?: Record<string, unknown>; losses?: Record<string, unknown> };
 }
 const isrOf = (r: CliResult): IsrSection => (JSON.parse(r.out) as { sections: IsrSection[] }).sections[0];
 
@@ -154,7 +155,10 @@ describe('annual figure record --kind profit_coefficient', () => {
   it.each<[string, Record<string, string | undefined>, number, RegExp]>([
     ['no --kind', { kind: undefined }, 2, /--kind/],
     ['a kind the table does not have', { kind: 'ptu_paid' }, 2, /--kind.*ptu_paid/],
-    ['the pending losses, which this leaf does not record yet', { kind: 'pending_tax_losses' }, 2, /--kind.*pending_tax_losses/],
+    ['the pending losses without their INPC month', { kind: 'pending_tax_losses' }, 2, /--updated-through/],
+    ['a coefficient with an INPC month', { 'updated-through': '2025-12' }, 2, /--updated-through/],
+    ['an INPC month that is not a month', { kind: 'pending_tax_losses', 'updated-through': '2025-13' }, 2, /--updated-through.*2025-13/],
+    ['an INPC month after June of the year after the return', { kind: 'pending_tax_losses', 'updated-through': '2026-07' }, 4, /--updated-through.*2026-07/],
     ['no --value', { value: undefined }, 2, /--value/],
     ['a value that is not a number', { value: 'abc' }, 2, /--value.*abc/],
     ['a negative value', { value: '-0.1' }, 2, /--value.*-0\.1/],
@@ -199,4 +203,50 @@ describe('annual figure record --kind profit_coefficient', () => {
     expect(rowOf(r)).toEqual({ id: '', ...printed(), recorded_at: '', dry_run: true });
     expect(await stored(f.entityId)).toEqual([]);
   });
+});
+
+describe('annual figure record --kind pending_tax_losses — MNE-001-420', () => {
+  const LOSSES = { kind: 'pending_tax_losses', value: '30000', 'updated-through': '2025-12' };
+  /** A sibling that already has the 2025 return's coefficient: without it the paper has no lines. */
+  const withCoefficient = async (name: string): Promise<Who> => {
+    const who = me(await crearEntidadHermana(f, name));
+    expect((await cli(record(), who)).exitCode).toBe(0);
+    return who;
+  };
+
+  it('zero losses updated through December settle the May paper with factor 1.0000 and no INPC read', async () => {
+    const who = await withCoefficient('MNE-001-420 · zero losses');
+    const captured = await cli(record({ ...LOSSES, value: '0' }, ['--json']), who);
+    expect(captured.exitCode, captured.err).toBe(0);
+    expect(rowOf(captured)).toMatchObject(
+      { ...printed(), kind: 'pending_tax_losses', value: '0.0000', updated_through: '2025-12', dry_run: false });
+
+    // A January to June payment targets the previous December, where these already are.
+    const may = await cli(paper('2026-05'), who);
+    expect(may.exitCode, may.err).toBe(0);
+    expect(isrOf(may).blockedBy).toEqual([]);
+    expect(isrOf(may).lines.find((l) => l.key === 'pending_losses_applied')?.source.ref).toBe('losses');
+    expect(isrOf(may).inputs.losses).toEqual({
+      value: '0.0000', sourceFiscalYear: 2025, sourceFiledOn: '2026-03-20', sourceDocument: SOURCE,
+      updatedThrough: '2025-12', updatedTo: '2025-12', factor: '1.0000', applied: '0.0000',
+    });
+  }, 120_000);
+
+  it('losses of the return before last block the paper as stale, and the remedy names the command', async () => {
+    const who = await withCoefficient('MNE-001-420 · stale losses');
+    const old = await cli(record({ ...LOSSES, year: '2024', 'filed-on': '2025-03-20', 'updated-through': '2024-12' }), who);
+    expect(old.exitCode, old.err).toBe(0);
+    const may = await cli(paper('2026-05'), who);
+    expect(may.exitCode).toBe(4);
+    expect(isrOf(may).blockedBy).toEqual(['ISR-WP-LOSSES-STALE']);
+    expect(may.err).toContain('`mnemosine annual figure record --kind pending_tax_losses --year 2025`');
+  }, 120_000);
+
+  it('losses updated through an earlier month are captured, and the paper blocks for the INPC it cannot read', async () => {
+    const who = await withCoefficient('MNE-001-420 · losses not updated');
+    const captured = await cli(record({ ...LOSSES, 'updated-through': '2025-07' }), who);
+    expect(captured.exitCode, captured.err).toBe(0);
+    // No migration seeds inpc_serie, and the binary cannot load it (MNE-001-306).
+    expect(isrOf(await cli(paper('2026-05'), who)).blockedBy).toEqual(['ISR-WP-LOSSES-NOT-UPDATED']);
+  }, 120_000);
 });
