@@ -83,6 +83,17 @@ describe('la tabla de la semilla: pocas filas, todas fundamentadas', () => {
     expect(uma?.effectiveFrom).toBe('2026-02-01');
   });
 
+  it('the separation exemption is 90 UMA per year of service since the UMA exists (MNE-001-375)', () => {
+    const row = LEGAL_PARAMETERS_SEED.find(
+      (p) => p.key === 'income_tax.exempt_cap.separation_uma_per_year_of_service'
+    );
+    // In UMA, not pesos: the peso figure moves every February with the UMA.
+    expect(row).toMatchObject({ jurisdiction: 'MX', value: '90.0000', unit: 'UMA', effectiveFrom: '2016-01-28' });
+    expect(row?.sourceUrl).toBe('https://www.diputados.gob.mx/LeyesBiblio/pdf/LISR.pdf');
+    expect(row?.sourceNote).toMatch(/art\. 93 fr\. XIII/);
+    expect(row?.sourceNote).toMatch(/DOF 27-01-2016/);
+  });
+
   it('sólo México: sembrar media jurisdicción haría creer que la tabla ya contesta por las dos', () => {
     expect(new Set(LEGAL_PARAMETERS_SEED.map((p) => p.jurisdiction))).toEqual(new Set(['MX']));
   });
