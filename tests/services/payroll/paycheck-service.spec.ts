@@ -146,6 +146,8 @@ function policies(treatment: string, decided: boolean): void {
       ? { key, value: 'producto_al_centavo', defined: false, question: 'q', rationale: null }
       : key === 'employment_subsidy_separate_run'
         ? { key, value: 'recompute_on_combined_income', defined: false, question: 'q', rationale: null }
+        : key === 'imss_old_age_band_edge'
+          ? { key, value: 'truncated_to_hundredths', defined: true, question: 'q', rationale: null }
         : { key, value: treatment, defined: decided, question: 'q', rationale: null }
   );
 }
@@ -441,7 +443,9 @@ describe('la frontera de inquilino', () => {
 describe('the subsidy rounding is the entity policy (#298)', () => {
   it('reads subsidio_al_empleo_redondeo for the entity and hands it to the subsidy engine', async () => {
     mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
-      key, value: key === 'subsidio_al_empleo_redondeo' ? 'diario_al_centavo' : 'cuenta_por_cobrar_fisco',
+      key,
+      value: key === 'subsidio_al_empleo_redondeo' ? 'diario_al_centavo'
+        : key === 'imss_old_age_band_edge' ? 'above_upper_edge' : 'cuenta_por_cobrar_fisco',
       defined: true, question: 'q', rationale: null,
     }));
     const seen: Array<string | undefined> = [];
@@ -461,12 +465,32 @@ describe('the subsidy rounding is the entity policy (#298)', () => {
   });
 });
 
+describe('the edge of an old-age band is the entity policy (#661)', () => {
+  it('reads imss_old_age_band_edge for the entity and hands it to the employer IMSS engine', async () => {
+    const seen: Array<string | undefined> = [];
+    calculadoras.set('MX:imss_employer', {
+      jurisdiction: 'MX',
+      taxType: 'imss_employer',
+      calculate: async (input): Promise<TaxOutput> => {
+        seen.push(input.imss_old_age_band_edge);
+        return { jurisdiction: 'MX', tax_type: 'imss_employer', tax_amount: 300, taxable_wages_used: 7500 };
+      },
+    });
+    await calculatePaycheck(ENTRADA);
+    expect(mockGetPolicy).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', entityId: 'ent-1' }, 'imss_old_age_band_edge', undefined
+    );
+    expect(seen).toEqual(['truncated_to_hundredths']);
+  });
+});
+
 describe('another paycheck of the period already caused the subsidy (#430, MNE-001-398)', () => {
   it('recomputes on the combined income and credits only the difference', async () => {
     mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
       key,
       value: key === 'subsidio_al_empleo_redondeo' ? 'producto_al_centavo'
-        : key === 'employment_subsidy_separate_run' ? 'recompute_on_combined_income' : 'cuenta_por_cobrar_fisco',
+        : key === 'employment_subsidy_separate_run' ? 'recompute_on_combined_income'
+        : key === 'imss_old_age_band_edge' ? 'above_upper_edge' : 'cuenta_por_cobrar_fisco',
       defined: false, question: 'q', rationale: null,
     }));
     const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;
@@ -494,7 +518,8 @@ describe('another paycheck of the period already caused the subsidy (#430, MNE-0
     mockGetPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
       key,
       value: key === 'subsidio_al_empleo_redondeo' ? 'producto_al_centavo'
-        : key === 'employment_subsidy_separate_run' ? 'none_on_separate_paycheck' : 'cuenta_por_cobrar_fisco',
+        : key === 'employment_subsidy_separate_run' ? 'none_on_separate_paycheck'
+        : key === 'imss_old_age_band_edge' ? 'above_upper_edge' : 'cuenta_por_cobrar_fisco',
       defined: false, question: 'q', rationale: null,
     }));
     const base = mockQuery.getMockImplementation() as (sql: string, args: unknown[]) => Promise<unknown>;

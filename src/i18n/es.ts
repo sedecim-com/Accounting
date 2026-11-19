@@ -1354,6 +1354,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.employment_subsidy_separate_run.option.none_on_separate_paycheck':
     'Ninguno en el recibo aparte: una corrida que no es la ordinaria, o un recibo que sólo paga aguinaldo, no lleva subsidio; el recibo ordinario conserva el suyo',
 
+  'policy.imss_old_age_band_edge.question':
+    'Cuando el SBC de un trabajador queda apenas arriba del límite superior de un tramo de la cuota patronal de cesantía en edad avanzada y vejez, ¿qué tramo paga?',
+  'policy.imss_old_age_band_edge.impact':
+    'Decide la tasa de la cuota patronal de cesantía en edad avanzada y vejez de un SBC que cae entre dos tramos de la LSS art. 168 fr. II a), y con ella el recibo, la póliza de nómina, el pasivo patronal y el archivo del SUA. En marzo de 2026 un SBC de 352.00 (3.0006 UMA) paga 6.361 % con "above_upper_edge" (335.86 por quincena) y 6.026 % con "truncated_to_hundredths" (318.17); uno de 316.00 (1.003 salarios mínimos) paga 6.026 % (285.63) o 3.150 % (149.31).',
+  'policy.imss_old_age_band_edge.rationale':
+    'La LSS art. 168 fr. II a) cobra todo SBC pero escribe sus tramos a dos decimales sin regla de redondeo; leer «1.51» como «más de 1.50» conserva cada límite superior como está escrito y nunca calcula menos de lo que la tabla puede exigir.',
+  'policy.imss_old_age_band_edge.why':
+    'La tabla escribe sus límites a dos decimales («3.00 UMA» y luego «3.01 UMA») y no da regla de redondeo, así que la ley no dice qué tramo paga un SBC de 3.0006 UMA. Si el programa con el que determinas tus cuotas trunca, elige esa opción para que ambos den la misma cifra.',
+  'policy.imss_old_age_band_edge.what':
+    'Por cada día cotizado ubico el SBC, topado a 25 UMA, con la UMA y el salario mínimo general vigentes ese día, y cobro la tasa de ese tramo y año de la tabla con fechas. La nota del cálculo nombra el tramo, la tasa y la regla usada.',
+  'policy.imss_old_age_band_edge.if_skipped':
+    'Un SBC arriba de un límite superior paga el tramo siguiente.',
+  'policy.imss_old_age_band_edge.option.above_upper_edge':
+    'Un SBC arriba del límite superior de un tramo, por cualquier monto, paga el tramo siguiente',
+  'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
+    'SBC ÷ salario mínimo y SBC ÷ UMA se cortan a dos decimales y luego se ubican en la tabla',
+
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
   'policy.filing_rounding_to_pesos.impact':

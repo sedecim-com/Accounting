@@ -24,6 +24,7 @@ import {
   subsidyOfOtherRunsInPeriod,
   subsidyOfPaycheckInPeriod,
 } from '../mx/employment-subsidy.js';
+import { readOldAgeBandEdge } from '../mx/old-age-band.js';
 import type { TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
 
 // ============================================================
@@ -602,7 +603,14 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
 
     // IMSS employer
     const imssErCalc = taxRegistry.getRequired('MX', 'imss_employer');
-    const imssEr = await imssErCalc.calculate({ ...baseTaxInput, taxable_wages: 0 });
+    // LSS art. 168 gives no rounding rule for the edges of the old-age bands,
+    // so the entity's policy decides (#661); the engine refuses without it.
+    const oldAgeBandEdge = await readOldAgeBandEdge({ tenantId: input.tenant_id, entityId: period.entity_id });
+    const imssEr = await imssErCalc.calculate({
+      ...baseTaxInput,
+      taxable_wages: 0,
+      imss_old_age_band_edge: oldAgeBandEdge,
+    });
     taxableImss = imssEr.taxable_wages_used;
     breakdown.imss_employer = imssEr.tax_amount;
     employerTaxes = employerTaxes.plus(imssEr.tax_amount);
