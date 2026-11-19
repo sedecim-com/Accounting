@@ -35,7 +35,8 @@ import { generateFilingWorkpaper } from '../../src/services/fiscal/filing-workpa
 //        (800) 10-15; NA anticipo 1,000 + 160 10-20 on FIN
 //        → 1,000 + 5,000 − 1,000 = 5,000 / 800 = 2120 (not caused twice)
 //   Nov  S10 PPD 1,000 (160) 11-03, collected whole 11-05; N10 100 + 16
-//        11-12 → 1,000 / 160; N10 nothing, and 2125 ends at −16
+//        11-12 takes its IVA from 2120 (MNE-001-575) → 900 / 144, and 2125
+//        ends at 0
 // ============================================================
 
 let f: Fixture;
@@ -205,7 +206,7 @@ describe('an issued credit note in the IVA paper (LIVA art. 7)', () => {
     expect(lineOf(papers[5], 'N3')).toBeUndefined();
     expect(lineOf(papers[6], 'N3')).toBeUndefined();
     // June's 500 / 80 is S3's 1,800 / 288 less N2's 300 / 48 and N7's 1,000 / 160.
-    expect(await balance('2125')).toBe('16.00'); // 0 from S3 (320 − 32 − 288); +16 from N10, see C7
+    expect(await balance('2125')).toBe('0.00'); // S3: 320 − 32 − 288; N10 took nothing from it, see C7
   });
 
   it('C4 · July: notes at 0 % and exempt lower their bases, and the proportion of art. 5 fr. V with them', () => {
@@ -245,12 +246,13 @@ describe('an issued credit note in the IVA paper (LIVA art. 7)', () => {
     expect(lineOf(oct, 'NA')?.breakdown.tasa16).toEqual({ base: '-1000.0000', iva: '-160.0000' });
   });
 
-  it('C7 · a note on a PPD invoice already collected: its entry debits 2125, so the paper takes nothing out (part 2 warns)', async () => {
-    // FIXME(#799): the posting takes the 16 from 2125, where nothing was
-    // parked, and the IVA stays in 2120. Part 2 (MNE-001-566) names it.
+  it('C7 · a note on a PPD invoice already collected takes its IVA from 2120, and the paper takes it out', async () => {
+    // MNE-001-575: S10 had nothing left in 2125, so the 16 N10 restitutes leaves 2120 (LIVA art. 7).
     const nov = papers[11];
-    expect(box(nov, 'tasa16')).toEqual({ base: '1000.00', iva: '160.00' });
-    expect(lineOf(nov, 'N10')).toBeUndefined();
+    expect(box(nov, 'tasa16')).toEqual({ base: '900.00', iva: '144.00' });
+    expect(lineOf(nov, 'N10')).toMatchObject({
+      entryIds: [notes.N10.entry], breakdown: { tasa16: { base: '-100.0000', iva: '-16.0000' } },
+    });
     expect(codes(nov)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
   });
 

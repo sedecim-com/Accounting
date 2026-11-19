@@ -31,7 +31,7 @@ import type { DocumentContribution } from './iva-workpaper.js';
 //     caused (LIVA art. 1-B), so the note restitutes nothing and only lowers
 //     what the later collection releases. The share counted is the part whose
 //     IVA left 2120: the whole note on PUE or with no invoice, that debit over
-//     the note's IVA on PPD (0 today), and nothing for a PPD note with no IVA,
+//     the IVA on PPD (what the invoice no longer had parked, MNE-001-575), and nothing for a PPD note with no IVA,
 //     whose base the collections already leave out.
 //   · Its split by rate is its invoice's, as a portion of it, the way a partial
 //     collection is split, then negated. A note with no invoice is one line of
