@@ -4516,8 +4516,13 @@ Commands:
   list|listar [options]                 List collections by customer, date,
                                         application state or missing REP
   apply|aplicar [options] <ref>         Apply the on-account balance of a
-                                        collection to one or more invoices
-                                        (releases PPD IVA)
+                                        collection to invoices: releases PPD
+                                        IVA, and an advance cancels the IVA it
+                                        caused instead of causing it again. It
+                                        covers procedure A of Anexo 20, Appendix
+                                        6 (the sale invoiced whole); under
+                                        procedure B the advance moves to revenue
+                                        by a journal entry
   unapply|desaplicar [options] <ref>    Unapply a collection from an invoice as
                                         a NEW event: reopens it and re-parks the
                                         PPD IVA
@@ -4651,8 +4656,10 @@ Examples:
 ```
 Usage: mnemosine receipt apply|aplicar [options] <ref>
 
-Apply the on-account balance of a collection to one or more invoices (releases
-PPD IVA)
+Apply the on-account balance of a collection to invoices: releases PPD IVA, and
+an advance cancels the IVA it caused instead of causing it again. It covers
+procedure A of Anexo 20, Appendix 6 (the sale invoiced whole); under procedure B
+the advance moves to revenue by a journal entry
 
 Arguments:
   ref                      payment number or id

@@ -1023,6 +1023,14 @@ export interface AplicacionPosterior {
    */
   withholdingIsr?: string;
   withholdingIva?: string;
+  /**
+   * MNE-001-422 · customer side only: the IVA an advance caused when it was
+   * collected that this cash carries, cancelled on a PUE invoice (DR 2120)
+   * instead of caused again, and the month whose 2120 also carried it, when
+   * the invoice was issued on or before the advance.
+   */
+  advanceIva?: string;
+  advanceIvaTwiceIn?: string | null;
   /** Lo aplicado (vivo) a la factura por CUALQUIER pago, ANTES de este evento. */
   priorApplied: string;
   taxAmount: string;
@@ -1044,6 +1052,9 @@ export interface AplicacionPosterior {
  *
  * MNE-001-460: dated `date`, the day of the application, never the process
  * clock: the IVA it causes belongs to that day's month.
+ *
+ * MNE-001-422: the advance's IVA the cash carries (`advanceIva`) is debited
+ * to 2120, and only the rest of the cash to anticipo_clientes.
  */
 // MNE-001-113: what the customer withheld also closes the receivable, as a
 // debit to the two customer-withholding roles. The VAT the customer
@@ -1107,18 +1118,41 @@ export async function postReceiptApplicationEntry(
     }
   }
 
+  // MNE-001-422: an advance's IVA, caused when it was collected, is cancelled
+  // on its sale's PUE invoice instead of caused again, as the TipoRelacion 07
+  // egreso does (`egreso_emitido_aplicacion_anticipo`, cfdi-taxonomy.ts); its
+  // base alone leaves 2150. The service refuses an advance on a PPD invoice.
+  const cancelled = aplicaciones.filter((a) => new Decimal(a.advanceIva ?? '0').greaterThan(0));
+  const advanceIva = cancelled.reduce((s, a) => s.plus(a.advanceIva as string), new Decimal(0));
+  const advanceLines: JeLine[] = [];
+  const twice = [...new Set(cancelled.flatMap((a) => (a.advanceIvaTwiceIn ? [a.advanceIvaTwiceIn] : [])))];
+  if (cancelled.length > 0) {
+    const due = reclassRoles('issued').to;
+    const ivaRoles = await roleAccounts(client, payment.entity_id, [due]);
+    for (const a of cancelled) {
+      advanceLines.push({
+        account_id: requireRole(ivaRoles, due),
+        debit_amount: new Decimal(a.advanceIva as string).toFixed(4),
+        credit_amount: null,
+        description: `IVA of advance ${payment.payment_number} cancelled on ${a.invoiceNumber}, caused when collected` +
+          (a.advanceIvaTwiceIn ? ` · ${a.advanceIvaTwiceIn} also caused it on the invoice` : ''),
+      });
+    }
+  }
+
   const roles = await roleAccounts(client, payment.entity_id, ['cxc', 'anticipo_clientes']);
   const entry = await createJournalEntry(
     payment.entity_id,
     date,
     JournalEntryType.AUTO_PAYMENT,
-    documentos.length
+    (documentos.length
       ? `Application of ${payment.payment_number} · IVA caused on collection: ${documentos.join(', ')}`
-      : `Application of ${payment.payment_number}`,
+      : `Application of ${payment.payment_number}`) +
+      (twice.length ? ` · advance IVA caused twice in ${twice.join(', ')}` : ''),
     [
       {
         account_id: requireRole(roles, 'anticipo_clientes'),
-        debit_amount: total.toFixed(4),
+        debit_amount: total.minus(advanceIva).toFixed(4),
         credit_amount: null,
         description: `On-account applied ${payment.payment_number}`,
       },
@@ -1129,6 +1163,7 @@ export async function postReceiptApplicationEntry(
         credit_amount: total.plus(withheldIsr).plus(withheldIva).toFixed(4),
         description: `AR settlement ${payment.payment_number}`,
       },
+      ...advanceLines,
       ...ivaLines,
     ],
     userId,
@@ -1382,6 +1417,9 @@ export async function postVendorApplicationEntry(
  *
  * MNE-001-460: dated `app.date`, the day of the unapply, as
  * `postVendorUnapplicationEntry` is.
+ *
+ * MNE-001-422: the advance's IVA the rows cancelled (`advanceIva`) is
+ * credited back to 2120, and only the rest of the cash to anticipo_clientes.
  */
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,
@@ -1390,12 +1428,15 @@ export async function postReceiptUnapplicationEntry(
     invoiceNumber: string; amount: string; ivaReclass: string | null; ivaEstimado: string; date: string;
     /** MNE-001-113: what the customer withheld on the rows being closed. */
     withholdingIsr?: string; withholdingIva?: string;
+    /** MNE-001-422: the advance's IVA the rows cancelled, which goes back to 2120 as they stored it. */
+    advanceIva?: string;
   },
   userId: string
 ): Promise<JournalEntry> {
   const roles = await roleAccounts(client, payment.entity_id, ['cxc', 'anticipo_clientes']);
   const isr = new Decimal(app.withholdingIsr ?? '0');
   const vat = new Decimal(app.withholdingIva ?? '0');
+  const advanceIva = new Decimal(app.advanceIva ?? '0');
   const jeLines: JeLine[] = [
     {
       account_id: requireRole(roles, 'cxc'),
@@ -1406,11 +1447,21 @@ export async function postReceiptUnapplicationEntry(
     {
       account_id: requireRole(roles, 'anticipo_clientes'),
       debit_amount: null,
-      credit_amount: app.amount,
+      credit_amount: new Decimal(app.amount).minus(advanceIva).toFixed(4),
       description: `Back on account ${payment.payment_number}`,
     },
     ...(await withholdingLines(client, payment, isr, vat, 'credit')),
   ];
+  if (advanceIva.greaterThan(0)) {
+    const due = reclassRoles('issued').to;
+    const ivaRoles = await roleAccounts(client, payment.entity_id, [due]);
+    jeLines.push({
+      account_id: requireRole(ivaRoles, due),
+      debit_amount: null,
+      credit_amount: advanceIva.toFixed(4),
+      description: `IVA of advance ${payment.payment_number} restored (unapply) - Invoice ${app.invoiceNumber}`,
+    });
+  }
 
   const iva = new Decimal(app.ivaReclass ?? app.ivaEstimado);
   const estimado = app.ivaReclass === null && iva.greaterThan(0);

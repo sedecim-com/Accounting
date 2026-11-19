@@ -2374,8 +2374,6 @@ export const EN = {
     'This entity does not keep Mexican books, so an advance takes no IVA treatment: record it without one and the whole amount goes to its customer advances account.',
   'receipt.advance.cheque_not_wired':
     'An advance received by cheque causes its IVA on the day the bank cashes the cheque (LIVA art. 1-B, second paragraph), not on the day it is received, and recording that cashing does not exist yet (issue 700). Nothing was recorded.',
-  'receipt.advance.application_not_wired':
-    '{receipt} is an advance whose IVA was caused when it was collected. Applying it to an invoice has to cancel that IVA instead of causing it a second time, and that is not wired yet (issue 623, MNE-001-422). Nothing was applied.',
   // MNE-001-421 (#623): the advance from the terminal.
   'receipt.advance.needs_customer':
     'Name the invoice this cash settles, or the customer who paid it with --customer: with no invoice it is recorded as an advance.',
@@ -2414,6 +2412,13 @@ export const EN = {
     'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
   'receipt.advance.invoice_already_booked':
     '{customer} has {invoices} open, and its own entry already credited customer advances: an advance CFDI in the books. The cash of that advance is recorded against it (receipt record {invoice}), not as a new advance. Go on only if this is another advance.',
+  // MNE-001-422 (#623): an advance applied to its sale's PUE invoice cancels the IVA it caused.
+  'receipt.advance.ppd_not_wired':
+    '{receipt} is an advance whose IVA was caused when it was collected, and {invoice} is PPD: applying it there has to net that IVA against the share the invoice releases from IVA not yet collected, and that is not wired yet (issue 623, MNE-001-461). Nothing was applied.',
+  'receipt.advance.iva_cancelled': 'advance IVA cancelled {iva}',
+  'receipt.advance.iva_restored': 'advance IVA restored {iva}',
+  'receipt.advance.iva_caused_twice':
+    'The advance\'s IVA of {iva} cancelled on {invoice} was also caused in {month} by that invoice, a PUE issued on or before the advance (LIVA art. 1-B): that month\'s IVA charged carried it twice, and this application cancels it in its own month. Review the return of {month}.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
@@ -3119,6 +3124,9 @@ export const EN = {
     'the customer who paid (number, name or id); required with no invoice, and with one it must be the invoice\'s own',
   'help.receipt.record.option.tax_rate':
     'IVA treatment of an advance with no invoice: 16, 8, 0, exempt (exento) or not-subject (no-objeto); the IVA is caused on collection',
+  // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
+  'help.receipt.apply.description':
+    'Apply the on-account balance of a collection to invoices: releases PPD IVA, and an advance cancels the IVA it caused instead of causing it again. It covers procedure A of Anexo 20, Appendix 6 (the sale invoiced whole); under procedure B the advance moves to revenue by a journal entry',
   'help.receipt.apply.option.withholding':
     'what the customer withheld, which settles the invoice with the cash: "isr:1000" or "iva:1066.67" (repeatable); with several invoices, "INV-2026-00042:isr:1000"',
   'help.receipt.apply.option.date':

@@ -60,3 +60,43 @@ export function storedAdvanceTreatment(factorType: string | null, taxRate: strin
   if (factorType === 'no_objeto') return 'not-subject';
   return new Decimal(taxRate ?? '0').toString() as AdvanceTreatment;
 }
+
+/**
+ * MNE-001-422 · What one allocation takes from a receipt's advance.
+ *
+ * The cash on account that carries no advance IVA goes first (`plain`), and
+ * the advance after it: no norm orders how cash on account is consumed, and
+ * this order means that undoing an application and making it again never
+ * moves the advance's IVA (a systems rule, ADR-0006 Decision 2). The IVA the
+ * advance's cash carries is a cumulative target, the advance's IVA times the
+ * share of it consumed, minus what was already cancelled: the telescope of
+ * `ivaToReclassify`, with the receipt as the document, so the last part
+ * cancels exactly the rest. Amounts at four decimals.
+ */
+export interface AdvanceTake {
+  /** The advance, base plus IVA, as the receipt stored it. */
+  total: string;
+  iva: string;
+  /** The advance's cash already taken, and its IVA already cancelled, by live allocations (and earlier ones of the same event). */
+  consumed: string;
+  cancelled: string;
+  /** Cash on account that is no advance, not yet taken. */
+  plain: string;
+  /** The cash this allocation applies. */
+  applied: string;
+}
+
+export function takeFromAdvance(t: AdvanceTake): { plain: string; base: string; iva: string } {
+  const total = new Decimal(t.total);
+  const consumed = new Decimal(t.consumed);
+  const applied = new Decimal(t.applied);
+  const plain = Decimal.min(applied, Decimal.max(new Decimal(t.plain), 0));
+  const fromAdvance = Decimal.min(applied.minus(plain), Decimal.max(total.minus(consumed), 0));
+  if (fromAdvance.lessThanOrEqualTo(0)) return { plain: applied.toFixed(4), base: '0.0000', iva: '0.0000' };
+  const after = consumed.plus(fromAdvance);
+  const target = after.greaterThanOrEqualTo(total)
+    ? new Decimal(t.iva)
+    : new Decimal(t.iva).times(after).dividedBy(total).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+  const iva = Decimal.min(Decimal.max(target.minus(t.cancelled), 0), fromAdvance);
+  return { plain: applied.minus(fromAdvance).toFixed(4), base: fromAdvance.minus(iva).toFixed(4), iva: iva.toFixed(4) };
+}

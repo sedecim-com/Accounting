@@ -2243,8 +2243,6 @@ export const ES: Record<keyof typeof EN, string> = {
     'Esta entidad no lleva libros mexicanos, así que un anticipo no lleva tratamiento de IVA: regístralo sin él y el importe completo va a su cuenta de anticipos de clientes.',
   'receipt.advance.cheque_not_wired':
     'Un anticipo recibido con cheque causa su IVA el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo), no el día en que se recibe, y registrar ese cobro todavía no existe (issue 700). No se registró nada.',
-  'receipt.advance.application_not_wired':
-    '{receipt} es un anticipo cuyo IVA se causó al cobrarse. Aplicarlo a una factura tiene que cancelar ese IVA en vez de causarlo otra vez, y eso todavía no está cableado (issue 623, MNE-001-422). No se aplicó nada.',
   // MNE-001-421 (#623): the advance from the terminal.
   'receipt.advance.needs_customer':
     'Indica la factura que este dinero liquida, o el cliente que lo pagó con --customer: sin factura se registra como anticipo.',
@@ -2283,6 +2281,13 @@ export const ES: Record<keyof typeof EN, string> = {
     'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
   'receipt.advance.invoice_already_booked':
     '{customer} tiene abierta {invoices}, y su propia póliza ya abonó anticipos de clientes: un CFDI de anticipo en libros. El dinero de ese anticipo se registra contra ella (receipt record {invoice}), no como un anticipo nuevo. Sigue sólo si éste es otro anticipo.',
+  // MNE-001-422 (#623): an advance applied to its sale's PUE invoice cancels the IVA it caused.
+  'receipt.advance.ppd_not_wired':
+    '{receipt} es un anticipo cuyo IVA se causó al cobrarse, y {invoice} es PPD: aplicarlo ahí tiene que netear ese IVA contra la parte que la factura libera del IVA no cobrado, y eso todavía no está cableado (issue 623, MNE-001-461). No se aplicó nada.',
+  'receipt.advance.iva_cancelled': 'IVA del anticipo cancelado {iva}',
+  'receipt.advance.iva_restored': 'IVA del anticipo devuelto {iva}',
+  'receipt.advance.iva_caused_twice':
+    'El IVA del anticipo, {iva}, que se cancela en {invoice} también se causó en {month} por esa factura, una PUE emitida el día del anticipo o antes (LIVA art. 1-B): el IVA trasladado de ese mes lo llevó dos veces, y esta aplicación lo cancela en su propio mes. Revisa la declaración de {month}.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
   'bank.parse.amount_invalid': '{flag} debe ser un importe decimal; llegó "{value}".',
   'bank.parse.rate_invalid': '{flag} debe ser una tasa decimal; llegó "{value}".',
@@ -2954,6 +2959,9 @@ export const ES: Record<keyof typeof EN, string> = {
     'el cliente que pagó (número, nombre o id); obligatorio sin factura, y con ella debe ser el de la factura',
   'help.receipt.record.option.tax_rate':
     'tratamiento de IVA de un anticipo sin factura: 16, 8, 0, exempt (exento) o not-subject (no-objeto); el IVA se causa al cobro',
+  // MNE-001-422 (#623): the leaf says which procedure of Apéndice 6 it covers.
+  'help.receipt.apply.description':
+    'Aplica el saldo a cuenta de un cobro a facturas: libera el IVA de las PPD, y un anticipo cancela el IVA que causó en vez de causarlo otra vez. Cubre el procedimiento A del Anexo 20, Apéndice 6 (la venta facturada completa); con el procedimiento B el anticipo pasa a ingresos por póliza',
   'help.receipt.apply.option.withholding':
     'lo que retuvo el cliente, que salda la factura junto con el efectivo: "isr:1000" o "iva:1066.67" (repetible); con varias facturas, "INV-2026-00042:isr:1000"',
   'help.receipt.apply.option.date':

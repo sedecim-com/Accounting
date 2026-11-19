@@ -125,14 +125,15 @@ describe('a customer advance recorded with its treatment', () => {
     expect(await count('payment_allocations')).toBe(0);
   });
 
-  it('refuses to apply it until part 5/8, and writes nothing', async () => {
+  it('applied to its sale\'s invoice, cancels the IVA it caused (MNE-001-422, customer-advance-apply.int.spec.ts)', async () => {
     const invoiceId = await saleInvoice();
-    await expect(
-      applyCustomerPayment(mx.entityId, paymentId, [{ documentId: invoiceId, amountApplied: '1160.00' }], mx.userId)
-    ).rejects.toMatchObject({ code: 'ADVANCE_APPLICATION_NOT_WIRED', messageKey: { key: 'receipt.advance.application_not_wired' } });
-    expect(await count('payment_allocations')).toBe(0);
-    const inv = await query<{ due: string }>('SELECT amount_due::text AS due FROM invoices WHERE id = $1', [invoiceId]);
-    expect(Number(inv.rows[0].due)).toBe(5800);
+    const r = await applyCustomerPayment(
+      mx.entityId, paymentId, [{ documentId: invoiceId, amountApplied: '1160.00' }], mx.userId, { date: '2026-08-20' }
+    );
+    expect(r.documentos[0]).toMatchObject({ saldoNuevo: '4640.00', advanceIva: '160.00' });
+    expect(await linesOf(r.journalEntry!.id)).toEqual({
+      [mx.cuentas['2150']]: [1000, 0], [mx.cuentas['2120']]: [160, 0], [mx.cuentas['1120']]: [0, 1160],
+    });
   });
 
   it('is undone by receipt reverse with one mirror: bank, 2150 and 2120 hold what they held', async () => {
