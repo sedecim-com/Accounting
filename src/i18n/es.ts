@@ -3168,6 +3168,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.ar.reconcile.description':
     'Auxiliar (facturas abiertas − notas de crédito sin aplicar) contra la cuenta de control de cxc, nombrando las pólizas manuales',
   'help.ar.reconcile.option.strict': 'sale con 4 ante cualquier diferencia, por corta que sea la lista de sospechosos',
+  'ar.check.cross_party_application.found':
+    'el dinero de un cliente salda la factura de otro: revísalo; no se bloquea nada',
+  'ar.check.cross_party_application.none': 'ninguna',
   'help.ar.check.description':
     'Diagnósticos de cuentas por cobrar por nombre; `--check` sin valor los lista, `--check a,b` elige',
   'help.ar.check.option.check': 'diagnósticos a correr, separados por comas; --check sin valor lista la batería',
