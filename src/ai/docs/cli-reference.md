@@ -8557,11 +8557,12 @@ Options:
   -o, --output <path>                      write to a file instead of stdout
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
-  --kind <kind>                            which figure it is: profit_coefficient
+  --kind <kind>                            which figure it is: profit_coefficient | pending_tax_losses
   --value <figure>                         the figure as the return states it: zero or more, up to four decimals
   --year <yyyy>                            fiscal year of the annual return
   --filed-on <date>                        day the return, or its amendment, was filed (YYYY-MM-DD)
   --source <text>                          how you identify that return: its operation number
+  --updated-through <yyyy-mm>              pending tax losses only: the INPC month they are already updated through (YYYY-MM, LISR art. 57)
   --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
   -h, --help                               display help for command
@@ -8574,6 +8575,8 @@ Examples:
     mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operation 000111" --dry-run
   Its amendment, filed later: a new capture that takes over, and the earlier one stays:
     mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json
+  The pending tax losses of that return, updated through December 2025; zero is captured too:
+    mnemosine annual figure record --kind pending_tax_losses --value 30000.00 --updated-through 2025-12 --year 2025 --filed-on 2026-03-20 --source "operation 000111"
 ```
 
 ## `mnemosine isn`
