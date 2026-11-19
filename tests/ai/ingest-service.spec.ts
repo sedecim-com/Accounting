@@ -717,6 +717,13 @@ describe('ING-3 · #320 — the direction of the CFDI', () => {
     expect(issued).not.toMatch(/treat it as PPD/);
   });
 
+  it('an issued CFDI sends a PPD\'s IEPS to the uncollected role (2181) and a PUE\'s to 2180 (MNE-001-505, #699)', () => {
+    const issued = buildCfdiPrompt({ ...makeUpload(), direction: 'issued' });
+    expect(issued).toMatch(/a PUE's goes to "IEPS por Pagar" \(2180\)/);
+    expect(issued).toMatch(/PPD's to "IEPS Trasladado No Cobrado" \(2181\), because it is caused on collection \(LIEPS art\. 10\)/);
+    expect(buildCfdiPrompt({ ...makeUpload(), direction: 'received' })).not.toMatch(/2181/);
+  });
+
   it('the prompt states the direction instead of assuming a received CFDI', () => {
     const received = buildCfdiPrompt({ ...makeUpload(), direction: 'received' });
     expect(received).toMatch(/- Direction: received \(the entity is the receiver/);

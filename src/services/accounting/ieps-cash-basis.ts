@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { AccountingError } from '../../utils/errors.js';
 import { ivaToReclassify } from './iva-cash-basis.js';
+import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 
 // ============================================================
 // IEPS ON CASH BASIS (LIEPS arts. 10, 5o. and 5o.-C)
@@ -28,13 +29,13 @@ import { ivaToReclassify } from './iva-cash-basis.js';
 // ============================================================
 
 /**
- * The role a PPD sale's IEPS waits in. NOTE: a constant, not yet an
- * `AccountRole`: the taxonomy, the seed and the approval that park IEPS in it
- * are MNE-001-505, and `ROLE_MAP` would force a seed on joining the union.
+ * The role a PPD sale's IEPS waits in (2181): the taxonomy credits it on a PPD
+ * sale, the seed maps it on Mexican books, and the backfill gives it to an
+ * entity seeded before (MNE-001-505).
  */
-export const IEPS_UNCOLLECTED_ROLE = 'ieps_trasladado_no_cobrado';
+export const IEPS_UNCOLLECTED_ROLE: AccountRole = 'ieps_trasladado_no_cobrado';
 /** Where caused IEPS is owed (2180). */
-export const IEPS_DUE_ROLE = 'ieps_por_pagar';
+export const IEPS_DUE_ROLE: AccountRole = 'ieps_por_pagar';
 /** The key under `journal_entry_lines.tags` that ties an IEPS move to its invoice and receipt. */
 export const IEPS_MOVE_TAG = 'ieps_release';
 
