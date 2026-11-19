@@ -2771,14 +2771,18 @@ export const ES: Record<keyof typeof EN, string> = {
     'Varios abonos de {amount} podrían ser el cheque del cobro {receipt}: {candidates}. No se elige ninguno, porque el equivocado fecha su IVA en el mes equivocado. Nombra el bueno con `--transaction`.',
   'bank.check.cashing.refused.as_of_differs':
     'El movimiento bancario {transaction} es del {date}, no del {asOf}, la fecha afirmada con `--as-of` para el cobro {receipt}. El cobro del cheque lo fecha el banco: revisa que ése sea el abono que pagó el cheque.',
+  'bank.check.cashing.refused.several_need_transaction':
+    'Los cobros {receipt} los cobra juntos un solo abono del banco: nómbralo con `--transaction`. No se busca por su suma, que puede coincidir con el depósito de otro día.',
+  'bank.check.cashing.refused.sum_differs':
+    'El movimiento {transaction} es de {creditAmount} y los cobros {receipt} suman {amount}: un abono cobra varios cheques sólo cuando es exactamente su suma.',
+  'bank.check.cashing.refused.credit_matched':
+    'El movimiento {transaction} está ligado por el cotejo vivo {match} a {type} {matched}, que no es ninguno de los cobros {receipt} ni un renglón de banco de sus pólizas: el abono pagó otra cosa. Si ese cotejo está mal, deshazlo con `bank match unapply {match}`.',
   'bank.check.cashing.check_value': '{check} · cobro {payment}',
   'bank.check.cashing.why':
     'por qué: bajo la LIVA el precio pagado con cheque se entiende cobrado el día en que el banco lo COBRA y no ' +
     'el día en que se recibe, así que el IVA de este cobro se causa en ese mes.',
   'bank.check.reconcile.one_of':
     'Nombra exactamente un cheque: el pago a proveedor <id>, o un cobro de cliente con --receipt <ref>.',
-  'bank.check.reconcile.one_receipt':
-    'Un solo --receipt por registro: un abono que cobra varios cheques todavía no se registra aquí.',
   'bank.transaction.show.unmatched': 'sin cotejar',
   'bank.match.create.summary':
     '· banco {bank} = libros {books} + ajustes {adjustments} · residual {residual} ({mode}) · ' +
@@ -3198,6 +3202,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.annual.figure.record.option.year': 'ejercicio de la declaración anual',
   'help.annual.figure.record.option.filed_on': 'día en que se presentó la declaración, o su complementaria (AAAA-MM-DD)',
   'help.annual.figure.record.option.source': 'cómo identificas esa declaración: su número de operación',
+  'help.annual.figure.record.option.updated_through': 'sólo pérdidas fiscales pendientes: el mes del INPC al que ya están actualizadas (AAAA-MM, LISR art. 57)',
   'help.annual.figure.record.footer':
     'Esto registra lo que dice una declaración presentada. No presenta nada, y la última captura de una declaración es la vigente.\n' +
     'Una declaración que no dio coeficiente no se captura: el papel usa entonces la última declaración capturada dentro de cinco años (LISR art. 14 fr. I).\n' +
@@ -3205,7 +3210,9 @@ export const ES: Record<keyof typeof EN, string> = {
     '  Ver el renglón que dejaría el coeficiente de utilidad de la declaración de 2025, sin escribir nada:\n' +
     '    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operación 000111" --dry-run\n' +
     '  Su complementaria, presentada después: una captura nueva que queda vigente, y la anterior se conserva:\n' +
-    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operación 000222" --json',
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operación 000222" --json\n' +
+    '  Las pérdidas fiscales pendientes de esa declaración, actualizadas a diciembre de 2025; cero también se captura:\n' +
+    '    mnemosine annual figure record --kind pending_tax_losses --value 30000.00 --updated-through 2025-12 --year 2025 --filed-on 2026-03-20 --source "operación 000111"',
   'annual.figure.kind_invalid': '--kind "{value}" no es una cifra que este comando registre: usa {kinds}. No se escribió nada.',
   'annual.figure.value_invalid': '--value "{value}" no es válido: usa cero o más, con hasta quince dígitos antes del punto y cuatro decimales (por ejemplo 0.0875). No se escribió nada.',
   'annual.figure.year_invalid': '--year "{value}" no es válido: usa los cuatro dígitos del ejercicio de la declaración, de {min} a {max}. No se escribió nada.',
@@ -3213,6 +3220,10 @@ export const ES: Record<keyof typeof EN, string> = {
   'annual.figure.source_required': 'Falta --source: di de qué declaración se tomó la cifra (su número de operación). No se escribió nada.',
   'annual.figure.filed_on_not_after_year': '--filed-on {value} no puede ser la fecha de presentación de la declaración de {year}: la anual se presenta después de que termina su ejercicio. No se escribió nada.',
   'annual.figure.filed_on_in_future': '--filed-on {value} es posterior a hoy ({today}): sólo se registra una declaración ya presentada. No se escribió nada.',
+  'annual.figure.updated_through_required': 'Falta --updated-through: las pérdidas fiscales pendientes dicen a qué mes del INPC están actualizadas (AAAA-MM, por ejemplo 2025-12). No se escribió nada.',
+  'annual.figure.updated_through_not_allowed': '--updated-through no va con --kind {kind}: sólo las pérdidas fiscales pendientes llevan mes de actualización. No se escribió nada.',
+  'annual.figure.updated_through_invalid': '--updated-through "{value}" no es un mes: usa AAAA-MM (por ejemplo 2025-12). No se escribió nada.',
+  'annual.figure.updated_through_after_target': '--updated-through {value} es posterior a {target}: las pérdidas de la declaración de {year} las aplican los pagos del ejercicio siguiente, que las actualizan a lo más a ese junio (LISR art. 57). No se escribió nada.',
   'annual.figure.dry_run': 'Simulación: la captura es válida; no se escribió nada.',
   'annual.figure.next': 'Sigue: `mnemosine filing workpaper generate --period <AAAA-MM> --form isr`.',
   'income_tax_input.year_out_of_range': 'El ejercicio de la declaración fuente va de {min} a {max}: {year} queda fuera.',
@@ -3594,7 +3605,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.bank.check.reconcile.argument.id': 'pago a proveedor hecho con cheque; se omite con --receipt',
   'help.bank.check.reconcile.option.receipt':
     'cobro de cliente pagado con cheque, por folio (PMT-2026-00042) o id, en lugar de <id>; sin ' +
-    '--transaction el abono de su importe se busca en su cuenta bancaria desde su fecha',
+    '--transaction el abono de su importe se busca en su cuenta bancaria desde su fecha. Se repite para ' +
+    'un depósito de varios cheques: un solo abono de exactamente su suma, nombrado con --transaction',
   'help.bank.check.reconcile.option.transaction':
     'el movimiento bancario que lo pagó, nombrado a mano; obligatorio cuando coinciden varios cargos',
   'help.bank.check.reconcile.option.as_of':

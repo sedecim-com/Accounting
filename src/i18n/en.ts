@@ -2925,14 +2925,18 @@ export const EN = {
     'Several credits of {amount} could be the cheque of receipt {receipt}: {candidates}. None is picked, because the wrong one dates its VAT in the wrong month. Name the right one with `--transaction`.',
   'bank.check.cashing.refused.as_of_differs':
     'Bank transaction {transaction} is dated {date}, not {asOf}, the date stated with `--as-of` for receipt {receipt}. The bank dates the cashing: check that this is the credit that paid the cheque.',
+  'bank.check.cashing.refused.several_need_transaction':
+    'Receipts {receipt} are cashed together by one bank credit: name it with `--transaction`. It is not searched by their sum, which the deposit of another day can match.',
+  'bank.check.cashing.refused.sum_differs':
+    'Bank transaction {transaction} is {creditAmount} and receipts {receipt} add up to {amount}: one credit cashes several cheques only when it is their exact sum.',
+  'bank.check.cashing.refused.credit_matched':
+    'Bank transaction {transaction} is tied by the live match {match} to {type} {matched}, which is not among receipts {receipt} nor a bank line of their entries: the credit paid something else. If that match is wrong, undo it with `bank match unapply {match}`.',
   'bank.check.cashing.check_value': '{check} · receipt {payment}',
   'bank.check.cashing.why':
     'why: under the VAT law a price paid by cheque counts as collected on the day the bank CASHED it and not ' +
     'the day it was received, so the VAT of this receipt is caused in that month.',
   'bank.check.reconcile.one_of':
     'Name exactly one cheque: the vendor payment <id>, or a customer receipt with --receipt <ref>.',
-  'bank.check.reconcile.one_receipt':
-    'One --receipt per recording: a credit that cashes several cheques is not recorded here yet.',
   'bank.transaction.show.unmatched': 'unmatched',
   'bank.match.create.summary':
     '· bank {bank} = books {books} + adjustments {adjustments} · residual {residual} ({mode}) · ' +
@@ -3353,6 +3357,7 @@ export const EN = {
   'help.annual.figure.record.option.year': 'fiscal year of the annual return',
   'help.annual.figure.record.option.filed_on': 'day the return, or its amendment, was filed (YYYY-MM-DD)',
   'help.annual.figure.record.option.source': 'how you identify that return: its operation number',
+  'help.annual.figure.record.option.updated_through': 'pending tax losses only: the INPC month they are already updated through (YYYY-MM, LISR art. 57)',
   'help.annual.figure.record.footer':
     'This records what a filed return states. It files nothing, and the latest capture of a return is the one in force.\n' +
     'A return that gave no coefficient is not captured: the paper then uses the latest return captured within five years (LISR art. 14 fr. I).\n' +
@@ -3360,7 +3365,9 @@ export const EN = {
     '  See the row the profit coefficient of the 2025 return would leave, writing nothing:\n' +
     '    mnemosine annual figure record --kind profit_coefficient --value 0.0875 --year 2025 --filed-on 2026-03-20 --source "operation 000111" --dry-run\n' +
     '  Its amendment, filed later: a new capture that takes over, and the earlier one stays:\n' +
-    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json',
+    '    mnemosine annual figure record --kind profit_coefficient --value 0.0900 --year 2025 --filed-on 2026-05-02 --source "operation 000222" --json\n' +
+    '  The pending tax losses of that return, updated through December 2025; zero is captured too:\n' +
+    '    mnemosine annual figure record --kind pending_tax_losses --value 30000.00 --updated-through 2025-12 --year 2025 --filed-on 2026-03-20 --source "operation 000111"',
   'annual.figure.kind_invalid': '--kind "{value}" is not a figure this command records: use {kinds}. Nothing was written.',
   'annual.figure.value_invalid': '--value "{value}" is not valid: use zero or more, with up to fifteen digits before the point and four decimals (for example 0.0875). Nothing was written.',
   'annual.figure.year_invalid': '--year "{value}" is not valid: use the four digits of the return\'s fiscal year, from {min} to {max}. Nothing was written.',
@@ -3368,6 +3375,10 @@ export const EN = {
   'annual.figure.source_required': 'Missing --source: say which return the figure was read from (its operation number). Nothing was written.',
   'annual.figure.filed_on_not_after_year': '--filed-on {value} cannot be the filing date of the {year} return: an annual return is filed after its year ends. Nothing was written.',
   'annual.figure.filed_on_in_future': '--filed-on {value} is after today ({today}): only a return already filed is recorded. Nothing was written.',
+  'annual.figure.updated_through_required': 'Missing --updated-through: pending tax losses say the INPC month they are updated through (YYYY-MM, for example 2025-12). Nothing was written.',
+  'annual.figure.updated_through_not_allowed': '--updated-through does not go with --kind {kind}: only the pending tax losses carry an update month. Nothing was written.',
+  'annual.figure.updated_through_invalid': '--updated-through "{value}" is not a month: use YYYY-MM (for example 2025-12). Nothing was written.',
+  'annual.figure.updated_through_after_target': '--updated-through {value} is after {target}: the losses of the {year} return are applied by the next year\'s payments, which update them to that June at most (LISR art. 57). Nothing was written.',
   'annual.figure.dry_run': 'Dry run: the capture is valid; nothing was written.',
   'annual.figure.next': 'Next: `mnemosine filing workpaper generate --period <YYYY-MM> --form isr`.',
   'income_tax_input.year_out_of_range': 'The fiscal year of the source return goes from {min} to {max}: {year} is outside.',
@@ -3736,7 +3747,8 @@ export const EN = {
   'help.bank.check.reconcile.argument.id': 'vendor payment made by check; omit it with --receipt',
   'help.bank.check.reconcile.option.receipt':
     'customer receipt paid by cheque, by number (PMT-2026-00042) or id, instead of <id>; without ' +
-    '--transaction the credit of its amount is searched in its bank account from its date',
+    '--transaction the credit of its amount is searched in its bank account from its date. Repeat it for ' +
+    'a deposit of several cheques: one credit of their exact sum, named with --transaction',
   'help.bank.check.reconcile.option.transaction':
     'the bank movement that paid it, named by hand; required when several charges match',
   'help.bank.check.reconcile.option.as_of':
