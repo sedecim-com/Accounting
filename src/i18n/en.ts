@@ -1347,15 +1347,15 @@ export const EN = {
   'policy.received_credit_note_cost.option.purchase_returns': 'Purchase returns and discounts (5200): what vendors give back is shown apart',
 
   'policy.employment_subsidy_paid_treatment.question':
-    'When the employment subsidy exceeds the ISR withheld and you hand the difference to the worker in cash, is that a receivable from the tax authority or an expense of the firm?',
+    'The employment subsidy over the ISR that was handed to the worker in cash (the rule before 1 May 2024): a receivable from the tax authority or an expense of the firm?',
   'policy.employment_subsidy_paid_treatment.impact':
     'It decides whether the cash you hand over comes back as a credit against the ISR withheld from other workers, or lands in payroll expense and never comes back.',
   'policy.employment_subsidy_paid_treatment.rationale':
     'It is what the law allows and what the money actually is: the employer advances cash that the authority repays by way of credit. Expensing it is a decision to give up that credit, which some firms make deliberately when the amounts are small and the paperwork is not worth it — but it should be a decision, not the consequence of a default.',
   'policy.employment_subsidy_paid_treatment.why':
-    'When the subsidy is larger than the ISR of the period, the employer must hand the difference to the worker in cash. That money leaves the firm and comes back only if you credit it. Where you book it changes both your payroll expense and what you owe the SAT this month.',
+    'Until 30 April 2024, when the subsidy was larger than the ISR of the period the employer had to hand the difference to the worker in cash. That money left the firm and comes back only if you credit it, so where you book it changes both your payroll expense and what you owe the SAT. A paycheck paid from 1 May 2024 hands over nothing (decree DOF 01-05-2024): that is law, and this decision does not apply to it. It still applies to a paycheck already calculated with that cash.',
   'policy.employment_subsidy_paid_treatment.what':
-    'I compute the excess per paycheck, record it on the payslip as cash delivered, and post it to the account this policy names. With "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports.',
+    'For a paycheck that handed cash over, I post that cash to the account this policy names; with "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports. For a paycheck paid from 1 May 2024 I withhold no ISR, hand over nothing and post nothing for the excess, whatever this policy says.',
   'policy.employment_subsidy_paid_treatment.if_skipped':
     'It goes to a receivable from the authority. Nothing breaks; if your criterion is to absorb it, payroll expense will be understated until you say so.',
   'policy.employment_subsidy_paid_treatment.option.cuenta_por_cobrar_fisco':
@@ -2823,6 +2823,30 @@ export const EN = {
     '· cleared on {date} · period {period} · VAT reclassified {amount}',
   'bank.check.reconcile.dry_run':
     'Dry run: the clearing really was recorded, and then rolled back.',
+  'bank.check.cashing.refused.not_a_cheque':
+    'Receipt {receipt} was paid by "{method}", not by cheque: only a cheque is cashed on a later day.',
+  'bank.check.cashing.refused.not_completed':
+    'Receipt {receipt} is in "{status}": a cashing is recorded on a completed receipt only.',
+  'bank.check.cashing.refused.already_cashed':
+    'The cheque of receipt {receipt} is already cashed on {date} with bank transaction {transaction}. A cheque is cashed once.',
+  'bank.check.cashing.refused.credit_used':
+    'Bank transaction {transaction} is already the cashing of receipt {holder}, so it cannot pay receipt {receipt}.',
+  'bank.check.cashing.refused.other_account':
+    'Bank transaction {transaction} is in another bank account than receipt {receipt}. If the cheque was deposited there, correct the receipt.',
+  'bank.check.cashing.refused.currency_differs':
+    'Bank transaction {transaction} is in {creditCurrency} and receipt {receipt} in {currency}. Nothing is converted here.',
+  'bank.check.cashing.refused.amount_differs':
+    'Bank transaction {transaction} is {creditAmount} and receipt {receipt} needs a credit of exactly {amount}.',
+  'bank.check.cashing.refused.credit_before_receipt':
+    'Bank transaction {transaction} is dated {date} and receipt {receipt} {receiptDate}: a cheque is not cashed before it is received.',
+  'bank.check.cashing.refused.period_closed':
+    'The cashing of receipt {receipt} is dated {date}, and no open period holds that date. Its VAT belongs to that month and is not posted with another date: reopen the period first.',
+  'bank.check.cashing.note.already_released':
+    'No entry: the receipt had already released this VAT on its own date.',
+  'bank.check.cashing.note.nothing_to_release':
+    'No entry: this receipt holds no VAT pending collection.',
+  'bank.check.cashing.note.foreign_currency':
+    'No entry: a cheque in a foreign currency releases its VAT on the receipt date.',
   'bank.transaction.show.unmatched': 'unmatched',
   'bank.match.create.summary':
     '· bank {bank} = books {books} + adjustments {adjustments} · residual {residual} ({mode}) · ' +
@@ -2905,6 +2929,22 @@ export const EN = {
     'Leave the opening of fiscal year {year} on {date} as a DRAFT (Debit {debit} · Credit {credit})? ' +
     'It stays out of the ledger until you apply it with `entry post`.',
   'migration.check.as_of': 'As of {date} · {comparison}',
+  // ---- MNE-001-419 (#621): what --chart refuses ----
+  'migration.chart_option.other_rfc':
+    'The --chart catalog belongs to RFC {fileRfc} and the entity is {entityRfc}. It is not used: the catalog of ' +
+    'another taxpayer cannot say which accounts of this entity are memorandum accounts.',
+  'migration.chart_option.not_importable':
+    'The --chart catalog is one that chart import would not take, so it cannot say which accounts are ' +
+    'memorandum accounts: {findings}. Fix the file at the source and export it again.',
+  'migration.chart_option.hierarchy_cycle':
+    'The hierarchy of the --chart catalog bites its own tail: {rows}. chart import refuses this file and so does ' +
+    'the opening: fix the SubCtaDe at the source.',
+  'migration.check.memorandum_inside_account':
+    'The source hangs memorandum (8xx) money inside a ledger account, so the figure that account declares ' +
+    'includes money that stays off the balance: {detail}. Each account is followed by its memorandum rows, with ' +
+    'the figure the source declares, and by their net, debit positive. Nothing was compared: an opening that ' +
+    'carries that money would come out equal with memorandum money on the balance sheet. Fix the hierarchy in ' +
+    'the source catalog (SubCtaDe) and export both files again; see {doctrine}.',
   // ==== MNE-001-093 · help by key, pilot family `period` (issue #314) ====
   //
   // Key format decided on 2026-09-26 (#152): help.<cmd>[.<sub>…].description,
@@ -3122,6 +3162,9 @@ export const EN = {
   'help.opening_balance.import.option.reason': 'why the opening is loaded; goes to the audit log',
   'help.opening_balance.check.description':
     'Compare the source trial balance against the ledger on the opening day, to the peso; exits 4 if they differ',
+  'help.opening_balance.check.option.chart':
+    'the CatalogoCuentas XML of the same migration: its memorandum accounts (8xx) are left out of the footing ' +
+    'and named with the source figure',
   'help.ar.description':
     'Receivables controls: reconcile the subledger against the control account, run named diagnostics',
   'help.ar.reconcile.description':
@@ -4163,6 +4206,10 @@ export const EN = {
     '{method, select, PPD {Its VAT waits as not yet collected (2125 in the seeded chart) until its payment receipt (REP) arrives.{parked, select, yes { There are parked payment receipts: mnemosine rep reconcile links any that pays this invoice.} other {}}} other {Record its collection with: mnemosine receipt record {invoice}}}',
   'ingest.issued_left_to_code':
     'Left to post by hand ({reason}): this entity issued it, so it is a sale. Post it to receivables with `mnemosine cfdi post {uuid}`; `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending` lists the ones waiting',
+  'ingest.received_credit_note_to_inbox':
+    'Received credit note: the model does not draft it. Post it against its bill with `mnemosine bill inbox run <id>`; `mnemosine bill inbox list` shows it, and the reason if it has to wait',
+  'ingest.preview.route.received_credit_note':
+    'received credit note: firm rules, then the inbox; no AI draft. A rule that requires this document type posts it, otherwise `mnemosine bill inbox run` does',
   'ingest.summary.issued_to_post':
     '{count} of them issued by this entity: post each to receivables with `mnemosine cfdi post <uuid>`; list them with `mnemosine cfdi list --direction emitido --type cfdi_ingreso --status pending`.',
   'bill.inbox.edit.issued_post_with': 'This entity issued it: post it to receivables with `mnemosine cfdi post {uuid}`.',

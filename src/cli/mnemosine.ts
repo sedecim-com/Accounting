@@ -2428,7 +2428,7 @@ ingest.action(async (files: string[], opts: {
       if (cnt.draft > 0) console.log(c.dim('Review the drafts with: mnemosine review'));
       const leftToCode = leftToCodeSummary(report);
       if (leftToCode) console.log(leftToCode);
-      if (cnt.blocked > report.toCode) console.log(c.dim('Answer the questions with: mnemosine questions'));
+      if (cnt.blocked > report.toCode + report.toInbox) console.log(c.dim('Answer the questions with: mnemosine questions'));
       // El registro es best-effort y NO cambia el código de salida — los CFDI
       // clasificados son verdad aunque la anotación falle. Pero el operador se
       // entera aquí, donde mira, y no sólo cuando pasó hace veinte minutos.

@@ -1,30 +1,8 @@
 {
   "caso": "nota-credito-ppd",
-  "resultado": "draft",
+  "resultado": "determinista",
   "tratamiento": null,
   "sospecha": false,
-  "asiento": [
-    {
-      "cuenta": [
-        "2110"
-      ],
-      "lado": "cargo",
-      "monto": "2320.00"
-    },
-    {
-      "cuenta": [
-        "6100"
-      ],
-      "lado": "abono",
-      "monto": "2000.00"
-    },
-    {
-      "cuenta": [
-        "1135"
-      ],
-      "lado": "abono",
-      "monto": "320.00"
-    }
-  ],
-  "nota": "Egreso sobre una PPD previa: reversa parcial - baja el pasivo 2110, reversa gasto e IVA pendiente. El espejo del caso 2."
+  "asiento": null,
+  "nota": "Egreso recibido sobre una PPD previa: el modelo no se invoca; `bill inbox run` la contabiliza contra su factura (#692). Su asiento (cargo 2110 2,320.00, abono 6100 2,000.00, abono 1135 320.00) se afirma contra Postgres en tests/integration/mne-001-489-received-credit-note.int.spec.ts, T1 y T12. Si el clasificador llega a verla, es regresion."
 }
