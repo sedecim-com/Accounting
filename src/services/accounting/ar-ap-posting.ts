@@ -1050,9 +1050,10 @@ export interface AplicacionPosterior {
   withholdingIva?: string;
   /**
    * MNE-001-422 · customer side only: the IVA an advance caused when it was
-   * collected that this cash carries, cancelled on a PUE invoice (DR 2120)
-   * instead of caused again, and the month whose 2120 also carried it, when
-   * the invoice was issued on or before the advance.
+   * collected that this cash carries, cancelled on its sale's invoice (DR
+   * 2120; on a PPD invoice netted against the share it releases, MNE-001-461)
+   * instead of caused again, and the month whose 2120 also carried it, when a
+   * PUE invoice was issued on or before the advance.
    */
   advanceIva?: string;
   advanceIvaTwiceIn?: string | null;
@@ -1080,6 +1081,10 @@ export interface AplicacionPosterior {
  *
  * MNE-001-422: the advance's IVA the cash carries (`advanceIva`) is debited
  * to 2120, and only the rest of the cash to anticipo_clientes.
+ *
+ * MNE-001-461: on a PPD invoice that debit meets the share released from
+ * 2125 in one 2120 line per invoice, CR g − c (DR when negative, none at
+ * zero). The release returned is g, what left 2125.
  */
 // MNE-001-113: what the customer withheld also closes the receivable, as a
 // debit to the two customer-withholding roles. The VAT the customer
@@ -1099,14 +1104,12 @@ export async function postReceiptApplicationEntry(
   const withheldIva = aplicaciones.reduce((s, a) => s.plus(a.withholdingIva ?? '0'), new Decimal(0));
   const cashBasis = await entityUsesCashBasisIva(client, payment.entity_id);
   const ivaPorFactura = new Map<string, string>();
-  const ivaLines: JeLine[] = [];
   const documentos: string[] = [];
   const iepsDocs: string[] = [];
+  const iepsLines: JeLine[] = [];
 
   // A cheque not cashed yet releases nothing: the caller stores 0 and the cashing releases it.
   if (cashBasis && !payment.holdsIvaUntilCashed) {
-    const { from, to } = reclassRoles('issued');
-    const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
     for (const app of aplicaciones) {
       const metodo = await resolveInvoiceMetodoPago(client, {
         id: app.invoiceId,
@@ -1126,21 +1129,7 @@ export async function postReceiptApplicationEntry(
       const parked = await ivaStillParked(client, 'issued', payment.entity_id, app.invoiceId);
       const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
       if (liberable.lessThanOrEqualTo(0)) continue;
-      const monto = liberable.toFixed(4);
-      ivaPorFactura.set(app.invoiceId, monto);
-      documentos.push(app.invoiceNumber);
-      ivaLines.push({
-        account_id: requireRole(ivaRoles, from),
-        debit_amount: monto,
-        credit_amount: null,
-        description: `IVA released from ${from} on collection - Invoice ${app.invoiceNumber}`,
-      });
-      ivaLines.push({
-        account_id: requireRole(ivaRoles, to),
-        debit_amount: null,
-        credit_amount: monto,
-        description: `IVA now in ${to} (PPD collection) - Invoice ${app.invoiceNumber}`,
-      });
+      ivaPorFactura.set(app.invoiceId, liberable.toFixed(4));
     }
 
     // #699 · The IEPS share of the same tranche, whatever the VAT did: what
@@ -1155,29 +1144,54 @@ export async function postReceiptApplicationEntry(
       });
       if (new Decimal(amount).greaterThan(0)) ieps.push({ invoiceId: app.invoiceId, invoiceNumber: app.invoiceNumber, amount });
     }
-    ivaLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, ieps, 'release', 'collection')));
+    iepsLines.push(...(await iepsMoveLines(client, payment.entity_id, payment.id, ieps, 'release', 'collection')));
     iepsDocs.push(...ieps.map((m) => m.invoiceNumber));
   }
 
-  // MNE-001-422: an advance's IVA, caused when it was collected, is cancelled
-  // on its sale's PUE invoice instead of caused again, as the TipoRelacion 07
-  // egreso does (`egreso_emitido_aplicacion_anticipo`, cfdi-taxonomy.ts); its
-  // base alone leaves 2150. The service refuses an advance on a PPD invoice.
-  const cancelled = aplicaciones.filter((a) => new Decimal(a.advanceIva ?? '0').greaterThan(0));
-  const advanceIva = cancelled.reduce((s, a) => s.plus(a.advanceIva as string), new Decimal(0));
-  const advanceLines: JeLine[] = [];
-  const twice = [...new Set(cancelled.flatMap((a) => (a.advanceIvaTwiceIn ? [a.advanceIvaTwiceIn] : [])))];
-  if (cancelled.length > 0) {
-    const due = reclassRoles('issued').to;
-    const ivaRoles = await roleAccounts(client, payment.entity_id, [due]);
-    for (const a of cancelled) {
-      advanceLines.push({
-        account_id: requireRole(ivaRoles, due),
-        debit_amount: new Decimal(a.advanceIva as string).toFixed(4),
-        credit_amount: null,
-        description: `IVA of advance ${payment.payment_number} cancelled on ${a.invoiceNumber}, caused when collected` +
-          (a.advanceIvaTwiceIn ? ` · ${a.advanceIvaTwiceIn} also caused it on the invoice` : ''),
-      });
+  // MNE-001-422 / MNE-001-461: an advance's IVA, caused when it was collected
+  // (`c`), is cancelled on its sale's invoice instead of caused again, as the
+  // TipoRelacion 07 egreso does (`egreso_emitido_aplicacion_anticipo`,
+  // cfdi-taxonomy.ts); its base alone leaves 2150. On a PPD invoice the share
+  // the cash settles still leaves 2125 (`g`, the release above), and the two
+  // meet in one 2120 line, CR g − c (DR when negative, none at zero), so the
+  // IVA of that cash is caused once (LIVA art. 1-B).
+  const advanceIva = aplicaciones.reduce((s, a) => s.plus(a.advanceIva ?? '0'), new Decimal(0));
+  const twice = [...new Set(aplicaciones.flatMap((a) => (a.advanceIvaTwiceIn ? [a.advanceIvaTwiceIn] : [])))];
+  const ivaLines: JeLine[] = [];
+  if (ivaPorFactura.size > 0 || advanceIva.greaterThan(0)) {
+    const { from, to } = reclassRoles('issued');
+    const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
+    for (const app of aplicaciones) {
+      const released = new Decimal(ivaPorFactura.get(app.invoiceId) ?? '0');
+      const cancelled = new Decimal(app.advanceIva ?? '0');
+      if (released.greaterThan(0)) {
+        ivaLines.push({
+          account_id: requireRole(ivaRoles, from),
+          debit_amount: released.toFixed(4),
+          credit_amount: null,
+          description: `IVA released from ${from} on collection - Invoice ${app.invoiceNumber}`,
+        });
+      }
+      const net = released.minus(cancelled);
+      if (net.greaterThan(0)) {
+        documentos.push(app.invoiceNumber);
+        ivaLines.push({
+          account_id: requireRole(ivaRoles, to),
+          debit_amount: null,
+          credit_amount: net.toFixed(4),
+          description: `IVA now in ${to} (PPD collection) - Invoice ${app.invoiceNumber}` +
+            (cancelled.greaterThan(0) ? `, net of advance ${payment.payment_number}'s ${cancelled.toFixed(4)} caused when collected` : ''),
+        });
+      } else if (net.lessThan(0)) {
+        ivaLines.push({
+          account_id: requireRole(ivaRoles, to),
+          debit_amount: net.negated().toFixed(4),
+          credit_amount: null,
+          description: `IVA of advance ${payment.payment_number} cancelled on ${app.invoiceNumber}, caused when collected` +
+            (released.greaterThan(0) ? `, net of ${released.toFixed(4)} released` : '') +
+            (app.advanceIvaTwiceIn ? ` · ${app.advanceIvaTwiceIn} also caused it on the invoice` : ''),
+        });
+      }
     }
   }
 
@@ -1206,8 +1220,8 @@ export async function postReceiptApplicationEntry(
         credit_amount: total.plus(withheldIsr).plus(withheldIva).toFixed(4),
         description: `AR settlement ${payment.payment_number}`,
       },
-      ...advanceLines,
       ...ivaLines,
+      ...iepsLines,
     ],
     userId,
     // Fuera del índice parcial uq_je_document_source a propósito: un cobro
@@ -1464,6 +1478,11 @@ export async function postVendorApplicationEntry(
  * MNE-001-422: the advance's IVA the rows cancelled (`advanceIva`) is
  * credited back to 2120, and only the rest of the cash to anticipo_clientes.
  *
+ * MNE-001-461: when the rows carried an advance's IVA, nothing caused is
+ * re-parked (the owner's «no re-park», #623): the share they released goes
+ * back to 2125 (CR g) against the advance's IVA, and 2120 moves by c − g in
+ * one line, none when they are equal.
+ *
  * #699 · `ieps` is what this receipt has moved out of the uncollected IEPS
  * role for the invoice, read back from the ledger by the caller: it goes
  * back exactly (DR ieps_por_pagar · CR the uncollected role).
@@ -1500,20 +1519,36 @@ export async function postReceiptUnapplicationEntry(
     },
     ...(await withholdingLines(client, payment, isr, vat, 'credit')),
   ];
-  if (advanceIva.greaterThan(0)) {
-    const due = reclassRoles('issued').to;
-    const ivaRoles = await roleAccounts(client, payment.entity_id, [due]);
-    jeLines.push({
-      account_id: requireRole(ivaRoles, due),
-      debit_amount: null,
-      credit_amount: advanceIva.toFixed(4),
-      description: `IVA of advance ${payment.payment_number} restored (unapply) - Invoice ${app.invoiceNumber}`,
-    });
-  }
 
   const iva = new Decimal(app.ivaReclass ?? app.ivaEstimado);
   const estimado = app.ivaReclass === null && iva.greaterThan(0);
-  if (iva.greaterThan(0)) {
+  if (advanceIva.greaterThan(0)) {
+    // MNE-001-461: the cash goes back on account as the advance it was, its
+    // IVA caused when collected (LIVA art. 1-B), so nothing caused is
+    // re-parked: the invoice's share goes back to 2125 because the invoice is
+    // owed again, and 2120 moves only by c − g, none when they are equal
+    // (the owner's «no re-park» of 17 Nov 2026, #623).
+    const { from, to } = reclassRoles('issued');
+    const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
+    if (iva.greaterThan(0)) {
+      jeLines.push({
+        account_id: requireRole(ivaRoles, from),
+        debit_amount: null,
+        credit_amount: iva.toFixed(4),
+        description: `IVA back in ${from} (unapply), against advance ${payment.payment_number}'s - Invoice ${app.invoiceNumber}`,
+      });
+    }
+    const net = advanceIva.minus(iva);
+    if (!net.isZero()) {
+      jeLines.push({
+        account_id: requireRole(ivaRoles, to),
+        debit_amount: net.isNegative() ? net.negated().toFixed(4) : null,
+        credit_amount: net.isNegative() ? null : net.toFixed(4),
+        description: `IVA of advance ${payment.payment_number} restored (unapply) - Invoice ${app.invoiceNumber}` +
+          (iva.greaterThan(0) ? `, net of ${iva.toFixed(4)} back in ${from}` : ''),
+      });
+    }
+  } else if (iva.greaterThan(0)) {
     const { from, to } = reclassRoles('issued');
     const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
     const nota = estimado ? ' · pre-049: pro-rata estimate' : '';

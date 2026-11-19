@@ -2281,9 +2281,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'no se debe: un anticipo se documenta con el CFDI de anticipo que emite el cliente (Anexo 20, Apéndice 6), no con un REP',
   'receipt.advance.invoice_already_booked':
     '{customer} tiene abierta {invoices}, y su propia póliza ya abonó anticipos de clientes: un CFDI de anticipo en libros. El dinero de ese anticipo se registra contra ella (receipt record {invoice}), no como un anticipo nuevo. Sigue sólo si éste es otro anticipo.',
-  // MNE-001-422 (#623): an advance applied to its sale's PUE invoice cancels the IVA it caused.
-  'receipt.advance.ppd_not_wired':
-    '{receipt} es un anticipo cuyo IVA se causó al cobrarse, y {invoice} es PPD: aplicarlo ahí tiene que netear ese IVA contra la parte que la factura libera del IVA no cobrado, y eso todavía no está cableado (issue 623, MNE-001-461). No se aplicó nada.',
+  // MNE-001-422 / MNE-001-461 (#623): an advance applied to its sale's invoice cancels the IVA it caused.
   'receipt.advance.iva_cancelled': 'IVA del anticipo cancelado {iva}',
   'receipt.advance.iva_restored': 'IVA del anticipo devuelto {iva}',
   'receipt.advance.iva_caused_twice':

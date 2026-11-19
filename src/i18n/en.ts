@@ -2412,9 +2412,7 @@ export const EN = {
     'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
   'receipt.advance.invoice_already_booked':
     '{customer} has {invoices} open, and its own entry already credited customer advances: an advance CFDI in the books. The cash of that advance is recorded against it (receipt record {invoice}), not as a new advance. Go on only if this is another advance.',
-  // MNE-001-422 (#623): an advance applied to its sale's PUE invoice cancels the IVA it caused.
-  'receipt.advance.ppd_not_wired':
-    '{receipt} is an advance whose IVA was caused when it was collected, and {invoice} is PPD: applying it there has to net that IVA against the share the invoice releases from IVA not yet collected, and that is not wired yet (issue 623, MNE-001-461). Nothing was applied.',
+  // MNE-001-422 / MNE-001-461 (#623): an advance applied to its sale's invoice cancels the IVA it caused.
   'receipt.advance.iva_cancelled': 'advance IVA cancelled {iva}',
   'receipt.advance.iva_restored': 'advance IVA restored {iva}',
   'receipt.advance.iva_caused_twice':

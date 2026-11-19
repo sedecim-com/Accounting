@@ -1344,7 +1344,11 @@ async function withholdingBookedAtIssuance(
  * share of that IVA (`takeFromAdvance`), which the entry cancels against
  * 2120 instead of causing it twice and the allocation stores
  * (`advance_base_amount`, `advance_iva_amount`, 333) for unapply to give
- * back. A PPD invoice is refused until MNE-001-461.
+ * back.
+ *
+ * MNE-001-461: on a PPD invoice the share the cash settles still leaves 2125
+ * (stored in `iva_reclass_amount`), and the advance's IVA takes its place in
+ * 2120, so the entry nets the two (`postReceiptApplicationEntry`).
  */
 export async function applyCustomerPayment(
   entityId: string,
@@ -1499,22 +1503,18 @@ export async function applyCustomerPayment(
         advance.consumed = new Decimal(advance.consumed).plus(fromAdvance).toFixed(4);
         advance.cancelled = new Decimal(advance.cancelled).plus(take.iva).toFixed(4);
         advance.plain = new Decimal(advance.plain).minus(take.plain).toFixed(4);
-        const invoiceMethod = await resolveInvoiceMetodoPago(client, {
-          id: inv.id, entity_id: entityId, invoice_number: inv.invoice_number,
-          cfdi_uuid: inv.cfdi_uuid, terms: inv.terms, memo: inv.memo,
-        });
-        // TODO(#623): MNE-001-461 nets the advance's IVA against the share a PPD invoice releases from 2125.
-        if (invoiceMethod.metodo === 'PPD') {
-          throw new AccountingError('ADVANCE_TO_PPD_NOT_WIRED', {
-            key: 'receipt.advance.ppd_not_wired', params: { receipt: pago.payment_number, invoice: inv.invoice_number },
-          });
-        }
         // A PUE invoice caused its IVA when it was issued (LIVA art. 1-B; CFF 29-A fr. VII b). Issued on or
         // before the advance, the advance's month carried both, and an application in a later month cancels
-        // one of them there, not in the month that declared it twice.
+        // one of them there, not in the month that declared it twice. A PPD invoice parked its IVA instead:
+        // the share this cash settles leaves 2125 and nets against the advance's (MNE-001-461), so no month
+        // carries it twice.
         const received = toCalendarDate(pago.payment_date);
         if (new Decimal(take.iva).greaterThan(0) && inv.invoice_date <= received && date.slice(0, 7) > received.slice(0, 7)) {
-          twiceIn = received.slice(0, 7);
+          const invoiceMethod = await resolveInvoiceMetodoPago(client, {
+            id: inv.id, entity_id: entityId, invoice_number: inv.invoice_number,
+            cfdi_uuid: inv.cfdi_uuid, terms: inv.terms, memo: inv.memo,
+          });
+          if (invoiceMethod.metodo !== 'PPD') twiceIn = received.slice(0, 7);
         }
       }
 
@@ -1671,6 +1671,10 @@ export interface ResultadoDesaplicacion {
  *
  * MNE-001-422: the advance's IVA the rows cancelled goes back to 2120, as
  * they stored it: the cash is back on account as the advance it was.
+ *
+ * MNE-001-461: on a PPD invoice that IVA stays caused in place of the share
+ * the rows released, which goes back to 2125 because the invoice is owed
+ * again; `ivaReAparcado` is only what leaves 2120, 0 when the two are equal.
  */
 export async function unapplyCustomerPayment(
   entityId: string,
@@ -1758,6 +1762,13 @@ export async function unapplyCustomerPayment(
         )
       : new Decimal(0);
     const estimado = sinIva.length > 0 && ivaEstimadoParte.greaterThan(0);
+    // MNE-001-461: what leaves 2120 for 2125. Cash that carried an advance's
+    // IVA goes back on account as that advance, its IVA still caused (LIVA
+    // art. 1-B; the owner's «no re-park» of 17 Nov 2026, #623): the share
+    // back in 2125 takes the advance's IVA, and only what exceeds it, when
+    // the invoice's rate is above the advance's, leaves 2120.
+    const backInParked = ivaExacto.plus(ivaEstimadoParte);
+    const reparked = advanceIva.greaterThan(0) ? Decimal.max(backInParked.minus(advanceIva), 0) : backInParked;
     // #699 · The IEPS this receipt moved for the invoice, read back from the
     // tagged lines of its unreversed entries before the rows close: exact,
     // net of an earlier unapply, and zero where nothing was parked.
@@ -1849,7 +1860,7 @@ export async function unapplyCustomerPayment(
         advanceIva: advanceIva.toFixed(2),
       },
       desaplicado: total.toFixed(2),
-      ivaReAparcado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
+      ivaReAparcado: reparked.toFixed(4),
       ivaEstimado: estimado,
       date,
       iepsReparked: iepsMoved.toFixed(4),
