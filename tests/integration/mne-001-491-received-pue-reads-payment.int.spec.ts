@@ -7,6 +7,7 @@ import type OpenAI from 'openai';
 
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
+import { seedBill } from './helpers/seeded-bill.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { ingestCfdiFiles, type DraftCapture } from '../../src/ai/ingest-service.js';
 import { OpenAiCompatSession } from '../../src/ai/providers/openai-compat.js';
@@ -21,9 +22,11 @@ import type { ResolvedProfile } from '../../src/ai/providers/types.js';
 // ============================================================
 // MNE-001-491 · THE RELEASE, THE DIOT AND THE WORKPAPER ASK WHERE THE VAT SITS
 //
-// Every bill is the same received CFDI of 1,160.00 (1,000.00 + 160.00),
-// approved from its draft; what changes is its method, the account its VAT was
-// debited to (1130 creditable, 1135 pending) and what the entry credits.
+// Every bill is a received CFDI of 1,160.00 (1,000.00 + 160.00); what changes
+// is its method, the account its VAT was debited to (1130 creditable, 1135
+// pending) and what the entry credits. G1, T1 and T2 are approved from their
+// draft. G2, G3 and T5 are bills from before, seeded by hand (MNE-001-492):
+// the draft door will stop taking VAT on 1130 against vendors.
 //
 //   G1 · PUE, VAT on 1130, credits the bank: born paid, a March fact
 //   G2 · PUE, VAT on 1130, paid 2026-04-08: stays a March fact, releases nothing
@@ -155,11 +158,12 @@ beforeAll(async () => {
   const bank = Object.entries(f.cuentas).find(([, id]) => id === f.roles.banco)![0];
 
   bills.g1 = await bill('PUE', '1130', '2026-03-12', bank);
-  bills.g2 = await bill('PUE', '1130', '2026-03-12');
+  const legacy = async (method: 'PUE' | 'PPD', date: string) => (await seedBill(f, { vendorId, method, vatCode: '1130', date })).id;
+  bills.g2 = await legacy('PUE', '2026-03-12');
   bills.t1 = await bill('PUE', '1135', '2026-03-12');
   bills.t2 = await bill('PUE', '1135', '2026-07-12');
-  bills.t5 = await bill('PUE', '1130', '2026-03-12');
-  bills.g3 = await bill('PPD', '1130', '2026-05-12');
+  bills.t5 = await legacy('PUE', '2026-03-12');
+  bills.g3 = await legacy('PPD', '2026-05-12');
   marchBeforePaying = await diot(3);
 
   entries.g2 = (await pay(bills.g2, '2026-04-08')).journalEntry!.id;

@@ -700,6 +700,29 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 45,
   },
   {
+    // MNE-001-524 (#672). A payment node that pays only annulled invoices always goes to review;
+    // the fork is the node that also pays a live one. Reader: ligarPagoREP, issued side only.
+    key: 'rep_voided_document',
+    textKey: 'rep_voided_document',
+    category: 'fiscal',
+    question: 'A payment in a receipt (REP) covers a live invoice and one the books annulled: what happens?',
+    impact:
+      'Applies to a receipt the entity issued. With "review" the whole payment waits for a person, so the VAT of the live invoice stays as not yet collected until then. With "post_live_documents" the payment is recorded for the live invoices only and their VAT is released; the share of the annulled invoice stays unbooked, with a warning saved on the receipt.',
+    options: [
+      { value: 'review', label: 'Review: hold the whole payment and name the annulled invoice' },
+      { value: 'post_live_documents', label: 'Post the live invoices and leave the annulled one unbooked, with a warning' },
+    ],
+    defaultValue: 'review',
+    defaultRationale:
+      'A receipt is issued only when the money is actually received (SAT, Guía de llenado del complemento para recepción de pagos, Apéndice 6, question 11), so one that names an invoice the books voided contradicts them, and only a person can say which is wrong; ADR-0006 picks the option that does not post without review, as `rep_documento_desconocido` does by waiting. A firm that books straight from CFDIs may post the live documents, whose VAT is caused when collected (LIVA arts. 1o.-B, 11 and 17).',
+    whyAsking:
+      'When one bank movement pays several invoices and one of them is void or cancelled in the books, either the receipt or the books are wrong. Some firms want to settle that before anything is recorded; others want the invoices that do stand collected at once.',
+    whatIDo:
+      'By default I send the whole payment to review and name the annulled invoice. With "post_live_documents" I collect the live invoices, apply nothing to the annulled one and save a warning that names it.',
+    ifSkipped: 'The whole payment goes to review, naming the annulled invoice.',
+    priority: 45,
+  },
+  {
     key: 'rep_ventana_dias',
     textKey: 'rep_match_window_days',
     category: 'operativa',

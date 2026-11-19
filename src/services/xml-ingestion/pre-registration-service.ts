@@ -1202,6 +1202,17 @@ export class PreRegistrationService {
       );
     }
 
+    // Saved before the review throw below: a node posted past an annulled
+    // invoice answers `ya_ligado` on the next run and never warns again, and
+    // the catch of processToAccounting leaves the warnings as they are.
+    // NOTE: only this warning is saved; #698 widens it to every warning of a posted node.
+    const annulledWarnings = resultados
+      .filter((r) => r.accion !== 'revision' && r.annulledWarning)
+      .map((r) => r.annulledWarning as string);
+    if (annulledWarnings.length > 0) {
+      await appendRepWarnings(preReg.entity_id as string, preReg.id as string, annulledWarnings);
+    }
+
     const paraRevision = resultados.filter((r) => r.accion === 'revision');
     if (paraRevision.length > 0) {
       // Los nodos anteriores pueden haber creado o casado pagos YA: cada
@@ -2331,6 +2342,30 @@ function linesPerConcept(
       tags: { clave_prod_serv: c.clave_prod_serv },
     };
   });
+}
+
+/**
+ * Appends warnings to a REP's pre-registration, never replacing the ones it
+ * already holds. A warning that is saved nowhere is not a warning.
+ */
+export async function appendRepWarnings(
+  entityId: string,
+  preRegistrationId: string,
+  warnings: string[]
+): Promise<void> {
+  const saved = await query(
+    `UPDATE pre_registrations
+        SET validation_status = 'warnings',
+            validation_warnings = COALESCE(validation_warnings, '[]'::jsonb) || $3::jsonb
+      WHERE id = $1 AND entity_id = $2 AND document_type = 'payment'`,
+    [preRegistrationId, entityId, JSON.stringify(warnings)]
+  );
+  if (saved.rowCount !== 1) {
+    throw new AccountingError(
+      'REP_WARNING_NOT_SAVED',
+      `The warnings of payment receipt ${preRegistrationId} could not be saved: it is not a receipt of this entity.`
+    );
+  }
 }
 
 /** El vocabulario de xml_documents.sat_validation_status al del clasificador. */

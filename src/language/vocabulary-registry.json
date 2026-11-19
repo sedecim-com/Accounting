@@ -5941,6 +5941,30 @@
     },
     {
       "class": "policy-key",
+      "where": "rep_voided_document",
+      "es": "rep_voided_document",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-524): a REP payment that covers a live invoice and one the books annulled."
+    },
+    {
+      "class": "policy-value",
+      "where": "rep_voided_document/review",
+      "es": "review",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the whole payment node waits for a person."
+    },
+    {
+      "class": "policy-value",
+      "where": "rep_voided_document/post_live_documents",
+      "es": "post_live_documents",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the node is processed with its live documents only."
+    },
+    {
+      "class": "policy-key",
       "where": "cash_over_limit_outside_ingestion",
       "es": "cash_over_limit_outside_ingestion",
       "en": null,

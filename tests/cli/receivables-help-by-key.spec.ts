@@ -162,6 +162,20 @@ describe('the receivables families, help by key, family by family (#314, MNE-001
       expect(flat(node('receipt reverse').helpInformation())).not.toContain('NSF');
     });
 
+  // MNE-001-511 (#701): the leaf that states a cause afterwards is born with every description by key.
+  it.each<[string, TranslationKey]>([
+    ['receipt', 'help.receipt.cause.description'],
+    ['receipt cause', 'help.receipt.cause.record.description'],
+    ['receipt cause record', 'help.receipt.cause.record.argument.ref'],
+    ['receipt cause record', 'help.receipt.cause.record.option.cause'],
+    ['receipt cause record', 'cli.flag.reason'],
+  ])('`%s --help` shows %s in Spanish', (path, key) => {
+    expect(keyOf('receipt cause record', '--cause')).toBe('help.receipt.cause.record.option.cause');
+    expect(keyOf('receipt cause record', '--reason')).toBe('cli.flag.reason');
+    expect(keyOf('receipt cause record', '--json')).toBe('help.receipt.cause.record.option.json');
+    expectSpanishHelp(path, key);
+  });
+
   it('`invoice create --customer` is still mandatory', () => {
     expect(node('invoice create').options.find((o) => o.long === '--customer')?.mandatory).toBe(true);
   });

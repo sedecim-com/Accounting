@@ -606,8 +606,8 @@ describe('opening-balance check with the migration catalog (chartXml)', () => {
     ]);
     await pointControlRolesAtMigratedAccounts(own);
 
-    // Until MNE-001-456 the load refuses the pair, so the opening comes from
-    // the balanza without it: today's workaround (docs/memorandum-accounts.md).
+    // This opening comes from the balanza without the pair, as it was loaded
+    // before MNE-001-456: the check has to stand on such an opening too.
     const loaded = await importOpeningBalance(ctxDe(own), {
       entityId: own.entityId,
       xml: balanzaDeOrigen(),
@@ -630,6 +630,58 @@ describe('opening-balance check with the migration catalog (chartXml)', () => {
     ]);
     expect(c.iguales).toBe(true);
     expect(renderBalanceComparison(c)).toContain('802-01: cuenta de orden, fuera del cuadre (el origen declara 75000.0000)');
+  });
+
+  // MNE-001-456 · #621: the load itself takes the catalog, so the full
+  // balanza loads and nobody deletes the 8xx rows by hand.
+  it('the load with the catalog posts no line on the pair, writes it down in its audit row, and the check is equal', async () => {
+    const own = await crearEntidadHermana(f, 'MNE-001-456 memorandum pair');
+    const chartXml = catalogXml(WITH_PAIR);
+    await importSatChart(ctxDe(own), { entityId: own.entityId, xml: chartXml, userId: own.userId });
+    await pointControlRolesAtMigratedAccounts(own);
+    const full = balanzaDeOrigen({}, WITH_PAIR);
+    const load = { entityId: own.entityId, xml: full, userId: own.userId, documentos: AUXILIAR };
+    const excluded = [
+      { code: '802-01', amount: '75000.0000' },
+      { code: '802-02', amount: '75000.0000' },
+    ];
+
+    // Without the catalog: refused as before, on each 8xx row, nothing written.
+    const refused = await importOpeningBalance(ctxDe(own), load);
+    expect(refused.escrito).toBe(false);
+    expect(refused.findings.filter((x) => x.severidad === 'bloquea').map((x) => [x.regla, x.numCta])).toEqual([
+      ['APE-CUENTA-DESCONOCIDA', '802-01'],
+      ['APE-CUENTA-DESCONOCIDA', '802-02'],
+    ]);
+
+    const loaded = await importOpeningBalance(ctxDe(own), { ...load, chartXml });
+    expect(loaded.escrito).toBe(true);
+    expect(loaded.excluded).toEqual(excluded);
+
+    // 262,000.00 is the hand figure of the same balanza without the pair.
+    const entry = await query<{ total_debits: string; total_credits: string; memorandum_lines: string }>(
+      `SELECT je.total_debits::text AS total_debits, je.total_credits::text AS total_credits,
+              (SELECT COUNT(*) FROM journal_entry_lines l
+                 JOIN accounts a ON a.id = l.account_id
+                WHERE l.journal_entry_id = je.id AND a.code LIKE '802-%')::text AS memorandum_lines
+         FROM journal_entries je WHERE je.entity_id = $1`,
+      [own.entityId]
+    );
+    expect(entry.rows).toEqual([
+      { total_debits: '262000.0000', total_credits: '262000.0000', memorandum_lines: '0' },
+    ]);
+    const accounts = await query(`SELECT 1 FROM accounts WHERE entity_id = $1 AND code LIKE '802-%'`, [own.entityId]);
+    expect(accounts.rows).toEqual([]);
+
+    const audit = await query<{ new_values: { memorandum_excluded: unknown } }>(
+      `SELECT new_values FROM audit_log WHERE legal_entity_id = $1 AND entity_type = 'opening_balance'`,
+      [own.entityId]
+    );
+    expect(audit.rows.map((r) => r.new_values.memorandum_excluded)).toEqual([excluded]);
+
+    const c = (await checkOpeningBalance(ctxDe(own), { entityId: own.entityId, xml: full, chartXml })).comparison;
+    expect(c.iguales).toBe(true);
+    expect(c.excluded).toEqual(excluded);
   });
 });
 
