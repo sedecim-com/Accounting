@@ -1778,6 +1778,8 @@ export const ES: Record<keyof typeof EN, string> = {
   confirm_answer_not_understood:
     'no entendí «{answer}»: responde y/s para sí, n para no',
 
+  confirm_yes_no_suffix: '[s/N]',
+
   no_changes_ledger_untouched: 'Sin cambios: el mayor no se tocó.',
 
   no_changes_no_terminal:
@@ -1972,7 +1974,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'Aprobar crea la factura del proveedor del CFDI {uuid} · emisor {issuer} ({rfc}) · método {method} · total {total}',
   'review.draft.invoice_to_be_born':
     'Aprobar crea la factura al cliente del CFDI emitido {uuid} · cliente {customer} ({rfc}) · método {method} · total {total}',
-  'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})? [s/N] ',
+  'review.vendor.register_prompt': '¿Dar de alta al proveedor {name} (RFC {rfc})?',
   'review.vendor.not_registered':
     'No se dio de alta al proveedor: no se contabilizó nada y el borrador sigue pendiente.',
   'help.ingest.argument.files':
@@ -2148,6 +2150,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'ingest.census.more_invalid': '… y {count} más',
   'ingest.census.loaded': 'Censo cargado de {file}: {inserted} nuevos, {refreshed} ya conocidos.',
   'ingest.census.dry_run': '(dry-run: el censo se leyó, no se cargó.)',
+  // MNE-001-144 (#441): las cancelaciones del SAT en el censo llegan al espejo y a la factura.
+  'ingest.census.marks':
+    'Cancelados por el SAT: {mirror, plural, one {# CFDI marcado} other {# CFDI marcados}} en el espejo, ' +
+    '{invoices, plural, one {# factura marcada como cancelada} other {# facturas marcadas como canceladas}}.',
+  'ingest.census.cancelled_booked':
+    '{document} ({date}) lleva el CFDI {uuid}, que el SAT reporta cancelado. No se revirtió nada: ' +
+    'su estado, su póliza y su saldo se quedan hasta que el contador decida.',
+  'ingest.census.document.invoice': 'Factura {number}',
+  'ingest.census.document.credit_note': 'Nota de crédito {number}',
+  'ingest.census.document.bill': 'Factura de proveedor {number}',
   'help.ingest.description':
     'Ingesta por lote de CFDI (XML): reglas → clasificación por IA → borradores (o alta ' +
     'automática según los umbrales)',
@@ -2813,6 +2825,34 @@ export const ES: Record<keyof typeof EN, string> = {
     '{matches, plural, one {# cotejo} other {# cotejos}} · ' +
     '{sealed, plural, one {# partida sellada} other {# partidas selladas}}',
   // ==== fin del piloto bank (I7) ====================================
+  // ==== I8 · the CLI leaves by key, one block per family (MNE-001-217, issue #262) ====
+  // Same blocks, same order as en.ts.
+  // ==== I8.1 · CLI leaves by key, family report (issue #263) ====
+  // ==== end of I8.1 ====
+
+  // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+  // ==== end of I8.2 ====
+
+  // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+  // ==== end of I8.3 ====
+
+  // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
+  // ==== end of I8.4 ====
+
+  // ==== I8.5 · CLI leaves by key, family assets-inventory (issue #267) ====
+  // ==== end of I8.5 ====
+
+  // ==== I8.6 · CLI leaves by key, family platform (issue #268) ====
+  // ==== end of I8.6 ====
+
+  // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
+  // ==== end of I8.7 ====
+
+  // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====
+  // ==== end of I8.8 ====
+
+  // ==== I8.9 · CLI leaves by key, family ledger (issue #271) ====
+  // ==== end of I8.9 ====
   // ==== W1 · the browser board (issue #117) ========================
   // Same keys, same order as en.ts. The Spanish is what the board shows by
   // default (src/gateway/app/messages.ts falls back to es).

@@ -45,7 +45,7 @@ import {
   optionByKey,
   argumentByKey,
 } from './kernel/index.js';
-import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import { addCalendarDays, calendarDateIn } from '../utils/calendar-date.js';
 import { todayFor, zoneFor } from '../services/policy/today.js';
 import {
@@ -379,7 +379,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     try {
       const veredicto = await confirmarConReintento(
         (p) => rl.question(p).catch(() => null),
-        `${question} [y/N] `
+        yesNoPrompt(question)
       );
       if (veredicto.si) return;
       throw abortedByUser(
