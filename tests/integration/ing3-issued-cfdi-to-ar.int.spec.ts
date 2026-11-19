@@ -47,11 +47,14 @@ const PROFILE: ResolvedProfile = {
  * written as given, so a test can state it in any case; `null` removes the
  * attribute, which is the XML no PAC validated.
  */
-function issued(o: { method?: string | null; customerRfc?: string } = {}): { xml: string; uuid: string } {
+function issued(
+  o: { method?: string | null; customerRfc?: string; customerName?: string; ownRfc?: string } = {}
+): { xml: string; uuid: string } {
   const uuid = uuidv4().toUpperCase();
   const xml = FIXTURE.replace(FIXTURE_UUID, uuid)
-    .replace(`<cfdi:Emisor Rfc="${CUSTOMER_RFC}"`, `<cfdi:Emisor Rfc="${OWN_RFC}"`)
+    .replace(`<cfdi:Emisor Rfc="${CUSTOMER_RFC}"`, `<cfdi:Emisor Rfc="${o.ownRfc ?? OWN_RFC}"`)
     .replace(`<cfdi:Receptor Rfc="${OWN_RFC}"`, `<cfdi:Receptor Rfc="${o.customerRfc ?? CUSTOMER_RFC}"`)
+    .replace(' Nombre="Demo Corp MX"', ` Nombre="${o.customerName ?? 'Demo Corp MX'}"`)
     .replace(' MetodoPago="PPD"', o.method === null ? '' : ` MetodoPago="${o.method ?? 'PPD'}"`);
   return { xml, uuid };
 }
@@ -383,5 +386,172 @@ describe('the shared receivables core: one CFDI, one invoice', () => {
       client.release();
     }
     expect(await invoicesOf(uuid)).toHaveLength(0);
+  });
+});
+
+// MNE-001-523 (#671): a generic RFC is shared by every anonymous or foreign
+// customer, so it identifies nobody: the sale belongs to the customer the CFDI
+// names, and wherever two customers match, nothing posts.
+describe('the customer of an issued CFDI: by name under a generic RFC, and never a guess', () => {
+  const XEXX = 'XEXX010101000';
+  let age = 0;
+
+  /** Customers are born one day apart in the order they are added: «the oldest» is never a tie. */
+  async function addCustomer(number: string, name: string, rfc: string, active = true): Promise<string> {
+    const id = uuidv4();
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, tax_id, tax_id_type, currency_code,
+         is_active, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'rfc', 'MXN', $6, $7, TIMESTAMPTZ '2026-01-01' + make_interval(days => $8))`,
+      [id, f.entityId, number, name, rfc, active, f.userId, age++]
+    );
+    return id;
+  }
+  /** The customer number each invoice of the CFDI was filed under, and what it still owes. */
+  const filedUnder = async (uuid: string) => (await query<{ customer_number: string; amount_due: string }>(
+    `SELECT c.customer_number, i.amount_due::text FROM invoices i
+       JOIN customers c ON c.id = i.customer_id AND c.entity_id = i.entity_id
+      WHERE i.entity_id = $1 AND i.cfdi_uuid = $2`,
+    [f.entityId, uuid]
+  )).rows;
+  const written = async () => (await query<{ customers: string; invoices: string; entries: string }>(
+    `SELECT (SELECT count(*) FROM customers WHERE entity_id = $1)::text AS customers,
+            (SELECT count(*) FROM invoices WHERE entity_id = $1)::text AS invoices,
+            (SELECT count(*) FROM journal_entries WHERE entity_id = $1 AND source_type = 'invoice')::text AS entries`,
+    [f.entityId]
+  )).rows[0];
+  /** Approves the sale and expects the refusal: nothing is written and the draft stays pending. */
+  async function refused(o: Parameters<typeof issued>[0], refusal: RegExp): Promise<void> {
+    const { xml } = issued(o);
+    const draftId = await ingest(xml, PPD_SALE);
+    const before = await written();
+    const error = await approve(draftId).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'ValidationError', field: 'customer_id' });
+    expect((error as Error).message).toMatch(refusal);
+    expect(await written()).toEqual(before);
+    expect((await getDraft(ctx, draftId))!.status).toBe('pending_review');
+  }
+  async function sold(o: Parameters<typeof issued>[0], customerNumber: string): Promise<string> {
+    const { xml, uuid } = issued(o);
+    await approve(await ingest(xml, PPD_SALE));
+    expect(await filedUnder(uuid)).toEqual([{ customer_number: customerNumber, amount_due: '9280.0000' }]);
+    return uuid;
+  }
+
+  describe('a foreign customer, XEXX010101000', () => {
+    let acmeId: string;
+    beforeAll(async () => {
+      await useNewTenant('MNE-001-523 generic RFC, customer by name');
+      await addCustomer('C-GLOBEX', 'Globex GmbH', XEXX);
+      acmeId = await addCustomer('C-ACME', 'Acme Inc', XEXX);
+    });
+
+    it('T1 · the invoice is of the customer the CFDI names, not of the oldest, and its REP collects from that customer', async () => {
+      const uuid = await sold({ customerRfc: XEXX, customerName: 'Acme Inc' }, 'C-ACME');
+      const svc = new PreRegistrationService();
+      const rep = await svc.processXMLUpload(
+        f.entityId,
+        repXml({ cfdiUuid: uuid, total: '9280.00', iva: 1280 }, uuidv4().toUpperCase(), {
+          issuerRfc: OWN_RFC, issuerName: 'Demo Corp MX', receiverRfc: XEXX, date: new Date(Date.UTC(2026, 7, 25)),
+        }),
+        'manual_upload', f.userId
+      );
+      const { paymentId } = await svc.processToAccounting(rep.preRegistration, f.userId);
+      const payment = (await query<{ customer_id: string; payment_amount: string }>(
+        `SELECT customer_id, payment_amount::text FROM customer_payments WHERE id = $1 AND entity_id = $2`,
+        [paymentId, f.entityId]
+      )).rows[0];
+      expect(payment).toEqual({ customer_id: acmeId, payment_amount: '9280.0000' });
+      expect(await filedUnder(uuid)).toEqual([{ customer_number: 'C-ACME', amount_due: '0.0000' }]);
+    });
+
+    it('T2 · the name compares without case or runs of spaces', () =>
+      sold({ customerRfc: XEXX, customerName: 'ACME   inc' }, 'C-ACME'));
+
+    it('T3 · a name nobody carries is refused with the runnable command and the numbers under that RFC; nothing is written', () =>
+      refused(
+        { customerRfc: XEXX, customerName: 'Initech LLC' },
+        /not in this entity's customer catalog.*mnemosine customer create --name 'Initech LLC' --tax-id 'XEXX010101000'.*matched by name.*C-GLOBEX, C-ACME/
+      ));
+
+    it('T4 · an archived customer with the right name is taken before an active one with another name', async () => {
+      await addCustomer('C-HOOLI', 'Hooli Ltd', XEXX, false);
+      await sold({ customerRfc: XEXX, customerName: 'Hooli Ltd' }, 'C-HOOLI');
+    });
+
+    it('T8 · the hand door reads the same customer: it calls the same core', async () => {
+      const { xml, uuid } = issued({ customerRfc: XEXX, customerName: 'Acme Inc' });
+      const file = path.join(dir, `${uuid}.xml`);
+      fs.writeFileSync(file, xml);
+      await ingestCfdiFiles({
+        ctx, reviewer, files: [file], session: null, capture: { drafts: [] },
+        thresholds: { autoPost: false, minConfidence: 0.95, maxAmount: 10000 },
+      });
+      const preRegistrationId = (await query<{ id: string }>(
+        `SELECT p.id FROM pre_registrations p JOIN xml_documents x ON x.id = p.xml_document_id
+          WHERE p.entity_id = $1 AND x.cfdi_uuid = $2`,
+        [f.entityId, uuid]
+      )).rows[0].id;
+      const ids = new Map((await query<{ code: string; id: string }>(
+        `SELECT code, id FROM accounts WHERE entity_id = $1 AND code = ANY($2::text[])`, [f.entityId, ['1120', '4100', '2125']]
+      )).rows.map((a) => [a.code, a.id]));
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
+        const invoice = await registerIssuedInvoice(client, {
+          tenantId: f.tenantId, entityId: f.entityId, preRegistrationId, userId: f.userId,
+          description: 'Sale B2001', door: 'manual',
+          lines: PPD_SALE.map((l) => ({ accountId: ids.get(l.account_code)!, debit: l.debit, credit: l.credit })),
+        });
+        const born = await client.query<{ customer_id: string }>(
+          `SELECT customer_id FROM invoices WHERE id = $1 AND entity_id = $2`, [invoice.invoiceId, f.entityId]
+        );
+        expect(born.rows).toEqual([{ customer_id: acmeId }]);
+      } finally {
+        await client.query('ROLLBACK');
+        client.release();
+      }
+    });
+
+    it('T7 · two active customers under one real RFC are refused naming both, with the way out', async () => {
+      // Dated in January by addCustomer, so it is listed before the tenant's own C-ING3, born today.
+      await addCustomer('C-ING3-BIS', 'Servicios Integrales Sucursal', CUSTOMER_RFC);
+      await refused({}, /SIN060101AB1.*2 active customers.*: C-ING3-BIS, C-ING3\..*mnemosine customer archive .*nothing was posted/);
+    });
+
+    it('T5 · two active customers with the same name are refused naming both numbers; nothing posts', async () => {
+      await addCustomer('C-ACME-2', 'ACME Inc', XEXX);
+      await refused(
+        { customerRfc: XEXX, customerName: 'Acme Inc' },
+        /"Acme Inc" \(RFC XEXX010101000\).*2 active customers.*: C-ACME, C-ACME-2\..*nothing was posted/
+      );
+    });
+  });
+
+  describe('T6 · the general public, XAXX010101000', () => {
+    const OWN = 'EMP010101AB1';
+    const counter = (customerName: string) => ({ ownRfc: OWN, customerRfc: OWN_RFC, customerName });
+    beforeAll(async () => {
+      // The fixture entity is itself XAXX010101000: it takes a made-up RFC so that it is the issuer and not the receiver.
+      await useNewTenant('MNE-001-523 general public, customer by name');
+      const moved = await query(`UPDATE legal_entities SET tax_id = $1 WHERE id = $2 AND tenant_id = $3`, [OWN, f.entityId, f.tenantId]);
+      expect(moved.rowCount).toBe(1);
+      ctx.taxId = OWN;
+      await addCustomer('C-NORTE', 'Mostrador Norte', OWN_RFC);
+      await addCustomer('C-SUR', 'Mostrador Sur', OWN_RFC);
+    });
+
+    it('the sale is of the counter the CFDI names', () => sold(counter('Mostrador Sur'), 'C-SUR'));
+
+    it('a counter nobody registered is refused with the command; nothing is written', () =>
+      refused(
+        counter('Mostrador Centro'),
+        /mnemosine customer create --name 'Mostrador Centro' --tax-id 'XAXX010101000'.*matched by name.*C-NORTE, C-SUR/
+      ));
+
+    it('two active counters with one name are refused naming both; nothing posts', async () => {
+      await addCustomer('C-SUR-2', 'Mostrador  Sur', OWN_RFC);
+      await refused(counter('Mostrador Sur'), /2 active customers.*: C-SUR, C-SUR-2\..*nothing was posted/);
+    });
   });
 });
