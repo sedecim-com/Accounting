@@ -219,6 +219,7 @@ import path from 'node:path';
 import ts from 'typescript';
 import { classifyToken, isFlagged } from './lexicon.js';
 import { messageParameters } from '../../src/i18n/index.js';
+import { exitWhenDrained } from '../lib/exit-when-drained.js';
 
 /** La raíz del repositorio: este archivo vive en `scripts/language/`. */
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -1168,5 +1169,5 @@ function main(argv: string[]): number {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  exitWhenDrained(main(process.argv.slice(2)));
 }

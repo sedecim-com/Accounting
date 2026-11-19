@@ -24,6 +24,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { judgeLanguage } from './extract.js';
+import { exitWhenDrained } from '../lib/exit-when-drained.js';
 
 /**
  * The instant the rule takes effect, compared against each commit's AUTHOR
@@ -450,4 +451,4 @@ function report(
   );
 }
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+if (require.main === module) exitWhenDrained(main(process.argv.slice(2)));

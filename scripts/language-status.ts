@@ -69,6 +69,7 @@ import { planLanes } from './language/lanes/plan.js';
 import { docsLanes } from './language/lanes/docs.js';
 import { commentTagsLanes } from './language/lanes/comment-tags.js';
 import { helpLanes } from './language/lanes/help.js';
+import { exitWhenDrained } from './lib/exit-when-drained.js';
 
 const ROOT = path.resolve(__dirname, '..');
 const BASELINE = path.join(ROOT, 'docs', 'language-baseline.json');
@@ -536,4 +537,4 @@ function main(argv: string[]): number {
   return 0;
 }
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+if (require.main === module) exitWhenDrained(main(process.argv.slice(2)));
