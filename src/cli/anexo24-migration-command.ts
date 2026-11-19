@@ -67,6 +67,8 @@ Examples:
 Examples:
   # Exits 0 when the ledger equals the source to the peso, 4 when it does not.
   mnemosine opening-balance check ./migration/balanza-2025-12.xml
+  # With the migration's catalog, its memorandum accounts (8xx) stay out of the footing, each one named.
+  mnemosine opening-balance check ./migration/balanza-2025-12.xml --chart ./migration/catalogo.xml
 `,
 };
 
@@ -90,6 +92,7 @@ interface Opts {
   reason?: string;
   partial?: boolean;
   subledger?: string;
+  chart?: string;
 }
 
 export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24MigrationDeps): void {
@@ -295,6 +298,7 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
     'help.opening_balance.check.description'
   );
   withContext(openingCheck);
+  optionByKey(openingCheck, '--chart <file>', 'help.opening_balance.check.option.chart');
   withOutput(openingCheck);
   openingCheck.addHelpText('after', EXAMPLES.openingCheck);
   declareRisk(openingCheck, { risk: 'lectura', agent: true });
@@ -302,7 +306,11 @@ export function registerAnexo24MigrationCommands(program: Command, deps: Anexo24
     run(async () => {
       bootstrapTenant(opts.tenant);
       const { ctx } = await resolveActiveEntity({ entity: opts.entity }, { home: deps.home });
-      const report = await checkOpeningBalance(ctx, { entityId: ctx.entityId, xml: readFile(file) });
+      const report = await checkOpeningBalance(ctx, {
+        entityId: ctx.entityId,
+        xml: readFile(file),
+        ...(opts.chart === undefined ? {} : { chartXml: readFile(opts.chart) }),
+      });
       print(
         opts,
         report,

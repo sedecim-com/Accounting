@@ -583,6 +583,56 @@ describe('a reversed opening can be loaded again', () => {
   });
 });
 
+// ============================================================
+// MNE-001-419 · THE CHECK LEAVES THE MEMORANDUM ACCOUNTS OUT, BY --chart (#621)
+// ============================================================
+
+describe('opening-balance check with the migration catalog (chartXml)', () => {
+  // A CUFIN pair at the root: 75,000.00 on each side, off the balance sheet.
+  const PAIR: CuentaDelCliente[] = [
+    { num: '802-01', desc: 'CUFIN', agrup: '802.01', nivel: 1, natur: 'D', saldo: '75000.00' },
+    { num: '802-02', desc: 'CUFIN contra', agrup: '802.02', nivel: 1, natur: 'A', saldo: '75000.00' },
+  ];
+  const WITH_PAIR = [...CATALOGO, ...PAIR];
+
+  it('chart import leaves the pair out, and the check with the catalog excludes it by name and is equal', async () => {
+    const own = await crearEntidadHermana(f, 'MNE-001-419 memorandum pair');
+    const chartXml = catalogXml(WITH_PAIR);
+    const chart = await importSatChart(ctxDe(own), { entityId: own.entityId, xml: chartXml, userId: own.userId });
+    expect(chart.creadas).toHaveLength(CATALOGO.length);
+    expect(chart.omitidas.map((o) => [o.code, o.motivo])).toEqual([
+      ['802-01', 'cuentas_de_orden'],
+      ['802-02', 'cuentas_de_orden'],
+    ]);
+    await pointControlRolesAtMigratedAccounts(own);
+
+    // Until MNE-001-456 the load refuses the pair, so the opening comes from
+    // the balanza without it: today's workaround (docs/memorandum-accounts.md).
+    const loaded = await importOpeningBalance(ctxDe(own), {
+      entityId: own.entityId,
+      xml: balanzaDeOrigen(),
+      userId: own.userId,
+      documentos: AUXILIAR,
+    });
+    expect(loaded.escrito).toBe(true);
+
+    const full = balanzaDeOrigen({}, WITH_PAIR);
+    const without = (await checkOpeningBalance(ctxDe(own), { entityId: own.entityId, xml: full })).comparison;
+    expect(without.iguales).toBe(false);
+    expect(without.faltantes).toEqual(['802-01', '802-02']);
+
+    const c = (await checkOpeningBalance(ctxDe(own), { entityId: own.entityId, xml: full, chartXml })).comparison;
+    expect(c.faltantes).toEqual([]);
+    expect(c.comparadas).toBe(17);
+    expect(c.excluded).toEqual([
+      { code: '802-01', amount: '75000.0000' },
+      { code: '802-02', amount: '75000.0000' },
+    ]);
+    expect(c.iguales).toBe(true);
+    expect(renderBalanceComparison(c)).toContain('802-01: cuenta de orden, fuera del cuadre (el origen declara 75000.0000)');
+  });
+});
+
 describe('la balanza del sistema viejo y la nuestra', () => {
   it('SaldoFin del primer periodo, CUENTA POR CUENTA, iguales al peso', async () => {
     const origen = readBalanzaComprobacion(balanzaDeOrigen());

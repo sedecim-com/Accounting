@@ -1414,12 +1414,21 @@ export async function applyCustomerPayment(
       posteriores,
       userId
     );
+    // 0 included (MNE-001-459), on any entity: NULL is left to rows written
+    // before anyone stored it. Invariant 3: only the live row that has not
+    // recorded a release, of a receipt of this entity, and a miss is loud.
     for (const fila of filas) {
-      const iva = ivaPorFactura.get(fila.invoiceId);
-      if (iva) {
-        await client.query(
-          `UPDATE payment_allocations SET iva_reclass_amount = $1 WHERE id = $2`,
-          [iva, fila.allocId]
+      const stored = await client.query(
+        `UPDATE payment_allocations SET iva_reclass_amount = $1 WHERE id = $2
+            AND unapplied_at IS NULL AND iva_reclass_amount IS NULL
+            AND payment_id = (SELECT id FROM customer_payments WHERE id = $3 AND entity_id = $4)`,
+        [ivaPorFactura.get(fila.invoiceId) ?? '0', fila.allocId, pago.id, entityId]
+      );
+      if (stored.rowCount !== 1) {
+        throw new AccountingError(
+          'PAYMENT_ALLOCATION_NOT_FOUND',
+          `${pago.payment_number}: the allocation just written is not waiting for its released IVA, ` +
+            'so the amount an unapply would re-park cannot be recorded.'
         );
       }
     }
@@ -1534,8 +1543,8 @@ export async function unapplyCustomerPayment(
     const conIva = vivas.rows.filter((r) => r.iva_reclass_amount !== null);
     const sinIva = vivas.rows.filter((r) => r.iva_reclass_amount === null);
     const ivaExacto = conIva.reduce((s, r) => s.plus(r.iva_reclass_amount as string), new Decimal(0));
-    // A row with no stored IVA (written before migration 049, or a PPD release
-    // capped to 0) is estimated pro-rata, and the entry says so. Only a PPD
+    // A row with no stored IVA (written before MNE-001-459 stored 0 on every
+    // new row) is estimated pro-rata, and the entry says so. Only a PPD
     // invoice on cash-basis books parked IVA (LIVA art. 1o.-B); the books are
     // read first, so an entity off Mexican books never reads a MetodoPago.
     // Stored IVA is a fact of the ledger and is never gated.
