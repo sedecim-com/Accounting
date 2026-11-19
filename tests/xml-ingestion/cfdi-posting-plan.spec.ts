@@ -289,9 +289,9 @@ describe('singleExpenseRole · the account a line nobody coded may take (MNE-001
   });
 
   it('no expense line, two expense roles, or a role with no account: none, and it says why', () => {
-    expect(singleExpenseRole([line('cxp', '2110')])).toEqual({ why: expect.stringContaining('no expense line') });
-    expect(singleExpenseRole([line('gasto', '6100'), line('activo_fijo', '1210')]))
-      .toEqual({ why: expect.stringContaining('gasto, activo_fijo') });
-    expect(singleExpenseRole([line('gasto', null)])).toEqual({ why: expect.stringContaining('role gasto has no account') });
+    const why = (r: ReturnType<typeof singleExpenseRole>): string => ('why' in r ? r.why : `chose ${r.accountCode}`);
+    expect(why(singleExpenseRole([line('cxp', '2110')]))).toContain('no expense line');
+    expect(why(singleExpenseRole([line('gasto', '6100'), line('activo_fijo', '1210')]))).toContain('gasto, activo_fijo');
+    expect(why(singleExpenseRole([line('gasto', null)]))).toContain('role gasto has no account');
   });
 });
