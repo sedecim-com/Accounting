@@ -181,9 +181,11 @@ describe('what a stated treatment is refused for, with nothing written', () => {
     await refused(advance('1160.00', '17'), mx, { messageKey: { key: 'receipt.advance.treatment_unknown' } });
   });
 
-  it('a treatment on a receipt that names an invoice (the excess is part 8/8)', async () => {
+  it('a treatment on a receipt that leaves nothing on account (MNE-001-462: it is the excess\'s)', async () => {
     const applications = [{ documentId: await saleInvoice(), amountApplied: '100.00' }];
-    await refused(advance('1160.00', '16', { applications }), mx, { messageKey: { key: 'receipt.advance.only_without_invoice' } });
+    await refused(advance('100.00', '16', { applications }), mx, {
+      messageKey: { key: 'receipt.advance.nothing_on_account', params: { amount: '100.00' } },
+    });
   });
 
   it('an advance received by cheque, whose IVA is caused when the bank cashes it (#700)', async () => {

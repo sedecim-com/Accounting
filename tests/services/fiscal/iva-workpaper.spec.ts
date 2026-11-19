@@ -15,11 +15,11 @@ import {
   readCreditableProration,
   readFilingRounding,
   referenceFindings,
-  saleFromCfdi,
   roundToWhole,
   settleIva,
   type IvaWorkpaperFigures,
 } from '../../../src/services/fiscal/iva-workpaper.js';
+import { saleFromCfdi } from '../../../src/services/fiscal/sale-sources.js';
 import { desglosarDocumento, desgloseCero } from '../../../src/services/sat/diot/index.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 import { POLICY_CATALOG } from '../../../src/services/policy/pending-catalog.js';

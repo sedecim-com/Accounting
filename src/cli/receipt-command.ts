@@ -45,7 +45,7 @@ import {
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 import { todayFor } from '../services/policy/today.js';
-import { ADVANCE_TREATMENTS_AS_TYPED, readAdvanceTreatment } from '../services/payments/customer-advance.js';
+import { ADVANCE_TREATMENTS_AS_TYPED, readAdvanceTreatment, type AdvanceSplit } from '../services/payments/customer-advance.js';
 import { keepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
 
 // ============================================================
@@ -130,7 +130,7 @@ const EJEMPLOS = {
 Examples:
   # Cash received against one invoice; this releases the PPD IVA it was holding.
   mnemosine receipt record INV-2026-00042 --amount 98600.00 --date 2026-07-31 --method spei --reference "SPEI 0123456789"
-  # Take more than the invoice owes; the excess stays on account as an anticipo.
+  # Take more than the invoice owes; the excess stays on account as an advance and causes its IVA today, at the invoice's rate.
   mnemosine receipt record INV-2026-00042 --amount 120000.00 --on-account
   # See the entry it would post, writing nothing.
   mnemosine receipt record INV-2026-00042 --amount 98600.00 --dry-run
@@ -197,6 +197,19 @@ Examples:
 function advanceFigures(a: { base: string; treatment: string; iva: string }): string {
   const rate = /^\d/.test(a.treatment) ? `${a.treatment} %` : a.treatment;
   return t('receipt.advance.figures', { base: a.base, iva: a.iva, rate });
+}
+
+/**
+ * MNE-001-462 · The figures of the excess a collection leaves on account,
+ * and where its rate came from when nobody stated it: the invoice's, or the
+ * one assumed among several.
+ */
+function excessFigures(a: AdvanceSplit): string {
+  if (!a.from) return advanceFigures(a);
+  const key = a.from.assumed === 'highest'
+    ? 'receipt.excess.from_highest'
+    : a.from.assumed === 'exempt' ? 'receipt.excess.from_exempt' : 'receipt.excess.from';
+  return `${advanceFigures(a)}; ${t(key, { invoices: a.from.invoices })}`;
 }
 
 /**
@@ -324,13 +337,13 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   describeCommand(record, 'help.receipt.record.description');
   optionByKey(record, '--customer <ref>', 'help.receipt.record.option.customer');
   optionByKey(record, '--tax-rate <rate>', 'help.receipt.record.option.tax_rate');
+  optionByKey(record, '--on-account', 'help.receipt.record.option.on_account');
   record
     .requiredOption('--amount <amount>', 'amount, in the document currency')
     .option('--date <date>', 'value date (YYYY-MM-DD); defaults to today')
     .option('--method <method>', 'cash, check, ach, wire, spei, credit_card or other', 'spei')
     .option('--bank <account>', "bank account name or id; without it the entity's `banco` role is used")
     .option('--reference <text>', 'bank reference or transfer number')
-    .option('--on-account', 'let the amount exceed the invoice due; the excess stays on account (anticipo)')
     .option('--json', 'JSON output');
   withContext(record);
   declareRisk(record, {
@@ -358,7 +371,10 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         // an entity that keeps Mexican books; the service refuses a rate on
         // one that does not, and an advance by cheque (issue 700).
         if (ref === undefined && !opts.customer) throw usageError(t('receipt.advance.needs_customer'));
-        if (ref !== undefined && opts.taxRate !== undefined) throw usageError(t('receipt.advance.only_without_invoice'));
+        // MNE-001-462: with an invoice, a rate is the excess's, which only --on-account leaves.
+        if (ref !== undefined && opts.taxRate !== undefined && !opts.onAccount) {
+          throw usageError(t('receipt.advance.tax_rate_needs_on_account'));
+        }
         const treatment = opts.taxRate === undefined ? null : readAdvanceTreatment(opts.taxRate);
         if (opts.taxRate !== undefined && treatment === null) {
           const params = { value: opts.taxRate, allowed: ADVANCE_TREATMENTS_AS_TYPED };
@@ -470,6 +486,8 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             : [],
           onAccount: !target || opts.onAccount === true,
           ...(treatment ? { advanceTreatment: treatment } : {}),
+          // MNE-001-462: the excess of a collection is an advance (LIVA art. 1-B); unstated, it takes the invoice's rate.
+          ...(target && opts.onAccount && !treatment ? { advanceTreatmentFromInvoice: true } : {}),
         };
 
         const previo = await recordCustomerPayment(entrada, reviewer.userId, { dryRun: true });
@@ -479,6 +497,9 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (previo.advanceInvoices?.length) {
           const params = { customer: label, invoices: previo.advanceInvoices.join(', '), invoice: previo.advanceInvoices[0] };
           process.stderr.write(p.yellow(`${t('receipt.advance.invoice_already_booked', params)}\n`));
+        }
+        if (previo.excessAwaitsCashing) {
+          process.stderr.write(p.yellow(`${t('receipt.excess.cheque_held', { amount: remanente.toFixed(2) })}\n`));
         }
 
         if (opts.dryRun) {
@@ -493,6 +514,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             ? `Record ${opts.amount} ${target.currency_code} collected on ${target.invoice_number}` +
               (doc ? ` (${doc.saldoAnterior} → ${doc.saldoNuevo})` : '') +
               (remanente.greaterThan(0) ? ` with ${remanente.toFixed(2)} left on account` : '') +
+              (previo.advance ? ` (${t('receipt.advance.label')}: ${excessFigures(previo.advance)})` : '') +
               (bank ? ` into ${bank.account_name}` : '') +
               ` in ${ctx.entityName}? This posts to the ledger.`
             : t('receipt.advance.confirm', {
@@ -1061,6 +1083,8 @@ function imprimirRegistro(
           advance_base: result.advance?.base ?? null,
           advance_tax_rate: result.advance?.treatment ?? null,
           advance_iva: result.advance?.iva ?? null,
+          advance_tax_rate_from: result.advance?.from?.invoices ?? null,
+          advance_tax_rate_assumed: result.advance?.from?.assumed ?? null,
           open_advance_invoices: result.advanceInvoices ?? null,
           journal_entry: result.journalEntry?.entry_number ?? null,
           dry_run: ensayo,
@@ -1076,7 +1100,7 @@ function imprimirRegistro(
       : `${p.green('✔')} ${p.bold(result.paymentNumber)} · ${p.bold(etiqueta)}` +
         (doc ? p.dim(` ${doc.saldoAnterior} → ${doc.saldoNuevo} (${doc.estado})`) : '')) +
       (remanente.greaterThan(0) ? p.dim(` · ${remanente.toFixed(2)} on account`) : '') +
-      (result.advance ? p.dim(` · ${t('receipt.advance.label')}: ${advanceFigures(result.advance)}`) : '') +
+      (result.advance ? p.dim(` · ${t('receipt.advance.label')}: ${excessFigures(result.advance)}`) : '') +
       (result.journalEntry ? p.dim(` · entry ${result.journalEntry.entry_number}`) : '') +
       '\n'
   );

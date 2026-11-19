@@ -235,6 +235,54 @@ describe('a PPD share released by a later application', () => {
   }, 120_000);
 });
 
+/** MNE-001-462 · A collection of 1,500.00 on a 1,160.00 invoice, its 340.00 excess at the invoice's rate. */
+async function collectWithExcess(b: Book, invoiceId: string, date: string) {
+  return recordCustomerPayment(
+    {
+      entityId: b.f.entityId, counterpartyId: b.customerId, paymentAmount: '1500.00', paymentDate: date,
+      paymentMethod: 'spei', onAccount: true, advanceTreatmentFromInvoice: true,
+      applications: [{ documentId: invoiceId, amountApplied: '1160.00' }],
+    },
+    b.f.userId
+  );
+}
+
+describe('MNE-001-462 · the excess of a collection is an advance in the paper too', () => {
+  it('PUE: May counts the invoice and the excess, and the June unapply counts the cash back as an advance', async () => {
+    const b = await book('excess PUE');
+    const inv = await invoice(b, '1000.00', day(5, 5), 'PUE');
+    const receipt = await collectWithExcess(b, inv, day(5, 10));
+    // 1,000.00 / 160.00 of the invoice, issued in May, and 293.10 / 46.90 of the excess.
+    const may = await paper(b, 5);
+    expect(at16(may)).toEqual({ base: '1293.10', iva: '206.90' });
+    expect(may.ledger.iva_trasladado).toBe('-206.9000');
+
+    await unapply(b, receipt.paymentId, inv, day(6, 8));
+    const june = await paper(b, 6);
+    expect(at16(june)).toEqual({ base: '1000.00', iva: '160.00' });
+    expect(june.ledger.iva_trasladado).toBe('-160.0000');
+    for (const wp of [may, june]) expect(codes(wp)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
+    expect(at16(await paper(b, 5))).toEqual(at16(may));
+  }, 120_000);
+
+  it('PPD: the June unapply ends the share and gets the cash back as an advance, netting 0, and May does not move', async () => {
+    const b = await book('excess PPD');
+    const inv = await invoice(b, '1000.00', day(5, 5), 'PPD');
+    const receipt = await collectWithExcess(b, inv, day(5, 10));
+    const may = await paper(b, 5);
+    expect(at16(may)).toEqual({ base: '1293.10', iva: '206.90' });
+
+    await unapply(b, receipt.paymentId, inv, day(6, 8));
+    const june = await paper(b, 6);
+    expect(at16(june)).toEqual({ base: '0.00', iva: '0.00' });
+    expect(june.ledger.iva_trasladado).toBe('0.0000');
+    expect(june.contributions.charged.find((x) => x.documentId === receipt.paymentId)?.breakdown.tasa16)
+      .toEqual({ base: '1000.0000', iva: '160.0000' });
+    for (const wp of [may, june]) expect(codes(wp)).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
+    expect(at16(await paper(b, 5))).toEqual(at16(may));
+  }, 120_000);
+});
+
 // TODO(#700): MNE-001-558 lets an advance be received by cheque, its IVA posted the day the bank cashes it; until
 // then `recordCustomerPayment` refuses one (ADVANCE_BY_CHEQUE_NOT_WIRED), and the paper skips a reversed receipt.
 it.todo('an advance received by cheque and reversed in its own month counts in no month (MNE-001-423, after MNE-001-558)');

@@ -580,6 +580,12 @@ interface PaymentRow {
   advance_base_amount?: string | null;
   advance_iva_amount?: string | null;
   /**
+   * MNE-001-462 · said in the receipt's entry when the excess it leaves on
+   * account took its treatment from the invoices it collects, as a missing
+   * MetodoPago is said (`withAssumptionNote`).
+   */
+  advance_note?: string | null;
+  /**
    * A cheque in the functional currency the bank has not cashed yet: a price
    * paid by cheque, and its IVA, is paid the day it is cashed (LIVA art. 1-B,
    * second paragraph), so the payment's entries and its applications release
@@ -735,8 +741,8 @@ export async function postCustomerPaymentEntry(
     payment.payment_date,
     JournalEntryType.AUTO_PAYMENT,
     iva.documents.length
-      ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}${memo}`
-      : `Customer payment ${payment.payment_number}${memo}`,
+      ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}${memo}${payment.advance_note ?? ''}`
+      : `Customer payment ${payment.payment_number}${memo}${payment.advance_note ?? ''}`,
     jeLines,
     userId,
     { autoPost: true, client, sourceType: 'customer_payment', sourceId: payment.id, reference: payment.payment_number }
