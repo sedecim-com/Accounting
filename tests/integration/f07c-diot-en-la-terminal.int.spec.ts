@@ -9,6 +9,7 @@ import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
+import { recordVendorPayment } from '../../src/services/payments/payment-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { registerDiotCommand, TITULAR_NO_PRESENTADA } from '../../src/cli/diot-command.js';
 import { ExitCode } from '../../src/cli/kernel/index.js';
@@ -22,8 +23,9 @@ import { ExitCode } from '../../src/cli/kernel/index.js';
 // el MAYOR movió — un doble que devuelve «160.0000» sólo reproduce la cadena
 // que alguien escribió en el arnés.
 //
-// Aquí se siembra el gasto, se aprueba —lo que manda su IVA a la cuenta
-// acreditable— y se corre `diot generate` con el motor de verdad, y se
+// Aquí se siembra el gasto, se aprueba y se paga en el mes —el pago manda su
+// IVA a la cuenta acreditable (MNE-001-492)— y se corre `diot generate` con
+// el motor de verdad, y se
 // compara el total impreso contra el movimiento del mes de esa cuenta,
 // leído del libro. Es el mismo amarre que f07c-la-diot-que-se-paga hace
 // sobre el servicio, hecho una vez más EN LA SUPERFICIE: entre el servicio y
@@ -35,6 +37,7 @@ import { ExitCode } from '../../src/cli/kernel/index.js';
 
 let f: Fixture;
 let tmpRaiz: string;
+let vendor: string;
 
 const MES = 5;
 
@@ -58,11 +61,12 @@ async function sembrarProveedor(nombre: string, rfc: string | null): Promise<str
   return vendorId;
 }
 
-/** Un gasto PUE aprobado: su IVA ya es acreditable en el mes de la factura. */
+/** Un gasto PUE aprobado y, salvo que se diga, pagado el 20 del mes: su IVA se acredita al pagarlo. */
 async function sembrarGastoPue(
   vendorId: string,
   importe: string,
-  iva: string
+  iva: string,
+  paid = true
 ): Promise<{ billId: string; numero: string }> {
   const total = new Decimal(importe).plus(iva);
   const billId = uuidv4();
@@ -93,6 +97,13 @@ async function sembrarGastoPue(
     ]
   );
   await approveBill(billId, f.userId, { entityId: f.entityId });
+  if (paid) {
+    await recordVendorPayment(
+      { entityId: f.entityId, counterpartyId: vendorId, paymentAmount: total.toFixed(2), paymentDate: fechaEnPeriodo(MES, 20),
+        paymentMethod: 'spei', applications: [{ documentId: billId, amountApplied: total.toFixed(2) }] },
+      f.userId
+    );
+  }
   return { billId, numero };
 }
 
@@ -162,8 +173,8 @@ beforeAll(async () => {
   tmpRaiz = fs.mkdtempSync(path.join(os.tmpdir(), 'f07c-terminal-'));
   f = await crearInquilino('F07c DIOT en la terminal');
   await seedPolicies({ tenantId: f.tenantId });
-  const v = await sembrarProveedor('Servicios del Golfo SA', 'SDG010101AA1');
-  await sembrarGastoPue(v, '1000.0000', '160.0000');
+  vendor = await sembrarProveedor('Servicios del Golfo SA', 'SDG010101AA1');
+  await sembrarGastoPue(vendor, '1000.0000', '160.0000');
 }, 180_000);
 
 afterAll(async () => {
@@ -232,16 +243,15 @@ describe('diot generate · lo que imprime la terminal es lo que movió el mayor'
 
 describe('diot check · las verificaciones contra el libro real', () => {
   it('un PUE aprobado y no pagado avisa, sale 0, y con --strict sale 4', async () => {
-    // El motor lo dice y hay que dejarlo dicho: un gasto marcado PUE entra
-    // COMPLETO en la DIOT del mes aunque no se le haya aplicado un peso,
-    // porque su IVA fue acreditable al contabilizarlo. Es un aviso y no un
-    // bloqueante —el asiento es legítimo—, y dice lo que pasó: su IVA fue a
-    // la 1130 y se acredita antes de pagarse (MNE-001-491), sin culpar al método.
+    // Un gasto marcado PUE y sin un peso aplicado no entra en la DIOT del
+    // mes: su IVA espera el pago en la 1135 (MNE-001-492). Es un aviso y no
+    // un bloqueante —el asiento es legítimo—, y dice qué le toca a su emisor.
+    await sembrarGastoPue(vendor, '500.0000', '80.0000', false);
     const r = await correr(['diot', 'check', ...PERIODO]);
     expect(r.exitCode, `${r.out}${r.err}`).toBe(ExitCode.OK);
-    expect(r.out).toContain('DIOT-PUE-SIN-PAGO');
-    expect(r.out).toMatch(/antes de pagarse/);
-    expect(r.out).not.toMatch(/mal capturado/);
+    expect(r.out).toContain('DIOT-PUE-ESPERA-PAGO');
+    expect(r.out).toMatch(/espera el pago/);
+    expect(r.out).toMatch(/2\.7\.1\.39/);
     // The second notice: diot_creditable_iva_proportion is unanswered, so its
     // default is named on every DIOT instead of applied in silence.
     expect(r.out).toContain('DIOT-PROPORTION-BY-DEFAULT');

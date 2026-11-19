@@ -72,7 +72,8 @@ function lineaDe(plan: Awaited<ReturnType<typeof planearAsiento>>, cuenta: strin
 }
 
 describe('el método de pago decide la cuenta del IVA', () => {
-  it('PUE: el IVA se acredita al recibir la factura (1130)', async () => {
+  // MNE-001-492: la PUE recibida también espera su pago para acreditar.
+  it('PUE: el IVA queda PENDIENTE de acreditar (1135) hasta pagarla', async () => {
     const plan = await planearAsiento({
       entityId: ENTIDAD, entityRfc: RFC_RECEPTOR, xml: XML_PUE,
       renglones: RENGLONES, referencia: 'BILL-2026-00001',
@@ -80,8 +81,8 @@ describe('el método de pago decide la cuenta del IVA', () => {
     });
 
     expect(plan.clasificacion.verdict).toBe('ready');
-    expect(lineaDe(plan, idDe('1130'))?.debit_amount).toBe('160.0000');
-    expect(lineaDe(plan, idDe('1135'))).toBeUndefined();
+    expect(lineaDe(plan, idDe('1135'))?.debit_amount).toBe('160.0000');
+    expect(lineaDe(plan, idDe('1130'))).toBeUndefined();
   });
 
   it('PPD: el IVA queda PENDIENTE de acreditar (1135), no acreditado', async () => {

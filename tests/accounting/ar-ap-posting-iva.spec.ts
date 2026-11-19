@@ -203,15 +203,17 @@ describe('the four issuance cases land in the four accounts', () => {
     expect(lineFor('acct:iva_trasladado')).toBeUndefined();
   });
 
-  it('bill PUE → DR iva_acreditable 80', async () => {
+  // MNE-001-492: PUE is the issuer's label, not proof of payment; the VAT waits for the payment.
+  it('bill PUE → DR iva_pendiente_acreditar 80, nothing creditable yet', async () => {
     state.cfdiMetodo = { 'bill-1': 'PUE' };
     await postBillEntry(fakeClient(), bill(), billLines(), USER);
 
-    const iva = lineFor('acct:iva_acreditable');
+    const iva = lineFor('acct:iva_pendiente_acreditar');
     expect(iva).toBeDefined();
     expect(iva!.debit_amount).toBe('80.0000');
     expect(iva!.credit_amount).toBeNull();
-    expect(lineFor('acct:iva_pendiente_acreditar')).toBeUndefined();
+    expect(iva!.description).toMatch(/IVA PUE - Bill BILL-001 · IVA not yet creditable — moves to IVA acreditable on payment/);
+    expect(lineFor('acct:iva_acreditable')).toBeUndefined();
   });
 
   it('bill PPD → DR iva_pendiente_acreditar 80, nothing creditable yet', async () => {
@@ -262,7 +264,7 @@ describe('a document with no MetodoPago', () => {
   it('reads an explicit code out of the terms rather than assuming', async () => {
     await postBillEntry(fakeClient(), bill({ terms: 'PUE - pagado al contado' }), billLines(), USER);
 
-    expect(lineFor('acct:iva_acreditable')!.debit_amount).toBe('80.0000');
+    expect(lineFor('acct:iva_pendiente_acreditar')!.description).toMatch(/^IVA PUE - Bill/);
     expect(entryDescription()).toBe('Bill BILL-001');
     expect(mockWarn).not.toHaveBeenCalled();
   });

@@ -77,10 +77,12 @@ mnemosine cfdi status sync
 
 Aquí está la diferencia entre un sistema contable mexicano y uno traducido.
 
-El `MetodoPago` del CFDI es el hecho que decide:
+Al emitir, el `MetodoPago` del CFDI es el hecho que decide:
 
-- **PUE** (pago en una sola exhibición): el impuesto se causa —si emitimos— o se acredita —si recibimos— al emitir el comprobante.
-- **PPD** (pago en parcialidades o diferido): al emitir **no** se causa ni se acredita. Se estaciona en `2125 IVA Trasladado No Cobrado` (emitido) o `1135 IVA Pendiente de Acreditar` (recibido), y se mueve a `2120` / `1130` cuando llega el pago.
+- **PUE** (pago en una sola exhibición): el impuesto se causa al emitir el comprobante.
+- **PPD** (pago en parcialidades o diferido): al emitir **no** se causa. Se estaciona en `2125 IVA Trasladado No Cobrado` y se mueve a `2120` cuando llega el cobro.
+
+Al recibir, PUE o PPD, el IVA se estaciona en `1135 IVA Pendiente de Acreditar` y se mueve a `1130` cuando se paga (MNE-001-492): sólo es acreditable efectivamente pagado (LIVA art. 5 fr. III), y la PUE es una etiqueta del emisor, no prueba del pago (regla 2.7.1.39 de la RMF).
 
 Qué rol recibe el impuesto **no se decide** en el módulo de flujo: se lee de la taxonomía, que ya modela los cuatro casos. [`iva-cash-basis.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/iva-cash-basis.ts) sólo le hace la pregunta y hace la aritmética.
 
@@ -111,7 +113,7 @@ Las cuatro líneas van en **un solo asiento**, el del pago. La alternativa obvia
 
 Los dos pares están en lados opuestos del balance, así que se vacían con asientos opuestos: la 2125 es pasivo y se vacía con **cargo**; la 1135 es activo y se vacía con **abono**. Invertirlo cuadra igual de bien y deja las dos cuentas al revés, que es por qué está escrito con todas sus letras en [`ar-ap-posting.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/ar-ap-posting.ts).
 
-La misma factura en **PUE** habría cargado la 1130 desde el momento 1, y el pago no habría movido un peso de impuesto.
+La misma factura en **PUE** sigue el mismo camino: su IVA espera el pago en la 1135 (MNE-001-492).
 
 ### Pagos parciales: objetivos acumulados, no redondeos por pago
 

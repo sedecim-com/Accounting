@@ -11,14 +11,18 @@ import { VENDOR_CREDIT_NOTE_SOURCE } from '../xml-ingestion/received-credit-note
 // IVA ON CASH BASIS (LIVA art. 1-B and art. 5 frac. III)
 //
 // Mexico causes and credits IVA when the money MOVES, not when the
-// invoice is issued. The CFDI MetodoPago is the fact that decides:
+// invoice is issued. On the issued side the CFDI MetodoPago decides:
 //
-//   PUE (pago en una sola exhibición) — collected/paid at issuance:
-//        the IVA is due (issued) or creditable (received) right away.
-//   PPD (pago en parcialidades o diferido) — at issuance the IVA is
-//        NOT yet due nor creditable. It parks in 2125 "IVA Trasladado
-//        No Cobrado" / 1135 "IVA Pendiente de Acreditar" and MOVES to
-//        2120 / 1130 when the payment (the complemento de pago) lands.
+//   PUE (pago en una sola exhibición) — collected at issuance: the IVA
+//        is due right away (the conservative side, decided on #668).
+//   PPD (pago en parcialidades o diferido) — at issuance the IVA is NOT
+//        yet due. It parks in 2125 "IVA Trasladado No Cobrado" and MOVES
+//        to 2120 when the collection (the complemento de pago) lands.
+//
+// A RECEIVED document parks its IVA in 1135 "IVA Pendiente de Acreditar"
+// whatever its MetodoPago, and the vendor payment moves it to 1130
+// (MNE-001-492, #693): it is creditable once paid (LIVA art. 5-III), and
+// PUE is the issuer's label, not proof of payment (RMF rule 2.7.1.39).
 //
 // WHICH ROLE the IVA lands in is NOT decided here: it is read off
 // cfdi-taxonomy.ts, which already models the four cases and is the
@@ -63,13 +67,12 @@ export interface MetodoPagoDecision {
  *              statement of deferred payment. With nothing stated, PUE never
  *              recognizes the IVA later than PPD would, and late IVA bears
  *              updating and surcharges (CFF art. 21).
- * - received → PPD: the input IVA waits in 1135. Crediting it now would
- *              bring the credit forward on an invoice that may never be
- *              paid, which is the audit finding the SAT actually writes up.
+ * - received → PPD: the input IVA waits in 1135, as every received
+ *              document's does since MNE-001-492, so the default only names
+ *              the method the entry and the DIOT print.
  *
  * Both choices self-correct: the payment reclassification moves the amount
- * as soon as cash moves, so a PUE bill misread as PPD is only credited
- * later, never lost.
+ * as soon as cash moves.
  */
 export const CONSERVATIVE_METODO: Readonly<Record<DocumentSide, MetodoPago>> = Object.freeze({
   issued: 'PUE',
@@ -98,10 +101,10 @@ export function parseMetodoPago(raw: unknown): MetodoPago | null {
  *   "Entrega en Cholula, Pue."  → `Pue.` is the state of Puebla, not PUE.
  *   "Ref PPD-2026-04"           → a folio, not a payment method.
  *
- * Both are word-bounded, and the first one is the expensive direction: it
- * would credit a bill's IVA on receipt with no warning and no note in the
- * entry, which is exactly the over-crediting this module exists to stop.
- * So a code glued to `.`, `-`, `/` or a digit does not count. Rejecting
+ * Both are word-bounded, and the first one was the expensive direction:
+ * until MNE-001-492 it credited a bill's IVA on receipt with no warning and
+ * no note in the entry. It still misstates the method an invoice, an entry
+ * and the DIOT carry. So a code glued to `.`, `-`, `/` or a digit does not count. Rejecting
  * falls through to the conservative default, which is logged and written
  * into the entry — the honest outcome for a signal this weak.
  */
@@ -165,13 +168,11 @@ export function describeMetodo(decision: MetodoPagoDecision): string {
  */
 export function ivaTreatmentNote(side: DocumentSide, decision: MetodoPagoDecision): string {
   const base =
-    decision.metodo === 'PPD'
-      ? side === 'issued'
+    side === 'received'
+      ? 'IVA not yet creditable — moves to IVA acreditable on payment'
+      : decision.metodo === 'PPD'
         ? 'IVA not yet due — moves to IVA trasladado on collection'
-        : 'IVA not yet creditable — moves to IVA acreditable on payment'
-      : side === 'issued'
-        ? 'IVA due on issuance'
-        : 'IVA creditable on issuance';
+        : 'IVA due on issuance';
   return decision.assumed
     ? `${base}; no CFDI MetodoPago on the document, conservative ${decision.metodo} assumed`
     : base;
@@ -252,7 +253,7 @@ export function ivaRoleFor(side: DocumentSide, metodo: MetodoPago): AccountRole 
  * The pair a payment reclassifies: out of the pending role, into the due one.
  *
  * NOTE: received, the target is the creditable role itself and not what the
- * taxonomy says of a PUE. Once a received PUE parks its VAT too (MNE-001-492)
+ * taxonomy says of a PUE. A received PUE parks its VAT too (MNE-001-492), so
  * that probe answers the pending role, and a release would move 1135 to 1135.
  */
 export function reclassRoles(side: DocumentSide): { from: AccountRole; to: AccountRole } {

@@ -48,11 +48,12 @@ import { tenantDe } from '../audit/audit-log.js';
 // the rate of the firm's `fuente_tipo_cambio` source.
 //
 // IVA IS ON A CASH BASIS FOR MEXICAN ENTITIES. Which IVA role a
-// document's tax lands in is decided by the CFDI MetodoPago and
-// read off the taxonomy (see iva-cash-basis.ts): PUE posts to
-// iva_trasladado / iva_acreditable, PPD parks in
-// iva_trasladado_no_cobrado (2125) / iva_pendiente_acreditar
-// (1135) and is released by the payment that applies the document.
+// document's tax lands in is read off the taxonomy (see
+// iva-cash-basis.ts). An invoice's follows its CFDI MetodoPago: PUE
+// posts to iva_trasladado, PPD parks in iva_trasladado_no_cobrado
+// (2125). A bill's parks in iva_pendiente_acreditar (1135), PUE or
+// PPD (MNE-001-492). What is parked is released by the payment that
+// applies the document.
 // A non-Mexican entity is untouched by any of this and keeps
 // posting its tax exactly where it always did.
 // ============================================================
@@ -246,8 +247,9 @@ export async function postInvoiceEntry(
 }
 
 /**
- * CR cxp (total) · DR expense per line · DR the IVA role the MetodoPago
- * selects: iva_acreditable for PUE, iva_pendiente_acreditar for PPD.
+ * CR cxp (total) · DR expense per line · DR the IVA role the taxonomy
+ * gives a received document: iva_pendiente_acreditar, PUE or PPD, until
+ * the vendor payment releases it (MNE-001-492).
  */
 export async function postBillEntry(
   client: pg.PoolClient,
@@ -1493,7 +1495,7 @@ export async function postVendorUnapplicationEntry(
 }
 
 /**
- * DR cxp · CR bank, plus — for every PPD bill this payment applies to —
+ * DR cxp · CR bank, plus — for every bill this payment applies to that parked IVA —
  * DR iva_acreditable · CR iva_pendiente_acreditar for the paid share. Under
  * LIVA art. 5 the input IVA becomes creditable here, not when the bill
  * arrived.

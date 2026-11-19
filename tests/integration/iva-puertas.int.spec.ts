@@ -150,14 +150,15 @@ describe('puerta 2 · alta sin CFDI', () => {
     expect(linea.rows[0].description, 'debe decir que el método se asumió').toMatch(/assumed/i);
   });
 
-  it('si las condiciones del documento dicen que se pagó, el IVA sí se acredita', async () => {
+  // MNE-001-492: PUE es la etiqueta del emisor, no prueba del pago; el IVA espera el pago.
+  it('si las condiciones del documento dicen PUE, el IVA también espera su pago en 1135', async () => {
     // La misma cascada de señales que usa AR/AP: el texto del documento es
     // una señal legítima cuando no hay CFDI que leer.
     const preReg = await preRegistroSinCfdi('2000.00', '320.00', 'Pago en una sola exhibición (PUE)');
     const r = await servicio.processToAccounting(preReg, f.userId);
 
     const iva = await ivaDelAsiento(asientoDe(r));
-    expect(iva.code).toBe('1130');
+    expect(iva.code).toBe('1135');
     expect(Number(iva.debit)).toBeCloseTo(320, 2);
   });
 
