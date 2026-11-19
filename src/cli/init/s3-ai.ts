@@ -371,7 +371,11 @@ async function defaultListOllama(): Promise<string[]> {
  * is the one that matters — a provider without function calling cannot query
  * the accounting, even if it chats perfectly.
  */
-async function defaultProbe(profileName: string, model?: string): Promise<ProbeResult> {
+// 1 024 and not 64: a model that reasons before it answers can spend 64 tokens
+// thinking and be reported as tool-less (inferred, not measured; MNE-001-442).
+const PROBE_MAX_TOKENS = 1024;
+
+export async function defaultProbe(profileName: string, model?: string): Promise<ProbeResult> {
   const PING_TOOL = {
     name: 'ping',
     description: 'Returns pong. Use it to confirm you can call tools.',
@@ -383,7 +387,7 @@ async function defaultProbe(profileName: string, model?: string): Promise<ProbeR
     if (profile.type === 'anthropic') {
       const client = profile.apiKey ? new Anthropic({ apiKey: profile.apiKey }) : new Anthropic();
       const res = await client.messages.create({
-        model: profile.model, max_tokens: 64,
+        model: profile.model, max_tokens: PROBE_MAX_TOKENS,
         tools: [PING_TOOL],
         messages: [{ role: 'user', content: 'Call the ping tool.' }],
       });
@@ -406,11 +410,12 @@ async function defaultProbe(profileName: string, model?: string): Promise<ProbeR
     });
     const limit =
       profile.max_tokens_param === 'max_completion_tokens'
-        ? { max_completion_tokens: 64 }
-        : { max_tokens: 64 };
+        ? { max_completion_tokens: PROBE_MAX_TOKENS }
+        : { max_tokens: PROBE_MAX_TOKENS };
     const res = await client.chat.completions.create({
       model: profile.model,
       ...limit,
+      ...(profile.reasoning_effort ? { reasoning_effort: profile.reasoning_effort } : {}),
       messages: [{ role: 'user', content: 'Call the ping tool.' }],
       tools: [{
         type: 'function',
