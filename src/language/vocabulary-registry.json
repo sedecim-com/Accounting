@@ -6210,6 +6210,30 @@
       "en": null,
       "keptBecause": "identical-in-both",
       "why": "Born in English: the separate paycheck of the period (a run other than the regular one, or one that pays only aguinaldo) carries no subsidy."
+    },
+    {
+      "class": "policy-key",
+      "where": "imss_old_age_band_edge",
+      "es": "imss_old_age_band_edge",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English (MNE-001-513): how an SBC meets the edge of a band of the employer quota for cesantía en edad avanzada y vejez (LSS art. 168 fr. II a)."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_band_edge/above_upper_edge",
+      "es": "above_upper_edge",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: an SBC above a band's upper edge, by any amount, pays the next band."
+    },
+    {
+      "class": "policy-value",
+      "where": "imss_old_age_band_edge/truncated_to_hundredths",
+      "es": "truncated_to_hundredths",
+      "en": null,
+      "keptBecause": "identical-in-both",
+      "why": "Born in English: the SBC in minimum wages and in UMA is cut to two decimals before it is placed in the table."
     }
   ]
 }

@@ -2275,6 +2275,32 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I recompute on the combined income of the period and credit only the difference.',
     priority: 42,
   },
+  // #661 · MNE-001-513. LSS art. 168 fr. II a) writes the bands of the employer
+  // old-age quota to two decimals and gives no rounding rule. Read by
+  // `readOldAgeBandEdge` (payroll/mx/old-age-band.ts); the default is the answer
+  // of 17 Nov 2026 on #661, under the owner's standing rule (ADR-0006).
+  {
+    key: 'imss_old_age_band_edge',
+    textKey: 'imss_old_age_band_edge',
+    category: 'fiscal',
+    question:
+      'When a worker\'s SBC falls just above the upper edge of a band of the employer cesantía en edad avanzada y vejez quota, which band does it pay?',
+    impact:
+      'It decides the rate of the employer quota for cesantía en edad avanzada y vejez of an SBC that falls between two bands of LSS art. 168 fr. II a), and with it the payslip, the payroll entry, the employer liability and the SUA file. In March 2026 an SBC of 352.00 (3.0006 UMA) pays 6.361 % with "above_upper_edge" (335.86 a quincena) and 6.026 % with "truncated_to_hundredths" (318.17); one of 316.00 (1.003 minimum wages) pays 6.026 % (285.63) or 3.150 % (149.31).',
+    options: [
+      { value: 'above_upper_edge', label: 'An SBC above a band\'s upper edge, by any amount, pays the next band' },
+      { value: 'truncated_to_hundredths', label: 'SBC ÷ minimum wage and SBC ÷ UMA are cut to two decimals, then placed in the table' },
+    ],
+    defaultValue: 'above_upper_edge',
+    defaultRationale:
+      'LSS art. 168 fr. II a) charges every SBC but writes its bands to two decimals with no rounding rule; reading «1.51» as «more than 1.50» keeps every upper edge as written and never computes less than the table can require.',
+    whyAsking:
+      'The table writes its edges to two decimals («3.00 UMA», then «3.01 UMA») and gives no rounding rule, so the law does not say which band an SBC of 3.0006 UMA pays. If the program you determine your quotas with truncates, choose that option so both give the same figure.',
+    whatIDo:
+      'For each contribution day I place the SBC, capped at 25 UMA, with the UMA and the general minimum wage in force that day, and charge the rate of that band and year from the dated table. The calculation note names the band, the rate and the rule used.',
+    ifSkipped: 'An SBC above an upper edge pays the next band.',
+    priority: 42,
+  },
   // #308 · MNE-001-058. Decided by the owner in MNE-001-004. Read by
   // `readFilingRounding` (fiscal/iva-workpaper.ts). The adjustment itself is
   // not an option: CFF art. 20 fixes it (1–50 cents down, 51–99 up).
