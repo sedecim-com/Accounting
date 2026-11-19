@@ -1492,9 +1492,6 @@ export class PreRegistrationService {
         params: { uuid, invoice: replaced.rows[0].invoice_number, status: replaced.rows[0].status },
       });
     }
-    // The core counts any credit outside its roles as revenue, so it cannot book these two yet (#620, question 2).
-    if (facts.iepsTrasladado > 0) throw unsupported('ieps', facts.iepsTrasladado.toFixed(2));
-    if (facts.impuestosLocalesTrasladados > 0) throw unsupported('local_tax', facts.impuestosLocalesTrasladados.toFixed(2));
     if (plan.revenueLinesMismatch) {
       throw new ValidationError({
         key: 'error.ISSUED_CFDI_REVENUE_LINES_MISMATCH',
