@@ -1,5 +1,25 @@
-import { describe, it, expect } from 'vitest';
-import { gainAndLoss, postedSoFar, revalue, sourcesFixedBy } from '../../../src/services/accounting/fx-revaluation.js';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+
+vi.mock('../../../src/database/connection.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/database/connection.js')>();
+  return { ...real, query: vi.fn() };
+});
+// Spied, not replaced: the real report-layer query runs against the mocked
+// connection, and the spy proves the revaluation net reads it (MNE-001-436).
+vi.mock('../../../src/services/reporting/report-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../../src/services/reporting/report-service.js')>();
+  return { ...real, queryEntryMovementsOnAccount: vi.fn(real.queryEntryMovementsOnAccount) };
+});
+
+import {
+  gainAndLoss,
+  postedSoFar,
+  revalue,
+  revaluationOnAccount,
+  sourcesFixedBy,
+} from '../../../src/services/accounting/fx-revaluation.js';
+import { query } from '../../../src/database/connection.js';
+import { queryEntryMovementsOnAccount } from '../../../src/services/reporting/report-service.js';
 import { POLICY_CATALOG } from '../../../src/services/policy/pending-catalog.js';
 import { revaluationRows } from '../../../src/cli/closing-fx-command.js';
 
@@ -84,5 +104,39 @@ describe('MNE-001-112 · a supplement measures at the source the period was firs
     expect(sourcesFixedBy([run({ USD: 'dof' })])('EUR')).toBe('dof');
     expect(sourcesFixedBy([run({ USD: 'dof', EUR: 'ecb' })])('GBP')).toBeUndefined();
     expect(sourcesFixedBy([])('USD')).toBeUndefined();
+  });
+});
+
+describe('MNE-001-436 · the revaluation net on an account reads report-service', () => {
+  const mockQuery = query as unknown as Mock;
+  const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  /** One row per revaluation entry, with the window total (by hand) over all of them. */
+  const entries = (total: string, ...amounts: string[]) =>
+    amounts.map((amount, i) => ({ journal_entry_id: `je-${i}`, amount, total_amount: total, total_entries: amounts.length }));
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    vi.mocked(queryEntryMovementsOnAccount).mockClear();
+  });
+
+  it('keeps the revaluation entries and their mirrors, cut at asOf', async () => {
+    // By hand: the December revaluation of 1 200 alone, before its day-1 mirror.
+    mockQuery.mockResolvedValueOnce({ rows: entries('1200.0000', '1200.0000') });
+    expect((await revaluationOnAccount(ENTITY, 'acc-1', '2026-12-31')).toFixed(4)).toBe('1200.0000');
+    expect(queryEntryMovementsOnAccount).toHaveBeenCalledWith(ENTITY, 'acc-1', {
+      onlySourceTypes: ['fx_revaluation'],
+      asOf: '2026-12-31',
+    });
+  });
+
+  it('a revaluation and its mirror net to zero, and with no cut no asOf is sent', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: entries('0.0000', '1200.0000', '-1200.0000') });
+    expect((await revaluationOnAccount(ENTITY, 'acc-1')).toFixed(4)).toBe('0.0000');
+    expect(queryEntryMovementsOnAccount).toHaveBeenCalledWith(ENTITY, 'acc-1', { onlySourceTypes: ['fx_revaluation'] });
+  });
+
+  it('an account with no revaluation reads zero', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect((await revaluationOnAccount(ENTITY, 'acc-1')).isZero()).toBe(true);
   });
 });

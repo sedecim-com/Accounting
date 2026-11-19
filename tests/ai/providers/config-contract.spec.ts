@@ -75,6 +75,11 @@ describe('the loader reports every rejected key verbatim', () => {
       "providers.p.type: Invalid enum value. Expected 'anthropic' | 'openai-compatible', received 'x'",
     ],
     ['a missing provider type', { providers: { p: { model: 'm' } } }, 'providers.p.type: Required'],
+    [
+      'a reasoning_effort outside the openai SDK\'s enum',
+      profile({ reasoning_effort: 'extreme' }),
+      "providers.p.reasoning_effort: Invalid enum value. Expected 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max', received 'extreme'",
+    ],
     ['a model id that is not a string', { models: { gemini: 1 } }, 'models.gemini: Expected string, received number'],
     [
       'a models name that is no profile',

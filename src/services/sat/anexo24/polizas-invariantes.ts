@@ -135,6 +135,12 @@ export interface UntracedMoney {
    */
   missingOnBankAccount?: string;
   /**
+   * The option of `bank account edit` that completes that bank account, when
+   * it is not its c_Banco code: a receipt into it also needs its number for
+   * CtaDest (#611). Absent: `--sat-bank-code <clave>`.
+   */
+  bankAccountFlag?: string;
+  /**
    * Why no command completes the datum today, when that is the truth. The
    * finding then says so instead of prescribing a remedy that fixes nothing.
    */
@@ -258,8 +264,8 @@ export function polizaConDineroSinRastro(
           `capturar el pago no lo arregla, y un pago nuevo a la misma contraparte saldría igual. ` +
           `Corrige ese registro y vuelve a generar.`
         : s.missingOnBankAccount !== undefined
-          ? `El dato falta en ${s.missingOnBankAccount}, no en el pago: captura su clave ` +
-            `(\`bank account edit <cuenta> --sat-bank-code <clave>\`) y vuelve a generar.`
+          ? `El dato falta en ${s.missingOnBankAccount}, no en el pago: captúralo ` +
+            `(\`bank account edit <cuenta> ${s.bankAccountFlag ?? '--sat-bank-code <clave>'}\`) y vuelve a generar.`
           : s.noCommandFixes !== undefined
             ? `Hoy ningún comando lo completa: ${s.noCommandFixes}.`
             : `Captúralo en el pago (\`payment create --check-number/--to-account/--to-bank\`) ` +
