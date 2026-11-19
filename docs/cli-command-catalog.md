@@ -49,15 +49,15 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **283 comandos** repartidos en **78 familias** de primer nivel. De las **1640** filas del catálogo, **268** (16.3 %) ya se pueden invocar.
+El binario ejecuta hoy **284 comandos** repartidos en **79 familias** de primer nivel. De las **1641** filas del catálogo, **269** (16.4 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **302** filas lo declaran completo, **383** a medias y **955** inexistente.
+Del motor que cada comando necesita, **303** filas lo declaran completo, **383** a medias y **955** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **392** filas, de las que **221** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **393** filas, de las que **222** ya se teclean.
 
-**El objetivo comprometible son 1397 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1398 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1640 filas son **1618 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1641 filas son **1619 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
@@ -2053,6 +2053,7 @@ Esta sección no publica diccionarios propios. **Los verbos (§1), los sustantiv
 | `mnemosine annual cufin calculate` · `anual cufin calcular` | Calcula el saldo de la CUFIN actualizado por INPC; sin él, decretar un dividendo es un incendio | `--year`, `--json` | ❌ hay que construirlo (depende de la serie INPC de la fila anterior) | lectura | ✓ | 2 |
 | `mnemosine annual cuca calculate` · `anual cuca calcular` | Calcula la CUCA actualizada por INPC, base de la tributación del reembolso de capital | `--year`, `--json` | ❌ hay que construirlo | lectura | ✓ | 3 |
 | `mnemosine annual loss list` · `anual perdida listar` | Lista las pérdidas fiscales por añada, actualizadas por INPC, con los 10 años de vigencia y lo ya amortizado | `--year`, `-n/--limit`, `--json` | ❌ hay que construirlo | lectura | ✓ | 2 |
+| `mnemosine annual figure record` · `anual cifra registrar` | Registra una cifra de una declaración anual ya presentada —hoy el coeficiente de utilidad— con esa declaración como fuente (ejercicio, fecha de presentación, número de operación) y quién la capturó; una complementaria es una captura nueva que queda vigente y la anterior se conserva | `--kind`, `--value`, `--year`, `--filed-on`, `--source`, `--dry-run`, `--json` | ✅ **invocable desde MNE-001-457** con `--kind profit_coefficient`: src/services/fiscal/provisional-income-tax-inputs.ts (`recordIncomeTaxInput`) sobre `income_tax_annual_inputs` (migración 166, sólo se agrega). Sin esta captura el ISR de `filing workpaper generate` bloquea con `ISR-WP-NO-COEFFICIENT`. Las pérdidas fiscales pendientes llegan con MNE-001-420 | escritura | ✗ | 1 |
 | `mnemosine annual ptu calculate` · `anual ptu calcular` | Calcula la PTU sobre la renta gravable con el tope de tres meses o el promedio trienal, el que favorezca al trabajador | `--year`, `--json` | ❌ hay que construirlo (el reparto y su nómina son de la familia de nómina; aquí sólo el cálculo de la base) | lectura | ✓ | 2 |
 | `mnemosine annual dim generate` · `anual dim generar` | Genera los anexos de la DIM (1 sueldos, 2 retenciones a PF, 4 pagos al extranjero, 9 y 10 partes relacionadas) | `--year`, `--annex`, `--format`, `-o/--output` | ❌ hay que construirlo | lectura | ✓ | 3 |
 
