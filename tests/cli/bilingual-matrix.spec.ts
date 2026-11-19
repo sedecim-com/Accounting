@@ -190,6 +190,8 @@ const TOP_LEVEL: Record<string, string> = {
   diot: '',
   // MNE-001-060: the filing family (catalog §5.21); its Spanish alias is the registry's.
   filing: 'declaracion',
+  // MNE-001-457: the annual return's family (catalog §5.21, registry :262).
+  annual: 'anual',
   // F08a: el ISN tampoco — es la sigla del impuesto, igual en los dos idiomas.
   isn: '',
   'tax-deposit': 'entero',
@@ -292,6 +294,9 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   payslip: { list: 'listar', show: 'ver' },
   // MNE-001-070: nested one level down, `imss sua`; the path is split on spaces.
   'imss sua': { export: 'exportar' },
+  // MNE-001-457: `annual figure record`, nested the same way.
+  annual: { figure: 'cifra' },
+  'annual figure': { record: 'registrar' },
   // G1b: las dos hojas de fase 1 del catálogo.
   cashflow: { generate: 'generar', reconcile: 'conciliar' },
   subscription: { delivery: 'entrega' },
@@ -400,7 +405,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'web', 'tenant', 'user'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'pay-run', 'pay-schedule', 'pay-period', 'garnishment', 'employee', 'payslip', 'imss sua', 'annual', 'annual figure', 'web', 'tenant', 'user'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(...family.split(' '));
