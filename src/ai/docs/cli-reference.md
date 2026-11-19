@@ -6524,29 +6524,36 @@ Options:
   -h, --help                          display help for command
 
 Commands:
-  reconcile|conciliar [options] <id>  Prove the check against the bank movement
-                                      that cleared it and post the VAT
-                                      reclassification from pending to
-                                      creditable IN THE MONTH IT CLEARED
+  reconcile|conciliar [options] [id]  Prove the check against the bank movement
+                                      that cleared it and post its VAT IN THE
+                                      MONTH IT CLEARED: from pending to
+                                      creditable for a vendor payment, from
+                                      pending collection to charged for a
+                                      customer receipt
   help [command]                      display help for command
 ```
 
 #### `mnemosine bank check reconcile` (alias: conciliar)
 
 ```
-Usage: mnemosine bank check reconcile|conciliar [options] <id>
+Usage: mnemosine bank check reconcile|conciliar [options] [id]
 
-Prove the check against the bank movement that cleared it and post the VAT
-reclassification from pending to creditable IN THE MONTH IT CLEARED
+Prove the check against the bank movement that cleared it and post its VAT IN
+THE MONTH IT CLEARED: from pending to creditable for a vendor payment, from
+pending collection to charged for a customer receipt
 
 Arguments:
-  id                       vendor payment made by check
+  id                       vendor payment made by check; omit it with --receipt
 
 Options:
   -e, --entity <idOrName>  legal entity to operate on (defaults to the active
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  --receipt <ref>          customer receipt paid by cheque, by number
+                           (PMT-2026-00042) or id, instead of <id>; without
+                           --transaction the credit of its amount is searched in
+                           its bank account from its date
   --transaction <id>       the bank movement that paid it, named by hand;
                            required when several charges match
   --as-of <date>           the clearing date you assert (YYYY-MM-DD); it is
@@ -6571,6 +6578,9 @@ Examples:
   # Assert the clearing date: it is CONTRASTED against the movement and never
   # imposed on it. The bank dates the clearing.
   mnemosine bank check reconcile 8f27d3e6-1a94-4b50-9c83-fe6120a75d38 --as-of 2026-03-10 --dry-run
+  # A customer's cheque: its receipt held the VAT in 2125, and the bank credit
+  # that cashed it moves it to 2120 on the credit's date.
+  mnemosine bank check reconcile --receipt PMT-2026-00042 --transaction 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4
 ```
 
 ## `mnemosine asset` (alias: activo)

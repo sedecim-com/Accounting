@@ -141,7 +141,8 @@ describe('CFDI 4.0 ingreso builder (MNE-001-295)', () => {
     const provenance = JSON.parse(fs.readFileSync(path.join(XSD_DIR, 'provenance.json'), 'utf8')) as {
       files: { path: string; sha256: string }[];
     };
-    expect(provenance.files.length).toBe(3);
+    // CFDI 4.0 (3) and the payroll complement 1.2 with its catalog (2, #600).
+    expect(provenance.files.length).toBe(5);
     for (const f of provenance.files) {
       const digest = createHash('sha256').update(fs.readFileSync(path.join(XSD_DIR, f.path))).digest('hex');
       expect(digest, f.path).toBe(f.sha256);

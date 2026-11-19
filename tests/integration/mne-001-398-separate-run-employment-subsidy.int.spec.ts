@@ -214,9 +214,12 @@ describe('an aguinaldo paid in its own run does not get a second employment subs
       .minus(paycheck.infonavit_withheld);
     expect(new Decimal(paycheck.net_pay).toFixed(2)).toBe(net.toFixed(2));
 
-    // The CFDI still adds up to the net pay with no cash in it. Its subsidy
-    // node in this case is part 3 of #600.
+    // The CFDI still adds up to the net pay with no cash in it, and declares
+    // the subsidy caused with nothing handed over (#600, MNE-001-551).
     const xml = await stampedXml(paycheck.id);
+    expect(xml).toMatch(/TipoOtroPago="002"[^>]* Importe="0\.00"/);
+    expect(xml).toContain('SubsidioCausado="264.30"');
+    expect(xml).toContain('TotalOtrosPagos="0.00"');
     expect(attr(xml, 'Total').toFixed(2)).toBe(new Decimal(paycheck.net_pay).toFixed(2));
     expect(attr(xml, 'Total').toFixed(2)).toBe(attr(xml, 'SubTotal').minus(attr(xml, 'Descuento')).toFixed(2));
 

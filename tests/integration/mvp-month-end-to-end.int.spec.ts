@@ -92,6 +92,18 @@ import { BUILTIN_PROFILES } from '../../src/ai/providers/config.js';
 // January. Nothing before December is left to explain. A second download
 // that repeats movements of the first is refused whole.
 //
+// RECONCILE, THE FEE AND REOPEN (MNE-001-413). The matcher ties eleven of the
+// thirteen movements to the lines of 1111 and finds nothing for the bank's
+// own two. The guided pass raises those as reconciling items: charges the
+// books still owe. Each gets an adjustment, which is a draft, and an owner
+// and a date, which nobody but a person can give. Then the session closes,
+// is signed and is posted, and only the post moves the ledger: 300.00 of fee
+// to 6310 and its 48.00 of IVA to 1130, both out of 1111, which now ends where
+// the statement does. Reopening the posted session deletes nothing: each
+// entry gets a mirror dated the same 12-31, the adjustments are drafts again
+// and the items open, and the same range closes, is signed and posts a second
+// time. All of it happens before December is hard-closed.
+//
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
 // credential each built-in profile names (`api_key_env` of BUILTIN_PROFILES)
@@ -350,10 +362,13 @@ const statementCsv = (from: string): Buffer => Buffer.from([
 //   charged    36,000 + 1,200 + 450 + 1,190 + 1,160 + 9,533.33
 //              + 1,160 + 5,800 + 9,280 = 65,773.33, and 300 + 48 = 66,121.33
 // From the 100,000.00 of 11-30: 100,000 + 6,960 − 66,121.33 = 40,838.67, the
-// balance the printed statement closes with. The books end at 41,186.67
-// (ENDING 1111), 348.00 above: the fee and its IVA.
+// balance the printed statement closes with. Until the reconciliation posts
+// the fee and its IVA, the books stand 348.00 above it, at 41,186.67.
 const BANK_BASELINE = '100000.00'; // 1111 on 2025-11-30: the opening, untouched until December
 const STATEMENT_CLOSING = '40838.67';
+const BOOKS_BEFORE_FEE = '41186.67'; // 100,000 + 6,960 − 65,773.33: 1111 before the session is posted
+const BANK_FEE = '300.00';
+const BANK_FEE_IVA = '48.00'; // 16 % of the fee
 /** The December statement and its session, as steps 4·231 and 4·232 leave them. */
 let statementId = '';
 
@@ -397,6 +412,13 @@ let statementId = '';
 //                        2,000 that the receivables subledger does not
 //   12-31 its reversal   4100 Dr 2,000.00 / 1120 Cr 2,000.00: the mirror, dated
 //                        inside December, so both wash out within the month
+//   12-31 bank fee       6310 Dr 300.00 / 1111 Cr 300.00, and its IVA, 1130 Dr 48.00
+//                        / 1111 Cr 48.00: one entry each, posted by the bank
+//                        reconciliation. The bank took both when it charged
+//                        them, so the IVA is paid and goes straight to 1130.
+//                        Reopening the session mirrors both entries on 12-31
+//                        and the second post books them again: three times
+//                        348.00 of debits for one fee
 //   12-31 depreciation   6140 Dr 900.00 / 1290 Cr 900.00, posted by the close:
 //                        computer class, 30 % LISR maximum → 40-month book
 //                        life; whole-month convention, so 36,000 / 40
@@ -405,17 +427,20 @@ let statementId = '';
 // = 24,480 received by slice 3, and the edge cases: 2 × 1,200 + 2 × 450
 // + 2 × 1,190 + (11,600 + 9,533.33) = 26,813.33, and the stray entry and its
 // mirror, which move no balance but are debits all the same: 2 × 2,000
-// = 4,000. In all 124,313.33. The dossier seals the trial balance as of
-// 12-31, so it counts the opening of 01-01 too: 107,800 + 124,313.33.
-const SEALED_DEBITS = '232113.33';
+// = 4,000, and the bank fee with its IVA, posted, mirrored and posted again:
+// 3 × 348 = 1,044. In all 125,357.33. The dossier seals the trial balance as
+// of 12-31, so it counts the opening of 01-01 too: 107,800 + 125,357.33.
+const SEALED_DEBITS = '233157.33';
 const ENDING = {
   // 100,000 opening − 36,000 − 5,800 + 5,800 − 9,280 (REP) − 1,160 − 1,160 (the PUE)
   // − 1,200 − 450 (the bookshop) − 1,190 (the hotel) − 9,533.33 (the fees, net)
-  // + 1,160 (the customer advance) (see MNE-001-039 in step 4)
-  '1111': '41186.67',
+  // + 1,160 (the customer advance) (see MNE-001-039 in step 4) − 300 − 48 (the
+  // bank fee and its IVA): the balance the statement closes with
+  '1111': STATEMENT_CLOSING,
   '1120': '8120.00', // 3,480 opening + 11,600 − 5,800 − 1,160 (+ 2,000 − 2,000, the stray entry and its mirror)
   // the IVA paid in December: 800 + 1,280 (the REP's) + 160 + 160 (the PUE) + 160 (the hotel) + 1,600 (the fees)
-  '1130': '4160.00',
+  // + 48 (the bank fee's)
+  '1130': '4208.00',
   '1135': '320.00', // the opening's; the 800 and the 1,280 parked in December moved to 1130 when paid
   '1220': '36000.00',
   '1290': '-900.00', // accumulated depreciation, credit balance
@@ -434,19 +459,21 @@ const ENDING = {
   // + 1,000 (the hotel) + 10,000 (the fees)
   '6100': '27650.00',
   '6140': '900.00',
+  '6310': BANK_FEE, // posted twice and mirrored once: 600 of debits, 300 of credits
   [LODGING_TAX_ACCOUNT]: '30.00', // the ISH of the hotel night
 } as const;
 const NET_SALES = '9000.00'; // 10,000 − 1,000 returned
-const NET_INCOME = '-19580.00'; // 9,000 − 27,650 − 30 − 900
-const TOTAL_ASSETS = '92886.67'; // 41,186.67 + 8,120 + 4,160 + 320 + 36,000 − 900 + 4,000
+const NET_INCOME = '-19880.00'; // 9,000 − 27,650 − 30 − 900 − 300 (the bank fee)
+const TOTAL_ASSETS = '92586.67'; // 40,838.67 + 8,120 + 4,208 + 320 + 36,000 − 900 + 4,000
 const TOTAL_LIABILITIES = '7466.67'; // 2,320 + 1,600 + 480 + 1,000 + 1,066.67 + 1,000 (the advance)
-const TOTAL_EQUITY = '85420.00'; // 100,000 + 5,000 − 19,580; and 92,886.67 = 7,466.67 + 85,420
-// Indirect method: −19,580 + 900 (depreciation, no cash) − 4,640 (AR up)
-// − 4,160 (IVA credit up) + 1,600 (IVA payable up) + 2,066.67 (withholdings
-// owed) + 1,000 (customer advances up) = −22,813.33, which is the 5,800
+const TOTAL_EQUITY = '85120.00'; // 100,000 + 5,000 − 19,880; and 92,586.67 = 7,466.67 + 85,120
+// Indirect method: −19,880 + 900 (depreciation, no cash) − 4,640 (AR up)
+// − 4,208 (IVA credit up) + 1,600 (IVA payable up) + 2,066.67 (withholdings
+// owed) + 1,000 (customer advances up) = −23,161.33, which is the 5,800
 // + 1,160 received minus the 5,800 + 9,280 + 1,160 + 1,160 + 1,200 + 450
-// + 1,190 + 9,533.33 paid. 1135, 2110 and 2125 end December where they began it.
-const OPERATING_CASH = '-22813.33';
+// + 1,190 + 9,533.33 + 300 + 48 paid. 1135, 2110 and 2125 end December where
+// they began it.
+const OPERATING_CASH = '-23161.33';
 const INVESTING_CASH = '-36000.00'; // the computers
 const FINANCING_CASH = '0.00'; // the capital came in with the opening, in January
 
@@ -1289,6 +1316,25 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         ok(['bank', 'transaction', 'list', '--account', BANK_ACCOUNT, '--all', '--fields', 'date,amount', '--json'])
       ).map((m) => `${m.date} ${money(m.amount)}`).sort();
 
+    type SessionStatus = {
+      id: string; status: string; variance: string; unexplained_lines: number; blockers: { code: string }[];
+      items: { id: string; date: string; type: string; side: string; amount: string; owner: string; expected: string; resolved: boolean }[];
+      adjustments: { type: string; amount: string; draft_status: string; journal_entry: string }[];
+    };
+    type SessionPost = { entries: { entry_number: string }[] };
+    /** The December session, the hash of its first signature and the entries its first post wrote. */
+    let sessionId = '';
+    let signature = '';
+    let postedEntries: string[] = [];
+    /** An entry as `<date> <account> Dr|Cr <amount> …`, a line after another. */
+    const entryOf = (entryNumber: string): string => {
+      const [entry] = rowsOf<{ entry_date: string; lines: { account: string; debit: string; credit: string }[] }>(
+        ok(['entry', 'show', entryNumber, '--json'])
+      );
+      return [entry.entry_date.slice(0, 10),
+        ...entry.lines.map((l) => `${l.account} ${l.debit ? `Dr ${money(l.debit)}` : `Cr ${money(l.credit)}`}`)].join(' ');
+    };
+
     it('collections and payments land on 1111, the leaf, not on 1110: debits 6,960.00 and credits 65,773.33 — MNE-001-039', () => {
       // The role that every receipt and payment posts to names the leaf.
       expect(rowsOf<{ account_code: string }>(ok(['account', 'role', 'list', '--role', 'banco', '--json']))
@@ -1340,10 +1386,11 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
 
       // The baseline is what 1111 held the day before the period. Typing
       // today's balance of 1111 instead is refused (exit 4) with the
-      // difference, 100,000 − 41,186.67, and no session is opened.
+      // difference, 100,000 − 41,186.67 (the fee is not in the books yet), and
+      // no session is opened.
       const open = (baseline: string): string[] =>
         ['bank', 'reconciliation', 'open', BANK_ACCOUNT, '--period', '2025-12', '--baseline', baseline, '--json'];
-      const refused = mnemosine(open(ENDING['1111']));
+      const refused = mnemosine(open(BOOKS_BEFORE_FEE));
       expect(refused.status, refused.out + refused.err).toBe(4);
       expect(refused.err).toContain('41186.67 al 2025-11-30 y los libros dicen 100000.00: difieren en 58813.33');
       expect(rowsOf(ok(['bank', 'reconciliation', 'list', '--json']))).toEqual([]);
@@ -1381,8 +1428,179 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
         .toEqual([statementId]);
     }, STEP_TIMEOUT_MS);
 
-    it.todo('reconciles, classifies the bank fee and its IVA, and closes the session — MNE-001-040, MNE-001-041, MNE-001-043');
-    it.todo('reopens the approved reconciliation from the terminal and closes it again, reversing what it posted — MNE-001-044, MNE-001-130');
+    it('reconciles, classifies the bank fee and its IVA, and closes the session — MNE-001-040, MNE-001-041, MNE-001-043', () => {
+      // Where step 4·231 left the session: nothing matched yet, and the bank
+      // 348.00 below the books, 40,838.67 − 41,186.67.
+      const [opened] = rowsOf<SessionStatus>(ok(['bank', 'reconciliation', 'status', '--account', BANK_ACCOUNT, '--json']));
+      expect(opened).toMatchObject({ status: 'in_progress', variance: '-348.00', unexplained_lines: 13, items: [] });
+      sessionId = opened.id;
+
+      // The matcher writes matches and seals lines of 1111, never an entry.
+      // Eleven movements have their line in the books, to the cent and on
+      // their date; the bank's own two have none.
+      const matched = rowsOf<{ outcome: string; amount: string; sealed: boolean; reason: string | null }>(
+        ok(['bank', 'match', 'run', '--account', BANK_ACCOUNT, '--session', sessionId, '--json'])
+      );
+      expect(matched.filter((m) => m.outcome === 'applied' && m.sealed).map((m) => money(m.amount)).sort())
+        .toEqual(STATEMENT_MOVEMENTS.slice(0, 11).map(([, , charge, credit]) => charge || credit).sort());
+      expect(matched.filter((m) => m.outcome !== 'applied').map((m) => `${m.outcome} ${m.reason}`))
+        .toEqual(['skipped sin-candidato', 'skipped sin-candidato']);
+
+      // Two lines of the statement that nothing explains: the session does
+      // not close (exit 4), and says what is missing.
+      const close = ['bank', 'reconciliation', 'close', sessionId, '--yes', '--json'];
+      const early = mnemosine(close);
+      expect(early.status, early.out + early.err).toBe(4);
+      const [unexplained] = rowsOf<SessionStatus & { closed: boolean }>(early);
+      expect(unexplained).toMatchObject({ closed: false, status: 'in_progress', variance: '-348.00', unexplained_lines: 2 });
+      expect(unexplained.blockers.map((b) => b.code)).toEqual(['variacion-fuera-de-tolerancia', 'linea-de-banco-sin-explicar']);
+
+      // The guided pass, resumed over the open session, raises each as a
+      // reconciling item: a charge of the bank that the books still owe. With
+      // them the arithmetic ties, 41,186.67 − 348 = 40,838.67. What is left
+      // is theirs to say: who follows each item, and when it settles.
+      const [pass] = rowsOf<{ classification: { raised: number }; status: SessionStatus }>(
+        ok(['bank', 'reconciliation', 'run', BANK_ACCOUNT, '--period', '2025-12', '--resume', '--json'])
+      );
+      expect(pass.classification.raised).toBe(2);
+      expect(pass.status).toMatchObject({ variance: '0.00', unexplained_lines: 0, undated: 2, ready_to_close: false });
+      expect(pass.status.blockers.map((b) => b.code)).toEqual(['partida-sin-fechar']);
+      expect(pass.status.items.map((i) => `${i.date} ${i.type} ${i.side} ${i.amount}`).sort())
+        .toEqual([`2025-12-31 cargo-del-banco libros -${BANK_FEE}`, `2025-12-31 cargo-del-banco libros -${BANK_FEE_IVA}`]);
+      const [fee, feeIva] = [BANK_FEE, BANK_FEE_IVA].map((amount) => pass.status.items.find((i) => i.amount === `-${amount}`)?.id ?? '');
+
+      // An adjustment proposes the entry of an item. A fee has no account
+      // role to resolve, so without --gl-account it is refused (exit 4); its
+      // IVA goes to the role of creditable IVA, 1130, by itself. Each comes
+      // out with 11: a draft that waits for a person, with no entry.
+      const adjust = (type: string, amount: string, item: string, ...account: string[]): Run =>
+        mnemosine(['bank', 'adjustment', 'create', sessionId, '--type', type, '--amount', `-${amount}`, '--item', item, ...account, '--json']);
+      const noAccount = adjust('comision', BANK_FEE, fee);
+      expect(noAccount.status, noAccount.out + noAccount.err).toBe(4);
+      expect(noAccount.out + noAccount.err).toContain('comision_bancaria');
+      for (const [draft, counterpart, amount] of [
+        [adjust('comision', BANK_FEE, fee, '--gl-account', '6310'), '6310', 300],
+        [adjust('iva-comision', BANK_FEE_IVA, feeIva), '1130', 48],
+      ] as const) {
+        expect(draft.status, draft.out + draft.err).toBe(11);
+        const [proposed] = rowsOf<Record<string, unknown>>(draft);
+        expect(proposed).toMatchObject({ counterparty_account: counterpart, bank_account: '1111', journal_entry: null });
+        expect(proposed['lines']).toEqual([
+          expect.objectContaining({ account_code: counterpart, debit: amount }),
+          expect.objectContaining({ account_code: '1111', credit: amount }),
+        ]);
+      }
+      for (const item of [fee, feeIva]) {
+        ok(['bank', 'reconciling-item', 'assign', sessionId, item, '--owner', 'Tesoreria', '--expected', '2025-12-31', '--yes']);
+      }
+
+      // Closed: the session says the cash is verified against the bank, with
+      // the 348.00 as charges the books have yet to record. Signed: the firm
+      // has one user, and by default the panel lets the one who closed sign
+      // (segregacion_de_funciones is off), which the signature says aloud.
+      // Neither act posts: December moved as section 3 left it.
+      expect(rowsOf(ok(close))[0]).toMatchObject({
+        status: 'balanced', variance: '0.00', books_balance: BOOKS_BEFORE_FEE, bank_charges: '-348.00',
+        bank_adjusted: STATEMENT_CLOSING, books_adjusted: STATEMENT_CLOSING,
+      });
+      const [signed] = rowsOf<{ hash: string }>(
+        ok(['bank', 'reconciliation', 'approve', sessionId, '--reason', 'December statement', '--yes', '--json'])
+      );
+      expect(signed).toMatchObject({
+        status: 'approved', balances: true, items: 2, matches: 11, adjustments: 2,
+        segregation: { policy: 'off', approver_is_preparer: true },
+      });
+      signature = signed.hash;
+      expect(decemberMoves(['1111', '1130', '6310'])).toEqual({ '1111': '-58813.33', '1130': '4160.00', '6310': '0.00' });
+
+      // The post is what moves the ledger: an entry per adjustment, dated the
+      // last day of the session, each sealed against its line of the statement.
+      const [posted] = rowsOf<SessionPost>(ok(['bank', 'reconciliation', 'post', sessionId, '--yes', '--json']));
+      expect(posted).toMatchObject({
+        status: 'posted', posted: 2, adopted: 0, sealed_lines: 2, matches_written: 2, items_resolved: 2,
+      });
+      postedEntries = posted.entries.map((e) => e.entry_number).sort();
+      expect(postedEntries.map(entryOf).sort()).toEqual([
+        '2025-12-31 1130 Dr 48.00 1111 Cr 48.00', '2025-12-31 6310 Dr 300.00 1111 Cr 300.00',
+      ]);
+      // The bank: −58,813.33 − 348; 1130: 4,160 + 48. The books now end
+      // where the statement does.
+      expect(decemberMoves(['1111', '1130', '6310'])).toEqual({ '1111': '-59161.33', '1130': '4208.00', '6310': BANK_FEE });
+      expect(rowsOf<SessionStatus>(ok(['bank', 'reconciliation', 'status', sessionId, '--json']))[0]).toMatchObject({
+        status: 'posted', variance: '0.00', resolved_items: 2, unexplained_lines: 0,
+        bank: { balance: STATEMENT_CLOSING }, books: { balance: STATEMENT_CLOSING },
+      });
+    }, STEP_TIMEOUT_MS);
+
+    it('reopens the posted reconciliation from the terminal, which reverses what it posted, and closes, signs and posts it again — MNE-001-044, MNE-001-130', () => {
+      // Withdrawing a signature takes a reason: without one the command is
+      // refused as misused (exit 2) and the session stays posted.
+      const reopen = ['bank', 'reconciliation', 'reopen', sessionId, '--yes', '--json'];
+      const unexplained = mnemosine(reopen);
+      expect(unexplained.status, unexplained.out + unexplained.err).toBe(2);
+      expect(unexplained.out + unexplained.err).toContain('--reason');
+
+      const [reopened] = rowsOf<{ reversals: { entry: string; reversal: string }[] }>(
+        ok([...reopen, '--reason', 'The fee is checked against the contract with the bank'])
+      );
+      expect(reopened).toMatchObject({ id: sessionId, status: 'in_progress', previous_status: 'posted', withdrawn_hash: signature });
+      expect(reopened.reversals.map((r) => r.entry).sort()).toEqual(postedEntries);
+      // Nothing is deleted: each entry gets its mirror, dated the same 12-31,
+      // inside the month that is still open.
+      expect(reopened.reversals.map((r) => entryOf(r.reversal)).sort()).toEqual([
+        '2025-12-31 1130 Cr 48.00 1111 Dr 48.00', '2025-12-31 6310 Cr 300.00 1111 Dr 300.00',
+      ]);
+      expect(rowsOf(ok(['entry', 'show', reopened.reversals[0].reversal, '--no-lines', '--json']))[0])
+        .toMatchObject({ reverses: reopened.reversals[0].entry, is_reversal: true });
+
+      // The books are back where the first close found them, the two items
+      // are open again with their owner and date, and each adjustment is a
+      // draft once more, on a draft of its own.
+      expect(decemberMoves(['1111', '1130', '6310'])).toEqual({ '1111': '-58813.33', '1130': '4160.00', '6310': '0.00' });
+      const [again] = rowsOf<SessionStatus>(ok(['bank', 'reconciliation', 'status', sessionId, '--json']));
+      expect(again).toMatchObject({
+        status: 'in_progress', variance: '0.00', resolved_items: 0, undated: 0, blockers: [], ready_to_close: true,
+        bank: { balance: STATEMENT_CLOSING }, books: { balance: BOOKS_BEFORE_FEE, adjusted: STATEMENT_CLOSING },
+      });
+      expect(again.items.map((i) => `${i.amount} ${i.owner} ${i.expected} ${i.resolved}`).sort())
+        .toEqual([`-${BANK_FEE} Tesoreria 2025-12-31 false`, `-${BANK_FEE_IVA} Tesoreria 2025-12-31 false`]);
+      expect(again.adjustments.map((a) => `${a.type} ${a.amount} ${a.draft_status} ${a.journal_entry}`).sort())
+        .toEqual([`comision -${BANK_FEE} pending_review `, `iva-comision -${BANK_FEE_IVA} pending_review `]);
+
+      // The same range, a second time: closed, signed with another hash, and
+      // posted as two new entries.
+      expect(rowsOf(ok(['bank', 'reconciliation', 'close', sessionId, '--yes', '--json']))[0])
+        .toMatchObject({ status: 'balanced', variance: '0.00', bank_charges: '-348.00' });
+      const [signed] = rowsOf<{ hash: string }>(
+        ok(['bank', 'reconciliation', 'approve', sessionId, '--reason', 'Checked: the fee is the contract\'s', '--yes', '--json'])
+      );
+      expect(signed).toMatchObject({ status: 'approved', items: 2, matches: 11, adjustments: 2 });
+      expect(signed.hash).not.toBe(signature);
+      const [posted] = rowsOf<SessionPost>(ok(['bank', 'reconciliation', 'post', sessionId, '--yes', '--json']));
+      expect(posted).toMatchObject({ status: 'posted', posted: 2, adopted: 0, items_resolved: 2 });
+      const second = posted.entries.map((e) => e.entry_number);
+      expect(second.filter((n) => postedEntries.includes(n))).toEqual([]);
+      expect(second.map(entryOf).sort()).toEqual([
+        '2025-12-31 1130 Dr 48.00 1111 Cr 48.00', '2025-12-31 6310 Dr 300.00 1111 Cr 300.00',
+      ]);
+
+      // One fee in the balances, three passes in the columns: on 1111, the
+      // 6,960 of step 4·230 + 348 of the mirrors, and its 65,773.33 + 2 × 348.
+      const tb = rowsOf<{ account_code: string; debit_total: string; credit_total: string; net_change: string }>(
+        ok(['report', 'trial-balance', 'show', '--period', '2025-12', '--json'])
+      );
+      expect(Object.fromEntries(['1111', '1130', '6310'].map((code) => {
+        const row = tb.find((r) => r.account_code === code);
+        return [code, [row?.debit_total, row?.credit_total, row?.net_change].map(money).join(' ')];
+      }))).toEqual({ '1111': '7308.00 66469.33 -59161.33', '1130': '4256.00 48.00 4208.00', '6310': '600.00 300.00 300.00' });
+
+      // The range was reused, not opened as a second session, and all of it
+      // happened with December open: its hard close is step 6.
+      expect(rowsOf<{ status: string; variance: string; open_items: number }>(ok(['bank', 'reconciliation', 'list', '--json'])))
+        .toEqual([expect.objectContaining({ account: BANK_ACCOUNT, status: 'posted', variance: '0.00', open_items: 0 })]);
+      expect(rowsOf<{ period_name: string; status: string }>(ok(['period', 'list', '--json']))
+        .find((p) => p.period_name === 'December 2025')?.status).toBe('open');
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('5 · payroll', () => {
@@ -1472,10 +1690,12 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
       // whichever of its accounts it landed on (MNE-001-039). Debits: the
       // 5,800 receipt and the 1,160 advance, since the opening is January's; credits: the 36,000
       // computers, the 5,800 payment, the REP's 9,280, the two PUE paid,
-      // 1,160 each, and the edge cases: 1,200 + 450 + 1,190 + 9,533.33.
-      // 100,000 + 6,960 − 65,773.33 = 41,186.67, the ending of 1111.
-      expect(money(cash?.debit_total)).toBe('6960.00');
-      expect(money(cash?.credit_total)).toBe('65773.33');
+      // 1,160 each, and the edge cases: 1,200 + 450 + 1,190 + 9,533.33. The
+      // bank fee and its IVA were credited twice, 2 × 348, and debited once,
+      // by the mirrors of the reopening: 6,960 + 348 and 65,773.33 + 696.
+      // 100,000 + 7,308 − 66,469.33 = 40,838.67, the ending of 1111.
+      expect(money(cash?.debit_total)).toBe('7308.00');
+      expect(money(cash?.credit_total)).toBe('66469.33');
       expect(money(cash?.final_balance)).toBe(ENDING['1111']);
 
       // And against the detail balanza: 1110 is itself plus 1111, 1112 and
