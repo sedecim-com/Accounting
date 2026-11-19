@@ -122,10 +122,10 @@ import { validateAgainstOfficialXsd } from '../helpers/official-xsd.js';
 // firm gives its accounts their SAT grouping code and files the chart of the
 // accounts it moved, so the catalog and the trial balance XML validate against
 // the SAT's XSD; the two auxiliaries are produced on request; the DIOT batch
-// file is compared byte for byte with the one written here. Two steps wait:
-// the journal XML, since no command can capture a customer transfer's origin
-// bank, so every receipt of the month stops it; and the IVA paper, which does
-// not yet take an issued credit note's IVA out of the month.
+// file is compared byte for byte with the one written here, and the IVA paper
+// settles the month with its credit note taken out (LIVA art. 7). One step
+// waits: the journal XML, since no command can capture a customer transfer's
+// origin bank, so every receipt of the month stops it.
 //
 // NO MODEL PROVIDER, AND THE FIRST TEST PROVES IT. In the child (`childEnv`)
 // the helper blanks MNEMOSINE_PROVIDER, every ANTHROPIC_* variable, the
@@ -705,6 +705,13 @@ function sectionOf<T>(r: Run): T {
   return (JSON.parse(r.out.slice(r.out.indexOf('{\n'), r.out.lastIndexOf('\n}') + 2)) as { sections: T[] }).sections[0];
 }
 const isrPaperOf = (r: Run): IsrPaper => sectionOf<IsrPaper>(r);
+/** The IVA section: the ISR one's shape, and its lines trace the documents behind them. */
+interface IvaPaper extends Omit<IsrPaper, 'lines'> {
+  lines: {
+    key: string; cents: string; whole: string;
+    source: { documents?: { documentNumber: string; documentKind: string; amount: string; entries: { entryDate: string; net: string }[] }[] };
+  }[];
+}
 /** The rows of an Anexo 24 file, keyed by NumCta: the attributes of each `<element>` as written. */
 function anexo24Rows(xml: string, element: string): Record<string, Record<string, string>> {
   const rows: Record<string, Record<string, string>> = {};
@@ -2333,15 +2340,43 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     // 12-22, 1,280 on 12-11; creditable 1,280 on 12-22, 160 on 12-09, 12-12
     // and 12-19, 1,600 on 12-16, 800 on 12-20; 0 % on 12-03; exempt on 12-04;
     // the withholding on 12-16.
-    // FIXME(#799): what the paper does today (seen on 2026-11-19). It reads no
-    // issued credit note: charged.tasa16 is 23,000.00 / 3,680.00 and the
-    // result −480.00 / −480, and IVA-WP-CHARGED-VS-LEDGER only warns that
-    // 2120 moved 3,520.0000. A second gap: the bank reconciliation posts the
-    // fee's 48.00 of IVA straight to 1130, not to 1135 until the bank's CFDI
-    // arrives (the note of 6310 in account-roles-seed.ts), so
-    // IVA-WP-CREDITABLE-VS-LEDGER warns that 1130 moved 4,208.0000 against
-    // the 4,160.0000 the bills paid.
-    it.todo('the IVA paper takes an issued credit note\'s IVA out of the month (LIVA art. 7) — #799');
+    // The bank fee's 48.00 of IVA, posted to 1130 by the reconciliation, is
+    // creditable in the month of the charge, which is its payment (LIVA arts.
+    // 1-B and 5 fr. III; MNE-001-041, `treasury-posting.ts`), backed by the
+    // bank's CFDI (art. 5 fr. II). The ledger is right; the paper's creditable
+    // side reads only the DIOT's bills.
+    // FIXME(#799): part 2 (MNE-001-566) counts it: creditable 26,300.00 /
+    // 4,208.00 and the result −688.00 / −688. Until then 1130's 4,208.0000
+    // against the bills' 4,160.0000 is named by IVA-WP-CREDITABLE-VS-LEDGER.
+    it('the IVA paper takes the credit note of 12-18 out of December, traced to its entry, and settles −640.00 / −640 — MNE-001-565, #799', () => {
+      const run = ok(['filing', 'workpaper', 'generate', '--period', '2025-12', '--form', 'iva', '--json']);
+      const iva = sectionOf<IvaPaper>(run);
+      expect(iva.blockedBy).toEqual([]);
+      const zero = (key: string): [string, string, string] => [key, '0.00', '0'];
+      expect(iva.lines.map((l) => [l.key, l.cents, l.whole])).toEqual([
+        ['charged.tasa16.base', '22000.00', '22000'], ['charged.tasa16.iva', '3520.00', '3520'],
+        zero('charged.tasa8.base'), zero('charged.tasa8.iva'), zero('charged.tasa0.base'), zero('charged.tasa0.iva'),
+        zero('charged.exento.base'), zero('charged.exento.iva'), zero('charged.no_objeto.base'),
+        ['creditable.tasa16.base', '26000.00', '26000'], ['creditable.tasa16.iva', '4160.00', '4160'],
+        zero('creditable.tasa8.base'), zero('creditable.tasa8.iva'),
+        ['creditable.tasa0.base', '1200.00', '1200'], zero('creditable.tasa0.iva'),
+        ['creditable.exento.base', '450.00', '450'], zero('creditable.exento.iva'),
+        zero('withheld_by_customers'), zero('prior_balance_in_favor'),
+        ['withheld_to_remit', '1066.67', '1067'],
+      ]);
+      expect([iva.resultCents, iva.resultWhole]).toEqual(['-640.00', '-640']);
+
+      const charged = iva.lines.find((l) => l.key === 'charged.tasa16.iva')?.source.documents ?? [];
+      const note = charged.find((d) => d.documentNumber === 'CN-2025-00001');
+      expect(note).toMatchObject({ documentKind: 'credit_note', amount: '-160.0000' });
+      expect(note?.entries.map((e) => [e.entryDate, e.net])).toEqual([['2025-12-18', '160.0000']]);
+
+      const codes = iva.findings.map((h) => h.codigo);
+      expect(codes).not.toContain('IVA-WP-CHARGED-VS-LEDGER');
+      const creditable = iva.findings.find((h) => h.codigo === 'IVA-WP-CREDITABLE-VS-LEDGER')?.mensaje ?? '';
+      expect(creditable).toContain('4160.0000');
+      expect(creditable).toContain('4208.0000');
+    }, STEP_TIMEOUT_MS);
 
     it('the ISR working paper blocks until the 2024 return is captured, and then has the exact hand figures — MNE-001-420', () => {
       const paper = ['filing', 'workpaper', 'generate', '--period', '2025-12', '--form', 'isr', '--json'];
