@@ -1,5 +1,12 @@
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
+import { resolveReviewer } from '../ai/draft-service.js';
+import { resolveAccount } from '../services/accounting/account-service.js';
+import { PreRegistrationService } from '../services/xml-ingestion/pre-registration-service.js';
+import { listRepAparcados } from '../services/xml-ingestion/rep-pendientes.js';
+import { AppError } from '../utils/errors.js';
+import { t } from '../i18n/index.js';
+import readline from 'node:readline/promises';
 import {
   listCfdis,
   getCfdiByUuid,
@@ -20,10 +27,19 @@ import {
   withSelection,
   withTime,
   resolveActiveEntity,
+  requireExplicitEntity,
+  describeCommand,
+  argumentByKey,
+  optionByKey,
   notFound,
+  usageError,
+  abortedByUser,
+  blockedByState,
+  needsHuman,
   exitCodeFor,
   type Row,
 } from './kernel/index.js';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 
 // ============================================================
 // mnemosine cfdi
@@ -34,10 +50,10 @@ import {
 // de consulta, no un «Vigente» simulado — y el rastro del clasificador
 // que la 015 prometió y F02 empezó a escribir.
 //
-// Todo lectura salvo el refresco del estatus, que solo escribe la CACHÉ
-// sat_* del documento: la consulta al SAT es anónima y pública, no toca
-// e.firma ni PAC. Timbrar y cancelar NO viven aquí todavía: dependen del
-// XML de emisión real y de la decisión de PAC (§5).
+// Two leaves write. `cfdi status sync` writes only the sat_* cache of the
+// document: the SAT query is anonymous and public, with no e.firma and no
+// PAC. `cfdi post` books a CFDI the entity issued to receivables, with no
+// model (MNE-001-418). Stamping and cancelling do not live here yet.
 // ============================================================
 
 export interface CfdiCommandDeps {
@@ -45,7 +61,21 @@ export interface CfdiCommandDeps {
   shutdown: (code: number) => Promise<void> | void;
   reportError: (err: unknown) => void;
   home?: string;
+  /** Test seams of `cfdi post`: the confirmation prompt and the parked REPs. */
+  confirm?: (question: string) => Promise<boolean>;
+  parkedReceipts?: typeof listRepAparcados;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The door answers 422 for every refusal; the terminal tells a wait and a state from a validation. */
+const REFUSAL_EXIT: Record<string, typeof needsHuman> = {
+  ISSUED_CFDI_DRAFT_IN_REVIEW: needsHuman,
+  CFDI_REQUIERE_DECISION: needsHuman,
+  ISSUED_CFDI_NOT_OPEN: blockedByState,
+  CFDI_ALREADY_INVOICED: blockedByState,
+  ISSUED_CFDI_SUBSTITUTES_INVOICE: blockedByState,
+};
 
 interface CommonOpts {
   entity?: string;
@@ -102,6 +132,13 @@ Examples:
   # Really consult the SAT for the 50 stalest; --live is what leaves the sandbox.
   mnemosine cfdi status sync --limit 50 --stale-hours 24 --live --yes
 `,
+  post: `
+Examples:
+  # The invoice and the entry it would write, writing nothing.
+  mnemosine cfdi post 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --dry-run
+  # Post it, with 4200 as the revenue account of every concept not coded on its own.
+  mnemosine cfdi post 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --account 4200 --yes
+`,
   explain: `
 Examples:
   # Why the classifier recorded it the way it did: case, facts and decisions.
@@ -114,7 +151,7 @@ Examples:
 export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): void {
   const cfdi = program
     .command('cfdi')
-    .description('The CFDI mirror: list, inspect, SAT status and the classifier trail');
+    .description('The CFDI mirror: list, inspect, SAT status, the classifier trail, and posting an issued CFDI');
 
   const note = (m: string) => process.stderr.write(deps.palette.dim(`${m}\n`));
 
@@ -341,6 +378,84 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
       if (opts.json) {
         render([rastro as unknown as Row], { json: true });
       }
+    })
+  );
+
+  // ---- cfdi post ---------------------------------------------------
+  // MNE-001-418 (#620): the hand door of an issued CFDI, postIssuedCfdiByHand. It asks no model.
+  const post = describeCommand(cfdi.command('post').alias('contabilizar'), 'help.cfdi.post.description');
+  argumentByKey(post, '<uuid>', 'help.cfdi.post.argument.uuid');
+  withContext(post);
+  optionByKey(post, '--account <code>', 'help.cfdi.post.option.account');
+  optionByKey(post, '--json', 'help.cfdi.post.option.json');
+  declareRisk(post, {
+    risk: 'irreversible',
+    agent: false,
+    llave: { innecesaria: 'one CFDI gives one invoice: a repeat finds its pre-registration closed, or an invoice with its UUID, and is refused' },
+    writes: 'invoices + invoice_lines + journal_entries + account_balances + pre_registrations + xml_documents',
+  });
+  post.addHelpText('after', EJEMPLOS.post);
+  post.action((uuid: string, opts: CommonOpts & { account?: string; yes?: boolean; user?: string }) =>
+    run(async () => {
+      if (!UUID_RE.test(uuid)) throw usageError({ key: 'cfdi.post.bad_uuid', params: { uuid } });
+      bootstrapTenant(opts.tenant);
+      const ctx = await requireExplicitEntity(
+        { entity: opts.entity },
+        { home: deps.home, warn: (m) => process.stderr.write(deps.palette.yellow(`${m}\n`)) }
+      );
+      const { dryRun } = gateMutation(post, opts as unknown as Record<string, unknown>);
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const doc = await getCfdiByUuid(ctx.entityId, uuid);
+      const revenueAccountId = opts.account ? (await resolveAccount(ctx.entityId, opts.account)).id : undefined;
+      const method = doc.metodo_pago === 'PPD' ? 'PPD' : 'PUE';
+
+      if (!dryRun && !opts.yes) {
+        const question = t('cfdi.post.confirm', {
+          uuid: doc.cfdi_uuid, rfc: doc.receptor_rfc, total: doc.total, currency: doc.moneda, method: doc.metodo_pago ?? 'none',
+        });
+        if (deps.confirm) {
+          if (!(await deps.confirm(question))) throw abortedByUser();
+        } else if (!process.stdin.isTTY) {
+          throw abortedByUser({ key: 'cfdi.post.no_terminal', params: { question } });
+        } else {
+          const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+          const verdict = await confirmarConReintento((q) => rl.question(q).catch(() => null), `${question} [y/N] `)
+            .finally(() => rl.close());
+          if (!verdict.si) throw abortedByUser(verdict.incomprendida !== undefined ? noEntendi(verdict.incomprendida) : undefined);
+        }
+      }
+
+      const r = await new PreRegistrationService()
+        .postIssuedCfdiByHand({ entityId: ctx.entityId, cfdiUuid: uuid, userId: reviewer.userId, revenueAccountId, dryRun })
+        .catch((err: unknown) => {
+          const refusal = err instanceof AppError ? REFUSAL_EXIT[err.code] : undefined;
+          throw refusal ? refusal((err as AppError).messageKey ?? (err as AppError).message) : err;
+        });
+      for (const warning of r.warnings) process.stderr.write(deps.palette.yellow(`⚠ ${warning}\n`));
+      if (opts.json) {
+        render(
+          [{
+            invoice_number: r.invoice.number, status: r.invoice.status, amount_due: r.invoice.amountDue,
+            entry_number: r.entry.number, dry_run: r.dryRun,
+          }],
+          { json: true }
+        );
+        return;
+      }
+      const said = { uuid: doc.cfdi_uuid, rfc: doc.receptor_rfc, invoice: r.invoice.number, entry: r.entry.number, due: r.invoice.amountDue };
+      process.stdout.write(
+        dryRun ? `${deps.palette.bold(t('cfdi.post.would_post', said))}\n` : `${deps.palette.green('✔')} ${t('cfdi.post.posted', said)}\n`
+      );
+      render(
+        r.lines.map((l) => ({ account: l.accountCode, name: l.accountName, debit: l.debit ?? '', credit: l.credit ?? '' })),
+        { format: 'table', numeric: ['debit', 'credit'] }
+      );
+      if (dryRun) {
+        note(t('cfdi.post.nothing_written', { id: r.preRegistrationId }));
+        return;
+      }
+      const parked = method === 'PPD' && (await (deps.parkedReceipts ?? listRepAparcados)(ctx.entityId, 1)).length > 0;
+      note(t('cfdi.post.next', { method, parked: parked ? 'yes' : 'no', invoice: r.invoice.number }));
     })
   );
 }

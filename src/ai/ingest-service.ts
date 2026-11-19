@@ -12,6 +12,7 @@ import {
 import { CFDIParser } from '../services/xml-ingestion/cfdi-parser.js';
 import { query } from '../database/connection.js';
 import { ValidationError } from '../utils/errors.js';
+import { t } from '../i18n/index.js';
 import { floorMaxAutoAmount, FLOOR_MAX_AUTO_POST } from './floor.js';
 import {
   approveDraft,
@@ -79,6 +80,8 @@ export interface IngestFileResult {
    * for someone to code it; status is 'blocked', never 'error'.
    */
   toCode?: boolean;
+  /** MNE-001-418: a CFDI left to code that the entity issued; `cfdi post` books it, not the bill inbox. */
+  issued?: boolean;
 }
 
 export interface IngestReport {
@@ -86,6 +89,20 @@ export interface IngestReport {
   counts: Record<IngestStatus, number>;
   /** ING-2 (#319): how many CFDI were left in the inbox to code by hand. */
   toCode: number;
+  /** MNE-001-418: how many of `toCode` the entity issued. */
+  issuedToCode: number;
+}
+
+/** The summary line of what was left to code: the received go to the bill inbox, the issued to `cfdi post`. */
+export function leftToCodeSummary(report: Pick<IngestReport, 'toCode' | 'issuedToCode'>): string | null {
+  if (report.toCode === 0) return null;
+  return (
+    `${report.toCode} left to code: the model was not consulted.` +
+    (report.toCode > report.issuedToCode
+      ? ' See them with `mnemosine bill inbox list`, code them with `mnemosine bill inbox edit`.'
+      : '') +
+    (report.issuedToCode > 0 ? ` ${t('ingest.summary.issued_to_post', { count: report.issuedToCode })}` : '')
+  );
 }
 
 /** Mutable holder the CLI wires into SessionCallbacks.onDraftCreated. */
@@ -169,7 +186,11 @@ export async function ingestCfdiFiles(opts: {
     rules: 0, auto_post: 0, draft: 0, blocked: 0, duplicate: 0, invalid: 0, error: 0,
   };
   for (const r of results) counts[r.status]++;
-  return { results, counts, toCode: results.filter((r) => r.toCode).length };
+  return {
+    results, counts,
+    toCode: results.filter((r) => r.toCode).length,
+    issuedToCode: results.filter((r) => r.toCode && r.issued).length,
+  };
 
   async function ingestOne(file: string, name: string): Promise<IngestFileResult> {
     let xml: string;
@@ -235,7 +256,11 @@ export async function ingestCfdiFiles(opts: {
     return names.length > 0 ? `: ${names.map((n) => `«${n}»`).join(', ')}` : '';
   }
 
-  function leftToCode(name: string): IngestFileResult {
+  function leftToCode(name: string, upload: UploadOutcome): IngestFileResult {
+    if (upload.direction === 'issued' && upload.preRegistration.document_type === 'invoice') {
+      const params = { reason: String(modelUnavailable), uuid: String(upload.xmlDocument.cfdi_uuid) };
+      return { file: name, status: 'blocked', toCode: true, issued: true, detail: t('ingest.issued_left_to_code', params) };
+    }
     return {
       file: name, status: 'blocked', toCode: true,
       detail: `Left in the inbox to code (${modelUnavailable}): see \`mnemosine bill inbox list\`; ` +
@@ -292,7 +317,7 @@ export async function ingestCfdiFiles(opts: {
     // ING-3 (#320): an issued CFDI (its REP aside, handled above) reaches the
     // model as the entity's SALE: its pre-registration says 'invoice', so the
     // approval of the draft creates the customer invoice, never a vendor bill.
-    if (session === null || modelUnavailable !== null) return leftToCode(name);
+    if (session === null || modelUnavailable !== null) return leftToCode(name, upload);
 
     // Layer 2: the AI classifies and creates the draft
     capture.drafts = [];
@@ -309,7 +334,7 @@ export async function ingestCfdiFiles(opts: {
     } catch (err) {
       if (isProviderUnavailable(err)) {
         modelUnavailable = `the model provider is unavailable: ${(err as Error).message}`;
-        return leftToCode(name);
+        return leftToCode(name, upload);
       }
       return { file: name, status: 'error', detail: `Model failure: ${(err as Error).message}` };
     } finally {

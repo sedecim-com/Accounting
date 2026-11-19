@@ -39,6 +39,7 @@ import {
   buildCfdiPrompt,
   scanImportedText,
   isProviderUnavailable,
+  leftToCodeSummary,
   UNTRUSTED_OPEN,
   UNTRUSTED_CLOSE,
   type DraftCapture,
@@ -729,6 +730,25 @@ describe('ING-2 · #319 — without a model, and after its failure', () => {
     expect(r.counts.error).toBe(0);
     expect(r.toCode).toBe(2);
     expect(session.runTurn).not.toHaveBeenCalled();
+  });
+
+  it('an issued CFDI left to code is sent to cfdi post, never to the bill inbox (MNE-001-418)', async () => {
+    const issued = { ...makeUpload({ cfdi_uuid: 'UUID-2' }, { document_type: 'invoice' }), direction: 'issued' as const };
+    const { report } = run({ noModel: true, plan: [], files: ['/tmp/a.xml', '/tmp/b.xml'], uploads: [makeUpload(), issued] });
+    const r = await report;
+    expect(r.results[0].detail).toMatch(/bill inbox list/);
+    expect(r.results[1]).toMatchObject({ status: 'blocked', toCode: true });
+    expect(r.results[1].detail).toMatch(/mnemosine cfdi post UUID-2/);
+    expect(r.results[1].detail).toMatch(/cfdi list --direction emitido --type cfdi_ingreso --status pending/);
+    expect(r.results[1].detail).not.toMatch(/bill inbox/);
+    expect(r).toMatchObject({ toCode: 2, issuedToCode: 1 });
+    expect(r.counts.blocked).toBe(r.toCode);
+    const summary = leftToCodeSummary(r)!;
+    expect(summary).toMatch(/^2 left to code/);
+    expect(summary).toMatch(/bill inbox edit/);
+    expect(summary).toMatch(/1 .*mnemosine cfdi post <uuid>/);
+    expect(leftToCodeSummary({ ...r, toCode: 1, issuedToCode: 1 })).not.toMatch(/bill inbox/);
+    expect(leftToCodeSummary({ ...r, toCode: 0, issuedToCode: 0 })).toBeNull();
   });
 
   it('a missing credential is asked once, not file by file: the batch falls back to the deterministic layer', async () => {
