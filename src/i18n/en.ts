@@ -2809,6 +2809,30 @@ export const EN = {
     '· cleared on {date} · period {period} · VAT reclassified {amount}',
   'bank.check.reconcile.dry_run':
     'Dry run: the clearing really was recorded, and then rolled back.',
+  'bank.check.cashing.refused.not_a_cheque':
+    'Receipt {receipt} was paid by "{method}", not by cheque: only a cheque is cashed on a later day.',
+  'bank.check.cashing.refused.not_completed':
+    'Receipt {receipt} is in "{status}": a cashing is recorded on a completed receipt only.',
+  'bank.check.cashing.refused.already_cashed':
+    'The cheque of receipt {receipt} is already cashed on {date} with bank transaction {transaction}. A cheque is cashed once.',
+  'bank.check.cashing.refused.credit_used':
+    'Bank transaction {transaction} is already the cashing of receipt {holder}, so it cannot pay receipt {receipt}.',
+  'bank.check.cashing.refused.other_account':
+    'Bank transaction {transaction} is in another bank account than receipt {receipt}. If the cheque was deposited there, correct the receipt.',
+  'bank.check.cashing.refused.currency_differs':
+    'Bank transaction {transaction} is in {creditCurrency} and receipt {receipt} in {currency}. Nothing is converted here.',
+  'bank.check.cashing.refused.amount_differs':
+    'Bank transaction {transaction} is {creditAmount} and receipt {receipt} needs a credit of exactly {amount}.',
+  'bank.check.cashing.refused.credit_before_receipt':
+    'Bank transaction {transaction} is dated {date} and receipt {receipt} {receiptDate}: a cheque is not cashed before it is received.',
+  'bank.check.cashing.refused.period_closed':
+    'The cashing of receipt {receipt} is dated {date}, and no open period holds that date. Its VAT belongs to that month and is not posted with another date: reopen the period first.',
+  'bank.check.cashing.note.already_released':
+    'No entry: the receipt had already released this VAT on its own date.',
+  'bank.check.cashing.note.nothing_to_release':
+    'No entry: this receipt holds no VAT pending collection.',
+  'bank.check.cashing.note.foreign_currency':
+    'No entry: a cheque in a foreign currency releases its VAT on the receipt date.',
   'bank.transaction.show.unmatched': 'unmatched',
   'bank.match.create.summary':
     '· bank {bank} = books {books} + adjustments {adjustments} · residual {residual} ({mode}) · ' +
