@@ -2321,6 +2321,10 @@ export const EN = {
   'receipt.reverse.cause.defaulted':
     'cause not_collected, taken by default: a cheque is paid the day the bank cashes it',
   'receipt.reverse.cause.none': 'no cause stated',
+  'receipt.advance.cfdi_owed':
+    'none owed: an advance is documented by the advance CFDI the client issues (Anexo 20, Apéndice 6), not by a REP',
+  'receipt.advance.invoice_already_booked':
+    '{customer} has {invoices} open, and its own entry already credited customer advances: an advance CFDI in the books. The cash of that advance is recorded against it (receipt record {invoice}), not as a new advance. Go on only if this is another advance.',
   'bank.parse.date_invalid': '{flag} must be a real date in YYYY-MM-DD form; got "{value}".',
   'bank.parse.amount_invalid': '{flag} must be a decimal amount; got "{value}".',
   'bank.parse.rate_invalid': '{flag} must be a decimal rate; got "{value}".',
