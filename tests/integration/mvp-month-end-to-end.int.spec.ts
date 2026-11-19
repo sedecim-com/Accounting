@@ -589,6 +589,20 @@ function rowsOf<T>(r: Run): T[] {
   return (JSON.parse(r.out.slice(start, end + 2)) as { rows: T[] }).rows;
 }
 
+/** The ISR section of a working paper. Its `--json` is the whole paper, not `{ rows }`; cut out as `rowsOf` does. */
+interface IsrPaper {
+  blockedBy: string[];
+  resultCents: string | null;
+  resultWhole: string | null;
+  lines: { key: string; cents: string; whole: string; source: { ref?: string; accounts: string[]; entries: { entryDate: string; net: string }[] } }[];
+  inputs: Record<string, Record<string, unknown>>;
+  /** The paper publishes its findings' keys in Spanish; they are read as printed, never renamed. */
+  findings: Record<string, string>[];
+}
+function isrPaperOf(r: Run): IsrPaper {
+  return (JSON.parse(r.out.slice(r.out.indexOf('{\n'), r.out.lastIndexOf('\n}') + 2)) as { sections: IsrPaper[] }).sections[0];
+}
+
 const money = (v: string | undefined): string => new Decimal(v ?? 'NaN').toFixed(2);
 
 /** December's movement (`net_change`) of each account in `codes`; 0.00 for one that did not move. */
@@ -1848,7 +1862,74 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     it.todo('the Anexo 24 chart and trial balance XML validate against their XSD, and 1110 declares 1111 + 1112 — MNE-001-047');
     it.todo('the journal and auxiliary XML of the month are produced by command — MNE-001-054');
     it.todo('`diot export --layout sat` matches, byte for byte, the file written by hand — MNE-001-055, MNE-001-027');
-    it.todo('the IVA and ISR working paper has the exact hand figures, each line traced to its entries — MNE-001-058, MNE-001-059, MNE-001-060, MNE-001-115');
+    it.todo('the IVA working paper has the exact hand figures, each line traced to its entries — MNE-001-416');
+
+    it('the ISR working paper blocks until the 2024 return is captured, and then has the exact hand figures — MNE-001-420', () => {
+      const paper = ['filing', 'workpaper', 'generate', '--period', '2025-12', '--form', 'isr', '--json'];
+      const blocked = mnemosine(paper);
+      expect(blocked.status, blocked.err).toBe(4);
+      expect(isrPaperOf(blocked).blockedBy).toEqual(['ISR-WP-NO-COEFFICIENT']);
+      expect(blocked.err).toContain('mnemosine annual figure record');
+
+      // The 2024 return, invented: filed 2025-03-28 as operation 000777. The
+      // losses are typed already updated through June, the target month of a
+      // July to December payment (LISR art. 57), so their factor is 1.0000 and
+      // no INPC is read: the binary cannot load the index yet (MNE-001-306).
+      const source = '2024 return, operation 000777';
+      const return2024 = ['--year', '2024', '--filed-on', '2025-03-28', '--source', source];
+      ok(['annual', 'figure', 'record', '--kind', 'profit_coefficient', '--value', '0.1125', ...return2024]);
+      ok(['annual', 'figure', 'record', '--kind', 'pending_tax_losses', '--value', '412.50', '--updated-through', '2025-06', ...return2024]);
+
+      const isr = isrPaperOf(ok(paper));
+      expect(isr.blockedBy).toEqual([]);
+      // By hand, in cents and in pesos. Each line is adjusted to pesos on its
+      // own (`cada_renglon`, the default; CFF art. 20: up from 51 cents), and
+      // the pesos column runs its own chain.
+      //   nominal income  10,000.00: the 12-05 invoice on 4100. The 2,000 of
+      //                   12-28 and its mirror of 12-31 wash out; the 1,000
+      //                   returned on 4400 stays out, a deduction of the annual
+      //                   return by default (`provisional_isr_sales_returns`);
+      //                   the 1,000 advance on 2150 is no revenue account
+      //   profit          10,000 × 0.1125 = 1,125.00
+      //   PTU             none paid; no payment was due before December and
+      //                   nobody withheld ISR from the company
+      //   losses          412.50, all of it, being under the profit; in pesos
+      //                   its 50 cents go down: 412
+      //   base            1,125.00 − 412.50 = 712.50; in pesos 1,125 − 412 = 713
+      //   tax             712.50 × 30 % = 213.75; in pesos 713 × 30 % = 213.90,
+      //                   whose 90 cents go up: 214
+      expect(isr.lines.map((l) => [l.key, l.cents, l.whole])).toEqual([
+        ['nominal_income', '10000.00', '10000'],
+        ['estimated_profit', '1125.00', '1125'],
+        ['ptu_deducted', '0.00', '0'],
+        ['pending_losses_applied', '412.50', '412'],
+        ['taxable_base', '712.50', '713'],
+        ['tax_caused', '213.75', '214'],
+        ['prior_provisional_payments', '0.00', '0'],
+        ['withheld_income_tax', '0.00', '0'],
+        ['payable', '213.75', '214'],
+      ]);
+      expect([isr.resultCents, isr.resultWhole]).toEqual(['213.75', '214']);
+
+      const line = (key: string): IsrPaper['lines'][number]['source'] =>
+        isr.lines.find((l) => l.key === key)?.source ?? { accounts: [], entries: [] };
+      expect(line('estimated_profit').ref).toBe('coefficient');
+      expect(line('pending_losses_applied').ref).toBe('losses');
+      const from2024 = { sourceFiscalYear: 2024, sourceFiledOn: '2025-03-28', sourceDocument: source };
+      expect(isr.inputs.coefficient).toEqual({ value: '0.1125', ...from2024 });
+      expect(isr.inputs.losses).toEqual({
+        value: '412.5000', ...from2024, updatedThrough: '2025-06', updatedTo: '2025-06', factor: '1.0000', applied: '412.5000',
+      });
+      // The year's revenue entries, debit positive: the invoice, the stray sale and its mirror.
+      expect(line('nominal_income').accounts).toEqual(['4100']);
+      expect(line('nominal_income').entries.map((e) => [e.entryDate, e.net])).toEqual([
+        ['2025-12-05', '-10000.0000'], ['2025-12-28', '-2000.0000'], ['2025-12-31', '2000.0000'],
+      ]);
+      // The advance of 12-10 warns and does not block: LISR art. 17 fr. I
+      // accumulates it when collected, so the accountant adds its 1,000.00 when
+      // declaring. The paper's own figures leave it out (MNE-001-421).
+      expect(isr.findings.map((h) => [h['codigo'], h['severidad']])).toEqual([['ISR-WP-ADVANCES', 'aviso']]);
+    }, STEP_TIMEOUT_MS);
   });
 
   describe('9 · safe operation', () => {
