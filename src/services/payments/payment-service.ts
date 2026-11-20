@@ -352,6 +352,10 @@ interface DocumentoAplicado {
    */
   advanceIva?: string;
   advanceIvaTwiceIn?: string | null;
+  /** MNE-001-573 · the advance's IVA a held cheque's cash takes and its cashing nets (`defer_to_cashing`). */
+  advanceIvaDeferred?: string;
+  /** MNE-001-573 · the cheque's cashing day, when the invoice's month caused the IVA the cashing causes. */
+  advanceIvaCashedOn?: string | null;
 }
 
 export interface ResultadoPago {
@@ -1319,6 +1323,7 @@ interface PagoVivo {
   payment_method: string;
   /** Migration 331: the bank credit that cashed the cheque; null while it has none. */
   check_cashed_tx_id: string | null;
+  check_cashed_date: string | null;
 }
 
 /**
@@ -1346,7 +1351,7 @@ async function cobroParaEscribir(
             payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid, advance_factor_type, payment_method,
             advance_tax_rate::text AS advance_tax_rate,
             advance_base_amount::text AS advance_base_amount, advance_iva_amount::text AS advance_iva_amount,
-            check_cashed_tx_id
+            check_cashed_tx_id, check_cashed_date::text AS check_cashed_date
        FROM customer_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
     [paymentId, entityId]
   );
@@ -1505,24 +1510,30 @@ async function withholdingBookedAtIssuance(
   return new Decimal(r.rows[0]?.booked ?? '0');
 }
 
-/** The panel key `refuseUncausedCancellation` reads (pending-catalog.ts). */
+/** The panel key `defersUncausedCancellation` reads (pending-catalog.ts). */
 const ADVANCE_BY_CHECK_KEY = 'cheque_advance_before_cashing';
 
 /**
- * MNE-001-572 (#789) · Refuses an application of a held cheque's advance
- * that would cancel IVA nobody has caused (`cancelsUncausedIva`), naming the
+ * MNE-001-572 (#789) · An application of a held cheque's advance that would
+ * cancel IVA nobody has caused (`cancelsUncausedIva`) is refused, naming the
  * cashing that lifts it. The firm's answer to `cheque_advance_before_cashing`
  * is read only here, when a refusal is about to happen: `refuse` (the
- * default, LIVA art. 1-B, second paragraph) or `defer_to_cashing`, which part
- * 2/2 builds and is refused meanwhile.
+ * default, LIVA art. 1-B, second paragraph) or `defer_to_cashing`.
+ *
+ * MNE-001-573 · Under `defer_to_cashing` an application to a PPD invoice goes
+ * through and returns true: its entry cancels nothing, and the cashing nets
+ * the advance's IVA against the share the invoice releases that day
+ * (`pendingRelease`). A PUE invoice at another treatment releases no share
+ * to net against, and the IVA paper counts a PUE application on its own day,
+ * so it stays refused under either answer.
  */
-async function refuseUncausedCancellation(
+async function defersUncausedCancellation(
   client: pg.PoolClient,
   entityId: string,
   receipt: PagoVivo,
   inv: { id: string; invoice_number: string; cfdi_uuid: string | null; terms: string | null; memo: string | null },
   iva: string
-): Promise<void> {
+): Promise<boolean> {
   const method = await resolveInvoiceMetodoPago(client, {
     id: inv.id, entity_id: entityId, invoice_number: inv.invoice_number,
     cfdi_uuid: inv.cfdi_uuid, terms: inv.terms, memo: inv.memo,
@@ -1533,13 +1544,14 @@ async function refuseUncausedCancellation(
     sale: ppd ? null : await treatmentOfSales(client, entityId, [inv.id]),
     receipt: storedAdvanceTreatment(receipt.advance_factor_type, receipt.advance_tax_rate),
   });
-  if (!refused) return;
+  if (!refused) return false;
   const params = {
     receipt: receipt.payment_number, invoice: inv.invoice_number, iva: new Decimal(iva).toFixed(2), key: ADVANCE_BY_CHECK_KEY,
   };
   const choice = await getPolicy({ tenantId: await tenantDe(client, entityId), entityId }, ADVANCE_BY_CHECK_KEY, client);
   if (choice.value === 'defer_to_cashing') {
-    throw new AccountingError('CHEQUE_ADVANCE_DEFERRAL_NOT_WIRED', { key: 'receipt.apply.cheque_advance_deferral_not_wired', params });
+    if (ppd) return true;
+    throw new AccountingError('ADVANCE_BY_CHEQUE_NOT_CASHED', { key: 'receipt.apply.cheque_advance_deferral_ppd_only', params });
   }
   throw new AccountingError('ADVANCE_BY_CHEQUE_NOT_CASHED', { key: 'receipt.apply.cheque_advance_not_cashed', params });
 }
@@ -1712,9 +1724,12 @@ export async function applyCustomerPayment(
       const take = advance
         ? takeFromAdvance({ ...advance, applied: aplicado.toFixed(4) })
         : { plain: aplicado.toFixed(4), base: '0.0000', iva: '0.0000' };
-      if (held && new Decimal(take.iva).greaterThan(0)) await refuseUncausedCancellation(client, entityId, pago, inv, take.iva);
+      const deferred = held && new Decimal(take.iva).greaterThan(0)
+        ? await defersUncausedCancellation(client, entityId, pago, inv, take.iva)
+        : false;
       const fromAdvance = new Decimal(take.base).plus(take.iva);
       let twiceIn: string | null = null;
+      let cashedOn: string | null = null;
       if (advance && fromAdvance.greaterThan(0)) {
         advance.consumed = new Decimal(advance.consumed).plus(fromAdvance).toFixed(4);
         advance.cancelled = new Decimal(advance.cancelled).plus(take.iva).toFixed(4);
@@ -1724,13 +1739,22 @@ export async function applyCustomerPayment(
         // one of them there, not in the month that declared it twice. A PPD invoice parked its IVA instead:
         // the share this cash settles leaves 2125 and nets against the advance's (MNE-001-461), so no month
         // carries it twice.
-        const received = toCalendarDate(pago.payment_date);
-        if (new Decimal(take.iva).greaterThan(0) && inv.invoice_date <= received && date.slice(0, 7) > received.slice(0, 7)) {
+        // MNE-001-573: a cheque's advance caused its IVA on the cashing day, so that is when it was received;
+        // while it is held it caused none yet. A PUE invoice of a month before the cashing caused in its own
+        // month the IVA that LIVA art. 1-B, second paragraph, puts on the cashing day: the application says so.
+        const cashing = pago.payment_method === 'check' && pago.check_cashed_date ? toCalendarDate(pago.check_cashed_date) : null;
+        const received = cashing ?? toCalendarDate(pago.payment_date);
+        const twice = inv.invoice_date <= received && date.slice(0, 7) > received.slice(0, 7);
+        const beforeCashing = cashing !== null && inv.invoice_date.slice(0, 7) < cashing.slice(0, 7);
+        if (!held && new Decimal(take.iva).greaterThan(0) && (twice || beforeCashing)) {
           const invoiceMethod = await resolveInvoiceMetodoPago(client, {
             id: inv.id, entity_id: entityId, invoice_number: inv.invoice_number,
             cfdi_uuid: inv.cfdi_uuid, terms: inv.terms, memo: inv.memo,
           });
-          if (invoiceMethod.metodo !== 'PPD') twiceIn = received.slice(0, 7);
+          if (invoiceMethod.metodo !== 'PPD') {
+            twiceIn = twice ? received.slice(0, 7) : inv.invoice_date.slice(0, 7);
+            cashedOn = twice ? null : cashing;
+          }
         }
       }
 
@@ -1768,8 +1792,10 @@ export async function applyCustomerPayment(
         moneda: inv.currency_code,
         withholdingIsr: isr.toFixed(2),
         withholdingIva: iva.toFixed(2),
-        advanceIva: new Decimal(take.iva).toFixed(2),
+        advanceIva: deferred ? '0.00' : new Decimal(take.iva).toFixed(2),
         advanceIvaTwiceIn: twiceIn,
+        ...(deferred ? { advanceIvaDeferred: new Decimal(take.iva).toFixed(2) } : {}),
+        advanceIvaCashedOn: cashedOn,
       });
       posteriores.push({
         invoiceId: inv.id,
@@ -1777,8 +1803,11 @@ export async function applyCustomerPayment(
         amount: aplicado.toFixed(4),
         withholdingIsr: isr.toFixed(4),
         withholdingIva: iva.toFixed(4),
-        advanceIva: take.iva,
+        // MNE-001-573: a deferred IVA is cancelled by nothing here; the allocation stores it for the cashing.
+        advanceIva: deferred ? '0' : take.iva,
         advanceIvaTwiceIn: twiceIn,
+        ...(deferred ? { advanceIvaDeferred: take.iva } : {}),
+        advanceIvaCashedOn: cashedOn,
         priorApplied: prev.rows[0]?.aplicado ?? '0',
         taxAmount: inv.tax_amount,
         totalAmount: inv.total_amount,
@@ -1836,6 +1865,7 @@ export async function applyCustomerPayment(
         ).toFixed(2),
         documentos: documentos.length,
         advance_iva_cancelled: posteriores.reduce((s, a) => s.plus(a.advanceIva ?? '0'), new Decimal(0)).toFixed(4),
+        advance_iva_deferred: posteriores.reduce((s, a) => s.plus(a.advanceIvaDeferred ?? '0'), new Decimal(0)).toFixed(4),
         journal_entry_id: entry.id,
       },
     });
@@ -2004,7 +2034,14 @@ export async function unapplyCustomerPayment(
     const putBackIva = treatment === null ? '0' : backAsAdvance(vivas.rows.map((r) => r.plain), treatment).iva;
     const held = await holdsIvaUntilCashed(client, entityId, pago);
     const backIva = held ? '0' : putBackIva;
-    const advanceIva = vivas.rows.reduce((s, r) => s.plus(r.advance_iva), new Decimal(backIva));
+    // MNE-001-573: a held cheque's rows on a PPD invoice cancelled no IVA (`defer_to_cashing`; part 1 refuses
+    // them otherwise), so nothing goes back to 2120 for them: the cashing nets what they keep.
+    const taken = vivas.rows.reduce((s, r) => s.plus(r.advance_iva), new Decimal(0));
+    const deferredBack = held && taken.greaterThan(0) && (await resolveInvoiceMetodoPago(client, {
+      id: factura.id, entity_id: entityId, invoice_number: factura.invoice_number,
+      cfdi_uuid: factura.cfdi_uuid, terms: factura.terms, memo: factura.memo,
+    })).metodo === 'PPD';
+    const advanceIva = (deferredBack ? new Decimal(0) : taken).plus(backIva);
     // MNE-001-574: a receipt with none keeps each row's caused share instead (`keptIvaOf`). A held
     // cheque released nothing, so it keeps nothing here.
     const keptByRow = vivas.rows.map((r) =>

@@ -627,19 +627,29 @@ interface AdvanceOfMonth {
  * month, and any other reversal leaves every month as it was (MNE-001-518,
  * MNE-001-510: the advance follows its receipt's cause). An advance by cheque
  * counts on its cashing (`countedOn`; MNE-001-558 records one).
+ *
+ * MNE-001-573 · Except what its allocations to a PUE invoice take and give
+ * back: the ledger cancels that IVA in the invoice's month on the day of the
+ * application (and restores it on the unapply's), against the IVA the
+ * invoice caused when issued, so the paper counts them on their own day too.
  */
 async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<AdvanceOfMonth[]> {
+  const pue = await pueInvoicesOfCheckAdvances(client, entityId);
   const { rows } = await client.query<AdvanceOfMonth>(
     `WITH events AS (
        SELECT cp.id, cp.advance_base_amount AS base, cp.advance_iva_amount AS iva, ${countedOn('cp', 'cp.payment_date')} AS on_day
          FROM customer_payments cp
         WHERE cp.entity_id = $1
        UNION ALL
-       SELECT cp.id, -pa.advance_base_amount, -pa.advance_iva_amount, ${countedOn('cp', 'COALESCE(pa.applied_on, cp.payment_date)')}
+       SELECT cp.id, -pa.advance_base_amount, -pa.advance_iva_amount,
+              CASE WHEN pa.invoice_id = ANY($4::uuid[]) THEN COALESCE(pa.applied_on, cp.payment_date)
+                   ELSE ${countedOn('cp', 'COALESCE(pa.applied_on, cp.payment_date)')} END
          FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND ${CARRIED_AN_ADVANCE}
        UNION ALL
-       SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount, ${countedOn('cp', 'pa.unapplied_at::date')}
+       SELECT cp.id, pa.advance_base_amount, pa.advance_iva_amount,
+              CASE WHEN pa.invoice_id = ANY($4::uuid[]) THEN pa.unapplied_at::date
+                   ELSE ${countedOn('cp', 'pa.unapplied_at::date')} END
          FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id
         WHERE cp.entity_id = $1 AND pa.unapplied_at IS NOT NULL AND ${RETURNS_AS_ADVANCE} AND NOT ${CLOSED_BY_REVERSAL}
      )
@@ -652,7 +662,7 @@ async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: R
         AND e.on_day >= $2::date AND e.on_day <= $3::date
       GROUP BY cp.id
       ORDER BY cp.payment_number`,
-    [entityId, range.desde, range.hasta]
+    [entityId, range.desde, range.hasta, pue]
   );
   // MNE-001-462: the cash an unapply of the month put back that took no
   // advance comes back as one, split by the function unapply posted it with.
@@ -675,6 +685,26 @@ async function advancesOfMonth(client: pg.PoolClient, entityId: string, range: R
     const iva = new Decimal(row.iva).plus(more.iva);
     return base.isZero() && iva.isZero() ? [] : [{ ...row, base: base.toFixed(4), iva: iva.toFixed(4) }];
   });
+}
+
+/**
+ * MNE-001-573 · The PUE invoices that a cheque's advance was applied to: only
+ * a cheque's events count on another day than their own. Both ends scoped.
+ */
+async function pueInvoicesOfCheckAdvances(client: pg.PoolClient, entityId: string): Promise<string[]> {
+  const { rows } = await client.query<InvoiceRow>(
+    `SELECT DISTINCT ${INVOICE_COLUMNS}
+       FROM payment_allocations pa
+       JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+       JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
+      WHERE cp.payment_method = 'check' AND ${RETURNS_AS_ADVANCE} AND ${CARRIED_AN_ADVANCE}`,
+    [entityId]
+  );
+  const pue: string[] = [];
+  for (const row of rows) {
+    if ((await resolveInvoiceMetodoPago(client, { ...row, entity_id: entityId })).metodo !== 'PPD') pue.push(row.id);
+  }
+  return pue;
 }
 
 /** An advance's net in the box of the treatment it was recorded with; a not-subject one is no-objeto base. */
@@ -1353,6 +1383,7 @@ interface UncashedCheckRow {
 interface CheckAllocationRow extends InvoiceRow {
   amount: string;
   advance_taken: string;
+  advance_iva: string;
   live: boolean;
 }
 
@@ -1368,7 +1399,8 @@ async function heldIvaOf(client: pg.PoolClient, entityId: string, c: UncashedChe
   // Both ends of the bridge are scoped.
   const { rows } = await client.query<CheckAllocationRow>(
     `SELECT ${INVOICE_COLUMNS}, pa.amount_applied::text AS amount,
-            (pa.advance_base_amount + pa.advance_iva_amount)::text AS advance_taken, (pa.unapplied_at IS NULL) AS live
+            (pa.advance_base_amount + pa.advance_iva_amount)::text AS advance_taken, pa.advance_iva_amount::text AS advance_iva,
+            (pa.unapplied_at IS NULL) AS live
        FROM payment_allocations pa
        JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
        JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $1
@@ -1383,6 +1415,11 @@ async function heldIvaOf(client: pg.PoolClient, entityId: string, c: UncashedChe
   let endedCash = new Decimal(0);
   let endedIva = new Decimal(0);
   for (const r of rows) {
+    // MNE-001-573: a live PPD row's advance IVA was deferred, and its share above causes it instead.
+    if (r.live && new Decimal(r.advance_iva).greaterThan(0)
+        && (await resolveInvoiceMetodoPago(client, { ...r, entity_id: entityId })).metodo === 'PPD') {
+      iva = iva.minus(r.advance_iva);
+    }
     if (r.live || !new Decimal(r.advance_taken).isZero()) continue;
     if ((await resolveInvoiceMetodoPago(client, { ...r, entity_id: entityId })).metodo !== 'PPD') continue;
     endedCash = endedCash.plus(r.amount);

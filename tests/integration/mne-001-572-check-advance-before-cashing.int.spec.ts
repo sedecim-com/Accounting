@@ -240,11 +240,16 @@ describe('figures 7-10 · a PUE invoice at the receipt\'s own treatment is appli
     const cashed = await cash(b, receipt.paymentId);
     expect(await linesOf(b, cashed.entryId!)).toEqual({ '2150': [160, 0], '2120': [0, 160] });
     expect([await balance(b, '2120', 5), await balance(b, '2120', 6), await balance(b, '2150')]).toEqual(['0.00', '160.00', '0.00']);
+    // MNE-001-573: the paper counts that application on its own day, as the ledger cancels it.
+    const [may, june] = [await paper(b, 5), await paper(b, 6)];
+    expect([at16(may).iva, at16(june).iva]).toEqual(['0.00', '160.00']);
+    silent(may);
+    silent(june);
   }, 180_000);
 });
 
 describe('figure 11 · a PUE invoice at another treatment', () => {
-  it('is refused before the cashing; under defer_to_cashing it is refused as not wired, naming part 2', async () => {
+  it('is refused before the cashing, and under defer_to_cashing too: it releases no share to net against (MNE-001-573)', async () => {
     const b = await book('pue zero');
     // The panel is read in the tenant of the context, as the binary sets it: this file holds several.
     enterTenant(b.f.tenantId);
@@ -255,8 +260,9 @@ describe('figure 11 · a PUE invoice at another treatment', () => {
 
     await resolvePolicy({ tenantId: b.f.tenantId, entityId: b.f.entityId }, 'cheque_advance_before_cashing', 'defer_to_cashing', 'it@example.test');
     const deferred = await apply(b, receipt.paymentId, inv.id, day(5, 31)).catch((e: unknown) => e);
-    expect(deferred).toMatchObject({ code: 'CHEQUE_ADVANCE_DEFERRAL_NOT_WIRED' });
-    expect((deferred as Error).message).toContain('2/2');
+    expect(deferred).toMatchObject({ code: 'ADVANCE_BY_CHEQUE_NOT_CASHED' });
+    expect((deferred as Error).message).toContain('defer_to_cashing');
+    expect((deferred as Error).message).toContain(`mnemosine bank check reconcile --receipt ${receipt.paymentNumber}`);
     expect(await footprint(b, receipt.paymentId, inv.id)).toBe(before);
   }, 180_000);
 
@@ -340,5 +346,94 @@ describe('figures 15-17 · the excess receipt\'s cash unapplied', () => {
     expect(undone.row).toMatchObject({ iva_at_cashing: '0.00' });
     const entry = await query<{ id: string }>('SELECT id FROM journal_entries WHERE entity_id = $1 AND entry_number = $2', [b.f.entityId, undone.row.entry_number]);
     expect(await linesOf(b, entry.rows[0].id)).toEqual({ '1120': [1160, 0], '2150': [0, 1000], '2125': [0, 160] });
+  }, 180_000);
+});
+
+// ============================================================
+// MNE-001-573 (#789, part 2/2) · `defer_to_cashing`: the application to a PPD
+// invoice posts now, with no cancellation, and the cashing nets the advance's
+// IVA against the share it releases. Hand figures 18-22 of the plan.
+// ============================================================
+
+/** A book whose firm answered defer_to_cashing; the panel is read in the context's tenant. */
+async function deferring(name: string): Promise<Book> {
+  const b = await book(name);
+  await resolvePolicy({ tenantId: b.f.tenantId, entityId: b.f.entityId }, 'cheque_advance_before_cashing', 'defer_to_cashing', 'it@example.test');
+  return b;
+}
+
+const allocation = async (b: Book, receiptId: string) =>
+  (await query<{ c: string; g: string | null }>(
+    `SELECT pa.advance_iva_amount::text AS c, pa.iva_reclass_amount::text AS g
+       FROM payment_allocations pa JOIN customer_payments cp ON cp.id = pa.payment_id AND cp.entity_id = $1
+      WHERE pa.payment_id = $2 ORDER BY pa.created_at`,
+    [b.f.entityId, receiptId]
+  )).rows;
+
+describe('figures 18-21 · defer_to_cashing on a PPD invoice', () => {
+  it('18-19 · the apply posts 2150 Dr 1,160.00 / 1120 Cr 1,160.00, and the cashing 2125 Dr 160.00 / 2120 Cr 160.00 with no 2150 line', async () => {
+    const b = await deferring('defer');
+    enterTenant(b.f.tenantId);
+    const receipt = await advance(b);
+    const inv = await invoice(b, '5000.00', { terms: 'PPD' });
+    const applied = await apply(b, receipt.paymentId, inv.id, day(5, 31));
+    expect(await linesOf(b, applied.journalEntry!.id)).toEqual({ '2150': [1160, 0], '1120': [0, 1160] });
+    expect(await allocation(b, receipt.paymentId)).toEqual([{ c: '160.0000', g: '0.0000' }]);
+    expect(await balance(b, '2120', 5)).toBe('0.00');
+
+    const cashed = await cash(b, receipt.paymentId);
+    expect(await linesOf(b, cashed.entryId!)).toEqual({ '2125': [160, 0], '2120': [0, 160] });
+    expect([await balance(b, '2120', 6), await balance(b, '2150'), await balance(b, '2125')]).toEqual(['160.00', '0.00', '640.00']);
+    const [may, june] = [await paper(b, 5), await paper(b, 6)];
+    expect([at16(may).iva, at16(june).iva]).toEqual(['0.00', '160.00']);
+    silent(may);
+    silent(june);
+  }, 180_000);
+
+  it('20 · 580.00 defers 80.0000, and the cashing moves 80.00 from 2125 and 80.00 from 2150', async () => {
+    const b = await deferring('defer partial');
+    enterTenant(b.f.tenantId);
+    const receipt = await advance(b);
+    const inv = await invoice(b, '5000.00', { terms: 'PPD' });
+    await applyCustomerPayment(b.f.entityId, receipt.paymentId, [{ documentId: inv.id, amountApplied: '580.00' }], b.f.userId, { date: day(5, 31) });
+    expect(await allocation(b, receipt.paymentId)).toEqual([{ c: '80.0000', g: '0.0000' }]);
+    const cashed = await cash(b, receipt.paymentId);
+    expect(await linesOf(b, cashed.entryId!)).toEqual({ '2125': [80, 0], '2150': [80, 0], '2120': [0, 160] });
+    expect([await balance(b, '2120', 6), await balance(b, '2150')]).toEqual(['160.00', '500.00']);
+  }, 180_000);
+
+  it('21 · deferred and unapplied before the cashing: 1120 Dr 1,160.00 / 2150 Cr 1,160.00, then the cashing 2150 Dr 160.00 / 2120 Cr 160.00', async () => {
+    const b = await deferring('defer unapply');
+    enterTenant(b.f.tenantId);
+    const receipt = await advance(b);
+    const inv = await invoice(b, '5000.00', { terms: 'PPD' });
+    await apply(b, receipt.paymentId, inv.id, day(5, 31));
+    const undone = await receiptLeaf(b, ['unapply', receipt.paymentNumber, '--invoice', inv.number, '--reason', 'wrong invoice', '--date', day(5, 31)]);
+    expect(undone.row).toMatchObject({ advance_iva_restored: '0.00', iva_reparked: '0.0000' });
+    const entry = await query<{ id: string }>('SELECT id FROM journal_entries WHERE entity_id = $1 AND entry_number = $2', [b.f.entityId, undone.row.entry_number]);
+    expect(await linesOf(b, entry.rows[0].id)).toEqual({ '1120': [1160, 0], '2150': [0, 1160] });
+    const cashed = await cash(b, receipt.paymentId);
+    expect(await linesOf(b, cashed.entryId!)).toEqual({ '2150': [160, 0], '2120': [0, 160] });
+    expect([await balance(b, '2120', 5), await balance(b, '2120', 6)]).toEqual(['0.00', '160.00']);
+  }, 180_000);
+});
+
+describe('figure 22 · a PUE invoice of an earlier month, applied after the cashing', () => {
+  it('the ledger and the paper read May 160.00 and June 0.00, and the apply names 2026-05 and 160.00', async () => {
+    const b = await book('pue after');
+    const receipt = await advance(b);
+    const inv = await invoice(b, '1000.00');
+    await cash(b, receipt.paymentId);
+    const applied = await receiptLeaf(b, ['apply', receipt.paymentNumber, '--invoice', `${inv.number}:1160.00`, '--date', day(6, 2)]);
+    expect(applied.row.warning).toContain('2026-05');
+    expect(applied.row.warning).toContain('160.00');
+    expect(applied.row.warning).toContain(day(6, 1));
+    const description = await query<{ d: string }>('SELECT description AS d FROM journal_entries WHERE entity_id = $1 AND entry_number = $2', [b.f.entityId, applied.row.journal_entry]);
+    expect(description.rows[0].d).toContain('2026-05');
+    expect([await balance(b, '2120', 5), await balance(b, '2120', 6)]).toEqual(['160.00', '0.00']);
+    const [may, june] = [await paper(b, 5), await paper(b, 6)];
+    expect([at16(may).iva, at16(june).iva]).toEqual(['160.00', '0.00']);
+    silent(may);
+    silent(june);
   }, 180_000);
 });

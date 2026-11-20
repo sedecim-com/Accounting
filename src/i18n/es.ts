@@ -1717,17 +1717,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.cheque_advance_before_cashing.question':
     'Un anticipo recibido con cheque se aplica a una factura antes de que el banco cobre el cheque, donde cancelaría IVA todavía no causado: ¿qué hago?',
   'policy.cheque_advance_before_cashing.impact':
-    'Gobierna `receipt apply` de un cheque sin cobro registrado cuyo efectivo lleva el IVA de su anticipo, a una factura PPD o a una PUE de otro tratamiento. Con "refuse" no se escribe nada, y el mensaje nombra `bank check reconcile --receipt`, después del cual la aplicación pasa. Con "defer_to_cashing" la aplicación se postearía ya y compensaría ese IVA el día del cobro; todavía no está construida y mientras tanto se niega, nombrando la parte 2/2 de la issue 789. Una factura PUE del mismo tratamiento del cobro se aplica en cualquier caso.',
+    'Gobierna `receipt apply` de un cheque sin cobro registrado cuyo efectivo lleva el IVA de su anticipo, a una factura PPD o a una PUE de otro tratamiento. Con "refuse" no se escribe nada, y el mensaje nombra `bank check reconcile --receipt`, después del cual la aplicación pasa. Con "defer_to_cashing" una aplicación a una factura PPD se postea ya sin renglón de IVA, y el cobro compensa ese IVA contra la parte que la factura libera ese día; una PUE de otro tratamiento no libera ninguna, así que se sigue negando. Una factura PUE del mismo tratamiento del cobro se aplica en cualquier caso.',
   'policy.cheque_advance_before_cashing.rationale':
     'LIVA art. 1-B, segundo párrafo: un precio pagado con cheque se cobra, y su IVA se causa, el día en que el banco cobra el cheque. Aplicar su anticipo antes cancelaría en el mayor un IVA que nadie ha causado todavía, y el mes leería menos IVA que el papel. Negarlo no postea nada sin revisión, la opción conservadora de ADR-0006.',
   'policy.cheque_advance_before_cashing.why':
     'Algunos despachos aplican el cheque de un cliente a su factura el día que llega, antes de que el banco lo cobre. Eso funciona si el IVA del anticipo se compensa el día del cobro; negarlo mantiene cada mes exacto hasta entonces.',
   'policy.cheque_advance_before_cashing.what':
-    'Con "refuse" niego la aplicación y nombro el comando del cobro. "defer_to_cashing" está declarada y todavía no construida, así que también la niego y lo digo.',
+    'Con "refuse" niego la aplicación y nombro el comando del cobro. Con "defer_to_cashing" la aplico a una factura PPD sin renglón de IVA y compenso su IVA cuando se registra el cobro; una PUE de otro tratamiento la sigo negando.',
   'policy.cheque_advance_before_cashing.if_skipped': 'Niego la aplicación hasta que se registre el cobro.',
   'policy.cheque_advance_before_cashing.option.refuse': 'Negarla hasta que se registre el cobro',
   'policy.cheque_advance_before_cashing.option.defer_to_cashing':
-    'Aplicarla ya y compensar su IVA el día del cobro (todavía no construida: se niega mientras tanto)',
+    'Aplicarla ya a una factura PPD y compensar su IVA el día del cobro',
 
   'policy.cash_over_limit_outside_ingestion.question':
     'Cuando una factura se liquida en efectivo por encima del límite de la LISR fuera de la ingesta de CFDI, ¿qué hago?',
@@ -2338,8 +2338,8 @@ export const ES: Record<keyof typeof EN, string> = {
   // MNE-001-572 (#789): el anticipo de un cheque retenido no se aplica contra IVA que nadie ha causado.
   'receipt.apply.cheque_advance_not_cashed':
     'El cobro {receipt} es un cheque que el banco no ha cobrado, y aplicarlo a {invoice} cancelaría {iva} del IVA de su anticipo, que no se causa hasta el cobro (LIVA art. 1-B, segundo párrafo). Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}` y luego aplícalo; esto lo gobierna la clave del panel {key}. No se escribió nada.',
-  'receipt.apply.cheque_advance_deferral_not_wired':
-    'La clave del panel {key} dice defer_to_cashing, que aplica ya el cobro {receipt} a {invoice} y compensa los {iva} del IVA de su anticipo el día del cobro; esa opción llega en la parte 2/2 de la issue 789 y todavía no está construida. Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}`, o contesta refuse. No se escribió nada.',
+  'receipt.apply.cheque_advance_deferral_ppd_only':
+    'La clave del panel {key} dice defer_to_cashing, que compensa el IVA del anticipo contra la parte que una factura PPD libera el día del cobro. {invoice} es una factura PUE de otro tratamiento que el cobro {receipt}: no libera ninguna parte, y aplicarla ya cancelaría {iva} de IVA que nadie ha causado (LIVA art. 1-B, segundo párrafo). Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}` y luego aplícalo. No se escribió nada.',
   'receipt.unapply.iva_at_cashing':
     'Los {iva} de IVA que este efectivo lleva de vuelta a cuenta se causan el día en que el banco cobra el cheque (LIVA art. 1-B, segundo párrafo): registrar ese cobro con bank check reconcile --receipt los postea.',
   // MNE-001-574 (#792): desaplicar un cobro sin tratamiento deja causado el IVA de su cobro.
@@ -2463,6 +2463,9 @@ export const ES: Record<keyof typeof EN, string> = {
   // MNE-001-422 / MNE-001-461 (#623): an advance applied to its sale's invoice cancels the IVA it caused.
   'receipt.advance.iva_cancelled': 'IVA del anticipo cancelado {iva}',
   'receipt.advance.iva_restored': 'IVA del anticipo devuelto {iva}',
+  // MNE-001-573 (#789): a PUE invoice of a month before its cheque advance was cashed.
+  'receipt.advance.iva_before_cashing':
+    'El IVA del anticipo de {iva} cancelado en {invoice} se causa el {cashed}, el día en que el banco cobró el cheque (LIVA art. 1-B, segundo párrafo), y {invoice}, una PUE, ya lo causó en {month}: el IVA trasladado de ese mes lleva lo que correspondía al día del cobro, y esta aplicación cancela el del anticipo en su propio mes. Revisa la declaración de {month}.',
   'receipt.advance.iva_caused_twice':
     'El IVA del anticipo, {iva}, que se cancela en {invoice} también se causó en {month} por esa factura, una PUE emitida el día del anticipo o antes (LIVA art. 1-B): el IVA trasladado de ese mes lo llevó dos veces, y esta aplicación lo cancela en su propio mes. Revisa la declaración de {month}.',
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',
