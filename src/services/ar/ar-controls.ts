@@ -36,6 +36,7 @@ const ABIERTAS = ['pending', 'sent', 'viewed', 'partially_paid', 'overdue'] as c
 /** `source_type` values the AR engine stamps on the entries it posts itself. */
 const ENGINE_SOURCE_TYPES = [
   'invoice', 'customer_payment', 'credit_note', 'receipt_application', 'receipt_unapplication',
+  'receipt_reversal_iva',
 ] as const;
 
 /** Also not manual: the closing revaluation (and its mirror) has its own line (MNE-001-112). */
