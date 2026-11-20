@@ -721,8 +721,9 @@ describe('a payment node without its c_Banco code is left out and its entry is n
     ['a vendor transfer to a foreign bank', 'Transferencia', 'BancoDestNal',
       'decisión del dueño', 'payment create',
       () => vendorPayment('spei', 'with code', { cuentaDestino: 'GB29NWBK60161331926819', bancoDestinoExtranjero: 'Bank of Nowhere' })],
+    // MNE-001-570: a registered receipt is completed, never recorded again.
     ['a customer transfer with no payer bank', 'Transferencia', 'BancoOriNal',
-      'receipt record --payer-bank', 'payment create',
+      '--payer-bank <clave> --reason <motivo>`', 'receipt record',
       () => customerTransfer()],
   ] as const)('%s', async (_label, node, attribute, remedy, wrongRemedy, record) => {
     const entry = await record();

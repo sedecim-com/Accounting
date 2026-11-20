@@ -99,10 +99,20 @@ export interface KeyedLine {
   readonly prefix?: string;
 }
 
+/**
+ * A hole of a keyed message that is itself a key (MNE-001-220): rendered in
+ * the language of the sentence around it, so a reason written as a key does
+ * not sit in one language inside a sentence of the other.
+ */
+export interface KeyedParam {
+  readonly key: string;
+  readonly params?: Readonly<Record<string, string | number>>;
+}
+
 /** Un mensaje de error escrito como clave del catálogo y sus huecos. */
 export interface KeyedMessage {
   readonly key: string;
-  readonly params?: Readonly<Record<string, string | number>>;
+  readonly params?: Readonly<Record<string, string | number | KeyedParam>>;
   readonly lines?: readonly KeyedLine[];
 }
 

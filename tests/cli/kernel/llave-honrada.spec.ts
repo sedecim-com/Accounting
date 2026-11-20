@@ -251,6 +251,35 @@ describe('pasar la llave a una hoja que no la honra', () => {
     }
   });
 
+  it('a reason written as a catalogue key follows the language of its sentence (MNE-001-220)', () => {
+    // The reason of a `{ sinLlave }` reaches the user inside this error. Written
+    // as prose it sits, in one language, inside a sentence of the other; written
+    // as a key it is rendered with the sentence. `message` and `params` stay
+    // English, for the log and for the --json error envelope.
+    const leafCmd = new Command('issue');
+    declareRisk(leafCmd, { risk: 'irreversible', llave: { sinLlave: { key: 'ar.invoice.retry_reissues' } } });
+    let caught: CliError | undefined;
+    try {
+      gateMutation(leafCmd, { idempotencyKey: 'k' });
+    } catch (e) {
+      caught = e as CliError;
+    }
+    expect(caught?.exitCode).toBe(2);
+    expect(caught?.message).toContain('HONOR IT YET: a retry issues again and posts the revenue a second time.');
+    expect(caught?.localized('en')).toContain('HONOR IT YET: a retry issues again and posts the revenue a second time.');
+    expect(caught?.localized('es')).toContain('LA HONRA: un reintento vuelve a emitir y postea el ingreso otra vez.');
+    expect(caught?.params.reason).toBe('a retry issues again and posts the revenue a second time');
+  });
+
+  it('a keyed reason reaches the audit detail in English (MNE-001-220)', () => {
+    const shell = new Command('mnemosine');
+    const leafCmd = shell.command('issue');
+    declareRisk(leafCmd, { risk: 'irreversible', llave: { sinLlave: { key: 'ar.invoice.retry_reissues' } } });
+    const detail = auditProgram(shell).find((v) => v.command === 'issue' && esDeudaDeLlave(v))?.detail ?? '';
+    expect(detail).toContain('a retry issues again and posts the revenue a second time');
+    expect(detail).not.toContain('[object Object]');
+  });
+
   it('pero NO niega el ensayo: --dry-run no escribe, así que la llave no estorba', () => {
     // El operador de una hoja en deuda tiene que poder al menos MIRAR qué haría
     // el comando que su guion trae escrito con la llave.

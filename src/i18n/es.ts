@@ -1460,6 +1460,23 @@ export const ES: Record<keyof typeof EN, string> = {
   'policy.imss_old_age_band_edge.option.truncated_to_hundredths':
     'SBC ÷ salario mínimo y SBC ÷ UMA se cortan a dos decimales y luego se ubican en la tabla',
 
+  'policy.imss_old_age_minimum_wage_area.question':
+    '¿Con qué salario mínimo se mide el tramo «1.00 SM» de la cuota patronal de cesantía en edad avanzada y vejez: el del área de tu registro patronal, o el de la zona general para todo trabajador?',
+  'policy.imss_old_age_minimum_wage_area.impact':
+    'Decide qué SBC paga la tasa más baja de la cuota patronal de cesantía en edad avanzada y vejez (LSS art. 168 fr. II a). En marzo de 2026, para una entidad registrada en la frontera norte, un SBC de 400.00 paga 3.150 % con "employer_registration_area" (189.00 por quincena, bajo su mínimo de 440.87) y 6.361 % con "general_zone" (381.66, medido con 315.04).',
+  'policy.imss_old_age_minimum_wage_area.rationale':
+    'Un salario mínimo general rige para los trabajadores de su propia área (LFT art. 92), y el IMSS determina las cuotas de cada registro patronal (LSS arts. 28 y 39), así que el tramo se mide con el mínimo del área del registro. Una entidad que no ha declarado su zona se mide con el mínimo general, y la nota del cálculo lo dice.',
+  'policy.imss_old_age_minimum_wage_area.why':
+    'La tabla nombra su primer tramo en salarios mínimos, y México tiene dos mínimos generales: el de la zona general y el de la Zona Libre de la Frontera Norte. Si el programa con el que determinas tus cuotas usa el mínimo de la zona general para todo registro, elige esa opción para que ambos den la misma cifra.',
+  'policy.imss_old_age_minimum_wage_area.what':
+    'Por cada día cotizado tomo el salario mínimo general del área que esta política nombra, vigente ese día, y ubico el SBC en el tramo de la tabla con fechas. La nota del cálculo nombra el mínimo, su área y si la entidad la declaró.',
+  'policy.imss_old_age_minimum_wage_area.if_skipped':
+    'Uso el mínimo del área del registro patronal, que es la zona declarada de la entidad, o el mínimo general mientras no haya una declarada.',
+  'policy.imss_old_age_minimum_wage_area.option.employer_registration_area':
+    'El mínimo general del área del registro patronal (la zona declarada de la entidad)',
+  'policy.imss_old_age_minimum_wage_area.option.general_zone':
+    'El mínimo de la zona general para todo trabajador, sea cual sea el área del registro',
+
   'policy.filing_rounding_to_pesos.question':
     'En el papel de trabajo fiscal del mes, ¿qué cifras ajustas a pesos: cada renglón que capturas o sólo el importe a pagar?',
   'policy.filing_rounding_to_pesos.impact':
@@ -2367,6 +2384,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'payment.trace.already_captured':
     'El pago {number} ya tiene {stored} en {flag}: sólo se completa un campo vacío, y corregir un valor capturado no es este comando. No se escribió nada.',
   'payment.trace.race': '{number} cambió mientras se completaba su rastro; no se escribió nada.',
+  // MNE-001-570 (#612): el rastro de un cobro registrado.
+  'receipt.trace.nothing_given':
+    'Di qué completar: --check-number, --payer-bank, --payer-account, --payer-foreign-bank o --bank. No se escribió nada.',
   // MNE-001-569 (#612): la cuenta bancaria que se liga después tiene que ser la que movió el asiento.
   'payment.trace.bank_no_entry':
     'El pago {number} no tiene asiento posteado: no hay renglón del mayor contra el cual cotejar una cuenta bancaria. No se escribió nada.',
@@ -2939,6 +2959,23 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
+
+  'ar.receipt.invoice_missing':
+    'Indica la factura o las facturas: --invoice "INV-2026-00042:2500" (repetible), o --invoice <ref> --amount <n>.',
+  'ar.receipt.invoice_without_amount':
+    'La factura «{spec}» no trae importe. Con varias facturas cada una lo lleva pegado («folio:importe»); con una sola puede ir en --amount.',
+  'ar.receipt.idempotency_hit':
+    '↩ Reintento idempotente: la llave «{key}» ya consumó este cobro ({number}). Nada se escribió otra vez; esto es el resultado grabado.',
+  'ar.receipt.no_rep': 'sin REP — obligación fiscal propia con plazo del SAT',
+  'ar.receipt.retry_reallocates':
+    'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento',
+  'ar.receipt.retry_unapplies': 'un reintento vuelve a desaplicar y postea otro espejo',
+  'ar.receipt.retry_reverses': 'un reintento vuelve a postear los espejos de la reversa',
+  'ar.invoice.retry_reissues': 'un reintento vuelve a emitir y postea el ingreso otra vez',
+  'ar.invoice.retry_void_mirror': 'un reintento vuelve a postear el espejo de la anulación',
+  'ar.invoice.delete_by_state':
+    'el borrado sólo es irrepetible por estado del borrador, no por llave',
+  'ar.credit_note.retry_reissues': 'un reintento vuelve a emitir la nota y postea otro asiento',
   // ==== end of I8.3 ====
 
   // ==== I8.4 · CLI leaves by key, family payroll (issue #266) ====
@@ -3156,6 +3193,17 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.payment.trace.record.option.to_foreign_bank': 'nombre del banco destino cuando es extranjero',
   'help.payment.trace.record.option.bank': 'cuenta bancaria (nombre o id) de la que salió el pago; sólo una que postea a la cuenta del mayor que movió su asiento',
   'help.payment.trace.record.option.json': 'salida JSON',
+  // MNE-001-570 (#612): el rastro de un cobro registrado, completado después.
+  'help.receipt.trace.description': 'El rastro de un cobro registrado: el banco y la cuenta del cliente, su cheque y nuestra cuenta bancaria',
+  'help.receipt.trace.record.description':
+    'Completa los campos vacíos del rastro de un cobro registrado con su evidencia: sólo campos vacíos, auditado, no postea nada',
+  'help.receipt.trace.record.argument.receipt': 'número o id del cobro',
+  'help.receipt.trace.record.option.check_number': 'número de cheque; sólo para un cobro con cheque del cliente',
+  'help.receipt.trace.record.option.payer_bank': 'clave c_Banco (3 dígitos) del banco del que pagó el cliente, o que emitió su cheque',
+  'help.receipt.trace.record.option.payer_account': 'cuenta de la que pagó el cliente, o contra la que se giró su cheque',
+  'help.receipt.trace.record.option.payer_foreign_bank': 'nombre del banco del cliente cuando es extranjero',
+  'help.receipt.trace.record.option.bank': 'cuenta bancaria (nombre o id) a la que entró el dinero; sólo una que postea a la cuenta del mayor que movió su asiento',
+  'help.receipt.trace.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',
