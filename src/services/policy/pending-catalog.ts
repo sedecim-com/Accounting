@@ -1620,6 +1620,30 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 42,
   },
   {
+    // MNE-001-562 · #725: read by `correctVatOvercredit`
+    // (accounting/vat-overcredit.ts), once per entity, before anything posts.
+    key: 'vat_overcredit_correction_period',
+    textKey: 'vat_overcredit_correction_period',
+    category: 'contable',
+    question: 'Payments that released a CFDI\'s IEPS from 1135 to 1130 as VAT: in which period does the correction go?',
+    impact:
+      'Until MNE-001-488 a vendor CFDI with IEPS kept VAT plus IEPS in its bill\'s header, and each payment credited its share of that sum as VAT. `npm run correct:vat-overcredit` lists each bill, payment and month, and with `--apply` posts DR 1135 / CR 1130 for the excess. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill is dated today, in the open period. With "payment_month" one entry per bill and month is dated in the month of each payment; a closed month is reopened only when the run says `--reopen`, and a locked month never is. Either way the complementary return of each month (CFF art. 32) is a person\'s to file, with the figures the census gives.',
+    options: [
+      { value: 'ask', label: 'Post nothing until someone chooses' },
+      { value: 'current_period', label: 'Post one correction per bill, dated today in the open period' },
+      { value: 'payment_month', label: 'Post one correction per bill and month, in each payment\'s month' },
+    ],
+    defaultValue: 'ask',
+    defaultRationale:
+      'The VAT is creditable in the month it is paid (LIVA art. 5 fr. III), so the excess is an error of those months: NIF B-1 corrects it retrospectively and CFF art. 32 by a complementary return, while firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+    whyAsking:
+      'Payments of vendor CFDIs with IEPS credited part of the IEPS as VAT before the bill\'s header held VAT alone. The correction can be dated in each payment\'s month, reopening it if it is closed, or in the period open today.',
+    whatIDo:
+      'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill today; with "payment_month" one per bill and month, in that month.',
+    ifSkipped: 'I post no correction until you choose.',
+    priority: 43,
+  },
+  {
     key: 'informes_asientos_de_cierre',
     textKey: 'closing_entries_in_reports',
     category: 'contable',

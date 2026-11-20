@@ -1099,6 +1099,25 @@ export const EN = {
   'policy.received_line_without_account.option.role_generic_account':
     'Post the line to the generic account of its expense role',
 
+  'policy.vat_overcredit_correction_period.question':
+    'Payments that released a CFDI\'s IEPS from 1135 to 1130 as VAT: in which period does the correction go?',
+  'policy.vat_overcredit_correction_period.impact':
+    'Until MNE-001-488 a vendor CFDI with IEPS kept VAT plus IEPS in its bill\'s header, and each payment credited its share of that sum as VAT. `npm run correct:vat-overcredit` lists each bill, payment and month, and with `--apply` posts DR 1135 / CR 1130 for the excess. This key decides the date of that entry. With "ask" nothing is posted and each bill is named with both options. With "current_period" one entry per bill is dated today, in the open period. With "payment_month" one entry per bill and month is dated in the month of each payment; a closed month is reopened only when the run says `--reopen`, and a locked month never is. Either way the complementary return of each month (CFF art. 32) is a person\'s to file, with the figures the census gives.',
+  'policy.vat_overcredit_correction_period.rationale':
+    'The VAT is creditable in the month it is paid (LIVA art. 5 fr. III), so the excess is an error of those months: NIF B-1 corrects it retrospectively and CFF art. 32 by a complementary return, while firms that do not reopen their books post it in the current period. The norm leaves room, so the default is the conservative option of ADR-0006, decision 1: nothing is posted and no closed month is reopened until a person chooses.',
+  'policy.vat_overcredit_correction_period.why':
+    'Payments of vendor CFDIs with IEPS credited part of the IEPS as VAT before the bill\'s header held VAT alone. The correction can be dated in each payment\'s month, reopening it if it is closed, or in the period open today.',
+  'policy.vat_overcredit_correction_period.what':
+    'By default I post nothing and name each bill with the two options. With "current_period" I post one correction per bill today; with "payment_month" one per bill and month, in that month.',
+  'policy.vat_overcredit_correction_period.if_skipped':
+    'I post no correction until you choose.',
+  'policy.vat_overcredit_correction_period.option.ask':
+    'Post nothing until someone chooses',
+  'policy.vat_overcredit_correction_period.option.current_period':
+    'Post one correction per bill, dated today in the open period',
+  'policy.vat_overcredit_correction_period.option.payment_month':
+    'Post one correction per bill and month, in each payment\'s month',
+
   'policy.closing_entries_in_reports.question':
     'When a report covers the date the year was closed, do its closing entries count as activity?',
   'policy.closing_entries_in_reports.impact':
