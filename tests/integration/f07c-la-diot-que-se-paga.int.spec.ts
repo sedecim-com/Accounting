@@ -506,6 +506,35 @@ describe('diot_creditable_iva_proportion against the ledger', () => {
     expect(allTaxed.hallazgos.map((h) => h.codigo)).not.toContain('DIOT-EXEMPT-REVENUE-WITHOUT-PROPORTION');
     expect(allTaxed.hallazgos.map((h) => h.codigo)).toContain('DIOT-PROPORTION-BY-DEFAULT');
   }, 120_000);
+
+  it('in December the year-end close does not cancel the exempt revenue it looks for (MNE-001-437)', async () => {
+    // 500.00 exempt on 03-15, swept by the close on 12-31: January to December
+    // read 500 − 0 = 500 before the close, and 500 − 500 = 0 after it if the
+    // closing entry counts. A tax figure leaves it out, as the provisional ISR
+    // does (MNE-001-059), so December blocks like the other eleven months.
+    const sister = await crearEntidadHermana(f, 'Hermana con exentos en diciembre');
+    await query(`UPDATE accounts SET codigo_agrupador_sat = '401.07' WHERE id = $1`, [sister.cuentas['4100']]);
+    const post = (date: string, type: JournalEntryType, debit: string, credit: string) =>
+      createJournalEntry(
+        sister.entityId, date, type, 'Synthetic exempt revenue',
+        [
+          { account_id: debit, debit_amount: '500.0000', credit_amount: null, description: 'debit' },
+          { account_id: credit, debit_amount: null, credit_amount: '500.0000', description: 'credit' },
+        ],
+        sister.userId,
+        { autoPost: true }
+      );
+    await post('2026-03-15', JournalEntryType.STANDARD, sister.cuentas['1110'], sister.cuentas['4100']);
+    const december = () => construirDiot({ tenantId: sister.tenantId, entityId: sister.entityId, anio: 2026, mes: 12 });
+    const blocking = (d: Awaited<ReturnType<typeof december>>) =>
+      d.hallazgos.find((h) => h.codigo === 'DIOT-EXEMPT-REVENUE-WITHOUT-PROPORTION');
+
+    expect(blocking(await december())?.mensaje).toContain('500.0000');
+    await post('2026-12-31', JournalEntryType.CLOSING, sister.cuentas['4100'], sister.cuentas['3300']);
+    const afterClose = blocking(await december());
+    expect(afterClose?.severidad).toBe('bloqueante');
+    expect(afterClose?.mensaje).toContain('500.0000');
+  }, 120_000);
 });
 
 describe('la frontera de entidad', () => {

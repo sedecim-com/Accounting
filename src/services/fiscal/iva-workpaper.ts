@@ -3,7 +3,7 @@ import type pg from 'pg';
 import { withTransaction } from '../../database/connection.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { getPolicy, type PolicyContext } from '../policy/policy-service.js';
-import { queryTrialBalanceRows } from '../reporting/report-service.js';
+import { queryEntryMovementsOnAccount, queryTrialBalanceRows } from '../reporting/report-service.js';
 import { CUSTOMER_CHECK_CASHING_SOURCE, ORIGEN_COBRO_DE_CHEQUE } from '../banking/treasury-posting.js';
 import {
   entityUsesCashBasisIva, ivaReclassificationsFor, reclassRoles, resolveInvoiceMetodoPago,
@@ -406,27 +406,50 @@ const INVOICE_COLUMNS = `i.id, i.invoice_number, i.tax_amount::text, i.total_amo
   i.exchange_rate::text, i.terms, i.memo, i.cfdi_uuid, i.journal_entry_id::text AS journal_entry_id`;
 
 /**
- * The IVA each sale's own entry debited to iva_retenido_a_favor: what the
- * customer withholds on that document, in functional currency. The role's
- * accounts are read as a set, so an account mapped twice counts once.
+ * What each of `entryIds` left on the accounts of one role, debit positive,
+ * through report-service on the caller's client (MNE-001-437, #101). The
+ * role's accounts are read as a set, so an account mapped twice counts once;
+ * an entry with no line on them has no key.
  */
-async function withheldPerSale(
+async function netOnRole(
   client: pg.PoolClient,
   entityId: string,
-  ids: readonly string[]
-): Promise<Map<string, string>> {
-  if (ids.length === 0) return new Map();
-  const { rows } = await client.query<{ id: string; withheld: string }>(
-    `SELECT i.id, SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS withheld
-       FROM invoices i
-       JOIN journal_entry_lines jel ON jel.journal_entry_id = i.journal_entry_id
-      WHERE i.entity_id = $1 AND i.id = ANY($2::uuid[])
-        AND jel.account_id IN (SELECT account_id FROM account_roles
-                                WHERE entity_id = $1 AND role = 'iva_retenido_a_favor')
-      GROUP BY i.id`,
-    [entityId, [...ids]]
+  role: string,
+  entryIds: readonly string[]
+): Promise<Map<string, Decimal>> {
+  const out = new Map<string, Decimal>();
+  if (entryIds.length === 0) return out;
+  const { rows: accounts } = await client.query<{ account_id: string }>(
+    `SELECT DISTINCT account_id::text AS account_id FROM account_roles WHERE entity_id = $1 AND role = $2`,
+    [entityId, role]
   );
-  return new Map(rows.map((r) => [r.id, r.withheld]));
+  for (const { account_id } of accounts) {
+    for (const m of await queryEntryMovementsOnAccount(entityId, account_id, { entryIds: [...entryIds], client })) {
+      out.set(m.journal_entry_id, (out.get(m.journal_entry_id) ?? new Decimal(0)).plus(m.amount));
+    }
+  }
+  return out;
+}
+
+/**
+ * The IVA each sale's own entry debited to iva_retenido_a_favor: what the
+ * customer withholds on that document, in functional currency. A sale whose
+ * entry has no line on the role has no key; two sales on one entry each get
+ * its net.
+ */
+export async function withheldPerSale(
+  client: pg.PoolClient,
+  entityId: string,
+  sales: ReadonlyArray<Pick<InvoiceRow, 'id' | 'journal_entry_id'>>
+): Promise<Map<string, string>> {
+  const entryIds = [...new Set(sales.flatMap((s) => (s.journal_entry_id ? [s.journal_entry_id] : [])))];
+  const byEntry = await netOnRole(client, entityId, 'iva_retenido_a_favor', entryIds);
+  const out = new Map<string, string>();
+  for (const s of sales) {
+    const net = s.journal_entry_id ? byEntry.get(s.journal_entry_id) : undefined;
+    if (net !== undefined) out.set(s.id, q4(net));
+  }
+  return out;
 }
 
 /** An allocation that took cash from an advance (migration 333). */
@@ -890,7 +913,7 @@ async function sharesIvaByReceipt(client: pg.PoolClient, entityId: string, range
 }
 
 /** One entry of a receipt in the month, with what it moved in iva_trasladado (credit positive). */
-interface ReceiptLedgerRow {
+export interface ReceiptLedgerRow {
   payment_id: string;
   payment_number: string;
   status: string;
@@ -909,12 +932,12 @@ const RECEIPT_LEDGER_SOURCES = [...RECEIPT_SOURCES];
 
 /**
  * Every customer receipt's entries posted in the month, its reversal's mirrors
- * included, each with what it moved in 2120. NOTE: a movement per entry, not a
- * balance per account, so report-service's trial balance cannot give it; it is
- * one more copy that criterion `single-report-query-layer` (E4.2) counts.
+ * included, each with what it moved in 2120 (credit positive). The entries are
+ * listed here; what each moved comes from report-service (MNE-001-437), and an
+ * entry with no 2120 line reads 0.
  */
-async function receiptLedgerOfMonth(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<ReceiptLedgerRow[]> {
-  const { rows } = await client.query<ReceiptLedgerRow>(
+export async function receiptLedgerOfMonth(client: pg.PoolClient, entityId: string, range: RangoDelMes): Promise<ReceiptLedgerRow[]> {
+  const { rows } = await client.query<Omit<ReceiptLedgerRow, 'iva'> & { entry_id: string }>(
     `WITH own AS (
        SELECT je.id, je.source_id AS payment_id, je.reversed_by_entry_id
          FROM journal_entries je
@@ -926,20 +949,18 @@ async function receiptLedgerOfMonth(client: pg.PoolClient, entityId: string, ran
        SELECT payment_id, reversed_by_entry_id, true FROM own WHERE reversed_by_entry_id IS NOT NULL
      )
      SELECT t.payment_id::text, cp.payment_number, cp.status, cp.payment_method, ${REVERSAL_CAUSE} AS cause, je.entry_number,
-            je.entry_date::text AS entry_date, je.source_type, t.mirror,
-            COALESCE(SUM(COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0))
-                     FILTER (WHERE jel.account_id IN (SELECT account_id FROM account_roles
-                                                    WHERE entity_id = $1 AND role = 'iva_trasladado')), 0)::text AS iva
+            je.entry_date::text AS entry_date, je.source_type, t.mirror, je.id::text AS entry_id
        FROM touched t
        JOIN journal_entries je ON je.id = t.id AND je.entity_id = $1 AND je.status = 'posted'
        JOIN customer_payments cp ON cp.id = t.payment_id AND cp.entity_id = $1
-       JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
       WHERE je.entry_date >= $2::date AND je.entry_date <= $3::date
+        AND EXISTS (SELECT 1 FROM journal_entry_lines jel WHERE jel.journal_entry_id = je.id)
       GROUP BY t.payment_id, cp.payment_number, cp.status, cp.payment_method, cp.reversal_cause, je.id, je.entry_number, je.entry_date, je.source_type, t.mirror
       ORDER BY cp.payment_number, je.entry_date, je.entry_number`,
     [entityId, range.desde, range.hasta, RECEIPT_LEDGER_SOURCES]
   );
-  return rows;
+  const moved = await netOnRole(client, entityId, 'iva_trasladado', [...new Set(rows.map((r) => r.entry_id))]);
+  return rows.map(({ entry_id, ...r }) => ({ ...r, iva: q4(new Decimal(0).minus(moved.get(entry_id) ?? 0)) }));
 }
 
 const ENTRY_KIND: Record<string, string> = {
@@ -1560,9 +1581,7 @@ async function chargedOfMonth(
   }
 
   const sources = await saleSources(client, entityId, picked.map((p) => p.row.id));
-  const withheldOf = await withheldPerSale(client, entityId, [
-    ...new Set([...picked.map((p) => p.row.id), ...issuedInMonth.rows.map((r) => r.id)]),
-  ]);
+  const withheldOf = await withheldPerSale(client, entityId, [...picked.map((p) => p.row), ...issuedInMonth.rows]);
   let breakdown = desgloseCero();
   let notSubject = new Decimal(0);
   let withheld = new Decimal(0);

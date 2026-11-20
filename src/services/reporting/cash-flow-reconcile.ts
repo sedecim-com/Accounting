@@ -3,6 +3,11 @@ import { query, currentTenant } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { LEDGER_SCALE } from './report-service.js';
+// The two modules import each other: the statement takes the cash roles and
+// subtypes from here, and this file takes the statement's resolver. Neither
+// reads the other at load time, only inside functions, so either may load
+// first (tests/services/reporting/cash-flow-reconcile.spec.ts loads this one).
+import { resolveCashAccounts } from './cash-flow-service.js';
 
 // ============================================================
 // G1b · EL AMARRE DEL FLUJO DE EFECTIVO CONTRA EL EFECTIVO REAL
@@ -259,134 +264,26 @@ async function politicaDe(
 }
 
 /**
- * LAS CUENTAS QUE SON EFECTIVO, resueltas por el MAPA DE ROLES.
+ * LAS CUENTAS QUE SON EFECTIVO, as the tie-out reads them: `{ account_id,
+ * code, name, via }`, from the statement's one resolver (`resolveCashAccounts`
+ * in cash-flow-service.ts, MNE-001-438). The statement and its tie-out used to
+ * resolve the set with two queries; with one, `generate` and `reconcile`
+ * cannot call different accounts «cash» for the same period. The resolver's
+ * docblock says why the role map and not the names, why any qualifier, why
+ * the bank accounts' own GL accounts and why the descendants.
  *
- * Aquí muere el defecto 3. La ruta REST clasificaba con `name ILIKE
- * '%receivable%'` contra un catálogo que este mismo producto siembra en
- * español: no casaba nada, y los cambios en capital de trabajo salían en
- * cero sin que nadie lo notara. El mapa de roles es la capa semántica que
- * esta casa ya usa en todas partes y que sobrevive a renombres,
- * traducciones y catálogos importados — que es exactamente lo que los
- * nombres no hacen.
- *
- * DOS DECISIONES QUE NO SON OBVIAS:
- *
- * 1. Se toman los roles CON CUALQUIER cualificador, al revés que el posteo
- *    (`ar-ap-posting`, `treasury-posting`), que exige `qualifier IS NULL`.
- *    Allí el cualificador desglosa por tercero y se quiere el genérico;
- *    aquí se pregunta «¿cuánto efectivo hay?», y un despacho que mapeó una
- *    variante por banco tiene su dinero repartido entre ellas.
- *
- * 2. Se incluyen los DESCENDIENTES de la cuenta del rol. `efectivo` apunta a
- *    1110 «Caja y Bancos», que es la cuenta de control; el dinero se
- *    postea en 1111, 1112 y 1115, que cuelgan de ella (y a las que apunta
- *    `bank_accounts.gl_account_id`). Tomar sólo la cuenta del rol daría
- *    variación cero en una entidad con bancos reales, y el residuo saldría
- *    igual al estado completo: un instrumento que siempre grita no dice
- *    nada.
+ * An empty set comes back empty: `movimientoRealDeEfectivo` refuses it with
+ * the way out for its criterion. «lista» is refused by the resolver.
  */
 export async function cuentasDeEfectivo(
   entityId: string,
   criterio: CriterioDeEfectivo
 ): Promise<CuentaDeEfectivo[]> {
-  if (criterio === 'lista') {
-    // La lista de códigos que declara el despacho todavía no tiene dónde
-    // guardarse: eso es `cashflow category set`, que necesita columna nueva
-    // en `accounts` y por tanto migración. Se rehúsa nombrando la salida en
-    // vez de caer en silencio al criterio por omisión, que es como alguien
-    // acaba creyendo que su lista se está aplicando.
-    throw new ValidationError(
-      'La política `flujo_efectivo_cuentas_de_efectivo` está en «lista», y todavía no hay ' +
-        'dónde declarar esa lista (necesita `cashflow category set`, que no existe). ' +
-        'Cámbiala a «rol» o «subtipo» con `mnemosine pending define ' +
-        'flujo_efectivo_cuentas_de_efectivo`.'
-    );
-  }
-
-  if (criterio === 'subtipo') {
-    const r = await query<{ account_id: string; code: string; name: string }>(
-      // SIN filtro por `is_active`, igual que la rama del rol. Una cuenta de
-      // efectivo archivada A MEDIO PERIODO movió dinero de verdad antes de
-      // archivarse, y ese movimiento está en el mayor: dejarla fuera no
-      // quita el movimiento, sólo quita el lado del amarre que lo explica y
-      // fabrica un residuo que nadie podrá encontrar. El archivado es un
-      // hecho del catálogo de HOY; el estado de flujos habla de lo que pasó.
-      `SELECT a.id AS account_id, a.code, a.name
-         FROM accounts a
-        WHERE a.entity_id = $1
-          AND a.account_subtype = ANY($2::text[])
-        ORDER BY a.code`,
-      [entityId, SUBTIPOS_DE_EFECTIVO]
-    );
-    return r.rows.map((f) => ({ ...f, via: 'subtipo' as const }));
-  }
-
-  // EL EFECTIVO ENTRA AL MAYOR POR DOS PUERTAS, y hay que abrir las dos.
-  //
-  // Una son los roles de ROLES_DE_EFECTIVO (`efectivo` y `banco`). La otra es `bank_accounts.gl_account_id`, que es
-  // donde `ar-ap-posting` deposita cuando la cuenta bancaria tiene su cuenta
-  // de mayor atada. Y `gl_account_id` lo fija el usuario con `bank account
-  // set`: NADA obliga a que cuelgue del árbol del rol. Con una sola puerta,
-  // una entidad que apuntó su banco a una cuenta fuera de ese árbol tendría
-  // ese dinero invisible para el amarre, y el residuo saldría inventado.
-  //
-  // Importa además que coincida con el conjunto que usa `cash-flow-service`
-  // para su auto-comprobación: si las dos mitades no llaman «efectivo» a lo
-  // mismo, `generate` y `reconcile` publican residuos distintos del mismo
-  // periodo — que es el defecto de los dos estados, otra vez.
-  //
-  // La frontera de entidad vive DENTRO del SQL, en las cuatro ramas del
-  // recursivo: los dos orígenes, la cuenta raíz y cada descendiente.
-  const r = await query<{ account_id: string; code: string; name: string; via: string }>(
-    `WITH RECURSIVE raiz AS (
-       SELECT a.id, a.code, a.name, a.parent_id, 'rol'::text AS via
-         FROM account_roles ar
-         JOIN accounts a ON a.id = ar.account_id AND a.entity_id = $1
-        WHERE ar.entity_id = $1 AND ar.role = ANY($2::text[])
-       UNION
-       SELECT a.id, a.code, a.name, a.parent_id, 'cuenta_bancaria'::text AS via
-         FROM bank_accounts b
-         JOIN accounts a ON a.id = b.gl_account_id AND a.entity_id = $1
-        WHERE b.entity_id = $1
-     ),
-     arbol AS (
-       SELECT id, code, name, via FROM raiz
-       UNION
-       SELECT h.id, h.code, h.name, 'descendiente'::text
-         FROM accounts h
-         JOIN arbol p ON h.parent_id = p.id
-        WHERE h.entity_id = $1
-     )
-     SELECT account_id, code, name, via FROM (
-       SELECT DISTINCT ON (id) id AS account_id, code, name, via
-         FROM arbol
-        -- La prioridad se ESCRIBE, no se hereda del alfabeto. Una cuenta
-        -- puede llegar por varias vías a la vez (un rol apuntado a una
-        -- subcuenta que además cuelga de otra cuenta con rol, o una cuenta
-        -- bancaria atada dentro del árbol del rol) y se informa la más
-        -- directa. Confiarlo al orden alfabético daba justo lo contrario:
-        -- 'descendiente' < 'rol', así que el desempate se quedaba con
-        -- 'descendiente' pese a que el comentario afirmaba lo opuesto.
-        ORDER BY id, CASE via
-                       WHEN 'rol' THEN 1
-                       WHEN 'cuenta_bancaria' THEN 2
-                       ELSE 3
-                     END
-     ) d
-     -- El orden final es por CÓDIGO y no por id: el id es un uuid, y una
-     -- lista de cuentas de efectivo impresa en orden aleatorio no se puede
-     -- comparar de una corrida a la siguiente.
-     ORDER BY code`,
-    [entityId, ROLES_DE_EFECTIVO]
-  );
-  return r.rows.map((f) => ({
-    account_id: f.account_id,
-    code: f.code,
-    name: f.name,
-    via:
-      f.via === 'rol' || f.via === 'cuenta_bancaria' || f.via === 'descendiente'
-        ? f.via
-        : 'descendiente',
+  return (await resolveCashAccounts(entityId, criterio)).map((c) => ({
+    account_id: c.id,
+    code: c.code,
+    name: c.name,
+    via: c.via,
   }));
 }
 
