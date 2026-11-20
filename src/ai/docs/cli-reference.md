@@ -1835,6 +1835,9 @@ Options:
   --to-bank <code>          destination bank key from the SAT c_Banco catalogue
                             (3 digits)
   --to-foreign-bank <name>  destination bank name when it is a foreign one
+  --bank <account>          bank account (name or id) the payment went out of;
+                            only one that posts to the ledger account its entry
+                            moved
   --reason <text>           justification recorded in the audit trail (required)
   --json                    JSON output
   -y, --yes                 skip the confirmation prompt
@@ -1850,6 +1853,8 @@ Examples:
   # A cheque recorded without its number: look first, then complete it from the stub.
   mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --dry-run
   mnemosine payment trace record VPMT-2026-00002 --check-number 000123 --reason "Cheque stub on file"
+  # Paid without --bank: link the account it went out of; it must post to the ledger account the entry moved.
+  mnemosine payment trace record VPMT-2026-00003 --bank "Operativa BBVA" --reason "November bank statement"
 ```
 
 ## `mnemosine account` (alias: cuenta)

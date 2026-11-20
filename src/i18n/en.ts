@@ -2492,7 +2492,7 @@ export const EN = {
   'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
   // MNE-001-568 (#612): the trace of a registered payment, completed from its evidence.
   'payment.trace.nothing_given':
-    'Say what to complete: --check-number, --to-account, --to-bank or --to-foreign-bank. Nothing was written.',
+    'Say what to complete: --check-number, --to-account, --to-bank, --to-foreign-bank or --bank. Nothing was written.',
   'payment.trace.reason_required':
     'Completing the trace of a payment requires --reason "<why>", naming the evidence it comes from: it is written to the audit trail.',
   'payment.trace.too_long':
@@ -2502,6 +2502,11 @@ export const EN = {
   'payment.trace.already_captured':
     'The payment {number} already has {stored} in {flag}: only an empty field is completed, and correcting a captured value is not this command. Nothing was written.',
   'payment.trace.race': '{number} changed while its trace was being completed; nothing was written.',
+  // MNE-001-569 (#612): a bank account linked afterwards must be the one the entry moved.
+  'payment.trace.bank_no_entry':
+    'The payment {number} has no posted entry: there is no ledger line to check a bank account against. Nothing was written.',
+  'payment.trace.bank_not_in_entry':
+    'The entry {entry} of payment {number} moved {moved}; "{account}" posts to {candidate}. Linking it would make the voucher declare a bank the ledger did not move. Nothing was written.',
   'payment.trace.would_complete': 'Would complete {number}: {fields}',
   'payment.trace.confirm':
     'Complete {fields} on {number}? Only empty fields are filled, and nothing posts to the ledger.',
@@ -3335,6 +3340,7 @@ export const EN = {
   'help.payment.trace.record.option.to_account': 'account that received the money (CtaDest of the SAT voucher)',
   'help.payment.trace.record.option.to_bank': 'destination bank key from the SAT c_Banco catalogue (3 digits)',
   'help.payment.trace.record.option.to_foreign_bank': 'destination bank name when it is a foreign one',
+  'help.payment.trace.record.option.bank': 'bank account (name or id) the payment went out of; only one that posts to the ledger account its entry moved',
   'help.payment.trace.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
