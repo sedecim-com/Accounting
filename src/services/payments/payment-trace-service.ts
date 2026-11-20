@@ -2,6 +2,7 @@ import type pg from 'pg';
 import { withTransaction } from '../../database/connection.js';
 import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
+import { assertBankCurrency, bankAccountOf } from '../accounting/ar-ap-posting.js';
 import { assertRastroDePago } from './payment-service.js';
 
 // ============================================================
@@ -26,6 +27,16 @@ import { assertRastroDePago } from './payment-service.js';
 // and state, and checks its row count (invariant 3). One audit row says who,
 // why, from which empty value, in which period state, for which entry, and
 // how many voucher files of that month were already archived.
+//
+// LINKING A BANK ACCOUNT (MNE-001-569). The voucher reads our bank (its
+// c_Banco code and account number) from the bank account the payment names.
+// One linked afterwards is accepted only where the ledger already agrees:
+// the payment has a posted entry, the ledger account that bank account posts
+// to (the rule `bankAccountOf` applies at posting) is on a line of that very
+// entry (not today's `banco` role, which may have changed since), and its
+// currency is the payment's. Anything else would declare a bank the ledger
+// did not move. An inactive account is accepted: this is history, and
+// `assertPayableBankAccount` guards new money movement only.
 // ============================================================
 
 /** The states whose entry stays posted: a reversal leaves the original entry in its month. */
@@ -40,12 +51,15 @@ export interface VendorTraceFields {
   toAccount?: string | null;
   toBank?: string | null;
   toForeignBank?: string | null;
+  /** The bank account the payment went through, by id: `--bank`, resolved by the caller. */
+  bankAccountId?: string | null;
 }
 
-type Column = 'check_number' | 'cuenta_destino' | 'banco_destino_sat' | 'banco_destino_extranjero';
+type TextColumn = 'check_number' | 'cuenta_destino' | 'banco_destino_sat' | 'banco_destino_extranjero';
+type Column = TextColumn | 'bank_account_id';
 
 /** Each field: its column, the flag that gives it, and what the voucher node admits. */
-const FIELDS: ReadonlyArray<{ key: keyof VendorTraceFields; column: Column; flag: string; max: number }> = [
+const FIELDS: ReadonlyArray<{ key: Exclude<keyof VendorTraceFields, 'bankAccountId'>; column: TextColumn; flag: string; max: number }> = [
   // Cheque/@Num admits 20 characters; a longer one fails the whole file against the XSD.
   { key: 'checkNumber', column: 'check_number', flag: '--check-number', max: 20 },
   { key: 'toAccount', column: 'cuenta_destino', flag: '--to-account', max: 50 },
@@ -56,7 +70,7 @@ const FIELDS: ReadonlyArray<{ key: keyof VendorTraceFields; column: Column; flag
 export interface TraceField {
   column: Column;
   flag: string;
-  /** The value as shown and audited: an account by its last four digits. */
+  /** The value as shown and audited: an account by its last four digits, a bank account by its name. */
   shown: string;
 }
 
@@ -77,7 +91,7 @@ export interface TraceCompletion {
 }
 
 /** The ways a trace field is shown outside the payment row: never an account in clear. */
-function shown(column: Column, value: string): string {
+function shown(column: TextColumn, value: string): string {
   return column === 'cuenta_destino' ? `…${value.slice(-4)}` : value;
 }
 
@@ -90,7 +104,9 @@ function given(v: string | null | undefined): string | null {
  * Fills the empty trace fields of a vendor payment that is completed or
  * reversed. A field given with the value it already holds is reported
  * unchanged; one given with another value is refused, naming the stored one.
- * `side` is the vendor's today; a receipt's trace is part 3 of #612.
+ * `bankAccountId` links the bank account the payment went through, under
+ * `bankLink`'s checks. `side` is the vendor's today; a receipt's trace is
+ * part 3 of #612.
  */
 export async function completePaymentTrace(
   entityId: string,
@@ -102,7 +118,8 @@ export async function completePaymentTrace(
   opts: { dryRun?: boolean; client?: pg.PoolClient } = {}
 ): Promise<TraceCompletion> {
   const wanted = FIELDS.map((f) => ({ ...f, value: given(fields[f.key]) })).filter((f) => f.value !== null);
-  if (wanted.length === 0) throw new ValidationError({ key: 'payment.trace.nothing_given' });
+  const bankAccountId = given(fields.bankAccountId);
+  if (wanted.length === 0 && bankAccountId === null) throw new ValidationError({ key: 'payment.trace.nothing_given' });
   if (reason.trim() === '' && opts.dryRun !== true) throw new ValidationError({ key: 'payment.trace.reason_required' });
   for (const f of wanted) {
     const length = (f.value as string).length;
@@ -114,12 +131,12 @@ export async function completePaymentTrace(
   const run = async (client: pg.PoolClient): Promise<TraceCompletion> => {
     const found = await client.query<{
       payment_number: string; status: string; payment_method: string; payment_date: string;
-      journal_entry_id: string | null;
+      journal_entry_id: string | null; bank_account_id: string | null; currency_code: string;
       check_number: string | null; cuenta_destino: string | null;
       banco_destino_sat: string | null; banco_destino_extranjero: string | null;
     }>(
       `SELECT payment_number, status, payment_method, payment_date::text AS payment_date, journal_entry_id,
-              check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero
+              bank_account_id, currency_code, check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero
          FROM vendor_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
       [paymentId, entityId]
     );
@@ -148,8 +165,15 @@ export async function completePaymentTrace(
       }
     }
 
+    const linked = bankAccountId === null ? null : await bankLink(client, entityId, row, bankAccountId);
+    if (linked !== null) {
+      const field = { column: 'bank_account_id' as const, flag: '--bank', shown: linked.name };
+      if (row.bank_account_id === null) filled.push({ ...field, value: linked.id });
+      else unchanged.push(field);
+    }
+
     // The capture's rules, on what the payment will hold once completed.
-    const merged = (column: Column): string | null =>
+    const merged = (column: TextColumn): string | null =>
       given(row[column]) ?? filled.find((f) => f.column === column)?.value ?? null;
     assertRastroDePago(
       {
@@ -204,15 +228,17 @@ export async function completePaymentTrace(
               cuenta_destino = COALESCE(cuenta_destino, $5),
               banco_destino_sat = COALESCE(banco_destino_sat, $6),
               banco_destino_extranjero = COALESCE(banco_destino_extranjero, $7),
+              bank_account_id = COALESCE(bank_account_id, $8),
               updated_at = NOW()
         WHERE id = $1 AND entity_id = $2 AND status = ANY($3::text[])
           AND ($4::text IS NULL OR check_number IS NULL)
           AND ($5::text IS NULL OR cuenta_destino IS NULL)
           AND ($6::text IS NULL OR banco_destino_sat IS NULL)
           AND ($7::text IS NULL OR banco_destino_extranjero IS NULL)
+          AND ($8::uuid IS NULL OR bank_account_id IS NULL)
         RETURNING id`,
       [paymentId, entityId, COMPLETABLE, param('check_number'), param('cuenta_destino'),
-       param('banco_destino_sat'), param('banco_destino_extranjero')]
+       param('banco_destino_sat'), param('banco_destino_extranjero'), param('bank_account_id')]
     );
     if (written.rowCount !== 1) {
       throw new AccountingError('TRACE_RACE', { key: 'payment.trace.race', params: { number: row.payment_number } });
@@ -229,6 +255,8 @@ export async function completePaymentTrace(
       newValues: {
         evento: 'complete_trace',
         ...Object.fromEntries(filled.map((f) => [f.column, f.shown])),
+        // The account linked, by id and by name; its number stays on the bank account.
+        ...(linked !== null && row.bank_account_id === null ? { bank_account_id: linked.id, bank_account: linked.name } : {}),
         period_status: periodStatus,
         journal_entry: result.journalEntry,
         archived_voucher_files: result.archivedVoucherFiles,
@@ -240,4 +268,66 @@ export async function completePaymentTrace(
   };
 
   return opts.client ? run(opts.client) : withTransaction(run);
+}
+
+/**
+ * Decides whether a bank account may be linked to the payment, in the plan's
+ * order (#612, decision 8): a posted entry; the ledger account the bank
+ * account posts to, by `bankAccountOf`; that account on a line of the entry;
+ * the currency, by `assertBankCurrency`; and, last, no other account linked.
+ * Returns the account to report as filled or unchanged; refuses otherwise.
+ */
+async function bankLink(
+  client: pg.PoolClient,
+  entityId: string,
+  row: { payment_number: string; journal_entry_id: string | null; bank_account_id: string | null; currency_code: string },
+  bankAccountId: string
+): Promise<{ id: string; name: string }> {
+  const account = (await client.query<{ id: string; account_name: string }>(
+    'SELECT id, account_name FROM bank_accounts WHERE id = $1 AND entity_id = $2',
+    [bankAccountId, entityId]
+  )).rows[0];
+  if (account === undefined) throw new NotFoundError('Bank Account', bankAccountId);
+  if (row.journal_entry_id === null) {
+    throw new ValidationError({ key: 'payment.trace.bank_no_entry', params: { number: row.payment_number } });
+  }
+  const candidate = await bankAccountOf(client, entityId, account.id);
+  const lines = await client.query<{ account_id: string; code: string; money: boolean }>(
+    `SELECT DISTINCT l.account_id::text AS account_id, a.code,
+            (l.account_id IN (SELECT gl_account_id FROM bank_accounts WHERE entity_id = $2
+                              UNION SELECT account_id FROM account_roles
+                                     WHERE entity_id = $2 AND role = 'banco' AND qualifier IS NULL)) AS money
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id AND je.entity_id = $2
+       JOIN accounts a ON a.id = l.account_id AND a.entity_id = $2
+      WHERE l.journal_entry_id = $1
+      ORDER BY a.code`,
+    [row.journal_entry_id, entityId]
+  );
+  if (!lines.rows.some((l) => l.account_id === candidate.glAccountId)) {
+    const code = (await client.query<{ code: string }>(
+      'SELECT code FROM accounts WHERE id = $1 AND entity_id = $2', [candidate.glAccountId, entityId]
+    )).rows[0]?.code ?? candidate.glAccountId;
+    const entry = (await client.query<{ entry_number: string }>(
+      'SELECT entry_number FROM journal_entries WHERE id = $1 AND entity_id = $2', [row.journal_entry_id, entityId]
+    )).rows[0]?.entry_number ?? row.journal_entry_id;
+    const money = lines.rows.filter((l) => l.money).map((l) => l.code);
+    throw new ValidationError({
+      key: 'payment.trace.bank_not_in_entry',
+      params: {
+        number: row.payment_number, entry, moved: (money.length > 0 ? money : lines.rows.map((l) => l.code)).join(', '),
+        account: account.account_name, candidate: code,
+      },
+    });
+  }
+  assertBankCurrency(candidate, row.currency_code, row.payment_number);
+  if (row.bank_account_id !== null && row.bank_account_id !== account.id) {
+    const stored = (await client.query<{ account_name: string }>(
+      'SELECT account_name FROM bank_accounts WHERE id = $1 AND entity_id = $2', [row.bank_account_id, entityId]
+    )).rows[0]?.account_name ?? row.bank_account_id;
+    throw new ValidationError({
+      key: 'payment.trace.already_captured', params: { number: row.payment_number, flag: '--bank', stored },
+    });
+  }
+  return { id: account.id, name: account.account_name };
 }

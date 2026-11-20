@@ -21,6 +21,9 @@ vi.mock('../../src/database/connection.js', async (importOriginal) => ({
 vi.mock('../../src/services/payments/payment-trace-service.js', () => ({
   completePaymentTrace: vi.fn(),
 }));
+vi.mock('../../src/services/banking/bank-statement-service.js', () => ({
+  resolverCuentaBancaria: vi.fn(async () => ({ id: 'ba-1', account_name: 'Operativa BBVA' })),
+}));
 
 import { completePaymentTrace, type TraceCompletion } from '../../src/services/payments/payment-trace-service.js';
 import { registerPaymentCommands } from '../../src/cli/payment-command.js';
@@ -98,6 +101,8 @@ const FLAGS = [
   ['--to-account', 'to_account'],
   ['--to-bank', 'to_bank'],
   ['--to-foreign-bank', 'to_foreign_bank'],
+  // MNE-001-569 · the bank account the payment went through, linked afterwards.
+  ['--bank', 'bank'],
 ] as const;
 
 beforeEach(() => {
@@ -157,7 +162,7 @@ describe('payment trace record refuses before reading, and repeats what the serv
     expect(errs).toEqual([]);
     expect(service.mock.calls.map((c) => [c[1], c[2], c[3], c[6]])).toEqual([[
       'vendor', 'vp-1',
-      { checkNumber: undefined, toAccount: '002180001122334455', toBank: '002', toForeignBank: undefined },
+      { checkNumber: undefined, toAccount: '002180001122334455', toBank: '002', toForeignBank: undefined, bankAccountId: null },
       { dryRun: true },
     ]]);
     expect(out).toContain(t('payment.trace.would_complete', { number: 'VPMT-2026-00001', fields: '--to-account …4455, --to-bank 002' }, 'en'));
@@ -194,5 +199,25 @@ describe('payment trace record refuses before reading, and repeats what the serv
     expect(errs).toEqual([]);
     expect(service).toHaveBeenCalledTimes(1);
     expect(out).toContain(t('payment.trace.unchanged', { number: 'VPMT-2026-00001', fields: '--check-number 000123' }, 'en'));
+  });
+});
+
+describe('payment trace record --bank (MNE-001-569)', () => {
+  it('alone is something to complete: it resolves the account by name and hands its id to the service', async () => {
+    const linked = { column: 'bank_account_id' as const, flag: '--bank', shown: 'Operativa BBVA' };
+    service.mockResolvedValueOnce(completion({ filled: [linked] })).mockResolvedValueOnce(completion({ filled: [linked] }));
+    const { out, errs } = await trace(['--bank', 'Operativa BBVA', '--reason', 'Estado de cuenta de noviembre', '--yes']);
+    expect(errs).toEqual([]);
+    expect(service.mock.calls.map((c) => c[3])).toEqual([
+      { checkNumber: undefined, toAccount: undefined, toBank: undefined, toForeignBank: undefined, bankAccountId: 'ba-1' },
+      { checkNumber: undefined, toAccount: undefined, toBank: undefined, toForeignBank: undefined, bankAccountId: 'ba-1' },
+    ]);
+    expect(out).toContain(t('payment.trace.completed', { number: 'VPMT-2026-00001', fields: '--bank Operativa BBVA' }, 'en'));
+  });
+
+  it('the usage error for nothing to complete names --bank among the flags', async () => {
+    const { errs } = await trace(['--reason', 'x', '--yes']);
+    expect(exitCodeFor(errs[0])).toBe(2);
+    expect(errs[0].message).toContain('--bank');
   });
 });
