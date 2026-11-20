@@ -1832,6 +1832,7 @@ export const ES: Record<keyof typeof EN, string> = {
     'no entendí «{answer}»: responde y/s para sí, n para no',
 
   confirm_yes_no_suffix: '[s/N]',
+  confirm_yes_no_suffix_default_yes: '[S/n]',
 
   no_changes_ledger_untouched: 'Sin cambios: el mayor no se tocó.',
 
@@ -2921,6 +2922,13 @@ export const ES: Record<keyof typeof EN, string> = {
   // ==== end of I8.1 ====
 
   // ==== I8.2 · CLI leaves by key, root family (issue #264) ====
+
+  'root.ingest.auto_post_ignored':
+    'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: el panel del despacho no lo autoriza.',
+  'root.ingest.auto_post_turn_on':
+    'Encender es del panel (`mnemosine pending`), y exige la evidencia de sombra. Apagar sí puede ser local.',
+  'root.lang.unsupported': 'Idioma no admitido «{language}». Opciones: {options}, o es, en',
+  'root.setup.run_now': '¿Configurar ahora?',
   // ==== end of I8.2 ====
 
   // ==== I8.3 · CLI leaves by key, family ar (issue #265) ====
