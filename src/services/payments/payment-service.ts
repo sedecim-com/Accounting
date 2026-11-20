@@ -2515,15 +2515,24 @@ export async function reverseCustomerPayment(
 
     // Las facturas reabren por lo VIVO que este cobro les tenía aplicado.
     // The withholding reopens too (MNE-001-113): the mirror took it off 1145/1146.
-    const vivas = await client.query<{ invoice_id: string; total: string }>(
-      `SELECT invoice_id, SUM(amount_applied + withholding_isr_amount + withholding_iva_amount)::text AS total
-         FROM payment_allocations
-        WHERE payment_id = $1 AND unapplied_at IS NULL
-        GROUP BY invoice_id`,
-      [paymentId]
+    // MNE-001-584: row by row, of a receipt of this entity, locked; summed per invoice here.
+    const vivas = await client.query<{ id: string; invoice_id: string; total: string }>(
+      `SELECT pa.id, pa.invoice_id,
+              (pa.amount_applied + pa.withholding_isr_amount + pa.withholding_iva_amount)::text AS total
+         FROM payment_allocations pa
+        WHERE pa.payment_id = (SELECT id FROM customer_payments WHERE id = $1 AND entity_id = $2)
+          AND pa.unapplied_at IS NULL
+        ORDER BY pa.invoice_id, pa.id
+          FOR UPDATE`,
+      [paymentId, entityId]
     );
+    const byInvoice = new Map<string, Decimal>();
+    for (const r of vivas.rows) {
+      byInvoice.set(r.invoice_id, (byInvoice.get(r.invoice_id) ?? new Decimal(0)).plus(r.total));
+    }
     const documentosReabiertos: DocumentoAplicado[] = [];
-    for (const fila of vivas.rows) {
+    for (const [invoiceId, sum] of byInvoice) {
+      const fila = { invoice_id: invoiceId, total: sum.toFixed(4) };
       const inv = await client.query<{
         id: string; invoice_number: string; amount_due: string; amount_paid: string; currency_code: string;
       }>(
@@ -2555,12 +2564,18 @@ export async function reverseCustomerPayment(
         moneda: factura.currency_code,
       });
     }
-    await client.query(
+    // Invariant 3: the live rows read above, of a receipt of this entity, and
+    // every one of them; a miss refuses the whole reversal (MNE-001-584).
+    const closed = await client.query(
       `UPDATE payment_allocations
           SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2
-        WHERE payment_id = $3 AND unapplied_at IS NULL`,
-      [userId, note, paymentId]
+        WHERE id = ANY($3::uuid[]) AND unapplied_at IS NULL
+          AND payment_id = (SELECT id FROM customer_payments WHERE id = $4 AND entity_id = $5)`,
+      [userId, note, vivas.rows.map((r) => r.id), paymentId, entityId]
     );
+    if (closed.rowCount !== vivas.rows.length) {
+      throw new AccountingError('REVERSE_RACE', `${pago.payment_number} changed while it was being reversed; nothing was written.`);
+    }
     if (kept.amount.greaterThan('0.005')) {
       const correction = await postReceiptReversalVatEntry(
         client, { id: paymentId, entity_id: entityId, payment_number: pago.payment_number },
@@ -3257,11 +3272,13 @@ export async function unapplyVendorPayment(
     const ids = live.rows.map((r) => r.id);
     const reopened = amount.plus(discount);
 
+    // Invariant 3: the entity scope inside the same statement (MNE-001-584).
     const closed = await client.query(
       `UPDATE payment_applications
           SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3
-        WHERE id = ANY($4::uuid[]) AND payment_id = $5 AND unapplied_at IS NULL`,
-      [date, userId, reason, ids, paymentId]
+        WHERE id = ANY($4::uuid[]) AND unapplied_at IS NULL
+          AND payment_id = (SELECT id FROM vendor_payments WHERE id = $5 AND entity_id = $6)`,
+      [date, userId, reason, ids, paymentId, entityId]
     );
     const reopen = await client.query(
       `UPDATE bills SET
@@ -3422,11 +3439,13 @@ export async function reverseVendorPayment(
       });
     }
 
+    // Invariant 3: the entity scope inside the same statement (MNE-001-584).
     const closed = await client.query(
       `UPDATE payment_applications
           SET unapplied_at = $1::date, unapplied_by = $2, unapply_reason = $3
-        WHERE id = ANY($4::uuid[]) AND payment_id = $5 AND unapplied_at IS NULL`,
-      [date, userId, `Reversed: ${reason}`, live.rows.map((r) => r.id), paymentId]
+        WHERE id = ANY($4::uuid[]) AND unapplied_at IS NULL
+          AND payment_id = (SELECT id FROM vendor_payments WHERE id = $5 AND entity_id = $6)`,
+      [date, userId, `Reversed: ${reason}`, live.rows.map((r) => r.id), paymentId, entityId]
     );
     const marked = await client.query(
       `UPDATE vendor_payments SET status = 'reversed', reversed_at = $1::date, updated_at = NOW()
