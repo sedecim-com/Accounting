@@ -99,6 +99,10 @@ export const EN = {
   'error.ISSUED_CFDI_REVENUE_ACCOUNT':
     'Account {account} ({type}, {balance} balance){line, select, none {} other {, coded on line {line},}} cannot take the revenue of CFDI {uuid}: a sale credits an active, postable revenue account with a credit balance. Nothing was posted.',
 
+  // ---- MNE-001-150 · a path no route serves (issue #151) ----
+  /** `AppError('ROUTE_NOT_FOUND')` from `routeNotFound`: no router served the method and path. Distinct from `RESOURCE_NOT_FOUND`, where the route exists and the record does not. */
+  'error.ROUTE_NOT_FOUND': 'No route matches {method} {path}.',
+
   // ==== end of error.* ================================================
 
   // ==== policy.* — the policy panel, by key (I10 · #152, MNE-001-090) ====

@@ -24,6 +24,11 @@ runtime: node-22                 # package.json engines ">=22.12"; CI y docker/D
 
 provides:
   - api: mnemosine-rest-v1       # contrato v0 = docs/openapi.json, generado del código y vigilado en CI (--check)
+    # CONTRACT: a path or method no route serves answers 404 {errors:[{code:'ROUTE_NOT_FOUND',
+    # message}], meta:{request_id, timestamp, version, language}} with Content-Language and
+    # Vary: Accept-Language, instead of Express's text/html "Cannot GET …" page (MNE-001-150,
+    # #151). The status is unchanged; the body becomes the envelope every other error uses.
+    # RESOURCE_NOT_FOUND keeps meaning a missing record under a route that exists.
     # CONTRACT: POST /v1/payroll/employees accepts an optional `minimum_wage_zone`
     # (general | northern_border; any other value is a 422), and POST /v1/payroll/finiquito
     # returns `seniority_premium_minimum_wage` {zone, daily_amount, declared_by, note}: the
