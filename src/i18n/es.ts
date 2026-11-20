@@ -2461,6 +2461,40 @@ export const ES: Record<keyof typeof EN, string> = {
   'receipt.cause.confirm':
     '¿Declarar {cause} como la causa de la reversa de {number}? Se escribe una sola vez y no se puede corregir; no postea nada en el mayor.',
   'receipt.cause.stated': '{number}: causa {cause}, declarada el {stated_at}; no se posteó nada',
+  // MNE-001-498 (#695): el saldo a cuenta de un cliente, traspasado a otro cliente.
+  'receipt.transfer.reason_required':
+    'Traspasar el crédito de un cliente exige --reason "<el acuerdo>": queda escrito en el rastro de auditoría y en el traspaso. No se escribió nada.',
+  'receipt.transfer.amount_invalid':
+    'El importe «{amount}» de un traspaso tiene que ser mayor que cero, con 4 decimales a lo más. No se escribió nada.',
+  'receipt.transfer.not_mexican_books':
+    'Esta entidad no lleva libros mexicanos: el traspaso de crédito de un cliente está hecho para ellos (su IVA se causa cuando el crédito salda una factura, LIVA art. 1o.-B). No se escribió nada.',
+  'receipt.transfer.not_completed':
+    'El cobro {receipt} está en «{status}»: sólo un cobro completado tiene saldo a cuenta que traspasar. No se escribió nada.',
+  'receipt.transfer.not_functional_currency':
+    'El cobro {receipt} está en {currency}: sólo se traspasa saldo a cuenta en {functional}, porque el traspaso mueve su importe en anticipos de clientes tal como está. No se escribió nada.',
+  'receipt.transfer.source_is_transfer':
+    'El cobro {receipt} ya es un traspaso de crédito de un cliente: pasarlo a un tercer cliente espera a la parte 2 (MNE-001-499), que define cómo se deshace esa cadena. No se escribió nada.',
+  'receipt.transfer.advance_in_499':
+    'El saldo a cuenta de {receipt} es un anticipo que causó su IVA al cobrarse (su base en anticipos de clientes, su IVA en IVA trasladado): traspasarlo separa base e IVA, y eso llega con MNE-001-499. No se escribió nada.',
+  'receipt.transfer.cheque_not_cashed':
+    'El cobro {receipt} es un cheque que el banco no ha cobrado: no está cobrado hasta que se cobra (LIVA art. 1-B), y una devolución tendría que deshacer un crédito con el que el otro cliente ya cuenta. Registra primero el cobro con `mnemosine bank check reconcile --receipt {receipt}`. No se escribió nada.',
+  'receipt.transfer.same_customer':
+    'El cobro {receipt} ya es de {customer}: un traspaso mueve el saldo a cuenta a otro cliente. No se escribió nada.',
+  'receipt.transfer.exceeds_on_account':
+    'El cobro {receipt} tiene {onAccount} a cuenta y se traspasarían {amount}: el saldo a cuenta no alcanza. No se escribió nada.',
+  'receipt.transfer.date_future':
+    'El cobro {receipt} no se puede traspasar el {date}: es posterior a hoy ({today}) en la zona horaria de la entidad. No se escribió nada.',
+  'receipt.transfer.date_before_last_event':
+    'El último asiento del cobro {receipt} es del {since}: un traspaso fechado el {date} cedería su efectivo antes de que eso ocurriera. Féchalo el {since} o después. No se escribió nada.',
+  'receipt.transfer.events_in_499':
+    'El cobro {receipt} es un traspaso de crédito de un cliente: aplicarlo a facturas, desaplicarlo y reversarlo llegan con la parte 2 (MNE-001-499), que fecha su IVA y refleja su póliza. Mientras tanto, un traspaso equivocado se corrige con un traspaso de regreso. No se escribió nada.',
+  'receipt.reverse.has_transfer':
+    'Parte del saldo a cuenta de {receipt} se traspasó a otro cliente ({transfers}): reversar el cobro dejaría ese crédito sin dinero detrás. Deshaz primero el traspaso (MNE-001-499). No se escribió nada.',
+  'receipt.transfer.would_transfer': 'Traspasaría {amount} de {source} de {from} a {to} el {date}',
+  'receipt.transfer.on_account': '{party} a cuenta: {before} → {after}',
+  'receipt.transfer.confirm':
+    '¿Traspasar {amount} del saldo a cuenta de {source} de {from} a {to} el {date} en {entity}? Esto postea en el mayor.',
+  'receipt.transfer.recorded': '{number}: {amount} de {source} traspasados de {from} a {to} el {date} · asiento {entry}',
   // MNE-001-568 (#612): el rastro de un pago registrado, completado con su evidencia.
   'payment.trace.nothing_given':
     'Di qué completar: --check-number, --to-account, --to-bank, --to-foreign-bank o --bank. No se escribió nada.',
@@ -3483,6 +3517,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.receipt.trace.record.option.payer_foreign_bank': 'nombre del banco del cliente cuando es extranjero',
   'help.receipt.trace.record.option.bank': 'cuenta bancaria (nombre o id) a la que entró el dinero; sólo una que postea a la cuenta del mayor que movió su asiento',
   'help.receipt.trace.record.option.json': 'salida JSON',
+  // MNE-001-498 (#695): el traspaso del saldo a cuenta de un cliente.
+  'help.receipt.transfer.description': 'Un traspaso del saldo a cuenta de un cliente a otro cliente',
+  'help.receipt.transfer.record.description':
+    'Traspasa el saldo a cuenta de un cliente a otro cliente, según lo acordado: auditado, postea cargo y abono a anticipos de clientes, sin banco, ingreso ni IVA',
+  'help.receipt.transfer.record.argument.ref': 'número o id del cobro cuyo saldo a cuenta se traspasa',
+  'help.receipt.transfer.record.option.customer': 'el cliente que recibe el crédito (número, nombre o id)',
+  'help.receipt.transfer.record.option.amount': 'importe a traspasar, a lo más el saldo a cuenta del cobro',
+  'help.receipt.transfer.record.option.date':
+    'el día acordado del traspaso (AAAA-MM-DD), que fecha su asiento; por omisión hoy en la zona horaria de la entidad',
+  'help.receipt.transfer.record.option.json': 'salida JSON',
   'help.sat.download.description': 'Descarga masiva de CFDI del SAT, y el censo contra lo contabilizado',
   'help.sat.download.reconcile.description':
     'Lee el censo del SAT de un mes contra lo contabilizado: lo que falta traer, lo que se trajo y no se contabilizó, lo que el SAT canceló y los libros aún llevan, y lo que los libros llevan y el SAT no lista. Lee el censo que cargó `ingest --kind zip|metadata`; no sale al SAT. Sale con 4 cuando el mes no puede darse por completo',

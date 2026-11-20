@@ -359,9 +359,22 @@ export async function buildProvisionalIncomeTaxWorkpaper(
     const incomeAccounts = revenue.filter((b) => treatment === 'net_of_income' || !returnIds.has(b.id));
     const nominalIncome = incomeAccounts.reduce((acc, b) => acc.plus(b.amount), new Decimal(0));
 
+    // MNE-001-498 · a transfer of customer credit (DR 2150 / CR 2150) collects nothing: its credit is not counted.
+    const { rows: transferred } = await client.query<{ account_id: string; credit: string }>(
+      `SELECT l.account_id, SUM(l.credit_amount)::text AS credit
+         FROM journal_entry_lines l
+         JOIN journal_entries je ON je.id = l.journal_entry_id
+        WHERE je.entity_id = $1 AND je.status = 'posted' AND je.source_type = 'customer_credit_transfer'
+          AND je.entry_date >= $2::date AND je.entry_date <= $3::date
+          AND l.account_id = ANY($4::uuid[]) AND COALESCE(l.credit_amount, 0) > 0
+        GROUP BY l.account_id`,
+      [entityId, from, through, [...advanceIds]]
+    );
+    const transferredTo = new Map(transferred.map((r) => [r.account_id, new Decimal(r.credit)]));
     const advancesCollected = balance
-      .filter((b) => advanceIds.has(b.account_id) && !new Decimal(b.credit_total).isZero())
-      .map((b) => ({ code: b.account_code, amount: new Decimal(b.credit_total).toFixed(4) }));
+      .map((b) => ({ b, credit: new Decimal(b.credit_total).minus(transferredTo.get(b.account_id) ?? 0) }))
+      .filter(({ b, credit }) => advanceIds.has(b.account_id) && !credit.isZero())
+      .map(({ b, credit }) => ({ code: b.account_code, amount: credit.toFixed(4) }));
     if (advancesCollected.length > 0) {
       findings.push({ codigo: 'ISR-WP-ADVANCES', severidad: 'aviso',
         mensaje: `Anticipos de clientes cobrados en el ejercicio (` +
