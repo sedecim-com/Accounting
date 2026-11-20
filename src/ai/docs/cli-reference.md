@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 249 of 398 subcommands
+  spelling is `-T` at the root and `-t` on the 250 of 400 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -4604,6 +4604,8 @@ Commands:
                                         receipt: the customer's bank and
                                         account, its cheque, and our bank
                                         account
+  transfer|traspaso                     A transfer of a customer's cash on
+                                        account to another customer
   help [command]                        display help for command
 ```
 
@@ -4979,6 +4981,64 @@ Examples:
   mnemosine receipt trace record PMT-2026-00001 --bank "Operativa BBVA" --payer-bank 002 --payer-account 002180009876543210 --reason "CEP of the transfer"
   # A customer cheque recorded without its number: look first, then complete it from the deposit slip.
   mnemosine receipt trace record PMT-2026-00002 --check-number 4501 --payer-bank 072 --payer-account 1234567890 --dry-run
+```
+
+### `mnemosine receipt transfer` (alias: traspaso)
+
+```
+Usage: mnemosine receipt transfer|traspaso [options] [command]
+
+A transfer of a customer's cash on account to another customer
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  record|registrar [options] <ref>  Transfer a customer's cash on account to
+                                    another customer, as agreed: audited, posts
+                                    DR/CR customer advances, no bank, revenue or
+                                    IVA
+  help [command]                    display help for command
+```
+
+#### `mnemosine receipt transfer record` (alias: registrar)
+
+```
+Usage: mnemosine receipt transfer record|registrar [options] <ref>
+
+Transfer a customer's cash on account to another customer, as agreed: audited,
+posts DR/CR customer advances, no bank, revenue or IVA
+
+Arguments:
+  ref                      payment number or id of the receipt whose cash on
+                           account is transferred
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --customer <customer>    the customer who receives the credit (number, name or
+                           id)
+  --amount <amount>        amount to transfer, at most the cash on account of
+                           the receipt
+  --date <date>            the agreed day of the transfer (YYYY-MM-DD), which
+                           dates its entry; defaults to today in the entity's
+                           time zone
+  --reason <text>          justification recorded in the audit trail (required)
+  --json                   JSON output
+  -y, --yes                skip the confirmation prompt
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+
+Examples:
+  # The two customers and the entity agreed that PMT-2026-00042's cash on account is now Grupo Alameda's: look first.
+  mnemosine receipt transfer record PMT-2026-00042 --customer "Grupo Alameda" --amount 1160.00 --date 2026-06-15 --reason "Convenio del 15 de junio" --dry-run
+  # Then record it: DR/CR customer advances on June 15, no bank, revenue or IVA.
+  mnemosine receipt transfer record PMT-2026-00042 --customer "Grupo Alameda" --amount 1160.00 --date 2026-06-15 --reason "Convenio del 15 de junio" --yes
 ```
 
 ## `mnemosine credit-note` (alias: nota-credito)
