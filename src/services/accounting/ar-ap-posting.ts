@@ -14,6 +14,8 @@ import {
   ivaStillParked,
   issuedVatStillParked,
   receivedReleaseAtSettlement,
+  receivedVatStillParked,
+  discountVatShare,
   reclassRoles,
   describeMetodo,
   ivaTreatmentNote,
@@ -1064,6 +1066,8 @@ export interface AplicacionPosterior {
   amount: string;
   /** F04 · sólo lado proveedor: el descuento por pronto pago de esta aplicación. */
   discount?: string;
+  /** MNE-001-597 · vendor side only: whether this event leaves the bill owing nothing. */
+  closes?: boolean;
   /**
    * F04 · sólo lado proveedor: el saldo que DEJA DE DEBERSE al cerrar el gasto
    * pagando de menos (`payment apply --mode residual`). No es un descuento
@@ -1331,6 +1335,8 @@ export async function postVendorApplicationEntry(
   ivaPorGasto: Map<string, string>;
   /** IVA que salió de 1135 SIN acreditarse, por gasto condonado. */
   ivaNoAcreditablePorGasto: Map<string, string>;
+  /** MNE-001-597 · the VAT of each bill's early-payment discount that left 1135, 0 included. */
+  discountVatByBill: Map<string, string>;
 }> {
   const total = aplicaciones.reduce((s, a) => s.plus(a.amount), new Decimal(0));
   const descuento = aplicaciones.reduce((s, a) => s.plus(a.discount ?? '0'), new Decimal(0));
@@ -1346,6 +1352,7 @@ export async function postVendorApplicationEntry(
   const ivaPorGasto = new Map<string, string>();
   /** IVA que salió de 1135 SIN acreditarse, por haberse condonado su gasto. */
   const ivaNoAcreditablePorGasto = new Map<string, string>();
+  const discountVatByBill = new Map<string, string>();
   const ivaLines: JeLine[] = [];
   const documentos: string[] = [];
 
@@ -1409,6 +1416,23 @@ export async function postVendorApplicationEntry(
         });
       }
 
+      // MNE-001-597 · THE VAT OF THE DISCOUNT. A discount lowers the price and
+      // with it the VAT (LIVA art. 7); on cash basis that share is never paid,
+      // so it is never creditable (art. 5 fr. III). It leaves 1135 against the
+      // discount, from what the bill still has parked net of its earlier
+      // payments and of this event's release and write-off.
+      if (new Decimal(app.discount ?? '0').greaterThan(0)) {
+        const remainder = new Decimal(await receivedVatStillParked(client, payment.entity_id, app.invoiceId))
+          .minus(liberable)
+          .minus(ivaCondonado);
+        const vatOfDiscount = discountVatShare({
+          discount: app.discount ?? '0', taxAmount: app.taxAmount, totalAmount: app.totalAmount,
+          remainder, closes: app.closes === true,
+        });
+        discountVatByBill.set(app.invoiceId, vatOfDiscount);
+        if (new Decimal(vatOfDiscount).greaterThan(0)) ivaLines.push(discountVatLine(requireRole(ivaRoles, from), from, vatOfDiscount, app.invoiceNumber));
+      }
+
       if (liberable.lessThanOrEqualTo(0)) continue;
       const monto = liberable.toFixed(4);
       ivaPorGasto.set(app.invoiceId, monto);
@@ -1464,11 +1488,13 @@ export async function postVendorApplicationEntry(
       description: `On-account advance applied ${payment.payment_number}`,
     });
   }
-  if (descuento.greaterThan(0)) {
+  // MNE-001-597: only the cost part of the discount; its VAT left 1135 above.
+  const discountVatTaken = sumOf(discountVatByBill);
+  if (descuento.greaterThan(discountVatTaken)) {
     jeLines.push({
       account_id: requireRole(roles, 'devolucion_compras'),
       debit_amount: null,
-      credit_amount: descuento.toFixed(4),
+      credit_amount: descuento.minus(discountVatTaken).toFixed(4),
       description: `Early-payment discount taken ${payment.payment_number}`,
     });
   }
@@ -1503,7 +1529,22 @@ export async function postVendorApplicationEntry(
     userId,
     { autoPost: true, client, sourceType: 'vendor_application', sourceId: payment.id, reference: payment.payment_number }
   );
-  return { entry, ivaPorGasto, ivaNoAcreditablePorGasto };
+  return { entry, ivaPorGasto, ivaNoAcreditablePorGasto, discountVatByBill };
+}
+
+/** The sum of a per-bill map of amounts. */
+function sumOf(byBill: ReadonlyMap<string, string>): Decimal {
+  return [...byBill.values()].reduce((s, v) => s.plus(v), new Decimal(0));
+}
+
+/** MNE-001-597 · CR 1135 for the VAT of a bill's early-payment discount. */
+function discountVatLine(accountId: string, role: string, amount: string, billNumber: string): JeLine {
+  return {
+    account_id: accountId,
+    debit_amount: null,
+    credit_amount: amount,
+    description: `IVA on the early-payment discount leaves ${role} without becoming creditable - Bill ${billNumber}`,
+  };
 }
 
 /**
@@ -1746,31 +1787,41 @@ export async function postCustomerCreditTransferEntry(
  * against CR cxp for both, since the bill is owed again. The IVA the
  * application released goes back to pending: DR iva_pendiente_acreditar ·
  * CR iva_acreditable, for the amount its rows stored.
+ *
+ * MNE-001-597: the VAT of the discount that left 1135 (`discountIva`, stored
+ * on the rows) goes back to it, DR iva_pendiente_acreditar, and 5200 takes
+ * back only the cost part. A row written before 341 stored none: its VAT never
+ * left, and nothing is given back for it.
  */
 export async function postVendorUnapplicationEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
-  app: { billNumber: string; amount: string; discount: string; iva: string; date: string },
+  app: { billNumber: string; amount: string; discount: string; discountIva?: string; iva: string; date: string },
   userId: string
 ): Promise<JournalEntry> {
-  const discount = new Decimal(app.discount);
+  const discountIva = new Decimal(app.discountIva ?? '0');
+  const discount = new Decimal(app.discount).minus(discountIva);
   const iva = new Decimal(app.iva);
   const { from, to } = reclassRoles('received');
   const roles = await roleAccounts(client, payment.entity_id, [
     'cxp', 'anticipo_proveedores',
     ...(discount.greaterThan(0) ? ['devolucion_compras'] : []),
-    ...(iva.greaterThan(0) ? [from, to] : []),
+    ...(iva.greaterThan(0) ? [from, to] : discountIva.greaterThan(0) ? [from] : []),
   ]);
   const tail = `${app.billNumber} (unapply ${payment.payment_number})`;
   const lines: JeLine[] = [
     { account_id: requireRole(roles, 'anticipo_proveedores'), debit_amount: app.amount, credit_amount: null,
       description: `Back on account ${payment.payment_number}` },
     { account_id: requireRole(roles, 'cxp'), debit_amount: null,
-      credit_amount: new Decimal(app.amount).plus(discount).toFixed(4), description: `AP reopened ${tail}` },
+      credit_amount: new Decimal(app.amount).plus(app.discount).toFixed(4), description: `AP reopened ${tail}` },
   ];
   if (discount.greaterThan(0)) {
     lines.push({ account_id: requireRole(roles, 'devolucion_compras'), debit_amount: discount.toFixed(4),
       credit_amount: null, description: `Early-payment discount given back ${tail}` });
+  }
+  if (discountIva.greaterThan(0)) {
+    lines.push({ account_id: requireRole(roles, from), debit_amount: discountIva.toFixed(4), credit_amount: null,
+      description: `IVA on the early-payment discount back in ${from} - Bill ${tail}` });
   }
   if (iva.greaterThan(0)) {
     lines.push({ account_id: requireRole(roles, from), debit_amount: iva.toFixed(4), credit_amount: null,
@@ -1787,6 +1838,52 @@ export async function postVendorUnapplicationEntry(
     userId,
     { autoPost: true, client, sourceType: 'vendor_unapplication', sourceId: payment.id, reference: payment.payment_number }
   );
+}
+
+/**
+ * MNE-001-597 · The VAT of the early-payment discount each live application of
+ * a vendor payment takes, per bill, and stores it on the row (0 included) so
+ * that an unapply gives back exactly that. Off cash-basis books nothing is
+ * parked and every row stores 0. In another currency the share is at the
+ * bill's rate, as 1135 holds it. Only rows that have not stored it yet are
+ * read: those born with this payment.
+ */
+async function discountVatOfPayment(
+  client: pg.PoolClient,
+  payment: PaymentRow,
+  foreign: boolean
+): Promise<{ billNumber: string; amount: string }[]> {
+  const { rows } = await client.query<{
+    id: string; bill_id: string; bill_number: string; taken: string;
+    tax_amount: string; total_amount: string; amount_due: string; exchange_rate: string | null;
+  }>(
+    `SELECT pa.id, pa.bill_id, b.bill_number, COALESCE(pa.discount_amount, 0)::text AS taken,
+            b.tax_amount::text AS tax_amount, b.total_amount::text AS total_amount,
+            b.amount_due::text AS amount_due, b.exchange_rate::text AS exchange_rate
+       FROM payment_applications pa
+       JOIN bills b ON b.id = pa.bill_id AND b.entity_id = $2
+      WHERE pa.payment_id = $1 AND pa.unapplied_at IS NULL AND pa.discount_iva_amount IS NULL
+      ORDER BY b.bill_number, pa.id`,
+    [payment.id, payment.entity_id]
+  );
+  if (rows.length === 0) return [];
+  const cashBasis = rows.some((r) => new Decimal(r.taken).greaterThan(0))
+    && (await entityUsesCashBasisIva(client, payment.entity_id));
+  const out: { billNumber: string; amount: string }[] = [];
+  for (const r of rows) {
+    let amount = new Decimal(0).toFixed(4);
+    if (cashBasis && new Decimal(r.taken).greaterThan(0)) {
+      amount = discountVatShare({
+        discount: r.taken, taxAmount: r.tax_amount, totalAmount: r.total_amount,
+        remainder: await receivedVatStillParked(client, payment.entity_id, r.bill_id),
+        closes: new Decimal(r.amount_due).lessThanOrEqualTo(0),
+        ...(foreign && r.exchange_rate ? { rate: r.exchange_rate } : {}),
+      });
+    }
+    await client.query(`UPDATE payment_applications SET discount_iva_amount = $1 WHERE id = $2`, [amount, r.id]);
+    if (new Decimal(amount).greaterThan(0)) out.push({ billNumber: r.bill_number, amount });
+  }
+  return out;
 }
 
 /**
@@ -1830,6 +1927,10 @@ export async function postVendorPaymentEntry(
       [released.get(row.bill_id) ?? '0', row.id]
     );
   }
+  // MNE-001-597: read after the rows above store their release, so what each
+  // bill still has parked already nets this payment's.
+  const discountVat = await discountVatOfPayment(client, payment, fx !== undefined);
+  const pendingRole = reclassRoles('received').from;
 
   if (fx) {
     assertBankCurrency(bank, fx.moneda, payment.payment_number);
@@ -1839,6 +1940,7 @@ export async function postVendorPaymentEntry(
       'cxp',
       ...(desglose.descuentos.length > 0 ? ['devolucion_compras'] : []),
       ...(hayAnticipo ? ['anticipo_proveedores'] : []),
+      ...(discountVat.length > 0 ? [pendingRole] : []),
     ];
     const roles = await roleAccounts(client, payment.entity_id, rolesPedidos);
 
@@ -1888,6 +1990,20 @@ export async function postVendorPaymentEntry(
         foreign_credit: desc.extranjero,
         exchange_rate: desc.tasa,
       });
+    }
+    // MNE-001-597 · the discount's VAT, as a balanced pair in the functional
+    // currency by declaration: the discount line above keeps its FX columns
+    // whole, and the pair takes the VAT part off it and out of 1135, at the
+    // bill's rate, as 1135 holds it. Balanced, it moves no realised difference.
+    const discountAccount = discountVat.length > 0 ? requireRole(roles, 'devolucion_compras') : '';
+    for (const d of discountVat) {
+      jeLines.push({
+        account_id: discountAccount,
+        debit_amount: d.amount,
+        credit_amount: null,
+        description: `VAT part of the early-payment discount ${payment.payment_number} - Bill ${d.billNumber}`,
+      });
+      jeLines.push(discountVatLine(requireRole(roles, pendingRole), pendingRole, d.amount, d.billNumber));
     }
     // The realised difference is whatever separates the lines above and the
     // IVA pair (1135 leaves at the bill's rate, 1130 enters at today's: the
@@ -1954,10 +2070,12 @@ export async function postVendorPaymentEntry(
   const pasivo = aplicado.plus(descuento);
   const anticipo = efectivo.minus(aplicado);
 
+  const discountVatTotal = discountVat.reduce((s, d) => s.plus(d.amount), new Decimal(0));
   const rolesPedidos = [
     'cxp',
-    ...(descuento.greaterThan(0) ? ['devolucion_compras'] : []),
+    ...(descuento.greaterThan(discountVatTotal) ? ['devolucion_compras'] : []),
     ...(anticipo.greaterThan(0) ? ['anticipo_proveedores'] : []),
+    ...(discountVat.length > 0 ? [pendingRole] : []),
   ];
   const roles = await roleAccounts(client, payment.entity_id, rolesPedidos);
 
@@ -1984,13 +2102,17 @@ export async function postVendorPaymentEntry(
     credit_amount: efectivo.toFixed(4),
     description: `Payment made ${payment.payment_number}`,
   });
-  if (descuento.greaterThan(0)) {
+  // MNE-001-597: only the cost part of the discount; its VAT leaves 1135 below.
+  if (descuento.greaterThan(discountVatTotal)) {
     jeLines.push({
       account_id: requireRole(roles, 'devolucion_compras'),
       debit_amount: null,
-      credit_amount: descuento.toFixed(4),
+      credit_amount: descuento.minus(discountVatTotal).toFixed(4),
       description: `Early-payment discount taken ${payment.payment_number}`,
     });
+  }
+  for (const d of discountVat) {
+    jeLines.push(discountVatLine(requireRole(roles, pendingRole), pendingRole, d.amount, d.billNumber));
   }
   jeLines.push(...iva.lines);
 

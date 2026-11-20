@@ -174,7 +174,7 @@ Y la pieza contra la deriva silenciosa, también plan: una **instantánea fechad
 
 ## Modelos locales, sin API key
 
-El perfil `ollama` no declara `api_key_env`: no hay credencial que resolver. El SDK de OpenAI exige una cadena de todos modos, así que se le pasa un marcador de posición. `mnemosine providers` lo muestra como `no key`.
+El perfil `ollama` no declara `api_key_env`: no hay credencial que resolver. El SDK de OpenAI exige una cadena de todos modos, así que se le pasa un marcador de posición. `mnemosine providers` lo muestra como `local, no credential`: «local» sólo se dice de un `base_url` de loopback (`localhost`, `127.x.x.x`, `::1`); un endpoint remoto sin llave, como un NIM propio en otro host, sale como `no credential configured`, y `doctor` lo advierte.
 
 Un archivo mínimo apuntando a un modelo local:
 
@@ -236,7 +236,16 @@ La atribución del modelo es correcta por construcción: la retrollamada del int
 
 Dos comandos, con propósitos distintos.
 
-**`mnemosine providers`** es el inventario: qué perfiles hay, cuál es el por omisión, qué modelo y endpoint lleva cada uno, si trae herramientas, y si la variable de entorno que nombra está puesta o falta. Al final imprime la ruta del archivo de configuración en uso — o, si no hay ninguno, cómo crear uno.
+**`mnemosine providers`** es el inventario: qué perfiles hay, cuál es el por omisión, qué modelo y endpoint lleva cada uno, si trae herramientas, y de dónde sale su credencial. Al final imprime la ruta del archivo de configuración en uso — o, si no hay ninguno, cómo crear uno.
+
+La credencial se contesta igual en `doctor`, `mnemosine providers`, `mnemosine status`, el asistente de `init` y `mnemosine jobs run-due` ([`credential-state.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/ai/providers/credential-state.ts)), con una de estas respuestas:
+
+- `<VARIABLE> set`: la variable del perfil está definida (una variable vacía cuenta como no definida);
+- `api_key_cmd in <archivo>`: hay un helper, nombrado con el archivo de donde se leyó; si es un archivo de proyecto se marca como compartido, porque lo lee todo el que corre mnemosine en esa carpeta;
+- `local, no credential` o `no credential configured`: el perfil no pide credencial, y sólo un `base_url` de loopback se llama local;
+- `<VARIABLE> missing (get it at …)`: falta, con dónde obtenerla.
+
+Si el `./.env` de la carpeta define la variable, la respuesta lo añade: esa llave sirve a todo el que corre mnemosine ahí. La respuesta es orientativa —nada se niega a correr por ella— y **nunca corre el helper** ni imprime su comando o su salida; `status` y la sonda de `init` sí lo corren, como antes, para su llamada en vivo. El asistente no pide llave si hay helper, y `jobs run-due` dice en su primera línea qué perfil usa y de dónde sale su credencial, que es la de quien corre el tic.
 
 ```bash
 mnemosine providers

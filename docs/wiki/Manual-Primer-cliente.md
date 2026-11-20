@@ -32,7 +32,7 @@ Mnemosine health check
   ✘ Database        no connection: role "postgres" does not exist
       → Check DATABASE_URL in .env and that PostgreSQL is running (docker compose up -d postgres)
   ✘ Model provider  anthropic requires ANTHROPIC_API_KEY and it is not set
-      → Set ANTHROPIC_API_KEY in .env, or use --provider ollama
+      → Set ANTHROPIC_API_KEY in your shell or ~/.mnemosine/.env (get it at https://console.anthropic.com/settings/keys), or use --provider ollama
   ⚠ Encryption key  ENCRYPTION_KEY not set (the code default is used)
       → openssl rand -hex 32  → ENCRYPTION_KEY in .env
 

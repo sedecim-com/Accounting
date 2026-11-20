@@ -887,7 +887,7 @@ describe('MVP month end to end: December 2025 of a synthetic SME, through the CL
     try {
       const listed = ok(['providers'], 'none').out;
       for (const { api_key_env: key } of Object.values(BUILTIN_PROFILES)) {
-        if (key) expect(listed, `${key} in:\n${listed}`).toContain(`${key} ✘ missing`);
+        if (key) expect(listed, `${key} in:\n${listed}`).toContain(`✘ ${key} missing`);
       }
       expect(listed).not.toMatch(/^(ollama|hermes) ← default$/m);
       // A mnemosine.config.json can declare providers, keys and a default that
