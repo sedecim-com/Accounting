@@ -121,6 +121,7 @@ Fuera de `src/`: `tests/` (unitarias por módulo, `tests/integration/` contra Po
 - `tests/ai/memoria-en-conflicto.spec.ts`
 - `tests/ai/tools/policy-tools.spec.ts`
 - `tests/cli/bank-command.spec.ts`
+- `tests/cli/e-accounting-command.spec.ts`
 - `tests/cli/payroll-isn-command.spec.ts`
 - `tests/cli/report-command.spec.ts`
 - `tests/integration/a6-conductor-y-expediente.int.spec.ts`

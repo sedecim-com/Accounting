@@ -3583,6 +3583,85 @@ export const EN = {
   // ==== end of I8.6 ====
 
   // ==== I8.7 · CLI leaves by key, family fiscal-mx (issue #269) ====
+
+  // MNE-001-225: e-accounting (catalog and balance: generate, check, the -o overwrite).
+  /** The warning of every generate leaf: the file is not sealed and nothing was filed. */
+  'fiscal_mx.e_accounting.unsealed.headline': 'THIS FILE IS NOT SEALED AND NOTHING WAS FILED WITH THE SAT.',
+  /** Under the headline: building and signing are not the same act. */
+  'fiscal_mx.e_accounting.unsealed.two_hands': 'Building the file and signing it are separate acts, by separate hands.',
+  /** Step 1 of what is left to file. Stored English in the receipt's `falta_para_presentar`; the table renders it. */
+  'fiscal_mx.e_accounting.unsealed.step_review':
+    'Review the XML: it is the document you are going to file, and once it is sealed it is not touched again.',
+  /** Step 2: the seal, outside the system or under sellar_con_custodia. */
+  'fiscal_mx.e_accounting.unsealed.step_seal':
+    'Seal it with the taxpayer\'s e.firma: outside this system or, if the firm declared sellar_con_custodia, with this family\'s seal leaf. No one will ask you for the e.firma by chat.',
+  /** Step 3: the upload, which no command does. */
+  'fiscal_mx.e_accounting.unsealed.step_upload':
+    'Compress it and upload it yourself through the Buzón Tributario (Contabilidad electrónica).',
+  /** Step 4: the acknowledgements, the only proof of filing. */
+  'fiscal_mx.e_accounting.unsealed.step_acknowledgements':
+    'Keep the acknowledgement of receipt and, later, the one of acceptance or rejection: it is the only proof that it was filed.',
+  /** `catalog generate`/`seal` with no --period. */
+  'fiscal_mx.e_accounting.catalog.period_missing':
+    'The chart of accounts is filed by month: give --period YYYY-MM (for example --period 2026-02). Without it there is no Mes or Anio to declare in the header.',
+  /** A --period that is not YYYY-MM. */
+  'fiscal_mx.e_accounting.catalog.period_not_month':
+    '--period "{value}" is not a month. The CtaCatalogo declares ONE month of ONE fiscal year, so only the form YYYY-MM (2026-02) is valid here. A quarter, a fiscal year or a range has nowhere to go in the file.',
+  /** A month outside 01..12; 13 belongs to the closing balance. */
+  'fiscal_mx.e_accounting.catalog.month_out_of_range':
+    '--period "{value}": the month must run from 01 to 12. Month 13 belongs to the year-end balance (`balance generate --closing`), not to the chart of accounts.',
+  /** The line beside the CtaCatalogo title. */
+  'fiscal_mx.e_accounting.catalog.summary':
+    'RFC {rfc} · {accounts, plural, one {# account} other {# accounts}} · {bytes, plural, one {# byte} other {# bytes}}',
+  /** The three panel criteria the catalog was built with (their values are not translated). */
+  'fiscal_mx.e_accounting.catalog.policies': 'levels {levels} · without grouping code {ungrouped} · sealing {sealing}',
+  /** Accounts the levels criterion left out of the file. */
+  'fiscal_mx.e_accounting.catalog.omitted':
+    '{count, plural, one {# account left} other {# accounts left}} out of the file',
+  /** No file: accounts without a grouping code under the blocking policy, or blocking findings. */
+  'fiscal_mx.e_accounting.catalog.not_deliverable':
+    'No deliverable file was produced. {reason, select, ungrouped {{count, plural, one {# account in scope has no grouping code} other {# accounts in scope have no grouping code}} and the policy `{policy}` is set to \'{value}\'. {count, plural, one {Assign it} other {Assign them}}, or change the policy with {hint}.} other {Resolve the blocking findings above and generate again.}}',
+  /** A --type other than N or C. */
+  'fiscal_mx.e_accounting.balance.type_unknown':
+    '--type "{value}" does not exist: N is the normal balance and C the amended one. The year-end balance is not a type, it is --closing (filed as Mes 13).',
+  /** `--check` names a check that does not exist. */
+  'fiscal_mx.e_accounting.balance.check_unknown':
+    '{count, plural, one {Unknown check} other {Unknown checks}}: {unknown}. The available ones are: {available}.',
+  /** `--check` with only commas. */
+  'fiscal_mx.e_accounting.balance.check_empty': '--check named no check. The available ones are: {available}.',
+  /** The title of the balance header. */
+  'fiscal_mx.e_accounting.balance.title': 'Trial balance {month}/{year}',
+  /** The line beside the balance title. */
+  'fiscal_mx.e_accounting.balance.header':
+    'RFC {rfc} · {closing, select, yes {TipoEnvio {type} · closing (Mes 13)} other {TipoEnvio {type}}} · {period} {from} → {to} · {accounts, plural, one {# account} other {# accounts}}',
+  /** The criteria of the balance, and whether its SaldoIni can still change. */
+  'fiscal_mx.e_accounting.balance.header_policies':
+    'levels {levels} · sealing {sealing} · SaldoIni from {origin}, {firm, select, yes {firm} other {MAY STILL CHANGE (the previous period is still open)}}',
+  /** The SAT file name of the balance. */
+  'fiscal_mx.e_accounting.balance.suggested_file':
+    'suggested file {file} · {bytes, plural, one {# byte} other {# bytes}}',
+  /** After `e_accounting.sealing.declared` in `balance generate`: where the seal is. */
+  'fiscal_mx.e_accounting.balance.seal_hint': 'Review it and seal it with {command}.',
+  /** The envelope of `balance check --json`, on stderr. */
+  'fiscal_mx.e_accounting.balance.check_envelope':
+    '{rfc} · trial balance {month}/{year} · {period} · {accounts, plural, one {# account} other {# accounts}} · checks: {checks}',
+  /** The catalog the balance was checked against, if any. */
+  'fiscal_mx.e_accounting.balance.check_catalog': 'matching catalog: {found, select, yes {{source}} other {none}}',
+  /** The checks `balance check` ran. */
+  'fiscal_mx.e_accounting.balance.checks_run': 'checks: {checks}',
+  /** `balance check` with no findings. */
+  'fiscal_mx.e_accounting.balance.check_clean':
+    'no findings: the trial balance passes the {count, plural, one {# check} other {# checks}} asked for.',
+  /** `balance check` with findings. `blocking` is a plural in both catalogues, with two equal English branches. */
+  'fiscal_mx.e_accounting.balance.check_summary':
+    '{blocking, plural, one {# blocking} other {# blocking}}, {warning, plural, one {# warning} other {# warnings}}. A blocking finding stops the file from being generated.',
+  /** `-o` names a file that exists: it may be the sealed one. */
+  'fiscal_mx.e_accounting.output.overwrite_question':
+    '{target} already exists. If that file is already sealed, overwriting it leaves it without its seal. Replace it?',
+  /** The overwrite was declined. */
+  'fiscal_mx.e_accounting.output.kept':
+    'Nothing was written: {target} is kept as it was. Use another path, or --yes if you really want to replace it.',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====

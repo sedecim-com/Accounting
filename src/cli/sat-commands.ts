@@ -101,9 +101,9 @@ Examples:
   );
   declareRisk(add, {
     risk: 'externo',
-    llave: { innecesaria: 'la custodia la guardan el consentimiento tipeado y el estado de la credencial' },
+    llave: { innecesaria: 'custody is guarded by the typed consent and the credential status' },
     agent: false,
-    writes: 'fiscal_credentials + el material en la bóveda; valida el certificado localmente antes',
+    writes: 'fiscal_credentials + the material in the vault; validates the certificate locally first',
   });
   add.action(async (opts: {
       cer: string; key: string; entity?: string; user?: string;
@@ -314,9 +314,9 @@ Examples:
   );
   declareRisk(revoke, {
     risk: 'irreversible',
-    llave: { innecesaria: 'una segunda revocación se rechaza porque ya no queda credencial activa' },
+    llave: { innecesaria: 'a second revoke is refused because no active credential remains' },
     agent: false,
-    writes: 'fiscal_credentials + destrucción criptográfica del material en la bóveda',
+    writes: 'fiscal_credentials + cryptographic destruction of the material in the vault',
   });
   revoke.action(async (opts: {
       entity?: string; user?: string;
