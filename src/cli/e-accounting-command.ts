@@ -25,7 +25,7 @@ import {
 } from '../services/sat/anexo24/balanza-invariantes.js';
 import { sealArchivedDocument } from '../services/sat/anexo24/seal.js';
 import type { SealableDocument } from '../services/sat/anexo24/original-string.js';
-import { t } from '../i18n/index.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 import { describeCommand, describeOption, optionByKey } from './kernel/help.js';
 import { confirmarConReintento, noEntendi, yesNoPrompt } from './kernel/confirmacion.js';
 import type { Palette } from './palette.js';
@@ -148,41 +148,57 @@ const MARK = { bloquea: '✘', avisa: '⚠', limpio: '✔' } as const;
 // LO QUE FALTA PARA PRESENTAR, DICHO SIEMPRE Y CON TODAS SUS LETRAS
 // ------------------------------------------------------------
 
-/**
- * El titular. En español porque es la advertencia más importante del tramo y
- * la lee un despacho mexicano; las descripciones de commander siguen en
- * inglés, como manda la casa.
- */
-export const TITULAR_SIN_SELLO =
-  'ESTE ARCHIVO NO VA SELLADO Y NO SE PRESENTÓ NADA ANTE EL SAT.';
+// The headline and the steps speak by key (MNE-001-225, I8.7): the person
+// reads them in their language, and es-MX, the default, reads them word for
+// word as before. The receipt's copy of the steps stays English, for scripts.
 
 /**
- * Los pasos que quedan, en el orden en que ocurren. Se exportan para que la
- * prueba los fije: una lista que se acorta sin querer deja al lector creyendo
- * que ya terminó, que es el defecto que esta lista existe para impedir.
+ * The steps still to do, in the order they happen. A list that shrinks by
+ * accident leaves the reader believing they are done, which is the defect
+ * this list exists to prevent, so the test pins it.
  *
- * No nombran ningún comando de este binario a propósito: the upload has no
- * command (the SAT offers no web service for it), and the seal leaf applies
- * only under sellar_con_custodia, so a step that names it would mislead the
- * firm on the default.
+ * They name no command of this binary on purpose: the upload has no command
+ * (the SAT offers no web service for it), and the seal leaf applies only
+ * under sellar_con_custodia, so a step that names it would mislead the firm
+ * on the default.
  */
-export const PASOS_PARA_PRESENTAR: readonly string[] = Object.freeze([
-  'Revisa el XML: es el documento que vas a declarar, y una vez sellado ya no se toca.',
-  'Séllalo con la e.firma del contribuyente: fuera de este sistema o, si el despacho declaró ' +
-    'sellar_con_custodia, con la hoja seal de esta familia. Nadie te va a pedir la e.firma por chat.',
-  'Compríimelo y transmítelo tú por el Buzón Tributario (Contabilidad electrónica).',
-  'Guarda el acuse de recepción y, después, el de aceptación o rechazo: es la única ' +
-    'prueba de que se presentó.',
-]);
+const STEP_KEYS: readonly TranslationKey[] = [
+  'fiscal_mx.e_accounting.unsealed.step_review',
+  'fiscal_mx.e_accounting.unsealed.step_seal',
+  'fiscal_mx.e_accounting.unsealed.step_upload',
+  'fiscal_mx.e_accounting.unsealed.step_acknowledgements',
+];
+
+/**
+ * The steps as the receipt carries them (`falta_para_presentar`, and the
+ * request leaves' `still_to_file`): English under every locale, because
+ * --json and csv are read by scripts. The table renders them in the user's
+ * language through `stepsLabel`.
+ */
+export const PASOS_PARA_PRESENTAR: readonly string[] = Object.freeze(STEP_KEYS.map((k) => t(k, {}, 'en')));
+
+/** The receipt's `destino` when no file was written: English in the row. */
+const TARGET_PLACEHOLDERS: readonly TranslationKey[] = ['e_accounting.target.dry_run', 'e_accounting.target.store'];
+
+/** The table's label of a stored `destino`: a placeholder in the user's language; a path passes through. */
+export function targetLabel(value: string): string {
+  const key = TARGET_PLACEHOLDERS.find((k) => t(k, {}, 'en') === value);
+  return key === undefined ? value : t(key);
+}
+
+/** The table's label of the stored step list: the same steps in the user's language. */
+export function stepsLabel(value: string): string {
+  return value === JSON.stringify(PASOS_PARA_PRESENTAR) ? JSON.stringify(STEP_KEYS.map((k) => t(k))) : value;
+}
 
 /** El bloque completo, para la salida legible. */
 function bloqueSinSello(c: Palette): string {
   const lineas = [
     '',
-    c.yellow(`  ⚠ ${TITULAR_SIN_SELLO}`),
-    c.dim('    Construir el archivo y firmarlo son actos distintos y de manos distintas.'),
+    c.yellow(`  ⚠ ${t('fiscal_mx.e_accounting.unsealed.headline')}`),
+    c.dim(`    ${t('fiscal_mx.e_accounting.unsealed.two_hands')}`),
     '',
-    ...PASOS_PARA_PRESENTAR.map((p, i) => c.dim(`    ${i + 1}. ${p}`)),
+    ...STEP_KEYS.map((k, i) => c.dim(`    ${i + 1}. ${t(k)}`)),
     '',
   ];
   return lineas.join('\n');
@@ -211,26 +227,16 @@ const MES_RE = /^(\d{4})-(\d{2})$/;
  */
 export function mesDelCatalogo(expr: string | undefined): { anio: number; mes: number } {
   if (expr === undefined || expr.trim() === '') {
-    throw usageError(
-      'El catálogo de cuentas se presenta por mes: indica --period YYYY-MM (por ejemplo ' +
-        '--period 2026-02). Sin él no hay Mes ni Anio que declarar en la cabecera.'
-    );
+    throw usageError({ key: 'fiscal_mx.e_accounting.catalog.period_missing' });
   }
   const m = MES_RE.exec(expr.trim());
   if (!m) {
-    throw usageError(
-      `--period «${expr}» no es un mes. El CtaCatalogo declara UN mes de UN ejercicio, así que ` +
-        'aquí sólo vale la forma YYYY-MM (2026-02). Un trimestre, un ejercicio o un rango no ' +
-        'tienen dónde ponerse en el archivo.'
-    );
+    throw usageError({ key: 'fiscal_mx.e_accounting.catalog.period_not_month', params: { value: expr } });
   }
   const anio = Number(m[1]);
   const mes = Number(m[2]);
   if (mes < 1 || mes > 12) {
-    throw usageError(
-      `--period «${expr}»: el mes ha de ir de 01 a 12. El 13 es de la balanza de cierre ` +
-        '(`balance generate --closing`), no del catálogo de cuentas.'
-    );
+    throw usageError({ key: 'fiscal_mx.e_accounting.catalog.month_out_of_range', params: { value: expr } });
   }
   return { anio, mes };
 }
@@ -240,10 +246,7 @@ export function exigirTipoDeEnvio(valor: string | undefined): 'N' | 'C' | undefi
   if (valor === undefined) return undefined;
   const t = valor.trim().toUpperCase();
   if (t === 'N' || t === 'C') return t;
-  throw usageError(
-    `--type «${valor}» no existe: N es la balanza normal y C la complementaria. ` +
-      'La de cierre no es un tipo, es --closing (va con Mes 13).'
-  );
+  throw usageError({ key: 'fiscal_mx.e_accounting.balance.type_unknown', params: { value: valor } });
 }
 
 /** `--check a,b`, contra la lista publicada. */
@@ -259,15 +262,16 @@ export function exigirChecksDeBalanza(valor: string): BalanzaCheckName[] {
     // Un nombre desconocido es error de USO (2), nunca un filtro vacío que
     // sale 0: un `check` que no verificó nada y contesta «limpio» es la
     // manera exacta en que una tubería verde miente.
-    throw usageError(
-      `Verificación(es) desconocida(s): ${desconocidos.join(', ')}. ` +
-        `Las disponibles son: ${BALANZA_CHECK_NAMES.join(', ')}.`
-    );
+    throw usageError({
+      key: 'fiscal_mx.e_accounting.balance.check_unknown',
+      params: { count: desconocidos.length, unknown: desconocidos.join(', '), available: BALANZA_CHECK_NAMES.join(', ') },
+    });
   }
   if (pedidos.length === 0) {
-    throw usageError(
-      `--check no nombró ninguna verificación. Las disponibles son: ${BALANZA_CHECK_NAMES.join(', ')}.`
-    );
+    throw usageError({
+      key: 'fiscal_mx.e_accounting.balance.check_empty',
+      params: { available: BALANZA_CHECK_NAMES.join(', ') },
+    });
   }
   return pedidos as BalanzaCheckName[];
 }
@@ -426,7 +430,7 @@ export function registerEAccountingCommand(
         deps.palette.cyan(yesNoPrompt(pregunta))
       );
       if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+        process.stderr.write(`${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`);
       }
       return veredicto.si;
     } finally {
@@ -533,7 +537,11 @@ Examples:
   /** El recibo por stdout, SIN `output`: ese destino ya lo ocupa el XML. */
   const emitirRecibo = (fila: Row, opts: CommonOpts): void => {
     const { output: _output, ...sinDestino } = opts;
-    render([fila], { ...sinDestino, idField: 'hash' });
+    render([fila], {
+      ...sinDestino,
+      idField: 'hash',
+      labelled: { destino: targetLabel, falta_para_presentar: stepsLabel, still_to_file: stepsLabel },
+    });
   };
 
   /**
@@ -551,15 +559,9 @@ Examples:
     opts: { yes?: boolean }
   ): Promise<void> => {
     if (existsSync(destino) && opts.yes !== true) {
-      const si = await preguntar(
-        `${destino} ya existe. Si ese archivo ya está sellado, sobrescribirlo lo deja sin sello. ` +
-          '¿Lo reemplazo?'
-      );
+      const si = await preguntar(t('fiscal_mx.e_accounting.output.overwrite_question', { target: destino }));
       if (!si) {
-        throw abortedByUser(
-          `No se escribió nada: ${destino} se conserva tal cual. Usa otra ruta, o --yes si de ` +
-            'verdad quieres reemplazarlo.'
-        );
+        throw abortedByUser({ key: 'fiscal_mx.e_accounting.output.kept', params: { target: destino } });
       }
     }
     const carpeta = path.dirname(path.resolve(destino));
@@ -599,8 +601,8 @@ Examples:
     agent: true,
     draftOnly: true,
     writes:
-      'sat_anexo24_artefactos (el XML archivado con su hash, SIN SELLAR); ninguna póliza, ' +
-      'ningún envío a la autoridad',
+      'sat_anexo24_artefactos (the archived XML with its hash, UNSEALED); no journal entry, ' +
+      'nothing sent to the authority',
   });
   generarCatalogo.action(
     (opts: CommonOpts & { period?: string; dryRun?: boolean; yes?: boolean }, cmd: Command) =>
@@ -617,9 +619,10 @@ Examples:
           { entityId: ctx.entityId, anio, mes, userId: revisor.userId, dryRun }
         );
 
+        // English in the receipt; `targetLabel` renders it for a person.
         const destino = dryRun
-          ? '(ensayo: no se escribió nada)'
-          : (opts.output ?? '(almacén de artefactos)');
+          ? t('e_accounting.target.dry_run', {}, 'en')
+          : (opts.output ?? t('e_accounting.target.store', {}, 'en'));
         // Sólo se escribe lo que SE PUEDE ENTREGAR. Dejar en disco un XML que
         // el propio generador declara no entregable es sembrar el archivo que
         // alguien firmará por equivocación dentro de tres semanas.
@@ -636,18 +639,21 @@ Examples:
         } else {
           out.write(
             `\n${c.bold(`CtaCatalogo ${String(mes).padStart(2, '0')}/${anio}`)}  ` +
-              `${c.dim(`RFC ${r.rfc} · ${r.filas.length} cuenta(s) · ${r.bytes} byte(s)`)}\n`
+              `${c.dim(t('fiscal_mx.e_accounting.catalog.summary', { rfc: r.rfc, accounts: r.filas.length, bytes: r.bytes }))}\n`
           );
           out.write(
             c.dim(
-              `  niveles ${r.politicas.niveles} · sin agrupador ${r.politicas.sinAgrupador} · ` +
-                `sellado ${r.politicas.sellado}\n`
+              `  ${t('fiscal_mx.e_accounting.catalog.policies', {
+                levels: r.politicas.niveles,
+                ungrouped: r.politicas.sinAgrupador,
+                sealing: r.politicas.sellado,
+              })}\n`
             )
           );
           if (r.hash !== null) out.write(c.dim(`  sha256 ${r.hash}\n`));
-          out.write(c.dim(`  destino ${destino}\n`));
+          out.write(c.dim(`  ${t('e_accounting.target.label', { target: targetLabel(destino) })}\n`));
           if (r.omitidas.length > 0) {
-            out.write(c.dim(`  ${r.omitidas.length} cuenta(s) fuera del archivo\n`));
+            out.write(c.dim(`  ${t('fiscal_mx.e_accounting.catalog.omitted', { count: r.omitidas.length })}\n`));
           }
         }
 
@@ -671,16 +677,17 @@ Examples:
         if (!r.puedeEntregarse) {
           // No hay archivo. Se dice por qué y se sale 4: un 0 aquí sería la
           // clase de verde que hace que nadie mire la salida.
+          const ungrouped = r.sinAgrupador.length > 0 && r.politicas.sinAgrupador === 'bloquear';
           err.write(
             '\n' +
               c.red(
-                '  No se generó ningún archivo entregable. ' +
-                  (r.sinAgrupador.length > 0 && r.politicas.sinAgrupador === 'bloquear'
-                    ? `${r.sinAgrupador.length} cuenta(s) del alcance no tienen código agrupador y ` +
-                      "la política `anexo24_cuenta_sin_agrupador` está en 'bloquear'. " +
-                      'Asígnalos, o cambia la política con ' +
-                      `${changePolicyHint('anexo24_cuenta_sin_agrupador')}.`
-                    : 'Resuelve los hallazgos bloqueantes de arriba y vuelve a generar.')
+                `  ${t('fiscal_mx.e_accounting.catalog.not_deliverable', {
+                  reason: ungrouped ? 'ungrouped' : 'findings',
+                  count: r.sinAgrupador.length,
+                  policy: 'anexo24_cuenta_sin_agrupador',
+                  value: 'bloquear',
+                  hint: changePolicyHint('anexo24_cuenta_sin_agrupador'),
+                })}`
               ) +
               '\n\n'
           );
@@ -692,14 +699,9 @@ Examples:
           err.write(c.yellow(`    ${r.notaDeSellado}\n\n`));
         }
         if (dryRun) {
-          err.write(c.dim('  --dry-run: no se archivó nada y no se escribió ningún archivo.\n\n'));
+          err.write(c.dim(`  ${t('e_accounting.dry_run.done')}\n\n`));
         } else if (r.artefacto?.yaExistia === true) {
-          err.write(
-            c.dim(
-              '  Estos mismos bytes ya estaban archivados: no se creó una versión nueva. ' +
-                'El generador es determinista, que es lo que hace comparable un mes con otro.\n\n'
-            )
-          );
+          err.write(c.dim(`  ${t('e_accounting.archive.already_there')}\n\n`));
         }
         return ExitCode.OK;
       })
@@ -722,17 +724,26 @@ Examples:
   ): string => {
     const c = deps.palette;
     return (
-      `\n${c.bold(`Balanza ${meta.mes}/${meta.anio}`)}  ` +
+      `\n${c.bold(t('fiscal_mx.e_accounting.balance.title', { month: meta.mes, year: meta.anio }))}  ` +
       c.dim(
-        `RFC ${meta.rfc} · TipoEnvio ${meta.tipo_envio}${meta.cierre ? ' · cierre (Mes 13)' : ''} · ` +
-          `${meta.period_name} ${dateOnly(meta.desde)} → ${dateOnly(meta.hasta)} · ` +
-          `${meta.cuentas} cuenta(s)`
+        t('fiscal_mx.e_accounting.balance.header', {
+          rfc: meta.rfc,
+          closing: meta.cierre ? 'yes' : 'no',
+          type: meta.tipo_envio,
+          period: meta.period_name,
+          from: dateOnly(meta.desde),
+          to: dateOnly(meta.hasta),
+          accounts: meta.cuentas,
+        })
       ) +
       '\n' +
       c.dim(
-        `  niveles ${meta.criterio_niveles} · sellado ${meta.criterio_sellado} · ` +
-          `SaldoIni del ${inicial.origen}, ` +
-          (inicial.firme ? 'firme' : 'TODAVÍA PUEDE CAMBIAR (el periodo anterior sigue abierto)')
+        `  ${t('fiscal_mx.e_accounting.balance.header_policies', {
+          levels: meta.criterio_niveles,
+          sealing: meta.criterio_sellado,
+          origin: inicial.origen,
+          firm: inicial.firme ? 'yes' : 'no',
+        })}`
       ) +
       '\n'
     );
@@ -763,8 +774,8 @@ Examples:
     agent: true,
     draftOnly: true,
     writes:
-      'sat_anexo24_artefactos (el XML archivado con su hash, SIN SELLAR); ninguna póliza, ' +
-      'ningún envío a la autoridad',
+      'sat_anexo24_artefactos (the archived XML with its hash, UNSEALED); no journal entry, ' +
+      'nothing sent to the authority',
   });
   generarBalanzaHoja.action(
     (
@@ -793,9 +804,10 @@ Examples:
           dryRun,
         });
 
+        // English in the receipt; `targetLabel` renders it for a person.
         const destino = dryRun
-          ? '(ensayo: no se escribió nada)'
-          : (opts.output ?? '(almacén de artefactos)');
+          ? t('e_accounting.target.dry_run', {}, 'en')
+          : (opts.output ?? t('e_accounting.target.store', {}, 'en'));
         if (opts.output !== undefined && !dryRun) {
           await escribirXml(opts.output, b.xml, opts);
         }
@@ -808,9 +820,9 @@ Examples:
           emitirRecibo(reciboDeBalanza(b, destino), opts);
         } else {
           out.write(cabeceraDeBalanza(b.meta, b.inicial));
-          out.write(c.dim(`  archivo sugerido ${b.nombre} · ${b.bytes} byte(s)\n`));
+          out.write(c.dim(`  ${t('fiscal_mx.e_accounting.balance.suggested_file', { file: b.nombre, bytes: b.bytes })}\n`));
           out.write(c.dim(`  sha256 ${b.hash}\n`));
-          out.write(c.dim(`  destino ${destino}\n`));
+          out.write(c.dim(`  ${t('e_accounting.target.label', { target: targetLabel(destino) })}\n`));
         }
 
         const lineas = renderHallazgos(
@@ -834,22 +846,15 @@ Examples:
         if (b.meta.criterio_sellado !== 'nunca_sellar_en_el_sistema') {
           err.write(
             c.yellow(
-              `    El despacho tiene declarado '${b.meta.criterio_sellado}' en ` +
-                '`efirma_sellado_contabilidad_electronica`, y `generate` no sella: el archivo ' +
-                'sale sin Sello, noCertificado ni Certificado. Revísalo y séllalo con ' +
-                '`e-accounting balance seal`.\n\n'
+              `    ${t('e_accounting.sealing.declared', { policy: b.meta.criterio_sellado })} ` +
+                `${t('fiscal_mx.e_accounting.balance.seal_hint', { command: '`e-accounting balance seal`' })}\n\n`
             )
           );
         }
         if (dryRun) {
-          err.write(c.dim('  --dry-run: no se archivó nada y no se escribió ningún archivo.\n\n'));
+          err.write(c.dim(`  ${t('e_accounting.dry_run.done')}\n\n`));
         } else if (b.artefacto?.yaExistia === true) {
-          err.write(
-            c.dim(
-              '  Estos mismos bytes ya estaban archivados: no se creó una versión nueva. ' +
-                'El generador es determinista, que es lo que hace comparable un mes con otro.\n\n'
-            )
-          );
+          err.write(c.dim(`  ${t('e_accounting.archive.already_there')}\n\n`));
         }
         // Las bloqueantes no llegan hasta aquí: `generarBalanza` se niega y
         // lanza (422 → 4). Lo que sobrevive son avisos, y un aviso no impide
@@ -931,22 +936,30 @@ Examples:
           render(r.hallazgos.map(filaDeHallazgoDeBalanza), { ...opts, idField: 'check' });
           process.stderr.write(
             c.dim(
-              `${r.meta.rfc} · balanza ${r.meta.mes}/${r.meta.anio} · ${r.meta.period_name} · ` +
-                `${r.meta.cuentas} cuenta(s) · verificaciones: ${r.checks.join(',')}\n`
+              `${t('fiscal_mx.e_accounting.balance.check_envelope', {
+                rfc: r.meta.rfc,
+                month: r.meta.mes,
+                year: r.meta.anio,
+                period: r.meta.period_name,
+                accounts: r.meta.cuentas,
+                checks: r.checks.join(','),
+              })}\n`
             )
           );
         } else {
           out.write(cabeceraDeBalanza(r.meta, r.inicial));
           out.write(
             c.dim(
-              `  catálogo de cotejo: ${
-                r.catalogo === null
-                  ? 'ninguno'
-                  : `${r.catalogo.origen}${r.catalogo.referencia ? ` (${r.catalogo.referencia.slice(0, 12)})` : ''}`
-              }\n`
+              `  ${t('fiscal_mx.e_accounting.balance.check_catalog', {
+                found: r.catalogo === null ? 'no' : 'yes',
+                source:
+                  r.catalogo === null
+                    ? ''
+                    : `${r.catalogo.origen}${r.catalogo.referencia ? ` (${r.catalogo.referencia.slice(0, 12)})` : ''}`,
+              })}\n`
             )
           );
-          out.write(c.dim(`  verificaciones: ${r.checks.join(', ')}\n\n`));
+          out.write(c.dim(`  ${t('fiscal_mx.e_accounting.balance.checks_run', { checks: r.checks.join(', ') })}\n\n`));
           const lineas = renderHallazgos(
             r.hallazgos.map((h) => ({
               severity: h.severity,
@@ -958,16 +971,17 @@ Examples:
           );
           if (lineas.length === 0) {
             out.write(
-              `  ${MARK.limpio} sin hallazgos: la balanza pasa las ${r.checks.length} ` +
-                'verificación(es) pedidas.\n\n'
+              `  ${MARK.limpio} ${t('fiscal_mx.e_accounting.balance.check_clean', { count: r.checks.length })}\n\n`
             );
           } else {
             for (const l of lineas) out.write(`${l}\n`);
             out.write(
               '\n' +
                 c.dim(
-                  `  ${r.conteo.blocking} bloqueante(s), ${r.conteo.warning} aviso(s). ` +
-                    'Un bloqueante impide generar el archivo.\n\n'
+                  `  ${t('fiscal_mx.e_accounting.balance.check_summary', {
+                    blocking: r.conteo.blocking,
+                    warning: r.conteo.warning,
+                  })}\n\n`
                 )
             );
           }
