@@ -2445,10 +2445,12 @@ export const EN = {
   'ingest.census.more_invalid': '… and {count} more',
   'ingest.census.loaded': 'Census loaded from {file}: {inserted} new, {refreshed} already known.',
   'ingest.census.dry_run': '(dry-run: the census was read, not loaded.)',
-  // MNE-001-144 (#441): the SAT's cancellations of the census reach the mirror and the invoice.
+  // MNE-001-144 (#441): the SAT's cancellations of the census reach the mirror and the invoice;
+  // MNE-001-431 (#643): and the bill.
   'ingest.census.marks':
     'Cancelled by the SAT: {mirror, plural, one {# CFDI} other {# CFDI}} marked in the mirror, ' +
-    '{invoices, plural, one {# invoice} other {# invoices}} marked cancelled.',
+    '{invoices, plural, one {# invoice} other {# invoices}} marked cancelled, ' +
+    '{bills, plural, one {# bill} other {# bills}} marked.',
   'ingest.census.cancelled_booked':
     '{document} ({date}) carries CFDI {uuid}, which the SAT reports cancelled. Nothing was reversed: ' +
     'its status, entry and balance stay until the accountant decides.',
@@ -5150,6 +5152,10 @@ export const EN = {
     '{question} There is no terminal to ask on: run it again with --yes once you are sure, or with --dry-run to see the effect first.',
   'cfdi.post.would_post': 'Would post CFDI {uuid} as {invoice} for {rfc} · entry {entry}',
   'cfdi.post.posted': 'CFDI {uuid} posted as {invoice} for {rfc} · entry {entry} · {due} due',
+  // MNE-001-431 (#643): `cfdi status sync` and `cfdi status show --refresh` report the bills they marked.
+  'cfdi.status.bills_marked':
+    '{count, plural, one {# bill} other {# bills}} carrying a CFDI the SAT reports cancelled got the mark. ' +
+    'Nothing was reversed: status, entry and balance stay until the accountant decides.',
   'cfdi.post.nothing_written':
     'Nothing was written. To code one concept first: mnemosine bill inbox edit {id} --line <n> --account <code>',
   'cfdi.post.previous_account':

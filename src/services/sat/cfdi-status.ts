@@ -3,6 +3,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { query } from '../../database/connection.js';
 import { config } from '../../config/index.js';
 import { withRetry } from '../integrations/base/retry.js';
+import { markBillCfdiCancelled } from '../ap/bill-cfdi-cancellation.js';
 
 // ============================================================
 // F02 · ESTATUS DE CFDI ANTE EL SAT — el cliente real
@@ -183,6 +184,8 @@ export interface RevalidacionResumen {
   errores: number;
   /** Stamped invoices this sweep marked cancelled because the SAT says so. */
   invoices_cancelled: number;
+  /** Bills this sweep marked: their CFDI is cancelled, the SAT says (MNE-001-431). */
+  bills_marked: number;
 }
 
 /**
@@ -240,7 +243,7 @@ export async function revalidateEntityCfdis(
 
   const resumen: RevalidacionResumen = {
     consultados: 0, vigentes: 0, cancelados: 0, no_encontrados: 0, errores: 0,
-    invoices_cancelled: 0,
+    invoices_cancelled: 0, bills_marked: 0,
   };
   const LOTE = 5;
   for (let i = 0; i < filas.rows.length; i += LOTE) {
@@ -267,6 +270,7 @@ export async function revalidateEntityCfdis(
           );
           if (vs === 'cancelled') {
             resumen.invoices_cancelled += await markInvoiceCfdiCancelled(ctx.entityId, fila.cfdi_uuid);
+            resumen.bills_marked += await markBillCfdiCancelled(ctx.entityId, fila.cfdi_uuid);
           }
           resumen.consultados += 1;
           if (vs === 'valid') resumen.vigentes += 1;

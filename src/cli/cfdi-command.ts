@@ -280,7 +280,8 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
       );
       if (doc.rows.length === 0) throw notFound(`CFDI ${uuid} no está en el espejo de esta entidad.`);
       if (opts.refresh) {
-        await new SATValidationService().validateAndUpdate(doc.rows[0].id);
+        const checked = await new SATValidationService().validateAndUpdate(doc.rows[0].id);
+        if (checked?.status === 'cancelled') note(t('cfdi.status.bills_marked', { count: checked.billsMarked ?? 0 }));
       }
       const fila = await query<Record<string, unknown>>(
         `SELECT cfdi_uuid, sat_validation_status, sat_estado, sat_efecto_cancelacion,
@@ -344,6 +345,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
         process.stderr.write(deps.palette.yellow(
           `⚠ ${r.cancelados} CFDI cancelado(s) por el emisor: revisa su efecto contable con cfdi list --json\n`
         ));
+        process.stderr.write(`${t('cfdi.status.bills_marked', { count: r.bills_marked })}\n`);
       }
       return r.errores > 0 ? 1 : 0;
     })
