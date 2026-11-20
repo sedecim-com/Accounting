@@ -20,6 +20,7 @@ import {
   type ProvisionPlanSkip,
 } from '../services/accruals/provisions-run.js';
 import type { Palette } from './palette.js';
+import { t, type TranslationKey } from '../i18n/index.js';
 import {
   ExitCode,
   abortedByUser,
@@ -125,12 +126,7 @@ interface CommonOpts {
  */
 export function requirePeriod(periodo: string | undefined): string {
   if (!periodo) {
-    throw usageError(
-      'Falta --period. El devengo de prestaciones es de un mes concreto y no se adivina del ' +
-        'reloj: correr «el periodo actual» un día 1 a las 00:05 devengaría el mes que acaba de ' +
-        'empezar, y el asiento no se puede borrar después (mnemosine period list enumera los ' +
-        'periodos de la entidad).'
-    );
+    throw usageError({ key: 'payroll.accrue.period_required' });
   }
   return periodo;
 }
@@ -145,6 +141,23 @@ export function requirePeriod(periodo: string | undefined): string {
  * aritmética dio cero»—, y un contador que ve a alguien fuera de la cédula
  * necesita saber cuál de los dos le tocó sin volver a consultar la base.
  */
+/**
+ * The reason of a skipped worker, by the engine's code (MNE-001-221). The ROW
+ * stores the English catalogue, because --json and csv are read by scripts and
+ * must not change with the locale; the table renders it in the user's
+ * language through `skipReasonLabel` and the kernel's `labelled` hook.
+ */
+const SKIP_REASON: Readonly<Record<ProvisionPlanSkip['reason'], TranslationKey>> = {
+  'already-accrued': 'payroll.accrue.skip_already_accrued',
+  'zero-month': 'payroll.accrue.skip_zero_month',
+};
+
+/** The table's label of a stored reason: its key in the user's language; any other value passes through. */
+export function skipReasonLabel(value: string): string {
+  const key = Object.values(SKIP_REASON).find((k) => t(k, {}, 'en') === value);
+  return key === undefined ? value : t(key);
+}
+
 export function filasDeLaCedula(plan: ProvisionPlan): Row[] {
   const entra = (r: ProvisionPlanRow): Row => ({
     empleado: r.worker.employee_number,
@@ -164,10 +177,7 @@ export function filasDeLaCedula(plan: ProvisionPlan): Row[] {
     empleado: s.worker.employee_number,
     nombre: s.worker.nombre,
     estado: 'omitido',
-    motivo:
-      s.reason === 'already-accrued'
-        ? 'ya tiene renglon vigente de este mes'
-        : 'su devengo del mes es cero',
+    motivo: t(SKIP_REASON[s.reason], {}, 'en'),
     dias: '',
     aguinaldo: '',
     vacaciones: '',
@@ -315,7 +325,7 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
         deps.palette.cyan(yesNoPrompt(question))
       );
       if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+        process.stderr.write(`${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`);
       }
       return veredicto.si;
     } finally {
@@ -346,8 +356,8 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
     risk: 'irreversible',
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines (UN asiento de ajuste por corrida), ' +
-      'benefit_provision_schedules (un renglon de cedula por trabajador)',
+      'journal_entries + journal_entry_lines (ONE adjusting entry per run), ' +
+      'benefit_provision_schedules (one schedule row per worker)',
     llave: { scope: 'payroll accrue' },
   });
   devengar.addHelpText('after', EJEMPLOS.accrue);
@@ -396,30 +406,35 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
       const err = process.stderr;
       err.write(
         deps.palette.dim(
-          `${plan.periodo.nombre} (${dateOnly(plan.periodo.inicio)}..${dateOnly(plan.periodo.fin)}) · ` +
-            `asiento con fecha ${dateOnly(plan.periodo.fin)} · ${previstos} trabajador(es) devengan, ` +
-            `${plan.skipped.length} se omiten · aguinaldo ${plan.aguinaldo} · vacaciones ` +
-            `${plan.vacaciones} · prima ${plan.prima_vacacional} · total ${plan.total}\n`
+          `${t('payroll.accrue.summary', {
+            period: plan.periodo.nombre,
+            start: dateOnly(plan.periodo.inicio),
+            end: dateOnly(plan.periodo.fin),
+            entryDate: dateOnly(plan.periodo.fin),
+            accruing: previstos,
+            skipped: plan.skipped.length,
+            aguinaldo: plan.aguinaldo,
+            vacation: plan.vacaciones,
+            premium: plan.prima_vacacional,
+            total: plan.total,
+          })}\n`
         )
       );
       err.write(
         deps.palette.dim(
-          `base ${plan.criterios.base_salarial}` +
-            `${plan.criterios.definidas.provision_base_salarial ? '' : ' (defecto)'} · ` +
-            `vacaciones ${plan.criterios.convencion_vacaciones}` +
-            `${plan.criterios.definidas.devengo_vacaciones ? '' : ' (defecto)'} · ` +
-            `aguinaldo ${plan.criterios.dias_aguinaldo} dia(s) · ` +
-            `prima ${plan.criterios.prima_vacacional_pct}\n`
+          `${t('payroll.accrue.criteria', {
+            base: plan.criterios.base_salarial,
+            baseDefaulted: plan.criterios.definidas.provision_base_salarial ? 'no' : 'yes',
+            vacation: plan.criterios.convencion_vacaciones,
+            vacationDefaulted: plan.criterios.definidas.devengo_vacaciones ? 'no' : 'yes',
+            days: plan.criterios.dias_aguinaldo,
+            premium: plan.criterios.prima_vacacional_pct,
+          })}\n`
         )
       );
       if (!plan.criterios.definidas.provision_base_salarial || !plan.criterios.definidas.devengo_vacaciones) {
         err.write(
-          deps.palette.yellow(
-            '  ⚠ Rige al menos un defecto declarado y no una elección del despacho: entre ' +
-              '`nominal` e `integrado` hay un 20 % de diferencia en el importe de cada mes. Se ' +
-              'contesta con `mnemosine pending define provision_base_salarial` / ' +
-              '`devengo_vacaciones`.\n'
-          )
+          deps.palette.yellow(`  ⚠ ${t('payroll.accrue.default_criteria_warning')}\n`)
         );
       }
 
@@ -463,9 +478,10 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
           ...opts,
           idField: 'empleado',
           numeric: ['dias', 'aguinaldo', 'vacaciones', 'prima_vacacional', 'total'],
+          labelled: { motivo: skipReasonLabel },
         });
         if (asiento.length > 0) {
-          err.write(deps.palette.dim(`El asiento unico de la corrida, ${asiento.length} linea(s):\n`));
+          err.write(deps.palette.dim(`${t('payroll.accrue.entry_heading', { lines: asiento.length })}\n`));
           render(asiento, { ...opts, idField: 'linea', numeric: ['debe', 'haber'] });
         }
         for (const e of plan.errors) err.write(deps.palette.yellow(`  ⚠ ${e}\n`));
@@ -517,18 +533,13 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
         // reversa es una corrección, no una condena»—, así que aquí se acusa en
         // vez de mentir: con una llave nueva, el mes se devenga otra vez.
         if (grabado.journalEntryId !== null && !(await asientoVigente(grabado.journalEntryId))) {
-          throw usageError(
-            `La llave "${opts.idempotencyKey ?? ''}" grabó el asiento ${grabado.journalEntryId}, que ` +
-              `después se reversó. Devolver ese resultado diría que el mes está devengado cuando no ` +
-              `lo está. Vuelve a correr con una llave nueva —es otra corrida, no un reintento— o sin ` +
-              `--idempotency-key.`
-          );
+          throw usageError({
+            key: 'payroll.accrue.key_entry_reversed',
+            params: { key: opts.idempotencyKey ?? '', entry: grabado.journalEntryId },
+          });
         }
         err.write(
-          deps.palette.dim(
-            'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió ' +
-              'a devengar.\n'
-          )
+          deps.palette.dim(`${t('payroll.accrue.idempotency_hit')}\n`)
         );
         render(
           [
@@ -545,12 +556,7 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
       }
 
       if (previstos === 0) {
-        err.write(
-          deps.palette.dim(
-            `Nada que devengar en ${plan.periodo.nombre}: el mayor no se tocó y no se escribió ` +
-              'ningún renglón de cédula.\n'
-          )
-        );
+        err.write(deps.palette.dim(`${t('payroll.accrue.nothing_to_accrue', { period: plan.periodo.nombre })}\n`));
         // Una ficha rota no impide que los demás devenguen, pero tampoco se
         // calla: si TODO lo que había eran fichas rotas, el mes queda sin
         // devengar y el código de salida tiene que decirlo.
@@ -558,9 +564,7 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
       }
 
       if (dryRun) {
-        err.write(
-          deps.palette.dim('Ensayo: el mayor no se tocó y no se escribió ningún renglón de cédula.\n')
-        );
+        err.write(`${deps.palette.dim(t('payroll.accrue.dry_run'))}\n`);
         // EL ENSAYO SALE CON EL CÓDIGO QUE SALDRÍA LA CORRIDA, y no siempre 0.
         //
         // El ensayo existe para que un guion pueda mirar antes de postear, y un
@@ -580,16 +584,12 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
 
       if (opts.yes !== true) {
         const ok = await ask(
-          `¿Devengar ${total.toFixed(2)} MXN de ${previstos} trabajador(es) en ${plan.periodo.nombre}? ` +
-            'El mayor no admite deshacer.'
+          t('payroll.accrue.confirm', { amount: total.toFixed(2), count: previstos, period: plan.periodo.nombre })
         );
         if (!ok) {
-          throw abortedByUser(
-            stdin.isTTY
-              ? 'Sin cambios: el mayor no se tocó.'
-              : 'Sin cambios: no hay terminal donde confirmar. Añade -y para devengar sin ' +
-                'preguntar, o --dry-run para ver la cédula completa sin escribir nada.'
-          );
+          throw abortedByUser({
+            key: stdin.isTTY ? 'payroll.accrue.aborted' : 'payroll.accrue.aborted_no_terminal',
+          });
         }
       }
 
@@ -623,10 +623,7 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
 
       if (repetido) {
         err.write(
-          deps.palette.dim(
-            'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió ' +
-              'a devengar.\n'
-          )
+          deps.palette.dim(`${t('payroll.accrue.idempotency_hit')}\n`)
         );
       }
 
@@ -638,25 +635,27 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
       if (!repetido && resultado.processed !== previstos) {
         err.write(
           deps.palette.yellow(
-            `  ⚠ La vista previa enseñaba ${previstos} trabajador(es) y la corrida devengó ` +
-              `${resultado.processed}. Algo cambió entre mirar y postear: revisa la cédula antes ` +
-              'de dar el mes por cerrado.\n'
+            `  ⚠ ${t('payroll.accrue.preview_count_mismatch', { previewed: previstos, processed: resultado.processed })}\n`
           )
         );
       }
       if (!repetido && !new Decimal(resultado.total).equals(total)) {
         err.write(
           deps.palette.yellow(
-            `  ⚠ La vista previa sumaba ${plan.total} y la corrida devengó ${resultado.total}.\n`
+            `  ⚠ ${t('payroll.accrue.preview_total_mismatch', { previewed: plan.total, posted: resultado.total })}\n`
           )
         );
       }
       for (const e of resultado.errors) err.write(deps.palette.yellow(`  ⚠ ${e}\n`));
       err.write(
         deps.palette.green(
-          `✔ ${resultado.processed} trabajador(es) devengados en ${plan.periodo.nombre} por ` +
-            `${resultado.total}` +
-            `${resultado.journalEntryId ? ` · asiento ${resultado.journalEntryId}` : ''}.\n`
+          `✔ ${t('payroll.accrue.done', {
+            count: resultado.processed,
+            period: plan.periodo.nombre,
+            total: resultado.total,
+            hasEntry: resultado.journalEntryId ? 'yes' : 'no',
+            entry: resultado.journalEntryId ?? '',
+          })}\n`
         )
       );
 

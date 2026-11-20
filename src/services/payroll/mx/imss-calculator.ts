@@ -1,7 +1,14 @@
 import Decimal from 'decimal.js';
 import type { ITaxCalculator, TaxInput, TaxOutput } from '../tax-engine/tax-engine.interface.js';
 import { legalParameterAt } from '../../jurisdiction/legal-parameters.js';
-import { OLD_AGE_BAND_EDGE_POLICY, OLD_AGE_EMPLOYER_RATE_PREFIX, placeOldAgeBand } from './old-age-band.js';
+import {
+  OLD_AGE_BAND_EDGE_POLICY,
+  OLD_AGE_EMPLOYER_RATE_PREFIX,
+  OLD_AGE_MINIMUM_WAGE_AREA_POLICY,
+  describeMinimumWageArea,
+  placeOldAgeBand,
+} from './old-age-band.js';
+import { MINIMUM_WAGE_PARAMETER_OF } from './minimum-wage-zone.js';
 import { contributionMonths, getTaxParameters, requiredParameter, requiredRates } from '../tax-engine/tax-tables.js';
 
 // ============================================================
@@ -197,14 +204,22 @@ export class MexicoImssEmployerCalculator implements ITaxCalculator {
             'and on the year of each contribution day (LSS art. 168 fr. II a), and the year cannot be taken from today.'
         );
       }
-      const minimumWage = requiredParameter(params, 'salario_minimo_general_diario', 'MX', tax_year);
+      const area = input.imss_minimum_wage_area;
+      if (!area) {
+        throw new Error(
+          `The employer old-age quota needs the policy ${OLD_AGE_MINIMUM_WAGE_AREA_POLICY}: the «1.00 SM» band is ` +
+            'measured with the minimum wage of an area, and the entity decides which. Read it with ' +
+            'readOldAgeMinimumWageArea and pass it in the input.'
+        );
+      }
+      const minimumWage = requiredParameter(params, MINIMUM_WAGE_PARAMETER_OF[area.zone], 'MX', tax_year);
       const band = placeOldAgeBand({ sbc: sbcCapped, uma, minimumWage, edge });
       const oldAge = await legalParameterAt('MX', OLD_AGE_EMPLOYER_RATE_PREFIX + band.suffix, date);
       add('cesantia_vejez', new Decimal(sbcCapped).times(oldAge.value).times(days).toNumber());
       notes.push(
         `Old age (cesantía y vejez) from ${date}, ${days} days: band «${band.asPrinted}» at ` +
           `${new Decimal(oldAge.value).times(100).toFixed(3)} %, UMA ${uma.toFixed(2)}, ` +
-          `minimum wage ${minimumWage.toFixed(2)} (ZSMG until #196), edge rule ${edge}`
+          `minimum wage ${minimumWage.toFixed(2)} (${describeMinimumWageArea(area)}), edge rule ${edge}`
       );
       // Retirement (SAR) — 2% paid directly to the AFORE
       add('retiro', sbcCapped * er.retiro * days);

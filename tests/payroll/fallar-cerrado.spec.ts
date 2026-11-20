@@ -89,7 +89,7 @@ describe('la cuota patronal del IMSS no sale en cero por falta de su bloque (#29
       pay_frequency: 'quincenal', tax_year: 2027, taxable_wages: 0,
       sbc_daily: 500, days_in_period: 15, riesgo_puesto: '01',
       // The old-age quota goes by the band of each dated day (#661).
-      period_start: '2027-03-01', period_end: '2027-03-15', imss_old_age_band_edge: 'above_upper_edge',
+      period_start: '2027-03-01', period_end: '2027-03-15', imss_old_age_band_edge: 'above_upper_edge', imss_minimum_wage_area: { zone: 'general', rule: 'general_zone', declared: true },
     });
   };
 

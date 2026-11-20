@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { getPolicy } from '../../policy/policy-service.js';
 import { AccountingError } from '../../../utils/errors.js';
+import { minimumWageZoneOf, type MinimumWageZone } from './minimum-wage-zone.js';
 
 // ============================================================
 // MX · THE SBC BAND OF THE EMPLOYER OLD-AGE QUOTA (#661, MNE-001-513)
@@ -20,8 +21,13 @@ import { AccountingError } from '../../../utils/errors.js';
 //   · truncated_to_hundredths: SBC ÷ minimum wage and SBC ÷ UMA are cut to
 //     two decimals and then placed, which reads «3.01» literally.
 //
-// «SM» is the general minimum wage (ZSMG) for every entity until #196 stores
-// the employer's zone: a border registration is not told apart yet.
+// «SM» is the general minimum wage of the area of the employer registration
+// (#661: LFT art. 92, LSS arts. 28 and 39), which is the entity's declared zone
+// (#196, migration 336). The policy `imss_old_age_minimum_wage_area` can take
+// the centre-zone minimum for every worker instead, as the SUA FAQ suggests to
+// an employer registered in both zones (MNE-001-578). An entity that never
+// declared its zone is measured with the general minimum, and the note says so
+// (decision MNE-001-376).
 // ============================================================
 
 /** The policy that decides the band edge. Its values are persisted: never rename them. */
@@ -91,4 +97,46 @@ export async function readOldAgeBandEdge(
     );
   }
   return value;
+}
+
+/** The policy that decides which minimum wage measures the «1.00 SM» band. Its values are persisted. */
+export const OLD_AGE_MINIMUM_WAGE_AREA_POLICY = 'imss_old_age_minimum_wage_area';
+
+export type OldAgeMinimumWageAreaRule = 'employer_registration_area' | 'general_zone';
+
+const KNOWN_AREA_RULES: readonly OldAgeMinimumWageAreaRule[] = ['employer_registration_area', 'general_zone'];
+
+/** The area whose general minimum measures the «1.00 SM» band, and how it was reached. */
+export interface OldAgeMinimumWageArea {
+  zone: MinimumWageZone;
+  rule: OldAgeMinimumWageAreaRule;
+  /** false = the entity never declared its zone, so its default (general) was used. */
+  declared: boolean;
+}
+
+/** What the calculation note says about the minimum it used. */
+export function describeMinimumWageArea(area: OldAgeMinimumWageArea): string {
+  if (area.rule === 'general_zone') return 'general zone for every worker, policy general_zone';
+  return area.declared
+    ? `${area.zone}, the employer registration's area`
+    : 'general: the entity has not declared its zone';
+}
+
+/** Reads the area rule of the entity and, under the default, the entity's zone. Closed on unknown values. */
+export async function readOldAgeMinimumWageArea(
+  ctx: { tenantId: string; entityId?: string },
+  client?: pg.PoolClient
+): Promise<OldAgeMinimumWageArea> {
+  const policy = await getPolicy(ctx, OLD_AGE_MINIMUM_WAGE_AREA_POLICY, client);
+  const rule = KNOWN_AREA_RULES.find((r) => r === policy.value);
+  if (!rule) {
+    throw new AccountingError(
+      'IMSS_OLD_AGE_MINIMUM_WAGE_AREA_UNKNOWN',
+      `The policy ${OLD_AGE_MINIMUM_WAGE_AREA_POLICY} is "${policy.value}" and this reader only knows ` +
+        `${KNOWN_AREA_RULES.join(', ')}. Correct it in mnemosine pending.`
+    );
+  }
+  if (rule === 'general_zone') return { zone: 'general', rule, declared: true };
+  const { zone, declaredBy } = await minimumWageZoneOf(ctx);
+  return { zone, rule, declared: declaredBy !== null };
 }

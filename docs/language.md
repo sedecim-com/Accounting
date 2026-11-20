@@ -104,7 +104,7 @@ trace is the diff. The live figures are read with `npm run language:status`.
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 51 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
 | `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
-| `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 426 | 0 |
+| `spanish-user-strings-cli` | Spanish user-facing strings still written in src/cli/ | 399 | 0 |
 | `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 118 | 0 |
 | `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 36 | 0 |
 | `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 30 | 0 |
