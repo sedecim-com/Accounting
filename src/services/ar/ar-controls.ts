@@ -3,6 +3,7 @@ import { query } from '../../database/connection.js';
 import { AccountingError } from '../../utils/errors.js';
 import type { TranslationKey } from '../../i18n/index.js';
 import { queryAccountBalance, queryEntryMovementsOnAccount } from '../reporting/report-service.js';
+import { cashOnAccountSql } from '../payments/cash-on-account.js';
 import {
   FX_REVALUATION_SOURCE,
   bookAmountDueSql,
@@ -346,13 +347,11 @@ const SONDAS: Sonda[] = [
     descripcion: 'cobros con saldo a cuenta sin aplicar por más de 30 días',
     correr: async (entityId) => {
       const { count, sample } = await cuenta(
-        `SELECT cp.payment_number, (cp.payment_amount - COALESCE(ap.s,0))::text AS remanente,
+        `SELECT cp.payment_number, ${cashOnAccountSql('cp')}::text AS remanente,
                 COUNT(*) OVER()::int AS total
            FROM customer_payments cp
-           LEFT JOIN LATERAL (SELECT SUM(amount_applied) AS s FROM payment_allocations
-                               WHERE payment_id = cp.id AND unapplied_at IS NULL) ap ON true
           WHERE cp.entity_id = $1 AND cp.status = 'completed'
-            AND cp.payment_amount - COALESCE(ap.s,0) > 0.005
+            AND ${cashOnAccountSql('cp')} > 0.005
             AND cp.payment_date < NOW() - INTERVAL '30 days'
           ORDER BY cp.payment_date LIMIT 5`,
         [entityId],

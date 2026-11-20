@@ -2531,6 +2531,40 @@ export const EN = {
   'receipt.cause.confirm':
     'State {cause} as the cause of the reversal of {number}? It is written once and cannot be corrected; nothing posts to the ledger.',
   'receipt.cause.stated': '{number}: cause {cause}, stated at {stated_at}; nothing was posted',
+  // MNE-001-498 (#695): a customer's cash on account, transferred to another customer.
+  'receipt.transfer.reason_required':
+    'Transferring a customer\'s credit requires --reason "<the agreement>": it is written to the audit trail and on the transfer. Nothing was written.',
+  'receipt.transfer.amount_invalid':
+    'The amount "{amount}" of a transfer must be greater than zero, with at most 4 decimals. Nothing was written.',
+  'receipt.transfer.not_mexican_books':
+    'This entity does not keep Mexican books: a transfer of customer credit is built for them (its IVA is caused when the credit settles an invoice, LIVA art. 1o.-B). Nothing was written.',
+  'receipt.transfer.not_completed':
+    'The receipt {receipt} is "{status}": only a completed receipt has cash on account to transfer. Nothing was written.',
+  'receipt.transfer.not_functional_currency':
+    'The receipt {receipt} is in {currency}: only cash on account in {functional} is transferred, because the transfer moves its amount in customer advances as it stands. Nothing was written.',
+  'receipt.transfer.source_is_transfer':
+    'The receipt {receipt} is itself a transfer of customer credit: passing it on to a third customer waits for part 2 (MNE-001-499), which defines how such a chain is undone. Nothing was written.',
+  'receipt.transfer.advance_in_499':
+    'The cash on account of {receipt} is an advance whose IVA was caused when it was collected (its base in customer advances, its IVA in IVA charged): transferring it splits base and IVA, which arrives with MNE-001-499. Nothing was written.',
+  'receipt.transfer.cheque_not_cashed':
+    'The receipt {receipt} is a cheque the bank has not cashed: it is not collected until it is cashed (LIVA art. 1-B), and a bounce would have to undo a credit the other customer relies on. Record the cashing first with `mnemosine bank check reconcile --receipt {receipt}`. Nothing was written.',
+  'receipt.transfer.same_customer':
+    'The receipt {receipt} already belongs to {customer}: a transfer moves cash on account to another customer. Nothing was written.',
+  'receipt.transfer.exceeds_on_account':
+    'The receipt {receipt} has {onAccount} on account and {amount} would be transferred: the cash on account does not reach. Nothing was written.',
+  'receipt.transfer.date_future':
+    '{receipt} cannot be transferred on {date}: that is after today ({today}) in the entity\'s time zone. Nothing was written.',
+  'receipt.transfer.date_before_last_event':
+    '{receipt} was last posted on {since}: a transfer dated {date} would give away its cash before that happened. Date it {since} or later. Nothing was written.',
+  'receipt.transfer.events_in_499':
+    'The receipt {receipt} is a transfer of customer credit: applying it to invoices, unapplying it and reversing it arrive with part 2 (MNE-001-499), which dates its IVA and mirrors its entry. Until then a wrong transfer is corrected with a transfer back. Nothing was written.',
+  'receipt.reverse.has_transfer':
+    'Part of the cash on account of {receipt} was transferred to another customer ({transfers}): reversing the receipt would leave that credit with no money behind it. Undo the transfer first (MNE-001-499). Nothing was written.',
+  'receipt.transfer.would_transfer': 'Would transfer {amount} of {source} from {from} to {to} on {date}',
+  'receipt.transfer.on_account': '{party} on account: {before} → {after}',
+  'receipt.transfer.confirm':
+    'Transfer {amount} of the cash on account of {source} from {from} to {to} on {date} in {entity}? This posts to the ledger.',
+  'receipt.transfer.recorded': '{number}: {amount} of {source} transferred from {from} to {to} on {date} · entry {entry}',
   // MNE-001-568 (#612): the trace of a registered payment, completed from its evidence.
   'payment.trace.nothing_given':
     'Say what to complete: --check-number, --to-account, --to-bank, --to-foreign-bank or --bank. Nothing was written.',
@@ -3567,6 +3601,16 @@ export const EN = {
   'help.receipt.trace.record.option.payer_foreign_bank': "name of the customer's bank when it is a foreign one",
   'help.receipt.trace.record.option.bank': 'bank account (name or id) the money went into; only one that posts to the ledger account its entry moved',
   'help.receipt.trace.record.option.json': 'JSON output',
+  // MNE-001-498 (#695): the transfer of a customer's cash on account.
+  'help.receipt.transfer.description': "A transfer of a customer's cash on account to another customer",
+  'help.receipt.transfer.record.description':
+    "Transfer a customer's cash on account to another customer, as agreed: audited, posts DR/CR customer advances, no bank, revenue or IVA",
+  'help.receipt.transfer.record.argument.ref': 'payment number or id of the receipt whose cash on account is transferred',
+  'help.receipt.transfer.record.option.customer': 'the customer who receives the credit (number, name or id)',
+  'help.receipt.transfer.record.option.amount': 'amount to transfer, at most the cash on account of the receipt',
+  'help.receipt.transfer.record.option.date':
+    'the agreed day of the transfer (YYYY-MM-DD), which dates its entry; defaults to today in the entity\'s time zone',
+  'help.receipt.transfer.record.option.json': 'JSON output',
   'help.sat.download.description': 'Bulk download of CFDI from the SAT, and the census against the books',
   'help.sat.download.reconcile.description':
     'Read the SAT census of a month against what is posted: what is still to fetch, what is fetched and not posted, what the SAT cancelled and the books still carry, and what the books carry that the SAT does not list. Reads the census that `ingest --kind zip|metadata` loaded; it does not go to the SAT. Exits 4 when the month cannot be called complete',

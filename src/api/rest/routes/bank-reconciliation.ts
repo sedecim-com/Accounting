@@ -130,7 +130,8 @@ async function movimientoDelLlamador(req: Request, txId: string): Promise<BankTr
 const DOCUMENT_ENTITY_SQL: Record<(typeof MATCHED_ENTITY_TYPES)[number], string> = {
   invoice: 'SELECT 1 FROM invoices WHERE id = $1 AND entity_id = $2',
   bill: 'SELECT 1 FROM bills WHERE id = $1 AND entity_id = $2',
-  customer_payment: 'SELECT 1 FROM customer_payments WHERE id = $1 AND entity_id = $2',
+  // MNE-001-498 · a transfer of customer credit moved no money, so it is no bank match.
+  customer_payment: "SELECT 1 FROM customer_payments WHERE id = $1 AND entity_id = $2 AND payment_method <> 'balance_transfer'",
   vendor_payment: 'SELECT 1 FROM vendor_payments WHERE id = $1 AND entity_id = $2',
   journal_entry_line:
     'SELECT 1 FROM journal_entry_lines l JOIN journal_entries je ON je.id = l.journal_entry_id WHERE l.id = $1 AND je.entity_id = $2',

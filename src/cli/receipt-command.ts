@@ -13,6 +13,8 @@ import {
   unapplyCustomerPayment,
   reverseCustomerPayment,
   stateReversalCause,
+  transferCustomerCredit,
+  type CustomerCreditTransfer,
   getCustomerPayment,
   REVERSAL_CAUSES,
   type ResultadoReversa,
@@ -106,6 +108,8 @@ interface CommonOpts {
  * deduplicaciones distintas con el mismo nombre.
  */
 const AMBITO_DE_COBRO = 'receipt record';
+/** MNE-001-498 · the scope under which `receipt transfer record` spends its key. */
+const TRANSFER_KEY_SCOPE = 'receipt transfer record';
 
 const COBRABLES = ['sent', 'viewed', 'partially_paid', 'overdue'] as const;
 
@@ -195,6 +199,13 @@ Examples:
   mnemosine receipt trace record PMT-2026-00001 --bank "Operativa BBVA" --payer-bank 002 --payer-account 002180009876543210 --reason "CEP of the transfer"
   # A customer cheque recorded without its number: look first, then complete it from the deposit slip.
   mnemosine receipt trace record PMT-2026-00002 --check-number 4501 --payer-bank 072 --payer-account 1234567890 --dry-run
+`,
+  transferRecord: `
+Examples:
+  # The two customers and the entity agreed that PMT-2026-00042's cash on account is now Grupo Alameda's: look first.
+  mnemosine receipt transfer record PMT-2026-00042 --customer "Grupo Alameda" --amount 1160.00 --date 2026-06-15 --reason "Convenio del 15 de junio" --dry-run
+  # Then record it: DR/CR customer advances on June 15, no bank, revenue or IVA.
+  mnemosine receipt transfer record PMT-2026-00042 --customer "Grupo Alameda" --amount 1160.00 --date 2026-06-15 --reason "Convenio del 15 de junio" --yes
 `,
 } as const;
 
@@ -1127,6 +1138,110 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         writeTraceCompletion(result, { dryRun, json: opts.json, palette: p });
       })
   );
+
+  // ---- receipt transfer record (MNE-001-498, #695 part 1/2) ---------
+  // A customer's cash on account moves to another customer, as agreed: a
+  // credit row for B linked to A's receipt, and its own entry. `transfer`
+  // qualifies `receipt`, as `cause` and `trace` do.
+  const transferNoun = describeCommand(receipt.command('transfer').alias('traspaso'), 'help.receipt.transfer.description');
+  const transferRecord = describeCommand(
+    transferNoun.command('record').alias('registrar'), 'help.receipt.transfer.record.description'
+  );
+  argumentByKey(transferRecord, '<ref>', 'help.receipt.transfer.record.argument.ref');
+  withContext(transferRecord);
+  optionByKey(transferRecord, '--customer <customer>', 'help.receipt.transfer.record.option.customer', { mandatory: true });
+  optionByKey(transferRecord, '--amount <amount>', 'help.receipt.transfer.record.option.amount', { mandatory: true });
+  optionByKey(transferRecord, '--date <date>', 'help.receipt.transfer.record.option.date');
+  // `record` is not an undo verb, so the kernel does not inject --reason: the leaf declares it.
+  optionByKey(transferRecord, '--reason <text>', 'cli.flag.reason');
+  optionByKey(transferRecord, '--json', 'help.receipt.transfer.record.option.json');
+  declareRisk(transferRecord, {
+    risk: 'irreversible',
+    llave: { scope: 'receipt transfer record' },
+    agent: false,
+    writes: 'customer_payments (the receiving row), journal_entries, audit_log',
+  });
+  transferRecord.addHelpText('after', EJEMPLOS.transferRecord);
+  transferRecord.action(
+    (ref: string, opts: CommonOpts & { customer: string; amount: string; date?: string; reason?: string }) =>
+      run(async () => {
+        const { dryRun, reason } = gateMutation(transferRecord, opts as unknown as Record<string, unknown>);
+        if (!reason?.trim() && !dryRun) throw usageError({ key: 'receipt.transfer.reason_required' });
+        const ctx = await writeEntityOf(opts);
+        const p = deps.palette;
+        // Resolved once, so the preview and the write cannot disagree at midnight.
+        const date = opts.date ?? (await hoy(ctx));
+        const source = await getCustomerPayment(ctx.entityId, ref);
+        const target = await resolveCustomer(ctx.entityId, opts.customer);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const args = { customerId: String(target.id), amount: opts.amount, date, reason: reason?.trim() ?? '' };
+        // The key is the input, never the balance it changes: a retry after the transfer finds 0.00 on account.
+        const payloadHash = hashDeCarga(source.id, args.customerId, date, cargaDelOperador(opts as unknown as Record<string, unknown>));
+        const key = { scope: TRANSFER_KEY_SCOPE, clave: opts.idempotencyKey, payloadHash };
+        if (opts.idempotencyKey && !dryRun) {
+          const recorded = await mirarLlave<{ transfer: CustomerCreditTransfer }>({ tenantId: ctx.tenantId }, key);
+          if (recorded) {
+            process.stderr.write(p.yellow(`${idempotencyHitNote(opts.idempotencyKey, recorded.transfer.transferNumber)}\n`));
+            printTransfer(recorded.transfer, p, false, opts.json === true);
+            return;
+          }
+        }
+
+        const preview = await transferCustomerCredit(ctx.entityId, source.id, args, reviewer.userId, { dryRun: true });
+        if (dryRun) {
+          printTransfer(preview, p, true, opts.json === true);
+          process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+          return;
+        }
+        await confirmOrAbort(opts, t('receipt.transfer.confirm', {
+          amount: preview.amount, source: preview.sourceNumber, from: preview.fromCustomer, to: preview.toCustomer,
+          date: preview.date, entity: ctx.entityName,
+        }));
+
+        const act = await conLlave(
+          { tenantId: ctx.tenantId, entityId: ctx.entityId }, key,
+          async () => ({ transfer: await transferCustomerCredit(ctx.entityId, source.id, args, reviewer.userId) })
+        );
+        const result = act.resultado.transfer;
+        if (act.repetido) {
+          process.stderr.write(p.yellow(`${idempotencyHitNote(opts.idempotencyKey ?? '', result.transferNumber)}\n`));
+        } else {
+          attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
+        }
+        printTransfer(result, p, false, opts.json === true);
+      })
+  );
+}
+
+/** MNE-001-498 · A transfer as the dry run, the result and --json say it: the entry's lines and both balances. */
+function printTransfer(r: CustomerCreditTransfer, p: Palette, rehearsal: boolean, json: boolean): void {
+  if (json) {
+    render([{
+      transfer_number: rehearsal ? null : r.transferNumber,
+      source: r.sourceNumber,
+      from_customer: r.fromCustomer,
+      to_customer: r.toCustomer,
+      amount: r.amount,
+      date: r.date,
+      entry_number: rehearsal ? null : r.journalEntry.entry_number,
+      source_on_account_before: r.sourceOnAccount.before,
+      source_on_account_after: r.sourceOnAccount.after,
+      customer_on_account_before: r.customerOnAccount.before,
+      customer_on_account_after: r.customerOnAccount.after,
+    }], { json: true });
+    return;
+  }
+  const what = { amount: r.amount, source: r.sourceNumber, from: r.fromCustomer, to: r.toCustomer, date: r.date };
+  process.stdout.write(
+    rehearsal
+      ? `${p.bold(t('receipt.transfer.would_transfer', what))}\n`
+      : `${p.green('✔')} ${t('receipt.transfer.recorded', { ...what, number: r.transferNumber, entry: r.journalEntry.entry_number })}\n`
+  );
+  for (const l of r.lines) {
+    process.stdout.write(p.dim(`  ${l.account.padEnd(8)} ${l.debit.padStart(14)} ${l.credit.padStart(14)}  ${l.description}\n`));
+  }
+  process.stdout.write(`  ${t('receipt.transfer.on_account', { party: r.sourceNumber, before: r.sourceOnAccount.before, after: r.sourceOnAccount.after })}\n`);
+  process.stdout.write(`  ${t('receipt.transfer.on_account', { party: r.toCustomer, before: r.customerOnAccount.before, after: r.customerOnAccount.after })}\n`);
 }
 
 /** The cause a reversed receipt keeps, as the dry run, the confirmation and the result say it (MNE-001-509). */

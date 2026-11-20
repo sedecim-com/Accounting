@@ -11,8 +11,10 @@ import {
   postReceiptUnapplicationEntry,
   postVendorApplicationEntry,
   postVendorUnapplicationEntry,
+  postCustomerCreditTransferEntry,
   type AplicacionPosterior,
 } from '../accounting/ar-ap-posting.js';
+import { BALANCE_TRANSFER_METHOD, CUSTOMER_CREDIT_TRANSFER_SOURCE, cashOnAccountSql } from './cash-on-account.js';
 import { voidJournalEntryInTx, reverseWithinTransaction } from '../accounting/posting.js';
 import { earlyPaymentDiscount } from '../ap/bill-service.js';
 import {
@@ -1372,30 +1374,29 @@ async function receiptEventDate(
   entityId: string,
   receipt: PagoVivo,
   given: string | undefined,
-  event: 'apply' | 'unapply'
+  event: 'apply' | 'unapply' | 'transfer'
 ): Promise<string> {
   const today = await todayFor({ tenantId: await tenantDe(client, entityId), entityId }, { client });
   const date = given === undefined ? today : toCalendarDate(given);
   const params = { receipt: receipt.payment_number, date, today };
   if (date > today) {
-    throw new ValidationError(
-      { key: event === 'apply' ? 'receipt.apply.date_future' : 'receipt.unapply.date_future', params }, 'date'
-    );
+    throw new ValidationError({ key: `receipt.${event}.date_future` as const, params }, 'date');
   }
+  // MNE-001-498 · a transfer out of the receipt is one of its events: its entry is tied to the receiving row.
   const last = await client.query<{ d: string | null }>(
     `SELECT to_char(MAX(entry_date), 'YYYY-MM-DD') AS d FROM journal_entries
-      WHERE entity_id = $1 AND source_id = $2 AND status = 'posted'
-        AND source_type IN ('customer_payment', 'receipt_application', 'receipt_unapplication', 'customer_cheque_cashing')`,
+      WHERE entity_id = $1 AND status = 'posted'
+        AND ((source_id = $2
+              AND source_type IN ('customer_payment', 'receipt_application', 'receipt_unapplication', 'customer_cheque_cashing'))
+          OR (source_type = '${CUSTOMER_CREDIT_TRANSFER_SOURCE}' AND source_id IN (
+                SELECT t.id FROM customer_payments t WHERE t.entity_id = $1 AND t.transferred_from_payment_id = $2)))`,
     [entityId, receipt.id]
   );
   const recorded = toCalendarDate(receipt.payment_date);
   const since = last.rows[0]?.d && last.rows[0].d > recorded ? last.rows[0].d : recorded;
   if (date < since) {
     throw new ValidationError(
-      {
-        key: event === 'apply' ? 'receipt.apply.date_before_last_event' : 'receipt.unapply.date_before_last_event',
-        params: { ...params, since },
-      },
+      { key: `receipt.${event}.date_before_last_event` as const, params: { ...params, since } },
       'date'
     );
   }
@@ -1442,13 +1443,24 @@ async function advanceLeft(
   };
 }
 
-async function remanenteDe(client: pg.PoolClient, paymentId: string, paymentAmount: string): Promise<Decimal> {
-  const r = await client.query<{ aplicado: string }>(
-    `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
-       FROM payment_allocations WHERE payment_id = $1 AND unapplied_at IS NULL`,
-    [paymentId]
+/** MNE-001-498 · Its cash on account: the amount less its live allocations and its live transfers out. */
+async function remanenteDe(client: pg.PoolClient, entityId: string, paymentId: string): Promise<Decimal> {
+  const r = await client.query<{ left: string }>(
+    `SELECT ${cashOnAccountSql('cp')}::text AS left FROM customer_payments cp WHERE cp.id = $1 AND cp.entity_id = $2`,
+    [paymentId, entityId]
   );
-  return new Decimal(paymentAmount).minus(r.rows[0]?.aplicado ?? '0');
+  return new Decimal(r.rows[0]?.left ?? '0');
+}
+
+/**
+ * MNE-001-498 · A transfer row's own events (applying it to B's invoices,
+ * unapplying, reversing it) wait for part 2, which teaches them the IVA
+ * paper's date and the mirror of its entry.
+ */
+function refuseTransferRow(receipt: PagoVivo): void {
+  if (receipt.payment_method === BALANCE_TRANSFER_METHOD) {
+    throw new ValidationError({ key: 'receipt.transfer.events_in_499', params: { receipt: receipt.payment_number } });
+  }
 }
 
 export interface ResultadoAplicacion {
@@ -1578,8 +1590,9 @@ export async function applyCustomerPayment(
 
   const correr = async (client: pg.PoolClient): Promise<CustomerApplicationResult> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
+    refuseTransferRow(pago);
     const date = await receiptEventDate(client, entityId, pago, opts.date, 'apply');
-    const remanente = await remanenteDe(client, paymentId, pago.payment_amount);
+    const remanente = await remanenteDe(client, entityId, paymentId);
     const advance = await advanceLeft(client, entityId, pago, remanente);
     const held = await holdsIvaUntilCashed(client, entityId, pago);
     const total = aplicaciones.reduce((s, a) => s.plus(a.amountApplied), new Decimal(0));
@@ -1890,6 +1903,7 @@ export async function unapplyCustomerPayment(
 ): Promise<ResultadoDesaplicacion> {
   const correr = async (client: pg.PoolClient): Promise<ResultadoDesaplicacion> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
+    refuseTransferRow(pago);
     // MNE-001-082: a foreign-currency collection now exists, and its unapply
     // entry would move the applied dollars between cxc and anticipo_clientes
     // as if they were pesos. Refused, like the vendor side, until it converts.
@@ -2180,14 +2194,15 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     reversal_cause: string | null; reversal_cause_stated_at: Date | null;
     advance_factor_type: string | null; advance_tax_rate: string | null;
     advance_base_amount: string | null; advance_iva_amount: string | null;
-    check_cashed_date: string | null; check_cashed_tx_id: string | null;
+    check_cashed_date: string | null; check_cashed_tx_id: string | null; on_account: string;
   }>(
     `SELECT cp.id, cp.payment_number, cp.customer_id, COALESCE(cu.company_name, NULLIF(TRIM(CONCAT(cu.first_name, ' ', cu.last_name)), '')) AS customer_name,
             cp.payment_amount::text, cp.currency_code, cp.payment_date, cp.payment_method,
             cp.reference_number, cp.status, je.entry_number AS journal_entry_number,
             cp.cfdi_uuid, cp.cfdi_pago_indice, cp.reversed_at, cp.reversal_cause, cp.reversal_cause_stated_at,
             cp.advance_factor_type, cp.advance_tax_rate::text, cp.advance_base_amount::text, cp.advance_iva_amount::text,
-            cp.check_cashed_date::text AS check_cashed_date, cp.check_cashed_tx_id
+            cp.check_cashed_date::text AS check_cashed_date, cp.check_cashed_tx_id,
+            ${cashOnAccountSql('cp')}::text AS on_account
        FROM customer_payments cp
        LEFT JOIN customers cu ON cu.id = cp.customer_id
        LEFT JOIN journal_entries je ON je.id = cp.journal_entry_id
@@ -2214,9 +2229,6 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     [pago.id, entityId]
   );
 
-  const vivas = apps.rows.filter((a) => a.unapplied_at === null);
-  const aplicado = vivas.reduce((s: Decimal, a) => s.plus(a.amount_applied), new Decimal(0));
-
   return {
     id: pago.id,
     payment_number: pago.payment_number,
@@ -2234,8 +2246,7 @@ export async function getCustomerPayment(entityId: string, ref: string): Promise
     reversed_at: pago.reversed_at,
     reversal_cause: pago.reversal_cause,
     reversal_cause_stated_at: pago.reversal_cause_stated_at,
-    unapplied_amount:
-      pago.status === ESTADO ? new Decimal(pago.payment_amount).minus(aplicado).toFixed(2) : '0.00',
+    unapplied_amount: pago.status === ESTADO ? new Decimal(pago.on_account).toFixed(2) : '0.00',
     advance_base: pago.advance_base_amount === null ? null : new Decimal(pago.advance_base_amount).toFixed(2),
     advance_tax_rate: storedAdvanceTreatment(pago.advance_factor_type, pago.advance_tax_rate),
     advance_iva: pago.advance_iva_amount === null ? null : new Decimal(pago.advance_iva_amount).toFixed(2),
@@ -2306,12 +2317,13 @@ export async function listCustomerPayments(
     where.push(`(cp.advance_base_amount IS NULL OR cp.advance_base_amount + cp.advance_iva_amount <> cp.payment_amount)`);
   }
   if (filtro.unapplied) {
-    where.push(`cp.status = 'completed' AND cp.payment_amount > COALESCE(ap.aplicado, 0)`);
+    where.push(`cp.status = 'completed' AND ${cashOnAccountSql('cp')} > 0`);
   }
 
   const sql = `
     SELECT cp.id, cp.payment_number, COALESCE(cu.company_name, NULLIF(TRIM(CONCAT(cu.first_name, ' ', cu.last_name)), '')) AS customer_name, cp.payment_date,
            cp.payment_amount::text, COALESCE(ap.aplicado, 0)::text AS applied_amount,
+           ${cashOnAccountSql('cp')}::text AS on_account,
            cp.currency_code, cp.status, (cp.cfdi_uuid IS NOT NULL) AS has_rep,
            COUNT(*) OVER()::int AS total
       FROM customer_payments cp
@@ -2327,7 +2339,7 @@ export async function listCustomerPayments(
 
   const r = await query<{
     id: string; payment_number: string; customer_name: string | null; payment_date: Date;
-    payment_amount: string; applied_amount: string; currency_code: string; status: string;
+    payment_amount: string; applied_amount: string; on_account: string; currency_code: string; status: string;
     has_rep: boolean; total: number;
   }>(sql, params);
   return {
@@ -2339,10 +2351,7 @@ export async function listCustomerPayments(
       payment_date: row.payment_date,
       payment_amount: new Decimal(row.payment_amount).toFixed(2),
       applied_amount: new Decimal(row.applied_amount).toFixed(2),
-      unapplied_amount:
-        row.status === ESTADO
-          ? new Decimal(row.payment_amount).minus(row.applied_amount).toFixed(2)
-          : '0.00',
+      unapplied_amount: row.status === ESTADO ? new Decimal(row.on_account).toFixed(2) : '0.00',
       currency_code: row.currency_code,
       status: row.status,
       has_rep: row.has_rep,
@@ -2384,6 +2393,19 @@ export async function reverseCustomerPayment(
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoReversa> => {
     const pago = await cobroParaEscribir(client, entityId, paymentId);
+    refuseTransferRow(pago);
+    // MNE-001-498 · its credit given to another customer stays given until that transfer is undone (part 2).
+    const out = await client.query<{ payment_number: string }>(
+      `SELECT payment_number FROM customer_payments
+        WHERE entity_id = $1 AND transferred_from_payment_id = $2 AND status = '${ESTADO}' ORDER BY payment_number`,
+      [entityId, paymentId]
+    );
+    if (out.rows.length > 0) {
+      throw new ValidationError({
+        key: 'receipt.reverse.has_transfer',
+        params: { receipt: pago.payment_number, transfers: out.rows.map((r) => r.payment_number).join(', ') },
+      });
+    }
     const causeDefaulted = stated === undefined && pago.payment_method === 'check';
     const cause = causeDefaulted ? 'not_collected' : ((stated as ReversalCause | undefined) ?? null);
     const warnings: TranslationKey[] = [];
@@ -2602,6 +2624,188 @@ export async function stateReversalCause(
 
     const result: StatedReversalCause = {
       paymentId, paymentNumber: row.payment_number, cause, statedAt, reversedAt: row.reversed_at, warnings,
+    };
+    if (opts.dryRun) throw new EnsayoEvento(result);
+    return result;
+  };
+
+  return ejecutarEvento(run, opts);
+}
+
+// ============================================================
+// MNE-001-498 · A CUSTOMER'S CASH ON ACCOUNT, TRANSFERRED TO ANOTHER
+//
+// The entity owes A the cash A left on account; A assigns that credit to B
+// (CCF art. 2029) and the entity's recorded agreement stands for the notice
+// (art. 2038). B gets a credit row of its own, linked to A's receipt, and the
+// transfer posts its own entry on the agreed day (RCFF art. 33 B fr. I).
+// Nothing is collected, returned or caused: B's IVA is caused when the credit
+// settles B's invoice, which is part 2 (MNE-001-499), so part 1 moves only
+// cash on account that carries no advance treatment.
+// ============================================================
+
+export interface CustomerCreditTransferArgs {
+  /** The receiving customer, B, by id. */
+  customerId: string;
+  amount: string;
+  /** The agreed day (YYYY-MM-DD); default today in the entity's zone. */
+  date?: string;
+  /** The agreement: required, and the reason of the audit row. */
+  reason: string;
+}
+
+export interface CustomerCreditTransfer {
+  transferId: string;
+  transferNumber: string;
+  sourceId: string;
+  sourceNumber: string;
+  /** Each customer as «number name». */
+  fromCustomer: string;
+  toCustomer: string;
+  amount: string;
+  date: string;
+  journalEntry: JournalEntry;
+  attestation: { entityId: string; entryId: string };
+  /** The entry's lines, by account code: what the dry run shows. */
+  lines: { account: string; debit: string; credit: string; description: string }[];
+  /** The source receipt's cash on account, before and after. */
+  sourceOnAccount: { before: string; after: string };
+  /** B's cash on account across its receipts, before and after. */
+  customerOnAccount: { before: string; after: string };
+}
+
+/**
+ * Transfers `args.amount` of the receipt `sourceId`'s cash on account to the
+ * customer `args.customerId`. Everything is refused, by its key, before any
+ * write; the dry run walks the real path and rolls back, leaving no row,
+ * entry, audit row or number behind.
+ */
+export async function transferCustomerCredit(
+  entityId: string,
+  sourceId: string,
+  args: CustomerCreditTransferArgs,
+  userId: string,
+  opts: OpcionesPago = {}
+): Promise<CustomerCreditTransfer> {
+  const reason = args.reason.trim();
+  if (reason === '') throw new ValidationError({ key: 'receipt.transfer.reason_required' }, 'reason');
+  const amount = (args.amount ?? '').trim();
+  if (!/^\d+(\.\d{1,4})?$/.test(amount) || !new Decimal(amount).greaterThan(0)) {
+    throw new ValidationError({ key: 'receipt.transfer.amount_invalid', params: { amount } }, 'amount');
+  }
+
+  const run = async (client: pg.PoolClient): Promise<CustomerCreditTransfer> => {
+    if (!(await entityUsesCashBasisIva(client, entityId))) {
+      throw new ValidationError({ key: 'receipt.transfer.not_mexican_books' });
+    }
+    // Keyed here, before the locked read refuses it in prose.
+    const state = await client.query<{ payment_number: string; status: string }>(
+      'SELECT payment_number, status FROM customer_payments WHERE id = $1 AND entity_id = $2',
+      [sourceId, entityId]
+    );
+    if (state.rows[0] && state.rows[0].status !== ESTADO) {
+      const params = { receipt: state.rows[0].payment_number, status: state.rows[0].status };
+      throw new ValidationError({ key: 'receipt.transfer.not_completed', params });
+    }
+    const source = await cobroParaEscribir(client, entityId, sourceId);
+    const receipt = source.payment_number;
+    const functional = await functionalCurrencyOf(client, entityId);
+    if (source.currency_code.trim() !== functional) {
+      const params = { receipt, currency: source.currency_code.trim(), functional };
+      throw new ValidationError({ key: 'receipt.transfer.not_functional_currency', params });
+    }
+    if (source.payment_method === BALANCE_TRANSFER_METHOD) {
+      throw new ValidationError({ key: 'receipt.transfer.source_is_transfer', params: { receipt } });
+    }
+    if (source.advance_base_amount !== null || source.advance_factor_type !== null) {
+      throw new ValidationError({ key: 'receipt.transfer.advance_in_499', params: { receipt } });
+    }
+    if (source.payment_method === 'check' && source.check_cashed_tx_id === null) {
+      throw new ValidationError({ key: 'receipt.transfer.cheque_not_cashed', params: { receipt } });
+    }
+    const target = await client.query<{ id: string }>(
+      'SELECT id FROM customers WHERE id = $1 AND entity_id = $2 FOR SHARE',
+      [args.customerId, entityId]
+    );
+    if (target.rows.length === 0) throw new NotFoundError('Customer', args.customerId);
+    const [fromCustomer, toCustomer] = await partyLabels(client, entityId, 'customer', [source.customer_id, args.customerId]);
+    if (args.customerId === source.customer_id) {
+      throw new ValidationError({ key: 'receipt.transfer.same_customer', params: { receipt, customer: fromCustomer } });
+    }
+    const left = await remanenteDe(client, entityId, sourceId);
+    if (new Decimal(amount).greaterThan(left)) {
+      const params = { receipt, amount: new Decimal(amount).toFixed(2), onAccount: left.toFixed(2) };
+      throw new ValidationError({ key: 'receipt.transfer.exceeds_on_account', params }, 'amount');
+    }
+    const date = await receiptEventDate(client, entityId, source, args.date, 'transfer');
+    const held = await client.query<{ left: string }>(
+      `SELECT COALESCE(SUM(${cashOnAccountSql('cp')}), 0)::text AS left
+         FROM customer_payments cp WHERE cp.entity_id = $1 AND cp.customer_id = $2 AND cp.status = '${ESTADO}'`,
+      [entityId, args.customerId]
+    );
+    const before = new Decimal(held.rows[0]?.left ?? '0');
+
+    const transferNumber = await nextEntityNumber(client, entityId, 'customer_balance_transfer', 'TRF', date);
+    const transferId = uuidv4();
+    await client.query(
+      `INSERT INTO customer_payments (
+         id, entity_id, payment_number, customer_id, payment_amount, currency_code, exchange_rate,
+         payment_method, bank_account_id, payment_date, status, created_by, memo,
+         transferred_from_payment_id, transfer_reason
+       ) VALUES ($1, $2, $3, $4, $5, $6, '1.0', $7, NULL, $8, $9, $10, $11, $12, $13)`,
+      [transferId, entityId, transferNumber, args.customerId, amount, source.currency_code.trim(),
+       BALANCE_TRANSFER_METHOD, date, ESTADO, userId,
+       `Credit of ${fromCustomer} on ${receipt}, transferred to ${toCustomer}`, sourceId, reason]
+    );
+    const entry = await postCustomerCreditTransferEntry(
+      client,
+      {
+        id: transferId, entity_id: entityId, transfer_number: transferNumber, source_number: receipt,
+        from_customer: fromCustomer, to_customer: toCustomer, amount, date,
+      },
+      userId
+    );
+    const lines = await client.query<{ account: string; debit: string; credit: string; description: string }>(
+      `SELECT a.code AS account, COALESCE(l.debit_amount, 0)::text AS debit, COALESCE(l.credit_amount, 0)::text AS credit,
+              COALESCE(l.description, '') AS description
+         FROM journal_entry_lines l
+         JOIN journal_entries je ON je.id = l.journal_entry_id AND je.entity_id = $2
+         JOIN accounts a ON a.id = l.account_id
+        WHERE l.journal_entry_id = $1 ORDER BY l.line_number`,
+      [entry.id, entityId]
+    );
+    const shown = new Decimal(amount).toFixed(2);
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      legalEntityId: entityId,
+      userId,
+      action: 'create',
+      entityType: 'customer_payments',
+      entityId: transferId,
+      newValues: {
+        evento: 'transfer',
+        transfer_number: transferNumber,
+        source_number: receipt,
+        source_id: sourceId,
+        from_customer: fromCustomer,
+        to_customer: toCustomer,
+        amount: shown,
+        date,
+        journal_entry_id: entry.id,
+      },
+      reason,
+    });
+
+    const result: CustomerCreditTransfer = {
+      transferId, transferNumber, sourceId, sourceNumber: receipt, fromCustomer, toCustomer,
+      amount: shown, date, journalEntry: entry, attestation: { entityId, entryId: entry.id },
+      lines: lines.rows.map((l) => ({
+        account: l.account, debit: new Decimal(l.debit).toFixed(2), credit: new Decimal(l.credit).toFixed(2),
+        description: l.description,
+      })),
+      sourceOnAccount: { before: left.toFixed(2), after: left.minus(amount).toFixed(2) },
+      customerOnAccount: { before: before.toFixed(2), after: before.plus(amount).toFixed(2) },
     };
     if (opts.dryRun) throw new EnsayoEvento(result);
     return result;
