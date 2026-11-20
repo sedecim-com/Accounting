@@ -661,7 +661,6 @@ describe("the service's bank-code checks keep it away from the builder's guard (
   // The guard throws the whole month's file, so every node the service emits
   // must pass it, and every input that lacks a code must leave the node out
   // with a motive. Each combination is judged by both.
-  const ours = { nombre: 'Entidad de Prueba SA', rfc: 'EPR010101AB1' };
   const row = (method: string, checkNumber: string | null, destCode: string | null, destForeign: string | null) => ({
     payment_number: 'VPMT-1', payment_amount: '1160.0000', payment_date: '2026-02-10',
     payment_method: method, currency_code: 'MXN', exchange_rate: '1', bank_account_id: 'ba-1',
@@ -688,7 +687,6 @@ describe("the service's bank-code checks keep it away from the builder's guard (
         row(method, '10042', dest === 'foreign' ? null : dest, dest === 'foreign' ? 'Bank of Nowhere' : null),
         direction,
         ourCode === 'none' ? undefined : account(ourCode),
-        ours,
         (raw) => raw,
         'JE-2026-0001'
       );

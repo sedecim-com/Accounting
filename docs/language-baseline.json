@@ -3,13 +3,13 @@
   "_por_que": "El block que el metro publica en el documento rector se REGENERA, así que por sí solo no impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un número es un acto manual y su rastro es el diff.",
   "seeded": "2026-09-14",
   "lanes": {
-    "spanish-identifiers-src": 10469,
+    "spanish-identifiers-src": 10465,
     "spanish-identifiers-tests": 5754,
     "spanish-identifiers-scripts": 461,
     "spanish-filenames-src": 51,
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
-    "spanish-user-strings-cli": 256,
+    "spanish-user-strings-cli": 225,
     "plan-criteria-grepping-spanish-identifiers": 118,
     "plan-criteria-pinned-to-spanish-paths": 36,
     "plan-mutants-anchored-to-spanish-files": 30,
@@ -94,7 +94,7 @@
       "src/cli/credit-note-command.ts": 12,
       "src/cli/customer-command.ts": 4,
       "src/cli/depreciation-command.ts": 37,
-      "src/cli/diot-command.ts": 71,
+      "src/cli/diot-command.ts": 70,
       "src/cli/e-accounting-command.ts": 76,
       "src/cli/entry-command.ts": 12,
       "src/cli/fx-command.ts": 32,
@@ -274,7 +274,7 @@
       "src/services/sat/anexo24/catalogo-cuentas.ts": 88,
       "src/services/sat/anexo24/polizas-auxiliar-xml.ts": 47,
       "src/services/sat/anexo24/polizas-invariantes.ts": 59,
-      "src/services/sat/anexo24/polizas-service.ts": 180,
+      "src/services/sat/anexo24/polizas-service.ts": 177,
       "src/services/sat/anexo24/polizas-xml.ts": 117,
       "src/services/sat/anexo24/validador.ts": 44,
       "src/services/sat/anexo24/xml.ts": 45,
@@ -850,7 +850,6 @@
       "src/cli/batch-command.ts": 35,
       "src/cli/bill-command.ts": 40,
       "src/cli/cfdi-command.ts": 13,
-      "src/cli/diot-command.ts": 31,
       "src/cli/entry-command.ts": 10,
       "src/cli/fx-command.ts": 17,
       "src/cli/ledger-command.ts": 11,
@@ -1153,7 +1152,7 @@
       "src/cli/credit-note-command.ts": 17,
       "src/cli/customer-command.ts": 16,
       "src/cli/depreciation-command.ts": 115,
-      "src/cli/diot-command.ts": 158,
+      "src/cli/diot-command.ts": 151,
       "src/cli/e-accounting-command.ts": 148,
       "src/cli/e-accounting-request-command.ts": 6,
       "src/cli/employee-command.ts": 4,
@@ -1482,6 +1481,9 @@
       "src/utils/strip-comments.ts": 35,
       "src/utils/xml-reader.ts": 4,
       "src/utils/zod-client-errors.ts": 1
+    },
+    "docs-spanish-twins-stale": {
+      "docs/language.es.md": 1
     },
     "untagged-comment-markers": {
       "src/services/accounting/validation.ts": 1

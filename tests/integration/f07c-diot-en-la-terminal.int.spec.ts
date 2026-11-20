@@ -11,7 +11,8 @@ import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
 import { recordVendorPayment } from '../../src/services/payments/payment-service.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
-import { registerDiotCommand, TITULAR_NO_PRESENTADA } from '../../src/cli/diot-command.js';
+import { registerDiotCommand } from '../../src/cli/diot-command.js';
+import { t } from '../../src/i18n/index.js';
 import { ExitCode } from '../../src/cli/kernel/index.js';
 
 // ============================================================
@@ -202,8 +203,8 @@ describe('diot generate · lo que imprime la terminal es lo que movió el mayor'
     const r = await correr(['diot', 'generate', ...PERIODO]);
     expect(r.exitCode, r.err).toBe(ExitCode.OK);
     expect(r.out).toMatch(/DIOT 05\/2026/);
-    expect(r.out).toMatch(/IVA acreditable pagado en el mes\s+160\.00/);
-    expect(r.err).toContain(TITULAR_NO_PRESENTADA);
+    expect(r.out).toMatch(/Creditable IVA paid in the month\s+160\.00/);
+    expect(r.err).toContain(t('fiscal_mx.diot.unfiled.headline'));
   });
 
   it('las tres políticas de la DIOT viajan al recibo con su valor vigente', async () => {
@@ -229,7 +230,7 @@ describe('diot generate · lo que imprime la terminal es lo que movió el mayor'
     expect(fields).toHaveLength(54);
     expect(fields.slice(0, 3)).toEqual(['04', '03', 'SDG010101AA1']);
     expect([fields[11], fields[21], fields[53]]).toEqual(['1000', '160', '01']);
-    expect(r.err).toContain(TITULAR_NO_PRESENTADA);
+    expect(r.err).toContain(t('fiscal_mx.diot.unfiled.headline'));
   });
 
   it('un mes sin una sola operación pagada no inventa terceros y sigue saliendo 0', async () => {
@@ -255,7 +256,7 @@ describe('diot check · las verificaciones contra el libro real', () => {
     // The second notice: diot_creditable_iva_proportion is unanswered, so its
     // default is named on every DIOT instead of applied in silence.
     expect(r.out).toContain('DIOT-PROPORTION-BY-DEFAULT');
-    expect(r.out).toMatch(/0 bloqueante\(s\), 2 aviso\(s\)/);
+    expect(r.out).toMatch(/0 blocking, 2 warnings/);
 
     // El contrato §4: un aviso sólo tumba la tubería si se pide.
     const estricto = await correr(['diot', 'check', ...PERIODO, '--strict']);
