@@ -245,7 +245,7 @@ export const LINEAS_BASE: Readonly<Record<Clave, number>> = Object.freeze({
   'hojas-sin-ejemplo': 39,
   'hojas-sin-contrato-de-salida': 21,
   'hojas-sin-alias-castellano': 17,
-  'nodos-fuera-del-idioma-canonico': 4,
+  'nodos-fuera-del-idioma-canonico': 2,
   'hojas-graves-sin-las-tres-banderas': 0,
   'banderas-del-diccionario-sin-hoja': 11,
 });

@@ -297,17 +297,18 @@ describe('the default: the unapply keeps the IVA caused, and the cash on account
     expect([new Decimal(pool.rows[0].cash).toFixed(4), pool.rows[0].iva]).toEqual(['1740.0000', '240.0000']);
   }, 120_000);
 
-  it('J · the IEPS this receipt moved stays in 2180, and applying the cash again moves none', async () => {
+  // MNE-001-590: the invoice is owed again, so its IEPS goes back to 2181, and the cash carries the 80.00 caused.
+  it('J · the IEPS this receipt moved stays in 2180, goes back to 2181, and applying the cash again nets it', async () => {
     const before = await balances();
     const inv = await invoice({ ieps: true });
     const pmt = (await record(inv.number, '1252.80')).row.payment_number;
     const undone = await unapply(pmt, inv.number);
     expect(undone.row).toMatchObject({ iva_kept_caused: '172.8000' });
-    expect(await linesOf(undone.row.entry_number)).toEqual({ '1120': dr('1252.80'), '2150': cr('1080'), '2125': cr('172.80') });
-    expect(await since(before)).toMatchObject({ '2180': '80.0000', '2181': '0.0000' });
+    expect(await linesOf(undone.row.entry_number)).toEqual({ '1120': dr('1252.80'), '2150': cr('1000'), '2125': cr('172.80'), '2181': cr('80') });
+    expect(await since(before)).toMatchObject({ '2180': '80.0000', '2181': '80.0000' });
 
     const again = await apply(pmt, `${inv.number}:1252.80`);
-    expect(await linesOf(again.row.journal_entry)).toEqual({ '2150': dr('1080'), '2125': dr('172.80'), '1120': cr('1252.80') });
+    expect(await linesOf(again.row.journal_entry)).toEqual({ '2150': dr('1000'), '2125': dr('172.80'), '2181': dr('80'), '1120': cr('1252.80') });
     expect(await since(before)).toMatchObject({ '2120': '172.8000', '2125': '0.0000', '2150': '0.0000', '2180': '80.0000', '2181': '0.0000' });
   }, 120_000);
 });

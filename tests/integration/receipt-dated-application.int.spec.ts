@@ -290,6 +290,7 @@ describe('MNE-001-504 · the IEPS a PPD application moved, and the unapply\'s da
   }
 
   // MNE-001-574 (#792): the unapply moves no money, so the IEPS stays caused with the IVA (LIEPS art. 5o.-C).
+  // MNE-001-590: the invoice is owed again, so its 80.00 goes back to 2181, with no 2180 line.
   it('unapply --date of a PPD application whose invoice parked IEPS posts on that day and keeps the IEPS caused', async () => {
     // 2181 and its role come from the seed (MNE-001-505). The invoice of
     // #669 posts CR 4100 1,000.00 / CR 2181 80.00 / CR 2125 172.80.
@@ -318,7 +319,7 @@ describe('MNE-001-504 · the IEPS a PPD application moved, and the unapply\'s da
     const undone = await receipt(['unapply', pmt, '--invoice', inv.invoice_number, '--reason', 'wrong sale', '--date', '2026-08-10']);
     expect(undone.date).toBe('2026-08-10');
     expect(await entryDate(undone.entry_number)).toBe('2026-08-10');
-    expect(await iepsLinesOf(undone.entry_number)).toEqual({});
+    expect(await iepsLinesOf(undone.entry_number)).toEqual({ '2181': ['0.0000', '80.0000'] });
     expect(await allocations(pmt)).toEqual([{ applied_on: '2026-08-05', unapplied_on: '2026-08-10' }]);
   });
 });

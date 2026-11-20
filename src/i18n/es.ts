@@ -3416,6 +3416,31 @@ export const ES: Record<keyof typeof EN, string> = {
   'fiscal_mx.diot.export.exists':
     '{target} ya existe y no se sobrescribe sin pedirlo: usa otra ruta, o --yes. Un papel de trabajo revisado y anotado a mano no se reemplaza en silencio.',
 
+  'fiscal_mx.cfdi.show.lines': '{count, plural, one {# concepto:} other {# conceptos:}}',
+  'fiscal_mx.cfdi.status.not_in_mirror': 'CFDI {uuid} no está en el espejo de esta entidad.',
+  'fiscal_mx.cfdi.status.never_checked': 'Nunca consultado: corre con --refresh para preguntarle al SAT ahora.',
+  'fiscal_mx.cfdi.sync.pending':
+    '{count, plural, one {# CFDI} other {# CFDI}} por consultar al SAT{mode, select, dry_run { (dry-run: nada se consultó)} other {. Corre con --live para {count, plural, one {consultarlo} other {consultarlos}} de verdad.}}',
+  'fiscal_mx.cfdi.sync.done':
+    '{checked, plural, one {# consultado} other {# consultados}}: {valid, plural, one {# vigente} other {# vigentes}}, {cancelled, plural, one {# cancelado} other {# cancelados}}, {not_found, plural, one {# no encontrado} other {# no encontrados}}, {errors, plural, one {# error} other {# errores}}',
+  'fiscal_mx.cfdi.sync.cancelled_warning':
+    '{count, plural, one {# CFDI cancelado} other {# CFDI cancelados}} por el emisor: revisa su efecto contable con cfdi list --json',
+  'fiscal_mx.cfdi.explain.header': '{uuid} · tipo {type} · {direction} · caso {case} · {status}',
+  'fiscal_mx.cfdi.explain.entry': 'asiento {entry}',
+  'fiscal_mx.cfdi.explain.no_decisions':
+    'Sin decisiones pendientes: el caso se resolvió solo con las políticas del panel.',
+  'fiscal_mx.rep.missing.issued':
+    '{count, plural, one {# cobro} other {# cobros}} sin REP emitido: obligación fiscal propia con plazo del SAT.',
+  'fiscal_mx.rep.missing.received':
+    '{count, plural, one {# pago} other {# pagos}} sin REP del proveedor: falta el comprobante que respalda el acreditamiento del IVA de {count, plural, one {ese pago} other {esos pagos}}.',
+  'fiscal_mx.rep.missing.unknown_method':
+    '{count, plural, one {# con método de pago desconocido (el CFDI no está en el espejo): el mayor lo trató como {method}; se lista} other {# con método de pago desconocido (el CFDI no está en el espejo): el mayor los trató como {method}; se listan}} con la duda dicha — un PUE no exige REP.',
+  'fiscal_mx.rep.missing.min_amount_unreadable': '--min-amount ilegible: "{value}".',
+  'fiscal_mx.rep.reconcile.would_retry':
+    '{count, plural, one {# REP aparcado se reintentaría} other {# REP aparcados se reintentarían}} (dry-run: nada se tocó).',
+  'fiscal_mx.rep.reconcile.done':
+    '{retried, plural, one {# reintentado} other {# reintentados}}: {linked, plural, one {# ligado} other {# ligados}}, {parked, plural, one {# sigue aparcado} other {# siguen aparcados}}, {errors, plural, one {# error} other {# errores}}',
+
   // ==== end of I8.7 ====
 
   // ==== I8.8 · CLI leaves by key, family ap (issue #270) ====

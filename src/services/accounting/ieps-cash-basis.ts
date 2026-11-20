@@ -55,6 +55,13 @@ export interface IepsMove {
   invoiceNumber: string;
   /** Functional currency, 4 dp. */
   amount: string;
+  /**
+   * MNE-001-590 · on a release only: the IEPS that the cash already carries,
+   * caused when it was collected (`iepsKeptOnAccount`). It nets against the
+   * share, so 2180 moves by amount − take, in either direction, and not at all
+   * when the two are equal.
+   */
+  take?: string;
 }
 
 /**
@@ -107,6 +114,38 @@ export async function iepsMovedForInvoice(
     [entityId, IEPS_UNCOLLECTED_ROLE, invoiceId, paymentId ?? null]
   );
   return new Decimal(rows[0]?.moved ?? '0');
+}
+
+/**
+ * MNE-001-590 (#792) · The IEPS that a receipt's cash on account carries,
+ * caused when it was collected: what the receipt's tagged lines credited to
+ * 2180 net, less what they moved out of 2181 net. Both roles are liabilities,
+ * so this is the sum of credit − debit over both. A live collection nets 0
+ * (2181 Dr / 2180 Cr), and so does a re-park. An unapply that keeps the IEPS
+ * caused adds the invoice's share (2181 Cr alone), and a later application
+ * that takes some of it subtracts what it takes. The read covers posted,
+ * unreversed entries that are not reversals, as `iepsMovedForInvoice` does.
+ * Rows unapplied before this task re-parked or kept nothing back in 2181,
+ * so they read 0.
+ */
+export async function iepsKeptOnAccount(
+  client: pg.PoolClient,
+  entityId: string,
+  paymentId: string
+): Promise<string> {
+  const { rows } = await client.query<{ kept: string }>(
+    `SELECT COALESCE(SUM(COALESCE(l.credit_amount, 0) - COALESCE(l.debit_amount, 0)), 0)::text AS kept
+       FROM journal_entry_lines l
+       JOIN journal_entries je ON je.id = l.journal_entry_id
+       JOIN account_roles ar ON ar.account_id = l.account_id
+                            AND ar.entity_id = je.entity_id AND ar.qualifier IS NULL
+      WHERE je.entity_id = $1 AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        AND je.is_reversal = false
+        AND ar.role = ANY($2::text[])
+        AND l.tags -> '${IEPS_MOVE_TAG}' ->> 'payment_id' = $3`,
+    [entityId, [IEPS_UNCOLLECTED_ROLE, IEPS_DUE_ROLE], paymentId]
+  );
+  return Decimal.max(new Decimal(rows[0]?.kept ?? '0'), 0).toFixed(SCALE);
 }
 
 /**
@@ -188,16 +227,23 @@ export async function iepsCausedByReceipt(
  * roles are read only when there is something to move, so an entity that
  * parks nothing never needs them; one that parked IEPS and lacks 2180's role
  * is told so instead of posting a half.
+ *
+ * MNE-001-590 (#792) · `keep` is the unapply of a receipt whose IEPS stays
+ * caused: the share goes back to the uncollected role because the invoice is
+ * owed again, and 2180 does not move, so the cash back on account carries it
+ * (LIEPS art. 10). A release with a `take` nets it: 2180 is credited
+ * amount − take, debited when that is negative, and gets no line at zero. A
+ * take is written even for an invoice that releases nothing.
  */
 export async function iepsMoveLines(
   client: pg.PoolClient,
   entityId: string,
   paymentId: string,
   moves: readonly IepsMove[],
-  direction: 'release' | 'repark',
+  direction: 'release' | 'repark' | 'keep',
   event: string
 ): Promise<IepsLine[]> {
-  const live = moves.filter((m) => new Decimal(m.amount).greaterThan(0));
+  const live = moves.filter((m) => new Decimal(m.amount).greaterThan(0) || new Decimal(m.take ?? '0').greaterThan(0));
   if (live.length === 0) return [];
   const { rows } = await client.query<{ role: string; account_id: string }>(
     `SELECT role, account_id FROM account_roles
@@ -218,9 +264,47 @@ export async function iepsMoveLines(
   const uncollected = accountOf(IEPS_UNCOLLECTED_ROLE);
   const due = accountOf(IEPS_DUE_ROLE);
 
-  return live.flatMap((m) => {
+  return live.flatMap((m): IepsLine[] => {
     const tags = { [IEPS_MOVE_TAG]: { invoice_id: m.invoiceId, payment_id: paymentId } };
     const amount = new Decimal(m.amount).toFixed(SCALE);
+    if (direction === 'keep') {
+      return [{
+        account_id: uncollected,
+        debit_amount: null,
+        credit_amount: amount,
+        description: `IEPS back in ${IEPS_UNCOLLECTED_ROLE} (${event}), kept caused in ${IEPS_DUE_ROLE} on the cash ` +
+          `back on account (LIEPS art. 10) - Invoice ${m.invoiceNumber}`,
+        tags,
+      }];
+    }
+    const take = new Decimal(m.take ?? '0');
+    if (direction === 'release' && take.greaterThan(0)) {
+      const net = new Decimal(amount).minus(take);
+      return [
+        ...(new Decimal(amount).greaterThan(0)
+          ? [{
+              account_id: uncollected,
+              debit_amount: amount,
+              credit_amount: null,
+              description: `IEPS released from ${IEPS_UNCOLLECTED_ROLE} on ${event} - Invoice ${m.invoiceNumber}`,
+              tags,
+            }]
+          : []),
+        ...(net.isZero()
+          ? []
+          : [{
+              account_id: due,
+              debit_amount: net.isNegative() ? net.negated().toFixed(SCALE) : null,
+              credit_amount: net.isNegative() ? null : net.toFixed(SCALE),
+              description: net.isNegative()
+                ? `IEPS the cash on account carried (caused when collected) taken on ${event}: ` +
+                  `${take.toFixed(SCALE)}, net of ${amount} released - Invoice ${m.invoiceNumber}`
+                : `IEPS now in ${IEPS_DUE_ROLE} (caused on ${event}, LIEPS art. 10) - Invoice ${m.invoiceNumber}, ` +
+                  `net of ${take.toFixed(SCALE)} the cash on account carried, caused when collected`,
+              tags,
+            }]),
+      ];
+    }
     const out = direction === 'release';
     return [
       {
